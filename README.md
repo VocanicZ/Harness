@@ -114,6 +114,21 @@ Ships at `.harness/skill/SKILL.md`, installed by `install.sh` into `.claude/skil
 
 Invoke `/harness` (or say "start the fleet", "what's the harness doing") inside any Claude session in your project. The skill wraps the CLI so you can operate the fleet conversationally — start, stop, watch the dashboard, read per-unit state, distinguish COMPLETE from stuck, and apply safe unstick moves (free a stale `agent-working` label, fix a `## Blocked by` section, run `--recover`). Read-mostly posture: operate and observe; never hand-do a unit's PLAN/PRD/IMPL work.
 
+### Per-command shortcuts
+
+For one-shot ops without the state-detection dance, the installer also deploys thin sibling skills that map 1:1 to a CLI subcommand. Each lives at `.harness/skill/<name>/SKILL.md` and installs to `.claude/skills/<name>/`:
+
+| Skill | Runs | Notes |
+|-------|------|-------|
+| `/harness-init`   | `harness init`   | setup wizard (interactive — prefer `! .harness/bin/harness init`) |
+| `/harness-start`  | `harness start`  | confirms first; `--recover` for crash/new-host |
+| `/harness-stop`   | `harness stop`   | confirms first; asks before `--clean` |
+| `/harness-pause`  | `harness pause`  | confirms first; soft drain vs `--force` checkpoint |
+| `/harness-resume` | `harness resume` | confirms first; works across machines |
+| `/harness-status` | `harness status` | read-only, runs immediately |
+
+Use `/harness` when you want the full set-up-aware operator (detect state, observe, unstick); use the shortcuts when you already know the action you want.
+
 ## Autonomy
 
 | Setting | Behaviour |
@@ -124,6 +139,22 @@ Invoke `/harness` (or say "start the fleet", "what's the harness doing") inside 
 ## Usage note — `issue-only` mode
 
 In `issue-only` mode the fleet considers a unit COMPLETE only once it has seen `ready-for-agent` issues that are now all closed. A freshly started unit with zero `ready-for-agent` issues has nothing to dispatch and will keep polling. Label at least one issue `ready-for-agent` before or while the pool is running, otherwise the pool idles.
+
+## Contributing
+
+Contributions welcome. To get started:
+
+1. **Fork & branch** — fork the repo, then branch from `main` (`git checkout -b feat/your-change`).
+2. **Develop against the dev checkout** — Harness drives itself; clone and run `./install.sh` in a throwaway target repo to exercise the engine end-to-end.
+3. **Keep state in GitHub** — the core invariant is *no database, no daemon*. New features must persist their state in issues, labels, or the local run directory only.
+4. **Run the tests** — exercise `test/` (e.g. `bash test/test_subskills.sh`) before opening a PR.
+5. **Open a PR** — describe the change, link any related issue, and keep the diff scoped. One concern per PR.
+
+Bug reports and feature requests go in [GitHub Issues](https://github.com/VocanicZ/Harness/issues). For substantial changes, open an issue first to discuss direction.
+
+## License
+
+[MIT](LICENSE) © VocanicZ
 
 ## Star History
 

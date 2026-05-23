@@ -33,10 +33,17 @@ done
 echo "  config preserved"
 rm -rf "$SNAP"
 
-# 4) redeploy the /harness operator skill.
+# 4) redeploy the /harness operator skill + the per-command thin skills.
 mkdir -p "$PROJECT_ROOT/.claude/skills/harness"
 cp "$HARNESS_DIR/skill/SKILL.md" "$PROJECT_ROOT/.claude/skills/harness/SKILL.md"
 echo "  redeployed .claude/skills/harness/SKILL.md"
+for d in "$HARNESS_DIR"/skill/*/; do
+  [[ -f "$d/SKILL.md" ]] || continue
+  n="$(basename "$d")"
+  mkdir -p "$PROJECT_ROOT/.claude/skills/$n"
+  cp "$d/SKILL.md" "$PROJECT_ROOT/.claude/skills/$n/SKILL.md"
+  echo "  redeployed .claude/skills/$n/SKILL.md"
+done
 
 # 5) optional plugin/skill refresh (reuse install.sh's ensure_skills).
 if (( WITH_SKILLS )); then

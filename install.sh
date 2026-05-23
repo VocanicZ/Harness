@@ -67,6 +67,11 @@ main(){
   ensure_skills
   if [[ -d .harness/.git ]]; then git -C .harness pull --ff-only; else git clone "$HARNESS_REPO_URL" .harness; fi
   mkdir -p .claude/skills/harness && cp .harness/skill/SKILL.md .claude/skills/harness/SKILL.md
+  # per-command thin skills (/harness-init, /harness-start, …) live in skill/<name>/SKILL.md
+  for d in .harness/skill/*/; do
+    [[ -f "$d/SKILL.md" ]] || continue
+    n="$(basename "$d")"; mkdir -p ".claude/skills/$n" && cp "$d/SKILL.md" ".claude/skills/$n/SKILL.md"
+  done
   grep -qxF '.harness/' .gitignore 2>/dev/null || echo '.harness/' >> .gitignore
   bash .harness/init.sh
   echo "Done. Start with: .harness/bin/harness start   (or ask Claude: /harness)"

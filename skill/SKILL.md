@@ -62,6 +62,11 @@ Per unit it prints the `issuelib.py status` line: `mode=… PRD#… plan=… chi
 `issue-only` just label an issue `ready-for-agent` (not `prd`) and a worker picks it up. In `prd`
 mode a human writes one `prd`-labelled issue; the agent decomposes + implements + reviews.
 
+## Per-command shortcuts
+For a one-shot action without state detection, thin sibling skills map 1:1 to a subcommand:
+`/harness-init` `/harness-start` `/harness-stop` `/harness-pause` `/harness-resume` `/harness-status`.
+Use those when the user already knows the action; use `/harness` (this skill) to detect state, observe, and unstick.
+
 ## When NOT to touch
 Don't `--clean` while sessions are live unless discarding their worktrees. Don't do a unit's work
 by hand — operate the fleet, like a CI operator.
