@@ -67,6 +67,14 @@ For a one-shot action without state detection, thin sibling skills map 1:1 to a 
 `/harness-init` `/harness-start` `/harness-stop` `/harness-pause` `/harness-resume` `/harness-status`.
 Use those when the user already knows the action; use `/harness` (this skill) to detect state, observe, and unstick.
 
+## Inject work into a LIVE fleet (no restart)
+To add work to a running fleet without stopping it, three grill-first sibling skills inject at each altitude:
+`/harness-issue` (a discrete task), `/harness-prd` (grow PRD scope → delta issues), `/harness-plan`
+(structural / `targets.tsv` topology change). Each grills the requirement, confirms a crystallized brief
+(the human safety gate), then launches a headless `hz-inject-<unit>` session; the live pool picks the new
+`ready-for-agent` work up on its next poll. If the pool has retired (all units complete), relaunch with
+`start --recover` first.
+
 ## When NOT to touch
 Don't `--clean` while sessions are live unless discarding their worktrees. Don't do a unit's work
 by hand — operate the fleet, like a CI operator.
