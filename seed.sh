@@ -45,6 +45,7 @@ _seed_labels(){
   _seed_add_label "$HARNESS_LABEL_BLOCKED"  b60205 "Blocked — needs another unit or a human"
   _seed_add_label "$HARNESS_LABEL_REVIEWED" 0052cc "PRD verified against acceptance criteria"
   _seed_add_label "$HARNESS_LABEL_COORD"    d4c5f9 "Cross-unit coordination"
+  _seed_add_label "$HARNESS_LABEL_PAUSED"   c2e0c6 "Force-paused mid-work; checkpointed to GitHub, resumable"
 }
 
 # ---------------------------------------------------------------------------
