@@ -10,6 +10,7 @@ L_PRD      = lambda: os.environ.get("HARNESS_LABEL_PRD", "prd")
 L_WORKING  = lambda: os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
 L_BLOCKED  = lambda: os.environ.get("HARNESS_LABEL_BLOCKED", "agent-blocked")
 L_REVIEWED = lambda: os.environ.get("HARNESS_LABEL_REVIEWED", "reviewed")
+L_PAUSED   = lambda: os.environ.get("HARNESS_LABEL_PAUSED", "agent-paused")
 
 _BLOCKED_BY_HEADING = re.compile(r"^##\s+Blocked by\s*$", re.IGNORECASE | re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^##\s+", re.MULTILINE)
@@ -119,7 +120,8 @@ def compute_state(repo):
             "children_exist": children_exist, "children_all_closed": children_all_closed,
             "unblocked": unblocked,
             "open_children": sum(1 for i in children if i["state"].lower() == "open"),
-            "total_children": len(children)}
+            "total_children": len(children),
+            "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
 
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []
@@ -153,7 +155,7 @@ def main():
         prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
         print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
               f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
-              f"reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
+              f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
     elif cmd == "complete":
         print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
     elif cmd == "check":

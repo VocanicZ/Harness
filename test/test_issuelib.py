@@ -56,6 +56,19 @@ def test_complete_predicate_by_mode():
     assert il.is_complete(mk(prd=7, prd_open=False, prd_reviewed=True)) is True
     assert il.is_complete(mk(prd=7, prd_open=True, prd_reviewed=True)) is False
 
+def test_agent_paused_issue_is_dispatchable():
+    # a force-paused issue: ready label kept, agent-working removed, agent-paused added, OPEN
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "a", "state": "OPEN", "body": "",
+         "_labels": {"ready-for-agent", "agent-paused"}},
+    ]
+    il._has_plan = lambda slug: False
+    s = il.compute_state("acme/widget")
+    assert 5 in s["unblocked"], s
+    assert s["paused"] == 1, s
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
