@@ -69,3 +69,56 @@ unit_deps(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "-"; else local d
 unit_desc(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "${HARNESS_REPO##*/}"; else _tgt_field "$1" 4; fi; }
 unit_slug(){ _with_owner "$(unit_repo "$1")"; }
 unit_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"; else echo "$CHECKOUTS_DIR/$(unit_repo "$1" | sed 's#.*/##')"; fi; }
+
+# --- completeness (GitHub = source of truth; tests override unit_complete) ----
+unit_complete(){ [[ "$(python3 "$HARNESS_DIR/issuelib.py" complete "$(unit_repo "$1")" 2>/dev/null)" == DONE ]]; }
+deps_complete(){
+  local deps; deps="$(unit_deps "$1")"
+  [[ -z "$deps" || "$deps" == "-" ]] && return 0
+  local d ds; IFS=',' read -ra ds <<< "$deps"
+  for d in "${ds[@]}"; do unit_complete "$d" || return 1; done
+  return 0
+}
+all_complete(){ local u; for u in $(all_units); do unit_complete "$u" || return 1; done; return 0; }
+
+# --- claims (local filesystem; pool is single-host) --------------------------
+is_claimed(){ local f="$CLAIMS_DIR/$1.claim" pid; [[ -f "$f" ]] || return 1
+  pid="$(awk '{print $2; exit}' "$f" 2>/dev/null)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; }
+clear_stale_claims(){ shopt -s nullglob; local f pid u
+  for f in "$CLAIMS_DIR"/*.claim; do pid="$(awk '{print $2; exit}' "$f" 2>/dev/null)"
+    if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then u="$(basename "$f" .claim)"; rm -f "$f"; echo "  cleared stale claim $u"; fi
+  done; shopt -u nullglob; }
+claimable_units(){ local u; for u in $(all_units); do
+    unit_complete "$u" && continue; deps_complete "$u" || continue; is_claimed "$u" && continue; echo "$u"; done; }
+claim_next(){ local wid="$1" u lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+  u="$(claimable_units | head -n1)"; [[ -n "$u" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$u.claim"
+  flock -u "$lockfd"; exec {lockfd}>&-; echo "$u"; }
+release_claim(){ rm -f "$CLAIMS_DIR/$1.claim"; }
+worker_unit(){ local wid="$1" f; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/*.claim; do [[ "$(awk '{print $1; exit}' "$f")" == "$wid" ]] && { basename "$f" .claim; shopt -u nullglob; return; }; done
+  shopt -u nullglob; }
+
+dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allow-orchestration "$3"; }
+
+# --- tmux session naming + ralph helpers -------------------------------------
+sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
+sess_impl(){ echo "$HARNESS_SESS_PREFIX-$1-i$2"; }
+team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
+count_team_sessions(){ team_sessions "$1" | grep -c . ; }
+session_live(){ tmux has-session -t "$1" 2>/dev/null; }
+render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
+import sys, re
+tmpl = open(sys.argv[1]).read()
+kv = dict(a.split('=', 1) for a in sys.argv[2:])
+sys.stdout.write(re.sub(r'{{(\w+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
+PY
+}
+write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/.claude"
+  { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
+      "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
+  } > "$wd/.claude/ralph-loop.local.md"; }
+launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+  write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"; echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
+  tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
+  tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
+  log "launched session $sess (cwd $wd)"; }
