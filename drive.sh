@@ -61,7 +61,8 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     REVIEW)   tmpl=review.md;;
     *) log "bad orch action $action"; return 1;; esac
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
-    SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" > "$CHECKOUT/.harness-task.md"
+    SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" \
+    LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" > "$CHECKOUT/.harness-task.md"
   launch_claude "$(sess_orch "$UNIT")" "$CHECKOUT"
 }
 
@@ -76,7 +77,8 @@ spawn_impl(){   # <ISSUE> <PROMISE>
   fi
   ensure_safe "$wd"
   render "$PROMPTS_DIR/impl.md" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
-    SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" > "$wd/.harness-task.md"
+    SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" \
+    LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" > "$wd/.harness-task.md"
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"
 }
 
