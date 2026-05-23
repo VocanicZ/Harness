@@ -67,4 +67,12 @@ assert_ok "force: checkpoint sent to session" bash -c "grep -q 'send-keys' '$CAL
 assert_no "force: never killed the session"   bash -c "grep -q 'kill-session' '$CALLS'"
 rm -rf "$RUN_DIR3"
 
+# --- resume.sh clears the flag (alive-worker branch: does NOT exec start) -----
+RUN_DIR4="$(mktemp -d)"; touch "$RUN_DIR4/PAUSED"
+# a live worker pidfile (use this shell's pid so kill -0 succeeds)
+printf '%s\n' "$$" > "$RUN_DIR4/worker-1.pid"
+RUN_DIR="$RUN_DIR4" bash "$HERE/../resume.sh" >/dev/null 2>&1
+assert_ok "resume removed PAUSED flag" bash -c "[[ ! -f '$RUN_DIR4/PAUSED' ]]"
+rm -rf "$RUN_DIR4"
+
 finish

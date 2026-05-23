@@ -9,6 +9,7 @@ usage: harness <command> [args]
   status [--watch [s]] dashboard
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
+  resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills]   ff-pull engine + redeploy skill (keeps your config)
   setup                verify prereqs + seed configured labels on all units (no start)
 EOF
@@ -23,6 +24,7 @@ case "$cmd" in
   pause)  exec bash "$HARNESS_DIR/pause.sh" "$@";;
   update) exec bash "$HARNESS_DIR/update.sh" "$@";;
   setup)  exec bash "$HARNESS_DIR/setup.sh" "$@";;
+  resume) exec bash "$HARNESS_DIR/resume.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
   *) echo "unknown command: $cmd" >&2; usage; exit 2;;
