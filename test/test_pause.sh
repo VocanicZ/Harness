@@ -71,8 +71,9 @@ rm -rf "$RUN_DIR3"
 RUN_DIR4="$(mktemp -d)"; touch "$RUN_DIR4/PAUSED"
 # a live worker pidfile (use this shell's pid so kill -0 succeeds)
 printf '%s\n' "$$" > "$RUN_DIR4/worker-1.pid"
-RUN_DIR="$RUN_DIR4" bash "$HERE/../resume.sh" >/dev/null 2>&1
+RUN_DIR="$RUN_DIR4" bash "$HERE/../resume.sh" >/dev/null 2>&1; resume_rc=$?
 assert_ok "resume removed PAUSED flag" bash -c "[[ ! -f '$RUN_DIR4/PAUSED' ]]"
+assert_eq "$resume_rc" "0" "resume exited 0 (alive branch — did not exec start)"
 rm -rf "$RUN_DIR4"
 
 finish
