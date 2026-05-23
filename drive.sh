@@ -90,6 +90,7 @@ drive_unit(){
   log "drive $SLUG — mode $HARNESS_MODE cap $CAP poll ${POLL}s"
   while ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team
+    if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; break; fi
     local active free allow_orch action payload promise
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then
