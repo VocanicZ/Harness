@@ -12,6 +12,9 @@ usage: harness <command> [args]
   resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills]   ff-pull engine + redeploy skill (keeps your config)
   setup                verify prereqs + seed configured labels on all units (no start)
+  plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
+  prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
+  issue "<brief>"      inject implementation issue(s) into a live fleet (grill via /harness-issue)
 EOF
 }
 cmd="${1:-}"; shift || true
@@ -24,6 +27,7 @@ case "$cmd" in
   pause)  exec bash "$HARNESS_DIR/pause.sh" "$@";;
   update) exec bash "$HARNESS_DIR/update.sh" "$@";;
   setup)  exec bash "$HARNESS_DIR/setup.sh" "$@";;
+  plan|prd|issue) exec bash "$HARNESS_DIR/inject.sh" "$cmd" "$@";;
   resume) exec bash "$HARNESS_DIR/resume.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
