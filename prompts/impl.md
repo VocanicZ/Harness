@@ -27,5 +27,10 @@ and drive the issue to closed. If a route seems impossible, find another and sti
 AUTONOMY — if this harness is configured NON-autonomous: you MAY park genuinely blocked work by
 adding the `agent-blocked` label with a comment explaining exactly what a human must provide.
 
+CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT": stop, commit ALL
+WIP and push your branch, run /handoff and post it as a GitHub issue comment whose first line is
+`<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
+--remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.
+
 When the PR is merged (or auto-merging on green) AND the issue is closing, output exactly:
 <promise>{{PROMISE}}</promise>

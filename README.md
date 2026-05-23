@@ -79,6 +79,29 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `status [--watch [secs]]` | One-shot or live dashboard: pool state, per-unit progress, live sessions, gated units |
 | `attach <unit> [issue]` | tmux-attach to a running session |
 
+## Pause / resume / update
+
+```bash
+.harness/bin/harness pause           # soft drain — stop claiming; live agents finish (local)
+.harness/bin/harness pause --force   # checkpoint every agent to GitHub, then idle
+.harness/bin/harness resume          # clear pause; resume here, or start --recover elsewhere
+.harness/bin/harness update          # ff-pull the engine + redeploy the /harness skill (keeps config)
+.harness/bin/harness setup           # verify prereqs + seed labels on all units (no start)
+```
+
+**Cross-machine pause/resume.** `pause --force` tells each running agent to commit + push its WIP
+branch, post its `/handoff` context as a GitHub issue comment, and label the issue `agent-paused`.
+Because all of that lives in GitHub, you can `resume` on a *different* machine: it runs
+`start --recover`, re-dispatches the `agent-paused` issues, and each agent fetches its branch, reads
+the handoff comment, and finishes the work.
+
+**`update` never touches your config.** It runs `git pull --ff-only` on `.harness`, redeploys the
+`/harness` skill, and snapshots/restores `config` + `targets.tsv` — it never runs a destructive git
+op. Live workers keep the old engine logic until you relaunch (`pause` → drain → `stop` →
+`start --recover`).
+
+New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
+
 ## The `/harness` skill
 
 Ships at `.harness/skill/SKILL.md`, installed by `install.sh` into `.claude/skills/harness/SKILL.md`.
@@ -95,13 +118,3 @@ Invoke `/harness` (or say "start the fleet", "what's the harness doing") inside 
 ## Usage note — `issue-only` mode
 
 In `issue-only` mode the fleet considers a unit COMPLETE only once it has seen `ready-for-agent` issues that are now all closed. A freshly started unit with zero `ready-for-agent` issues has nothing to dispatch and will keep polling. Label at least one issue `ready-for-agent` before or while the pool is running, otherwise the pool idles.
-
-## Update
-
-`.harness/` is a plain git clone. To update the engine:
-
-```sh
-git -C .harness pull
-```
-
-Local config, `targets.tsv`, and any `prompts/*.local.md` overrides are gitignored by Harness and are never clobbered by a pull.
