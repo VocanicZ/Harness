@@ -3,6 +3,7 @@
 # --clean also removes per-issue git worktrees (uncommitted work in them is lost).
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+rm -f "$PAUSE_FLAG"   # a stopped fleet is not "paused"
 
 CLEAN=0; [[ "${1:-}" == "--clean" ]] && CLEAN=1
 

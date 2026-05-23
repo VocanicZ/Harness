@@ -38,4 +38,10 @@ drive_unit main
 assert_eq "$dispatched" "" "drive_unit did NOT dispatch while paused (drained immediately)"
 rm -f "$PAUSE_FLAG"
 
+# --- pause.sh (soft) creates the flag -----------------------------------------
+RUN_DIR2="$(mktemp -d)"
+RUN_DIR="$RUN_DIR2" bash "$HERE/../pause.sh" >/dev/null 2>&1
+assert_ok "soft pause.sh created PAUSED flag" bash -c "[[ -f '$RUN_DIR2/PAUSED' ]]"
+rm -rf "$RUN_DIR2"
+
 finish

@@ -8,6 +8,7 @@ usage: harness <command> [args]
   stop  [--clean]      stop the pool (--clean also removes worktrees)
   status [--watch [s]] dashboard
   attach <unit> [issue] tmux-attach to a session
+  pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
 EOF
 }
 cmd="${1:-}"; shift || true
@@ -17,6 +18,7 @@ case "$cmd" in
   stop)   exec bash "$HARNESS_DIR/stop.sh" "$@";;
   status) exec bash "$HARNESS_DIR/status.sh" "$@";;
   attach) exec bash "$HARNESS_DIR/attach.sh" "$@";;
+  pause)  exec bash "$HARNESS_DIR/pause.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
   *) echo "unknown command: $cmd" >&2; usage; exit 2;;

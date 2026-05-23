@@ -11,6 +11,7 @@
 #                   crashed/migrated box leaves orphaned issues invisible to dispatch.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+rm -f "$PAUSE_FLAG"   # starting un-pauses this machine's pool
 
 command -v tmux   >/dev/null || die "tmux not found — install tmux first"
 command -v claude >/dev/null || die "claude not found on PATH — install Claude Code first"
