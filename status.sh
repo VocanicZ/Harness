@@ -21,6 +21,7 @@ render_once(){
 
   local verdict="STOPPED  (pool not running — start with: harness/start.sh)"
   (( up > 0 )) && verdict="RUNNING  ($up/$total workers up, $sess_total claude session(s) live)"
+  is_paused && verdict="PAUSED   (drained — workers idle; resume: harness/resume.sh)"
 
   # Print the fleet header FIRST — the test greps for "worker" in this block.
   echo "═══════════════════════  Harness fleet  ═══════════════════════════"
