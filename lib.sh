@@ -122,3 +122,15 @@ launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || ca
   tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
   log "launched session $sess (cwd $wd)"; }
+
+seed_if_needed(){
+  local unit="$1" slug; slug="$(unit_slug "$unit")"
+  if [[ "$HARNESS_TOPOLOGY" == single ]]; then
+    bash "$HARNESS_DIR/seed.sh" --labels-only "$slug"
+  else
+    bash "$HARNESS_DIR/seed.sh" "$unit"
+    local co; co="$(unit_checkout "$unit")"
+    [[ -d "$co/.git" ]] || git clone "https://github.com/$slug.git" "$co" 2>/dev/null || true
+    ensure_safe "$co"
+  fi
+}
