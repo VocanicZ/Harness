@@ -23,12 +23,14 @@ ask HARNESS_LABEL_PRD   "PRD label"                       "${HARNESS_LABEL_PRD:-
 : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
 : "${HARNESS_LABEL_REVIEWED:=reviewed}"
 : "${HARNESS_LABEL_COORD:=coordination}"
+: "${HARNESS_LABEL_PAUSED:=agent-paused}"
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
   for v in HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
-           HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD; do
+           HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
+           HARNESS_LABEL_PAUSED; do
     printf ': "${%s:=%s}"\n' "$v" "${!v:-}"
   done
 } > "$CONFIG"

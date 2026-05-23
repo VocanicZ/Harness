@@ -35,11 +35,13 @@ CHECKOUTS_DIR="$HARNESS_DIR/checkouts"
 : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
 : "${HARNESS_LABEL_REVIEWED:=reviewed}"
 : "${HARNESS_LABEL_COORD:=coordination}"
+: "${HARNESS_LABEL_PAUSED:=agent-paused}"   # force-paused: checkpointed to GitHub, resumable
+: "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_MAIN_REPO:=}"             # multi: umbrella repo for coordination issues (optional)
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
-  HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_MAIN_REPO
+  HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"
@@ -47,11 +49,13 @@ IMPL_MAXITER="$HARNESS_IMPL_MAXITER"; ORCH_MAXITER="$HARNESS_ORCH_MAXITER"
 CLAUDE_BIN="$HARNESS_CLAUDE_BIN"; CLAUDE_FLAGS="$HARNESS_CLAUDE_FLAGS"
 CLAIMS_DIR="${CLAIMS_DIR:-$RUN_DIR/claims}"
 POOL_LOCK="${POOL_LOCK:-$RUN_DIR/pool.lock}"
+PAUSE_FLAG="${PAUSE_FLAG:-$RUN_DIR/PAUSED}"
 mkdir -p "$RUN_DIR" "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$CLAIMS_DIR" 2>/dev/null || true
 
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
+is_paused(){ [[ -f "$PAUSE_FLAG" ]]; }
 
 _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && echo "$HARNESS_OWNER/$1" || echo "$1";; esac; }
 
