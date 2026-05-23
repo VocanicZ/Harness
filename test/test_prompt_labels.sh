@@ -60,6 +60,12 @@ assert "decompose.md: gh issue list uses custom ready label" \
 assert "decompose.md: no unrendered {{LABEL_ token" \
   "! grep -q '{{LABEL_' <<<\"\$out_dec\""
 
+assert "decompose.md: idempotent — lists existing with --state all" \
+  "grep -q 'state all' <<<\"\$out_dec\""
+
+assert "decompose.md: only-missing / no-duplicate rule present" \
+  "grep -qi 'only' <<<\"\$out_dec\" && grep -qi 'duplicate' <<<\"\$out_dec\""
+
 # ── prd.md assertions ────────────────────────────────────────────────────────
 assert "prd.md: --label spec (custom prd label) appears in gh issue create" \
   "grep -q '\-\-label spec' <<<\"\$out_prd\""
