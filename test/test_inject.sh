@@ -15,4 +15,34 @@ assert_no "injector session never matches team_sessions" \
   bash -c "printf '%s\n' hz-inject-main | grep -qE '^hz-main(\$|-i)'"
 unset -f tmux
 
+# ── §2 inject.sh launcher: resolve unit, REVIEW-guard, render, launch ─────────
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER="acme"
+HARNESS_SPEC="docs/spec.md"; PROMPTS_DIR="$HERE/../prompts"
+TMPCO="$(mktemp -d)"; unit_checkout(){ echo "$TMPCO"; }   # don't clobber the real repo
+LAUNCH="$RUN_DIR/launch.log"; : > "$LAUNCH"
+launch_claude(){ echo "$1 :: $2" >> "$LAUNCH"; }           # record "<sess> :: <wd>"
+
+# happy path: nothing live → launches hz-inject-main and renders the task file
+( session_live(){ return 1; }
+  source "$HERE/../inject.sh" issue "add a rate limiter" )
+assert_eq "$?" "0" "inject.sh issue exits 0 when nothing is live"
+assert_ok "launched hz-inject-main session" bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
+assert_ok "rendered the injector task file" bash -c "grep -q 'INJECT DONE' '$TMPCO/.harness-task.md'"
+assert_ok "task file carries the brief"     bash -c "grep -q 'add a rate limiter' '$TMPCO/.harness-task.md'"
+
+# REVIEW guard: a live hz-main orch session whose goal is REVIEW must abort (exit 1)
+echo REVIEW > "$RUN_DIR/hz-main.goal"
+( session_live(){ [[ "$1" == hz-main ]]; }
+  source "$HERE/../inject.sh" issue "add a rate limiter" ) 2>/dev/null
+assert_eq "$?" "1" "inject.sh aborts while a REVIEW session is live for the unit"
+
+# bad altitude is rejected
+( source "$HERE/../inject.sh" bogus "x" ) 2>/dev/null
+assert_eq "$?" "1" "inject.sh rejects an unknown altitude"
+
+# empty brief is rejected
+( session_live(){ return 1; }
+  source "$HERE/../inject.sh" issue "" ) 2>/dev/null
+assert_eq "$?" "1" "inject.sh rejects an empty brief"
+
 finish
