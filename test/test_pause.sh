@@ -44,4 +44,27 @@ RUN_DIR="$RUN_DIR2" bash "$HERE/../pause.sh" >/dev/null 2>&1
 assert_ok "soft pause.sh created PAUSED flag" bash -c "[[ -f '$RUN_DIR2/PAUSED' ]]"
 rm -rf "$RUN_DIR2"
 
+# --- pause --force: injects checkpoint, confirms via label, never kills -------
+RUN_DIR3="$(mktemp -d)"; CALLS="$RUN_DIR3/calls"; : > "$CALLS"
+export CALLS
+export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+# one live impl session for unit "main", issue 5
+tmux(){ echo "tmux $*" >> "$CALLS"
+  case "$1" in
+    ls) echo "hz-main-i5";;
+    send-keys) : ;;
+    kill-session) : ;;   # if ever called, recorded above
+  esac; }
+# gh: issue already carries the paused label -> confirms immediately
+gh(){ echo "gh $*" >> "$CALLS"
+  case "$1 $2" in
+    "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
+  esac; return 0; }
+export -f tmux gh
+RUN_DIR="$RUN_DIR3" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+assert_ok "force: PAUSED flag set"            bash -c "[[ -f '$RUN_DIR3/PAUSED' ]]"
+assert_ok "force: checkpoint sent to session" bash -c "grep -q 'send-keys' '$CALLS'"
+assert_no "force: never killed the session"   bash -c "grep -q 'kill-session' '$CALLS'"
+rm -rf "$RUN_DIR3"
+
 finish
