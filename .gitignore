@@ -1,0 +1,9 @@
+# per-project local state (written by `harness init` / runtime)
+/config
+/targets.tsv
+/run/
+/worktrees/
+/checkouts/
+/prompts/*.local.md
+__pycache__/
+*.pyc
