@@ -79,6 +79,52 @@ assert "prd.md: default 'gh label create prd' absent" \
 assert "prd.md: no unrendered {{LABEL_ token" \
   "! grep -q '{{LABEL_' <<<\"\$out_prd\""
 
+# ── inject.md render ─────────────────────────────────────────────────────────
+out_inject="$(render "$HERE/../prompts/inject.md" \
+  ALTITUDE=issue BRIEF='wire up a healthcheck endpoint' SLUG=acme/widget \
+  PROJECT=w DESC=d SPEC= OWNER=acme PROMISE=INJECT_DONE \
+  LABEL_READY=go LABEL_PRD=spec LABEL_WORKING=busy LABEL_BLOCKED=stuck LABEL_REVIEWED=verified)"
+
+# ── inject.md assertions ─────────────────────────────────────────────────────
+assert "inject.md: no unrendered {{ token" \
+  "! grep -q '{{' <<<\"\$out_inject\""
+
+assert "inject.md: brief substituted" \
+  "grep -q 'wire up a healthcheck endpoint' <<<\"\$out_inject\""
+
+assert "inject.md: altitude substituted" \
+  "grep -qiE 'altitude:?[[:space:]]+issue' <<<\"\$out_inject\""
+
+assert "inject.md: custom ready label 'go' used in gh issue create" \
+  "grep -qE -- '--label go' <<<\"\$out_inject\""
+
+assert "inject.md: default 'agent-working' label absent (working label parameterized)" \
+  "! grep -q 'agent-working' <<<\"\$out_inject\""
+
+assert "inject.md: custom working label 'busy' appears" \
+  "grep -q 'busy' <<<\"\$out_inject\""
+
+assert "inject.md: custom reviewed label 'verified' appears" \
+  "grep -q 'verified' <<<\"\$out_inject\""
+
+assert "inject.md: in-flight working-label issues are read-only" \
+  "grep -qi 'in-flight' <<<\"\$out_inject\" && grep -qi 'read-only' <<<\"\$out_inject\""
+
+assert "inject.md: cycle guard present" \
+  "grep -qiE 'cycle' <<<\"\$out_inject\""
+
+assert "inject.md: additive / no-duplicate rule present" \
+  "grep -qi 'additive' <<<\"\$out_inject\" && grep -qiE 'duplicat' <<<\"\$out_inject\""
+
+assert "inject.md: targets.tsv + seed.sh topology path present" \
+  "grep -q 'targets.tsv' <<<\"\$out_inject\" && grep -q 'seed.sh' <<<\"\$out_inject\""
+
+assert "inject.md: same-repo Blocked by ordering present" \
+  "grep -q '## Blocked by' <<<\"\$out_inject\" && grep -qi 'same-repo' <<<\"\$out_inject\""
+
+assert "inject.md: completion promise present" \
+  "grep -q 'INJECT_DONE' <<<\"\$out_inject\" && grep -q '<promise>' <<<\"\$out_inject\""
+
 # ── summary ──────────────────────────────────────────────────────────────────
 echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"
 [[ $TESTS_FAIL -eq 0 ]]
