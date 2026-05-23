@@ -10,6 +10,7 @@ usage: harness <command> [args]
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   update [--with-skills]   ff-pull engine + redeploy skill (keeps your config)
+  setup                verify prereqs + seed configured labels on all units (no start)
 EOF
 }
 cmd="${1:-}"; shift || true
@@ -21,6 +22,7 @@ case "$cmd" in
   attach) exec bash "$HARNESS_DIR/attach.sh" "$@";;
   pause)  exec bash "$HARNESS_DIR/pause.sh" "$@";;
   update) exec bash "$HARNESS_DIR/update.sh" "$@";;
+  setup)  exec bash "$HARNESS_DIR/setup.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
   *) echo "unknown command: $cmd" >&2; usage; exit 2;;
