@@ -1,4 +1,10 @@
-# Harness
+<p align="center">
+  <img src="docs/logo.svg" alt="Harness logo" width="128" height="128">
+</p>
+
+<h1 align="center">Harness</h1>
+
+<p align="center"><em>One orchestrator, a pool of autonomous agents, all state in GitHub.</em></p>
 
 A project-agnostic agent orchestrator that drives a fixed pool of autonomous Claude Code sessions against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
 
@@ -118,3 +124,9 @@ Invoke `/harness` (or say "start the fleet", "what's the harness doing") inside 
 ## Usage note — `issue-only` mode
 
 In `issue-only` mode the fleet considers a unit COMPLETE only once it has seen `ready-for-agent` issues that are now all closed. A freshly started unit with zero `ready-for-agent` issues has nothing to dispatch and will keep polling. Label at least one issue `ready-for-agent` before or while the pool is running, otherwise the pool idles.
+
+## Star History
+
+<a href="https://star-history.com/#VocanicZ/Harness&Date">
+  <img src="https://api.star-history.com/svg?repos=VocanicZ/Harness&type=Date" alt="Star History Chart" width="600">
+</a>
