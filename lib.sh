@@ -26,6 +26,7 @@ CHECKOUTS_DIR="$HARNESS_DIR/checkouts"
 : "${HARNESS_POLL:=60}"
 : "${HARNESS_IMPL_MAXITER:=30}"
 : "${HARNESS_ORCH_MAXITER:=8}"
+: "${HARNESS_INJECT_MAXITER:=15}"
 : "${HARNESS_SESS_PREFIX:=hz}"
 : "${HARNESS_CLAUDE_BIN:=claude}"
 : "${HARNESS_CLAUDE_FLAGS:=--dangerously-skip-permissions --effort high}"
@@ -107,6 +108,7 @@ dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allo
 # --- tmux session naming + ralph helpers -------------------------------------
 sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
 sess_impl(){ echo "$HARNESS_SESS_PREFIX-$1-i$2"; }
+sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }
