@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -uo pipefail
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+usage(){ cat <<EOF
+usage: harness <command> [args]
+  init                 interactive setup wizard (writes config, creates labels, seeds repo)
+  start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
+  stop  [--clean]      stop the pool (--clean also removes worktrees)
+  status [--watch [s]] dashboard
+  attach <unit> [issue] tmux-attach to a session
+EOF
+}
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  init)   exec bash "$HARNESS_DIR/init.sh" "$@";;
+  start)  exec bash "$HARNESS_DIR/start.sh" "$@";;
+  stop)   exec bash "$HARNESS_DIR/stop.sh" "$@";;
+  status) exec bash "$HARNESS_DIR/status.sh" "$@";;
+  attach) exec bash "$HARNESS_DIR/attach.sh" "$@";;
+  help|-h|--help) usage;;
+  "") usage;;
+  *) echo "unknown command: $cmd" >&2; usage; exit 2;;
+esac
