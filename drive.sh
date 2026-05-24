@@ -5,7 +5,49 @@
 # locals, and the helpers below read them.
 _HARNESS_DRIVE_SOURCED=1
 
+# Committed plan-completion artifacts (mirrors issuelib.py PLAN_MARKER_PATH). These live in the
+# unit's repo — NOT the gitignored .harness runtime clone — so the marker survives a fresh checkout.
+PLAN_MARKER_PATH="docs/harness/plan-complete.json"
+PLAN_ARCHIVE_DIR="docs/harness/archive"
+
 default_branch(){ gh repo view "$SLUG" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main; }
+
+# archive_plan — on unit completion, archive a live PLAN.md (never delete) and write a committed,
+# spec-keyed completion marker, so the auto-PLAN gate (issuelib.py) neither stays blocked by the
+# leftover doc nor silently re-fires against the same spec. Multi-topology also drops the completed
+# unit's targets.tsv row(s) so it isn't re-driven. Idempotent: a no-op once PLAN.md is already
+# archived. git mv/commit/push are best-effort (fall back to plain mv; never abort finalize).
+archive_plan(){
+  if [[ -f "$CHECKOUT/PLAN.md" ]]; then
+    local ts archived spec_hash
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    archived="$PLAN_ARCHIVE_DIR/PLAN-$ts.md"
+    mkdir -p "$CHECKOUT/$PLAN_ARCHIVE_DIR" "$CHECKOUT/$(dirname "$PLAN_MARKER_PATH")"
+    git -C "$CHECKOUT" mv PLAN.md "$archived" 2>/dev/null || mv "$CHECKOUT/PLAN.md" "$CHECKOUT/$archived"
+    spec_hash="$(python3 "$HARNESS_DIR/issuelib.py" spec-hash 2>/dev/null)"
+    cat > "$CHECKOUT/$PLAN_MARKER_PATH" <<EOF
+{
+  "spec": "$HARNESS_SPEC",
+  "spec_hash": "$spec_hash",
+  "archived": "$archived",
+  "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "unit": "$UNIT"
+}
+EOF
+    git -C "$CHECKOUT" add -A 2>/dev/null || true
+    git -C "$CHECKOUT" commit -q -m "chore(harness): archive PLAN.md + plan-complete marker for $UNIT" 2>/dev/null || true
+    git -C "$CHECKOUT" push -q 2>/dev/null || true
+    log "finalize: archived PLAN.md → $archived; wrote $PLAN_MARKER_PATH (spec_hash=${spec_hash:0:12})"
+  fi
+  # multi: the completed unit is retired — drop its row(s) from the local registry (targets.tsv is
+  # gitignored run state, so there is nothing to push) so a later poll never re-drives it.
+  if [[ "$HARNESS_TOPOLOGY" == multi && -f "$TARGETS_TSV" ]]; then
+    local tmp; tmp="$(mktemp)"
+    if awk -F'\t' -v u="$UNIT" '$1!=u' "$TARGETS_TSV" > "$tmp"; then
+      mv "$tmp" "$TARGETS_TSV"; log "finalize: cleared targets.tsv row for $UNIT"
+    else rm -f "$tmp"; fi
+  fi
+}
 
 reap_done_sessions(){
   local s goal
@@ -50,6 +92,7 @@ reap_team(){
 # worktree and its local branch, then prune. (Remote branches are auto-deleted on squash-merge.)
 finalize_unit(){
   local s wd issue
+  archive_plan   # archive PLAN.md + write the spec-keyed completion marker (idempotent no-op if none)
   while read -r s; do
     [[ -z "$s" ]] && continue
     tmux kill-session -t "$s" 2>/dev/null && log "finalize: reaped leftover session $s"
