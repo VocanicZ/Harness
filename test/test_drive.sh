@@ -75,14 +75,18 @@ NARCH_BEFORE="$(ls "$CHECKOUT"/docs/harness/archive/ | wc -l)"
 assert_ok "archive_plan re-run is a no-op (exit 0)" archive_plan
 assert_eq "$(ls "$CHECKOUT"/docs/harness/archive/ | wc -l)" "$NARCH_BEFORE" "no duplicate archive on re-run"
 
-# --- multi-topology: completed unit's row(s) cleared from targets.tsv ---
+# --- multi-topology: completing a unit must NOT drop its targets.tsv row ---
+# Regression for the F1 row-drop bug: targets.tsv is the dependency registry. Here c depends on b;
+# if finalizing b deleted b's row, c's dep would become unresolvable and the DAG would freeze.
+# Completion is recomputed live each poll, so a finished unit is skipped without removing its row.
 make_env
 HARNESS_TOPOLOGY=multi; UNIT=b; CHECKOUT="$RUN_DIR/repo-b"; mkdir -p "$CHECKOUT"
 HARNESS_SPEC="$RUN_DIR/spec.md"; printf 'spec\n' > "$HARNESS_SPEC"
 printf '# id\trepo\tdeps\tdesc\na\tacme/a\t-\troot\nb\tacme/b\ta\tmid\nc\tacme/c\tb\tleaf\n' > "$TARGETS_TSV"
 git(){ return 1; }
 archive_plan
-assert_eq "$(_tgt_row b)" "" "targets.tsv row for completed unit b removed"
+assert_ok "completed unit b's row PERSISTS (dependents resolve it)" test -n "$(_tgt_row b)"
+assert_eq "$(unit_repo b)" "acme/b" "b's row still resolves its repo for dependents"
 assert_ok "targets.tsv keeps other units (a)" test -n "$(_tgt_row a)"
 assert_ok "targets.tsv keeps other units (c)" test -n "$(_tgt_row c)"
 finish
