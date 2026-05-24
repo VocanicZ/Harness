@@ -14,9 +14,9 @@ default_branch(){ gh repo view "$SLUG" --json defaultBranchRef -q .defaultBranch
 
 # archive_plan — on unit completion, archive a live PLAN.md (never delete) and write a committed,
 # spec-keyed completion marker, so the auto-PLAN gate (issuelib.py) neither stays blocked by the
-# leftover doc nor silently re-fires against the same spec. Multi-topology also drops the completed
-# unit's targets.tsv row(s) so it isn't re-driven. Idempotent: a no-op once PLAN.md is already
-# archived. git mv/commit/push are best-effort (fall back to plain mv; never abort finalize).
+# leftover doc nor silently re-fires against the same spec. Idempotent: a no-op once PLAN.md is
+# already archived. git mv/commit/push are best-effort (fall back to plain mv; never abort finalize).
+# (It deliberately does NOT touch targets.tsv — see the note at the end of the function.)
 archive_plan(){
   if [[ -f "$CHECKOUT/PLAN.md" ]]; then
     local ts archived spec_hash
@@ -39,14 +39,13 @@ EOF
     git -C "$CHECKOUT" push -q 2>/dev/null || true
     log "finalize: archived PLAN.md → $archived; wrote $PLAN_MARKER_PATH (spec_hash=${spec_hash:0:12})"
   fi
-  # multi: the completed unit is retired — drop its row(s) from the local registry (targets.tsv is
-  # gitignored run state, so there is nothing to push) so a later poll never re-drives it.
-  if [[ "$HARNESS_TOPOLOGY" == multi && -f "$TARGETS_TSV" ]]; then
-    local tmp; tmp="$(mktemp)"
-    if awk -F'\t' -v u="$UNIT" '$1!=u' "$TARGETS_TSV" > "$tmp"; then
-      mv "$tmp" "$TARGETS_TSV"; log "finalize: cleared targets.tsv row for $UNIT"
-    else rm -f "$tmp"; fi
-  fi
+  # NOTE: do NOT drop the completed unit's targets.tsv row in multi-topology. targets.tsv is the
+  # dependency registry: downstream units resolve their deps through it (deps_complete →
+  # unit_complete resolves the repo by unit id). Deleting a completed unit's row makes any dependent
+  # unit's deps unresolvable (unit_repo → "-"), so deps_complete fails forever and the whole
+  # downstream DAG freezes after that unit completes. Completion is already recomputed live each poll
+  # (claimable_units skips complete units via unit_complete), so a finished unit is never re-driven
+  # even with its row intact — the row can and must persist.
 }
 
 reap_done_sessions(){
