@@ -36,6 +36,8 @@ Prompt the user before each network or start action.
 .harness/bin/harness update           # update the engine + redeploy this skill (keeps your config)
 .harness/bin/harness stop             # stop the pool
 .harness/bin/harness stop --clean     # also remove worktrees
+.harness/bin/harness uninstall          # stop the fleet, then remove engine + this project + /harness skills (confirm-gated)
+.harness/bin/harness uninstall --force  # remove immediately — no stop guard, no prompt
 ```
 
 ## Pausing & resuming (incl. across machines)
@@ -64,7 +66,7 @@ mode a human writes one `prd`-labelled issue; the agent decomposes + implements 
 
 ## Per-command shortcuts
 For a one-shot action without state detection, thin sibling skills map 1:1 to a subcommand:
-`/harness-init` `/harness-start` `/harness-stop` `/harness-pause` `/harness-resume` `/harness-status`.
+`/harness-init` `/harness-start` `/harness-stop` `/harness-pause` `/harness-resume` `/harness-status` `/harness-uninstall`.
 Use those when the user already knows the action; use `/harness` (this skill) to detect state, observe, and unstick.
 
 ## Inject work into a LIVE fleet (no restart)

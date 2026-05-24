@@ -47,6 +47,7 @@ usage: harness <command> [args]
   resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills]   ff-pull the shared engine install (one place; all projects pick it up)
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
+  uninstall [--force]  stop the fleet + remove the engine, this project's .harness/, and /harness skills
   setup                verify prereqs + seed configured labels on all units (no start)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
@@ -71,6 +72,9 @@ case "$cmd" in
   # migrate operates on a specific project's vendored .harness/ — discover which one (config still
   # present in a vendored layout), then strip its engine clone and re-point at the shared engine.
   migrate) require_state_dir; exec bash "$ENGINE_DIR/scripts/migrate.sh" "$@";;
+  # uninstall tears down host engine + this project + skills; best-effort STATE_DIR so it also runs
+  # outside a project (engine/skills only) and so the default path can stop the discovered fleet.
+  uninstall) try_state_dir; exec bash "$ENGINE_DIR/scripts/uninstall.sh" "$@";;
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
   resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
   help|-h|--help) usage;;

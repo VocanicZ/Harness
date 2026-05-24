@@ -10,6 +10,7 @@ declare -A CMD=(
   [harness-init]=init [harness-start]=start [harness-stop]=stop
   [harness-pause]=pause [harness-resume]=resume [harness-status]=status
   [harness-plan]=plan [harness-prd]=prd [harness-issue]=issue
+  [harness-uninstall]=uninstall
 )
 for name in "${!CMD[@]}"; do
   f="$SK/$name/SKILL.md"
