@@ -16,7 +16,7 @@ Steps:
      git add -A && git commit -m "feat: <summary> (closes #{{ISSUE}})"
      git push -u origin {{BRANCH}}
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>
-     gh pr merge --auto --squash -R {{SLUG}} <pr-number>
+     gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
 5. Confirm the PR is auto-merging (or merged) and the issue will close.
 
 AUTONOMY — if this harness is configured AUTONOMOUS (no human): NEVER apply `agent-blocked`,

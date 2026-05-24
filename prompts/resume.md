@@ -14,7 +14,7 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
      git add -A && git commit -m "feat: <summary> (closes #{{ISSUE}})"
      git push -u origin {{BRANCH}}
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>   # or reuse the existing PR
-     gh pr merge --auto --squash -R {{SLUG}} <pr-number>
+     gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
 
 If this harness is configured AUTONOMOUS: never park the work, drive it to closed.
 
