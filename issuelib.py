@@ -214,6 +214,18 @@ def compute_state(repo):
             "total_children": len(children),
             "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
 
+def bug_lane_issues(repo):
+    """Open bug-lane issue numbers the priority lane (#26) may claim: author-allowed, OPEN,
+    carrying L_BUG or L_BUG_TRIAGED, not already agent-working, and (autonomous or not blocked).
+    The lane handles both stages — an untriaged `bug` and a `bug-triaged` awaiting its fix."""
+    slug = _repo_slug(repo)
+    issues = _author_filter(_list_issues(slug))
+    return [i["number"] for i in issues
+            if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
+            and i["state"].lower() == "open"
+            and L_WORKING() not in i["_labels"]
+            and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])]
+
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     if allow_orchestration:
@@ -255,6 +267,8 @@ def main():
         print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
               f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
               f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
+    elif cmd == "bugs":
+        for n in bug_lane_issues(repo): print(n)
     elif cmd == "complete":
         print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
     elif cmd == "check":

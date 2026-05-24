@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # start.sh [--recover] — launch the Harness worker-pool delivery fleet.
-# A fixed pool of HARNESS_POOL workers each claim, drive, and release units.
-# Re-runnable: pool.sh skips workers already alive.
+# A fixed pool of HARNESS_POOL workers each claim, drive, and release units, plus a single
+# resident priority bug lane (cap 1, fast poll) that claims bug-lane issues one at a time.
+# Re-runnable: pool.sh / priority.sh skip workers already alive.
 #
 #   --recover   crash / new-machine recovery sweep BEFORE launch:
 #               (1) drop stale pidfiles whose process is gone (post-reboot PIDs lie);
@@ -71,7 +72,7 @@ set -- ${args[@]+"${args[@]}"}
 
 (( DO_RECOVER )) && recover
 
-echo "Starting Harness delivery fleet — pool of $POOL workers, cap=$CAP sessions/worker:"
+echo "Starting Harness delivery fleet — pool of $POOL workers (cap=$CAP) + 1 priority bug lane:"
 # Guard against double-start: flock a start-lock so two concurrent `harness start`
 # don't double-spawn worker slots (pool.sh checks individual worker pids, but this
 # prevents two concurrent start.sh calls from both racing into pool.sh).
@@ -83,6 +84,7 @@ if ! flock -n 9; then
   exit 0
 fi
 bash "$HARNESS_DIR/pool.sh"
+bash "$HARNESS_DIR/priority.sh"
 exec 9>&-
 
 echo

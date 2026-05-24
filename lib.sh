@@ -109,6 +109,23 @@ worker_unit(){ local wid="$1" f; shopt -s nullglob
   for f in "$CLAIMS_DIR"/*.claim; do [[ "$(awk '{print $1; exit}' "$f")" == "$wid" ]] && { basename "$f" .claim; shopt -u nullglob; return; }; done
   shopt -u nullglob; }
 
+# --- priority bug-lane claims (#26) ------------------------------------------
+# Bug claims share CLAIMS_DIR with unit claims, keyed `bug-<n>.claim`, so the existing
+# clear_stale_claims sweep (dead-pid claim files) covers them too — start --recover frees a
+# stale bug-claim with no extra code. They reuse POOL_LOCK so a bug-claim never races a
+# unit-claim on the single host. The GitHub-backed source of bug numbers is _bug_numbers, the
+# one seam tests override; claimable_bugs filters out already-claimed bugs (mirrors claimable_units).
+_bug_repos(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"
+  else local u; for u in $(all_units); do unit_repo "$u"; done | sort -u; fi; }
+_bug_numbers(){ local repo; for repo in $(_bug_repos); do
+    [[ -n "$repo" ]] && python3 "$HARNESS_DIR/issuelib.py" bugs "$repo" 2>/dev/null; done; }
+is_bug_claimed(){ is_claimed "bug-$1"; }
+release_bug_claim(){ release_claim "bug-$1"; }
+claimable_bugs(){ local n; for n in $(_bug_numbers); do is_bug_claimed "$n" && continue; echo "$n"; done; }
+claim_next_bug(){ local wid="$1" n lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+  n="$(claimable_bugs | head -n1)"; [[ -n "$n" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/bug-$n.claim"
+  flock -u "$lockfd"; exec {lockfd}>&-; echo "$n"; }
+
 dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allow-orchestration "$3"; }
 
 # --- tmux session naming + ralph helpers -------------------------------------
