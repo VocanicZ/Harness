@@ -17,10 +17,13 @@ if ! git -C "$ENGINE_DIR" pull --ff-only; then
 fi
 echo "  engine updated at $ENGINE_DIR — every project picks it up immediately."
 
-# optional host-level plugin/skill refresh (reuse install.sh's ensure_skills).
+# optional host-level plugin/skill refresh (reuse install.sh's ensure_skills + the /harness skill
+# deploy). The engine was just ff-pulled, so redeploy its /harness skills to user scope from THIS
+# engine — otherwise an engine update leaves stale ~/.claude/skills copies behind.
 if (( WITH_SKILLS )); then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
   ensure_skills
+  HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-$ENGINE_DIR/skill}" install_harness_skills
 fi
 
 # if a pool is running (in this project's state dir), new engine logic only applies after a relaunch.

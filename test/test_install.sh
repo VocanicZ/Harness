@@ -56,4 +56,33 @@ assert "symlink-fail creates no broken link"          "[[ ! -e '$RO/harness' ]]"
 assert "symlink-fail prints explicit PATH guidance"   "grep -q 'PATH' <<< \"\$fail_out\""
 assert "symlink-fail names the engine bin dir to add" "grep -q 'engine/bin' <<< \"\$fail_out\""
 
+# ── host root: the ~/.harness root carries PRD-B-reserved, EMPTY poller/ + snapshots/ (#57) ──
+# Contract only — install creates the dirs so the layout is stable now; PRD-B populates them later.
+HR="$(mktemp -d)/.harness"
+HARNESS_HOME="$HR" create_host_root
+assert "host root poller/ exists (PRD-B reserved)"    "[[ -d '$HR/poller' ]]"
+assert "host root snapshots/ exists (PRD-B reserved)" "[[ -d '$HR/snapshots' ]]"
+assert "poller/ is empty (no logic yet)"              "[[ -z \"\$(ls -A '$HR/poller')\" ]]"
+assert "snapshots/ is empty (no logic yet)"           "[[ -z \"\$(ls -A '$HR/snapshots')\" ]]"
+# idempotent: re-running on an existing host root is a clean no-op (still empty, no error)
+HARNESS_HOME="$HR" create_host_root
+assert "create_host_root is idempotent" "[[ -d '$HR/poller' && -z \"\$(ls -A '$HR/poller')\" ]]"
+
+# ── /harness skills install ONCE to USER scope (~/.claude/skills), not vendored per project (#57) ──
+# Source is the engine's skill/ dir; each skill/<name>/SKILL.md → <user-skills>/<name>/SKILL.md.
+SK_SRC="$HERE/../skill"
+USK="$(mktemp -d)/skills"
+HARNESS_SKILL_SRC="$SK_SRC" HARNESS_USER_SKILLS="$USK" install_harness_skills >/dev/null
+assert "umbrella /harness skill installed to user scope" "[[ -f '$USK/harness/SKILL.md' ]]"
+for n in harness-init harness-start harness-stop harness-pause harness-resume harness-status \
+         harness-plan harness-prd harness-issue; do
+  assert "/$n deployed to user scope" "[[ -f '$USK/$n/SKILL.md' ]]"
+done
+# idempotent re-install: still present, no error
+HARNESS_SKILL_SRC="$SK_SRC" HARNESS_USER_SKILLS="$USK" install_harness_skills >/dev/null
+assert "install_harness_skills is idempotent" "[[ -f '$USK/harness/SKILL.md' ]]"
+# missing source: warn (best-effort), never fail the install
+miss_out="$(HARNESS_SKILL_SRC="$(mktemp -d)/nope" HARNESS_USER_SKILLS="$(mktemp -d)/sk" install_harness_skills 2>&1)"
+assert "missing skill source is non-fatal" "[[ \$? -eq 0 ]]"
+
 echo "── install ok"
