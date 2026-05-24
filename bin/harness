@@ -46,6 +46,7 @@ usage: harness <command> [args]
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills]   ff-pull the shared engine install (one place; all projects pick it up)
+  migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
   setup                verify prereqs + seed configured labels on all units (no start)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
@@ -67,6 +68,9 @@ case "$cmd" in
   attach) require_state_dir; exec bash "$ENGINE_DIR/attach.sh" "$@";;
   pause)  require_state_dir; exec bash "$ENGINE_DIR/pause.sh" "$@";;
   setup)  require_state_dir; exec bash "$ENGINE_DIR/setup.sh" "$@";;
+  # migrate operates on a specific project's vendored .harness/ — discover which one (config still
+  # present in a vendored layout), then strip its engine clone and re-point at the shared engine.
+  migrate) require_state_dir; exec bash "$ENGINE_DIR/migrate.sh" "$@";;
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/inject.sh" "$cmd" "$@";;
   resume) require_state_dir; exec bash "$ENGINE_DIR/resume.sh" "$@";;
   help|-h|--help) usage;;
