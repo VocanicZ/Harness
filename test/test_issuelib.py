@@ -247,6 +247,80 @@ def test_author_check_applies_to_prd_selection():
     s = il.compute_state("acme/widget")
     assert s["prd"] is None, s
 
+def test_bug_lane_issues_excluded_from_children_and_unblocked():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # bug-lane issues carry the ready label but must never be claimable by the pool:
+    # excluded from children (so total_children) and from unblocked.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None
+    il._spec_hash = lambda: ""
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "real work", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},
+        {"number": 6, "title": "a bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent", "bug"}},
+        {"number": 7, "title": "triaged bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent", "bug-triaged"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert s["unblocked"] == [5], s
+    assert s["total_children"] == 1, s          # only the non-bug issue counts as a child
+    assert 6 not in s["unblocked"] and 7 not in s["unblocked"], s
+
+def test_open_bug_does_not_block_unit_complete():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # every real child closed; an OPEN bug-lane issue must not keep the unit from completing.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None
+    il._spec_hash = lambda: ""
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "done work", "state": "CLOSED", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},
+        {"number": 6, "title": "open bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent", "bug"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert s["open_children"] == 0, s
+    assert il.is_complete(s) is True, s
+
+def test_bug_lane_labels_honour_env_overrides():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # custom lane label names come from HARNESS_LABEL_BUG / HARNESS_LABEL_BUG_TRIAGED.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ["HARNESS_LABEL_BUG"] = "defect"
+    os.environ["HARNESS_LABEL_BUG_TRIAGED"] = "defect-ready"
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None
+    il._spec_hash = lambda: ""
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "real work", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},
+        {"number": 6, "title": "a defect", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent", "defect"}},
+    ]
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["unblocked"] == [5], s
+        assert s["total_children"] == 1, s
+    finally:
+        os.environ.pop("HARNESS_LABEL_BUG", None)
+        os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+
 def test_self_is_always_allowed_even_with_nonempty_allowlist():
     il.compute_state = _REAL_COMPUTE_STATE
     # self never needs to be in the allowlist — fleet's own PRD/decompose/cross-repo issues survive

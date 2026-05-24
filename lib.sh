@@ -37,6 +37,8 @@ CHECKOUTS_DIR="$HARNESS_DIR/checkouts"
 : "${HARNESS_LABEL_REVIEWED:=reviewed}"
 : "${HARNESS_LABEL_COORD:=coordination}"
 : "${HARNESS_LABEL_PAUSED:=agent-paused}"   # force-paused: checkpointed to GitHub, resumable
+: "${HARNESS_LABEL_BUG:=bug}"               # bug-lane: never claimed by the normal pool
+: "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"  # bug-lane: triaged, still isolated from the pool
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_MAIN_REPO:=}"             # multi: umbrella repo for coordination issues (optional)
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
@@ -44,6 +46,7 @@ CHECKOUTS_DIR="$HARNESS_DIR/checkouts"
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
+  HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST
 
 OWNER="$HARNESS_OWNER"

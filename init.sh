@@ -25,13 +25,15 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 : "${HARNESS_LABEL_REVIEWED:=reviewed}"
 : "${HARNESS_LABEL_COORD:=coordination}"
 : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+: "${HARNESS_LABEL_BUG:=bug}"
+: "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
   for v in HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
-           HARNESS_LABEL_PAUSED HARNESS_AUTHOR_ALLOWLIST; do
+           HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_AUTHOR_ALLOWLIST; do
     printf ': "${%s:=%s}"\n' "$v" "${!v:-}"
   done
 } > "$CONFIG"
