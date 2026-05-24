@@ -48,6 +48,31 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     log "priority: reaped bug #$n fix worktree + branch"
   fi; }
 
+# reap_lane — the lane's per-poll self-heal (#42), the cap-1 analog of the pool's reap_team
+# (drive.sh). A bug-lane session that DIES after spawn_bug stamps agent-working (drive.sh:206) but
+# before the issue closes leaves the bug stuck under agent-working: bug_lane_candidates excludes
+# agent-working, so the lane idles "watching" an OPEN bug forever — needing a manual `harness start
+# --recover`. So at the TOP of every poll, for each OPEN bug-lane issue still under agent-working
+# whose sess_bug session is NOT live, strip agent-working and reap any worktree+branch a crashed fix
+# orphaned (triage has none — remove_worktree is idempotent on a missing worktree), so the next poll
+# re-claims it cleanly. bug_session_live (shared with #43's recover skip) protects a genuinely live
+# session, so this never double-dispatches in-flight work. Runs every poll regardless of pause: a
+# paused-but-live session is still live (drained, not killed) → skipped; a checkpointed one carries
+# agent-paused, not agent-working → not a candidate. Repo/slug/checkout/worktree are derived exactly
+# as drive_bug derives them, so create (spawn_bug) and reap can never disagree on the path.
+reap_lane(){ local repo slug n
+  for repo in $(_bug_repos); do
+    [[ -n "$repo" ]] || continue
+    slug="$(_with_owner "$repo")"
+    while read -r n; do
+      [[ -n "$n" ]] || continue
+      bug_session_live "$n" && continue   # live session — never sweep (no double-dispatch, #43)
+      log "priority: reaping stale agent-working on bug $repo#$n (no live session) — re-claimable next poll"
+      gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
+      remove_worktree "$(bug_checkout "$repo")" "$(bug_worktree "$slug" "$n")" "issue/$n"
+    done < <(_repo_working_bugs "$repo")
+  done; }
+
 # One claim cycle. rc 3 paused (drained, no claim), rc 0 claimed+drove+released a bug,
 # rc 1 idle (no claimable bug). The lane holds at most one bug at a time (cap 1): it
 # releases before returning, so it is structurally serial — a second bug always waits.
@@ -60,7 +85,7 @@ bug_tick(){ local wid="$1" ref
 # One poll cycle. Resident: idle (rc 1) logs a banner ONCE per idle streak (deduped via
 # _IDLE_LOGGED) and keeps polling; real work (rc 0) clears the dedup so a later idle streak
 # re-announces. The lane only ever terminates on stop (kill); pause keeps it drained (rc 3).
-bug_step(){ local wid="$1"; bug_tick "$wid"; local rc=$?
+bug_step(){ local wid="$1"; reap_lane; bug_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     1) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "no bugs — idle, watching"; _IDLE_LOGGED=1; }

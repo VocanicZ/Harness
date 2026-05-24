@@ -122,6 +122,10 @@ _bug_repos(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"
   else local u; for u in $(all_units); do unit_repo "$u"; done | sort -u; fi; }
 # per-repo bug candidates as "<num>\t<phase>" lines (phase: fix|triage), fix-pending-first.
 _repo_bugs(){ python3 "$HARNESS_DIR/issuelib.py" bugs "$1" 2>/dev/null; }
+# per-repo OPEN bug-lane issues CARRYING agent-working — the lane's stale-claim candidates (#42),
+# one bare number per line. The complement of _repo_bugs (which excludes agent-working): reap_lane
+# walks these and frees the ones whose sess_bug session is dead. Overridable seam (tests stub it).
+_repo_working_bugs(){ python3 "$HARNESS_DIR/issuelib.py" working-bugs "$1" 2>/dev/null; }
 # All repos' candidates as "<repo>#<num>" tokens, GLOBALLY fix-pending-first (#37): each repo's
 # (num,phase) pairs are tagged with a phase sort-key (0=fix/pending, 1=triage/fresh) then stably
 # sorted, so a pending fix in ANY repo drains before a fresh bug in ANY repo. Stable sort keeps
@@ -250,6 +254,11 @@ sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$1-$2"; }
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }
+# bug_session_live <n> — is EITHER phase's session for bug #n live? The SINGLE liveness predicate
+# the lane's per-poll reap (#42, reap_lane) and start --recover's bug-aware skip (#43) both use, so
+# the two reconciliation paths can never disagree about whether a bug is in flight. A bug whose
+# session is live is NEVER swept — neither path strips its agent-working nor reaps its worktree.
+bug_session_live(){ session_live "$(sess_bug "$1" triage)" || session_live "$(sess_bug "$1" fix)"; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
 tmpl = open(sys.argv[1]).read()

@@ -458,6 +458,69 @@ def test_bug_lane_issues_cli_prints_number_and_phase():
     # fix-pending-first: #9 (fix) before #6 (triage); each line carries the phase.
     assert buf.getvalue().splitlines() == ["9\tfix", "6\ttriage"], buf.getvalue()
 
+def test_bug_lane_working_lists_open_bugs_under_agent_working():
+    # the lane's per-poll self-heal (#42) needs the COMPLEMENT of bug_lane_candidates: open
+    # bug-lane issues that ARE agent-working (a possibly-crashed in-flight claim). reap_lane walks
+    # these and frees the ones whose session is dead. Both phases (fresh bug + bug-triaged) count;
+    # closed bugs, bugs without agent-working, and non-bug working issues are all excluded.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "real work in flight", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent", "agent-working"}},       # not a bug -> excluded
+        {"number": 6, "title": "fresh bug, idle", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},                                    # no agent-working -> excluded
+        {"number": 7, "title": "fresh bug in flight", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug", "agent-working"}},                   # working triage -> included
+        {"number": 8, "title": "triaged bug in flight", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged", "agent-working"}},           # working fix -> included
+        {"number": 9, "title": "fixed bug", "state": "CLOSED", "body": "", "_author": "me",
+         "_labels": {"bug", "agent-working"}},                   # closed -> excluded
+    ]
+    assert il.bug_lane_working("acme/widget") == [7, 8], il.bug_lane_working("acme/widget")
+
+def test_bug_lane_working_drops_disallowed_authors():
+    # a working bug filed by a non-allowed author must not be reconciled by the lane either
+    # (secure-by-default: the lane never touches issues it could never have claimed).
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 6, "title": "mine in flight", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug", "agent-working"}},
+        {"number": 7, "title": "stranger's in flight", "state": "OPEN", "body": "", "_author": "stranger",
+         "_labels": {"bug", "agent-working"}},
+    ]
+    assert il.bug_lane_working("acme/widget") == [6], il.bug_lane_working("acme/widget")
+
+def test_bug_lane_working_cli_prints_one_number_per_line():
+    # the `working-bugs` CLI feeds reap_lane (#42): one bare issue number per line.
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 7, "title": "working triage", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug", "agent-working"}},
+        {"number": 8, "title": "working fix", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged", "agent-working"}},
+    ]
+    import io, contextlib
+    buf = io.StringIO()
+    argv = sys.argv
+    sys.argv = ["issuelib.py", "working-bugs", "acme/widget"]
+    try:
+        with contextlib.redirect_stdout(buf):
+            il.main()
+    finally:
+        sys.argv = argv
+    assert buf.getvalue().splitlines() == ["7", "8"], buf.getvalue()
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
