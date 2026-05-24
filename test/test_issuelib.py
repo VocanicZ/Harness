@@ -336,6 +336,62 @@ def test_self_is_always_allowed_even_with_nonempty_allowlist():
     s = il.compute_state("acme/widget")
     assert s["unblocked"] == [5], s
 
+def test_bug_lane_issues_lists_open_bugs_for_the_priority_lane():
+    # the priority lane (#26) claims bug-lane issues: open, carrying L_BUG or L_BUG_TRIAGED,
+    # not already agent-working, author-allowed. Closed bugs and the working one are excluded.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "real work", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},                       # not a bug -> excluded
+        {"number": 6, "title": "a bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},                                   # claimable
+        {"number": 7, "title": "triaged bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged"}},                           # claimable (fix stage)
+        {"number": 8, "title": "bug in flight", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug", "agent-working"}},                  # already owned -> excluded
+        {"number": 9, "title": "fixed bug", "state": "CLOSED", "body": "", "_author": "me",
+         "_labels": {"bug"}},                                   # closed -> excluded
+    ]
+    assert il.bug_lane_issues("acme/widget") == [6, 7], il.bug_lane_issues("acme/widget")
+
+def test_bug_lane_issues_drops_disallowed_authors():
+    # a bug filed by a non-allowed author must not enter the lane (secure-by-default).
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 6, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},
+        {"number": 7, "title": "stranger's", "state": "OPEN", "body": "", "_author": "stranger",
+         "_labels": {"bug"}},
+    ]
+    assert il.bug_lane_issues("acme/widget") == [6], il.bug_lane_issues("acme/widget")
+
+def test_bug_lane_issues_cli_prints_numbers():
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 6, "title": "a bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},
+    ]
+    import io, contextlib
+    buf = io.StringIO()
+    argv = sys.argv
+    sys.argv = ["issuelib.py", "bugs", "acme/widget"]
+    try:
+        with contextlib.redirect_stdout(buf):
+            il.main()
+    finally:
+        sys.argv = argv
+    assert buf.getvalue().split() == ["6"], buf.getvalue()
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
