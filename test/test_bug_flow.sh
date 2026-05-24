@@ -130,6 +130,39 @@ assert_no "drive_bug(bug-triaged): does NOT use the bare unqualified bug-i42 pat
 assert_ok "triage and fix are TWO DISTINCT sessions" \
   bash -c "[[ -n '$sess_triage' && -n '$sess_fix' && '$sess_triage' != '$sess_fix' ]]"
 
+# ── spawn_bug fix RESUMES a checkpointed bug (resume.md), else starts fresh (#36) ──
+# A force-paused fix flips agent-working → agent-paused and pushes its issue/<n> branch. The next
+# claim must CONTINUE that WIP, not restart cold. Mirrors spawn_impl: agent-paused label OR an
+# existing remote branch → resume.md. Default stub_bug reports neither → fresh bug-fix.md.
+stub_bug; _bug_labels(){ echo "bug-triaged"; }   # fix phase, not paused, no remote branch
+drive_bug 42 >/dev/null 2>&1
+assert_ok "fix (fresh): renders bug-fix.md when not paused / no remote branch" \
+  grep -q 'render .*prompts/bug-fix.md' "$CALLS"
+assert_no "fix (fresh): does NOT render resume.md" \
+  grep -q 'render .*prompts/resume.md' "$CALLS"
+
+# paused issue: gh issue view reports agent-paused -> resume.md instead of bug-fix.md
+stub_bug; _bug_labels(){ echo "bug-triaged"; }
+gh(){ echo "gh $*" >> "$CALLS"
+  case "$1 $2" in "issue view") echo '["agent-paused","bug-triaged"]';; esac; return 0; }
+drive_bug 42 >/dev/null 2>&1
+assert_ok "fix (resume): renders resume.md when issue carries agent-paused" \
+  grep -q 'render .*prompts/resume.md' "$CALLS"
+assert_no "fix (resume): does NOT render bug-fix.md when resuming" \
+  grep -q 'render .*prompts/bug-fix.md' "$CALLS"
+
+# pushed WIP branch (no paused label): ls-remote finds origin/issue/<n> -> resume.md
+stub_bug; _bug_labels(){ echo "bug-triaged"; }
+git(){ echo "git $*" >> "$CALLS"
+  if [[ "$1" == -C && "$3" == worktree && "$4" == add ]]; then
+    local a; for a in "$@"; do [[ "$a" == "$WORKTREES_DIR"/* ]] && mkdir -p "$a"; done
+  fi
+  [[ "$3" == ls-remote ]] && echo "abc123	refs/heads/issue/42"
+  return 0; }
+drive_bug 42 >/dev/null 2>&1
+assert_ok "fix (resume): renders resume.md when a remote issue/<n> branch exists" \
+  grep -q 'render .*prompts/resume.md' "$CALLS"
+
 # ── bug_goal_done: each phase's completion signal (drives the hold/reap loop) ─
 # Seams: _bug_state (issue OPEN/CLOSED), _bug_labels (drives bug_phase).
 _bug_state(){ echo OPEN; }; _bug_labels(){ echo "bug"; }
