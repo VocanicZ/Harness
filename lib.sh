@@ -3,14 +3,26 @@
 set -uo pipefail
 _HARNESS_LIB_SOURCED=1
 
+# ENGINE_DIR / STATE_DIR split (#53): the engine's code+assets and a project's runtime state are
+# now distinct roots. ENGINE_DIR is where this lib.sh lives (the shared install); STATE_DIR is the
+# per-project .harness/. bin/harness resolves+exports both (engine via realpath of the entrypoint,
+# so a PATH symlink resolves to the real install); when sourced directly (tests, a vendored layout
+# with no separation) BOTH default to lib.sh's own dir — the old single-HARNESS_DIR behavior.
+# HARNESS_DIR is retained as that default base (still referenced by deployment scripts + tests).
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$HARNESS_DIR/.." && pwd)"
-CONFIG="$HARNESS_DIR/config"
-TARGETS_TSV="${TARGETS_TSV:-$HARNESS_DIR/targets.tsv}"
-PROMPTS_DIR="$HARNESS_DIR/prompts"
-RUN_DIR="${RUN_DIR:-$HARNESS_DIR/run}"
-WORKTREES_DIR="$HARNESS_DIR/worktrees"
-CHECKOUTS_DIR="$HARNESS_DIR/checkouts"
+ENGINE_DIR="${ENGINE_DIR:-$HARNESS_DIR}"
+STATE_DIR="${STATE_DIR:-$HARNESS_DIR}"
+export ENGINE_DIR STATE_DIR
+PROJECT_ROOT="$(cd "$STATE_DIR/.." && pwd)"
+# asset paths (read-only engine code/templates) — under ENGINE_DIR
+PROMPTS_DIR="$ENGINE_DIR/prompts"
+ISSUELIB="$ENGINE_DIR/issuelib.py"
+# state paths (per-project config + runtime, read+write) — under STATE_DIR
+CONFIG="$STATE_DIR/config"
+TARGETS_TSV="${TARGETS_TSV:-$STATE_DIR/targets.tsv}"
+RUN_DIR="${RUN_DIR:-$STATE_DIR/run}"
+WORKTREES_DIR="$STATE_DIR/worktrees"
+CHECKOUTS_DIR="$STATE_DIR/checkouts"
 
 # config lines are `: "${KEY:=val}"` so pre-existing env overrides the file.
 [[ -f "$CONFIG" ]] && source "$CONFIG"
@@ -82,7 +94,7 @@ unit_slug(){ _with_owner "$(unit_repo "$1")"; }
 unit_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"; else echo "$CHECKOUTS_DIR/$(unit_repo "$1" | sed 's#.*/##')"; fi; }
 
 # --- completeness (GitHub = source of truth; tests override unit_complete) ----
-unit_complete(){ [[ "$(python3 "$HARNESS_DIR/issuelib.py" complete "$(unit_repo "$1")" 2>/dev/null)" == DONE ]]; }
+unit_complete(){ [[ "$(python3 "$ISSUELIB" complete "$(unit_repo "$1")" 2>/dev/null)" == DONE ]]; }
 deps_complete(){
   local deps; deps="$(unit_deps "$1")"
   [[ -z "$deps" || "$deps" == "-" ]] && return 0
@@ -121,11 +133,11 @@ worker_unit(){ local wid="$1" f; shopt -s nullglob
 _bug_repos(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"
   else local u; for u in $(all_units); do unit_repo "$u"; done | sort -u; fi; }
 # per-repo bug candidates as "<num>\t<phase>" lines (phase: fix|triage), fix-pending-first.
-_repo_bugs(){ python3 "$HARNESS_DIR/issuelib.py" bugs "$1" 2>/dev/null; }
+_repo_bugs(){ python3 "$ISSUELIB" bugs "$1" 2>/dev/null; }
 # per-repo OPEN bug-lane issues CARRYING agent-working — the lane's stale-claim candidates (#42),
 # one bare number per line. The complement of _repo_bugs (which excludes agent-working): reap_lane
 # walks these and frees the ones whose sess_bug session is dead. Overridable seam (tests stub it).
-_repo_working_bugs(){ python3 "$HARNESS_DIR/issuelib.py" working-bugs "$1" 2>/dev/null; }
+_repo_working_bugs(){ python3 "$ISSUELIB" working-bugs "$1" 2>/dev/null; }
 # All repos' candidates as "<repo>#<num>" tokens, GLOBALLY fix-pending-first (#37): each repo's
 # (num,phase) pairs are tagged with a phase sort-key (0=fix/pending, 1=triage/fresh) then stably
 # sorted, so a pending fix in ANY repo drains before a fresh bug in ANY repo. Stable sort keeps
@@ -296,7 +308,7 @@ recover_orphan_working(){ local u slug n freed=0
   done
   echo "$freed"; }
 
-dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allow-orchestration "$3"; }
+dispatch_actions(){ python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3"; }
 
 # --- tmux session naming + ralph helpers -------------------------------------
 sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
@@ -339,9 +351,9 @@ launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || ca
 seed_if_needed(){
   local unit="$1" slug; slug="$(unit_slug "$unit")"
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then
-    bash "$HARNESS_DIR/seed.sh" --labels-only "$slug"
+    bash "$ENGINE_DIR/seed.sh" --labels-only "$slug"
   else
-    bash "$HARNESS_DIR/seed.sh" "$unit"
+    bash "$ENGINE_DIR/seed.sh" "$unit"
     local co; co="$(unit_checkout "$unit")"
     [[ -d "$co/.git" ]] || git clone "https://github.com/$slug.git" "$co" 2>/dev/null || true
     ensure_safe "$co"

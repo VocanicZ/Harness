@@ -21,5 +21,5 @@ if (( alive )); then
   echo "RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll."
 else
   echo "No live pool here — launching with recovery (continues any GitHub-checkpointed work):"
-  exec bash "$HARNESS_DIR/start.sh" --recover
+  exec bash "$ENGINE_DIR/start.sh" --recover
 fi

@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -uo pipefail
-HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ENGINE_DIR — the engine install (this file lives in <engine>/bin/). Resolved via realpath of the
+# entrypoint's OWN path first, so a PATH symlink (e.g. /usr/local/bin/harness → ~/.harness/engine/
+# bin/harness) resolves to the REAL engine, not the symlink's dir (#53, PRD #52). STATE_DIR — the
+# per-project .harness/; for this behavior-preserving slice it defaults to ENGINE_DIR (the vendored
+# layout where both are the same .harness/). lib.sh honors both exported vars and splits asset vs
+# state paths accordingly; cwd-discovery of STATE_DIR lands in a later slice.
+_self="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+ENGINE_DIR="$(cd "$(dirname "$_self")/.." && pwd)"
+STATE_DIR="${STATE_DIR:-$ENGINE_DIR}"
+export ENGINE_DIR STATE_DIR
 usage(){ cat <<EOF
 usage: harness <command> [args]
   init                 interactive setup wizard (writes config, creates labels, seeds repo)
@@ -19,16 +28,16 @@ EOF
 }
 cmd="${1:-}"; shift || true
 case "$cmd" in
-  init)   exec bash "$HARNESS_DIR/init.sh" "$@";;
-  start)  exec bash "$HARNESS_DIR/start.sh" "$@";;
-  stop)   exec bash "$HARNESS_DIR/stop.sh" "$@";;
-  status) exec bash "$HARNESS_DIR/status.sh" "$@";;
-  attach) exec bash "$HARNESS_DIR/attach.sh" "$@";;
-  pause)  exec bash "$HARNESS_DIR/pause.sh" "$@";;
-  update) exec bash "$HARNESS_DIR/update.sh" "$@";;
-  setup)  exec bash "$HARNESS_DIR/setup.sh" "$@";;
-  plan|prd|issue) exec bash "$HARNESS_DIR/inject.sh" "$cmd" "$@";;
-  resume) exec bash "$HARNESS_DIR/resume.sh" "$@";;
+  init)   exec bash "$ENGINE_DIR/init.sh" "$@";;
+  start)  exec bash "$ENGINE_DIR/start.sh" "$@";;
+  stop)   exec bash "$ENGINE_DIR/stop.sh" "$@";;
+  status) exec bash "$ENGINE_DIR/status.sh" "$@";;
+  attach) exec bash "$ENGINE_DIR/attach.sh" "$@";;
+  pause)  exec bash "$ENGINE_DIR/pause.sh" "$@";;
+  update) exec bash "$ENGINE_DIR/update.sh" "$@";;
+  setup)  exec bash "$ENGINE_DIR/setup.sh" "$@";;
+  plan|prd|issue) exec bash "$ENGINE_DIR/inject.sh" "$cmd" "$@";;
+  resume) exec bash "$ENGINE_DIR/resume.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
   *) echo "unknown command: $cmd" >&2; usage; exit 2;;
