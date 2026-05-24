@@ -12,6 +12,7 @@ _bug_numbers(){ printf 'acme/widget#6\nacme/widget#7\n'; }
 assert_eq "$(claimable_bugs | tr '\n' ' ')" "acme/widget#6 acme/widget#7 " "both bugs claimable when unclaimed"
 got="$(claim_next_bug P1)"; assert_eq "$got" "acme/widget#6" "claim_next_bug returns first claimable bug token"
 assert_eq "$(awk '{print $1}' "$CLAIMS_DIR/bug-acme_widget-6.claim")" "P1" "claim records worker id (repo-qualified key)"
+assert_eq "$(awk '{print $3}' "$CLAIMS_DIR/bug-acme_widget-6.claim")" "acme/widget#6" "claim stores the full repo-qualified token (#44 — lane_bug/checkpoint read it)"
 assert_ok  "claimed bug is is_bug_claimed"          is_bug_claimed acme/widget#6
 assert_eq "$(claimable_bugs | tr '\n' ' ')" "acme/widget#7 " "claimed bug excluded -> only the other waits"
 release_bug_claim acme/widget#6

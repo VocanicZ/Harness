@@ -27,7 +27,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
   REPO="$(_bug_ref_repo "$ref")"; n="$(_bug_ref_num "$ref")"
   [[ -n "$REPO" ]] || { log "priority: cannot resolve repo for bug $ref"; return 1; }
   SLUG="$(_with_owner "$REPO")"; PROJECT="${SLUG##*/}"; DESC="$PROJECT"; CHECKOUT="$(bug_checkout "$REPO")"
-  phase="$(bug_phase "$n")"; sess="$(sess_bug "$n" "$phase")"
+  phase="$(bug_phase "$n")"; sess="$(sess_bug "$SLUG" "$n" "$phase")"
   log "priority: bug #$n → $phase session ($sess)"
   spawn_bug "$n" "$phase" || { log "priority: spawn failed for bug #$n"; return 1; }
   # Hold the claim while the phase session is live; reap once its goal is satisfied. A pause

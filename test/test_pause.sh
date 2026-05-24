@@ -68,10 +68,12 @@ assert_no "force: never killed the session"   bash -c "grep -q 'kill-session' '$
 rm -rf "$RUN_DIR3"
 
 # --- pause --force ALSO checkpoints priority-lane sessions (#36) --------------
-# Lane sessions are hz-bug-<n>-(triage|fix) — they end in -triage/-fix, not -i<digits>, so the
-# old impl-only selector missed them and silently dropped an in-flight bug fix's WIP. A forced
-# pause must reach BOTH lane phases: send the checkpoint, poll the bug's issue for agent-paused,
-# never kill. The fix branch is issue/<n>; triage has no code branch but must still flip the label.
+# Legacy BARE lane sessions (hz-bug-<n>-(triage|fix)) — they end in -triage/-fix, not -i<digits>,
+# so the old impl-only selector missed them and silently dropped an in-flight bug fix's WIP. A
+# forced pause must reach BOTH lane phases: send the checkpoint, poll the bug's issue for
+# agent-paused, never kill. The fix branch is issue/<n>; triage has no code branch but must still
+# flip the label. (The bare form is the pre-#44 shape, still handled via the bug_bare_re fallback;
+# the repo-qualified shape is covered by the #44 multi case below.)
 RUN_DIR5="$(mktemp -d)"; CALLS5="$RUN_DIR5/calls"; : > "$CALLS5"
 export CALLS="$CALLS5"
 export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
@@ -99,6 +101,41 @@ assert_no "lane: never killed a lane session" \
 assert_ok "lane: PAUSED flag set" bash -c "[[ -f '$RUN_DIR5/PAUSED' ]]"
 unset CALLS
 rm -rf "$RUN_DIR5"
+
+# --- #44 multi-topology: pause --force routes to the CORRECT repo on collision --
+# Two repos each hold a bug #6; the lane currently fixes acme/b's #6 (session
+# hz-bug-acme_b-6-fix, claim bug-acme_b-6 carrying token acme/b#6). The old _checkpoint_target
+# parsed the BARE number out of the session and re-resolved the repo via bug_repo — the
+# "first repo that lists #6" rescan — which in `multi` picks the WRONG repo. The checkpoint
+# message and the confirmation poll must reference acme/b (the repo CARRIED in the claim), never
+# acme/a.
+RUN_DIR6="$(mktemp -d)"; CALLS6="$RUN_DIR6/calls"; : > "$CALLS6"
+mkdir -p "$RUN_DIR6/claims"
+printf 'P1 12345 acme/b#6\n' > "$RUN_DIR6/claims/bug-acme_b-6.claim"
+export CALLS="$CALLS6"
+export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+tmux(){ echo "tmux $*" >> "$CALLS"
+  case "$1" in
+    ls) printf 'hz-bug-acme_b-6-fix\n';;
+    send-keys) : ;;
+    kill-session) : ;;
+  esac; }
+gh(){ echo "gh $*" >> "$CALLS"
+  case "$1 $2" in
+    "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
+  esac; return 0; }
+export -f tmux gh
+RUN_DIR="$RUN_DIR6" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+assert_ok "multi: checkpoint sent to hz-bug-acme_b-6-fix" \
+  bash -c "grep -q 'send-keys -t hz-bug-acme_b-6-fix' '$CALLS6'"
+assert_ok "multi: confirms via the CARRIED repo (polls gh issue view 6 -R acme/b)" \
+  bash -c "grep -qE 'gh issue view 6 -R acme/b( |\$)' '$CALLS6'"
+assert_no "multi: never mis-routes to the colliding repo acme/a" \
+  bash -c "grep -qE 'gh issue view 6 -R acme/a( |\$)' '$CALLS6'"
+assert_no "multi: never killed a lane session" \
+  bash -c "grep -q 'kill-session' '$CALLS6'"
+unset CALLS
+rm -rf "$RUN_DIR6"
 
 # --- resume.sh clears the flag (alive-worker branch: does NOT exec start) -----
 RUN_DIR4="$(mktemp -d)"; touch "$RUN_DIR4/PAUSED"

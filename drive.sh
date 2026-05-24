@@ -208,7 +208,7 @@ spawn_bug(){
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" \
     LABEL_BUG="$HARNESS_LABEL_BUG" LABEL_BUG_TRIAGED="$HARNESS_LABEL_BUG_TRIAGED" > "$wd/.harness-task.md"
-  launch_claude "$(sess_bug "$issue" "$phase")" "$wd"
+  launch_claude "$(sess_bug "$SLUG" "$issue" "$phase")" "$wd"
 }
 
 # drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.

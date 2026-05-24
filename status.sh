@@ -80,8 +80,8 @@ render_once(){
 
   # Priority bug lane (#35): its own row — the pool counts above never include it, so without
   # this the lane is operationally invisible. Shows UP/DOWN from priority.pid, plus its held
-  # bug + phase (parsed from the bug-<n>.claim and the live hz-bug-<n>-<phase> session) or
-  # "watching" when idle.
+  # bug + phase: the repo-qualified ref from the bug-*.claim (its stored token) and the phase from
+  # the live hz-bug-<repo-sanitised>-<n>-<phase> session (#44) — or "watching" when idle.
   echo "──────────────────────  priority bug lane  ────────────────────────"
   local lmark lpid
   if pid_up "$RUN_DIR/priority.pid"; then
@@ -93,7 +93,12 @@ render_once(){
   local lbug; lbug="$(lane_bug 2>/dev/null || true)"
   if [[ -n "$lbug" ]]; then
     local lphase; lphase="$(lane_phase "$lbug" 2>/dev/null || true)"
-    printf '        ▶ bug #%s (%s)\n' "$lbug" "${lphase:-?}"
+    # A repo-qualified ref (<owner>/<repo>#N, #44) already carries its own '#'; a bare number
+    # (legacy single-topology claim) gets the '#' prefix. Avoids the ugly 'bug #acme/a#6'.
+    case "$lbug" in
+      *#*) printf '        ▶ bug %s (%s)\n'  "$lbug" "${lphase:-?}";;
+      *)   printf '        ▶ bug #%s (%s)\n' "$lbug" "${lphase:-?}";;
+    esac
   elif pid_up "$RUN_DIR/priority.pid"; then
     echo "        · watching (no bug claimed)"
   fi
