@@ -21,4 +21,8 @@ assert "config uses := form"      "grep -q ':= ' '$CFG' || grep -q ':=issue' '$C
 # env override: pre-set env beats file (because lines are := )
 ( HARNESS_MODE=planned; source "$CFG"; [[ "$HARNESS_MODE" == planned ]] ) \
   && echo "  ok: env overrides file" || { echo "  FAIL: env override"; exit 1; }
+# author allowlist key is written (default empty = self-only) and round-trips
+assert "author allowlist key written" "grep -q 'HARNESS_AUTHOR_ALLOWLIST' '$CFG'"
+( source "$CFG"; [[ "${HARNESS_AUTHOR_ALLOWLIST-unset}" == "" ]] ) \
+  && echo "  ok: author allowlist defaults empty" || { echo "  FAIL: author allowlist default"; exit 1; }
 echo "── init ok"
