@@ -16,7 +16,9 @@ Install the engine **once per host**, then drive any number of projects with it:
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install, places the engine at the single host location `~/.harness/engine/`, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy is cloned into your project.
+`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install, places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
+
+The `~/.harness/` host root also carries two **reserved, empty** subdirs created at install time — `poller/` and `snapshots/`. They establish the host-layout contract now and are **reserved for PRD-B** (host-level poller + snapshots); the engine writes nothing into them yet.
 
 Then, from the root of each project you want to drive:
 
@@ -157,13 +159,13 @@ already state-only `.harness/` is a no-op) and **refuses** if no shared engine i
 
 ## The `/harness` skill
 
-Ships in the engine at `~/.harness/engine/skill/SKILL.md` and deploys into your project's `.claude/skills/harness/SKILL.md`.
+Ships in the engine at `~/.harness/engine/skill/SKILL.md` and installs **once** to your user scope at `~/.claude/skills/harness/SKILL.md` (available in every project — not vendored per repo). `harness update --with-skills` re-deploys it from the freshly pulled engine.
 
 Invoke `/harness` (or say "start the fleet", "what's the harness doing") inside any Claude session in your project. The skill wraps the CLI so you can operate the fleet conversationally — start, stop, watch the dashboard, read per-unit state, distinguish COMPLETE from stuck, and apply safe unstick moves (free a stale `agent-working` label, fix a `## Blocked by` section, run `--recover`). Read-mostly posture: operate and observe; never hand-do a unit's PLAN/PRD/IMPL work.
 
 ### Per-command shortcuts
 
-For one-shot ops without the state-detection dance, thin sibling skills map 1:1 to a CLI subcommand. Each ships in the engine at `~/.harness/engine/skill/<name>/SKILL.md` and deploys to your project's `.claude/skills/<name>/`:
+For one-shot ops without the state-detection dance, thin sibling skills map 1:1 to a CLI subcommand. Each ships in the engine at `~/.harness/engine/skill/<name>/SKILL.md` and installs once to your user scope at `~/.claude/skills/<name>/`:
 
 | Skill | Runs | Notes |
 |-------|------|-------|

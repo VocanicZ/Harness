@@ -29,16 +29,15 @@ for name in harness-plan harness-prd harness-issue; do
   assert "$name documents --recover fallback" "grep -q -- '--recover' '$f'"
 done
 
-# deploy simulation mirrors install.sh / update.sh: copy umbrella + every skill/<name>/SKILL.md
-TMP="$(mktemp -d)"; ROOT="$TMP/proj"; mkdir -p "$ROOT"
-mkdir -p "$ROOT/.claude/skills/harness" && cp "$SK/SKILL.md" "$ROOT/.claude/skills/harness/SKILL.md"
-for d in "$SK"/*/; do
-  [[ -f "$d/SKILL.md" ]] || continue
-  n="$(basename "$d")"; mkdir -p "$ROOT/.claude/skills/$n" && cp "$d/SKILL.md" "$ROOT/.claude/skills/$n/SKILL.md"
-done
-assert "deploy keeps umbrella /harness" "[[ -f '$ROOT/.claude/skills/harness/SKILL.md' ]]"
+# deploy uses the REAL install.sh function (install once, user scope) — not a local cp simulation —
+# so this test and `harness install` can never drift apart (#57, PRD #52).
+export HARNESS_INSTALL_NOMAIN=1
+source "$HERE/../install.sh"
+TMP="$(mktemp -d)"; USK="$TMP/.claude/skills"
+HARNESS_SKILL_SRC="$SK" HARNESS_USER_SKILLS="$USK" install_harness_skills >/dev/null
+assert "deploy keeps umbrella /harness" "[[ -f '$USK/harness/SKILL.md' ]]"
 for name in "${!CMD[@]}"; do
-  assert "deploy lands /$name" "[[ -f '$ROOT/.claude/skills/$name/SKILL.md' ]]"
+  assert "deploy lands /$name" "[[ -f '$USK/$name/SKILL.md' ]]"
 done
 rm -rf "$TMP"
 echo "── subskills ok"

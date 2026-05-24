@@ -83,6 +83,36 @@ place_engine(){
   fi
 }
 
+# create_host_root — establish the ~/.harness host ROOT with the PRD-B-reserved (empty) poller/ and
+# snapshots/ subdirs (#57, PRD #52). Contract only: PRD-B populates them; install creates them now so
+# the host layout is stable. No logic, no files. Idempotent (mkdir -p on an existing root is a no-op).
+create_host_root(){
+  local home="${HARNESS_HOME:-$HOME/.harness}"
+  mkdir -p "$home/poller" "$home/snapshots"
+}
+
+# install_harness_skills — deploy the engine's OWN /harness operator skills to USER scope
+# (~/.claude/skills) ONCE per host, not vendored per project (#57, PRD #52). Source is the shared
+# engine's skill/ dir (place_engine runs first in main); the umbrella skill/SKILL.md → harness/, and
+# each per-command skill/<name>/SKILL.md → <name>/. Best-effort: a missing source warns, never fails.
+install_harness_skills(){
+  local src="${HARNESS_SKILL_SRC:-${HARNESS_HOME:-$HOME/.harness}/engine/skill}"
+  local dst="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
+  if [[ ! -d "$src" ]]; then
+    echo "  ! engine skill/ not found at $src — install /harness skills manually" >&2; return 0
+  fi
+  mkdir -p "$dst"
+  local n=0 d
+  if [[ -f "$src/SKILL.md" ]]; then
+    mkdir -p "$dst/harness"; cp "$src/SKILL.md" "$dst/harness/SKILL.md" && n=$((n+1))
+  fi
+  for d in "$src"/*/; do
+    [[ -f "$d/SKILL.md" ]] || continue
+    mkdir -p "$dst/$(basename "$d")"; cp "$d/SKILL.md" "$dst/$(basename "$d")/SKILL.md" && n=$((n+1))
+  done
+  echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
+}
+
 # print_path_instructions — portability fallback when the PATH symlink can't be written: tell the
 # user exactly how to put the engine's bin/ on PATH themselves.
 print_path_instructions(){
@@ -118,6 +148,8 @@ main(){
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   ensure_skills
   place_engine
+  create_host_root          # ~/.harness/{poller,snapshots}/ — reserved for PRD-B (empty contract)
+  install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path
   cat <<EOF
 Done. The engine is installed once at $HARNESS_HOME/engine and linked as 'harness'.

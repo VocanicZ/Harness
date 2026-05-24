@@ -40,4 +40,21 @@ assert "update does not deploy into the engine's parent" "[[ ! -d '$(dirname "$E
 assert "update.sh has no git clean"        "! grep -qE 'git +clean' '$HERE/../update.sh'"
 assert "update.sh has no git reset --hard" "! grep -qE 'reset +--hard' '$HERE/../update.sh'"
 assert "update.sh has no git checkout -f"  "! grep -qE 'checkout +-f' '$HERE/../update.sh'"
+
+# ── --with-skills redeploys the engine's /harness skills to USER scope (#57) ──
+# After the engine ff-pulls, the user-scope skill copies must be refreshed from the new engine —
+# otherwise an engine update leaves stale /harness skills behind. ENG2 is a real clone so the
+# `git pull --ff-only` at the top of update.sh is a clean no-op and execution reaches --with-skills.
+REMOTE2="$(mktemp -d)/remote2.git"; git init -q --bare -b main "$REMOTE2"
+WORK2="$(mktemp -d)"; mkdir -p "$WORK2/skill/harness-start"
+cp "$HERE/../update.sh" "$HERE/../install.sh" "$HERE/../lib.sh" "$WORK2/"
+printf 'name: harness\ndescription: x\n' > "$WORK2/skill/SKILL.md"
+printf 'name: harness-start\ndescription: x\nharness start\n' > "$WORK2/skill/harness-start/SKILL.md"
+gc "$WORK2" init -q; gc "$WORK2" branch -M main; gc "$WORK2" add -A; gc "$WORK2" commit -qm init >/dev/null
+gc "$WORK2" remote add origin "$REMOTE2"; gc "$WORK2" push -q -u origin main
+ENG2="$(mktemp -d)/engine2"; git clone -q "$REMOTE2" "$ENG2"
+SBX="$(mktemp -d)"; mkdir -p "$SBX/.claude/skills/to-prd" "$SBX/.claude/skills/to-issues"  # skip net clone
+ws_out="$(HOME="$SBX" ENGINE_DIR="$ENG2" bash "$ENG2/update.sh" --with-skills 2>&1)"
+assert "--with-skills redeploys umbrella /harness to user scope" "[[ -f '$SBX/.claude/skills/harness/SKILL.md' ]]"
+assert "--with-skills redeploys per-command skill to user scope" "[[ -f '$SBX/.claude/skills/harness-start/SKILL.md' ]]"
 echo "── update ok"
