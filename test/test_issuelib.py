@@ -357,7 +357,8 @@ def test_bug_lane_issues_lists_open_bugs_for_the_priority_lane():
         {"number": 9, "title": "fixed bug", "state": "CLOSED", "body": "", "_author": "me",
          "_labels": {"bug"}},                                   # closed -> excluded
     ]
-    assert il.bug_lane_issues("acme/widget") == [6, 7], il.bug_lane_issues("acme/widget")
+    # fix-pending-first (#28): the bug-triaged #7 (a pending fix) sorts ahead of the fresh #6.
+    assert il.bug_lane_issues("acme/widget") == [7, 6], il.bug_lane_issues("acme/widget")
 
 def test_bug_lane_issues_drops_disallowed_authors():
     # a bug filed by a non-allowed author must not enter the lane (secure-by-default).
@@ -373,6 +374,46 @@ def test_bug_lane_issues_drops_disallowed_authors():
          "_labels": {"bug"}},
     ]
     assert il.bug_lane_issues("acme/widget") == [6], il.bug_lane_issues("acme/widget")
+
+def test_bug_lane_issues_fix_pending_first():
+    # fix-pending-first (#28): a bug already triaged (L_BUG_TRIAGED, a pending fix) must come
+    # before a fresh untriaged bug, so the cap-1 lane drains the triaged one to closed before
+    # triaging the new one — even when the fresh bug has the lower issue number.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 6, "title": "fresh bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},                                   # triage stage, lower number
+        {"number": 9, "title": "triaged bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged"}},                           # fix stage, higher number
+    ]
+    assert il.bug_lane_issues("acme/widget") == [9, 6], il.bug_lane_issues("acme/widget")
+
+def test_bug_lane_issues_stable_within_a_phase():
+    # the fix-pending-first sort is stable: among same-phase bugs the input (issue) order holds,
+    # so two pending fixes drain oldest-first and two fresh bugs triage in list order.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 3, "title": "fresh a", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},
+        {"number": 5, "title": "triaged a", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged"}},
+        {"number": 4, "title": "fresh b", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},
+        {"number": 8, "title": "triaged b", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged"}},
+    ]
+    # both triaged (in list order: 5, 8) precede both fresh (in list order: 3, 4)
+    assert il.bug_lane_issues("acme/widget") == [5, 8, 3, 4], il.bug_lane_issues("acme/widget")
 
 def test_bug_lane_issues_cli_prints_numbers():
     os.environ.pop("HARNESS_LABEL_BUG", None)
