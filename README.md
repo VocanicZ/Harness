@@ -10,13 +10,21 @@ A project-agnostic agent orchestrator that drives a fixed pool of autonomous Cla
 
 ## Install
 
-Run from the root of the project you want to drive:
+Install the engine **once per host**, then drive any number of projects with it:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install, clones Harness into `.harness/`, installs the `/harness` management skill into `.claude/skills/harness/`, and runs `harness init`.
+`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install, places the engine at the single host location `~/.harness/engine/`, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy is cloned into your project.
+
+Then, from the root of each project you want to drive:
+
+```sh
+harness init     # writes that project's config + state under .harness/
+```
+
+`HARNESS_HOME` (default `~/.harness`) and `HARNESS_BIN_DIR` (default `~/.local/bin`) override the install location and the symlink directory.
 
 ## Prerequisites
 
@@ -85,8 +93,10 @@ The check applies to both PRD selection and the implementation claimable filter.
 
 ## Commands
 
+`harness` is on your `PATH` after install; run it from inside any project you've `harness init`'d:
+
 ```
-.harness/bin/harness <command>
+harness <command>
 ```
 
 | Command | Description |
@@ -100,11 +110,11 @@ The check applies to both PRD selection and the implementation claimable filter.
 ## Pause / resume / update
 
 ```bash
-.harness/bin/harness pause           # soft drain — stop claiming; live agents finish (local)
-.harness/bin/harness pause --force   # checkpoint every agent to GitHub, then idle
-.harness/bin/harness resume          # clear pause; resume here, or start --recover elsewhere
-.harness/bin/harness update          # ff-pull the engine + redeploy the /harness skill (keeps config)
-.harness/bin/harness setup           # verify prereqs + seed labels on all units (no start)
+harness pause           # soft drain — stop claiming; live agents finish (local)
+harness pause --force   # checkpoint every agent to GitHub, then idle
+harness resume          # clear pause; resume here, or start --recover elsewhere
+harness update          # ff-pull the one shared engine install (every project picks it up)
+harness setup           # verify prereqs + seed labels on all units (no start)
 ```
 
 **Cross-machine pause/resume.** `pause --force` tells each running agent to commit + push its WIP
@@ -113,26 +123,27 @@ Because all of that lives in GitHub, you can `resume` on a *different* machine: 
 `start --recover`, re-dispatches the `agent-paused` issues, and each agent fetches its branch, reads
 the handoff comment, and finishes the work.
 
-**`update` never touches your config.** It runs `git pull --ff-only` on `.harness`, redeploys the
-`/harness` skill, and snapshots/restores `config` + `targets.tsv` — it never runs a destructive git
-op. Live workers keep the old engine logic until you relaunch (`pause` → drain → `stop` →
-`start --recover`).
+**`update` never touches your config.** It runs `git pull --ff-only` on the single shared engine
+install (`~/.harness/engine`) and nothing else — no project `.harness/` is touched, and it never
+runs a destructive git op. Because every project shares that one install, one `update` updates them
+all at once (no per-project re-pull, no version skew). Live workers keep the old engine logic until
+you relaunch (`pause` → drain → `stop` → `start --recover`).
 
 New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
 
 ## The `/harness` skill
 
-Ships at `.harness/skill/SKILL.md`, installed by `install.sh` into `.claude/skills/harness/SKILL.md`.
+Ships in the engine at `~/.harness/engine/skill/SKILL.md` and deploys into your project's `.claude/skills/harness/SKILL.md`.
 
 Invoke `/harness` (or say "start the fleet", "what's the harness doing") inside any Claude session in your project. The skill wraps the CLI so you can operate the fleet conversationally — start, stop, watch the dashboard, read per-unit state, distinguish COMPLETE from stuck, and apply safe unstick moves (free a stale `agent-working` label, fix a `## Blocked by` section, run `--recover`). Read-mostly posture: operate and observe; never hand-do a unit's PLAN/PRD/IMPL work.
 
 ### Per-command shortcuts
 
-For one-shot ops without the state-detection dance, the installer also deploys thin sibling skills that map 1:1 to a CLI subcommand. Each lives at `.harness/skill/<name>/SKILL.md` and installs to `.claude/skills/<name>/`:
+For one-shot ops without the state-detection dance, thin sibling skills map 1:1 to a CLI subcommand. Each ships in the engine at `~/.harness/engine/skill/<name>/SKILL.md` and deploys to your project's `.claude/skills/<name>/`:
 
 | Skill | Runs | Notes |
 |-------|------|-------|
-| `/harness-init`   | `harness init`   | setup wizard (interactive — prefer `! .harness/bin/harness init`) |
+| `/harness-init`   | `harness init`   | setup wizard (interactive — prefer `! harness init`) |
 | `/harness-start`  | `harness start`  | confirms first; `--recover` for crash/new-host |
 | `/harness-stop`   | `harness stop`   | confirms first; asks before `--clean` |
 | `/harness-pause`  | `harness pause`  | confirms first; soft drain vs `--force` checkpoint |

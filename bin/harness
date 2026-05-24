@@ -12,6 +12,7 @@ STATE_DIR="${STATE_DIR:-$ENGINE_DIR}"
 export ENGINE_DIR STATE_DIR
 usage(){ cat <<EOF
 usage: harness <command> [args]
+  install              install the engine once to ~/.harness/engine + link 'harness' onto PATH
   init                 interactive setup wizard (writes config, creates labels, seeds repo)
   start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
   stop  [--clean]      stop the pool (--clean also removes worktrees)
@@ -19,7 +20,7 @@ usage: harness <command> [args]
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   resume               clear pause; resume here or start --recover (works across machines)
-  update [--with-skills]   ff-pull engine + redeploy skill (keeps your config)
+  update [--with-skills]   ff-pull the shared engine install (one place; all projects pick it up)
   setup                verify prereqs + seed configured labels on all units (no start)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
@@ -28,6 +29,7 @@ EOF
 }
 cmd="${1:-}"; shift || true
 case "$cmd" in
+  install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   init)   exec bash "$ENGINE_DIR/init.sh" "$@";;
   start)  exec bash "$ENGINE_DIR/start.sh" "$@";;
   stop)   exec bash "$ENGINE_DIR/stop.sh" "$@";;

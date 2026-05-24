@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
+# install.sh — install the engine ONCE per host (#54, PRD #52). The engine (all code/assets) lives
+# at a single host location, $HARNESS_HOME/engine, and `harness` is symlinked onto PATH. Projects
+# never get their own engine copy; per-project config + state live in <project>/.harness/ (created
+# by `harness init`). `harness update` ff-pulls only this one shared install.
 set -uo pipefail
 HARNESS_REPO_URL="${HARNESS_REPO_URL:-https://github.com/VocanicZ/Harness.git}"
+HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}"           # host root for the shared engine (+ PRD-B subdirs)
+HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"   # where the `harness` PATH symlink is placed
 HARNESS_MARKETPLACE="${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}"
 HARNESS_MARKETPLACE_NAME="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
 MATTPOCOCK_SKILLS_URL="${MATTPOCOCK_SKILLS_URL:-https://github.com/mattpocock/skills.git}"
@@ -62,18 +68,60 @@ ensure_skills(){
   fi
   return 0
 }
+# place_engine — clone/place the engine at the SINGLE host location $HARNESS_HOME/engine (never into
+# a project's ./.harness/). Idempotent: an existing install is fast-forwarded, not re-cloned.
+place_engine(){
+  local home="${HARNESS_HOME:-$HOME/.harness}" dest
+  dest="$home/engine"
+  mkdir -p "$home"
+  if [[ -d "$dest/.git" ]]; then
+    echo "  engine already present at $dest — fast-forwarding"
+    git -C "$dest" pull --ff-only || echo "  ! could not ff-pull $dest (diverged?) — leaving as-is" >&2
+  else
+    echo "  installing engine to $dest ..."
+    git clone "$HARNESS_REPO_URL" "$dest"
+  fi
+}
+
+# print_path_instructions — portability fallback when the PATH symlink can't be written: tell the
+# user exactly how to put the engine's bin/ on PATH themselves.
+print_path_instructions(){
+  local target="$1" dir; dir="$(dirname "$target")"
+  cat >&2 <<EOF
+  ! could not create the 'harness' symlink (${HARNESS_BIN_DIR:-$HOME/.local/bin} not writable).
+    Put the engine on your PATH manually instead:
+        export PATH="$dir:\$PATH"
+    (add that line to ~/.bashrc or ~/.zshrc, then re-open your shell)
+EOF
+}
+
+# link_path — symlink `harness` onto PATH ($HARNESS_BIN_DIR/harness → engine/bin/harness). ENGINE_DIR
+# resolves via realpath of the entrypoint's OWN path (bin/harness), so the symlink runs the real
+# engine. If the link can't be written, fall back to printing explicit PATH instructions.
+link_path(){
+  local home="${HARNESS_HOME:-$HOME/.harness}" bindir="${HARNESS_BIN_DIR:-$HOME/.local/bin}"
+  local target="$home/engine/bin/harness" link="$bindir/harness"
+  mkdir -p "$bindir" 2>/dev/null
+  if ln -sfn "$target" "$link" 2>/dev/null; then
+    echo "  linked $link -> $target"
+    case ":$PATH:" in
+      *":$bindir:"*) ;;
+      *) echo "  NOTE: $bindir is not on your PATH yet. Add it:"
+         echo "        export PATH=\"$bindir:\$PATH\"  # add to ~/.bashrc or ~/.zshrc" ;;
+    esac
+  else
+    print_path_instructions "$target"
+  fi
+}
+
 main(){
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   ensure_skills
-  if [[ -d .harness/.git ]]; then git -C .harness pull --ff-only; else git clone "$HARNESS_REPO_URL" .harness; fi
-  mkdir -p .claude/skills/harness && cp .harness/skill/SKILL.md .claude/skills/harness/SKILL.md
-  # per-command thin skills (/harness-init, /harness-start, …) live in skill/<name>/SKILL.md
-  for d in .harness/skill/*/; do
-    [[ -f "$d/SKILL.md" ]] || continue
-    n="$(basename "$d")"; mkdir -p ".claude/skills/$n" && cp "$d/SKILL.md" ".claude/skills/$n/SKILL.md"
-  done
-  grep -qxF '.harness/' .gitignore 2>/dev/null || echo '.harness/' >> .gitignore
-  bash .harness/init.sh
-  echo "Done. Start with: .harness/bin/harness start   (or ask Claude: /harness)"
+  place_engine
+  link_path
+  cat <<EOF
+Done. The engine is installed once at $HARNESS_HOME/engine and linked as 'harness'.
+Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+EOF
 }
 [[ "${HARNESS_INSTALL_NOMAIN:-0}" == 1 ]] || main "$@"
