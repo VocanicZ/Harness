@@ -278,7 +278,7 @@ recover_orphan_working(){ local u slug n freed=0
     while read -r n; do
       [[ -z "$n" ]] && continue
       session_live "$(sess_impl "$u" "$n")" && continue   # live impl session — never sweep
-      bug_session_live "$n" && continue                   # live bug-lane session — never sweep (#43)
+      bug_session_live "$slug" "$n" && continue           # live bug-lane session — never sweep (#43)
       if gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1; then
         echo "  freed $slug#$n (orphaned $HARNESS_LABEL_WORKING — no live session)" >&2
         freed=$((freed+1))
@@ -306,11 +306,13 @@ sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }
-# bug_session_live <n> — is EITHER phase's session for bug #n live? The SINGLE liveness predicate
-# the lane's per-poll reap (#42, reap_lane) and start --recover's bug-aware skip (#43) both use, so
-# the two reconciliation paths can never disagree about whether a bug is in flight. A bug whose
-# session is live is NEVER swept — neither path strips its agent-working nor reaps its worktree.
-bug_session_live(){ session_live "$(sess_bug "$1" triage)" || session_live "$(sess_bug "$1" fix)"; }
+# bug_session_live <slug> <n> — is EITHER phase's session for bug #n in <slug> live? The SINGLE
+# liveness predicate the lane's per-poll reap (#42, reap_lane) and start --recover's bug-aware skip
+# (#43) both use, so the two reconciliation paths can never disagree about whether a bug is in
+# flight. The slug is REQUIRED: sess_bug embeds the repo (#44), so the session name can't be rebuilt
+# from the issue number alone — both callers already hold the slug and pass it. A bug whose session
+# is live is NEVER swept — neither path strips its agent-working nor reaps its worktree.
+bug_session_live(){ session_live "$(sess_bug "$1" "$2" triage)" || session_live "$(sess_bug "$1" "$2" fix)"; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
 tmpl = open(sys.argv[1]).read()

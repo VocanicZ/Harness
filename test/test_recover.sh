@@ -34,10 +34,14 @@ assert_ok "dead-session bug freed by recover" \
 assert_eq "$(cat "$WTLOG")" "" "recover sweep never touches a worktree"
 
 # ── LIVE bug session: --recover retains agent-working (no double-dispatch / corruption) ──
-: > "$GHLOG"; printf '%s\n' "$(sess_bug 9 fix)" > "$LIVE"; WORKING="9"
+# The live session is the REAL one production creates — the 3-arg repo-qualified sess_bug
+# "<slug>" <n> <phase> (#44), built with the SAME slug recover_orphan_working derives — so this
+# verifies the recover skip against the production session name, not a 2-arg stand-in (#48).
+SLUG="$(unit_slug "$(all_units)")"                       # exactly the slug recover_orphan_working derives
+: > "$GHLOG"; printf '%s\n' "$(sess_bug "$SLUG" 9 fix)" > "$LIVE"; WORKING="9"
 recover_orphan_working >/dev/null 2>&1
 assert_eq "$(cat "$GHLOG")" "" "live bug-FIX session: agent-working retained by recover"
-: > "$GHLOG"; printf '%s\n' "$(sess_bug 9 triage)" > "$LIVE"; WORKING="9"
+: > "$GHLOG"; printf '%s\n' "$(sess_bug "$SLUG" 9 triage)" > "$LIVE"; WORKING="9"
 recover_orphan_working >/dev/null 2>&1
 assert_eq "$(cat "$GHLOG")" "" "live bug-TRIAGE session: agent-working retained by recover"
 

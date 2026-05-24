@@ -66,7 +66,7 @@ reap_lane(){ local repo slug n
     slug="$(_with_owner "$repo")"
     while read -r n; do
       [[ -n "$n" ]] || continue
-      bug_session_live "$n" && continue   # live session — never sweep (no double-dispatch, #43)
+      bug_session_live "$slug" "$n" && continue   # live session — never sweep (no double-dispatch, #43)
       log "priority: reaping stale agent-working on bug $repo#$n (no live session) — re-claimable next poll"
       gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
       remove_worktree "$(bug_checkout "$repo")" "$(bug_worktree "$slug" "$n")" "issue/$n"
