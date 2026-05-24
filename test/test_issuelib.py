@@ -4,9 +4,14 @@ spec = importlib.util.spec_from_file_location("issuelib", os.path.join(HERE, "..
 il = importlib.util.module_from_spec(spec); spec.loader.exec_module(il)
 _REAL_COMPUTE_STATE = il.compute_state   # tests that stub compute_state must restore this
 
+# Other tests monkeypatch il._spec_hash without restoring it; keep a handle to the real one so the
+# spec-hash test verifies actual behaviour regardless of run order.
+REAL_SPEC_HASH = il._spec_hash
+
 def mk(**kw):
     base = dict(slug="acme/widget", has_plan=False, prd=None, prd_open=False, prd_reviewed=False,
-                children_exist=False, children_all_closed=False, unblocked=[], open_children=0, total_children=0)
+                children_exist=False, children_all_closed=False, unblocked=[], open_children=0, total_children=0,
+                plan_marker_matches=False)
     base.update(kw); return base
 
 def dispatch_with(mode, state, free=3):
@@ -44,6 +49,36 @@ def test_planned_mode_full_pipeline():
     assert il.dispatch("acme/widget", 3, True)[0][0] == "DECOMPOSE"
     il.compute_state = lambda r: mk(prd=7, prd_open=True, children_exist=True, children_all_closed=True)
     assert il.dispatch("acme/widget", 3, True)[0][0] == "REVIEW"
+
+def test_planned_replan_suppressed_when_marker_matches():
+    # A finished plan archived PLAN.md (has_plan=False) and left a spec-keyed marker whose hash
+    # still matches the current spec → auto-PLAN must NOT re-fire.
+    os.environ["HARNESS_MODE"] = "planned"
+    il.compute_state = lambda r: mk(prd=None, has_plan=False, plan_marker_matches=True)
+    assert il.dispatch("acme/widget", 3, True) == [], "marker match must suppress replan"
+    # Spec content changed since completion (hash differs) → a fresh PLAN is allowed again.
+    il.compute_state = lambda r: mk(prd=None, has_plan=False, plan_marker_matches=False)
+    assert il.dispatch("acme/widget", 3, True)[0][0] == "PLAN", "spec drift must allow replan"
+
+def test_plan_marker_matches_compares_marker_hash_to_current_spec():
+    # compute_state derives plan_marker_matches from the committed marker (mocked gh) vs the live
+    # spec hash. Matching hash → True (suppress); differing/absent → False (allow).
+    os.environ["HARNESS_MODE"] = "planned"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"               # no real `gh api user` round-trip
+    il._list_issues = lambda slug, extra=None: []
+    il._has_plan = lambda slug: False
+    orig_spec_hash = il._spec_hash
+    il._spec_hash = lambda: "abc123"
+    try:
+        il._plan_marker = lambda slug: {"spec": "docs/spec.md", "spec_hash": "abc123"}
+        assert _REAL_COMPUTE_STATE("acme/widget")["plan_marker_matches"] is True
+        il._plan_marker = lambda slug: {"spec": "docs/spec.md", "spec_hash": "DIFFERENT"}
+        assert _REAL_COMPUTE_STATE("acme/widget")["plan_marker_matches"] is False
+        il._plan_marker = lambda slug: None
+        assert _REAL_COMPUTE_STATE("acme/widget")["plan_marker_matches"] is False
+    finally:
+        il._spec_hash = orig_spec_hash
 
 def test_complete_predicate_by_mode():
     # issue-only: complete when no open dispatchable issues remain
@@ -113,6 +148,19 @@ def test_bare_ref_blocks_same_repo():
     assert 5 not in s["unblocked"], s
     assert ("acme/widget", 9) in queried, queried   # bare ref queried against self repo
 
+def test_spec_hash_is_sha256_of_spec_file_content():
+    import hashlib, tempfile
+    body = b"engine hardening spec v1\n"
+    with tempfile.NamedTemporaryFile("wb", suffix=".md", delete=False) as f:
+        f.write(body); path = f.name
+    os.environ["HARNESS_SPEC"] = path
+    assert REAL_SPEC_HASH() == hashlib.sha256(body).hexdigest(), REAL_SPEC_HASH()
+    # unreadable / unset spec hashes to "" on both sides of the comparison
+    os.environ["HARNESS_SPEC"] = "/no/such/spec.md"
+    assert REAL_SPEC_HASH() == "", REAL_SPEC_HASH()
+    os.environ.pop("HARNESS_SPEC", None)
+    assert REAL_SPEC_HASH() == ""
+
 def test_agent_paused_issue_is_dispatchable():
     il.compute_state = _REAL_COMPUTE_STATE
     # a force-paused issue: ready label kept, agent-working removed, agent-paused added, OPEN
@@ -125,7 +173,9 @@ def test_agent_paused_issue_is_dispatchable():
          "_labels": {"ready-for-agent", "agent-paused"}},
     ]
     il._has_plan = lambda slug: False
-    s = il.compute_state("acme/widget")
+    il._plan_marker = lambda slug: None          # no real gh round-trip
+    il._spec_hash = lambda: ""
+    s = _REAL_COMPUTE_STATE("acme/widget")
     assert 5 in s["unblocked"], s
     assert s["paused"] == 1, s
 

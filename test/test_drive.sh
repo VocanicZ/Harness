@@ -50,4 +50,39 @@ assert_eq "$(cat "$KILLED")" "$(sess_orch main)" "finalize killed the leftover t
 assert_no "finalize removed the session goal file"   test -f "$RUN_DIR/$(sess_orch main).goal"
 assert_no "finalize removed the impl worktree"       test -d "$WORKTREES_DIR/main-i7"
 assert_ok "finalize deleted the local feature branch" grep -q "branch -D issue/7" "$BR"
+
+# --- archive_plan: on completion, archive PLAN.md + write a spec-keyed marker (idempotent) ---
+# CHECKOUT is a plain dir (no git repo) so `git mv`/commit/push fall back / no-op; archival itself
+# must still happen via the plain-mv fallback. HARNESS_SPEC points at a real temp spec to hash.
+make_env
+HARNESS_TOPOLOGY=single; UNIT=main; CHECKOUT="$RUN_DIR/repo"; mkdir -p "$CHECKOUT"
+SPECFILE="$RUN_DIR/spec.md"; printf 'spec v1\n' > "$SPECFILE"; HARNESS_SPEC="$SPECFILE"
+printf '# the plan\n' > "$CHECKOUT/PLAN.md"
+git(){ return 1; }                 # not a git repo: git mv fails → plain-mv fallback; commit/push no-op
+
+archive_plan
+assert_no "archive_plan removed PLAN.md from repo root" test -f "$CHECKOUT/PLAN.md"
+ARCHIVED="$(ls "$CHECKOUT"/docs/harness/archive/PLAN-*.md 2>/dev/null | head -n1)"
+assert_ok "PLAN.md archived under docs/harness/archive/PLAN-<ts>.md" test -f "$ARCHIVED"
+assert_ok "archived copy keeps the plan body" grep -q 'the plan' "$ARCHIVED"
+assert_ok "wrote the plan-complete marker" test -f "$CHECKOUT/docs/harness/plan-complete.json"
+WANT_HASH="$(HARNESS_SPEC="$SPECFILE" python3 "$HARNESS_DIR/issuelib.py" spec-hash)"
+assert_ok "marker records the spec content hash" grep -q "$WANT_HASH" "$CHECKOUT/docs/harness/plan-complete.json"
+assert_ok "marker records the HARNESS_SPEC path"  grep -qF "$SPECFILE" "$CHECKOUT/docs/harness/plan-complete.json"
+
+# idempotent: a second run with no live PLAN.md is a safe no-op (no error, no duplicate archive)
+NARCH_BEFORE="$(ls "$CHECKOUT"/docs/harness/archive/ | wc -l)"
+assert_ok "archive_plan re-run is a no-op (exit 0)" archive_plan
+assert_eq "$(ls "$CHECKOUT"/docs/harness/archive/ | wc -l)" "$NARCH_BEFORE" "no duplicate archive on re-run"
+
+# --- multi-topology: completed unit's row(s) cleared from targets.tsv ---
+make_env
+HARNESS_TOPOLOGY=multi; UNIT=b; CHECKOUT="$RUN_DIR/repo-b"; mkdir -p "$CHECKOUT"
+HARNESS_SPEC="$RUN_DIR/spec.md"; printf 'spec\n' > "$HARNESS_SPEC"
+printf '# id\trepo\tdeps\tdesc\na\tacme/a\t-\troot\nb\tacme/b\ta\tmid\nc\tacme/c\tb\tleaf\n' > "$TARGETS_TSV"
+git(){ return 1; }
+archive_plan
+assert_eq "$(_tgt_row b)" "" "targets.tsv row for completed unit b removed"
+assert_ok "targets.tsv keeps other units (a)" test -n "$(_tgt_row a)"
+assert_ok "targets.tsv keeps other units (c)" test -n "$(_tgt_row c)"
 finish

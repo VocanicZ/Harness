@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """issuelib.py — GitHub-issue state machine for the Harness orchestrator (project-agnostic)."""
-import json, os, re, subprocess, sys
+import base64, hashlib, json, os, re, subprocess, sys
+
+# Committed, spec-keyed plan-completion marker. Lives in the unit's repo (NOT in the gitignored
+# .harness runtime clone) so it survives a fresh runtime checkout. Records the HARNESS_SPEC path +
+# a content hash of that spec; the auto-PLAN gate suppresses replanning while the hash still matches.
+PLAN_MARKER_PATH = "docs/harness/plan-complete.json"
 
 OWNER = os.environ.get("HARNESS_OWNER", "")
 MODE = lambda: os.environ.get("HARNESS_MODE", "issue-only")
@@ -118,11 +123,39 @@ def _issue_state(slug, number):
     return str(d.get("state", "")).lower()
 
 
+def _spec_hash():
+    """sha256 hex of the current HARNESS_SPEC file's content; "" when unset/unreadable.
+    drive.sh writes the same digest into the marker (via `issuelib.py spec-hash`), so both sides
+    of the gate's comparison compute it identically."""
+    path = os.environ.get("HARNESS_SPEC", "")
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return ""
+
+
 def _has_plan(slug):
     """PLAN.md committed at repo root?"""
     r = subprocess.run(["gh", "api", f"repos/{slug}/contents/PLAN.md", "--jq", ".sha"],
                        capture_output=True, text=True)
     return r.returncode == 0 and r.stdout.strip() != ""
+
+
+def _plan_marker(slug):
+    """The committed plan-completion marker as a dict, or None if absent/unreadable.
+    Read via the GitHub contents API (base64) so it reflects the repo, not local run state."""
+    r = subprocess.run(["gh", "api", f"repos/{slug}/contents/{PLAN_MARKER_PATH}", "--jq", ".content"],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        raw = base64.b64decode("".join(r.stdout.split())).decode("utf-8")
+        return json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
+        return None
 
 
 def _is_unblocked(issue, slug, closed_cache, prd_num=None):
@@ -165,7 +198,9 @@ def compute_state(repo):
                  and L_WORKING() not in i["_labels"]
                  and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])
                  and _is_unblocked(i, slug, closed_cache, prd_num)]
+    marker = _plan_marker(slug)
     return {"slug": slug, "has_plan": _has_plan(slug),
+            "plan_marker_matches": marker is not None and marker.get("spec_hash") == _spec_hash(),
             "prd": prd_num, "prd_open": bool(prd) and prd["state"].lower() == "open",
             "prd_reviewed": bool(prd) and L_REVIEWED() in prd["_labels"],
             "children_exist": children_exist, "children_all_closed": children_all_closed,
@@ -177,7 +212,10 @@ def compute_state(repo):
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     if allow_orchestration:
-        if a["plan"] and s["prd"] is None and not s["has_plan"]:
+        # Fire a fresh PLAN only with no live PLAN.md AND (no completion marker OR the spec content
+        # changed since that marker). A finished plan archives PLAN.md and writes a spec-keyed marker,
+        # so without the marker check PLAN would re-fire every poll once the doc is gone.
+        if a["plan"] and s["prd"] is None and not s["has_plan"] and not s["plan_marker_matches"]:
             return [("PLAN", "-", "PLAN DONE")]
         if a["prd"] and s["has_plan"] and s["prd"] is None:
             return [("PRD", "-", "PRD DONE")]
@@ -195,8 +233,13 @@ def is_complete(s):
     return s["prd"] is not None and not s["prd_open"] and s["prd_reviewed"]
 
 def main():
+    if len(sys.argv) < 2: print(__doc__); sys.exit(2)
+    cmd = sys.argv[1]
+    # spec-hash keys the plan-completion marker off HARNESS_SPEC; it needs no repo arg.
+    if cmd == "spec-hash":
+        print(_spec_hash()); return
     if len(sys.argv) < 3: print(__doc__); sys.exit(2)
-    cmd, repo = sys.argv[1], sys.argv[2]
+    repo = sys.argv[2]
     if cmd == "dispatch":
         free = int(sys.argv[3]) if len(sys.argv) > 3 else 1
         allow = sys.argv[sys.argv.index("--allow-orchestration")+1] == "1" if "--allow-orchestration" in sys.argv else True

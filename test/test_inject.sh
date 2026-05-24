@@ -45,4 +45,18 @@ assert_eq "$?" "1" "inject.sh rejects an unknown altitude"
   source "$HERE/../inject.sh" issue "" ) 2>/dev/null
 assert_eq "$?" "1" "inject.sh rejects an empty brief"
 
+# ── §3 explicit `harness plan` bypasses the plan-complete marker gate ─────────
+# A finished plan leaves a committed marker; the auto-PLAN dispatch gate (issuelib) suppresses
+# replanning while its spec hash matches. Explicit `harness plan` routes through inject.sh, NOT that
+# gate, so it must still launch even with the marker present in the checkout.
+rm -f "$RUN_DIR/hz-main.goal"                       # clear the REVIEW goal left by the guard test
+mkdir -p "$TMPCO/docs/harness"
+printf '{"spec":"docs/spec.md","spec_hash":"deadbeef"}\n' > "$TMPCO/docs/harness/plan-complete.json"
+: > "$LAUNCH"
+( session_live(){ return 1; }
+  source "$HERE/../inject.sh" plan "rework the topology" )
+assert_eq "$?" "0" "inject.sh plan exits 0 despite a plan-complete marker (bypasses the gate)"
+assert_ok "harness plan launched the injector regardless of the marker" \
+  bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
+
 finish
