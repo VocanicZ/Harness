@@ -8,14 +8,14 @@ source "$HERE/helpers.sh"
 export RUN_DIR="$(mktemp -d)"   # keep lib.sh's mkdir out of the repo
 rc=0
 
-( unset HARNESS_POLL HARNESS_PRIORITY_POLL; source "$HERE/../lib.sh"
+( unset HARNESS_POLL HARNESS_PRIORITY_POLL; source "$HERE/../scripts/lib.sh"
   assert_eq "$HARNESS_POLL"          "300" "HARNESS_POLL defaults to 300 (slow resident cadence)"
   assert_eq "$POLL"                  "300" "POLL mirrors HARNESS_POLL"
   assert_eq "$HARNESS_PRIORITY_POLL" "60"  "HARNESS_PRIORITY_POLL defaults to 60 (fast priority lane)"
   assert_eq "$PRIORITY_POLL"         "60"  "PRIORITY_POLL mirrors HARNESS_PRIORITY_POLL"
   finish ) || rc=1
 
-( HARNESS_POLL=7 HARNESS_PRIORITY_POLL=3; source "$HERE/../lib.sh"
+( HARNESS_POLL=7 HARNESS_PRIORITY_POLL=3; source "$HERE/../scripts/lib.sh"
   assert_eq "$POLL"          "7" "HARNESS_POLL is overridable (env/.harness/config wins via :=)"
   assert_eq "$PRIORITY_POLL" "3" "HARNESS_PRIORITY_POLL is overridable (env/.harness/config wins via :=)"
   finish ) || rc=1

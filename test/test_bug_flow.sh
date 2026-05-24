@@ -6,9 +6,9 @@
 # would execute if interpolated into a `bash -c` herestring.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"
-source "$HERE/../drive.sh"
-source "$HERE/../priority-worker.sh"   # defines drive_bug/bug_goal_done; main() guarded out
+source "$HERE/../scripts/lib.sh"
+source "$HERE/../scripts/drive.sh"
+source "$HERE/../scripts/priority-worker.sh"   # defines drive_bug/bug_goal_done; main() guarded out
 source "$HERE/helpers.sh"
 make_env
 

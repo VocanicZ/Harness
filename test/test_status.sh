@@ -2,18 +2,18 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RUN_DIR="$(mktemp -d)"
-out="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget bash "$HERE/../status.sh" 2>&1 || true)"
+out="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out" | grep -qiE "worker" && echo "  ok: status mentions workers" || { echo "  FAIL"; exit 1; }
 echo "── status smoke ok"
 
 # paused state renders "PAUSED": create the flag in the SAME RUN_DIR the status run uses
 mkdir -p "$RUN_DIR"; touch "$RUN_DIR/PAUSED"
-out3="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$RUN_DIR" bash "$HERE/../status.sh" 2>&1 || true)"
+out3="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out3" | grep -qi paused && echo "  ok: status shows PAUSED when flag set" || { echo "  FAIL: no PAUSED"; exit 1; }
 
 # --- IDLE/WATCHING verdict (#24): resident workers + all units complete -----------
 # fleet_verdict is a pure helper; sourcing status.sh defines it (entrypoint is guarded).
-source "$HERE/../status.sh"
+source "$HERE/../scripts/status.sh"
 # fleet_verdict <up> <total> <sess_total> <done_n> <all_n> <paused:0|1>
 v_idle="$(fleet_verdict 3 3 0 2 2 0)"
 echo "$v_idle" | grep -qi 'IDLE'     && echo "  ok: workers up + all units complete -> IDLE/WATCHING" || { echo "  FAIL: expected IDLE, got [$v_idle]"; exit 1; }
@@ -47,13 +47,13 @@ echo "── status lane-verdict ok"
 
 # --- priority-lane row renders (#35) ----------------------------------------
 # A lane DOWN (no priority.pid) still prints its row.
-out_down="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$(mktemp -d)" bash "$HERE/../status.sh" 2>&1 || true)"
+out_down="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$(mktemp -d)" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out_down" | grep -qiE 'priority lane' && echo "  ok: status renders a priority-lane row" || { echo "  FAIL: no priority-lane row"; exit 1; }
 
 # Lane alive with no bug claimed -> row shows UP + "watching"; lane-only fleet NOT STOPPED end-to-end.
 LRUN="$(mktemp -d)"; sleep 30 & LANE_PID=$!
 echo "$LANE_PID" > "$LRUN/priority.pid"
-out_watch="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN" bash "$HERE/../status.sh" 2>&1 || true)"
+out_watch="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out_watch" | grep -qi 'watching' && echo "  ok: live lane with no bug shows 'watching'" || { echo "  FAIL: expected 'watching' in lane row"; kill "$LANE_PID" 2>/dev/null; exit 1; }
 fleet_line="$(echo "$out_watch" | grep 'FLEET:')"
 echo "$fleet_line" | grep -qi 'STOPPED' && { echo "  FAIL: lane-only-alive fleet reported STOPPED — got [$fleet_line]"; kill "$LANE_PID" 2>/dev/null; exit 1; } || true
@@ -64,7 +64,7 @@ kill "$LANE_PID" 2>/dev/null
 LRUN2="$(mktemp -d)"; sleep 30 & LANE2=$!
 echo "$LANE2" > "$LRUN2/priority.pid"
 mkdir -p "$LRUN2/claims"; printf 'P1 %s\n' "$LANE2" > "$LRUN2/claims/bug-42.claim"
-out_bug="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN2" bash "$HERE/../status.sh" 2>&1 || true)"
+out_bug="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN2" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out_bug" | grep -qi 'bug #42' && echo "  ok: lane row shows the claimed bug number" || { echo "  FAIL: lane row missing 'bug #42'"; kill "$LANE2" 2>/dev/null; exit 1; }
 kill "$LANE2" 2>/dev/null
 echo "── status priority-lane row ok"
@@ -100,7 +100,7 @@ printf 'P1 %s acme/a#6\n' "$EP" > "$ERUN/claims/bug-acme_a-6.claim"
 tmux(){ case "$1" in ls) printf 'hz-bug-acme_a-6-fix\n';; has-session) return 1;; *) return 0;; esac; }
 export -f tmux
 ETSV="$(mktemp)"   # empty targets.tsv -> no unit loops, hermetic
-oute="$(HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme TARGETS_TSV="$ETSV" RUN_DIR="$ERUN" bash "$HERE/../status.sh" 2>&1 || true)"
+oute="$(HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme TARGETS_TSV="$ETSV" RUN_DIR="$ERUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 kill "$EP" 2>/dev/null; unset -f tmux
 echo "$oute" | grep -qE 'bug acme/a#6 \(fix\)' && echo "  ok: multi lane row renders the repo-qualified bug + phase" || { echo "  FAIL: lane row not 'bug acme/a#6 (fix)' — got [$(echo "$oute" | grep -i 'bug ')]"; exit 1; }
 echo "$oute" | grep -q 'acme_a-6'  && { echo "  FAIL: sanitised claim key leaked into the render"; exit 1; } || echo "  ok: sanitised key not shown"

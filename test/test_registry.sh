@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"
+source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
 make_env
 

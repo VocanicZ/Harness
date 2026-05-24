@@ -9,7 +9,7 @@ gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
 
 # 1) a real "engine remote" with one commit, then the shared install cloned from it.
 REMOTE="$(mktemp -d)/remote.git"; git init -q --bare -b main "$REMOTE"
-WORK="$(mktemp -d)"; cp "$HERE/../update.sh" "$HERE/../lib.sh" "$WORK/"
+WORK="$(mktemp -d)"; cp "$HERE/../update.sh" "$HERE/../scripts/lib.sh" "$WORK/"
 gc "$WORK" init -q; gc "$WORK" branch -M main
 gc "$WORK" add -A; gc "$WORK" commit -qm init >/dev/null
 gc "$WORK" remote add origin "$REMOTE"; gc "$WORK" push -q -u origin main
@@ -47,7 +47,7 @@ assert "update.sh has no git checkout -f"  "! grep -qE 'checkout +-f' '$HERE/../
 # `git pull --ff-only` at the top of update.sh is a clean no-op and execution reaches --with-skills.
 REMOTE2="$(mktemp -d)/remote2.git"; git init -q --bare -b main "$REMOTE2"
 WORK2="$(mktemp -d)"; mkdir -p "$WORK2/skill/harness-start"
-cp "$HERE/../update.sh" "$HERE/../install.sh" "$HERE/../lib.sh" "$WORK2/"
+cp "$HERE/../update.sh" "$HERE/../install.sh" "$HERE/../scripts/lib.sh" "$WORK2/"
 printf 'name: harness\ndescription: x\n' > "$WORK2/skill/SKILL.md"
 printf 'name: harness-start\ndescription: x\nharness start\n' > "$WORK2/skill/harness-start/SKILL.md"
 gc "$WORK2" init -q; gc "$WORK2" branch -M main; gc "$WORK2" add -A; gc "$WORK2" commit -qm init >/dev/null

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/../drive.sh"; source "$HERE/helpers.sh"; make_env
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"; make_env
 HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
 RENDERED="$RUN_DIR/rendered"; : > "$RENDERED"
 # stubs: record which template render() was asked for; no real tmux/git/gh

@@ -33,7 +33,7 @@ mk_engine(){ mkdir -p "$1/engine/bin"; : > "$1/engine/bin/harness"; }
 # ── happy path: vendored → state-only, state preserved, engine + .git gone ──────────────
 VEND="$(mktemp -d)/.harness"; mk_vendored "$VEND"
 HH="$(mktemp -d)/.harness"; mk_engine "$HH"
-out="$(STATE_DIR="$VEND" HARNESS_HOME="$HH" bash "$HERE/../migrate.sh" 2>&1)"; rc=$?
+out="$(STATE_DIR="$VEND" HARNESS_HOME="$HH" bash "$HERE/../scripts/migrate.sh" 2>&1)"; rc=$?
 assert "migrate exits 0 on a vendored .harness/"        "[[ $rc -eq 0 ]]"
 # state preserved (presence + contents)
 assert "config preserved"                               "[[ -f '$VEND/config' ]]"
@@ -56,7 +56,7 @@ assert ".gitignore removed"                             "[[ ! -e '$VEND/.gitigno
 assert "engine prompt TEMPLATE removed"                 "[[ ! -e '$VEND/prompts/impl.md' ]]"
 
 # ── idempotent: a second run on the already-migrated dir is a clean no-op (exit 0, state intact) ──
-out2="$(STATE_DIR="$VEND" HARNESS_HOME="$HH" bash "$HERE/../migrate.sh" 2>&1)"; rc2=$?
+out2="$(STATE_DIR="$VEND" HARNESS_HOME="$HH" bash "$HERE/../scripts/migrate.sh" 2>&1)"; rc2=$?
 assert "migrate is idempotent (exit 0 on already state-only)" "[[ $rc2 -eq 0 ]]"
 assert "config still present after 2nd run"             "[[ -f '$VEND/config' ]]"
 assert "worktrees still present after 2nd run"          "[[ -f '$VEND/worktrees/wt-1/file' ]]"
@@ -65,7 +65,7 @@ assert "prompts override still present after 2nd run"   "[[ -f '$VEND/prompts/im
 # ── refuses when the shared engine is absent (and does NOT destroy state) ────────────────
 VEND2="$(mktemp -d)/.harness"; mk_vendored "$VEND2"
 NOENGINE="$(mktemp -d)/.harness"   # exists but has no engine/ subdir
-out3="$(STATE_DIR="$VEND2" HARNESS_HOME="$NOENGINE" bash "$HERE/../migrate.sh" 2>&1)"; rc3=$?
+out3="$(STATE_DIR="$VEND2" HARNESS_HOME="$NOENGINE" bash "$HERE/../scripts/migrate.sh" 2>&1)"; rc3=$?
 assert "migrate refuses (non-zero) with no shared engine" "[[ $rc3 -ne 0 ]]"
 assert "refusal mentions the shared engine / install"     "grep -qiE 'engine|install' <<< \"\$out3\""
 assert "refusal does NOT destroy state (config intact)"   "[[ -f '$VEND2/config' ]]"

@@ -2,7 +2,7 @@
 # test_inject.sh — live-work-injection: session naming/non-collision + inject.sh launcher.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/helpers.sh"; make_env
+source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
 HARNESS_SESS_PREFIX=hz
 
 # ── §1 sess_inject naming + non-collision with team_sessions ──────────────────
@@ -24,7 +24,7 @@ launch_claude(){ echo "$1 :: $2" >> "$LAUNCH"; }           # record "<sess> :: <
 
 # happy path: nothing live → launches hz-inject-main and renders the task file
 ( session_live(){ return 1; }
-  source "$HERE/../inject.sh" issue "add a rate limiter" )
+  source "$HERE/../scripts/inject.sh" issue "add a rate limiter" )
 assert_eq "$?" "0" "inject.sh issue exits 0 when nothing is live"
 assert_ok "launched hz-inject-main session" bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
 assert_ok "rendered the injector task file" bash -c "grep -q 'INJECT DONE' '$TMPCO/.harness-task.md'"
@@ -33,16 +33,16 @@ assert_ok "task file carries the brief"     bash -c "grep -q 'add a rate limiter
 # REVIEW guard: a live hz-main orch session whose goal is REVIEW must abort (exit 1)
 echo REVIEW > "$RUN_DIR/hz-main.goal"
 ( session_live(){ [[ "$1" == hz-main ]]; }
-  source "$HERE/../inject.sh" issue "add a rate limiter" ) 2>/dev/null
+  source "$HERE/../scripts/inject.sh" issue "add a rate limiter" ) 2>/dev/null
 assert_eq "$?" "1" "inject.sh aborts while a REVIEW session is live for the unit"
 
 # bad altitude is rejected
-( source "$HERE/../inject.sh" bogus "x" ) 2>/dev/null
+( source "$HERE/../scripts/inject.sh" bogus "x" ) 2>/dev/null
 assert_eq "$?" "1" "inject.sh rejects an unknown altitude"
 
 # empty brief is rejected
 ( session_live(){ return 1; }
-  source "$HERE/../inject.sh" issue "" ) 2>/dev/null
+  source "$HERE/../scripts/inject.sh" issue "" ) 2>/dev/null
 assert_eq "$?" "1" "inject.sh rejects an empty brief"
 
 # ── §3 explicit `harness plan` bypasses the plan-complete marker gate ─────────
@@ -54,7 +54,7 @@ mkdir -p "$TMPCO/docs/harness"
 printf '{"spec":"docs/spec.md","spec_hash":"deadbeef"}\n' > "$TMPCO/docs/harness/plan-complete.json"
 : > "$LAUNCH"
 ( session_live(){ return 1; }
-  source "$HERE/../inject.sh" plan "rework the topology" )
+  source "$HERE/../scripts/inject.sh" plan "rework the topology" )
 assert_eq "$?" "0" "inject.sh plan exits 0 despite a plan-complete marker (bypasses the gate)"
 assert_ok "harness plan launched the injector regardless of the marker" \
   bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
@@ -77,12 +77,12 @@ rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid
 # stdout, so capture the sourced run's stdout to a file and grep it.
 MSG="$RUN_DIR/inject.msg"
 printf '%s\n' "$$" > "$RUN_DIR/worker-1.pid"          # resident pool
-( session_live(){ return 1; }; source "$HERE/../inject.sh" issue "x" ) > "$MSG" 2>&1
+( session_live(){ return 1; }; source "$HERE/../scripts/inject.sh" issue "x" ) > "$MSG" 2>&1
 assert_ok "resident pool -> 'no restart' message"        bash -c "grep -q 'no restart' '$MSG'"
 assert_no "resident pool -> no restart guidance"         bash -c "grep -q 'harness start' '$MSG'"
 
 rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid  # truly stopped
-( session_live(){ return 1; }; source "$HERE/../inject.sh" issue "x" ) > "$MSG" 2>&1
+( session_live(){ return 1; }; source "$HERE/../scripts/inject.sh" issue "x" ) > "$MSG" 2>&1
 assert_ok "retired pool -> 'harness start' restart guidance" bash -c "grep -q 'harness start' '$MSG'"
 assert_no "retired pool -> NOT the misleading 'no restart'"  bash -c "grep -q 'no restart' '$MSG'"
 rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid

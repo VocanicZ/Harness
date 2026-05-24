@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/../drive.sh"; source "$HERE/helpers.sh"
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
 make_env
 HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; CAP=2; POLL=0
 DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"
@@ -66,7 +66,7 @@ ARCHIVED="$(ls "$CHECKOUT"/docs/harness/archive/PLAN-*.md 2>/dev/null | head -n1
 assert_ok "PLAN.md archived under docs/harness/archive/PLAN-<ts>.md" test -f "$ARCHIVED"
 assert_ok "archived copy keeps the plan body" grep -q 'the plan' "$ARCHIVED"
 assert_ok "wrote the plan-complete marker" test -f "$CHECKOUT/docs/harness/plan-complete.json"
-WANT_HASH="$(HARNESS_SPEC="$SPECFILE" python3 "$HARNESS_DIR/issuelib.py" spec-hash)"
+WANT_HASH="$(HARNESS_SPEC="$SPECFILE" python3 "$HARNESS_DIR/scripts/issuelib.py" spec-hash)"
 assert_ok "marker records the spec content hash" grep -q "$WANT_HASH" "$CHECKOUT/docs/harness/plan-complete.json"
 assert_ok "marker records the HARNESS_SPEC path"  grep -qF "$SPECFILE" "$CHECKOUT/docs/harness/plan-complete.json"
 

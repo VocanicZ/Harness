@@ -3,9 +3,10 @@
 # NO engine code is placed in the project (#55, PRD #52): the engine is one shared host install and
 # `harness` runs it off PATH. STATE_DIR is the project's .harness/; bin/harness sets it to
 # $PWD/.harness for `init`. Honors a pre-set STATE_DIR and the legacy HARNESS_DIR (direct invocation
-# / vendored layout). ENGINE_DIR (this file's dir when run directly) is only used to source lib.sh.
+# / vendored layout). ENGINE_DIR (the engine root — the parent of this file's scripts/ dir when run
+# directly, #60) is only used to source lib.sh.
 set -uo pipefail
-ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-$PWD/.harness}}"
 mkdir -p "$STATE_DIR/run/claims" "$STATE_DIR/worktrees"
 CONFIG="$STATE_DIR/config"
@@ -47,7 +48,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 } > "$CONFIG"
 echo "wrote $CONFIG"
 if [[ "$ni" != 1 ]]; then
-  source "$ENGINE_DIR/lib.sh"
+  source "$ENGINE_DIR/scripts/lib.sh"
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then seed_if_needed main
   else [[ -f "$TARGETS_TSV" ]] || printf '# id\trepo\tdeps(comma|-)\tdesc\n' > "$TARGETS_TSV"; echo "edit $TARGETS_TSV to list your repos + deps"; fi
 fi

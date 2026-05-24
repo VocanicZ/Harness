@@ -3,7 +3,7 @@
 # Run after sourcing lib.sh (which provides render()).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"
+source "$HERE/../scripts/lib.sh"
 
 TESTS_RUN=0; TESTS_FAIL=0
 assert(){

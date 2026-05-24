@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/helpers.sh"; make_env
+source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
 assert_no "not paused initially" is_paused
 touch "$PAUSE_FLAG"
 assert_ok "paused after flag created" is_paused
@@ -11,8 +11,8 @@ assert_no "not paused after flag removed" is_paused
 assert_eq "$HARNESS_LABEL_PAUSED" "agent-paused" "default paused label"
 
 # --- worker_tick idles (rc 3) when paused, without claiming -------------------
-source "$HERE/../drive.sh" 2>/dev/null || true
-source "$HERE/../pool-worker.sh" 2>/dev/null || true
+source "$HERE/../scripts/drive.sh" 2>/dev/null || true
+source "$HERE/../scripts/pool-worker.sh" 2>/dev/null || true
 HARNESS_TOPOLOGY=multi
 write_targets <<'EOF'
 a	acme/a	-	root
@@ -40,7 +40,7 @@ rm -f "$PAUSE_FLAG"
 
 # --- pause.sh (soft) creates the flag -----------------------------------------
 RUN_DIR2="$(mktemp -d)"
-RUN_DIR="$RUN_DIR2" bash "$HERE/../pause.sh" >/dev/null 2>&1
+RUN_DIR="$RUN_DIR2" bash "$HERE/../scripts/pause.sh" >/dev/null 2>&1
 assert_ok "soft pause.sh created PAUSED flag" bash -c "[[ -f '$RUN_DIR2/PAUSED' ]]"
 rm -rf "$RUN_DIR2"
 
@@ -61,7 +61,7 @@ gh(){ echo "gh $*" >> "$CALLS"
     "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
   esac; return 0; }
 export -f tmux gh
-RUN_DIR="$RUN_DIR3" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+RUN_DIR="$RUN_DIR3" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1
 assert_ok "force: PAUSED flag set"            bash -c "[[ -f '$RUN_DIR3/PAUSED' ]]"
 assert_ok "force: checkpoint sent to session" bash -c "grep -q 'send-keys' '$CALLS'"
 assert_no "force: never killed the session"   bash -c "grep -q 'kill-session' '$CALLS'"
@@ -89,7 +89,7 @@ gh(){ echo "gh $*" >> "$CALLS"
     "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
   esac; return 0; }
 export -f tmux gh
-RUN_DIR="$RUN_DIR5" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+RUN_DIR="$RUN_DIR5" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1
 assert_ok "lane fix: checkpoint sent to hz-bug-9-fix" \
   bash -c "grep -q 'send-keys -t hz-bug-9-fix' '$CALLS5'"
 assert_ok "lane triage: checkpoint sent to hz-bug-11-triage" \
@@ -125,7 +125,7 @@ gh(){ echo "gh $*" >> "$CALLS"
     "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
   esac; return 0; }
 export -f tmux gh
-RUN_DIR="$RUN_DIR6" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+RUN_DIR="$RUN_DIR6" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1
 assert_ok "multi: checkpoint sent to hz-bug-acme_b-6-fix" \
   bash -c "grep -q 'send-keys -t hz-bug-acme_b-6-fix' '$CALLS6'"
 assert_ok "multi: confirms via the CARRIED repo (polls gh issue view 6 -R acme/b)" \
@@ -149,7 +149,7 @@ RUN_DIR7="$(mktemp -d)"; CALLS7="$RUN_DIR7/calls"; : > "$CALLS7"
 # Write the claim via the REAL _bug_numbers/claim_next_bug for a bare repo (the path that regressed).
 ( export CLAIMS_DIR="$RUN_DIR7/claims" POOL_LOCK="$RUN_DIR7/pool.lock"
   export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme
-  source "$HERE/../lib.sh"
+  source "$HERE/../scripts/lib.sh"
   _bug_repos(){ echo widget; }; _repo_bugs(){ printf '9\tfix\n'; }
   claim_next_bug P1 >/dev/null )
 assert_eq "$(basename "$(ls "$RUN_DIR7/claims"/bug-*.claim)")" "bug-acme_widget-9.claim" \
@@ -168,7 +168,7 @@ gh(){ echo "gh $*" >> "$CALLS"
     "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
   esac; return 0; }
 export -f tmux gh
-RUN_DIR="$RUN_DIR7" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+RUN_DIR="$RUN_DIR7" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1
 assert_ok "bare-repo: confirms via the CARRIED repo (gh issue view 9 -R acme/widget — claim lookup HIT)" \
   bash -c "grep -qE 'gh issue view 9 -R acme/widget( |\$)' '$CALLS7'"
 assert_no "bare-repo: did NOT fall back to the lossy bug_repo rescan (no gh issue view 9 -R acme/ )" \
@@ -180,7 +180,7 @@ rm -rf "$RUN_DIR7"
 RUN_DIR4="$(mktemp -d)"; touch "$RUN_DIR4/PAUSED"
 # a live worker pidfile (use this shell's pid so kill -0 succeeds)
 printf '%s\n' "$$" > "$RUN_DIR4/worker-1.pid"
-RUN_DIR="$RUN_DIR4" bash "$HERE/../resume.sh" >/dev/null 2>&1; resume_rc=$?
+RUN_DIR="$RUN_DIR4" bash "$HERE/../scripts/resume.sh" >/dev/null 2>&1; resume_rc=$?
 assert_ok "resume removed PAUSED flag" bash -c "[[ ! -f '$RUN_DIR4/PAUSED' ]]"
 assert_eq "$resume_rc" "0" "resume exited 0 (alive branch — did not exec start)"
 rm -rf "$RUN_DIR4"
