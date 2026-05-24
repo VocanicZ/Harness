@@ -61,7 +61,7 @@ render_once(){
       local slug; slug="$(unit_slug "$unit_id")"
       printf '        ▶ driving unit %s (%s)\n' "$unit_id" "$slug"
       # Non-fatal: issuelib may not be configured (no gh auth, no labels) in test/offline envs.
-      python3 "$HARNESS_DIR/issuelib.py" status "$(unit_repo "$unit_id")" 2>/dev/null | sed 's/^/        /' || true
+      python3 "$ISSUELIB" status "$(unit_repo "$unit_id")" 2>/dev/null | sed 's/^/        /' || true
       local checkout; checkout="$(unit_checkout "$unit_id")"
       mapfile -t ss < <(team_sessions "$unit_id")
       for s in "${ss[@]:-}"; do

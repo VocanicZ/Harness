@@ -8,6 +8,6 @@ pidf="$RUN_DIR/priority.pid"
 if [[ -f "$pidf" ]] && kill -0 "$(cat "$pidf" 2>/dev/null)" 2>/dev/null; then
   echo "  priority: already running (pid $(cat "$pidf"))"
 else
-  nohup bash "$HARNESS_DIR/priority-worker.sh" P1 >"$RUN_DIR/priority.log" 2>&1 &
+  nohup bash "$ENGINE_DIR/priority-worker.sh" P1 >"$RUN_DIR/priority.log" 2>&1 &
   echo "$!" > "$pidf"; echo "  priority: started (pid $!) — log $RUN_DIR/priority.log"
 fi

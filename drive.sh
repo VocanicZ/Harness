@@ -24,7 +24,7 @@ archive_plan(){
     archived="$PLAN_ARCHIVE_DIR/PLAN-$ts.md"
     mkdir -p "$CHECKOUT/$PLAN_ARCHIVE_DIR" "$CHECKOUT/$(dirname "$PLAN_MARKER_PATH")"
     git -C "$CHECKOUT" mv PLAN.md "$archived" 2>/dev/null || mv "$CHECKOUT/PLAN.md" "$CHECKOUT/$archived"
-    spec_hash="$(python3 "$HARNESS_DIR/issuelib.py" spec-hash 2>/dev/null)"
+    spec_hash="$(python3 "$ISSUELIB" spec-hash 2>/dev/null)"
     cat > "$CHECKOUT/$PLAN_MARKER_PATH" <<EOF
 {
   "spec": "$HARNESS_SPEC",
@@ -53,7 +53,7 @@ reap_done_sessions(){
   while read -r s; do
     [[ -z "$s" ]] && continue
     goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"; [[ -z "$goal" ]] && continue
-    if [[ "$(python3 "$HARNESS_DIR/issuelib.py" check "$REPO" "$goal" 2>/dev/null)" == DONE ]]; then
+    if [[ "$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)" == DONE ]]; then
       log "session $s goal '$goal' satisfied → advancing"
       tmux kill-session -t "$s" 2>/dev/null || true
       rm -f "$RUN_DIR/$s.goal"

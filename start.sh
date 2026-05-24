@@ -78,8 +78,8 @@ if ! flock -n 9; then
   exec 9>&-
   exit 0
 fi
-bash "$HARNESS_DIR/pool.sh"
-bash "$HARNESS_DIR/priority.sh"
+bash "$ENGINE_DIR/pool.sh"
+bash "$ENGINE_DIR/priority.sh"
 exec 9>&-
 
 echo
