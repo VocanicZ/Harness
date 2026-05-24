@@ -10,6 +10,22 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 iter_of(){ [[ -f "$1/.claude/ralph-loop.local.md" ]] && grep -m1 '^iteration:' "$1/.claude/ralph-loop.local.md" | tr -dc '0-9' || echo '?'; }
 pid_up(){ [[ -f "$1" ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
+# fleet_verdict <up> <total> <sess_total> <done_n> <all_n> <paused:0|1> — the one-line
+# at-a-glance state. Precedence: PAUSED (forced-drain) > STOPPED (no live workers) >
+# IDLE/WATCHING (resident #24: workers up but every unit complete, just polling) > RUNNING.
+fleet_verdict(){
+  local up="$1" total="$2" sess="$3" done_n="$4" all_n="$5" paused="$6"
+  if [[ "$paused" == 1 ]]; then
+    echo "PAUSED   (drained — workers idle; resume: harness/resume.sh)"
+  elif (( up == 0 )); then
+    echo "STOPPED  (pool not running — start with: harness/start.sh)"
+  elif (( all_n > 0 && done_n >= all_n )); then
+    echo "IDLE/WATCHING  ($up/$total workers resident; all $all_n units complete — polling for new work)"
+  else
+    echo "RUNNING  ($up/$total workers up, $sess claude session(s) live)"
+  fi
+}
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -19,9 +35,8 @@ render_once(){
   for u in $(all_units); do unit_complete "$u" 2>/dev/null && done_n=$((done_n+1)) || true; done
   local all_n; all_n="$(all_units | wc -l | tr -d ' ')"
 
-  local verdict="STOPPED  (pool not running — start with: harness/start.sh)"
-  (( up > 0 )) && verdict="RUNNING  ($up/$total workers up, $sess_total claude session(s) live)"
-  is_paused && verdict="PAUSED   (drained — workers idle; resume: harness/resume.sh)"
+  local paused=0; is_paused && paused=1
+  local verdict; verdict="$(fleet_verdict "$up" "$total" "$sess_total" "$done_n" "$all_n" "$paused")"
 
   # Print the fleet header FIRST — the test greps for "worker" in this block.
   echo "═══════════════════════  Harness fleet  ═══════════════════════════"
@@ -90,20 +105,24 @@ render_once(){
   echo "═══════════════════════════════════════════════════════════════════"
 }
 
-if [[ "${1:-}" == "--watch" ]]; then
-  secs="${2:-8}"
-  tput civis 2>/dev/null   # hide cursor for stable, flicker-free redraw
-  trap 'tput cnorm 2>/dev/null; tput ed 2>/dev/null; echo "(stopped watching — fleet keeps running in background)"; exit 0' INT TERM
-  clear
-  while true; do
-    # Render the whole frame first, then paint in place — avoids slow gh/issuelib calls
-    # dribbling line-by-line down the screen.
-    frame="$(render_once compact)"$'\n'"  ↻ live every ${secs}s · Ctrl-C stops watching (NOT the fleet)"
-    tput cup 0 0 2>/dev/null
-    printf '%s' "$frame"
-    tput ed 2>/dev/null      # wipe leftover lines from a taller previous frame
-    sleep "$secs"
-  done
-else
-  render_once
+# Guard the entrypoint so test/other scripts can source this file for fleet_verdict
+# without triggering a full render.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  if [[ "${1:-}" == "--watch" ]]; then
+    secs="${2:-8}"
+    tput civis 2>/dev/null   # hide cursor for stable, flicker-free redraw
+    trap 'tput cnorm 2>/dev/null; tput ed 2>/dev/null; echo "(stopped watching — fleet keeps running in background)"; exit 0' INT TERM
+    clear
+    while true; do
+      # Render the whole frame first, then paint in place — avoids slow gh/issuelib calls
+      # dribbling line-by-line down the screen.
+      frame="$(render_once compact)"$'\n'"  ↻ live every ${secs}s · Ctrl-C stops watching (NOT the fleet)"
+      tput cup 0 0 2>/dev/null
+      printf '%s' "$frame"
+      tput ed 2>/dev/null      # wipe leftover lines from a taller previous frame
+      sleep "$secs"
+    done
+  else
+    render_once
+  fi
 fi
