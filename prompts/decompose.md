@@ -24,15 +24,31 @@ Steps:
      Part of #{{PRD}}"
    - Create labels once if missing: {{LABEL_READY}}, agent-working, agent-blocked, {{LABEL_REVIEWED}}.
    - Order matters: list real intra-project dependencies under `## Blocked by` so the harness
-     only dispatches unblocked work.
-   - CROSS-PROJECT dependency (you need output from another project or external module)?
-     Do NOT block on an issue in a different repo directly. Instead:
-     - If this harness has a configured umbrella/coordination repo, open a coordination issue
-       there and reference it in the task body (e.g. `owner/umbrella-repo#<coord-issue>`).
-     - Otherwise, represent the dependency as a same-repo tracking issue and reference it
-       under `## Blocked by` as a same-repo `#N` ref.
-     Keep `## Blocked by` to same-repo `#N` refs only (plus an explanatory cross-repo ref
-     in the body when a coordination issue exists).
+     only dispatches unblocked work. Same-repo siblings are bare `#N` refs.
+   - CROSS-UNIT dependency (a task here needs work done in ANOTHER unit/repo of this fleet)?
+     File it as a REAL cross-repo dependency so the requester actually blocks and the target
+     unit gets dispatched — do NOT route it through a coordination issue nothing polls:
+     a. Resolve the target unit's repo from `targets.tsv` (the `id → repo → deps → desc`
+        registry for this fleet); call the resolved slug `owner/repo`.
+     b. File a {{LABEL_READY}} fix issue DIRECTLY in that target unit's repo, with a backlink
+        to the requesting issue in its body:
+          gh issue create -R owner/repo --title "[AFK] <fix that {{SLUG}} needs>" \
+            --label {{LABEL_READY}} --body "<what the target unit must provide>
+
+          Requested by {{SLUG}}#<this-issue>   (backlink)
+
+          ## Blocked by
+          None"
+     c. Add that newly-filed `owner/repo#N` to THIS requester's own `## Blocked by` section.
+        The harness parses cross-repo `owner/repo#N` refs (bare `#N` stays same-repo) and keeps
+        the requester blocked until that issue closes.
+     The target unit's pool then claims the fix issue normally; live completion-recompute
+     re-activates a previously-complete target unit automatically — no new poller needed.
+   - SCOPE GUARD: this is happy-path only. There is **no automated cross-repo cycle detection**;
+     a pathological A↔B cross-repo cycle is left to the existing `agent-blocked` escalation.
+   - The `HARNESS_MAIN_REPO` umbrella repo and the `coordination` label are now OPTIONAL,
+     human-facing tracking only — they are NOT the work path. Skip them unless a human asked
+     for an umbrella tracking issue.
 4. Verify: gh issue list -R {{SLUG}} --label {{LABEL_READY}}
 
 When every PRD task has an issue, output exactly:
