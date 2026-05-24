@@ -126,6 +126,20 @@ claim_next_bug(){ local wid="$1" n lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$l
   n="$(claimable_bugs | head -n1)"; [[ -n "$n" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/bug-$n.claim"
   flock -u "$lockfd"; exec {lockfd}>&-; echo "$n"; }
 
+# pool_live — is anything resident to claim freshly-injected work? True if any pool worker pid
+# (worker-1..POOL.pid) is alive OR the priority lane (priority.pid) is alive. A cleanly-retired
+# pool (workers exit 0 on all_complete) leaves only dead-pid files; with no live lane either,
+# injected `ready-for-agent` issues sit unclaimed until `harness start --recover`. inject.sh
+# uses this to print honest restart guidance instead of the misleading "no restart" (#22).
+pool_live(){ local i p
+  for ((i=1; i<=POOL; i++)); do
+    p="$RUN_DIR/worker-$i.pid"
+    [[ -f "$p" ]] && kill -0 "$(cat "$p" 2>/dev/null)" 2>/dev/null && return 0
+  done
+  p="$RUN_DIR/priority.pid"
+  [[ -f "$p" ]] && kill -0 "$(cat "$p" 2>/dev/null)" 2>/dev/null && return 0
+  return 1; }
+
 # --- bug-lane phase + repo resolution (#27) ----------------------------------
 # Labels encode the phase in place (no child issues): an untriaged `bug` triages, a
 # `bug-triaged` fixes. _bug_labels/_bug_state are the overridable GitHub seams so the

@@ -217,14 +217,20 @@ def compute_state(repo):
 def bug_lane_issues(repo):
     """Open bug-lane issue numbers the priority lane (#26) may claim: author-allowed, OPEN,
     carrying L_BUG or L_BUG_TRIAGED, not already agent-working, and (autonomous or not blocked).
-    The lane handles both stages — an untriaged `bug` and a `bug-triaged` awaiting its fix."""
+    The lane handles both stages — an untriaged `bug` and a `bug-triaged` awaiting its fix.
+
+    Ordered fix-pending-first (#28): a `bug-triaged` (a pending fix) sorts ahead of a fresh
+    `bug`, so the cap-1 lane — which claims head-of-list — drains the triaged one to closed
+    before triaging the new one. The sort is stable, so same-phase bugs keep their list order."""
     slug = _repo_slug(repo)
     issues = _author_filter(_list_issues(slug))
-    return [i["number"] for i in issues
-            if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
-            and i["state"].lower() == "open"
-            and L_WORKING() not in i["_labels"]
-            and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])]
+    claimable = [i for i in issues
+                 if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
+                 and i["state"].lower() == "open"
+                 and L_WORKING() not in i["_labels"]
+                 and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])]
+    claimable.sort(key=lambda i: 0 if L_BUG_TRIAGED() in i["_labels"] else 1)
+    return [i["number"] for i in claimable]
 
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []

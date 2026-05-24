@@ -59,4 +59,32 @@ assert_eq "$?" "0" "inject.sh plan exits 0 despite a plan-complete marker (bypas
 assert_ok "harness plan launched the injector regardless of the marker" \
   bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
 
+# ── §4 pool_live: resident iff a worker pid OR the priority lane is alive (#22) ──
+# A cleanly-retired pool (workers exit 0 on all_complete) leaves only dead-pid files; with no
+# live lane either, nothing claims injected work until `harness start --recover`.
+rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid
+assert_no "pool_live false when no worker/lane pids exist (truly stopped)" pool_live
+printf '%s\n' "$$" > "$RUN_DIR/worker-1.pid"          # this shell -> live worker
+assert_ok "pool_live true when a worker pid is alive" pool_live
+printf '%s\n' "999999" > "$RUN_DIR/worker-1.pid"     # dead pid -> retired worker
+assert_no "pool_live false when the only worker pid is dead" pool_live
+printf '%s\n' "$$" > "$RUN_DIR/priority.pid"          # but the lane is alive -> resident
+assert_ok "pool_live true when only the priority lane is alive" pool_live
+rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid
+
+# ── §5 inject success message is honest about a retired pool (resolves #22) ──────
+# Reuses the §2/§3 stubs (unit_checkout, launch_claude, render). The final log line goes to
+# stdout, so capture the sourced run's stdout to a file and grep it.
+MSG="$RUN_DIR/inject.msg"
+printf '%s\n' "$$" > "$RUN_DIR/worker-1.pid"          # resident pool
+( session_live(){ return 1; }; source "$HERE/../inject.sh" issue "x" ) > "$MSG" 2>&1
+assert_ok "resident pool -> 'no restart' message"        bash -c "grep -q 'no restart' '$MSG'"
+assert_no "resident pool -> no restart guidance"         bash -c "grep -q 'harness start' '$MSG'"
+
+rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid  # truly stopped
+( session_live(){ return 1; }; source "$HERE/../inject.sh" issue "x" ) > "$MSG" 2>&1
+assert_ok "retired pool -> 'harness start' restart guidance" bash -c "grep -q 'harness start' '$MSG'"
+assert_no "retired pool -> NOT the misleading 'no restart'"  bash -c "grep -q 'no restart' '$MSG'"
+rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid
+
 finish

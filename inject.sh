@@ -42,4 +42,11 @@ render "$PROMPTS_DIR/inject.md" \
   LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" > "$CHECKOUT/.harness-task.md"
 
 launch_claude "$sess" "$CHECKOUT"
-log "injector launched: $sess (altitude=$ALTITUDE unit=$UNIT) — pool picks it up next poll, no restart"
+# Be honest about whether anything will pick the work up. A resident pool/lane claims it next
+# poll (no restart). A retired pool (workers exited 0 on all_complete, no live lane) leaves the
+# new issues unclaimed — say so and point at the recovery command instead of "no restart" (#22).
+if pool_live; then
+  log "injector launched: $sess (altitude=$ALTITUDE unit=$UNIT) — pool picks it up next poll, no restart"
+else
+  log "injector launched: $sess (altitude=$ALTITUDE unit=$UNIT) — but the pool is STOPPED (no live workers or lane); the new work will sit unclaimed. Run 'harness start --recover' to pick it up."
+fi
