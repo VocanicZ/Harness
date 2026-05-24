@@ -181,6 +181,14 @@ spawn_bug(){
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
     fi
     ensure_safe "$wd"
+    # Resume detection (mirrors spawn_impl, #36): a force-paused fix flips to agent-paused and
+    # pushes its issue/<n> branch. Either signal means a prior agent checkpointed WIP to GitHub —
+    # continue it from resume.md instead of restarting the fix cold from bug-fix.md.
+    local labels
+    labels="$(gh issue view "$issue" -R "$SLUG" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
+    if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "issue/$issue" 2>/dev/null | grep -q .; then
+      tmpl="resume.md"; log "resuming paused bug #$issue from origin/issue/$issue"
+    fi
   else
     tmpl="bug-triage.md"; wd="$CHECKOUT"
   fi

@@ -67,6 +67,39 @@ assert_ok "force: checkpoint sent to session" bash -c "grep -q 'send-keys' '$CAL
 assert_no "force: never killed the session"   bash -c "grep -q 'kill-session' '$CALLS'"
 rm -rf "$RUN_DIR3"
 
+# --- pause --force ALSO checkpoints priority-lane sessions (#36) --------------
+# Lane sessions are hz-bug-<n>-(triage|fix) — they end in -triage/-fix, not -i<digits>, so the
+# old impl-only selector missed them and silently dropped an in-flight bug fix's WIP. A forced
+# pause must reach BOTH lane phases: send the checkpoint, poll the bug's issue for agent-paused,
+# never kill. The fix branch is issue/<n>; triage has no code branch but must still flip the label.
+RUN_DIR5="$(mktemp -d)"; CALLS5="$RUN_DIR5/calls"; : > "$CALLS5"
+export CALLS="$CALLS5"
+export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+# two live lane sessions: a fix and a triage, for bugs #9 and #11
+tmux(){ echo "tmux $*" >> "$CALLS"
+  case "$1" in
+    ls) printf 'hz-bug-9-fix\nhz-bug-11-triage\n';;
+    send-keys) : ;;
+    kill-session) : ;;
+  esac; }
+gh(){ echo "gh $*" >> "$CALLS"
+  case "$1 $2" in
+    "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
+  esac; return 0; }
+export -f tmux gh
+RUN_DIR="$RUN_DIR5" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+assert_ok "lane fix: checkpoint sent to hz-bug-9-fix" \
+  bash -c "grep -q 'send-keys -t hz-bug-9-fix' '$CALLS5'"
+assert_ok "lane triage: checkpoint sent to hz-bug-11-triage" \
+  bash -c "grep -q 'send-keys -t hz-bug-11-triage' '$CALLS5'"
+assert_ok "lane: confirms via the bug's issue (polls gh issue view for #9)" \
+  bash -c "grep -qE 'gh issue view 9 ' '$CALLS5'"
+assert_no "lane: never killed a lane session" \
+  bash -c "grep -q 'kill-session' '$CALLS5'"
+assert_ok "lane: PAUSED flag set" bash -c "[[ -f '$RUN_DIR5/PAUSED' ]]"
+unset CALLS
+rm -rf "$RUN_DIR5"
+
 # --- resume.sh clears the flag (alive-worker branch: does NOT exec start) -----
 RUN_DIR4="$(mktemp -d)"; touch "$RUN_DIR4/PAUSED"
 # a live worker pidfile (use this shell's pid so kill -0 succeeds)

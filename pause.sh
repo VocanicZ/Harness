@@ -8,31 +8,62 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 # Build the one-line checkpoint instruction sent to a live agent. Single-quoted printf
 # format keeps the literal backticks/markers from being command-substituted by THIS shell.
+# An empty <branch> (a read-only triage session, #36) emits a no-push variant that still runs
+# /handoff and flips agent-working → agent-paused, so the lane is never left orphaned.
 _checkpoint_msg(){  # <issue> <slug> <branch> <working-label> <paused-label>
-  printf 'HARNESS CHECKPOINT — pause requested. Stop now. Commit ALL work in progress and push your branch to origin. Then run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s branch=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
-    "$1" "$2" "$1" "$3" "$1" "$2" "$4" "$5"
+  if [[ -n "$3" ]]; then
+    printf 'HARNESS CHECKPOINT — pause requested. Stop now. Commit ALL work in progress and push your branch to origin. Then run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s branch=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
+      "$1" "$2" "$1" "$3" "$1" "$2" "$4" "$5"
+  else
+    printf 'HARNESS CHECKPOINT — pause requested. Stop now. You have no code branch to push (read-only phase). Run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
+      "$1" "$2" "$1" "$1" "$2" "$4" "$5"
+  fi
+}
+
+# Parse a live session name into "<issue> <slug> <branch>" for the checkpoint, setting the
+# globals _CP_ISSUE/_CP_SLUG/_CP_BRANCH. Two shapes (#36): impl sessions hz-<unit>-i<issue>
+# (branch issue/<issue>), and priority-lane sessions hz-bug-<n>-(triage|fix) — the fix carries
+# branch issue/<n>, triage has none (read-only). Returns 1 for an unrecognised session.
+_checkpoint_target(){  # <session>
+  local sess="$1" issue unit phase
+  local bug_re="^${HARNESS_SESS_PREFIX}-bug-([0-9]+)-(triage|fix)$"
+  if [[ "$sess" =~ $bug_re ]]; then
+    issue="${BASH_REMATCH[1]}"; phase="${BASH_REMATCH[2]}"
+    _CP_ISSUE="$issue"; _CP_SLUG="$(_with_owner "$(bug_repo "$issue")")"
+    [[ "$phase" == fix ]] && _CP_BRANCH="issue/$issue" || _CP_BRANCH=""
+    return 0
+  fi
+  if [[ "$sess" =~ ^${HARNESS_SESS_PREFIX}-.*-i[0-9]+$ ]]; then
+    issue="${sess##*-i}"
+    unit="${sess#"$HARNESS_SESS_PREFIX"-}"; unit="${unit%-i$issue}"
+    _CP_ISSUE="$issue"; _CP_SLUG="$(unit_slug "$unit")"; _CP_BRANCH="issue/$issue"
+    return 0
+  fi
+  return 1
 }
 
 force_pause(){
   command -v tmux >/dev/null || die "tmux not found"
   command -v gh   >/dev/null || die "gh not found"
-  local sessions sess unit issue slug branch msg
-  sessions="$(tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-.*-i[0-9]+$" || true)"
+  local sessions sess issue slug branch msg
+  # Match BOTH impl sessions (hz-<unit>-i<issue>) and priority-lane sessions
+  # (hz-bug-<n>-triage|fix) — a forced pause must reach the bug lane too (#36).
+  sessions="$(tmux ls -F '#S' 2>/dev/null \
+    | grep -E "^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-[0-9]+-(triage|fix))$" || true)"
   if [[ -z "$sessions" ]]; then
-    echo "No live impl sessions — nothing to checkpoint. Marking paused."
+    echo "No live impl/lane sessions — nothing to checkpoint. Marking paused."
     touch "$PAUSE_FLAG"; return 0
   fi
-  # 1) inject the checkpoint instruction into every live impl session
+  # 1) inject the checkpoint instruction into every live impl/lane session
   local -a pending=()
   while read -r sess; do
     [[ -z "$sess" ]] && continue
-    issue="${sess##*-i}"                       # hz-<unit>-i<issue> -> <issue>
-    unit="${sess#"$HARNESS_SESS_PREFIX"-}"; unit="${unit%-i$issue}"   # -> <unit>
-    slug="$(unit_slug "$unit")"; branch="issue/$issue"
+    _checkpoint_target "$sess" || { echo "  skip unrecognised session: $sess"; continue; }
+    issue="$_CP_ISSUE"; slug="$_CP_SLUG"; branch="$_CP_BRANCH"
     msg="$(_checkpoint_msg "$issue" "$slug" "$branch" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED")"
     tmux send-keys -t "$sess" -l "$msg" 2>/dev/null || true
     tmux send-keys -t "$sess" Enter 2>/dev/null || true
-    pending+=("$unit:$issue:$slug")
+    pending+=("$sess:$issue:$slug")
     echo "  checkpoint requested: $sess (issue #$issue on $slug)"
   done <<< "$sessions"
   # 2) poll GitHub for the paused label = proof the agent committed+pushed+labeled
