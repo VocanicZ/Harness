@@ -173,12 +173,15 @@ spawn_bug(){
   local issue="$1" phase="$2" tmpl wd base
   PROMISE="BUG $issue $phase DONE"; MAXITER="$IMPL_MAXITER"; GOAL="BUG:$issue:$phase"
   ensure_checkout || { log "checkout unavailable for bug #$issue"; return 1; }
-  gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   if [[ "$phase" == fix ]]; then
     # Repo-qualify the worktree dir (#37): issue numbers are per-repo, so two repos can each have
     # a bug #N — a bare bug-i$issue path would collide and block the second fix. The branch lives
     # in the repo's own checkout, so issue/$issue alone is already unambiguous there.
-    tmpl="bug-fix.md"; wd="$WORKTREES_DIR/bug-$(printf '%s' "$SLUG" | tr '/' '_')-i$issue"; base="$(default_branch)"
+    tmpl="bug-fix.md"; wd="$(bug_worktree "$SLUG" "$issue")"; base="$(default_branch)"
+    # Defensively reap a leftover worktree from a crashed/unclean fix (#34): without this the
+    # `worktree add` below fails (rc 128, 'issue/N' already used by worktree) and the bug stays
+    # stuck under agent-working forever. Remove + prune so a fresh attempt always starts clean.
+    remove_worktree "$CHECKOUT" "$wd"
     git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
     if ! git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" "origin/$base" 2>/dev/null; then
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
@@ -187,6 +190,12 @@ spawn_bug(){
   else
     tmpl="bug-triage.md"; wd="$CHECKOUT"
   fi
+  # Stamp agent-working only AFTER the worktree is in place (#34): a failed `worktree add` returns
+  # above WITHOUT stamping, so a spawn failure never leaves an open bug under agent-working with no
+  # live session (which would hide it from bug_lane_issues forever). Triage has no worktree step, so
+  # the stamp is reached immediately — same effect as before. Both phases still stamp BEFORE launch,
+  # so the lane never re-dispatches the same bug while its session is in flight.
+  gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" \

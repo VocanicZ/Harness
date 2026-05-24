@@ -151,6 +151,11 @@ _bug_state(){ echo CLOSED; }           # ...and the fix already merged → reap 
 drive_bug 42 >/dev/null 2>&1
 assert_ok "drive_bug reaps the session once the phase goal is met" \
   grep -q 'tmux kill-session' "$CALLS"
+# #34: a completed fix must also tear down its worktree + local branch (no accumulation, and no
+# leftover to wedge the next fix). The branch -D is the reap's unique fingerprint — spawn_bug's
+# defensive pre-add removal removes only the worktree, never the branch.
+assert_ok "drive_bug reaps the fix worktree + local branch once the goal is met" \
+  grep -q 'branch -D issue/42' "$CALLS"
 
 # ── drive_bug leaves a live session running when paused (drains, no reap) ─────
 stub_bug; PRIORITY_POLL=0
@@ -162,5 +167,8 @@ drive_bug 42 >/dev/null 2>&1
 rm -f "$PAUSE_FLAG"
 assert_no "drive_bug does NOT reap a live session when paused (drains)" \
   grep -q 'tmux kill-session' "$CALLS"
+# #34: a paused fix session still owns its worktree — drive_bug must NOT reap it (branch -D absent).
+assert_no "drive_bug does NOT reap the worktree branch when paused (drains)" \
+  grep -q 'branch -D issue/42' "$CALLS"
 
 finish

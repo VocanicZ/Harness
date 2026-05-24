@@ -38,7 +38,15 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
       tmux kill-session -t "$sess" 2>/dev/null || true; rm -f "$RUN_DIR/$sess.goal"; break
     fi
     sleep "$PRIORITY_POLL"
-  done; }
+  done
+  # Reap the fix worktree + local branch once its session has ended (#34) — the pool gets this via
+  # reap_team/finalize_unit; the cap-1 lane had no equivalent, so it leaked a worktree + dead branch
+  # on every fix and a crashed fix wedged the next attempt. Skip while paused: a drained fix session
+  # is still live and owns its worktree. (triage has no worktree.)
+  if [[ "$phase" == fix ]] && ! is_paused; then
+    remove_worktree "$CHECKOUT" "$(bug_worktree "$SLUG" "$n")" "issue/$n"
+    log "priority: reaped bug #$n fix worktree + branch"
+  fi; }
 
 # One claim cycle. rc 3 paused (drained, no claim), rc 0 claimed+drove+released a bug,
 # rc 1 idle (no claimable bug). The lane holds at most one bug at a time (cap 1): it

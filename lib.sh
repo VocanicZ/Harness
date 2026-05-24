@@ -201,6 +201,42 @@ bug_repo(){ local n="$1" repo
   done; }
 bug_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"
   else echo "$CHECKOUTS_DIR/${1##*/}"; fi; }
+# bug_worktree <slug> <issue> — the fix-phase worktree path for a bug. Repo-qualified (#37): issue
+# numbers are per-repo, so two repos' same-numbered bugs need DISTINCT paths or the second fix
+# collides. spawn_bug (create), drive_bug (reap), and sweep_orphan_bug_worktrees (recover) all
+# derive the path here so they can never disagree.
+bug_worktree(){ echo "$WORKTREES_DIR/bug-$(printf '%s' "$1" | tr '/' '_')-i$2"; }
+# remove_worktree <checkout> <wd> [branch] — best-effort teardown of one worktree (+ optional local
+# branch), then prune the registration. Tolerates a missing worktree/branch (idempotent). Falls
+# back to rm -rf if `git worktree remove` can't (e.g. dir already gone). Shared by spawn_bug's
+# defensive pre-add reap (branch omitted — `worktree add -B` resets it anyway), drive_bug's
+# post-fix reap, and the recovery sweep, so all three tear down identically (#34).
+remove_worktree(){ local checkout="$1" wd="$2" branch="${3:-}"
+  git -C "$checkout" worktree remove --force "$wd" 2>/dev/null || rm -rf "$wd"
+  [[ -n "$branch" ]] && git -C "$checkout" branch -D "$branch" 2>/dev/null || true
+  git -C "$checkout" worktree prune 2>/dev/null || true; }
+# sweep_orphan_bug_worktrees — crash/new-machine recovery (#34): the priority lane reaps its fix
+# worktree in drive_bug, but only if the lane process survives. An unclean host exit kills the lane
+# mid-fix, orphaning a bug-<slug>-i<n> worktree on disk; the next spawn_bug fix would then collide
+# on `worktree add` (rc 128) and wedge the lane forever. So on recovery, remove every fix worktree
+# whose fix session is dead, plus its local issue/<n> branch. Each worktree's owning checkout is
+# derived from the worktree itself (--git-common-dir) so this works across single/multi topology.
+# Skips a worktree whose fix session is still LIVE — safe to run while the fleet is up.
+sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n gcd co
+  for wd in "$WORKTREES_DIR"/bug-*-i*; do
+    [[ -d "$wd" ]] || continue
+    n="${wd##*-i}"
+    session_live "$(sess_bug "$n" fix)" && continue
+    gcd="$(git -C "$wd" rev-parse --git-common-dir 2>/dev/null)" || gcd=""
+    co=""
+    if [[ -n "$gcd" ]]; then
+      [[ "$gcd" != /* ]] && gcd="$wd/$gcd"            # relative result → resolve against the worktree
+      co="$(cd "$(dirname "$gcd")" 2>/dev/null && pwd)"
+    fi
+    if [[ -n "$co" ]]; then remove_worktree "$co" "$wd" "issue/$n"; else rm -rf "$wd"; fi
+    echo "  removed orphan bug worktree $(basename "$wd") (#$n — no live fix session)"
+  done
+  shopt -u nullglob; }
 
 dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allow-orchestration "$3"; }
 
