@@ -120,6 +120,12 @@ assert_ok "drive_bug(bug-triaged): launches a fix session" \
   grep -qE '^launch_claude .*-fix$' "$CALLS"
 assert_ok "drive_bug(bug-triaged): marks the issue agent-working" \
   grep -q 'add-label agent-working' "$CALLS"
+# #37: the fix worktree path is repo-qualified so two repos' same-numbered bugs never collide
+# on a shared worktree dir (which would block the second fix).
+assert_ok "drive_bug(bug-triaged): fix worktree path is repo-qualified (#37)" \
+  grep -qE 'worktree add .* .*/bug-acme_widget-i42( |$)' "$CALLS"
+assert_no "drive_bug(bug-triaged): does NOT use the bare unqualified bug-i42 path" \
+  grep -qE 'worktree add .* .*/bug-i42( |$)' "$CALLS"
 
 assert_ok "triage and fix are TWO DISTINCT sessions" \
   bash -c "[[ -n '$sess_triage' && -n '$sess_fix' && '$sess_triage' != '$sess_fix' ]]"

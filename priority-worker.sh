@@ -16,14 +16,16 @@ bug_goal_done(){ local n="$1" phase="$2"
   [[ "$(_bug_state "$n")" == CLOSED ]] && return 0
   [[ "$phase" == triage && "$(bug_phase "$n")" == fix ]]; }
 
-# drive_bug <n> — take one claimed bug through its current phase (#27). Resolve the bug's repo,
-# pick the phase (triage|fix), spawn the matching session, then HOLD until that session ends
-# (mirrors the pool's drive_unit: the claim stays held for the whole session so the cap-1 lane
-# never moves on / double-dispatches). The two phases run as two DISTINCT sessions across two
-# claim cycles: triage flips bug → bug-triaged, a later cycle fixes the bug-triaged issue.
-# Sourced (overridable) so tests assert the lane lifecycle without touching GitHub.
-drive_bug(){ local n="$1" phase sess SLUG PROJECT DESC CHECKOUT REPO
-  REPO="$(bug_repo "$n")"; [[ -n "$REPO" ]] || { log "priority: cannot resolve repo for bug #$n"; return 1; }
+# drive_bug <ref> — take one claimed bug through its current phase (#27). <ref> is a repo-qualified
+# "<repo>#<num>" token (#37): the repo is CARRIED from the claim, not re-scanned, so colliding
+# issue numbers across repos route to the right one. Pick the phase (triage|fix), spawn the matching
+# session, then HOLD until that session ends (mirrors the pool's drive_unit: the claim stays held for
+# the whole session so the cap-1 lane never moves on / double-dispatches). The two phases run as two
+# DISTINCT sessions across two claim cycles: triage flips bug → bug-triaged, a later cycle fixes the
+# bug-triaged issue. Sourced (overridable) so tests assert the lane lifecycle without touching GitHub.
+drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
+  REPO="$(_bug_ref_repo "$ref")"; n="$(_bug_ref_num "$ref")"
+  [[ -n "$REPO" ]] || { log "priority: cannot resolve repo for bug $ref"; return 1; }
   SLUG="$(_with_owner "$REPO")"; PROJECT="${SLUG##*/}"; DESC="$PROJECT"; CHECKOUT="$(bug_checkout "$REPO")"
   phase="$(bug_phase "$n")"; sess="$(sess_bug "$n" "$phase")"
   log "priority: bug #$n → $phase session ($sess)"
@@ -41,11 +43,11 @@ drive_bug(){ local n="$1" phase sess SLUG PROJECT DESC CHECKOUT REPO
 # One claim cycle. rc 3 paused (drained, no claim), rc 0 claimed+drove+released a bug,
 # rc 1 idle (no claimable bug). The lane holds at most one bug at a time (cap 1): it
 # releases before returning, so it is structurally serial — a second bug always waits.
-bug_tick(){ local wid="$1" n
+bug_tick(){ local wid="$1" ref
   if is_paused; then return 3; fi
-  n="$(claim_next_bug "$wid")"
-  if [[ -z "$n" ]]; then return 1; fi
-  log "priority $wid claimed bug #$n"; drive_bug "$n"; release_bug_claim "$n"; log "priority $wid released bug #$n"; return 0; }
+  ref="$(claim_next_bug "$wid")"
+  if [[ -z "$ref" ]]; then return 1; fi
+  log "priority $wid claimed bug $ref"; drive_bug "$ref"; release_bug_claim "$ref"; log "priority $wid released bug $ref"; return 0; }
 
 # One poll cycle. Resident: idle (rc 1) logs a banner ONCE per idle streak (deduped via
 # _IDLE_LOGGED) and keeps polling; real work (rc 0) clears the dedup so a later idle streak

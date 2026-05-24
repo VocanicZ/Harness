@@ -109,22 +109,49 @@ worker_unit(){ local wid="$1" f; shopt -s nullglob
   for f in "$CLAIMS_DIR"/*.claim; do [[ "$(awk '{print $1; exit}' "$f")" == "$wid" ]] && { basename "$f" .claim; shopt -u nullglob; return; }; done
   shopt -u nullglob; }
 
-# --- priority bug-lane claims (#26) ------------------------------------------
-# Bug claims share CLAIMS_DIR with unit claims, keyed `bug-<n>.claim`, so the existing
-# clear_stale_claims sweep (dead-pid claim files) covers them too — start --recover frees a
-# stale bug-claim with no extra code. They reuse POOL_LOCK so a bug-claim never races a
-# unit-claim on the single host. The GitHub-backed source of bug numbers is _bug_numbers, the
-# one seam tests override; claimable_bugs filters out already-claimed bugs (mirrors claimable_units).
+# --- priority bug-lane claims (#26, #37) -------------------------------------
+# A bug-lane candidate is a repo-qualified token "<repo>#<num>" (#37): GitHub issue numbers are
+# per-repo, so in a `multi` topology two repos can each hold a bug #5 — the repo qualifier keeps
+# their claims and routing DISTINCT. Bug claims share CLAIMS_DIR with unit claims, keyed
+# `bug-<repo-sanitised>-<num>.claim`, so the existing clear_stale_claims sweep (dead-pid claim
+# files) covers them too — start --recover frees a stale bug-claim with no extra code. They reuse
+# POOL_LOCK so a bug-claim never races a unit-claim on the single host. _repo_bugs (per-repo) and
+# _bug_numbers (all repos, globally sorted) are the seams tests override; claimable_bugs filters
+# out already-claimed tokens (mirrors claimable_units).
 _bug_repos(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"
   else local u; for u in $(all_units); do unit_repo "$u"; done | sort -u; fi; }
-_bug_numbers(){ local repo; for repo in $(_bug_repos); do
-    [[ -n "$repo" ]] && python3 "$HARNESS_DIR/issuelib.py" bugs "$repo" 2>/dev/null; done; }
-is_bug_claimed(){ is_claimed "bug-$1"; }
-release_bug_claim(){ release_claim "bug-$1"; }
-claimable_bugs(){ local n; for n in $(_bug_numbers); do is_bug_claimed "$n" && continue; echo "$n"; done; }
-claim_next_bug(){ local wid="$1" n lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
-  n="$(claimable_bugs | head -n1)"; [[ -n "$n" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/bug-$n.claim"
-  flock -u "$lockfd"; exec {lockfd}>&-; echo "$n"; }
+# per-repo bug candidates as "<num>\t<phase>" lines (phase: fix|triage), fix-pending-first.
+_repo_bugs(){ python3 "$HARNESS_DIR/issuelib.py" bugs "$1" 2>/dev/null; }
+# All repos' candidates as "<repo>#<num>" tokens, GLOBALLY fix-pending-first (#37): each repo's
+# (num,phase) pairs are tagged with a phase sort-key (0=fix/pending, 1=triage/fresh) then stably
+# sorted, so a pending fix in ANY repo drains before a fresh bug in ANY repo. Stable sort keeps
+# same-phase candidates in their cross-repo input order.
+_bug_numbers(){ local repo num phase
+  for repo in $(_bug_repos); do
+    [[ -n "$repo" ]] || continue
+    _repo_bugs "$repo" | while IFS=$'\t' read -r num phase; do
+      [[ -n "$num" ]] || continue
+      printf '%s\t%s#%s\n' "$([[ "$phase" == fix ]] && echo 0 || echo 1)" "$repo" "$num"
+    done
+  done | sort -t$'\t' -s -k1,1n | cut -f2-
+}
+# Claim-file stem for a bug ref. A qualified "<repo>#<num>" sanitises to "bug-<repo>-<num>"
+# (/ -> _, # -> -) so two repos' same-numbered bugs are DISTINCT claims; a bare "<num>"
+# (single-topology back-compat) -> "bug-<num>".
+_bug_claim_key(){ case "$1" in
+  *#*) printf 'bug-%s' "$(printf '%s' "$1" | tr '/#' '_-')";;
+  *)   printf 'bug-%s' "$1";;
+  esac; }
+# Repo + number from a bug ref. Qualified token splits directly; a bare number resolves its repo
+# via bug_repo (single-topology only — there are no cross-repo collisions there).
+_bug_ref_repo(){ case "$1" in *#*) echo "${1%#*}";; *) bug_repo "$1";; esac; }
+_bug_ref_num(){  case "$1" in *#*) echo "${1##*#}";; *) echo "$1";; esac; }
+is_bug_claimed(){ is_claimed "$(_bug_claim_key "$1")"; }
+release_bug_claim(){ release_claim "$(_bug_claim_key "$1")"; }
+claimable_bugs(){ local tok; for tok in $(_bug_numbers); do is_bug_claimed "$tok" && continue; echo "$tok"; done; }
+claim_next_bug(){ local wid="$1" tok lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+  tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
+  flock -u "$lockfd"; exec {lockfd}>&-; echo "$tok"; }
 
 # pool_live — is anything resident to claim freshly-injected work? True if any pool worker pid
 # (worker-1..POOL.pid) is alive OR the priority lane (priority.pid) is alive. A cleanly-retired
@@ -150,12 +177,15 @@ _bug_state(){  gh issue view "$1" -R "$SLUG" --json state  -q '.state' 2>/dev/nu
 # the prompt template AND the session phase suffix, so the two phases never share a session.
 bug_phase(){ case ",$(_bug_labels "$1")," in *",$HARNESS_LABEL_BUG_TRIAGED,"*) echo fix;; *) echo triage;; esac; }
 # Which repo holds bug #n + where its session runs. Single: the one repo, in PROJECT_ROOT.
-# Multi: the first bug-repo that lists #n, checked out under CHECKOUTS_DIR.
+# Back-compat ONLY for a BARE number (#37): the lane now carries the repo in the claim token
+# (_bug_ref_repo splits it directly), so this rescan no longer drives multi-topology routing —
+# where colliding numbers made "first repo that lists #n" pick the wrong repo. Kept as a fallback
+# for a bare ref; matches the number field of _repo_bugs' "<num>\t<phase>" output.
 bug_repo(){ local n="$1" repo
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"; return; fi
   for repo in $(_bug_repos); do
     [[ -n "$repo" ]] || continue
-    python3 "$HARNESS_DIR/issuelib.py" bugs "$repo" 2>/dev/null | grep -qx "$n" && { echo "$repo"; return; }
+    _repo_bugs "$repo" | cut -f1 | grep -qx "$n" && { echo "$repo"; return; }
   done; }
 bug_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"
   else echo "$CHECKOUTS_DIR/${1##*/}"; fi; }
