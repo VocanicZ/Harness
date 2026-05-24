@@ -175,7 +175,10 @@ spawn_bug(){
   ensure_checkout || { log "checkout unavailable for bug #$issue"; return 1; }
   gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   if [[ "$phase" == fix ]]; then
-    tmpl="bug-fix.md"; wd="$WORKTREES_DIR/bug-i$issue"; base="$(default_branch)"
+    # Repo-qualify the worktree dir (#37): issue numbers are per-repo, so two repos can each have
+    # a bug #N — a bare bug-i$issue path would collide and block the second fix. The branch lives
+    # in the repo's own checkout, so issue/$issue alone is already unambiguous there.
+    tmpl="bug-fix.md"; wd="$WORKTREES_DIR/bug-$(printf '%s' "$SLUG" | tr '/' '_')-i$issue"; base="$(default_branch)"
     git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
     if ! git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" "origin/$base" 2>/dev/null; then
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }

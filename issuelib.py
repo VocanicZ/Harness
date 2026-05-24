@@ -214,14 +214,16 @@ def compute_state(repo):
             "total_children": len(children),
             "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
 
-def bug_lane_issues(repo):
-    """Open bug-lane issue numbers the priority lane (#26) may claim: author-allowed, OPEN,
-    carrying L_BUG or L_BUG_TRIAGED, not already agent-working, and (autonomous or not blocked).
-    The lane handles both stages — an untriaged `bug` and a `bug-triaged` awaiting its fix.
+def bug_lane_candidates(repo):
+    """(number, phase) for each open bug-lane issue the priority lane (#26) may claim:
+    author-allowed, OPEN, carrying L_BUG or L_BUG_TRIAGED, not already agent-working, and
+    (autonomous or not blocked). phase is 'fix' for a bug-triaged (a pending fix) or 'triage'
+    for a fresh bug. The lane handles both stages.
 
     Ordered fix-pending-first (#28): a `bug-triaged` (a pending fix) sorts ahead of a fresh
     `bug`, so the cap-1 lane — which claims head-of-list — drains the triaged one to closed
-    before triaging the new one. The sort is stable, so same-phase bugs keep their list order."""
+    before triaging the new one. The sort is stable, so same-phase bugs keep their list order.
+    The lane uses the phase to globally re-order candidates across repos (#37)."""
     slug = _repo_slug(repo)
     issues = _author_filter(_list_issues(slug))
     claimable = [i for i in issues
@@ -230,7 +232,12 @@ def bug_lane_issues(repo):
                  and L_WORKING() not in i["_labels"]
                  and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])]
     claimable.sort(key=lambda i: 0 if L_BUG_TRIAGED() in i["_labels"] else 1)
-    return [i["number"] for i in claimable]
+    return [(i["number"], "fix" if L_BUG_TRIAGED() in i["_labels"] else "triage")
+            for i in claimable]
+
+def bug_lane_issues(repo):
+    """Open bug-lane issue numbers (fix-pending-first), without phase. See bug_lane_candidates."""
+    return [n for n, _phase in bug_lane_candidates(repo)]
 
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []
@@ -274,7 +281,7 @@ def main():
               f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
               f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
     elif cmd == "bugs":
-        for n in bug_lane_issues(repo): print(n)
+        for n, phase in bug_lane_candidates(repo): print(f"{n}\t{phase}")
     elif cmd == "complete":
         print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
     elif cmd == "check":

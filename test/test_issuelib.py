@@ -415,12 +415,36 @@ def test_bug_lane_issues_stable_within_a_phase():
     # both triaged (in list order: 5, 8) precede both fresh (in list order: 3, 4)
     assert il.bug_lane_issues("acme/widget") == [5, 8, 3, 4], il.bug_lane_issues("acme/widget")
 
-def test_bug_lane_issues_cli_prints_numbers():
+def test_bug_lane_candidates_pairs_number_with_phase():
+    # the priority lane needs each bug's phase to order candidates fix-pending-first ACROSS
+    # repos (#37): bug_lane_candidates returns (number, phase) where phase is 'fix' for a
+    # bug-triaged (pending fix) and 'triage' for a fresh bug, in the same fix-pending-first order.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
     os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
+    il._self_login = lambda: "me"
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 6, "title": "fresh bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug"}},
+        {"number": 9, "title": "triaged bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged"}},
+    ]
+    assert il.bug_lane_candidates("acme/widget") == [(9, "fix"), (6, "triage")], \
+        il.bug_lane_candidates("acme/widget")
+
+def test_bug_lane_issues_cli_prints_number_and_phase():
+    # the `bugs` CLI feeds the bash lane (#37): each line is "<number>\t<phase>" so the lane can
+    # tag the candidate with its repo and globally re-sort fix-pending-first across repos.
+    os.environ.pop("HARNESS_LABEL_BUG", None)
+    os.environ.pop("HARNESS_LABEL_BUG_TRIAGED", None)
     il._self_login = lambda: "me"
     il._list_issues = lambda slug, extra=None: [
         {"number": 6, "title": "a bug", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"bug"}},
+        {"number": 9, "title": "triaged bug", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"bug-triaged"}},
     ]
     import io, contextlib
     buf = io.StringIO()
@@ -431,7 +455,8 @@ def test_bug_lane_issues_cli_prints_numbers():
             il.main()
     finally:
         sys.argv = argv
-    assert buf.getvalue().split() == ["6"], buf.getvalue()
+    # fix-pending-first: #9 (fix) before #6 (triage); each line carries the phase.
+    assert buf.getvalue().splitlines() == ["9\tfix", "6\ttriage"], buf.getvalue()
 
 if __name__ == "__main__":
     fails = 0
