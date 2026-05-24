@@ -25,4 +25,9 @@ assert "config uses := form"      "grep -q ':= ' '$CFG' || grep -q ':=issue' '$C
 assert "author allowlist key written" "grep -q 'HARNESS_AUTHOR_ALLOWLIST' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_AUTHOR_ALLOWLIST-unset}" == "" ]] ) \
   && echo "  ok: author allowlist defaults empty" || { echo "  FAIL: author allowlist default"; exit 1; }
+# bug-lane label keys are written with sensible defaults and round-trip
+assert "bug label key written"          "grep -q 'HARNESS_LABEL_BUG:=bug' '$CFG'"
+assert "bug-triaged label key written"  "grep -q 'HARNESS_LABEL_BUG_TRIAGED:=bug-triaged' '$CFG'"
+( source "$CFG"; [[ "${HARNESS_LABEL_BUG:-}" == "bug" && "${HARNESS_LABEL_BUG_TRIAGED:-}" == "bug-triaged" ]] ) \
+  && echo "  ok: bug-lane labels round-trip" || { echo "  FAIL: bug-lane label round-trip"; exit 1; }
 echo "── init ok"

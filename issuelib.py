@@ -16,6 +16,8 @@ L_WORKING  = lambda: os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
 L_BLOCKED  = lambda: os.environ.get("HARNESS_LABEL_BLOCKED", "agent-blocked")
 L_REVIEWED = lambda: os.environ.get("HARNESS_LABEL_REVIEWED", "reviewed")
 L_PAUSED   = lambda: os.environ.get("HARNESS_LABEL_PAUSED", "agent-paused")
+L_BUG         = lambda: os.environ.get("HARNESS_LABEL_BUG", "bug")
+L_BUG_TRIAGED = lambda: os.environ.get("HARNESS_LABEL_BUG_TRIAGED", "bug-triaged")
 ALLOWLIST  = lambda: os.environ.get("HARNESS_AUTHOR_ALLOWLIST", "")
 
 _BLOCKED_BY_HEADING = re.compile(r"^##\s+Blocked by\s*$", re.IGNORECASE | re.MULTILINE)
@@ -189,7 +191,10 @@ def compute_state(repo):
     prd = next((i for i in issues if L_PRD() in i["_labels"]
                 or i.get("title", "").startswith("[AFK] PRD:")), None)
     prd_num = prd["number"] if prd else None
-    children = [i for i in issues if L_READY() in i["_labels"] and L_PRD() not in i["_labels"]]
+    # bug-lane issues live in a separate lane: never claimed by the normal pool and never
+    # counted toward unit completion, even when they carry the ready label.
+    children = [i for i in issues if L_READY() in i["_labels"] and L_PRD() not in i["_labels"]
+                and L_BUG() not in i["_labels"] and L_BUG_TRIAGED() not in i["_labels"]]
     children_exist = len(children) > 0
     children_all_closed = children_exist and all(i["state"].lower() == "closed" for i in children)
     closed_cache = {}
