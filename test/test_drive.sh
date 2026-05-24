@@ -89,4 +89,76 @@ assert_ok "completed unit b's row PERSISTS (dependents resolve it)" test -n "$(_
 assert_eq "$(unit_repo b)" "acme/b" "b's row still resolves its repo for dependents"
 assert_ok "targets.tsv keeps other units (a)" test -n "$(_tgt_row a)"
 assert_ok "targets.tsv keeps other units (c)" test -n "$(_tgt_row c)"
+
+# ── #34: the lane must reap bug-fix worktrees — a crashed fix must not wedge spawn_bug ──
+# REAL git here (not stubbed): the wedge is a genuine `git worktree add` rc-128 collision
+# ('issue/N' already used by worktree), so only real git reproduces it. Everything else
+# (gh/render/launch/tmux) is stubbed → hermetic, no network, no tmux.
+make_env
+unset -f git   # earlier sections stub git() as a function; restore the real binary for the worktree ops
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
+CHECKOUT="$RUN_DIR/co"; git init -q "$CHECKOUT"
+git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
+git -C "$CHECKOUT" commit -q --allow-empty -m init
+WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
+GH="$RUN_DIR/ghcalls"; : > "$GH"
+gh(){ echo "gh $*" >> "$GH"; return 0; }
+render(){ :; }; launch_claude(){ :; }; tmux(){ :; }
+ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }
+
+WD="$(bug_worktree "$SLUG" 5)"
+spawn_bug 5 fix >/dev/null 2>&1; assert_eq "$?" "0" "spawn_bug fix succeeds on a clean checkout"
+assert_ok "fix worktree created"                  test -d "$WD"
+assert_eq "$(git -C "$WD" branch --show-current)" "issue/5" "fix worktree is on branch issue/5"
+# crashed fix: the worktree is LEFT behind (drive_bug never reaped it). The re-drive must NOT
+# fail on the rc-128 collision — spawn_bug defensively removes the leftover before re-adding.
+spawn_bug 5 fix >/dev/null 2>&1; assert_eq "$?" "0" "spawn_bug fix succeeds AGAIN over a leftover worktree (no rc-128 wedge)"
+assert_ok "fix worktree still present after crash-replay spawn" test -d "$WD"
+# reapable: remove_worktree tears down the worktree + local branch cleanly (no accumulation)
+remove_worktree "$CHECKOUT" "$WD" "issue/5" >/dev/null 2>&1
+assert_no "remove_worktree removed the fix worktree" test -d "$WD"
+assert_no "remove_worktree deleted the local issue/5 branch" \
+  bash -c "git -C '$CHECKOUT' rev-parse --verify -q issue/5 >/dev/null 2>&1"
+assert_eq "$(git -C "$CHECKOUT" worktree list | grep -c "bug-acme_widget-i5")" "0" \
+  "fix worktree no longer registered after reap"
+
+# ── #34: a FAILED spawn_bug fix must NOT leave the issue stamped agent-working ──
+# Else the open bug keeps agent-working with no live session → bug_lane_issues excludes it and the
+# lane never re-claims it. Force `worktree add` to fail; the stamp must come AFTER worktree setup.
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
+CHECKOUT="$RUN_DIR/co2"; mkdir -p "$CHECKOUT"
+WORKTREES_DIR="$RUN_DIR/wt2"; mkdir -p "$WORKTREES_DIR"
+GH2="$RUN_DIR/ghcalls2"; : > "$GH2"
+gh(){ echo "gh $*" >> "$GH2"; return 0; }
+render(){ :; }; launch_claude(){ :; }; tmux(){ :; }
+ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }
+git(){ case "$*" in *"worktree add"*) return 1;; *) return 0;; esac; }
+spawn_bug 5 fix; assert_eq "$?" "1" "spawn_bug fix returns nonzero when worktree add fails"
+assert_eq "$(grep -c 'add-label' "$GH2" 2>/dev/null; true)" "0" \
+  "spawn_bug does NOT stamp agent-working when worktree add fails (#34 no wedge)"
+unset -f git
+
+# ── #34: sweep_orphan_bug_worktrees removes a dead-session fix worktree, keeps a live one ──
+# start.sh recover() calls this on crash/new-machine boot: the lane never reaped its own worktree
+# (the host died), so a leftover blocks the next spawn unless recovery sweeps it.
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+SLUG=acme/widget
+CHECKOUT="$RUN_DIR/cosweep"; git init -q "$CHECKOUT"
+git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
+git -C "$CHECKOUT" commit -q --allow-empty -m init
+WORKTREES_DIR="$RUN_DIR/wtsweep"; mkdir -p "$WORKTREES_DIR"
+ensure_safe(){ :; }
+DEAD="$(bug_worktree "$SLUG" 5)"; LIVE="$(bug_worktree "$SLUG" 6)"
+git -C "$CHECKOUT" worktree add -q -B issue/5 "$DEAD"
+git -C "$CHECKOUT" worktree add -q -B issue/6 "$LIVE"
+session_live(){ [[ "$1" == "$(sess_bug 6 fix)" ]]; }   # only #6's fix session is live
+sweep_orphan_bug_worktrees >/dev/null 2>&1
+assert_no "sweep removed the dead-session bug worktree (#5)" test -d "$DEAD"
+assert_ok "sweep kept the live-session bug worktree (#6)"    test -d "$LIVE"
+assert_no "sweep deleted the dead bug's local branch (issue/5)" \
+  bash -c "git -C '$CHECKOUT' rev-parse --verify -q issue/5 >/dev/null 2>&1"
 finish

@@ -42,6 +42,13 @@ recover(){
   flock -u "$lockfd"
   exec {lockfd}>&-
 
+  # The priority lane reaps its fix worktrees in drive_bug, but an unclean host exit kills the lane
+  # mid-fix and orphans a bug-<slug>-i<n> worktree on disk. Left in place it makes the next
+  # spawn_bug fix collide on `worktree add` (rc 128) and wedge the lane. Sweep dead-session ones now
+  # (the agent-working-label sweep below then frees the issue so the lane re-claims it cleanly). #34
+  echo "  sweeping orphaned bug-fix worktrees:"
+  sweep_orphan_bug_worktrees
+
   local u slug n freed=0
   for u in $(all_units); do
     slug="$(unit_slug "$u")"
