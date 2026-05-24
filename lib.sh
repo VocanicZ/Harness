@@ -242,6 +242,36 @@ sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n gcd co
   done
   shopt -u nullglob; }
 
+# recover_orphan_working — crash/new-machine recovery sweep (#43), sibling of sweep_orphan_bug_worktrees.
+# GitHub is the source of truth, but a crashed/migrated host leaves issues stuck under
+# HARNESS_LABEL_WORKING whose owning tmux session died with the box — invisible to reap_team, which
+# only walks LOCAL worktrees. Walk every unit's repo and strip the label from each OPEN working issue
+# with NO live session, so dispatch re-claims it. An issue is in flight — and so NEVER swept — when its
+# IMPL session (sess_impl) OR its bug-lane session (bug_session_live, the SAME predicate reap_lane #42
+# uses) is live. That bug-lane check is what makes --recover safe to run while the fleet is up for the
+# priority lane too: without it a live bug's label was stripped, the lane re-claimed it, and spawn_bug
+# ripped out the worktree the still-live agent was editing (double-dispatch / corruption). Dead-session
+# bug orphans are still freed here; their worktrees are reaped separately by sweep_orphan_bug_worktrees.
+# Per-issue progress goes to stderr; the count of issues freed is echoed to stdout.
+recover_orphan_working(){ local u slug n freed=0
+  for u in $(all_units); do
+    slug="$(unit_slug "$u")"
+    gh repo view "$slug" >/dev/null 2>&1 || continue   # repo not seeded yet — nothing to free
+    while read -r n; do
+      [[ -z "$n" ]] && continue
+      session_live "$(sess_impl "$u" "$n")" && continue   # live impl session — never sweep
+      bug_session_live "$n" && continue                   # live bug-lane session — never sweep (#43)
+      if gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1; then
+        echo "  freed $slug#$n (orphaned $HARNESS_LABEL_WORKING — no live session)" >&2
+        freed=$((freed+1))
+      fi
+    done < <(gh issue list -R "$slug" --state open --label "$HARNESS_LABEL_WORKING" \
+               --json number,labels \
+               -q '.[] | select(([.labels[].name] | index("'"$HARNESS_LABEL_BLOCKED"'")) | not) | .number' \
+               2>/dev/null)
+  done
+  echo "$freed"; }
+
 dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allow-orchestration "$3"; }
 
 # --- tmux session naming + ralph helpers -------------------------------------
