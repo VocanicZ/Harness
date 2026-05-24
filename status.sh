@@ -10,15 +10,18 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 iter_of(){ [[ -f "$1/.claude/ralph-loop.local.md" ]] && grep -m1 '^iteration:' "$1/.claude/ralph-loop.local.md" | tr -dc '0-9' || echo '?'; }
 pid_up(){ [[ -f "$1" ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
-# fleet_verdict <up> <total> <sess_total> <done_n> <all_n> <paused:0|1> — the one-line
-# at-a-glance state. Precedence: PAUSED (forced-drain) > STOPPED (no live workers) >
+# fleet_verdict <up> <total> <sess_total> <done_n> <all_n> <paused:0|1> [lane_up:0|1] — the
+# one-line at-a-glance state. Precedence: PAUSED (forced-drain) > STOPPED (NOTHING live: no pool
+# worker AND no priority lane #35) > LANE-ONLY (pool down but the lane is alive #35) >
 # IDLE/WATCHING (resident #24: workers up but every unit complete, just polling) > RUNNING.
 fleet_verdict(){
-  local up="$1" total="$2" sess="$3" done_n="$4" all_n="$5" paused="$6"
+  local up="$1" total="$2" sess="$3" done_n="$4" all_n="$5" paused="$6" lane_up="${7:-0}"
   if [[ "$paused" == 1 ]]; then
     echo "PAUSED   (drained — workers idle; resume: harness/resume.sh)"
-  elif (( up == 0 )); then
+  elif (( up == 0 && lane_up == 0 )); then
     echo "STOPPED  (pool not running — start with: harness/start.sh)"
+  elif (( up == 0 )); then
+    echo "RUNNING  (pool down; priority bug lane live)"
   elif (( all_n > 0 && done_n >= all_n )); then
     echo "IDLE/WATCHING  ($up/$total workers resident; all $all_n units complete — polling for new work)"
   else
@@ -36,7 +39,8 @@ render_once(){
   local all_n; all_n="$(all_units | wc -l | tr -d ' ')"
 
   local paused=0; is_paused && paused=1
-  local verdict; verdict="$(fleet_verdict "$up" "$total" "$sess_total" "$done_n" "$all_n" "$paused")"
+  local lane_up=0; pid_up "$RUN_DIR/priority.pid" && lane_up=1
+  local verdict; verdict="$(fleet_verdict "$up" "$total" "$sess_total" "$done_n" "$all_n" "$paused" "$lane_up")"
 
   # Print the fleet header FIRST — the test greps for "worker" in this block.
   echo "═══════════════════════  Harness fleet  ═══════════════════════════"
@@ -73,6 +77,26 @@ render_once(){
       echo "        · idle (no unit claimed)"
     fi
   done
+
+  # Priority bug lane (#35): its own row — the pool counts above never include it, so without
+  # this the lane is operationally invisible. Shows UP/DOWN from priority.pid, plus its held
+  # bug + phase (parsed from the bug-<n>.claim and the live hz-bug-<n>-<phase> session) or
+  # "watching" when idle.
+  echo "──────────────────────  priority bug lane  ────────────────────────"
+  local lmark lpid
+  if pid_up "$RUN_DIR/priority.pid"; then
+    lmark="● UP  "; lpid="pid $(cat "$RUN_DIR/priority.pid")"
+  else
+    lmark="○ DOWN"; lpid="(not running)"
+  fi
+  printf '%s priority lane %s\n' "$lmark" "$lpid"
+  local lbug; lbug="$(lane_bug 2>/dev/null || true)"
+  if [[ -n "$lbug" ]]; then
+    local lphase; lphase="$(lane_phase "$lbug" 2>/dev/null || true)"
+    printf '        ▶ bug #%s (%s)\n' "$lbug" "${lphase:-?}"
+  elif pid_up "$RUN_DIR/priority.pid"; then
+    echo "        · watching (no bug claimed)"
+  fi
 
   echo "────────────────────────  unit frontier  ──────────────────────────"
   # Non-fatal: claimable_units calls unit_complete which may invoke gh/issuelib.

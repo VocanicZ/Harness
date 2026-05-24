@@ -153,6 +153,18 @@ claim_next_bug(){ local wid="$1" tok lockfd; exec {lockfd}>"$POOL_LOCK"; flock "
   tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
   flock -u "$lockfd"; exec {lockfd}>&-; echo "$tok"; }
 
+# lane_bug — the bug number the cap-1 priority lane currently holds (its live bug-<n>.claim),
+# or empty when watching. Mirrors worker_unit for the pool; status.sh #35 renders it. Skips
+# stale (dead-pid) claims via is_bug_claimed so a crashed lane never shows a phantom bug.
+lane_bug(){ local f n; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/bug-*.claim; do n="$(basename "$f" .claim)"; n="${n#bug-}"
+    is_bug_claimed "$n" && { echo "$n"; shopt -u nullglob; return; }
+  done; shopt -u nullglob; }
+# lane_phase <n> — the phase (triage|fix) of bug #n's live session, parsed from the
+# hz-bug-<n>-<phase> tmux session (sess_bug); empty when no session is live.
+lane_phase(){ local s; s="$(tmux ls -F '#S' 2>/dev/null | grep -m1 -E "^${HARNESS_SESS_PREFIX}-bug-$1-" || true)"
+  [[ -n "$s" ]] && echo "${s##*-}"; }
+
 # pool_live — is anything resident to claim freshly-injected work? True if any pool worker pid
 # (worker-1..POOL.pid) is alive OR the priority lane (priority.pid) is alive. A cleanly-retired
 # pool (workers exit 0 on all_complete) leaves only dead-pid files; with no live lane either,
