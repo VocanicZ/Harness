@@ -239,6 +239,22 @@ def bug_lane_issues(repo):
     """Open bug-lane issue numbers (fix-pending-first), without phase. See bug_lane_candidates."""
     return [n for n, _phase in bug_lane_candidates(repo)]
 
+def bug_lane_working(repo):
+    """Numbers of OPEN bug-lane issues currently CARRYING L_WORKING — the COMPLEMENT of
+    bug_lane_candidates' working filter (#42). A bug-lane session that crashes after spawn_bug
+    stamps agent-working but before the issue closes leaves the bug stuck under agent-working,
+    invisible to bug_lane_candidates (which excludes agent-working) — so the cap-1 lane idles
+    while an OPEN bug sits there. The lane's per-poll reap walks these and frees the ones whose
+    sess_bug session is dead, so a crashed triage/fix self-heals without `harness start --recover`.
+    Author-allowed + bug/bug-triaged, same scope as the candidate scan (the lane never touches an
+    issue it could not have claimed). Returned in list order; reap order does not matter."""
+    slug = _repo_slug(repo)
+    issues = _author_filter(_list_issues(slug))
+    return [i["number"] for i in issues
+            if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
+            and i["state"].lower() == "open"
+            and L_WORKING() in i["_labels"]]
+
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     if allow_orchestration:
@@ -282,6 +298,8 @@ def main():
               f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
     elif cmd == "bugs":
         for n, phase in bug_lane_candidates(repo): print(f"{n}\t{phase}")
+    elif cmd == "working-bugs":
+        for n in bug_lane_working(repo): print(n)
     elif cmd == "complete":
         print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
     elif cmd == "check":

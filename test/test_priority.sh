@@ -146,4 +146,50 @@ assert_no "stop.sh killed the lane process"  bash -c "kill -0 '$lane' 2>/dev/nul
 assert_ok "stop.sh removed the lane pidfile" bash -c "[[ ! -f '$SRUN/priority.pid' ]]"
 rm -rf "$SRUN"
 
+# ── #42 lane self-heal: reap_lane clears a crashed bug's stale agent-working ──────────
+# A bug-lane session that dies after spawn_bug stamps agent-working but BEFORE the issue closes
+# leaves the bug stuck under agent-working: bug_lane_candidates excludes agent-working, so the
+# cap-1 lane idles "watching" an OPEN bug forever (needing a manual `harness start --recover`).
+# reap_lane — run at the TOP of every poll, the lane's analog of the pool's reap_team — frees the
+# stale label + reaps any orphaned fix worktree so the next poll re-claims the bug. A genuinely
+# LIVE session is never swept (no double-dispatch), gated by bug_session_live: the SAME liveness
+# predicate start --recover uses (#43), so the two reconciliation paths can never disagree.
+source "$HERE/../lib.sh"; source "$HERE/../drive.sh"; source "$HERE/../priority-worker.sh"
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"
+WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"   # isolate from the live fleet's worktrees
+
+# bug_session_live: live when EITHER phase's sess_bug session is up; dead only when neither is.
+LIVE="$RUN_DIR/live_sessions"; : > "$LIVE"
+session_live(){ grep -qxF "$1" "$LIVE"; }                # a session is "live" iff listed in $LIVE
+printf '%s\n' "$(sess_bug 9 fix)"    > "$LIVE"; assert_ok "bug_session_live: true when fix session live"     bug_session_live 9
+printf '%s\n' "$(sess_bug 9 triage)" > "$LIVE"; assert_ok "bug_session_live: true when triage session live"  bug_session_live 9
+: > "$LIVE";                                    assert_no "bug_session_live: false when neither session live" bug_session_live 9
+
+# reap_lane records its GitHub + worktree effects through stubs (no real gh/git).
+GHLOG="$RUN_DIR/reap_gh"; WTLOG="$RUN_DIR/reap_wt"
+gh(){ echo "$*" >> "$GHLOG"; }                           # record every gh call
+remove_worktree(){ echo "$2|$3" >> "$WTLOG"; }           # record worktree path + branch reaped
+_repo_working_bugs(){ echo 9; }                          # repo's one OPEN agent-working bug is #9
+
+# DEAD session: reap_lane frees the stale agent-working AND reaps the orphaned fix worktree+branch
+: > "$GHLOG"; : > "$WTLOG"; : > "$LIVE"                   # no live session for #9
+reap_lane
+assert_ok "reap_lane removed stale agent-working for the dead-session bug" \
+  grep -q "issue edit 9 -R acme/widget --remove-label agent-working" "$GHLOG"
+assert_eq "$(cat "$WTLOG")" "$WORKTREES_DIR/bug-acme_widget-i9|issue/9" \
+  "reap_lane reaped the orphaned fix worktree + issue branch"
+
+# LIVE session: reap_lane leaves the bug entirely untouched (no double-dispatch)
+: > "$GHLOG"; : > "$WTLOG"; printf '%s\n' "$(sess_bug 9 fix)" > "$LIVE"   # #9 fix session is live
+reap_lane
+assert_eq "$(cat "$GHLOG")" "" "reap_lane did NOT touch a live-session bug's labels"
+assert_eq "$(cat "$WTLOG")" "" "reap_lane did NOT reap a live-session bug's worktree"
+
+# wiring: bug_step runs reap_lane at the top of EVERY poll (per-poll self-heal, like the pool)
+REAPED="$RUN_DIR/reaped"; : > "$REAPED"
+reap_lane(){ echo tick >> "$REAPED"; }                   # stub the now-tested reap to count calls
+_bug_numbers(){ :; }; PRIORITY_POLL=0; _IDLE_LOGGED=0
+bug_step P1 >/dev/null 2>&1
+assert_eq "$(grep -c tick "$REAPED")" "1" "bug_step ran reap_lane once (per-poll self-heal)"
+
 finish
