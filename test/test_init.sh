@@ -34,4 +34,33 @@ assert "bug-triaged label key written"  "grep -q 'HARNESS_LABEL_BUG_TRIAGED:=bug
 assert "priority-poll key written" "grep -q 'HARNESS_PRIORITY_POLL' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_POLL:-}" == "300" && "${HARNESS_PRIORITY_POLL:-}" == "60" ]] ) \
   && echo "  ok: poll cadences default 300/60 and round-trip" || { echo "  FAIL: poll cadence defaults"; exit 1; }
+
+# ── state-only init in cwd (#55, PRD #52): `harness init` creates ./.harness/{config,run/claims,
+# worktrees} in the CURRENT project dir and places NO engine code there (the engine is one shared
+# host install). Run from a pristine project dir, with HARNESS_DIR/STATE_DIR unset so init defaults
+# its target to $PWD/.harness.
+PROJ="$(mktemp -d)"
+( cd "$PROJ"; unset HARNESS_DIR STATE_DIR
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single \
+    HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+    bash "$HERE/../init.sh" >/dev/null 2>&1 )
+assert "init writes ./.harness/config in cwd"          "[[ -f '$PROJ/.harness/config' ]]"
+assert "init creates run/ state dir"                   "[[ -d '$PROJ/.harness/run' ]]"
+assert "init creates run/claims state dir"             "[[ -d '$PROJ/.harness/run/claims' ]]"
+assert "init creates worktrees/ state dir"             "[[ -d '$PROJ/.harness/worktrees' ]]"
+# NO engine code is copied into the project's .harness/ (state only).
+assert "init places no lib.sh (no engine code)"        "[[ ! -e '$PROJ/.harness/lib.sh' ]]"
+assert "init places no bin/harness (no engine code)"   "[[ ! -e '$PROJ/.harness/bin' ]]"
+assert "init places no engine *.sh scripts"            "[[ -z \"\$(find '$PROJ/.harness' -maxdepth 1 -name '*.sh' -print -quit 2>/dev/null)\" ]]"
+
+# ── not-in-project error (#55): a state-requiring subcommand run OUTSIDE any Harness project (no
+# .harness/config walking up) errors clearly and exits non-zero — not a cryptic deep-in-lib failure.
+NOPROJ="$(mktemp -d)"
+( cd "$NOPROJ"; unset HARNESS_DIR STATE_DIR
+  out="$("$HERE/../bin/harness" status 2>&1)"; rc=$?
+  [[ $rc -ne 0 ]] || { echo "  FAIL: subcommand outside a project should exit non-zero (got $rc)"; exit 1; }
+  grep -qiE 'harness init|not (in|inside).*[Hh]arness project|\.harness/config' <<<"$out" \
+    || { echo "  FAIL: not-in-project error lacks a helpful message — got: $out"; exit 1; }
+  echo "  ok: subcommand outside a project errors clearly + non-zero" ) || exit 1
+
 echo "── init ok"

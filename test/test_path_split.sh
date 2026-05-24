@@ -70,7 +70,9 @@ rc=0
 echo "SENTINEL_ENGINE=$ENGINE_DIR"
 EOF
   BIN="$(mktemp -d)"; ln -s "$ENG/bin/harness" "$BIN/harness"
-  out="$(cd /tmp && "$BIN/harness" status 2>&1)"
+  # STATE_DIR is preset so this stays focused on ENGINE_DIR resolution (status now requires a
+  # project; a preset STATE_DIR bypasses the cwd-discovery introduced in #55).
+  out="$(cd /tmp && STATE_DIR=/tmp "$BIN/harness" status 2>&1)"
   assert_ok "symlinked entrypoint execs the real engine's subcommand" \
     bash -c '[[ "'"$out"'" == SENTINEL_ENGINE=* ]]'
   assert_eq "${out#SENTINEL_ENGINE=}" "$ENG" "ENGINE_DIR resolves to the symlink target's engine root"

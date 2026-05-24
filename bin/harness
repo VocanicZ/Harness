@@ -1,15 +1,40 @@
 #!/usr/bin/env bash
 set -uo pipefail
 # ENGINE_DIR — the engine install (this file lives in <engine>/bin/). Resolved via realpath of the
-# entrypoint's OWN path first, so a PATH symlink (e.g. /usr/local/bin/harness → ~/.harness/engine/
-# bin/harness) resolves to the REAL engine, not the symlink's dir (#53, PRD #52). STATE_DIR — the
-# per-project .harness/; for this behavior-preserving slice it defaults to ENGINE_DIR (the vendored
-# layout where both are the same .harness/). lib.sh honors both exported vars and splits asset vs
-# state paths accordingly; cwd-discovery of STATE_DIR lands in a later slice.
+# entrypoint's OWN path first, so a PATH symlink (e.g. ~/.local/bin/harness → ~/.harness/engine/
+# bin/harness) resolves to the REAL engine, not the symlink's dir (#53, PRD #52).
+# STATE_DIR — the per-project .harness/ (config + runtime). It is no longer tied to ENGINE_DIR:
+# the engine is one shared host install, project state lives in the project (#55). It is resolved
+# per-command below — a pre-set env STATE_DIR always wins; otherwise it is DISCOVERED by walking UP
+# from cwd for a .harness/config (like git finds .git), so any subcommand works from a subdirectory.
 _self="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 ENGINE_DIR="$(cd "$(dirname "$_self")/.." && pwd)"
-STATE_DIR="${STATE_DIR:-$ENGINE_DIR}"
-export ENGINE_DIR STATE_DIR
+export ENGINE_DIR
+
+# discover_state_dir — walk UP from cwd for a .harness/config; echo that .harness dir, or fail (1).
+discover_state_dir(){
+  local d; d="$(pwd -P)"
+  while :; do
+    [[ -f "$d/.harness/config" ]] && { printf '%s\n' "$d/.harness"; return 0; }
+    [[ "$d" == / ]] && return 1
+    d="$(dirname "$d")"
+  done
+}
+# require_state_dir — set+export STATE_DIR for commands that act on a project. A pre-set STATE_DIR
+# wins (env override / vendored layout); else discover it. Outside any Harness project: a clear,
+# non-zero error here — not a cryptic path failure deep in lib.sh.
+require_state_dir(){
+  [[ -n "${STATE_DIR:-}" ]] && { export STATE_DIR; return 0; }
+  if STATE_DIR="$(discover_state_dir)"; then export STATE_DIR; return 0; fi
+  cat >&2 <<EOF
+harness: not inside a Harness project — no .harness/config found here or in any parent directory.
+  Run 'harness init' in your project's root to create one, or cd into an existing Harness project.
+EOF
+  exit 3
+}
+# try_state_dir — best-effort STATE_DIR for engine-level commands (e.g. update) that work anywhere
+# but use project state when present. Never errors.
+try_state_dir(){ [[ -n "${STATE_DIR:-}" ]] || STATE_DIR="$(discover_state_dir 2>/dev/null)" || true; export STATE_DIR; }
 usage(){ cat <<EOF
 usage: harness <command> [args]
   install              install the engine once to ~/.harness/engine + link 'harness' onto PATH
@@ -29,17 +54,21 @@ EOF
 }
 cmd="${1:-}"; shift || true
 case "$cmd" in
+  # engine-level: no project state needed. install bootstraps the host engine; update ff-pulls it
+  # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
-  init)   exec bash "$ENGINE_DIR/init.sh" "$@";;
-  start)  exec bash "$ENGINE_DIR/start.sh" "$@";;
-  stop)   exec bash "$ENGINE_DIR/stop.sh" "$@";;
-  status) exec bash "$ENGINE_DIR/status.sh" "$@";;
-  attach) exec bash "$ENGINE_DIR/attach.sh" "$@";;
-  pause)  exec bash "$ENGINE_DIR/pause.sh" "$@";;
-  update) exec bash "$ENGINE_DIR/update.sh" "$@";;
-  setup)  exec bash "$ENGINE_DIR/setup.sh" "$@";;
-  plan|prd|issue) exec bash "$ENGINE_DIR/inject.sh" "$cmd" "$@";;
-  resume) exec bash "$ENGINE_DIR/resume.sh" "$@";;
+  update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
+  # init CREATES the project state, so it can't discover it: target $PWD/.harness (env override wins).
+  init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/init.sh" "$@";;
+  # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.
+  start)  require_state_dir; exec bash "$ENGINE_DIR/start.sh" "$@";;
+  stop)   require_state_dir; exec bash "$ENGINE_DIR/stop.sh" "$@";;
+  status) require_state_dir; exec bash "$ENGINE_DIR/status.sh" "$@";;
+  attach) require_state_dir; exec bash "$ENGINE_DIR/attach.sh" "$@";;
+  pause)  require_state_dir; exec bash "$ENGINE_DIR/pause.sh" "$@";;
+  setup)  require_state_dir; exec bash "$ENGINE_DIR/setup.sh" "$@";;
+  plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/inject.sh" "$cmd" "$@";;
+  resume) require_state_dir; exec bash "$ENGINE_DIR/resume.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
   *) echo "unknown command: $cmd" >&2; usage; exit 2;;
