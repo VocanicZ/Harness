@@ -160,6 +160,37 @@ spawn_impl(){   # <ISSUE> <PROMISE>
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"
 }
 
+# spawn_bug <issue> <phase> — launch ONE priority-lane session for a bug (#27). The phase
+# (from bug_phase) picks the template AND a distinct session, so triage and fix are always
+# two separate sessions with fresh context:
+#   triage → bug-triage.md, run read-only in the shared CHECKOUT (like an orch session): refine
+#            the issue body + acceptance and flip the label IN PLACE — no branch, no PR, no code.
+#   fix    → bug-fix.md, in a fresh issue worktree on issue/<n> (exactly like spawn_impl): TDD →
+#            PR → auto-merge → close.
+# Both phases stamp agent-working synchronously before returning so the lane never re-dispatches
+# the same bug while its session is in flight (bug_lane_issues excludes agent-working).
+spawn_bug(){
+  local issue="$1" phase="$2" tmpl wd base
+  PROMISE="BUG $issue $phase DONE"; MAXITER="$IMPL_MAXITER"; GOAL="BUG:$issue:$phase"
+  ensure_checkout || { log "checkout unavailable for bug #$issue"; return 1; }
+  gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
+  if [[ "$phase" == fix ]]; then
+    tmpl="bug-fix.md"; wd="$WORKTREES_DIR/bug-i$issue"; base="$(default_branch)"
+    git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+    if ! git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" "origin/$base" 2>/dev/null; then
+      git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
+    fi
+    ensure_safe "$wd"
+  else
+    tmpl="bug-triage.md"; wd="$CHECKOUT"
+  fi
+  render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
+    SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
+    LABEL_READY="$HARNESS_LABEL_READY" LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" \
+    LABEL_BUG="$HARNESS_LABEL_BUG" LABEL_BUG_TRIAGED="$HARNESS_LABEL_BUG_TRIAGED" > "$wd/.harness-task.md"
+  launch_claude "$(sess_bug "$issue" "$phase")" "$wd"
+}
+
 # drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.
 drive_unit(){
   local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT drained=0

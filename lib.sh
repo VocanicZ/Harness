@@ -126,12 +126,35 @@ claim_next_bug(){ local wid="$1" n lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$l
   n="$(claimable_bugs | head -n1)"; [[ -n "$n" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/bug-$n.claim"
   flock -u "$lockfd"; exec {lockfd}>&-; echo "$n"; }
 
+# --- bug-lane phase + repo resolution (#27) ----------------------------------
+# Labels encode the phase in place (no child issues): an untriaged `bug` triages, a
+# `bug-triaged` fixes. _bug_labels/_bug_state are the overridable GitHub seams so the
+# lane logic is testable without touching GitHub; SLUG is set by the caller (drive_bug).
+_bug_labels(){ gh issue view "$1" -R "$SLUG" --json labels -q '[.labels[].name]|join(",")' 2>/dev/null; }
+_bug_state(){  gh issue view "$1" -R "$SLUG" --json state  -q '.state' 2>/dev/null; }
+# fix if already bug-triaged (wins even when `bug` lingers), else triage. The result picks
+# the prompt template AND the session phase suffix, so the two phases never share a session.
+bug_phase(){ case ",$(_bug_labels "$1")," in *",$HARNESS_LABEL_BUG_TRIAGED,"*) echo fix;; *) echo triage;; esac; }
+# Which repo holds bug #n + where its session runs. Single: the one repo, in PROJECT_ROOT.
+# Multi: the first bug-repo that lists #n, checked out under CHECKOUTS_DIR.
+bug_repo(){ local n="$1" repo
+  if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"; return; fi
+  for repo in $(_bug_repos); do
+    [[ -n "$repo" ]] || continue
+    python3 "$HARNESS_DIR/issuelib.py" bugs "$repo" 2>/dev/null | grep -qx "$n" && { echo "$repo"; return; }
+  done; }
+bug_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"
+  else echo "$CHECKOUTS_DIR/${1##*/}"; fi; }
+
 dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allow-orchestration "$3"; }
 
 # --- tmux session naming + ralph helpers -------------------------------------
 sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
 sess_impl(){ echo "$HARNESS_SESS_PREFIX-$1-i$2"; }
 sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
+# Priority bug-lane session: <issue> <phase>. The phase suffix keeps triage and fix on
+# DISTINCT sessions (separate session-ids / fresh context) for the same issue (#27).
+sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$1-$2"; }
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }

@@ -1,18 +1,42 @@
 #!/usr/bin/env bash
-# priority-worker.sh — the priority bug lane (#26). A single resident worker (cap 1) that
-# claims one bug-lane issue at a time, drives it, and releases it, polling at the fast
-# HARNESS_PRIORITY_POLL cadence. Same pause/stop semantics as pool-worker.sh: pause drains
-# (rc 3), stop kills the pid. Wiring only — drive_bug is a no-op stub here; the real
-# triage/fix session lands in the next issue.
+# priority-worker.sh — the priority bug lane (#26, #27). A single resident worker (cap 1) that
+# claims one bug-lane issue at a time, drives it through its current phase, and releases it,
+# polling at the fast HARNESS_PRIORITY_POLL cadence. Same pause/stop semantics as pool-worker.sh:
+# pause drains (rc 3), stop kills the pid. drive_bug runs the two-phase triage→fix flow (#27):
+# an untriaged `bug` triages (refine + flip label), a `bug-triaged` fixes (TDD → PR → close).
 set -uo pipefail
 _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "${_HARNESS_LIB_SOURCED:-}" ]]   && { source "$_PW_HERE/lib.sh";   _HARNESS_LIB_SOURCED=1; }
 [[ -z "${_HARNESS_DRIVE_SOURCED:-}" ]] && { source "$_PW_HERE/drive.sh"; _HARNESS_DRIVE_SOURCED=1; }
 
-# drive_bug <n> — take one claimed bug to resolution. WIRING ONLY (#26): a no-op/echo that
-# proves the claim→drive→release lifecycle. Real triage/fix sessions land in the next issue.
-# Sourced (overridable) so tests assert the lifecycle without touching GitHub.
-drive_bug(){ log "priority lane: drive bug #$1 (no-op stub — real triage/fix lands later)"; }
+# bug_goal_done <n> <phase> — has this phase's session delivered its outcome? triage: the issue
+# is closed (invalid/dup/wontfix) OR the label flipped to bug-triaged (now a fix). fix: the issue
+# is closed (its PR merged). Reads GitHub via the lib.sh seams (_bug_state/_bug_labels).
+bug_goal_done(){ local n="$1" phase="$2"
+  [[ "$(_bug_state "$n")" == CLOSED ]] && return 0
+  [[ "$phase" == triage && "$(bug_phase "$n")" == fix ]]; }
+
+# drive_bug <n> — take one claimed bug through its current phase (#27). Resolve the bug's repo,
+# pick the phase (triage|fix), spawn the matching session, then HOLD until that session ends
+# (mirrors the pool's drive_unit: the claim stays held for the whole session so the cap-1 lane
+# never moves on / double-dispatches). The two phases run as two DISTINCT sessions across two
+# claim cycles: triage flips bug → bug-triaged, a later cycle fixes the bug-triaged issue.
+# Sourced (overridable) so tests assert the lane lifecycle without touching GitHub.
+drive_bug(){ local n="$1" phase sess SLUG PROJECT DESC CHECKOUT REPO
+  REPO="$(bug_repo "$n")"; [[ -n "$REPO" ]] || { log "priority: cannot resolve repo for bug #$n"; return 1; }
+  SLUG="$(_with_owner "$REPO")"; PROJECT="${SLUG##*/}"; DESC="$PROJECT"; CHECKOUT="$(bug_checkout "$REPO")"
+  phase="$(bug_phase "$n")"; sess="$(sess_bug "$n" "$phase")"
+  log "priority: bug #$n → $phase session ($sess)"
+  spawn_bug "$n" "$phase" || { log "priority: spawn failed for bug #$n"; return 1; }
+  # Hold the claim while the phase session is live; reap once its goal is satisfied. A pause
+  # leaves the live session running (drained) — same contract as the pool.
+  while session_live "$sess"; do
+    is_paused && { log "priority: paused — leaving bug #$n $phase session live"; break; }
+    if bug_goal_done "$n" "$phase"; then
+      tmux kill-session -t "$sess" 2>/dev/null || true; rm -f "$RUN_DIR/$sess.goal"; break
+    fi
+    sleep "$PRIORITY_POLL"
+  done; }
 
 # One claim cycle. rc 3 paused (drained, no claim), rc 0 claimed+drove+released a bug,
 # rc 1 idle (no claimable bug). The lane holds at most one bug at a time (cap 1): it
