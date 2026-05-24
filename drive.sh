@@ -120,13 +120,13 @@ spawn_impl(){   # <ISSUE> <PROMISE>
 
 # drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.
 drive_unit(){
-  local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT
+  local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT drained=0
   REPO="$(unit_repo "$UNIT")"; [[ -n "$REPO" ]] || { log "unknown unit: $UNIT"; return 1; }
   SLUG="$(unit_slug "$UNIT")"; PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"
   log "drive $SLUG — mode $HARNESS_MODE cap $CAP poll ${POLL}s"
   while ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team
-    if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; break; fi
+    if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
     local active free allow_orch action payload promise
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then
@@ -139,7 +139,10 @@ drive_unit(){
     fi
     sleep "$POLL"
   done
-  # The loop exits either on genuine completion or on a pause-drain `break`. Only tear the team
-  # down when actually COMPLETE — a paused unit must keep its live sessions running to drain.
-  if unit_complete "$UNIT"; then finalize_unit; log "$UNIT COMPLETE"; else log "$UNIT drained (paused) — live sessions left running"; fi
+  # The loop exits on genuine completion OR a pause-drain `break`; track which directly via
+  # `drained` rather than re-querying unit_complete here — that re-query is a GitHub round-trip,
+  # and a transient error would wrongly skip the sweep and re-orphan the very session this
+  # teardown exists to reap. Only tear the team down on real completion; a paused unit must keep
+  # its live sessions running to drain.
+  if (( drained )); then log "$UNIT drained (paused) — live sessions left running"; else finalize_unit; log "$UNIT COMPLETE"; fi
 }

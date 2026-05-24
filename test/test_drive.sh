@@ -5,16 +5,21 @@ source "$HERE/../lib.sh"; source "$HERE/../drive.sh"; source "$HERE/helpers.sh"
 make_env
 HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; CAP=2; POLL=0
 DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"
+# Isolate WORKTREES_DIR to an empty temp dir: drive_unit now runs finalize_unit on completion,
+# whose glob/`rm -rf` would otherwise hit the LIVE $HARNESS_DIR/worktrees. With it empty, the
+# sweep matches nothing — hermetic by construction, not by accident of the git stub's exit code.
+WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
 
 # stubs: no real tmux/gh. spawn_impl just records; sessions are never "live".
-# team_sessions+git are stubbed so the on-completion finalize_unit sweep is a safe no-op here
-# (the real config's prefix is live in this process — an unstubbed sweep could hit the real fleet).
+# team_sessions/tmux/git are also stubbed so finalize_unit's session-kill + prune never reach the
+# real fleet (the live config's prefix is in this process); WORKTREES_DIR above is the real guard.
 spawn_impl(){ echo "IMPL $1" >> "$DISPATCHED"; }
 spawn_orch(){ echo "ORCH $1" >> "$DISPATCHED"; }
 reap_done_sessions(){ :; }
 reap_team(){ :; }
 count_team_sessions(){ echo 0; }
 team_sessions(){ :; }
+tmux(){ :; }
 git(){ :; }
 # dispatch returns two IMPL the first tick, then nothing; unit completes on tick 2.
 TICK="$RUN_DIR/tick"; echo 0 > "$TICK"
