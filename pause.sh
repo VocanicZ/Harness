@@ -22,12 +22,29 @@ _checkpoint_msg(){  # <issue> <slug> <branch> <working-label> <paused-label>
 
 # Parse a live session name into "<issue> <slug> <branch>" for the checkpoint, setting the
 # globals _CP_ISSUE/_CP_SLUG/_CP_BRANCH. Two shapes (#36): impl sessions hz-<unit>-i<issue>
-# (branch issue/<issue>), and priority-lane sessions hz-bug-<n>-(triage|fix) — the fix carries
-# branch issue/<n>, triage has none (read-only). Returns 1 for an unrecognised session.
+# (branch issue/<issue>), and priority-lane sessions hz-bug-<slug-sanitised>-<n>-(triage|fix) —
+# the fix carries branch issue/<n>, triage has none (read-only). Returns 1 for an unrecognised
+# session.
+#
+# The lane session carries the REPO (#44), but only sanitised (/ -> _), which can't be reversed
+# unambiguously (owner_repo). So the real owner/repo is recovered from the live bug claim's stored
+# token (third field), keyed by the same sanitised slug+number the session embeds. This is the
+# routing fix: a colliding issue #N in another repo no longer mis-resolves via the lossy bug_repo
+# rescan. A legacy bare session (hz-bug-<n>-(triage|fix)) still falls back to bug_repo.
 _checkpoint_target(){  # <session>
   local sess="$1" issue unit phase
-  local bug_re="^${HARNESS_SESS_PREFIX}-bug-([0-9]+)-(triage|fix)$"
+  local bug_re="^${HARNESS_SESS_PREFIX}-bug-(.+)-([0-9]+)-(triage|fix)$"
+  local bug_bare_re="^${HARNESS_SESS_PREFIX}-bug-([0-9]+)-(triage|fix)$"
   if [[ "$sess" =~ $bug_re ]]; then
+    local san="${BASH_REMATCH[1]}"; issue="${BASH_REMATCH[2]}"; phase="${BASH_REMATCH[3]}"
+    local tok; tok="$(awk '{print $3; exit}' "$CLAIMS_DIR/bug-${san}-${issue}.claim" 2>/dev/null)"
+    if [[ -n "$tok" ]]; then _CP_SLUG="$(_with_owner "$(_bug_ref_repo "$tok")")"
+    else _CP_SLUG="$(_with_owner "$(bug_repo "$issue")")"; fi
+    _CP_ISSUE="$issue"
+    [[ "$phase" == fix ]] && _CP_BRANCH="issue/$issue" || _CP_BRANCH=""
+    return 0
+  fi
+  if [[ "$sess" =~ $bug_bare_re ]]; then
     issue="${BASH_REMATCH[1]}"; phase="${BASH_REMATCH[2]}"
     _CP_ISSUE="$issue"; _CP_SLUG="$(_with_owner "$(bug_repo "$issue")")"
     [[ "$phase" == fix ]] && _CP_BRANCH="issue/$issue" || _CP_BRANCH=""
@@ -47,9 +64,10 @@ force_pause(){
   command -v gh   >/dev/null || die "gh not found"
   local sessions sess issue slug branch msg
   # Match BOTH impl sessions (hz-<unit>-i<issue>) and priority-lane sessions
-  # (hz-bug-<n>-triage|fix) — a forced pause must reach the bug lane too (#36).
+  # (hz-bug-<slug-sanitised>-<n>-triage|fix, or a legacy bare hz-bug-<n>-...) — a forced pause must
+  # reach the bug lane too (#36), and the lane session now carries the repo (#44).
   sessions="$(tmux ls -F '#S' 2>/dev/null \
-    | grep -E "^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-[0-9]+-(triage|fix))$" || true)"
+    | grep -E "^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$" || true)"
   if [[ -z "$sessions" ]]; then
     echo "No live impl/lane sessions — nothing to checkpoint. Marking paused."
     touch "$PAUSE_FLAG"; return 0

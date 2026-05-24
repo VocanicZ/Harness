@@ -153,20 +153,34 @@ _bug_ref_num(){  case "$1" in *#*) echo "${1##*#}";; *) echo "$1";; esac; }
 is_bug_claimed(){ is_claimed "$(_bug_claim_key "$1")"; }
 release_bug_claim(){ release_claim "$(_bug_claim_key "$1")"; }
 claimable_bugs(){ local tok; for tok in $(_bug_numbers); do is_bug_claimed "$tok" && continue; echo "$tok"; done; }
+# The claim file records "<wid> <pid> <token>": the third field carries the FULL repo-qualified
+# ref (#44) so lane_bug / _checkpoint_target recover the real owner/repo without reversing the
+# lossy sanitised claim key (owner_repo can't be split back into owner/repo unambiguously).
 claim_next_bug(){ local wid="$1" tok lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
-  tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
+  tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s %s\n' "$wid" "$$" "$tok" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
   flock -u "$lockfd"; exec {lockfd}>&-; echo "$tok"; }
 
-# lane_bug — the bug number the cap-1 priority lane currently holds (its live bug-<n>.claim),
-# or empty when watching. Mirrors worker_unit for the pool; status.sh #35 renders it. Skips
-# stale (dead-pid) claims via is_bug_claimed so a crashed lane never shows a phantom bug.
-lane_bug(){ local f n; shopt -s nullglob
-  for f in "$CLAIMS_DIR"/bug-*.claim; do n="$(basename "$f" .claim)"; n="${n#bug-}"
-    is_bug_claimed "$n" && { echo "$n"; shopt -u nullglob; return; }
+# lane_bug — the repo-qualified bug ref the cap-1 priority lane currently holds (its live
+# bug-*.claim), or empty when watching. Returns the claim's stored token (third field) so it is
+# the SAME "<owner>/<repo>#N" ref the lane claimed (#44) — never the lossy sanitised claim key,
+# which can't be split back into owner/repo. Falls back to the stripped key for a legacy claim
+# with no stored token (single-topology bare bug-<n>.claim). Mirrors worker_unit for the pool;
+# status.sh #35 renders it. Skips stale (dead-pid) claims via is_bug_claimed so a crashed lane
+# never shows a phantom bug.
+lane_bug(){ local f tok n; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/bug-*.claim; do
+    tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
+    n="$(basename "$f" .claim)"; n="${n#bug-}"
+    [[ -n "$tok" ]] || tok="$n"
+    is_bug_claimed "$tok" && { echo "$tok"; shopt -u nullglob; return; }
   done; shopt -u nullglob; }
-# lane_phase <n> — the phase (triage|fix) of bug #n's live session, parsed from the
-# hz-bug-<n>-<phase> tmux session (sess_bug); empty when no session is live.
-lane_phase(){ local s; s="$(tmux ls -F '#S' 2>/dev/null | grep -m1 -E "^${HARNESS_SESS_PREFIX}-bug-$1-" || true)"
+# lane_phase <ref> — the phase (triage|fix) of the bug's live session, parsed from its
+# hz-bug-<repo-sanitised>-<n>-<phase> tmux session (sess_bug). <ref> is the repo-qualified token
+# from lane_bug; it is sanitised the SAME way as the session/claim key (/ -> _, # -> -) so a
+# colliding issue number in another repo can't match the wrong session (#44). Empty when no
+# session is live. A bare ref (legacy single-topology) sanitises to itself.
+lane_phase(){ local key s; key="$(printf '%s' "$1" | tr '/#' '_-')"
+  s="$(tmux ls -F '#S' 2>/dev/null | grep -m1 -E "^${HARNESS_SESS_PREFIX}-bug-${key}-" || true)"
   [[ -n "$s" ]] && echo "${s##*-}"; }
 
 # pool_live — is anything resident to claim freshly-injected work? True if any pool worker pid
@@ -226,11 +240,15 @@ remove_worktree(){ local checkout="$1" wd="$2" branch="${3:-}"
 # whose fix session is dead, plus its local issue/<n> branch. Each worktree's owning checkout is
 # derived from the worktree itself (--git-common-dir) so this works across single/multi topology.
 # Skips a worktree whose fix session is still LIVE — safe to run while the fleet is up.
-sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n gcd co
+sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n san base gcd co
   for wd in "$WORKTREES_DIR"/bug-*-i*; do
     [[ -d "$wd" ]] || continue
     n="${wd##*-i}"
-    session_live "$(sess_bug "$n" fix)" && continue
+    # Recover the sanitised slug from the worktree dir (bug-<slug-sanitised>-i<n>) so the fix
+    # session name matches the repo-qualified sess_bug (#44). Passing the already-sanitised slug
+    # back through sess_bug is idempotent (no '/' left to translate).
+    base="${wd##*/}"; san="${base#bug-}"; san="${san%-i*}"
+    session_live "$(sess_bug "$san" "$n" fix)" && continue
     gcd="$(git -C "$wd" rev-parse --git-common-dir 2>/dev/null)" || gcd=""
     co=""
     if [[ -n "$gcd" ]]; then
@@ -248,9 +266,13 @@ dispatch_actions(){ python3 "$HARNESS_DIR/issuelib.py" dispatch "$1" "$2" --allo
 sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
 sess_impl(){ echo "$HARNESS_SESS_PREFIX-$1-i$2"; }
 sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
-# Priority bug-lane session: <issue> <phase>. The phase suffix keeps triage and fix on
-# DISTINCT sessions (separate session-ids / fresh context) for the same issue (#27).
-sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$1-$2"; }
+# Priority bug-lane session: <slug> <issue> <phase>. The slug (sanitised / -> _) is embedded so
+# the session name carries the REPO (#44): issue numbers are per-repo, so in `multi` two repos can
+# each hold a bug #N — a bare-number session collided, and every deriver that re-parsed it
+# (lane_phase, _checkpoint_target, sweep_orphan_bug_worktrees) lost the repo. The <phase> suffix
+# keeps triage and fix on DISTINCT sessions (separate session-ids / fresh context) for the same
+# issue (#27). The sanitised-slug-and-number segment matches the bug claim key (_bug_claim_key).
+sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$3"; }
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }

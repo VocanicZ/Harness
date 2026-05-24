@@ -68,3 +68,40 @@ out_bug="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN2" bas
 echo "$out_bug" | grep -qi 'bug #42' && echo "  ok: lane row shows the claimed bug number" || { echo "  FAIL: lane row missing 'bug #42'"; kill "$LANE2" 2>/dev/null; exit 1; }
 kill "$LANE2" 2>/dev/null
 echo "── status priority-lane row ok"
+
+# ── #44 multi-topology: lane identity carries the repo end-to-end ────────────
+# sess_bug emitted a BARE number, so every deriver that re-parsed the session/claim lost the repo
+# in `multi`, where two repos can share issue #N. lane_bug must return a repo-qualified
+# <owner>/<repo>#N ref so status renders the right bug (not the sanitised claim key like
+# 'acme_a-6'), and lane_phase must match the repo-qualified session so the phase is not '?'.
+MRUN="$(mktemp -d)"; MCLAIMS="$MRUN/claims"; mkdir -p "$MCLAIMS"
+CLAIMS_DIR="$MCLAIMS"
+sleep 30 & MLANE=$!
+printf 'P1 %s acme/a#6\n' "$MLANE" > "$MCLAIMS/bug-acme_a-6.claim"
+lb="$(lane_bug)"
+[[ "$lb" == "acme/a#6" ]] && echo "  ok: multi lane_bug returns the repo-qualified token" || { echo "  FAIL: lane_bug — want [acme/a#6] got [$lb]"; kill "$MLANE" 2>/dev/null; exit 1; }
+kill "$MLANE" 2>/dev/null
+
+# Two repos each hold a bug #6 with a live session in DIFFERENT phases. lane_phase must match the
+# repo-qualified session, so each repo's #6 reports its OWN phase — never a cross-repo mismatch or
+# the bare-number '?' that the old un-repo-qualified grep produced.
+tmux(){ printf 'hz-bug-acme_a-6-fix\nhz-bug-acme_b-6-triage\n'; }
+pa="$(lane_phase acme/a#6)"; pb="$(lane_phase acme/b#6)"
+[[ "$pa" == "fix" ]]    && echo "  ok: multi lane_phase(acme/a#6) -> fix"    || { echo "  FAIL: lane_phase acme/a#6 — want [fix] got [$pa]"; exit 1; }
+[[ "$pb" == "triage" ]] && echo "  ok: multi lane_phase(acme/b#6) -> triage (no cross-repo mismatch)" || { echo "  FAIL: lane_phase acme/b#6 — want [triage] got [$pb]"; exit 1; }
+unset -f tmux
+
+# End-to-end render in `multi`: the lane row shows the repo-qualified bug WITH its phase, never the
+# sanitised claim key (acme_a-6) or the perpetual '?' phase the old bare-number grep produced.
+ERUN="$(mktemp -d)"; mkdir -p "$ERUN/claims"
+sleep 30 & EP=$!
+echo "$EP" > "$ERUN/priority.pid"
+printf 'P1 %s acme/a#6\n' "$EP" > "$ERUN/claims/bug-acme_a-6.claim"
+tmux(){ case "$1" in ls) printf 'hz-bug-acme_a-6-fix\n';; has-session) return 1;; *) return 0;; esac; }
+export -f tmux
+ETSV="$(mktemp)"   # empty targets.tsv -> no unit loops, hermetic
+oute="$(HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme TARGETS_TSV="$ETSV" RUN_DIR="$ERUN" bash "$HERE/../status.sh" 2>&1 || true)"
+kill "$EP" 2>/dev/null; unset -f tmux
+echo "$oute" | grep -qE 'bug acme/a#6 \(fix\)' && echo "  ok: multi lane row renders the repo-qualified bug + phase" || { echo "  FAIL: lane row not 'bug acme/a#6 (fix)' — got [$(echo "$oute" | grep -i 'bug ')]"; exit 1; }
+echo "$oute" | grep -q 'acme_a-6'  && { echo "  FAIL: sanitised claim key leaked into the render"; exit 1; } || echo "  ok: sanitised key not shown"
+echo "── status #44 multi lane-identity ok"

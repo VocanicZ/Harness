@@ -155,7 +155,7 @@ ensure_safe(){ :; }
 DEAD="$(bug_worktree "$SLUG" 5)"; LIVE="$(bug_worktree "$SLUG" 6)"
 git -C "$CHECKOUT" worktree add -q -B issue/5 "$DEAD"
 git -C "$CHECKOUT" worktree add -q -B issue/6 "$LIVE"
-session_live(){ [[ "$1" == "$(sess_bug 6 fix)" ]]; }   # only #6's fix session is live
+session_live(){ [[ "$1" == "$(sess_bug "$SLUG" 6 fix)" ]]; }   # only #6's repo-qualified fix session is live (#44)
 sweep_orphan_bug_worktrees >/dev/null 2>&1
 assert_no "sweep removed the dead-session bug worktree (#5)" test -d "$DEAD"
 assert_ok "sweep kept the live-session bug worktree (#6)"    test -d "$LIVE"
