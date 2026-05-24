@@ -129,13 +129,19 @@ _repo_working_bugs(){ python3 "$HARNESS_DIR/issuelib.py" working-bugs "$1" 2>/de
 # All repos' candidates as "<repo>#<num>" tokens, GLOBALLY fix-pending-first (#37): each repo's
 # (num,phase) pairs are tagged with a phase sort-key (0=fix/pending, 1=triage/fresh) then stably
 # sorted, so a pending fix in ANY repo drains before a fresh bug in ANY repo. Stable sort keeps
-# same-phase candidates in their cross-repo input order.
-_bug_numbers(){ local repo num phase
+# same-phase candidates in their cross-repo input order. The repo is owner-qualified via _with_owner
+# at token construction (#49): the claim key, session, worktree, _checkpoint_target lookup, and
+# lane_phase grep all derive from this token, while drive_bug/spawn_bug derive their slug from
+# _with_owner — so a BARE repo (multi col-2 `widget`, or single HARNESS_REPO=widget) with
+# HARNESS_OWNER set yields ONE shared owner-qualified slug instead of a token/session mismatch.
+# _repo_bugs still queries with the RAW repo (the GitHub seam); only the emitted token is qualified.
+_bug_numbers(){ local repo qrepo num phase
   for repo in $(_bug_repos); do
     [[ -n "$repo" ]] || continue
+    qrepo="$(_with_owner "$repo")"
     _repo_bugs "$repo" | while IFS=$'\t' read -r num phase; do
       [[ -n "$num" ]] || continue
-      printf '%s\t%s#%s\n' "$([[ "$phase" == fix ]] && echo 0 || echo 1)" "$repo" "$num"
+      printf '%s\t%s#%s\n' "$([[ "$phase" == fix ]] && echo 0 || echo 1)" "$qrepo" "$num"
     done
   done | sort -t$'\t' -s -k1,1n | cut -f2-
 }

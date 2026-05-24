@@ -120,6 +120,37 @@ assert_eq "$(_bug_numbers | tr '\n' ' ')" "acme/b#7 acme/a#5 acme/b#8 " \
 assert_eq "$(bug_repo 5)" "acme/a" "bug_repo(bare): resolves the repo listing #5"
 assert_eq "$(bug_repo 8)" "acme/b" "bug_repo(bare): resolves the repo listing #8 (number field, not the phase line)"
 
+# ── #49 bare-repo owner-qualification: token, claim, session, worktree, lane_phase ALL agree ─────
+# #44 owner-qualified the session/worktree (SLUG=_with_owner REPO) but left _bug_numbers' token —
+# and so the claim key — on the RAW _bug_repos string. On a BARE repo (multi col-2 `widget`, or
+# single HARNESS_REPO=widget) with HARNESS_OWNER set, the claim landed at bug-widget-9 while the
+# session was hz-bug-acme_widget-9-fix: _checkpoint_target's lookup missed and lane_phase's grep
+# never matched. Owner-qualifying the token at construction makes every deriver share ONE slug.
+source "$HERE/../lib.sh"                                       # restore the real _bug_numbers
+HARNESS_TOPOLOGY=multi; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz
+WORKTREES_DIR="$RUN_DIR/wt"                                    # hermetic worktree base for the path check
+_bug_repos(){ echo widget; }                                  # BARE repo (no owner) — the regression trigger
+_repo_bugs(){ printf '9\tfix\n'; }
+assert_eq "$(_bug_numbers | tr '\n' ' ')" "acme/widget#9 " "_bug_numbers owner-qualifies a bare repo's token"
+tok="$(_bug_numbers | head -n1)"
+assert_eq "$(_bug_claim_key "$tok")" "bug-acme_widget-9" "claim key derives from the owner-qualified slug"
+# the slug drive_bug computes (SLUG=_with_owner of the carried repo) feeds session + worktree
+slug="$(_with_owner "$(_bug_ref_repo "$tok")")"
+assert_eq "$slug" "acme/widget" "drive_bug's SLUG (=_with_owner carried repo) is owner-qualified"
+assert_eq "$(sess_bug "$slug" 9 fix)" "hz-bug-acme_widget-9-fix" "session embeds the owner-qualified slug"
+assert_eq "$(bug_worktree "$slug" 9)" "$RUN_DIR/wt/bug-acme_widget-i9" "worktree path uses the owner-qualified slug"
+# _checkpoint_target parses san+num from the session and looks up bug-<san>-<n>.claim: it must equal
+# the key claim_next_bug actually wrote (token-derived). Agreement = no fallback to the bug_repo rescan.
+san="$(printf '%s' "$(sess_bug "$slug" 9 fix)" | sed -E "s/^hz-bug-(.+)-9-fix$/\1/")"
+assert_eq "bug-${san}-9" "$(_bug_claim_key "$tok")" "checkpoint's session-derived lookup == the written claim key"
+# lane_phase resolves the live session via the token's grep key (no permanent '?')
+tmux(){ [[ "$1" == ls ]] && echo "hz-bug-acme_widget-9-fix"; }
+assert_eq "$(lane_phase "$tok")" "fix" "lane_phase resolves the owner-qualified session (no '?' phase)"
+unset -f tmux
+# existing owner-qualified configs are unaffected: a repo that already carries an owner is a no-op
+_bug_repos(){ echo acme/widget; }
+assert_eq "$(_bug_numbers | tr '\n' ' ')" "acme/widget#9 " "_bug_numbers leaves an already-qualified repo unchanged"
+
 # ── priority.sh launches EXACTLY ONE resident lane; pid tracked under run/; idempotent ──
 # Hermetic: empty HARNESS_REPO means the lane finds no bug repos and just idles (no gh).
 LRUN="$(mktemp -d)"
