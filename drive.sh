@@ -33,8 +33,36 @@ reap_team(){
     # prior session left it agent-blocked (no human will ever clear that label for us).
     if echo "$state" | grep -q '"state":"OPEN"'; then
       gh issue edit "$issue" -R "$SLUG" --remove-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
+    else
+      # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
+      # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
+      git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
     fi
   done
+  shopt -u nullglob
+}
+
+# finalize_unit — the unit just reached COMPLETE. reap_done_sessions/reap_team only run at the
+# TOP of the poll loop, so the session AND worktree that DELIVER completion are never swept by
+# them — the loop exits first, orphaning the last tmux session + worktree (this is exactly how a
+# finished review session gets left behind). This final, unconditional sweep tears the whole team
+# down: kill every session still up for the unit, drop its goal file, remove each per-issue
+# worktree and its local branch, then prune. (Remote branches are auto-deleted on squash-merge.)
+finalize_unit(){
+  local s wd issue
+  while read -r s; do
+    [[ -z "$s" ]] && continue
+    tmux kill-session -t "$s" 2>/dev/null && log "finalize: reaped leftover session $s"
+    rm -f "$RUN_DIR/$s.goal"
+  done < <(team_sessions "$UNIT")
+  shopt -s nullglob
+  for wd in "$WORKTREES_DIR/$UNIT"-i*; do
+    issue="${wd##*-i}"
+    git -C "$CHECKOUT" worktree remove --force "$wd" 2>/dev/null || rm -rf "$wd"
+    git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
+    log "finalize: removed worktree + local branch for #$issue"
+  done
+  git -C "$CHECKOUT" worktree prune 2>/dev/null || true
   shopt -u nullglob
 }
 
@@ -111,5 +139,7 @@ drive_unit(){
     fi
     sleep "$POLL"
   done
-  log "$UNIT COMPLETE"
+  # The loop exits either on genuine completion or on a pause-drain `break`. Only tear the team
+  # down when actually COMPLETE — a paused unit must keep its live sessions running to drain.
+  if unit_complete "$UNIT"; then finalize_unit; log "$UNIT COMPLETE"; else log "$UNIT drained (paused) — live sessions left running"; fi
 }
