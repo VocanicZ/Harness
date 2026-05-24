@@ -49,24 +49,12 @@ recover(){
   echo "  sweeping orphaned bug-fix worktrees:"
   sweep_orphan_bug_worktrees
 
-  local u slug n freed=0
-  for u in $(all_units); do
-    slug="$(unit_slug "$u")"
-    gh repo view "$slug" >/dev/null 2>&1 || continue   # repo not seeded yet — nothing to free
-    while read -r n; do
-      [[ -z "$n" ]] && continue
-      # only orphans: issues whose impl session is gone. Skip live-session ones so --recover
-      # is safe to run even while the fleet is up (won't double-dispatch live work).
-      session_live "$(sess_impl "$u" "$n")" && continue
-      if gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1; then
-        echo "  freed $slug#$n (orphaned $HARNESS_LABEL_WORKING — no live session)"
-        freed=$((freed+1))
-      fi
-    done < <(gh issue list -R "$slug" --state open --label "$HARNESS_LABEL_WORKING" \
-               --json number,labels \
-               -q '.[] | select(([.labels[].name] | index("'"$HARNESS_LABEL_BLOCKED"'")) | not) | .number' \
-               2>/dev/null)
-  done
+  # Free issues stuck under HARNESS_LABEL_WORKING whose owning session died with the host. Skips any
+  # issue with a live impl OR bug-lane session, so --recover is safe to run even while the fleet is up
+  # — it won't double-dispatch live pool work, nor strip a live bug's label and let the lane rip out
+  # the worktree the agent is still editing (#43). Same liveness predicate as the lane's reap (#42).
+  echo "  freeing orphaned $HARNESS_LABEL_WORKING (dead-session issues):"
+  local freed; freed="$(recover_orphan_working)"
   echo "── recovery done ($freed issue(s) freed) ──"
 }
 
