@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
+# init.sh — create a project's per-project STATE only: ./.harness/{config,run/claims,worktrees}.
+# NO engine code is placed in the project (#55, PRD #52): the engine is one shared host install and
+# `harness` runs it off PATH. STATE_DIR is the project's .harness/; bin/harness sets it to
+# $PWD/.harness for `init`. Honors a pre-set STATE_DIR and the legacy HARNESS_DIR (direct invocation
+# / vendored layout). ENGINE_DIR (this file's dir when run directly) is only used to source lib.sh.
 set -uo pipefail
-HARNESS_DIR="${HARNESS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-CONFIG="$HARNESS_DIR/config"
+ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-$PWD/.harness}}"
+mkdir -p "$STATE_DIR/run/claims" "$STATE_DIR/worktrees"
+CONFIG="$STATE_DIR/config"
 ni="${HARNESS_INIT_NONINTERACTIVE:-0}"; [[ -t 0 ]] || ni=1
 ask(){ local var="$1" prompt="$2" def="$3" val
   if [[ "$ni" == 1 ]]; then val="${!var:-$def}"; else read -rp "$prompt [$def]: " val; val="${val:-$def}"; fi
@@ -40,7 +47,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 } > "$CONFIG"
 echo "wrote $CONFIG"
 if [[ "$ni" != 1 ]]; then
-  source "$HARNESS_DIR/lib.sh"
+  source "$ENGINE_DIR/lib.sh"
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then seed_if_needed main
   else [[ -f "$TARGETS_TSV" ]] || printf '# id\trepo\tdeps(comma|-)\tdesc\n' > "$TARGETS_TSV"; echo "edit $TARGETS_TSV to list your repos + deps"; fi
 fi
