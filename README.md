@@ -106,6 +106,7 @@ harness <command>
 | `stop [--clean]` | Stop the pool. `--clean` also removes worktrees |
 | `status [--watch [secs]]` | One-shot or live dashboard: pool state, per-unit progress, live sessions, gated units |
 | `attach <unit> [issue]` | tmux-attach to a running session |
+| `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
 
 ## Pause / resume / update
 
@@ -130,6 +131,29 @@ all at once (no per-project re-pull, no version skew). Live workers keep the old
 you relaunch (`pause` → drain → `stop` → `start --recover`).
 
 New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
+
+## Migrating an old vendored project
+
+Early Harness projects **vendored** the engine: a full clone (engine code + its own `.git`) lived
+inside the project's `.harness/` alongside its config and runtime state. The engine is now installed
+**once per host** at `~/.harness/engine` and shared by every project (see [Install](#install)), so a
+vendored `.harness/` no longer needs — and shouldn't carry — its own engine copy.
+
+`harness migrate` converts a vendored `.harness/` to **state-only** in place:
+
+```bash
+harness install          # once per host — places the shared engine + the 'harness' PATH symlink
+cd your-project
+harness migrate          # strip the vendored engine clone + .git; keep config + runtime state
+harness start --recover  # relaunch off the shared engine
+```
+
+It **preserves** all per-project state — `config`, `targets.tsv`, `run/` (including `claims/`),
+`worktrees/`, `checkouts/`, and any `prompts/*.local.md` overrides — and **removes** the vendored
+engine code and its `.git`. In-flight worktrees survive: single-topology worktrees belong to the
+project repo (the parent of `.harness/`), and multi-topology worktrees to `checkouts/*/.git`, so
+deleting the vendored `.harness/.git` never corrupts one. It is **idempotent** (re-running on an
+already state-only `.harness/` is a no-op) and **refuses** if no shared engine is installed.
 
 ## The `/harness` skill
 
