@@ -1,6 +1,6 @@
 import importlib.util, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("issuelib", os.path.join(HERE, "..", "issuelib.py"))
+spec = importlib.util.spec_from_file_location("issuelib", os.path.join(HERE, "..", "scripts", "issuelib.py"))
 il = importlib.util.module_from_spec(spec); spec.loader.exec_module(il)
 _REAL_COMPUTE_STATE = il.compute_state   # tests that stub compute_state must restore this
 

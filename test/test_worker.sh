@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/../drive.sh"
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
 _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
-source "$HERE/../pool-worker.sh"   # defines worker_tick; main() guarded out
+source "$HERE/../scripts/pool-worker.sh"   # defines worker_tick; main() guarded out
 source "$HERE/helpers.sh"; make_env
 HARNESS_TOPOLOGY=multi
 write_targets <<'EOF'

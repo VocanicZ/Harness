@@ -16,6 +16,6 @@ TTY, so prefer one of:
    `! .harness/bin/harness init`
 2. **Non-interactive:** if the user already gave you the values, run with env vars set, e.g.
    `HARNESS_MODE=prd HARNESS_OWNER=acme HARNESS_REPO=acme/widget .harness/bin/harness init`
-   (unset vars take defaults; see `.harness/init.sh`).
+   (unset vars take defaults; see `.harness/scripts/init.sh`).
 
 After it writes config, next step is `/harness-start`. For full setup+operate guidance use `/harness`.

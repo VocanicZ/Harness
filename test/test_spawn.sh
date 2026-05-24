@@ -4,8 +4,8 @@
 #   I1: multi topology label leak when clone fails
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"
-source "$HERE/../drive.sh"
+source "$HERE/../scripts/lib.sh"
+source "$HERE/../scripts/drive.sh"
 source "$HERE/helpers.sh"
 make_env
 
@@ -50,8 +50,8 @@ assert_ok "spawn_impl: no unbound-var crash (C1)" bash -c '
   RUN_DIR="'"$RUN_DIR"'"
   WORKTREES_DIR="'"$WORKTREES_DIR"'"
   FAKE_CHECKOUT="'"$FAKE_CHECKOUT"'"
-  source "'"$HERE"'/../lib.sh"
-  source "'"$HERE"'/../drive.sh"
+  source "'"$HERE"'/../scripts/lib.sh"
+  source "'"$HERE"'/../scripts/drive.sh"
   # Stubs
   tmux(){ :; }; render(){ :; }; launch_claude(){ :; }
   default_branch(){ echo main; }; ensure_safe(){ :; }
@@ -74,8 +74,8 @@ assert_ok "spawn_orch: no unbound-var crash (C1)" bash -c '
   RUN_DIR="'"$RUN_DIR"'"
   WORKTREES_DIR="'"$WORKTREES_DIR"'"
   FAKE_CHECKOUT="'"$FAKE_CHECKOUT"'"
-  source "'"$HERE"'/../lib.sh"
-  source "'"$HERE"'/../drive.sh"
+  source "'"$HERE"'/../scripts/lib.sh"
+  source "'"$HERE"'/../scripts/drive.sh"
   tmux(){ :; }; render(){ :; }; launch_claude(){ :; }
   default_branch(){ echo main; }; ensure_safe(){ :; }
   git(){ :; }; gh(){ :; }
@@ -101,8 +101,8 @@ assert_no "spawn_impl returns nonzero when clone fails (I1)" bash -c '
   WORKTREES_DIR="'"$WORKTREES_DIR"'"
   CALLS_I1="'"$CALLS_I1"'"
   : > "$CALLS_I1"
-  source "'"$HERE"'/../lib.sh"
-  source "'"$HERE"'/../drive.sh"
+  source "'"$HERE"'/../scripts/lib.sh"
+  source "'"$HERE"'/../scripts/drive.sh"
   # git: rev-parse fails (no repo) and clone fails; everything else succeeds and is recorded.
   # This precisely models a fresh $CHECKOUT dir that is not a git repo + a failing network clone.
   git(){
@@ -141,8 +141,8 @@ assert_ok "spawn_impl succeeds and labels when clone succeeds (I1)" bash -c '
   WORKTREES_DIR="$(mktemp -d)"
   CALLS_I1_OK="'"$CALLS_I1_OK"'"
   : > "$CALLS_I1_OK"
-  source "'"$HERE"'/../lib.sh"
-  source "'"$HERE"'/../drive.sh"
+  source "'"$HERE"'/../scripts/lib.sh"
+  source "'"$HERE"'/../scripts/drive.sh"
   git(){
     echo "git $*" >> "$CALLS_I1_OK"
     # rev-parse: always return 1 on first call (no repo yet), then 0 after clone

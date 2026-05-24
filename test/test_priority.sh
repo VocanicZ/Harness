@@ -3,7 +3,7 @@
 # serialization, stale-claim recovery, and resident pause/stop semantics.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/helpers.sh"; make_env
+source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
 
 # ── bug-claim lifecycle: claim records the worker id; is/release reflect it ────
 # Bug identity is repo-qualified end-to-end (#37): the GitHub-backed seam emits "<repo>#<num>"
@@ -39,8 +39,8 @@ assert_ok "live bug claim kept"                         bash -c "[[ -f '$CLAIMS_
 rm -f "$CLAIMS_DIR"/bug-*.claim
 
 # ── resident worker loop: bug_tick claims→drives→releases; pause idles; idle dedups ──
-source "$HERE/../drive.sh" 2>/dev/null || true
-source "$HERE/../priority-worker.sh"   # defines bug_tick/bug_step/drive_bug; main() guarded out
+source "$HERE/../scripts/drive.sh" 2>/dev/null || true
+source "$HERE/../scripts/priority-worker.sh"   # defines bug_tick/bug_step/drive_bug; main() guarded out
 PRIORITY_POLL=0
 DROVE="$RUN_DIR/drove"; : > "$DROVE"
 drive_bug(){ echo "$1" >> "$DROVE"; }     # record which bug token was driven (no real session)
@@ -94,7 +94,7 @@ rm -f "$CLAIMS_DIR"/bug-*.claim
 # ── #37 drive_bug resolves SLUG/REPO from the CARRIED repo (not a rescan) ─────
 assert_eq "$(_bug_ref_repo acme/b#5)" "acme/b" "_bug_ref_repo extracts the carried repo"
 assert_eq "$(_bug_ref_num  acme/b#5)" "5"      "_bug_ref_num extracts the number"
-source "$HERE/../priority-worker.sh"      # restore the real drive_bug (was stubbed above)
+source "$HERE/../scripts/priority-worker.sh"      # restore the real drive_bug (was stubbed above)
 ROUTE="$RUN_DIR/route"; : > "$ROUTE"
 HARNESS_TOPOLOGY=multi
 bug_phase(){ echo triage; }                                   # avoid gh
@@ -108,7 +108,7 @@ assert_ok "drive_bug carries the right number"                                 g
 # _bug_numbers tags each repo's candidates with their phase (via _repo_bugs) and globally
 # re-sorts, so a bug-triaged in ANY repo drains before a fresh bug in ANY repo. Same-phase
 # candidates keep their cross-repo input order (stable).
-source "$HERE/../lib.sh"                                       # restore the real _bug_numbers (overridden above)
+source "$HERE/../scripts/lib.sh"                                       # restore the real _bug_numbers (overridden above)
 _bug_repos(){ printf 'acme/a\nacme/b\n'; }
 _repo_bugs(){ case "$1" in
   acme/a) printf '5\ttriage\n';;                               # fresh bug, earlier repo
@@ -126,7 +126,7 @@ assert_eq "$(bug_repo 8)" "acme/b" "bug_repo(bare): resolves the repo listing #8
 # single HARNESS_REPO=widget) with HARNESS_OWNER set, the claim landed at bug-widget-9 while the
 # session was hz-bug-acme_widget-9-fix: _checkpoint_target's lookup missed and lane_phase's grep
 # never matched. Owner-qualifying the token at construction makes every deriver share ONE slug.
-source "$HERE/../lib.sh"                                       # restore the real _bug_numbers
+source "$HERE/../scripts/lib.sh"                                       # restore the real _bug_numbers
 HARNESS_TOPOLOGY=multi; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz
 WORKTREES_DIR="$RUN_DIR/wt"                                    # hermetic worktree base for the path check
 _bug_repos(){ echo widget; }                                  # BARE repo (no owner) — the regression trigger
@@ -155,25 +155,25 @@ assert_eq "$(_bug_numbers | tr '\n' ' ')" "acme/widget#9 " "_bug_numbers leaves 
 # Hermetic: empty HARNESS_REPO means the lane finds no bug repos and just idles (no gh).
 LRUN="$(mktemp -d)"
 HARNESS_PRIORITY_POLL=3600 HARNESS_TOPOLOGY=single HARNESS_REPO="" RUN_DIR="$LRUN" \
-  bash "$HERE/../priority.sh" >/dev/null 2>&1
+  bash "$HERE/../scripts/priority.sh" >/dev/null 2>&1
 assert_ok "priority.sh wrote run/priority.pid" bash -c "[[ -f '$LRUN/priority.pid' ]]"
 lpid="$(cat "$LRUN/priority.pid")"
 assert_ok "lane process is alive" bash -c "kill -0 '$lpid' 2>/dev/null"
 # re-run: must NOT spawn a second lane — same pid, still exactly one pidfile
 HARNESS_PRIORITY_POLL=3600 HARNESS_TOPOLOGY=single HARNESS_REPO="" RUN_DIR="$LRUN" \
-  bash "$HERE/../priority.sh" >/dev/null 2>&1
+  bash "$HERE/../scripts/priority.sh" >/dev/null 2>&1
 assert_eq "$(cat "$LRUN/priority.pid")" "$lpid" "re-run kept the same lane (idempotent, no double-spawn)"
 assert_eq "$(ls "$LRUN"/priority*.pid | wc -l | tr -d ' ')" "1" "exactly one lane pidfile"
 kill "$lpid" 2>/dev/null; rm -rf "$LRUN"
 
 # ── start.sh wires the lane in alongside the pool ──
-assert_ok "start.sh invokes priority.sh" bash -c "grep -q 'priority.sh' '$HERE/../start.sh'"
+assert_ok "start.sh invokes priority.sh" bash -c "grep -q 'priority.sh' '$HERE/../scripts/start.sh'"
 
 # ── stop.sh tears the lane down (its pidfile is generic run/*.pid) ──
 SRUN="$(mktemp -d)"
 ( exec sleep 600 ) & lane=$!     # stand-in lane process
 printf '%s\n' "$lane" > "$SRUN/priority.pid"
-RUN_DIR="$SRUN" bash "$HERE/../stop.sh" >/dev/null 2>&1
+RUN_DIR="$SRUN" bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
 assert_no "stop.sh killed the lane process"  bash -c "kill -0 '$lane' 2>/dev/null"
 assert_ok "stop.sh removed the lane pidfile" bash -c "[[ ! -f '$SRUN/priority.pid' ]]"
 rm -rf "$SRUN"
@@ -186,7 +186,7 @@ rm -rf "$SRUN"
 # stale label + reaps any orphaned fix worktree so the next poll re-claims the bug. A genuinely
 # LIVE session is never swept (no double-dispatch), gated by bug_session_live: the SAME liveness
 # predicate start --recover uses (#43), so the two reconciliation paths can never disagree.
-source "$HERE/../lib.sh"; source "$HERE/../drive.sh"; source "$HERE/../priority-worker.sh"
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/../scripts/priority-worker.sh"
 HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"   # isolate from the live fleet's worktrees
 

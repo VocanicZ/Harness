@@ -4,13 +4,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP="$(mktemp -d)"; cp -r "$HERE/.." "$TMP/.harness"   # fake .harness checkout
 export HARNESS_DIR="$TMP/.harness"
 # stub gh + seed so init does no network
-cat > "$TMP/.harness/seed.sh" <<'EOF'
+cat > "$TMP/.harness/scripts/seed.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=prd HARNESS_TOPOLOGY=single \
   HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_AUTONOMOUS=false \
-  bash "$TMP/.harness/init.sh"
+  bash "$TMP/.harness/scripts/init.sh"
 CFG="$TMP/.harness/config"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 assert "config written"           "[[ -f '$CFG' ]]"
@@ -43,7 +43,7 @@ PROJ="$(mktemp -d)"
 ( cd "$PROJ"; unset HARNESS_DIR STATE_DIR
   HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single \
     HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
-    bash "$HERE/../init.sh" >/dev/null 2>&1 )
+    bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
 assert "init writes ./.harness/config in cwd"          "[[ -f '$PROJ/.harness/config' ]]"
 assert "init creates run/ state dir"                   "[[ -d '$PROJ/.harness/run' ]]"
 assert "init creates run/claims state dir"             "[[ -d '$PROJ/.harness/run/claims' ]]"

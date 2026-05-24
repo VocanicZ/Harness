@@ -9,7 +9,7 @@
 # .harness/); multi-topology worktrees register against checkouts/*/.git (preserved). So deleting the
 # vendored .harness/.git never corrupts an in-flight worktree (#56, PRD #52).
 set -uo pipefail
-ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-$PWD/.harness}}"
 HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}"
 SHARED_ENGINE="$HARNESS_HOME/engine"

@@ -19,7 +19,7 @@ else echo '{}'; fi
 EOF
 chmod +x "$STUB/gh"
 
-out="$(python3 "$HERE/../issuelib.py" dispatch acme/widget 3 --allow-orchestration 1)"
+out="$(python3 "$HERE/../scripts/issuelib.py" dispatch acme/widget 3 --allow-orchestration 1)"
 
 # TAB-correct greps using ANSI-C $'...' quoting so \t is a real tab character
 echo "$out" | grep -q $'^IMPL\t5' && echo "  ok: dispatch IMPL #5" || { echo "FAIL: did not find IMPL<TAB>5 in output: $out"; exit 1; }
@@ -37,7 +37,7 @@ elif [[ "$1" == "api" ]]; then exit 1; else echo '{}'; fi
 EOF
 chmod +x "$STUB/gh"
 
-result="$(python3 "$HERE/../issuelib.py" complete acme/widget)"
+result="$(python3 "$HERE/../scripts/issuelib.py" complete acme/widget)"
 [[ "$result" == "DONE" ]] && echo "  ok: complete when all closed" || { echo "FAIL: expected DONE, got: $result"; exit 1; }
 
 echo "── e2e ok"

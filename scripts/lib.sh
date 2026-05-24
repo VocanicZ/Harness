@@ -4,19 +4,20 @@ set -uo pipefail
 _HARNESS_LIB_SOURCED=1
 
 # ENGINE_DIR / STATE_DIR split (#53): the engine's code+assets and a project's runtime state are
-# now distinct roots. ENGINE_DIR is where this lib.sh lives (the shared install); STATE_DIR is the
-# per-project .harness/. bin/harness resolves+exports both (engine via realpath of the entrypoint,
-# so a PATH symlink resolves to the real install); when sourced directly (tests, a vendored layout
-# with no separation) BOTH default to lib.sh's own dir — the old single-HARNESS_DIR behavior.
-# HARNESS_DIR is retained as that default base (still referenced by deployment scripts + tests).
-HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# now distinct roots. ENGINE_DIR is the engine ROOT — the parent of the scripts/ dir this lib.sh
+# now lives in (#60); STATE_DIR is the per-project .harness/. bin/harness resolves+exports both
+# (engine via realpath of the entrypoint, so a PATH symlink resolves to the real install); when
+# sourced directly (tests, a vendored layout with no separation) BOTH default to that engine root —
+# the old single-HARNESS_DIR behavior. HARNESS_DIR is retained as that default base (still
+# referenced by deployment scripts + tests).
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE_DIR="${ENGINE_DIR:-$HARNESS_DIR}"
 STATE_DIR="${STATE_DIR:-$HARNESS_DIR}"
 export ENGINE_DIR STATE_DIR
 PROJECT_ROOT="$(cd "$STATE_DIR/.." && pwd)"
-# asset paths (read-only engine code/templates) — under ENGINE_DIR
+# asset paths (read-only engine code/templates) — under ENGINE_DIR; sub-scripts live in scripts/ (#60)
 PROMPTS_DIR="$ENGINE_DIR/prompts"
-ISSUELIB="$ENGINE_DIR/issuelib.py"
+ISSUELIB="$ENGINE_DIR/scripts/issuelib.py"
 # state paths (per-project config + runtime, read+write) — under STATE_DIR
 CONFIG="$STATE_DIR/config"
 TARGETS_TSV="${TARGETS_TSV:-$STATE_DIR/targets.tsv}"
@@ -351,9 +352,9 @@ launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || ca
 seed_if_needed(){
   local unit="$1" slug; slug="$(unit_slug "$unit")"
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then
-    bash "$ENGINE_DIR/seed.sh" --labels-only "$slug"
+    bash "$ENGINE_DIR/scripts/seed.sh" --labels-only "$slug"
   else
-    bash "$ENGINE_DIR/seed.sh" "$unit"
+    bash "$ENGINE_DIR/scripts/seed.sh" "$unit"
     local co; co="$(unit_checkout "$unit")"
     [[ -d "$co/.git" ]] || git clone "https://github.com/$slug.git" "$co" 2>/dev/null || true
     ensure_safe "$co"

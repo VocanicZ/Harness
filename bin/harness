@@ -60,19 +60,19 @@ case "$cmd" in
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
   # init CREATES the project state, so it can't discover it: target $PWD/.harness (env override wins).
-  init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/init.sh" "$@";;
+  init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/scripts/init.sh" "$@";;
   # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.
-  start)  require_state_dir; exec bash "$ENGINE_DIR/start.sh" "$@";;
-  stop)   require_state_dir; exec bash "$ENGINE_DIR/stop.sh" "$@";;
-  status) require_state_dir; exec bash "$ENGINE_DIR/status.sh" "$@";;
-  attach) require_state_dir; exec bash "$ENGINE_DIR/attach.sh" "$@";;
-  pause)  require_state_dir; exec bash "$ENGINE_DIR/pause.sh" "$@";;
-  setup)  require_state_dir; exec bash "$ENGINE_DIR/setup.sh" "$@";;
+  start)  require_state_dir; exec bash "$ENGINE_DIR/scripts/start.sh" "$@";;
+  stop)   require_state_dir; exec bash "$ENGINE_DIR/scripts/stop.sh" "$@";;
+  status) require_state_dir; exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
+  attach) require_state_dir; exec bash "$ENGINE_DIR/scripts/attach.sh" "$@";;
+  pause)  require_state_dir; exec bash "$ENGINE_DIR/scripts/pause.sh" "$@";;
+  setup)  require_state_dir; exec bash "$ENGINE_DIR/scripts/setup.sh" "$@";;
   # migrate operates on a specific project's vendored .harness/ — discover which one (config still
   # present in a vendored layout), then strip its engine clone and re-point at the shared engine.
-  migrate) require_state_dir; exec bash "$ENGINE_DIR/migrate.sh" "$@";;
-  plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/inject.sh" "$cmd" "$@";;
-  resume) require_state_dir; exec bash "$ENGINE_DIR/resume.sh" "$@";;
+  migrate) require_state_dir; exec bash "$ENGINE_DIR/scripts/migrate.sh" "$@";;
+  plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
+  resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
   *) echo "unknown command: $cmd" >&2; usage; exit 2;;

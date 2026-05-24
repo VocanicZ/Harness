@@ -8,7 +8,7 @@
 # still freed, so crash recovery keeps working.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../lib.sh"; source "$HERE/helpers.sh"; make_env
+source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
 HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
 
 # session_live driven by a $LIVE listing — same rig as test_priority's reap_lane test.

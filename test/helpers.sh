@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # helpers.sh — minimal bash test rig + temp-env setup for the harness pool logic.
-# Sourced by test_*.sh AFTER sourcing ../lib.sh (and ../drive.sh where needed).
+# Sourced by test_*.sh AFTER sourcing ../scripts/lib.sh (and ../scripts/drive.sh where needed).
 # Overrides unit_complete so tests control "which units are COMPLETE" without GitHub.
 TESTS_RUN=0; TESTS_FAIL=0
 assert_eq(){ TESTS_RUN=$((TESTS_RUN+1)); if [[ "$1" == "$2" ]]; then echo "  ok: $3"; else echo "  FAIL: $3 — want [$2] got [$1]"; TESTS_FAIL=$((TESTS_FAIL+1)); fi; }

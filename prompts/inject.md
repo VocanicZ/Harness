@@ -57,7 +57,7 @@ issues should now depend on it. Build the intended ordering edges before mutatin
         git add PLAN.md && git commit -m "plan({{PROJECT}}): inject — <summary>" && git push
     • For a topology change, edit `targets.tsv` (add a row / adjust a dependency edge). For a NEW
       target unit, seed it so the pool can claim it once its deps are complete:
-        bash .harness/seed.sh <unit>
+        bash .harness/scripts/seed.sh <unit>
       (clones the repo + creates labels + CI). Then cascade down to that unit's PRD + delta issues.
 
 ## 4. Ordering rules (safety invariants — do not violate)
