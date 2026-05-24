@@ -62,7 +62,8 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
 | `HARNESS_POOL` | `3` | Number of pool workers (unit-concurrency cap) |
 | `HARNESS_CAP` | `3` | Max concurrent claude sessions per unit |
-| `HARNESS_POLL` | `60` | Worker poll interval in seconds |
+| `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
+| `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
 | `HARNESS_SESS_PREFIX` | `hz` | tmux session name prefix |
 | `HARNESS_LABEL_READY` | `ready-for-agent` | Label that marks an issue dispatchable |
 | `HARNESS_LABEL_PRD` | `prd` | Label that marks the PRD tracking issue |

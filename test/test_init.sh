@@ -30,4 +30,8 @@ assert "bug label key written"          "grep -q 'HARNESS_LABEL_BUG:=bug' '$CFG'
 assert "bug-triaged label key written"  "grep -q 'HARNESS_LABEL_BUG_TRIAGED:=bug-triaged' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_LABEL_BUG:-}" == "bug" && "${HARNESS_LABEL_BUG_TRIAGED:-}" == "bug-triaged" ]] ) \
   && echo "  ok: bug-lane labels round-trip" || { echo "  FAIL: bug-lane label round-trip"; exit 1; }
+# cadence keys (#24): both poll cadences are written so they're overridable in .harness/config
+assert "priority-poll key written" "grep -q 'HARNESS_PRIORITY_POLL' '$CFG'"
+( source "$CFG"; [[ "${HARNESS_POLL:-}" == "300" && "${HARNESS_PRIORITY_POLL:-}" == "60" ]] ) \
+  && echo "  ok: poll cadences default 300/60 and round-trip" || { echo "  FAIL: poll cadence defaults"; exit 1; }
 echo "── init ok"
