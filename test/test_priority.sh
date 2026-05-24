@@ -159,12 +159,16 @@ source "$HERE/../lib.sh"; source "$HERE/../drive.sh"; source "$HERE/../priority-
 HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"   # isolate from the live fleet's worktrees
 
-# bug_session_live: live when EITHER phase's sess_bug session is up; dead only when neither is.
+# bug_session_live <slug> <n>: live when EITHER phase's sess_bug session is up; dead only when
+# neither is. The session name MUST be built the SAME way production (spawn_bug) builds it — the
+# 3-arg repo-qualified sess_bug "<slug>" <n> <phase> (#44) — else the guard can never match the
+# real session and a future sess_bug arity change silently re-breaks both reap paths (#48).
 LIVE="$RUN_DIR/live_sessions"; : > "$LIVE"
+SLUG="$(_with_owner "$HARNESS_REPO")"                     # exactly the slug reap_lane derives
 session_live(){ grep -qxF "$1" "$LIVE"; }                # a session is "live" iff listed in $LIVE
-printf '%s\n' "$(sess_bug 9 fix)"    > "$LIVE"; assert_ok "bug_session_live: true when fix session live"     bug_session_live 9
-printf '%s\n' "$(sess_bug 9 triage)" > "$LIVE"; assert_ok "bug_session_live: true when triage session live"  bug_session_live 9
-: > "$LIVE";                                    assert_no "bug_session_live: false when neither session live" bug_session_live 9
+printf '%s\n' "$(sess_bug "$SLUG" 9 fix)"    > "$LIVE"; assert_ok "bug_session_live: true when fix session live"     bug_session_live "$SLUG" 9
+printf '%s\n' "$(sess_bug "$SLUG" 9 triage)" > "$LIVE"; assert_ok "bug_session_live: true when triage session live"  bug_session_live "$SLUG" 9
+: > "$LIVE";                                            assert_no "bug_session_live: false when neither session live" bug_session_live "$SLUG" 9
 
 # reap_lane records its GitHub + worktree effects through stubs (no real gh/git).
 GHLOG="$RUN_DIR/reap_gh"; WTLOG="$RUN_DIR/reap_wt"
@@ -180,8 +184,10 @@ assert_ok "reap_lane removed stale agent-working for the dead-session bug" \
 assert_eq "$(cat "$WTLOG")" "$WORKTREES_DIR/bug-acme_widget-i9|issue/9" \
   "reap_lane reaped the orphaned fix worktree + issue branch"
 
-# LIVE session: reap_lane leaves the bug entirely untouched (no double-dispatch)
-: > "$GHLOG"; : > "$WTLOG"; printf '%s\n' "$(sess_bug 9 fix)" > "$LIVE"   # #9 fix session is live
+# LIVE session: reap_lane leaves the bug entirely untouched (no double-dispatch). The live session
+# is the REAL one production creates — sess_bug "$SLUG" 9 fix — so this exercises reap_lane's guard
+# end-to-end against the production session name, not a 2-arg stand-in production never makes (#48).
+: > "$GHLOG"; : > "$WTLOG"; printf '%s\n' "$(sess_bug "$SLUG" 9 fix)" > "$LIVE"   # #9 fix session is live
 reap_lane
 assert_eq "$(cat "$GHLOG")" "" "reap_lane did NOT touch a live-session bug's labels"
 assert_eq "$(cat "$WTLOG")" "" "reap_lane did NOT reap a live-session bug's worktree"
