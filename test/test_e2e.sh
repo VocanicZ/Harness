@@ -11,8 +11,9 @@ STUB="$(mktemp -d)"; export PATH="$STUB:$PATH"
 cat > "$STUB/gh" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1 $2" == "issue list" ]]; then
-  echo '[{"number":5,"title":"a","state":"OPEN","labels":[{"name":"ready-for-agent"}],"body":""},
-        {"number":6,"title":"b","state":"OPEN","labels":[{"name":"ready-for-agent"}],"body":""}]'
+  echo '[{"number":5,"title":"a","state":"OPEN","labels":[{"name":"ready-for-agent"}],"body":"","author":{"login":"bot"}},
+        {"number":6,"title":"b","state":"OPEN","labels":[{"name":"ready-for-agent"}],"body":"","author":{"login":"bot"}}]'
+elif [[ "$1 $2" == "api user" ]]; then echo "bot"   # authenticated self
 elif [[ "$1" == "api" ]]; then exit 1   # no PLAN.md
 else echo '{}'; fi
 EOF
@@ -29,8 +30,9 @@ echo "$out" | grep -qE '^(PLAN|PRD|DECOMPOSE)' && { echo "FAIL: issue-only emitt
 cat > "$STUB/gh" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1 $2" == "issue list" ]]; then
-  echo '[{"number":5,"title":"a","state":"CLOSED","labels":[{"name":"ready-for-agent"}],"body":""},
-        {"number":6,"title":"b","state":"CLOSED","labels":[{"name":"ready-for-agent"}],"body":""}]'
+  echo '[{"number":5,"title":"a","state":"CLOSED","labels":[{"name":"ready-for-agent"}],"body":"","author":{"login":"bot"}},
+        {"number":6,"title":"b","state":"CLOSED","labels":[{"name":"ready-for-agent"}],"body":"","author":{"login":"bot"}}]'
+elif [[ "$1 $2" == "api user" ]]; then echo "bot"
 elif [[ "$1" == "api" ]]; then exit 1; else echo '{}'; fi
 EOF
 chmod +x "$STUB/gh"

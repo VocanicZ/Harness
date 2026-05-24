@@ -11,6 +11,7 @@ L_WORKING  = lambda: os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
 L_BLOCKED  = lambda: os.environ.get("HARNESS_LABEL_BLOCKED", "agent-blocked")
 L_REVIEWED = lambda: os.environ.get("HARNESS_LABEL_REVIEWED", "reviewed")
 L_PAUSED   = lambda: os.environ.get("HARNESS_LABEL_PAUSED", "agent-paused")
+ALLOWLIST  = lambda: os.environ.get("HARNESS_AUTHOR_ALLOWLIST", "")
 
 _BLOCKED_BY_HEADING = re.compile(r"^##\s+Blocked by\s*$", re.IGNORECASE | re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^##\s+", re.MULTILINE)
@@ -54,14 +55,62 @@ def parse_blocked_by(body, self_repo):
 
 def _list_issues(slug, extra=None):
     args = ["issue", "list", "-R", slug, "--state", "all", "--limit", "200",
-            "--json", "number,title,state,labels,body"]
+            "--json", "number,title,state,labels,body,author"]
     if extra:
         args += extra
     data = _gh_json(args) or []
-    # normalise labels to a lowercase set per issue
+    # normalise labels to a lowercase set + author login (lowercased) per issue
     for it in data:
         it["_labels"] = {str(l.get("name", "")).lower() for l in it.get("labels", [])}
+        it["_author"] = str((it.get("author") or {}).get("login", "")).lower()
     return data
+
+
+_self_login_cache = None
+def _self_login():
+    """Authenticated GitHub login (`gh api user`), cached once per process. This is the
+    bot's own login — NOT HARNESS_OWNER, which may be an org while the bot commits as a user.
+    Returns "" when gh is unauthenticated/unavailable (secure: self resolves to nothing)."""
+    global _self_login_cache
+    if _self_login_cache is None:
+        try:
+            out = subprocess.run(["gh", "api", "user", "--jq", ".login"],
+                                 capture_output=True, text=True, timeout=60)
+            v = out.stdout.strip() if out.returncode == 0 else ""
+        except Exception:
+            v = ""
+        _self_login_cache = v.strip('"').lower()
+    return _self_login_cache
+
+
+def _allowed_authors():
+    """Returns (allow_any, allowed_set). Allowed = {authenticated self} ∪ HARNESS_AUTHOR_ALLOWLIST
+    (comma-separated, lowercased). Empty allowlist = self-only (secure default). A literal `*`
+    = allow-any (community opt-in). Self is always allowed."""
+    entries = {e.strip().lower() for e in ALLOWLIST().split(",") if e.strip()}
+    if "*" in entries:
+        return True, set()
+    me = _self_login()
+    if me:
+        entries.add(me)
+    return False, entries
+
+
+def _author_filter(issues):
+    """Drop issues from non-allowed authors. Silently skipped — never claimed, commented, or
+    labelled — with a local debug-log line to stderr only (no GitHub-visible signal)."""
+    allow_any, allowed = _allowed_authors()
+    if allow_any:
+        return issues
+    kept = []
+    for it in issues:
+        if it.get("_author", "") in allowed:
+            kept.append(it)
+        else:
+            print(f"[issuelib] skip issue #{it.get('number')} from disallowed author "
+                  f"{it.get('_author') or '?'!r} (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)",
+                  file=sys.stderr)
+    return kept
 
 
 def _issue_state(slug, number):
@@ -101,7 +150,9 @@ def _allowed(mode):
 
 def compute_state(repo):
     slug = _repo_slug(repo)
-    issues = _list_issues(slug)
+    # secure-by-default: drop issues from non-allowed authors up front, so neither PRD
+    # selection nor the IMPL claimable filter below can be hijacked by a foreign author.
+    issues = _author_filter(_list_issues(slug))
     prd = next((i for i in issues if L_PRD() in i["_labels"]
                 or i.get("title", "").startswith("[AFK] PRD:")), None)
     prd_num = prd["number"] if prd else None

@@ -70,9 +70,11 @@ def test_cross_repo_blocked_until_target_issue_closes():
     # and included once it closes. The state query must hit the cross-repo slug.
     os.environ["HARNESS_MODE"] = "issue-only"
     os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
     il.compute_state = _REAL_COMPUTE_STATE   # undo any prior stub
     il._list_issues = lambda slug, extra=None: [
-        {"number": 5, "title": "needs upstream", "state": "OPEN",
+        {"number": 5, "title": "needs upstream", "state": "OPEN", "_author": "me",
          "body": "## Blocked by\nother/repo#42\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
@@ -97,9 +99,11 @@ def test_bare_ref_blocks_same_repo():
     # A bare #N in `## Blocked by` resolves to the SAME repo (not a cross-repo lookup).
     os.environ["HARNESS_MODE"] = "issue-only"
     os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
     il.compute_state = _REAL_COMPUTE_STATE   # undo any prior stub
     il._list_issues = lambda slug, extra=None: [
-        {"number": 5, "title": "blocked by sibling", "state": "OPEN",
+        {"number": 5, "title": "blocked by sibling", "state": "OPEN", "_author": "me",
          "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
@@ -110,17 +114,103 @@ def test_bare_ref_blocks_same_repo():
     assert ("acme/widget", 9) in queried, queried   # bare ref queried against self repo
 
 def test_agent_paused_issue_is_dispatchable():
+    il.compute_state = _REAL_COMPUTE_STATE
     # a force-paused issue: ready label kept, agent-working removed, agent-paused added, OPEN
     os.environ["HARNESS_MODE"] = "issue-only"
     os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
     il._list_issues = lambda slug, extra=None: [
-        {"number": 5, "title": "a", "state": "OPEN", "body": "",
+        {"number": 5, "title": "a", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent", "agent-paused"}},
     ]
     il._has_plan = lambda slug: False
     s = il.compute_state("acme/widget")
     assert 5 in s["unblocked"], s
     assert s["paused"] == 1, s
+
+def test_author_allowlist_self_only_denies_others():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # default (empty allowlist) = self-only: own issues claimed, others silently dropped
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},
+        {"number": 6, "title": "theirs", "state": "OPEN", "body": "", "_author": "attacker",
+         "_labels": {"ready-for-agent"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert s["unblocked"] == [5], s
+    assert s["total_children"] == 1, s   # disallowed-author issue dropped entirely
+
+def test_author_allowlist_member_allowed_additive_to_self():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # HARNESS_AUTHOR_ALLOWLIST is additive to self; both self and listed members claim
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "teammate, OtherBot"   # spaces + mixed case tolerated
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},
+        {"number": 6, "title": "mate", "state": "OPEN", "body": "", "_author": "teammate",
+         "_labels": {"ready-for-agent"}},
+        {"number": 7, "title": "bot", "state": "OPEN", "body": "", "_author": "otherbot",
+         "_labels": {"ready-for-agent"}},
+        {"number": 8, "title": "bad", "state": "OPEN", "body": "", "_author": "attacker",
+         "_labels": {"ready-for-agent"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert sorted(s["unblocked"]) == [5, 6, 7], s
+
+def test_author_allowlist_star_allows_any():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # `*` restores allow-any, even when self login cannot be resolved
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "*"
+    il._self_login = lambda: ""
+    il._has_plan = lambda slug: False
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 6, "title": "anyone", "state": "OPEN", "body": "", "_author": "anyone",
+         "_labels": {"ready-for-agent"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert s["unblocked"] == [6], s
+
+def test_author_check_applies_to_prd_selection():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # a PRD authored by a non-allowed user must NOT be selected as the PRD (no hijack)
+    os.environ["HARNESS_MODE"] = "prd"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 10, "title": "[AFK] PRD: evil", "state": "OPEN", "body": "", "_author": "attacker",
+         "_labels": {"prd"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert s["prd"] is None, s
+
+def test_self_is_always_allowed_even_with_nonempty_allowlist():
+    il.compute_state = _REAL_COMPUTE_STATE
+    # self never needs to be in the allowlist — fleet's own PRD/decompose/cross-repo issues survive
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "someone-else"
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"ready-for-agent"}},
+    ]
+    s = il.compute_state("acme/widget")
+    assert s["unblocked"] == [5], s
 
 if __name__ == "__main__":
     fails = 0
