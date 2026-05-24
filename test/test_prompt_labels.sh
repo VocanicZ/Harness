@@ -66,6 +66,22 @@ assert "decompose.md: idempotent — lists existing with --state all" \
 assert "decompose.md: only-missing / no-duplicate rule present" \
   "grep -qi 'only' <<<\"\$out_dec\" && grep -qi 'duplicate' <<<\"\$out_dec\""
 
+# ── decompose.md cross-unit coordination (direct cross-repo deps) ─────────────
+assert "decompose.md: cross-unit fix issue filed directly in target unit's repo via targets.tsv" \
+  "grep -qi 'targets.tsv' <<<\"\$out_dec\" && grep -qiE \"target unit'?s? repo\" <<<\"\$out_dec\""
+
+assert "decompose.md: cross-repo fix issue gets a requester backlink" \
+  "grep -qi 'backlink' <<<\"\$out_dec\""
+
+assert "decompose.md: cross-repo owner/repo#N added to requester's Blocked by" \
+  "grep -q 'owner/repo#' <<<\"\$out_dec\" && grep -qi 'Blocked by' <<<\"\$out_dec\""
+
+assert "decompose.md: documents no automated cross-repo cycle detection" \
+  "grep -qi 'no automated cross-repo cycle detection' <<<\"\$out_dec\""
+
+assert "decompose.md: coordination repo/label demoted to optional tracking" \
+  "grep -qi 'optional' <<<\"\$out_dec\" && grep -qi 'tracking' <<<\"\$out_dec\""
+
 # ── prd.md assertions ────────────────────────────────────────────────────────
 assert "prd.md: --label spec (custom prd label) appears in gh issue create" \
   "grep -q '\-\-label spec' <<<\"\$out_prd\""

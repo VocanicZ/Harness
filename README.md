@@ -69,7 +69,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_LABEL_WORKING` | `agent-working` | Label applied while a session owns an issue |
 | `HARNESS_LABEL_BLOCKED` | `agent-blocked` | Label applied to issues parked for human help (autonomous=false) |
 | `HARNESS_LABEL_REVIEWED` | `reviewed` | Label applied to the PRD issue after review passes |
-| `HARNESS_LABEL_COORD` | `coordination` | Label for cross-repo coordination issues (multi topology) |
+| `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 
 ## Commands
 

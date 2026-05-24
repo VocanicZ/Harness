@@ -2,6 +2,7 @@ import importlib.util, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("issuelib", os.path.join(HERE, "..", "issuelib.py"))
 il = importlib.util.module_from_spec(spec); spec.loader.exec_module(il)
+_REAL_COMPUTE_STATE = il.compute_state   # tests that stub compute_state must restore this
 
 def mk(**kw):
     base = dict(slug="acme/widget", has_plan=False, prd=None, prd_open=False, prd_reviewed=False,
@@ -55,6 +56,58 @@ def test_complete_predicate_by_mode():
     os.environ["HARNESS_MODE"] = "planned"
     assert il.is_complete(mk(prd=7, prd_open=False, prd_reviewed=True)) is True
     assert il.is_complete(mk(prd=7, prd_open=True, prd_reviewed=True)) is False
+
+def test_parse_blocked_by_cross_repo_and_bare():
+    # owner/repo#N is a cross-repo ref; bare #N resolves against self_repo.
+    body = "do a thing\n\n## Blocked by\nother/repo#42\n#99\n\nPart of #7\n"
+    refs = il.parse_blocked_by(body, "acme/widget")
+    assert ("other/repo", 42) in refs, refs
+    assert ("acme/widget", 99) in refs, refs   # bare #99 -> self repo
+    assert ("acme/widget", 7) in refs, refs    # trailing "Part of #7" also captured (filtered later by prd_num)
+
+def test_cross_repo_blocked_until_target_issue_closes():
+    # A child blocked by a CROSS-REPO issue is excluded while that issue is open,
+    # and included once it closes. The state query must hit the cross-repo slug.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    il.compute_state = _REAL_COMPUTE_STATE   # undo any prior stub
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "needs upstream", "state": "OPEN",
+         "body": "## Blocked by\nother/repo#42\n", "_labels": {"ready-for-agent"}},
+    ]
+    il._has_plan = lambda slug: False
+    queried = []
+    cross_state = {"open"}   # mutable single-element holder
+    def fake_state(slug, number):
+        queried.append((slug, number))
+        return next(iter(cross_state))
+    il._issue_state = fake_state
+
+    # cross-repo issue OPEN -> requester blocked
+    s = il.compute_state("acme/widget")
+    assert 5 not in s["unblocked"], s
+    assert ("other/repo", 42) in queried, queried   # resolved to the cross-repo slug, not acme/widget
+
+    # cross-repo issue CLOSED -> requester unblocked
+    cross_state.clear(); cross_state.add("closed")
+    s = il.compute_state("acme/widget")
+    assert 5 in s["unblocked"], s
+
+def test_bare_ref_blocks_same_repo():
+    # A bare #N in `## Blocked by` resolves to the SAME repo (not a cross-repo lookup).
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    il.compute_state = _REAL_COMPUTE_STATE   # undo any prior stub
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "blocked by sibling", "state": "OPEN",
+         "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
+    ]
+    il._has_plan = lambda slug: False
+    queried = []
+    il._issue_state = lambda slug, number: (queried.append((slug, number)) or "open")
+    s = il.compute_state("acme/widget")
+    assert 5 not in s["unblocked"], s
+    assert ("acme/widget", 9) in queried, queried   # bare ref queried against self repo
 
 def test_agent_paused_issue_is_dispatchable():
     # a force-paused issue: ready label kept, agent-working removed, agent-paused added, OPEN
