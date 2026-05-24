@@ -137,6 +137,45 @@ assert_no "multi: never killed a lane session" \
 unset CALLS
 rm -rf "$RUN_DIR6"
 
+# --- #49 bare-repo config: the lane's real claim AGREES with _checkpoint_target's session lookup --
+# #44 owner-qualified the session/worktree but left _bug_numbers' token (and so the claim key) on the
+# RAW _bug_repos string. On a BARE repo (widget + HARNESS_OWNER=acme) the lane wrote bug-widget-9.claim
+# while naming the session hz-bug-acme_widget-9-fix; _checkpoint_target parsed san=acme_widget, looked
+# up bug-acme_widget-9.claim (MISSING), and fell back to the lossy bug_repo rescan — routing the
+# checkpoint to the wrong repo (here, an empty rescan → acme/ ). With the token owner-qualified at
+# construction, the claim the lane writes and the lookup the checkpoint performs share ONE slug, so
+# --force confirms via the CARRIED repo acme/widget — no rescan.
+RUN_DIR7="$(mktemp -d)"; CALLS7="$RUN_DIR7/calls"; : > "$CALLS7"
+# Write the claim via the REAL _bug_numbers/claim_next_bug for a bare repo (the path that regressed).
+( export CLAIMS_DIR="$RUN_DIR7/claims" POOL_LOCK="$RUN_DIR7/pool.lock"
+  export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme
+  source "$HERE/../lib.sh"
+  _bug_repos(){ echo widget; }; _repo_bugs(){ printf '9\tfix\n'; }
+  claim_next_bug P1 >/dev/null )
+assert_eq "$(basename "$(ls "$RUN_DIR7/claims"/bug-*.claim)")" "bug-acme_widget-9.claim" \
+  "lane wrote the owner-qualified claim file for a bare repo (token owner-qualified at construction)"
+export CALLS="$CALLS7"
+export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+# the live session the lane named for that bare-repo bug (hz-bug-<owner-qualified-slug>-9-fix)
+tmux(){ echo "tmux $*" >> "$CALLS"
+  case "$1" in
+    ls) printf 'hz-bug-acme_widget-9-fix\n';;
+    send-keys) : ;;
+    kill-session) : ;;
+  esac; }
+gh(){ echo "gh $*" >> "$CALLS"
+  case "$1 $2" in
+    "issue view") echo '{"labels":[{"name":"agent-paused"}]}';;
+  esac; return 0; }
+export -f tmux gh
+RUN_DIR="$RUN_DIR7" bash "$HERE/../pause.sh" --force >/dev/null 2>&1
+assert_ok "bare-repo: confirms via the CARRIED repo (gh issue view 9 -R acme/widget — claim lookup HIT)" \
+  bash -c "grep -qE 'gh issue view 9 -R acme/widget( |\$)' '$CALLS7'"
+assert_no "bare-repo: did NOT fall back to the lossy bug_repo rescan (no gh issue view 9 -R acme/ )" \
+  bash -c "grep -qE 'gh issue view 9 -R acme/( |\$)' '$CALLS7'"
+unset CALLS
+rm -rf "$RUN_DIR7"
+
 # --- resume.sh clears the flag (alive-worker branch: does NOT exec start) -----
 RUN_DIR4="$(mktemp -d)"; touch "$RUN_DIR4/PAUSED"
 # a live worker pidfile (use this shell's pid so kill -0 succeeds)
