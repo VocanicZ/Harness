@@ -67,6 +67,17 @@ set -- ${args[@]+"${args[@]}"}
 
 (( DO_RECOVER )) && recover
 
+# PRD-B slice 3 (#72): when HARNESS_USE_POLLER is set, register this project's repos with the host
+# poller (refcounted on STATE_DIR) and ensure the poller is alive BEFORE the workers come up, so the
+# first worker tick already has a snapshot to read. Flag OFF: never touch the poller/registry —
+# today's direct-gh path. (`harness stop` deregisters; the poller self-heals via the worker ticks.)
+if [[ -n "${HARNESS_USE_POLLER:-}" ]]; then
+  echo "Registering this project's repos with the host poller (HARNESS_USE_POLLER set):"
+  poller_register_project
+  ensure_poller
+  echo "  poller: $(poller_running && echo "RUNNING (pid $(cat "$POLLER_PID"))" || echo "not running")"
+fi
+
 echo "Starting Harness delivery fleet — pool of $POOL workers (cap=$CAP) + 1 priority bug lane:"
 # Guard against double-start: flock a start-lock so two concurrent `harness start`
 # don't double-spawn worker slots (pool.sh checks individual worker pids, but this

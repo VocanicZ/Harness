@@ -56,12 +56,13 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_MAIN_REPO:=}"             # multi: umbrella repo for coordination issues (optional)
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
+: "${HARNESS_USE_POLLER:=}"            # PRD-B (#72): empty = today's direct-gh polling; set = read host snapshots
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
-  HARNESS_AUTHOR_ALLOWLIST
+  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -551,6 +552,53 @@ ensure_poller(){
   fi
   echo "$!" > "$POLLER_PID"
   flock -u "$lockfd"; exec {lockfd}>&-
+}
+
+# --- PRD-B slice 3: wire workers to snapshots behind HARNESS_USE_POLLER (#72) -
+# snapshot_slugs — the unique, owner-qualified slugs THIS project serves (single: HARNESS_REPO;
+# multi: every targets row). Exactly the set `harness start` registers with the poller and the set
+# the workers gate freshness on. Empty when single-topology HARNESS_REPO is blank (hermetic tests).
+snapshot_slugs(){
+  { if [[ "$HARNESS_TOPOLOGY" == single ]]; then _with_owner "$HARNESS_REPO"
+    else local u; for u in $(all_units); do unit_slug "$u"; done; fi; } | awk 'NF && !seen[$0]++'
+}
+
+# poller_register_project — register every repo this project serves with the host poller, keyed on
+# STATE_DIR (the refcount key) at this project's HARNESS_PRIORITY_POLL cadence and HARNESS_SESS_PREFIX.
+# Idempotent (re-drops the same files). Called by `harness start` only when HARNESS_USE_POLLER is set.
+poller_register_project(){
+  local slug
+  for slug in $(snapshot_slugs); do
+    poller_register "$slug" "$HARNESS_PRIORITY_POLL" "$HARNESS_SESS_PREFIX" "$STATE_DIR"
+  done
+}
+
+# ensure_snapshot_fresh <slug> — is <slug>'s host snapshot present, of a KNOWN schema, and fresh
+# (now - generated_at <= 3 × the slug's refresh cadence)? Returns 0 (fresh, ready to serve) or
+# non-zero (missing/stale/unknown-schema/unreadable → HOLD). NEVER calls gh: the freshness verdict
+# is a pure read of the snapshot file + the registry cadence. The refresh interval is the slug's
+# effective registrant cadence (poller_cadence_for); 3× tolerates one missed poll cycle.
+ensure_snapshot_fresh(){ local slug="$1"
+  python3 "$ISSUELIB" snapshot-fresh "$(poller_snapshot_path "$slug")" "$(poller_cadence_for "$slug")" 2>/dev/null; }
+
+# snapshot_gate — the PRD-B dispatch gate the pool + bug lane call before claiming. With
+# HARNESS_USE_POLLER UNSET it is a NO-OP (returns 0; the caller keeps today's direct-gh path with no
+# snapshot env). With the flag SET it (1) ensures the host poller is alive EVERY tick — so a killed
+# poller self-heals within one tick (G3); (2) requires every repo this project serves to have a
+# FRESH snapshot — any stale/missing/unknown-schema one returns non-zero so the caller HOLDS new
+# dispatch (no claim, no gh fallback); (3) on success exports HARNESS_SNAPSHOT_FILE/_DIR so the
+# issuelib reads behind claim/dispatch are served from the snapshots instead of GitHub. ensure_poller
+# is intentionally called BEFORE the export, so the (re)launched poller child never inherits a stale
+# HARNESS_SNAPSHOT_FILE — and poller_write_snapshot clears it anyway, belt and braces.
+snapshot_gate(){
+  [[ -n "${HARNESS_USE_POLLER:-}" ]] || return 0
+  ensure_poller
+  local slugs slug; slugs="$(snapshot_slugs)"
+  [[ -n "$slugs" ]] || return 0
+  for slug in $slugs; do ensure_snapshot_fresh "$slug" || return 1; done
+  export HARNESS_SNAPSHOT_DIR="$HARNESS_SNAPSHOTS_DIR"
+  export HARNESS_SNAPSHOT_FILE="$(poller_snapshot_path "$(printf '%s\n' $slugs | head -n1)")"
+  return 0
 }
 
 seed_if_needed(){

@@ -72,6 +72,26 @@ def _load_snapshot(path):
         return None
 
 
+def _snapshot_fresh(path, refresh):
+    """True iff the snapshot at <path> is present, parses, carries a KNOWN schema_version, and is
+    younger than 3× its refresh interval (PRD-B slice 3, #72). The worker freshness gate: a False
+    here HOLDS new dispatch — there is no direct-gh fallback. Missing/unreadable/garbled, an
+    unknown/newer schema (a reader must not interpret a shape it doesn't know), or an aged
+    generated_at all read as not-fresh. 3× tolerates one missed poll cycle before a dead poller
+    trips it. refresh<=0 (no registrant cadence known) skips only the staleness clause."""
+    snap = _load_snapshot(path)
+    if not isinstance(snap, dict):
+        return False
+    if snap.get("schema_version") != SNAPSHOT_SCHEMA_VERSION:
+        return False
+    gen = snap.get("generated_at")
+    if not isinstance(gen, (int, float)):
+        return False
+    if refresh > 0 and (time.time() - gen) > 3 * refresh:
+        return False
+    return True
+
+
 def _snapshot_for_slug(slug):
     """The snapshot dict whose `slug` == slug, or None. Prefers the primary HARNESS_SNAPSHOT_FILE
     (the repo being dispatched), then the sibling <owner__repo>.json in HARNESS_SNAPSHOT_DIR."""
@@ -384,6 +404,12 @@ def main():
     # spec-hash keys the plan-completion marker off HARNESS_SPEC; it needs no repo arg.
     if cmd == "spec-hash":
         print(_spec_hash()); return
+    # snapshot-fresh <path> <refresh-seconds> — exit 0 iff the snapshot is fresh, 1 otherwise. The
+    # worker dispatch gate (lib.sh ensure_snapshot_fresh) shells out to this; it never touches gh.
+    if cmd == "snapshot-fresh":
+        path = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("HARNESS_SNAPSHOT_FILE", "")
+        refresh = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+        sys.exit(0 if _snapshot_fresh(path, refresh) else 1)
     if len(sys.argv) < 3: print(__doc__); sys.exit(2)
     repo = sys.argv[2]
     if cmd == "snapshot":
