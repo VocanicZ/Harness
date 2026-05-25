@@ -32,7 +32,8 @@ fleet_verdict(){
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
-  sess_total="$(tmux ls -F '#S' 2>/dev/null | grep -cE "^${HARNESS_SESS_PREFIX}-" || true)"
+  # #73: count only the fleet's own full-grammar sessions, not every bare `<prefix>-…` string.
+  sess_total="$(tmux ls -F '#S' 2>/dev/null | grep -cE "$(fleet_session_re)" || true)"
 
   local done_n=0 u
   for u in $(all_units); do unit_complete "$u" 2>/dev/null && done_n=$((done_n+1)) || true; done

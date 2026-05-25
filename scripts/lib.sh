@@ -57,12 +57,13 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_MAIN_REPO:=}"             # multi: umbrella repo for coordination issues (optional)
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
 : "${HARNESS_USE_POLLER:=}"            # PRD-B (#72): empty = today's direct-gh polling; set = read host snapshots
+: "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
-  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER
+  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -389,6 +390,77 @@ session_live(){ tmux has-session -t "$1" 2>/dev/null; }
 # from the issue number alone — both callers already hold the slug and pass it. A bug whose session
 # is live is NEVER swept — neither path strips its agent-working nor reaps its worktree.
 bug_session_live(){ session_live "$(sess_bug "$1" "$2" triage)" || session_live "$(sess_bug "$1" "$2" fix)"; }
+# fleet_session_re / is_fleet_session — the ERE matching THIS fleet's tmux session names, anchored to
+# the FULL session grammar (#73) instead of the bare `^<prefix>-`. Defense-in-depth for stop.sh /
+# status.sh: a `<prefix>-…` string that is NOT one of the fleet's real session forms — a sibling
+# fleet's session (different prefix, excluded by the anchor anyway), or a structurally-invalid stray
+# like a user's own `hz-notes-scratch` tmux window — is left UNTOUCHED. The branches mirror the
+# sess_* constructors:
+#   inject   <prefix>-inject-<unit>                (sess_inject)
+#   bug      <prefix>-bug-<slug>-<n>-(triage|fix)  (sess_bug; <slug> is `/`->`_` sanitised)
+#   impl     <prefix>-<unit>-i<n>                  (sess_impl; <unit> may contain dashes)
+#   orch     <prefix>-<unit>                       (sess_orch; single-segment unit, e.g. `main`)
+# The trailing-dash anchor is load-bearing: `hzli-main-i1` is NOT in `^hz-`'s space, so hz/hzli/boto
+# coexist. (Mirrors pause.sh's force-pause grammar, widened to the orch + inject forms stop sweeps.)
+fleet_session_re(){ printf '^%s-(inject-.+|bug-.+-[0-9]+-(triage|fix)|.+-i[0-9]+|[^-]+)$' "$HARNESS_SESS_PREFIX"; }
+is_fleet_session(){ local re; re="$(fleet_session_re)"; [[ "$1" =~ $re ]]; }
+
+# --- PRD-B slice 4: prefix-collision guard (#73) -----------------------------
+# prefixes_collide <a> <b> — do two session prefixes' tmux session spaces overlap? They collide when
+# they are EQUAL, or one is a dash-prefix of the other (`a-…` swallows every `b-…` session iff b
+# starts with `a-`, and vice-versa) — exactly the case where one fleet's stop/status sweep would
+# cross-kill the other. The trailing dash is what spares `hz` vs `hzli` (`hzli` does not start with
+# `hz-`), so a prefix family like hz/hzli/boto is NOT flagged.
+prefixes_collide(){ local a="$1" b="$2"
+  [[ "$a" == "$b" ]] && return 0
+  [[ "$b" == "$a-"* ]] && return 0
+  [[ "$a" == "$b-"* ]] && return 0
+  return 1; }
+
+# poller_registry_prefixes <self-project> — every OTHER active fleet's recorded session prefix, one
+# `<prefix>\t<project>` line per fleet (deduped by project; <self-project> excluded). The cross-fleet
+# discovery source for the start-time guard: slice 2 records each fleet's HARNESS_SESS_PREFIX in its
+# registry entry; we read it back. A stopped fleet deregisters (no entry), so "has an entry" == active.
+# Empty when the registry is absent or holds only this project — the single-fleet no-op.
+poller_registry_prefixes(){
+  [[ -d "$POLLER_REGISTRY_DIR" ]] || return 0
+  SELF="$1" python3 - "$POLLER_REGISTRY_DIR" <<'PY'
+import json, os, sys
+d, self_prj = sys.argv[1], os.environ["SELF"]
+seen = {}
+for name in sorted(os.listdir(d)):
+    if not name.endswith(".json"):
+        continue
+    try:
+        rec = json.load(open(os.path.join(d, name)))
+    except (OSError, ValueError):
+        continue
+    prj = rec.get("project")
+    if not prj or prj == self_prj:
+        continue
+    seen.setdefault(prj, rec.get("prefix") or "")
+for prj, pfx in seen.items():
+    print(f"{pfx}\t{prj}")
+PY
+}
+
+# check_prefix_collision — start-time guard. Refuse (or warn) when another ACTIVE fleet's session
+# prefix collides with ours. Reads slice 2's registry (poller_registry_prefixes); a single /
+# non-colliding fleet sees an empty list and proceeds (no behavior change). HARNESS_PREFIX_COLLISION:
+# `refuse` (default) dies; `warn` prints to stderr and continues.
+check_prefix_collision(){
+  local pfx prj hit=""
+  while IFS=$'\t' read -r pfx prj; do
+    [[ -n "$pfx" ]] || continue
+    if prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx"; then hit="$pfx ($prj)"; break; fi
+  done < <(poller_registry_prefixes "$STATE_DIR")
+  [[ -n "$hit" ]] || return 0
+  local msg="session prefix '$HARNESS_SESS_PREFIX' collides with active fleet prefix $hit — set a distinct HARNESS_SESS_PREFIX (or HARNESS_PREFIX_COLLISION=warn to override)"
+  case "${HARNESS_PREFIX_COLLISION:-refuse}" in
+    warn) printf 'WARNING: %s\n' "$msg" >&2; return 0;;
+    *)    die "$msg";;
+  esac
+}
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
 tmpl = open(sys.argv[1]).read()

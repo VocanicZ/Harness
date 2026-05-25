@@ -58,6 +58,13 @@ recover(){
   echo "── recovery done ($freed issue(s) freed) ──"
 }
 
+# PRD-B slice 4 (#73): refuse to start atop another ACTIVE fleet whose session prefix collides with
+# ours (equal, or one a dash-prefix of the other) — that overlap is what would make stop/status
+# cross-kill. Reads slice 2's registry; a single / non-colliding fleet is a no-op. HARNESS_PREFIX_COLLISION
+# =warn downgrades the refusal to a warning. Runs BEFORE poller registration so our own about-to-be-written
+# entry can't be mistaken for a sibling.
+check_prefix_collision
+
 # arg parse: peel off --recover, leave remaining args in $@
 DO_RECOVER=0; args=()
 for a in "$@"; do
