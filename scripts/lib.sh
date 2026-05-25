@@ -75,6 +75,50 @@ mkdir -p "$RUN_DIR" "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$CLAIMS_DIR" 2>/dev/null 
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
+# ensure_trusted <dir> — pre-accept Claude Code's workspace-trust dialog for <dir> in ~/.claude.json
+# so an autonomous (headless) launch in a never-trusted tree doesn't block FOREVER at the
+# "Do you trust the files in this folder?" gate (#67). --dangerously-skip-permissions suppresses
+# tool-permission prompts but NOT this separate workspace-trust gate, and the only bypass is
+# non-interactive (-p) mode, which the harness can't use (launch_claude drives the interactive TUI).
+# Mirrors ensure_safe: a small, idempotent, per-dir helper on the spawn path. Scoped to autonomous
+# runs (consistent with the --dangerously-skip-permissions posture) — a supervised launch keeps
+# Claude Code's default trust prompt. Atomic + race-safe (flock + tmp-file-and-rename) because
+# multiple agents call launch_claude near-simultaneously. HARNESS_CLAUDE_CONFIG is a test seam; in
+# production it is unset so the path is the real ~/.claude.json.
+ensure_trusted(){
+  [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
+  local dir="$1" cfg="${HARNESS_CLAUDE_CONFIG:-$HOME/.claude.json}" lockfd
+  exec {lockfd}>"$cfg.harness-trust.lock"; flock "$lockfd"
+  CFG="$cfg" DIR="$dir" python3 - <<'PY'
+import json, os, tempfile
+cfg, d = os.environ["CFG"], os.environ["DIR"]
+try:
+    with open(cfg) as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        data = {}
+except (FileNotFoundError, ValueError):
+    data = {}
+projects = data.get("projects")
+if not isinstance(projects, dict):
+    projects = data["projects"] = {}
+entry = projects.get(d)
+if not isinstance(entry, dict):
+    entry = projects[d] = {}
+entry["hasTrustDialogAccepted"] = True
+dirn = os.path.dirname(os.path.abspath(cfg)) or "."
+os.makedirs(dirn, exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".claude.json.harness.")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, cfg)
+except BaseException:
+    os.path.exists(tmp) and os.unlink(tmp)
+    raise
+PY
+  flock -u "$lockfd"; exec {lockfd}>&-
+}
 is_paused(){ [[ -f "$PAUSE_FLAG" ]]; }
 
 _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && echo "$HARNESS_OWNER/$1" || echo "$1";; esac; }
@@ -346,6 +390,7 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
 launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
   write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"; echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
   tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
+  ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
   log "launched session $sess (cwd $wd)"; }
 

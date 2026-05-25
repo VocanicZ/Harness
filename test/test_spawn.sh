@@ -183,4 +183,82 @@ assert_ok "spawn_impl succeeds and labels when clone succeeds (I1)" bash -c '
 assert_eq "$(grep -c 'add-label' "$CALLS_I1_OK" 2>/dev/null || echo 0)" "1" \
   "gh --add-label called exactly once when clone succeeds (I1)"
 
+# ── Test group 3: #67 — auto-trust the launch dir so a fresh tree doesn't stall ──
+# launch_claude funnels every spawn through an INTERACTIVE Claude TUI in tmux. On a tree that was
+# never trusted, Claude Code blocks forever at "Do you trust the files in this folder?" —
+# --dangerously-skip-permissions suppresses tool-permission prompts but NOT the workspace-trust
+# gate, and the only bypass (-p / non-interactive) is unusable here. ensure_trusted pre-accepts the
+# gate by setting projects["$wd"].hasTrustDialogAccepted=true in ~/.claude.json, mirroring
+# ensure_safe. Tests point HARNESS_CLAUDE_CONFIG at a temp fixture so the real ~/.claude.json is untouched.
+echo "=== #67: ensure_trusted pre-accepts the workspace-trust dialog ==="
+
+# tiny JSON probes (python3 is a hard dep of the harness already)
+trusted_of(){ python3 -c 'import json,sys
+d=json.load(open(sys.argv[1])); print(d.get("projects",{}).get(sys.argv[2],{}).get("hasTrustDialogAccepted"))' "$1" "$2" 2>/dev/null; }
+json_ok(){ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$1" 2>/dev/null; }
+field_of(){ python3 -c 'import json,sys
+d=json.load(open(sys.argv[1])); print(d.get("projects",{}).get(sys.argv[2],{}).get(sys.argv[3],"<absent>"))' "$1" "$2" "$3" 2>/dev/null; }
+topkey_of(){ python3 -c 'import json,sys
+print(json.load(open(sys.argv[1])).get(sys.argv[2],"<absent>"))' "$1" "$2" 2>/dev/null; }
+nproj_of(){ python3 -c 'import json,sys
+print(len(json.load(open(sys.argv[1])).get("projects",{})))' "$1" 2>/dev/null; }
+
+# A1: absent config → ensure_trusted creates the file + projects map and trusts the fresh dir.
+T_CFG="$RUN_DIR/claude_a1.json"; rm -f "$T_CFG"; T_WD="$(mktemp -d)"
+HARNESS_AUTONOMOUS=true HARNESS_CLAUDE_CONFIG="$T_CFG" ensure_trusted "$T_WD"
+assert_eq "$(trusted_of "$T_CFG" "$T_WD")" "True" "fresh dir trusted; config created from absent (A1)"
+assert_ok "config is valid JSON after creating from absent (A1)" json_ok "$T_CFG"
+
+# A2: a populated config is preserved — every top-level key and every existing project field stays,
+# only the new path's trust flag is added.
+T_CFG2="$RUN_DIR/claude_a2.json"; T_WD2="$(mktemp -d)"
+python3 - "$T_CFG2" <<'PY'
+import json,sys
+json.dump({
+  "userID":"keep-me","numStartups":42,
+  "projects":{"/old/proj":{"hasTrustDialogAccepted":True,"allowedTools":["Bash"],"lastCost":1.5}},
+}, open(sys.argv[1],"w"), indent=2)
+PY
+HARNESS_AUTONOMOUS=true HARNESS_CLAUDE_CONFIG="$T_CFG2" ensure_trusted "$T_WD2"
+assert_ok "config still valid JSON after merge (A2)" json_ok "$T_CFG2"
+assert_eq "$(trusted_of "$T_CFG2" "$T_WD2")" "True" "new path trusted (A2)"
+assert_eq "$(topkey_of "$T_CFG2" userID)" "keep-me" "top-level key 'userID' preserved (A2)"
+assert_eq "$(topkey_of "$T_CFG2" numStartups)" "42" "top-level key 'numStartups' preserved (A2)"
+assert_eq "$(trusted_of "$T_CFG2" /old/proj)" "True" "existing project entry preserved (A2)"
+assert_eq "$(field_of "$T_CFG2" /old/proj lastCost)" "1.5" "existing project's other fields preserved (A2)"
+
+# A3: idempotent — re-trusting an already-trusted dir is a no-op (no duplicate entry, no churn).
+NPROJ_BEFORE="$(nproj_of "$T_CFG2")"
+HARNESS_AUTONOMOUS=true HARNESS_CLAUDE_CONFIG="$T_CFG2" ensure_trusted "$T_WD2"
+assert_eq "$(nproj_of "$T_CFG2")" "$NPROJ_BEFORE" "re-trust adds no duplicate project entry (A3)"
+assert_eq "$(trusted_of "$T_CFG2" "$T_WD2")" "True" "re-trust leaves the flag true (A3)"
+assert_ok "config still valid JSON after idempotent re-trust (A3)" json_ok "$T_CFG2"
+
+# A4: race-safe — many agents call launch_claude near-simultaneously. Concurrent writes against the
+# SAME config must neither corrupt the file nor lose any update (the lock/atomic-rename requirement).
+T_CFGR="$RUN_DIR/claude_race.json"; rm -f "$T_CFGR"; RPATHS=()
+for i in $(seq 1 12); do
+  rp="$(mktemp -d)"; RPATHS+=("$rp")
+  ( HARNESS_AUTONOMOUS=true HARNESS_CLAUDE_CONFIG="$T_CFGR" ensure_trusted "$rp" ) &
+done
+wait
+assert_ok "config valid JSON after 12 concurrent ensure_trusted (A4 race-safe)" json_ok "$T_CFGR"
+RMISS=0; for rp in "${RPATHS[@]}"; do [[ "$(trusted_of "$T_CFGR" "$rp")" == "True" ]] || RMISS=$((RMISS+1)); done
+assert_eq "$RMISS" "0" "all 12 concurrently-trusted paths present (A4 no lost update)"
+
+# A5: scoped to autonomous — a supervised launch keeps Claude Code's default trust prompt (no write).
+T_CFG5="$RUN_DIR/claude_a5.json"; rm -f "$T_CFG5"; T_WD5="$(mktemp -d)"
+HARNESS_AUTONOMOUS=false HARNESS_CLAUDE_CONFIG="$T_CFG5" ensure_trusted "$T_WD5"
+assert_no "supervised (HARNESS_AUTONOMOUS=false) does NOT auto-trust (A5)" test -f "$T_CFG5"
+
+# A6: integration — the real launch_claude pre-trusts its launch dir before driving the TUI.
+T_CFG6="$RUN_DIR/claude_a6.json"; rm -f "$T_CFG6"
+T_WD6="$(mktemp -d)"; echo "do the thing" > "$T_WD6/.harness-task.md"
+(
+  tmux(){ :; }; sleep(){ :; }   # never touch the real fleet, no 1.5s wait
+  PROMISE="X DONE"; MAXITER=30; GOAL="ISSUE:9"
+  HARNESS_AUTONOMOUS=true HARNESS_CLAUDE_CONFIG="$T_CFG6" launch_claude "test-sess-67" "$T_WD6" >/dev/null 2>&1
+)
+assert_eq "$(trusted_of "$T_CFG6" "$T_WD6")" "True" "launch_claude pre-trusts its launch dir (A6 integration)"
+
 finish
