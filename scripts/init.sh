@@ -45,6 +45,10 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
            HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_AUTHOR_ALLOWLIST; do
     printf ': "${%s:=%s}"\n' "$v" "${!v:-}"
   done
+  # Host-poller opt-in (PRD-B, #74). Empty = today's direct-gh polling (default OFF); set to 1 to
+  # have this fleet read shared host snapshots instead. Staged-rollout flag — flip per fleet, then
+  # `harness stop && harness start --recover`. See README "Host poller".
+  printf ': "${%s:=%s}"\n' HARNESS_USE_POLLER "${HARNESS_USE_POLLER:-}"
 } > "$CONFIG"
 echo "wrote $CONFIG"
 if [[ "$ni" != 1 ]]; then
