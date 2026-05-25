@@ -49,6 +49,7 @@ usage: harness <command> [args]
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
   uninstall [--force]  stop the fleet + remove the engine, this project's .harness/, and /harness skills
   setup                verify prereqs + seed configured labels on all units (no start)
+  poll  [--once|--status]  host poller debug entry (the shared snapshot refresher; #71)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
   issue "<brief>"      inject implementation issue(s) into a live fleet (grill via /harness-issue)
@@ -60,6 +61,9 @@ case "$cmd" in
   # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
+  # poll is HOST-level (the shared poller serves every project) — no project STATE_DIR needed.
+  # Normal path is ensure_poller; this is the documented debug/test entry (#71).
+  poll)   exec bash "$ENGINE_DIR/scripts/poller.sh" "$@";;
   # init CREATES the project state, so it can't discover it: target $PWD/.harness (env override wins).
   init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/scripts/init.sh" "$@";;
   # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.
