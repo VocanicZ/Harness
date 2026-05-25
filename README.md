@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | 
 
 `install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install, places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
 
-The `~/.harness/` host root also carries two **reserved, empty** subdirs created at install time — `poller/` and `snapshots/`. They establish the host-layout contract now and are **reserved for PRD-B** (host-level poller + snapshots); the engine writes nothing into them yet.
+The `~/.harness/` host root also carries two subdirs created at install time — `poller/` and `snapshots/`. These back the optional **host poller** (one poll per repo, shared across every fleet on the host): `poller/` holds the refcounted registry + the poller pidfile, and `snapshots/` holds the per-repo snapshot JSON workers read from. They are **opt-in per fleet** behind `HARNESS_USE_POLLER` (default off — the engine writes nothing into them until a fleet enables the flag). See [Host poller](#host-poller).
 
 Then, from the root of each project you want to drive:
 
@@ -82,6 +82,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_LABEL_REVIEWED` | `reviewed` | Label applied to the PRD issue after review passes |
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
+| `HARNESS_USE_POLLER` | _(empty)_ | Host-poller opt-in. Empty = today's direct-`gh` polling (default off); set (e.g. `1`) = this fleet reads shared host snapshots instead of polling GitHub itself. Staged-rollout flag — see [Host poller](#host-poller) |
 
 ### Issue-author allowlist
 
@@ -109,6 +110,7 @@ harness <command>
 | `status [--watch [secs]]` | One-shot or live dashboard: pool state, per-unit progress, live sessions, gated units |
 | `attach <unit> [issue]` | tmux-attach to a running session |
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
+| `poll [--once\|--status]` | Host-level debug entry to the shared snapshot poller. `--once` refreshes every registered repo once; `--status` reports the poller pid + registered slugs/cadences. Normal operation needs no manual `poll` — workers self-heal it (see [Host poller](#host-poller)) |
 
 ## Pause / resume / update
 
@@ -133,6 +135,70 @@ all at once (no per-project re-pull, no version skew). Live workers keep the old
 you relaunch (`pause` → drain → `stop` → `start --recover`).
 
 New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
+
+## Host poller
+
+When several fleets share one host and **one GitHub token**, the dispatch reads stack up: every
+pool worker and the priority bug lane each run a full `gh issue list` (+ plan-file reads) every
+poll, so GitHub read volume scales with **workers × repos × fleets**. The reads are largely
+redundant — everyone recomputes from the same per-repo issue list — and under load a worker gets
+rate-limited and can't dispatch, so the fleet looks "stuck" until the token resets.
+
+The **host poller** consolidates that into **one poll per repo**. A single host-level process
+refreshes a raw, versioned snapshot per registered repo into `~/.harness/snapshots/`, and workers
+read the snapshot instead of polling GitHub. GitHub read volume becomes a flat function of *repos*,
+independent of worker and fleet count. Crucially, only the *polling* is centralized: each project
+still computes dispatch **locally with its own env**, so it keeps its own session prefix, mode,
+topology, label set, and author allowlist.
+
+**Opt-in, default off.** The poller is gated per fleet behind `HARNESS_USE_POLLER` (empty = today's
+direct-`gh` polling). A fresh install and any fleet without the flag are completely unaffected.
+
+**Layout** (under the `~/.harness/` host root):
+
+```
+~/.harness/
+├── poller/
+│   ├── registry/<owner__repo>__<project>.json   one per (repo, fleet): slug, cadence, prefix, project
+│   └── poller.pid                                the poller — a background process, NOT a tmux session
+└── snapshots/<owner__repo>.json                  {schema_version, generated_at, slug, issues[], has_plan, …}
+```
+
+**Self-healing — no daemon to manage.** There is no operator-facing poller lifecycle command:
+`harness start` brings it up, and every worker/bug-lane tick re-checks and relaunches it, so a
+crashed poller self-heals within one tick. Because it is a plain background process (not a tmux
+session), `harness stop` never kills it — correct, since other fleets on the host may still need
+it. `harness stop` only removes *this* fleet's registry entries; a repo stays polled until every
+referencing fleet has deregistered (refcount).
+
+**Stale → hold, never fall back to `gh`.** A worker treats a snapshot as fresh only within
+`3 × refresh-interval`. A stale/missing snapshot **holds new dispatch** (claims no new work) while
+leaving in-flight sessions running, logs a deduped banner, and relaunches the poller — it never
+falls back to polling GitHub directly (that would reintroduce the stampede). Dispatch resumes
+automatically once the snapshot is fresh again.
+
+`harness poll --status` reports whether the poller is alive plus the registered slugs and their
+cadences; `harness poll --once` forces a single refresh pass (debug/test). Normal operation needs
+neither — the workers manage the poller for you.
+
+### Staged rollout / rollback
+
+The new engine ships with the poller **off**, so deploying it changes nothing until you flip the
+flag. Cut fleets over one at a time:
+
+1. `harness update` — ff-pull the shared engine (every fleet picks it up; none change behavior yet).
+2. For one fleet: set `HARNESS_USE_POLLER=1` in its `.harness/config`, then
+   `harness stop && harness start --recover`. On start it registers its repos and brings the poller
+   up; the pool and bug lane become snapshot-served.
+3. **Validate:** that fleet's worker logs show snapshot reads (no `gh issue list` for dispatch), the
+   poller is writing `~/.harness/snapshots/<slug>.json`, and dispatch still completes work
+   (`harness poll --status` shows the slug registered).
+4. Repeat for the next fleet.
+
+**Rollback** at any point is trivial and per-fleet: unset `HARNESS_USE_POLLER` (or remove the line
+from `.harness/config`) and `harness stop && harness start --recover`. That fleet returns to
+direct-`gh` polling immediately. Snapshots are ephemeral (regenerated), so there is no migration
+state to undo.
 
 ## Migrating an old vendored project
 

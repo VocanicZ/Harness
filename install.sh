@@ -83,9 +83,10 @@ place_engine(){
   fi
 }
 
-# create_host_root — establish the ~/.harness host ROOT with the PRD-B-reserved (empty) poller/ and
-# snapshots/ subdirs (#57, PRD #52). Contract only: PRD-B populates them; install creates them now so
-# the host layout is stable. No logic, no files. Idempotent (mkdir -p on an existing root is a no-op).
+# create_host_root — establish the ~/.harness host ROOT with the poller/ and snapshots/ subdirs
+# (#57, PRD #52). PRD-B (#69) populates them: the host poller writes its registry + pidfile under
+# poller/ and per-repo snapshot JSON under snapshots/ (opt-in per fleet via HARNESS_USE_POLLER).
+# Install just creates the dirs so the host layout is stable. Idempotent (mkdir -p is a no-op).
 create_host_root(){
   local home="${HARNESS_HOME:-$HOME/.harness}"
   mkdir -p "$home/poller" "$home/snapshots"
@@ -148,7 +149,7 @@ main(){
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   ensure_skills
   place_engine
-  create_host_root          # ~/.harness/{poller,snapshots}/ — reserved for PRD-B (empty contract)
+  create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path
   cat <<EOF

@@ -56,14 +56,15 @@ assert "symlink-fail creates no broken link"          "[[ ! -e '$RO/harness' ]]"
 assert "symlink-fail prints explicit PATH guidance"   "grep -q 'PATH' <<< \"\$fail_out\""
 assert "symlink-fail names the engine bin dir to add" "grep -q 'engine/bin' <<< \"\$fail_out\""
 
-# ── host root: the ~/.harness root carries PRD-B-reserved, EMPTY poller/ + snapshots/ (#57) ──
-# Contract only — install creates the dirs so the layout is stable now; PRD-B populates them later.
+# ── host root: install creates the ~/.harness poller/ + snapshots/ dirs EMPTY (#57) ──
+# Install only establishes the layout; the PRD-B host poller (#69) populates these at runtime when
+# a fleet opts in via HARNESS_USE_POLLER. So a fresh install leaves both dirs present but empty.
 HR="$(mktemp -d)/.harness"
 HARNESS_HOME="$HR" create_host_root
-assert "host root poller/ exists (PRD-B reserved)"    "[[ -d '$HR/poller' ]]"
-assert "host root snapshots/ exists (PRD-B reserved)" "[[ -d '$HR/snapshots' ]]"
-assert "poller/ is empty (no logic yet)"              "[[ -z \"\$(ls -A '$HR/poller')\" ]]"
-assert "snapshots/ is empty (no logic yet)"           "[[ -z \"\$(ls -A '$HR/snapshots')\" ]]"
+assert "host root poller/ exists"    "[[ -d '$HR/poller' ]]"
+assert "host root snapshots/ exists" "[[ -d '$HR/snapshots' ]]"
+assert "poller/ is empty at install time"    "[[ -z \"\$(ls -A '$HR/poller')\" ]]"
+assert "snapshots/ is empty at install time" "[[ -z \"\$(ls -A '$HR/snapshots')\" ]]"
 # idempotent: re-running on an existing host root is a clean no-op (still empty, no error)
 HARNESS_HOME="$HR" create_host_root
 assert "create_host_root is idempotent" "[[ -d '$HR/poller' && -z \"\$(ls -A '$HR/poller')\" ]]"
