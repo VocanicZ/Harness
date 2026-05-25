@@ -72,6 +72,18 @@ POOL_LOCK="${POOL_LOCK:-$RUN_DIR/pool.lock}"
 PAUSE_FLAG="${PAUSE_FLAG:-$RUN_DIR/PAUSED}"
 mkdir -p "$RUN_DIR" "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$CLAIMS_DIR" 2>/dev/null || true
 
+# PRD-B host poller (#71): host-level (NOT per-project) paths under the ~/.harness host root from
+# PRD-A. One poller refreshes a raw, versioned snapshot per registered repo into snapshots/; workers
+# (slice 3) read those instead of polling GitHub. These are SEAMS — env overrides let tests point
+# them at a temp host root. Exported so the nohup'd poller child (ensure_poller) inherits them.
+HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}"
+HARNESS_POLLER_DIR="${HARNESS_POLLER_DIR:-$HARNESS_HOME/poller}"
+HARNESS_SNAPSHOTS_DIR="${HARNESS_SNAPSHOTS_DIR:-$HARNESS_HOME/snapshots}"
+export HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR
+POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
+POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"
+POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
+
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
@@ -393,6 +405,153 @@ launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || ca
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
   log "launched session $sess (cwd $wd)"; }
+
+# --- PRD-B host poller: refcounted registry + supervision (#71) --------------
+# A drop-a-file, refcounted registry under $POLLER_REGISTRY_DIR: one file per (repo, registrant)
+# named <owner__repo>__<project-sanitised>.json holding {slug,cadence,prefix,project}. The `project`
+# (a STATE_DIR path) is the refcount key — a slug stays registered while ANY project references it,
+# and deregister removes ONLY the calling project's files. The poller (poller.sh) dedupes by slug
+# and refreshes each unique slug at the FASTEST registrant cadence. Slice 3 wires harness start/stop
+# to register/deregister + the worker freshness gate; here these are the standalone building blocks.
+_poller_slug_file(){ printf '%s' "${1//\//__}"; }   # acme/widget -> acme__widget (matches issuelib)
+# registry filename for (slug, project): slug part + project path sanitised to a flat token. The
+# authoritative refcount key is the JSON `project` field (read back on deregister); the filename only
+# needs to be unique-per-pair + idempotent (same pair -> same file -> overwrite).
+_poller_reg_file(){ printf '%s/%s__%s.json' "$POLLER_REGISTRY_DIR" \
+  "$(_poller_slug_file "$1")" "$(printf '%s' "$2" | tr -c 'A-Za-z0-9.-' '_')"; }
+
+# poller_register <slug> <cadence> <prefix> <project> — drop/refresh this project's registry file for
+# <slug>. Written atomically (tmp + rename) via python so any character in the project path is encoded
+# safely as JSON. cadence defaults to the project's HARNESS_PRIORITY_POLL when blank.
+poller_register(){
+  local slug="$1" cadence="${2:-$HARNESS_PRIORITY_POLL}" prefix="${3:-}" project="$4"
+  mkdir -p "$POLLER_REGISTRY_DIR"
+  SLUG="$slug" CAD="$cadence" PFX="$prefix" PRJ="$project" python3 - "$(_poller_reg_file "$slug" "$project")" <<'PY'
+import json, os, sys, tempfile
+f = sys.argv[1]
+rec = {"slug": os.environ["SLUG"], "cadence": int(os.environ["CAD"] or 0),
+       "prefix": os.environ["PFX"], "project": os.environ["PRJ"]}
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".reg.")
+with os.fdopen(fd, "w") as fh:
+    json.dump(rec, fh)
+os.replace(tmp, f)
+PY
+}
+
+# poller_deregister <project> — remove every registry file this project owns (matched on the JSON
+# `project` field, not the filename, so it is robust to path sanitisation). A slug another project
+# still references survives. No-op when the registry dir is absent.
+poller_deregister(){
+  [[ -d "$POLLER_REGISTRY_DIR" ]] || return 0
+  PRJ="$1" python3 - "$POLLER_REGISTRY_DIR" <<'PY'
+import json, os, sys
+d, prj = sys.argv[1], os.environ["PRJ"]
+for name in os.listdir(d):
+    if not name.endswith(".json"):
+        continue
+    p = os.path.join(d, name)
+    try:
+        rec = json.load(open(p))
+    except (OSError, ValueError):
+        continue
+    if rec.get("project") == prj:
+        try: os.remove(p)
+        except OSError: pass
+PY
+}
+
+# poller_registry_slugs — the unique slugs currently registered, one per line, sorted (deduped across
+# registrants). Empty (no output) when nothing is registered. This is the poller's work list.
+poller_registry_slugs(){
+  [[ -d "$POLLER_REGISTRY_DIR" ]] || return 0
+  python3 - "$POLLER_REGISTRY_DIR" <<'PY'
+import json, os, sys
+d = sys.argv[1]; slugs = set()
+for name in os.listdir(d):
+    if not name.endswith(".json"):
+        continue
+    try:
+        rec = json.load(open(os.path.join(d, name)))
+    except (OSError, ValueError):
+        continue
+    s = rec.get("slug")
+    if s:
+        slugs.add(s)
+# Emit NOTHING when empty (no trailing newline) so `mapfile`/command-substitution see a truly empty
+# list — a `print("")` would yield one blank line, which the poller loop would mistake for one slug.
+if slugs:
+    print("\n".join(sorted(slugs)))
+PY
+}
+
+# poller_cadence_for <slug> — the FASTEST (minimum) cadence among the live registrants for <slug>, so
+# the most demanding fleet sets the refresh rate. Falls back to HARNESS_PRIORITY_POLL when <slug> has
+# no registrant (or all recorded cadences are non-positive).
+poller_cadence_for(){
+  [[ -d "$POLLER_REGISTRY_DIR" ]] || { echo "$HARNESS_PRIORITY_POLL"; return; }
+  SLUG="$1" DEFLT="$HARNESS_PRIORITY_POLL" python3 - "$POLLER_REGISTRY_DIR" <<'PY'
+import json, os, sys
+d, slug, dflt = sys.argv[1], os.environ["SLUG"], int(os.environ["DEFLT"])
+best = None
+for name in os.listdir(d):
+    if not name.endswith(".json"):
+        continue
+    try:
+        rec = json.load(open(os.path.join(d, name)))
+    except (OSError, ValueError):
+        continue
+    if rec.get("slug") != slug:
+        continue
+    c = rec.get("cadence")
+    if isinstance(c, int) and c > 0 and (best is None or c < best):
+        best = c
+print(best if best is not None else dflt)
+PY
+}
+
+# poller_snapshot_path <slug> — where the poller writes <slug>'s snapshot. Mirrors issuelib's
+# _slug_filename so the read seam (HARNESS_SNAPSHOT_DIR) finds it.
+poller_snapshot_path(){ printf '%s/%s.json' "$HARNESS_SNAPSHOTS_DIR" "$(_poller_slug_file "$1")"; }
+
+# poller_write_snapshot <slug> — generate the raw snapshot via issuelib and write it ATOMICALLY
+# (tmp + rename). Runs issuelib with HARNESS_SNAPSHOT_FILE/_DIR UNSET so it reads gh (the poller's
+# job), not a snapshot. On a failed/garbled generation it leaves any existing snapshot UNTOUCHED
+# (returns non-zero) — a transient gh failure must never clobber a good snapshot into garbage; it
+# just ages into staleness, which workers (slice 3) treat as a hold.
+poller_write_snapshot(){
+  local slug="$1" out tmp
+  mkdir -p "$HARNESS_SNAPSHOTS_DIR"
+  out="$(poller_snapshot_path "$slug")"; tmp="$out.tmp.$$"
+  if HARNESS_SNAPSHOT_FILE= HARNESS_SNAPSHOT_DIR= python3 "$ISSUELIB" snapshot "$slug" > "$tmp" 2>/dev/null \
+     && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$out"; return 0
+  fi
+  rm -f "$tmp"; return 1
+}
+
+# poller_running — is a poller alive (its pidfile names a live process)?
+poller_running(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; }
+
+# ensure_poller — launch the host poller if none is alive. Idempotent and lock-guarded so concurrent
+# worker ticks can't double-spawn. The poller is a nohup BACKGROUND process (NOT a tmux session), so
+# `harness stop` (which kills ^<prefix>- tmux sessions) never touches it — correct, since other
+# fleets may still need it. The pid is recorded under the lock immediately so a near-simultaneous
+# caller sees a live pid and stands down. HARNESS_POLLER_CMD overrides the launched command (a test
+# seam); production launches scripts/poller.sh.
+ensure_poller(){
+  mkdir -p "$HARNESS_POLLER_DIR"
+  local lockfd
+  exec {lockfd}>"$POLLER_LOCK"; flock "$lockfd"
+  if poller_running; then flock -u "$lockfd"; exec {lockfd}>&-; return 0; fi
+  rm -f "$POLLER_PID"
+  if [[ -n "${HARNESS_POLLER_CMD:-}" ]]; then
+    nohup bash -c "$HARNESS_POLLER_CMD" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 &
+  else
+    nohup bash "$ENGINE_DIR/scripts/poller.sh" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 &
+  fi
+  echo "$!" > "$POLLER_PID"
+  flock -u "$lockfd"; exec {lockfd}>&-
+}
 
 seed_if_needed(){
   local unit="$1" slug; slug="$(unit_slug "$unit")"
