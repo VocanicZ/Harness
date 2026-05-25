@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """issuelib.py — GitHub-issue state machine for the Harness orchestrator (project-agnostic)."""
-import base64, hashlib, json, os, re, subprocess, sys
+import base64, hashlib, json, os, re, subprocess, sys, time
+
+# PRD-B: the snapshot read seam. A host poller writes one raw, versioned snapshot per repo into
+# ~/.harness/snapshots/<owner__repo>.json; workers read those instead of polling GitHub directly.
+# Bumped whenever the snapshot shape changes; a reader rejecting an unknown version holds dispatch.
+SNAPSHOT_SCHEMA_VERSION = 1
 
 # Committed, spec-keyed plan-completion marker. Lives in the unit's repo (NOT in the gitignored
 # .harness runtime clone) so it survives a fresh runtime checkout. Records the HARNESS_SPEC path +
@@ -43,6 +48,44 @@ def _repo_slug(repo):
     return repo if "/" in repo else (f"{OWNER}/{repo}" if OWNER else repo)
 
 
+# ── snapshot read seam (PRD-B) ────────────────────────────────────────────────────────────────
+# When HARNESS_SNAPSHOT_FILE is set the read path serves issues / plan / dep-state from snapshots
+# instead of calling gh. HARNESS_SNAPSHOT_DIR holds the sibling per-repo snapshots used to resolve
+# cross-repo deps. With neither set, every read below behaves exactly as before (direct gh).
+def _snapshot_mode():
+    return bool(os.environ.get("HARNESS_SNAPSHOT_FILE", ""))
+
+
+def _slug_filename(slug):
+    """`owner/repo` → `owner__repo.json`, the on-disk snapshot name under HARNESS_SNAPSHOT_DIR."""
+    return slug.replace("/", "__") + ".json"
+
+
+def _load_snapshot(path):
+    """Parse a snapshot file; None if missing/unreadable/garbled (treated as not-snapshotted)."""
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _snapshot_for_slug(slug):
+    """The snapshot dict whose `slug` == slug, or None. Prefers the primary HARNESS_SNAPSHOT_FILE
+    (the repo being dispatched), then the sibling <owner__repo>.json in HARNESS_SNAPSHOT_DIR."""
+    primary = _load_snapshot(os.environ.get("HARNESS_SNAPSHOT_FILE", ""))
+    if primary and primary.get("slug") == slug:
+        return primary
+    d = os.environ.get("HARNESS_SNAPSHOT_DIR", "")
+    if d:
+        sib = _load_snapshot(os.path.join(d, _slug_filename(slug)))
+        if sib and sib.get("slug") == slug:
+            return sib
+    return None
+
+
 def parse_blocked_by(body, self_repo):
     """Return [(repo_slug, issue_number)] from the `## Blocked by` section. Bare `#N`
     resolves against self_repo. Empty when the section is absent or says 'None'."""
@@ -60,17 +103,31 @@ def parse_blocked_by(body, self_repo):
     return refs
 
 
-def _list_issues(slug, extra=None):
+def _fetch_issues(slug, extra=None):
+    """Raw `gh issue list` payload (number,title,state,labels,body,author) — no normalisation,
+    no author filtering. The snapshot command emits exactly this; always hits gh."""
     args = ["issue", "list", "-R", slug, "--state", "all", "--limit", "200",
             "--json", "number,title,state,labels,body,author"]
     if extra:
         args += extra
-    data = _gh_json(args) or []
-    # normalise labels to a lowercase set + author login (lowercased) per issue
+    return _gh_json(args) or []
+
+
+def _normalize_issues(data):
+    """Add the worker-side derived fields: labels → lowercase set, author login lowercased."""
     for it in data:
         it["_labels"] = {str(l.get("name", "")).lower() for l in it.get("labels", [])}
         it["_author"] = str((it.get("author") or {}).get("login", "")).lower()
     return data
+
+
+def _list_issues(slug, extra=None):
+    if _snapshot_mode():
+        snap = _snapshot_for_slug(slug)
+        data = list(snap.get("issues") or []) if snap else []
+    else:
+        data = _fetch_issues(slug, extra)
+    return _normalize_issues(data)
 
 
 _self_login_cache = None
@@ -80,12 +137,17 @@ def _self_login():
     Returns "" when gh is unauthenticated/unavailable (secure: self resolves to nothing)."""
     global _self_login_cache
     if _self_login_cache is None:
-        try:
-            out = subprocess.run(["gh", "api", "user", "--jq", ".login"],
-                                 capture_output=True, text=True, timeout=60)
-            v = out.stdout.strip() if out.returncode == 0 else ""
-        except Exception:
-            v = ""
+        if _snapshot_mode():
+            # the poller already resolved + recorded the bot login; skip the gh api user round-trip.
+            snap = _load_snapshot(os.environ.get("HARNESS_SNAPSHOT_FILE", "")) or {}
+            v = str(snap.get("self_login", "") or "")
+        else:
+            try:
+                out = subprocess.run(["gh", "api", "user", "--jq", ".login"],
+                                     capture_output=True, text=True, timeout=60)
+                v = out.stdout.strip() if out.returncode == 0 else ""
+            except Exception:
+                v = ""
         _self_login_cache = v.strip('"').lower()
     return _self_login_cache
 
@@ -121,6 +183,21 @@ def _author_filter(issues):
 
 
 def _issue_state(slug, number):
+    if _snapshot_mode():
+        # resolve the dep's state from its repo's snapshot — never a gh call. A repo that is not
+        # snapshotted (or a dep absent from the snapshot) is conservatively treated as NOT closed
+        # (i.e. still blocking) and logged: erring toward not-dispatching is the safe direction.
+        snap = _snapshot_for_slug(slug)
+        if snap is None:
+            print(f"[issuelib] dep {slug}#{number} not snapshotted — treating as not-closed (blocked)",
+                  file=sys.stderr)
+            return ""
+        for it in snap.get("issues") or []:
+            if it.get("number") == number:
+                return str(it.get("state", "")).lower()
+        print(f"[issuelib] dep {slug}#{number} absent from snapshot — treating as not-closed (blocked)",
+              file=sys.stderr)
+        return ""
     d = _gh_json(["issue", "view", str(number), "-R", slug, "--json", "state"]) or {}
     return str(d.get("state", "")).lower()
 
@@ -141,6 +218,9 @@ def _spec_hash():
 
 def _has_plan(slug):
     """PLAN.md committed at repo root?"""
+    if _snapshot_mode():
+        snap = _snapshot_for_slug(slug)
+        return bool(snap.get("has_plan")) if snap else False
     r = subprocess.run(["gh", "api", f"repos/{slug}/contents/PLAN.md", "--jq", ".sha"],
                        capture_output=True, text=True)
     return r.returncode == 0 and r.stdout.strip() != ""
@@ -149,6 +229,9 @@ def _has_plan(slug):
 def _plan_marker(slug):
     """The committed plan-completion marker as a dict, or None if absent/unreadable.
     Read via the GitHub contents API (base64) so it reflects the repo, not local run state."""
+    if _snapshot_mode():
+        snap = _snapshot_for_slug(slug)
+        return snap.get("plan_marker") if snap else None
     r = subprocess.run(["gh", "api", f"repos/{slug}/contents/{PLAN_MARKER_PATH}", "--jq", ".content"],
                        capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
@@ -182,6 +265,23 @@ def _allowed(mode):
         "prd":        dict(plan=False, prd=False, decompose=True,  review=True),
         "planned":    dict(plan=True,  prd=True,  decompose=True,  review=True),
     }.get(mode, dict(plan=False, prd=False, decompose=False, review=False))
+
+def snapshot(repo):
+    """The raw, versioned per-repo snapshot the host poller writes (PRD-B). Performs the GitHub
+    reads — issue list, PLAN.md presence, plan-completion marker, bot login — and returns them
+    unfiltered/uninterpreted: author filtering and label interpretation stay per-project on the
+    read side. Run with HARNESS_SNAPSHOT_FILE UNSET (the poller's env) so it reads gh, not itself."""
+    slug = _repo_slug(repo)
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": int(time.time()),
+        "slug": slug,
+        "issues": _fetch_issues(slug),   # exactly the gh payload — no _labels/_author derived fields
+        "has_plan": _has_plan(slug),
+        "plan_marker": _plan_marker(slug),
+        "self_login": _self_login(),
+    }
+
 
 def compute_state(repo):
     slug = _repo_slug(repo)
@@ -286,7 +386,9 @@ def main():
         print(_spec_hash()); return
     if len(sys.argv) < 3: print(__doc__); sys.exit(2)
     repo = sys.argv[2]
-    if cmd == "dispatch":
+    if cmd == "snapshot":
+        json.dump(snapshot(repo), sys.stdout, separators=(",", ":")); print()
+    elif cmd == "dispatch":
         free = int(sys.argv[3]) if len(sys.argv) > 3 else 1
         allow = sys.argv[sys.argv.index("--allow-orchestration")+1] == "1" if "--allow-orchestration" in sys.argv else True
         for action, payload, promise in dispatch(repo, free, allow): print(f"{action}\t{payload}\t{promise}")
