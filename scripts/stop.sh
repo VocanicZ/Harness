@@ -20,7 +20,9 @@ done
 shopt -u nullglob
 
 echo "Killing claude worker sessions:"
-for s in $(tmux ls -F '#S' 2>/dev/null | grep -E "^${HARNESS_SESS_PREFIX}-" || true); do
+# PRD-B slice 4 (#73): match the FULL session grammar (fleet_session_re), not the bare `^<prefix>-`,
+# so a sibling fleet's sessions (or a stray `<prefix>-…` tmux window) are never cross-killed.
+for s in $(tmux ls -F '#S' 2>/dev/null | grep -E "$(fleet_session_re)" || true); do
   tmux kill-session -t "$s" 2>/dev/null && echo "  killed tmux $s"
 done
 
