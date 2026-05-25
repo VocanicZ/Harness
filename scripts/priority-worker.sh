@@ -85,7 +85,16 @@ bug_tick(){ local wid="$1" ref
 # One poll cycle. Resident: idle (rc 1) logs a banner ONCE per idle streak (deduped via
 # _IDLE_LOGGED) and keeps polling; real work (rc 0) clears the dedup so a later idle streak
 # re-announces. The lane only ever terminates on stop (kill); pause keeps it drained (rc 3).
-bug_step(){ local wid="$1"; reap_lane; bug_tick "$wid"; local rc=$?
+bug_step(){ local wid="$1"
+  # PRD-B slice 3 (#72): gate the WHOLE poll on a fresh host snapshot when HARNESS_USE_POLLER is set.
+  # A stale/missing snapshot HOLDS — reap_lane is skipped too (its self-heal does gh writes), no
+  # claim, no gh — the gate relaunches the poller and we log a deduped banner. Flag OFF: snapshot_gate
+  # returns 0 and the poll is byte-for-byte today's (reap_lane + bug_tick).
+  if ! snapshot_gate; then
+    [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
+    sleep "$PRIORITY_POLL"; return 4
+  fi
+  reap_lane; bug_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     1) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "no bugs — idle, watching"; _IDLE_LOGGED=1; }

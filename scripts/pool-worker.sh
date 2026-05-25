@@ -12,7 +12,16 @@ worker_tick(){ local wid="$1" u
 # logs an idle banner ONCE per idle streak (deduped via _IDLE_LOGGED) and keeps polling.
 # Real work (rc 0) clears the dedup so a later idle streak re-announces. Workers only ever
 # terminate on stop (kill); pause keeps them drained (rc 3). Returns worker_tick's rc.
-worker_step(){ local wid="$1"; worker_tick "$wid"; local rc=$?
+worker_step(){ local wid="$1"
+  # PRD-B slice 3 (#72): with HARNESS_USE_POLLER set, gate dispatch on a fresh host snapshot. A
+  # stale/missing/unknown-schema snapshot HOLDS new dispatch (claim nothing, no gh fallback) — the
+  # gate relaunches the poller; we log a deduped banner and leave in-flight sessions running. Flag
+  # OFF: snapshot_gate returns 0 and this loop is byte-for-byte today's.
+  if ! snapshot_gate; then
+    [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
+    sleep "$POLL"; return 4
+  fi
+  worker_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     2) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "all COMPLETE — idle, watching"; _IDLE_LOGGED=1; }

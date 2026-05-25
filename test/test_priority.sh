@@ -230,4 +230,86 @@ _bug_numbers(){ :; }; PRIORITY_POLL=0; _IDLE_LOGGED=0
 bug_step P1 >/dev/null 2>&1
 assert_eq "$(grep -c tick "$REAPED")" "1" "bug_step ran reap_lane once (per-poll self-heal)"
 
+# ───────────────────── PRD-B slice 3 (#72): bug-lane snapshot dispatch gate ─────────────────────
+# The lane gates exactly like the pool. A stale/missing snapshot HOLDS the whole poll — NO reap_lane
+# (its self-heal does gh writes), no claim, no gh — relaunches the poller, and logs a deduped banner;
+# a fresh snapshot serves reap_lane + the claim from the snapshot. Flag OFF = today's path (every
+# assertion above ran with it unset). Restore the real lane fns (some were stubbed above), then point
+# the host-root SEAMS at a temp dir.
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/../scripts/priority-worker.sh"
+P3="$(mktemp -d)"
+HARNESS_HOME="$P3/host"; HARNESS_POLLER_DIR="$P3/host/poller"; HARNESS_SNAPSHOTS_DIR="$P3/host/snapshots"
+POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
+mkdir -p "$HARNESS_SNAPSHOTS_DIR" "$POLLER_REGISTRY_DIR"
+export HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR HARNESS_POLLER_CMD="sleep 30"
+HARNESS_USE_POLLER=1; HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
+poller_register acme/widget 60 hz "$P3/proj"
+p3_snap(){ cat > "$HARNESS_SNAPSHOTS_DIR/acme__widget.json" <<JSON
+{"schema_version":1,"generated_at":$1,"slug":"acme/widget","issues":[],"has_plan":false,"plan_marker":null,"self_login":"me"}
+JSON
+}
+NOW="$(date +%s)"
+P3REAP="$P3/reap.log"; P3CLAIM="$P3/claim.log"; P3GH="$P3/gh.log"
+reap_lane(){ echo called >> "$P3REAP"; }
+claim_next_bug(){ echo called >> "$P3CLAIM"; echo ""; }
+gh(){ echo "$*" >> "$P3GH"; }
+PRIORITY_POLL=0; _IDLE_LOGGED=0
+: > "$P3REAP"; : > "$P3CLAIM"; : > "$P3GH"
+P3HOLD="$P3/hold.log"; : > "$P3HOLD"
+p3_snap "$((NOW-100000))"                                 # stale
+bug_step P1 >>"$P3HOLD" 2>&1; assert_eq "$?" "4" "bug_step: stale snapshot HOLDS the poll (rc 4)"
+assert_eq "$(cat "$P3REAP")"  "" "bug_step: held tick did NOT run reap_lane (no gh self-heal on hold)"
+assert_eq "$(cat "$P3CLAIM")" "" "bug_step: held tick made NO bug claim"
+assert_eq "$(cat "$P3GH")"    "" "bug_step: held tick made NO gh read"
+bug_step P1 >>"$P3HOLD" 2>&1; bug_step P1 >>"$P3HOLD" 2>&1
+assert_eq "$(grep -c 'snapshot stale' "$P3HOLD")" "1" "bug_step: hold banner logged once (deduped)"
+
+# fresh: reap_lane + the claim both run (served from the snapshot)
+: > "$P3REAP"; : > "$P3CLAIM"; _IDLE_LOGGED=0; p3_snap "$NOW"
+bug_step P1 >/dev/null 2>&1
+assert_eq "$(cat "$P3REAP")" "called" "bug_step: fresh tick runs reap_lane"
+assert_ok "bug_step: fresh tick consults the bug claim" bash -c "[[ -s '$P3CLAIM' ]]"
+[[ -f "$POLLER_PID" ]] && kill "$(cat "$POLLER_PID")" 2>/dev/null
+rm -rf "$P3"
+
+# ── start.sh registers this project's repos + ensures a poller, gated on the flag ──
+assert_ok "start.sh registers the project's repos behind the flag" bash -c "grep -q 'poller_register_project' '$HERE/../scripts/start.sh'"
+assert_ok "start.sh ensures a poller behind the flag"              bash -c "grep -q 'ensure_poller'           '$HERE/../scripts/start.sh'"
+assert_ok "start.sh gates the poller wiring on HARNESS_USE_POLLER" bash -c "grep -q 'HARNESS_USE_POLLER'       '$HERE/../scripts/start.sh'"
+
+# poller_register_project: registers every slug this project serves, keyed on STATE_DIR (the refcount)
+RP="$(mktemp -d)"
+HARNESS_POLLER_DIR="$RP/poller"; POLLER_REGISTRY_DIR="$RP/poller/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; HARNESS_OWNER=acme; STATE_DIR="$RP/state"; HARNESS_PRIORITY_POLL=60; HARNESS_SESS_PREFIX=hz
+poller_register_project
+assert_eq "$(poller_registry_slugs)" "acme/widget" "poller_register_project (single) registers HARNESS_REPO"
+assert_ok "registry file is keyed on STATE_DIR" bash -c "ls '$POLLER_REGISTRY_DIR'/acme__widget__*.json >/dev/null 2>&1"
+HARNESS_TOPOLOGY=multi; TARGETS_TSV="$(mktemp)"
+printf 'a\tacme/a\t-\troot\nb\tacme/b\ta\tneeds a\n' > "$TARGETS_TSV"
+rm -f "$POLLER_REGISTRY_DIR"/*.json
+poller_register_project
+assert_eq "$(poller_registry_slugs | tr '\n' ' ')" "acme/a acme/b " "poller_register_project (multi) registers every targets row"
+rm -rf "$RP"
+
+# ── stop.sh deregisters ONLY this project (refcount); a shared slug stays; the poller is never killed ──
+SD="$(mktemp -d)"
+HARNESS_POLLER_DIR="$SD/poller"; HARNESS_HOME="$SD"; POLLER_REGISTRY_DIR="$SD/poller/registry"; mkdir -p "$POLLER_REGISTRY_DIR" "$SD/poller"
+poller_register acme/widget 60 hz   "$SD/projA"
+poller_register acme/widget 60 hzli "$SD/projB"
+( exec sleep 60 ) & SDPOLL=$!; echo "$SDPOLL" > "$SD/poller/poller.pid"   # live poller stop must NEVER touch
+HARNESS_USE_POLLER=1 STATE_DIR="$SD/projA" HARNESS_POLLER_DIR="$SD/poller" HARNESS_HOME="$SD" RUN_DIR="$(mktemp -d)" \
+  bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
+assert_eq "$(poller_registry_slugs)" "acme/widget" "stop(projA): slug stays (projB still references it)"
+assert_ok "stop did NOT kill the poller (not in RUN_DIR, not a tmux session)" kill -0 "$SDPOLL"
+HARNESS_USE_POLLER=1 STATE_DIR="$SD/projB" HARNESS_POLLER_DIR="$SD/poller" HARNESS_HOME="$SD" RUN_DIR="$(mktemp -d)" \
+  bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
+assert_eq "$(poller_registry_slugs)" "" "stop(projB): last ref dropped -> slug gone (refcount 0)"
+# flag OFF: stop never touches the registry (regression — today's stop is registry-blind). The flag
+# is EXPORTED (lib.sh), so a child stop.sh would inherit our =1 — clear it explicitly to prove off.
+poller_register acme/widget 60 hz "$SD/projC"
+HARNESS_USE_POLLER= STATE_DIR="$SD/projC" HARNESS_POLLER_DIR="$SD/poller" HARNESS_HOME="$SD" RUN_DIR="$(mktemp -d)" \
+  bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
+assert_eq "$(poller_registry_slugs)" "acme/widget" "stop with the flag OFF leaves the registry untouched"
+kill "$SDPOLL" 2>/dev/null; rm -rf "$SD"
+
 finish
