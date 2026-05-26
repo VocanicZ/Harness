@@ -133,6 +133,47 @@ except BaseException:
 PY
   flock -u "$lockfd"; exec {lockfd}>&-
 }
+# ensure_bypass <dir> — default the spawned session AND its sub-agents to bypassPermissions by merging
+# permissions.defaultMode into <dir>/.claude/settings.local.json. --dangerously-skip-permissions only
+# sets the MAIN session's mode; Task/sub-agents (subagent-driven-development) do NOT inherit it and
+# fall back to "default" (ask) mode, wedging an autonomous run FOREVER on the first mutating-command
+# prompt (no human to answer). settings.local.json is read by the session + its sub-agents (cwd-scoped)
+# and is git-ignored by convention; we also add it to the worktree's info/exclude so `git add -A` can
+# never commit it on installs lacking that global ignore. Scoped to autonomous runs, mirroring
+# ensure_trusted. No flock: each session owns a unique <dir>, so there's no shared-file race.
+ensure_bypass(){
+  [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
+  local dir="$1" f="$1/.claude/settings.local.json"
+  mkdir -p "$dir/.claude"
+  F="$f" python3 - <<'PY'
+import json, os, tempfile
+f = os.environ["F"]
+try:
+    with open(f) as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except (FileNotFoundError, ValueError):
+    data = {}
+perms = data.get("permissions")
+if not isinstance(perms, dict):
+    perms = data["permissions"] = {}
+perms["defaultMode"] = "bypassPermissions"
+d = os.path.dirname(f) or "."
+fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings.harness.")
+try:
+    with os.fdopen(fd, "w") as fh:
+        json.dump(data, fh, indent=2)
+    os.replace(tmp, f)
+except BaseException:
+    os.path.exists(tmp) and os.unlink(tmp)
+    raise
+PY
+  local excl; excl="$(git -C "$dir" rev-parse --git-path info/exclude 2>/dev/null)" || return 0
+  [[ -n "$excl" ]] || return 0
+  mkdir -p "$(dirname "$excl")"
+  grep -qxF '.claude/settings.local.json' "$excl" 2>/dev/null || echo '.claude/settings.local.json' >> "$excl"
+}
 is_paused(){ [[ -f "$PAUSE_FLAG" ]]; }
 
 _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && echo "$HARNESS_OWNER/$1" || echo "$1";; esac; }
@@ -476,6 +517,7 @@ launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || ca
   write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"; echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
   tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
+  ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
   log "launched session $sess (cwd $wd)"; }
 
