@@ -4,6 +4,11 @@ The bug was already triaged: issue #{{ISSUE}} carries `{{LABEL_BUG_TRIAGED}}` an
 acceptance criteria have been refined for you. Implement against THAT refined issue.
 Running in a DEDICATED git worktree on a feature branch. State persists in git + GitHub.
 
+OUTPUT STYLE — invoke the `caveman` skill at session start; keep all explanatory prose in
+caveman mode to conserve tokens (no human reads it live). Keep these EXACT and uncompressed:
+commit messages incl. `(closes #{{ISSUE}})`, PR title/body, code & test names, the
+`<!-- harness-handoff … -->` marker line, label names, and the literal `<promise>{{PROMISE}}</promise>`.
+
 Repo: {{SLUG}}   Branch: {{BRANCH}} (already checked out)
 Issue: #{{ISSUE}}  (labelled `{{LABEL_WORKING}}` — it is yours)
 
