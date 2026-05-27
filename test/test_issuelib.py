@@ -8,6 +8,13 @@ _REAL_COMPUTE_STATE = il.compute_state   # tests that stub compute_state must re
 # spec-hash test verifies actual behaviour regardless of run order.
 REAL_SPEC_HASH = il._spec_hash
 
+# Other tests monkeypatch these read seams without restoring them; capture the real (snapshot-aware)
+# implementations so the snapshot-mode tests can exercise the genuine read path regardless of order.
+_REAL_LIST_ISSUES = il._list_issues
+_REAL_ISSUE_STATE = il._issue_state
+_REAL_HAS_PLAN = il._has_plan
+_REAL_PLAN_MARKER = il._plan_marker
+
 def mk(**kw):
     base = dict(slug="acme/widget", has_plan=False, prd=None, prd_open=False, prd_reviewed=False,
                 children_exist=False, children_all_closed=False, unblocked=[], open_children=0, total_children=0,
@@ -520,6 +527,127 @@ def test_bug_lane_working_cli_prints_one_number_per_line():
     finally:
         sys.argv = argv
     assert buf.getvalue().splitlines() == ["7", "8"], buf.getvalue()
+
+def test_parse_blocked_by_none_section_with_prose_harvests_nothing():
+    # Regression for the permanent-PRD-deadlock bug (#85): a `## Blocked by` section whose first
+    # token is `None` must yield NO refs, even when trailing prose name-drops merged PRs / issues.
+    # The docstring already promised []; the code must honor it.
+    body = ("client half of the fix\n\n## Blocked by\n\n"
+            "None — #214/#215 already merged; this is the missing client half of that fix.\n\n"
+            "Ref: PRD #203 (AC-5, AC-1), follow-up to #214/#215.\n")
+    assert il.parse_blocked_by(body, "r/r") == [], il.parse_blocked_by(body, "r/r")
+
+def test_merged_pr_blocker_is_satisfied():
+    # Regression (#85, defect 2): a blocked-by ref pointing at a MERGED PR must count as satisfied.
+    # `gh issue view <pr>` resolves the PR and returns {"state":"MERGED"}; the old `== "closed"`
+    # check rejected "merged" → permanent block. A merged-PR blocker must now unblock the child.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
+    il.compute_state = _REAL_COMPUTE_STATE
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "blocked by merged PR", "state": "OPEN", "_author": "me",
+         "body": "## Blocked by\n#215\n", "_labels": {"ready-for-agent"}},
+    ]
+    il._has_plan = lambda slug: False
+    il._issue_state = lambda slug, number: "merged"   # #215 is a merged PR
+    s = il.compute_state("acme/widget")
+    assert 5 in s["unblocked"], s
+
+def test_open_issue_blocker_still_blocks():
+    # No regression: a genuine OPEN issue blocker must still block (only closed/merged satisfy).
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il._self_login = lambda: "me"
+    il.compute_state = _REAL_COMPUTE_STATE
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 5, "title": "blocked by open issue", "state": "OPEN", "_author": "me",
+         "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
+    ]
+    il._has_plan = lambda slug: False
+    il._issue_state = lambda slug, number: "open"
+    s = il.compute_state("acme/widget")
+    assert 5 not in s["unblocked"], s
+
+def _write_snapshot(issues):
+    # Materialise a real per-repo snapshot file and point HARNESS_SNAPSHOT_FILE at it, so the
+    # snapshot read path is exercised end-to-end (no gh). Caller must pop the env in finally.
+    import json, tempfile
+    snap = {"schema_version": il.SNAPSHOT_SCHEMA_VERSION, "generated_at": 1, "slug": "acme/widget",
+            "issues": issues, "has_plan": False, "plan_marker": None, "self_login": "me"}
+    f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    json.dump(snap, f); f.close()
+    os.environ["HARNESS_SNAPSHOT_FILE"] = f.name
+
+def test_snapshot_mode_none_section_unblocks_without_gh():
+    # AC2: in SNAPSHOT mode the incident issue (`## Blocked by` = "None — #214/#215 already
+    # merged …") is computed unblocked even though #214/#215 are absent from the snapshot — the
+    # parser harvests no refs, so there is nothing to resolve. Proven via the real snapshot read
+    # path (HARNESS_SNAPSHOT_FILE set); no gh, no _issue_state stubbing.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il.compute_state = _REAL_COMPUTE_STATE
+    il._list_issues = _REAL_LIST_ISSUES; il._issue_state = _REAL_ISSUE_STATE
+    il._has_plan = _REAL_HAS_PLAN; il._plan_marker = _REAL_PLAN_MARKER
+    il._self_login = lambda: "me"
+    body = ("## Blocked by\n\nNone — #214/#215 already merged; missing client half of that fix.\n\n"
+            "Ref: PRD #203, follow-up to #214/#215.\n")
+    _write_snapshot([{"number": 216, "title": "client half", "state": "OPEN", "body": body,
+                      "labels": [{"name": "ready-for-agent"}], "author": {"login": "me"}}])
+    try:
+        s = il.compute_state("acme/widget")
+        assert 216 in s["unblocked"], s
+    finally:
+        os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+
+def test_snapshot_mode_genuine_absent_ref_still_blocks():
+    # AC3 (snapshot-mode behavior, defined+tested): the chosen approach records only issues in the
+    # snapshot — PRs are absent. A genuine bare blocked-by ref (#215) that is absent from the
+    # snapshot resolves to state "" and stays conservatively BLOCKED (err toward not-dispatching).
+    # The real incident is a `None` section (covered above), so this conservative edge is moot in
+    # practice; it is documented so the snapshot path's behavior is unambiguous.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il.compute_state = _REAL_COMPUTE_STATE
+    il._list_issues = _REAL_LIST_ISSUES; il._issue_state = _REAL_ISSUE_STATE
+    il._has_plan = _REAL_HAS_PLAN; il._plan_marker = _REAL_PLAN_MARKER
+    il._self_login = lambda: "me"
+    _write_snapshot([{"number": 5, "title": "blocked by absent ref", "state": "OPEN",
+                      "body": "## Blocked by\n#215\n",
+                      "labels": [{"name": "ready-for-agent"}], "author": {"login": "me"}}])
+    try:
+        s = il.compute_state("acme/widget")
+        assert 5 not in s["unblocked"], s
+    finally:
+        os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+
+def test_self_prd_blocker_special_case_unchanged():
+    # AC4(d): a child whose `## Blocked by` names its OWN PRD is not really blocked — the PRD stays
+    # open until review. The special-case must remain: #5 is unblocked and its PRD ref (#7) is
+    # never even queried for state (the merged/closed-states change must not regress this).
+    os.environ["HARNESS_MODE"] = "prd"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    il.compute_state = _REAL_COMPUTE_STATE
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None
+    il._spec_hash = lambda: ""
+    il._list_issues = lambda slug, extra=None: [
+        {"number": 7, "title": "[AFK] PRD: x", "state": "OPEN", "body": "", "_author": "me",
+         "_labels": {"prd"}},
+        {"number": 5, "title": "child blocked by own PRD", "state": "OPEN", "_author": "me",
+         "body": "## Blocked by\n#7\n", "_labels": {"ready-for-agent"}},
+    ]
+    queried = []
+    il._issue_state = lambda slug, number: (queried.append((slug, number)) or "open")
+    s = il.compute_state("acme/widget")
+    assert 5 in s["unblocked"], s
+    assert ("acme/widget", 7) not in queried, queried   # own-PRD ref short-circuited, never queried
 
 if __name__ == "__main__":
     fails = 0

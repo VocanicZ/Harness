@@ -28,6 +28,12 @@ ALLOWLIST  = lambda: os.environ.get("HARNESS_AUTHOR_ALLOWLIST", "")
 _BLOCKED_BY_HEADING = re.compile(r"^##\s+Blocked by\s*$", re.IGNORECASE | re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^##\s+", re.MULTILINE)
 _ISSUE_REF = re.compile(r"(?:([\w.-]+/[\w.-]+))?#(\d+)")
+# A `## Blocked by` section whose first non-blank token is the word `None` declares "no blockers";
+# any trailing prose (e.g. "None — #214/#215 already merged …") is explanatory, not a dependency.
+_NONE_SECTION = re.compile(r"^\s*None\b", re.IGNORECASE)
+# States that satisfy a blocked-by ref. "merged" covers a ref pointing at a merged PR: `gh issue
+# view <pr-number>` resolves the PR and returns {"state":"MERGED"}, so a merged PR must NOT block.
+_SATISFIED_STATES = {"closed", "merged"}
 
 
 def _gh_json(args):
@@ -108,7 +114,9 @@ def _snapshot_for_slug(slug):
 
 def parse_blocked_by(body, self_repo):
     """Return [(repo_slug, issue_number)] from the `## Blocked by` section. Bare `#N`
-    resolves against self_repo. Empty when the section is absent or says 'None'."""
+    resolves against self_repo. Returns [] when the section is absent, or when its first
+    non-blank token is the word `None` (case-insensitive) — trailing explanatory prose under a
+    `None` section (e.g. "None — #214/#215 already merged …") is NOT harvested as a dependency."""
     if not body:
         return []
     m = _BLOCKED_BY_HEADING.search(body)
@@ -117,6 +125,8 @@ def parse_blocked_by(body, self_repo):
     rest = body[m.end():]
     nxt = _NEXT_HEADING.search(rest)
     section = rest[:nxt.start()] if nxt else rest
+    if _NONE_SECTION.match(section):
+        return []
     refs = []
     for repo_part, num in _ISSUE_REF.findall(section):
         refs.append((repo_part or self_repo, int(num)))
@@ -272,7 +282,7 @@ def _is_unblocked(issue, slug, closed_cache, prd_num=None):
             continue
         key = (ref_slug, ref_num)
         if key not in closed_cache:
-            closed_cache[key] = _issue_state(ref_slug, ref_num) == "closed"
+            closed_cache[key] = _issue_state(ref_slug, ref_num) in _SATISFIED_STATES
         if not closed_cache[key]:
             return False
     return True
