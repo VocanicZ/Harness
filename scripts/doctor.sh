@@ -27,10 +27,19 @@ doctor_locks(){
     echo "  $name: HELD"
     while IFS=$'\t' read -r pid rest; do
       [[ -n "$pid" ]] || continue
+      sd="$(proc_state_dir "$pid")"
       if tracked_worker_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
         kind="tracked worker (normal — transient claim)"
+      elif [[ "$name" == pool.lock ]]; then
+        # pool.lock is held ONLY for the duration of a claim — by a tracked worker OR its short-lived
+        # children (a forked pool-worker subprocess / an issuelib.py query). Those are NOT orphans;
+        # flagging them is a false positive and (worse) --fix-killing one would corrupt a live claim.
+        # So a pool.lock holder is never a problem and never a --fix target — report it informationally.
+        kind="transient claim holder (normal)"
       else
-        sd="$(proc_state_dir "$pid")"
+        # Only a start.lock holder that is not a live tracked worker is a real wedge: the #88 fd-leak,
+        # where a killed worker's orphaned poll-sleep keeps the inherited start.lock fd open and blocks
+        # the next `start --recover` from launching any workers.
         kind="ORPHAN"; problems=$((problems+1))
       fi
       echo "      pid $pid [$kind]${sd:+  state_dir=$sd}  ${rest}"
