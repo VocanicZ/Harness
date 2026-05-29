@@ -717,10 +717,16 @@ ensure_poller(){
   exec {lockfd}>"$POLLER_LOCK"; flock "$lockfd"
   if poller_running; then flock -u "$lockfd"; exec {lockfd}>&-; return 0; fi
   rm -f "$POLLER_PID"
+  # Spawn the poller with fd 9 CLOSED for the child (`9>&-`). start.sh calls ensure_poller while it
+  # still holds the double-start lock on fd 9 (start.sh:101, before its own `exec 9>&-`); since
+  # `harness stop` never kills the poller, an inherited fd 9 would hold start.lock for the poller's
+  # entire (fleet-outliving) life and wedge a later `start --recover` into launching ZERO workers —
+  # the same leak class fixed for pool.sh/priority.sh. Closing it here covers every caller (start.sh
+  # and the worker snapshot_gate) regardless of its own fd state.
   if [[ -n "${HARNESS_POLLER_CMD:-}" ]]; then
-    nohup bash -c "$HARNESS_POLLER_CMD" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 &
+    nohup bash -c "$HARNESS_POLLER_CMD" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 9>&- &
   else
-    nohup bash "$ENGINE_DIR/scripts/poller.sh" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 &
+    nohup bash "$ENGINE_DIR/scripts/poller.sh" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 9>&- &
   fi
   echo "$!" > "$POLLER_PID"
   flock -u "$lockfd"; exec {lockfd}>&-

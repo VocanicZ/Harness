@@ -42,18 +42,68 @@ _NONE_SECTION = re.compile(r"^\s*None\b", re.IGNORECASE)
 _SATISFIED_STATES = {"closed", "merged"}
 
 
-def _gh_json(args):
-    """Run a gh command and parse JSON stdout. Returns [] / {} on failure (repo may be empty)."""
+class GhError(Exception):
+    """A gh read FAILED transiently/ambiguously (non-zero exit, timeout, unparseable output) — as
+    opposed to succeeding with a legitimately empty/absent result. Callers must NOT fold this into
+    "empty repo / no plan": a shared-token rate limit (HTTP 403) or network blip would otherwise
+    re-fire PLAN and (in poller mode) clobber a good snapshot. The CLI catches it and HOLDS the tick
+    (prints nothing, exits non-zero) so the worker simply tries again next poll."""
+
+
+def _looks_transient(stderr):
+    """True when a gh failure is a TRANSIENT/shared-token condition (rate limit, 5xx, network) that
+    must HOLD rather than be read as 'absent/empty'. We detect transience POSITIVELY: a real gh 403
+    rate limit / network error always names itself in stderr, whereas a plain HTTP 404 (resource
+    genuinely missing) does not. Anything not positively transient is treated as absent — preserving
+    the legacy 'a non-zero contents/issue-view read = not there' contract for the missing-file case
+    while still holding on the rate-limit case that drove the spurious-PLAN / snapshot-clobber bug."""
+    e = (stderr or "").lower()
+    sigs = ("rate limit", "rate-limit", "http 403", "403 forbidden", "http 429", "too many requests",
+            "http 500", "http 502", "http 503", "http 504", "bad gateway", "service unavailable",
+            "gateway timeout", "timeout", "timed out", "connection", "could not connect",
+            "could not resolve host", "network", "tls", "ssl", "eof", "temporarily unavailable",
+            "i/o timeout", "server error")
+    return any(s in e for s in sigs)
+
+
+def _gh_json(args, allow_absent=False):
+    """Run a gh command and parse JSON stdout. Returns the parsed value on success (which may be a
+    legitimately empty [] / {} / null). Raises GhError on a transient/ambiguous failure so the caller
+    HOLDS instead of treating a gh outage as 'empty'. When allow_absent is set (e.g. a blocked-by
+    ref pointing at a deleted issue), a non-zero exit that is NOT positively transient returns None —
+    the resource is genuinely missing, which is not an error — while a transient failure still raises.
+    `gh issue list` is always allow_absent=False: an empty repo exits 0, so ANY non-zero is a real
+    failure and must never be read as an empty issue set."""
     try:
         out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
-    except Exception:
-        return None
+    except Exception as e:
+        raise GhError("gh %s: %s" % (" ".join(args), e))
     if out.returncode != 0:
-        return None
+        if allow_absent and not _looks_transient(out.stderr):
+            return None
+        raise GhError("gh %s exited %d: %s" % (" ".join(args), out.returncode, (out.stderr or "").strip()[:200]))
     try:
         return json.loads(out.stdout or "null")
     except json.JSONDecodeError:
-        return None
+        # gh reported success but the output is not JSON — anomalous; do NOT treat as empty.
+        raise GhError("gh %s: unparseable JSON output" % " ".join(args))
+
+
+def _gh_api_read(path, jq):
+    """Read a single field from a repo contents API path via `gh api --jq`. Returns the raw stdout
+    string when present, None when the resource is genuinely ABSENT (a non-transient non-zero — e.g.
+    HTTP 404, the file isn't committed), and raises GhError only on a POSITIVELY transient failure
+    (403 rate limit / 5xx / network) so a shared-token throttle is never mistaken for 'no plan'.
+    (The --jq output is a raw scalar, not JSON, so this can't go through _gh_json.)"""
+    try:
+        r = subprocess.run(["gh", "api", path, "--jq", jq], capture_output=True, text=True, timeout=60)
+    except Exception as e:
+        raise GhError("gh api %s: %s" % (path, e))
+    if r.returncode == 0:
+        return r.stdout
+    if _looks_transient(r.stderr):
+        raise GhError("gh api %s exited %d: %s" % (path, r.returncode, (r.stderr or "").strip()[:200]))
+    return None
 
 
 def _repo_slug(repo):
@@ -236,7 +286,10 @@ def _issue_state(slug, number):
         print(f"[issuelib] dep {slug}#{number} absent from snapshot — treating as not-closed (blocked)",
               file=sys.stderr)
         return ""
-    d = _gh_json(["issue", "view", str(number), "-R", slug, "--json", "state"]) or {}
+    # allow_absent: a blocked-by ref pointing at a deleted/nonexistent issue (HTTP 404) is not an
+    # error — treat it as "" (not closed → still blocking), the safe direction. A transient failure
+    # still raises GhError so compute_state holds rather than guessing the dep's state.
+    d = _gh_json(["issue", "view", str(number), "-R", slug, "--json", "state"], allow_absent=True) or {}
     return str(d.get("state", "")).lower()
 
 
@@ -259,9 +312,8 @@ def _has_plan(slug):
     if _snapshot_mode():
         snap = _snapshot_for_slug(slug)
         return bool(snap.get("has_plan")) if snap else False
-    r = subprocess.run(["gh", "api", f"repos/{slug}/contents/PLAN.md", "--jq", ".sha"],
-                       capture_output=True, text=True)
-    return r.returncode == 0 and r.stdout.strip() != ""
+    sha = _gh_api_read(f"repos/{slug}/contents/PLAN.md", ".sha")  # None=absent(404); raises on transient
+    return sha is not None and sha.strip() != ""
 
 
 def _plan_marker(slug):
@@ -270,12 +322,11 @@ def _plan_marker(slug):
     if _snapshot_mode():
         snap = _snapshot_for_slug(slug)
         return snap.get("plan_marker") if snap else None
-    r = subprocess.run(["gh", "api", f"repos/{slug}/contents/{PLAN_MARKER_PATH}", "--jq", ".content"],
-                       capture_output=True, text=True)
-    if r.returncode != 0 or not r.stdout.strip():
+    content = _gh_api_read(f"repos/{slug}/contents/{PLAN_MARKER_PATH}", ".content")  # None=absent; raises on transient
+    if content is None or not content.strip():
         return None
     try:
-        raw = base64.b64decode("".join(r.stdout.split())).decode("utf-8")
+        raw = base64.b64decode("".join(content.split())).decode("utf-8")
         return json.loads(raw)
     except (ValueError, json.JSONDecodeError):
         return None
@@ -445,33 +496,42 @@ def main():
         sys.exit(0 if _snapshot_fresh(path, refresh) else 1)
     if len(sys.argv) < 3: print(__doc__); sys.exit(2)
     repo = sys.argv[2]
-    if cmd == "snapshot":
-        json.dump(snapshot(repo), sys.stdout, separators=(",", ":")); print()
-    elif cmd == "dispatch":
-        free = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-        allow = sys.argv[sys.argv.index("--allow-orchestration")+1] == "1" if "--allow-orchestration" in sys.argv else True
-        for action, payload, promise in dispatch(repo, free, allow): print(f"{action}\t{payload}\t{promise}")
-    elif cmd == "status":
-        s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
-        prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
-        print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
-              f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
-              f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
-    elif cmd == "bugs":
-        for n, phase in bug_lane_candidates(repo): print(f"{n}\t{phase}")
-    elif cmd == "working-bugs":
-        for n in bug_lane_working(repo): print(n)
-    elif cmd == "complete":
-        print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
-    elif cmd == "check":
-        goal = sys.argv[3] if len(sys.argv) > 3 else ""; s = compute_state(repo); done = False
-        if goal == "PLAN": done = s["has_plan"]
-        elif goal == "PRD": done = s["prd"] is not None
-        elif goal == "DECOMPOSE": done = s["children_exist"]
-        elif goal == "REVIEW": done = s["prd_reviewed"] or len(s["unblocked"]) > 0
-        elif goal == "CLOSE_PRD": done = not s["prd_open"]
-        elif goal.startswith("ISSUE:"): done = _issue_state(s["slug"], int(goal.split(":",1)[1])) == "closed"
-        print("DONE" if done else "PENDING")
-    else: print(f"unknown command: {cmd}", file=sys.stderr); sys.exit(2)
+    # Any gh-touching command HOLDS on a transient gh failure: GhError → print nothing to stdout and
+    # exit 3, so the bash callers (dispatch_actions / poller_write_snapshot / unit_complete / check)
+    # see empty output and simply retry next poll, instead of acting on a false-empty state (which
+    # would spuriously re-fire PLAN or clobber a good snapshot). compute_state/snapshot raise BEFORE
+    # any stdout is written, so partial output is never emitted.
+    try:
+        if cmd == "snapshot":
+            json.dump(snapshot(repo), sys.stdout, separators=(",", ":")); print()
+        elif cmd == "dispatch":
+            free = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+            allow = sys.argv[sys.argv.index("--allow-orchestration")+1] == "1" if "--allow-orchestration" in sys.argv else True
+            for action, payload, promise in dispatch(repo, free, allow): print(f"{action}\t{payload}\t{promise}")
+        elif cmd == "status":
+            s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
+            prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
+            print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
+                  f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
+                  f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
+        elif cmd == "bugs":
+            for n, phase in bug_lane_candidates(repo): print(f"{n}\t{phase}")
+        elif cmd == "working-bugs":
+            for n in bug_lane_working(repo): print(n)
+        elif cmd == "complete":
+            print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
+        elif cmd == "check":
+            goal = sys.argv[3] if len(sys.argv) > 3 else ""; s = compute_state(repo); done = False
+            if goal == "PLAN": done = s["has_plan"]
+            elif goal == "PRD": done = s["prd"] is not None
+            elif goal == "DECOMPOSE": done = s["children_exist"]
+            elif goal == "REVIEW": done = s["prd_reviewed"] or len(s["unblocked"]) > 0
+            elif goal == "CLOSE_PRD": done = not s["prd_open"]
+            elif goal.startswith("ISSUE:"): done = _issue_state(s["slug"], int(goal.split(":",1)[1])) == "closed"
+            print("DONE" if done else "PENDING")
+        else: print(f"unknown command: {cmd}", file=sys.stderr); sys.exit(2)
+    except GhError as e:
+        print(f"issuelib: HOLD — transient gh failure on `{cmd} {repo}`: {e}", file=sys.stderr)
+        sys.exit(3)
 
 if __name__ == "__main__": main()
