@@ -42,6 +42,7 @@ usage: harness <command> [args]
   start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
   stop  [--clean]      stop the pool (--clean also removes worktrees)
   status [--watch [s]] dashboard
+  doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   resume               clear pause; resume here or start --recover (works across machines)
@@ -70,6 +71,7 @@ case "$cmd" in
   start)  require_state_dir; exec bash "$ENGINE_DIR/scripts/start.sh" "$@";;
   stop)   require_state_dir; exec bash "$ENGINE_DIR/scripts/stop.sh" "$@";;
   status) require_state_dir; exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
+  doctor) require_state_dir; exec bash "$ENGINE_DIR/scripts/doctor.sh" "$@";;
   attach) require_state_dir; exec bash "$ENGINE_DIR/scripts/attach.sh" "$@";;
   pause)  require_state_dir; exec bash "$ENGINE_DIR/scripts/pause.sh" "$@";;
   setup)  require_state_dir; exec bash "$ENGINE_DIR/scripts/setup.sh" "$@";;
