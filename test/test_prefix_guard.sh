@@ -63,12 +63,14 @@ assert_ok "impl session matches"               is_fleet_session hz-main-i5
 assert_ok "inject session matches"             is_fleet_session hz-inject-main
 assert_ok "bug fix session matches"            is_fleet_session hz-bug-acme_widget-5-fix
 assert_ok "bug triage session matches"         is_fleet_session hz-bug-acme_widget-5-triage
+# a dashed-unit orch session IS ours and MUST match (regression for the dash-leak bug)
+assert_ok "dashed-unit orch session matches"   is_fleet_session "$(HARNESS_SESS_PREFIX=hz sess_orch web-api)"
 # a SIBLING fleet's sessions (different prefix) are NOT matched -> untouched by stop/status
 assert_no "sibling hzli impl untouched"        is_fleet_session hzli-main-i5
 assert_no "sibling boto orch untouched"        is_fleet_session boto-x
-# stray, structurally-invalid <prefix>- sessions are NOT matched (defense-in-depth)
-assert_no "multi-segment non-grammar untouched" is_fleet_session hz-foo-bar-baz
-assert_no "bug without a phase not matched"     is_fleet_session hz-bug-acme_widget-5
+# any non-empty session under OUR prefix is ours (dashed unit id or otherwise) -> matched
+assert_ok "dashed-unit multi-segment matches"  is_fleet_session hz-foo-bar-baz
+assert_ok "any session under our prefix matches" is_fleet_session hz-bug-acme_widget-5
 
 echo "== stop.sh kills ONLY full-grammar sessions; a sibling fleet survives =="
 SRUN="$(mktemp -d)"; export CALLS="$(mktemp)"
@@ -84,6 +86,6 @@ assert_ok "stop kills our impl session"    bash -c "grep -q 'kill-session -t hz-
 assert_ok "stop kills our bug session"     bash -c "grep -q 'kill-session -t hz-bug-acme_widget-5-fix' '$CALLS'"
 assert_no "stop leaves sibling hzli alone" bash -c "grep -q 'kill-session -t hzli-main-i1' '$CALLS'"
 assert_no "stop leaves sibling boto alone" bash -c "grep -q 'kill-session -t boto-x' '$CALLS'"
-assert_no "stop leaves stray non-grammar"  bash -c "grep -q 'kill-session -t hz-foo-bar-baz' '$CALLS'"
+assert_ok "stop kills our dashed-unit orch" bash -c "grep -q 'kill-session -t hz-foo-bar-baz' '$CALLS'"
 
 finish
