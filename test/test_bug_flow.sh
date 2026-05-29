@@ -33,6 +33,14 @@ render "$HERE/../prompts/bug-triage.md" \
 
 assert_ok "triage: flips bug -> bug-triaged (remove bug, add bug-triaged)" \
   grep -qE -- '--remove-label bug .*--add-label bug-triaged' "$TRI"
+# C1 strand fix: the engine's bug_goal_done fires the moment `bug-triaged` is present (bug_phase==fix)
+# and the hold loop then KILLS the triage session — possibly between the flip and the agent-working
+# drop. If agent-working drops AFTER the flip, that kill can strand the bug `bug-triaged`+agent-working,
+# which bug_lane_candidates excludes — invisible to the fix phase until reap_lane sweeps it (a ~60s
+# flap). So the prompt MUST drop agent-working BEFORE the bug->bug-triaged flip: when the engine sees
+# bug-triaged and kills, agent-working is already gone, so the bug is immediately fix-claimable.
+assert_ok "triage: drops agent-working BEFORE the bug->bug-triaged flip (C1: no fix-phase strand)" \
+  bash -c "awk '/--remove-label agent-working/ && !w{w=NR} /--remove-label bug .*--add-label bug-triaged/ && !f{f=NR} END{exit !(w && f && w < f)}' '$TRI'"
 assert_ok "triage: refines body + acceptance criteria" \
   grep -qi 'acceptance' "$TRI"
 assert_ok "triage: explicitly no sub-agent fan-out" \
