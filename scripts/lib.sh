@@ -424,6 +424,41 @@ sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }
+# lock_holders <lockfile> — print one `PID<TAB>cmdline` line per process that currently holds the
+# file open (any fd). Dependency-free (`fuser`/`lsof` are NOT guaranteed present on every host —
+# this box has neither) — it scans /proc/*/fd symlinks for ones resolving to the lock's real path.
+# Deduped by pid. The reliable way to answer "who holds start.lock / pool.lock?" — the question
+# behind the fd-leak wedge (a killed worker's orphaned `sleep` keeps an inherited flock fd open).
+lock_holders(){
+  local lf="$1" rl fd tgt pid seen=" "
+  rl="$(readlink -f "$lf" 2>/dev/null)" || return 0
+  [[ -n "$rl" ]] || return 0
+  for fd in /proc/[0-9]*/fd/*; do
+    tgt="$(readlink "$fd" 2>/dev/null)" || continue
+    [[ "$tgt" == "$rl" ]] || continue
+    pid="${fd#/proc/}"; pid="${pid%%/*}"
+    [[ "$seen" == *" $pid "* ]] && continue
+    seen+="$pid "
+    printf '%s\t%s\n' "$pid" "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
+  done
+}
+# proc_state_dir <pid> — echo a process's STATE_DIR from its environ (empty if gone/unreadable). Lets
+# doctor tell whether a lock-holder belongs to THIS project vs a co-resident sibling fleet.
+proc_state_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^STATE_DIR=//p' | head -1; }
+# lock_free <lockfile> — true iff the lock can be acquired right now (nobody holds it). A non-blocking
+# flock in a subshell; the fd closes on subshell exit so this never itself leaves a holder behind.
+lock_free(){ ( flock -n 9 ) 9>"$1" 2>/dev/null; }
+# tracked_worker_pid <pid> — true iff <pid> is one of THIS project's currently-recorded pool/lane
+# pids (RUN_DIR/*.pid). doctor's --fix never kills a tracked, live worker (it may legitimately hold
+# pool.lock for the duration of a claim); only untracked orphans are reapable.
+tracked_worker_pid(){
+  local want="$1" p
+  shopt -s nullglob
+  for p in "$RUN_DIR"/*.pid; do
+    [[ "$(cat "$p" 2>/dev/null)" == "$want" ]] && { shopt -u nullglob; return 0; }
+  done
+  shopt -u nullglob; return 1
+}
 # gc_orphan_goals — remove $RUN_DIR/<sess>.goal files whose tmux session is no longer live. A goal
 # file is written for EVERY launched session (launch_claude), but is only deleted when a reaper
 # actively KILLS a still-live session (reap_done_sessions / finalize_unit / drive_bug). Ralph
