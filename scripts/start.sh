@@ -96,8 +96,14 @@ if ! flock -n 9; then
   exec 9>&-
   exit 0
 fi
-bash "$ENGINE_DIR/scripts/pool.sh"
-bash "$ENGINE_DIR/scripts/priority.sh"
+# Spawn the worker scripts with fd 9 CLOSED for the children (`9>&-`). The flock is fd-based, and
+# pool.sh/priority.sh fork long-lived worker processes (nohup …-worker.sh &) that would otherwise
+# INHERIT this open fd and hold the lock for the entire life of the fleet — so a later
+# `harness start --recover` (the documented re-runnable top-up path) would find the lock still held
+# by a live worker, print "(another start in progress)", and launch ZERO workers. Closing the fd for
+# the children scopes the lock to start.sh's own critical section (this spawn), as intended.
+bash "$ENGINE_DIR/scripts/pool.sh"     9>&-
+bash "$ENGINE_DIR/scripts/priority.sh" 9>&-
 exec 9>&-
 
 echo
