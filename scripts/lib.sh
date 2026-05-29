@@ -424,6 +424,22 @@ sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$
 team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }
+# gc_orphan_goals — remove $RUN_DIR/<sess>.goal files whose tmux session is no longer live. A goal
+# file is written for EVERY launched session (launch_claude), but is only deleted when a reaper
+# actively KILLS a still-live session (reap_done_sessions / finalize_unit / drive_bug). Ralph
+# sessions self-exit on their completion promise BEFORE any reaper kills them, and inject sessions
+# have no reaper at all — so their goal files leak (confirmed: a stale hz*-inject-<unit>.goal with
+# no session). This per-poll sweep GCs every lane's orphaned goal files uniformly. A goal whose
+# session is STILL live is left alone: it is an in-flight claim a reaper still owns.
+gc_orphan_goals(){
+  local f sess
+  shopt -s nullglob
+  for f in "$RUN_DIR"/*.goal; do
+    sess="$(basename "$f" .goal)"
+    session_live "$sess" || rm -f "$f"
+  done
+  shopt -u nullglob
+}
 # bug_session_live <slug> <n> — is EITHER phase's session for bug #n in <slug> live? The SINGLE
 # liveness predicate the lane's per-poll reap (#42, reap_lane) and start --recover's bug-aware skip
 # (#43) both use, so the two reconciliation paths can never disagree about whether a bug is in

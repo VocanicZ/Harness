@@ -649,6 +649,79 @@ def test_self_prd_blocker_special_case_unchanged():
     assert 5 in s["unblocked"], s
     assert ("acme/widget", 7) not in queried, queried   # own-PRD ref short-circuited, never queried
 
+def test_review_does_not_refire_once_signed_off():
+    # REVIEW's job is the sign-off (it applies the reviewed label). Once the PRD already carries
+    # that label it must NOT re-fire — otherwise a reviewed-but-still-open PRD (the agent's close
+    # didn't stick) spawns an endless series of fresh review sessions, each burning ORCH_MAXITER
+    # iterations and (as a live orch session) pinning allow_orchestration so nothing else advances.
+    os.environ["HARNESS_MODE"] = "planned"
+    il.compute_state = lambda r: mk(prd=7, prd_open=True, children_exist=True,
+                                    children_all_closed=True, prd_reviewed=False)
+    assert il.dispatch("acme/widget", 3, True)[0][0] == "REVIEW", "unreviewed PRD -> REVIEW"
+    il.compute_state = lambda r: mk(prd=7, prd_open=True, children_exist=True,
+                                    children_all_closed=True, prd_reviewed=True)
+    acts = il.dispatch("acme/widget", 3, True)
+    assert all(a[0] != "REVIEW" for a in acts), f"reviewed PRD must NOT re-fire REVIEW: {acts}"
+
+def test_engine_closes_a_reviewed_but_open_prd():
+    # The deterministic fix for "PRD won't close, all children closed": once review has SIGNED OFF
+    # (reviewed label set) but the PRD is still OPEN (the agent's `gh issue close` failed / was
+    # rate-limited), the engine emits CLOSE_PRD and closes it itself — instant + idempotent, retried
+    # every poll, no Ralph session and no rate-limit-sensitive multi-step inside an agent.
+    os.environ["HARNESS_MODE"] = "planned"
+    il.compute_state = lambda r: mk(prd=7, prd_open=True, children_exist=True,
+                                    children_all_closed=True, prd_reviewed=True)
+    assert il.dispatch("acme/widget", 3, True) == [("CLOSE_PRD", "7", "PRD CLOSED")], \
+        il.dispatch("acme/widget", 3, True)
+    # CLOSE_PRD is an orchestration action: it must NOT fire while impl work is in flight.
+    assert il.dispatch("acme/widget", 3, False) == [], "CLOSE_PRD gated on allow_orchestration"
+
+def test_no_close_prd_until_reviewed():
+    # CLOSE_PRD must never close an UNREVIEWED PRD — that would skip the review gate entirely.
+    os.environ["HARNESS_MODE"] = "planned"
+    il.compute_state = lambda r: mk(prd=7, prd_open=True, children_exist=True,
+                                    children_all_closed=True, prd_reviewed=False)
+    acts = il.dispatch("acme/widget", 3, True)
+    assert all(a[0] != "CLOSE_PRD" for a in acts), f"unreviewed PRD must not be engine-closed: {acts}"
+
+def test_closed_prd_is_complete_even_if_reviewed_label_missing():
+    # close-OK / label-fail wedge: a CLOSED PRD whose children are all closed is COMPLETE even when
+    # the reviewed label never stuck. Only the review path closes a PRD, so closed ⇒ reviewed-intent;
+    # requiring the label too left the unit forever-incomplete (and REVIEW could not re-fire because
+    # its guard needs prd_open). The unit must finalize (and sweep its sessions) on a closed PRD.
+    os.environ["HARNESS_MODE"] = "planned"
+    assert il.is_complete(mk(prd=7, prd_open=False, prd_reviewed=False,
+                             children_exist=True, children_all_closed=True)) is True
+    # still NOT complete while the PRD is open, regardless of the reviewed label
+    assert il.is_complete(mk(prd=7, prd_open=True, prd_reviewed=True,
+                             children_all_closed=True)) is False
+
+def _check(goal, state):
+    """Drive issuelib's `check` CLI for <goal> against a stubbed compute_state; return DONE/PENDING."""
+    import io, contextlib
+    il.compute_state = lambda r: state
+    argv = sys.argv; sys.argv = ["issuelib.py", "check", "acme/widget", goal]
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            il.main()
+    finally:
+        sys.argv = argv
+    return buf.getvalue().strip()
+
+def test_check_review_done_on_signoff_or_gaps_not_on_close():
+    # A REVIEW session's work is done when it has SIGNED OFF (reviewed label) OR filed gap issues
+    # (unblocked > 0) — NOT when the PRD is closed (closing is now the engine's CLOSE_PRD job). This
+    # lets a review session that added the label be reaped promptly instead of lingering unkilled.
+    assert _check("REVIEW", mk(prd=7, prd_open=True, prd_reviewed=True)) == "DONE", "signed off -> done"
+    assert _check("REVIEW", mk(prd=7, prd_open=True, prd_reviewed=False, unblocked=[9])) == "DONE", "gaps -> done"
+    assert _check("REVIEW", mk(prd=7, prd_open=True, prd_reviewed=False, unblocked=[])) == "PENDING", \
+        "neither signed off nor gaps -> still working"
+
+def test_check_close_prd_done_when_prd_closed():
+    assert _check("CLOSE_PRD", mk(prd=7, prd_open=False)) == "DONE"
+    assert _check("CLOSE_PRD", mk(prd=7, prd_open=True)) == "PENDING"
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

@@ -400,13 +400,28 @@ def dispatch(repo, free_slots, allow_orchestration):
     for num in s["unblocked"][:max(0, free_slots)]:
         out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
     if not out and allow_orchestration and a["review"] and s["children_all_closed"] and s["prd_open"]:
-        out.append(("REVIEW", str(s["prd"]), "REVIEW DONE"))
+        # Split the two halves of "wrap up the PRD" so neither can wedge the unit:
+        #   • REVIEW signs off — it applies the reviewed label (and may file gap issues). Gate it on
+        #     NOT-yet-reviewed so a reviewed-but-still-open PRD doesn't spawn an endless run of fresh
+        #     review sessions (each one a live orch session that pins allow_orchestration).
+        #   • CLOSE_PRD is the mechanical close, done by the ENGINE (drive.sh) via a single idempotent
+        #     `gh issue close`, retried every poll. This is the deterministic fix for "PRD won't
+        #     close": the close no longer depends on the review agent's own gh call succeeding (which
+        #     a shared-token rate limit can drop), so a signed-off PRD always closes.
+        if not s["prd_reviewed"]:
+            out.append(("REVIEW", str(s["prd"]), "REVIEW DONE"))
+        else:
+            out.append(("CLOSE_PRD", str(s["prd"]), "PRD CLOSED"))
     return out
 
 def is_complete(s):
     if MODE() == "issue-only":
         return s["children_exist"] and s["open_children"] == 0 and len(s["unblocked"]) == 0
-    return s["prd"] is not None and not s["prd_open"] and s["prd_reviewed"]
+    # A CLOSED PRD means the unit is done. The reviewed label is the sign-off SIGNAL that lets the
+    # engine close the PRD, but completion keys off the close itself: requiring the label here too
+    # left a close-OK/label-fail PRD forever-incomplete (and REVIEW could not re-fire — its guard
+    # needs prd_open). Only the review path closes a PRD, so closed ⇒ reviewed-intent.
+    return s["prd"] is not None and not s["prd_open"] and (s["prd_reviewed"] or s["children_all_closed"])
 
 def main():
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)
@@ -445,7 +460,8 @@ def main():
         if goal == "PLAN": done = s["has_plan"]
         elif goal == "PRD": done = s["prd"] is not None
         elif goal == "DECOMPOSE": done = s["children_exist"]
-        elif goal == "REVIEW": done = (not s["prd_open"]) or len(s["unblocked"]) > 0
+        elif goal == "REVIEW": done = s["prd_reviewed"] or len(s["unblocked"]) > 0
+        elif goal == "CLOSE_PRD": done = not s["prd_open"]
         elif goal.startswith("ISSUE:"): done = _issue_state(s["slug"], int(goal.split(":",1)[1])) == "closed"
         print("DONE" if done else "PENDING")
     else: print(f"unknown command: {cmd}", file=sys.stderr); sys.exit(2)

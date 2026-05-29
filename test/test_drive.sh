@@ -32,6 +32,35 @@ drive_unit main
 assert_eq "$(grep -c '^IMPL' "$DISPATCHED")" "2" "drove two IMPL actions on first tick"
 assert_ok "loop exited when unit_complete flipped" true
 
+# --- CLOSE_PRD: the engine closes a reviewed-but-open PRD directly (no Ralph session) ---
+# The dispatch loop must route a CLOSE_PRD action to close_prd() (a single `gh issue close`), NOT to
+# spawn_orch (which would launch a whole review session). This is the deterministic PRD-close fix.
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; CAP=2; POLL=0
+WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
+ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
+spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }
+spawn_orch(){ echo "ORCH $1 $2" >> "$ROUTED"; }
+close_prd(){ echo "CLOSE_PRD $1" >> "$ROUTED"; }
+reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }
+team_sessions(){ :; }; tmux(){ :; }; git(){ :; }
+TICK="$RUN_DIR/tick2"; echo 0 > "$TICK"
+dispatch_actions(){ local n; n="$(cat "$TICK")"; n=$((n+1)); echo "$n" > "$TICK"
+  if [[ "$n" == 1 ]]; then printf 'CLOSE_PRD\t7\tPRD CLOSED\n'; fi; }
+unit_complete(){ [[ "$(cat "$TICK")" -ge 2 ]]; }
+drive_unit main
+assert_ok "CLOSE_PRD routed to close_prd() (engine closes the PRD)" grep -q '^CLOSE_PRD 7' "$ROUTED"
+assert_no "CLOSE_PRD did NOT spawn an orch/review session" grep -q '^ORCH' "$ROUTED"
+
+# close_prd() runs a single idempotent `gh issue close` against the unit's repo
+source "$HERE/../scripts/drive.sh"   # restore the real close_prd (the routing section stubbed it)
+make_env
+HARNESS_TOPOLOGY=single; SLUG="acme/widget"
+GHC="$RUN_DIR/ghclose"; : > "$GHC"
+gh(){ echo "gh $*" >> "$GHC"; return 0; }
+close_prd 7
+assert_ok "close_prd issues gh issue close for the PRD" grep -q 'gh issue close 7 -R acme/widget' "$GHC"
+
 # --- finalize_unit: the on-completion sweep that fixes the leftover session/worktree ---
 # Run in fully isolated temp dirs with recording stubs, so nothing touches the real fleet.
 make_env
