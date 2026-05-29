@@ -11,7 +11,14 @@ make_env
 LF="$(mktemp)"
 assert_eq "$(lock_holders "$LF")" "" "lock_holders: no holder → empty"
 ( exec 9>"$LF"; sleep 5 ) &          # subshell opens fd 9 then forks sleep; both inherit-hold $LF
-HOLDER=$!; sleep 0.2
+HOLDER=$!
+# Poll until the holder is visible (robust under load) rather than a fixed sleep: under heavy
+# concurrent load the scheduler can delay the background subshell opening fd 9 past a fixed wait,
+# making a one-shot check flaky. Up to ~5s, re-scanning each tick.
+for _ in $(seq 1 50); do
+  grep -qE "(^|[^0-9])$HOLDER"'\b' <<<"$(lock_holders "$LF")" && break
+  sleep 0.1
+done
 assert_ok "lock_holders: reports the holding pid" \
   grep -qE "(^|[^0-9])$HOLDER"'\b' <<<"$(lock_holders "$LF")"
 kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
