@@ -45,6 +45,39 @@ v_lane_pause="$(fleet_verdict 0 3 0 0 2 1 1)"
 echo "$v_lane_pause" | grep -qi 'PAUSED' && echo "  ok: paused wins over a live lane" || { echo "  FAIL: expected PAUSED, got [$v_lane_pause]"; exit 1; }
 echo "── status lane-verdict ok"
 
+# --- DEGRADED: pidfiles dead but a fleet tmux session is still live --------------
+# If the pool/lane processes die UNCLEANLY (kill -9 / host crash) their pidfiles point at
+# dead pids (up=0, lane_up=0), but the detached claude tmux sessions they launched keep
+# running (sess>0). Reporting a bare STOPPED here invites a blind `start` that re-claims
+# units whose claude sessions are still live -> double-dispatch. The verdict must instead be
+# an actionable non-STOPPED state (DEGRADED) so the operator runs `start --recover`.
+# fleet_verdict <up> <total> <sess> <done_n> <all_n> <paused> <lane_up>
+v_degraded="$(fleet_verdict 0 3 1 0 2 0 0)"
+echo "$v_degraded" | grep -qi 'STOPPED' && { echo "  FAIL: dead pids + live session must NOT read STOPPED — got [$v_degraded]"; exit 1; } || true
+echo "  ok: dead pids + live session -> NOT STOPPED"
+echo "$v_degraded" | grep -qi 'DEGRADED' && echo "  ok: dead pids + live session -> DEGRADED" || { echo "  FAIL: expected DEGRADED, got [$v_degraded]"; exit 1; }
+echo "$v_degraded" | grep -qiE 'recover' && echo "  ok: DEGRADED verdict points at --recover" || { echo "  FAIL: DEGRADED should mention --recover — got [$v_degraded]"; exit 1; }
+# Sanity: with NO live session it stays plain STOPPED (unchanged precedence).
+v_stopped_clean="$(fleet_verdict 0 3 0 0 2 0 0)"
+echo "$v_stopped_clean" | grep -qi 'STOPPED' && echo "  ok: dead pids + NO session -> STOPPED (unchanged)" || { echo "  FAIL: expected STOPPED, got [$v_stopped_clean]"; exit 1; }
+echo "$v_stopped_clean" | grep -qi 'DEGRADED' && { echo "  FAIL: no-session case must not read DEGRADED — got [$v_stopped_clean]"; exit 1; } || true
+# Paused still wins even if a stray session is live.
+v_deg_paused="$(fleet_verdict 0 3 1 0 2 1 0)"
+echo "$v_deg_paused" | grep -qi 'PAUSED' && echo "  ok: paused wins over a stray live session" || { echo "  FAIL: expected PAUSED, got [$v_deg_paused]"; exit 1; }
+
+# End-to-end: dead worker pidfile + a live fleet session -> dashboard FLEET line is DEGRADED,
+# never a bare STOPPED that would lure the operator into a plain `start`.
+DRUN="$(mktemp -d)"; echo 999999 > "$DRUN/worker-1.pid"
+tmux(){ case "${1:-}" in ls) printf 'hz-acme_widget-i5\n';; has-session) return 1;; *) return 0;; esac; }
+export -f tmux
+DTSV="$(mktemp)"   # empty targets.tsv -> hermetic
+out_deg="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget POOL=1 TARGETS_TSV="$DTSV" RUN_DIR="$DRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+unset -f tmux
+fleet_deg="$(echo "$out_deg" | grep 'FLEET:')"
+echo "$fleet_deg" | grep -qi 'STOPPED' && { echo "  FAIL: e2e dead-pids+live-session reported STOPPED — got [$fleet_deg]"; exit 1; } || true
+echo "$fleet_deg" | grep -qi 'DEGRADED' && echo "  ok: e2e dead-pids + live-session FLEET reads DEGRADED" || { echo "  FAIL: e2e expected DEGRADED — got [$fleet_deg]"; exit 1; }
+echo "── status DEGRADED (unclean-death sessions live) ok"
+
 # --- priority-lane row renders (#35) ----------------------------------------
 # A lane DOWN (no priority.pid) still prints its row.
 out_down="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$(mktemp -d)" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
