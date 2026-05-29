@@ -530,8 +530,15 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
   } > "$wd/.claude/ralph-loop.local.md"; }
 launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
-  write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"; echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
+  write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"
   tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
+  # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
+  # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
+  # the goal before `tmux new-session` opened a cross-lane TOCTOU window: a concurrent sweep in that
+  # gap sees session_live=false and deletes the goal of a session that is about to come up — losing
+  # it for reap_done_sessions (drive.sh) and inject's REVIEW-in-flight check. Session-first closes
+  # the window: a sweep here now finds session_live=true and leaves the goal alone.
+  echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
