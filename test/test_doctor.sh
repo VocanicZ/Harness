@@ -10,18 +10,14 @@ make_env
 # ── lock_holders: finds a process holding the file open, empty when none ───────────────────────
 LF="$(mktemp)"
 assert_eq "$(lock_holders "$LF")" "" "lock_holders: no holder → empty"
-( exec 9>"$LF"; sleep 5 ) &          # subshell opens fd 9 then forks sleep; both inherit-hold $LF
-HOLDER=$!
-# Poll until the holder is visible (robust under load) rather than a fixed sleep: under heavy
-# concurrent load the scheduler can delay the background subshell opening fd 9 past a fixed wait,
-# making a one-shot check flaky. Up to ~5s, re-scanning each tick.
-for _ in $(seq 1 50); do
-  grep -qE "(^|[^0-9])$HOLDER"'\b' <<<"$(lock_holders "$LF")" && break
-  sleep 0.1
-done
+# Hold the fd in THIS shell (synchronously) rather than racing a backgrounded subshell: the prior
+# background-holder design was inherently flaky under load (the OS might not schedule the child to
+# open fd 9 before the scan, even with a poll). Opening fd 9 here means our OWN pid ($$) holds the
+# lock the instant lock_holders runs — deterministic, zero scheduling race.
+exec 9>"$LF"
 assert_ok "lock_holders: reports the holding pid" \
-  grep -qE "(^|[^0-9])$HOLDER"'\b' <<<"$(lock_holders "$LF")"
-kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+  grep -qE "(^|[^0-9])$$"'\b' <<<"$(lock_holders "$LF")"
+exec 9>&-                             # release before the lock_free test reuses fd 9
 
 # ── lock_free: true when acquirable, false when held; never leaves a holder behind ─────────────
 LF2="$(mktemp)"
