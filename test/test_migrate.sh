@@ -81,4 +81,24 @@ assert "CLI migrate preserves config"                      "[[ -f '$PROJ/.harnes
 assert "CLI migrate removes engine lib.sh"                 "[[ ! -e '$PROJ/.harness/lib.sh' ]]"
 assert "CLI migrate removes vendored .git"                 "[[ ! -e '$PROJ/.harness/.git' ]]"
 
+# ── unknown user content inside .harness/ SURVIVES (migrate must not rm -rf everything-not-preserved) ─
+# An operator may have dropped unrelated files/dirs into .harness/ (notes/, archive/, …). migrate
+# converts a VENDORED layout to state-only; it must strip the engine clone but NOT silently destroy
+# user content it doesn't recognise.
+VEND3="$(mktemp -d)/.harness"; mk_vendored "$VEND3"
+mkdir -p "$VEND3/notes";   printf 'important\n' > "$VEND3/notes/x"
+mkdir -p "$VEND3/archive"; printf 'arch\n'      > "$VEND3/archive/old.log"
+printf 'scratch\n' > "$VEND3/SCRATCH.txt"
+HH3="$(mktemp -d)/.harness"; mk_engine "$HH3"
+out5="$(STATE_DIR="$VEND3" HARNESS_HOME="$HH3" bash "$HERE/../scripts/migrate.sh" 2>&1)"; rc5=$?
+assert "migrate exits 0 with unknown user content"      "[[ $rc5 -eq 0 ]]"
+assert "unknown user notes/ SURVIVES migrate"           "[[ -f '$VEND3/notes/x' ]]"
+assert "unknown user archive/ SURVIVES migrate"         "[[ -f '$VEND3/archive/old.log' ]]"
+assert "unknown user top-level file SURVIVES migrate"   "[[ -f '$VEND3/SCRATCH.txt' ]]"
+# vendored engine code is STILL stripped (the conversion still happens)
+assert "engine lib.sh STILL stripped (unknown content present)" "[[ ! -e '$VEND3/lib.sh' ]]"
+assert "vendored .git STILL stripped (unknown content present)" "[[ ! -e '$VEND3/.git' ]]"
+assert "engine bin/ STILL stripped (unknown content present)"   "[[ ! -e '$VEND3/bin' ]]"
+assert "config preserved alongside unknown content"            "[[ -f '$VEND3/config' ]]"
+
 echo "── migrate ok"

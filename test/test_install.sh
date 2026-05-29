@@ -41,6 +41,23 @@ assert "installed engine is a git checkout (update can ff-pull it)"      "[[ -d 
 HARNESS_HOME="$HH" HARNESS_REPO_URL="$SRC" place_engine >/dev/null 2>&1
 assert "place_engine is idempotent on an existing install" "[[ -x '$HH/engine/bin/harness' ]]"
 
+# ── place_engine surfaces a FAILED ff-pull as non-zero (consistent with update.sh; not swallowed) ──
+# Build a real remote+clone, then DIVERGE the local engine so `pull --ff-only` cannot fast-forward.
+DREMOTE="$(mktemp -d)/dremote.git"; git init -q --bare -b main "$DREMOTE"
+DWORK="$(mktemp -d)"; : > "$DWORK/f"
+git -C "$DWORK" init -q; git -C "$DWORK" branch -M main
+git -C "$DWORK" -c user.email=t@t -c user.name=t add -A
+git -C "$DWORK" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+git -C "$DWORK" remote add origin "$DREMOTE"; git -C "$DWORK" -c user.email=t@t -c user.name=t push -q -u origin main
+DHH="$(mktemp -d)/.harness"; mkdir -p "$DHH"; git clone -q "$DREMOTE" "$DHH/engine"
+# local diverging commit on the engine
+printf 'local\n' > "$DHH/engine/f"; git -C "$DHH/engine" -c user.email=t@t -c user.name=t commit -qam local >/dev/null
+# divergent upstream advance
+printf 'upstream\n' > "$DWORK/f"; git -C "$DWORK" -c user.email=t@t -c user.name=t commit -qam up >/dev/null
+git -C "$DWORK" -c user.email=t@t -c user.name=t push -q
+HARNESS_HOME="$DHH" place_engine >/dev/null 2>&1; pe_rc=$?
+assert "place_engine returns non-zero on a diverged ff-pull" "[[ $pe_rc -ne 0 ]]"
+
 # ── PATH symlink: harness -> ~/.harness/engine/bin/harness, resolved via realpath ──
 BIN_TMP="$(mktemp -d)/bin"
 HARNESS_HOME="$HH" HARNESS_BIN_DIR="$BIN_TMP" link_path >/dev/null 2>&1
@@ -85,5 +102,25 @@ assert "install_harness_skills is idempotent" "[[ -f '$USK/harness/SKILL.md' ]]"
 # missing source: warn (best-effort), never fail the install
 miss_out="$(HARNESS_SKILL_SRC="$(mktemp -d)/nope" HARNESS_USER_SKILLS="$(mktemp -d)/sk" install_harness_skills 2>&1)"
 assert "missing skill source is non-fatal" "[[ \$? -eq 0 ]]"
+
+# ── ensure_skills installs ONLY to-prd/to-issues, never clobbers a user's same-named skill ──
+# The matt-pocock clone can carry extra SKILL.md dirs. ensure_skills must copy ONLY the intended
+# skills (the ones its guard checks), not every SKILL.md parent dir — otherwise it overwrites a
+# user's pre-existing same-named skill and pulls in skills never requested.
+A2="$(mktemp -d)"
+A2REPO="$A2/skills-src"; mkdir -p "$A2REPO/to-prd" "$A2REPO/to-issues" "$A2REPO/evil"
+printf 'name: to-prd\n'    > "$A2REPO/to-prd/SKILL.md"
+printf 'name: to-issues\n' > "$A2REPO/to-issues/SKILL.md"
+printf 'name: evil\nPAYLOAD\n' > "$A2REPO/evil/SKILL.md"
+git -C "$A2REPO" init -q
+git -C "$A2REPO" -c user.email=t@t -c user.name=t add -A
+git -C "$A2REPO" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+A2HOME="$A2/home"; mkdir -p "$A2HOME/.claude/skills/evil"
+printf 'MY_OWN_SENTINEL\n' > "$A2HOME/.claude/skills/evil/SKILL.md"   # user's own skill — must survive
+HOME="$A2HOME" MATTPOCOCK_SKILLS_URL="$A2REPO" ensure_skills >/dev/null 2>&1
+assert "ensure_skills installs to-prd"                "[[ -d '$A2HOME/.claude/skills/to-prd' ]]"
+assert "ensure_skills installs to-issues"             "[[ -d '$A2HOME/.claude/skills/to-issues' ]]"
+assert "ensure_skills does NOT clobber user's evil skill" "grep -q MY_OWN_SENTINEL '$A2HOME/.claude/skills/evil/SKILL.md'"
+assert "ensure_skills does NOT pull in unrequested evil skill" "! grep -q PAYLOAD '$A2HOME/.claude/skills/evil/SKILL.md'"
 
 echo "── install ok"

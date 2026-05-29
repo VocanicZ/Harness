@@ -58,7 +58,11 @@ remove_path_link(){
 remove_gitignore_entry(){
   local gi="$1"
   [[ -f "$gi" ]] && grep -qxF '.harness/' "$gi" 2>/dev/null || return 0
-  grep -vxF '.harness/' "$gi" > "$gi.tmp" && mv "$gi.tmp" "$gi" && echo "  stripped '.harness/' from $gi"
+  # grep -v exits non-zero when it selects ZERO lines (file was ONLY '.harness/'). Don't gate the mv
+  # on grep's rc — that would skip the strip AND leave a stray $gi.tmp. Always move the filtered tmp
+  # into place (writing it even when empty), so the entry is removed in every case and no litter.
+  grep -vxF '.harness/' "$gi" > "$gi.tmp"
+  mv "$gi.tmp" "$gi" && echo "  stripped '.harness/' from $gi"
   return 0
 }
 # remove THIS project's state-only .harness/ (config + run/claims/worktrees) and its .gitignore

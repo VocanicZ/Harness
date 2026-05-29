@@ -52,10 +52,15 @@ ensure_skills(){
   else
     local tmp; tmp="$(mktemp -d)"
     if git clone --depth 1 "$MATTPOCOCK_SKILLS_URL" "$tmp" >/dev/null 2>&1; then
-      mkdir -p "$sk"; local f d
-      # portable (no GNU find -printf): copy the parent dir of every SKILL.md
-      while IFS= read -r f; do d="$(dirname "$f")"; cp -r "$d" "$sk/" 2>/dev/null || true; done \
-        < <(find "$tmp" -type f -name SKILL.md 2>/dev/null)
+      mkdir -p "$sk"; local want src
+      # Copy ONLY the intended skills (the ones the guard above checks) — NOT every SKILL.md parent
+      # dir in the clone. Copying everything would clobber a user's pre-existing same-named skill and
+      # pull in skills never requested. Locate each wanted skill's dir by its SKILL.md (any depth).
+      for want in to-prd to-issues; do
+        [[ -d "$sk/$want" ]] && continue   # don't overwrite an existing same-named user skill
+        src="$(find "$tmp" -type f -name SKILL.md -path "*/$want/SKILL.md" 2>/dev/null | head -n1)"
+        [[ -n "$src" ]] && cp -r "$(dirname "$src")" "$sk/" 2>/dev/null || true
+      done
       if [[ -d "$sk/to-prd" || -d "$sk/to-issues" ]]; then
         echo "  ✓ installed matt-pocock skills into $sk"
       else
@@ -76,7 +81,13 @@ place_engine(){
   mkdir -p "$home"
   if [[ -d "$dest/.git" ]]; then
     echo "  engine already present at $dest — fast-forwarding"
-    git -C "$dest" pull --ff-only || echo "  ! could not ff-pull $dest (diverged?) — leaving as-is" >&2
+    # Surface a failed ff-pull as a NON-zero return (consistent with update.sh, which exit 1s on the
+    # same failure) instead of swallowing it — otherwise a diverged/dirty shared engine silently
+    # stays stale for ALL fleets while install still reports success.
+    if ! git -C "$dest" pull --ff-only; then
+      echo "  ! could not ff-pull $dest (diverged or local engine edits) — resolve there manually." >&2
+      return 1
+    fi
   else
     echo "  installing engine to $dest ..."
     git clone "$HARNESS_REPO_URL" "$dest"
@@ -148,7 +159,7 @@ link_path(){
 main(){
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   ensure_skills
-  place_engine
+  place_engine || { echo "Engine install/update failed — see above; not finalizing." >&2; exit 1; }
   create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path
