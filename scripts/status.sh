@@ -11,13 +11,21 @@ iter_of(){ [[ -f "$1/.claude/ralph-loop.local.md" ]] && grep -m1 '^iteration:' "
 pid_up(){ [[ -f "$1" ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
 # fleet_verdict <up> <total> <sess_total> <done_n> <all_n> <paused:0|1> [lane_up:0|1] — the
-# one-line at-a-glance state. Precedence: PAUSED (forced-drain) > STOPPED (NOTHING live: no pool
+# one-line at-a-glance state. Precedence: PAUSED (forced-drain) > DEGRADED (no pid alive but a
+# fleet tmux session outlived an unclean death — see below) > STOPPED (NOTHING live: no pool
 # worker AND no priority lane #35) > LANE-ONLY (pool down but the lane is alive #35) >
 # IDLE/WATCHING (resident #24: workers up but every unit complete, just polling) > RUNNING.
 fleet_verdict(){
   local up="$1" total="$2" sess="$3" done_n="$4" all_n="$5" paused="$6" lane_up="${7:-0}"
   if [[ "$paused" == 1 ]]; then
     echo "PAUSED   (drained — workers idle; resume: harness/resume.sh)"
+  elif (( up == 0 && lane_up == 0 && sess > 0 )); then
+    # No pool worker and no lane pid is alive, yet detached claude tmux session(s) are still
+    # live: the pool/lane died UNCLEANLY (kill -9 / host crash) and the tmux server outlived
+    # it. Reporting STOPPED would lure the operator into a plain `start`, relaunching workers
+    # that re-claim units whose claude sessions are already live -> double-dispatch. Flag it as
+    # DEGRADED and point at the crash-safe path instead.
+    echo "DEGRADED ($sess fleet session(s) live but no worker/lane pid — unclean death; do NOT plain-start, run: harness/start.sh --recover)"
   elif (( up == 0 && lane_up == 0 )); then
     echo "STOPPED  (pool not running — start with: harness/start.sh)"
   elif (( up == 0 )); then
