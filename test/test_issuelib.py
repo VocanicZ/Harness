@@ -759,6 +759,78 @@ def test_check_close_prd_done_when_prd_closed():
     assert _check("CLOSE_PRD", mk(prd=7, prd_open=False)) == "DONE"
     assert _check("CLOSE_PRD", mk(prd=7, prd_open=True)) == "PENDING"
 
+# ── gh-error vs empty/absent (#1/#2/#3): a transient gh failure (rate-limit/network) must NEVER be
+# folded into "empty repo / no plan", which spuriously re-fires PLAN and (in poller mode) clobbers a
+# good snapshot. Errors raise GhError -> the worker HOLDS the tick; only genuinely empty/absent
+# (exit 0 with [], or HTTP 404) proceeds. Earlier tests stub read seams without restoring, so each
+# test below restores the real implementation it exercises.
+def _fake_run(returncode=0, stdout="", stderr=""):
+    def run(*a, **k):
+        return il.subprocess.CompletedProcess(a[0] if a else [], returncode, stdout, stderr)
+    return run
+
+def test_list_issues_raises_on_gh_failure_not_empty():
+    GhError = getattr(il, "GhError", RuntimeError)
+    os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+    il._list_issues = _REAL_LIST_ISSUES
+    real = il.subprocess.run
+    il.subprocess.run = _fake_run(returncode=1, stderr="gh: API rate limit exceeded (HTTP 403)")
+    try:
+        try:
+            il._list_issues("acme/widget")
+            assert False, "rate-limited `gh issue list` must raise GhError, not return []"
+        except GhError:
+            pass
+    finally:
+        il.subprocess.run = real
+
+def test_empty_repo_still_reads_as_empty_not_error():
+    os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+    il._list_issues = _REAL_LIST_ISSUES
+    real = il.subprocess.run
+    il.subprocess.run = _fake_run(returncode=0, stdout="[]")
+    try:
+        assert il._list_issues("acme/widget") == [], "exit 0 + [] is a legitimately empty repo"
+    finally:
+        il.subprocess.run = real
+
+def test_has_plan_treats_404_as_absent_but_403_as_error():
+    GhError = getattr(il, "GhError", RuntimeError)
+    os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+    il._has_plan = _REAL_HAS_PLAN
+    real = il.subprocess.run
+    try:
+        il.subprocess.run = _fake_run(returncode=1, stderr="gh: Not Found (HTTP 404)")
+        assert il._has_plan("acme/widget") is False, "genuine 404 = PLAN.md absent (legit, not error)"
+        il.subprocess.run = _fake_run(returncode=1, stderr="gh: API rate limit exceeded (HTTP 403)")
+        try:
+            il._has_plan("acme/widget")
+            assert False, "rate-limited contents read must raise GhError, not report 'no plan'"
+        except GhError:
+            pass
+    finally:
+        il.subprocess.run = real
+
+def test_dispatch_cli_holds_on_gh_error_no_spurious_plan():
+    # The bash-facing contract: on a transient gh failure the `dispatch` command must print NO action
+    # lines and exit non-zero, so dispatch_actions (lib.sh) gets empty output and the worker holds --
+    # instead of emitting a PLAN action computed from a false-empty state. Runs in a clean subprocess
+    # (immune to in-process seam pollution) with a fake `gh` that simulates a 403.
+    import tempfile, subprocess as _subp
+    d = tempfile.mkdtemp()
+    gh = os.path.join(d, "gh")
+    with open(gh, "w") as f:
+        f.write("#!/usr/bin/env bash\necho 'gh: API rate limit exceeded (HTTP 403)' >&2\nexit 1\n")
+    os.chmod(gh, 0o755)
+    env = dict(os.environ, PATH=d + os.pathsep + os.environ.get("PATH", ""), HARNESS_MODE="planned")
+    env.pop("HARNESS_SNAPSHOT_FILE", None); env.pop("HARNESS_SNAPSHOT_DIR", None)
+    il_path = os.path.join(HERE, "..", "scripts", "issuelib.py")
+    r = _subp.run([sys.executable, il_path, "dispatch", "acme/widget", "3"],
+                  capture_output=True, text=True, env=env)
+    assert r.returncode != 0, "dispatch must exit non-zero on gh error; got rc=%d out=%r" % (r.returncode, r.stdout)
+    assert r.stdout.strip() == "", "dispatch must print NO actions on gh error; got %r" % r.stdout
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
