@@ -72,6 +72,23 @@ for a in "$@"; do
 done
 set -- ${args[@]+"${args[@]}"}
 
+# Guard against double-start: flock a start-lock so two concurrent `harness start`
+# don't double-spawn worker slots (pool.sh checks individual worker pids, but this
+# prevents two concurrent start.sh calls from both racing into pool.sh). Acquire the
+# lock BEFORE recover() so the whole invocation — the destructive recovery sweep
+# (recover_orphan_working's gh label writes + sweep_orphan_bug_worktrees's
+# `git worktree remove --force`/`rm -rf`) AND the spawn — is serialized. Two
+# near-simultaneous `start --recover` (e.g. resume.sh→start --recover overlapping a
+# manual one, or a double-invoke on a flaky reboot) would otherwise both run the
+# worktree + label sweeps unprotected and race a double rm -rf / double label write. (#88)
+START_LOCK="$RUN_DIR/start.lock"
+exec 9>"$START_LOCK"
+if ! flock -n 9; then
+  echo "  (another start is in progress — skipping)"
+  exec 9>&-
+  exit 0
+fi
+
 (( DO_RECOVER )) && recover
 
 # PRD-B slice 3 (#72): when HARNESS_USE_POLLER is set, register this project's repos with the host
@@ -86,16 +103,6 @@ if [[ -n "${HARNESS_USE_POLLER:-}" ]]; then
 fi
 
 echo "Starting Harness delivery fleet — pool of $POOL workers (cap=$CAP) + 1 priority bug lane:"
-# Guard against double-start: flock a start-lock so two concurrent `harness start`
-# don't double-spawn worker slots (pool.sh checks individual worker pids, but this
-# prevents two concurrent start.sh calls from both racing into pool.sh).
-START_LOCK="$RUN_DIR/start.lock"
-exec 9>"$START_LOCK"
-if ! flock -n 9; then
-  echo "  (another start is in progress — skipping)"
-  exec 9>&-
-  exit 0
-fi
 # Spawn the worker scripts with fd 9 CLOSED for the children (`9>&-`). The flock is fd-based, and
 # pool.sh/priority.sh fork long-lived worker processes (nohup …-worker.sh &) that would otherwise
 # INHERIT this open fd and hold the lock for the entire life of the fleet — so a later
