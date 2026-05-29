@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# uninstall.sh [--force] — tear down a Harness install/project (#61, PRD #52).
+# uninstall.sh [--force] [--force-engine] — tear down a Harness install/project (#61, PRD #52).
+# --force-engine removes the SHARED engine + PATH link even when other co-resident fleets/projects
+# still depend on them (the multi-fleet guard otherwise preserves them).
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-}}"   # this project's .harness/ (bin/harness discovers it); may be empty
@@ -8,6 +10,37 @@ HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"
 HARNESS_USER_SKILLS="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
 SHARED_ENGINE="$HARNESS_HOME/engine"
 PATH_LINK="$HARNESS_BIN_DIR/harness"
+# Source lib.sh for the multi-fleet guard helpers (proc_state_dir / poller_registry_prefixes).
+# Best-effort: a missing/odd lib leaves the guard's helpers undefined, but tests stub the whole
+# other_fleets_depend_on_engine function so they never depend on lib at all.
+# shellcheck source=/dev/null
+[[ -f "$ENGINE_DIR/scripts/lib.sh" ]] && source "$ENGINE_DIR/scripts/lib.sh" 2>/dev/null || true
+
+# other_fleets_depend_on_engine — true (0) when a co-resident fleet/project STILL needs the shared
+# engine, so uninstalling THIS project must NOT remove $SHARED_ENGINE or the `harness` PATH link out
+# from under it. Two independent signals:
+#   (a) a live pool-worker.sh/priority-worker.sh process whose STATE_DIR (proc_state_dir) is NOT this
+#       project's STATE_DIR — a foreign fleet is actively running against the shared engine; or
+#   (b) poller_registry_prefixes "$STATE_DIR" is non-empty — another project is registered active.
+# Overridable: tests redefine this (and worker_pids / poller_registry_prefixes need never run)
+# before calling main, so the test never touches real /proc or the real registry.
+# _worker_pids — pids of live pool/priority workers, one per line. Factored out + overridable so a
+# CLI-level test (which can't source+stub the guard) can insulate signal (a) from real host /proc:
+# if HARNESS_UNINSTALL_WORKER_PIDS is SET (even to ""), it is used verbatim instead of scanning /proc.
+_worker_pids(){
+  if [[ -n "${HARNESS_UNINSTALL_WORKER_PIDS+x}" ]]; then printf '%s\n' ${HARNESS_UNINSTALL_WORKER_PIDS}; return 0; fi
+  pgrep -f 'pool-worker\.sh|priority-worker\.sh' 2>/dev/null
+}
+other_fleets_depend_on_engine(){
+  local pid sd
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    sd="$(proc_state_dir "$pid")"
+    [[ -n "$sd" && "$sd" != "$STATE_DIR" ]] && return 0
+  done < <(_worker_pids)
+  [[ -n "$(poller_registry_prefixes "$STATE_DIR" 2>/dev/null)" ]] && return 0
+  return 1
+}
 
 # remove the ONE shared host engine install. Idempotent.
 remove_engine(){
@@ -68,14 +101,31 @@ confirm(){
 }
 
 main(){
-  local force=0; [[ "${1:-}" == "--force" ]] && force=1
+  local force=0 force_engine=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --force)        force=1 ;;
+      --force-engine) force_engine=1 ;;
+    esac
+  done
   if (( ! force )); then
     confirm || { echo "harness uninstall: aborted — nothing removed."; exit 1; }
     stop_fleet
   fi
   echo "Removing Harness:"
-  remove_engine
-  remove_path_link
+  # Multi-fleet guard: the engine + `harness` PATH link are SHARED across co-resident fleets. If
+  # another fleet/project still depends on them and the user did not pass --force-engine, preserve
+  # them (removing them mid-run would yank scripts/the entrypoint out from under sibling fleets).
+  # This project's state + skills are always removed. Single-fleet hosts hit neither signal → the
+  # engine + PATH link are removed exactly as before.
+  if (( ! force_engine )) && other_fleets_depend_on_engine; then
+    echo "  WARNING: other fleets/projects still depend on the shared engine."
+    echo "  Preserving $SHARED_ENGINE and the 'harness' PATH link ($PATH_LINK)."
+    echo "  Re-run with --force-engine to remove them anyway."
+  else
+    remove_engine
+    remove_path_link
+  fi
   remove_project_state
   remove_skills
   echo "Uninstalled."

@@ -48,7 +48,7 @@ usage: harness <command> [args]
   resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills]   ff-pull the shared engine install (one place; all projects pick it up)
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
-  uninstall [--force]  stop the fleet + remove the engine, this project's .harness/, and /harness skills
+  uninstall [--force] [--force-engine]  stop the fleet + remove the engine, this project's .harness/, and /harness skills (--force-engine: remove the shared engine even if other fleets still depend on it)
   setup                verify prereqs + seed configured labels on all units (no start)
   poll  [--once|--status]  host poller debug entry (the shared snapshot refresher; #71)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)

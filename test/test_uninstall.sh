@@ -28,10 +28,18 @@ mk_layout(){ local root="$1"
   printf 'node_modules/\n.harness/\ndist/\n' > "$root/proj/.gitignore"
 }
 
+# Existing default/--force/CLI subprocess tests below assert the SINGLE-FLEET behavior (engine +
+# PATH link removed). On a multi-fleet test host the real guard would (correctly) trip on live
+# sibling workers / a populated poller registry and preserve the engine — host state leaking into a
+# temp-layout test. So these tests pin single-fleet by stubbing the overridable guard FALSE in a
+# wrapper that sources uninstall.sh then calls main; the multi-fleet path has dedicated tests (R8/R9).
+SINGLE_FLEET='source "$1"; other_fleets_depend_on_engine(){ return 1; }; shift; main "$@"'
+
 # ── tracer: --force removes the shared engine ───────────────────────────────────────────
 R="$(mktemp -d)"; mk_layout "$R"
-out="$(HARNESS_HOME="$R/.harness" HARNESS_BIN_DIR="$R/bin" HARNESS_USER_SKILLS="$R/.claude/skills" \
-       STATE_DIR="$R/proj/.harness" bash "$UNINSTALL" --force </dev/null 2>&1)"; rc=$?
+out="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_HOME="$R/.harness" HARNESS_BIN_DIR="$R/bin" \
+       HARNESS_USER_SKILLS="$R/.claude/skills" STATE_DIR="$R/proj/.harness" \
+       bash -c "$SINGLE_FLEET" _ "$UNINSTALL" --force </dev/null 2>&1)"; rc=$?
 assert "--force exits 0"                "[[ $rc -eq 0 ]]"
 assert "--force removes the shared engine" "[[ ! -e '$R/.harness/engine' ]]"
 assert "--force removes the PATH symlink"  "[[ ! -L '$R/bin/harness' && ! -e '$R/bin/harness' ]]"
@@ -71,8 +79,12 @@ rm -f "$MARK"; ( main --force ) >/dev/null 2>&1; assert "--force path SKIPS stop
 unset HARNESS_UNINSTALL_NOMAIN HARNESS_UNINSTALL_YES
 
 # ── confirmed default path removes ALL targets (exercises the REAL stop_fleet → stop.sh) ─
+# Single-fleet host: insulate the multi-fleet guard from real host state via its env seams —
+# HARNESS_UNINSTALL_WORKER_PIDS="" (no foreign workers, signal a off) + HARNESS_POLLER_DIR at an
+# empty dir (no registered sibling projects, signal b off) — so the real guard returns FALSE.
 R5="$(mktemp -d)"; mk_layout "$R5"
-out5="$(HARNESS_UNINSTALL_YES=1 HARNESS_HOME="$R5/.harness" HARNESS_BIN_DIR="$R5/bin" \
+out5="$(HARNESS_UNINSTALL_YES=1 HARNESS_UNINSTALL_WORKER_PIDS="" HARNESS_POLLER_DIR="$R5/empty-poller" \
+        HARNESS_HOME="$R5/.harness" HARNESS_BIN_DIR="$R5/bin" \
         HARNESS_USER_SKILLS="$R5/.claude/skills" STATE_DIR="$R5/proj/.harness" \
         bash "$UNINSTALL" 2>&1)"; rc5=$?
 assert "confirmed default exits 0"                 "[[ $rc5 -eq 0 ]]"
@@ -82,15 +94,54 @@ assert "confirmed default removes project .harness/" "[[ ! -e '$R5/proj/.harness
 assert "confirmed default removes /harness skills" "[[ ! -e '$R5/.claude/skills/harness' ]]"
 
 # ── idempotent: a second --force run on an already-removed layout is a clean no-op ──────
-out6="$(HARNESS_HOME="$R/.harness" HARNESS_BIN_DIR="$R/bin" HARNESS_USER_SKILLS="$R/.claude/skills" \
+out6="$(HARNESS_UNINSTALL_WORKER_PIDS="" HARNESS_POLLER_DIR="$R/empty-poller" \
+        HARNESS_HOME="$R/.harness" HARNESS_BIN_DIR="$R/bin" HARNESS_USER_SKILLS="$R/.claude/skills" \
         STATE_DIR="$R/proj/.harness" bash "$UNINSTALL" --force </dev/null 2>&1)"; rc6=$?
 assert "second uninstall is idempotent (exit 0)"   "[[ $rc6 -eq 0 ]]"
+
+# ── multi-fleet guard: other fleets depend on the shared engine → engine + PATH link PRESERVED ─
+# Source with NOMAIN, stub other_fleets_depend_on_engine TRUE (no real /proc / registry touched).
+# Default (no --force-engine): engine + PATH link survive, but THIS project's state is still removed
+# and a warning is emitted. Then --force-engine overrides and removes them.
+R8="$(mktemp -d)"; mk_layout "$R8"
+out8="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_UNINSTALL_YES=1 \
+        HARNESS_HOME="$R8/.harness" HARNESS_BIN_DIR="$R8/bin" \
+        HARNESS_USER_SKILLS="$R8/.claude/skills" STATE_DIR="$R8/proj/.harness" \
+        bash -c 'source "$1"; other_fleets_depend_on_engine(){ return 0; }; main' _ "$UNINSTALL" 2>&1)"; rc8=$?
+assert "guard: exits 0"                              "[[ $rc8 -eq 0 ]]"
+assert "guard: PRESERVES the shared engine"          "[[ -e '$R8/.harness/engine' ]]"
+assert "guard: PRESERVES the PATH symlink"           "[[ -L '$R8/bin/harness' ]]"
+assert "guard: still removes THIS project's .harness/" "[[ ! -e '$R8/proj/.harness' ]]"
+assert "guard: still removes /harness skills"        "[[ ! -e '$R8/.claude/skills/harness' ]]"
+assert "guard: emits a warning about other fleets"   "grep -qi 'other fleets' <<< \"\$out8\""
+assert "guard: warning mentions --force-engine"      "grep -q -- '--force-engine' <<< \"\$out8\""
+
+# guard TRUE + --force-engine → engine + PATH link ARE removed (override)
+R9="$(mktemp -d)"; mk_layout "$R9"
+out9="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_UNINSTALL_YES=1 \
+        HARNESS_HOME="$R9/.harness" HARNESS_BIN_DIR="$R9/bin" \
+        HARNESS_USER_SKILLS="$R9/.claude/skills" STATE_DIR="$R9/proj/.harness" \
+        bash -c 'source "$1"; other_fleets_depend_on_engine(){ return 0; }; main --force-engine' _ "$UNINSTALL" 2>&1)"; rc9=$?
+assert "guard+--force-engine: exits 0"               "[[ $rc9 -eq 0 ]]"
+assert "guard+--force-engine: REMOVES the engine"    "[[ ! -e '$R9/.harness/engine' ]]"
+assert "guard+--force-engine: REMOVES the PATH link" "[[ ! -L '$R9/bin/harness' && ! -e '$R9/bin/harness' ]]"
+
+# guard FALSE (single-fleet default) → engine + PATH link removed (unchanged behavior)
+R10="$(mktemp -d)"; mk_layout "$R10"
+out10="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_UNINSTALL_YES=1 \
+        HARNESS_HOME="$R10/.harness" HARNESS_BIN_DIR="$R10/bin" \
+        HARNESS_USER_SKILLS="$R10/.claude/skills" STATE_DIR="$R10/proj/.harness" \
+        bash -c 'source "$1"; other_fleets_depend_on_engine(){ return 1; }; main' _ "$UNINSTALL" 2>&1)"; rc10=$?
+assert "guard FALSE: exits 0"                        "[[ $rc10 -eq 0 ]]"
+assert "guard FALSE: REMOVES the engine (unchanged)" "[[ ! -e '$R10/.harness/engine' ]]"
+assert "guard FALSE: REMOVES the PATH link (unchanged)" "[[ ! -L '$R10/bin/harness' && ! -e '$R10/bin/harness' ]]"
 
 # ── CLI: `harness help` lists uninstall; `harness uninstall` dispatches via bin/harness ─
 assert "help lists uninstall" "\"$CLI\" help 2>&1 | grep -q uninstall"
 # end-to-end through the CLI from INSIDE a project (STATE_DIR discovered from cwd), --force path
 R7="$(mktemp -d)"; mk_layout "$R7"
 out7="$(cd "$R7/proj"; unset STATE_DIR HARNESS_DIR
+        HARNESS_UNINSTALL_WORKER_PIDS="" HARNESS_POLLER_DIR="$R7/empty-poller" \
         HARNESS_HOME="$R7/.harness" HARNESS_BIN_DIR="$R7/bin" HARNESS_USER_SKILLS="$R7/.claude/skills" \
           "$CLI" uninstall --force </dev/null 2>&1)"; rc7=$?
 assert "CLI uninstall --force exits 0"             "[[ $rc7 -eq 0 ]]"
