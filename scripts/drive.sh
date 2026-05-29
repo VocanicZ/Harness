@@ -116,6 +116,18 @@ ensure_checkout(){  # clone unit repo into $CHECKOUT for multi topology if absen
   ensure_safe "$CHECKOUT"
 }
 
+# close_prd <prd> — the engine's own PRD close (the CLOSE_PRD dispatch action). REVIEW only SIGNS
+# OFF (applies the reviewed label); the mechanical close lives here so it never depends on the
+# review agent's own `gh issue close` succeeding — a shared-token rate limit could drop that call
+# and strand a reviewed PRD open forever ("PRD won't close"). This is a single idempotent gh call,
+# re-emitted by dispatch every poll until the PRD is closed; no Ralph session, no worktree, no goal.
+close_prd(){
+  local prd="$1"
+  log "engine closing reviewed PRD #$prd"
+  gh issue close "$prd" -R "$SLUG" --comment "All acceptance criteria met and reviewed — closing." 2>/dev/null || \
+    log "close of PRD #$prd failed (will retry next poll)"
+}
+
 spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   local action="$1" payload="$2"; PROMISE="$3"; MAXITER="$ORCH_MAXITER"; GOAL="$action"
   ensure_checkout || return 1
@@ -226,7 +238,11 @@ drive_unit(){
       allow_orch=0; (( active == 0 )) && allow_orch=1
       while IFS=$'\t' read -r action payload promise; do
         [[ -z "$action" ]] && continue
-        if [[ "$action" == IMPL ]]; then spawn_impl "$payload" "$promise"; else spawn_orch "$action" "$payload" "$promise"; fi
+        case "$action" in
+          IMPL)      spawn_impl "$payload" "$promise";;
+          CLOSE_PRD) close_prd "$payload";;        # engine-side close — no session, returns at once
+          *)         spawn_orch "$action" "$payload" "$promise";;
+        esac
         sleep 2
       done < <(dispatch_actions "$REPO" "$free" "$allow_orch")
     fi

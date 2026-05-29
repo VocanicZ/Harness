@@ -87,4 +87,23 @@ assert_ok "retired pool -> 'harness start' restart guidance" bash -c "grep -q 'h
 assert_no "retired pool -> NOT the misleading 'no restart'"  bash -c "grep -q 'no restart' '$MSG'"
 rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid
 
+# ── §6 gc_orphan_goals: GC leaked .goal files (Ralph self-exit / inject has no reaper) ───────
+# A goal file is written for EVERY launched session (launch_claude) but is only removed when a
+# reaper KILLS a still-live session (reap_done_sessions / finalize_unit / drive_bug). Ralph sessions
+# self-exit on their completion promise BEFORE any reaper kills them, and inject sessions have no
+# reaper at all — so their goal files leak (a confirmed real orphan: an old hz-inject-main.goal with
+# no session). gc_orphan_goals removes a goal file iff its session is no longer live, and leaves a
+# live session's goal (an in-flight claim a reaper still owns) untouched.
+make_env
+HARNESS_SESS_PREFIX=hz
+echo IMPL    > "$RUN_DIR/hz-main-i7.goal"        # dead session -> leaked goal, must be GC'd
+echo INJECT  > "$RUN_DIR/hz-inject-main.goal"    # dead inject session (no reaper) -> must be GC'd
+echo ISSUE:9 > "$RUN_DIR/hz-main-i9.goal"        # live session -> in-flight, must be kept
+session_live(){ [[ "$1" == "hz-main-i9" ]]; }
+gc_orphan_goals
+assert_no "gc removed the dead impl session's leaked goal"    test -f "$RUN_DIR/hz-main-i7.goal"
+assert_no "gc removed the dead inject session's leaked goal"  test -f "$RUN_DIR/hz-inject-main.goal"
+assert_ok "gc kept the live session's goal (in-flight claim)" test -f "$RUN_DIR/hz-main-i9.goal"
+unset -f session_live
+
 finish

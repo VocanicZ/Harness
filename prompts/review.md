@@ -14,8 +14,9 @@ Steps:
 3a. If it PASSES — every criterion met, tests green:
       gh issue edit {{PRD}} -R {{SLUG}} --add-label {{LABEL_REVIEWED}}
       gh issue close {{PRD}} -R {{SLUG}} --comment "Reviewed: all acceptance criteria met."
-    (A `{{LABEL_REVIEWED}}` + closed PRD is how the harness marks {{PROJECT}} COMPLETE and unblocks
-     downstream work.)
+    The `{{LABEL_REVIEWED}}` label is the authoritative SIGN-OFF — applying it is the one thing you
+    MUST do here. The close is bookkeeping: if it fails (e.g. a rate limit) the harness closes the
+    PRD itself once it sees the reviewed label, so a signed-off PRD always reaches COMPLETE.
 3b. If it FAILS — gaps remain:
       For each gap, create a `{{LABEL_READY}}` implementation issue in this repo (with
       `## Blocked by` if needed). Comment the findings on PRD #{{PRD}}. Do NOT add `{{LABEL_REVIEWED}}`.
