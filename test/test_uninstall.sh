@@ -99,6 +99,20 @@ out6="$(HARNESS_UNINSTALL_WORKER_PIDS="" HARNESS_POLLER_DIR="$R/empty-poller" \
         STATE_DIR="$R/proj/.harness" bash "$UNINSTALL" --force </dev/null 2>&1)"; rc6=$?
 assert "second uninstall is idempotent (exit 0)"   "[[ $rc6 -eq 0 ]]"
 
+# ── remove_gitignore_entry: a .gitignore whose ONLY line is '.harness/' (all-lines-removed case) ─
+# grep -v exits non-zero when it selects zero lines, so a naive `grep -v … && mv` never strips the
+# entry and litters a stray .gitignore.tmp. Assert the entry IS gone AND no .tmp is left behind.
+RGI="$(mktemp -d)"; printf '.harness/\n' > "$RGI/.gitignore"
+( HARNESS_UNINSTALL_NOMAIN=1; source "$UNINSTALL"; remove_gitignore_entry "$RGI/.gitignore" ) >/dev/null 2>&1
+assert "single-line .gitignore: '.harness/' entry is stripped" "! grep -qxF '.harness/' '$RGI/.gitignore'"
+assert "single-line .gitignore: no stray .gitignore.tmp left"  "[[ ! -e '$RGI/.gitignore.tmp' ]]"
+# and the multi-line case still strips ONLY '.harness/' (regression guard for the fix)
+RGI2="$(mktemp -d)"; printf 'node_modules/\n.harness/\ndist/\n' > "$RGI2/.gitignore"
+( HARNESS_UNINSTALL_NOMAIN=1; source "$UNINSTALL"; remove_gitignore_entry "$RGI2/.gitignore" ) >/dev/null 2>&1
+assert "multi-line .gitignore: '.harness/' stripped"           "! grep -qxF '.harness/' '$RGI2/.gitignore'"
+assert "multi-line .gitignore: unrelated entries survive"      "grep -qxF 'node_modules/' '$RGI2/.gitignore' && grep -qxF 'dist/' '$RGI2/.gitignore'"
+assert "multi-line .gitignore: no stray .gitignore.tmp left"   "[[ ! -e '$RGI2/.gitignore.tmp' ]]"
+
 # ── multi-fleet guard: other fleets depend on the shared engine → engine + PATH link PRESERVED ─
 # Source with NOMAIN, stub other_fleets_depend_on_engine TRUE (no real /proc / registry touched).
 # Default (no --force-engine): engine + PATH link survive, but THIS project's state is still removed
