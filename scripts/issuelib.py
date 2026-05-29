@@ -25,9 +25,15 @@ L_BUG         = lambda: os.environ.get("HARNESS_LABEL_BUG", "bug")
 L_BUG_TRIAGED = lambda: os.environ.get("HARNESS_LABEL_BUG_TRIAGED", "bug-triaged")
 ALLOWLIST  = lambda: os.environ.get("HARNESS_AUTHOR_ALLOWLIST", "")
 
-_BLOCKED_BY_HEADING = re.compile(r"^##\s+Blocked by\s*$", re.IGNORECASE | re.MULTILINE)
-_NEXT_HEADING = re.compile(r"^##\s+", re.MULTILINE)
-_ISSUE_REF = re.compile(r"(?:([\w.-]+/[\w.-]+))?#(\d+)")
+_BLOCKED_BY_HEADING = re.compile(r"^#{2,3}\s+Blocked by\s*:?\s*$", re.IGNORECASE | re.MULTILINE)
+_NEXT_HEADING = re.compile(r"^#{2,3}\s+", re.MULTILINE)
+# Two alternatives so a bare `#N` is captured ONLY when not glued to a preceding word/`.`/`-`/`/`
+# (so prose like `fixes#88` / `closes#42` is rejected), while a slug-qualified `owner/repo#N`
+# still matches. Each match yields (repo_or_empty, num) via group(1)/group(2) (one branch unset).
+_ISSUE_REF = re.compile(
+    r"(?:(?<![\w./-])([\w.-]+/[\w.-]+)#(\d+))"   # owner/repo#N
+    r"|(?:(?<![\w.-])#(\d+))"                    # bare #N (not glued to a word/`.`/`-`)
+)
 # A `## Blocked by` section whose first non-blank token is the word `None` declares "no blockers";
 # any trailing prose (e.g. "None — #214/#215 already merged …") is explanatory, not a dependency.
 _NONE_SECTION = re.compile(r"^\s*None\b", re.IGNORECASE)
@@ -128,7 +134,9 @@ def parse_blocked_by(body, self_repo):
     if _NONE_SECTION.match(section):
         return []
     refs = []
-    for repo_part, num in _ISSUE_REF.findall(section):
+    for m in _ISSUE_REF.finditer(section):
+        repo_part, qual_num, bare_num = m.group(1), m.group(2), m.group(3)
+        num = qual_num if qual_num is not None else bare_num
         refs.append((repo_part or self_repo, int(num)))
     return refs
 

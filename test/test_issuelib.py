@@ -107,6 +107,43 @@ def test_parse_blocked_by_cross_repo_and_bare():
     assert ("acme/widget", 99) in refs, refs   # bare #99 -> self repo
     assert ("acme/widget", 7) in refs, refs    # trailing "Part of #7" also captured (filtered later by prd_num)
 
+def test_parse_blocked_by_colon_heading():
+    # `## Blocked by:` (trailing colon) must still be recognised as the section heading.
+    assert il.parse_blocked_by("## Blocked by:\n#5\n", "r/r") == [("r/r", 5)], \
+        il.parse_blocked_by("## Blocked by:\n#5\n", "r/r")
+
+def test_parse_blocked_by_h3_heading():
+    # `### Blocked by` (h3) must also be recognised as the section heading.
+    assert il.parse_blocked_by("### Blocked by\n#5\n", "r/r") == [("r/r", 5)], \
+        il.parse_blocked_by("### Blocked by\n#5\n", "r/r")
+
+def test_parse_blocked_by_h3_heading_terminates_at_next_heading():
+    # An h3 blocked-by section must end at the next heading of same-or-higher level,
+    # so refs under a following section are NOT harvested as blockers.
+    body = "### Blocked by\n#5\n\n## Notes\n#99\n\n### Other\n#42\n"
+    refs = il.parse_blocked_by(body, "r/r")
+    assert refs == [("r/r", 5)], refs
+
+def test_parse_blocked_by_ignores_prose_fixes_ref():
+    # `fixes#88` (no boundary before `#`) is prose, NOT a blocker -> must not deadlock.
+    assert il.parse_blocked_by("## Blocked by\nsee PR (fixes#88)\n", "self/self") == [], \
+        il.parse_blocked_by("## Blocked by\nsee PR (fixes#88)\n", "self/self")
+
+def test_parse_blocked_by_ignores_prose_closes_ref():
+    # `closes#42` is prose glued to a word -> must not be captured as a blocker.
+    assert il.parse_blocked_by("## Blocked by\ncloses#42 in upstream\n", "self/self") == [], \
+        il.parse_blocked_by("## Blocked by\ncloses#42 in upstream\n", "self/self")
+
+def test_parse_blocked_by_qualified_ref_still_matches():
+    # A slug-qualified owner/repo#N still resolves as a cross-repo blocker.
+    assert il.parse_blocked_by("## Blocked by\nowner/repo#5\n", "self/self") == [("owner/repo", 5)], \
+        il.parse_blocked_by("## Blocked by\nowner/repo#5\n", "self/self")
+
+def test_parse_blocked_by_bare_ref_still_matches():
+    # A standalone bare #N still resolves against self_repo.
+    assert il.parse_blocked_by("## Blocked by\n#5\n", "self/self") == [("self/self", 5)], \
+        il.parse_blocked_by("## Blocked by\n#5\n", "self/self")
+
 def test_cross_repo_blocked_until_target_issue_closes():
     # A child blocked by a CROSS-REPO issue is excluded while that issue is open,
     # and included once it closes. The state query must hit the cross-repo slug.
