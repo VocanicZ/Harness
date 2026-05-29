@@ -21,10 +21,12 @@ Steps:
    - root-cause notes / suspected files,
    - a sharp, testable `## Acceptance` section (what a passing fix must satisfy).
      gh issue edit {{ISSUE}} -R {{SLUG}} --body-file <refined-body.md>
-4. On success, flip the label so the lane routes it to the fix phase:
-     gh issue edit {{ISSUE}} -R {{SLUG}} --remove-label {{LABEL_BUG}} --add-label {{LABEL_BUG_TRIAGED}}
-   then drop your own working label:
+4. On success, FIRST drop your own working label, THEN flip to bug-triaged — this order matters:
+   the engine treats `{{LABEL_BUG_TRIAGED}}` as "triage done" and may end this session the instant
+   it appears, so `{{LABEL_WORKING}}` must already be gone or the bug would briefly carry both and
+   be invisible to the fix phase until the next reconcile poll.
      gh issue edit {{ISSUE}} -R {{SLUG}} --remove-label {{LABEL_WORKING}}
+     gh issue edit {{ISSUE}} -R {{SLUG}} --remove-label {{LABEL_BUG}} --add-label {{LABEL_BUG_TRIAGED}}
 
 Disposition — if the bug is not a real, fixable defect, do NOT flip the label. Instead close it
 with a documented comment explaining the call, and remove `{{LABEL_WORKING}}`:
