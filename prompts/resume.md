@@ -10,13 +10,22 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
    Find the comment whose first line is `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->` — that is your prior context.
 3. Re-claim the work: gh issue edit {{ISSUE}} -R {{SLUG}} --remove-label {{LABEL_PAUSED}} --add-label {{LABEL_WORKING}}
 4. Continue implementing via strict TDD until done. Run the full test suite (all green).
-5. Commit, push, open/refresh the PR, enable auto-merge, drive the issue to closed:
+5. Commit, push, open/refresh the PR, then drive the issue to closed:
      git add -A && git commit -m "feat: <summary> (closes #{{ISSUE}})"
      git push -u origin {{BRANCH}}
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>   # or reuse the existing PR
-     gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
+   Get the PR MERGED — robustly, because some repos disable auto-merge:
+   a. FIRST try to enable auto-merge:
+        gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
+   b. If that FAILS because the repo forbids auto-merge (gh prints something like
+      "Auto-merge is not allowed for this repository" or "Pull request is not mergeable"),
+      FALL BACK to a direct squash merge once the PR is green/mergeable:
+        gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
+   The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
 
 If this harness is configured AUTONOMOUS: never park the work, drive it to closed.
 
-When the PR is merged (or auto-merging on green) AND the issue is closing, output exactly:
+Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
+NOT merely opened) AND the issue is closing. On an auto-merge-disabled repo, complete the
+direct squash merge (step 5b) BEFORE promising. When that holds, output exactly:
 <promise>{{PROMISE}}</promise>

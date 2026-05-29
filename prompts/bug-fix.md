@@ -20,12 +20,18 @@ Steps:
    the bug → make it pass → refactor. The regression test is mandatory — it proves the fix and
    prevents the bug from returning.
 3. Run the full test suite. All green required.
-4. Commit, push, open a PR, enable auto-merge:
+4. Commit, push, open a PR:
      git add -A && git commit -m "fix: <summary> (closes #{{ISSUE}})"
      git push -u origin {{BRANCH}}
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>
-     gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
-5. Confirm the PR is auto-merging (or merged) and the issue will close.
+5. Get the PR MERGED — robustly, because some repos disable auto-merge:
+   a. FIRST try to enable auto-merge:
+        gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
+   b. If that FAILS because the repo forbids auto-merge (gh prints something like
+      "Auto-merge is not allowed for this repository" or "Pull request is not mergeable"),
+      FALL BACK to a direct squash merge once the PR is green/mergeable:
+        gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
+   The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
 
 AUTONOMY — this lane is autonomous. NEVER apply `agent-blocked`, never wait for a human or a
 credential. Provision runtimes yourself, make ambiguous calls yourself and document them in an
@@ -36,5 +42,7 @@ WIP and push your branch, run /handoff and post it as a GitHub issue comment who
 `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
 --remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.
 
-When the PR is merged (or auto-merging on green) AND the issue is closing, output exactly:
+Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
+NOT merely opened) AND the issue is closing. On an auto-merge-disabled repo, complete the
+direct squash merge (step 5b) BEFORE promising. When that holds, output exactly:
 <promise>{{PROMISE}}</promise>

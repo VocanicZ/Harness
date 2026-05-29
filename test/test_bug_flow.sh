@@ -71,8 +71,12 @@ assert_ok "fix: uses TDD" \
   grep -qiE 'test-driven|TDD' "$FIX"
 assert_ok "fix: opens a PR" \
   grep -q 'gh pr create' "$FIX"
-assert_ok "fix: enables auto-merge" \
-  grep -q 'gh pr merge --auto' "$FIX"
+assert_ok "fix: tries to enable auto-merge first" \
+  grep -q 'gh pr merge --auto --squash --delete-branch' "$FIX"
+assert_ok "fix: falls back to a direct squash merge when auto-merge is disabled" \
+  grep -q 'gh pr merge --squash --delete-branch' "$FIX"
+assert_ok "fix: drives the PR to MERGED, not merely opened" \
+  grep -qiE 'ends MERGED|Do not stop at' "$FIX"
 assert_ok "fix: closes the issue on merge" \
   grep -qE 'closes #42' "$FIX"
 assert_ok "fix: completion promise present" \
