@@ -42,4 +42,19 @@ kill "$(cat "$PIDF_FIX")" 2>/dev/null; sleep 0.3
 assert_ok "start.sh spawns pool.sh with fd 9 closed for the child"     grep -Eq 'pool\.sh"?[[:space:]]+9>&-'     ../scripts/start.sh
 assert_ok "start.sh spawns priority.sh with fd 9 closed for the child" grep -Eq 'priority\.sh"?[[:space:]]+9>&-' ../scripts/start.sh
 
+# --- static guard: the start-lock must be acquired BEFORE the destructive recover() sweep --------
+# #88: recover() runs recover_orphan_working (gh --remove-label writes) and sweep_orphan_bug_worktrees
+# (`git worktree remove --force`/`rm -rf`); only clear_stale_claims inside it takes POOL_LOCK. If the
+# `flock -n 9` start-lock is acquired AFTER `(( DO_RECOVER )) && recover`, two concurrent
+# `start --recover` both enter recover() and race the worktree sweep + label writes. The whole
+# invocation (recover + spawn) must be serialized under the start-lock, so the flock line must
+# precede the recover call in source order. start.sh can't run end-to-end here (needs tmux/claude/gh),
+# so this is a static line-order assertion (mirrors the seam-note rationale above).
+flock_ln="$(grep -n 'flock -n 9'                 ../scripts/start.sh | head -1 | cut -d: -f1)"
+recover_ln="$(grep -n 'DO_RECOVER )) && recover' ../scripts/start.sh | head -1 | cut -d: -f1)"
+assert_ok "start.sh found a 'flock -n 9' line"                  test -n "$flock_ln"
+assert_ok "start.sh found a '(( DO_RECOVER )) && recover' line" test -n "$recover_ln"
+assert_ok "start.sh acquires the start-lock BEFORE running recover() (flock line $flock_ln < recover line $recover_ln)" \
+  test "${flock_ln:-0}" -lt "${recover_ln:-0}"
+
 finish
