@@ -16,8 +16,23 @@ case "$ALTITUDE" in plan|prd|issue) ;; *) die "bad altitude: $ALTITUDE (want pla
 
 UNIT="main"
 if [[ "${1:-}" == "--unit" ]]; then UNIT="${2:?--unit needs an id}"; shift 2; fi
+
+# --force: override the pause guard below. Strip it from the args so it never leaks into the brief.
+FORCE=0; _args=()
+for _a in "$@"; do
+  if [[ "$_a" == "--force" ]]; then FORCE=1; else _args+=("$_a"); fi
+done
+set -- "${_args[@]+"${_args[@]}"}"
 BRIEF="$*"
 [[ -n "$BRIEF" ]] || die "a brief is required: inject.sh $ALTITUDE \"<brief>\""
+
+# Safety: never inject while the fleet is paused. Other worker paths (drive.sh, pool-worker.sh,
+# priority-worker.sh) all gate on is_paused; inject.sh must too — injecting mutates GitHub/git
+# (creates issues, reopens the PRD, clears the reviewed label, commits PLAN.md) while the fleet is
+# supposed to be frozen/checkpointing. Refuse by default; --force overrides for the rare case (#90).
+if is_paused && [[ "$FORCE" != 1 ]]; then
+  die "fleet is PAUSED ($PAUSE_FLAG) — refusing to inject (would mutate GitHub/git while frozen). Run 'harness resume' first, or pass --force to override."
+fi
 
 SLUG="$(unit_slug "$UNIT")"; [[ -n "$SLUG" ]] || die "could not resolve repo for unit: $UNIT"
 PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"

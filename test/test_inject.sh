@@ -106,4 +106,45 @@ assert_no "gc removed the dead inject session's leaked goal"  test -f "$RUN_DIR/
 assert_ok "gc kept the live session's goal (in-flight claim)" test -f "$RUN_DIR/hz-main-i9.goal"
 unset -f session_live
 
+# ── §7 inject.sh refuses to launch while the fleet is paused (#90) ────────────
+# Every other worker path (drive.sh, pool-worker.sh, priority-worker.sh) gates on is_paused;
+# inject.sh did not, so `harness plan|prd|issue` would mutate GitHub/git (create issues, reopen the
+# PRD, clear the reviewed label, commit PLAN.md) while the fleet is supposed to be frozen. inject.sh
+# must REFUSE and exit non-zero when PAUSE_FLAG exists, unless --force is passed.
+make_env
+HARNESS_SESS_PREFIX=hz
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER="acme"
+HARNESS_SPEC="docs/spec.md"; PROMPTS_DIR="$HERE/../prompts"
+TMPCO="$(mktemp -d)"; unit_checkout(){ echo "$TMPCO"; }
+LAUNCH="$RUN_DIR/launch.log"; : > "$LAUNCH"
+launch_claude(){ echo "$1 :: $2" >> "$LAUNCH"; }
+
+# paused → refuse: no launch, exit non-zero
+touch "$PAUSE_FLAG"
+: > "$LAUNCH"
+( session_live(){ return 1; }
+  source "$HERE/../scripts/inject.sh" issue "add a rate limiter" ) 2>/dev/null
+assert_eq "$?" "1" "inject.sh refuses (exit 1) while the fleet is paused"
+assert_no "inject.sh did NOT launch the injector while paused" \
+  bash -c "grep -q 'hz-inject-main' '$LAUNCH'"
+
+# paused + --force → proceeds anyway (override)
+: > "$LAUNCH"
+( session_live(){ return 1; }
+  source "$HERE/../scripts/inject.sh" issue --force "add a rate limiter" )
+assert_eq "$?" "0" "inject.sh --force overrides the pause and launches"
+assert_ok "inject.sh --force launched the injector despite the pause" \
+  bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
+assert_no "--force is stripped from the rendered brief" \
+  bash -c "grep -q -- '--force' '$TMPCO/.harness-task.md'"
+
+# not paused → unchanged (launches normally)
+rm -f "$PAUSE_FLAG"
+: > "$LAUNCH"
+( session_live(){ return 1; }
+  source "$HERE/../scripts/inject.sh" issue "add a rate limiter" )
+assert_eq "$?" "0" "inject.sh proceeds normally when not paused"
+assert_ok "inject.sh launched the injector when not paused" \
+  bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
+
 finish
