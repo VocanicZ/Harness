@@ -482,19 +482,19 @@ gc_orphan_goals(){
 # from the issue number alone — both callers already hold the slug and pass it. A bug whose session
 # is live is NEVER swept — neither path strips its agent-working nor reaps its worktree.
 bug_session_live(){ session_live "$(sess_bug "$1" "$2" triage)" || session_live "$(sess_bug "$1" "$2" fix)"; }
-# fleet_session_re / is_fleet_session — the ERE matching THIS fleet's tmux session names, anchored to
-# the FULL session grammar (#73) instead of the bare `^<prefix>-`. Defense-in-depth for stop.sh /
-# status.sh: a `<prefix>-…` string that is NOT one of the fleet's real session forms — a sibling
-# fleet's session (different prefix, excluded by the anchor anyway), or a structurally-invalid stray
-# like a user's own `hz-notes-scratch` tmux window — is left UNTOUCHED. The branches mirror the
-# sess_* constructors:
-#   inject   <prefix>-inject-<unit>                (sess_inject)
-#   bug      <prefix>-bug-<slug>-<n>-(triage|fix)  (sess_bug; <slug> is `/`->`_` sanitised)
-#   impl     <prefix>-<unit>-i<n>                  (sess_impl; <unit> may contain dashes)
-#   orch     <prefix>-<unit>                       (sess_orch; single-segment unit, e.g. `main`)
-# The trailing-dash anchor is load-bearing: `hzli-main-i1` is NOT in `^hz-`'s space, so hz/hzli/boto
-# coexist. (Mirrors pause.sh's force-pause grammar, widened to the orch + inject forms stop sweeps.)
-fleet_session_re(){ printf '^%s-(inject-.+|bug-.+-[0-9]+-(triage|fix)|.+-i[0-9]+|[^-]+)$' "$HARNESS_SESS_PREFIX"; }
+# fleet_session_re / is_fleet_session — the ERE matching THIS fleet's tmux session names. It is
+# deliberately PREFIX-BROAD: it claims ANY non-empty session under `<prefix>-`, NOT just the named
+# session forms. Why broad and not a per-grammar match (#90): unit ids come from targets.tsv column 1
+# and are NOT validated dash-free, so a unit like `web-api` yields the orch session `hz-web-api`
+# (sess_orch). A grammar that required the orch unit to be a single dash-free segment (`[^-]+`)
+# silently FAILED to match such an orch session — so `harness stop`/`status` LEAKED the live `claude`
+# orchestration session. ERE has no negative lookahead, so we cannot express "anything except an impl
+# suffix"; the only sound rule is "every session under our prefix is ours". The per-fleet
+# HARNESS_SESS_PREFIX IS the ownership boundary, and prefix COLLISION between fleets is a separate
+# concern guarded at `harness start` by prefixes_collide (below). The trailing dash is load-bearing
+# for sibling isolation: `^hz-` requires a literal `-` as the 4th char, so `hzli-main`/`boto-x` are
+# NOT in hz's space and hz/hzli/boto coexist untouched.
+fleet_session_re(){ printf '^%s-.+$' "$HARNESS_SESS_PREFIX"; }
 is_fleet_session(){ local re; re="$(fleet_session_re)"; [[ "$1" =~ $re ]]; }
 
 # --- PRD-B slice 4: prefix-collision guard (#73) -----------------------------
