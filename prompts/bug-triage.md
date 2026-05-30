@@ -33,7 +33,11 @@ with a documented comment explaining the call, and remove `{{LABEL_WORKING}}`:
 - invalid (cannot reproduce / not a bug), or
 - duplicate of another issue (link it), or
 - wontfix (working as intended / out of scope).
+Drop `{{LABEL_WORKING}}` BEFORE the close, for the same reason as the flip above: the engine treats
+a CLOSED issue as "triage done" and may end this session the instant it sees the close, so the
+remove-label must already have run or the closed bug would strand carrying `{{LABEL_WORKING}}`.
      gh issue comment {{ISSUE}} -R {{SLUG}} --body "<why: invalid | duplicate #N | wontfix>"
+     gh issue edit {{ISSUE}} -R {{SLUG}} --remove-label {{LABEL_WORKING}}
      gh issue close {{ISSUE}} -R {{SLUG}}
 
 AUTONOMY — this lane is autonomous. Make the reproduce/invalid/duplicate/wontfix call yourself
