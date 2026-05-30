@@ -830,6 +830,76 @@ def test_dispatch_cli_holds_on_gh_error_no_spurious_plan():
     assert r.returncode != 0, "dispatch must exit non-zero on gh error; got rc=%d out=%r" % (r.returncode, r.stdout)
     assert r.stdout.strip() == "", "dispatch must print NO actions on gh error; got %r" % r.stdout
 
+# ── #104: `gh issue list --limit N` caps the TOTAL rows fetched (created-DESCENDING), so on a repo
+# with >N issues the OLDEST/lowest-numbered silently drop off — exactly where the PRD and long-lived
+# open children live. The fix fetches the full set; these tests reproduce truncation with a fake `gh`
+# that honors --limit like real gh.
+def _fake_gh_list(issues_payload):
+    """Fake il.subprocess.run mimicking `gh issue list`: exits 0 and returns at most `--limit` issues
+    in created-DESCENDING order (highest number = newest first), exactly as real gh, so a too-small
+    --limit truncates the OLDEST issues off the tail."""
+    def run(*a, **k):
+        argv = a[0] if a else []
+        limit = None
+        for i, tok in enumerate(argv):
+            if tok == "--limit" and i + 1 < len(argv):
+                limit = int(argv[i + 1])
+        ordered = sorted(issues_payload, key=lambda it: it["number"], reverse=True)
+        if limit is not None:
+            ordered = ordered[:limit]
+        return il.subprocess.CompletedProcess(argv, 0, il.json.dumps(ordered), "")
+    return run
+
+def test_issues_past_200_survive_pagination_cap():
+    # PRD = #1 (oldest), an open ready child = #2; both sit below the newest-200 window of a 250-issue
+    # repo. The old --limit 200 dropped them, flipping prd -> None and losing the open child. The fix
+    # fetches the whole set, so compute_state still reports the PRD and counts the old open child.
+    os.environ["HARNESS_MODE"] = "prd"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+    il.compute_state = _REAL_COMPUTE_STATE
+    il._list_issues = _REAL_LIST_ISSUES
+    il._self_login = lambda: "me"
+    il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None
+    il._spec_hash = lambda: ""
+    payload = [{"number": 1, "title": "[AFK] PRD: x", "state": "OPEN", "body": "",
+                "labels": [{"name": "prd"}], "author": {"login": "me"}},
+               {"number": 2, "title": "old open child", "state": "OPEN", "body": "",
+                "labels": [{"name": "ready-for-agent"}], "author": {"login": "me"}}]
+    payload += [{"number": n, "title": f"noise {n}", "state": "CLOSED", "body": "",
+                 "labels": [], "author": {"login": "me"}} for n in range(3, 251)]
+    real = il.subprocess.run
+    il.subprocess.run = _fake_gh_list(payload)
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["prd"] == 1, f"PRD #1 (oldest) must survive the fetch, got prd={s['prd']!r}"
+        assert 2 in s["unblocked"], f"old open child #2 must be in unblocked: {s}"
+        assert s["total_children"] == 1, s
+    finally:
+        il.subprocess.run = real
+
+def test_fetch_warns_when_issue_list_cap_hit():
+    # If any finite cap remains, a fetch returning at/above it logs a LOUD stderr warning, so silent
+    # truncation can never masquerade as "fewer issues". Monkeypatch the cap small + feed that many rows.
+    import io, contextlib
+    os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+    real_cap = il._ISSUE_LIST_CAP
+    real = il.subprocess.run
+    payload = [{"number": n, "title": "x", "state": "OPEN", "body": "",
+                "labels": [], "author": {"login": "me"}} for n in range(1, 4)]
+    il._ISSUE_LIST_CAP = 3
+    il.subprocess.run = _fake_gh_list(payload)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(buf):
+            il._fetch_issues("acme/widget")
+        assert "cap" in buf.getvalue().lower(), \
+            f"expected cap-hit warning on stderr, got {buf.getvalue()!r}"
+    finally:
+        il.subprocess.run = real; il._ISSUE_LIST_CAP = real_cap
+
 
 if __name__ == "__main__":
     fails = 0
