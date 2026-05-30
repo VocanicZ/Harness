@@ -69,6 +69,16 @@ remove_gitignore_entry(){
 # entry. No-op outside a project (STATE_DIR empty). Idempotent — a missing dir is fine.
 remove_project_state(){
   [[ -n "$STATE_DIR" ]] || return 0
+  # Path-shape + marker guard (#105): rm -rf is strictly destructive, and STATE_DIR is honoured from
+  # the env verbatim (line 7) — a pre-set bogus path would otherwise be recursively deleted. A
+  # legitimately-resolved STATE_DIR is ALWAYS '.../.harness' WITH a config marker (bin/harness
+  # discover_state_dir, harness init, and migrate.sh:25 all agree). Require BOTH before deleting; on
+  # mismatch refuse — touch nothing (incl. the parent .gitignore) — and return success so uninstall
+  # still proceeds to remove the engine/skills. The normal discovered-.harness case is unchanged.
+  if [[ "$(basename "$STATE_DIR")" != ".harness" || ! -f "$STATE_DIR/config" ]]; then
+    echo "  refusing to remove project state $STATE_DIR — not a Harness project state dir (need basename '.harness' + a config marker)"
+    return 0
+  fi
   local parent; parent="$(cd "$STATE_DIR/.." 2>/dev/null && pwd)" || parent=""
   [[ -e "$STATE_DIR" ]] && rm -rf "$STATE_DIR" && echo "  removed project state $STATE_DIR"
   [[ -n "$parent" ]] && remove_gitignore_entry "$parent/.gitignore"
