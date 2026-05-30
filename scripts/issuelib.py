@@ -191,14 +191,32 @@ def parse_blocked_by(body, self_repo):
     return refs
 
 
+# `gh issue list --limit N` caps the TOTAL rows fetched (gh paginates internally only up to N, in one
+# process) and returns issues created-DESCENDING. So a small cap silently drops the OLDEST / lowest-
+# numbered issues — exactly where the early-created PRD and any long-lived open child live (#104). Set
+# it effectively-unbounded so every issue is fetched in a single process: a mid-pagination network/API
+# failure still makes gh exit non-zero, so _gh_json raises GhError and the worker HOLDS the tick —
+# #103's hold semantics are preserved for free. The cap is a module constant so the hit-detection
+# below can warn if a real repo ever approaches it (and so tests can shrink it).
+_ISSUE_LIST_CAP = 100000
+
+
 def _fetch_issues(slug, extra=None):
     """Raw `gh issue list` payload (number,title,state,labels,body,author) — no normalisation,
     no author filtering. The snapshot command emits exactly this; always hits gh."""
-    args = ["issue", "list", "-R", slug, "--state", "all", "--limit", "200",
+    args = ["issue", "list", "-R", slug, "--state", "all", "--limit", str(_ISSUE_LIST_CAP),
             "--json", "number,title,state,labels,body,author"]
     if extra:
         args += extra
-    return _gh_json(args) or []
+    data = _gh_json(args) or []
+    if len(data) >= _ISSUE_LIST_CAP:
+        # At/above the cap: gh truncated (or is right at the edge), so the OLDEST issues — PRD /
+        # long-lived children — may have silently dropped. Never fold this into "fewer issues"; warn
+        # loudly so the cap can be raised before state silently corrupts.
+        print(f"[issuelib] WARNING: `gh issue list` for {slug} returned {len(data)} issues at/above "
+              f"the {_ISSUE_LIST_CAP}-row cap; OLDEST issues (PRD / long-lived children) may be "
+              f"silently truncated — raise _ISSUE_LIST_CAP.", file=sys.stderr)
+    return data
 
 
 def _normalize_issues(data):
