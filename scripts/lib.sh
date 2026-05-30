@@ -577,7 +577,13 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
   { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
   } > "$wd/.claude/ralph-loop.local.md"; }
-launch_claude(){ local sess="$1" wd="$2" uuid; uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+launch_claude(){ local sess="$1" wd="$2" uuid
+  # #108: never re-enter a live session. If $sess is already up (e.g. a transiently-dropped
+  # agent-working label re-dispatched the same issue), short-circuit BEFORE any side effect — no
+  # write_state (don't clobber the running agent's state file), no new-session, and above all no
+  # send-keys typing a second `exec claude …` into the live pane. This guard MUST be first.
+  if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
+  uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
   write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"
   tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
