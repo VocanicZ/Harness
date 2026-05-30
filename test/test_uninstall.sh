@@ -150,6 +150,33 @@ assert "guard FALSE: exits 0"                        "[[ $rc10 -eq 0 ]]"
 assert "guard FALSE: REMOVES the engine (unchanged)" "[[ ! -e '$R10/.harness/engine' ]]"
 assert "guard FALSE: REMOVES the PATH link (unchanged)" "[[ ! -L '$R10/bin/harness' && ! -e '$R10/bin/harness' ]]"
 
+# ── R11: remove_project_state refuses a STATE_DIR that is NOT a real project state dir (#105) ─
+# rm -rf is strictly destructive and STATE_DIR is honoured from the env verbatim (uninstall.sh:7).
+# A legitimately-resolved STATE_DIR is ALWAYS '.../.harness' WITH a config marker, so deleting must
+# require BOTH (mirror migrate.sh:25). Non-'.harness' suffix — even WITH a config file inside — must
+# NOT be deleted, must name the path in a refusal, and must NOT touch the parent .gitignore.
+RV="$(mktemp -d)"; mkdir -p "$RV/victim"; : > "$RV/victim/important.txt"; : > "$RV/victim/config"
+printf 'node_modules/\n.harness/\n' > "$RV/.gitignore"
+outv="$(HARNESS_UNINSTALL_NOMAIN=1 bash -c 'source "$1"; STATE_DIR="$2" remove_project_state' _ "$UNINSTALL" "$RV/victim" 2>&1)"
+assert "R11 non-.harness STATE_DIR is NOT deleted"      "[[ -e '$RV/victim/important.txt' ]]"
+assert "R11 refusal names the path"                     "grep -qF '$RV/victim' <<< \"\$outv\""
+assert "R11 refusal does NOT strip parent .gitignore"   "grep -qxF '.harness/' '$RV/.gitignore'"
+
+# ── R12: basename '.harness' but NO config marker → refuse, delete nothing, print a refusal ──
+RM="$(mktemp -d)"; mkdir -p "$RM/.harness/run"; : > "$RM/.harness/run/keep"
+printf '.harness/\n' > "$RM/.gitignore"
+outm="$(HARNESS_UNINSTALL_NOMAIN=1 bash -c 'source "$1"; STATE_DIR="$2" remove_project_state' _ "$UNINSTALL" "$RM/.harness" 2>&1)"
+assert "R12 .harness without config is NOT deleted"     "[[ -e '$RM/.harness/run/keep' ]]"
+assert "R12 refusal printed"                            "grep -qi 'refus' <<< \"\$outm\""
+assert "R12 refusal does NOT strip parent .gitignore"   "grep -qxF '.harness/' '$RM/.gitignore'"
+
+# ── R13: valid '.harness' WITH config → removed + parent .gitignore stripped (guard passes real case) ─
+RG="$(mktemp -d)"; mkdir -p "$RG/.harness/run"; : > "$RG/.harness/config"
+printf 'node_modules/\n.harness/\n' > "$RG/.gitignore"
+outg="$(HARNESS_UNINSTALL_NOMAIN=1 bash -c 'source "$1"; STATE_DIR="$2" remove_project_state' _ "$UNINSTALL" "$RG/.harness" 2>&1)"
+assert "R13 valid .harness IS removed"                  "[[ ! -e '$RG/.harness' ]]"
+assert "R13 parent .gitignore '.harness/' stripped"     "! grep -qxF '.harness/' '$RG/.gitignore'"
+
 # ── CLI: `harness help` lists uninstall; `harness uninstall` dispatches via bin/harness ─
 assert "help lists uninstall" "\"$CLI\" help 2>&1 | grep -q uninstall"
 # end-to-end through the CLI from INSIDE a project (STATE_DIR discovered from cwd), --force path
