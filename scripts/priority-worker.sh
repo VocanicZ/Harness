@@ -39,13 +39,18 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     fi
     sleep "$PRIORITY_POLL"
   done
-  # Reap the fix worktree + local branch once its session has ended (#34) — the pool gets this via
+  # Reap the phase worktree + local branch once its session has ended (#34) — the pool gets this via
   # reap_team/finalize_unit; the cap-1 lane had no equivalent, so it leaked a worktree + dead branch
-  # on every fix and a crashed fix wedged the next attempt. Skip while paused: a drained fix session
-  # is still live and owns its worktree. (triage has no worktree.)
-  if [[ "$phase" == fix ]] && ! is_paused; then
-    remove_worktree "$CHECKOUT" "$(bug_worktree "$SLUG" "$n")" "issue/$n"
-    log "priority: reaped bug #$n fix worktree + branch"
+  # on every phase and a crashed phase wedged the next attempt. BOTH phases now own a worktree (#109),
+  # so both are reaped here. Skip while paused: a drained session is still live and owns its worktree.
+  if ! is_paused; then
+    if [[ "$phase" == fix ]]; then
+      remove_worktree "$CHECKOUT" "$(bug_worktree "$SLUG" "$n")" "issue/$n"
+      log "priority: reaped bug #$n fix worktree + branch"
+    else
+      remove_worktree "$CHECKOUT" "$(triage_worktree "$SLUG" "$n")" "agent/bug-triage-$n"
+      log "priority: reaped bug #$n triage worktree + branch"
+    fi
   fi; }
 
 # reap_lane — the lane's per-poll self-heal (#42), the cap-1 analog of the pool's reap_team
@@ -54,8 +59,8 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
 # agent-working, so the lane idles "watching" an OPEN bug forever — needing a manual `harness start
 # --recover`. So at the TOP of every poll, for each OPEN bug-lane issue still under agent-working
 # whose sess_bug session is NOT live, strip agent-working and reap any worktree+branch a crashed fix
-# orphaned (triage has none — remove_worktree is idempotent on a missing worktree), so the next poll
-# re-claims it cleanly. bug_session_live (shared with #43's recover skip) protects a genuinely live
+# OR triage orphaned (#109 — remove_worktree is idempotent on the phase's missing worktree), so the
+# next poll re-claims it cleanly. bug_session_live (shared with #43's recover skip) protects a live
 # session, so this never double-dispatches in-flight work. Runs every poll regardless of pause: a
 # paused-but-live session is still live (drained, not killed) → skipped; a checkpointed one carries
 # agent-paused, not agent-working → not a candidate. Repo/slug/checkout/worktree are derived exactly
@@ -69,7 +74,10 @@ reap_lane(){ local repo slug n
       bug_session_live "$slug" "$n" && continue   # live session — never sweep (no double-dispatch, #43)
       log "priority: reaping stale agent-working on bug $repo#$n (no live session) — re-claimable next poll"
       gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
+      # The crash could have been in either phase; reap BOTH possible worktrees (idempotent on the
+      # one that never existed) so a crashed triage OR fix never wedges the re-claim (#109).
       remove_worktree "$(bug_checkout "$repo")" "$(bug_worktree "$slug" "$n")" "issue/$n"
+      remove_worktree "$(bug_checkout "$repo")" "$(triage_worktree "$slug" "$n")" "agent/bug-triage-$n"
     done < <(_repo_working_bugs "$repo")
   done; }
 

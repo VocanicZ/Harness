@@ -216,4 +216,58 @@ assert_no "drive_bug does NOT reap a live session when paused (drains)" \
 assert_no "drive_bug does NOT reap the worktree branch when paused (drains)" \
   grep -q 'branch -D issue/42' "$CALLS"
 
+# ── #5/#109: bug-TRIAGE runs in its OWN per-session worktree, never the shared $CHECKOUT ──
+# PINNED defect: triage ran in $CHECKOUT (PROJECT_ROOT in single topology). A concurrent spawn_orch
+# `render > $CHECKOUT/.harness-task.md` (brief clobber) + `git reset -q --hard origin/<base>`
+# (working-tree yank) therefore corrupted the in-flight triage. Fix = give triage its own worktree,
+# exactly like spawn_impl / the bug FIX phase. This is the real-git regression proving isolation.
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
+unset -f git 2>/dev/null || true   # earlier tests stubbed git — the isolation proof needs REAL git
+ORIGIN="$RUN_DIR/origin.git"; git init -q --bare "$ORIGIN"
+SEED="$RUN_DIR/seed"; git init -q "$SEED"
+git -C "$SEED" config user.email t@t; git -C "$SEED" config user.name t
+echo "src-v1" > "$SEED/code.txt"; git -C "$SEED" add -A; git -C "$SEED" commit -qm init
+git -C "$SEED" branch -M main; git -C "$SEED" remote add origin "$ORIGIN"; git -C "$SEED" push -q origin main
+CHECKOUT="$RUN_DIR/checkout"; git clone -q "$ORIGIN" "$CHECKOUT"
+WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
+# stub only the launch layer; render writes a KNOWN triage brief into $wd/.harness-task.md
+render(){ echo "TRIAGE-BRIEF-ISOLATED"; }
+launch_claude(){ :; }; tmux(){ :; }; gh(){ :; }
+default_branch(){ echo main; }; ensure_safe(){ :; }; ensure_checkout(){ :; }
+spawn_bug 109 triage
+TRI_WT="$(triage_worktree "$SLUG" 109)"
+assert_ok "triage: dedicated worktree created off origin/main (#109)" test -d "$TRI_WT"
+assert_eq "$(cat "$TRI_WT/.harness-task.md" 2>/dev/null)" "TRIAGE-BRIEF-ISOLATED" \
+  "triage: brief written INTO the triage worktree (#109)"
+assert_no "triage: did NOT write .harness-task.md into the shared \$CHECKOUT (#109 clobber source)" \
+  test -f "$CHECKOUT/.harness-task.md"
+# Now simulate a CONCURRENT spawn_orch against the SAME $CHECKOUT: brief clobber + hard reset (the yank).
+echo "ORCH-BRIEF-CLOBBER" > "$CHECKOUT/.harness-task.md"
+echo "src-v2-orch" > "$CHECKOUT/code.txt"
+git -C "$CHECKOUT" reset -q --hard origin/main
+assert_eq "$(cat "$TRI_WT/.harness-task.md" 2>/dev/null)" "TRIAGE-BRIEF-ISOLATED" \
+  "triage: brief survives a concurrent orch render on \$CHECKOUT (#109 no clobber)"
+assert_eq "$(cat "$TRI_WT/code.txt" 2>/dev/null)" "src-v1" \
+  "triage: working tree survives a concurrent git reset --hard on \$CHECKOUT (#109 no yank)"
+
+# ── #5/#109: drive_bug reaps the TRIAGE worktree once its session ends (parity with the fix reap) ──
+# Triage now owns a worktree, so the cap-1 lane must tear it down on completion just like the fix
+# phase — else a triage worktree leaks on every triaged bug and a crashed one wedges the next attempt.
+stub_bug; PRIORITY_POLL=0
+_bug_labels(){ echo "bug"; }     # triage phase...
+session_live(){ return 0; }      # session reports live...
+_bug_state(){ echo CLOSED; }     # ...and triage closed it (invalid/dup/wontfix) → goal met → reap
+drive_bug 42 >/dev/null 2>&1
+assert_ok "drive_bug reaps the triage worktree + branch once triage completes (#109)" \
+  grep -q 'branch -D agent/bug-triage-42' "$CALLS"
+
+# paused triage session still owns its worktree — drive_bug must NOT reap it (drains)
+stub_bug; PRIORITY_POLL=0
+_bug_labels(){ echo "bug"; }; session_live(){ return 0; }; _bug_state(){ echo OPEN; }
+touch "$PAUSE_FLAG"; drive_bug 42 >/dev/null 2>&1; rm -f "$PAUSE_FLAG"
+assert_no "drive_bug does NOT reap the triage worktree branch when paused (#109 drains)" \
+  grep -q 'branch -D agent/bug-triage-42' "$CALLS"
+
 finish

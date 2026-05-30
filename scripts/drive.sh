@@ -175,8 +175,9 @@ spawn_impl(){   # <ISSUE> <PROMISE>
 # spawn_bug <issue> <phase> — launch ONE priority-lane session for a bug (#27). The phase
 # (from bug_phase) picks the template AND a distinct session, so triage and fix are always
 # two separate sessions with fresh context:
-#   triage → bug-triage.md, run read-only in the shared CHECKOUT (like an orch session): refine
-#            the issue body + acceptance and flip the label IN PLACE — no branch, no PR, no code.
+#   triage → bug-triage.md, in its OWN triage worktree (#5/#109 — was the shared CHECKOUT, which a
+#            concurrent orch render+reset could clobber): refine the issue body + acceptance and flip
+#            the label IN PLACE — read-only, no commits, no PR, no code (the branch is throwaway).
 #   fix    → bug-fix.md, in a fresh issue worktree on issue/<n> (exactly like spawn_impl): TDD →
 #            PR → auto-merge → close.
 # Both phases stamp agent-working synchronously before returning so the lane never re-dispatches
@@ -208,13 +209,24 @@ spawn_bug(){
       tmpl="resume.md"; log "resuming paused bug #$issue from origin/issue/$issue"
     fi
   else
-    tmpl="bug-triage.md"; wd="$CHECKOUT"
+    # Triage gets its OWN worktree too (#5/#109): it used to run in the shared $CHECKOUT, where a
+    # concurrent spawn_orch `render > $CHECKOUT/.harness-task.md` (brief clobber) + `git reset --hard
+    # origin/<base>` (working-tree yank) corrupted the in-flight triage. Isolate it exactly like the
+    # fix phase / spawn_impl. A DISTINCT triage-<slug>-i<n> path + agent/bug-triage-<n> branch keep it
+    # off the fix worktree. (Triage stays read-only — no commits, no PR — the branch is throwaway.)
+    tmpl="bug-triage.md"; wd="$(triage_worktree "$SLUG" "$issue")"; base="$(default_branch)"
+    remove_worktree "$CHECKOUT" "$wd"   # defensive pre-add reap of a crashed-triage leftover (#34)
+    git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+    if ! git -C "$CHECKOUT" worktree add -B "agent/bug-triage-$issue" "$wd" "origin/$base" 2>/dev/null; then
+      git -C "$CHECKOUT" worktree add -B "agent/bug-triage-$issue" "$wd" 2>/dev/null || { log "worktree add failed triage #$issue"; return 1; }
+    fi
+    ensure_safe "$wd"
   fi
   # Stamp agent-working only AFTER the worktree is in place (#34): a failed `worktree add` returns
   # above WITHOUT stamping, so a spawn failure never leaves an open bug under agent-working with no
-  # live session (which would hide it from bug_lane_issues forever). Triage has no worktree step, so
-  # the stamp is reached immediately — same effect as before. Both phases still stamp BEFORE launch,
-  # so the lane never re-dispatches the same bug while its session is in flight.
+  # live session (which would hide it from bug_lane_issues forever). BOTH phases now create a worktree
+  # before reaching here, so the stamp is always after worktree setup. Both phases still stamp BEFORE
+  # launch, so the lane never re-dispatches the same bug while its session is in flight.
   gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
