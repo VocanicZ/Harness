@@ -58,6 +58,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
 : "${HARNESS_USE_POLLER:=}"            # PRD-B (#72): empty = today's direct-gh polling; set = read host snapshots
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
+: "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
@@ -488,6 +489,59 @@ gc_orphan_goals(){
   done
   shopt -u nullglob
 }
+# --- #115: stalled-session watchdog ------------------------------------------
+# A transient Anthropic API error (529 Overloaded / 5xx / 429 / "overloaded" / rate limit) aborts a
+# driven turn ABNORMALLY: ralph-loop's Stop hook never fires, so the interactive `claude` TUI parks
+# at its idle `❯` prompt and the `iteration` counter is frozen — yet `tmux has-session` stays true.
+# Every reaper keys off liveness OR goal-satisfaction, so an alive-but-idle session matches NONE of
+# them and pins a HARNESS_CAP / lane slot forever. The watchdog below is the missing per-poll path:
+# it classifies that exact state and recovers it (nudge → kill after K polls) WITHOUT disturbing a
+# busy or a healthy-between-turns session.
+#
+# Transient-API-error markers as they appear in the TUI pane. Matched only IN COMBINATION with the
+# idle `❯` prompt + the absence of an active spinner, so an in-scrollback string alone never trips it.
+HARNESS_STALL_ERROR_RE='API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|[^0-9])(429|500|502|503|529)([^0-9]|$)'
+# session_stalled <pane-text> — true iff the captured pane is the #115 wedge: an idle interactive
+# prompt (`❯`) with NO active turn ("(esc to interrupt)" absent ⇒ not mid-tool-use / not a busy
+# spinner) AND a transient-API-error marker. A busy session (esc-to-interrupt present) and a healthy
+# idle session (no error marker) both return false — the two no-false-positive guarantees.
+session_stalled(){ local pane="$1"
+  printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1   # active turn → never stalled
+  printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
+  printf '%s' "$pane" | grep -qE "$HARNESS_STALL_ERROR_RE"; }      # …and a transient-error marker
+# _watchdog_nudge <sess> — re-submit a continue into a session this watchdog has classified STALLED,
+# so the agent resumes its preserved in-flight context now the transient error has cleared. Uses the
+# exact send-keys-into-a-live-pane pattern as pause.sh:82-83. It NEVER types a second `exec claude …`
+# (honours the #108 live-session guard) — only a plain continue line — and is only ever reached from
+# watchdog_session AFTER session_stalled is true, so a healthy/busy pane is never typed into.
+_watchdog_nudge(){ local sess="$1"
+  tmux send-keys -t "$sess" -l "Please continue — the transient API error has cleared; resume the in-flight task." 2>/dev/null || true
+  tmux send-keys -t "$sess" Enter 2>/dev/null || true; }
+# watchdog_session <sess> — examine ONE live session for the #115 wedge and recover it. State (the
+# count of CONSECUTIVE stalled polls) lives in $RUN_DIR/<sess>.stall and is cleared the instant the
+# session is no longer stalled (recovered/busy/dead) — so a session that resumes after a nudge starts
+# any LATER stall from zero. On each stalled poll, nudge; once the count reaches HARNESS_STALL_RETRIES
+# the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
+# and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
+watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" pane n
+  session_live "$sess" || { rm -f "$stallf"; return 0; }
+  pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf"; return 0; }
+  if ! session_stalled "$pane"; then rm -f "$stallf"; return 0; fi
+  n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
+  if (( n >= HARNESS_STALL_RETRIES )); then
+    log "watchdog: $sess wedged at idle ❯ after a transient API error for $n polls — killing for reap → re-dispatch (#115)"
+    tmux kill-session -t "$sess" 2>/dev/null || true
+    rm -f "$stallf"
+  else
+    echo "$n" > "$stallf"
+    log "watchdog: $sess wedged at idle ❯ after a transient API error (poll $n/$HARNESS_STALL_RETRIES) — nudging to resume (#115)"
+    _watchdog_nudge "$sess"
+  fi; }
+# watchdog_team — run the watchdog over every live session of the CURRENT unit ($UNIT). The pool's
+# per-poll hook (drive_unit), the cap-N analog of the lane's in-loop watchdog_session call.
+watchdog_team(){ local s
+  while read -r s; do [[ -z "$s" ]] && continue; watchdog_session "$s"; done < <(team_sessions "$UNIT"); }
+
 # bug_session_live <slug> <n> — is EITHER phase's session for bug #n in <slug> live? The SINGLE
 # liveness predicate the lane's per-poll reap (#42, reap_lane) and start --recover's bug-aware skip
 # (#43) both use, so the two reconciliation paths can never disagree about whether a bug is in
