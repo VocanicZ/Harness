@@ -49,6 +49,16 @@ assert_no "triage: writes NO code (does not open a PR)" \
   grep -qE 'gh pr (create|merge)' "$TRI"
 assert_ok "triage: may close as invalid/duplicate/wontfix" \
   grep -qiE 'invalid|duplicate|wontfix' "$TRI"
+# #107: the close/disposition path must DROP the working label via its OWN gh issue edit command,
+# and BEFORE gh issue close. bug_goal_done returns done the instant the issue reads CLOSED, so the
+# hold loop can KILL the session between a post-close remove-label and its completion — stranding the
+# now-closed bug carrying agent-working (mirrors the C1 flip-path strand fixed in #101). Anchor on
+# `gh issue comment` (close-path only) so the flip path's own remove-label can't satisfy this.
+assert_ok "triage: close path drops agent-working BEFORE gh issue close (#107: no CLOSED-kill strand)" \
+  bash -c "awk '/gh issue comment/{c=NR} /gh issue edit .*--remove-label agent-working/{if(c)r=NR} /gh issue close/{k=NR} END{exit !(c && r && k && c < r && r < k)}' '$TRI'"
+# the drop is a standalone command, never a flag bolted onto gh issue close (invalid gh usage)
+assert_no "triage: --remove-label is NOT a flag on gh issue close (#107)" \
+  grep -qE 'gh issue close .*--remove-label' "$TRI"
 assert_ok "triage: completion promise present" \
   grep -q '<promise>BUG 42 triage DONE</promise>' "$TRI"
 assert_no "triage: no unrendered {{ token" \
@@ -64,6 +74,10 @@ assert_ok "triage: custom labels reach the flip command" \
   grep -qE -- '--remove-label defect .*--add-label triaged' "$TRIC"
 assert_no "triage: default 'bug-triaged' label absent when parameterised" \
   grep -qE -- '--add-label bug-triaged' "$TRIC"
+# #107: the close-path working-label drop is parameterised too — a custom-label fleet must drop its
+# OWN working label before close, never leak the literal default agent-working.
+assert_ok "triage: custom close path drops the custom working label before gh issue close (#107)" \
+  bash -c "awk '/gh issue comment/{c=NR} /gh issue edit .*--remove-label busy/{if(c)r=NR} /gh issue close/{k=NR} END{exit !(c && r && k && c < r && r < k)}' '$TRIC'"
 
 # ── bug-fix.md contract: TDD -> PR -> auto-merge -> close the refined issue ──
 FIX="$RUN_DIR/fix.txt"
