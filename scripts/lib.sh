@@ -342,6 +342,15 @@ bug_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT
 # collides. spawn_bug (create), drive_bug (reap), and sweep_orphan_bug_worktrees (recover) all
 # derive the path here so they can never disagree.
 bug_worktree(){ echo "$WORKTREES_DIR/bug-$(printf '%s' "$1" | tr '/' '_')-i$2"; }
+# triage_worktree <slug> <issue> — the bug-TRIAGE phase worktree path (#5/#109). Triage used to run
+# in the shared $CHECKOUT, where a concurrent spawn_orch `render > $CHECKOUT/.harness-task.md` (brief
+# clobber) + `git reset --hard origin/<base>` (working-tree yank) could corrupt the in-flight triage.
+# Give triage its OWN worktree, exactly like spawn_impl / the fix phase. A DISTINCT `triage-` prefix
+# (NOT `bug-`) keeps it off the fix worktree path AND lets sweep_orphan_bug_worktrees tell the two
+# apart; repo-qualified (#37) so two repos' same-numbered triages never collide. Its throwaway branch
+# is agent/bug-triage-<n> (distinct from the fix phase's issue/<n>). spawn_bug (create), drive_bug +
+# reap_lane (reap), and sweep_orphan_bug_worktrees (recover) all derive the path here so they agree.
+triage_worktree(){ echo "$WORKTREES_DIR/triage-$(printf '%s' "$1" | tr '/' '_')-i$2"; }
 # remove_worktree <checkout> <wd> [branch] — best-effort teardown of one worktree (+ optional local
 # branch), then prune the registration. Tolerates a missing worktree/branch (idempotent). Falls
 # back to rm -rf if `git worktree remove` can't (e.g. dir already gone). Shared by spawn_bug's
@@ -357,24 +366,28 @@ remove_worktree(){ local checkout="$1" wd="$2" branch="${3:-}"
 # on `worktree add` (rc 128) and wedge the lane forever. So on recovery, remove every fix worktree
 # whose fix session is dead, plus its local issue/<n> branch. Each worktree's owning checkout is
 # derived from the worktree itself (--git-common-dir) so this works across single/multi topology.
-# Skips a worktree whose fix session is still LIVE — safe to run while the fleet is up.
-sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n san base gcd co
-  for wd in "$WORKTREES_DIR"/bug-*-i*; do
+# Skips a worktree whose session is still LIVE — safe to run while the fleet is up. Walks BOTH the
+# fix worktrees (bug-<slug>-i<n>, branch issue/<n>) AND the triage worktrees (triage-<slug>-i<n>,
+# branch agent/bug-triage-<n>, #109) — a crashed triage leaks a worktree just like a crashed fix.
+sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n san base gcd co phase branch
+  for wd in "$WORKTREES_DIR"/bug-*-i* "$WORKTREES_DIR"/triage-*-i*; do
     [[ -d "$wd" ]] || continue
-    n="${wd##*-i}"
-    # Recover the sanitised slug from the worktree dir (bug-<slug-sanitised>-i<n>) so the fix
-    # session name matches the repo-qualified sess_bug (#44). Passing the already-sanitised slug
-    # back through sess_bug is idempotent (no '/' left to translate).
-    base="${wd##*/}"; san="${base#bug-}"; san="${san%-i*}"
-    session_live "$(sess_bug "$san" "$n" fix)" && continue
+    n="${wd##*-i}"; base="${wd##*/}"
+    # Recover the sanitised slug + phase from the worktree dir so the session name matches the
+    # repo-qualified sess_bug (#44). Passing the already-sanitised slug back through sess_bug is
+    # idempotent (no '/' left to translate). The dir prefix encodes the phase + the branch to drop.
+    if [[ "$base" == triage-* ]]; then san="${base#triage-}"; phase=triage; branch="agent/bug-triage-$n"
+    else san="${base#bug-}"; phase=fix; branch="issue/$n"; fi
+    san="${san%-i*}"
+    session_live "$(sess_bug "$san" "$n" "$phase")" && continue
     gcd="$(git -C "$wd" rev-parse --git-common-dir 2>/dev/null)" || gcd=""
     co=""
     if [[ -n "$gcd" ]]; then
       [[ "$gcd" != /* ]] && gcd="$wd/$gcd"            # relative result → resolve against the worktree
       co="$(cd "$(dirname "$gcd")" 2>/dev/null && pwd)"
     fi
-    if [[ -n "$co" ]]; then remove_worktree "$co" "$wd" "issue/$n"; else rm -rf "$wd"; fi
-    echo "  removed orphan bug worktree $(basename "$wd") (#$n — no live fix session)"
+    if [[ -n "$co" ]]; then remove_worktree "$co" "$wd" "$branch"; else rm -rf "$wd"; fi
+    echo "  removed orphan bug worktree $(basename "$wd") (#$n — no live $phase session)"
   done
   shopt -u nullglob; }
 

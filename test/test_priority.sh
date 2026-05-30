@@ -207,13 +207,17 @@ gh(){ echo "$*" >> "$GHLOG"; }                           # record every gh call
 remove_worktree(){ echo "$2|$3" >> "$WTLOG"; }           # record worktree path + branch reaped
 _repo_working_bugs(){ echo 9; }                          # repo's one OPEN agent-working bug is #9
 
-# DEAD session: reap_lane frees the stale agent-working AND reaps the orphaned fix worktree+branch
+# DEAD session: reap_lane frees the stale agent-working AND reaps the orphaned worktrees. The crash
+# could have been in EITHER phase, so it reaps both the fix (bug-…|issue/<n>) and the triage
+# (triage-…|agent/bug-triage-<n>) worktree+branch (#109) — idempotent on whichever never existed.
 : > "$GHLOG"; : > "$WTLOG"; : > "$LIVE"                   # no live session for #9
 reap_lane
 assert_ok "reap_lane removed stale agent-working for the dead-session bug" \
   grep -q "issue edit 9 -R acme/widget --remove-label agent-working" "$GHLOG"
-assert_eq "$(cat "$WTLOG")" "$WORKTREES_DIR/bug-acme_widget-i9|issue/9" \
-  "reap_lane reaped the orphaned fix worktree + issue branch"
+assert_ok "reap_lane reaped the orphaned fix worktree + issue branch" \
+  grep -qxF "$WORKTREES_DIR/bug-acme_widget-i9|issue/9" "$WTLOG"
+assert_ok "reap_lane reaped the orphaned triage worktree + branch (#109)" \
+  grep -qxF "$WORKTREES_DIR/triage-acme_widget-i9|agent/bug-triage-9" "$WTLOG"
 
 # LIVE session: reap_lane leaves the bug entirely untouched (no double-dispatch). The live session
 # is the REAL one production creates — sess_bug "$SLUG" 9 fix — so this exercises reap_lane's guard

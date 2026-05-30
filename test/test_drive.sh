@@ -190,4 +190,41 @@ assert_no "sweep removed the dead-session bug worktree (#5)" test -d "$DEAD"
 assert_ok "sweep kept the live-session bug worktree (#6)"    test -d "$LIVE"
 assert_no "sweep deleted the dead bug's local branch (issue/5)" \
   bash -c "git -C '$CHECKOUT' rev-parse --verify -q issue/5 >/dev/null 2>&1"
+
+# ── #5/#109: a FAILED spawn_bug TRIAGE must NOT leave the issue stamped agent-working (#34 invariant) ──
+# Triage now creates a worktree too, so the stamp must come AFTER that worktree step — a failed
+# `worktree add` must return BEFORE stamping, exactly like the fix phase, or the open bug keeps
+# agent-working with no live session and the lane never re-claims it.
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
+CHECKOUT="$RUN_DIR/co3"; mkdir -p "$CHECKOUT"
+WORKTREES_DIR="$RUN_DIR/wt3"; mkdir -p "$WORKTREES_DIR"
+GH3="$RUN_DIR/ghcalls3"; : > "$GH3"
+gh(){ echo "gh $*" >> "$GH3"; return 0; }
+render(){ :; }; launch_claude(){ :; }; tmux(){ :; }
+ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }
+git(){ case "$*" in *"worktree add"*) return 1;; *) return 0;; esac; }
+spawn_bug 5 triage; assert_eq "$?" "1" "spawn_bug triage returns nonzero when worktree add fails (#109)"
+assert_eq "$(grep -c 'add-label' "$GH3" 2>/dev/null; true)" "0" \
+  "spawn_bug does NOT stamp agent-working when triage worktree add fails (#34/#109 no wedge)"
+unset -f git
+
+# ── #5/#109: sweep_orphan_bug_worktrees also reaps orphan TRIAGE worktrees (dead session), keeps live ──
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; SLUG=acme/widget
+CHECKOUT="$RUN_DIR/cosweep2"; git init -q "$CHECKOUT"
+git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
+git -C "$CHECKOUT" commit -q --allow-empty -m init
+WORKTREES_DIR="$RUN_DIR/wtsweep2"; mkdir -p "$WORKTREES_DIR"
+ensure_safe(){ :; }
+TDEAD="$(triage_worktree "$SLUG" 7)"; TLIVE="$(triage_worktree "$SLUG" 8)"
+git -C "$CHECKOUT" worktree add -q -B agent/bug-triage-7 "$TDEAD"
+git -C "$CHECKOUT" worktree add -q -B agent/bug-triage-8 "$TLIVE"
+session_live(){ [[ "$1" == "$(sess_bug "$SLUG" 8 triage)" ]]; }   # only #8's triage session live
+sweep_orphan_bug_worktrees >/dev/null 2>&1
+assert_no "sweep removed the dead-session triage worktree (#7/#109)" test -d "$TDEAD"
+assert_ok "sweep kept the live-session triage worktree (#8/#109)"    test -d "$TLIVE"
+assert_no "sweep deleted the dead triage's local branch (agent/bug-triage-7)" \
+  bash -c "git -C '$CHECKOUT' rev-parse --verify -q agent/bug-triage-7 >/dev/null 2>&1"
 finish
