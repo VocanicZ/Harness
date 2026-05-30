@@ -23,7 +23,9 @@ ensure_bypass(){ :; }
 # Intercept tmux: record whether the .goal file already exists at `new-session` time. With the bug
 # (goal written first) it would exist; with the fix (goal written after) it must NOT exist yet.
 GOAL_PRESENT_AT_NEWSESSION=unset
-tmux(){ if [[ "$1" == new-session ]]; then
+# has-session must report NOT live (return 1) so the #108 re-dispatch guard treats this as a fresh spawn.
+tmux(){ if [[ "$1" == has-session ]]; then return 1; fi
+        if [[ "$1" == new-session ]]; then
           [[ -f "$RUN_DIR/$SESS.goal" ]] && GOAL_PRESENT_AT_NEWSESSION=yes || GOAL_PRESENT_AT_NEWSESSION=no
         fi; return 0; }
 

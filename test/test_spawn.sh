@@ -255,10 +255,50 @@ assert_no "supervised (HARNESS_AUTONOMOUS=false) does NOT auto-trust (A5)" test 
 T_CFG6="$RUN_DIR/claude_a6.json"; rm -f "$T_CFG6"
 T_WD6="$(mktemp -d)"; echo "do the thing" > "$T_WD6/.harness-task.md"
 (
-  tmux(){ :; }; sleep(){ :; }   # never touch the real fleet, no 1.5s wait
+  # has-session must report NOT live (return 1) so the #108 guard doesn't short-circuit this fresh spawn
+  tmux(){ [[ "$1" == has-session ]] && return 1; return 0; }; sleep(){ :; }   # never touch the real fleet, no 1.5s wait
   PROMISE="X DONE"; MAXITER=30; GOAL="ISSUE:9"
   HARNESS_AUTONOMOUS=true HARNESS_CLAUDE_CONFIG="$T_CFG6" launch_claude "test-sess-67" "$T_WD6" >/dev/null 2>&1
 )
 assert_eq "$(trusted_of "$T_CFG6" "$T_WD6")" "True" "launch_claude pre-trusts its launch dir (A6 integration)"
+
+# ── Test group 4: #108 — guard launch_claude against re-dispatch into a live session ──
+# launch_claude must short-circuit to a no-op when its target session is ALREADY live: re-dispatch
+# (e.g. a transiently-dropped agent-working label) must never write_state, new-session, or — worst
+# of all — send-keys a second `exec claude …` into the running agent's pane. session_live (a thin
+# `tmux has-session` wrapper) is the predicate; the guard must be the FIRST action, before any side
+# effect. Tests stub tmux so `has-session` reports the live/not-live state we want to model.
+echo "=== #108: launch_claude is a no-op for an already-live session ==="
+
+# G1: live session → zero mutating tmux actions, rc 0, state + goal files untouched.
+G_WD="$(mktemp -d)"; echo "do the thing" > "$G_WD/.harness-task.md"
+mkdir -p "$G_WD/.claude"; printf 'SENTINEL-STATE\n' > "$G_WD/.claude/ralph-loop.local.md"
+G_SESS="hzli-live-108"; printf 'SENTINEL-GOAL\n' > "$RUN_DIR/$G_SESS.goal"
+G_CALLS="$RUN_DIR/calls_g"; : > "$G_CALLS"
+(
+  # has-session SUCCEEDS → session is live; record every tmux call so we can prove no mutation.
+  tmux(){ echo "tmux $*" >> "$G_CALLS"; [[ "$1" == has-session ]] && return 0; return 0; }
+  sleep(){ :; }; log(){ :; }; ensure_trusted(){ :; }; ensure_bypass(){ :; }
+  CLAUDE_BIN=true; CLAUDE_FLAGS=""; PROMISE="X DONE"; MAXITER=30; GOAL="ISSUE:108"
+  launch_claude "$G_SESS" "$G_WD"
+)
+assert_eq "$?" "0" "launch_claude returns 0 for an already-live session (#108)"
+assert_eq "$(grep -c 'new-session' "$G_CALLS")" "0" "no tmux new-session for a live session (#108)"
+assert_eq "$(grep -c 'send-keys' "$G_CALLS")" "0" "no tmux send-keys into a live session's pane (#108)"
+assert_eq "$(cat "$G_WD/.claude/ralph-loop.local.md")" "SENTINEL-STATE" "write_state not run; state file untouched (#108)"
+assert_eq "$(cat "$RUN_DIR/$G_SESS.goal")" "SENTINEL-GOAL" "goal file untouched for a live session (#108)"
+
+# G2: fresh (not live) → full spawn sequence unchanged (new-session → goal → send-keys exec claude).
+G2_WD="$(mktemp -d)"; echo "do the thing" > "$G2_WD/.harness-task.md"
+G2_SESS="hzli-fresh-108"; G2_CALLS="$RUN_DIR/calls_g2"; : > "$G2_CALLS"
+(
+  tmux(){ echo "tmux $*" >> "$G2_CALLS"; [[ "$1" == has-session ]] && return 1; return 0; }
+  sleep(){ :; }; log(){ :; }; ensure_trusted(){ :; }; ensure_bypass(){ :; }
+  CLAUDE_BIN=true; CLAUDE_FLAGS=""; PROMISE="X DONE"; MAXITER=30; GOAL="ISSUE:108"
+  launch_claude "$G2_SESS" "$G2_WD"
+)
+assert_eq "$(grep -c 'new-session' "$G2_CALLS")" "1" "fresh spawn still calls tmux new-session (#108)"
+assert_eq "$(grep -c 'send-keys' "$G2_CALLS")" "1" "fresh spawn still send-keys exec claude (#108)"
+assert_ok "fresh spawn writes the goal file (#108)" test -f "$RUN_DIR/$G2_SESS.goal"
 
 finish
