@@ -485,9 +485,27 @@ gc_orphan_goals(){
   shopt -s nullglob
   for f in "$RUN_DIR"/*.goal; do
     sess="$(basename "$f" .goal)"
-    session_live "$sess" || rm -f "$f"
+    session_live "$sess" || rm -f "$f" "$RUN_DIR/$sess.wd"
   done
   shopt -u nullglob
+}
+# reap_finished_inject <unit> — kill the unit's inject session once its Ralph loop has ended.
+# inject sessions are excluded from team_sessions by design (no CAP slot, inject.sh:5), so NO
+# goal-check reaper (reap_done_sessions / priority-worker) ever iterates them — a finished injector
+# parks at the idle ❯ prompt forever. Authoritative done-signal: the ralph-loop stop-hook removes
+# .claude/ralph-loop.local.md the instant the loop ends (promise, max-iter, OR error), leaving the
+# session alive but the state file gone. So: live inject session + absent state file ⇒ finished ⇒
+# reap. A still-looping session (file present) or a launching/legacy one (no .wd recorded) is left
+# untouched. Scoped to THIS fleet+unit's sess_inject; can never touch a driven/team session.
+reap_finished_inject(){ local unit="$1" sess wd
+  sess="$(sess_inject "$unit")"
+  session_live "$sess" || return 0
+  wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || return 0
+  [[ -n "$wd" ]] || return 0
+  [[ -f "$wd/.claude/ralph-loop.local.md" ]] && return 0   # loop still active → leave it
+  log "reaped finished inject session $sess (ralph loop ended)"
+  tmux kill-session -t "$sess" 2>/dev/null || true
+  rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"
 }
 # --- #115: stalled-session watchdog ------------------------------------------
 # A transient Anthropic API error (529 Overloaded / 5xx / 429 / "overloaded" / rate limit) aborts a
@@ -647,6 +665,7 @@ launch_claude(){ local sess="$1" wd="$2" uuid
   # it for reap_done_sessions (drive.sh) and inject's REVIEW-in-flight check. Session-first closes
   # the window: a sweep here now finds session_live=true and leaves the goal alone.
   echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
+  echo "$wd" > "$RUN_DIR/$sess.wd"   # record worktree so reap_finished_inject can find the ralph state file
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
