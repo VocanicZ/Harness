@@ -53,4 +53,11 @@ WD2="$(mktemp -d)"; echo task > "$WD2/.harness-task.md"
 launch_claude hz-inject-main "$WD2" >/dev/null 2>&1
 assert_ok "launch_claude writes .wd sidecar" bash -c "grep -qx '$WD2' '$RUN_DIR/hz-inject-main.wd'"
 
+# ── gc_orphan_goals also removes a dead session's .wd sidecar ─────────────────
+echo INJECT > "$RUN_DIR/hz-dead-i1.goal"; echo /tmp/whatever > "$RUN_DIR/hz-dead-i1.wd"
+session_live(){ return 1; }   # every session dead
+gc_orphan_goals
+assert_no "gc removed dead .goal" test -f "$RUN_DIR/hz-dead-i1.goal"
+assert_no "gc removed dead .wd"   test -f "$RUN_DIR/hz-dead-i1.wd"
+
 finish

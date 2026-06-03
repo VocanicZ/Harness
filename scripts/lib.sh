@@ -485,7 +485,7 @@ gc_orphan_goals(){
   shopt -s nullglob
   for f in "$RUN_DIR"/*.goal; do
     sess="$(basename "$f" .goal)"
-    session_live "$sess" || rm -f "$f"
+    session_live "$sess" || rm -f "$f" "$RUN_DIR/$sess.wd"
   done
   shopt -u nullglob
 }
