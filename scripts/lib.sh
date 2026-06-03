@@ -489,6 +489,24 @@ gc_orphan_goals(){
   done
   shopt -u nullglob
 }
+# reap_finished_inject <unit> — kill the unit's inject session once its Ralph loop has ended.
+# inject sessions are excluded from team_sessions by design (no CAP slot, inject.sh:5), so NO
+# goal-check reaper (reap_done_sessions / priority-worker) ever iterates them — a finished injector
+# parks at the idle ❯ prompt forever. Authoritative done-signal: the ralph-loop stop-hook removes
+# .claude/ralph-loop.local.md the instant the loop ends (promise, max-iter, OR error), leaving the
+# session alive but the state file gone. So: live inject session + absent state file ⇒ finished ⇒
+# reap. A still-looping session (file present) or a launching/legacy one (no .wd recorded) is left
+# untouched. Scoped to THIS fleet+unit's sess_inject; can never touch a driven/team session.
+reap_finished_inject(){ local unit="$1" sess wd
+  sess="$(sess_inject "$unit")"
+  session_live "$sess" || return 0
+  wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || return 0
+  [[ -n "$wd" ]] || return 0
+  [[ -f "$wd/.claude/ralph-loop.local.md" ]] && return 0   # loop still active → leave it
+  log "reaped finished inject session $sess (ralph loop ended)"
+  tmux kill-session -t "$sess" 2>/dev/null || true
+  rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"
+}
 # --- #115: stalled-session watchdog ------------------------------------------
 # A transient Anthropic API error (529 Overloaded / 5xx / 429 / "overloaded" / rate limit) aborts a
 # driven turn ABNORMALLY: ralph-loop's Stop hook never fires, so the interactive `claude` TUI parks
