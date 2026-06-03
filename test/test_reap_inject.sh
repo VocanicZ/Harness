@@ -43,4 +43,14 @@ session_live(){ return 1; }
 reap_finished_inject main
 assert_no "session dead → no-op" bash -c "grep -qx hz-inject-main '$KILLED'"
 
+# ── launch_claude records the worktree in a .wd sidecar ───────────────────────
+PROMISE=X; MAXITER=3; GOAL=INJECT
+CLAUDE_BIN=true; CLAUDE_FLAGS=""
+sleep(){ :; }; ensure_trusted(){ :; }; ensure_bypass(){ :; }   # stub the launch side-effects
+tmux(){ [[ "$1" == kill-session ]] && echo "$3" >> "$KILLED"; return 0; }
+session_live(){ return 1; }                                    # not already live → proceed
+WD2="$(mktemp -d)"; echo task > "$WD2/.harness-task.md"
+launch_claude hz-inject-main "$WD2" >/dev/null 2>&1
+assert_ok "launch_claude writes .wd sidecar" bash -c "grep -qx '$WD2' '$RUN_DIR/hz-inject-main.wd'"
+
 finish

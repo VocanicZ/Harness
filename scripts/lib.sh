@@ -665,6 +665,7 @@ launch_claude(){ local sess="$1" wd="$2" uuid
   # it for reap_done_sessions (drive.sh) and inject's REVIEW-in-flight check. Session-first closes
   # the window: a sweep here now finds session_live=true and leaves the goal alone.
   echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
+  echo "$wd" > "$RUN_DIR/$sess.wd"   # record worktree so reap_finished_inject can find the ralph state file
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
