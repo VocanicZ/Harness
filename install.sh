@@ -10,6 +10,7 @@ HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"   # where the `harness` P
 HARNESS_MARKETPLACE="${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}"
 HARNESS_MARKETPLACE_NAME="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
 MATTPOCOCK_SKILLS_URL="${MATTPOCOCK_SKILLS_URL:-https://github.com/mattpocock/skills.git}"
+VOCANICZ_TOOLS_URL="${VOCANICZ_TOOLS_URL:-https://github.com/VocanicZ/vocanicz-ai-tools.git}"
 
 need(){ command -v "$1" >/dev/null 2>&1; }
 check_prereqs(){
@@ -70,6 +71,26 @@ ensure_skills(){
       echo "  ! could not clone $MATTPOCOCK_SKILLS_URL — install to-prd/to-issues manually"
     fi
     rm -rf "$tmp"
+  fi
+  # vocanicz-ai-tools: the subagent-task-tree skill (best-effort, never clobbers a user skill).
+  if [[ -d "$sk/subagent-task-tree" ]]; then
+    echo "  ✓ subagent-task-tree skill already present"
+  else
+    local vtmp; vtmp="$(mktemp -d)"
+    if git clone --depth 1 "$VOCANICZ_TOOLS_URL" "$vtmp" >/dev/null 2>&1; then
+      local vsrc
+      vsrc="$(find "$vtmp" -type f -name SKILL.md -path "*/subagent-task-tree/SKILL.md" 2>/dev/null | head -n1)"
+      if [[ -n "$vsrc" ]]; then
+        mkdir -p "$sk"; cp -r "$(dirname "$vsrc")" "$sk/" 2>/dev/null \
+          && echo "  ✓ installed subagent-task-tree skill into $sk" \
+          || echo "  ! could not copy subagent-task-tree skill — install it manually"
+      else
+        echo "  ! cloned $VOCANICZ_TOOLS_URL but found no subagent-task-tree skill — install manually"
+      fi
+    else
+      echo "  ! could not clone $VOCANICZ_TOOLS_URL — install subagent-task-tree skill manually"
+    fi
+    rm -rf "$vtmp"
   fi
   return 0
 }
