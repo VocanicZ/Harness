@@ -15,7 +15,10 @@ GOAL: implement issue #{{ISSUE}} via TDD, get it merged, and close the issue.
 Steps:
 1. Read the issue:  gh issue view {{ISSUE}} -R {{SLUG}}   — note its acceptance criteria.
 2. Implement using strict TDD (`test-driven-development` skill): failing test → pass → refactor.
-   For sizeable work, dispatch parallel sub-agents (`subagent-driven-development`). Stay in THIS repo.
+   For sizeable / multi-subtask work, apply the audited `subagent-task-tree` discipline
+   (planner → plan-auditor → per-subtask implementer + spec/quality/domain audits → drift-auditor),
+   treating this issue's subtasks as the tree's tasks. For small issues, a single implementer +
+   review (or `subagent-driven-development`) is fine — just do it. Stay in THIS repo.
 3. Run the full test suite. All green required.
 4. Commit, push, open a PR:
      git add -A && git commit -m "feat: <summary> (closes #{{ISSUE}})"
