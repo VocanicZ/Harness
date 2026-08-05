@@ -59,12 +59,13 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_USE_POLLER:=}"            # PRD-B (#72): empty = today's direct-gh polling; set = read host snapshots
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
+: "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
-  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION
+  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -90,6 +91,24 @@ POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
+# run_worktree_hook <dir> — run HARNESS_WORKTREE_HOOK inside a freshly added worktree.
+# `git worktree add` produces a BARE checkout of the tracked tree: submodules are empty dirs
+# (worktree add never inits them), and anything the main checkout carries untracked — toolchain
+# symlinks, prebuilt engine/SDK binaries, build artifacts, import/index caches — is absent. A
+# repo that needs any of it points HARNESS_WORKTREE_HOOK at a script; it runs once per fresh
+# worktree with cwd = that worktree and the path as $1. Empty (the default) = no-op, so this
+# changes nothing for repos that clone-and-go.
+# Non-fatal by design: a hook failure is logged and the session still launches — agents are
+# autonomous and can provision the rest themselves, and a hard fail here would strand the issue
+# under agent-working with no session (the #34 failure mode).
+run_worktree_hook(){
+  local wd="$1" hook="$HARNESS_WORKTREE_HOOK"
+  [[ -n "$hook" ]] || return 0
+  [[ "$hook" == /* ]] || hook="$PROJECT_ROOT/$hook"   # relative paths resolve against the project root
+  [[ -x "$hook" ]] || { log "worktree hook not executable, skipping: $hook"; return 0; }
+  log "worktree hook: $hook ($wd)"
+  ( cd "$wd" && "$hook" "$wd" ) || log "worktree hook FAILED in $wd — launching anyway"
+}
 # ensure_trusted <dir> — pre-accept Claude Code's workspace-trust dialog for <dir> in ~/.claude.json
 # so an autonomous (headless) launch in a never-trusted tree doesn't block FOREVER at the
 # "Do you trust the files in this folder?" gate (#67). --dangerously-skip-permissions suppresses
@@ -880,5 +899,6 @@ seed_if_needed(){
     local co; co="$(unit_checkout "$unit")"
     [[ -d "$co/.git" ]] || git clone "https://github.com/$slug.git" "$co" 2>/dev/null || true
     ensure_safe "$co"
+    run_worktree_hook "$co"   # a multi-topology clone is as bare as a worktree — provision it the same way
   fi
 }

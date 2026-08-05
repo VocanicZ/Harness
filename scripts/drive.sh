@@ -158,6 +158,7 @@ spawn_impl(){   # <ISSUE> <PROMISE>
     git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
   fi
   ensure_safe "$wd"
+  run_worktree_hook "$wd"
   # Resume detection: a force-paused issue (agent-paused label) OR an existing remote branch
   # means a prior agent checkpointed WIP to GitHub — continue it instead of starting fresh.
   local tmpl="impl.md" labels
@@ -200,6 +201,7 @@ spawn_bug(){
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
     fi
     ensure_safe "$wd"
+    run_worktree_hook "$wd"
     # Resume detection (mirrors spawn_impl, #36): a force-paused fix flips to agent-paused and
     # pushes its issue/<n> branch. Either signal means a prior agent checkpointed WIP to GitHub —
     # continue it from resume.md instead of restarting the fix cold from bug-fix.md.
@@ -221,6 +223,7 @@ spawn_bug(){
       git -C "$CHECKOUT" worktree add -B "agent/bug-triage-$issue" "$wd" 2>/dev/null || { log "worktree add failed triage #$issue"; return 1; }
     fi
     ensure_safe "$wd"
+    run_worktree_hook "$wd"
   fi
   # Stamp agent-working only AFTER the worktree is in place (#34): a failed `worktree add` returns
   # above WITHOUT stamping, so a spawn failure never leaves an open bug under agent-working with no
