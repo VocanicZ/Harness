@@ -83,6 +83,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
 | `HARNESS_USE_POLLER` | _(empty)_ | Host-poller opt-in. Empty = today's direct-`gh` polling (default off); set (e.g. `1`) = this fleet reads shared host snapshots instead of polling GitHub itself. Staged-rollout flag — see [Host poller](#host-poller) |
+| `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree (and every multi-topology clone), with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 
 ### Issue-author allowlist
 
@@ -93,6 +94,36 @@ By default the dispatch engine **only claims issues authored by the authenticate
 - **`HARNESS_AUTHOR_ALLOWLIST="*"`** — allow any author (community-fleet opt-in), restoring the pre-allowlist behavior.
 
 The check applies to both PRD selection and the implementation claimable filter. Issues from non-allowed authors are **silently ignored** — never claimed, commented, or labelled — with only a local debug line on stderr (no GitHub-visible signal to a prober).
+
+### Provisioning a fresh worktree
+
+Every impl / bug-fix / triage session runs in its own `git worktree`, and a worktree is a **bare checkout of the tracked tree**. Submodules come up as empty directories (`worktree add` never inits them), and anything your main checkout carries untracked — toolchain symlinks, prebuilt engine or SDK binaries, build outputs, import/index caches — is simply absent. For a plain clone-and-go repo that's fine. For anything heavier, the agent starts in a tree that cannot build.
+
+`HARNESS_WORKTREE_HOOK` is the seam. Point it at a script; it runs once per fresh worktree with `cwd` set to that worktree and its path as `$1`:
+
+```sh
+# .harness/config
+HARNESS_WORKTREE_HOOK=.harness/worktree-hook.sh
+```
+
+```sh
+#!/usr/bin/env bash
+# .harness/worktree-hook.sh — runs inside each new worktree
+set -euo pipefail
+git submodule update --init --recursive
+ln -sfn "$HOME/toolchains/sdk" ./sdk     # symlink big untracked deps, never copy
+./scripts/warm-cache.sh
+```
+
+Keep it **idempotent** — it may run against a reused path. Failures are logged and swallowed: the session still launches, because a hard failure here would strand the issue under `agent-working` with no session to work it. Empty (the default) is a true no-op.
+
+### Parallel-lane merge safety
+
+Workers branch off the default branch independently and merge back independently, so by the time a lane is ready its base has usually moved. A suite that went green on a lane's branch only proves that change against the base it *started* from, and a conflict-free text merge can still be semantically broken — another lane edited the same function, moved a helper's contract, or rebuilt an artifact the tests load.
+
+The impl / bug-fix / resume prompts therefore require a **rebase onto the current base plus a re-run** immediately before merging, repeated until the rebase is a no-op. On a repo with **no required status checks this is the only guard**: `gh pr merge --auto` has nothing to wait for and merges on mergeable-state alone. If your repo has checks that build and test the *merge result*, they enforce the same property server-side — recommended for any fleet running more than one or two lanes against a shared codebase.
+
+The same prompts hold lanes to **no new failures against a baseline** captured before the first edit, rather than a globally green suite. Most real repos carry some pre-existing reds; an autonomous agent told "all green required" will either chase them forever or edit tests until they pass.
 
 ## Commands
 
