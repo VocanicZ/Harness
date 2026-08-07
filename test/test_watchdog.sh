@@ -133,4 +133,81 @@ drive_bug "acme/widget#5"
 assert_ok "drive_bug (lane) runs the watchdog over its in-flight bug session" \
   grep -qx "$(sess_bug acme/widget 5 fix)" "$WD_SEEN2"
 
+# ── E: #120 quota park — detected, recovered, and NEVER killed ───────────────────────────────────
+# Two shapes: blocked on the interactive limit menu (no `❯` at all), and a limit-aborted turn parked
+# at idle `❯`. Both must be recovered without ever escalating to a kill — the account is out of
+# quota, not wedged, and killing K lanes would throw away their in-flight context.
+# Pane fixtures are written by these two helpers rather than held in files: every make_env below
+# recreates RUN_DIR, so a fixture PATH captured before one would silently read back empty.
+pane_menu(){ printf '%s\n' '   What do you want to do?' '   ❯ 1. Stop and wait for limit to reset' \
+              '     2. Add funds to continue with usage credits' '   Enter to confirm · Esc to cancel' > "$1"; }
+pane_limit(){ printf '%s\n' "  ⎿  You've hit your session limit · resets 12:10am (UTC)" '❯' \
+              '  bypass permissions on (shift+tab to cycle)' > "$1"; }
+make_env
+PANE_MENU="$RUN_DIR/pane_menu"; PANE_LIM="$RUN_DIR/pane_lim"
+pane_menu "$PANE_MENU"; pane_limit "$PANE_LIM"
+
+assert_ok "session_limit_menu detects the blocking usage-limit menu" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_menu \"\$(cat '$PANE_MENU')\""
+assert_ok "session_limit_idle detects a limit-aborted turn parked at idle ❯" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(cat '$PANE_LIM')\""
+assert_no "session_limit_idle leaves a busy mid-turn session alone" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle 'Working… (esc to interrupt)'"
+assert_no "session_limit_idle leaves a healthy idle-no-limit session alone" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(printf '%s\n' '  Done.' '❯')\""
+assert_no "session_limit_menu ignores an ordinary pane" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_menu \"\$(cat '$PANE_LIM')\""
+
+source "$HERE/../scripts/lib.sh"   # section D stubbed watchdog_session — restore the real one
+make_env
+HARNESS_STALL_RETRIES=3; HARNESS_LIMIT_NUDGE_EVERY=5
+SESS="hz-main-i120"
+PICKED="$RUN_DIR/picked"; LNUDGED="$RUN_DIR/lnudged"; KILLED="$RUN_DIR/killed3"
+: > "$PICKED"; : > "$LNUDGED"; : > "$KILLED"
+PANE="$RUN_DIR/paneE"; pane_menu "$PANE"
+session_live(){ ! grep -qx "$1" "$KILLED" 2>/dev/null; }
+tmux(){ case "$1" in
+  capture-pane) cat "$PANE" ;;
+  kill-session) echo "$3" >> "$KILLED" ;;
+  send-keys)    : ;;
+esac; return 0; }
+_watchdog_limit_pick(){ echo "$1" >> "$PICKED"; }
+_watchdog_limit_nudge(){ echo "$1" >> "$LNUDGED"; }
+_watchdog_nudge(){ echo "STALL-NUDGE" >> "$LNUDGED"; }   # must never fire on a quota park
+
+# menu shape: answered every poll, never counted, never killed
+watchdog_session "$SESS"; watchdog_session "$SESS"; watchdog_session "$SESS"; watchdog_session "$SESS"
+assert_eq "$(wc -l < "$PICKED")" "4" "menu-blocked session gets Enter on every poll"
+assert_eq "$(wc -l < "$KILLED")" "0" "menu-blocked session is never killed"
+assert_no "menu-blocked session accrues no stall counter" test -f "$RUN_DIR/$SESS.stall"
+
+# idle shape: nudged on poll 1, then backed off to every Nth — and killed on NO poll, ever. Ten
+# polls is well past HARNESS_STALL_RETRIES=3, which is exactly the escalation that must not happen.
+make_env
+HARNESS_STALL_RETRIES=3; HARNESS_LIMIT_NUDGE_EVERY=5
+PICKED="$RUN_DIR/picked2"; LNUDGED="$RUN_DIR/lnudged2"; KILLED="$RUN_DIR/killed4"
+: > "$PICKED"; : > "$LNUDGED"; : > "$KILLED"
+PANE="$RUN_DIR/paneE2"; pane_limit "$PANE"
+session_live(){ ! grep -qx "$1" "$KILLED" 2>/dev/null; }
+tmux(){ case "$1" in
+  capture-pane) cat "$PANE" ;;
+  kill-session) echo "$3" >> "$KILLED" ;;
+  send-keys)    : ;;
+esac; return 0; }
+_watchdog_limit_pick(){ echo "$1" >> "$PICKED"; }
+_watchdog_limit_nudge(){ echo "$1" >> "$LNUDGED"; }
+_watchdog_nudge(){ echo "STALL-NUDGE" >> "$LNUDGED"; }
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do watchdog_session "$SESS"; done
+assert_eq "$(wc -l < "$KILLED")" "0" "quota-parked session is NEVER killed, even past HARNESS_STALL_RETRIES"
+assert_eq "$(wc -l < "$LNUDGED")" "3" "nudged on poll 1 then every 5th (1, 5, 10) — backed off"
+assert_no "quota park never reaches the #115 stall path" grep -qx "STALL-NUDGE" "$LNUDGED"
+assert_eq "$(cat "$RUN_DIR/$SESS.limit" 2>/dev/null)" "10" "limit poll counter tracks consecutive parks"
+
+# recovery: the nudge lands, the session goes busy → the limit counter is cleared, so a LATER quota
+# park starts its backoff from poll 1 again (and gets an immediate nudge rather than a silent wait).
+printf '%s\n' 'Resumed… (esc to interrupt)' > "$PANE"
+watchdog_session "$SESS"
+assert_no "limit counter cleared once the session recovers (busy)" test -f "$RUN_DIR/$SESS.limit"
+
 finish

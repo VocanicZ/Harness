@@ -59,6 +59,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_USE_POLLER:=}"            # PRD-B (#72): empty = today's direct-gh polling; set = read host snapshots
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
+: "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
@@ -546,6 +547,39 @@ session_stalled(){ local pane="$1"
   printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1   # active turn → never stalled
   printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
   printf '%s' "$pane" | grep -qE "$HARNESS_STALL_ERROR_RE"; }      # …and a transient-error marker
+# --- #120: quota-parked watchdog ---------------------------------------------
+# A plan usage-limit hit is NOT the #115 transient wedge and must not be treated as one. It parks a
+# session in one of TWO shapes, neither of which any reaper or the #115 watchdog can see:
+#   (menu) the interactive `claude` TUI raises a blocking choice — "1. Stop and wait for limit to
+#          reset / 2. Add funds / 3. Switch to Team plan" — and BLOCKS ON A KEYPRESS. There is no
+#          idle `❯` (the menu owns the pane) and no spinner, so session_stalled never matches. The
+#          process stays alive, tmux has-session stays true, and the lane pins its CAP slot until a
+#          human presses Enter. Observed: 4 lanes idle 12h AFTER the quota had already reset.
+#   (idle) the turn aborts and the pane drops to `❯` with "You've hit your session limit · resets
+#          <t>". This DOES look like #115 (the stall regex even matches `rate.?limit`), but killing
+#          it is wrong: the work is not wedged, the account is out of quota. Kill-after-K would
+#          destroy K live lanes' in-flight context while the quota is still exhausted.
+# So quota is handled FIRST and separately, and is NEVER killed: menu → press Enter (option 1, the
+# default-highlighted "wait for reset"); idle → nudge to resume, backed off to every Nth poll so an
+# exhausted account is not re-probed every poll for the hours a weekly limit can last. Both clear
+# the #115 stall counter, so a quota park can never escalate into a kill.
+HARNESS_LIMIT_MENU_RE='Stop and wait for limit to reset'
+HARNESS_LIMIT_IDLE_RE="hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit"
+# session_limit_menu <pane-text> — true iff the pane is BLOCKED on the interactive limit menu.
+session_limit_menu(){ printf '%s' "$1" | grep -qE "$HARNESS_LIMIT_MENU_RE"; }
+# session_limit_idle <pane-text> — true iff a limit-aborted turn left the pane at the idle `❯`.
+session_limit_idle(){ local pane="$1"
+  printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1   # active turn → not parked
+  printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
+  printf '%s' "$pane" | grep -qE "$HARNESS_LIMIT_IDLE_RE"; }
+# _watchdog_limit_pick <sess> — answer the blocking menu with its default choice ("stop and wait for
+# limit to reset"). A bare Enter, never a typed line: the pane is a menu, not a prompt.
+_watchdog_limit_pick(){ tmux send-keys -t "$1" Enter 2>/dev/null || true; }
+# _watchdog_limit_nudge <sess> — re-submit a continue once the quota is back. Same live-pane
+# send-keys pattern as _watchdog_nudge (#108 guard honoured: a plain line, never `exec claude …`).
+_watchdog_limit_nudge(){ local sess="$1"
+  tmux send-keys -t "$sess" -l "Please continue — the usage limit has reset; resume the in-flight task where you left off." 2>/dev/null || true
+  tmux send-keys -t "$sess" Enter 2>/dev/null || true; }
 # _watchdog_nudge <sess> — re-submit a continue into a session this watchdog has classified STALLED,
 # so the agent resumes its preserved in-flight context now the transient error has cleared. Uses the
 # exact send-keys-into-a-live-pane pattern as pause.sh:82-83. It NEVER types a second `exec claude …`
@@ -560,9 +594,25 @@ _watchdog_nudge(){ local sess="$1"
 # any LATER stall from zero. On each stalled poll, nudge; once the count reaches HARNESS_STALL_RETRIES
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
-watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" pane n
-  session_live "$sess" || { rm -f "$stallf"; return 0; }
-  pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf"; return 0; }
+watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
+  session_live "$sess" || { rm -f "$stallf" "$limitf"; return 0; }
+  pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf" "$limitf"; return 0; }
+  # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
+  if session_limit_menu "$pane"; then
+    rm -f "$stallf"
+    log "watchdog: $sess blocked on the usage-limit menu — answering 'wait for reset' (#120)"
+    _watchdog_limit_pick "$sess"; return 0
+  fi
+  if session_limit_idle "$pane"; then
+    rm -f "$stallf"
+    n=$(( $(cat "$limitf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$limitf"
+    if (( n == 1 || n % HARNESS_LIMIT_NUDGE_EVERY == 0 )); then
+      log "watchdog: $sess parked at idle ❯ by the usage limit (poll $n) — nudging to resume (#120)"
+      _watchdog_limit_nudge "$sess"
+    fi
+    return 0
+  fi
+  rm -f "$limitf"
   if ! session_stalled "$pane"; then rm -f "$stallf"; return 0; fi
   n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
   if (( n >= HARNESS_STALL_RETRIES )); then
