@@ -61,12 +61,14 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
+: "${HARNESS_GAUNTLET_ROUNDS:=3}"        # gauntlet review: rounds allowed before the reviewer concedes
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
-  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK
+  HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
+  HARNESS_GAUNTLET_ROUNDS
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -714,6 +716,17 @@ kv = dict(a.split('=', 1) for a in sys.argv[2:])
 sys.stdout.write(re.sub(r'{{(\w+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
 }
+# gauntlet_round <prd> — echo the gauntlet round this review pass will run (1-based).
+# Round state is the PRD's own comment stream: every LOST round leaves a
+# `<!-- harness-gauntlet round=N -->` marker (see prompts/review.md). Nothing on disk, so a
+# resume on another host picks up at the right round. ANY failure — offline, rate limit, junk
+# on stdout — counts as zero markers and returns round 1: a transient gh error must never be
+# able to push the reviewer past the cap and fake a concede.
+gauntlet_round(){ local prd="$1" n
+  n="$(gh issue view "$prd" -R "$SLUG" --json comments \
+       -q '[.comments[].body | select(test("<!-- harness-gauntlet round="))] | length' 2>/dev/null || echo 0)"
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  echo $(( n + 1 )); }
 write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/.claude"
   { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
