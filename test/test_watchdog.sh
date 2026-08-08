@@ -157,6 +157,17 @@ assert_ok "session_limit_menu detects the blocking usage-limit menu" \
   bash -c "source '$HERE/../scripts/lib.sh'; session_limit_menu \"\$(cat '$PANE_MENU')\""
 assert_ok "session_limit_idle detects a limit-aborted turn parked at idle ❯" \
   bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(cat '$PANE_LIM')\""
+# A lane mid-way through a long shell command shows "to run in background" INSTEAD of the spinner,
+# and its own tool output can carry an error marker (a 500 in a log tail). That is a BUSY session.
+PANE_BG="$RUN_DIR/pane_bg"
+printf '%s\n' '  ⎿  $ tools/run_tests.sh > base.log 2>&1; tail -30 base.log (32s)' \
+              '     HTTP 500 from the fixture server — expected, see base.log' \
+              '     (ctrl+b ctrl+b (twice) to run in background)' \
+              '❯' > "$PANE_BG"
+assert_no "session_stalled leaves a lane running a long shell command alone (background hint)" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(cat '$PANE_BG')\""
+assert_no "session_limit_idle leaves a lane running a long shell command alone" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(cat '$PANE_BG')\""
 assert_ok "session_limit_idle detects a turn aborted by credit exhaustion (parks, never kills)" \
   bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(cat '$PANE_CRED')\""
 assert_no "session_limit_idle leaves a busy mid-turn session alone" \

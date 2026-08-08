@@ -545,8 +545,18 @@ HARNESS_STALL_ERROR_RE='API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|
 # prompt (`❯`) with NO active turn ("(esc to interrupt)" absent ⇒ not mid-tool-use / not a busy
 # spinner) AND a transient-API-error marker. A busy session (esc-to-interrupt present) and a healthy
 # idle session (no error marker) both return false — the two no-false-positive guarantees.
+#
+# An active turn shows ONE OF TWO hints, and both must count. The ordinary spinner prints
+# "(esc to interrupt)", but while a long-running shell command is in flight the TUI REPLACES it with
+# "(ctrl+b ctrl+b (twice) to run in background)". Keying on the spinner alone declared a lane running
+# a multi-minute build/test suite "not mid-turn"; an error marker anywhere in its own tool output —
+# a 500 in a log tail, the literal words "API Error" — then satisfied the rest of session_stalled and
+# the lane was nudged ×K and KILLED mid-work, over and over, never finishing the command it was on.
+# Matched on the stable tail of the hint so a change to the key prefix does not reopen this.
+HARNESS_ACTIVE_TURN_RE='esc to interrupt|to run in background'
+session_active_turn(){ printf '%s' "$1" | grep -qE "$HARNESS_ACTIVE_TURN_RE"; }
 session_stalled(){ local pane="$1"
-  printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1   # active turn → never stalled
+  session_active_turn "$pane" && return 1                         # active turn → never stalled
   printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
   printf '%s' "$pane" | grep -qE "$HARNESS_STALL_ERROR_RE"; }      # …and a transient-error marker
 # --- #120: quota-parked watchdog ---------------------------------------------
@@ -576,7 +586,7 @@ HARNESS_LIMIT_IDLE_RE="hit your [a-z]+ limit|usage limit reached|limit reached �
 session_limit_menu(){ printf '%s' "$1" | grep -qE "$HARNESS_LIMIT_MENU_RE"; }
 # session_limit_idle <pane-text> — true iff a limit-aborted turn left the pane at the idle `❯`.
 session_limit_idle(){ local pane="$1"
-  printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1   # active turn → not parked
+  session_active_turn "$pane" && return 1                         # active turn → not parked
   printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
   printf '%s' "$pane" | grep -qE "$HARNESS_LIMIT_IDLE_RE"; }
 # _watchdog_limit_pick <sess> — answer the blocking menu with its default choice ("stop and wait for
