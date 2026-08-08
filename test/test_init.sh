@@ -3,6 +3,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP="$(mktemp -d)"; cp -r "$HERE/.." "$TMP/.harness"   # fake .harness checkout
 export HARNESS_DIR="$TMP/.harness"
+# HARNESS_DIR alone does NOT isolate this test: lib.sh recomputes it from BASH_SOURCE (scripts/lib.sh:13)
+# and then takes STATE_DIR from the environment (:15). Run inside a live fleet — which exports its own
+# STATE_DIR — init.sh would write this acme/widget config straight over that project's real config.
+export STATE_DIR="$TMP/.harness"
 # stub gh + seed so init does no network
 cat > "$TMP/.harness/scripts/seed.sh" <<'EOF'
 #!/usr/bin/env bash
