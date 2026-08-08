@@ -143,14 +143,22 @@ pane_menu(){ printf '%s\n' '   What do you want to do?' '   ❯ 1. Stop and wait
               '     2. Add funds to continue with usage credits' '   Enter to confirm · Esc to cancel' > "$1"; }
 pane_limit(){ printf '%s\n' "  ⎿  You've hit your session limit · resets 12:10am (UTC)" '❯' \
               '  bypass permissions on (shift+tab to cycle)' > "$1"; }
+# Credit exhaustion is the same class and must park, not stall: it names neither "limit" nor "reset",
+# so it used to fall through to #115 and get nudged ×K then KILLED — and each re-dispatch reprovisions
+# a worktree only to die instantly again, looping for as long as the account is dry.
+pane_credits(){ printf '%s\n' "  ⎿  You're out of usage credits. Run /usage-credits to keep using" \
+              '     Fable 5 or /model to switch models.' '❯' \
+              '  bypass permissions on (shift+tab to cycle)' > "$1"; }
 make_env
-PANE_MENU="$RUN_DIR/pane_menu"; PANE_LIM="$RUN_DIR/pane_lim"
-pane_menu "$PANE_MENU"; pane_limit "$PANE_LIM"
+PANE_MENU="$RUN_DIR/pane_menu"; PANE_LIM="$RUN_DIR/pane_lim"; PANE_CRED="$RUN_DIR/pane_cred"
+pane_menu "$PANE_MENU"; pane_limit "$PANE_LIM"; pane_credits "$PANE_CRED"
 
 assert_ok "session_limit_menu detects the blocking usage-limit menu" \
   bash -c "source '$HERE/../scripts/lib.sh'; session_limit_menu \"\$(cat '$PANE_MENU')\""
 assert_ok "session_limit_idle detects a limit-aborted turn parked at idle ❯" \
   bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(cat '$PANE_LIM')\""
+assert_ok "session_limit_idle detects a turn aborted by credit exhaustion (parks, never kills)" \
+  bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle \"\$(cat '$PANE_CRED')\""
 assert_no "session_limit_idle leaves a busy mid-turn session alone" \
   bash -c "source '$HERE/../scripts/lib.sh'; session_limit_idle 'Working… (esc to interrupt)'"
 assert_no "session_limit_idle leaves a healthy idle-no-limit session alone" \
