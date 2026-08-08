@@ -49,7 +49,7 @@ Tasks are ordered so each one's tests can run standalone: the helper exists befo
 - Consumes: `$SLUG` (set per-unit by `drive.sh`), `gh`.
 - Produces: `gauntlet_round <prd>` → prints a 1-based integer round number on stdout, always succeeds. `$HARNESS_GAUNTLET_ROUNDS` (default `3`), exported.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/test_gauntlet.sh`:
 
@@ -84,12 +84,12 @@ finish
 
 Make it executable: `chmod +x test/test_gauntlet.sh`
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bash test/test_gauntlet.sh`
 Expected: FAIL — `gauntlet_round: command not found`, all four assertions report `want [1] got []`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `scripts/lib.sh`, add to the defaults block (directly after the `HARNESS_WORKTREE_HOOK` line):
 
@@ -115,12 +115,12 @@ gauntlet_round(){ local prd="$1" n
   echo $(( n + 1 )); }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bash test/test_gauntlet.sh`
 Expected: PASS — `── 4/4 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/lib.sh test/test_gauntlet.sh
@@ -139,7 +139,7 @@ git commit -m "feat(gauntlet): gauntlet_round helper + HARNESS_GAUNTLET_ROUNDS d
 - Consumes: `gauntlet_round` (Task 1), `$STATE_DIR`, `$UNIT`, `$HARNESS_GAUNTLET_ROUNDS`.
 - Produces: three render keys available to every orchestration prompt — `GAUNTLET_DIR` (absolute, `$STATE_DIR/gauntlet/$UNIT`), `GAUNTLET_ROUNDS` (integer), `GAUNTLET_ROUND` (integer for `REVIEW`, empty string for `PLAN`/`PRD`/`DECOMPOSE`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/test_gauntlet.sh`, **above** the final `finish` line:
 
@@ -177,12 +177,12 @@ assert_ok "DECOMPOSE: GAUNTLET_ROUND rendered empty (no PRD payload to count)" \
   grep -qE "GAUNTLET_ROUND=( |\$)" "$CALLS"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bash test/test_gauntlet.sh`
 Expected: FAIL — the four new `assert_ok` lines fail (no `GAUNTLET_` key in the recorded argv); `assert_no` passes vacuously.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `scripts/drive.sh`, inside `spawn_orch`, directly after the `case "$action" in ... esac` that picks `tmpl`, add:
 
@@ -203,7 +203,7 @@ Then extend the `render` call to:
     GAUNTLET_ROUND="$ground" > "$CHECKOUT/.harness-task.md"
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bash test/test_gauntlet.sh`
 Expected: PASS — `── 9/9 passed`
@@ -211,7 +211,7 @@ Expected: PASS — `── 9/9 passed`
 Then confirm nothing else regressed: `bash test/test_spawn.sh && bash test/test_drive.sh`
 Expected: both PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/drive.sh test/test_gauntlet.sh
@@ -231,7 +231,7 @@ git commit -m "feat(gauntlet): spawn_orch computes the round and renders the gau
 - Produces: the `## Quality bar` contract that `prompts/review.md` (Task 4) parses:
   `Beat: <named artifact + URL>` and a `Judged on:` bullet list of 2–4 dimensions.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `test/test_prompt_labels.sh`, add after the existing decompose assertions:
 
@@ -250,12 +250,12 @@ assert "prd.md: omission is explicitly allowed (never invent a bar)" \
   "grep -qi 'omit' <<<\"\$out_prd\" && grep -qi 'never invent' <<<\"\$out_prd\""
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bash test/test_prompt_labels.sh`
 Expected: FAIL on all four new assertions (`prd.md` has no quality-bar text yet).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `prompts/prd.md`, insert this as **step 3** (between the existing `to-prd` step and the `gh issue create` step), then renumber the existing steps 3 and 4 to 4 and 5:
 
@@ -272,19 +272,19 @@ In `prompts/prd.md`, insert this as **step 3** (between the existing `to-prd` st
    (ours and it can sit side by side and a judge can pick one). Each `Judged on` dimension must be
    decidable by running a task, not by opinion. 2-4 dimensions.
    If no reference passes all three tests, OMIT the section entirely — that is the normal case for
-   internal tooling, and omitting it simply leaves review on acceptance criteria alone. NEVER
-   invent a bar to fill the section: a fake reference costs the fleet a real implementation round
-   every time it loses to it.
+   internal tooling, and omitting it simply leaves review on acceptance criteria alone.
+   NEVER INVENT a bar to fill the section: a fake reference costs the fleet a real implementation
+   round every time it loses to it.
 ```
 
 Also extend the `gh issue create` step's body note so it reads `--body "<the PRD markdown, incl. an '## Acceptance criteria' section, and '## Quality bar' if step 3 produced one>"`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bash test/test_prompt_labels.sh`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prompts/prd.md test/test_prompt_labels.sh
@@ -303,7 +303,7 @@ git commit -m "feat(gauntlet): PRD prompt emits an optional, validated quality b
 - Consumes: `{{GAUNTLET_DIR}}`, `{{GAUNTLET_ROUND}}`, `{{GAUNTLET_ROUNDS}}` (Task 2); the `## Quality bar` contract (Task 3).
 - Produces: the `<!-- harness-gauntlet round=N -->` PRD comment marker that `gauntlet_round` (Task 1) counts. Written on a LOST round only.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `test/test_prompt_labels.sh`, update the `out_review` render call to pass the new keys:
 
@@ -351,12 +351,12 @@ assert "review.md: a lost round files exactly ONE issue" \
   "grep -qi 'exactly ONE' <<<\"\$out_review\""
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bash test/test_prompt_labels.sh`
 Expected: FAIL on the new review assertions (current `review.md` has no phases and no gauntlet text).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Replace `prompts/review.md` entirely with:
 
@@ -441,7 +441,7 @@ gauntlet gap filed. When one of them is done, output exactly:
 <promise>{{PROMISE}}</promise>
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bash test/test_prompt_labels.sh`
 Expected: PASS.
@@ -449,7 +449,7 @@ Expected: PASS.
 Then the whole suite: `bash test/run.sh`
 Expected: PASS (non-zero exit means a sibling test regressed — most likely `test_skill.sh` or `test_readme_docs.sh`; fix before committing).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prompts/review.md test/test_prompt_labels.sh
@@ -468,7 +468,7 @@ git commit -m "feat(gauntlet): two-phase review — criteria gate, then blind A/
 - Consumes: `HARNESS_GAUNTLET_ROUNDS` (Task 1), the review flow (Task 4).
 - Produces: nothing code-facing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/test_readme_docs.sh`, before the final `echo`:
 
@@ -484,12 +484,12 @@ assert "README is honest that blindness is not a sandbox" \
   "grep -qi 'not a sandbox' '$README'"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bash test/test_readme_docs.sh`
 Expected: FAIL on the first new assertion (`exit 1` — this test aborts on first failure by design).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add to the README config table, directly after the `HARNESS_WORKTREE_HOOK` row:
 
@@ -549,7 +549,7 @@ of the engine.
 Credit: the pattern is Matt Shumer's [Gauntlet Loop](https://github.com/robonuggets/gauntlet-loop).
 ````
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bash test/test_readme_docs.sh`
 Expected: PASS — `── readme docs ok`
@@ -557,7 +557,7 @@ Expected: PASS — `── readme docs ok`
 Then: `bash test/run.sh`
 Expected: whole suite PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md test/test_readme_docs.sh
@@ -568,6 +568,6 @@ git commit -m "docs: gauntlet review — config key, opt-in bar, cap and blindne
 
 ## Ship
 
-- [ ] Open the PR: `gh pr create -R VocanicZ/Harness --fill --head feat/gauntlet-review --base main`
-- [ ] Squash-merge when green (`gh pr merge --squash --delete-branch` — this repo forbids `--auto`).
-- [ ] `harness update` on each host to ff-pull the shared `~/.harness/engine`. Live fleets keep the old prompts until relaunch; no migration, since existing PRDs carry no `## Quality bar`.
+- [x] Open the PR: `gh pr create -R VocanicZ/Harness --fill --head feat/gauntlet-review --base main`
+- [x] Squash-merge when green (`gh pr merge --squash --delete-branch` — this repo forbids `--auto`).
+- [x] `harness update` on each host to ff-pull the shared `~/.harness/engine`. Live fleets keep the old prompts until relaunch; no migration, since existing PRDs carry no `## Quality bar`.
