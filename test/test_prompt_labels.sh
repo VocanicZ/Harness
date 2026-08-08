@@ -20,7 +20,8 @@ assert(){
 # ── render each template with custom label values ────────────────────────────
 out_review="$(render "$HERE/../prompts/review.md" \
   PRD=7 SLUG=acme/widget PROJECT=w DESC=d SPEC= \
-  LABEL_READY=go LABEL_PRD=spec LABEL_REVIEWED=verified)"
+  LABEL_READY=go LABEL_PRD=spec LABEL_REVIEWED=verified \
+  GAUNTLET_DIR=/tmp/gaunt GAUNTLET_ROUND=2 GAUNTLET_ROUNDS=3)"
 
 out_dec="$(render "$HERE/../prompts/decompose.md" \
   PRD=7 SLUG=acme/widget PROJECT=w DESC=d SPEC= OWNER=acme \
@@ -46,6 +47,40 @@ assert "review.md: custom ready label 'go' used in ready-for-agent context" \
 
 assert "review.md: no unrendered {{LABEL_ token" \
   "! grep -q '{{LABEL_' <<<\"\$out_review\""
+
+# ── review.md gauntlet assertions ────────────────────────────────────────────
+assert "review.md: no unrendered {{GAUNTLET_ token" \
+  "! grep -q '{{GAUNTLET_' <<<\"\$out_review\""
+
+assert "review.md: criteria gate runs before the gauntlet" \
+  "[[ \$(grep -n 'PHASE 1' <<<\"\$out_review\" | head -1 | cut -d: -f1) -lt \$(grep -n 'PHASE 2' <<<\"\$out_review\" | head -1 | cut -d: -f1) ]]"
+
+assert "review.md: no quality bar -> sign off unchanged" \
+  "grep -qi 'no .*Quality bar' <<<\"\$out_review\""
+
+assert "review.md: round/cap values are rendered" \
+  "grep -q 'round 2 of 3' <<<\"\$out_review\""
+
+assert "review.md: writes the round marker with the rendered round" \
+  "grep -q 'harness-gauntlet round=2' <<<\"\$out_review\""
+
+assert "review.md: evidence dirs live under the rendered GAUNTLET_DIR" \
+  "grep -q '/tmp/gaunt/r2' <<<\"\$out_review\""
+
+assert "review.md: .mapping is a sibling of A/ and B/" \
+  "grep -q '.mapping' <<<\"\$out_review\" && grep -qi 'sibling' <<<\"\$out_review\""
+
+assert "review.md: critic verdict is binary (no scores)" \
+  "grep -q 'winner: A|B' <<<\"\$out_review\" && grep -qi 'no.*scores\|not.*scores' <<<\"\$out_review\""
+
+assert "review.md: concede path signs off at the cap" \
+  "grep -qi 'concede' <<<\"\$out_review\""
+
+assert "review.md: never parks on a quality gate" \
+  "! grep -q 'add-label agent-blocked' <<<\"\$out_review\" && grep -qi 'never apply an agent-blocked' <<<\"\$out_review\""
+
+assert "review.md: a lost round files exactly ONE issue" \
+  "grep -qi 'exactly ONE' <<<\"\$out_review\""
 
 # ── decompose.md assertions ──────────────────────────────────────────────────
 assert "decompose.md: --label go (custom ready) appears in gh issue create" \
@@ -100,6 +135,19 @@ assert "prd.md: default 'gh label create prd' absent" \
 
 assert "prd.md: no unrendered {{LABEL_ token" \
   "! grep -q '{{LABEL_' <<<\"\$out_prd\""
+
+# ── prd.md quality-bar assertions ────────────────────────────────────────────
+assert "prd.md: teaches the '## Quality bar' section" \
+  "grep -q '## Quality bar' <<<\"\$out_prd\""
+
+assert "prd.md: bar contract is Beat + Judged on" \
+  "grep -q 'Beat:' <<<\"\$out_prd\" && grep -q 'Judged on' <<<\"\$out_prd\""
+
+assert "prd.md: enforces named + fetchable + comparable" \
+  "grep -qi 'named' <<<\"\$out_prd\" && grep -qi 'fetchable' <<<\"\$out_prd\" && grep -qi 'comparable' <<<\"\$out_prd\""
+
+assert "prd.md: omission is explicitly allowed (never invent a bar)" \
+  "grep -qi 'omit' <<<\"\$out_prd\" && grep -qi 'never invent' <<<\"\$out_prd\""
 
 # ── inject.md render ─────────────────────────────────────────────────────────
 out_inject="$(render "$HERE/../prompts/inject.md" \

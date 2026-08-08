@@ -33,4 +33,14 @@ assert "shortcut rows mention the grill/confirm safety gate" \
 assert "shortcut rows document --unit"    "grep -q -- '--unit' <<<\"\$INJ_ROWS\""
 assert "shortcut rows document --recover" "grep -q -- '--recover' <<<\"\$INJ_ROWS\""
 
+# 4. Gauntlet review — config row, its own section, and the honest blindness caveat.
+assert "config table lists HARNESS_GAUNTLET_ROUNDS" \
+  "grep -qE '^\| \`HARNESS_GAUNTLET_ROUNDS\`' '$README'"
+assert "README has a Gauntlet review section" \
+  "grep -qE '^### Gauntlet review' '$README'"
+assert "README documents the ## Quality bar opt-in" \
+  "grep -q '## Quality bar' '$README'"
+assert "README is honest that blindness is not a sandbox" \
+  "grep -qi 'not a sandbox' '$README'"
+
 echo "── readme docs ok"

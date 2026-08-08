@@ -142,9 +142,15 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     DECOMPOSE) tmpl=decompose.md;;
     REVIEW)   tmpl=review.md;;
     *) log "bad orch action $action"; return 1;; esac
+  # Round is computed HERE, not in the prompt: a Claude session cannot call a lib.sh function,
+  # and letting it count its own comments makes the cap something it can miscount past.
+  local ground=""
+  if [[ "$action" == REVIEW ]]; then ground="$(gauntlet_round "$payload")"; fi
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" \
-    LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" > "$CHECKOUT/.harness-task.md"
+    LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" \
+    GAUNTLET_DIR="$STATE_DIR/gauntlet/$UNIT" GAUNTLET_ROUNDS="$HARNESS_GAUNTLET_ROUNDS" \
+    GAUNTLET_ROUND="$ground" > "$CHECKOUT/.harness-task.md"
   launch_claude "$(sess_orch "$UNIT")" "$CHECKOUT"
 }
 

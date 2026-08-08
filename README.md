@@ -84,6 +84,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
 | `HARNESS_USE_POLLER` | _(empty)_ | Host-poller opt-in. Empty = today's direct-`gh` polling (default off); set (e.g. `1`) = this fleet reads shared host snapshots instead of polling GitHub itself. Staged-rollout flag — see [Host poller](#host-poller) |
 | `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree (and every multi-topology clone), with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
+| `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
 
 ### Issue-author allowlist
 
@@ -124,6 +125,53 @@ Workers branch off the default branch independently and merge back independently
 The impl / bug-fix / resume prompts therefore require a **rebase onto the current base plus a re-run** immediately before merging, repeated until the rebase is a no-op. On a repo with **no required status checks this is the only guard**: `gh pr merge --auto` has nothing to wait for and merges on mergeable-state alone. If your repo has checks that build and test the *merge result*, they enforce the same property server-side — recommended for any fleet running more than one or two lanes against a shared codebase.
 
 The same prompts hold lanes to **no new failures against a baseline** captured before the first edit, rather than a globally green suite. Most real repos carry some pre-existing reds; an autonomous agent told "all green required" will either chase them forever or edit tests until they pass.
+
+### Gauntlet review
+
+Review normally grades the build against the PRD's own `## Acceptance criteria`. That bar is
+self-referential — the same fleet wrote the PRD, decomposed it, and implemented it — so a pass
+means "it meets the spec we wrote", never "it is any good".
+
+A PRD may opt in to a harder gate by carrying one extra section:
+
+```markdown
+## Quality bar
+Beat: ripgrep — https://github.com/BurntSushi/ripgrep
+Judged on:
+- time to first result on a 1M-line tree
+- output legibility for a multi-file match
+```
+
+When it is present and every acceptance criterion already passes, the reviewer runs a **gauntlet
+round**: it provisions the named reference, runs one fixed task list against both artifacts,
+writes the two results into unlabelled `A/` and `B/` directories under
+`.harness/gauntlet/<unit>/r<round>/`, and hands only those two paths to a **fresh-context critic
+sub-agent**, which returns a binary winner plus the single largest gap. No scores — numeric
+scoring drifts upward every round.
+
+If ours wins, the PRD is signed off. If it loses, the reviewer files **one** `ready-for-agent`
+issue for that one gap and leaves a `<!-- harness-gauntlet round=N -->` comment on the PRD; the
+pool implements it and review runs again at round N+1. The loop is the ordinary
+REVIEW → IMPL → REVIEW path — no new pipeline stage.
+
+The bar must be **named** (a specific artifact, not a category), **fetchable** (the reviewer can
+clone, install, run, or open it), and **comparable** (both can sit side by side and a judge can
+pick one). A PRD with no `## Quality bar` reviews exactly as it always has, so this is off unless
+a PRD asks for it.
+
+**Rounds are capped** by `HARNESS_GAUNTLET_ROUNDS` (default `3`). At the cap the reviewer concedes:
+it comments the standing gap and signs off. A bar can be honestly unbeatable, and an autonomous
+fleet has nobody to call the loop off — without a cap one PRD would burn the budget forever and,
+in `multi` topology, block every dependent target behind it. A reference that cannot be
+provisioned (paywalled, no public build) is treated the same way: comment why, sign off on the
+criteria alone. The reviewer never parks a quality gate behind `agent-blocked`.
+
+**Blindness here is prompt discipline, not a sandbox.** The reviewer wrote the side mapping, so it
+knows it; only the critic sub-agent is blind, via fresh context plus an explicit instruction not to
+read outside the two directories. A determined agent could peek — the same trust model as the rest
+of the engine.
+
+Credit: the pattern is Matt Shumer's [Gauntlet Loop](https://github.com/robonuggets/gauntlet-loop).
 
 ## Commands
 
