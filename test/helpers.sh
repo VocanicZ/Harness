@@ -9,6 +9,15 @@ assert_no(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then ec
 finish(){ echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"; [[ $TESTS_FAIL -eq 0 ]]; }
 make_env(){
   RUN_DIR="$(mktemp -d)"; CLAIMS_DIR="$RUN_DIR/claims"; POOL_LOCK="$RUN_DIR/pool.lock"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$CLAIMS_DIR"
+  # Hermetic state. lib.sh honours an inherited STATE_DIR (scripts/lib.sh:15) and every pool worker
+  # exports its project's own to every child, so a test run inside a live agent session resolved
+  # CONFIG / WORKTREES_DIR / CHECKOUTS_DIR at that fleet's REAL .harness/ and wrote to it. Re-pin
+  # STATE_DIR and everything lib.sh derived from it; export it so child processes (init.sh, spawned
+  # scripts) inherit the throwaway one too. Isolating WORKTREES_DIR per test was the old opt-in fix —
+  # this makes it the default. See test_hermetic.sh.
+  export STATE_DIR="$RUN_DIR/state"
+  CONFIG="$STATE_DIR/config"; WORKTREES_DIR="$STATE_DIR/worktrees"; CHECKOUTS_DIR="$STATE_DIR/checkouts"
+  mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR"
   TARGETS_TSV="$(mktemp)"; COMPLETE_SET="$(mktemp)"; POLL=0
   HARNESS_TOPOLOGY=multi   # tests that feed targets.tsv use multi; single-topology tests set it themselves
   unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }
