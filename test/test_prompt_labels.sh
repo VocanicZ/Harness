@@ -101,6 +101,19 @@ assert "prd.md: default 'gh label create prd' absent" \
 assert "prd.md: no unrendered {{LABEL_ token" \
   "! grep -q '{{LABEL_' <<<\"\$out_prd\""
 
+# ── prd.md quality-bar assertions ────────────────────────────────────────────
+assert "prd.md: teaches the '## Quality bar' section" \
+  "grep -q '## Quality bar' <<<\"\$out_prd\""
+
+assert "prd.md: bar contract is Beat + Judged on" \
+  "grep -q 'Beat:' <<<\"\$out_prd\" && grep -q 'Judged on' <<<\"\$out_prd\""
+
+assert "prd.md: enforces named + fetchable + comparable" \
+  "grep -qi 'named' <<<\"\$out_prd\" && grep -qi 'fetchable' <<<\"\$out_prd\" && grep -qi 'comparable' <<<\"\$out_prd\""
+
+assert "prd.md: omission is explicitly allowed (never invent a bar)" \
+  "grep -qi 'omit' <<<\"\$out_prd\" && grep -qi 'never invent' <<<\"\$out_prd\""
+
 # ── inject.md render ─────────────────────────────────────────────────────────
 out_inject="$(render "$HERE/../prompts/inject.md" \
   ALTITUDE=issue BRIEF='wire up a healthcheck endpoint' SLUG=acme/widget \
