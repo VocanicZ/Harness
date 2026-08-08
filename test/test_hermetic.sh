@@ -53,5 +53,11 @@ assert_no "make_env: WORKTREES_DIR no longer points at the live worktrees" \
   bash -c "[[ '$WORKTREES_DIR' == '$decoy/worktrees' ]]"
 assert_no "make_env: CHECKOUTS_DIR no longer points at the live checkouts" \
   bash -c "[[ '$CHECKOUTS_DIR' == '$decoy/checkouts' ]]"
+# unit_checkout/bug_checkout return PROJECT_ROOT as THE checkout in single topology, so a stale one
+# aims a test's git at the live repo. lib.sh:17 also defines it as the parent of STATE_DIR — hold that.
+assert_no "make_env: PROJECT_ROOT no longer points at the live project" \
+  bash -c "[[ '$PROJECT_ROOT' == "$(dirname "$decoy")" ]]"
+assert_eq "$(cd "$PROJECT_ROOT" && pwd)" "$(cd "$STATE_DIR/.." && pwd)" \
+  "make_env: PROJECT_ROOT stays the parent of STATE_DIR (lib.sh:17 invariant)"
 
 finish

@@ -17,6 +17,11 @@ make_env(){
   # this makes it the default. See test_hermetic.sh.
   export STATE_DIR="$RUN_DIR/state"
   CONFIG="$STATE_DIR/config"; WORKTREES_DIR="$STATE_DIR/worktrees"; CHECKOUTS_DIR="$STATE_DIR/checkouts"
+  # PROJECT_ROOT too: lib.sh:17 derives it from STATE_DIR at source time, and unit_checkout /
+  # bug_checkout return it as THE checkout in single topology — leaving it behind would point a
+  # test's git operations at the live repo, and would break lib.sh's own
+  # "PROJECT_ROOT is the parent of STATE_DIR" invariant (test_path_split.sh).
+  PROJECT_ROOT="$RUN_DIR"
   mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR"
   TARGETS_TSV="$(mktemp)"; COMPLETE_SET="$(mktemp)"; POLL=0
   HARNESS_TOPOLOGY=multi   # tests that feed targets.tsv use multi; single-topology tests set it themselves
