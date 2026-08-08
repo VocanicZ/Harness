@@ -22,7 +22,15 @@ make_env(){
   # test's git operations at the live repo, and would break lib.sh's own
   # "PROJECT_ROOT is the parent of STATE_DIR" invariant (test_path_split.sh).
   PROJECT_ROOT="$RUN_DIR"
-  mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR"
+  # Host-level state too (lib.sh:86-92). HARNESS_HOME defaults to ~/.harness and is NOT derived from
+  # STATE_DIR, so pinning STATE_DIR alone still let tests write the real host poller registry — which
+  # is shared by every co-resident fleet, so fixture entries there make `harness start` abort a real
+  # fleet on a bogus prefix collision. Same seam, different root.
+  export HARNESS_HOME="$RUN_DIR/host"
+  export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
+  POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
+  POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
+  mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$POLLER_REGISTRY_DIR" "$HARNESS_SNAPSHOTS_DIR"
   TARGETS_TSV="$(mktemp)"; COMPLETE_SET="$(mktemp)"; POLL=0
   HARNESS_TOPOLOGY=multi   # tests that feed targets.tsv use multi; single-topology tests set it themselves
   unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }

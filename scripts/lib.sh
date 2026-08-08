@@ -566,7 +566,12 @@ session_stalled(){ local pane="$1"
 # exhausted account is not re-probed every poll for the hours a weekly limit can last. Both clear
 # the #115 stall counter, so a quota park can never escalate into a kill.
 HARNESS_LIMIT_MENU_RE='Stop and wait for limit to reset'
-HARNESS_LIMIT_IDLE_RE="hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit"
+# Credit exhaustion ("You're out of usage credits. Run /usage-credits to keep using <model> or /model
+# to switch models.") is the SAME class as a limit park and must be listed here: it too aborts the turn
+# and drops the pane to idle ❯, but it matched none of the limit alternatives, so it fell through to
+# the #115 stall path and the session was nudged ×K then KILLED — and every re-dispatch re-provisions
+# a worktree and dies again instantly, burning the lane in a loop for as long as the account is dry.
+HARNESS_LIMIT_IDLE_RE="hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit|out of usage credits|out of credits"
 # session_limit_menu <pane-text> — true iff the pane is BLOCKED on the interactive limit menu.
 session_limit_menu(){ printf '%s' "$1" | grep -qE "$HARNESS_LIMIT_MENU_RE"; }
 # session_limit_idle <pane-text> — true iff a limit-aborted turn left the pane at the idle `❯`.

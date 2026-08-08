@@ -40,6 +40,24 @@ for t in test_init.sh test_bug_flow.sh test_drive.sh; do
   assert_untouched "$decoy" "$t"
 done
 
+# ── the HOST root (lib.sh:86-92) is a second, independent seam ──────────────────────────────────
+# HARNESS_HOME is NOT derived from STATE_DIR, so pinning STATE_DIR alone left the real ~/.harness
+# poller registry writable. That registry is SHARED by every co-resident fleet and `harness start`
+# aborts on a prefix collision against it, so fixture entries there don't merely litter — they stop
+# an unrelated production fleet from starting at all.
+# The vector is HARNESS_POLLER_DIR specifically, not HARNESS_HOME: lib.sh:87 prefers an INHERITED
+# HARNESS_POLLER_DIR over the HARNESS_HOME a test just set, and :89 exports it from every fleet
+# process — so test_prefix_guard.sh's own `export HARNESS_HOME="$(mktemp -d)"` (line 8) is defeated
+# exactly the way test_init.sh's `export HARNESS_DIR` was.
+make_host_decoy(){ local d; d="$(mktemp -d)/.harness"; mkdir -p "$d/poller/registry" "$d/snapshots"; printf '%s' "$d"; }
+for t in test_prefix_guard.sh test_poller.sh test_priority.sh test_worker.sh; do
+  [[ -f "$HERE/$t" ]] || continue
+  host="$(make_host_decoy)"
+  HARNESS_POLLER_DIR="$host/poller" HARNESS_SNAPSHOTS_DIR="$host/snapshots" bash "$HERE/$t" >/dev/null 2>&1
+  assert_eq "$(find "$host/poller/registry" -mindepth 1 | wc -l)" "0" "$t: no registry entries in live host root"
+  assert_eq "$(find "$host/snapshots" -mindepth 1 | wc -l)" "0" "$t: no snapshots in live host root"
+done
+
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
 # exported — make_env re-pins STATE_DIR and everything lib.sh derived from it.
 decoy="$(make_decoy)"
