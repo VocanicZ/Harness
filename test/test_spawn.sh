@@ -262,6 +262,60 @@ T_WD6="$(mktemp -d)"; echo "do the thing" > "$T_WD6/.harness-task.md"
 )
 assert_eq "$(trusted_of "$T_CFG6" "$T_WD6")" "True" "launch_claude pre-trusts its launch dir (A6 integration)"
 
+# ── Test group 3b: #67 follow-up — pre-accept must land in the config Claude Code actually READS ──
+# Claude Code reads workspace trust from $CLAUDE_CONFIG_DIR/.claude.json when that is set, else
+# ~/.claude.json. With the claude-acc account switcher installed, ~/.bashrc exports CLAUDE_CONFIG_DIR
+# in EVERY interactive bash — including the one `tmux new-session` opens for the lane — so the pane
+# reads ~/.claude-switch/accounts/<acct>/.claude.json while ensure_trusted was writing ~/.claude.json,
+# and the #67 gate came back. The account is chosen AFTER ensure_trusted runs (the pool worker carries
+# no CLAUDE_CONFIG_DIR of its own), so there is no single correct target: seed them all.
+echo "=== #67b: ensure_trusted seeds every config Claude Code might read ==="
+
+# fixture: a $HOME that looks like a claude-acc install with two provisioned accounts
+mk_acc_home(){ local h; h="$(mktemp -d)"; mkdir -p "$h/.claude-switch/accounts/main" "$h/.claude-switch/accounts/sub"; printf '%s' "$h"; }
+
+# B1: fan-out — ~/.claude.json AND every per-account config get the trust entry.
+T_HOMEB="$(mk_acc_home)"; T_WDB="$(mktemp -d)"
+( HOME="$T_HOMEB"; unset HARNESS_CLAUDE_CONFIG; HARNESS_AUTONOMOUS=true; ensure_trusted "$T_WDB" )
+assert_eq "$(trusted_of "$T_HOMEB/.claude.json" "$T_WDB")" "True" "~/.claude.json trusted (B1)"
+assert_eq "$(trusted_of "$T_HOMEB/.claude-switch/accounts/main/.claude.json" "$T_WDB")" "True" "account 'main' config trusted (B1)"
+assert_eq "$(trusted_of "$T_HOMEB/.claude-switch/accounts/sub/.claude.json" "$T_WDB")" "True" "account 'sub' config trusted (B1)"
+
+# B2: an account config is MERGED, never clobbered — it carries that account's identity + history.
+T_HOMEB2="$(mk_acc_home)"; T_WDB2="$(mktemp -d)"
+T_ACC2="$T_HOMEB2/.claude-switch/accounts/main/.claude.json"
+python3 - "$T_ACC2" <<'PY'
+import json,sys
+json.dump({"oauthAccount":{"emailAddress":"a@b.c"},"numStartups":7,
+           "projects":{"/old/proj":{"hasTrustDialogAccepted":True,"lastCost":2.5}}},
+          open(sys.argv[1],"w"), indent=2)
+PY
+( HOME="$T_HOMEB2"; unset HARNESS_CLAUDE_CONFIG; HARNESS_AUTONOMOUS=true; ensure_trusted "$T_WDB2" )
+assert_ok "account config still valid JSON after merge (B2)" json_ok "$T_ACC2"
+assert_eq "$(trusted_of "$T_ACC2" "$T_WDB2")" "True" "new path trusted in account config (B2)"
+assert_eq "$(topkey_of "$T_ACC2" numStartups)" "7" "account identity/top-level keys preserved (B2)"
+assert_eq "$(trusted_of "$T_ACC2" /old/proj)" "True" "existing account project entry preserved (B2)"
+assert_eq "$(field_of "$T_ACC2" /old/proj lastCost)" "2.5" "existing project's other fields preserved (B2)"
+
+# B3: no account switcher installed → home config only, and no phantom .claude-switch tree is created
+# (the unmatched glob must not be written out as a literal path).
+T_HOMEB3="$(mktemp -d)"; T_WDB3="$(mktemp -d)"
+( HOME="$T_HOMEB3"; unset HARNESS_CLAUDE_CONFIG; HARNESS_AUTONOMOUS=true; ensure_trusted "$T_WDB3" )
+assert_eq "$(trusted_of "$T_HOMEB3/.claude.json" "$T_WDB3")" "True" "plain \$HOME still trusted with no switcher (B3)"
+assert_no "unmatched account glob creates nothing (B3)" test -e "$T_HOMEB3/.claude-switch"
+
+# B4: CLAUDE_CONFIG_DIR exported into the worker (a config dir outside the switcher) is seeded too.
+T_HOMEB4="$(mktemp -d)"; T_CCD="$(mktemp -d)"; T_WDB4="$(mktemp -d)"
+( HOME="$T_HOMEB4"; unset HARNESS_CLAUDE_CONFIG; export CLAUDE_CONFIG_DIR="$T_CCD"; HARNESS_AUTONOMOUS=true; ensure_trusted "$T_WDB4" )
+assert_eq "$(trusted_of "$T_CCD/.claude.json" "$T_WDB4")" "True" "\$CLAUDE_CONFIG_DIR config trusted (B4)"
+
+# B5: the HARNESS_CLAUDE_CONFIG test seam stays single-file — it must never fan out onto a real $HOME.
+T_HOMEB5="$(mk_acc_home)"; T_WDB5="$(mktemp -d)"; T_CFGB5="$RUN_DIR/claude_b5.json"; rm -f "$T_CFGB5"
+( HOME="$T_HOMEB5"; HARNESS_AUTONOMOUS=true; HARNESS_CLAUDE_CONFIG="$T_CFGB5" ensure_trusted "$T_WDB5" )
+assert_eq "$(trusted_of "$T_CFGB5" "$T_WDB5")" "True" "seam config trusted (B5)"
+assert_no "seam does not write \$HOME/.claude.json (B5)" test -e "$T_HOMEB5/.claude.json"
+assert_no "seam does not write account configs (B5)" test -e "$T_HOMEB5/.claude-switch/accounts/main/.claude.json"
+
 # ── Test group 4: #108 — guard launch_claude against re-dispatch into a live session ──
 # launch_claude must short-circuit to a no-op when its target session is ALREADY live: re-dispatch
 # (e.g. a transiently-dropped agent-working label) must never write_state, new-session, or — worst

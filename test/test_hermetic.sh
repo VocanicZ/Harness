@@ -78,4 +78,20 @@ assert_no "make_env: PROJECT_ROOT no longer points at the live project" \
 assert_eq "$(cd "$PROJECT_ROOT" && pwd)" "$(cd "$STATE_DIR/.." && pwd)" \
   "make_env: PROJECT_ROOT stays the parent of STATE_DIR (lib.sh:17 invariant)"
 
+# Claude Code's config is host state too. ensure_trusted seeds every config the launched pane could
+# read — ~/.claude.json, $CLAUDE_CONFIG_DIR/.claude.json, and each ~/.claude-switch/accounts/*/ —
+# so a suite run inside a live agent session (whose .bashrc exports CLAUDE_CONFIG_DIR) wrote fixture
+# /tmp paths into the developer's real per-account config. make_env pins the seam and drops the
+# inherited config dir.
+export CLAUDE_CONFIG_DIR="$(mktemp -d)"
+CCD_DECOY="$CLAUDE_CONFIG_DIR"
+make_env
+assert_eq "${CLAUDE_CONFIG_DIR-<unset>}" "<unset>" \
+  "make_env: inherited CLAUDE_CONFIG_DIR is dropped"
+assert_ok "make_env: HARNESS_CLAUDE_CONFIG pinned inside the throwaway RUN_DIR" \
+  bash -c "[[ '$HARNESS_CLAUDE_CONFIG' == '$RUN_DIR'/* ]]"
+( source "$HERE/../scripts/lib.sh"; HARNESS_AUTONOMOUS=true ensure_trusted "$(mktemp -d)" )
+assert_no "make_env: ensure_trusted writes no config into the live config dir" \
+  test -e "$CCD_DECOY/.claude.json"
+
 finish

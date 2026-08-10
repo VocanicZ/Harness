@@ -121,10 +121,20 @@ run_worktree_hook(){
 # runs (consistent with the --dangerously-skip-permissions posture) — a supervised launch keeps
 # Claude Code's default trust prompt. Atomic + race-safe (flock + tmp-file-and-rename) because
 # multiple agents call launch_claude near-simultaneously. HARNESS_CLAUDE_CONFIG is a test seam; in
-# production it is unset so the path is the real ~/.claude.json.
-ensure_trusted(){
-  [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
-  local dir="$1" cfg="${HARNESS_CLAUDE_CONFIG:-$HOME/.claude.json}" lockfd
+# production it is unset and ensure_trusted picks the targets itself (see below).
+#
+# WHICH FILE: Claude Code reads workspace trust from $CLAUDE_CONFIG_DIR/.claude.json when that var is
+# set, else ~/.claude.json. Writing only ~/.claude.json silently stopped working once the claude-acc
+# account switcher was installed: ~/.bashrc exports CLAUDE_CONFIG_DIR=~/.claude-switch/accounts/<acct>
+# in EVERY interactive bash, including the one `tmux new-session` opens for the lane, so the pane
+# reads the per-account config while the pre-accept landed in ~/.claude.json — and #67's forever-block
+# came back on every new worktree. We cannot resolve the account here: it is chosen AFTER we run, by
+# the pane's .bashrc, and the pool worker carries no CLAUDE_CONFIG_DIR of its own (nor can we cache a
+# decision — `claude-acc default` may be flipped between spawn and launch). So seed every config the
+# pane could possibly read; an entry in a config the pane never opens is inert.
+# _trust_config <cfg> <dir> — merge the trust flag for <dir> into one config file. Atomic + flocked.
+_trust_config(){
+  local dir="$2" cfg="$1" lockfd
   exec {lockfd}>"$cfg.harness-trust.lock"; flock "$lockfd"
   CFG="$cfg" DIR="$dir" python3 - <<'PY'
 import json, os, tempfile
@@ -155,6 +165,21 @@ except BaseException:
     raise
 PY
   flock -u "$lockfd"; exec {lockfd}>&-
+}
+ensure_trusted(){
+  [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
+  local dir="$1" acct
+  # test seam: an explicit config is authoritative and stays single-file (never touches a real $HOME)
+  if [[ -n "${HARNESS_CLAUDE_CONFIG:-}" ]]; then _trust_config "$HARNESS_CLAUDE_CONFIG" "$dir"; return 0; fi
+  _trust_config "$HOME/.claude.json" "$dir"                       # no switcher, or switcher not active yet
+  if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then                      # a worker that DID inherit a config dir
+    _trust_config "$CLAUDE_CONFIG_DIR/.claude.json" "$dir"
+  fi
+  for acct in "$HOME"/.claude-switch/accounts/*/; do              # every claude-acc account the pane may pick
+    [[ -d "$acct" ]] || continue                                  # unmatched glob stays literal — skip it
+    _trust_config "$acct.claude.json" "$dir"
+  done
+  return 0
 }
 # ensure_bypass <dir> — default the spawned session AND its sub-agents to bypassPermissions by merging
 # permissions.defaultMode into <dir>/.claude/settings.local.json. --dangerously-skip-permissions only
