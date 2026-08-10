@@ -27,6 +27,14 @@ make_env(){
   # is shared by every co-resident fleet, so fixture entries there make `harness start` abort a real
   # fleet on a bogus prefix collision. Same seam, different root.
   export HARNESS_HOME="$RUN_DIR/host"
+  # Claude Code's config too. ensure_trusted seeds EVERY config the launched pane could read —
+  # ~/.claude.json, $CLAUDE_CONFIG_DIR/.claude.json, and each ~/.claude-switch/accounts/*/.claude.json
+  # — so a test run inside a live agent session (which exports CLAUDE_CONFIG_DIR via .bashrc) wrote
+  # fixture /tmp paths straight into the developer's real per-account config. Pin the seam to a
+  # throwaway by default and drop the inherited config dir; tests that exercise the fan-out override
+  # both explicitly (test_spawn.sh group 3b). Same seam, different root.
+  export HARNESS_CLAUDE_CONFIG="$RUN_DIR/claude.json"
+  unset CLAUDE_CONFIG_DIR
   export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
   POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
