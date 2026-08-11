@@ -85,6 +85,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_USE_POLLER` | _(empty)_ | Host-poller opt-in. Empty = today's direct-`gh` polling (default off); set (e.g. `1`) = this fleet reads shared host snapshots instead of polling GitHub itself. Staged-rollout flag — see [Host poller](#host-poller) |
 | `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree (and every multi-topology clone), with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 | `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
+| `HARNESS_CI_GATE` | `1` | `1` = hold new dispatch while the default branch's own CI is red (live sessions drain; the bug lane is never gated); `0` = off. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally. See [Never merging red](#never-merging-red) |
 
 ### Issue-author allowlist
 
@@ -122,9 +123,24 @@ Keep it **idempotent** — it may run against a reused path. Failures are logged
 
 Workers branch off the default branch independently and merge back independently, so by the time a lane is ready its base has usually moved. A suite that went green on a lane's branch only proves that change against the base it *started* from, and a conflict-free text merge can still be semantically broken — another lane edited the same function, moved a helper's contract, or rebuilt an artifact the tests load.
 
-The impl / bug-fix / resume prompts therefore require a **rebase onto the current base plus a re-run** immediately before merging, repeated until the rebase is a no-op. On a repo with **no required status checks this is the only guard**: `gh pr merge --auto` has nothing to wait for and merges on mergeable-state alone. If your repo has checks that build and test the *merge result*, they enforce the same property server-side — recommended for any fleet running more than one or two lanes against a shared codebase.
+The impl / bug-fix / resume prompts therefore require a **rebase onto the current base plus a re-run** immediately before merging, repeated until the rebase is a no-op. If your repo has checks that build and test the *merge result*, they enforce the same property server-side — recommended for any fleet running more than one or two lanes against a shared codebase.
 
 The same prompts hold lanes to **no new failures against a baseline** captured before the first edit, rather than a globally green suite. Most real repos carry some pre-existing reds; an autonomous agent told "all green required" will either chase them forever or edit tests until they pass.
+
+### Never merging red
+
+A rebase-and-re-run is blind to any failure that only reproduces on the runner — a different SDK image, a missing secret, a platform gap. Left alone, the fleet's merge decision read **mergeable-state only and never the check result**, which on a repo with no *required* status check is not a guard at all: `gh pr merge --auto` has nothing to wait for and merges a red PR happily. A private repo on a free plan cannot configure one — branch protection and rulesets both return `403` — so this is the default situation for most fleets, not an edge case.
+
+Two halves close it, and neither is sufficient alone:
+
+| Half | Where | What it does |
+|---|---|---|
+| Read the result before merging | `prompts/impl.md`, `prompts/bug-fix.md` | `gh pr checks --watch --fail-fast` immediately before the merge step. Red → fix and retry up to 3 times, then leave the PR **open**, comment the failing workflow and run URL on the issue, and end **without** the completion promise. Explicitly overrides "never park": that means never wait on a human, not merge anyway. |
+| Stop claiming while the base is red | `HARNESS_CI_GATE` | Before each poll's dispatch the pool checks the default branch's own CI. Red → no new sessions spawn; live ones drain untouched, and the next poll resumes automatically once it is green. Caps the blast radius when the first half is somehow bypassed. |
+
+The gate is **fail-open** on purpose — a fleet that halts on uncertainty is worse than one that merges a bad commit. Only a positively-failed *most recent completed* run of some workflow counts as red; no Actions at all, nothing completed yet, an unrecognised conclusion, or a `gh` outage all dispatch normally. A stale red behind a newer green does not gate, and `cancelled` is never treated as a failure.
+
+The **priority bug lane is deliberately not gated**, because it is the remedy: filing a `bug` issue is how a fleet digs a red default branch back out. Set `HARNESS_CI_GATE=0` to turn the whole thing off.
 
 ### Gauntlet review
 

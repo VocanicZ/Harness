@@ -462,6 +462,58 @@ def bug_lane_working(repo):
             and i["state"].lower() == "open"
             and L_WORKING() in i["_labels"]]
 
+
+# ── default-branch CI health (#50) ────────────────────────────────────────────────────────────
+# The fleet's merge decision used to read mergeable-state only and never the check RESULT, so a
+# repo with no REQUIRED status check (private repo on a free plan: branch protection and rulesets
+# are both 403) let four PRs land on a red default branch without anything noticing. The durable
+# pair is (a) the impl/bug-fix prompts refusing to merge a red PR, and (b) this: the pool refuses
+# to CLAIM NEW WORK while the default branch itself is red, which caps the blast radius at one bad
+# merge instead of an unbounded run of them.
+#
+# Deliberately FAIL-OPEN. "unknown" — no Actions at all, no completed run yet, an unrecognised
+# conclusion, a gh outage — must never wedge a fleet, so only a positively-identified failure of
+# the most recent COMPLETED run of some workflow counts as red. The bug lane is NOT gated on this:
+# it is the remedy path, and gating it would make a red default branch unfixable by the fleet.
+_CI_FAIL_CONCLUSIONS = {"failure", "timed_out", "startup_failure", "action_required"}
+
+
+def _default_branch(slug):
+    """The repo's default branch name, or "" when it cannot be read (absent repo / no access)."""
+    out = _gh_api_read(f"repos/{slug}", ".default_branch")
+    return (out or "").strip()
+
+
+def ci_status(repo, branch=None, limit=20):
+    """(verdict, workflow, url) for <repo>'s default branch, verdict ∈ pass|fail|unknown.
+
+    Groups the recent runs by workflow and looks only at each workflow's most recent COMPLETED
+    run — an in-flight run never masks the last verdict, and a workflow that has never completed
+    is simply not evidence. Any one workflow concluding in _CI_FAIL_CONCLUSIONS makes the branch
+    red; the returned workflow/url name that run so the caller can log something actionable.
+    Raises GhError on a transient gh failure, which the CLI turns into `unknown` (fail-open)."""
+    slug = _repo_slug(repo)
+    if branch is None:
+        branch = _default_branch(slug)
+    if not branch:
+        return ("unknown", "", "")
+    runs = _gh_json(["run", "list", "-R", slug, "--branch", branch, "--limit", str(limit),
+                     "--json", "workflowName,status,conclusion,url"], allow_absent=True)
+    if not runs:
+        return ("unknown", "", "")   # Actions not configured, or no run on this branch yet
+    latest = {}
+    for r in runs:
+        if (r.get("status") or "").lower() != "completed":
+            continue
+        latest.setdefault(r.get("workflowName") or "", r)   # gh lists newest-first
+    if not latest:
+        return ("unknown", "", "")   # everything still in flight
+    for name, r in sorted(latest.items()):
+        if (r.get("conclusion") or "").lower() in _CI_FAIL_CONCLUSIONS:
+            return ("fail", name, r.get("url") or "")
+    return ("pass", "", "")
+
+
 def dispatch(repo, free_slots, allow_orchestration):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     if allow_orchestration:
@@ -532,6 +584,13 @@ def main():
             print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
                   f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
                   f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
+        elif cmd == "ci-status":
+            # `<verdict>\t<workflow>\t<url>` for the default branch (or an explicit branch arg).
+            # FAIL-OPEN by construction: on a transient gh failure the shared handler below prints
+            # NOTHING and exits 3, and the bash gate (lib.sh ci_gate_ok) blocks only on a literal
+            # `fail` — so a rate limit or an outage can never wedge dispatch, it just stops gating.
+            branch = sys.argv[3] if len(sys.argv) > 3 else None
+            print("\t".join(ci_status(repo, branch)))
         elif cmd == "bugs":
             for n, phase in bug_lane_candidates(repo): print(f"{n}\t{phase}")
         elif cmd == "working-bugs":
