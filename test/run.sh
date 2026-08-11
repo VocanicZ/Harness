@@ -9,6 +9,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # (helpers.sh make_env) so a direct `bash test_foo.sh` is safe as well; test_hermetic.sh guards both.
 TMPROOT="$(mktemp -d)"
 trap 'rm -rf "$TMPROOT"' EXIT
+# Same blanket guard, second seam: config lines are `: "${VAR:=…}"`, so an inherited HARNESS_* from
+# the live fleet running this suite BEATS the fixture's own value. Pinning paths was not enough —
+# drop the config vars too, before any test can read them. (helpers.sh only defines functions at
+# top level, so sourcing it here has no other effect. Tests re-drop them via make_env.)
+source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
+unset_inherited_config
 rc=0
 for t in test_*.sh test_*.py; do
   [[ -e "$t" ]] || continue
