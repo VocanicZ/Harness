@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# This test asserts what `harness init` WROTE by sourcing it back, and config lines are
+# `: "${VAR:=…}"` — so a live fleet's exported HARNESS_REPO / HARNESS_AUTONOMOUS win over the
+# fixture's and the round-trip assertion fails on a developer machine while passing on a bare one.
+# run.sh drops them for the whole suite; re-drop here so a direct `bash test_init.sh` is safe too.
+source "$HERE/helpers.sh"; unset_inherited_config
 TMP="$(mktemp -d)"; cp -r "$HERE/.." "$TMP/.harness"   # fake .harness checkout
 export HARNESS_DIR="$TMP/.harness"
 # HARNESS_DIR alone does NOT isolate this test: lib.sh recomputes it from BASH_SOURCE (scripts/lib.sh:13)

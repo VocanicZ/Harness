@@ -94,4 +94,34 @@ assert_ok "make_env: HARNESS_CLAUDE_CONFIG pinned inside the throwaway RUN_DIR" 
 assert_no "make_env: ensure_trusted writes no config into the live config dir" \
   test -e "$CCD_DECOY/.claude.json"
 
+# The live fleet's CONFIG, not just its paths. Config lines are `: "${VAR:=…}"`, so an inherited
+# value BEATS the file by design — a suite running inside a live agent session (which exports the
+# whole set) read that fleet's HARNESS_REPO / HARNESS_AUTONOMOUS in place of its own fixture's, and
+# test_init.sh's round-trip assertion failed on a real machine while passing on a bare one. Pinning
+# STATE_DIR could not help: nothing about this leak goes through a path.
+#
+# Asserted in a SUBSHELL, and against unset_inherited_config directly rather than via make_env: the
+# drop has to happen before lib.sh is sourced (see helpers.sh), and this file has already sourced it.
+( export HARNESS_REPO=live/production HARNESS_AUTONOMOUS=false HARNESS_MODE=planned \
+         HARNESS_LABEL_READY=live-ready HARNESS_CI_GATE=0
+  unset_inherited_config
+  for v in HARNESS_REPO HARNESS_AUTONOMOUS HARNESS_MODE HARNESS_LABEL_READY HARNESS_CI_GATE; do
+    [[ "${!v-<unset>}" == "<unset>" ]] || exit 1
+  done
+  # ...and the fixture's own value now wins where the live one used to.
+  cfg="$(mktemp)"; printf ': "${HARNESS_REPO:=fixture/widget}"\n' > "$cfg"; source "$cfg"
+  [[ "$HARNESS_REPO" == fixture/widget ]] ) \
+  && { echo "  ok: inherited config is dropped and a fixture config round-trips"; TESTS_RUN=$((TESTS_RUN+1)); } \
+  || { echo "  FAIL: fixture config still loses to the live env"; TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1)); }
+# The host PATH pins must SURVIVE the drop — run.sh and make_env set them deliberately.
+( unset_inherited_config
+  [[ -n "${HARNESS_HOME:-}" && -n "${HARNESS_POLLER_DIR:-}" && -n "${HARNESS_SNAPSHOTS_DIR:-}" ]] ) \
+  && { echo "  ok: the host path pins survive the drop"; TESTS_RUN=$((TESTS_RUN+1)); } \
+  || { echo "  FAIL: the host path pins were dropped too"; TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1)); }
+# run.sh must actually DO the drop — a helper nobody calls guards nothing.
+assert_ok "run.sh drops inherited config before the suite loop" \
+  grep -q 'unset_inherited_config' "$HERE/run.sh"
+assert_ok "test_init.sh re-drops for a direct invocation" \
+  grep -q 'unset_inherited_config' "$HERE/test_init.sh"
+
 finish

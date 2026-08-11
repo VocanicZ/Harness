@@ -901,6 +901,118 @@ def test_fetch_warns_when_issue_list_cap_hit():
         il.subprocess.run = real; il._ISSUE_LIST_CAP = real_cap
 
 
+# ── default-branch CI health (#50) ────────────────────────────────────────────────────────────
+# ci_status decides whether the pool may claim new work, so its FAIL-OPEN edges matter more than
+# its happy path: every ambiguous input must read `unknown`, and only a positively-failed most
+# recent COMPLETED run may read `fail`. Stubs both gh seams — no network, no Actions run.
+def _with_runs(runs, branch="main"):
+    """Install stubs so ci_status sees <runs> on <branch>; returns a restore callable."""
+    real_api, real_json = il._gh_api_read, il._gh_json
+    il._gh_api_read = lambda path, jq: branch
+    il._gh_json = lambda args, allow_absent=False: runs
+    def restore():
+        il._gh_api_read, il._gh_json = real_api, real_json
+    return restore
+
+def _run(wf, status="completed", conclusion="success", url="u"):
+    return {"workflowName": wf, "status": status, "conclusion": conclusion, "url": url}
+
+def test_ci_status_green_and_red():
+    r = _with_runs([_run("ci")])
+    try:
+        assert il.ci_status("acme/widget")[0] == "pass"
+    finally: r()
+    r = _with_runs([_run("ci", conclusion="failure", url="U1")])
+    try:
+        verdict, wf, url = il.ci_status("acme/widget")
+        # The banner is only actionable if the failing workflow and run come back with the verdict.
+        assert (verdict, wf, url) == ("fail", "ci", "U1"), (verdict, wf, url)
+    finally: r()
+
+def test_ci_status_unknown_is_the_default_everywhere():
+    for runs, why in [([], "no runs on the branch"),
+                      (None, "Actions not configured (gh absent-read)"),
+                      ([_run("ci", status="in_progress", conclusion=None)], "nothing completed yet")]:
+        r = _with_runs(runs)
+        try: assert il.ci_status("acme/widget")[0] == "unknown", why
+        finally: r()
+    # No default branch resolvable => unknown, and crucially NO run-list call is attempted.
+    real_api, real_json = il._gh_api_read, il._gh_json
+    il._gh_api_read = lambda path, jq: ""
+    il._gh_json = lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not list runs"))
+    try: assert il.ci_status("acme/widget")[0] == "unknown"
+    finally: il._gh_api_read, il._gh_json = real_api, real_json
+
+def test_ci_status_reads_only_each_workflows_latest_completed_run():
+    # gh lists newest-first. A stale red run behind a fresh green one must NOT make the branch red,
+    # or a branch would stay gated forever on a failure that has already been fixed.
+    r = _with_runs([_run("ci"), _run("ci", conclusion="failure")])
+    try: assert il.ci_status("acme/widget")[0] == "pass"
+    finally: r()
+    # An in-flight run must not mask the last verdict either — it is not evidence in either direction.
+    r = _with_runs([_run("ci", status="in_progress", conclusion=None), _run("ci", conclusion="failure")])
+    try: assert il.ci_status("acme/widget")[0] == "fail"
+    finally: r()
+    # ANY workflow red makes the branch red, even when another is green.
+    r = _with_runs([_run("lint"), _run("ci", conclusion="timed_out")])
+    try: assert il.ci_status("acme/widget")[:2] == ("fail", "ci")
+    finally: r()
+
+def test_ci_status_only_known_failure_conclusions_gate():
+    # Conclusions that are not a real failure must never stall a fleet. `cancelled` especially:
+    # it is what a human pressing stop looks like, and it is not a statement about the code.
+    for c in ("success", "skipped", "neutral", "cancelled", "stale", "some_future_conclusion"):
+        r = _with_runs([_run("ci", conclusion=c)])
+        try: assert il.ci_status("acme/widget")[0] == "pass", c
+        finally: r()
+    for c in ("failure", "timed_out", "startup_failure", "action_required"):
+        r = _with_runs([_run("ci", conclusion=c)])
+        try: assert il.ci_status("acme/widget")[0] == "fail", c
+        finally: r()
+
+def test_ci_status_replays_the_incident_that_filed_50():
+    # Real `gh run list --branch main` rows from VocanicZ/hardcore-gacha-2, newest-first, captured
+    # over the window in #50 where four PRs merged onto a red main and nothing noticed for eleven
+    # hours. Replayed as the fleet would have seen it after EACH of those merges: the gate must
+    # read `fail` at every point between the first red merge and the fix, so the second merge is
+    # the last one that could have happened.
+    W = "ci"
+    hist = [   # (sha, conclusion) newest-first, as of the moment the fix landed
+        ("8914b78", "success"), ("f995560", "failure"), ("5091617", "failure"),
+        ("2342a40", "failure"), ("d9929a2", "failure"), ("a92f43b", "success"),
+    ]
+    def rows(since):   # what gh returned right after `since` merged
+        return [_run(W, conclusion=c, url=f"https://github.com/VocanicZ/hardcore-gacha-2/{s}")
+                for s, c in hist[hist.index(next(h for h in hist if h[0] == since)):]]
+    for sha in ("d9929a2", "2342a40", "5091617", "f995560"):
+        r = _with_runs(rows(sha))
+        try: assert il.ci_status("VocanicZ/hardcore-gacha-2")[0] == "fail", f"after {sha}"
+        finally: r()
+    # a92f43b is the last green before the run — the gate must NOT have been holding then, or it
+    # would have stalled the fleet for the eleven hours BEFORE the breakage.
+    r = _with_runs(rows("a92f43b"))
+    try: assert il.ci_status("VocanicZ/hardcore-gacha-2")[0] == "pass"
+    finally: r()
+    # ...and 8914b78 (the #49 SDK pin) turns it green again with no human touching the gate.
+    r = _with_runs(rows("8914b78"))
+    try: assert il.ci_status("VocanicZ/hardcore-gacha-2")[0] == "pass"
+    finally: r()
+
+def test_ci_status_holds_on_transient_gh_failure():
+    # A rate limit must raise, not read as "no runs" (which the CLI turns into empty stdout, which
+    # the bash gate reads as "do not gate"). Either way the fleet keeps moving — but the distinction
+    # must be visible here rather than silently folded into `unknown`.
+    real_api, real_json = il._gh_api_read, il._gh_json
+    il._gh_api_read = lambda path, jq: "main"
+    def boom(args, allow_absent=False): raise il.GhError("HTTP 403 rate limit")
+    il._gh_json = boom
+    try:
+        try:
+            il.ci_status("acme/widget"); assert False, "expected GhError"
+        except il.GhError: pass
+    finally: il._gh_api_read, il._gh_json = real_api, real_json
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

@@ -253,6 +253,10 @@ drive_unit(){
   while ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
     if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
+    # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
+    # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
+    # again. Placed after the reap sweep so a red branch never also stalls session bookkeeping.
+    if ! ci_gate_ok "$SLUG"; then sleep "$POLL"; continue; fi
     local active free allow_orch action payload promise
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then

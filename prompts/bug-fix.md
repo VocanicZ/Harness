@@ -37,10 +37,23 @@ Steps:
    another lane edited the same function, moved a helper's contract, or rebuilt an artifact your
    tests load. If the rebase moved anything: re-run the build, re-run the suite (same
    no-new-failures bar), then `git push --force-with-lease`. Repeat until the rebase is a no-op.
-   On a repo with NO required status checks this step is the only guard — there `--auto` has
-   nothing to wait for and merges on mergeable-state alone. If the repo does have checks that
-   build and test the merge result, they run this for you.
-6. Get the PR MERGED — robustly, because some repos disable auto-merge:
+   This catches semantic merge conflicts. It CANNOT catch a failure that only reproduces on the
+   runner — that is step 6's job, and the two are not interchangeable.
+6. GATE ON CI — read the PR's CHECK RESULT before merging, every time:
+     gh pr checks <pr-number> -R {{SLUG}} --watch --fail-fast --interval 30
+   Mergeable-state is NOT a green build. Where the repo has no REQUIRED status check — a private
+   repo on a free plan CANNOT have one, branch protection and rulesets both return 403 — `--auto`
+   has nothing to wait for and merges a red PR happily, and step 5's local suite is blind to
+   anything environment-specific (a different SDK image on the runner, a missing secret, a
+   platform gap). This command is the ONLY step that reads the actual result.
+   - Exit 0, or gh reports no checks configured on this repo → go to step 7.
+   - Non-zero → DO NOT MERGE. Pull the failing log (`gh run view <run-id> -R {{SLUG}} --log-failed`),
+     fix the cause on this branch, push, re-run the watch. Up to 3 attempts.
+   - Still red after 3 → STOP. Leave the PR OPEN, comment on #{{ISSUE}} naming the failing workflow,
+     the run URL, and what you tried, and end WITHOUT the promise. Never merge red to unblock
+     yourself, never disable or weaken the check to go green.
+   This lane exists to make the default branch healthier — merging red would make it the cause.
+7. Get the PR MERGED — robustly, because some repos disable auto-merge:
    a. FIRST try to enable auto-merge:
         gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
    b. If that FAILS because the repo forbids auto-merge (gh prints something like
@@ -59,6 +72,7 @@ WIP and push your branch, run /handoff and post it as a GitHub issue comment who
 --remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.
 
 Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
-NOT merely opened) AND the issue is closing. On an auto-merge-disabled repo, complete the
-direct squash merge (step 6b) BEFORE promising. When that holds, output exactly:
+NOT merely opened), its checks were GREEN when it merged (step 6), AND the issue is closing. On an
+auto-merge-disabled repo, complete the direct squash merge (step 7b) BEFORE promising. A PR left
+open on a red check is NOT a promise — report the failure instead. When it holds, output exactly:
 <promise>{{PROMISE}}</promise>

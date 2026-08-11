@@ -62,13 +62,14 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
 : "${HARNESS_GAUNTLET_ROUNDS:=3}"        # gauntlet review: rounds allowed before the reviewer concedes
+: "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
 
 export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
-  HARNESS_GAUNTLET_ROUNDS
+  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -470,6 +471,34 @@ recover_orphan_working(){ local u slug n freed=0
   echo "$freed"; }
 
 dispatch_actions(){ python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3"; }
+
+# --- default-branch CI gate (#50) --------------------------------------------
+# ci_status_default_branch <slug> — `<verdict>\t<workflow>\t<url>`, verdict ∈ pass|fail|unknown.
+# THIS IS THE SEAM tests override (mirrors _repo_bugs / unit_complete); everything below reads the
+# verdict through it, so no test needs a live gh or a real Actions run.
+ci_status_default_branch(){ python3 "$ISSUELIB" ci-status "$1" 2>/dev/null; }
+
+# ci_gate_ok <slug> — may the pool dispatch NEW work for <slug> right now? 0 = yes.
+#
+# Non-zero ONLY on a positively-red default branch, because a fleet that halts on uncertainty is
+# worse than one that merges a bad commit: every other verdict (unknown / no Actions / gh outage /
+# empty output from a HOLD exit) returns 0. HARNESS_CI_GATE=0 disables it outright.
+#
+# The remedy path is deliberately NOT gated: the priority bug lane claims through a red branch, so
+# filing a `bug` issue is how a fleet digs itself out. Nothing here touches live sessions either —
+# in-flight work drains normally, exactly like a pause.
+ci_gate_ok(){ local slug="$1" verdict wf url
+  [[ "$HARNESS_CI_GATE" == 0 ]] && return 0
+  IFS=$'\t' read -r verdict wf url < <(ci_status_default_branch "$slug")
+  [[ "${verdict:-unknown}" == fail ]] || return 0
+  ci_gate_log "$slug" "$wf" "$url"; return 1; }
+
+# Deduped per (slug, run url) so a red branch logs once per NEW failure, not once per poll.
+ci_gate_log(){ local key="$1:$3"
+  [[ "${_CI_GATE_LOGGED:-}" == "$key" ]] && return 0
+  _CI_GATE_LOGGED="$key"
+  log "CI RED on $1's default branch (workflow '${2:-?}') — holding new dispatch (#50). ${3:-}"
+  log "  live sessions keep draining. Remedy: file a \`$HARNESS_LABEL_BUG\` issue (the bug lane is not gated), or set HARNESS_CI_GATE=0 to override."; }
 
 # --- tmux session naming + ralph helpers -------------------------------------
 sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
