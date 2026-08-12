@@ -158,6 +158,7 @@ def test_cross_repo_blocked_until_target_issue_closes():
          "body": "## Blocked by\nother/repo#42\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     queried = []
     cross_state = {"open"}   # mutable single-element holder
     def fake_state(slug, number):
@@ -187,6 +188,7 @@ def test_bare_ref_blocks_same_repo():
          "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     queried = []
     il._issue_state = lambda slug, number: (queried.append((slug, number)) or "open")
     s = il.compute_state("acme/widget")
@@ -232,6 +234,7 @@ def test_author_allowlist_self_only_denies_others():
     os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -250,6 +253,7 @@ def test_author_allowlist_member_allowed_additive_to_self():
     os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "teammate, OtherBot"   # spaces + mixed case tolerated
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -271,6 +275,7 @@ def test_author_allowlist_star_allows_any():
     os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "*"
     il._self_login = lambda: ""
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 6, "title": "anyone", "state": "OPEN", "body": "", "_author": "anyone",
          "_labels": {"ready-for-agent"}},
@@ -285,6 +290,7 @@ def test_author_check_applies_to_prd_selection():
     os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 10, "title": "[AFK] PRD: evil", "state": "OPEN", "body": "", "_author": "attacker",
          "_labels": {"prd"}},
@@ -374,6 +380,7 @@ def test_self_is_always_allowed_even_with_nonempty_allowlist():
     os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "someone-else"
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -589,6 +596,7 @@ def test_merged_pr_blocker_is_satisfied():
          "body": "## Blocked by\n#215\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._issue_state = lambda slug, number: "merged"   # #215 is a merged PR
     s = il.compute_state("acme/widget")
     assert 5 in s["unblocked"], s
@@ -605,6 +613,7 @@ def test_open_issue_blocker_still_blocks():
          "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._issue_state = lambda slug, number: "open"
     s = il.compute_state("acme/widget")
     assert 5 not in s["unblocked"], s
