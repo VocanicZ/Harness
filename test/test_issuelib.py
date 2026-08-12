@@ -1153,6 +1153,65 @@ def test_prds_empty_when_no_prd_issue():
         assert s["prd"] is None, s
     finally: _restore_repo()
 
+def test_children_partition_by_parent():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]), _issue(20, labels=["prd"]),
+        _issue(11, labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(12, labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(21, labels=["ready-for-agent"], body="Part of #20\n"),
+    ])
+    try:
+        s = il.compute_state("acme/widget")
+        by_num = {p["number"]: p for p in s["prds"]}
+        assert by_num[10]["unblocked"] == [11, 12], by_num[10]
+        assert by_num[20]["unblocked"] == [21], by_num[20]
+        assert s["unparented_unblocked"] == [], s
+    finally: _restore_repo()
+
+def test_unattributed_child_lands_in_unparented_bucket():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]),
+        _issue(11, labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(99, labels=["ready-for-agent"], body="an injected issue, no parent"),
+        _issue(98, labels=["ready-for-agent"], body="## Parent\n#404\n"),   # PRD does not exist
+        _issue(97, labels=["ready-for-agent"], body="## Parent\nother/repo#1\n"),  # foreign repo
+    ])
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["unparented_unblocked"] == [99, 98, 97], s["unparented_unblocked"]
+        assert s["open_unparented"] == 3, s
+    finally: _restore_repo()
+
+def test_unparented_child_does_not_gate_a_prds_review():
+    """The latent bug: an injected issue used to sit in the flat children list and keep
+    children_all_closed False, stalling review of an unrelated PRD."""
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]),
+        _issue(11, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(99, labels=["ready-for-agent"], body="injected, unrelated"),
+    ])
+    try:
+        s = il.compute_state("acme/widget")
+        prd10 = s["prds"][0]
+        assert prd10["children_all_closed"] is True, prd10
+    finally: _restore_repo()
+
+def test_bug_lane_issues_stay_out_of_every_bucket():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]),
+        _issue(11, labels=["ready-for-agent", "bug"], body="## Parent\n#10\n"),
+        _issue(12, labels=["ready-for-agent", "bug-triaged"]),
+    ])
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["prds"][0]["unblocked"] == [], s["prds"][0]
+        assert s["unparented_unblocked"] == [], s
+    finally: _restore_repo()
+
 
 if __name__ == "__main__":
     fails = 0
