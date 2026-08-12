@@ -14,6 +14,7 @@ _REAL_LIST_ISSUES = il._list_issues
 _REAL_ISSUE_STATE = il._issue_state
 _REAL_HAS_PLAN = il._has_plan
 _REAL_PLAN_MARKER = il._plan_marker
+_REAL_AUTHOR_FILTER = il._author_filter
 
 def mk(**kw):
     base = dict(slug="acme/widget", has_plan=False, prd=None, prd_open=False, prd_reviewed=False,
@@ -157,6 +158,7 @@ def test_cross_repo_blocked_until_target_issue_closes():
          "body": "## Blocked by\nother/repo#42\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     queried = []
     cross_state = {"open"}   # mutable single-element holder
     def fake_state(slug, number):
@@ -186,6 +188,7 @@ def test_bare_ref_blocks_same_repo():
          "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     queried = []
     il._issue_state = lambda slug, number: (queried.append((slug, number)) or "open")
     s = il.compute_state("acme/widget")
@@ -231,6 +234,7 @@ def test_author_allowlist_self_only_denies_others():
     os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -249,6 +253,7 @@ def test_author_allowlist_member_allowed_additive_to_self():
     os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "teammate, OtherBot"   # spaces + mixed case tolerated
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -270,6 +275,7 @@ def test_author_allowlist_star_allows_any():
     os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "*"
     il._self_login = lambda: ""
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 6, "title": "anyone", "state": "OPEN", "body": "", "_author": "anyone",
          "_labels": {"ready-for-agent"}},
@@ -284,6 +290,7 @@ def test_author_check_applies_to_prd_selection():
     os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 10, "title": "[AFK] PRD: evil", "state": "OPEN", "body": "", "_author": "attacker",
          "_labels": {"prd"}},
@@ -373,6 +380,7 @@ def test_self_is_always_allowed_even_with_nonempty_allowlist():
     os.environ["HARNESS_AUTHOR_ALLOWLIST"] = "someone-else"
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -588,6 +596,7 @@ def test_merged_pr_blocker_is_satisfied():
          "body": "## Blocked by\n#215\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._issue_state = lambda slug, number: "merged"   # #215 is a merged PR
     s = il.compute_state("acme/widget")
     assert 5 in s["unblocked"], s
@@ -604,6 +613,7 @@ def test_open_issue_blocker_still_blocks():
          "body": "## Blocked by\n#9\n", "_labels": {"ready-for-agent"}},
     ]
     il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None   # hermetic: never read the real repo
     il._issue_state = lambda slug, number: "open"
     s = il.compute_state("acme/widget")
     assert 5 not in s["unblocked"], s
@@ -1093,6 +1103,55 @@ def test_parse_parent_does_not_harvest_blocked_by():
     # a `## Blocked by` ref must NEVER be mistaken for a parent
     b = "## Blocked by\n#99\n"
     assert il.parse_parent(b, "acme/widget") is None
+
+
+def _issue(n, state="OPEN", labels=(), body="", title="", author="bot"):
+    return {"number": n, "state": state, "title": title, "body": body,
+            "_labels": list(labels), "_author": author,
+            "labels": [{"name": l} for l in labels], "author": {"login": author}}
+
+def _stub_repo(issues):
+    """Point compute_state at a fixed issue list, bypassing gh entirely."""
+    il.compute_state = _REAL_COMPUTE_STATE   # undo any prior stub
+    il._list_issues = lambda slug, extra=None: issues
+    il._has_plan = lambda slug: False
+    il._plan_marker = lambda slug: None
+    il._author_filter = lambda xs: xs
+    il._issue_state = lambda slug, n: next(
+        (i["state"].lower() for i in issues if i["number"] == n), "")
+
+def _restore_repo():
+    il._list_issues, il._has_plan = _REAL_LIST_ISSUES, _REAL_HAS_PLAN
+    il._plan_marker, il._issue_state = _REAL_PLAN_MARKER, _REAL_ISSUE_STATE
+    il._author_filter = _REAL_AUTHOR_FILTER
+
+def test_prds_lists_every_prd_ascending():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(20, labels=["prd"]), _issue(10, labels=["prd"]),
+                _issue(15, title="[AFK] PRD: third")])
+    try:
+        s = il.compute_state("acme/widget")
+        assert [p["number"] for p in s["prds"]] == [10, 15, 20], s["prds"]
+    finally: _restore_repo()
+
+def test_legacy_scalars_derive_from_lowest_prd():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(20, labels=["prd"]), _issue(10, labels=["prd", "reviewed"])])
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["prd"] == 10, s["prd"]
+        assert s["prd_open"] is True, s
+        assert s["prd_reviewed"] is True, s
+    finally: _restore_repo()
+
+def test_prds_empty_when_no_prd_issue():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(3, labels=["ready-for-agent"])])
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["prds"] == [], s["prds"]
+        assert s["prd"] is None, s
+    finally: _restore_repo()
 
 
 if __name__ == "__main__":

@@ -424,33 +424,81 @@ def snapshot(repo):
     }
 
 
+def _prd_list(issues):
+    """Every PRD issue, ascending by number. Identified by the prd label or the `[AFK] PRD:`
+    title prefix — the same test the old single-PRD selector used, just not short-circuited."""
+    return sorted((i for i in issues
+                   if L_PRD() in i["_labels"] or i.get("title", "").startswith("[AFK] PRD:")),
+                  key=lambda i: i["number"])
+
+
 def compute_state(repo):
     slug = _repo_slug(repo)
     # secure-by-default: drop issues from non-allowed authors up front, so neither PRD
     # selection nor the IMPL claimable filter below can be hijacked by a foreign author.
     issues = _author_filter(_list_issues(slug))
-    prd = next((i for i in issues if L_PRD() in i["_labels"]
-                or i.get("title", "").startswith("[AFK] PRD:")), None)
-    prd_num = prd["number"] if prd else None
+    prd_issues = _prd_list(issues)
     # bug-lane issues live in a separate lane: never claimed by the normal pool and never
     # counted toward unit completion, even when they carry the ready label.
     children = [i for i in issues if L_READY() in i["_labels"] and L_PRD() not in i["_labels"]
                 and L_BUG() not in i["_labels"] and L_BUG_TRIAGED() not in i["_labels"]]
-    children_exist = len(children) > 0
-    children_all_closed = children_exist and all(i["state"].lower() == "closed" for i in children)
+
+    # Partition children by parent PRD. A parent ref that names another repo, or a PRD number
+    # that does not exist here, is not attributable — those fall into the unparented bucket
+    # rather than vanishing.
+    by_parent = {p["number"]: [] for p in prd_issues}
+    unparented = []
+    for i in children:
+        p = parse_parent(i.get("body"), slug)
+        if p is not None and _repo_slug(p[0]) == slug and p[1] in by_parent:
+            by_parent[p[1]].append(i)
+        else:
+            unparented.append(i)
+
     closed_cache = {}
-    unblocked = [i["number"] for i in children
-                 if i["state"].lower() == "open"
-                 and L_WORKING() not in i["_labels"]
-                 and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])
-                 and _is_unblocked(i, slug, closed_cache, prd_num)]
+
+    def _bucket(kids, prd_num):
+        all_closed = bool(kids) and all(k["state"].lower() == "closed" for k in kids)
+        unblocked = [k["number"] for k in kids
+                     if k["state"].lower() == "open"
+                     and L_WORKING() not in k["_labels"]
+                     and (AUTONOMOUS() or L_BLOCKED() not in k["_labels"])
+                     and _is_unblocked(k, slug, closed_cache, prd_num)]
+        return all_closed, unblocked
+
+    prds = []
+    for p in prd_issues:
+        kids = by_parent[p["number"]]
+        all_closed, unblocked = _bucket(kids, p["number"])
+        prds.append({"number": p["number"],
+                     "open": p["state"].lower() == "open",
+                     "reviewed": L_REVIEWED() in p["_labels"],
+                     # a PRD's own `## Blocked by` is what sequences PRDs; no section = eligible now
+                     "eligible": _is_unblocked(p, slug, closed_cache, p["number"]),
+                     "children_exist": bool(kids),
+                     "children_all_closed": all_closed,
+                     "unblocked": unblocked})
+    # The unparented bucket keeps the LEGACY exempt-PRD (the lowest-numbered one): a child with no
+    # `## Parent`/`Part of` attribution that names a PRD in its `## Blocked by` is the pre-upgrade
+    # shape, and that ref is attribution leakage, not a real block. Passing None here would start
+    # querying the PRD's state and wrongly hold such a child blocked until its PRD closed.
+    _, unparented_unblocked = _bucket(unparented, prd_issues[0]["number"] if prd_issues else None)
+
+    # Legacy scalar keys, derived from the LOWEST-numbered PRD. Kept so `status`, `check` and every
+    # existing consumer/test keeps working; only dispatch() and is_complete() read `prds`.
+    first = prds[0] if prds else None
     marker = _plan_marker(slug)
     return {"slug": slug, "has_plan": _has_plan(slug),
             "plan_marker_matches": marker is not None and marker.get("spec_hash") == _spec_hash(),
-            "prd": prd_num, "prd_open": bool(prd) and prd["state"].lower() == "open",
-            "prd_reviewed": bool(prd) and L_REVIEWED() in prd["_labels"],
-            "children_exist": children_exist, "children_all_closed": children_all_closed,
-            "unblocked": unblocked,
+            "prds": prds,
+            "unparented_unblocked": unparented_unblocked,
+            "open_unparented": sum(1 for i in unparented if i["state"].lower() == "open"),
+            "prd": first["number"] if first else None,
+            "prd_open": bool(first) and first["open"],
+            "prd_reviewed": bool(first) and first["reviewed"],
+            "children_exist": bool(children),
+            "children_all_closed": bool(children) and all(i["state"].lower() == "closed" for i in children),
+            "unblocked": unparented_unblocked + [n for p in prds for n in p["unblocked"]],
             "open_children": sum(1 for i in children if i["state"].lower() == "open"),
             "total_children": len(children),
             "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
