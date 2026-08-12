@@ -1354,6 +1354,47 @@ def test_single_prd_dispatch_is_byte_identical_to_legacy():
             assert il.dispatch("acme/widget", 3, True) == want, (state, want)
     finally: il.compute_state = _REAL_COMPUTE_STATE
 
+def test_busy_prd_is_not_decomposed_again():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, children_exist=False)])
+    try:
+        assert il.dispatch("acme/widget", 3, True) == [("DECOMPOSE", "10", "DECOMPOSE DONE")]
+        assert il.dispatch("acme/widget", 3, True, busy_prds=(10,)) == []
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_busy_prd_is_not_reviewed_again_but_siblings_still_are():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, children_all_closed=True),
+                                          prd(20, children_all_closed=True)])
+    try:
+        acts = il.dispatch("acme/widget", 3, True, busy_prds=(10,))
+        assert acts == [("REVIEW", "20", "REVIEW DONE")], acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_cli_dispatch_parses_busy_prds(capsys=None):
+    """The CLI contract drive.sh depends on: --busy-prds is optional and comma-separated."""
+    import io, contextlib
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True, prds=[prd(10, children_exist=False)])
+    real_argv = sys.argv
+    try:
+        for argv, want in [
+            (["issuelib.py", "dispatch", "acme/widget", "3", "--allow-orchestration", "1"],
+             "DECOMPOSE\t10\tDECOMPOSE DONE"),
+            (["issuelib.py", "dispatch", "acme/widget", "3", "--allow-orchestration", "1",
+              "--busy-prds", "10"], ""),
+            (["issuelib.py", "dispatch", "acme/widget", "3", "--allow-orchestration", "1",
+              "--busy-prds", ""], "DECOMPOSE\t10\tDECOMPOSE DONE"),
+        ]:
+            sys.argv = argv
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf): il.main()
+            assert buf.getvalue().strip() == want, (argv, buf.getvalue())
+    finally:
+        sys.argv = real_argv; il.compute_state = _REAL_COMPUTE_STATE
+
 
 if __name__ == "__main__":
     fails = 0
