@@ -83,6 +83,27 @@ reap_team(){
   shopt -u nullglob
 }
 
+# busy_prds_for <unit> — comma-separated PRD numbers with a LIVE orch session, for dispatch's
+# --busy-prds gate. p0 is the unit-level PLAN/PRD session and carries no PRD, so it is excluded.
+busy_prds_for(){
+  team_sessions "$1" | sed -n "s/^$HARNESS_SESS_PREFIX-$1-p\([0-9][0-9]*\)$/\1/p" \
+    | grep -v '^0$' | paste -sd, - ; }
+
+# reap_orch — sibling of reap_team for the per-PRD DECOMPOSE/REVIEW worktrees. Orch sessions hold
+# no issue label and push no branch, so teardown is just: drop the worktree and its throwaway
+# branch once the session is gone.
+reap_orch(){
+  shopt -s nullglob
+  local wd prd san; san="$(printf '%s' "$SLUG" | tr '/' '_')"
+  for wd in "$WORKTREES_DIR/orch-$san"-p*; do
+    prd="${wd##*-p}"
+    session_live "$(sess_orch "$UNIT" "$prd")" && continue
+    log "reaping orch worktree for PRD #$prd"
+    remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
+  done
+  shopt -u nullglob
+}
+
 # finalize_unit — the unit just reached COMPLETE. reap_done_sessions/reap_team only run at the
 # TOP of the poll loop, so the session AND worktree that DELIVER completion are never swept by
 # them — the loop exits first, orphaning the last tmux session + worktree (this is exactly how a
@@ -90,7 +111,7 @@ reap_team(){
 # down: kill every session still up for the unit, drop its goal file, remove each per-issue
 # worktree and its local branch, then prune. (Remote branches are auto-deleted on squash-merge.)
 finalize_unit(){
-  local s wd issue
+  local s wd issue prd
   archive_plan   # archive PLAN.md + write the spec-keyed completion marker (idempotent no-op if none)
   while read -r s; do
     [[ -z "$s" ]] && continue
@@ -103,6 +124,12 @@ finalize_unit(){
     git -C "$CHECKOUT" worktree remove --force "$wd" 2>/dev/null || rm -rf "$wd"
     git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
     log "finalize: removed worktree + local branch for #$issue"
+  done
+  local san; san="$(printf '%s' "$SLUG" | tr '/' '_')"
+  for wd in "$WORKTREES_DIR/orch-$san"-p*; do
+    prd="${wd##*-p}"
+    remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
+    log "finalize: removed orch worktree + branch for PRD #$prd"
   done
   git -C "$CHECKOUT" worktree prune 2>/dev/null || true
   shopt -u nullglob
@@ -129,29 +156,49 @@ close_prd(){
 }
 
 spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
-  local action="$1" payload="$2"; PROMISE="$3"; MAXITER="$ORCH_MAXITER"; GOAL="$action"
+  local action="$1" payload="$2"; PROMISE="$3"; MAXITER="$ORCH_MAXITER"
+  local tmpl wd prd=0 base ground=""
+  case "$action" in
+    PLAN)      tmpl=plan.md;;
+    PRD)       tmpl=prd.md;;
+    DECOMPOSE) tmpl=decompose.md; prd="$payload";;
+    REVIEW)    tmpl=review.md;    prd="$payload";;
+    *) log "bad orch action $action"; return 1;; esac
+  # PRD-qualified goal so reap_done_sessions advances the right session when several PRDs are in
+  # flight; the unit-level PLAN/PRD actions keep the bare goal.
+  GOAL="$action"; (( prd > 0 )) && GOAL="$action:$prd"
   ensure_checkout || return 1
   ensure_safe "$CHECKOUT"
-  local base; base="$(default_branch)"
+  base="$(default_branch)"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
-  git -C "$CHECKOUT" checkout -q "$base" 2>/dev/null || git -C "$CHECKOUT" checkout -q -B "$base" "origin/$base" 2>/dev/null || true
-  git -C "$CHECKOUT" reset -q --hard "origin/$base" 2>/dev/null || true
-  local tmpl; case "$action" in
-    PLAN)     tmpl=plan.md;;
-    PRD)      tmpl=prd.md;;
-    DECOMPOSE) tmpl=decompose.md;;
-    REVIEW)   tmpl=review.md;;
-    *) log "bad orch action $action"; return 1;; esac
+  if (( prd > 0 )); then
+    # DECOMPOSE/REVIEW: own worktree per PRD. Two of these can be live at once, and in the shared
+    # $CHECKOUT they would clobber each other's .harness-task.md and yank each other's working tree
+    # via `git reset --hard` — the same corruption #5/#109 fixed for bug-triage. Read-only + gh
+    # only, so `agent/orch-<prd>` is a throwaway branch that is never pushed.
+    wd="$(orch_worktree "$SLUG" "$prd")"
+    remove_worktree "$CHECKOUT" "$wd"   # defensive pre-add reap of a crashed-orch leftover
+    if ! git -C "$CHECKOUT" worktree add -B "agent/orch-$prd" "$wd" "origin/$base" 2>/dev/null; then
+      git -C "$CHECKOUT" worktree add -B "agent/orch-$prd" "$wd" 2>/dev/null || { log "worktree add failed orch PRD #$prd"; return 1; }
+    fi
+    ensure_safe "$wd"
+    run_worktree_hook "$wd"
+  else
+    # PLAN/PRD: unit-level, gated on zero PRDs existing, so they cannot race each other or a
+    # DECOMPOSE/REVIEW. PLAN also needs a real branch to commit and push PLAN.md.
+    wd="$CHECKOUT"
+    git -C "$CHECKOUT" checkout -q "$base" 2>/dev/null || git -C "$CHECKOUT" checkout -q -B "$base" "origin/$base" 2>/dev/null || true
+    git -C "$CHECKOUT" reset -q --hard "origin/$base" 2>/dev/null || true
+  fi
   # Round is computed HERE, not in the prompt: a Claude session cannot call a lib.sh function,
   # and letting it count its own comments makes the cap something it can miscount past.
-  local ground=""
   if [[ "$action" == REVIEW ]]; then ground="$(gauntlet_round "$payload")"; fi
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" \
-    GAUNTLET_DIR="$STATE_DIR/gauntlet/$UNIT" GAUNTLET_ROUNDS="$HARNESS_GAUNTLET_ROUNDS" \
-    GAUNTLET_ROUND="$ground" > "$CHECKOUT/.harness-task.md"
-  launch_claude "$(sess_orch "$UNIT")" "$CHECKOUT"
+    GAUNTLET_DIR="$STATE_DIR/gauntlet/$UNIT/p$prd" GAUNTLET_ROUNDS="$HARNESS_GAUNTLET_ROUNDS" \
+    GAUNTLET_ROUND="$ground" > "$wd/.harness-task.md"
+  launch_claude "$(sess_orch "$UNIT" "$prd")" "$wd"
 }
 
 spawn_impl(){   # <ISSUE> <PROMISE>
@@ -265,7 +312,7 @@ drive_unit(){
   SLUG="$(unit_slug "$UNIT")"; PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"
   log "drive $SLUG — mode $HARNESS_MODE cap $CAP poll ${POLL}s"
   while ! unit_complete "$UNIT"; do
-    reap_done_sessions; reap_team; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
+    reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
     if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
     # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
     # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
@@ -275,7 +322,11 @@ drive_unit(){
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then
       allow_orch=0; (( active == 0 )) && allow_orch=1
-      local actions; actions="$(dispatch_actions "$REPO" "$free" "$allow_orch")"
+      # `allow_orch` stays unit-wide and gates only PLAN/PRD (Task 5 took it off the per-PRD
+      # actions); DECOMPOSE/REVIEW/CLOSE_PRD are gated by --busy-prds plus remaining capacity, so
+      # PRD #2 can decompose while PRD #1's impl sessions are live.
+      local busy; busy="$(busy_prds_for "$UNIT")"
+      local actions; actions="$(dispatch_actions "$REPO" "$free" "$allow_orch" "$busy")"
       # A unit that is not complete, has nothing in flight and nothing dispatchable used to be
       # unreachable — a closed PRD ended the loop. Completion now also requires open_children == 0,
       # so it IS reachable: one open ready child that no lane can claim (blocked by an unclosed

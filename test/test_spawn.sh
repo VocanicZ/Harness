@@ -355,4 +355,43 @@ assert_eq "$(grep -c 'new-session' "$G2_CALLS")" "1" "fresh spawn still calls tm
 assert_eq "$(grep -c 'send-keys' "$G2_CALLS")" "1" "fresh spawn still send-keys exec claude (#108)"
 assert_ok "fresh spawn writes the goal file (#108)" test -f "$RUN_DIR/$G2_SESS.goal"
 
+# ── DECOMPOSE/REVIEW get a per-PRD worktree; PLAN/PRD stay in the shared checkout ────
+TMP="$RUN_DIR/t10"; mkdir -p "$TMP"
+LAUNCHED=""; WT_ADDED=""
+launch_claude(){ LAUNCHED="$1|$2"; }
+ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }
+remove_worktree(){ :; }; default_branch(){ echo main; }
+gh(){ return 1; }   # gauntlet_round must stay wired, but must not touch the network here
+# stub `git worktree add` by materialising whichever argument is the worktree path (the
+# real command's trailing arg is the START POINT, not the destination).
+git(){ local a wt=""
+  case "$*" in *"worktree add"*) WT_ADDED="$*"
+    for a in "$@"; do [[ "$a" == "$WORKTREES_DIR"/* ]] && wt="$a"; done
+    [[ -n "$wt" ]] && mkdir -p "$wt";; esac
+  return 0; }
+
+UNIT=main; SLUG=acme/widget; CHECKOUT="$TMP/checkout"; mkdir -p "$CHECKOUT"
+spawn_orch REVIEW 41 "REVIEW DONE"
+assert_eq "${LAUNCHED%%|*}" "$(sess_orch main 41)" "REVIEW launches the PRD-qualified session"
+assert_eq "${LAUNCHED##*|}" "$(orch_worktree acme/widget 41)" "REVIEW runs in its own orch worktree"
+assert_ok "REVIEW worktree is on a throwaway branch" grep -q "agent/orch-41" <<<"$WT_ADDED"
+assert_ok "REVIEW task file written into the worktree" \
+  test -f "$(orch_worktree acme/widget 41)/.harness-task.md"
+# the gauntlet evidence dir must be PRD-scoped, or two concurrent reviews corrupt each other's
+# blind A/B comparison by sharing r<n>/A, r<n>/B and .mapping
+assert_ok "gauntlet dir is PRD-scoped" \
+  grep -q "gauntlet/main/p41" "$(orch_worktree acme/widget 41)/.harness-task.md"
+
+LAUNCHED=""
+spawn_orch PLAN - "PLAN DONE"
+assert_eq "${LAUNCHED##*|}" "$CHECKOUT" "PLAN still runs in the shared checkout"
+assert_eq "${LAUNCHED%%|*}" "$(sess_orch main)" "PLAN uses the p0 session"
+
+# GOAL must be PRD-qualified so reap_done_sessions advances the right session
+spawn_orch DECOMPOSE 42 "DECOMPOSE DONE"
+assert_eq "$GOAL" "DECOMPOSE:42" "orch GOAL is PRD-qualified"
+spawn_orch PLAN - "PLAN DONE"
+assert_eq "$GOAL" "PLAN" "unit-level GOAL stays bare"
+unset -f git gh
+
 finish

@@ -243,4 +243,14 @@ tmux(){ printf '%s\n' hz-main hz-main-p41 hz-main-i7 hz-other-p1 hz-mainline-p2;
 assert_eq "$(HARNESS_SESS_PREFIX=hz team_sessions main | tr '\n' ' ')" \
   "hz-main hz-main-p41 hz-main-i7 " "team_sessions matches legacy, -p and -i, and nothing else"
 unset -f tmux
+
+# ── the busy-PRD set reaches dispatch_actions ────────────────────────────────────────
+BUSY_SEEN=""
+dispatch_actions(){ BUSY_SEEN="$4"; return 0; }
+tmux(){ printf '%s\n' hz-main-p41 hz-main-i7; }
+HARNESS_SESS_PREFIX=hz busy_prds_for main >/dev/null
+assert_eq "$(HARNESS_SESS_PREFIX=hz busy_prds_for main)" "41" \
+  "busy_prds_for extracts PRD numbers from live -p sessions, ignoring p0 and -i"
+unset -f tmux dispatch_actions
+
 finish
