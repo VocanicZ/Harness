@@ -19,8 +19,27 @@ _REAL_AUTHOR_FILTER = il._author_filter
 def mk(**kw):
     base = dict(slug="acme/widget", has_plan=False, prd=None, prd_open=False, prd_reviewed=False,
                 children_exist=False, children_all_closed=False, unblocked=[], open_children=0, total_children=0,
-                plan_marker_matches=False)
-    base.update(kw); return base
+                plan_marker_matches=False, prds=None, unparented_unblocked=None, open_unparented=0)
+    base.update(kw)
+    # Bridge: when a test supplies only the legacy scalars, synthesise the single-PRD `prds` list
+    # they imply, so pre-existing tests exercise the new dispatch path unchanged.
+    if base["prds"] is None:
+        base["prds"] = ([{"number": base["prd"], "open": base["prd_open"],
+                          "reviewed": base["prd_reviewed"], "eligible": True,
+                          "children_exist": base["children_exist"],
+                          "children_all_closed": base["children_all_closed"],
+                          "unblocked": list(base["unblocked"])}]
+                        if base["prd"] is not None else [])
+        base["unparented_unblocked"] = [] if base["prd"] is not None else list(base["unblocked"])
+    elif base["unparented_unblocked"] is None:
+        base["unparented_unblocked"] = []
+    return base
+
+def prd(number, unblocked=(), eligible=True, open=True, reviewed=False,
+        children_exist=True, children_all_closed=False):
+    return {"number": number, "open": open, "reviewed": reviewed, "eligible": eligible,
+            "children_exist": children_exist, "children_all_closed": children_all_closed,
+            "unblocked": list(unblocked)}
 
 def dispatch_with(mode, state, free=3):
     os.environ["HARNESS_MODE"] = mode
@@ -720,8 +739,13 @@ def test_engine_closes_a_reviewed_but_open_prd():
                                     children_all_closed=True, prd_reviewed=True)
     assert il.dispatch("acme/widget", 3, True) == [("CLOSE_PRD", "7", "PRD CLOSED")], \
         il.dispatch("acme/widget", 3, True)
-    # CLOSE_PRD is an orchestration action: it must NOT fire while impl work is in flight.
-    assert il.dispatch("acme/widget", 3, False) == [], "CLOSE_PRD gated on allow_orchestration"
+    # CLOSE_PRD is gated PER PRD (--busy-prds), not by the unit-wide allow_orchestration flag:
+    # that flag is only ever set when no session is live anywhere in the unit, so gating per-PRD
+    # actions on it would let one PRD's impl work block another PRD's decompose/review forever.
+    assert il.dispatch("acme/widget", 3, False) == [("CLOSE_PRD", "7", "PRD CLOSED")], \
+        "CLOSE_PRD is gated per-PRD, not on allow_orchestration"
+    assert il.dispatch("acme/widget", 3, False, busy_prds=(7,)) == [], \
+        "a PRD with a live orch session is not re-dispatched"
 
 def test_no_close_prd_until_reviewed():
     # CLOSE_PRD must never close an UNREVIEWED PRD — that would skip the review gate entirely.
@@ -1251,6 +1275,84 @@ def test_prd_chain_of_three_releases_one_at_a_time():
         s = il.compute_state("acme/widget")
         assert [p["eligible"] for p in s["prds"]] == [True, False, False], s["prds"]
     finally: _restore_repo()
+
+
+def test_dispatch_fills_lowest_prd_first():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, [11, 12, 13]), prd(20, [21, 22])])
+    try:
+        acts = il.dispatch("acme/widget", 2, True)
+        assert [a[1] for a in acts] == ["11", "12"], acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_dispatch_spills_into_next_prd_when_first_runs_dry():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, [11]), prd(20, [21, 22])])
+    try:
+        acts = il.dispatch("acme/widget", 3, True)
+        assert [a[1] for a in acts] == ["11", "21", "22"], acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_dispatch_skips_ineligible_prd_entirely():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, [11]), prd(20, [21], eligible=False)])
+    try:
+        acts = il.dispatch("acme/widget", 5, True)
+        assert [a[1] for a in acts] == ["11"], acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_dispatch_serves_unparented_bucket_first():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True, prds=[prd(10, [11, 12])],
+                                    unparented_unblocked=[99])
+    try:
+        acts = il.dispatch("acme/widget", 2, True)
+        assert [a[1] for a in acts] == ["99", "11"], acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_dispatch_decomposes_each_prd_independently():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, [11]), prd(20, children_exist=False)])
+    try:
+        acts = il.dispatch("acme/widget", 3, True)
+        assert acts[0] == ("DECOMPOSE", "20", "DECOMPOSE DONE"), acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_dispatch_reviews_one_prd_while_another_still_implements():
+    os.environ["HARNESS_MODE"] = "prd"
+    il.compute_state = lambda r: mk(prd=10, prd_open=True,
+                                    prds=[prd(10, [], children_all_closed=True), prd(20, [21])])
+    try:
+        acts = il.dispatch("acme/widget", 3, True)
+        assert ("IMPL", "21", "ISSUE 21 DONE") in acts, acts
+        assert ("REVIEW", "10", "REVIEW DONE") in acts, acts
+    finally: il.compute_state = _REAL_COMPUTE_STATE
+
+def test_single_prd_dispatch_is_byte_identical_to_legacy():
+    """The regression guard for the live fleets: one PRD, no unparented children, the full
+    PLAN → PRD → DECOMPOSE → IMPL → REVIEW → CLOSE_PRD sequence, exact tuples."""
+    os.environ["HARNESS_MODE"] = "planned"
+    cases = [
+        (mk(prd=None, has_plan=False), [("PLAN", "-", "PLAN DONE")]),
+        (mk(prd=None, has_plan=True), [("PRD", "-", "PRD DONE")]),
+        (mk(prd=7, prd_open=True, has_plan=True, children_exist=False),
+         [("DECOMPOSE", "7", "DECOMPOSE DONE")]),
+        (mk(prd=7, prd_open=True, has_plan=True, children_exist=True, unblocked=[8, 9]),
+         [("IMPL", "8", "ISSUE 8 DONE"), ("IMPL", "9", "ISSUE 9 DONE")]),
+        (mk(prd=7, prd_open=True, has_plan=True, children_exist=True, children_all_closed=True),
+         [("REVIEW", "7", "REVIEW DONE")]),
+        (mk(prd=7, prd_open=True, prd_reviewed=True, has_plan=True, children_exist=True,
+            children_all_closed=True), [("CLOSE_PRD", "7", "PRD CLOSED")]),
+    ]
+    try:
+        for state, want in cases:
+            il.compute_state = lambda r, _s=state: _s
+            assert il.dispatch("acme/widget", 3, True) == want, (state, want)
+    finally: il.compute_state = _REAL_COMPUTE_STATE
 
 
 if __name__ == "__main__":

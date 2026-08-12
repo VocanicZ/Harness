@@ -596,33 +596,55 @@ def ci_status(repo, branch=None, limit=20):
     return ("pass", "", "")
 
 
-def dispatch(repo, free_slots, allow_orchestration):
+def dispatch(repo, free_slots, allow_orchestration, busy_prds=()):
     s = compute_state(repo); a = _allowed(MODE()); out = []
+    prds = s["prds"]; busy = set(busy_prds); slots = max(0, free_slots)
     if allow_orchestration:
         # Fire a fresh PLAN only with no live PLAN.md AND (no completion marker OR the spec content
         # changed since that marker). A finished plan archives PLAN.md and writes a spec-keyed marker,
         # so without the marker check PLAN would re-fire every poll once the doc is gone.
-        if a["plan"] and s["prd"] is None and not s["has_plan"] and not s["plan_marker_matches"]:
+        if a["plan"] and not prds and not s["has_plan"] and not s["plan_marker_matches"]:
             return [("PLAN", "-", "PLAN DONE")]
-        if a["prd"] and s["has_plan"] and s["prd"] is None:
+        if a["prd"] and s["has_plan"] and not prds:
             return [("PRD", "-", "PRD DONE")]
-        if a["decompose"] and s["prd"] is not None and not s["children_exist"]:
-            return [("DECOMPOSE", str(s["prd"]), "DECOMPOSE DONE")]
-    for num in s["unblocked"][:max(0, free_slots)]:
+    # A PRD sequenced behind another via `## Blocked by` contributes nothing — no decompose, no
+    # impl, no review — until its blocker closes. No blockers means eligible immediately, which is
+    # what makes independent PRDs run in parallel.
+    eligible = [p for p in prds if p["eligible"]]
+    # DECOMPOSE/REVIEW/CLOSE_PRD are gated PER PRD (via `busy`) rather than by the unit-wide
+    # `allow_orchestration`. That unit-wide flag is set only when NO session is live anywhere in
+    # the unit, so leaving these under it would mean PRD #2 could never decompose while PRD #1 had
+    # a single impl session running — silently re-serializing PRDs authored to run in parallel.
+    # PLAN/PRD stay under `allow_orchestration`: they are unit-level and must not race anything.
+    if a["decompose"]:
+        for p in eligible:
+            if p["open"] and not p["children_exist"] and p["number"] not in busy:
+                return [("DECOMPOSE", str(p["number"]), "DECOMPOSE DONE")]
+    # Slots: unparented bucket (human injections) first, then eligible PRDs ascending, each
+    # spilling into the next only once it has no unblocked work left.
+    for num in s["unparented_unblocked"][:slots]:
         out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
-    if not out and allow_orchestration and a["review"] and s["children_all_closed"] and s["prd_open"]:
-        # Split the two halves of "wrap up the PRD" so neither can wedge the unit:
-        #   • REVIEW signs off — it applies the reviewed label (and may file gap issues). Gate it on
-        #     NOT-yet-reviewed so a reviewed-but-still-open PRD doesn't spawn an endless run of fresh
-        #     review sessions (each one a live orch session that pins allow_orchestration).
-        #   • CLOSE_PRD is the mechanical close, done by the ENGINE (drive.sh) via a single idempotent
-        #     `gh issue close`, retried every poll. This is the deterministic fix for "PRD won't
-        #     close": the close no longer depends on the review agent's own gh call succeeding (which
-        #     a shared-token rate limit can drop), so a signed-off PRD always closes.
-        if not s["prd_reviewed"]:
-            out.append(("REVIEW", str(s["prd"]), "REVIEW DONE"))
-        else:
-            out.append(("CLOSE_PRD", str(s["prd"]), "PRD CLOSED"))
+    for p in eligible:
+        if len(out) >= slots: break
+        for num in p["unblocked"][:slots - len(out)]:
+            out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
+    # REVIEW/CLOSE_PRD gate on remaining CAPACITY, not on `not out` as the single-PRD version did:
+    # with several PRDs, one PRD's impl work must not suppress another's review indefinitely.
+    #   • REVIEW signs off — it applies the reviewed label (and may file gap issues). Gated on
+    #     NOT-yet-reviewed so a reviewed-but-still-open PRD doesn't spawn an endless run of fresh
+    #     review sessions (each one a live orch session).
+    #   • CLOSE_PRD is the mechanical close, done by the ENGINE (drive.sh) via a single idempotent
+    #     `gh issue close`, retried every poll — so a signed-off PRD always closes even if the
+    #     review agent's own gh call was dropped by a rate limit.
+    if a["review"]:
+        for p in eligible:
+            if len(out) >= slots: break
+            if p["number"] in busy or not p["open"] or not p["children_all_closed"]:
+                continue
+            if not p["reviewed"]:
+                out.append(("REVIEW", str(p["number"]), "REVIEW DONE"))
+            else:
+                out.append(("CLOSE_PRD", str(p["number"]), "PRD CLOSED"))
     return out
 
 def is_complete(s):
