@@ -494,7 +494,7 @@ recover_orphan_working(){ local u slug n freed=0
   done
   echo "$freed"; }
 
-dispatch_actions(){ python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3"; }
+dispatch_actions(){ python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}"; }
 
 # --- default-branch CI gate (#50) --------------------------------------------
 # ci_status_default_branch <slug> — `<verdict>\t<workflow>\t<url>`, verdict ∈ pass|fail|unknown.

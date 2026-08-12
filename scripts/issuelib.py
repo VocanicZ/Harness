@@ -700,7 +700,13 @@ def main():
         elif cmd == "dispatch":
             free = int(sys.argv[3]) if len(sys.argv) > 3 else 1
             allow = sys.argv[sys.argv.index("--allow-orchestration")+1] == "1" if "--allow-orchestration" in sys.argv else True
-            for action, payload, promise in dispatch(repo, free, allow): print(f"{action}\t{payload}\t{promise}")
+            # --busy-prds "41,42": PRDs with a live orch session, which must not be re-dispatched.
+            # Optional and empty-tolerant so the bare `dispatch <repo> <free>` shape still works.
+            busy = ()
+            if "--busy-prds" in sys.argv:
+                raw = sys.argv[sys.argv.index("--busy-prds")+1]
+                busy = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
+            for action, payload, promise in dispatch(repo, free, allow, busy): print(f"{action}\t{payload}\t{promise}")
         elif cmd == "status":
             s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
             prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
