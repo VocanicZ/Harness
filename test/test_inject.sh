@@ -32,11 +32,24 @@ assert_ok "task file carries the brief"     bash -c "grep -q 'add a rate limiter
 
 # REVIEW guard: a live orch session whose goal is REVIEW must abort (exit 1). The orch session name
 # is PRD-qualified now (multi-PRD) — inject.sh and the fixture both derive it from sess_orch, so the
-# unit-level name is hz-main-p0.
+# unit-level name is hz-main-p0. The guard scans every live orch session, so tmux is stubbed to list
+# it (team_sessions is what enumerates them).
 echo REVIEW > "$RUN_DIR/$(sess_orch main).goal"
-( session_live(){ [[ "$1" == "$(sess_orch main)" ]]; }
+( tmux(){ printf '%s\n' "$(sess_orch main)"; }
+  session_live(){ [[ "$1" == "$(sess_orch main)" ]]; }
   source "$HERE/../scripts/inject.sh" issue "add a rate limiter" ) 2>/dev/null
 assert_eq "$?" "1" "inject.sh aborts while a REVIEW session is live for the unit"
+
+# … and on a PRD-qualified orch session that is NOT p0: after the multi-PRD rename only PLAN/PRD use
+# p0, so a guard that read the single well-known p0 name would silently stop firing while a REVIEW
+# of PRD #41 (session hz-main-p41, goal `REVIEW:41`) closes that PRD out from under the injection.
+rm -f "$RUN_DIR/$(sess_orch main).goal"
+echo "REVIEW:41" > "$RUN_DIR/hz-main-p41.goal"
+( tmux(){ printf '%s\n' hz-main-p41; }
+  session_live(){ [[ "$1" == hz-main-p41 ]]; }
+  source "$HERE/../scripts/inject.sh" issue "add a rate limiter" ) 2>/dev/null
+assert_eq "$?" "1" "inject.sh aborts while a REVIEW is live on a non-p0 orch session"
+rm -f "$RUN_DIR/hz-main-p41.goal"
 
 # bad altitude is rejected
 ( source "$HERE/../scripts/inject.sh" bogus "x" ) 2>/dev/null
@@ -148,5 +161,91 @@ rm -f "$PAUSE_FLAG"
 assert_eq "$?" "0" "inject.sh proceeds normally when not paused"
 assert_ok "inject.sh launched the injector when not paused" \
   bash -c "grep -q 'hz-inject-main :: $TMPCO' '$LAUNCH'"
+
+# ── §8 review_session_live: scan EVERY live orch session, not just p0 (#149) ──────────
+# Goals are PRD-qualified now (`REVIEW:41`) and several orch sessions can be live at once (one per
+# PRD), so the predicate enumerates them via team_sessions instead of reading one well-known name.
+make_env
+HARNESS_SESS_PREFIX=hz
+echo "REVIEW:41" > "$RUN_DIR/hz-main-p41.goal"
+tmux(){ printf '%s\n' hz-main-p41; }
+session_live(){ [[ "$1" == hz-main-p41 ]]; }
+assert_ok "review_session_live detects a live REVIEW on a non-p0 session" review_session_live main
+
+echo "DECOMPOSE:41" > "$RUN_DIR/hz-main-p41.goal"
+assert_no "review_session_live ignores a live DECOMPOSE" review_session_live main
+
+# an unqualified legacy goal (`REVIEW`, pre-multi-PRD) still counts
+echo "REVIEW" > "$RUN_DIR/hz-main-p41.goal"
+assert_ok "review_session_live matches an unqualified legacy REVIEW goal" review_session_live main
+
+# one REVIEW among several live orch sessions is enough to fire
+tmux(){ printf '%s\n' hz-main-p0 hz-main-p41 hz-main-i7; }
+echo "DECOMPOSE:41" > "$RUN_DIR/hz-main-p41.goal"
+echo "PRD"          > "$RUN_DIR/hz-main-p0.goal"
+assert_no "review_session_live false when no live session is a REVIEW" review_session_live main
+echo "REVIEW:41" > "$RUN_DIR/hz-main-p41.goal"
+assert_ok "review_session_live true when ANY live orch session is a REVIEW" review_session_live main
+
+# a REVIEW goal left behind by a session that is NOT live must not fire
+tmux(){ printf '%s\n' hz-main-p0; }
+assert_no "review_session_live ignores a stale goal whose session is gone" review_session_live main
+unset -f tmux session_live
+
+# ── §9 attach.sh selects among several live orch sessions (#149) ──────────────────────
+# attach.sh runs as its own process, so stub tmux as a fake binary on PATH.
+make_env
+FAKEBIN="$RUN_DIR/bin"; mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/tmux" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  ls)          printf '%s\n' $FAKE_SESSIONS ;;
+  has-session) [[ " $FAKE_SESSIONS " == *" $3 "* ]] ;;
+  attach)      echo "ATTACH:$3" >> "$FAKE_ATTACH_LOG" ;;
+esac
+EOF
+chmod +x "$FAKEBIN/tmux"
+export FAKE_ATTACH_LOG="$RUN_DIR/attach.log"; : > "$FAKE_ATTACH_LOG"
+export HARNESS_SESS_PREFIX=hz
+
+# exactly one live orch session → attach straight to it, even though it is not p0
+export FAKE_SESSIONS="hz-main-p41 hz-main-i7"
+out="$(PATH="$FAKEBIN:$PATH" bash "$HERE/../scripts/attach.sh" main 2>&1)"; rc=$?
+assert_eq "$rc" "0" "attach.sh exits 0 with exactly one live orch session"
+assert_ok "attach.sh attached to the single live orch session (hz-main-p41)" \
+  bash -c "grep -q 'ATTACH:hz-main-p41' '$FAKE_ATTACH_LOG'"
+
+# several live orch sessions → refuse, and list them so the operator can name one
+: > "$FAKE_ATTACH_LOG"
+export FAKE_SESSIONS="hz-main-p0 hz-main-p41 hz-main-i7"
+out="$(PATH="$FAKEBIN:$PATH" bash "$HERE/../scripts/attach.sh" main 2>&1)"; rc=$?
+assert_eq "$rc" "1" "attach.sh refuses when several orch sessions are live"
+assert_ok "attach.sh lists hz-main-p0"  bash -c "printf '%s' \"\$1\" | grep -q 'hz-main-p0'"  _ "$out"
+assert_ok "attach.sh lists hz-main-p41" bash -c "printf '%s' \"\$1\" | grep -q 'hz-main-p41'" _ "$out"
+assert_no "attach.sh did not attach to any of them" \
+  bash -c "grep -q ATTACH '$FAKE_ATTACH_LOG'"
+
+# … and naming one of them outright attaches to it (the escape hatch the error points at)
+: > "$FAKE_ATTACH_LOG"
+out="$(PATH="$FAKEBIN:$PATH" bash "$HERE/../scripts/attach.sh" hz-main-p41 2>&1)"; rc=$?
+assert_eq "$rc" "0" "attach.sh accepts a live session name outright"
+assert_ok "attach.sh attached to the named session hz-main-p41" \
+  bash -c "grep -q 'ATTACH:hz-main-p41' '$FAKE_ATTACH_LOG'"
+
+# an explicit issue argument is unchanged — attach straight to the impl session
+: > "$FAKE_ATTACH_LOG"
+out="$(PATH="$FAKEBIN:$PATH" bash "$HERE/../scripts/attach.sh" main 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "attach.sh <unit> <issue> still attaches to the impl session"
+assert_ok "attach.sh attached to hz-main-i7" \
+  bash -c "grep -q 'ATTACH:hz-main-i7' '$FAKE_ATTACH_LOG'"
+
+# no live orch session at all → the old error path (no session '<sess_orch>')
+: > "$FAKE_ATTACH_LOG"
+export FAKE_SESSIONS="hz-main-i7"
+out="$(PATH="$FAKEBIN:$PATH" bash "$HERE/../scripts/attach.sh" main 2>&1)"; rc=$?
+assert_eq "$rc" "1" "attach.sh exits 1 when no orch session is live"
+assert_no "attach.sh did not attach with no orch session live" \
+  bash -c "grep -q ATTACH '$FAKE_ATTACH_LOG'"
+unset FAKE_SESSIONS FAKE_ATTACH_LOG
 
 finish
