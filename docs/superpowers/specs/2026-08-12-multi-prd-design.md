@@ -10,10 +10,10 @@ is silently invisible — no error, no log line, no work. Four sites assume the 
 
 | Site | Assumption |
 |---|---|
-| `issuelib.py:380` | `prd = next(...)` — takes the **first** match, discards the rest |
-| `issuelib.py:385` | `children` = *every* ready-labelled issue in the repo, not scoped to a PRD |
-| `issuelib.py:457` | `DECOMPOSE` fires only when `not children_exist` — repo-global |
-| `issuelib.py:483` | `is_complete` keys on *that one* PRD closing |
+| `issuelib.py:398` | `prd = next(...)` — takes the **first** match, discards the rest |
+| `issuelib.py:403` | `children` = *every* ready-labelled issue in the repo, not scoped to a PRD |
+| `issuelib.py:527` | `DECOMPOSE` fires only when `not children_exist` — repo-global |
+| `issuelib.py:546` | `is_complete` keys on *that one* PRD closing |
 
 Consequences, in order of how quickly they bite: PRD #2 is never decomposed once PRD #1 has any
 children; PRD #2's children (if hand-filed) are pooled into PRD #1's `children_all_closed`, so
@@ -39,12 +39,21 @@ stated invariant, and would make the ordering invisible to anyone reading the is
 
 ## State model
 
-`compute_state` returns a list ordered by issue number ascending, replacing the scalar `prd`:
+`compute_state` gains a list ordered by issue number ascending:
 
 ```python
 prds = [{"number", "open", "reviewed", "eligible",
-         "children", "children_all_closed", "unblocked"}]
+         "children_exist", "children_all_closed", "unblocked"}]
 ```
+
+plus `unparented_unblocked` and `open_unparented` for the unparented bucket.
+
+**The legacy scalar keys are kept, derived from the lowest-numbered PRD**: `prd`, `prd_open`,
+`prd_reviewed`, `children_exist`, `children_all_closed`, `unblocked`, `open_children`,
+`total_children`, `paused`. Only `dispatch` and `is_complete` read the new `prds` list. This keeps
+the `status` and `check` CLI output, every other `compute_state` consumer, and roughly a thousand
+lines of existing `test_issuelib.py` working unchanged, and confines the behavioural change to two
+functions instead of spreading it across the module.
 
 ### Attribution
 
@@ -84,8 +93,22 @@ them. Spill means idle capacity is never wasted.
 Orchestration is emitted per-PRD and independently: PRD #41 may be in REVIEW while PRD #42 is in
 DECOMPOSE. Gates change from repo-global to PRD-scoped:
 
-- `DECOMPOSE`: `not prd["children"]` (was `not s["children_exist"]`)
+- `DECOMPOSE`: `not prd["children_exist"]` (was `not s["children_exist"]`)
 - `REVIEW` / `CLOSE_PRD`: that PRD's own `children_all_closed` and `open`
+
+REVIEW's outer guard also changes from `not out` to `len(out) < slots`. `not out` was a proxy for
+"there is capacity and nothing better to do"; with several PRDs it would let PRD #42's impl work
+suppress PRD #41's review indefinitely, re-serializing the very thing this design parallelizes.
+Capacity is the real constraint, so it becomes the explicit one.
+
+For a single PRD this is equivalent — `children_all_closed` implies no open children, hence no
+unblocked ones, hence no IMPL from that PRD — *unless* there are open unparented children. In
+that one case behaviour deliberately changes: an injected issue no longer suppresses review of an
+unrelated PRD. That is the latent bug named above, not a regression.
+
+Action payloads stay in the existing `(action, payload, promise)` shape and the promise strings
+are unchanged (`DECOMPOSE DONE`, `REVIEW DONE`, `PRD CLOSED`) — the PRD number already travels in
+the payload field, which is what `drive.sh` consumes.
 
 `PLAN` and `PRD` remain unit-level and keep their existing guards. The `PRD` action still fires
 exactly once, when zero PRDs exist.
@@ -110,16 +133,28 @@ Three races surface the moment two PRDs run at once.
 
 ### Session-name collision
 
-`sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }` (`lib.sh:414`) is unit-scoped, so DECOMPOSE #42
+`sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }` (`lib.sh:504`) is unit-scoped, so DECOMPOSE #42
 and REVIEW #41 would contend for one tmux name.
 
 `sess_orch <unit> <prd>` → `$PREFIX-$unit-p<prd>`, using `-p0` for the unit-level PLAN/PRD
 actions that carry no PRD number.
 
-`team_sessions` (`lib.sh:424`) widens from `^$PREFIX-$1($|-i)` to `^$PREFIX-$1($|-i|-p)`. The
+`team_sessions` (`lib.sh:514`) widens from `^$PREFIX-$1($|-i)` to `^$PREFIX-$1($|-i|-p)`. The
 bare `$` alternative is retained so an orch session already in flight when the engine upgrades is
 still counted and reaped rather than orphaned. `fleet_session_re` is already broad (`^prefix-.+$`,
 deliberately so per #90) and needs no change.
+
+Two existing callers assume the single orch name and must be updated with it:
+
+- **`inject.sh:43`** refuses to inject while a REVIEW session is live, by reading the `.goal` of
+  the one `sess_orch "$UNIT"` session. Left as-is it would check only the `-p0` name (PLAN/PRD),
+  silently losing the guard — an injection could then land while a REVIEW is live and that REVIEW
+  could close the PRD out from under it, which is precisely the race the check exists to prevent.
+  It becomes a scan of every live `-p*` session for the unit, refusing if any `.goal` names REVIEW.
+  (Its own `$CHECKOUT/.harness-task.md` write also stops racing DECOMPOSE/REVIEW once those move
+  to worktrees — an incidental improvement.)
+- **`attach.sh:17`** attaches to `sess_orch "$UNIT"`. It gains selection among the unit's live
+  `-p*` sessions, attaching directly when exactly one is live and listing them otherwise.
 
 ### Shared-checkout clobber
 
@@ -127,19 +162,31 @@ deliberately so per #90) and needs no change.
 shared checkout. Two concurrent orch sessions would overwrite each other's prompt file and reset
 each other's working tree mid-run.
 
+This failure mode is already documented and already fixed once elsewhere: `drive.sh:221` records
+that bug-**triage** used to run in the shared `$CHECKOUT`, where "a concurrent `spawn_orch`
+`render > $CHECKOUT/.harness-task.md` (brief clobber) + `git reset --hard origin/<base>`
+(working-tree yank) corrupted the in-flight triage", and #5/#109 fixed it by giving triage its own
+worktree. Multi-PRD makes `spawn_orch` race *itself*, so it takes the same remedy, following that
+established pattern rather than inventing a new one.
+
 `spawn_orch` splits by action:
 
-- **`DECOMPOSE` / `REVIEW`** — per-PRD worktree at `$WORKTREES_DIR/$UNIT-p<prd>`, added
-  `--detach` at `origin/$base`. Both sessions are read-only plus `gh` calls, so detached HEAD is
-  safe. The `-p` namespace cannot be mis-parsed by `reap_team`'s `${wd##*-i}` glob.
+- **`DECOMPOSE` / `REVIEW`** — per-PRD worktree from a new `orch_worktree <slug> <prd>` helper
+  (`$WORKTREES_DIR/orch-<slug-with-/-as-_>-p<prd>`), on a throwaway branch `agent/orch-<prd>`,
+  exactly mirroring `triage_worktree` (`lib.sh:402`) and its `agent/bug-triage-<n>` branch. The
+  spawn sequence copies the triage path verbatim: `remove_worktree` defensive pre-add reap →
+  `git worktree add -B` with an `origin/$base` fallback → `ensure_safe` → `run_worktree_hook`.
+  Both sessions are read-only plus `gh` calls, so the branch is throwaway and never pushed.
 - **`PLAN` / `PRD`** — stay in `$CHECKOUT` unchanged. They cannot race (both gated on zero PRDs
   existing plus unit-wide `allow_orch`), and `PLAN` needs a real branch to commit `PLAN.md`.
 
-This leaves two spawn paths inside `spawn_orch`. The alternative — a worktree for every orch
-action — is a larger diff and would require giving PLAN a branch it can commit and push from, for
-no behavioural gain.
+The `orch-` path prefix, like `triage-`, sits at the `$WORKTREES_DIR` root rather than under
+`$UNIT-`, so it can never be caught by `reap_team` / `finalize_unit`'s `"$WORKTREES_DIR/$UNIT"-i*`
+glob or mis-parsed by their `${wd##*-i}` extraction.
 
-A `reap_orch` mirrors `reap_team` over the `-p*` glob; `finalize_unit`'s sweep gains the same.
+A `reap_orch` mirrors `reap_team` over the `orch-<slug>-p*` glob; `finalize_unit`'s sweep gains
+the same. Crash recovery gets an `sweep_orphan_orch_worktrees`, the direct analogue of
+`sweep_orphan_bug_worktrees` (`lib.sh:421`), for orch worktrees left by a killed engine.
 
 ### `allow_orch` narrowing
 
@@ -152,12 +199,16 @@ The guard splits:
 - `PLAN` / `PRD` keep the unit-wide `active == 0` guard.
 - `DECOMPOSE` / `REVIEW` gate per-PRD on *no live orch session for that PRD*.
 
-`drive.sh` derives the busy set directly from `-p<n>` session names and passes it as a 4th
-positional argument to `dispatch_actions`. No new state is introduced. REVIEW needs no additional
-impl-session check: its `children_all_closed` gate already implies none are running.
+`drive.sh` derives the busy set directly from `-p<n>` session names and passes it to
+`dispatch_actions`. No new state is introduced. REVIEW needs no additional impl-session check: its
+`children_all_closed` gate already implies none are running.
 
-The 4th argument is optional with an empty default, so the existing
-`issuelib.py dispatch <repo> <free>` call shape (`test_poller.sh:105`) keeps working.
+`dispatch_actions` (`lib.sh:473`) is currently
+`python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3"`, so the busy set is passed as
+a matching **named flag**, `--busy-prds "41,42"`, parsed the same way `--allow-orchestration`
+already is (`issuelib.py:580`). Flag-shaped rather than positional means the existing
+`issuelib.py dispatch <repo> <free>` call shape (`test_poller.sh:105`) keeps working untouched,
+and an absent flag defaults to the empty set.
 
 ### Goal strings
 
@@ -190,16 +241,20 @@ a sequence). This is what makes PLAN-generated PRD sets usable. The dispatch gua
 - dispatch ordering, including spill when the first bucket runs dry
 - per-PRD isolation of DECOMPOSE / REVIEW / CLOSE_PRD
 - `is_complete` blocked by an open unparented child
-- **back-compat regression guard**: a fixture repo with exactly one PRD and today's issue bodies
-  produces dispatch output identical to the current engine. This is the test protecting the live
-  fleets.
+- **back-compat regression guard**: a fixture repo with exactly one PRD, today's issue bodies, and
+  no unparented children produces dispatch output — action, payload and promise — identical to the
+  current engine across the PLAN → PRD → DECOMPOSE → IMPL → REVIEW → CLOSE_PRD sequence. This is
+  the test protecting the live fleets. The no-unparented-children qualifier is load-bearing: with
+  one present, the REVIEW capacity gate is *intended* to differ.
 
 Shell tests, following existing patterns:
 
-- `test_spawn.sh` — `sess_orch` naming; the `-p<prd>` detached worktree for DECOMPOSE/REVIEW;
-  PLAN/PRD still spawning in `$CHECKOUT`
+- `test_spawn.sh` — `sess_orch` naming; the `orch_worktree` path and `agent/orch-<prd>` branch for
+  DECOMPOSE/REVIEW; PLAN/PRD still spawning in `$CHECKOUT`
 - `test_drive.sh` — `team_sessions` counting both old and new session forms; `reap_orch`;
   the busy-PRD set reaching `dispatch_actions`
+- `test_recover.sh` — `sweep_orphan_orch_worktrees` reaping an orch worktree whose session is dead,
+  and leaving a live one alone
 
 ## Rollout
 
