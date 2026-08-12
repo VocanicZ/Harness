@@ -30,9 +30,11 @@ assert_ok "launched hz-inject-main session" bash -c "grep -q 'hz-inject-main :: 
 assert_ok "rendered the injector task file" bash -c "grep -q 'INJECT DONE' '$TMPCO/.harness-task.md'"
 assert_ok "task file carries the brief"     bash -c "grep -q 'add a rate limiter' '$TMPCO/.harness-task.md'"
 
-# REVIEW guard: a live hz-main orch session whose goal is REVIEW must abort (exit 1)
-echo REVIEW > "$RUN_DIR/hz-main.goal"
-( session_live(){ [[ "$1" == hz-main ]]; }
+# REVIEW guard: a live orch session whose goal is REVIEW must abort (exit 1). The orch session name
+# is PRD-qualified now (multi-PRD) — inject.sh and the fixture both derive it from sess_orch, so the
+# unit-level name is hz-main-p0.
+echo REVIEW > "$RUN_DIR/$(sess_orch main).goal"
+( session_live(){ [[ "$1" == "$(sess_orch main)" ]]; }
   source "$HERE/../scripts/inject.sh" issue "add a rate limiter" ) 2>/dev/null
 assert_eq "$?" "1" "inject.sh aborts while a REVIEW session is live for the unit"
 
@@ -49,7 +51,7 @@ assert_eq "$?" "1" "inject.sh rejects an empty brief"
 # A finished plan leaves a committed marker; the auto-PLAN dispatch gate (issuelib) suppresses
 # replanning while its spec hash matches. Explicit `harness plan` routes through inject.sh, NOT that
 # gate, so it must still launch even with the marker present in the checkout.
-rm -f "$RUN_DIR/hz-main.goal"                       # clear the REVIEW goal left by the guard test
+rm -f "$RUN_DIR/$(sess_orch main).goal"             # clear the REVIEW goal left by the guard test
 mkdir -p "$TMPCO/docs/harness"
 printf '{"spec":"docs/spec.md","spec_hash":"deadbeef"}\n' > "$TMPCO/docs/harness/plan-complete.json"
 : > "$LAUNCH"
