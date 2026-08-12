@@ -188,6 +188,19 @@ A `reap_orch` mirrors `reap_team` over the `orch-<slug>-p*` glob; `finalize_unit
 the same. Crash recovery gets an `sweep_orphan_orch_worktrees`, the direct analogue of
 `sweep_orphan_bug_worktrees` (`lib.sh:421`), for orch worktrees left by a killed engine.
 
+### Gauntlet evidence-directory collision
+
+`spawn_orch` renders `GAUNTLET_DIR="$STATE_DIR/gauntlet/$UNIT"` (`drive.sh:152`) — unit-scoped.
+`review.md`'s phase 2 provisions a reference build under `$GAUNTLET_DIR/ref/` and writes
+`r<round>/A`, `r<round>/B` and an `r<round>/.mapping` file recording which side is ours, then reads
+that mapping back to resolve the winner. Two REVIEW sessions live at once for different PRDs would
+share all of it: each overwrites the other's reference build and `.mapping`, silently inverting a
+blind A/B comparison rather than failing loudly.
+
+`GAUNTLET_DIR` becomes `$STATE_DIR/gauntlet/$UNIT/p<prd>`. Rounds need no change — `gauntlet_round`
+(`lib.sh:794`) counts `<!-- harness-gauntlet round=N -->` marker comments on the PRD issue itself,
+so it is already per-PRD.
+
 ### `allow_orch` narrowing
 
 `drive.sh` currently sets `allow_orch=1` only when `count_team_sessions "$UNIT" == 0`. Left
