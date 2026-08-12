@@ -36,13 +36,22 @@ render(){ echo "render $*" >> "$CALLS"; return 0; }
 launch_claude(){ :; }
 default_branch(){ echo main; }
 ensure_safe(){ :; }
-git(){ :; }
+run_worktree_hook(){ :; }
+remove_worktree(){ :; }
+# DECOMPOSE/REVIEW now render into their own per-PRD orch worktree, so the `worktree add` stub has
+# to materialise the destination directory or the `> $wd/.harness-task.md` redirect never runs.
+git(){ local a wt=""
+  case "$*" in *"worktree add"*)
+    for a in "$@"; do [[ "$a" == "$WORKTREES_DIR"/* ]] && wt="$a"; done
+    [[ -n "$wt" ]] && mkdir -p "$wt";; esac
+  return 0; }
 gh(){ echo 1; }        # one marker on the PRD -> this pass is round 2
 
 : > "$CALLS"
 spawn_orch REVIEW 7 "REVIEW DONE" >/dev/null 2>&1
-assert_ok "REVIEW: GAUNTLET_DIR lives under STATE_DIR" \
-  grep -q "GAUNTLET_DIR=$STATE_DIR/gauntlet/main" "$CALLS"
+# PRD-scoped: two concurrent REVIEWs must not share ref/, r<n>/A, r<n>/B or .mapping.
+assert_ok "REVIEW: GAUNTLET_DIR lives under STATE_DIR, scoped to the PRD" \
+  grep -q "GAUNTLET_DIR=$STATE_DIR/gauntlet/main/p7" "$CALLS"
 assert_no "REVIEW: GAUNTLET_DIR never under CHECKOUT" \
   grep -q "GAUNTLET_DIR=$CHECKOUT" "$CALLS"
 assert_ok "REVIEW: GAUNTLET_ROUND computed from markers (1 marker -> 2)" \
