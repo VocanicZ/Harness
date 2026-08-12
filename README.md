@@ -45,11 +45,25 @@ harness init     # writes that project's config + state under .harness/
 | Mode | Entry stage | Orchestration allowed | PRD authored by | COMPLETE when |
 |------|-------------|----------------------|-----------------|---------------|
 | `issue-only` | IMPL | none (IMPL only) | — | all `ready-for-agent` issues closed and none in-flight |
-| `prd` | DECOMPOSE | DECOMPOSE, REVIEW | human (creates one `prd`-labelled issue) | PRD issue closed and labelled `reviewed` |
-| `planned` | PLAN | PLAN, PRD, DECOMPOSE, REVIEW | agent (from `HARNESS_SPEC`) | PRD issue closed and labelled `reviewed` |
+| `prd` | DECOMPOSE | DECOMPOSE, REVIEW | human (creates one `prd`-labelled issue) | PRD issue closed and labelled `reviewed`, **and** no `ready-for-agent` issue still open |
+| `planned` | PLAN | PLAN, PRD, DECOMPOSE, REVIEW | agent (from `HARNESS_SPEC`) | PRD issue closed and labelled `reviewed`, **and** no `ready-for-agent` issue still open |
 
 The full pipeline is: `PLAN → PRD → DECOMPOSE → IMPL (parallel) → REVIEW → COMPLETE`.
 `HARNESS_MODE` gates which stages are active; all modes share the same state machine.
+
+The "no open `ready-for-agent` issue" half of the `prd` / `planned` condition matters because a
+closed PRD is not proof the work is done. `CLOSE_PRD` — the engine's own close — is gated on every
+ready child being closed, but nothing else that can close a PRD is: a reviewer's own `gh issue
+close`, a human, an injected session. Without that half, a PRD closed while one ready issue is
+still open makes the unit COMPLETE, and a complete unit is dropped from dispatch **before** the
+engine ever asks what work is outstanding — so the issue stays open forever while the fleet
+reports success. `issue-only` has always required it; the other two modes were the outliers.
+
+The cost is deliberate: an open ready issue that no lane can claim — blocked by an unclosed
+`## Blocked by` ref, or `agent-blocked` on a non-autonomous fleet — now holds its unit incomplete,
+and in `multi` topology holds every dependent unit behind it. That is the honest state rather than
+a false COMPLETE, and it is not silent: the unit logs one banner naming the outstanding count and
+the remedy, deduped so a genuinely stuck unit says it once rather than every poll.
 
 ## Topologies
 

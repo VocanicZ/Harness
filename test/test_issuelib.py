@@ -1013,6 +1013,57 @@ def test_ci_status_holds_on_transient_gh_failure():
     finally: il._gh_api_read, il._gh_json = real_api, real_json
 
 
+# ── completion requires no open ready child ───────────────────────────────────────────────────
+def test_a_closed_prd_does_not_complete_a_unit_with_an_open_ready_child():
+    # The #80 shape: review signs off, files a non-blocking follow-up, and closes the PRD itself in
+    # the same pass. CLOSE_PRD is gated on children_all_closed; an agent-side `gh issue close` is
+    # not. If completion keyed on the close alone, claimable_units would drop the unit and
+    # drive_unit — the only caller of dispatch_actions — would never run again, stranding the child.
+    os.environ["HARNESS_MODE"] = "prd"
+    stranded = mk(prd=61, prd_open=False, prd_reviewed=True, children_exist=True,
+                  children_all_closed=False, open_children=1, total_children=9, unblocked=[80])
+    assert il.is_complete(stranded) is False, "an open ready child must keep the unit claimable"
+    # ...and the work is still reachable, which is the whole point of staying incomplete.
+    il.compute_state = lambda r: stranded
+    assert il.dispatch("acme/widget", 3, True) == [("IMPL", "80", "ISSUE 80 DONE")]
+
+def test_completion_is_unchanged_on_every_path_that_was_already_correct():
+    os.environ["HARNESS_MODE"] = "prd"
+    # the ordinary end state: PRD closed, every child closed
+    assert il.is_complete(mk(prd=7, prd_open=False, prd_reviewed=True, children_exist=True,
+                             children_all_closed=True, open_children=0, total_children=4)) is True
+    # signed off with no children at all (a PRD that decomposed to nothing)
+    assert il.is_complete(mk(prd=7, prd_open=False, prd_reviewed=True)) is True
+    # an OPEN PRD is never complete, whatever its children look like
+    assert il.is_complete(mk(prd=7, prd_open=True, prd_reviewed=True, children_exist=True,
+                             children_all_closed=True, open_children=0)) is False
+    # the close-OK/label-fail case this predicate was written for still completes
+    assert il.is_complete(mk(prd=7, prd_open=False, prd_reviewed=False, children_exist=True,
+                             children_all_closed=True, open_children=0)) is True
+    # no PRD at all in prd mode is never complete
+    assert il.is_complete(mk(prd=None, open_children=0)) is False
+
+def test_an_unclaimable_open_child_holds_the_unit_rather_than_faking_success():
+    # The accepted cost of the guard, pinned deliberately so it is a decision and not a surprise:
+    # a child that is open but NOT dispatchable — blocked by an unclosed dep, or agent-blocked on a
+    # non-autonomous fleet — leaves the unit incomplete with nothing to dispatch. drive.sh's
+    # dispatch_stalled_banner exists to make exactly this state audible.
+    os.environ["HARNESS_MODE"] = "prd"
+    held = mk(prd=7, prd_open=False, prd_reviewed=True, children_exist=True,
+              children_all_closed=False, open_children=1, total_children=3, unblocked=[])
+    assert il.is_complete(held) is False
+    il.compute_state = lambda r: held
+    assert il.dispatch("acme/widget", 3, True) == [], "nothing to dispatch, and it must not fake one"
+
+def test_issue_only_completion_is_untouched():
+    # issue-only has always required open_children == 0; this change makes prd/planned agree with
+    # it, and must not perturb it.
+    os.environ["HARNESS_MODE"] = "issue-only"
+    assert il.is_complete(mk(children_exist=True, open_children=0, unblocked=[])) is True
+    assert il.is_complete(mk(children_exist=True, open_children=1, unblocked=[5])) is False
+    assert il.is_complete(mk(children_exist=False, open_children=0, unblocked=[])) is False
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

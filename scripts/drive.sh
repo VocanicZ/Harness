@@ -245,6 +245,20 @@ spawn_bug(){
 }
 
 # drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.
+# dispatch_stalled_banner <repo> <unit> — say WHY a unit is sitting still, once per distinct state.
+#
+# Deduped on the status line itself, so a genuinely stuck unit announces once and then stays quiet
+# until something about it changes — and a transient `gh` HOLD (dispatch_actions prints nothing and
+# exits 3 on a rate limit) does not spam the log either, because the status read behind it holds the
+# same way and yields the same empty key. The status line already carries the diagnosis: `open=N`
+# with `unblocked=0` is the blocked-child case, `complete=N` with `open=0` is a PRD still to close.
+dispatch_stalled_banner(){ local st
+  st="$(python3 "$ISSUELIB" status "$1" 2>/dev/null)" || return 0
+  [[ -z "$st" || "${_STALL_LOGGED:-}" == "$st" ]] && return 0
+  _STALL_LOGGED="$st"
+  log "$2: nothing dispatchable and nothing in flight — holding. $st"
+  log "  a ready child that no lane can claim (unclosed dep, or agent-blocked on a non-autonomous fleet) keeps the unit incomplete by design; close or unblock it to let the unit finish."; }
+
 drive_unit(){
   local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT drained=0
   REPO="$(unit_repo "$UNIT")"; [[ -n "$REPO" ]] || { log "unknown unit: $UNIT"; return 1; }
@@ -261,6 +275,14 @@ drive_unit(){
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then
       allow_orch=0; (( active == 0 )) && allow_orch=1
+      local actions; actions="$(dispatch_actions "$REPO" "$free" "$allow_orch")"
+      # A unit that is not complete, has nothing in flight and nothing dispatchable used to be
+      # unreachable — a closed PRD ended the loop. Completion now also requires open_children == 0,
+      # so it IS reachable: one open ready child that no lane can claim (blocked by an unclosed
+      # dep, or agent-blocked under a non-autonomous fleet) holds the unit here indefinitely, and
+      # in multi topology holds every dependent unit behind deps_complete. That is the honest
+      # state, but it must never be a silent one.
+      (( active == 0 )) && [[ -z "$actions" ]] && dispatch_stalled_banner "$REPO" "$UNIT"
       while IFS=$'\t' read -r action payload promise; do
         [[ -z "$action" ]] && continue
         case "$action" in
@@ -269,7 +291,7 @@ drive_unit(){
           *)         spawn_orch "$action" "$payload" "$promise";;
         esac
         sleep 2
-      done < <(dispatch_actions "$REPO" "$free" "$allow_orch")
+      done <<< "$actions"
     fi
     sleep "$POLL"
   done
