@@ -112,7 +112,8 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_CAP` | `3` | Max concurrent claude sessions per unit |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
-| `HARNESS_SESS_PREFIX` | `hz` | tmux session name prefix |
+| `HARNESS_SESS_PREFIX` | `hz` | tmux session name prefix. **Give every co-resident fleet a distinct one** — see [Running several fleets on one host](#running-several-fleets-on-one-host) |
+| `HARNESS_PREFIX_COLLISION` | `refuse` | `refuse` = `harness start` dies when another running fleet's prefix collides with this one; `warn` = print and continue |
 | `HARNESS_LABEL_READY` | `ready-for-agent` | Label that marks an issue dispatchable |
 | `HARNESS_LABEL_PRD` | `prd` | Label that marks the PRD tracking issue |
 | `HARNESS_LABEL_WORKING` | `agent-working` | Label applied while a session owns an issue |
@@ -164,6 +165,21 @@ Workers branch off the default branch independently and merge back independently
 The impl / bug-fix / resume prompts therefore require a **rebase onto the current base plus a re-run** immediately before merging, repeated until the rebase is a no-op. If your repo has checks that build and test the *merge result*, they enforce the same property server-side — recommended for any fleet running more than one or two lanes against a shared codebase.
 
 The same prompts hold lanes to **no new failures against a baseline** captured before the first edit, rather than a globally green suite. Most real repos carry some pre-existing reds; an autonomous agent told "all green required" will either chase them forever or edit tests until they pass.
+
+### Running several fleets on one host
+
+A fleet owns **every tmux session under its prefix** — `stop.sh` and `status.sh` match `^<prefix>-.+$`, because ERE has no negative lookahead and "anything except an impl suffix" is not expressible. That rule is sound for one fleet and destructive for two: give two fleets the same `HARNESS_SESS_PREFIX` and either one's `harness stop` kills the other's live agents, whatever units they are working on.
+
+The trailing dash is what keeps siblings apart, so `hz`, `hzli` and `boto` coexist happily — `hzli-main-i7` is not inside `hz-`'s space. Only equal prefixes, or one being a dash-prefix of the other, collide.
+
+`harness start` refuses when it sees a collision. It discovers other fleets two ways, and takes the union:
+
+- **Live worker processes.** Each running `pool-worker.sh` / `priority-worker.sh` carries its own `STATE_DIR`, and its prefix comes from its environment or, failing that, its project's committed config. No setup, nothing to register, nothing to clean up, and it sees fleets that were already running.
+- **The host poller registry**, when `HARNESS_USE_POLLER` is set.
+
+The second used to be the *only* source, which made the guard a no-op for the default configuration — `HARNESS_USE_POLLER` is unset unless you opt in, so the registry was always empty. Three fleets duly came up on the default `hz` and spent hours killing each other's sessions.
+
+`HARNESS_PREFIX_COLLISION=warn` downgrades the refusal if you know what you are doing.
 
 ### Never merging red
 

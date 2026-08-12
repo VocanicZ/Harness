@@ -69,7 +69,7 @@ export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HAR
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
-  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE
+  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SESS_PREFIX
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -800,8 +800,72 @@ for prj, pfx in seen.items():
 PY
 }
 
+# running_fleet_prefixes <self-state-dir> — `<prefix>\t<state-dir>` for every OTHER fleet that has a
+# LIVE worker process on this host, deduped by state dir.
+#
+# The registry-FREE discovery source, and the one that matters. poller_registry_prefixes only has
+# entries when HARNESS_USE_POLLER is set — and that is UNSET by default, so the whole start-time
+# guard was inert for the ordinary configuration. Three fleets came up on the default `hz` prefix on
+# one host and two of them (both `single` topology, hence both unit `main`) spent hours reaping each
+# other's `hz-main-i<N>` sessions and worktrees before anyone noticed.
+#
+# A running worker knows its own identity: lib.sh exports STATE_DIR and HARNESS_SESS_PREFIX, and
+# pool.sh/priority.sh fork the workers with that environment. So the live process table IS the
+# registry — always present, never stale (a dead fleet has no processes), nothing to write at start
+# and nothing to clean up at stop. It also sees fleets that were already running before this guard
+# existed, which a file-based registry could not.
+#
+# Reads /proc, like lock_holders does. On a host without /proc this yields nothing and the guard
+# degrades to its previous registry-only behaviour — never worse than before.
+running_fleet_prefixes(){ local self="$1" pid sd pfx cmd
+  command -v pgrep >/dev/null 2>&1 || return 0
+  declare -A _seen=()
+  for pid in $(pgrep -f '(pool|priority)-worker\.sh' 2>/dev/null); do
+    [[ -r "/proc/$pid/environ" && -r "/proc/$pid/cmdline" ]] || continue
+    # Match the SCRIPT, not merely a command line that mentions it — a shell running
+    # `pgrep -af pool-worker.sh` carries the pattern in its own cmdline and would self-report.
+    cmd="$(tr '\0' '\n' < "/proc/$pid/cmdline" | grep -cE '(pool|priority)-worker\.sh$')"
+    [[ "${cmd:-0}" -gt 0 ]] || continue
+    sd=""; pfx=""
+    while IFS= read -r -d '' kv; do
+      case "$kv" in
+        STATE_DIR=*)           sd="${kv#STATE_DIR=}";;
+        HARNESS_SESS_PREFIX=*) pfx="${kv#HARNESS_SESS_PREFIX=}";;
+      esac
+    done < "/proc/$pid/environ"
+    [[ -n "$sd" && "$sd" != "$self" ]] || continue
+    [[ -n "${_seen[$sd]:-}" ]] && continue
+    _seen[$sd]=1
+    printf '%s\t%s\n' "$(_fleet_prefix_for "$sd" "$pfx")" "$sd"
+  done; }
+
+# _fleet_prefix_for <state-dir> <env-prefix> — the session prefix a discovered fleet actually uses.
+#
+# Three sources in descending authority. The worker's own environment is exact, but it is only there
+# once lib.sh EXPORTS HARNESS_SESS_PREFIX — which it did not until this change, so every fleet
+# already running when this landed has none. Falling back to the project's own config is what lets
+# the guard see those fleets at all, and it is the same file lib.sh itself would read. Last resort is
+# lib.sh's own default, which is precisely the value that made three fleets collide in the first
+# place — an absent config line means `hz`, it does not mean "no prefix".
+#
+# The config is GREPPED, never sourced: it is another project's file and sourcing it would execute
+# whatever is in it. `head -1` matches `:=` semantics — the first assignment is the one that sticks.
+_fleet_prefix_for(){ local sd="$1" env_pfx="$2" cfg_pfx=""
+  [[ -n "$env_pfx" ]] && { printf '%s' "$env_pfx"; return 0; }
+  if [[ -r "$sd/config" ]]; then
+    cfg_pfx="$(sed -n 's/^[[:space:]]*:[[:space:]]*"\${HARNESS_SESS_PREFIX:=\([^}"]*\)}".*/\1/p' "$sd/config" | head -1)"
+  fi
+  printf '%s' "${cfg_pfx:-hz}"; }
+
+# active_fleet_prefixes <self-state-dir> — the UNION of both discovery sources, one
+# `<prefix>\t<project>` line per other active fleet. The seam the start-time guard reads (and the
+# one tests override).
+active_fleet_prefixes(){
+  poller_registry_prefixes "$1"
+  running_fleet_prefixes "$1"; }
+
 # check_prefix_collision — start-time guard. Refuse (or warn) when another ACTIVE fleet's session
-# prefix collides with ours. Reads slice 2's registry (poller_registry_prefixes); a single /
+# prefix collides with ours. Reads BOTH the poller registry and the live worker processes; a single /
 # non-colliding fleet sees an empty list and proceeds (no behavior change). HARNESS_PREFIX_COLLISION:
 # `refuse` (default) dies; `warn` prints to stderr and continues.
 check_prefix_collision(){
@@ -809,7 +873,7 @@ check_prefix_collision(){
   while IFS=$'\t' read -r pfx prj; do
     [[ -n "$pfx" ]] || continue
     if prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx"; then hit="$pfx ($prj)"; break; fi
-  done < <(poller_registry_prefixes "$STATE_DIR")
+  done < <(active_fleet_prefixes "$STATE_DIR")
   [[ -n "$hit" ]] || return 0
   local msg="session prefix '$HARNESS_SESS_PREFIX' collides with active fleet prefix $hit — set a distinct HARNESS_SESS_PREFIX (or HARNESS_PREFIX_COLLISION=warn to override)"
   case "${HARNESS_PREFIX_COLLISION:-refuse}" in
