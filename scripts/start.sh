@@ -49,6 +49,12 @@ recover(){
   echo "  sweeping orphaned bug-fix worktrees:"
   sweep_orphan_bug_worktrees
 
+  # Same failure, orchestration side (#148): an engine killed mid-orch leaves an orch-<slug>-p<n>
+  # worktree with no session, and the next `worktree add -B agent/orch-<n>` for that PRD fails
+  # rc 128 — so the PRD can never orchestrate again. Sweep the dead-session ones here too.
+  echo "  sweeping orphaned orch worktrees:"
+  sweep_orphan_orch_worktrees
+
   # Free issues stuck under HARNESS_LABEL_WORKING whose owning session died with the host. Skips any
   # issue with a live impl OR bug-lane session, so --recover is safe to run even while the fleet is up
   # — it won't double-dispatch live pool work, nor strip a live bug's label and let the lane rip out

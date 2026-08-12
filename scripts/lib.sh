@@ -447,6 +447,23 @@ sweep_orphan_bug_worktrees(){ shopt -s nullglob; local wd n san base gcd co phas
   done
   shopt -u nullglob; }
 
+# sweep_orphan_orch_worktrees — crash/new-machine recovery for the per-PRD DECOMPOSE/REVIEW
+# worktrees, the direct analogue of sweep_orphan_bug_worktrees. An engine killed mid-orch leaves
+# orch-<slug>-p<n> on disk with no session; without this the next `worktree add -B agent/orch-<n>`
+# fails (rc 128, branch already used by a worktree) and that PRD can never orchestrate again.
+sweep_orphan_orch_worktrees(){ shopt -s nullglob; local wd prd u san co
+  for u in $(all_units); do
+    san="$(printf '%s' "$(unit_slug "$u")" | tr '/' '_')"
+    co="$(unit_checkout "$u")"
+    for wd in "$WORKTREES_DIR/orch-$san"-p*; do
+      prd="${wd##*-p}"
+      session_live "$(sess_orch "$u" "$prd")" && continue
+      log "recover: sweeping orphaned orch worktree for PRD #$prd ($u)"
+      if [[ -n "$co" ]]; then remove_worktree "$co" "$wd" "agent/orch-$prd"; else rm -rf "$wd"; fi
+    done
+  done
+  shopt -u nullglob; }
+
 # recover_orphan_working — crash/new-machine recovery sweep (#43), sibling of sweep_orphan_bug_worktrees.
 # GitHub is the source of truth, but a crashed/migrated host leaves issues stuck under
 # HARNESS_LABEL_WORKING whose owning tmux session died with the box — invisible to reap_team, which

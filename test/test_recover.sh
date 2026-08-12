@@ -54,4 +54,21 @@ recover_orphan_working >/dev/null 2>&1
 assert_ok "dead impl issue freed by recover" \
   grep -q "issue edit 5 -R acme/widget --remove-label agent-working" "$GHLOG"
 
+# ── orch worktrees left by a killed engine are swept; live ones are left alone ───────
+# #148: an engine killed mid-orch leaves orch-<slug>-p<n> on disk with no session; the next
+# `worktree add -B agent/orch-<n>` then fails rc 128 and that PRD can never orchestrate again.
+mkdir -p "$WORKTREES_DIR/orch-acme_widget-p41" "$WORKTREES_DIR/orch-acme_widget-p42"
+REMOVED=""
+remove_worktree(){ REMOVED="$REMOVED $2"; rm -rf "$2"; }
+session_live(){ [[ "$1" == *"-p42" ]]; }     # only PRD #42's session is still up
+all_units(){ echo main; }
+unit_slug(){ echo acme/widget; }
+unit_checkout(){ echo "$RUN_DIR/checkout"; }
+
+sweep_orphan_orch_worktrees >/dev/null 2>&1
+
+assert_no "dead PRD #41 orch worktree was swept" test -d "$WORKTREES_DIR/orch-acme_widget-p41"
+assert_ok "live PRD #42 orch worktree was left alone" test -d "$WORKTREES_DIR/orch-acme_widget-p42"
+unset -f remove_worktree session_live all_units unit_slug unit_checkout
+
 finish
