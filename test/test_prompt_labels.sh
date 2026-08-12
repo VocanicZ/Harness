@@ -82,6 +82,27 @@ assert "review.md: never parks on a quality gate" \
 assert "review.md: a lost round files exactly ONE issue" \
   "grep -qi 'exactly ONE' <<<\"\$out_review\""
 
+# The reviewer must NOT close the PRD itself. The engine's CLOSE_PRD is gated on
+# children_all_closed; an agent-side `gh issue close` is not, so a review that signs off AND files
+# a follow-up in the same pass used to strand that follow-up forever — a closed PRD makes the unit
+# COMPLETE, and claimable_units drops a complete unit before drive_unit ever asks dispatch what is
+# outstanding. Observed on hardcore-gacha-2: #80 filed 03:00:35, PRD closed 03:01:04, pool idle
+# from 03:06 with an open ready-for-agent issue and the unit reporting complete=Y.
+assert "review.md: does NOT close the PRD itself" \
+  "! grep -qE 'gh issue close +(7|\{\{PRD\}\})' <<<\"\$out_review\""
+
+assert "review.md: sign-off still applies the reviewed label" \
+  "grep -q 'add-label verified' <<<\"\$out_review\""
+
+assert "review.md: hands the close to the engine, gated on the ready issues" \
+  "grep -qi 'ENGINE closes the PRD' <<<\"\$out_review\" && grep -qi 'only once every' <<<\"\$out_review\""
+
+assert "review.md: names the strand-a-follow-up trap explicitly" \
+  "grep -qi 'strands it permanently\|orphans it permanently' <<<\"\$out_review\""
+
+assert "review.md: still permits filing a follow-up alongside a sign-off" \
+  "grep -qi 'filing a follow-up and signing off in the same pass is fine' <<<\"\$out_review\""
+
 # ── decompose.md assertions ──────────────────────────────────────────────────
 assert "decompose.md: --label go (custom ready) appears in gh issue create" \
   "grep -q '\-\-label go' <<<\"\$out_dec\""

@@ -66,12 +66,19 @@ The bar names one real artifact to beat and the dimensions to judge on:
       Do NOT add `{{LABEL_REVIEWED}}`. The pool implements the gap issue, and review runs again at
       the next round. That is a completed review pass; go to OUTPUT.
 
-6. SIGN OFF:
+6. SIGN OFF — apply the label, and do NOT close the PRD yourself:
      gh issue edit {{PRD}} -R {{SLUG}} --add-label {{LABEL_REVIEWED}}
-     gh issue close {{PRD}} -R {{SLUG}} --comment "Reviewed: all acceptance criteria met."
-   The `{{LABEL_REVIEWED}}` label is the authoritative SIGN-OFF — applying it is the one thing you
-   MUST do here. The close is bookkeeping: if it fails (e.g. a rate limit) the harness closes the
-   PRD itself once it sees the reviewed label, so a signed-off PRD always reaches COMPLETE.
+     gh issue comment {{PRD}} -R {{SLUG}} --body "Reviewed: all acceptance criteria met."
+   The `{{LABEL_REVIEWED}}` label is the authoritative SIGN-OFF and the ONLY state change you make
+   here. The ENGINE closes the PRD, with one idempotent call retried every poll, and it does that
+   only once every `{{LABEL_READY}}` issue in the repo is CLOSED.
+   That gate is the entire point, so closing the PRD yourself is not a harmless shortcut. A closed
+   PRD makes the unit COMPLETE, and a complete unit is dropped from dispatch BEFORE the engine ever
+   asks what work is outstanding. So if you filed ANY `{{LABEL_READY}}` issue in this session —
+   including a non-blocking follow-up filed alongside an otherwise clean sign-off — closing the PRD
+   strands it permanently: it stays open forever while the unit reports success and the pool idles.
+   Filing a follow-up AND signing off in the same pass is fine and often right. Just leave the close
+   to the engine, which will do it once that follow-up has been implemented.
 
 OUTPUT — every branch above is a completed review pass: signed off, criteria gaps filed, or a
 gauntlet gap filed. When one of them is done, output exactly:
