@@ -713,11 +713,20 @@ def main():
             print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
         elif cmd == "check":
             goal = sys.argv[3] if len(sys.argv) > 3 else ""; s = compute_state(repo); done = False
+            # Orchestration goals are PRD-qualified (`REVIEW:41`) so reap_done_sessions advances the
+            # right session when several PRDs are in flight. A BARE goal (written by a pre-upgrade
+            # engine, or by the unit-level PLAN/PRD actions) resolves against the lowest-numbered PRD.
+            name, _, qual = goal.partition(":")
+            prds = s["prds"]
+            if qual.isdigit():
+                target = next((p for p in prds if p["number"] == int(qual)), None)
+            else:
+                target = prds[0] if prds else None
             if goal == "PLAN": done = s["has_plan"]
-            elif goal == "PRD": done = s["prd"] is not None
-            elif goal == "DECOMPOSE": done = s["children_exist"]
-            elif goal == "REVIEW": done = s["prd_reviewed"] or len(s["unblocked"]) > 0
-            elif goal == "CLOSE_PRD": done = not s["prd_open"]
+            elif name == "PRD": done = bool(prds)
+            elif name == "DECOMPOSE": done = bool(target) and target["children_exist"]
+            elif name == "REVIEW": done = bool(target) and (target["reviewed"] or len(target["unblocked"]) > 0)
+            elif name == "CLOSE_PRD": done = bool(target) and not target["open"]
             elif goal.startswith("ISSUE:"): done = _issue_state(s["slug"], int(goal.split(":",1)[1])) == "closed"
             print("DONE" if done else "PENDING")
         else: print(f"unknown command: {cmd}", file=sys.stderr); sys.exit(2)
