@@ -38,11 +38,10 @@ SLUG="$(unit_slug "$UNIT")"; [[ -n "$SLUG" ]] || die "could not resolve repo for
 PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"
 
 # Safety: never inject while a REVIEW orchestration session is live for this unit — a REVIEW
-# could close the PRD out from under us. All orch actions share sess_orch's name; the .goal
-# file records which action it is.
-orch="$(sess_orch "$UNIT")"
-if session_live "$orch" && [[ "$(cat "$RUN_DIR/$orch.goal" 2>/dev/null)" == REVIEW ]]; then
-  die "a REVIEW session ($orch) is live for $UNIT — wait for it to finish, or abort it, then retry"
+# could close the PRD out from under us. Several orch sessions can be live at once (one per PRD),
+# so scan them all; each session's .goal records which action it is.
+if review_session_live "$UNIT"; then
+  die "a REVIEW session is live for $UNIT — wait for it to finish, or abort it, then retry"
 fi
 
 sess="$(sess_inject "$UNIT")"

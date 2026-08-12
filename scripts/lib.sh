@@ -736,6 +736,16 @@ watchdog_team(){ local s
 # from the issue number alone — both callers already hold the slug and pass it. A bug whose session
 # is live is NEVER swept — neither path strips its agent-working nor reaps its worktree.
 bug_session_live(){ session_live "$(sess_bug "$1" "$2" triage)" || session_live "$(sess_bug "$1" "$2" fix)"; }
+# review_session_live <unit> — true when ANY live orch session for the unit is a REVIEW. Goals are
+# PRD-qualified now (`REVIEW:41`), and there can be several orch sessions at once, so this scans
+# them all rather than reading a single well-known session name.
+review_session_live(){ local s g
+  while read -r s; do
+    [[ -z "$s" ]] && continue
+    g="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"
+    [[ "${g%%:*}" == REVIEW ]] && return 0
+  done < <(team_sessions "$1")
+  return 1; }
 # fleet_session_re / is_fleet_session — the ERE matching THIS fleet's tmux session names. It is
 # deliberately PREFIX-BROAD: it claims ANY non-empty session under `<prefix>-`, NOT just the named
 # session forms. Why broad and not a per-grammar match (#90): unit ids come from targets.tsv column 1
