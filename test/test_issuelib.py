@@ -1063,6 +1063,37 @@ def test_issue_only_completion_is_untouched():
     assert il.is_complete(mk(children_exist=True, open_children=1, unblocked=[5])) is False
     assert il.is_complete(mk(children_exist=False, open_children=0, unblocked=[])) is False
 
+def test_parse_parent_section_form():
+    b = "Do the thing.\n\n## Parent\n#41\n\n## Blocked by\nNone\n"
+    assert il.parse_parent(b, "acme/widget") == ("acme/widget", 41)
+
+def test_parse_parent_cross_repo_ref():
+    b = "## Parent\nother/repo#7\n"
+    assert il.parse_parent(b, "acme/widget") == ("other/repo", 7)
+
+def test_parse_parent_none_section_is_unparented():
+    b = "## Parent\nNone\n"
+    assert il.parse_parent(b, "acme/widget") is None
+
+def test_parse_parent_falls_back_to_part_of_trailer():
+    # every child filed by the CURRENT decompose.md looks like this — no ## Parent section
+    b = "Body text\n\n## Blocked by\nNone\n\nPart of #12\n"
+    assert il.parse_parent(b, "acme/widget") == ("acme/widget", 12)
+
+def test_parse_parent_section_wins_over_trailer():
+    b = "## Parent\n#41\n\nPart of #12\n"
+    assert il.parse_parent(b, "acme/widget") == ("acme/widget", 41)
+
+def test_parse_parent_absent_and_empty():
+    assert il.parse_parent("no refs at all", "acme/widget") is None
+    assert il.parse_parent("", "acme/widget") is None
+    assert il.parse_parent(None, "acme/widget") is None
+
+def test_parse_parent_does_not_harvest_blocked_by():
+    # a `## Blocked by` ref must NEVER be mistaken for a parent
+    b = "## Blocked by\n#99\n"
+    assert il.parse_parent(b, "acme/widget") is None
+
 
 if __name__ == "__main__":
     fails = 0

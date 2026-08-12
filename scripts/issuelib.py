@@ -37,6 +37,11 @@ _ISSUE_REF = re.compile(
 # A `## Blocked by` section whose first non-blank token is the word `None` declares "no blockers";
 # any trailing prose (e.g. "None — #214/#215 already merged …") is explanatory, not a dependency.
 _NONE_SECTION = re.compile(r"^\s*None\b", re.IGNORECASE)
+# `## Parent` — the child→PRD attribution section, same grammar as `## Blocked by`.
+_PARENT_HEADING = re.compile(r"^#{2,3}\s+Parent\s*:?\s*$", re.IGNORECASE | re.MULTILINE)
+# Legacy fallback: the bare `Part of #N` trailer decompose.md has always emitted. Kept so children
+# filed by earlier engine versions keep their attribution across the upgrade, with no migration.
+_PART_OF = re.compile(r"(?<![\w.-])Part of\s+(?:([\w.-]+/[\w.-]+)#(\d+)|#(\d+))", re.IGNORECASE)
 # States that satisfy a blocked-by ref. "merged" covers a ref pointing at a merged PR: `gh issue
 # view <pr-number>` resolves the PR and returns {"state":"MERGED"}, so a merged PR must NOT block.
 _SATISFIED_STATES = {"closed", "merged"}
@@ -189,6 +194,35 @@ def parse_blocked_by(body, self_repo):
         num = qual_num if qual_num is not None else bare_num
         refs.append((repo_part or self_repo, int(num)))
     return refs
+
+
+def parse_parent(body, self_repo):
+    """(repo_slug, number) of the PRD this child belongs to, or None when unparented.
+
+    Primary form is a `## Parent` section holding one ref, parsed exactly like `## Blocked by`
+    (bare `#N` resolves against self_repo; `owner/repo#N` is honoured; a `None` section means
+    deliberately unparented). When no such section exists, falls back to the bare `Part of #N`
+    trailer that decompose.md emits today, so pre-upgrade children keep their attribution.
+    A `## Blocked by` ref is never harvested — only the two forms above."""
+    if not body:
+        return None
+    m = _PARENT_HEADING.search(body)
+    if m:
+        rest = body[m.end():]
+        nxt = _NEXT_HEADING.search(rest)
+        section = rest[:nxt.start()] if nxt else rest
+        if _NONE_SECTION.match(section):
+            return None
+        for r in _ISSUE_REF.finditer(section):
+            repo_part, qual_num, bare_num = r.group(1), r.group(2), r.group(3)
+            num = qual_num if qual_num is not None else bare_num
+            return (repo_part or self_repo, int(num))
+        return None
+    m = _PART_OF.search(body)
+    if m:
+        num = m.group(2) if m.group(2) is not None else m.group(3)
+        return (m.group(1) or self_repo, int(num))
+    return None
 
 
 # `gh issue list --limit N` caps the TOTAL rows fetched (gh paginates internally only up to N, in one
