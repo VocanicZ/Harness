@@ -1212,6 +1212,46 @@ def test_bug_lane_issues_stay_out_of_every_bucket():
         assert s["unparented_unblocked"] == [], s
     finally: _restore_repo()
 
+def test_prd_with_no_blocked_by_is_eligible_immediately():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(10, labels=["prd"], body="scope"),
+                _issue(20, labels=["prd"], body="## Blocked by\nNone\n")])
+    try:
+        s = il.compute_state("acme/widget")
+        assert all(p["eligible"] for p in s["prds"]), s["prds"]
+    finally: _restore_repo()
+
+def test_prd_blocked_by_open_prd_is_not_eligible():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(10, labels=["prd"]),
+                _issue(20, labels=["prd"], body="## Blocked by\n#10\n")])
+    try:
+        s = il.compute_state("acme/widget")
+        by_num = {p["number"]: p for p in s["prds"]}
+        assert by_num[10]["eligible"] is True, by_num[10]
+        assert by_num[20]["eligible"] is False, by_num[20]
+    finally: _restore_repo()
+
+def test_prd_becomes_eligible_once_its_blocker_closes():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(10, "CLOSED", labels=["prd"]),
+                _issue(20, labels=["prd"], body="## Blocked by\n#10\n")])
+    try:
+        s = il.compute_state("acme/widget")
+        by_num = {p["number"]: p for p in s["prds"]}
+        assert by_num[20]["eligible"] is True, by_num[20]
+    finally: _restore_repo()
+
+def test_prd_chain_of_three_releases_one_at_a_time():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(10, labels=["prd"]),
+                _issue(20, labels=["prd"], body="## Blocked by\n#10\n"),
+                _issue(30, labels=["prd"], body="## Blocked by\n#20\n")])
+    try:
+        s = il.compute_state("acme/widget")
+        assert [p["eligible"] for p in s["prds"]] == [True, False, False], s["prds"]
+    finally: _restore_repo()
+
 
 if __name__ == "__main__":
     fails = 0
