@@ -5,7 +5,7 @@ completion promise ONLY when it is genuinely true.
 Repo (this working dir): {{SLUG}}
 Spec: {{SPEC}}
 
-GOAL: turn PLAN.md into a single PRD GitHub issue in THIS repo.
+GOAL: turn PLAN.md into one PRD GitHub issue per independent workstream in THIS repo.
 
 Steps:
 1. Read PLAN.md (in this repo) and the {{PROJECT}} sections of {{SPEC}}.
@@ -26,11 +26,18 @@ Steps:
    internal tooling, and omitting it simply leaves review on acceptance criteria alone.
    NEVER INVENT a bar to fill the section: a fake reference costs the fleet a real implementation
    round every time it loses to it.
-4. Create ONE PRD tracking issue in this repo:
+4. Create ONE PRD tracking issue per workstream — one PRD issue per independent workstream.
+   Independent workstreams get their own PRD and run in PARALLEL; a workstream that genuinely
+   cannot start until another finishes declares it under `## Blocked by` and the harness holds it
+   until that PRD closes. Prefer parallel — only sequence where there is a real dependency.
      gh issue create -R {{SLUG}} --title "[AFK] PRD: {{PROJECT}} — <short scope>" \
-       --label {{LABEL_PRD}} --body "<the PRD markdown, incl. an '## Acceptance criteria' section, and '## Quality bar' if step 3 produced one>"
+       --label {{LABEL_PRD}} --body "<the PRD markdown, incl. an '## Acceptance criteria' section, and '## Quality bar' if step 3 produced one>
+
+     ## Blocked by
+     <#N of the PRD that must close first, or 'None'>"
    (The `[AFK]` prefix + `{{LABEL_PRD}}` label are how the harness recognises it. Create the label
    first if missing: gh label create {{LABEL_PRD}} --color 5319e7 -R {{SLUG}} 2>/dev/null || true)
+   Create the PRDs in dependency order so an earlier PRD's number exists to reference.
 5. Verify the issue exists: gh issue list -R {{SLUG}} --label {{LABEL_PRD}}
 
 When the PRD issue exists, output exactly:

@@ -138,6 +138,20 @@ assert "decompose.md: documents no automated cross-repo cycle detection" \
 assert "decompose.md: coordination repo/label demoted to optional tracking" \
   "grep -qi 'optional' <<<\"\$out_dec\" && grep -qi 'tracking' <<<\"\$out_dec\""
 
+# ── decompose.md multi-PRD attribution ───────────────────────────────────────
+# A child must name its PRD in a `## Parent` section — issuelib.parse_parent reads that section
+# to bucket children per PRD. Without it a second PRD's children are unattributed.
+assert "decompose.md: emits a ## Parent section in the issue body" \
+  "grep -q '## Parent' <<<\"\$out_dec\""
+
+# The idempotency listing must be scoped to THIS PRD's children; a repo-wide listing lets a
+# sibling PRD's issues make this decompose skip real work as 'already existing'.
+assert "decompose.md: idempotency listing is scoped to this PRD's children" \
+  "grep -q 'contains(\"Part of #7\")' <<<\"\$out_dec\""
+
+assert "decompose.md: says a sibling PRD's issues are not yours" \
+  "grep -qi 'sibling PRD' <<<\"\$out_dec\""
+
 # ── prd.md assertions ────────────────────────────────────────────────────────
 assert "prd.md: --label spec (custom prd label) appears in gh issue create" \
   "grep -q '\-\-label spec' <<<\"\$out_prd\""
@@ -169,6 +183,16 @@ assert "prd.md: enforces named + fetchable + comparable" \
 
 assert "prd.md: omission is explicitly allowed (never invent a bar)" \
   "grep -qi 'omit' <<<\"\$out_prd\" && grep -qi 'never invent' <<<\"\$out_prd\""
+
+# ── prd.md multi-PRD assertions ──────────────────────────────────────────────
+assert "prd.md: authors one PRD issue per independent workstream" \
+  "grep -qi 'one PRD issue per independent workstream' <<<\"\$out_prd\""
+
+assert "prd.md: each PRD carries a ## Blocked by section" \
+  "grep -q '## Blocked by' <<<\"\$out_prd\""
+
+assert "prd.md: prefers parallel PRDs, sequences only on a real dependency" \
+  "grep -qi 'PARALLEL' <<<\"\$out_prd\" && grep -qi 'real dependency' <<<\"\$out_prd\""
 
 # ── inject.md render ─────────────────────────────────────────────────────────
 out_inject="$(render "$HERE/../prompts/inject.md" \
