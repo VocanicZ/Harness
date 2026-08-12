@@ -777,7 +777,7 @@ def _check(goal, state):
         with contextlib.redirect_stdout(buf):
             il.main()
     finally:
-        sys.argv = argv
+        sys.argv = argv; il.compute_state = _REAL_COMPUTE_STATE
     return buf.getvalue().strip()
 
 def test_check_review_done_on_signoff_or_gaps_not_on_close():
@@ -792,6 +792,32 @@ def test_check_review_done_on_signoff_or_gaps_not_on_close():
 def test_check_close_prd_done_when_prd_closed():
     assert _check("CLOSE_PRD", mk(prd=7, prd_open=False)) == "DONE"
     assert _check("CLOSE_PRD", mk(prd=7, prd_open=True)) == "PENDING"
+
+def test_check_qualified_goals_resolve_against_the_named_prd():
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prds=[prd(10, children_exist=True), prd(20, children_exist=False)])
+    assert _check("DECOMPOSE:10", s) == "DONE"
+    assert _check("DECOMPOSE:20", s) == "PENDING"
+
+def test_check_qualified_review_and_close():
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prds=[prd(10, reviewed=True, open=True), prd(20, reviewed=False, open=False)])
+    assert _check("REVIEW:10", s) == "DONE"
+    assert _check("REVIEW:20", s) == "PENDING"
+    assert _check("CLOSE_PRD:20", s) == "DONE"
+    assert _check("CLOSE_PRD:10", s) == "PENDING"
+
+def test_check_unqualified_goals_still_resolve_against_lowest_prd():
+    """In-flight sessions launched by the pre-upgrade engine wrote bare goals."""
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prds=[prd(10, children_exist=True, reviewed=True)])
+    assert _check("DECOMPOSE", s) == "DONE"
+    assert _check("REVIEW", s) == "DONE"
+
+def test_check_unknown_prd_number_is_pending_not_a_crash():
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prds=[prd(10)])
+    assert _check("REVIEW:404", s) == "PENDING"
 
 # ── gh-error vs empty/absent (#1/#2/#3): a transient gh failure (rate-limit/network) must NEVER be
 # folded into "empty repo / no plan", which spuriously re-fires PLAN and (in poller mode) clobbers a
