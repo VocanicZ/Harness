@@ -10,16 +10,23 @@ Steps:
 1. Read PRD #{{PRD}}:  gh issue view {{PRD}} -R {{SLUG}}
 2. Invoke the `to-issues` skill to slice the PRD into small, independently-shippable
    implementation tasks (each ~1 PR of work, with its own acceptance criteria).
-2a. Idempotency — before creating anything, list the issues that already exist:
-      gh issue list -R {{SLUG}} --label {{LABEL_READY}} --state all
+2a. Idempotency — before creating anything, list the issues that ALREADY belong to THIS PRD:
+      gh issue list -R {{SLUG}} --label {{LABEL_READY}} --state all \
+        --json number,title,body \
+        --jq '[.[] | select(.body | contains("Part of #{{PRD}}"))]'
     Create an issue ONLY for a task with no matching issue yet (match by title/intent); never
     duplicate a task that already has an issue (an injector may have already added some).
+    Scope this to THIS PRD's children — a sibling PRD's issues are NOT yours and must not make
+    you skip real work.
 3. For each task, create an issue in this repo:
      gh issue create -R {{SLUG}} --title "[AFK] <task>" --label {{LABEL_READY}} \
        --body "<what + acceptance criteria>
 
      ## Blocked by
      <#N for any sibling task that must finish first, or 'None'>
+
+     ## Parent
+     #{{PRD}}
 
      Part of #{{PRD}}"
    - Create labels once if missing: {{LABEL_READY}}, agent-working, agent-blocked, {{LABEL_REVIEWED}}.
