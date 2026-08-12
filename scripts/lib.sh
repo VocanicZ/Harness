@@ -400,6 +400,13 @@ bug_worktree(){ echo "$WORKTREES_DIR/bug-$(printf '%s' "$1" | tr '/' '_')-i$2"; 
 # is agent/bug-triage-<n> (distinct from the fix phase's issue/<n>). spawn_bug (create), drive_bug +
 # reap_lane (reap), and sweep_orphan_bug_worktrees (recover) all derive the path here so they agree.
 triage_worktree(){ echo "$WORKTREES_DIR/triage-$(printf '%s' "$1" | tr '/' '_')-i$2"; }
+# orch_worktree <slug> <prd> — the DECOMPOSE/REVIEW worktree for one PRD. Multi-PRD makes
+# spawn_orch race ITSELF in the shared $CHECKOUT — a concurrent `render > .harness-task.md`
+# (prompt clobber) plus `git reset --hard origin/<base>` (working-tree yank) corrupts the other
+# session, exactly the failure #5/#109 fixed for bug-triage. Same remedy, same shape. The `orch-`
+# prefix sits at the WORKTREES_DIR root (like `triage-`), so reap_team / finalize_unit's
+# "$WORKTREES_DIR/$UNIT"-i* glob can never catch it or mis-parse it via ${wd##*-i}.
+orch_worktree(){ echo "$WORKTREES_DIR/orch-$(printf '%s' "$1" | tr '/' '_')-p$2"; }
 # remove_worktree <checkout> <wd> [branch] — best-effort teardown of one worktree (+ optional local
 # branch), then prune the registration. Tolerates a missing worktree/branch (idempotent). Falls
 # back to rm -rf if `git worktree remove` can't (e.g. dir already gone). Shared by spawn_bug's
@@ -501,7 +508,10 @@ ci_gate_log(){ local key="$1:$3"
   log "  live sessions keep draining. Remedy: file a \`$HARNESS_LABEL_BUG\` issue (the bug lane is not gated), or set HARNESS_CI_GATE=0 to override."; }
 
 # --- tmux session naming + ralph helpers -------------------------------------
-sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1"; }
+# sess_orch <unit> [prd] — the orchestration session for a unit, qualified by PRD number so several
+# PRDs can orchestrate at once (DECOMPOSE #42 while REVIEW #41). The unit-level PLAN/PRD actions
+# carry no PRD and use p0.
+sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1-p${2:-0}"; }
 sess_impl(){ echo "$HARNESS_SESS_PREFIX-$1-i$2"; }
 sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
 # Priority bug-lane session: <slug> <issue> <phase>. The slug (sanitised / -> _) is embedded so
@@ -511,7 +521,9 @@ sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
 # keeps triage and fix on DISTINCT sessions (separate session-ids / fresh context) for the same
 # issue (#27). The sanitised-slug-and-number segment matches the bug claim key (_bug_claim_key).
 sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$3"; }
-team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i)" || true; }
+# The `$` alternative keeps matching the BARE legacy orch name, so an orch session already in
+# flight when the engine upgrades is still counted and reaped instead of orphaned.
+team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i|-p)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ tmux has-session -t "$1" 2>/dev/null; }
 # lock_holders <lockfile> — print one `PID<TAB>cmdline` line per process that currently holds the
