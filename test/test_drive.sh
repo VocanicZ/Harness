@@ -227,4 +227,20 @@ assert_no "sweep removed the dead-session triage worktree (#7/#109)" test -d "$T
 assert_ok "sweep kept the live-session triage worktree (#8/#109)"    test -d "$TLIVE"
 assert_no "sweep deleted the dead triage's local branch (agent/bug-triage-7)" \
   bash -c "git -C '$CHECKOUT' rev-parse --verify -q agent/bug-triage-7 >/dev/null 2>&1"
+
+# ── per-PRD orch session names + worktree paths (multi-PRD) ──────────────────────────
+assert_eq "$(HARNESS_SESS_PREFIX=hz sess_orch main 41)" "hz-main-p41" "sess_orch embeds the PRD"
+assert_eq "$(HARNESS_SESS_PREFIX=hz sess_orch main)"    "hz-main-p0"  "sess_orch defaults to p0"
+assert_eq "$(WORKTREES_DIR=/w orch_worktree acme/widget 41)" "/w/orch-acme_widget-p41" \
+  "orch_worktree is repo-qualified and PRD-suffixed"
+
+# team_sessions must count BOTH the new -p form and any -i impl session, plus the bare legacy
+# form so an orch session launched by the pre-upgrade engine is still reaped rather than orphaned.
+# Earlier blocks stub team_sessions out (line 21/46/71) and make_env does not re-source lib.sh —
+# restore the REAL one so this exercises the shipped regex, not a stub.
+source "$HERE/../scripts/lib.sh"
+tmux(){ printf '%s\n' hz-main hz-main-p41 hz-main-i7 hz-other-p1 hz-mainline-p2; }
+assert_eq "$(HARNESS_SESS_PREFIX=hz team_sessions main | tr '\n' ' ')" \
+  "hz-main hz-main-p41 hz-main-i7 " "team_sessions matches legacy, -p and -i, and nothing else"
+unset -f tmux
 finish
