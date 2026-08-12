@@ -1053,9 +1053,13 @@ def test_a_closed_prd_does_not_complete_a_unit_with_an_open_ready_child():
     # the same pass. CLOSE_PRD is gated on children_all_closed; an agent-side `gh issue close` is
     # not. If completion keyed on the close alone, claimable_units would drop the unit and
     # drive_unit — the only caller of dispatch_actions — would never run again, stranding the child.
+    # Multi-PRD names the bucket the follow-up lands in: review files it with no `## Parent`, so it
+    # sits in the UNPARENTED bucket and clause 3 of the completion rule is what holds the unit.
     os.environ["HARNESS_MODE"] = "prd"
     stranded = mk(prd=61, prd_open=False, prd_reviewed=True, children_exist=True,
-                  children_all_closed=False, open_children=1, total_children=9, unblocked=[80])
+                  children_all_closed=True, open_children=1, total_children=9,
+                  prds=[prd(61, open=False, reviewed=True, children_all_closed=True)],
+                  unparented_unblocked=[80], open_unparented=1)
     assert il.is_complete(stranded) is False, "an open ready child must keep the unit claimable"
     # ...and the work is still reachable, which is the whole point of staying incomplete.
     il.compute_state = lambda r: stranded
@@ -1084,7 +1088,9 @@ def test_an_unclaimable_open_child_holds_the_unit_rather_than_faking_success():
     # dispatch_stalled_banner exists to make exactly this state audible.
     os.environ["HARNESS_MODE"] = "prd"
     held = mk(prd=7, prd_open=False, prd_reviewed=True, children_exist=True,
-              children_all_closed=False, open_children=1, total_children=3, unblocked=[])
+              children_all_closed=True, open_children=1, total_children=3,
+              prds=[prd(7, open=False, reviewed=True, children_all_closed=True)],
+              unparented_unblocked=[], open_unparented=1)
     assert il.is_complete(held) is False
     il.compute_state = lambda r: held
     assert il.dispatch("acme/widget", 3, True) == [], "nothing to dispatch, and it must not fake one"
@@ -1096,6 +1102,37 @@ def test_issue_only_completion_is_untouched():
     assert il.is_complete(mk(children_exist=True, open_children=0, unblocked=[])) is True
     assert il.is_complete(mk(children_exist=True, open_children=1, unblocked=[5])) is False
     assert il.is_complete(mk(children_exist=False, open_children=0, unblocked=[])) is False
+
+
+# ── multi-PRD completion ──────────────────────────────────────────────────────────────────────
+# The legacy scalars in these fixtures describe the FIRST PRD only — exactly what an engine that
+# knew about one PRD would have recorded — so each one reads as complete to the legacy predicate
+# and the assertion pins the multi-PRD clause that must override it.
+def test_not_complete_while_a_second_prd_is_open():
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prd_open=False, prd_reviewed=True,
+           prds=[prd(10, open=False, reviewed=True, children_all_closed=True),
+                 prd(20, open=True)])
+    assert il.is_complete(s) is False, s
+
+def test_complete_when_every_prd_is_closed():
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prds=[prd(10, open=False, reviewed=True, children_all_closed=True),
+                         prd(20, open=False, reviewed=True, children_all_closed=True)])
+    assert il.is_complete(s) is True, s
+
+def test_not_complete_with_an_open_unparented_child():
+    """An issue injected after the PRD closed used to be stranded: drive_unit's loop had already
+    exited on unit_complete, so the resident worker idled straight past it."""
+    os.environ["HARNESS_MODE"] = "prd"
+    s = mk(prd=10, prd_open=False, prd_reviewed=True,
+           prds=[prd(10, open=False, reviewed=True, children_all_closed=True)],
+           unparented_unblocked=[99], open_unparented=1)
+    assert il.is_complete(s) is False, s
+
+def test_not_complete_with_no_prd_at_all():
+    os.environ["HARNESS_MODE"] = "prd"
+    assert il.is_complete(mk(prd=None, prds=[])) is False
 
 def test_parse_parent_section_form():
     b = "Do the thing.\n\n## Parent\n#41\n\n## Blocked by\nNone\n"

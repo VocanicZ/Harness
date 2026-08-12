@@ -650,30 +650,15 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=()):
 def is_complete(s):
     if MODE() == "issue-only":
         return s["children_exist"] and s["open_children"] == 0 and len(s["unblocked"]) == 0
-    # A CLOSED PRD means the unit is done. The reviewed label is the sign-off SIGNAL that lets the
+    # A CLOSED PRD means that PRD is done. The reviewed label is the sign-off SIGNAL that lets the
     # engine close the PRD, but completion keys off the close itself: requiring the label here too
     # left a close-OK/label-fail PRD forever-incomplete (and REVIEW could not re-fire — its guard
-    # needs prd_open). Only the review path closes a PRD, so closed ⇒ reviewed-intent.
-    #
-    # A closed PRD is NOT sufficient on its own, though. CLOSE_PRD is gated on children_all_closed;
-    # NOTHING ELSE that can close a PRD is — a reviewer's own `gh issue close`, a human, an injected
-    # session. When one of those closes it with a ready child still open, that child is stranded:
-    # claimable_units drops a complete unit BEFORE drive_unit is entered, and drive_unit is the only
-    # caller of dispatch_actions. `dispatch` keeps answering IMPL <n> correctly forever; nothing is
-    # left to ask it, so the pool idles while the unit reports success.
-    #
-    # Requiring open_children == 0 keeps the unit claimable instead, so the work is still done and
-    # the PRD's own close stops being load-bearing. issue-only mode has always required exactly
-    # this; prd/planned was the outlier.
-    #
-    # This is the single-PRD specialisation of clause 3 of the multi-PRD completion rule
-    # (docs/superpowers/specs/2026-08-12-multi-prd-design.md, "Completion"): with one PRD and no
-    # parent parsing, every ready child sits in one bucket, so "no open unparented ready children"
-    # reduces to "no open ready children". When multi-PRD lands, its bucket-aware clause replaces
-    # this line and its `is_complete blocked by an open unparented child` test supersedes the two
-    # added here.
-    return (s["prd"] is not None and not s["prd_open"] and s["open_children"] == 0
-            and (s["prd_reviewed"] or s["children_all_closed"]))
+    # needs the PRD open). Only the review path closes a PRD, so closed ⇒ reviewed-intent.
+    # The unit is done when EVERY PRD is closed — a PRD still sequenced behind another keeps the
+    # unit incomplete, which is what stops the pool retiring mid-queue — and when no unparented
+    # (injected) child is still open, which is what stops a late injection being stranded.
+    prds = s["prds"]
+    return bool(prds) and all(not p["open"] for p in prds) and s.get("open_unparented", 0) == 0
 
 def main():
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)
