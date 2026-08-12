@@ -45,8 +45,8 @@ harness init     # writes that project's config + state under .harness/
 | Mode | Entry stage | Orchestration allowed | PRD authored by | COMPLETE when |
 |------|-------------|----------------------|-----------------|---------------|
 | `issue-only` | IMPL | none (IMPL only) | — | all `ready-for-agent` issues closed and none in-flight |
-| `prd` | DECOMPOSE | DECOMPOSE, REVIEW | human (creates one `prd`-labelled issue) | PRD issue closed and labelled `reviewed`, **and** no `ready-for-agent` issue still open |
-| `planned` | PLAN | PLAN, PRD, DECOMPOSE, REVIEW | agent (from `HARNESS_SPEC`) | PRD issue closed and labelled `reviewed`, **and** no `ready-for-agent` issue still open |
+| `prd` | DECOMPOSE | DECOMPOSE, REVIEW | human (creates one or more `prd`-labelled issues) | every PRD issue closed and labelled `reviewed`, **and** no `ready-for-agent` issue still open |
+| `planned` | PLAN | PLAN, PRD, DECOMPOSE, REVIEW | agent (from `HARNESS_SPEC`) | every PRD issue closed and labelled `reviewed`, **and** no `ready-for-agent` issue still open |
 
 The full pipeline is: `PLAN → PRD → DECOMPOSE → IMPL (parallel) → REVIEW → COMPLETE`.
 `HARNESS_MODE` gates which stages are active; all modes share the same state machine.
@@ -64,6 +64,30 @@ The cost is deliberate: an open ready issue that no lane can claim — blocked b
 and in `multi` topology holds every dependent unit behind it. That is the honest state rather than
 a false COMPLETE, and it is not silent: the unit logs one banner naming the outstanding count and
 the remedy, deduped so a genuinely stuck unit says it once rather than every poll.
+
+### Several PRDs per unit
+
+A unit may hold several PRD issues at once. PRDs with no `## Blocked by` section run in
+**parallel** — their children are dispatched as capacity allows, lowest PRD number first, spilling
+into the next PRD when one runs dry. A PRD that declares
+
+```
+## Blocked by
+#41
+```
+
+is held until #41 closes, giving you a strict **one-by-one** sequence. Mix freely: sequence only
+what genuinely depends on something else.
+
+Children are attributed to their PRD by a `## Parent` section in the issue body (the decompose
+agent writes this; the legacy `Part of #N` trailer is also honoured). A ready-labelled issue with
+no parent — an injected task, say — is dispatched first and does not gate any PRD's review. The
+unit is COMPLETE only when every PRD is closed and no unparented issue is still open.
+
+Each eligible PRD gets its own orchestration lane: DECOMPOSE, REVIEW and the engine's own
+`CLOSE_PRD` are gated per PRD rather than unit-wide, so two PRDs can orchestrate at once. Their
+sessions carry a `-p<n>` suffix and run in per-PRD worktrees, which is what keeps two concurrent
+orch agents off each other's checkout.
 
 ## Topologies
 

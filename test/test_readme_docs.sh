@@ -43,4 +43,26 @@ assert "README documents the ## Quality bar opt-in" \
 assert "README is honest that blindness is not a sandbox" \
   "grep -qi 'not a sandbox' '$README'"
 
+# 5. Multi-PRD in `prd` mode — a unit may hold several PRDs, they run in parallel unless a PRD
+#    declares `## Blocked by`, children are attributed by `## Parent` (with the `Part of #N`
+#    fallback), unparented issues go first without gating a review, and COMPLETE needs every PRD.
+assert "README has a multi-PRD section" \
+  "grep -qiE '^#+ .*(several|multiple|multi-)PRD|^#+ .*PRDs' '$README'"
+assert "README says a unit may hold several PRDs" \
+  "grep -qiE 'unit may hold (several|multiple) PRD' '$README'"
+assert "README documents PRDs running in parallel" \
+  "grep -qi 'parallel' '$README'"
+assert "README documents lowest PRD number first with spill" \
+  "grep -qiE 'lowest PRD number first' '$README'"
+assert "README documents \`## Blocked by\` sequencing between PRDs" \
+  "grep -q '## Blocked by' '$README'"
+assert "README documents \`## Parent\` attribution" \
+  "grep -q '## Parent' '$README'"
+assert "README documents the legacy \`Part of #N\` fallback" \
+  "grep -q 'Part of #' '$README'"
+assert "README documents unparented issues dispatching first" \
+  "grep -qiE 'no parent|unparented' '$README'"
+assert "README documents COMPLETE needs every PRD closed" \
+  "grep -qiE 'only when every PRD is closed' '$README'"
+
 echo "── readme docs ok"
