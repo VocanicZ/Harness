@@ -265,6 +265,35 @@ harness <command>
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
 
+### Which project a command acts on
+
+`STATE_DIR` is the project's `.harness/`. Normally you never set it: every command walks **up** from
+the current directory for a `.harness/config`, the way `git` finds `.git`.
+
+A pre-set `STATE_DIR` still overrides that discovery — an out-of-tree or vendored layout needs it —
+but an **inherited** one that points at a *different* project is refused:
+
+```
+harness: STATE_DIR is set to /home/you/projA/.harness (inherited from the environment),
+  but this directory belongs to /home/you/projB/.harness.
+  Refusing to act on a project you are not in.
+  Run with --state-dir <path> to be explicit, or 'unset STATE_DIR' to use this directory.
+```
+
+This is not hypothetical: a Claude session launched **inside** a fleet inherits that fleet's exported
+`STATE_DIR`, so `cd`-ing to another project and running `harness stop` used to stop the fleet you came
+*from*, and report success (2026-08-12; issue #168). The refusal covers every project command,
+`uninstall` included.
+
+| Situation | Behaviour |
+|-----------|-----------|
+| No `STATE_DIR` set | Discovered from the current directory (the normal path) |
+| Inherited `STATE_DIR`, agrees with discovery — or cwd is inside that state dir (a worker's worktree) | Allowed, silently |
+| Inherited `STATE_DIR`, nothing discoverable from cwd | Allowed — the out-of-tree / vendored case |
+| Inherited `STATE_DIR`, disagrees with discovery | **Refused**, non-zero, naming both paths |
+| `harness --state-dir <path> <cmd>` (or `<cmd> --state-dir <path>`) | Always allowed — deliberate, not inherited |
+| `HARNESS_STATE_DIR_OK=1` | Always allowed — waives the check for a whole shell |
+
 ## Pause / resume / update
 
 ```bash
