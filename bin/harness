@@ -20,11 +20,42 @@ discover_state_dir(){
     d="$(dirname "$d")"
   done
 }
+# canon — normalise a path for comparison (trailing slash, ./, symlinks). -m so a not-yet-created
+# path still normalises; every fallback degrades to the literal string rather than empty.
+canon(){ realpath -m "$1" 2>/dev/null || readlink -f "$1" 2>/dev/null || printf '%s\n' "$1"; }
+# assert_state_dir_deliberate — refuse an INHERITED STATE_DIR that points at ANOTHER project (#168).
+#
+# A Claude session launched inside a fleet inherits that fleet's exported STATE_DIR, so `cd`-ing to
+# a different project and running a project command operated on the fleet you came FROM, silently:
+# on 2026-08-12 a `harness stop` stopped the wrong project's fleet and reported success. The env var
+# cannot express DELIBERATE vs INHERITED — hence the explicit --state-dir flag as the escape hatch.
+#
+#   deliberate (--state-dir / HARNESS_STATE_DIR_OK=1) → always allow
+#   nothing discoverable from cwd                     → allow (the vendored / out-of-tree case, #53)
+#   discovery agrees, or cwd is inside the state tree → allow, silently (workers export it legitimately)
+#   discovery DISAGREES                               → refuse, non-zero, naming both paths
+assert_state_dir_deliberate(){
+  [[ -n "${STATE_DIR:-}" ]] || return 0
+  [[ "$STATE_DIR_EXPLICIT" == 1 || -n "${HARNESS_STATE_DIR_OK:-}" ]] && return 0
+  local disc; disc="$(discover_state_dir 2>/dev/null)" || return 0
+  local have want; have="$(canon "$STATE_DIR")"; want="$(canon "$disc")"
+  # A worker's cwd is a worktree UNDER the fleet's own state dir, and that worktree may itself carry
+  # a .harness/config (self-hosting) — discovery finds the inner one, which is still this fleet.
+  [[ "$have" == "$want" || "$want" == "$have"/* ]] && return 0
+  cat >&2 <<EOF
+harness: STATE_DIR is set to $have (inherited from the environment),
+  but this directory belongs to $want.
+  Refusing to act on a project you are not in.
+  Run with --state-dir <path> to be explicit, or 'unset STATE_DIR' to use this directory.
+EOF
+  exit 4
+}
 # require_state_dir — set+export STATE_DIR for commands that act on a project. A pre-set STATE_DIR
-# wins (env override / vendored layout); else discover it. Outside any Harness project: a clear,
-# non-zero error here — not a cryptic path failure deep in lib.sh.
+# wins (env override / vendored layout) unless it disagrees with cwd's project — see
+# assert_state_dir_deliberate; else discover it. Outside any Harness project: a clear, non-zero
+# error here — not a cryptic path failure deep in lib.sh.
 require_state_dir(){
-  [[ -n "${STATE_DIR:-}" ]] && { export STATE_DIR; return 0; }
+  [[ -n "${STATE_DIR:-}" ]] && { assert_state_dir_deliberate; export STATE_DIR; return 0; }
   if STATE_DIR="$(discover_state_dir)"; then export STATE_DIR; return 0; fi
   cat >&2 <<EOF
 harness: not inside a Harness project — no .harness/config found here or in any parent directory.
@@ -54,8 +85,35 @@ usage: harness <command> [args]
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
   issue "<brief>"      inject implementation issue(s) into a live fleet (grill via /harness-issue)
+
+global options:
+  --state-dir <path>   act on THIS project's .harness/, deliberately — accepted before or after the
+                       command, and the only way to target a project you are not standing in. An
+                       INHERITED STATE_DIR that disagrees with the .harness/config found from the
+                       current directory is REFUSED (#168): a session launched inside one fleet
+                       would otherwise stop/pause a different project's fleet, silently.
+                       HARNESS_STATE_DIR_OK=1 waives that check for a whole shell.
 EOF
 }
+# Global option scan, before dispatch: --state-dir <path> | --state-dir=<path> marks a DELIBERATE
+# target, the escape hatch from the inherited-STATE_DIR refusal above (#168). Consumed here, never
+# forwarded to the subcommand script. Only an exact token matches, so a quoted brief is untouched.
+STATE_DIR_EXPLICIT=0
+_argv=()
+while (($#)); do
+  case "$1" in
+    --state-dir)
+      shift; [[ $# -gt 0 && -n "$1" ]] || { echo "harness: --state-dir requires a path" >&2; exit 2; }
+      STATE_DIR="$1"; STATE_DIR_EXPLICIT=1; export STATE_DIR;;
+    --state-dir=*)
+      STATE_DIR="${1#--state-dir=}"
+      [[ -n "$STATE_DIR" ]] || { echo "harness: --state-dir requires a path" >&2; exit 2; }
+      STATE_DIR_EXPLICIT=1; export STATE_DIR;;
+    *) _argv+=("$1");;
+  esac
+  shift
+done
+set -- ${_argv[@]+"${_argv[@]}"}
 cmd="${1:-}"; shift || true
 case "$cmd" in
   # engine-level: no project state needed. install bootstraps the host engine; update ff-pulls it
@@ -80,7 +138,9 @@ case "$cmd" in
   migrate) require_state_dir; exec bash "$ENGINE_DIR/scripts/migrate.sh" "$@";;
   # uninstall tears down host engine + this project + skills; best-effort STATE_DIR so it also runs
   # outside a project (engine/skills only) and so the default path can stop the discovered fleet.
-  uninstall) try_state_dir; exec bash "$ENGINE_DIR/scripts/uninstall.sh" "$@";;
+  # (guarded like the project commands: it DELETES a project's .harness/, so an inherited STATE_DIR
+  # pointing at another project is the worst possible silent target — #168.)
+  uninstall) try_state_dir; assert_state_dir_deliberate; exec bash "$ENGINE_DIR/scripts/uninstall.sh" "$@";;
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
   resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
   help|-h|--help) usage;;
