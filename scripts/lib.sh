@@ -799,6 +799,42 @@ prefixes_collide(){ local a="$1" b="$2"
   [[ "$a" == "$b-"* ]] && return 0
   return 1; }
 
+# colliding_sessions — every LIVE tmux session whose prefix space overlaps ours, one
+# `<session>\t<session_path>\t<mine|theirs>` line each. This is the guard's ENFORCEMENT signal: tmux
+# is the namespace actually at stake, it cannot go stale, and it sees sibling fleets that appear in
+# NO registry (an older engine, a hand-set HARNESS_SESS_PREFIX, a session made by hand).
+#
+# Attribution comes from `session_path`: spawn_impl creates every session as
+# `tmux new-session -d -s "$sess" -c "$wd"` with $wd a worktree under the OWNING project's
+# STATE_DIR/worktrees/, so the path names the owner. `mine` is the `harness start --recover` case —
+# a documented re-run against a live fleet, which must be allowed to proceed.
+#
+# A session's prefix is read as its leading dash-delimited segment. That UNDER-reads an owner whose
+# own prefix contains a dash (`my-app-main-i1` -> `my`), but the under-read is sound rather than
+# approximate: a shorter prefix owns strictly MORE of the namespace, so if `my` collides with ours so
+# does `my-app`, and if it does not then `my-app-…` lies outside our space anyway. No genuine
+# collision is missed and no false one is introduced.
+colliding_sessions(){
+  local name path seg
+  while IFS=$'\t' read -r name path; do
+    [[ -n "$name" ]] || continue
+    seg="${name%%-*}"
+    prefixes_collide "$HARNESS_SESS_PREFIX" "$seg" || continue
+    if [[ "$path" == "$STATE_DIR" || "$path" == "$STATE_DIR"/* ]]; then
+      printf '%s\t%s\tmine\n' "$name" "$path"
+    else
+      printf '%s\t%s\ttheirs\n' "$name" "$path"
+    fi
+  done < <(tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true)
+}
+
+# fleet_owner_of <session_path> — the project directory owning a fleet session. Sessions live in a
+# worktree under <owner STATE_DIR>/worktrees/, so cutting at /worktrees/ yields that STATE_DIR and
+# its parent is the project dir. A path that doesn't match (a hand-made session, an unusual layout)
+# falls back to itself, so the refusal message still says something true and actionable.
+fleet_owner_of(){ local p="$1"
+  if [[ "$p" == */worktrees/* ]]; then dirname "${p%%/worktrees/*}"; else printf '%s\n' "$p"; fi; }
+
 # poller_registry_prefixes <self-project> — every OTHER active fleet's recorded session prefix, one
 # `<prefix>\t<project>` line per fleet (deduped by project; <self-project> excluded). The cross-fleet
 # discovery source for the start-time guard: slice 2 records each fleet's HARNESS_SESS_PREFIX in its
