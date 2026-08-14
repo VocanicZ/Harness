@@ -58,6 +58,24 @@ for t in test_prefix_guard.sh test_poller.sh test_priority.sh test_worker.sh; do
   assert_eq "$(find "$host/snapshots" -mindepth 1 | wc -l)" "0" "$t: no snapshots in live host root"
 done
 
+# ── the host FLEET registry is a THIRD such seam, and the worst of the three ────────────────────
+# lib.sh:99-100 prefers an inherited HARNESS_FLEETS_DIR over the HARNESS_HOME a test sets for itself
+# and then exports it, so every fleet worker hands ~/.harness/fleets down to the agent session that
+# runs this suite. Unlike the poller registry, entries here are not merely read — `doctor --fix`
+# DELETES them (test_doctor.sh calls doctor_main --fix), so the suite could strip a live sibling
+# fleet's prefix reservation off the real host. The decoy holds one entry and must come back intact.
+make_fleet_decoy(){ local d; d="$(mktemp -d)/.harness"; mkdir -p "$d/fleets"
+  printf '%s\n' '{"prefix":"live","project":"/live/proj/.harness","run_dir":"/live/proj/.harness/run","slugs":["live/repo"],"started_at":0}' \
+    > "$d/fleets/live.json"; printf '%s' "$d"; }
+for t in test_doctor.sh test_prefix_guard.sh test_fleet_registry.sh test_init.sh test_status.sh; do
+  [[ -f "$HERE/$t" ]] || continue
+  host="$(make_fleet_decoy)"
+  HARNESS_FLEETS_DIR="$host/fleets" bash "$HERE/$t" >/dev/null 2>&1
+  assert_ok "$t: the live fleet-registry entry survives (not pruned by --fix)" \
+    test -f "$host/fleets/live.json"
+  assert_eq "$(find "$host/fleets" -mindepth 1 | wc -l)" "1" "$t: no fixture entries in the live fleet registry"
+done
+
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
 # exported — make_env re-pins STATE_DIR and everything lib.sh derived from it.
 decoy="$(make_decoy)"
@@ -115,7 +133,8 @@ assert_no "make_env: ensure_trusted writes no config into the live config dir" \
   || { echo "  FAIL: fixture config still loses to the live env"; TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1)); }
 # The host PATH pins must SURVIVE the drop — run.sh and make_env set them deliberately.
 ( unset_inherited_config
-  [[ -n "${HARNESS_HOME:-}" && -n "${HARNESS_POLLER_DIR:-}" && -n "${HARNESS_SNAPSHOTS_DIR:-}" ]] ) \
+  [[ -n "${HARNESS_HOME:-}" && -n "${HARNESS_POLLER_DIR:-}" && -n "${HARNESS_SNAPSHOTS_DIR:-}" \
+     && -n "${HARNESS_FLEETS_DIR:-}" ]] ) \
   && { echo "  ok: the host path pins survive the drop"; TESTS_RUN=$((TESTS_RUN+1)); } \
   || { echo "  FAIL: the host path pins were dropped too"; TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1)); }
 # run.sh must actually DO the drop — a helper nobody calls guards nothing.
@@ -123,5 +142,11 @@ assert_ok "run.sh drops inherited config before the suite loop" \
   grep -q 'unset_inherited_config' "$HERE/run.sh"
 assert_ok "test_init.sh re-drops for a direct invocation" \
   grep -q 'unset_inherited_config' "$HERE/test_init.sh"
+# The fleet-registry pin must be in BOTH blanket guards, not just make_env: run.sh hands each test
+# its own host root, and a test that never calls make_env (test_init.sh) relies on run.sh's copy.
+assert_ok "run.sh pins HARNESS_FLEETS_DIR per test" \
+  grep -q 'export HARNESS_FLEETS_DIR=' "$HERE/run.sh"
+assert_ok "make_env pins HARNESS_FLEETS_DIR too" \
+  grep -q 'export HARNESS_FLEETS_DIR=' "$HERE/helpers.sh"
 
 finish

@@ -7,6 +7,11 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Pin the host root BEFORE sourcing lib.sh so HARNESS_FLEETS_DIR derives into a throwaway and we
 # never touch a real ~/.harness (a stray fixture entry there aborts a real `harness start`).
+# Drop any INHERITED HARNESS_FLEETS_DIR first. run.sh now pins one per test (and a live fleet exports
+# its own), and lib.sh:99 prefers an inherited value over the HARNESS_HOME set here BY DESIGN — so
+# without this unset the derivation asserted below is never exercised. The mktemp'd HARNESS_HOME
+# below keeps this throwaway either way; only the derivation-under-test changes.
+unset HARNESS_FLEETS_DIR
 export HARNESS_HOME="$(mktemp -d)"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"

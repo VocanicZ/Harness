@@ -9,9 +9,9 @@ assert_no(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then ec
 finish(){ echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"; [[ $TESTS_FAIL -eq 0 ]]; }
 
 # The per-project CONFIG vars lib.sh exports (scripts/lib.sh) — every one of which a pool worker
-# hands down to the agent session that may be running this suite. Deliberately EXCLUDES the three
-# host PATH pins (HARNESS_HOME / _POLLER_DIR / _SNAPSHOTS_DIR): run.sh and make_env set those to
-# throwaways on purpose, so unsetting them here would undo the isolation.
+# hands down to the agent session that may be running this suite. Deliberately EXCLUDES the four
+# host PATH pins (HARNESS_HOME / _POLLER_DIR / _SNAPSHOTS_DIR / _FLEETS_DIR): run.sh and make_env set
+# those to throwaways on purpose, so unsetting them here would undo the isolation.
 HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC
   HARNESS_AUTONOMOUS HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_SESS_PREFIX
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED
@@ -53,6 +53,13 @@ make_env(){
   # is shared by every co-resident fleet, so fixture entries there make `harness start` abort a real
   # fleet on a bogus prefix collision. Same seam, different root.
   export HARNESS_HOME="$RUN_DIR/host"
+  # The host FLEET registry is the same seam one notch worse (lib.sh:99-100): it too prefers an
+  # inherited value over the HARNESS_HOME just set and is exported by every fleet process, but its
+  # entries are DELETED by `doctor --fix` (test_doctor.sh calls doctor_main --fix before its own
+  # fleet block pins anything) — so an unpinned suite strips a live sibling fleet's prefix
+  # reservation off the real host, not just litters it. Pin it beside HARNESS_HOME, before any test
+  # can reach it. See test_hermetic.sh's fleet-decoy block.
+  export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
   # Claude Code's config too. ensure_trusted seeds EVERY config the launched pane could read —
   # ~/.claude.json, $CLAUDE_CONFIG_DIR/.claude.json, and each ~/.claude-switch/accounts/*/.claude.json
   # — so a test run inside a live agent session (which exports CLAUDE_CONFIG_DIR via .bashrc) wrote
