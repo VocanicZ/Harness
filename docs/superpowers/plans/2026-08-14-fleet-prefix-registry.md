@@ -821,8 +821,10 @@ check_prefix_collision(){
   done < <(colliding_sessions)
   if (( n > 0 )); then
     local owner; owner="$(fleet_owner_of "$hit_path")"
-    _prefix_collision_report "$owner" "$(fleet_slugs_of "$owner")" "$n" || return 0
-    return 1
+    # In `refuse` mode the report dies (exits); in `warn` mode it returns 0 and we proceed. Pass its
+    # status straight through — do NOT add a `return 1` after this call, which would defeat warn mode.
+    _prefix_collision_report "$owner" "$(fleet_slugs_of "$owner")" "$n"
+    return $?
   fi
   # 2) The registry — RESERVATION. A registered sibling with no sessions yet still owns its prefix,
   #    so two idle fleets can't race into one namespace. A STALE entry (no sessions, no live pids —
@@ -832,8 +834,8 @@ check_prefix_collision(){
     [[ -n "$pfx" ]] || continue
     prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx" || continue
     if fleet_stale "$pfx" "$rd"; then fleet_deregister "$prj"; continue; fi
-    _prefix_collision_report "$(dirname "$prj")" "$slugs" 0 || return 0
-    return 1
+    _prefix_collision_report "$(dirname "$prj")" "$slugs" 0
+    return $?
   done < <(fleet_registry_entries "$STATE_DIR")
   return 0
 }
@@ -848,7 +850,7 @@ fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
   printf '\n'; }
 ```
 
-Note: `_prefix_collision_report` returns 0 only in `warn` mode (in `refuse` mode `die` exits the process), so `|| return 0` is the warn path and the `return 1` below it is unreachable in practice — it is there so the function is still correct if `die` is ever stubbed, as tests do with subshells.
+Note on the return convention: `_prefix_collision_report` never returns in `refuse` mode (`die` exits the process) and returns 0 in `warn` mode. `check_prefix_collision` therefore passes its status straight through with `return $?`. Do not add a trailing `return 1` after either call — it would fire on the warn path and refuse the start anyway, defeating `HARNESS_PREFIX_COLLISION=warn`. The refusal's non-zero exit comes from `die`, not from this function.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
