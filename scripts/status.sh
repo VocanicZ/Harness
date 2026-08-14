@@ -49,7 +49,7 @@ render_once(){
   local _p _prj _rd _slugs _sibs=0
   while IFS=$'\t' read -r _p _prj _rd _slugs; do
     [[ -n "$_p" ]] || continue
-    (( _sibs++ )); printf '  sibling fleet: %-12s %s%s\n' "$_p" "$_prj" "${_slugs:+ ($_slugs)}"
+    (( _sibs++ )); printf '  sibling fleet: %-12s %s%s\n' "$_p" "$(dirname "$_prj")" "${_slugs:+ ($_slugs)}"
   done < <(fleet_registry_entries "$STATE_DIR")
   (( _sibs == 0 )) && echo "  (no other fleets registered on this host)"
 

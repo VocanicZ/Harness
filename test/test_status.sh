@@ -144,7 +144,7 @@ echo "── status #44 multi lane-identity ok"
 # for that style) — it matches its OWN pre-existing echo/grep/exit idiom used throughout above.
 echo "== status names this fleet's prefix and any siblings on the host =="
 export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
-( STATE_DIR=/p/sib RUN_DIR=/p/sib/run HARNESS_SESS_PREFIX=sibling fleet_register )
+( STATE_DIR=/p/sib/.harness RUN_DIR=/p/sib/.harness/run HARNESS_SESS_PREFIX=sibling fleet_register )
 tmux(){ return 1; }; export -f tmux
 OUT="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux

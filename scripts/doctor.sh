@@ -88,7 +88,7 @@ doctor_fleets(){
     [[ -n "$pfx" ]] || continue
     if fleet_stale "$pfx" "$rd"; then
       problems=$((problems+1))
-      echo "  fleet registry: STALE entry — prefix '$pfx' reserved by $prj (no live sessions, no live pids)"
+      echo "  fleet registry: STALE entry — prefix '$pfx' reserved by $(dirname "$prj") (no live sessions, no live pids)"
       if (( DOCTOR_FIX )); then
         fleet_deregister "$prj"; echo "    → pruned"
       else
@@ -114,7 +114,7 @@ doctor_main(){
   local total=$((lp+pp+fp))
   echo "────────────────────────────────────────────"
   if (( total == 0 )); then
-    echo "healthy ✓ — no lock wedges or stale pidfiles."
+    echo "healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries."
     return 0
   fi
   if (( DOCTOR_FIX )); then
@@ -124,7 +124,7 @@ doctor_main(){
     else echo "  start.lock still held — inspect above; a non-orphan (in-flight start) may hold it."; fi
     return 0
   fi
-  echo "$total problem(s) found. To clear: harness doctor --fix   (kills only this project's orphans)"
+  echo "$total problem(s) found. To clear: harness doctor --fix   (kills only this project's orphans; prunes stale fleet-registry entries — never a live fleet)"
   return 1
 }
 
