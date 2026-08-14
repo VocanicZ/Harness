@@ -56,8 +56,12 @@ assert_eq "$NA1" "$NA2" "fallback is deterministic for the same path"
 assert_no "different paths get different fallbacks" bash -c "[[ '$NA1' == '$NB' ]]"
 # The result is always usable as a tmux session-name segment.
 assert_ok "result never contains a dash" bash -c "[[ ! '$(derive_prefix /home/u/bonsai-api)' == *-* ]]"
-assert_ok "derived prefix does not collide with a sibling's" \
-  bash -c '! prefixes_collide "$(derive_prefix /home/u/Harness)" "$(derive_prefix /home/u/Bonsai)"'
+# Run this IN-PROCESS, not under `bash -c`: the helper rig's assert_* run their argv directly, so
+# lib.sh's functions are in scope. A `bash -c '! prefixes_collide …'` subshell never sourced lib.sh,
+# so both functions would be "command not found" (127) and the leading `!` would negate that into a
+# pass — an assertion that stays green even if the functions are deleted.
+assert_no "derived prefixes of two sibling projects do not collide" \
+  prefixes_collide "$(derive_prefix /home/u/Harness)" "$(derive_prefix /home/u/Bonsai)"
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -563,9 +567,12 @@ OUT="$(HARNESS_SESS_PREFIX=widget STATE_DIR="$OURS" colliding_sessions)"
 assert_eq "$(grep -c . <<<"$OUT" || true)" "0" "a distinct prefix sees no collisions"
 unset -f tmux
 
-# No tmux server at all (nothing running) must be a clean empty result, not an error.
+# No tmux server at all (nothing running) must be a clean empty result, not an error. Call it
+# IN-PROCESS — under `bash -c` the subshell never sourced lib.sh, so colliding_sessions would be
+# "command not found" and the assertion would test nothing about this function.
 tmux(){ return 1; }; export -f tmux
-assert_ok "no tmux server is not an error" bash -c 'HARNESS_SESS_PREFIX=hz colliding_sessions >/dev/null'
+HARNESS_SESS_PREFIX=hz colliding_sessions >/dev/null
+assert_eq "$?" "0" "no tmux server is a clean empty result, not an error"
 unset -f tmux
 
 echo "== fleet_owner_of: session path -> owning project dir =="
