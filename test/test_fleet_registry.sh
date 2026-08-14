@@ -73,4 +73,34 @@ mkdir -p "$HARNESS_FLEETS_DIR"; echo 'not json' > "$HARNESS_FLEETS_DIR/junk.json
 assert_ok "malformed entries are skipped, valid ones still read" \
   bash -c 'grep -q "^delta	" <<<"$1"' _ "$(fleet_registry_entries /proj/z)"
 
+echo "== start.sh registers UNCONDITIONALLY (static: it can't run in this harness) =="
+START="$HERE/../scripts/start.sh"
+assert_ok "start.sh calls fleet_register" grep -q '^fleet_register' "$START"
+# It must NOT sit inside the HARNESS_USE_POLLER block — that flag is off by default, which is exactly
+# why the old guard read an empty registry and never fired.
+reg_ln="$(grep -n '^fleet_register' "$START" | head -1 | cut -d: -f1)"
+poll_ln="$(grep -n 'if \[\[ -n "\${HARNESS_USE_POLLER:-}" \]\]' "$START" | head -1 | cut -d: -f1)"
+guard_ln="$(grep -n '^check_prefix_collision' "$START" | head -1 | cut -d: -f1)"
+assert_ok "found the fleet_register line"        test -n "$reg_ln"
+assert_ok "found the HARNESS_USE_POLLER block"   test -n "$poll_ln"
+assert_ok "found the check_prefix_collision line" test -n "$guard_ln"
+assert_ok "registration precedes the poller block (not nested inside it)" test "$reg_ln" -lt "$poll_ln"
+assert_ok "registration happens AFTER the collision guard passes"          test "$guard_ln" -lt "$reg_ln"
+
+echo "== stop.sh deregisters unconditionally (behavioural) =="
+SRUN="$(mktemp -d)"
+tmux(){ case "$1" in ls) return 0;; *) return 0;; esac; }
+export -f tmux
+rm -rf "$HARNESS_FLEETS_DIR"
+( STATE_DIR="$SRUN" RUN_DIR="$SRUN" HARNESS_SESS_PREFIX=zeta fleet_register )
+( STATE_DIR=/other/proj RUN_DIR=/other/proj/run HARNESS_SESS_PREFIX=other fleet_register )
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "2" "two fleets registered before stop"
+HARNESS_SESS_PREFIX=zeta RUN_DIR="$SRUN" STATE_DIR="$SRUN" bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
+unset -f tmux
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "stop removed exactly one entry"
+# IN-PROCESS. `bash -c "… <<<\"\$(fleet_registry_entries …)\""` would run fleet_registry_entries in a
+# child that never sourced lib.sh — a 127 matched against an empty string, not a test of anything.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "the sibling fleet's entry survives stop" contains '^other	' "$(fleet_registry_entries /nobody)"
+
 finish

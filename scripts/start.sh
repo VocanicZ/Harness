@@ -97,6 +97,13 @@ fi
 
 (( DO_RECOVER )) && recover
 
+# Record this fleet in the host-wide registry so a sibling project's `harness start` can see that
+# our session prefix is taken. UNCONDITIONAL — deliberately not behind HARNESS_USE_POLLER, which is
+# off by default and is exactly why the collision guard used to read an empty registry and never
+# fire. Best-effort: an unwritable $HARNESS_HOME warns and start continues. Runs AFTER
+# check_prefix_collision so our own entry can't be mistaken for a sibling's by our own guard.
+fleet_register
+
 # PRD-B slice 3 (#72): when HARNESS_USE_POLLER is set, register this project's repos with the host
 # poller (refcounted on STATE_DIR) and ensure the poller is alive BEFORE the workers come up, so the
 # first worker tick already has a snapshot to read. Flag OFF: never touch the poller/registry —

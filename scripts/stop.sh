@@ -26,6 +26,13 @@ for s in $(tmux ls -F '#S' 2>/dev/null | grep -E "$(fleet_session_re)" || true);
   tmux kill-session -t "$s" 2>/dev/null && echo "  killed tmux $s"
 done
 
+# Release this fleet's prefix reservation in the host-wide registry. Unconditional, matching
+# start.sh's unconditional fleet_register, and scoped to THIS project's STATE_DIR so a co-resident
+# sibling's entry is never removed. A fleet killed uncleanly (kill -9, host crash) never reaches
+# this line; the start-time guard prunes such entries once they have no live sessions and no live
+# pids, and `harness doctor --fix` clears them on demand.
+fleet_deregister "$STATE_DIR"
+
 # PRD-B slice 3 (#72): deregister this project's repos from the host poller, keyed on STATE_DIR. A
 # slug another fleet still references stays polled (refcount); only when the last fleet deregisters
 # does it fall out of the work list. We NEVER kill the poller here — it is a host-level background
