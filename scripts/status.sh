@@ -43,16 +43,6 @@ render_once(){
   # #73: count only the fleet's own full-grammar sessions, not every bare `<prefix>-…` string.
   sess_total="$(tmux ls -F '#S' 2>/dev/null | grep -cE "$(fleet_session_re)" || true)"
 
-  # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes
-  # `harness stop` here kill another project's agents, so it belongs in the at-a-glance view.
-  echo "prefix: $HARNESS_SESS_PREFIX"
-  local _p _prj _rd _slugs _sibs=0
-  while IFS=$'\t' read -r _p _prj _rd _slugs; do
-    [[ -n "$_p" ]] || continue
-    (( _sibs++ )); printf '  sibling fleet: %-12s %s%s\n' "$_p" "$(dirname "$_prj")" "${_slugs:+ ($_slugs)}"
-  done < <(fleet_registry_entries "$STATE_DIR")
-  (( _sibs == 0 )) && echo "  (no other fleets registered on this host)"
-
   local done_n=0 u
   for u in $(all_units); do unit_complete "$u" 2>/dev/null && done_n=$((done_n+1)) || true; done
   local all_n; all_n="$(all_units | wc -l | tr -d ' ')"
@@ -66,6 +56,17 @@ render_once(){
   echo "  FLEET: $verdict"
   echo "  pool=$POOL  cap=$CAP/worker  poll=${POLL}s   units: $done_n/$all_n complete   $(date '+%H:%M:%S')"
   echo "───────────────────────────────────────────────────────────────────"
+
+  # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes
+  # `harness stop` here kill another project's agents, so it belongs in the at-a-glance view — under
+  # the banner, like every other block, not above it.
+  echo "prefix: $HARNESS_SESS_PREFIX"
+  local p prj rd slugs sibs=0
+  while IFS=$'\t' read -r p prj rd slugs; do
+    [[ -n "$p" ]] || continue
+    sibs=$((sibs+1)); printf '  sibling fleet: %-12s %s%s\n' "$p" "$(dirname "$prj")" "${slugs:+ ($slugs)}"
+  done < <(fleet_registry_entries "$STATE_DIR")
+  (( sibs == 0 )) && echo "  (no other fleets registered on this host)"
 
   for ((i=1;i<=POOL;i++)); do
     local mark wpid unit_id

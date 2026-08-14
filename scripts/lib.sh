@@ -799,6 +799,18 @@ prefixes_collide(){ local a="$1" b="$2"
   [[ "$a" == "$b-"* ]] && return 0
   return 1; }
 
+# tmux_sessions_with_paths — every live tmux session as `<name>\t<session_path>`, empty (rc 0) when
+# there is no tmux server at all. The ONE place this invocation is written: colliding_sessions and
+# fleet_stale both need exactly this listing, and two hand-copied `tmux ls -F` format strings are two
+# things to keep in step.
+#
+# Only the INVOCATION is shared, deliberately not the membership test. colliding_sessions asks "does
+# anything overlap our namespace" and so reads each session's leading segment through
+# prefixes_collide; fleet_stale asks the narrower "does THIS registered fleet still have sessions of
+# its own" and so wants a literal `<pfx>-` match. Folding those into one predicate would make a
+# stale-check refuse on a merely-overlapping neighbour.
+tmux_sessions_with_paths(){ tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true; }
+
 # colliding_sessions — every LIVE tmux session whose prefix space overlaps ours, one
 # `<session>\t<session_path>\t<mine|theirs>` line each. This is the guard's ENFORCEMENT signal: tmux
 # is the namespace actually at stake, it cannot go stale, and it sees sibling fleets that appear in
@@ -810,10 +822,14 @@ prefixes_collide(){ local a="$1" b="$2"
 # a documented re-run against a live fleet, which must be allowed to proceed.
 #
 # A session's prefix is read as its leading dash-delimited segment. That UNDER-reads an owner whose
-# own prefix contains a dash (`my-app-main-i1` -> `my`), but the under-read is sound rather than
-# approximate: a shorter prefix owns strictly MORE of the namespace, so if `my` collides with ours so
-# does `my-app`, and if it does not then `my-app-…` lies outside our space anyway. No genuine
-# collision is missed and no false one is introduced.
+# own prefix contains a dash (`my-app-main-i1` -> `my`), but the under-read is sound: a shorter prefix
+# owns strictly MORE of the namespace, so if `my` collides with ours so does `my-app`, and if it does
+# not then `my-app-…` lies outside our space anyway — so no genuine collision is missed. The
+# under-read can OVER-report when OUR OWN prefix contains a dash (`my-a` vs a sibling's real
+# `my-app`): `prefixes_collide my-a my` is true while `prefixes_collide my-a my-app` is false and
+# `my-app-main-i1` can never match our `^my-a-.+$` sweep. That direction fails safe — an unnecessary
+# refusal, never a missed cross-kill — and is unreachable for a derived prefix, which never
+# contains a dash.
 colliding_sessions(){
   local name path seg
   while IFS=$'\t' read -r name path; do
@@ -825,7 +841,7 @@ colliding_sessions(){
     else
       printf '%s\t%s\ttheirs\n' "$name" "$path"
     fi
-  done < <(tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true)
+  done < <(tmux_sessions_with_paths)
 }
 
 # fleet_owner_of <session_path> — the project directory owning a fleet session. Sessions live in a
@@ -868,10 +884,17 @@ PY
 # not refuse a legitimate restart forever. Both signals are checked because either can outlive the
 # other: sessions can survive a dead worker pool (status.sh calls that DEGRADED), and a worker can be
 # alive between session spawns.
+#
+# Two deliberate limits. A FAILED `tmux ls` (no server, no $TMUX socket, a permissions error) reads
+# as "no sessions" — that is the right default here, since the pid check still has to agree before
+# anything is pruned. And `kill -0` against ANOTHER user's pid returns EPERM, not success, so a
+# cross-user sibling's live fleet can look stale; cross-user detection is out of scope by design
+# (see the spec), and a same-user fleet — the only arrangement Harness supports on a host — is read
+# correctly.
 fleet_stale(){ local pfx="$1" rd="$2" name p _
   while IFS=$'\t' read -r name _; do
     [[ "$name" == "$pfx-"* ]] && return 1
-  done < <(tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true)
+  done < <(tmux_sessions_with_paths)
   for p in "$rd"/*.pid; do
     [[ -e "$p" ]] || continue
     kill -0 "$(cat "$p" 2>/dev/null)" 2>/dev/null && return 1
@@ -883,11 +906,15 @@ fleet_stale(){ local pfx="$1" rd="$2" name p _
 # "which project has it, and what do I type instead". Honours HARNESS_PREFIX_COLLISION: `refuse`
 # (default) dies, `warn` prints to stderr and returns 0. The engine NEVER edits .harness/config
 # itself and never starts under a prefix other than the configured one.
-_prefix_collision_report(){ local owner="$1" slugs="$2" n="$3" sugg msg
+_prefix_collision_report(){ local owner="$1" slugs="$2" n="$3" sugg msg detail
   sugg="$(derive_prefix "$PROJECT_ROOT")"
   [[ "$sugg" != "$HARNESS_SESS_PREFIX" ]] || sugg="${sugg}2"
-  msg="$(printf 'session prefix %s is in use by another fleet\n  owner:    %s%s\n  prefix:   %s — %s live tmux session(s)\n  yours:    %s\nretry with a distinct prefix, e.g.:\n  HARNESS_SESS_PREFIX=%s harness start\nor set HARNESS_SESS_PREFIX in %s/config\n(HARNESS_PREFIX_COLLISION=warn overrides)' \
-    "$HARNESS_SESS_PREFIX" "$owner" "${slugs:+ (repo $slugs)}" "$HARNESS_SESS_PREFIX" "$n" \
+  # A registry-only refusal (stage 2 of the guard) passes n=0, and `0 live tmux session(s)` reads as
+  # the message contradicting the refusal it is attached to. Say what is actually true: the sibling
+  # holds a RESERVATION and simply hasn't spawned a session yet.
+  if (( n == 0 )); then detail="registered, no live sessions yet"; else detail="$n live tmux session(s)"; fi
+  msg="$(printf 'session prefix %s is in use by another fleet\n  owner:    %s%s\n  prefix:   %s — %s\n  yours:    %s\nretry with a distinct prefix, e.g.:\n  HARNESS_SESS_PREFIX=%s harness start\nor set HARNESS_SESS_PREFIX in %s/config\n(HARNESS_PREFIX_COLLISION=warn overrides)' \
+    "$HARNESS_SESS_PREFIX" "$owner" "${slugs:+ (repo $slugs)}" "$HARNESS_SESS_PREFIX" "$detail" \
     "$PROJECT_ROOT" "$sugg" "$STATE_DIR")"
   case "${HARNESS_PREFIX_COLLISION:-refuse}" in
     warn) printf 'WARNING: %s\n' "$msg" >&2; return 0;;

@@ -83,12 +83,12 @@ doctor_pidfiles(){
 # problem count, matching doctor_locks.
 doctor_fleets(){
   local problems=0 pfx prj rd slugs
-  [[ -d "$HARNESS_FLEETS_DIR" ]] || { echo "  fleet registry: absent (never created — fine)"; return 0; }
+  [[ -d "$HARNESS_FLEETS_DIR" ]] || { echo "  absent (never created — fine)"; return 0; }
   while IFS=$'\t' read -r pfx prj rd slugs; do
     [[ -n "$pfx" ]] || continue
     if fleet_stale "$pfx" "$rd"; then
       problems=$((problems+1))
-      echo "  fleet registry: STALE entry — prefix '$pfx' reserved by $(dirname "$prj") (no live sessions, no live pids)"
+      echo "  STALE entry — prefix '$pfx' reserved by $(dirname "$prj") (no live sessions, no live pids)"
       if (( DOCTOR_FIX )); then
         fleet_deregister "$prj"; echo "    → pruned"
       else
@@ -96,7 +96,7 @@ doctor_fleets(){
       fi
     fi
   done < <(fleet_registry_entries "")
-  return $problems
+  return "$problems"
 }
 
 doctor_main(){

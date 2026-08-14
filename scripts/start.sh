@@ -64,11 +64,17 @@ recover(){
   echo "── recovery done ($freed issue(s) freed) ──"
 }
 
-# PRD-B slice 4 (#73): refuse to start atop another ACTIVE fleet whose session prefix collides with
-# ours (equal, or one a dash-prefix of the other) — that overlap is what would make stop/status
-# cross-kill. Reads slice 2's registry; a single / non-colliding fleet is a no-op. HARNESS_PREFIX_COLLISION
-# =warn downgrades the refusal to a warning. Runs BEFORE poller registration so our own about-to-be-written
-# entry can't be mistaken for a sibling.
+# Refuse to start atop another ACTIVE fleet whose session prefix collides with ours (equal, or one a
+# dash-prefix of the other) — that overlap is what would make our stop/status sweep cross-kill their
+# agents. LIVE TMUX SESSIONS are the enforcement signal (colliding_sessions), attributed to an owning
+# project by session_path: a session in our namespace owned by someone else means the namespace is
+# genuinely shared right now, registry or no registry. The host fleet registry adds RESERVATION (a
+# registered sibling that hasn't spawned a session yet still owns its prefix, so two idle fleets
+# can't race into one namespace) and NAMES the owner and its repos in the refusal. HARNESS_PREFIX_
+# COLLISION=warn downgrades the refusal to a warning.
+#
+# The load-bearing ordering is versus `fleet_register`, not the poller: this must run BEFORE we write
+# our own entry, or our own reservation would be read back as a sibling's and refuse every start.
 check_prefix_collision
 
 # arg parse: peel off --recover, leave remaining args in $@
@@ -95,14 +101,20 @@ if ! flock -n 9; then
   exit 0
 fi
 
-(( DO_RECOVER )) && recover
-
 # Record this fleet in the host-wide registry so a sibling project's `harness start` can see that
 # our session prefix is taken. UNCONDITIONAL — deliberately not behind HARNESS_USE_POLLER, which is
 # off by default and is exactly why the collision guard used to read an empty registry and never
-# fire. Best-effort: an unwritable $HARNESS_HOME warns and start continues. Runs AFTER
-# check_prefix_collision so our own entry can't be mistaken for a sibling's by our own guard.
+# fire. Best-effort: an unwritable $HARNESS_HOME warns and start continues.
+#
+# Placement: AFTER check_prefix_collision (so our own entry can never be mistaken for a sibling's by
+# our own guard) but BEFORE recover(). The window between "the guard said the prefix is free" and
+# "we claimed it" is where a sibling's concurrent start can slip in, and under `--recover` that
+# window used to span the ENTIRE recovery sweep (gh label writes, worktree removals — seconds to
+# minutes). Claiming first shrinks it to a couple of file operations. Nothing in recover() reads the
+# fleet registry, and this still sits under the same start.lock flock as the sweep and the spawn.
 fleet_register
+
+(( DO_RECOVER )) && recover
 
 # PRD-B slice 3 (#72): when HARNESS_USE_POLLER is set, register this project's repos with the host
 # poller (refcounted on STATE_DIR) and ensure the poller is alive BEFORE the workers come up, so the

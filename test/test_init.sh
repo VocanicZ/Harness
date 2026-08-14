@@ -13,10 +13,10 @@ export HARNESS_DIR="$TMP/.harness"
 # STATE_DIR — init.sh would write this acme/widget config straight over that project's real config.
 export STATE_DIR="$TMP/.harness"
 # Host-level state too. lib.sh derives HARNESS_FLEETS_DIR from HARNESS_HOME at source time and then
-# EXPORTS it — neither run.sh nor helpers.sh's HARNESS_CONFIG_VARS drops it — so leaving both unset
-# here lets init.sh's default_prefix (which calls check_prefix_collision) resolve the REAL
-# ~/.harness/fleets on a direct `bash test_init.sh` (no env -u, no run.sh), reading and potentially
-# pruning a live fleet's registry entry. Pin both, mirroring test_prefix_guard.sh's own pin.
+# EXPORTS it, so an inherited one beats the HARNESS_HOME set here. run.sh now pins it for the whole
+# suite, but this file never calls make_env — so on a direct `bash test_init.sh` (no env -u, no
+# run.sh) nothing else would, and init.sh's default_prefix (which calls check_prefix_collision) would
+# resolve the REAL ~/.harness/fleets, reading and potentially pruning a live fleet's entry. Keep both.
 export HARNESS_HOME="$TMP/host"
 export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
 # stub gh + seed so init does no network
@@ -95,7 +95,9 @@ assert "session prefix key written" "grep -q 'HARNESS_SESS_PREFIX:=' '$CFG'"
 
 # The default is DERIVED from the project directory name, not the literal `hz`.
 PDIR="$TMP/Widget"; mkdir -p "$PDIR/.harness"
-cp -r "$HERE/../scripts" "$PDIR/.harness/scripts" 2>/dev/null || true
+# (No engine copy here: init.sh is invoked below from the REAL repo path, so a copy under
+# $PDIR/.harness/scripts would never be read — it was dead weight, and it made the fixture look as
+# if `harness init` still vendored engine code into a project, which #55 removed.)
 ( export STATE_DIR="$PDIR/.harness" HARNESS_DIR="$PDIR/.harness"
   HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
     bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
@@ -156,5 +158,38 @@ PDIR4="$TMP/Widget4"; mkdir -p "$PDIR4/.harness"
 ( source "$PDIR4/.harness/config"; [[ -n "${HARNESS_SESS_PREFIX:-}" && "${HARNESS_SESS_PREFIX}" =~ ^[a-z0-9_]+$ ]] ) \
   && echo "  ok: a broken/stale engine still yields a non-empty, tmux-safe prefix" \
   || { echo "  FAIL: broken engine yielded an empty or invalid prefix (got '${HARNESS_SESS_PREFIX:-}')"; exit 1; }
+
+# I2: the fixture above cannot catch the real foot-gun, because its stub lib.sh DEFINES PROJECT_ROOT.
+# The dangerous ENGINE_DIR is one that does not source at all (a missing / moved engine — the exact
+# session-env contamination this host sees): the source fails, PROJECT_ROOT is never set, and under
+# `set -u` every reference to it aborts its command substitution, feeding EMPTY stdin to sha1. That
+# yields the CONSTANT hz-da39 for every project on the host — silently, with rc=0 — reintroducing the
+# shared-prefix cross-kill this whole feature exists to eliminate. The assertion that pins it is not
+# "non-empty" but "two differently-named projects get two DIFFERENT prefixes".
+MISSING_ENGINE="$(mktemp -d)/gone"     # no scripts/lib.sh at all: `source` fails outright
+NODEF_ENGINE="$(mktemp -d)"; mkdir -p "$NODEF_ENGINE/scripts"
+cat > "$NODEF_ENGINE/scripts/lib.sh" <<'EOF'
+#!/usr/bin/env bash
+# stub: sources cleanly but defines NEITHER derive_prefix NOR PROJECT_ROOT — the shape init.sh must
+# not depend on. (A partial engine, or one whose own `set -u` aborted it part-way through.)
+set -uo pipefail
+EOF
+init_prefix_under(){   # <engine-dir> <project-dir> -> the prefix init wrote for that project
+  local eng="$1" pdir="$2"; mkdir -p "$pdir/.harness"
+  ( export STATE_DIR="$pdir/.harness" HARNESS_DIR="$pdir/.harness" ENGINE_DIR="$eng"
+    HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+      bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
+  ( source "$pdir/.harness/config"; printf '%s' "${HARNESS_SESS_PREFIX:-}" )
+}
+for eng_label in "$NODEF_ENGINE:lib.sh without PROJECT_ROOT" "$MISSING_ENGINE:missing engine"; do
+  eng="${eng_label%%:*}"; label="${eng_label#*:}"
+  P_A="$(init_prefix_under "$eng" "$TMP/BrokenAlpha")"
+  P_B="$(init_prefix_under "$eng" "$TMP/BrokenBravo")"
+  assert "broken engine ($label): prefix is non-empty and tmux-safe" \
+    "[[ '$P_A' =~ ^[a-z0-9_]+$ ]]"
+  # THE assertion: a per-project prefix, not one constant hash of the empty string.
+  assert "broken engine ($label): two projects get DIFFERENT prefixes (got '$P_A' vs '$P_B')" \
+    "[[ '$P_A' != '$P_B' ]]"
+done
 
 echo "── init ok"

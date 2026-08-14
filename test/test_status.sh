@@ -159,4 +159,12 @@ contains '/p/sib' "$OUT"  && echo "  ok: status names the sibling's project" || 
 # status.sh regressed to printing the raw STATE_DIR instead of the project dir. Same treatment as
 # test_doctor.sh's ".harness suffix" negative assertion: pin it down with a negative check.
 contains '\.harness' "$OUT" && { echo "  FAIL: status's sibling line leaks the .harness suffix — got:"; echo "$OUT"; exit 1; } || echo "  ok: status's sibling line does not leak the .harness suffix"
+# Round-3 fix review: the block must print BELOW the fleet banner, matching status.sh's own "Print
+# the fleet header FIRST" comment. It shipped above it, so the very first line of `harness status`
+# was a prefix row and the FLEET verdict — the whole point of the at-a-glance section — came third.
+BANNER_LN="$(grep -n 'Harness fleet' <<<"$OUT" | head -1 | cut -d: -f1)"
+PREFIX_LN="$(grep -n '^prefix: mine$' <<<"$OUT" | head -1 | cut -d: -f1)"
+[[ -n "$BANNER_LN" && -n "$PREFIX_LN" && "$BANNER_LN" -lt "$PREFIX_LN" ]] \
+  && echo "  ok: the prefix block prints below the fleet banner" \
+  || { echo "  FAIL: prefix block (line ${PREFIX_LN:-?}) must print below the fleet banner (line ${BANNER_LN:-?}) — got:"; echo "$OUT"; exit 1; }
 echo "── status prefix + siblings ok"

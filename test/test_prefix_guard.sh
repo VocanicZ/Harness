@@ -24,9 +24,8 @@ assert_no "hz vs boto do NOT collide"                       prefixes_collide hz 
 assert_no "hzli vs boto do NOT collide"                     prefixes_collide hzli boto
 
 echo "== the guard: tmux enforces, the registry reserves and attributes =="
-# make_env (above) re-pins HARNESS_HOME but does NOT re-derive HARNESS_FLEETS_DIR — that was fixed
-# in lib.sh at source time, before make_env ran. Re-pin it explicitly here rather than in helpers.sh.
-export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+# make_env (above) pins HARNESS_HOME *and* HARNESS_FLEETS_DIR to its own throwaway root, so the two
+# stay in step and no re-pin is needed here. See helpers.sh / test_hermetic.sh's fleet-decoy block.
 REG="$HARNESS_HOME/poller/registry"
 FREG="$HARNESS_HOME/fleets"
 reset_reg(){ rm -rf "$REG" "$FREG"; mkdir -p "$REG" "$FREG"; }
@@ -43,14 +42,22 @@ reset_reg; their_sessions
 assert_eq "$?" "1" "live sibling sessions REFUSE the start with no registry at all"
 
 # 2. The refusal names the owner, our project, the live count, and a concrete retry line.
-MSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" check_prefix_collision ) 2>&1 >/dev/null )"
+# PROJECT_ROOT must be overridden alongside STATE_DIR. The `yours:` line and the retry suggestion are
+# both derived from PROJECT_ROOT (_prefix_collision_report: `derive_prefix "$PROJECT_ROOT"`), and
+# leaving it at make_env's temp dir made the message read `yours: /tmp/tmp.XXXX` with a retry naming a
+# temp-derived prefix — so an UNANCHORED `contains '/home/u/Harness'` passed purely off the trailing
+# `…/config` line, and deleting the `yours:` line or the whole retry suggestion left this suite green.
+MSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" PROJECT_ROOT=/home/u/Harness check_prefix_collision ) 2>&1 >/dev/null )"
 # IN-PROCESS via `contains`. Under `bash -c "… <<<\"\$MSG\""` the expansion happens in a child where
 # MSG is unset, so every one of these would match against an empty string.
 contains(){ grep -qE -- "$1" <<<"$2"; }
-assert_ok "message names the owning project"  contains '/home/u/Bonsai' "$MSG"
-assert_ok "message names our project"         contains '/home/u/Harness' "$MSG"
+assert_ok "message names the owning project"  contains '^ +owner: +/home/u/Bonsai$' "$MSG"
+# Anchored on the `yours:` FIELD, not on the string anywhere in the message.
+assert_ok "message names our project"         contains '^ +yours: +/home/u/Harness$' "$MSG"
 assert_ok "message reports the live count"    contains '1 live tmux session' "$MSG"
-assert_ok "message offers a retry command"    contains 'HARNESS_SESS_PREFIX=' "$MSG"
+# The retry must be a runnable command carrying a CONCRETE alternative prefix (derive_prefix of our
+# project root = `harness`), not just the bare variable name.
+assert_ok "message offers a retry command"    contains 'HARNESS_SESS_PREFIX=harness harness start' "$MSG"
 assert_ok "message points at the config file" contains "$OURS/config" "$MSG"
 
 # 3. warn mode still downgrades to a stderr warning and proceeds.
@@ -70,6 +77,14 @@ LIVE_RD="$(mktemp -d)"; sleep 300 & LIVE_PID=$!; echo "$LIVE_PID" > "$LIVE_RD/wo
 ( STATE_DIR="$THEIRS" RUN_DIR="$LIVE_RD" HARNESS_SESS_PREFIX=hz fleet_register )
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "1" "a registered, live-but-idle sibling reserves its prefix"
+
+# 5a. A registry-only refusal must not render as `prefix: hz — 0 live tmux session(s)`, which reads
+#     as the guard contradicting itself (it just refused, on zero evidence?). Say what is actually
+#     true: the prefix is RESERVED, the sibling simply hasn't spawned a session yet.
+RMSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" PROJECT_ROOT=/home/u/Harness check_prefix_collision ) 2>&1 >/dev/null )"
+rcontains(){ grep -qE -- "$1" <<<"$2"; }
+assert_no "registry-only refusal never says '0 live tmux session'" rcontains '0 live tmux session' "$RMSG"
+assert_ok "registry-only refusal says the prefix is reserved"      rcontains 'registered, no live sessions yet' "$RMSG"
 
 # 5b. warn mode downgrades a REGISTRY-ONLY collision too (no live tmux session at all — the stage-2
 #     path's own `return $?`), not just the tmux-path collision case 3 already covers.

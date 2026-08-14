@@ -77,7 +77,8 @@ derive_prefix [dir]   # dir defaults to the project dir (parent of STATE_DIR)
 
 basename → lowercase → strip everything outside `[a-z0-9_]` → truncate to 10 characters. If the
 result is empty (a non-ASCII or punctuation-only directory name), fall back to `hz` plus the first
-4 hex characters of a digest of the absolute `STATE_DIR`. The character class is chosen to be safe
+4 hex characters of a digest of the absolute project directory — the same path the basename was
+taken from, so the fallback stays per-project. The character class is chosen to be safe
 as a tmux session-name segment and to keep `prefixes_collide`'s dash grammar meaningful.
 
 ```
@@ -130,10 +131,14 @@ The registry is an aid, never a gate; a host where it cannot be written must sti
 **Signal 1 — live tmux sessions (enforcement).** Read `tmux ls -F '#{session_name}\t#{session_path}'`.
 For each session, take the name's leading dash-delimited segment as its prefix and test
 `prefixes_collide` against ours. That segment is only a lower bound on the owner's real prefix when
-the owner's prefix itself contains a dash (`my-app-main-i1` → `my`), but this is sound rather than
-approximate: a shorter prefix collides with strictly more of the namespace, so every genuine
-collision is still caught and no false one is introduced — if `my` collides with ours, so does
-`my-app`, and if it does not, `my-app-…` sessions lie outside our space anyway.
+the owner's prefix itself contains a dash (`my-app-main-i1` → `my`), but this is sound: a shorter
+prefix collides with strictly more of the namespace, so every genuine collision is still caught — if
+`my` collides with ours, so does `my-app`, and if it does not, `my-app-…` sessions lie outside our
+space anyway. The under-read can over-report in the other direction, when OUR OWN prefix contains a
+dash (`my-a` against a sibling's real `my-app`): `prefixes_collide my-a my` is true while
+`prefixes_collide my-a my-app` is false and `my-app-main-i1` can never match our `^my-a-.+$` sweep.
+That direction fails safe — an unnecessary refusal, never a missed cross-kill — and is unreachable
+for a derived prefix, which never contains a dash.
 
 For each hit, attribute it by `session_path`:
 
@@ -169,7 +174,8 @@ one configured.
 ## Component 4 — surfacing
 
 - `harness status` prints this fleet's prefix and any sibling fleets registered on the host.
-- `harness doctor` lists the registry and flags stale entries; `doctor --fix` prunes them. This is
+- `harness doctor` flags STALE registry entries (a healthy registry prints nothing under its header —
+  the live roster is `harness status`'s job, not doctor's); `doctor --fix` prunes them. This is
   the escape hatch when a hard-killed fleet leaves a reservation behind and the operator wants it
   gone without waiting for the guard's own staleness check.
 

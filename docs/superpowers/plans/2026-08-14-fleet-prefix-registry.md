@@ -611,10 +611,14 @@ In `scripts/lib.sh`, insert immediately **after** the closing `}` of `prefixes_c
 # a documented re-run against a live fleet, which must be allowed to proceed.
 #
 # A session's prefix is read as its leading dash-delimited segment. That UNDER-reads an owner whose
-# own prefix contains a dash (`my-app-main-i1` -> `my`), but the under-read is sound rather than
-# approximate: a shorter prefix owns strictly MORE of the namespace, so if `my` collides with ours so
-# does `my-app`, and if it does not then `my-app-…` lies outside our space anyway. No genuine
-# collision is missed and no false one is introduced.
+# own prefix contains a dash (`my-app-main-i1` -> `my`), but the under-read is sound: a shorter prefix
+# owns strictly MORE of the namespace, so if `my` collides with ours so does `my-app`, and if it does
+# not then `my-app-…` lies outside our space anyway — so no genuine collision is missed. The
+# under-read can OVER-report when OUR OWN prefix contains a dash (`my-a` vs a sibling's real
+# `my-app`): `prefixes_collide my-a my` is true while `prefixes_collide my-a my-app` is false and
+# `my-app-main-i1` can never match our `^my-a-.+$` sweep. That direction fails safe — an unnecessary
+# refusal, never a missed cross-kill — and is unreachable for a derived prefix, which never
+# contains a dash.
 colliding_sessions(){
   local name path seg
   while IFS=$'\t' read -r name path; do

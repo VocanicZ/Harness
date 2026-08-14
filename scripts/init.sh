@@ -24,16 +24,29 @@ ask(){ local var="$1" prompt="$2" def="$3" val
 # If the derived name is already claimed by a live or registered fleet, fall back to the hash form
 # and say so. init only WARNS — it starts nothing, so there is nothing to refuse; `harness start` is
 # where a genuine collision is enforced.
-default_prefix(){ ( unset HARNESS_SESS_PREFIX
+default_prefix(){
+  # Resolve the project root HERE, in init.sh, BEFORE the subshell — never rely on lib.sh having set
+  # PROJECT_ROOT. The `source` below is error-suppressed, so a broken ENGINE_DIR (missing or moved
+  # engine — session-env contamination is a recurring hazard on this host) fails silently and leaves
+  # PROJECT_ROOT unset. Under `set -u` every later reference then aborts its own command
+  # substitution, and the sha1 fallback ends up digesting EMPTY stdin: the constant `hzda39`, written
+  # with rc=0, for EVERY project on the host — the shared-prefix cross-kill this feature exists to
+  # eliminate. Same formula as lib.sh:17 so the two agree when lib.sh does load.
+  local PRJ_ROOT; PRJ_ROOT="$(cd "$STATE_DIR/.." && pwd)"
+  ( unset HARNESS_SESS_PREFIX
   source "$ENGINE_DIR/scripts/lib.sh" >/dev/null 2>&1
-  local p; p="$(derive_prefix "$PROJECT_ROOT" 2>/dev/null)"
-  # A stale ENGINE_DIR (session-env contamination is a known, recurring hazard on this host) can
-  # point at a lib.sh that predates derive_prefix entirely — `derive_prefix` is then "command not
-  # found" and $p comes back empty. An empty HARNESS_SESS_PREFIX is a live foot-gun, not a cosmetic
-  # one: every session lands under a bare `-<suffix>` name, and prefixes_collide's dash-prefix rule
-  # makes an empty prefix collide with EVERY other fleet's. Never let it through un-fixed-up.
-  [[ -n "$p" ]] || p="hz$(printf '%s' "$PROJECT_ROOT" | python3 -c \
+  local root="${PROJECT_ROOT:-$PRJ_ROOT}"
+  # The hash form, computed ONCE. lib.sh:785-786 owns the `hz` + sha1[:4] formula; three copies of it
+  # here (and two python3 spawns for one value) is exactly how init silently drifts from derive_prefix.
+  local hashed; hashed="hz$(printf '%s' "$root" | python3 -c \
     'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+  local p; p="$(derive_prefix "$root" 2>/dev/null)"
+  # A stale ENGINE_DIR can also point at a lib.sh that predates derive_prefix entirely — `derive_prefix`
+  # is then "command not found" and $p comes back empty. An empty HARNESS_SESS_PREFIX is a live
+  # foot-gun, not a cosmetic one: every session lands under a bare `-<suffix>` name, and
+  # prefixes_collide's dash-prefix rule makes an empty prefix collide with EVERY other fleet's. Never
+  # let it through un-fixed-up.
+  [[ -n "$p" ]] || p="$hashed"
   # Likewise, a stale lib.sh may define derive_prefix (older still) but predate check_prefix_collision
   # specifically — nothing to consult in that case. Return the guaranteed-non-empty prefix as-is
   # rather than let a `command not found` in the `if` below misread absence as "collision".
@@ -42,10 +55,8 @@ default_prefix(){ ( unset HARNESS_SESS_PREFIX
     printf '%s\n' "$p"
   else
     printf 'NOTE: session prefix %s is already in use by another fleet on this host — proposing %s instead\n' \
-      "$p" "hz$(printf '%s' "$PROJECT_ROOT" | python3 -c \
-        'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')" >&2
-    printf 'hz%s\n' "$(printf '%s' "$PROJECT_ROOT" | python3 -c \
-      'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+      "$p" "$hashed" >&2
+    printf '%s\n' "$hashed"
   fi ); }
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
