@@ -19,7 +19,9 @@
 - **The engine never edits `.harness/config`** and never silently starts under a different prefix than the configured one.
 - **`HARNESS_PREFIX_COLLISION`** keeps its `refuse` default (`lib.sh:60`); `warn` downgrades any refusal to a stderr warning and returns 0.
 - **Test isolation:** every test sets `HARNESS_HOME` to a temp dir *before* sourcing `lib.sh` (see `test/test_prefix_guard.sh:8-9`). Never let a test touch a real `~/.harness` — a stray fixture entry there aborts a real `harness start`.
-- **Run the suite with** `bash test/run.sh`; a single file with `bash test/test_<name>.sh`.
+- **Never assert through `bash -c`.** `test/helpers.sh`'s `assert_ok`/`assert_no` run their argv directly, so `lib.sh` functions and the test's own shell variables are in scope. A `bash -c "grep -q X <<<\"\$OUT\""` spawns a child that never sourced `lib.sh` and never had `$OUT` exported: the pattern is matched against an empty string, and any `lib.sh` function called there exits 127 — which a leading `!` will happily turn into a permanent pass. Where a here-string is needed, define `contains(){ grep -qE -- "$1" <<<"$2"; }` in the test and pass it as argv. This defect was found in six assertions across Tasks 1 and 2 before the plan was corrected.
+- **Every assertion must be one you have seen go red.** Break the implementation, watch the test fail, restore, watch it pass. Report that evidence.
+- **Run the suite with** `bash test/run.sh`; a single file with `bash test/test_<name>.sh`. This shell may carry a stale `ENGINE_DIR`/`STATE_DIR`/`HARNESS_HOME` from a live fleet — if tests misbehave, run `env -u ENGINE_DIR -u STATE_DIR -u HARNESS_DIR -u HARNESS_HOME bash test/run.sh`.
 - **Commit style:** `feat(prefix): …` / `test(prefix): …` / `docs: …`, one commit per task.
 
 ---
@@ -458,8 +460,10 @@ assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "2" "two fleets registere
 HARNESS_SESS_PREFIX=zeta RUN_DIR="$SRUN" STATE_DIR="$SRUN" bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
 unset -f tmux
 assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "stop removed exactly one entry"
-assert_ok "the sibling fleet's entry survives stop" \
-  bash -c "grep -q '^other	' <<<\"\$(fleet_registry_entries /nobody)\""
+# IN-PROCESS. `bash -c "… <<<\"\$(fleet_registry_entries …)\""` would run fleet_registry_entries in a
+# child that never sourced lib.sh — a 127 matched against an empty string, not a test of anything.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "the sibling fleet's entry survives stop" contains '^other	' "$(fleet_registry_entries /nobody)"
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -539,6 +543,11 @@ echo "== colliding_sessions: tmux is the enforcement signal, session_path the at
 # tmux stub emitting `<name>\t<path>` — the format colliding_sessions requests. Sessions are created
 # in a worktree under the OWNING project's STATE_DIR (lib.sh:850), so the path names the owner.
 OURS="/home/u/Harness/.harness"; THEIRS="/home/u/Bonsai/.harness"
+# Match a pattern against captured output IN-PROCESS. Never wrap these checks in `bash -c "… <<<\"\$OUT\""`:
+# the escaped expansion happens in a child that never sourced lib.sh and never had $OUT exported, so the
+# pattern is matched against an empty string (and any lib.sh function called there is a 127). `contains`
+# keeps the here-string out of argv so assert_ok/assert_no can run it directly.
+contains(){ grep -qE -- "$1" <<<"$2"; }
 tmux(){ printf '%s\t%s\n' \
   "hz-main-i1"        "$THEIRS/worktrees/main-i1" \
   "hz-bug-a_b-5-fix"  "$THEIRS/worktrees/bug-a_b-5" \
@@ -549,8 +558,8 @@ export -f tmux
 # Our prefix is hz and the live hz-* sessions belong to ANOTHER project -> both reported as theirs.
 OUT="$(HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" colliding_sessions)"
 assert_eq "$(grep -c 'theirs$' <<<"$OUT")" "2" "both hz-* sessions attributed to the sibling"
-assert_no "hzli is not in our prefix space" bash -c "grep -q 'hzli' <<<\"\$OUT\""
-assert_no "boto is not in our prefix space" bash -c "grep -q 'boto' <<<\"\$OUT\""
+assert_no "hzli is not in our prefix space" contains 'hzli' "$OUT"
+assert_no "boto is not in our prefix space" contains 'boto' "$OUT"
 
 # Same sessions, but they are OURS (paths under our STATE_DIR) -> mine, not theirs. This is the
 # `harness start --recover` path: a documented re-run against a live fleet, which must proceed.
@@ -560,7 +569,7 @@ assert_eq "$(grep -c 'theirs$' <<<"$OUT")" "0" "and none are attributed to a sib
 
 # A prefix that owns a superset of the namespace still collides (hz- swallows hz-bug-…).
 OUT="$(HARNESS_SESS_PREFIX=hz-bug STATE_DIR="$OURS" colliding_sessions)"
-assert_ok "hz-bug sees the overlapping hz-* sessions" bash -c "[[ -n \"\$(grep 'theirs$' <<<\"\$OUT\")\" ]]"
+assert_ok "hz-bug sees the overlapping hz-* sessions" contains 'theirs$' "$OUT"
 
 # A non-colliding prefix sees nothing at all — the single-fleet no-op.
 OUT="$(HARNESS_SESS_PREFIX=widget STATE_DIR="$OURS" colliding_sessions)"
@@ -688,11 +697,14 @@ assert_eq "$?" "1" "live sibling sessions REFUSE the start with no registry at a
 
 # 2. The refusal names the owner, our project, the live count, and a concrete retry line.
 MSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" check_prefix_collision ) 2>&1 >/dev/null )"
-assert_ok "message names the owning project"  bash -c "grep -q '/home/u/Bonsai' <<<\"\$MSG\""
-assert_ok "message names our project"         bash -c "grep -q '/home/u/Harness' <<<\"\$MSG\""
-assert_ok "message reports the live count"    bash -c "grep -qE '1 live tmux session' <<<\"\$MSG\""
-assert_ok "message offers a retry command"    bash -c "grep -q 'HARNESS_SESS_PREFIX=' <<<\"\$MSG\""
-assert_ok "message points at the config file" bash -c "grep -q '$OURS/config' <<<\"\$MSG\""
+# IN-PROCESS via `contains`. Under `bash -c "… <<<\"\$MSG\""` the expansion happens in a child where
+# MSG is unset, so every one of these would match against an empty string.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "message names the owning project"  contains '/home/u/Bonsai' "$MSG"
+assert_ok "message names our project"         contains '/home/u/Harness' "$MSG"
+assert_ok "message reports the live count"    contains '1 live tmux session' "$MSG"
+assert_ok "message offers a retry command"    contains 'HARNESS_SESS_PREFIX=' "$MSG"
+assert_ok "message points at the config file" contains "$OURS/config" "$MSG"
 
 # 3. warn mode still downgrades to a stderr warning and proceeds.
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
@@ -973,9 +985,12 @@ export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fle
 tmux(){ return 1; }; export -f tmux
 OUT="$(HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux
-assert_ok "status prints our prefix"          bash -c "grep -q 'mine' <<<\"\$OUT\""
-assert_ok "status lists the sibling fleet"    bash -c "grep -q 'sibling' <<<\"\$OUT\""
-assert_ok "status names the sibling's project" bash -c "grep -q '/p/sib' <<<\"\$OUT\""
+# IN-PROCESS via `contains` — see the note in test_prefix_guard.sh; `bash -c "… <<<\"\$OUT\""` matches
+# against an empty string in a child that never had OUT exported.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "status prints our prefix"           contains 'mine' "$OUT"
+assert_ok "status lists the sibling fleet"     contains 'sibling' "$OUT"
+assert_ok "status names the sibling's project" contains '/p/sib' "$OUT"
 ```
 
 Append to `test/test_doctor.sh`, before its `finish`:
@@ -988,8 +1003,10 @@ tmux(){ return 1; }; export -f tmux
 DEAD_RD="$(mktemp -d)"; echo 999999 > "$DEAD_RD/worker-1.pid"
 ( STATE_DIR=/p/dead RUN_DIR="$DEAD_RD" HARNESS_SESS_PREFIX=dead fleet_register )
 OUT="$(doctor_fleets)"; PROBLEMS=$?
-assert_ok "doctor reports the stale entry"  bash -c "grep -qi 'stale' <<<\"\$OUT\""
-assert_ok "doctor names the dead fleet"     bash -c "grep -q '/p/dead' <<<\"\$OUT\""
+# IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would match against an empty string.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "doctor reports the stale entry" contains '[Ss][Tt][Aa][Ll][Ee]' "$OUT"
+assert_ok "doctor names the dead fleet"    contains '/p/dead' "$OUT"
 assert_ok "doctor counts it as a problem"   test "$PROBLEMS" -gt 0
 assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "report-only leaves the entry in place"
 DOCTOR_FIX=1 doctor_fleets >/dev/null
