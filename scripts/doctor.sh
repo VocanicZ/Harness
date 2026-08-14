@@ -76,17 +76,42 @@ doctor_pidfiles(){
   return "$problems"
 }
 
+# doctor_fleets — stale entries in the host-wide fleet registry. A fleet killed with -9 or lost to a
+# host crash never reaches stop.sh's fleet_deregister, so its prefix reservation lingers. The start
+# guard prunes such entries on its own, but an operator who wants the host clean now needs a lever —
+# this is it. Report-only by default; --fix prunes. A LIVE fleet is never touched. Returns the
+# problem count, matching doctor_locks.
+doctor_fleets(){
+  local problems=0 pfx prj rd slugs
+  [[ -d "$HARNESS_FLEETS_DIR" ]] || { echo "  fleet registry: absent (never created — fine)"; return 0; }
+  while IFS=$'\t' read -r pfx prj rd slugs; do
+    [[ -n "$pfx" ]] || continue
+    if fleet_stale "$pfx" "$rd"; then
+      problems=$((problems+1))
+      echo "  fleet registry: STALE entry — prefix '$pfx' reserved by $prj (no live sessions, no live pids)"
+      if (( DOCTOR_FIX )); then
+        fleet_deregister "$prj"; echo "    → pruned"
+      else
+        echo "    → prune with: harness doctor --fix"
+      fi
+    fi
+  done < <(fleet_registry_entries "")
+  return $problems
+}
+
 doctor_main(){
   local a; for a in "$@"; do case "$a" in --fix) DOCTOR_FIX=1;; -h|--help) echo "usage: harness doctor [--fix]"; return 0;; esac; done
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
   echo "── harness doctor ${tag}── ${STATE_DIR:-?}"
   echo "RUN_DIR: $RUN_DIR"
   echo "locks:"
-  local lp=0 pp=0
+  local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?
   echo "pidfiles:"
   doctor_pidfiles || pp=$?
-  local total=$((lp+pp))
+  echo "fleet registry:"
+  doctor_fleets   || fp=$?
+  local total=$((lp+pp+fp))
   echo "────────────────────────────────────────────"
   if (( total == 0 )); then
     echo "healthy ✓ — no lock wedges or stale pidfiles."

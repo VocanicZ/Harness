@@ -138,3 +138,20 @@ kill "$EP" 2>/dev/null; unset -f tmux
 echo "$oute" | grep -qE 'bug acme/a#6 \(fix\)' && echo "  ok: multi lane row renders the repo-qualified bug + phase" || { echo "  FAIL: lane row not 'bug acme/a#6 (fix)' — got [$(echo "$oute" | grep -i 'bug ')]"; exit 1; }
 echo "$oute" | grep -q 'acme_a-6'  && { echo "  FAIL: sanitised claim key leaked into the render"; exit 1; } || echo "  ok: sanitised key not shown"
 echo "── status #44 multi lane-identity ok"
+
+# --- status names this fleet's prefix and any siblings on the host (#task-6) ------------
+# This file does not use test/helpers.sh's assert_ok rig (see test_doctor.sh / test_prefix_guard.sh
+# for that style) — it matches its OWN pre-existing echo/grep/exit idiom used throughout above.
+echo "== status names this fleet's prefix and any siblings on the host =="
+export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+( STATE_DIR=/p/sib RUN_DIR=/p/sib/run HARNESS_SESS_PREFIX=sibling fleet_register )
+tmux(){ return 1; }; export -f tmux
+OUT="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+unset -f tmux
+# IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would spawn a child that never had OUT
+# exported, matching against an empty string. See the note in test_prefix_guard.sh.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+contains 'mine' "$OUT"    && echo "  ok: status prints our prefix"           || { echo "  FAIL: status prints our prefix — got:"; echo "$OUT"; exit 1; }
+contains 'sibling' "$OUT" && echo "  ok: status lists the sibling fleet"     || { echo "  FAIL: status lists the sibling fleet — got:"; echo "$OUT"; exit 1; }
+contains '/p/sib' "$OUT"  && echo "  ok: status names the sibling's project" || { echo "  FAIL: status names the sibling's project — got:"; echo "$OUT"; exit 1; }
+echo "── status prefix + siblings ok"

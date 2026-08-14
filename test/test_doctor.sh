@@ -54,4 +54,31 @@ rc=0; doctor_main --fix >/dev/null || rc=$?
 assert_eq "$rc" "0" "doctor_main --fix: clears the problem (exit 0)"
 assert_no "doctor_main --fix actually removed the stale pidfile" test -f "$RUN_DIR/worker-2.pid"
 
+echo "== doctor reports and --fix prunes stale fleet-registry entries =="
+export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+tmux(){ return 1; }; export -f tmux
+# A dead fleet: no sessions, no live pids. Its reservation would otherwise sit there forever.
+DEAD_RD="$(mktemp -d)"; echo 999999 > "$DEAD_RD/worker-1.pid"
+( STATE_DIR=/p/dead RUN_DIR="$DEAD_RD" HARNESS_SESS_PREFIX=dead fleet_register )
+# DOCTOR_FIX is a global mutated (and left at 1) by the `doctor_main --fix` calls above — reset it
+# so this report-only call is actually report-only, not an accidental immediate prune.
+DOCTOR_FIX=0
+OUT="$(doctor_fleets)"; PROBLEMS=$?
+# IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would match against an empty string.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "doctor reports the stale entry" contains '[Ss][Tt][Aa][Ll][Ee]' "$OUT"
+assert_ok "doctor names the dead fleet"    contains '/p/dead' "$OUT"
+assert_ok "doctor counts it as a problem"   test "$PROBLEMS" -gt 0
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "report-only leaves the entry in place"
+DOCTOR_FIX=1 doctor_fleets >/dev/null
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json 2>/dev/null | wc -l)" "0" "--fix prunes the stale entry"
+
+# A LIVE fleet must never be pruned or flagged.
+sleep 300 & LP=$!; LIVE_RD="$(mktemp -d)"; echo "$LP" > "$LIVE_RD/worker-1.pid"
+( STATE_DIR=/p/live RUN_DIR="$LIVE_RD" HARNESS_SESS_PREFIX=live fleet_register )
+DOCTOR_FIX=1 doctor_fleets >/dev/null
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "--fix never prunes a live fleet"
+kill "$LP" 2>/dev/null; wait "$LP" 2>/dev/null
+unset -f tmux
+
 finish

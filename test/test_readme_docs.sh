@@ -65,4 +65,15 @@ assert "README documents unparented issues dispatching first" \
 assert "README documents COMPLETE needs every PRD closed" \
   "grep -qiE 'only when every PRD is closed' '$README'"
 
+# 6. Fleet prefixes — the config row explains uniqueness-per-host, and a section explains the
+#    registry, the refusal, and the doctor escape hatch.
+assert "config table row for HARNESS_SESS_PREFIX mentions per-host uniqueness" \
+  "grep -E '^\| \`HARNESS_SESS_PREFIX\`' '$README' | grep -qi 'uniqu\|per fleet\|per project'"
+assert "README has a Fleet prefixes section" "grep -qiE '^#+ .*[Ff]leet prefix' '$README'"
+assert "README documents the fleets registry path" "grep -q '~/.harness/fleets' '$README'"
+assert "README documents HARNESS_PREFIX_COLLISION" \
+  "grep -qE '^\| \`HARNESS_PREFIX_COLLISION\`' '$README'"
+assert "README documents the doctor escape hatch for stale entries" \
+  "grep -qi 'doctor --fix' '$README'"
+
 echo "── readme docs ok"
