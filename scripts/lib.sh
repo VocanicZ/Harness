@@ -92,6 +92,13 @@ POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
 POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"
 POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
 
+# Host-wide fleet registry (prefix-collision guard). Its own directory, NOT poller/registry: those
+# files are poller.sh's GitHub work list, so registering there unconditionally would enroll a fleet
+# into shared-token polling it never opted into. Same env-seam discipline as the poller paths above
+# so tests can point it at a temp root; exported so sub-scripts inherit it.
+HARNESS_FLEETS_DIR="${HARNESS_FLEETS_DIR:-$HARNESS_HOME/fleets}"
+export HARNESS_FLEETS_DIR
+
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
@@ -932,6 +939,96 @@ for name in os.listdir(d):
         try: os.remove(p)
         except OSError: pass
 PY
+}
+
+# --- host-wide fleet registry ------------------------------------------------
+# One file per LIVE fleet under $HARNESS_FLEETS_DIR, named from the sanitised STATE_DIR and holding
+# {prefix, project, run_dir, slugs, started_at}. `project` (the STATE_DIR) is the identity key and is
+# read back on deregister, so the operation survives filename sanitisation — the same discipline as
+# poller_deregister. `harness start` writes an entry unconditionally and `harness stop` removes it;
+# the start-time prefix guard reads them for RESERVATION (an idle fleet's prefix stays claimed) and
+# for naming the owner in its refusal. tmux, not this file, is the guard's enforcement signal.
+#
+# Every write is BEST-EFFORT: an unwritable or absent $HARNESS_HOME warns once and returns 0. The
+# registry is an aid to collision detection, never a gate on starting a fleet.
+_fleet_reg_file(){ printf '%s/%s.json' "$HARNESS_FLEETS_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9.-' '_')"; }
+
+# fleet_register — record THIS fleet. Idempotent: same project -> same file -> overwritten in place.
+fleet_register(){
+  if ! mkdir -p "$HARNESS_FLEETS_DIR" 2>/dev/null; then
+    printf 'WARNING: cannot create fleet registry at %s — prefix-collision detection degraded\n' \
+      "$HARNESS_FLEETS_DIR" >&2; return 0
+  fi
+  if ! PFX="$HARNESS_SESS_PREFIX" PRJ="$STATE_DIR" RD="$RUN_DIR" \
+       SLUGS="$(snapshot_slugs 2>/dev/null | tr '\n' ' ')" \
+       python3 - "$(_fleet_reg_file "$STATE_DIR")" <<'PY' 2>/dev/null
+import json, os, sys, tempfile, time
+f = sys.argv[1]
+rec = {"prefix": os.environ["PFX"], "project": os.environ["PRJ"], "run_dir": os.environ["RD"],
+       "slugs": os.environ["SLUGS"].split(), "started_at": int(time.time())}
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".fleet.")
+with os.fdopen(fd, "w") as fh:
+    json.dump(rec, fh)
+os.replace(tmp, f)
+PY
+  then
+    printf 'WARNING: fleet registry write failed (%s) — prefix-collision detection degraded\n' \
+      "$HARNESS_FLEETS_DIR" >&2
+  fi
+  return 0
+}
+
+# fleet_deregister <project> — remove the entry this project owns, matched on the JSON `project`
+# field rather than the filename. No-op when the registry dir is absent.
+fleet_deregister(){
+  [[ -d "$HARNESS_FLEETS_DIR" ]] || return 0
+  PRJ="$1" python3 - "$HARNESS_FLEETS_DIR" <<'PY' 2>/dev/null
+import json, os, sys
+d, prj = sys.argv[1], os.environ["PRJ"]
+for name in os.listdir(d):
+    if not name.endswith(".json"):
+        continue
+    p = os.path.join(d, name)
+    try:
+        rec = json.load(open(p))
+    except (OSError, ValueError):
+        continue
+    if rec.get("project") == prj:
+        try: os.remove(p)
+        except OSError: pass
+PY
+  return 0
+}
+
+# fleet_registry_entries <self-project> — every OTHER registered fleet, one
+# `<prefix>\t<project>\t<run_dir>\t<slugs space-separated>` line each. Reads BOTH the fleet registry
+# and the poller registry (deduped by project, the fleet entry winning) so a poller-enabled fleet
+# running an older engine — which registers only in poller/registry — is still seen. A malformed or
+# unreadable file is skipped, never fatal.
+fleet_registry_entries(){
+  SELF="$1" python3 - "$HARNESS_FLEETS_DIR" "$POLLER_REGISTRY_DIR" <<'PY' 2>/dev/null
+import json, os, sys
+self_prj = os.environ["SELF"]
+seen = {}
+for d in sys.argv[1:]:                      # fleet registry first: it wins on conflict
+    if not os.path.isdir(d):
+        continue
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            rec = json.load(open(os.path.join(d, name)))
+        except (OSError, ValueError):
+            continue
+        prj = rec.get("project")
+        if not prj or prj == self_prj or prj in seen:
+            continue
+        slugs = rec.get("slugs") or ([rec["slug"]] if rec.get("slug") else [])
+        seen[prj] = (rec.get("prefix") or "", rec.get("run_dir") or "", " ".join(slugs))
+for prj, (pfx, rd, slugs) in seen.items():
+    print(f"{pfx}\t{prj}\t{rd}\t{slugs}")
+PY
+  return 0
 }
 
 # poller_registry_slugs — the unique slugs currently registered, one per line, sorted (deduped across
