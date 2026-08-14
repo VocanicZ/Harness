@@ -868,7 +868,7 @@ PY
 # not refuse a legitimate restart forever. Both signals are checked because either can outlive the
 # other: sessions can survive a dead worker pool (status.sh calls that DEGRADED), and a worker can be
 # alive between session spawns.
-fleet_stale(){ local pfx="$1" rd="$2" name p
+fleet_stale(){ local pfx="$1" rd="$2" name p _
   while IFS=$'\t' read -r name _; do
     [[ "$name" == "$pfx-"* ]] && return 1
   done < <(tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true)

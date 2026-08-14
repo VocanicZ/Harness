@@ -71,6 +71,11 @@ LIVE_RD="$(mktemp -d)"; sleep 300 & LIVE_PID=$!; echo "$LIVE_PID" > "$LIVE_RD/wo
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "1" "a registered, live-but-idle sibling reserves its prefix"
 
+# 5b. warn mode downgrades a REGISTRY-ONLY collision too (no live tmux session at all — the stage-2
+#     path's own `return $?`), not just the tmux-path collision case 3 already covers.
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "warn mode proceeds despite a registry reservation"
+
 # 6. STALENESS: no live sessions AND no live pids -> the entry is pruned and the start proceeds. A
 #    fleet killed with -9 never deregisters; its reservation must not block a restart forever.
 kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null

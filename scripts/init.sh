@@ -26,7 +26,18 @@ ask(){ local var="$1" prompt="$2" def="$3" val
 # where a genuine collision is enforced.
 default_prefix(){ ( unset HARNESS_SESS_PREFIX
   source "$ENGINE_DIR/scripts/lib.sh" >/dev/null 2>&1
-  local p; p="$(derive_prefix "$PROJECT_ROOT")"
+  local p; p="$(derive_prefix "$PROJECT_ROOT" 2>/dev/null)"
+  # A stale ENGINE_DIR (session-env contamination is a known, recurring hazard on this host) can
+  # point at a lib.sh that predates derive_prefix entirely — `derive_prefix` is then "command not
+  # found" and $p comes back empty. An empty HARNESS_SESS_PREFIX is a live foot-gun, not a cosmetic
+  # one: every session lands under a bare `-<suffix>` name, and prefixes_collide's dash-prefix rule
+  # makes an empty prefix collide with EVERY other fleet's. Never let it through un-fixed-up.
+  [[ -n "$p" ]] || p="hz$(printf '%s' "$PROJECT_ROOT" | python3 -c \
+    'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+  # Likewise, a stale lib.sh may define derive_prefix (older still) but predate check_prefix_collision
+  # specifically — nothing to consult in that case. Return the guaranteed-non-empty prefix as-is
+  # rather than let a `command not found` in the `if` below misread absence as "collision".
+  declare -F check_prefix_collision >/dev/null || { printf '%s\n' "$p"; exit 0; }
   if ( HARNESS_SESS_PREFIX="$p" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) >/dev/null 2>&1; then
     printf '%s\n' "$p"
   else

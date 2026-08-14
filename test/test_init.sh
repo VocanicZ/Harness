@@ -12,6 +12,13 @@ export HARNESS_DIR="$TMP/.harness"
 # and then takes STATE_DIR from the environment (:15). Run inside a live fleet — which exports its own
 # STATE_DIR — init.sh would write this acme/widget config straight over that project's real config.
 export STATE_DIR="$TMP/.harness"
+# Host-level state too. lib.sh derives HARNESS_FLEETS_DIR from HARNESS_HOME at source time and then
+# EXPORTS it — neither run.sh nor helpers.sh's HARNESS_CONFIG_VARS drops it — so leaving both unset
+# here lets init.sh's default_prefix (which calls check_prefix_collision) resolve the REAL
+# ~/.harness/fleets on a direct `bash test_init.sh` (no env -u, no run.sh), reading and potentially
+# pruning a live fleet's registry entry. Pin both, mirroring test_prefix_guard.sh's own pin.
+export HARNESS_HOME="$TMP/host"
+export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
 # stub gh + seed so init does no network
 cat > "$TMP/.harness/scripts/seed.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -111,7 +118,7 @@ assert "explicit HARNESS_SESS_PREFIX overrides the derived default" \
 # it and lets init through un-warned. Without a live pid this test cannot distinguish "taken" from
 # "abandoned", so it would pass vacuously even with the warning path deleted.
 PDIR3="$TMP/Widget3"; mkdir -p "$PDIR3/.harness"
-export HARNESS_HOME="$TMP/host3"; mkdir -p "$HARNESS_HOME/fleets"
+export HARNESS_HOME="$TMP/host3"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"; mkdir -p "$HARNESS_FLEETS_DIR"
 SIB_RD="$(mktemp -d)"; sleep 300 & SIB_PID=$!; echo "$SIB_PID" > "$SIB_RD/worker-1.pid"
 python3 - "$HARNESS_HOME/fleets/sibling.json" "$PDIR3" "$SIB_RD" <<'PY'
 import json, sys
@@ -125,7 +132,29 @@ OUT="$( ( export STATE_DIR="$PDIR3/.harness" HARNESS_DIR="$PDIR3/.harness"
 kill "$SIB_PID" 2>/dev/null; wait "$SIB_PID" 2>/dev/null
 assert "init warns that the derived prefix is taken" "grep -qi 'in use\|taken\|collide' <<<\"\$OUT\""
 assert "init still writes a config"                  "[[ -f '$PDIR3/.harness/config' ]]"
-( source "$PDIR3/.harness/config"; [[ "${HARNESS_SESS_PREFIX:-}" != "widget3" ]] ) \
-  && echo "  ok: init proposed a different prefix" || { echo "  FAIL: init reused the taken prefix"; exit 1; }
+# Tightened past `!= "widget3"`: that alone would pass even on an EMPTY prefix (the M2 foot-gun —
+# a stale/broken engine subshell misread as a collision). Assert the actual fallback shape instead.
+( source "$PDIR3/.harness/config"; [[ "${HARNESS_SESS_PREFIX:-}" =~ ^hz[0-9a-f]{4}$ ]] ) \
+  && echo "  ok: init proposed the hash-fallback prefix" || { echo "  FAIL: init did not propose a valid hash-fallback prefix (got '${HARNESS_SESS_PREFIX:-}')"; exit 1; }
+
+# M2: a broken/stale ENGINE_DIR (a lib.sh that predates derive_prefix / check_prefix_collision — the
+# session-env contamination hazard this host sees for real) must still yield a non-empty, tmux-safe
+# prefix, never an empty HARNESS_SESS_PREFIX: prefixes_collide's dash-prefix rule makes an empty
+# prefix collide with EVERY other fleet's, so an empty write is a live foot-gun, not a cosmetic one.
+BROKEN_ENGINE="$(mktemp -d)"; mkdir -p "$BROKEN_ENGINE/scripts"
+cat > "$BROKEN_ENGINE/scripts/lib.sh" <<'EOF'
+#!/usr/bin/env bash
+# stub: a lib.sh from before derive_prefix / check_prefix_collision existed — sources cleanly but
+# defines neither function.
+set -uo pipefail
+PROJECT_ROOT="${STATE_DIR%/.harness}"
+EOF
+PDIR4="$TMP/Widget4"; mkdir -p "$PDIR4/.harness"
+( export STATE_DIR="$PDIR4/.harness" HARNESS_DIR="$PDIR4/.harness" ENGINE_DIR="$BROKEN_ENGINE"
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+    bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
+( source "$PDIR4/.harness/config"; [[ -n "${HARNESS_SESS_PREFIX:-}" && "${HARNESS_SESS_PREFIX}" =~ ^[a-z0-9_]+$ ]] ) \
+  && echo "  ok: a broken/stale engine still yields a non-empty, tmux-safe prefix" \
+  || { echo "  FAIL: broken engine yielded an empty or invalid prefix (got '${HARNESS_SESS_PREFIX:-}')"; exit 1; }
 
 echo "── init ok"
