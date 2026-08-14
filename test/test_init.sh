@@ -78,4 +78,28 @@ NOPROJ="$(mktemp -d)"
     || { echo "  FAIL: not-in-project error lacks a helpful message — got: $out"; exit 1; }
   echo "  ok: subcommand outside a project errors clearly + non-zero" ) || exit 1
 
+# --- session prefix (#: fleet prefix registry) ------------------------------------------------
+# init must PROMPT for and PERSIST HARNESS_SESS_PREFIX. Before this, the key was absent from the
+# config entirely, so every project on a host silently inherited lib.sh's `hz` and two fleets shared
+# one tmux namespace — `harness stop` in one killed the other's live agents.
+assert "session prefix key written" "grep -q 'HARNESS_SESS_PREFIX:=' '$CFG'"
+( source "$CFG"; [[ "${HARNESS_SESS_PREFIX:-}" =~ ^[a-z0-9_]{1,10}$ ]] ) \
+  && echo "  ok: prefix round-trips as a tmux-safe segment" || { echo "  FAIL: prefix round-trip"; exit 1; }
+
+# The default is DERIVED from the project directory name, not the literal `hz`.
+PDIR="$TMP/Widget"; mkdir -p "$PDIR/.harness"
+cp -r "$HERE/../scripts" "$PDIR/.harness/scripts" 2>/dev/null || true
+( export STATE_DIR="$PDIR/.harness" HARNESS_DIR="$PDIR/.harness"
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+    bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
+assert "derived prefix written for project dir 'Widget'" "grep -q 'HARNESS_SESS_PREFIX:=widget' '$PDIR/.harness/config'"
+
+# A pre-set env var still wins (non-interactive `ask` honours ${!var}).
+PDIR2="$TMP/Widget2"; mkdir -p "$PDIR2/.harness"
+( export STATE_DIR="$PDIR2/.harness" HARNESS_DIR="$PDIR2/.harness"
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_SESS_PREFIX=custom HARNESS_TOPOLOGY=single HARNESS_OWNER=acme \
+    HARNESS_REPO=acme/widget bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
+assert "explicit HARNESS_SESS_PREFIX overrides the derived default" \
+  "grep -q 'HARNESS_SESS_PREFIX:=custom' '$PDIR2/.harness/config'"
+
 echo "── init ok"

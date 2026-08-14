@@ -88,4 +88,21 @@ assert_no "stop leaves sibling hzli alone" bash -c "grep -q 'kill-session -t hzl
 assert_no "stop leaves sibling boto alone" bash -c "grep -q 'kill-session -t boto-x' '$CALLS'"
 assert_ok "stop kills our dashed-unit orch" bash -c "grep -q 'kill-session -t hz-foo-bar-baz' '$CALLS'"
 
+echo "== derive_prefix: a distinct default prefix per project =="
+assert_eq "$(derive_prefix /home/u/Harness)"     "harness"    "basename, lowercased"
+assert_eq "$(derive_prefix /home/u/bonsai-api)"  "bonsaiapi"  "dashes stripped (they are the grammar separator)"
+assert_eq "$(derive_prefix /home/u/my.app)"      "myapp"      "dots stripped (illegal in tmux session names)"
+assert_eq "$(derive_prefix /home/u/Web_API_2)"   "web_api_2"  "underscores and digits kept"
+assert_eq "$(derive_prefix /home/u/a_very_long_project_name)" "a_very_lon" "truncated to 10 chars"
+# A name that sanitises to nothing falls back to hz<4 hex of the path digest: non-empty, tmux-safe,
+# deterministic across runs, and distinct per path.
+NA1="$(derive_prefix /home/u/中文)"; NA2="$(derive_prefix /home/u/中文)"; NB="$(derive_prefix /srv/中文)"
+assert_ok "non-ascii name falls back to hz<hex>" bash -c "[[ '$NA1' =~ ^hz[0-9a-f]{4}$ ]]"
+assert_eq "$NA1" "$NA2" "fallback is deterministic for the same path"
+assert_no "different paths get different fallbacks" bash -c "[[ '$NA1' == '$NB' ]]"
+# The result is always usable as a tmux session-name segment.
+assert_ok "result never contains a dash" bash -c "[[ ! '$(derive_prefix /home/u/bonsai-api)' == *-* ]]"
+assert_ok "derived prefix does not collide with a sibling's" \
+  bash -c '! prefixes_collide "$(derive_prefix /home/u/Harness)" "$(derive_prefix /home/u/Bonsai)"'
+
 finish

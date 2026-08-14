@@ -761,6 +761,25 @@ review_session_live(){ local s g
 fleet_session_re(){ printf '^%s-.+$' "$HARNESS_SESS_PREFIX"; }
 is_fleet_session(){ local re; re="$(fleet_session_re)"; [[ "$1" =~ $re ]]; }
 
+# derive_prefix [dir] — the DEFAULT tmux session prefix for a project: its directory basename,
+# lowercased and reduced to [a-z0-9_], truncated to 10 chars. Dashes are stripped because a dash is
+# the session-name grammar separator (sess_orch/sess_impl) and prefixes_collide reads it as such;
+# dots and colons are illegal in tmux session names. When the name sanitises to EMPTY (a non-ASCII or
+# punctuation-only directory) fall back to `hz` + 4 hex of the path digest, so the result is always a
+# non-empty, tmux-safe segment that is deterministic per path and distinct between paths.
+#
+# `harness init` offers this as the prefix default so two projects on one host do not both land on
+# lib.sh's `hz` and cross-kill each other's sessions via stop.sh's ^<prefix>- sweep. lib.sh's own
+# HARNESS_SESS_PREFIX default (line 44) deliberately STAYS `hz`: projects initialised before this
+# change have no prefix line in their config and must resolve exactly as they always did.
+derive_prefix(){
+  local dir="${1:-$PROJECT_ROOT}" p
+  p="$(basename "$dir" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_' | cut -c1-10)"
+  [[ -n "$p" ]] || p="hz$(printf '%s' "$dir" | python3 -c \
+    'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+  printf '%s\n' "$p"
+}
+
 # --- PRD-B slice 4: prefix-collision guard (#73) -----------------------------
 # prefixes_collide <a> <b> — do two session prefixes' tmux session spaces overlap? They collide when
 # they are EQUAL, or one is a dash-prefix of the other (`a-…` swallows every `b-…` session iff b

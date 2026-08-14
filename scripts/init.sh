@@ -14,12 +14,22 @@ ni="${HARNESS_INIT_NONINTERACTIVE:-0}"; [[ -t 0 ]] || ni=1
 ask(){ local var="$1" prompt="$2" def="$3" val
   if [[ "$ni" == 1 ]]; then val="${!var:-$def}"; else read -rp "$prompt [$def]: " val; val="${val:-$def}"; fi
   printf -v "$var" '%s' "$val"; }
+# The prefix default is DERIVED from the project directory (derive_prefix) so two projects on one
+# host don't both take lib.sh's `hz`. derive_prefix lives in lib.sh — one definition, also used by
+# the start-time guard and `harness status` — but init.sh deliberately does NOT source lib.sh at the
+# top: lib.sh fills every HARNESS_* with its default at source time, which would defeat the `ask`
+# fallbacks below (and, for the prefix specifically, would hand back `hz`). Read the one function out
+# of a throwaway subshell instead, with the var unset so lib.sh's default can't leak into the answer.
+default_prefix(){ ( unset HARNESS_SESS_PREFIX
+  source "$ENGINE_DIR/scripts/lib.sh" >/dev/null 2>&1
+  derive_prefix "$PROJECT_ROOT" ); }
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
 [[ "$HARNESS_TOPOLOGY" == single ]] && ask HARNESS_REPO "Target repo (owner/repo)" "${HARNESS_REPO:-}"
 [[ "$HARNESS_MODE" == planned ]] && ask HARNESS_SPEC "Spec path (planned mode)" "${HARNESS_SPEC:-}"
 ask HARNESS_AUTONOMOUS "Fully autonomous? (true|false)"   "${HARNESS_AUTONOMOUS:-true}"
+ask HARNESS_SESS_PREFIX "tmux session prefix (must be unique per fleet on this host)" "${HARNESS_SESS_PREFIX:-$(default_prefix)}"
 ask HARNESS_POOL       "Pool workers"                     "${HARNESS_POOL:-3}"
 ask HARNESS_CAP        "Sessions per unit"                "${HARNESS_CAP:-3}"
 ask HARNESS_POLL          "Poll interval (s)"             "${HARNESS_POLL:-300}"
@@ -40,6 +50,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
   for v in HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+           HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
            HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_AUTHOR_ALLOWLIST; do
