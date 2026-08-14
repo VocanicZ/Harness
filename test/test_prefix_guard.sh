@@ -23,37 +23,94 @@ assert_no "hzli vs hz do NOT collide"                       prefixes_collide hzl
 assert_no "hz vs boto do NOT collide"                       prefixes_collide hz boto
 assert_no "hzli vs boto do NOT collide"                     prefixes_collide hzli boto
 
-echo "== start-time guard reads slice-2's registry (poller_register records the prefix) =="
+echo "== the guard: tmux enforces, the registry reserves and attributes =="
+# make_env (above) re-pins HARNESS_HOME but does NOT re-derive HARNESS_FLEETS_DIR — that was fixed
+# in lib.sh at source time, before make_env ran. Re-pin it explicitly here rather than in helpers.sh.
+export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
 REG="$HARNESS_HOME/poller/registry"
-reset_reg(){ rm -rf "$REG"; mkdir -p "$REG"; }
+FREG="$HARNESS_HOME/fleets"
+reset_reg(){ rm -rf "$REG" "$FREG"; mkdir -p "$REG" "$FREG"; }
+OURS="/home/u/Harness/.harness"; THEIRS="/home/u/Bonsai/.harness"
+no_tmux(){ tmux(){ return 1; }; export -f tmux; }
+their_sessions(){ tmux(){ printf '%s\t%s\n' "hz-main-i1" "/home/u/Bonsai/.harness/worktrees/main-i1"; }; export -f tmux; }
+our_sessions(){ tmux(){ printf '%s\t%s\n' "hz-main-i1" "/home/u/Harness/.harness/worktrees/main-i1"; }; export -f tmux; }
 
-# A sibling fleet (different project) registered with a COLLIDING prefix -> refuse (default).
-reset_reg
-poller_register acme/widget 60 hz /other/project
-( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
-assert_eq "$?" "1" "colliding prefix REFUSED at start (default refuse)"
+# 1. A sibling's LIVE sessions in our prefix space -> refuse, even with an EMPTY registry. This is
+#    the case the old guard could never see: it read only the poller registry, which is written
+#    behind HARNESS_USE_POLLER (off by default), so it always passed.
+reset_reg; their_sessions
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "live sibling sessions REFUSE the start with no registry at all"
 
-# Same collision but HARNESS_PREFIX_COLLISION=warn -> proceed (rc 0).
-( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
-assert_eq "$?" "0" "warn mode proceeds despite collision"
+# 2. The refusal names the owner, our project, the live count, and a concrete retry line.
+MSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" check_prefix_collision ) 2>&1 >/dev/null )"
+# IN-PROCESS via `contains`. Under `bash -c "… <<<\"\$MSG\""` the expansion happens in a child where
+# MSG is unset, so every one of these would match against an empty string.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "message names the owning project"  contains '/home/u/Bonsai' "$MSG"
+assert_ok "message names our project"         contains '/home/u/Harness' "$MSG"
+assert_ok "message reports the live count"    contains '1 live tmux session' "$MSG"
+assert_ok "message offers a retry command"    contains 'HARNESS_SESS_PREFIX=' "$MSG"
+assert_ok "message points at the config file" contains "$OURS/config" "$MSG"
 
-# hz / hzli / boto coexist end-to-end: a sibling registered as hzli does NOT block our hz fleet.
-reset_reg
-poller_register acme/widget 60 hzli /other/project
-poller_register acme/other  60 boto /third/project
-( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
-assert_eq "$?" "0" "hz coexists with sibling hzli + boto (no refusal)"
+# 3. warn mode still downgrades to a stderr warning and proceeds.
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "warn mode proceeds despite a real collision"
 
-# Our OWN registry entry must never trip the guard (self-exclusion on STATE_DIR).
-reset_reg
-poller_register acme/widget 60 hz /our/project
-( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
-assert_eq "$?" "0" "own registry entry does not self-collide"
+# 4. The SAME sessions, owned by US -> proceed. This is `harness start --recover` against a live
+#    fleet, which is a documented, supported re-run.
+our_sessions
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "our own live sessions never refuse (the --recover path)"
 
-# No registry at all (single fleet, poller never used) -> no behavior change.
-rm -rf "$REG"
-( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
-assert_eq "$?" "0" "empty/absent registry never refuses (single-fleet no-op)"
+# 5. RESERVATION: a registered sibling with NO live sessions still refuses, so two idle fleets can't
+#    race into one namespace. Its run_dir holds a live pid, so it is not stale.
+reset_reg; no_tmux
+LIVE_RD="$(mktemp -d)"; sleep 300 & LIVE_PID=$!; echo "$LIVE_PID" > "$LIVE_RD/worker-1.pid"
+( STATE_DIR="$THEIRS" RUN_DIR="$LIVE_RD" HARNESS_SESS_PREFIX=hz fleet_register )
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "a registered, live-but-idle sibling reserves its prefix"
+
+# 6. STALENESS: no live sessions AND no live pids -> the entry is pruned and the start proceeds. A
+#    fleet killed with -9 never deregisters; its reservation must not block a restart forever.
+kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "a crashed sibling's stale reservation does not refuse"
+assert_eq "$(ls "$FREG"/*.json 2>/dev/null | wc -l)" "0" "and the stale entry is pruned"
+
+# 7. A poller-registry-only sibling (older engine) is still seen — fleet_registry_entries reads both.
+reset_reg; no_tmux
+POLL_RD="$(mktemp -d)"; sleep 300 & POLL_PID=$!; echo "$POLL_PID" > "$POLL_RD/priority.pid"
+poller_register acme/widget 60 hz "$THEIRS"
+python3 - "$REG" "$POLL_RD" <<'PY'
+import json, os, sys
+d, rd = sys.argv[1], sys.argv[2]
+for n in os.listdir(d):
+    p = os.path.join(d, n); rec = json.load(open(p)); rec["run_dir"] = rd
+    json.dump(rec, open(p, "w"))
+PY
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "a poller-registry-only sibling still refuses"
+kill "$POLL_PID" 2>/dev/null; wait "$POLL_PID" 2>/dev/null
+
+# 8. Non-colliding neighbours coexist: hz / hzli / boto, the live three-fleet arrangement.
+reset_reg; no_tmux
+( STATE_DIR=/p/one RUN_DIR=/p/one/run HARNESS_SESS_PREFIX=hzli fleet_register )
+( STATE_DIR=/p/two RUN_DIR=/p/two/run HARNESS_SESS_PREFIX=boto fleet_register )
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "hz coexists with sibling hzli + boto"
+
+# 9. Our OWN registry entry never trips the guard (self-exclusion on STATE_DIR).
+reset_reg; no_tmux
+( STATE_DIR="$OURS" RUN_DIR=/p/us/run HARNESS_SESS_PREFIX=hz fleet_register )
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "our own registry entry does not self-collide"
+
+# 10. No registry and no tmux server -> the single-fleet no-op, unchanged behaviour.
+rm -rf "$REG" "$FREG"
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "absent registry + no tmux never refuses"
+unset -f tmux
 
 echo "== full session grammar: stop/status match ONLY the fleet's own sessions =="
 HARNESS_SESS_PREFIX=hz
@@ -158,5 +215,16 @@ echo "== fleet_owner_of: session path -> owning project dir =="
 assert_eq "$(fleet_owner_of /home/u/Bonsai/.harness/worktrees/main-i1)" "/home/u/Bonsai" "cuts at /worktrees/"
 assert_eq "$(fleet_owner_of /home/u/Bonsai/.harness/worktrees/bug-a_b-5/nested)" "/home/u/Bonsai" "nested path still resolves"
 assert_eq "$(fleet_owner_of /some/unrecognised/path)" "/some/unrecognised/path" "unrecognised path falls back to itself"
+
+echo "== fleet_stale: a crashed fleet's reservation must not block a restart forever =="
+STALE_RD="$(mktemp -d)"
+tmux(){ printf '%s\t%s\n' "alpha-main-i1" "/p/alpha/.harness/worktrees/main-i1"; }; export -f tmux
+assert_no "a fleet with live sessions is NOT stale" fleet_stale alpha "$STALE_RD"
+assert_ok "a fleet with neither sessions nor pids IS stale" fleet_stale beta "$STALE_RD"
+sleep 300 & SP=$!; echo "$SP" > "$STALE_RD/worker-1.pid"
+assert_no "a fleet with a live pid is NOT stale" fleet_stale beta "$STALE_RD"
+kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
+assert_ok "a dead pidfile does not keep a fleet alive" fleet_stale beta "$STALE_RD"
+unset -f tmux
 
 finish

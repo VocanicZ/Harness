@@ -18,11 +18,24 @@ ask(){ local var="$1" prompt="$2" def="$3" val
 # host don't both take lib.sh's `hz`. derive_prefix lives in lib.sh — one definition, also used by
 # the start-time guard and `harness status` — but init.sh deliberately does NOT source lib.sh at the
 # top: lib.sh fills every HARNESS_* with its default at source time, which would defeat the `ask`
-# fallbacks below (and, for the prefix specifically, would hand back `hz`). Read the one function out
-# of a throwaway subshell instead, with the var unset so lib.sh's default can't leak into the answer.
+# fallbacks below (and, for the prefix specifically, would hand back `hz`). Read it out of a
+# throwaway subshell instead, with the var unset so lib.sh's default can't leak into the answer.
+#
+# If the derived name is already claimed by a live or registered fleet, fall back to the hash form
+# and say so. init only WARNS — it starts nothing, so there is nothing to refuse; `harness start` is
+# where a genuine collision is enforced.
 default_prefix(){ ( unset HARNESS_SESS_PREFIX
   source "$ENGINE_DIR/scripts/lib.sh" >/dev/null 2>&1
-  derive_prefix "$PROJECT_ROOT" ); }
+  local p; p="$(derive_prefix "$PROJECT_ROOT")"
+  if ( HARNESS_SESS_PREFIX="$p" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) >/dev/null 2>&1; then
+    printf '%s\n' "$p"
+  else
+    printf 'NOTE: session prefix %s is already in use by another fleet on this host — proposing %s instead\n' \
+      "$p" "hz$(printf '%s' "$PROJECT_ROOT" | python3 -c \
+        'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')" >&2
+    printf 'hz%s\n' "$(printf '%s' "$PROJECT_ROOT" | python3 -c \
+      'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+  fi ); }
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"

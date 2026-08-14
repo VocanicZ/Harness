@@ -862,23 +862,83 @@ for prj, pfx in seen.items():
 PY
 }
 
-# check_prefix_collision — start-time guard. Refuse (or warn) when another ACTIVE fleet's session
-# prefix collides with ours. Reads slice 2's registry (poller_registry_prefixes); a single /
-# non-colliding fleet sees an empty list and proceeds (no behavior change). HARNESS_PREFIX_COLLISION:
-# `refuse` (default) dies; `warn` prints to stderr and continues.
-check_prefix_collision(){
-  local pfx prj hit=""
-  while IFS=$'\t' read -r pfx prj; do
-    [[ -n "$pfx" ]] || continue
-    if prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx"; then hit="$pfx ($prj)"; break; fi
-  done < <(poller_registry_prefixes "$STATE_DIR")
-  [[ -n "$hit" ]] || return 0
-  local msg="session prefix '$HARNESS_SESS_PREFIX' collides with active fleet prefix $hit — set a distinct HARNESS_SESS_PREFIX (or HARNESS_PREFIX_COLLISION=warn to override)"
+# fleet_stale <prefix> <run_dir> — is a REGISTERED fleet actually dead? True when no live tmux
+# session sits under `<prefix>-` AND no pid recorded in its run_dir is alive. A fleet killed with -9
+# or lost to a host crash never reaches stop.sh's fleet_deregister, and its leftover reservation must
+# not refuse a legitimate restart forever. Both signals are checked because either can outlive the
+# other: sessions can survive a dead worker pool (status.sh calls that DEGRADED), and a worker can be
+# alive between session spawns.
+fleet_stale(){ local pfx="$1" rd="$2" name p
+  while IFS=$'\t' read -r name _; do
+    [[ "$name" == "$pfx-"* ]] && return 1
+  done < <(tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true)
+  for p in "$rd"/*.pid; do
+    [[ -e "$p" ]] || continue
+    kill -0 "$(cat "$p" 2>/dev/null)" 2>/dev/null && return 1
+  done
+  return 0; }
+
+# _prefix_collision_report <owner-dir> <owner-slugs> <live-session-count> — the refusal. Names the
+# owner, our own project, and a concrete retry, because the operator's next question is always
+# "which project has it, and what do I type instead". Honours HARNESS_PREFIX_COLLISION: `refuse`
+# (default) dies, `warn` prints to stderr and returns 0. The engine NEVER edits .harness/config
+# itself and never starts under a prefix other than the configured one.
+_prefix_collision_report(){ local owner="$1" slugs="$2" n="$3" sugg msg
+  sugg="$(derive_prefix "$PROJECT_ROOT")"
+  [[ "$sugg" != "$HARNESS_SESS_PREFIX" ]] || sugg="${sugg}2"
+  msg="$(printf 'session prefix %s is in use by another fleet\n  owner:    %s%s\n  prefix:   %s — %s live tmux session(s)\n  yours:    %s\nretry with a distinct prefix, e.g.:\n  HARNESS_SESS_PREFIX=%s harness start\nor set HARNESS_SESS_PREFIX in %s/config\n(HARNESS_PREFIX_COLLISION=warn overrides)' \
+    "$HARNESS_SESS_PREFIX" "$owner" "${slugs:+ (repo $slugs)}" "$HARNESS_SESS_PREFIX" "$n" \
+    "$PROJECT_ROOT" "$sugg" "$STATE_DIR")"
   case "${HARNESS_PREFIX_COLLISION:-refuse}" in
     warn) printf 'WARNING: %s\n' "$msg" >&2; return 0;;
     *)    die "$msg";;
   esac
 }
+
+# check_prefix_collision — start-time guard. tmux is the ENFORCEMENT signal (colliding_sessions):
+# a live session in our prefix space attributed to another project means the namespace is genuinely
+# shared right now, so refuse even with an empty registry — this is the case the old guard, reading
+# only the poller registry, could never see. The registry (fleet_registry_entries) is RESERVATION: a
+# registered sibling with no sessions yet still owns its prefix, so two idle fleets can't race into
+# one namespace; a STALE entry (fleet_stale) is pruned rather than refusing forever.
+# HARNESS_PREFIX_COLLISION: `refuse` (default) dies; `warn` prints to stderr and continues.
+check_prefix_collision(){
+  local name path who hit_path="" n=0
+  # 1) LIVE tmux sessions — the enforcement signal. Sessions attributed to another project mean the
+  #    namespace is genuinely shared right now: our stop.sh would kill their agents mid-edit.
+  while IFS=$'\t' read -r name path who; do
+    [[ "$who" == theirs ]] || continue
+    n=$((n+1)); [[ -n "$hit_path" ]] || hit_path="$path"
+  done < <(colliding_sessions)
+  if (( n > 0 )); then
+    local owner; owner="$(fleet_owner_of "$hit_path")"
+    # In `refuse` mode the report dies (exits); in `warn` mode it returns 0 and we proceed. Pass its
+    # status straight through — do NOT add a `return 1` after this call, which would defeat warn mode.
+    _prefix_collision_report "$owner" "$(fleet_slugs_of "$owner")" "$n"
+    return $?
+  fi
+  # 2) The registry — RESERVATION. A registered sibling with no sessions yet still owns its prefix,
+  #    so two idle fleets can't race into one namespace. A STALE entry (no sessions, no live pids —
+  #    a fleet that died before stop.sh could deregister) is pruned instead of refusing forever.
+  local pfx prj rd slugs
+  while IFS=$'\t' read -r pfx prj rd slugs; do
+    [[ -n "$pfx" ]] || continue
+    prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx" || continue
+    if fleet_stale "$pfx" "$rd"; then fleet_deregister "$prj"; continue; fi
+    _prefix_collision_report "$(dirname "$prj")" "$slugs" 0
+    return $?
+  done < <(fleet_registry_entries "$STATE_DIR")
+  return 0
+}
+
+# fleet_slugs_of <project-dir> — the repo slugs a registered fleet serves, for the refusal message.
+# Empty when that fleet isn't registered (an older engine, a hand-made session): the message still
+# names the owning directory, which is the part the operator acts on.
+fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
+  while IFS=$'\t' read -r pfx prj rd slugs; do
+    [[ "$(dirname "$prj")" == "$dir" ]] && { printf '%s\n' "$slugs"; return 0; }
+  done < <(fleet_registry_entries "")
+  printf '\n'; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
 tmpl = open(sys.argv[1]).read()

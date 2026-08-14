@@ -102,4 +102,30 @@ PDIR2="$TMP/Widget2"; mkdir -p "$PDIR2/.harness"
 assert "explicit HARNESS_SESS_PREFIX overrides the derived default" \
   "grep -q 'HARNESS_SESS_PREFIX:=custom' '$PDIR2/.harness/config'"
 
+# init WARNS (never refuses — it starts nothing) when the derived prefix is already claimed, and
+# offers the hash fallback instead so the operator isn't left to invent one.
+#
+# DEVIATION from the brief's literal fixture: the sibling's run_dir must hold a LIVE pid. A registry
+# entry with neither a live tmux session (none exists here) nor a live pid is, by fleet_stale's design
+# (verified in test_prefix_guard.sh's staleness group), a crashed fleet — check_prefix_collision prunes
+# it and lets init through un-warned. Without a live pid this test cannot distinguish "taken" from
+# "abandoned", so it would pass vacuously even with the warning path deleted.
+PDIR3="$TMP/Widget3"; mkdir -p "$PDIR3/.harness"
+export HARNESS_HOME="$TMP/host3"; mkdir -p "$HARNESS_HOME/fleets"
+SIB_RD="$(mktemp -d)"; sleep 300 & SIB_PID=$!; echo "$SIB_PID" > "$SIB_RD/worker-1.pid"
+python3 - "$HARNESS_HOME/fleets/sibling.json" "$PDIR3" "$SIB_RD" <<'PY'
+import json, sys
+json.dump({"prefix": "widget3", "project": "/elsewhere/.harness",
+           "run_dir": sys.argv[3], "slugs": ["acme/other"],
+           "started_at": 0}, open(sys.argv[1], "w"))
+PY
+OUT="$( ( export STATE_DIR="$PDIR3/.harness" HARNESS_DIR="$PDIR3/.harness"
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+    bash "$HERE/../scripts/init.sh" ) 2>&1 )"
+kill "$SIB_PID" 2>/dev/null; wait "$SIB_PID" 2>/dev/null
+assert "init warns that the derived prefix is taken" "grep -qi 'in use\|taken\|collide' <<<\"\$OUT\""
+assert "init still writes a config"                  "[[ -f '$PDIR3/.harness/config' ]]"
+( source "$PDIR3/.harness/config"; [[ "${HARNESS_SESS_PREFIX:-}" != "widget3" ]] ) \
+  && echo "  ok: init proposed a different prefix" || { echo "  FAIL: init reused the taken prefix"; exit 1; }
+
 echo "── init ok"
