@@ -102,7 +102,11 @@ assert_eq "$NA1" "$NA2" "fallback is deterministic for the same path"
 assert_no "different paths get different fallbacks" bash -c "[[ '$NA1' == '$NB' ]]"
 # The result is always usable as a tmux session-name segment.
 assert_ok "result never contains a dash" bash -c "[[ ! '$(derive_prefix /home/u/bonsai-api)' == *-* ]]"
-assert_ok "derived prefix does not collide with a sibling's" \
-  bash -c '! prefixes_collide "$(derive_prefix /home/u/Harness)" "$(derive_prefix /home/u/Bonsai)"'
+# Run this IN-PROCESS, not under `bash -c`: the helper rig's assert_* run their argv directly, so
+# lib.sh's functions are in scope. A `bash -c '! prefixes_collide …'` subshell never sourced lib.sh,
+# so both functions would be "command not found" (127) and the leading `!` would negate that into a
+# pass — an assertion that stays green even if the functions are deleted.
+assert_no "derived prefixes of two sibling projects do not collide" \
+  prefixes_collide "$(derive_prefix /home/u/Harness)" "$(derive_prefix /home/u/Bonsai)"
 
 finish
