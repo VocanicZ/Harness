@@ -154,4 +154,9 @@ contains(){ grep -qE -- "$1" <<<"$2"; }
 contains 'mine' "$OUT"    && echo "  ok: status prints our prefix"           || { echo "  FAIL: status prints our prefix — got:"; echo "$OUT"; exit 1; }
 contains 'sibling' "$OUT" && echo "  ok: status lists the sibling fleet"     || { echo "  FAIL: status lists the sibling fleet — got:"; echo "$OUT"; exit 1; }
 contains '/p/sib' "$OUT"  && echo "  ok: status names the sibling's project" || { echo "  FAIL: status names the sibling's project — got:"; echo "$OUT"; exit 1; }
+# Round-2 fix review (C1): '/p/sib' is a substring match, and '/p/sib/.harness' (the raw registered
+# STATE_DIR, undirnamed) ALSO contains '/p/sib' — so the assertion above would stay green even if
+# status.sh regressed to printing the raw STATE_DIR instead of the project dir. Same treatment as
+# test_doctor.sh's ".harness suffix" negative assertion: pin it down with a negative check.
+contains '\.harness' "$OUT" && { echo "  FAIL: status's sibling line leaks the .harness suffix — got:"; echo "$OUT"; exit 1; } || echo "  ok: status's sibling line does not leak the .harness suffix"
 echo "── status prefix + siblings ok"
