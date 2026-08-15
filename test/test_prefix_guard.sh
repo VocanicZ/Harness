@@ -75,6 +75,18 @@ our_sessions
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "0" "our own live sessions never refuse (the --recover path)"
 
+# 4a. The refusal names the owner's REPO when that owner is known only to the POLLER registry.
+#     fleet_slugs_of reads fleet_registry_entries, whose poller rows carry an EMPTY INTERIOR run_dir
+#     field; read on tab, bash collapses the run and hands fleet_slugs_of the slug list as $rd, so the
+#     message renders `(repo )` — losing the one field that tells the operator WHICH repo just
+#     blocked them. This is the tmux path, so the owner comes from the session and only the slugs
+#     come from the registry.
+reset_reg; their_sessions
+poller_register acme/widget 60 hz "$THEIRS"
+SMSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" PROJECT_ROOT=/home/u/Harness check_prefix_collision ) 2>&1 >/dev/null )"
+assert_ok "tmux-path refusal names a poller-known owner's repo" \
+  contains '^ +owner: +/home/u/Bonsai \(repo acme/widget\)$' "$SMSG"
+
 # 5. RESERVATION: a registered sibling with NO live sessions still refuses, so two idle fleets can't
 #    race into one namespace. Its run_dir holds a live pid, so it is not stale.
 reset_reg; no_tmux

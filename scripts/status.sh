@@ -62,10 +62,13 @@ render_once(){
   # the banner, like every other block, not above it.
   echo "prefix: $HARNESS_SESS_PREFIX"
   local p prj rd slugs sibs=0
-  while IFS=$'\t' read -r p prj rd slugs; do
+  # $FLEET_ROW_SEP, not tab: a POLLER row's run_dir is an empty INTERIOR field and bash collapses
+  # runs of tab, so the slug list would land in $rd and the `(slugs)` suffix would vanish from the
+  # row. Same treatment as the other fleet_registry_entries consumers (lib.sh, doctor.sh).
+  while IFS="$FLEET_ROW_SEP" read -r p prj rd slugs; do
     [[ -n "$p" ]] || continue
     sibs=$((sibs+1)); printf '  sibling fleet: %-12s %s%s\n' "$p" "$(dirname "$prj")" "${slugs:+ ($slugs)}"
-  done < <(fleet_registry_entries "$STATE_DIR")
+  done < <(fleet_registry_entries "$STATE_DIR" | tr '\t' "$FLEET_ROW_SEP")
   (( sibs == 0 )) && echo "  (no other fleets registered on this host)"
 
   for ((i=1;i<=POOL;i++)); do
