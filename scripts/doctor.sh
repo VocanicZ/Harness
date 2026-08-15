@@ -81,11 +81,20 @@ doctor_pidfiles(){
 # guard prunes such entries on its own, but an operator who wants the host clean now needs a lever —
 # this is it. Report-only by default; --fix prunes. A LIVE fleet is never touched. Returns the
 # problem count, matching doctor_locks.
+#
+# A row with NO run_dir is skipped outright. fleet_registry_entries also serves poller records, and
+# poller_register writes {slug,cadence,prefix,project} — no run_dir — so fleet_stale has no pidfiles
+# to check and calls a live poller fleet stale. fleet_deregister can only delete from
+# $HARNESS_FLEETS_DIR, so --fix would print `→ pruned`, leave the record untouched, and report the
+# identical problem on every subsequent run. Same rule as the start guard: an absent run_dir is not
+# evidence of death.
 doctor_fleets(){
   local problems=0 pfx prj rd slugs
   [[ -d "$HARNESS_FLEETS_DIR" ]] || { echo "  absent (never created — fine)"; return 0; }
-  while IFS=$'\t' read -r pfx prj rd slugs; do
-    [[ -n "$pfx" ]] || continue
+  # $FLEET_ROW_SEP, not tab: a poller row has an empty INTERIOR run_dir field, and bash collapses
+  # runs of tab, which would slide the slug list into $rd and defeat the -n test below.
+  while IFS="$FLEET_ROW_SEP" read -r pfx prj rd slugs; do
+    [[ -n "$pfx" && -n "$rd" ]] || continue
     if fleet_stale "$pfx" "$rd"; then
       problems=$((problems+1))
       echo "  STALE entry — prefix '$pfx' reserved by $(dirname "$prj") (no live sessions, no live pids)"
@@ -95,7 +104,7 @@ doctor_fleets(){
         echo "    → prune with: harness doctor --fix"
       fi
     fi
-  done < <(fleet_registry_entries "")
+  done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
   return "$problems"
 }
 

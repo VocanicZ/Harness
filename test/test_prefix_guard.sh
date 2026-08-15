@@ -103,24 +103,13 @@ kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null
 assert_eq "$?" "0" "a crashed sibling's stale reservation does not refuse"
 assert_eq "$(ls "$FREG"/*.json 2>/dev/null | wc -l)" "0" "and the stale entry is pruned"
 
-# poller_register writes no run_dir (that field is the fleet registry's), and fleet_stale reads a
-# missing run_dir as "no live pids" — so a poller fixture with no run_dir is pruned rather than
-# refusing, and every poller-source case below would pass VACUOUSLY. Point the entries at a run_dir
-# holding a live pid so they exercise a genuine reservation.
-poller_run_dir(){ python3 - "$REG" "$1" <<'PY'
-import json, os, sys
-d, rd = sys.argv[1], sys.argv[2]
-for n in os.listdir(d):
-    p = os.path.join(d, n); rec = json.load(open(p)); rec["run_dir"] = rd
-    json.dump(rec, open(p, "w"))
-PY
-}
-
 # 7. A poller-registry-only sibling (older engine) is still seen — fleet_registry_entries reads both.
+#    poller_register writes NO run_dir: the record is {slug,cadence,prefix,project} and nothing else.
+#    That is the shape production actually emits, so every case below uses it unaltered. A row with
+#    no run_dir carries no liveness evidence in EITHER direction, and check_prefix_collision must
+#    therefore not read it as dead — see the `-n "$rd"` guard there.
 reset_reg; no_tmux
-POLL_RD="$(mktemp -d)"; sleep 300 & POLL_PID=$!; echo "$POLL_PID" > "$POLL_RD/priority.pid"
 poller_register acme/widget 60 hz "$THEIRS"
-poller_run_dir "$POLL_RD"
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "1" "a poller-registry-only sibling still refuses"
 
@@ -132,17 +121,23 @@ assert_eq "$?" "0" "warn mode proceeds despite a poller-registry collision"
 reset_reg; no_tmux
 poller_register acme/widget 60 hzli "$THEIRS"
 poller_register acme/other  60 boto /third/project/.harness
-poller_run_dir "$POLL_RD"
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "0" "hz coexists with poller-registered hzli + boto"
 
 # 7c. Our OWN poller entry never trips the guard either (self-exclusion on STATE_DIR).
 reset_reg; no_tmux
 poller_register acme/widget 60 hz "$OURS"
-poller_run_dir "$POLL_RD"
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "0" "our own poller entry does not self-collide"
-kill "$POLL_PID" 2>/dev/null; wait "$POLL_PID" 2>/dev/null
+
+# 7d. The other liveness path for a poller-only record: the sibling has a LIVE `hz-` session. It must
+#     refuse too — here the tmux stage catches it first, which is the stronger signal (it can also
+#     name the owner). Together with case 7 this pins a poller-only fleet as refused whether or not
+#     it has spawned a session, which is the whole point of a source that carries no run_dir.
+reset_reg; their_sessions
+poller_register acme/widget 60 hz "$THEIRS"
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "a poller-only sibling with a live session refuses"
 
 # 8. Non-colliding neighbours coexist: hz / hzli / boto, the live three-fleet arrangement.
 reset_reg; no_tmux
@@ -211,13 +206,10 @@ assert_eq "$?" "0" "our own running workers do not self-collide"
 # All three sources feed one decision: a collision found in ANY must refuse. (The tmux source has
 # its own cases 1-4 above; here the other two are isolated from each other.)
 reset_reg
-UNION_RD="$(mktemp -d)"; sleep 300 & UNION_PID=$!; echo "$UNION_PID" > "$UNION_RD/worker-1.pid"
 poller_register acme/widget 60 hz /registry/project/.harness
-poller_run_dir "$UNION_RD"
 running_fleet_prefixes(){ :; }
 ( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "1" "union: registry-only collision still refuses"
-kill "$UNION_PID" 2>/dev/null; wait "$UNION_PID" 2>/dev/null
 reset_reg
 # A process row carries NO run_dir — it cannot, a process is not a registration. If the staleness
 # prune were applied to it (no run_dir, no tmux sessions => "stale") this would silently pass by

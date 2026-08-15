@@ -409,13 +409,18 @@ sees something the others cannot:
   registry (`~/.harness/poller/registry/`, populated only when `HARNESS_USE_POLLER` is set) is read
   through the same source, so a poller-enabled fleet on an older engine is still seen.
 
-That third source used to be the *only* one, which made the guard a no-op for the default
-configuration — `HARNESS_USE_POLLER` is unset unless you opt in, so the registry was always empty.
-Three fleets duly came up on the default `hz` and spent hours killing each other's sessions.
+The **poller registry** used to be the only source, which made the guard a no-op for the default
+configuration — `HARNESS_USE_POLLER` is unset unless you opt in, so it was always empty, and
+`~/.harness/fleets/` did not exist yet. Three fleets duly came up on the default `hz` and spent
+hours killing each other's sessions.
 
 Only the registry can go stale; sessions and processes are alive by construction. A fleet killed
-with `kill -9` never deregisters, so its entry is pruned automatically once it has no live sessions
-and no live worker pids, or on demand with `harness doctor --fix`.
+with `kill -9` never deregisters, so its `~/.harness/fleets/` entry is pruned automatically once it
+has no live sessions and no live worker pids, or on demand with `harness doctor --fix`. A **poller**
+record carries no `run_dir`, so there are no pids to check and it is never pruned on those grounds —
+an absent `run_dir` is read as "no evidence either way", never as "dead", because guessing "dead"
+would wave through exactly the collision this guard exists to catch. Such a record is cleared by
+that fleet's own `harness stop`.
 
 `HARNESS_PREFIX_COLLISION=warn` downgrades the refusal to a warning if you know what you are doing.
 

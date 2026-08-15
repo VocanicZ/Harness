@@ -83,6 +83,22 @@ sleep 300 & LP=$!; LIVE_RD="$(mktemp -d)"; echo "$LP" > "$LIVE_RD/worker-1.pid"
 DOCTOR_FIX=1 doctor_fleets >/dev/null
 assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "--fix never prunes a live fleet"
 kill "$LP" 2>/dev/null; wait "$LP" 2>/dev/null
+
+# A POLLER-registered fleet has NO run_dir — poller_register writes {slug,cadence,prefix,project}
+# and nothing more — so there are no pidfiles for fleet_stale to check and, with no live session, it
+# would call a live fleet stale. Worse, fleet_deregister only deletes from $HARNESS_FLEETS_DIR, so
+# --fix would print `→ pruned`, leave the record exactly where it was, and report the same problem
+# every run thereafter. An absent run_dir is not evidence of death; doctor must leave it alone.
+rm -f "$HARNESS_FLEETS_DIR"/*.json     # isolate the count: only the poller record is in play
+export POLLER_REGISTRY_DIR="$HARNESS_HOME/poller/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
+poller_register acme/widget 60 pollr /p/pollr/.harness
+OUT="$(DOCTOR_FIX=0 doctor_fleets)"; PROBLEMS=$?
+assert_no "doctor does not call a run_dir-less poller entry stale" contains '/p/pollr' "$OUT"
+assert_eq "$PROBLEMS" "0" "and counts no problem for it"
+DOCTOR_FIX=1 doctor_fleets >/dev/null
+assert_eq "$(ls "$POLLER_REGISTRY_DIR"/*.json 2>/dev/null | wc -l)" "1" \
+  "--fix never claims to prune a poller entry it cannot remove"
+rm -f "$POLLER_REGISTRY_DIR"/*.json
 unset -f tmux
 
 echo "== doctor_main's summary wording covers a stale fleet-registry entry, not just locks/pidfiles =="

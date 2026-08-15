@@ -1072,7 +1072,16 @@ check_prefix_collision(){
     prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx" || continue
     # Staleness is a REGISTRY concern only — see the header. A `process` row that reached here has a
     # live worker behind it; pruning it would be pruning a running fleet.
-    if [[ "$src" == registry ]] && fleet_stale "$pfx" "$rd"; then fleet_deregister "$prj"; continue; fi
+    #
+    # And a registry row with NO run_dir is not evidence of death either. A POLLER record is
+    # {slug,cadence,prefix,project} — poller_register never wrote a run_dir — so fleet_stale finds no
+    # pidfiles to check and, absent a live `<pfx>-` session, calls a perfectly live fleet stale and
+    # waves the start through. That silent wave-through IS the incident this guard exists to prevent,
+    # so an absent run_dir must read as "no liveness evidence", never as "dead". The cost is that a
+    # poller-only fleet killed with -9 reserves its prefix until `harness stop` / poller_deregister
+    # clears it; #167 accepted exactly that trade, and it only reaches fleets on an older engine.
+    # Fleets registered in ~/.harness/fleets always carry a run_dir and are still pruned (cases 5/6).
+    if [[ "$src" == registry && -n "$rd" ]] && fleet_stale "$pfx" "$rd"; then fleet_deregister "$prj"; continue; fi
     # Same return convention as the tmux path above: pass the report's status through, never `return 1`.
     _prefix_collision_report "$(dirname "$prj")" "$slugs" 0 "$src"
     return $?
@@ -1084,9 +1093,11 @@ check_prefix_collision(){
 # Empty when that fleet isn't registered (an older engine, a hand-made session): the message still
 # names the owning directory, which is the part the operator acts on.
 fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
-  while IFS=$'\t' read -r pfx prj rd slugs; do
+  # $FLEET_ROW_SEP, not tab: a poller row's run_dir is an empty INTERIOR field and bash collapses
+  # runs of tab, which would read the slug list as $rd and hand back an empty slug list.
+  while IFS="$FLEET_ROW_SEP" read -r pfx prj rd slugs; do
     [[ "$(dirname "$prj")" == "$dir" ]] && { printf '%s\n' "$slugs"; return 0; }
-  done < <(fleet_registry_entries "")
+  done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
   printf '\n'; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
