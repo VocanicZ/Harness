@@ -23,7 +23,7 @@ assert_no "hzli vs hz do NOT collide"                       prefixes_collide hzl
 assert_no "hz vs boto do NOT collide"                       prefixes_collide hz boto
 assert_no "hzli vs boto do NOT collide"                     prefixes_collide hzli boto
 
-echo "== the guard: tmux enforces, the registry reserves and attributes =="
+echo "== the guard: tmux enforces, live workers detect, the registry reserves and attributes =="
 # make_env (above) pins HARNESS_HOME *and* HARNESS_FLEETS_DIR to its own throwaway root, so the two
 # stay in step and no re-pin is needed here. See helpers.sh / test_hermetic.sh's fleet-decoy block.
 REG="$HARNESS_HOME/poller/registry"
@@ -33,6 +33,11 @@ OURS="/home/u/Harness/.harness"; THEIRS="/home/u/Bonsai/.harness"
 no_tmux(){ tmux(){ return 1; }; export -f tmux; }
 their_sessions(){ tmux(){ printf '%s\t%s\n' "hz-main-i1" "/home/u/Bonsai/.harness/worktrees/main-i1"; }; export -f tmux; }
 our_sessions(){ tmux(){ printf '%s\t%s\n' "hz-main-i1" "/home/u/Harness/.harness/worktrees/main-i1"; }; export -f tmux; }
+# The guard reads live worker PROCESSES too. Silence that source for this block — otherwise these
+# assertions would depend on whatever fleets happen to be running on the host, and on a developer
+# machine with a live `hz` fleet the coexistence cases would refuse. The next block exercises it
+# directly, and the one after that runs the real implementation against this host.
+running_fleet_prefixes(){ :; }
 
 # 1. A sibling's LIVE sessions in our prefix space -> refuse, even with an EMPTY registry. This is
 #    the case the old guard could never see: it read only the poller registry, which is written
@@ -86,8 +91,8 @@ rcontains(){ grep -qE -- "$1" <<<"$2"; }
 assert_no "registry-only refusal never says '0 live tmux session'" rcontains '0 live tmux session' "$RMSG"
 assert_ok "registry-only refusal says the prefix is reserved"      rcontains 'registered, no live sessions yet' "$RMSG"
 
-# 5b. warn mode downgrades a REGISTRY-ONLY collision too (no live tmux session at all — the stage-2
-#     path's own `return $?`), not just the tmux-path collision case 3 already covers.
+# 5b. warn mode downgrades a REGISTRY-ONLY collision too (no live tmux session at all — the
+#     sessionless path's own `return $?`), not just the tmux-path collision case 3 already covers.
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "0" "warn mode proceeds despite a registry reservation"
 
@@ -98,19 +103,45 @@ kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null
 assert_eq "$?" "0" "a crashed sibling's stale reservation does not refuse"
 assert_eq "$(ls "$FREG"/*.json 2>/dev/null | wc -l)" "0" "and the stale entry is pruned"
 
-# 7. A poller-registry-only sibling (older engine) is still seen — fleet_registry_entries reads both.
-reset_reg; no_tmux
-POLL_RD="$(mktemp -d)"; sleep 300 & POLL_PID=$!; echo "$POLL_PID" > "$POLL_RD/priority.pid"
-poller_register acme/widget 60 hz "$THEIRS"
-python3 - "$REG" "$POLL_RD" <<'PY'
+# poller_register writes no run_dir (that field is the fleet registry's), and fleet_stale reads a
+# missing run_dir as "no live pids" — so a poller fixture with no run_dir is pruned rather than
+# refusing, and every poller-source case below would pass VACUOUSLY. Point the entries at a run_dir
+# holding a live pid so they exercise a genuine reservation.
+poller_run_dir(){ python3 - "$REG" "$1" <<'PY'
 import json, os, sys
 d, rd = sys.argv[1], sys.argv[2]
 for n in os.listdir(d):
     p = os.path.join(d, n); rec = json.load(open(p)); rec["run_dir"] = rd
     json.dump(rec, open(p, "w"))
 PY
+}
+
+# 7. A poller-registry-only sibling (older engine) is still seen — fleet_registry_entries reads both.
+reset_reg; no_tmux
+POLL_RD="$(mktemp -d)"; sleep 300 & POLL_PID=$!; echo "$POLL_PID" > "$POLL_RD/priority.pid"
+poller_register acme/widget 60 hz "$THEIRS"
+poller_run_dir "$POLL_RD"
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "1" "a poller-registry-only sibling still refuses"
+
+# 7a. warn mode downgrades a poller-registry collision as well (#167's case, on the merged guard).
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "warn mode proceeds despite a poller-registry collision"
+
+# 7b. Non-colliding poller-registry siblings coexist: hz / hzli / boto through the OLD source.
+reset_reg; no_tmux
+poller_register acme/widget 60 hzli "$THEIRS"
+poller_register acme/other  60 boto /third/project/.harness
+poller_run_dir "$POLL_RD"
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "hz coexists with poller-registered hzli + boto"
+
+# 7c. Our OWN poller entry never trips the guard either (self-exclusion on STATE_DIR).
+reset_reg; no_tmux
+poller_register acme/widget 60 hz "$OURS"
+poller_run_dir "$POLL_RD"
+( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "our own poller entry does not self-collide"
 kill "$POLL_PID" 2>/dev/null; wait "$POLL_PID" 2>/dev/null
 
 # 8. Non-colliding neighbours coexist: hz / hzli / boto, the live three-fleet arrangement.
@@ -126,11 +157,99 @@ reset_reg; no_tmux
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
 assert_eq "$?" "0" "our own registry entry does not self-collide"
 
-# 10. No registry and no tmux server -> the single-fleet no-op, unchanged behaviour.
+# 10. No registry, no tmux server and no running worker -> the single-fleet no-op, unchanged.
 rm -rf "$REG" "$FREG"
 ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
-assert_eq "$?" "0" "absent registry + no tmux never refuses"
+assert_eq "$?" "0" "absent registry + no tmux + no worker never refuses"
 unset -f tmux
+
+echo "== the guard no longer depends on the poller being enabled =="
+# THE BUG (#167). HARNESS_USE_POLLER is UNSET by default, so the poller registry is always empty, so
+# the original guard was a no-op for the ordinary configuration. Three fleets came up on the default
+# `hz` prefix on one host and two of them reaped each other's sessions and worktrees for hours. Every
+# case below runs with NO registry at all and NO tmux server — discovery comes from the live worker
+# PROCESSES alone. The tmux source is silenced here for the same reason the process source is
+# silenced above: otherwise these assertions would read whatever is live on the host.
+reset_reg; no_tmux
+rm -rf "$REG" "$FREG"
+# The stubs emit a STATE_DIR (`…/.harness`), which is what the real running_fleet_prefixes reads out
+# of /proc/<pid>/environ — the refusal names its parent, the project dir.
+running_fleet_prefixes(){ printf 'hz\t/other/project/.harness\n'; }
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "running colliding fleet REFUSED with an empty registry"
+
+# The message must name the offender, or the operator cannot act on it.
+msg="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>&1 )"
+assert_ok "refusal names the colliding prefix and project" contains '/other/project' "$msg"
+assert_ok "refusal names the remedy"                       contains 'HARNESS_SESS_PREFIX' "$msg"
+# ...and it must say a WORKER is up, not that a fleet is "registered" (nothing is registered here)
+# and not `0 live tmux session(s)`, which reads as the guard refusing on no evidence at all.
+assert_ok "process-source refusal names the live worker" contains 'live worker process, no sessions yet' "$msg"
+assert_no "process-source refusal never claims a registration" contains 'registered, no live sessions yet' "$msg"
+assert_no "process-source refusal never says '0 live tmux session'" contains '0 live tmux session' "$msg"
+
+# warn mode still downgrades to a warning.
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=warn check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "warn mode proceeds despite a running collision"
+
+# The real host layout that broke: hz (ours) + hz (sibling) + hzli (innocent bystander).
+running_fleet_prefixes(){ printf 'hzli\t/third/project/.harness\nhz\t/other/project/.harness\n'; }
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "a colliding fleet is caught even behind a non-colliding one"
+
+# ...and hzli alone must NOT block us, or every multi-project host becomes unstartable.
+running_fleet_prefixes(){ printf 'hzli\t/third/project/.harness\nboto\t/fourth/project/.harness\n'; }
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "running hzli + boto fleets do not block an hz fleet"
+
+# Our OWN workers must never trip the guard. `harness start --recover` is the documented top-up
+# path and runs with this fleet's workers already live; self-refusal would make it unusable.
+running_fleet_prefixes(){ :; }   # real impl excludes self by STATE_DIR before printing
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "0" "our own running workers do not self-collide"
+
+# All three sources feed one decision: a collision found in ANY must refuse. (The tmux source has
+# its own cases 1-4 above; here the other two are isolated from each other.)
+reset_reg
+UNION_RD="$(mktemp -d)"; sleep 300 & UNION_PID=$!; echo "$UNION_PID" > "$UNION_RD/worker-1.pid"
+poller_register acme/widget 60 hz /registry/project/.harness
+poller_run_dir "$UNION_RD"
+running_fleet_prefixes(){ :; }
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "union: registry-only collision still refuses"
+kill "$UNION_PID" 2>/dev/null; wait "$UNION_PID" 2>/dev/null
+reset_reg
+# A process row carries NO run_dir — it cannot, a process is not a registration. If the staleness
+# prune were applied to it (no run_dir, no tmux sessions => "stale") this would silently pass by
+# pruning a LIVE fleet. That is why the row carries its source and fleet_stale is gated on it.
+running_fleet_prefixes(){ printf 'hz\t/process/project/.harness\n'; }
+( HARNESS_SESS_PREFIX=hz STATE_DIR=/our/project/.harness HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) 2>/dev/null
+assert_eq "$?" "1" "union: process-only collision refuses (never stale-pruned for lacking a run_dir)"
+unset -f tmux
+
+echo "== running_fleet_prefixes against the real process table =="
+# The seam above is stubbed everywhere else, so exercise the genuine implementation once. It must
+# not crash, must emit well-formed `<prefix>\tab<state-dir>` rows, and must never report the
+# caller's own state dir. Stubs are what let #167's first draft pass while finding zero of the three
+# fleets actually running on the box.
+unset -f running_fleet_prefixes
+source "$HERE/../scripts/lib.sh"          # restore the real one
+real_out="$(running_fleet_prefixes /definitely/not/a/real/state/dir 2>/dev/null)"; rc=$?
+assert_eq "$rc" "0" "running_fleet_prefixes exits 0 on a real host"
+bad="$(awk -F'\t' 'NF!=2 || $1=="" || $2==""' <<<"${real_out}" | grep -c . || true)"
+assert_eq "$bad" "0" "every emitted row is <prefix>TAB<state-dir>"
+assert_no "never reports the state dir it was asked to exclude" \
+  grep -q '/definitely/not/a/real/state/dir' <<<"$real_out"
+# Whatever it found, feeding it back through the predicate must agree that a prefix nothing uses
+# collides with nothing. IN-PROCESS: under `bash -c` the child never sourced lib.sh, prefixes_collide
+# would be a 127, and a trailing `true` would make the assertion a permanent pass.
+drives_predicate(){ local p _
+  while IFS=$'\t' read -r p _; do
+    [[ -n "$p" ]] || continue
+    prefixes_collide zzz "$p" && return 1
+  done <<<"$1"
+  return 0; }
+assert_ok "its output drives prefixes_collide without error" drives_predicate "$real_out"
 
 echo "== full session grammar: stop/status match ONLY the fleet's own sessions =="
 HARNESS_SESS_PREFIX=hz

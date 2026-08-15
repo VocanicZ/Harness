@@ -112,8 +112,8 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_CAP` | `3` | Max concurrent claude sessions per unit |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
-| `HARNESS_SESS_PREFIX` | derived from the project dir at `init` (`hz` for pre-existing configs) | tmux session name prefix — **must be unique per fleet on a host**; a shared prefix makes `harness stop` in one project kill another's agents |
-| `HARNESS_PREFIX_COLLISION` | `refuse` | `refuse` \| `warn` — what `harness start` does when another fleet already owns this session prefix |
+| `HARNESS_SESS_PREFIX` | derived from the project dir at `init` (`hz` for pre-existing configs) | tmux session name prefix — **must be unique per fleet on a host**; a shared prefix makes `harness stop` in one project kill another's agents. See [Fleet prefixes](#fleet-prefixes) |
+| `HARNESS_PREFIX_COLLISION` | `refuse` | `refuse` \| `warn` — what `harness start` does when another fleet already owns this session prefix: `refuse` (default) dies, `warn` prints and continues |
 | `HARNESS_LABEL_READY` | `ready-for-agent` | Label that marks an issue dispatchable |
 | `HARNESS_LABEL_PRD` | `prd` | Label that marks the PRD tracking issue |
 | `HARNESS_LABEL_WORKING` | `agent-working` | Label applied while a session owns an issue |
@@ -250,6 +250,35 @@ harness <command>
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
 
+### Which project a command acts on
+
+`STATE_DIR` is the project's `.harness/`. Normally you never set it: every command walks **up** from
+the current directory for a `.harness/config`, the way `git` finds `.git`.
+
+A pre-set `STATE_DIR` still overrides that discovery — an out-of-tree or vendored layout needs it —
+but an **inherited** one that points at a *different* project is refused:
+
+```
+harness: STATE_DIR is set to /home/you/projA/.harness (inherited from the environment),
+  but this directory belongs to /home/you/projB/.harness.
+  Refusing to act on a project you are not in.
+  Run with --state-dir <path> to be explicit, or 'unset STATE_DIR' to use this directory.
+```
+
+This is not hypothetical: a Claude session launched **inside** a fleet inherits that fleet's exported
+`STATE_DIR`, so `cd`-ing to another project and running `harness stop` used to stop the fleet you came
+*from*, and report success (2026-08-12; issue #168). The refusal covers every project command,
+`uninstall` included.
+
+| Situation | Behaviour |
+|-----------|-----------|
+| No `STATE_DIR` set | Discovered from the current directory (the normal path) |
+| Inherited `STATE_DIR`, agrees with discovery — or cwd is inside that state dir (a worker's worktree) | Allowed, silently |
+| Inherited `STATE_DIR`, nothing discoverable from cwd | Allowed — the out-of-tree / vendored case |
+| Inherited `STATE_DIR`, disagrees with discovery | **Refused**, non-zero, naming both paths |
+| `harness --state-dir <path> <cmd>` (or `<cmd> --state-dir <path>`) | Always allowed — deliberate, not inherited |
+| `HARNESS_STATE_DIR_OK=1` | Always allowed — waives the check for a whole shell |
+
 ## Pause / resume / update
 
 ```bash
@@ -340,25 +369,55 @@ state to undo.
 
 ## Fleet prefixes
 
-Every tmux session a fleet creates is named `<prefix>-…`, and `harness stop` kills everything
-matching `^<prefix>-`. Two fleets sharing a prefix on one host therefore cross-kill: stopping one
-tears down the other's live agents mid-edit.
+A fleet owns **every tmux session under its prefix**: `harness stop` and `harness status` match
+`^<prefix>-.+$`, because ERE has no negative lookahead and "anything except an impl suffix" is not
+expressible. That rule is sound for one fleet and destructive for two — give two fleets the same
+`HARNESS_SESS_PREFIX` and either one's `harness stop` tears down the other's live agents mid-edit,
+whatever units they are working on.
 
-`harness init` derives a distinct prefix from the project directory name (`~/proj/Harness` →
-`harness`) and writes it to `.harness/config`, so this is handled for you. Projects initialised
-before this existed have no prefix line and keep the historical `hz` default — set
-`HARNESS_SESS_PREFIX` in their `.harness/config` if more than one fleet runs on the host.
+The trailing dash is what keeps siblings apart, so `hz`, `hzli` and `boto` coexist happily —
+`hzli-main-i7` is not inside `hz-`'s space. Only equal prefixes, or one being a dash-prefix of the
+other, collide.
 
-`harness start` refuses to start on a prefix another fleet already owns, naming the project that
-holds it and the retry command. It detects this two ways: live tmux sessions in the prefix space
-(attributed to their project by each session's working directory, so it works even against a fleet
-running an older engine), and the host-wide registry at `~/.harness/fleets/` — one JSON per live
-fleet, written by `harness start` and removed by `harness stop`. The registry also reserves the
-prefix of a fleet that is registered but currently idle.
+### Prevention: a distinct prefix per project
 
-A fleet killed with `kill -9` never deregisters. Its entry is pruned automatically once it has no
-live sessions and no live worker pids, or on demand with `harness doctor --fix`.
-`HARNESS_PREFIX_COLLISION=warn` downgrades the refusal to a warning.
+`harness init` derives a prefix from the project directory name (`~/proj/Harness` → `harness`),
+offers it as the default, and writes it to `.harness/config` — so a second fleet on the host never
+lands on the first one's prefix by accident. Projects initialised before this existed have no prefix
+line and keep the historical `hz` default; set `HARNESS_SESS_PREFIX` in their `.harness/config` if
+more than one fleet runs on the host. The engine never edits `.harness/config` for you, and never
+starts under a prefix other than the configured one.
+
+### Detection: `harness start` refuses a shared prefix
+
+`harness start` refuses when another fleet already owns this prefix, naming the project that holds
+it and the retry command. It discovers other fleets **three** ways and takes the union, because each
+sees something the others cannot:
+
+- **Live tmux sessions** — the enforcement signal. A session in our prefix space is attributed to its
+  owning project by the session's working directory, so this works against a fleet running an older
+  engine, a hand-set prefix, or a session made by hand. Sessions attributed to *us* are the
+  `harness start --recover` case and never refuse.
+- **Live worker processes** — each running `pool-worker.sh` / `priority-worker.sh` carries its own
+  `STATE_DIR`, and its prefix comes from its environment or, failing that, from its project's
+  committed config (grepped, never sourced). Nothing to register, nothing to clean up, never stale,
+  and it sees fleets that were already running before any registry existed.
+- **The host-wide fleet registry** at `~/.harness/fleets/` — one JSON per live fleet, written by
+  `harness start` and removed by `harness stop`. This is the *reservation*: a fleet that is
+  registered but has not spawned a session or a worker yet still owns its prefix, so two idle fleets
+  cannot race into one namespace. It also supplies the repo slugs named in the refusal. The poller
+  registry (`~/.harness/poller/registry/`, populated only when `HARNESS_USE_POLLER` is set) is read
+  through the same source, so a poller-enabled fleet on an older engine is still seen.
+
+That third source used to be the *only* one, which made the guard a no-op for the default
+configuration — `HARNESS_USE_POLLER` is unset unless you opt in, so the registry was always empty.
+Three fleets duly came up on the default `hz` and spent hours killing each other's sessions.
+
+Only the registry can go stale; sessions and processes are alive by construction. A fleet killed
+with `kill -9` never deregisters, so its entry is pruned automatically once it has no live sessions
+and no live worker pids, or on demand with `harness doctor --fix`.
+
+`HARNESS_PREFIX_COLLISION=warn` downgrades the refusal to a warning if you know what you are doing.
 
 ## Migrating an old vendored project
 
