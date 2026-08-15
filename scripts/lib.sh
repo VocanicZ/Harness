@@ -92,6 +92,13 @@ POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
 POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"
 POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
 
+# Host-wide fleet registry (prefix-collision guard). Its own directory, NOT poller/registry: those
+# files are poller.sh's GitHub work list, so registering there unconditionally would enroll a fleet
+# into shared-token polling it never opted into. Same env-seam discipline as the poller paths above
+# so tests can point it at a temp root; exported so sub-scripts inherit it.
+HARNESS_FLEETS_DIR="${HARNESS_FLEETS_DIR:-$HARNESS_HOME/fleets}"
+export HARNESS_FLEETS_DIR
+
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
@@ -761,6 +768,25 @@ review_session_live(){ local s g
 fleet_session_re(){ printf '^%s-.+$' "$HARNESS_SESS_PREFIX"; }
 is_fleet_session(){ local re; re="$(fleet_session_re)"; [[ "$1" =~ $re ]]; }
 
+# derive_prefix [dir] — the DEFAULT tmux session prefix for a project: its directory basename,
+# lowercased and reduced to [a-z0-9_], truncated to 10 chars. Dashes are stripped because a dash is
+# the session-name grammar separator (sess_orch/sess_impl) and prefixes_collide reads it as such;
+# dots and colons are illegal in tmux session names. When the name sanitises to EMPTY (a non-ASCII or
+# punctuation-only directory) fall back to `hz` + 4 hex of the path digest, so the result is always a
+# non-empty, tmux-safe segment that is deterministic per path and distinct between paths.
+#
+# `harness init` offers this as the prefix default so two projects on one host do not both land on
+# lib.sh's `hz` and cross-kill each other's sessions via stop.sh's ^<prefix>- sweep. lib.sh's own
+# HARNESS_SESS_PREFIX default (line 44) deliberately STAYS `hz`: projects initialised before this
+# change have no prefix line in their config and must resolve exactly as they always did.
+derive_prefix(){
+  local dir="${1:-$PROJECT_ROOT}" p
+  p="$(basename "$dir" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_' | cut -c1-10)"
+  [[ -n "$p" ]] || p="hz$(printf '%s' "$dir" | python3 -c \
+    'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+  printf '%s\n' "$p"
+}
+
 # --- PRD-B slice 4: prefix-collision guard (#73) -----------------------------
 # prefixes_collide <a> <b> — do two session prefixes' tmux session spaces overlap? They collide when
 # they are EQUAL, or one is a dash-prefix of the other (`a-…` swallows every `b-…` session iff b
@@ -772,6 +798,58 @@ prefixes_collide(){ local a="$1" b="$2"
   [[ "$b" == "$a-"* ]] && return 0
   [[ "$a" == "$b-"* ]] && return 0
   return 1; }
+
+# tmux_sessions_with_paths — every live tmux session as `<name>\t<session_path>`, empty (rc 0) when
+# there is no tmux server at all. The ONE place this invocation is written: colliding_sessions and
+# fleet_stale both need exactly this listing, and two hand-copied `tmux ls -F` format strings are two
+# things to keep in step.
+#
+# Only the INVOCATION is shared, deliberately not the membership test. colliding_sessions asks "does
+# anything overlap our namespace" and so reads each session's leading segment through
+# prefixes_collide; fleet_stale asks the narrower "does THIS registered fleet still have sessions of
+# its own" and so wants a literal `<pfx>-` match. Folding those into one predicate would make a
+# stale-check refuse on a merely-overlapping neighbour.
+tmux_sessions_with_paths(){ tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true; }
+
+# colliding_sessions — every LIVE tmux session whose prefix space overlaps ours, one
+# `<session>\t<session_path>\t<mine|theirs>` line each. This is the guard's ENFORCEMENT signal: tmux
+# is the namespace actually at stake, it cannot go stale, and it sees sibling fleets that appear in
+# NO registry (an older engine, a hand-set HARNESS_SESS_PREFIX, a session made by hand).
+#
+# Attribution comes from `session_path`: spawn_impl creates every session as
+# `tmux new-session -d -s "$sess" -c "$wd"` with $wd a worktree under the OWNING project's
+# STATE_DIR/worktrees/, so the path names the owner. `mine` is the `harness start --recover` case —
+# a documented re-run against a live fleet, which must be allowed to proceed.
+#
+# A session's prefix is read as its leading dash-delimited segment. That UNDER-reads an owner whose
+# own prefix contains a dash (`my-app-main-i1` -> `my`), but the under-read is sound: a shorter prefix
+# owns strictly MORE of the namespace, so if `my` collides with ours so does `my-app`, and if it does
+# not then `my-app-…` lies outside our space anyway — so no genuine collision is missed. The
+# under-read can OVER-report when OUR OWN prefix contains a dash (`my-a` vs a sibling's real
+# `my-app`): `prefixes_collide my-a my` is true while `prefixes_collide my-a my-app` is false and
+# `my-app-main-i1` can never match our `^my-a-.+$` sweep. That direction fails safe — an unnecessary
+# refusal, never a missed cross-kill — and is unreachable for a derived prefix, which never
+# contains a dash.
+colliding_sessions(){
+  local name path seg
+  while IFS=$'\t' read -r name path; do
+    [[ -n "$name" ]] || continue
+    seg="${name%%-*}"
+    prefixes_collide "$HARNESS_SESS_PREFIX" "$seg" || continue
+    if [[ "$path" == "$STATE_DIR" || "$path" == "$STATE_DIR"/* ]]; then
+      printf '%s\t%s\tmine\n' "$name" "$path"
+    else
+      printf '%s\t%s\ttheirs\n' "$name" "$path"
+    fi
+  done < <(tmux_sessions_with_paths)
+}
+
+# fleet_owner_of <session_path> — the project directory owning a fleet session. Sessions live in a
+# worktree under <owner STATE_DIR>/worktrees/, so cutting at /worktrees/ yields that STATE_DIR and
+# its parent is the project dir. A path that doesn't match (a hand-made session, an unusual layout)
+# falls back to itself, so the refusal message still says something true and actionable.
+fleet_owner_of(){ local p="$1"
+  if [[ "$p" == */worktrees/* ]]; then dirname "${p%%/worktrees/*}"; else printf '%s\n' "$p"; fi; }
 
 # poller_registry_prefixes <self-project> — every OTHER active fleet's recorded session prefix, one
 # `<prefix>\t<project>` line per fleet (deduped by project; <self-project> excluded). The cross-fleet
@@ -800,6 +878,33 @@ for prj, pfx in seen.items():
 PY
 }
 
+# fleet_stale <prefix> <run_dir> — is a REGISTERED fleet actually dead? True when no live tmux
+# session sits under `<prefix>-` AND no pid recorded in its run_dir is alive. A fleet killed with -9
+# or lost to a host crash never reaches stop.sh's fleet_deregister, and its leftover reservation must
+# not refuse a legitimate restart forever. Both signals are checked because either can outlive the
+# other: sessions can survive a dead worker pool (status.sh calls that DEGRADED), and a worker can be
+# alive between session spawns.
+#
+# This applies to the REGISTRY source ONLY. The other two discovery sources — live tmux sessions and
+# live worker processes — are alive by construction and can never be stale, so running them through
+# a staleness check could only ever produce a false prune (see check_prefix_collision).
+#
+# Two deliberate limits. A FAILED `tmux ls` (no server, no $TMUX socket, a permissions error) reads
+# as "no sessions" — that is the right default here, since the pid check still has to agree before
+# anything is pruned. And `kill -0` against ANOTHER user's pid returns EPERM, not success, so a
+# cross-user sibling's live fleet can look stale; cross-user detection is out of scope by design
+# (see the spec), and a same-user fleet — the only arrangement Harness supports on a host — is read
+# correctly.
+fleet_stale(){ local pfx="$1" rd="$2" name p _
+  while IFS=$'\t' read -r name _; do
+    [[ "$name" == "$pfx-"* ]] && return 1
+  done < <(tmux_sessions_with_paths)
+  for p in "$rd"/*.pid; do
+    [[ -e "$p" ]] || continue
+    kill -0 "$(cat "$p" 2>/dev/null)" 2>/dev/null && return 1
+  done
+  return 0; }
+
 # running_fleet_prefixes <self-state-dir> — `<prefix>\t<state-dir>` for every OTHER fleet that has a
 # LIVE worker process on this host, deduped by state dir.
 #
@@ -812,11 +917,11 @@ PY
 # A running worker knows its own identity: lib.sh exports STATE_DIR and HARNESS_SESS_PREFIX, and
 # pool.sh/priority.sh fork the workers with that environment. So the live process table IS the
 # registry — always present, never stale (a dead fleet has no processes), nothing to write at start
-# and nothing to clean up at stop. It also sees fleets that were already running before this guard
-# existed, which a file-based registry could not.
+# and nothing to clean up at stop. It also sees fleets that were already running before the fleet
+# registry existed, which no file-based registry could.
 #
 # Reads /proc, like lock_holders does. On a host without /proc this yields nothing and the guard
-# degrades to its previous registry-only behaviour — never worse than before.
+# degrades to its other two sources — never worse than before.
 running_fleet_prefixes(){ local self="$1" pid sd pfx cmd
   command -v pgrep >/dev/null 2>&1 || return 0
   declare -A _seen=()
@@ -842,11 +947,11 @@ running_fleet_prefixes(){ local self="$1" pid sd pfx cmd
 # _fleet_prefix_for <state-dir> <env-prefix> — the session prefix a discovered fleet actually uses.
 #
 # Three sources in descending authority. The worker's own environment is exact, but it is only there
-# once lib.sh EXPORTS HARNESS_SESS_PREFIX — which it did not until this change, so every fleet
-# already running when this landed has none. Falling back to the project's own config is what lets
-# the guard see those fleets at all, and it is the same file lib.sh itself would read. Last resort is
-# lib.sh's own default, which is precisely the value that made three fleets collide in the first
-# place — an absent config line means `hz`, it does not mean "no prefix".
+# once lib.sh EXPORTS HARNESS_SESS_PREFIX — which it did not until #167, so every fleet already
+# running when that landed has none. Falling back to the project's own config is what lets the guard
+# see those fleets at all, and it is the same file lib.sh itself would read. Last resort is lib.sh's
+# own default, which is precisely the value that made three fleets collide in the first place — an
+# absent config line means `hz`, it does not mean "no prefix".
 #
 # The config is GREPPED, never sourced: it is another project's file and sourcing it would execute
 # whatever is in it. `head -1` matches `:=` semantics — the first assignment is the one that sticks.
@@ -857,30 +962,143 @@ _fleet_prefix_for(){ local sd="$1" env_pfx="$2" cfg_pfx=""
   fi
   printf '%s' "${cfg_pfx:-hz}"; }
 
-# active_fleet_prefixes <self-state-dir> — the UNION of both discovery sources, one
-# `<prefix>\t<project>` line per other active fleet. The seam the start-time guard reads (and the
-# one tests override).
-active_fleet_prefixes(){
-  poller_registry_prefixes "$1"
-  running_fleet_prefixes "$1"; }
+# FLEET_ROW_SEP — the field separator of active_fleet_prefixes' rows. ASCII US (0x1f), deliberately
+# NOT a tab: tab is IFS *whitespace*, so bash's `read` collapses a RUN of tabs into one delimiter and
+# strips trailing ones. A widened row has interior fields that are legitimately empty (a process row
+# has no run_dir and no slugs), and under tab those rows silently lose columns — the `source` column
+# lands in `run_dir` and the staleness gate reads the wrong thing. With a non-whitespace separator
+# every field, empty or not, is preserved exactly. Neither a path, a prefix nor a repo slug can
+# contain 0x1f, so nothing can forge a column boundary.
+FLEET_ROW_SEP=$'\037'
 
-# check_prefix_collision — start-time guard. Refuse (or warn) when another ACTIVE fleet's session
-# prefix collides with ours. Reads BOTH the poller registry and the live worker processes; a single /
-# non-colliding fleet sees an empty list and proceeds (no behavior change). HARNESS_PREFIX_COLLISION:
-# `refuse` (default) dies; `warn` prints to stderr and continues.
-check_prefix_collision(){
-  local pfx prj hit=""
+# active_fleet_prefixes <self-state-dir> — the UNION of the two NON-tmux discovery sources, one
+# `<prefix>US<project>US<run_dir>US<slugs>US<source>` line per other active fleet (US =
+# $FLEET_ROW_SEP). The seam the start-time guard reads for stages 2 and 3 (and the one tests
+# override).
+#
+# The two sources natively emit DIFFERENT shapes: running_fleet_prefixes yields `<prefix>\t<state-dir>`
+# (a process has no run_dir and no slug list to report), fleet_registry_entries yields
+# `<prefix>\t<project>\t<run_dir>\t<slugs>`. They are WIDENED to one common row here, with a trailing
+# `source` column, rather than being read as two separate loops in the guard, because the difference
+# that actually matters downstream is not the arity — it is that exactly ONE of them can go stale.
+# Carrying `source` in the row makes that explicit at the point of use: a `process` row is skipped by
+# the staleness check by name, so it can never be pruned for the mere absence of a run_dir it was
+# never able to supply. Two hand-written loops would leave that as an invariant of the loop ORDER.
+#
+# poller_registry_prefixes is deliberately NOT read here even though #167's version of this union
+# called it: fleet_registry_entries ALREADY unions the poller registry into its own output, and does
+# so in the wide shape, so reading it again would re-add the same fleets as rows with no run_dir —
+# i.e. as rows that can never be pruned, which is exactly the "a crashed fleet reserves its prefix
+# forever" failure the staleness check exists to prevent. It remains exported for uninstall.sh.
+active_fleet_prefixes(){ local self="$1" us="$FLEET_ROW_SEP" pfx prj rd slugs
+  # Live worker processes FIRST: never stale, so a fleet seen here needs no corroboration. Its rows
+  # carry exactly two fields, both required non-empty, so reading them on tab is safe.
   while IFS=$'\t' read -r pfx prj; do
-    [[ -n "$pfx" ]] || continue
-    if prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx"; then hit="$pfx ($prj)"; break; fi
-  done < <(active_fleet_prefixes "$STATE_DIR")
-  [[ -n "$hit" ]] || return 0
-  local msg="session prefix '$HARNESS_SESS_PREFIX' collides with active fleet prefix $hit — set a distinct HARNESS_SESS_PREFIX (or HARNESS_PREFIX_COLLISION=warn to override)"
+    [[ -n "$pfx" && -n "$prj" ]] || continue
+    printf '%s\n' "$pfx$us$prj$us$us${us}process"
+  done < <(running_fleet_prefixes "$self")
+  # The registry rows CAN carry an empty INTERIOR field (a poller entry has slugs but no run_dir), so
+  # translate to the row separator before reading rather than reading them on tab.
+  while IFS="$us" read -r pfx prj rd slugs; do
+    [[ -n "$pfx" && -n "$prj" ]] || continue
+    printf '%s\n' "$pfx$us$prj$us$rd$us$slugs${us}registry"
+  done < <(fleet_registry_entries "$self" | tr '\t' "$us")
+}
+
+# _prefix_collision_report <owner-dir> <owner-slugs> <live-session-count> [source] — the refusal.
+# Names the owner, our own project, and a concrete retry, because the operator's next question is
+# always "which project has it, and what do I type instead". Honours HARNESS_PREFIX_COLLISION:
+# `refuse` (default) dies, `warn` prints to stderr and returns 0. The engine NEVER edits
+# .harness/config itself and never starts under a prefix other than the configured one.
+_prefix_collision_report(){ local owner="$1" slugs="$2" n="$3" src="${4:-registry}" sugg msg detail
+  sugg="$(derive_prefix "$PROJECT_ROOT")"
+  [[ "$sugg" != "$HARNESS_SESS_PREFIX" ]] || sugg="${sugg}2"
+  # A sessionless refusal passes n=0, and `0 live tmux session(s)` reads as the message contradicting
+  # the refusal it is attached to. Say what is actually true, and say which of the two sessionless
+  # sources saw it — "a worker is running" and "a fleet is registered" call for different next moves.
+  if   (( n > 0 ));            then detail="$n live tmux session(s)"
+  elif [[ "$src" == process ]]; then detail="live worker process, no sessions yet"
+  else                              detail="registered, no live sessions yet"; fi
+  msg="$(printf 'session prefix %s is in use by another fleet\n  owner:    %s%s\n  prefix:   %s — %s\n  yours:    %s\nretry with a distinct prefix, e.g.:\n  HARNESS_SESS_PREFIX=%s harness start\nor set HARNESS_SESS_PREFIX in %s/config\n(HARNESS_PREFIX_COLLISION=warn overrides)' \
+    "$HARNESS_SESS_PREFIX" "$owner" "${slugs:+ (repo $slugs)}" "$HARNESS_SESS_PREFIX" "$detail" \
+    "$PROJECT_ROOT" "$sugg" "$STATE_DIR")"
   case "${HARNESS_PREFIX_COLLISION:-refuse}" in
     warn) printf 'WARNING: %s\n' "$msg" >&2; return 0;;
     *)    die "$msg";;
   esac
 }
+
+# check_prefix_collision — start-time guard. THREE discovery sources, because each answers a
+# question the other two cannot:
+#
+#   1. LIVE tmux SESSIONS (colliding_sessions) — ENFORCEMENT. A session in our prefix space whose
+#      session_path belongs to another project means the namespace is shared RIGHT NOW: our stop.sh
+#      would kill their agents mid-edit. Attribution also gives us the `mine` case, so
+#      `harness start --recover` against our own live fleet still proceeds.
+#   2. LIVE WORKER PROCESSES (running_fleet_prefixes) — a fleet whose workers are up but whose
+#      sessions have not spawned yet, and any fleet that predates the fleet registry entirely. This
+#      is the source that made the guard work at all without HARNESS_USE_POLLER (#167).
+#   3. The fleet REGISTRY (fleet_registry_entries) — RESERVATION. A registered sibling with no
+#      sessions and no workers yet still owns its prefix, so two idle fleets can't race into one
+#      namespace. It also carries the repo slugs and the owner for the message.
+#
+# STALENESS applies to source 3 ONLY. Sources 1 and 2 are alive by construction — a dead fleet has
+# neither sessions nor processes — so the row's `source` column, not its position in a loop, is what
+# gates the fleet_stale prune. A `process` row has no run_dir to offer and must never be read as
+# stale for lacking one.
+#
+# HARNESS_PREFIX_COLLISION: `refuse` (default) dies; `warn` prints to stderr and continues.
+check_prefix_collision(){
+  local name path who hit_path="" n=0
+  # 1) LIVE tmux sessions — the enforcement signal.
+  while IFS=$'\t' read -r name path who; do
+    [[ "$who" == theirs ]] || continue
+    n=$((n+1)); [[ -n "$hit_path" ]] || hit_path="$path"
+  done < <(colliding_sessions)
+  if (( n > 0 )); then
+    local owner; owner="$(fleet_owner_of "$hit_path")"
+    # In `refuse` mode the report dies (exits); in `warn` mode it returns 0 and we proceed. Pass its
+    # status straight through — do NOT add a `return 1` after this call, which would defeat warn mode.
+    _prefix_collision_report "$owner" "$(fleet_slugs_of "$owner")" "$n"
+    return $?
+  fi
+  # 2+3) Sessionless sources, widened to one row shape by active_fleet_prefixes: live worker
+  #      processes first (never stale), then the registry (pruned when stale).
+  local pfx prj rd slugs src
+  # $FLEET_ROW_SEP, not tab: a process row's run_dir and slugs are empty INTERIOR fields, and bash
+  # collapses runs of tab (an IFS-whitespace char), which would slide `source` into `run_dir`.
+  while IFS="$FLEET_ROW_SEP" read -r pfx prj rd slugs src; do
+    [[ -n "$pfx" ]] || continue
+    prefixes_collide "$HARNESS_SESS_PREFIX" "$pfx" || continue
+    # Staleness is a REGISTRY concern only — see the header. A `process` row that reached here has a
+    # live worker behind it; pruning it would be pruning a running fleet.
+    #
+    # And a registry row with NO run_dir is not evidence of death either. A POLLER record is
+    # {slug,cadence,prefix,project} — poller_register never wrote a run_dir — so fleet_stale finds no
+    # pidfiles to check and, absent a live `<pfx>-` session, calls a perfectly live fleet stale and
+    # waves the start through. That silent wave-through IS the incident this guard exists to prevent,
+    # so an absent run_dir must read as "no liveness evidence", never as "dead". The cost is that a
+    # poller-only fleet killed with -9 reserves its prefix until `harness stop` / poller_deregister
+    # clears it; #167 accepted exactly that trade, and it only reaches fleets on an older engine.
+    # Fleets registered in ~/.harness/fleets always carry a run_dir and are still pruned (cases 5/6).
+    if [[ "$src" == registry && -n "$rd" ]] && fleet_stale "$pfx" "$rd"; then fleet_deregister "$prj"; continue; fi
+    # Same return convention as the tmux path above: pass the report's status through, never `return 1`.
+    _prefix_collision_report "$(dirname "$prj")" "$slugs" 0 "$src"
+    return $?
+  done < <(active_fleet_prefixes "$STATE_DIR")
+  return 0
+}
+
+# fleet_slugs_of <project-dir> — the repo slugs a registered fleet serves, for the refusal message.
+# Empty when that fleet isn't registered (an older engine, a hand-made session): the message still
+# names the owning directory, which is the part the operator acts on.
+fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
+  # $FLEET_ROW_SEP, not tab: a poller row's run_dir is an empty INTERIOR field and bash collapses
+  # runs of tab, which would read the slug list as $rd and hand back an empty slug list.
+  while IFS="$FLEET_ROW_SEP" read -r pfx prj rd slugs; do
+    [[ "$(dirname "$prj")" == "$dir" ]] && { printf '%s\n' "$slugs"; return 0; }
+  done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
+  printf '\n'; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
 tmpl = open(sys.argv[1]).read()
@@ -977,6 +1195,96 @@ for name in os.listdir(d):
         try: os.remove(p)
         except OSError: pass
 PY
+}
+
+# --- host-wide fleet registry ------------------------------------------------
+# One file per LIVE fleet under $HARNESS_FLEETS_DIR, named from the sanitised STATE_DIR and holding
+# {prefix, project, run_dir, slugs, started_at}. `project` (the STATE_DIR) is the identity key and is
+# read back on deregister, so the operation survives filename sanitisation — the same discipline as
+# poller_deregister. `harness start` writes an entry unconditionally and `harness stop` removes it;
+# the start-time prefix guard reads them for RESERVATION (an idle fleet's prefix stays claimed) and
+# for naming the owner in its refusal. tmux, not this file, is the guard's enforcement signal.
+#
+# Every write is BEST-EFFORT: an unwritable or absent $HARNESS_HOME warns once and returns 0. The
+# registry is an aid to collision detection, never a gate on starting a fleet.
+_fleet_reg_file(){ printf '%s/%s.json' "$HARNESS_FLEETS_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9.-' '_')"; }
+
+# fleet_register — record THIS fleet. Idempotent: same project -> same file -> overwritten in place.
+fleet_register(){
+  if ! mkdir -p "$HARNESS_FLEETS_DIR" 2>/dev/null; then
+    printf 'WARNING: cannot create fleet registry at %s — prefix-collision detection degraded\n' \
+      "$HARNESS_FLEETS_DIR" >&2; return 0
+  fi
+  if ! PFX="$HARNESS_SESS_PREFIX" PRJ="$STATE_DIR" RD="$RUN_DIR" \
+       SLUGS="$(snapshot_slugs 2>/dev/null | tr '\n' ' ')" \
+       python3 - "$(_fleet_reg_file "$STATE_DIR")" <<'PY' 2>/dev/null
+import json, os, sys, tempfile, time
+f = sys.argv[1]
+rec = {"prefix": os.environ["PFX"], "project": os.environ["PRJ"], "run_dir": os.environ["RD"],
+       "slugs": os.environ["SLUGS"].split(), "started_at": int(time.time())}
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".fleet.")
+with os.fdopen(fd, "w") as fh:
+    json.dump(rec, fh)
+os.replace(tmp, f)
+PY
+  then
+    printf 'WARNING: fleet registry write failed (%s) — prefix-collision detection degraded\n' \
+      "$HARNESS_FLEETS_DIR" >&2
+  fi
+  return 0
+}
+
+# fleet_deregister <project> — remove the entry this project owns, matched on the JSON `project`
+# field rather than the filename. No-op when the registry dir is absent.
+fleet_deregister(){
+  [[ -d "$HARNESS_FLEETS_DIR" ]] || return 0
+  PRJ="$1" python3 - "$HARNESS_FLEETS_DIR" <<'PY' 2>/dev/null
+import json, os, sys
+d, prj = sys.argv[1], os.environ["PRJ"]
+for name in os.listdir(d):
+    if not name.endswith(".json"):
+        continue
+    p = os.path.join(d, name)
+    try:
+        rec = json.load(open(p))
+    except (OSError, ValueError):
+        continue
+    if rec.get("project") == prj:
+        try: os.remove(p)
+        except OSError: pass
+PY
+  return 0
+}
+
+# fleet_registry_entries <self-project> — every OTHER registered fleet, one
+# `<prefix>\t<project>\t<run_dir>\t<slugs space-separated>` line each. Reads BOTH the fleet registry
+# and the poller registry (deduped by project, the fleet entry winning) so a poller-enabled fleet
+# running an older engine — which registers only in poller/registry — is still seen. A malformed or
+# unreadable file is skipped, never fatal.
+fleet_registry_entries(){
+  SELF="$1" python3 - "$HARNESS_FLEETS_DIR" "$POLLER_REGISTRY_DIR" <<'PY' 2>/dev/null
+import json, os, sys
+self_prj = os.environ["SELF"]
+seen = {}
+for d in sys.argv[1:]:                      # fleet registry first: it wins on conflict
+    if not os.path.isdir(d):
+        continue
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            rec = json.load(open(os.path.join(d, name)))
+        except (OSError, ValueError):
+            continue
+        prj = rec.get("project")
+        if not prj or prj == self_prj or prj in seen:
+            continue
+        slugs = rec.get("slugs") or ([rec["slug"]] if rec.get("slug") else [])
+        seen[prj] = (rec.get("prefix") or "", rec.get("run_dir") or "", " ".join(slugs))
+for prj, (pfx, rd, slugs) in seen.items():
+    print(f"{pfx}\t{prj}\t{rd}\t{slugs}")
+PY
+  return 0
 }
 
 # poller_registry_slugs — the unique slugs currently registered, one per line, sorted (deduped across

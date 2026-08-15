@@ -14,12 +14,57 @@ ni="${HARNESS_INIT_NONINTERACTIVE:-0}"; [[ -t 0 ]] || ni=1
 ask(){ local var="$1" prompt="$2" def="$3" val
   if [[ "$ni" == 1 ]]; then val="${!var:-$def}"; else read -rp "$prompt [$def]: " val; val="${val:-$def}"; fi
   printf -v "$var" '%s' "$val"; }
+# The prefix default is DERIVED from the project directory (derive_prefix) so two projects on one
+# host don't both take lib.sh's `hz`. derive_prefix lives in lib.sh — one definition, also used by
+# the start-time guard and `harness status` — but init.sh deliberately does NOT source lib.sh at the
+# top: lib.sh fills every HARNESS_* with its default at source time, which would defeat the `ask`
+# fallbacks below (and, for the prefix specifically, would hand back `hz`). Read it out of a
+# throwaway subshell instead, with the var unset so lib.sh's default can't leak into the answer.
+#
+# If the derived name is already claimed by a live or registered fleet, fall back to the hash form
+# and say so. init only WARNS — it starts nothing, so there is nothing to refuse; `harness start` is
+# where a genuine collision is enforced.
+default_prefix(){
+  # Resolve the project root HERE, in init.sh, BEFORE the subshell — never rely on lib.sh having set
+  # PROJECT_ROOT. The `source` below is error-suppressed, so a broken ENGINE_DIR (missing or moved
+  # engine — session-env contamination is a recurring hazard on this host) fails silently and leaves
+  # PROJECT_ROOT unset. Under `set -u` every later reference then aborts its own command
+  # substitution, and the sha1 fallback ends up digesting EMPTY stdin: the constant `hzda39`, written
+  # with rc=0, for EVERY project on the host — the shared-prefix cross-kill this feature exists to
+  # eliminate. Same formula as lib.sh:17 so the two agree when lib.sh does load.
+  local PRJ_ROOT; PRJ_ROOT="$(cd "$STATE_DIR/.." && pwd)"
+  ( unset HARNESS_SESS_PREFIX
+  source "$ENGINE_DIR/scripts/lib.sh" >/dev/null 2>&1
+  local root="${PROJECT_ROOT:-$PRJ_ROOT}"
+  # The hash form, computed ONCE. lib.sh:785-786 owns the `hz` + sha1[:4] formula; three copies of it
+  # here (and two python3 spawns for one value) is exactly how init silently drifts from derive_prefix.
+  local hashed; hashed="hz$(printf '%s' "$root" | python3 -c \
+    'import hashlib,sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')"
+  local p; p="$(derive_prefix "$root" 2>/dev/null)"
+  # A stale ENGINE_DIR can also point at a lib.sh that predates derive_prefix entirely — `derive_prefix`
+  # is then "command not found" and $p comes back empty. An empty HARNESS_SESS_PREFIX is a live
+  # foot-gun, not a cosmetic one: every session lands under a bare `-<suffix>` name, and
+  # prefixes_collide's dash-prefix rule makes an empty prefix collide with EVERY other fleet's. Never
+  # let it through un-fixed-up.
+  [[ -n "$p" ]] || p="$hashed"
+  # Likewise, a stale lib.sh may define derive_prefix (older still) but predate check_prefix_collision
+  # specifically — nothing to consult in that case. Return the guaranteed-non-empty prefix as-is
+  # rather than let a `command not found` in the `if` below misread absence as "collision".
+  declare -F check_prefix_collision >/dev/null || { printf '%s\n' "$p"; exit 0; }
+  if ( HARNESS_SESS_PREFIX="$p" HARNESS_PREFIX_COLLISION=refuse check_prefix_collision ) >/dev/null 2>&1; then
+    printf '%s\n' "$p"
+  else
+    printf 'NOTE: session prefix %s is already in use by another fleet on this host — proposing %s instead\n' \
+      "$p" "$hashed" >&2
+    printf '%s\n' "$hashed"
+  fi ); }
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
 [[ "$HARNESS_TOPOLOGY" == single ]] && ask HARNESS_REPO "Target repo (owner/repo)" "${HARNESS_REPO:-}"
 [[ "$HARNESS_MODE" == planned ]] && ask HARNESS_SPEC "Spec path (planned mode)" "${HARNESS_SPEC:-}"
 ask HARNESS_AUTONOMOUS "Fully autonomous? (true|false)"   "${HARNESS_AUTONOMOUS:-true}"
+ask HARNESS_SESS_PREFIX "tmux session prefix (must be unique per fleet on this host)" "${HARNESS_SESS_PREFIX:-$(default_prefix)}"
 ask HARNESS_POOL       "Pool workers"                     "${HARNESS_POOL:-3}"
 ask HARNESS_CAP        "Sessions per unit"                "${HARNESS_CAP:-3}"
 ask HARNESS_POLL          "Poll interval (s)"             "${HARNESS_POLL:-300}"
@@ -40,6 +85,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
   for v in HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+           HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
            HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_AUTHOR_ALLOWLIST; do

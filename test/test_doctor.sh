@@ -54,4 +54,71 @@ rc=0; doctor_main --fix >/dev/null || rc=$?
 assert_eq "$rc" "0" "doctor_main --fix: clears the problem (exit 0)"
 assert_no "doctor_main --fix actually removed the stale pidfile" test -f "$RUN_DIR/worker-2.pid"
 
+echo "== doctor reports and --fix prunes stale fleet-registry entries =="
+export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+tmux(){ return 1; }; export -f tmux
+# A dead fleet: no sessions, no live pids. Its reservation would otherwise sit there forever.
+DEAD_RD="$(mktemp -d)"; echo 999999 > "$DEAD_RD/worker-1.pid"
+( STATE_DIR=/p/dead/.harness RUN_DIR="$DEAD_RD" HARNESS_SESS_PREFIX=dead fleet_register )
+# DOCTOR_FIX is a global mutated (and left at 1) by the `doctor_main --fix` calls above — reset it
+# so this report-only call is actually report-only, not an accidental immediate prune.
+DOCTOR_FIX=0
+OUT="$(doctor_fleets)"; PROBLEMS=$?
+# IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would match against an empty string.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+assert_ok "doctor reports the stale entry" contains '[Ss][Tt][Aa][Ll][Ee]' "$OUT"
+assert_ok "doctor names the dead fleet"    contains '/p/dead' "$OUT"
+# Round-1 fix review: doctor_fleets' message must name the owning PROJECT (dirname of the registered
+# STATE_DIR), the same value status.sh's sibling row and check_prefix_collision's refusal print for
+# this same entry — never the raw STATE_DIR with its trailing /.harness leaking through.
+assert_no "doctor's stale-entry message does not leak the .harness suffix" contains '\.harness' "$OUT"
+assert_ok "doctor counts it as a problem"   test "$PROBLEMS" -gt 0
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "report-only leaves the entry in place"
+DOCTOR_FIX=1 doctor_fleets >/dev/null
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json 2>/dev/null | wc -l)" "0" "--fix prunes the stale entry"
+
+# A LIVE fleet must never be pruned or flagged.
+sleep 300 & LP=$!; LIVE_RD="$(mktemp -d)"; echo "$LP" > "$LIVE_RD/worker-1.pid"
+( STATE_DIR=/p/live/.harness RUN_DIR="$LIVE_RD" HARNESS_SESS_PREFIX=live fleet_register )
+DOCTOR_FIX=1 doctor_fleets >/dev/null
+assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json | wc -l)" "1" "--fix never prunes a live fleet"
+kill "$LP" 2>/dev/null; wait "$LP" 2>/dev/null
+
+# A POLLER-registered fleet has NO run_dir — poller_register writes {slug,cadence,prefix,project}
+# and nothing more — so there are no pidfiles for fleet_stale to check and, with no live session, it
+# would call a live fleet stale. Worse, fleet_deregister only deletes from $HARNESS_FLEETS_DIR, so
+# --fix would print `→ pruned`, leave the record exactly where it was, and report the same problem
+# every run thereafter. An absent run_dir is not evidence of death; doctor must leave it alone.
+rm -f "$HARNESS_FLEETS_DIR"/*.json     # isolate the count: only the poller record is in play
+export POLLER_REGISTRY_DIR="$HARNESS_HOME/poller/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
+poller_register acme/widget 60 pollr /p/pollr/.harness
+OUT="$(DOCTOR_FIX=0 doctor_fleets)"; PROBLEMS=$?
+assert_no "doctor does not call a run_dir-less poller entry stale" contains '/p/pollr' "$OUT"
+assert_eq "$PROBLEMS" "0" "and counts no problem for it"
+DOCTOR_FIX=1 doctor_fleets >/dev/null
+assert_eq "$(ls "$POLLER_REGISTRY_DIR"/*.json 2>/dev/null | wc -l)" "1" \
+  "--fix never claims to prune a poller entry it cannot remove"
+rm -f "$POLLER_REGISTRY_DIR"/*.json
+unset -f tmux
+
+echo "== doctor_main's summary wording covers a stale fleet-registry entry, not just locks/pidfiles =="
+# Round-1 fix review item 4: doctor_main's "healthy"/"problem(s) found" strings must not contradict
+# doctor_fleets' own finding when a stale registry entry is the ONLY problem present.
+rm -f "$RUN_DIR"/*.pid "$RUN_DIR"/*.lock
+export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+tmux(){ return 1; }; export -f tmux
+DEAD2_RD="$(mktemp -d)"; echo 999999 > "$DEAD2_RD/worker-1.pid"
+( STATE_DIR=/p/dead2/.harness RUN_DIR="$DEAD2_RD" HARNESS_SESS_PREFIX=dead2 fleet_register )
+DOCTOR_FIX=0
+SUMMARY="$(doctor_main)"; rc=$?
+assert_eq "$rc" "1" "doctor_main: a stale fleet-registry entry alone makes it unhealthy (exit 1)"
+# Look only at the tail (the "$total problem(s) found" verdict line, AFTER the divider) — the
+# "fleet registry:" section header appears unconditionally above it, so grepping the whole $SUMMARY
+# would pass even against the pre-fix wording that never mentioned the registry in the verdict itself.
+TAIL="$(sed -n '/^────/,$p' <<<"$SUMMARY")"
+assert_ok "doctor_main's verdict line (not just the section header) mentions the fleet registry" \
+  contains 'registry' "$TAIL"
+DOCTOR_FIX=1 doctor_main >/dev/null   # clean up: prune it
+unset -f tmux
+
 finish

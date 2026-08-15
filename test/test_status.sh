@@ -138,3 +138,48 @@ kill "$EP" 2>/dev/null; unset -f tmux
 echo "$oute" | grep -qE 'bug acme/a#6 \(fix\)' && echo "  ok: multi lane row renders the repo-qualified bug + phase" || { echo "  FAIL: lane row not 'bug acme/a#6 (fix)' — got [$(echo "$oute" | grep -i 'bug ')]"; exit 1; }
 echo "$oute" | grep -q 'acme_a-6'  && { echo "  FAIL: sanitised claim key leaked into the render"; exit 1; } || echo "  ok: sanitised key not shown"
 echo "── status #44 multi lane-identity ok"
+
+# --- status names this fleet's prefix and any siblings on the host (#task-6) ------------
+# This file does not use test/helpers.sh's assert_ok rig (see test_doctor.sh / test_prefix_guard.sh
+# for that style) — it matches its OWN pre-existing echo/grep/exit idiom used throughout above.
+echo "== status names this fleet's prefix and any siblings on the host =="
+export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+( STATE_DIR=/p/sib/.harness RUN_DIR=/p/sib/.harness/run HARNESS_SESS_PREFIX=sibling fleet_register )
+tmux(){ return 1; }; export -f tmux
+OUT="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+unset -f tmux
+# IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would spawn a child that never had OUT
+# exported, matching against an empty string. See the note in test_prefix_guard.sh.
+contains(){ grep -qE -- "$1" <<<"$2"; }
+contains 'mine' "$OUT"    && echo "  ok: status prints our prefix"           || { echo "  FAIL: status prints our prefix — got:"; echo "$OUT"; exit 1; }
+contains 'sibling' "$OUT" && echo "  ok: status lists the sibling fleet"     || { echo "  FAIL: status lists the sibling fleet — got:"; echo "$OUT"; exit 1; }
+contains '/p/sib' "$OUT"  && echo "  ok: status names the sibling's project" || { echo "  FAIL: status names the sibling's project — got:"; echo "$OUT"; exit 1; }
+# Round-2 fix review (C1): '/p/sib' is a substring match, and '/p/sib/.harness' (the raw registered
+# STATE_DIR, undirnamed) ALSO contains '/p/sib' — so the assertion above would stay green even if
+# status.sh regressed to printing the raw STATE_DIR instead of the project dir. Same treatment as
+# test_doctor.sh's ".harness suffix" negative assertion: pin it down with a negative check.
+contains '\.harness' "$OUT" && { echo "  FAIL: status's sibling line leaks the .harness suffix — got:"; echo "$OUT"; exit 1; } || echo "  ok: status's sibling line does not leak the .harness suffix"
+# Round-3 fix review: the block must print BELOW the fleet banner, matching status.sh's own "Print
+# the fleet header FIRST" comment. It shipped above it, so the very first line of `harness status`
+# was a prefix row and the FLEET verdict — the whole point of the at-a-glance section — came third.
+BANNER_LN="$(grep -n 'Harness fleet' <<<"$OUT" | head -1 | cut -d: -f1)"
+PREFIX_LN="$(grep -n '^prefix: mine$' <<<"$OUT" | head -1 | cut -d: -f1)"
+[[ -n "$BANNER_LN" && -n "$PREFIX_LN" && "$BANNER_LN" -lt "$PREFIX_LN" ]] \
+  && echo "  ok: the prefix block prints below the fleet banner" \
+  || { echo "  FAIL: prefix block (line ${PREFIX_LN:-?}) must print below the fleet banner (line ${BANNER_LN:-?}) — got:"; echo "$OUT"; exit 1; }
+# Round-4 fix review: a POLLER-registered sibling (older engine) must show its repo slugs too.
+# status.sh was the one fleet_registry_entries consumer still reading the raw tab-separated output.
+# A poller record has an EMPTY INTERIOR run_dir field ({slug,cadence,prefix,project} — no run_dir),
+# and bash collapses runs of tab, so the slug list landed in $rd and the `(slugs)` suffix silently
+# vanished from the row. Keep HARNESS_POLLER_DIR in step with the HARNESS_HOME set above, or the
+# child status.sh reads a different (empty) poller registry than the one poller_register writes.
+export HARNESS_POLLER_DIR="$HARNESS_HOME/poller"
+export POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
+poller_register acme/gadget 60 pollsib /p/pollsib/.harness
+tmux(){ return 1; }; export -f tmux
+POUT="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+unset -f tmux
+contains 'sibling fleet: pollsib +/p/pollsib \(acme/gadget\)' "$POUT" \
+  && echo "  ok: status names a poller sibling's repo slugs" \
+  || { echo "  FAIL: status names a poller sibling's repo slugs — got:"; echo "$POUT"; exit 1; }
+echo "── status prefix + siblings ok"

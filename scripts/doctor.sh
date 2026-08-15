@@ -76,20 +76,54 @@ doctor_pidfiles(){
   return "$problems"
 }
 
+# doctor_fleets — stale entries in the host-wide fleet registry. A fleet killed with -9 or lost to a
+# host crash never reaches stop.sh's fleet_deregister, so its prefix reservation lingers. The start
+# guard prunes such entries on its own, but an operator who wants the host clean now needs a lever —
+# this is it. Report-only by default; --fix prunes. A LIVE fleet is never touched. Returns the
+# problem count, matching doctor_locks.
+#
+# A row with NO run_dir is skipped outright. fleet_registry_entries also serves poller records, and
+# poller_register writes {slug,cadence,prefix,project} — no run_dir — so fleet_stale has no pidfiles
+# to check and calls a live poller fleet stale. fleet_deregister can only delete from
+# $HARNESS_FLEETS_DIR, so --fix would print `→ pruned`, leave the record untouched, and report the
+# identical problem on every subsequent run. Same rule as the start guard: an absent run_dir is not
+# evidence of death.
+doctor_fleets(){
+  local problems=0 pfx prj rd slugs
+  [[ -d "$HARNESS_FLEETS_DIR" ]] || { echo "  absent (never created — fine)"; return 0; }
+  # $FLEET_ROW_SEP, not tab: a poller row has an empty INTERIOR run_dir field, and bash collapses
+  # runs of tab, which would slide the slug list into $rd and defeat the -n test below.
+  while IFS="$FLEET_ROW_SEP" read -r pfx prj rd slugs; do
+    [[ -n "$pfx" && -n "$rd" ]] || continue
+    if fleet_stale "$pfx" "$rd"; then
+      problems=$((problems+1))
+      echo "  STALE entry — prefix '$pfx' reserved by $(dirname "$prj") (no live sessions, no live pids)"
+      if (( DOCTOR_FIX )); then
+        fleet_deregister "$prj"; echo "    → pruned"
+      else
+        echo "    → prune with: harness doctor --fix"
+      fi
+    fi
+  done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
+  return "$problems"
+}
+
 doctor_main(){
   local a; for a in "$@"; do case "$a" in --fix) DOCTOR_FIX=1;; -h|--help) echo "usage: harness doctor [--fix]"; return 0;; esac; done
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
   echo "── harness doctor ${tag}── ${STATE_DIR:-?}"
   echo "RUN_DIR: $RUN_DIR"
   echo "locks:"
-  local lp=0 pp=0
+  local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?
   echo "pidfiles:"
   doctor_pidfiles || pp=$?
-  local total=$((lp+pp))
+  echo "fleet registry:"
+  doctor_fleets   || fp=$?
+  local total=$((lp+pp+fp))
   echo "────────────────────────────────────────────"
   if (( total == 0 )); then
-    echo "healthy ✓ — no lock wedges or stale pidfiles."
+    echo "healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries."
     return 0
   fi
   if (( DOCTOR_FIX )); then
@@ -99,7 +133,7 @@ doctor_main(){
     else echo "  start.lock still held — inspect above; a non-orphan (in-flight start) may hold it."; fi
     return 0
   fi
-  echo "$total problem(s) found. To clear: harness doctor --fix   (kills only this project's orphans)"
+  echo "$total problem(s) found. To clear: harness doctor --fix   (kills only this project's orphans; prunes stale fleet-registry entries — never a live fleet)"
   return 1
 }
 

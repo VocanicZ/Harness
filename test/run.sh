@@ -24,11 +24,15 @@ for t in test_*.sh test_*.py; do
   # Host root too (lib.sh:86): it is NOT derived from STATE_DIR, and its poller registry is SHARED by
   # every co-resident fleet — a fixture entry left there aborts a real `harness start` on a bogus
   # prefix collision. Give each test its own host root as well.
-  # All three: lib.sh:87-88 prefer an INHERITED HARNESS_POLLER_DIR / HARNESS_SNAPSHOTS_DIR over the
-  # HARNESS_HOME a test sets for itself, and :89 exports them from every fleet process — so pinning
-  # HARNESS_HOME alone leaves a test's own isolation defeated.
+  # All four: lib.sh:87-88 and :99 prefer an INHERITED HARNESS_POLLER_DIR / HARNESS_SNAPSHOTS_DIR /
+  # HARNESS_FLEETS_DIR over the HARNESS_HOME a test sets for itself, and :89/:100 export them from
+  # every fleet process — so pinning HARNESS_HOME alone leaves a test's own isolation defeated.
+  # HARNESS_FLEETS_DIR is the same hazard one notch worse: the host fleet registry is not merely READ
+  # by a co-resident fleet, its entries are DELETED by `doctor --fix` (test_doctor.sh runs exactly
+  # that), so an unpinned suite can strip a live sibling fleet's prefix reservation off the real host.
   export HARNESS_HOME="$TMPROOT/$t/host"
   export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
+  export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
   mkdir -p "$HARNESS_POLLER_DIR/registry" "$HARNESS_SNAPSHOTS_DIR"
   case "$t" in *.py) python3 "$t" || rc=1;; *) bash "$t" || rc=1;; esac
 done
