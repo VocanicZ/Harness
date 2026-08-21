@@ -7,13 +7,38 @@ Gauntlet: round {{GAUNTLET_ROUND}} of {{GAUNTLET_ROUNDS}}   Evidence dir: {{GAUN
 
 GOAL: verify the implementation satisfies PRD #{{PRD}}, then either sign off or file fixes.
 
+FILING A GAP ISSUE — applies to EVERY `{{LABEL_READY}}` issue you create in this pass, both a
+phase 1 criteria gap and the phase 2 gauntlet gap. The body MUST end with these two sections:
+
+    ## Blocked by
+    <#N for a sibling that must finish first, or the literal word `None`>
+
+    ## Parent
+    #{{PRD}}
+
+    Part of #{{PRD}}
+
+Both are parsed by the engine, not decoration, and getting either wrong wedges the whole fleet:
+  - WITHOUT `## Parent`, the issue is not attributed to this PRD. It is scored against the
+    LOWEST-numbered PRD in the repo instead — usually one closed long ago — and any `#N` in its
+    `## Blocked by` is then read as a real, unsatisfied dependency.
+  - `## Blocked by` is scanned for issue refs. Write the literal word `None`, never prose.
+    "Nothing", "N/A", and sentences like "Nothing - #{{PRD}} is the parent" all FAIL to match the
+    none-pattern, and that stray `#{{PRD}}` becomes a blocker pointing at the PRD you are reviewing.
+  - The resulting deadlock has no way out: the issue never dispatches (judged blocked), this REVIEW
+    session never advances (it advances on `{{LABEL_REVIEWED}}` OR an unblocked child, and you
+    correctly withheld the label), and the PRD never closes (it closes only once every
+    `{{LABEL_READY}}` issue is CLOSED). The fleet reports RUNNING and does nothing, indefinitely.
+    Nothing in that loop mutates state, so it never self-recovers and no watchdog clears it.
+
 PHASE 1 — CRITERIA GATE (always).
 1. Read PRD #{{PRD}} and its `## Acceptance criteria`.  gh issue view {{PRD}} -R {{SLUG}}
 2. Review the implemented code against EVERY acceptance criterion. Run the test suite. Spawn a
    review sub-agent for a thorough pass (correctness, edge cases, the criteria the spec
    set for {{PROJECT}} — e.g. go/no-go gate numbers if this is a spike).
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in
-   this repo (with `## Blocked by` if needed) and comment the findings on PRD #{{PRD}}. Do NOT add
+   this repo — with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above,
+   which is mandatory on every issue you file — and comment the findings on PRD #{{PRD}}. Do NOT add
    `{{LABEL_REVIEWED}}`. Do NOT run phase 2 — a half-built artifact loses every comparison for
    reasons the acceptance criteria already told you, wasting a full round. That is a completed
    review pass; go to OUTPUT.
@@ -60,7 +85,8 @@ The bar names one real artifact to beat and the dimensions to judge on:
     LOST:
       Create exactly ONE `{{LABEL_READY}}` issue in this repo, for the critic's single largest gap
       — not a checklist of everything you noticed. One gap per round is what makes this a loop
-      instead of a shotgun. Then:
+      instead of a shotgun. It carries the same mandatory `## Blocked by` + `## Parent` trailer
+      from FILING A GAP ISSUE above. Then:
       gh issue comment {{PRD}} -R {{SLUG}} --body "<!-- harness-gauntlet round={{GAUNTLET_ROUND}} -->
       Gauntlet round {{GAUNTLET_ROUND}}: lost vs <bar>. Gap: <gap>. Filed #<issue>."
       Do NOT add `{{LABEL_REVIEWED}}`. The pool implements the gap issue, and review runs again at
