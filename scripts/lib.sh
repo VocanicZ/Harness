@@ -42,8 +42,11 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_ORCH_MAXITER:=8}"
 : "${HARNESS_INJECT_MAXITER:=15}"
 : "${HARNESS_SESS_PREFIX:=hz}"
+: "${HARNESS_CLI:=claude}"
 : "${HARNESS_CLAUDE_BIN:=claude}"
 : "${HARNESS_CLAUDE_FLAGS:=--dangerously-skip-permissions --effort high}"
+: "${HARNESS_AGY_BIN:=agy}"
+: "${HARNESS_AGY_FLAGS:=--dangerously-skip-permissions --effort high}"
 : "${HARNESS_LABEL_READY:=ready-for-agent}"
 : "${HARNESS_LABEL_PRD:=prd}"
 : "${HARNESS_LABEL_WORKING:=agent-working}"
@@ -64,7 +67,8 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_GAUNTLET_ROUNDS:=3}"        # gauntlet review: rounds allowed before the reviewer concedes
 : "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
 
-export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
+  HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
@@ -75,6 +79,7 @@ OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
 IMPL_MAXITER="$HARNESS_IMPL_MAXITER"; ORCH_MAXITER="$HARNESS_ORCH_MAXITER"
 CLAUDE_BIN="$HARNESS_CLAUDE_BIN"; CLAUDE_FLAGS="$HARNESS_CLAUDE_FLAGS"
+AGY_BIN="$HARNESS_AGY_BIN"; AGY_FLAGS="$HARNESS_AGY_FLAGS"
 CLAIMS_DIR="${CLAIMS_DIR:-$RUN_DIR/claims}"
 POOL_LOCK="${POOL_LOCK:-$RUN_DIR/pool.lock}"
 PAUSE_FLAG="${PAUSE_FLAG:-$RUN_DIR/PAUSED}"
@@ -174,9 +179,42 @@ except BaseException:
 PY
   flock -u "$lockfd"; exec {lockfd}>&-
 }
+# _trust_agy_config <dir> — pre-accept workspace trust for Antigravity (agy) in ~/.gemini/trustedFolders.json
+_trust_agy_config(){
+  local dir="$1" tf="${HARNESS_AGY_TRUST_FILE:-$HOME/.gemini/trustedFolders.json}" lockfd
+  [[ -d "$(dirname "$tf")" ]] || return 0
+  exec {lockfd}>"$tf.harness-trust.lock"; flock "$lockfd"
+  TF="$tf" DIR="$dir" python3 - <<'PY'
+import json, os, tempfile
+tf, d = os.environ["TF"], os.environ["DIR"]
+try:
+    with open(tf) as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        data = {}
+except (FileNotFoundError, ValueError):
+    data = {}
+data[d] = "TRUST_FOLDER"
+dirn = os.path.dirname(os.path.abspath(tf)) or "."
+os.makedirs(dirn, exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".trustedFolders.json.harness.")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, tf)
+except BaseException:
+    os.path.exists(tmp) and os.unlink(tmp)
+    raise
+PY
+  flock -u "$lockfd"; exec {lockfd}>&-
+}
 ensure_trusted(){
   [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
   local dir="$1" acct
+  if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
+    _trust_agy_config "$dir"
+    return 0
+  fi
   # test seam: an explicit config is authoritative and stays single-file (never touches a real $HOME)
   if [[ -n "${HARNESS_CLAUDE_CONFIG:-}" ]]; then _trust_config "$HARNESS_CLAUDE_CONFIG" "$dir"; return 0; fi
   _trust_config "$HOME/.claude.json" "$dir"                       # no switcher, or switcher not active yet
@@ -643,11 +681,11 @@ HARNESS_STALL_ERROR_RE='API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|
 # a 500 in a log tail, the literal words "API Error" — then satisfied the rest of session_stalled and
 # the lane was nudged ×K and KILLED mid-work, over and over, never finishing the command it was on.
 # Matched on the stable tail of the hint so a change to the key prefix does not reopen this.
-HARNESS_ACTIVE_TURN_RE='esc to interrupt|to run in background'
+HARNESS_ACTIVE_TURN_RE='esc to interrupt|to run in background|Generating\.\.\.'
 session_active_turn(){ printf '%s' "$1" | grep -qE "$HARNESS_ACTIVE_TURN_RE"; }
 session_stalled(){ local pane="$1"
   session_active_turn "$pane" && return 1                         # active turn → never stalled
-  printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
+  printf '%s' "$pane" | grep -qE '❯|>' || return 1                  # no idle prompt → not parked
   printf '%s' "$pane" | grep -qE "$HARNESS_STALL_ERROR_RE"; }      # …and a transient-error marker
 # --- #120: quota-parked watchdog ---------------------------------------------
 # A plan usage-limit hit is NOT the #115 transient wedge and must not be treated as one. It parks a
@@ -677,7 +715,7 @@ session_limit_menu(){ printf '%s' "$1" | grep -qE "$HARNESS_LIMIT_MENU_RE"; }
 # session_limit_idle <pane-text> — true iff a limit-aborted turn left the pane at the idle `❯`.
 session_limit_idle(){ local pane="$1"
   session_active_turn "$pane" && return 1                         # active turn → not parked
-  printf '%s' "$pane" | grep -qF '❯' || return 1                  # no idle prompt → not parked
+  printf '%s' "$pane" | grep -qE '❯|>' || return 1                  # no idle prompt → not parked
   printf '%s' "$pane" | grep -qE "$HARNESS_LIMIT_IDLE_RE"; }
 # _watchdog_limit_pick <sess> — answer the blocking menu with its default choice ("stop and wait for
 # limit to reset"). A bare Enter, never a typed line: the pane is a menu, not a prompt.
@@ -1121,14 +1159,14 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
   { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
   } > "$wd/.claude/ralph-loop.local.md"; }
-launch_claude(){ local sess="$1" wd="$2" uuid
+launch_agent(){ local sess="$1" wd="$2" uuid
   # #108: never re-enter a live session. If $sess is already up (e.g. a transiently-dropped
   # agent-working label re-dispatched the same issue), short-circuit BEFORE any side effect — no
   # write_state (don't clobber the running agent's state file), no new-session, and above all no
   # send-keys typing a second `exec claude …` into the live pane. This guard MUST be first.
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
   uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
-  write_state "$wd" "$PROMISE" "$MAXITER" "$uuid"
+  write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
   # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
@@ -1140,8 +1178,14 @@ launch_claude(){ local sess="$1" wd="$2" uuid
   echo "$wd" > "$RUN_DIR/$sess.wd"   # record worktree so reap_finished_inject can find the ralph state file
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
-  tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
+  if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
+    local bin="${HARNESS_AGY_BIN:-${AGY_BIN:-agy}}" flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
+    tmux send-keys -t "$sess" "exec $bin $flags -i \"\$(cat .harness-task.md)\"" Enter
+  else
+    tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
+  fi
   log "launched session $sess (cwd $wd)"; }
+launch_claude(){ launch_agent "$@"; }
 
 # --- PRD-B host poller: refcounted registry + supervision (#71) --------------
 # A drop-a-file, refcounted registry under $POLLER_REGISTRY_DIR: one file per (repo, registrant)

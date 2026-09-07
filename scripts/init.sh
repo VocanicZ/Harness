@@ -58,6 +58,7 @@ default_prefix(){
       "$p" "$hashed" >&2
     printf '%s\n' "$hashed"
   fi ); }
+ask HARNESS_CLI        "Agent CLI (claude|agy)"           "${HARNESS_CLI:-claude}"
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
@@ -84,7 +85,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
-  for v in HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+  for v in HARNESS_CLI HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \

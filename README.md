@@ -6,7 +6,7 @@
 
 <p align="center"><em>One orchestrator, a pool of autonomous agents, all state in GitHub.</em></p>
 
-A project-agnostic agent orchestrator that drives a fixed pool of autonomous Claude Code sessions against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
+A project-agnostic agent orchestrator that drives a fixed pool of autonomous Claude Code or Antigravity (`agy`) sessions against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
 
 ## Install
 
@@ -16,7 +16,7 @@ Install the engine **once per host**, then drive any number of projects with it:
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install, places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
+`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
 
 The `~/.harness/` host root also carries two subdirs created at install time — `poller/` and `snapshots/`. These back the optional **host poller** (one poll per repo, shared across every fleet on the host): `poller/` holds the refcounted registry + the poller pidfile, and `snapshots/` holds the per-repo snapshot JSON workers read from. They are **opt-in per fleet** behind `HARNESS_USE_POLLER` (default off — the engine writes nothing into them until a fleet enables the flag). See [Host poller](#host-poller).
 
@@ -36,7 +36,7 @@ harness init     # writes that project's config + state under .harness/
 | `tmux` | session multiplexer used by the worker pool |
 | `python3` | runs `issuelib.py` (state machine) |
 | `gh` | GitHub CLI — must be **authenticated** (`gh auth login`) |
-| `claude` | Claude Code CLI — must be installed with a working model configured |
+| `claude` or `agy` | Agent CLI — Claude Code CLI (default) or Google Antigravity CLI (`agy`) |
 
 ## Pipeline modes
 
@@ -108,6 +108,9 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
+| `HARNESS_CLI` | `claude` | Agent CLI to drive: `claude` (Claude Code CLI) or `agy` (Antigravity CLI) |
+| `HARNESS_AGY_BIN` | `agy` | Executable path for `agy` when `HARNESS_CLI=agy` |
+| `HARNESS_AGY_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `agy` CLI on launch |
 | `HARNESS_POOL` | `3` | Number of pool workers (unit-concurrency cap) |
 | `HARNESS_CAP` | `3` | Max concurrent claude sessions per unit |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |

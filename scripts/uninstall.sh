@@ -94,6 +94,18 @@ remove_skills(){
   done
   shopt -u nullglob
   echo "  removed $n /harness skill dir(s) from $HARNESS_USER_SKILLS"
+  if [[ -z "${HARNESS_USER_SKILLS:-}" || -n "${HARNESS_AGY_USER_SKILLS:-}" ]]; then
+    local agy_us="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}"
+    shopt -s nullglob
+    for d in "$agy_us"/harness "$agy_us"/harness-*; do
+      [[ -e "$d" ]] || continue
+      rm -rf "$d"
+    done
+    shopt -u nullglob
+  fi
+  if command -v agy >/dev/null 2>&1; then
+    agy plugin uninstall harness-ralph >/dev/null 2>&1 || true
+  fi
   return 0
 }
 

@@ -15,7 +15,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 rm -f "$PAUSE_FLAG"   # starting un-pauses this machine's pool
 
 command -v tmux   >/dev/null || die "tmux not found — install tmux first"
-command -v claude >/dev/null || die "claude not found on PATH — install Claude Code first"
+if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
+  command -v agy >/dev/null || die "agy not found on PATH — install Antigravity CLI (agy) first"
+else
+  command -v claude >/dev/null || die "claude not found on PATH — install Claude Code first"
+fi
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI first"
 
 # crash / migration recovery: GitHub is the source of truth, but two bits of local state

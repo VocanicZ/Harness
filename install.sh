@@ -18,8 +18,9 @@ check_prereqs(){
   for b in git tmux python3; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
   if ! need gh; then echo "MISSING: gh (install: https://cli.github.com)" >&2; ok=0
   elif ! gh auth status >/dev/null 2>&1; then echo "gh not authenticated — run: gh auth login" >&2; ok=0; fi
-  if ! need claude; then echo "MISSING: claude (Claude Code CLI)" >&2; ok=0
-  elif ! claude --version >/dev/null 2>&1; then echo "claude present but not runnable (model configured?)" >&2; ok=0; fi
+  if ! need claude && ! need agy; then echo "MISSING: claude or agy (install Claude Code CLI or Antigravity CLI)" >&2; ok=0
+  elif need claude && ! claude --version >/dev/null 2>&1; then echo "claude present but not runnable (model configured?)" >&2; ok=0
+  elif need agy && ! agy --version >/dev/null 2>&1; then echo "agy present but not runnable" >&2; ok=0; fi
   [[ "$ok" == 1 ]]
 }
 
@@ -37,6 +38,19 @@ _ensure_plugin(){  # $1 = plugin name
     && echo "  ✓ installed $ref" \
     || echo "  ! could not install $ref — install manually: claude plugin install $ref"
 }
+_agy_plugin_installed(){
+  agy plugin list 2>/dev/null | grep -q "\"$1\""
+}
+_ensure_agy_plugin(){
+  local name="$1" dir="$2"
+  if _agy_plugin_installed "$name"; then echo "  ✓ agy plugin $name already installed"; return 0; fi
+  if [[ -d "$dir" ]]; then
+    echo "  installing agy plugin $name ..."
+    agy plugin install "$dir" >/dev/null 2>&1 \
+      && echo "  ✓ installed agy plugin $name" \
+      || echo "  ! could not install agy plugin $name — install manually: agy plugin install $dir"
+  fi
+}
 ensure_skills(){
   echo "ensuring required Claude plugins + skills (best-effort) ..."
   if need claude; then
@@ -46,6 +60,12 @@ ensure_skills(){
     find "$HOME/.claude/plugins/cache" -path '*/ralph-loop/*/hooks/*.sh' -exec chmod +x {} \; 2>/dev/null || true
   else
     echo "  ! 'claude' CLI not found — install superpowers + ralph-loop plugins manually"
+  fi
+  if need agy; then
+    echo "ensuring required Antigravity plugins + skills (best-effort) ..."
+    local agy_plugin_dir="${HARNESS_HOME:-$HOME/.harness}/engine/plugins/ralph-loop"
+    [[ -d "$agy_plugin_dir" ]] || agy_plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugins/ralph-loop"
+    _ensure_agy_plugin harness-ralph "$agy_plugin_dir"
   fi
   local sk="$HOME/.claude/skills"
   if [[ -d "$sk/to-prd" && -d "$sk/to-issues" ]]; then
@@ -144,6 +164,20 @@ install_harness_skills(){
     mkdir -p "$dst/$(basename "$d")"; cp "$d/SKILL.md" "$dst/$(basename "$d")/SKILL.md" && n=$((n+1))
   done
   echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
+  if [[ -z "${HARNESS_USER_SKILLS:-}" || -n "${HARNESS_AGY_USER_SKILLS:-}" ]]; then
+    local agy_dst="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}"
+    if need agy || [[ -d "$HOME/.gemini" ]]; then
+      mkdir -p "$agy_dst"
+      if [[ -f "$src/SKILL.md" ]]; then
+        mkdir -p "$agy_dst/harness"; cp "$src/SKILL.md" "$agy_dst/harness/SKILL.md"
+      fi
+      for d in "$src"/*/; do
+        [[ -f "$d/SKILL.md" ]] || continue
+        mkdir -p "$agy_dst/$(basename "$d")"; cp "$d/SKILL.md" "$agy_dst/$(basename "$d")/SKILL.md"
+      done
+      echo "  ✓ installed $n /harness skill(s) into $agy_dst (agy user scope)"
+    fi
+  fi
 }
 
 # print_path_instructions — portability fallback when the PATH symlink can't be written: tell the

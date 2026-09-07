@@ -4,9 +4,13 @@
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-echo "── Harness setup (mode=$HARNESS_MODE topology=$HARNESS_TOPOLOGY) ──"
+echo "── Harness setup (mode=$HARNESS_MODE topology=$HARNESS_TOPOLOGY cli=${HARNESS_CLI:-claude}) ──"
 command -v tmux   >/dev/null || die "tmux not found — install tmux"
-command -v claude >/dev/null || die "claude not found — install Claude Code CLI"
+if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
+  command -v agy >/dev/null || die "agy not found — install Antigravity CLI (agy)"
+else
+  command -v claude >/dev/null || die "claude not found — install Claude Code CLI"
+fi
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI"
 gh auth status >/dev/null 2>&1 || die "gh not authenticated — run: gh auth login"
 

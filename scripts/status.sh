@@ -33,7 +33,7 @@ fleet_verdict(){
   elif (( all_n > 0 && done_n >= all_n )); then
     echo "IDLE/WATCHING  ($up/$total workers resident; all $all_n units complete — polling for new work)"
   else
-    echo "RUNNING  ($up/$total workers up, $sess claude session(s) live)"
+    echo "RUNNING  ($up/$total workers up, $sess ${HARNESS_CLI:-claude} session(s) live)"
   fi
 }
 

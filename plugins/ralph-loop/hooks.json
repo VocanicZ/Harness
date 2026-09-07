@@ -1,0 +1,10 @@
+{
+  "harness-ralph": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "./hooks/stop-hook.sh"
+      }
+    ]
+  }
+}
