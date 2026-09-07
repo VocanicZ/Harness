@@ -9,3 +9,4 @@ __pycache__/
 *.pyc
 /graphify-out/
 .harness/
+.claude/
