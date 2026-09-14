@@ -10,3 +10,10 @@ __pycache__/
 /graphify-out/
 .harness/
 .claude/
+
+# rtdd run artifacts (the map itself IS committed; these are per-run)
+/.coverage
+/.rtdd/junit.xml
+# meta.json is per-run state (cycle counter, drift digest) — it changes on every run and has
+# no union merge driver, unlike the map. The map is the artifact worth committing.
+/.rtdd/meta.json

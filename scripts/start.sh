@@ -21,6 +21,15 @@ else
   command -v claude >/dev/null || die "claude not found on PATH — install Claude Code first"
 fi
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI first"
+# rtdd is the lane test loop (prompts/impl.md step 2), not a hard prerequisite — a lane without it
+# falls back to two full-suite runs, which is correct but slow. WARN, never die. This check is also
+# the backstop for the one upgrade `harness update` cannot fix itself: git replaces update.sh by
+# rename, so the update that BRINGS the rtdd install still runs the OLD update.sh, and a host stays
+# without rtdd until something says so. This is that something.
+command -v rtdd >/dev/null || {
+  echo "  ! rtdd not found — lanes will fall back to full-suite runs (slow but correct)."
+  echo "    Install it with:  npx -y github:VocanicZ/rtdd     (or: harness update)"
+}
 
 # crash / migration recovery: GitHub is the source of truth, but two bits of local state
 # lie after an unclean stop — stale pidfiles and orphaned HARNESS_LABEL_WORKING labels.

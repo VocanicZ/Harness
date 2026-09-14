@@ -3,6 +3,7 @@
 # lives at $HARNESS_HOME/engine (resolved here via ENGINE_DIR, set by bin/harness from the realpath
 # of the entrypoint). One ff-pull updates every project at once — no per-project re-pull, no skew.
 #   --with-skills  also refresh the superpowers/ralph-loop plugins + matt-pocock skills (host-level).
+# rtdd is ensured on EVERY update, with or without that flag: the prompts this pull brings call it.
 # Touches NO project .harness/: config + state live in the project, separate from the engine. Runs
 # `git pull --ff-only` ONLY — no destructive git op that could discard untracked/ignored files.
 set -uo pipefail
@@ -17,11 +18,17 @@ if ! git -C "$ENGINE_DIR" pull --ff-only; then
 fi
 echo "  engine updated at $ENGINE_DIR — every project picks it up immediately."
 
+# rtdd, ALWAYS — not behind --with-skills. The engine just ff-pulled prompts whose test loop IS
+# `rtdd run`; a host that last ran install.sh before rtdd existed would otherwise get the prompts
+# without the binary, and every lane would silently fall back to the full-suite bar this replaces.
+# No-op when it is already there, and never fatal: a failed install prints and the update stands.
+HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
+ensure_rtdd
+
 # optional host-level plugin/skill refresh (reuse install.sh's ensure_skills + the /harness skill
 # deploy). The engine was just ff-pulled, so redeploy its /harness skills to user scope from THIS
 # engine — otherwise an engine update leaves stale ~/.claude/skills copies behind.
 if (( WITH_SKILLS )); then
-  HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
   ensure_skills
   HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-$ENGINE_DIR/skill}" install_harness_skills
 fi

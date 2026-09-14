@@ -79,7 +79,7 @@ assert_no "triage: default 'bug-triaged' label absent when parameterised" \
 assert_ok "triage: custom close path drops the custom working label before gh issue close (#107)" \
   bash -c "awk '/gh issue comment/{c=NR} /gh issue edit .*--remove-label busy/{if(c)r=NR} /gh issue close/{k=NR} END{exit !(c && r && k && c < r && r < k)}' '$TRIC'"
 
-# ── bug-fix.md contract: TDD -> PR -> auto-merge -> close the refined issue ──
+# ── bug-fix.md contract: rtdd-guided fix -> PR -> auto-merge -> close the refined issue ──
 FIX="$RUN_DIR/fix.txt"
 render "$HERE/../prompts/bug-fix.md" \
   ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
@@ -89,8 +89,10 @@ render "$HERE/../prompts/bug-fix.md" \
 
 assert_ok "fix: implements the refined bug-triaged issue" \
   grep -qi 'bug-triaged' "$FIX"
-assert_ok "fix: uses TDD" \
-  grep -qiE 'test-driven|TDD' "$FIX"
+assert_ok "fix: drives its tests with rtdd, not a full-suite baseline" \
+  grep -q 'rtdd run' "$FIX"
+assert_ok "fix: still mandates a regression test" \
+  grep -qi 'regression test is MANDATORY' "$FIX"
 assert_ok "fix: opens a PR" \
   grep -q 'gh pr create' "$FIX"
 assert_ok "fix: tries to enable auto-merge first" \

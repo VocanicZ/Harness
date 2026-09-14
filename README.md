@@ -16,7 +16,7 @@ Install the engine **once per host**, then drive any number of projects with it:
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
+`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), installs [rtdd](#test-selection-rtdd) via `npx github:VocanicZ/rtdd` when `npx` is present (which also writes rtdd's agent skill into `~/.claude/skills/` and the equivalent for other agent CLIs on the host), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
 
 The `~/.harness/` host root also carries two subdirs created at install time — `poller/` and `snapshots/`. These back the optional **host poller** (one poll per repo, shared across every fleet on the host): `poller/` holds the refcounted registry + the poller pidfile, and `snapshots/` holds the per-repo snapshot JSON workers read from. They are **opt-in per fleet** behind `HARNESS_USE_POLLER` (default off — the engine writes nothing into them until a fleet enables the flag). See [Host poller](#host-poller).
 
@@ -37,6 +37,7 @@ harness init     # writes that project's config + state under .harness/
 | `python3` | runs `issuelib.py` (state machine) |
 | `gh` | GitHub CLI — must be **authenticated** (`gh auth login`) |
 | `claude` or `agy` | Agent CLI — Claude Code CLI (default) or Google Antigravity CLI (`agy`) |
+| `rtdd` | the lane test loop — coverage-derived test selection. `install.sh` installs it with `npx github:VocanicZ/rtdd` (needs `node` ≥ 18; without it lanes fall back to full-suite runs). See [Test selection](#test-selection-rtdd). |
 
 ## Pipeline modes
 
@@ -168,6 +169,63 @@ Workers branch off the default branch independently and merge back independently
 The impl / bug-fix / resume prompts therefore require a **rebase onto the current base plus a re-run** immediately before merging, repeated until the rebase is a no-op. If your repo has checks that build and test the *merge result*, they enforce the same property server-side — recommended for any fleet running more than one or two lanes against a shared codebase.
 
 The same prompts hold lanes to **no new failures against a baseline** captured before the first edit, rather than a globally green suite. Most real repos carry some pre-existing reds; an autonomous agent told "all green required" will either chase them forever or edit tests until they pass.
+
+### Test selection (rtdd)
+
+The full-suite baseline is the single biggest time cost in a lane, and almost none of it is the merge bar. Held literally it is **two full suite runs per lane** — one before the first edit, one after — plus another on every rebase-and-re-run, times every lane. What actually decides the merge is CI running the full suite once on the runner ([Never merging red](#never-merging-red)).
+
+So the lane loop is [rtdd](https://github.com/VocanicZ/rtdd), not the suite. The impl / bug-fix / resume prompts run only the tests whose recorded coverage intersects the lane's diff, and read back which of the changed lines **no test reached**:
+
+```sh
+rtdd which --base origin/main    # what already covers the code you are about to touch
+rtdd run   --base origin/main    # runs only the tests your diff touches
+```
+
+Three conditions are the bar: every selected test passes, the uncovered report is clear for the changed lines, **and at least one test fails without the change**. That third one is not optional bookkeeping — coverage is *execution, not assertion*, so a test that runs the new lines and asserts nothing clears the uncovered report while proving nothing. Only the failing-without-the-change check carries what TDD's red step carried. (`import-time` lines are reported separately and never count as uncovered.)
+
+**A repo with no CI keeps the full suite.** The argument above is "the runner already runs it" — so where `gh pr checks` reports no checks configured, and a private repo on a free plan *cannot* configure one (branch protection and rulesets both 403), the lane runs the full suite itself before merging. The selection covered the diff; it did not cover what the diff broke somewhere the map has no edge to.
+
+**Lanes set it up themselves.** A prompt that told the lane to fall back to the full suite whenever a repo was unseeded would never save anything on a fresh target, so on a repo with no `.rtdd/map.jsonl` the lane checks the base for a map another lane already pushed, and seeds only if there is none:
+
+```sh
+git fetch origin && git cat-file -e origin/main:.rtdd/map.jsonl || { rtdd init && rtdd seed; }
+git add .rtdd .gitattributes && git commit -m "chore: seed rtdd map"
+```
+
+`rtdd seed` costs one full instrumented suite run — the same run the old baseline cost anyway — and committing `.rtdd/map.jsonl` is what stops every later lane from paying it again. The `merge=union` driver `rtdd init` installs is what lets parallel lanes refresh the map without conflicting. An operator can seed ahead of time instead; the lane then finds the map and skips straight to the loop.
+
+Three escapes are wired in, because a selector that hides its blind spots is worse than none: **`rtdd init` exits 2** on a toolchain no adapter can instrument — that is a refusal, not a failure, and it is the *only* path back to the old two-full-suites bar; an **empty selection** is never read as green (the map has nothing to say about that change, so the lane runs the full suite for it); and a **failing selected test is re-run against the base** before the lane touches it, so a pre-existing red is still not the lane's problem. Nothing here lets a lane weaken a test, or edit one to clear the uncovered report.
+
+#### This repository's own adapter
+
+Harness drives itself, so the bar it sets for target repos has to hold here — and here it did not: no shipped adapter instruments bash, so `rtdd doctor` reported `none detected` and `rtdd init` would have taken the exit-2 refusal. `.rtdd/adapters/bash.yaml` plus `scripts/rtdd-bash-runner.py` close that, at **execution-derived** fidelity rather than the static tier:
+
+```sh
+env PS4='@@${BASH_SOURCE}:${LINENO}@@ ' BASH_XTRACEFD=21 SHELLOPTS=xtrace bash <test> 21>trace
+```
+
+`SHELLOPTS` is inherited by every child shell and fd 21 survives `exec`, so one test's trace carries every line that ran in the test, in the helpers it sources, **and** in the `scripts/*.sh` it spawns as separate processes. The runner folds that into a coverage.py-schema `.coverage` store with one context per test — the format rtdd already reads — and a JUnit report whose `file=` attribute is the selector `subset` takes back.
+
+Two things a line tracer alone would miss are recorded too, and the distinction between them decides whether the uncovered report means anything:
+
+- **Data files are credited whole.** Most of this suite asserts `grep -q <pattern> prompts/impl.md`: the file under test is *read, never executed*, and a grep really does read all of it. Without this the map would claim nothing covers `prompts/impl.md` while six tests assert on its contents.
+- **Executables named by a traced command get a one-line reference marker, not whole-file credit.** These tests run the scripts they guard by path (`"$HERE/../scripts/uninstall.sh"`), and those scripts record their own real line coverage through the child shell's xtrace. An earlier version credited them whole as well — which put `scripts/lib.sh` at 1491/1491 and made it *impossible* for any changed line to come back uncovered. The marker keeps the selection edge (change the file, the test is still selected) without overwriting the line-level truth.
+- **`test_issuelib.py`** runs under `sys.settrace` into the same accumulator.
+
+```
+$ rtdd explain prompts/impl.md
+prompts/impl.md is covered by 6 tests:
+    test/test_impl_subagent_skill.sh   17ms  pass
+    test/test_resume.sh               207ms  pass
+    test/test_rtdd.sh                 309ms  pass
+    test/test_worktree_hook.sh        561ms  pass
+    test/test_spawn.sh               2771ms  pass
+    test/test_ci_gate.sh             4513ms  pass
+```
+
+It is a selector, so its blind spots matter: xtrace prints commands but never **redirections**, so a file read only through `< f` or a heredoc gets no edge; a child reached through a spawner that closes inherited file descriptors loses `BASH_XTRACEFD` and writes its trace to **stderr** instead, losing that child's coverage; and a file is credited only when some test named or executed it — nothing is inferred.
+
+`.rtdd/map.jsonl` is committed — one row per test file, 51 of them — so a clone or a worktree inherits it and pays no seed cost; the `merge=union` driver `rtdd init` installed keeps parallel lanes from conflicting over it. Editing the runner or its declaration escalates to the full suite by construction — both are in the adapter's `full_escalate`, because a change to either invalidates every row it recorded.
 
 ### Never merging red
 
@@ -492,7 +550,7 @@ Contributions welcome. To get started:
 1. **Fork & branch** — fork the repo, then branch from `main` (`git checkout -b feat/your-change`).
 2. **Develop against the dev checkout** — Harness drives itself; clone and run `./install.sh` in a throwaway target repo to exercise the engine end-to-end.
 3. **Keep state in GitHub** — the core invariant is *no database, no daemon*. New features must persist their state in issues, labels, or the local run directory only.
-4. **Run the tests** — exercise `test/` (e.g. `bash test/test_subskills.sh`) before opening a PR.
+4. **Run the tests** — `rtdd run` runs only the tests covering your change and reports which changed lines nothing covers; `bash test/run.sh` runs the whole suite — this repo has **no CI**, so that run is the only full-suite gate there is, and it is on you before opening a PR; a single file works directly (`bash test/test_subskills.sh`). The map is committed, so a fresh clone selects immediately — do not re-run `rtdd seed` unless you are deliberately rebuilding it. This repo carries its own bash adapter; see [Test selection](#test-selection-rtdd).
 5. **Open a PR** — describe the change, link any related issue, and keep the diff scoped. One concern per PR.
 
 Bug reports and feature requests go in [GitHub Issues](https://github.com/VocanicZ/Harness/issues). For substantial changes, open an issue first to discuss direction.

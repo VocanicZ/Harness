@@ -1,0 +1,11 @@
+# .rtdd/config.yaml — rtdd defaults, see docs/specs for what each one does.
+stale_commits: 50
+drift_guard: 100
+hub_threshold: 0.40
+
+# What `rtdd init` detected in this repository (spec §5). A record, not an input:
+# `rtdd doctor` derives fidelity from .rtdd/adapters/ live and is the source of truth.
+adapters:
+  - name: bash
+    selection: coverage
+    fidelity: execution-derived
