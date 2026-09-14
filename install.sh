@@ -5,12 +5,13 @@
 # by `harness init`). `harness update` ff-pulls only this one shared install.
 set -uo pipefail
 HARNESS_REPO_URL="${HARNESS_REPO_URL:-https://github.com/VocanicZ/Harness.git}"
-HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}"           # host root for the shared engine (+ PRD-B subdirs)
-HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"   # where the `harness` PATH symlink is placed
+HARNESS_HOME="${HARNESS_HOME:-${HOME:-}/.harness}"           # host root for the shared engine (+ PRD-B subdirs)
+HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-${HOME:-}/.local/bin}"   # where the `harness` PATH symlink is placed
 HARNESS_MARKETPLACE="${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}"
 HARNESS_MARKETPLACE_NAME="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
 MATTPOCOCK_SKILLS_URL="${MATTPOCOCK_SKILLS_URL:-https://github.com/mattpocock/skills.git}"
 VOCANICZ_TOOLS_URL="${VOCANICZ_TOOLS_URL:-https://github.com/VocanicZ/vocanicz-ai-tools.git}"
+RTDD_INSTALL_SPEC="${RTDD_INSTALL_SPEC:-github:VocanicZ/rtdd}"   # upstream's own installer, run via npx
 
 need(){ command -v "$1" >/dev/null 2>&1; }
 check_prereqs(){
@@ -50,6 +51,50 @@ _ensure_agy_plugin(){
       && echo "  ✓ installed agy plugin $name" \
       || echo "  ! could not install agy plugin $name — install manually: agy plugin install $dir"
   fi
+}
+# ensure_rtdd — install the coverage-derived test selector the IMPL/bug-fix/resume prompts use AS
+# their test loop, in place of two full-suite runs per lane. Its own function because BOTH entry
+# points need it: an engine ff-pulled by `harness update` brings prompts that call `rtdd`, and a host
+# that only ever ran install.sh before would otherwise have the prompts without the binary. Install
+# is best-effort (a host without curl still gets a working engine); a lane without rtdd falls all the
+# way back to the old full-suite bar, which is the cost this replaces.
+ensure_rtdd(){
+  [[ "${HARNESS_SKIP_RTDD:-0}" == 1 ]] && return 0   # tests set this: ensure_rtdd must never network
+  if need rtdd; then
+    echo "  ✓ rtdd already installed ($(command -v rtdd))"
+    return 0
+  fi
+  # Upstream's documented install is `npx github:VocanicZ/rtdd` — a Node installer that resolves the
+  # right release asset for this platform and verifies it against the release checksums, then also
+  # installs rtdd's agent skill for the agent CLIs present on this host (~/.claude/skills/rtdd and
+  # friends). That machine-wide skill write is why the prompts can say "the `rtdd` skill"; it is also
+  # the broadest thing this line does, so it is named here rather than left as a surprise.
+  # Deliberately NOT `curl <url> | sh`: a piped stream executes whatever arrived, so a connection
+  # dropped mid-transfer runs a TRUNCATED script, and the URL would be an overridable input to a
+  # shell. This runs third-party code either way — the same trust this installer already asks for.
+  if ! need npx; then
+    echo "  ! npx not found — skipping rtdd install; lanes fall back to full-suite runs."
+    echo "    Install it later with:  npx $RTDD_INSTALL_SPEC"
+    return 0
+  fi
+  echo "  installing rtdd (npx $RTDD_INSTALL_SPEC) ..."
+  # timeout + GIT_TERMINAL_PROMPT=0: npm's fetch timeout is 300s with retries, and a `github:` spec
+  # git-clones — a credential prompt goes to /dev/tty and would hang `harness update` FOREVER,
+  # redirections notwithstanding. stderr is kept on the failure path: a CHECKSUM MISMATCH is the one
+  # signal from that installer worth reading, and discarding it was hiding it behind a generic line.
+  local rtdd_log; rtdd_log="$(mktemp)"
+  if timeout "${RTDD_INSTALL_TIMEOUT:-300}" env GIT_TERMINAL_PROMPT=0 npx -y "$RTDD_INSTALL_SPEC" \
+       >"$rtdd_log" 2>&1 && need rtdd; then
+    echo "  ✓ installed rtdd"
+  elif [[ -x "${HOME:-}/.local/bin/rtdd" || -x /usr/local/bin/rtdd ]]; then
+    # It installed; it just is not on THIS shell's PATH (nvm/volta prefixes, a non-login shell).
+    # Saying "did not complete" here would also re-run the whole install on every future update.
+    echo "  ✓ installed rtdd, but it is not on your PATH — add its directory to PATH"
+  else
+    echo "  ! rtdd install did not complete — lanes fall back to full-suite runs; retry: npx $RTDD_INSTALL_SPEC"
+    sed -n '$p' "$rtdd_log" 2>/dev/null | sed 's/^/    /'
+  fi
+  rm -f "$rtdd_log"
 }
 ensure_skills(){
   echo "ensuring required Claude plugins + skills (best-effort) ..."
@@ -214,6 +259,7 @@ link_path(){
 main(){
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   ensure_skills
+  ensure_rtdd
   place_engine || { echo "Engine install/update failed — see above; not finalizing." >&2; exit 1; }
   create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)

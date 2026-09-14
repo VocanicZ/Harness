@@ -1,0 +1,39 @@
+# The bash adapter for this repository.
+#
+# No shipped adapter matches a repo whose suite is 50 `test_*.sh` scripts plus one standalone
+# `test_issuelib.py`, so `rtdd doctor` reported `none detected` and `rtdd init` would have
+# refused. This declaration plus scripts/rtdd-bash-runner.py is the answer doctor asked for.
+#
+# `coverage: sqlite` is not a claim that a Python tool ran: it names the STORE FORMAT rtdd
+# reads, and the runner writes that format from bash's own `set -x` trace (PS4 carries
+# ${BASH_SOURCE}:${LINENO}, SHELLOPTS=xtrace is inherited by every child shell, so one test's
+# trace covers the helpers it sources and the scripts it spawns). Fidelity is therefore
+# execution-derived, not static — the selection comes from lines that actually ran.
+#
+# One rule in the runner is load-bearing and easy to get wrong: a file merely NAMED by a traced
+# command is credited whole ONLY when it is data (a `grep -q <pattern> prompts/impl.md` really does
+# read all of it). An executable the test invokes gets a one-line reference marker instead, because
+# its real coverage comes from its own xtrace — crediting it whole put every such file at 100% and
+# made the uncovered report incapable of ever reporting anything.
+#
+# `list` is deliberately the full-suite invocation: for a junit-xml adapter rtdd takes its ids
+# from the report, so enumerating IS running, and the result is reused rather than discarded.
+name: bash
+detect: ["test/run.sh"]
+seed:   "python3 scripts/rtdd-bash-runner.py"
+subset: "python3 scripts/rtdd-bash-runner.py {tests}"
+list:   "python3 scripts/rtdd-bash-runner.py --list"
+coverage: sqlite
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+# The runner names each case by its repo-relative path, which is also the selector `subset`
+# takes — id and selector are one vocabulary here, so no test_selector is needed.
+id_template: "{file}"
+failfast_flag: "--fail-fast"
+test_globs: ["test/test_*.sh", "test/test_*.py"]
+source_globs: ["scripts/**", "bin/**", "prompts/*.md", "skill/**", "plugins/**", "install.sh", "update.sh", "README.md"]
+# Changing the runner or the runner's own declaration invalidates every row it recorded, and
+# run.sh is the suite's entry point. Nothing else escalates: helpers.sh and lib.sh do not need
+# to, because every row that executes them already records them.
+full_escalate: [".rtdd/adapters/bash.yaml", "scripts/rtdd-bash-runner.py", "test/run.sh"]
+opaque: ["docs/**", "graphify-out/**"]
