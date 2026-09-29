@@ -43,6 +43,14 @@ assert "README documents the ## Quality bar opt-in" \
 assert "README is honest that blindness is not a sandbox" \
   "grep -qi 'not a sandbox' '$README'"
 
+# 5. Security audit review — both config rows and its own section.
+assert "config table lists HARNESS_SECURITY_AUDIT" \
+  "grep -qE '^\| \`HARNESS_SECURITY_AUDIT\`' '$README'"
+assert "config table lists HARNESS_SECURITY_AUDIT_ROUNDS" \
+  "grep -qE '^\| \`HARNESS_SECURITY_AUDIT_ROUNDS\`' '$README'"
+assert "README has a Security audit review section" \
+  "grep -qE '^### Security audit review' '$README'"
+
 # 5. Multi-PRD in `prd` mode — a unit may hold several PRDs, they run in parallel unless a PRD
 #    declares `## Blocked by`, children are attributed by `## Parent` (with the `Part of #N`
 #    fallback), unparented issues go first without gating a review, and COMPLETE needs every PRD.

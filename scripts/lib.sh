@@ -65,6 +65,8 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
 : "${HARNESS_GAUNTLET_ROUNDS:=3}"        # gauntlet review: rounds allowed before the reviewer concedes
+: "${HARNESS_SECURITY_AUDIT:=0}"         # 1 = PRD review runs the vendored security-audit skill after the criteria gate
+: "${HARNESS_SECURITY_AUDIT_ROUNDS:=2}"  # security audit: rounds with filed findings before the reviewer concedes
 : "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
 
 export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
@@ -73,7 +75,7 @@ export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNE
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
-  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SESS_PREFIX
+  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -1144,17 +1146,35 @@ kv = dict(a.split('=', 1) for a in sys.argv[2:])
 sys.stdout.write(re.sub(r'{{(\w+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
 }
-# gauntlet_round <prd> — echo the gauntlet round this review pass will run (1-based).
-# Round state is the PRD's own comment stream: every LOST round leaves a
-# `<!-- harness-gauntlet round=N -->` marker (see prompts/review.md). Nothing on disk, so a
-# resume on another host picks up at the right round. ANY failure — offline, rate limit, junk
-# on stdout — counts as zero markers and returns round 1: a transient gh error must never be
-# able to push the reviewer past the cap and fake a concede.
-gauntlet_round(){ local prd="$1" n
+# fleet_login — the authenticated gh login, i.e. the identity every engine-trusted comment (round
+# markers, handoffs) must carry. Empty on failure; callers fail closed. Validated to GitHub's login
+# charset so it can be spliced into a jq filter.
+fleet_login(){ local me; me="$(gh api user -q .login 2>/dev/null)" || return 0
+  [[ "$me" =~ ^[A-Za-z0-9-]+$ ]] && printf '%s' "${me,,}"; }
+# _fleet_comments_jq <body-prefix> — jq selecting the bodies of comments the FLEET wrote that start
+# with <body-prefix>. Comments are writable by anyone who can see the issue (anyone, on a public
+# repo), so an engine decision keyed on comment text must never count one it did not author.
+_fleet_comments_jq(){ printf '[.comments[] | select((.author.login // "" | ascii_downcase) == "%s") | .body | select(startswith("%s"))]' "$(fleet_login)" "$1"; }
+# _marker_round <prd> <marker> — echo the round (1-based) of a capped review loop whose every LOST
+# round leaves a `<!-- <marker> round=N -->` comment on the PRD (see prompts/review.md). Nothing on
+# disk, so a resume on another host picks up at the right round. ANY failure — offline, rate limit,
+# junk on stdout, an unresolvable fleet login — counts as zero markers and returns round 1: neither a
+# transient gh error nor an outsider's forged marker may push the reviewer past the cap into a concede.
+_marker_round(){ local prd="$1" marker="$2" n
+  [[ -n "$(fleet_login)" ]] || { echo 1; return; }
   n="$(gh issue view "$prd" -R "$SLUG" --json comments \
-       -q '[.comments[].body | select(test("<!-- harness-gauntlet round="))] | length' 2>/dev/null || echo 0)"
+       -q "$(_fleet_comments_jq "<!-- $marker round=") | length" 2>/dev/null || echo 0)"
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   echo $(( n + 1 )); }
+gauntlet_round(){ _marker_round "$1" harness-gauntlet; }
+security_audit_round(){ _marker_round "$1" harness-security-audit; }
+# resume_handoff <issue> — body of the LATEST `<!-- harness-handoff issue=<n> … -->` comment the fleet
+# itself posted on <issue>, or empty. spawn_impl/spawn_bug render it into resume.md so the resumed
+# agent never goes hunting through raw comments for its "prior context" — a stranger could post that
+# marker too. The trailing space in the prefix keeps #5 from matching #55's handoff.
+resume_handoff(){ [[ -n "$(fleet_login)" ]] || return 0
+  gh issue view "$1" -R "$SLUG" --json comments \
+    -q "$(_fleet_comments_jq "<!-- harness-handoff issue=$1 ") | last // empty" 2>/dev/null || true; }
 write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/.claude"
   { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"

@@ -4,11 +4,12 @@ Running autonomously in a Ralph loop. Output the completion promise ONLY when ge
 Repo (this working dir): {{SLUG}}
 PRD under review: #{{PRD}}  (all its implementation issues are closed)
 Gauntlet: round {{GAUNTLET_ROUND}} of {{GAUNTLET_ROUNDS}}   Evidence dir: {{GAUNTLET_DIR}}
+Security audit: {{SECURITY_AUDIT}} (round {{SECURITY_AUDIT_ROUND}} of {{SECURITY_AUDIT_ROUNDS}})   Audit dir: {{SECURITY_AUDIT_DIR}}
 
 GOAL: verify the implementation satisfies PRD #{{PRD}}, then either sign off or file fixes.
 
 FILING A GAP ISSUE — applies to EVERY `{{LABEL_READY}}` issue you create in this pass, both a
-phase 1 criteria gap and the phase 2 gauntlet gap. The body MUST end with these two sections:
+phase 1 criteria gap, a phase 2 security finding, and the phase 3 gauntlet gap. The body MUST end with these two sections:
 
     ## Blocked by
     <#N for a sibling that must finish first, or the literal word `None`>
@@ -39,13 +40,47 @@ PHASE 1 — CRITERIA GATE (always).
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in
    this repo — with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above,
    which is mandatory on every issue you file — and comment the findings on PRD #{{PRD}}. Do NOT add
-   `{{LABEL_REVIEWED}}`. Do NOT run phase 2 — a half-built artifact loses every comparison for
+   `{{LABEL_REVIEWED}}`. Do NOT run phase 2 or 3 — a half-built artifact loses every comparison for
    reasons the acceptance criteria already told you, wasting a full round. That is a completed
    review pass; go to OUTPUT.
-4. All criteria met. If PRD #{{PRD}} has no `## Quality bar` section, the gauntlet is OFF for this
-   PRD: SIGN OFF now (step 6). Otherwise continue to PHASE 2.
+4. All criteria met. Continue to PHASE 2.
 
-PHASE 2 — GAUNTLET (only when phase 1 passed AND the PRD carries a `## Quality bar`).
+PHASE 2 — SECURITY AUDIT (only when phase 1 passed).
+Security audit: {{SECURITY_AUDIT}}. If that value is 0, the fleet has this phase OFF: skip straight to
+PHASE 3. Otherwise this is audit round {{SECURITY_AUDIT_ROUND}} of {{SECURITY_AUDIT_ROUNDS}}:
+S1. CAP. If round {{SECURITY_AUDIT_ROUND}} is greater than {{SECURITY_AUDIT_ROUNDS}}, CONCEDE: comment on PRD #{{PRD}}
+    listing the findings still standing from the previous round and that the cap was reached, then
+    continue to PHASE 3. An autonomous fleet has nobody to call a non-converging loop off.
+S2. SCOPE. Audit this PRD's change: the files touched by the PRs that closed its child issues
+    (`gh issue view <child> -R {{SLUG}} --json closedByPullRequestsReferences`, then
+    `gh pr diff <n> -R {{SLUG}} --name-only`). If that set cannot be determined, audit the whole repo.
+S3. RUN. Read {{SECURITY_AUDIT_SKILL}} and follow it in FULL AUDIT MODE — this instruction is the
+    explicit request that mode requires. Profile `quick`, a scoped run over the S2 file set, target =
+    this working dir, output directory = {{SECURITY_AUDIT_DIR}}/r{{SECURITY_AUDIT_ROUND}} (outside the target;
+    create it). Its companion files and validators sit next to that SKILL.md. Its execution rules
+    are binding: source review plus sandboxed local checks only — never probe a deployed service,
+    never use a real credential. The run is done when findings.json and REPORT.md exist there and
+    both validators pass.
+S4. ACT on findings.json:
+    - Every `confirmed` record with overall_severity medium, high, or critical gets ONE
+      `{{LABEL_READY}}` issue in this repo, titled "Security: <record title>", whose body carries the
+      root cause, the trace (file:line list), the observed result, and the remediation, then the
+      mandatory `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above.
+    - If you filed at least one, mark the round — the marker MUST be the first line:
+        gh issue comment {{PRD}} -R {{SLUG}} --body "<!-- harness-security-audit round={{SECURITY_AUDIT_ROUND}} -->
+        Security audit round {{SECURITY_AUDIT_ROUND}}: filed #<a>, #<b>. Also noted: <low findings and needs-validation leads, one line each, or none>."
+      Do NOT add `{{LABEL_REVIEWED}}` and do NOT run phase 3. That is a completed review pass; go to
+      OUTPUT. The pool fixes the findings and review runs again at the next round.
+    - Otherwise (no medium+ confirmed finding), comment the result with NO marker and continue to
+      PHASE 3:
+        gh issue comment {{PRD}} -R {{SLUG}} --body "Security audit round {{SECURITY_AUDIT_ROUND}}: no medium+ findings. Also noted: <low findings and needs-validation leads, one line each, or none>."
+    Low/informational findings and needs_validation leads never hold the PRD open.
+S5. If the skill cannot be read or the audit cannot run at all, comment on PRD #{{PRD}} exactly what
+    failed and continue to PHASE 3. NEVER apply an agent-blocked label.
+
+PHASE 3 — GAUNTLET (only when phases 1 and 2 passed).
+4b. If PRD #{{PRD}} has no `## Quality bar` section, the gauntlet is OFF for this PRD: SIGN OFF now
+    (step 6). Otherwise continue.
 The bar names one real artifact to beat and the dimensions to judge on:
     ## Quality bar
     Beat: <named artifact + URL>
@@ -106,6 +141,6 @@ The bar names one real artifact to beat and the dimensions to judge on:
    Filing a follow-up AND signing off in the same pass is fine and often right. Just leave the close
    to the engine, which will do it once that follow-up has been implemented.
 
-OUTPUT — every branch above is a completed review pass: signed off, criteria gaps filed, or a
-gauntlet gap filed. When one of them is done, output exactly:
+OUTPUT — every branch above is a completed review pass: signed off, criteria gaps filed, security
+findings filed, or a gauntlet gap filed. When one of them is done, output exactly:
 <promise>{{PROMISE}}</promise>

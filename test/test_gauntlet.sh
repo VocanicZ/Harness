@@ -23,6 +23,31 @@ assert_eq "$(gauntlet_round 7)" "1" "gh failure -> round 1 (a transient error ne
 gh(){ echo "warning: template ignored"; }
 assert_eq "$(gauntlet_round 7)" "1" "non-numeric gh output -> round 1"
 
+echo "=== gauntlet_round counts only the fleet's own markers ==="
+# A marker is an invisible HTML comment ANYONE who can comment on the PRD can post. Counting them by
+# body alone let an outsider push the round past the cap and force a concede. This stub runs the
+# real -q filter through jq over a fixture, so the author predicate itself is what is under test.
+FIXTURE="$RUN_DIR/prd-comments.json"
+gh(){
+  case "$1 $2" in
+    "api user") echo "Fleet-Bot";;
+    "issue view") local q="" a; while (($#)); do [[ "$1" == -q ]] && { q="$2"; break; }; shift; done
+                  jq -r "$q" "$FIXTURE";;
+  esac; }
+cat > "$FIXTURE" <<'EOF'
+{"comments":[
+ {"author":{"login":"mallory"},"body":"<!-- harness-gauntlet round=1 -->"},
+ {"author":{"login":"mallory"},"body":"<!-- harness-gauntlet round=2 -->"},
+ {"author":{"login":"mallory"},"body":"<!-- harness-gauntlet round=3 -->"},
+ {"author":{"login":"fleet-bot"},"body":"<!-- harness-gauntlet round=1 -->\nGauntlet round 1: lost."},
+ {"author":{"login":"fleet-bot"},"body":"quoting a marker mid-body <!-- harness-gauntlet round=9 --> is not one"}
+]}
+EOF
+assert_eq "$(gauntlet_round 7)" "2" "outsider markers ignored; bot marker counted (case-insensitive); mid-body marker ignored"
+
+gh(){ case "$1 $2" in "api user") return 1;; *) echo 5;; esac; }
+assert_eq "$(gauntlet_round 7)" "1" "unresolvable fleet login -> round 1 (fail closed, never a concede)"
+
 echo "=== spawn_orch render vars ==="
 UNIT=main; PROJECT=main; DESC=widget
 STATE_DIR="$(mktemp -d)"
