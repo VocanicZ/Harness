@@ -46,6 +46,8 @@ assert "bug label key written"          "grep -q 'HARNESS_LABEL_BUG:=bug' '$CFG'
 assert "bug-triaged label key written"  "grep -q 'HARNESS_LABEL_BUG_TRIAGED:=bug-triaged' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_LABEL_BUG:-}" == "bug" && "${HARNESS_LABEL_BUG_TRIAGED:-}" == "bug-triaged" ]] ) \
   && echo "  ok: bug-lane labels round-trip" || { echo "  FAIL: bug-lane label round-trip"; exit 1; }
+# security audit at PRD review: written (default OFF) so it is discoverable and overridable
+assert "security audit key written, default off" "grep -q 'HARNESS_SECURITY_AUDIT:=0' '$CFG'"
 # cadence keys (#24): both poll cadences are written so they're overridable in .harness/config
 assert "priority-poll key written" "grep -q 'HARNESS_PRIORITY_POLL' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_POLL:-}" == "300" && "${HARNESS_PRIORITY_POLL:-}" == "60" ]] ) \

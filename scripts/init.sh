@@ -64,6 +64,9 @@ ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-s
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
 [[ "$HARNESS_TOPOLOGY" == single ]] && ask HARNESS_REPO "Target repo (owner/repo)" "${HARNESS_REPO:-}"
 [[ "$HARNESS_MODE" == planned ]] && ask HARNESS_SPEC "Spec path (planned mode)" "${HARNESS_SPEC:-}"
+# Only prd/planned have a REVIEW stage, so only they can run the audit; issue-only keeps the default.
+[[ "$HARNESS_MODE" == prd || "$HARNESS_MODE" == planned ]] && \
+  ask HARNESS_SECURITY_AUDIT "Security-audit each PRD at review? (0|1)" "${HARNESS_SECURITY_AUDIT:-0}"
 ask HARNESS_AUTONOMOUS "Fully autonomous? (true|false)"   "${HARNESS_AUTONOMOUS:-true}"
 ask HARNESS_SESS_PREFIX "tmux session prefix (must be unique per fleet on this host)" "${HARNESS_SESS_PREFIX:-$(default_prefix)}"
 ask HARNESS_POOL       "Pool workers"                     "${HARNESS_POOL:-3}"
@@ -82,6 +85,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 : "${HARNESS_LABEL_PAUSED:=agent-paused}"
 : "${HARNESS_LABEL_BUG:=bug}"
 : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+: "${HARNESS_SECURITY_AUDIT:=0}"
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
@@ -89,7 +93,8 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
            HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
-           HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_AUTHOR_ALLOWLIST; do
+           HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_AUTHOR_ALLOWLIST \
+           HARNESS_SECURITY_AUDIT; do
     printf ': "${%s:=%s}"\n' "$v" "${!v:-}"
   done
   # Host-poller opt-in (PRD-B, #74). Empty = today's direct-gh polling (default OFF); set to 1 to

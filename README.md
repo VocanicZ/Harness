@@ -128,6 +128,8 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_USE_POLLER` | _(empty)_ | Host-poller opt-in. Empty = today's direct-`gh` polling (default off); set (e.g. `1`) = this fleet reads shared host snapshots instead of polling GitHub itself. Staged-rollout flag — see [Host poller](#host-poller) |
 | `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree (and every multi-topology clone), with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 | `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
+| `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
+| `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `1` | `1` = hold new dispatch while the default branch's own CI is red (live sessions drain; the bug lane is never gated); `0` = off. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally. See [Never merging red](#never-merging-red) |
 
 ### Issue-author allowlist
@@ -288,6 +290,29 @@ read outside the two directories. A determined agent could peek — the same tru
 of the engine.
 
 Credit: the pattern is Matt Shumer's [Gauntlet Loop](https://github.com/robonuggets/gauntlet-loop).
+
+### Security audit review
+
+Off by default. Set `HARNESS_SECURITY_AUDIT=1` (or answer `1` at `harness init` in `prd`/`planned`
+mode) and every PRD review gains a phase between the acceptance-criteria gate and the gauntlet:
+the reviewer runs the security-audit skill vendored at `vendor/security-audit/` in the engine —
+`quick` profile, scoped to the files changed by the PRs that closed that PRD's children — and
+writes its run into `.harness/security-audit/<unit>/p<prd>/r<round>/`.
+
+- Each **confirmed** finding of **medium** severity or above becomes one `ready-for-agent` gap issue
+  under the PRD. The reviewer leaves a `<!-- harness-security-audit round=N -->` comment and
+  withholds `reviewed`; the pool fixes the findings and review runs again. The loop is the ordinary
+  REVIEW → IMPL → REVIEW path.
+- **Low/informational** findings and **needs-validation** leads are listed in a PRD comment and never
+  hold the PRD open.
+- **Rounds are capped** by `HARNESS_SECURITY_AUDIT_ROUNDS` (default `2`). At the cap the reviewer
+  comments the standing findings and moves on, exactly like the gauntlet cap.
+- The audit's own execution rules apply: source review plus sandboxed local checks only. It never
+  probes a deployed service or uses a real credential.
+
+Round markers — this one and the gauntlet's — only count when the fleet's own GitHub login wrote
+them. Anyone who can comment on a PRD can post the marker text, so an outsider's copy is ignored
+and can never push a review past its cap.
 
 ## Commands
 
