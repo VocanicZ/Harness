@@ -126,11 +126,15 @@ def repo_rel(token, base=None):
         p = p if p.is_absolute() else (base or CWD) / p
         p = p.resolve()
         rel = p.relative_to(ROOT)
+        # stat() inside the guard: a traced argument that is not a path at all (a base64 blob)
+        # raises ENAMETOOLONG here, and one unreadable token must not kill the whole run.
+        if not p.is_file():
+            return None
     except (ValueError, OSError):
         return None
     # .rtdd/junit.xml and .rtdd/meta.json are rewritten by every run; recording them would churn
     # every row. The adapter and the map itself are ordinary tracked files and stay recordable.
-    if not p.is_file() or str(rel) in (".rtdd/junit.xml", ".rtdd/meta.json", ".coverage"):
+    if str(rel) in (".rtdd/junit.xml", ".rtdd/meta.json", ".coverage"):
         return None
     if str(rel).startswith((".git/", "worktrees/", "checkouts/", "run/")):
         return None
@@ -358,6 +362,7 @@ def selfcheck():
     assert repo_rel("/etc/hostname") is None
     assert repo_rel("-q") is None
     assert repo_rel("no/such/file") is None
+    assert repo_rel("content=" + "A" * 4096) is None           # ENAMETOOLONG (a traced base64 arg) is not a file
     assert repo_rel(".git/config") is None
     # The distinction that decides whether the uncovered report means anything. Crediting an
     # executed script whole — which an earlier version did — put every file a test NAMES at 100%,

@@ -131,6 +131,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
 | `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `1` | `1` = hold new dispatch while the default branch's own CI is red (live sessions drain; the bug lane is never gated); `0` = off. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally. See [Never merging red](#never-merging-red) |
+| `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). Repos that already have CI are unaffected either way |
 
 ### Issue-author allowlist
 
@@ -227,7 +228,7 @@ prompts/impl.md is covered by 6 tests:
 
 It is a selector, so its blind spots matter: xtrace prints commands but never **redirections**, so a file read only through `< f` or a heredoc gets no edge; a child reached through a spawner that closes inherited file descriptors loses `BASH_XTRACEFD` and writes its trace to **stderr** instead, losing that child's coverage; and a file is credited only when some test named or executed it — nothing is inferred.
 
-`.rtdd/map.jsonl` is committed — one row per test file, 51 of them — so a clone or a worktree inherits it and pays no seed cost; the `merge=union` driver `rtdd init` installed keeps parallel lanes from conflicting over it. Editing the runner or its declaration escalates to the full suite by construction — both are in the adapter's `full_escalate`, because a change to either invalidates every row it recorded.
+`.rtdd/map.jsonl` is committed — one row per test file, 53 of them — so a clone or a worktree inherits it and pays no seed cost; the `merge=union` driver `rtdd init` installed keeps parallel lanes from conflicting over it. Editing the runner or its declaration escalates to the full suite by construction — both are in the adapter's `full_escalate`, because a change to either invalidates every row it recorded.
 
 ### Never merging red
 
