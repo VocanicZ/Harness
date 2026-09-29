@@ -50,6 +50,8 @@ assert "config table lists HARNESS_SECURITY_AUDIT_ROUNDS" \
   "grep -qE '^\| \`HARNESS_SECURITY_AUDIT_ROUNDS\`' '$README'"
 assert "README has a Security audit review section" \
   "grep -qE '^### Security audit review' '$README'"
+assert "config table lists HARNESS_SEED_CI (CI workflow seeding is opt-in)" \
+  "grep -qE '^\| \`HARNESS_SEED_CI\` \| \`0\`' '$README'"
 
 # 5. Multi-PRD in `prd` mode — a unit may hold several PRDs, they run in parallel unless a PRD
 #    declares `## Blocked by`, children are attributed by `## Parent` (with the `Part of #N`

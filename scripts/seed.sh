@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # seed.sh — create (if absent) and seed a GitHub repo for a harness unit:
-#   labels (harness vocabulary), a language-agnostic CI workflow, auto-merge enabled.
+#   labels (harness vocabulary), auto-merge enabled, and — only with HARNESS_SEED_CI=1 — a
+#   language-agnostic CI workflow plus branch protection requiring it.
 # Idempotent.
 #
 # Usage:
@@ -85,8 +86,10 @@ fi
 # Labels.
 _seed_labels
 
-# Language-agnostic CI workflow (unchanged from original).
-if ! gh api "repos/$_SEED_SLUG/contents/.github/workflows/ci.yml" >/dev/null 2>&1; then
+# Language-agnostic CI workflow — OPT-IN. Committing a workflow into someone's repo is not the
+# engine's call to make by default: it lands a commit on their default branch and spends their
+# Actions minutes. Off unless HARNESS_SEED_CI=1.
+if [[ "${HARNESS_SEED_CI:-0}" == 1 ]] && ! gh api "repos/$_SEED_SLUG/contents/.github/workflows/ci.yml" >/dev/null 2>&1; then
   log "adding CI workflow to $_SEED_SLUG"
   CI_B64="$(cat <<'YML' | base64 -w0
 name: ci
@@ -116,15 +119,19 @@ YML
     || log "warn: could not add CI workflow (continuing)"
 fi
 
-# Enable auto-merge + delete merged branches; best-effort branch protection requiring CI.
+# Enable auto-merge + delete merged branches.
 gh api --method PATCH "repos/$_SEED_SLUG" \
   -F allow_auto_merge=true -F delete_branch_on_merge=true >/dev/null 2>&1 || true
-gh api --method PUT "repos/$_SEED_SLUG/branches/main/protection" \
-  -F "required_status_checks[strict]=true" \
-  -f "required_status_checks[contexts][]=test" \
-  -F "enforce_admins=false" \
-  -F "required_pull_request_reviews=null" \
-  -F "restrictions=null" >/dev/null 2>&1 \
-  || log "note: branch protection not set (private/free tier?) — auto-merge will land on mergeable instead of waiting for CI"
+# Best-effort branch protection requiring the seeded `test` check. Tied to the workflow flag: with no
+# workflow that check never reports, so requiring it would hold every auto-merge open forever.
+if [[ "${HARNESS_SEED_CI:-0}" == 1 ]]; then
+  gh api --method PUT "repos/$_SEED_SLUG/branches/main/protection" \
+    -F "required_status_checks[strict]=true" \
+    -f "required_status_checks[contexts][]=test" \
+    -F "enforce_admins=false" \
+    -F "required_pull_request_reviews=null" \
+    -F "restrictions=null" >/dev/null 2>&1 \
+    || log "note: branch protection not set (private/free tier?) — auto-merge will land on mergeable instead of waiting for CI"
+fi
 
 log "seeded $_SEED_SLUG"
