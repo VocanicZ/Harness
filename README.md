@@ -8,6 +8,15 @@
 
 A project-agnostic agent orchestrator that drives a fixed pool of autonomous Claude Code or Antigravity (`agy`) sessions against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
 
+The point is where the human sits. A typical agent loop needs you on most turns, so you are the loop and you run one project at a time. Harness needs you once per project, for the grilling session, then the fleet runs the rest without you: the wayfinder map, the issue board, parallel workers (manager, implementer, auditor), rtdd, and the gauntlet. That leaves you free to start the next project.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/harness-loop-dark.svg">
+  <img alt="Two panels side by side. Left, a typical agent loop: a chat between YOU and AGENT where 7 of 10 turns are the human prompting, reading diffs, re-running tests and merging. You are the loop. Right, Harness: the human is needed only for a grilling session, a wayfinder map, and PRD to issues. Then an autonomous zone takes over: issues move across a GitHub board from ready-for-agent to agent-working to closed, while three parallel workers each run manager, implementer, auditor, rtdd and merge. A gauntlet compares the result with a reference using a blind critic; if it loses, it files one issue back to the board, and if it wins the PRD is reviewed and complete. Meanwhile the human has moved on to projects B and C. You are outside the loop." src="docs/figures/harness-loop-light.svg">
+</picture>
+
+<sub>Regenerate with <code>python3 docs/figures/harness_loop.py</code>.</sub>
+
 ## Install
 
 Install the engine **once per host**, then drive any number of projects with it:
