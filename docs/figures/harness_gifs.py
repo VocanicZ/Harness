@@ -18,8 +18,8 @@ W, H = 1040, 680
 FPS = 10
 SCALE = 2
 FONT = "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif"
-C = dict(bg="#ffffff", ink="#1f2328", muted="#656d76", grid="#d8dee4", faint="#f6f8fa",
-         blue="#0969da", purple="#8250df", grey="#6e7781", human="#bc4c00", ok="#1a7f37", bad="#cf222e")
+C = dict(bg="#0d1117", ink="#e6edf3", muted="#9198a1", grid="#30363d", faint="#161b22",
+         blue="#4493f8", purple="#c297ff", grey="#8b949e", human="#f0883e", ok="#3fb950", bad="#ff3b3b")
 
 
 # --- drawing helpers ---------------------------------------------------------------------
@@ -206,7 +206,7 @@ def harness_frame(t):
     for i, (_, deps, x, y) in ISSUES.items():
         for d in deps:
             dx, dy = ISSUES[d][2], ISSUES[d][3]
-            b.append(arrow(dx + 120, dy + 18, x, y + 18, C["grey"], fade(t, 6.9 + 0.1 * i)))
+            b.append(arrow(dx + 120, dy + 18, x, y + 18, C["grey"], fade(t, 6.9 + 0.2 * (i - 44))))
     if t >= T_FILE:
         b.append(text(352, 212, "filed by the gauntlet ↓", C["purple"], 9.5, "start", op=fade(t, T_FILE)))
     for i, (title, _, x, y) in ISSUES.items():
@@ -425,7 +425,7 @@ def encode(frame_fn, seconds, out):
     proc.stdin.close()
     assert proc.wait() == 0
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(mp4), "-filter_complex",
-                    f"fps={FPS},scale={W}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64[p];"
+                    f"fps={FPS},scale={W}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];"
                     "[b][p]paletteuse=dither=none", "-loop", "0", str(out)], check=True)
     mp4.unlink()
 
