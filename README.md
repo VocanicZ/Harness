@@ -8,14 +8,15 @@
 
 A project-agnostic agent orchestrator that drives a fixed pool of autonomous Claude Code or Antigravity (`agy`) sessions against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
 
-The point is where the human sits. A typical agent loop needs you on most turns, so you are the loop and you run one project at a time. Harness needs you once per project, for the grilling session, then the fleet runs the rest without you: the wayfinder map, the issue board, parallel workers (manager, implementer, auditor), rtdd, and the gauntlet. That leaves you free to start the next project.
+The point is where the human sits. A typical agent loop, whether a chat agent or a single-agent loop harness, does one issue at a time, and you are its quality gate:
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/harness-loop-dark.svg">
-  <img alt="Two panels side by side. Left, a typical agent loop: a chat between YOU and AGENT where 7 of 10 turns are the human prompting, reading diffs, re-running tests and merging. You are the loop. Right, Harness: the human is needed only for a grilling session, a wayfinder map, and PRD to issues. Then an autonomous zone takes over: issues move across a GitHub board from ready-for-agent to agent-working to closed, while three parallel workers each run manager, implementer, auditor, rtdd and merge. A gauntlet compares the result with a reference using a blind critic; if it loses, it files one issue back to the board, and if it wins the PRD is reviewed and complete. Meanwhile the human has moved on to projects B and C. You are outside the loop." src="docs/figures/harness-loop-light.svg">
-</picture>
+<img alt="Timeline of the same 6 issues done two typical ways. A chat agent needs the human 20 times: prompting, waiting while it codes, reviewing, re-prompting when #42 fails, merging. A single-agent loop harness needs the human less, but one agent codes the issues in a row, grades its own work, re-runs the full test suite after every issue, and the human finds the bug its self-review missed only when reviewing one big PR at the end." src="docs/figures/typical-agent-loop.gif">
 
-<sub>Regenerate with <code>python3 docs/figures/harness_loop.py</code>.</sub>
+Harness needs you once per project, for the grilling session. The fleet does the rest: it splits the PRD into issues with a blocked-by map, runs three workers in parallel (manager, implementer, auditor, rtdd, merge), sends a failed audit back to the implementer, and runs the gauntlet, which files a new issue for any gap it finds. You are already on the next project:
+
+<img alt="One Harness PRD from idea to done. The human answers grilling questions, wayfinder resolves 4 decisions, and PRD #40 is written; then the human leaves to grill projects B and C. Harness splits PRD #40 into 6 issues: #41 DB schema, #42 UI kit and #43 mail client are ready; #44 auth API is blocked by #41; #45 login page by #42 and #44; #46 password reset by #43 and #44. Three workers each run manager, implementer, auditor, rtdd and merge. The auditor fails #42 because buttons aren't keyboard-focusable, and it goes back to the implementer and passes on the second audit. #44 starts once #41 merges, and #45 and #46 run in parallel once #44 merges. The reviewer checks acceptance criteria 6 of 6, gauntlet round 1 loses to the reference, issue #47 is filed and fixed, round 2 wins, and PRD #40 is reviewed and COMPLETE. The human was needed for one grilling session." src="docs/figures/harness-loop.gif">
+
+<sub>Regenerate both with <code>python3 docs/figures/harness_gifs.py</code> (needs python3-gi, pycairo, ffmpeg).</sub>
 
 ## Install
 
