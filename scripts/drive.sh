@@ -67,7 +67,7 @@ reap_team(){
     local issue="${wd##*-i}" sess; sess="$(sess_impl "$UNIT" "$issue")"
     session_live "$sess" && continue
     log "reaping issue #$issue worktree"
-    git -C "$CHECKOUT" worktree remove --force "$wd" 2>/dev/null || rm -rf "$wd"
+    remove_worktree "$CHECKOUT" "$wd"
     local state
     state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || continue
     # fully autonomous: free a still-open issue's stale agent-working for retry, even if a
@@ -121,8 +121,7 @@ finalize_unit(){
   shopt -s nullglob
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     issue="${wd##*-i}"
-    git -C "$CHECKOUT" worktree remove --force "$wd" 2>/dev/null || rm -rf "$wd"
-    git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
+    remove_worktree "$CHECKOUT" "$wd" "issue/$issue"
     log "finalize: removed worktree + local branch for #$issue"
   done
   local san; san="$(printf '%s' "$SLUG" | tr '/' '_')"
