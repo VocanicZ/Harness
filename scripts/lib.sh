@@ -455,12 +455,29 @@ triage_worktree(){ echo "$WORKTREES_DIR/triage-$(printf '%s' "$1" | tr '/' '_')-
 # prefix sits at the WORKTREES_DIR root (like `triage-`), so reap_team / finalize_unit's
 # "$WORKTREES_DIR/$UNIT"-i* glob can never catch it or mis-parse it via ${wd##*-i}.
 orch_worktree(){ echo "$WORKTREES_DIR/orch-$(printf '%s' "$1" | tr '/' '_')-p$2"; }
+# remove_session_worktrees <checkout> <wd> — the worktrees a session made for itself while it ran in
+# <wd>: Claude Code's agent isolation nests them under <wd>/.claude/worktrees/, and agents check out
+# base refs under their scratchpad, /tmp/claude-<uid>/<wd with every non-alnum as '-'>/…. Each is a
+# full checkout that nothing else ever removes (72 of them, 12.9 GB, piled up on one fleet host).
+# Removes every worktree of <checkout> in either place, plus its throwaway worktree-* branch.
+remove_session_worktrees(){ local checkout="$1" wd="$2" san p b
+  [[ -n "$wd" ]] || return 0
+  san="$(printf '%s' "$wd" | sed 's/[^A-Za-z0-9]/-/g')"
+  while IFS=$'\t' read -r p b; do
+    case "$p" in "$wd"/*|*/claude-*/"$san"/*) ;; *) continue ;; esac
+    git -C "$checkout" worktree remove --force --force "$p" 2>/dev/null || rm -rf "$p"
+    [[ "$b" == worktree-* ]] && git -C "$checkout" branch -D "$b" >/dev/null 2>&1
+  done < <(git -C "$checkout" worktree list --porcelain 2>/dev/null | awk '
+    /^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)}
+    /^$/{if(p!="")print p"\t"b; p=b=""} END{if(p!="")print p"\t"b}')
+  return 0; }
 # remove_worktree <checkout> <wd> [branch] — best-effort teardown of one worktree (+ optional local
 # branch), then prune the registration. Tolerates a missing worktree/branch (idempotent). Falls
 # back to rm -rf if `git worktree remove` can't (e.g. dir already gone). Shared by spawn_bug's
 # defensive pre-add reap (branch omitted — `worktree add -B` resets it anyway), drive_bug's
 # post-fix reap, and the recovery sweep, so all three tear down identically (#34).
 remove_worktree(){ local checkout="$1" wd="$2" branch="${3:-}"
+  remove_session_worktrees "$checkout" "$wd"
   git -C "$checkout" worktree remove --force "$wd" 2>/dev/null || rm -rf "$wd"
   [[ -n "$branch" ]] && git -C "$checkout" branch -D "$branch" 2>/dev/null || true
   git -C "$checkout" worktree prune 2>/dev/null || true; }

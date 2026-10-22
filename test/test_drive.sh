@@ -152,6 +152,26 @@ assert_no "remove_worktree deleted the local issue/5 branch" \
 assert_eq "$(git -C "$CHECKOUT" worktree list | grep -c "bug-acme_widget-i5")" "0" \
   "fix worktree no longer registered after reap"
 
+# ── worktrees the SESSION made die with its worktree ──
+# Claude Code's agent isolation nests worktrees under <wd>/.claude/worktrees/ and agents check out
+# base refs under their scratchpad (/tmp/claude-<uid>/<wd sanitized>/…). Each is a full checkout
+# nobody else removes — 72 of them (12.9 GB) piled up on the fleet host. An unrelated worktree of
+# the same checkout must survive.
+spawn_bug 5 fix >/dev/null 2>&1
+SAN="$(printf '%s' "$WD" | sed 's/[^A-Za-z0-9]/-/g')"
+NESTED="$WD/.claude/worktrees/agent-x"; SCRATCH="$RUN_DIR/claude-1000/$SAN/sess/scratchpad/basewt"
+OTHER="$RUN_DIR/other-wt"
+git -C "$CHECKOUT" worktree add -q -b worktree-agent-x "$NESTED" 2>/dev/null
+git -C "$CHECKOUT" worktree add -q --detach "$SCRATCH" 2>/dev/null
+git -C "$CHECKOUT" worktree add -q --detach "$OTHER" 2>/dev/null
+remove_worktree "$CHECKOUT" "$WD" "issue/5" >/dev/null 2>&1
+assert_no "nested agent worktree removed"     test -d "$NESTED"
+assert_no "scratchpad worktree removed"       test -d "$SCRATCH"
+assert_no "nested worktree-agent-x branch deleted" \
+  bash -c "git -C '$CHECKOUT' rev-parse --verify -q worktree-agent-x >/dev/null 2>&1"
+assert_ok "unrelated worktree kept"           test -d "$OTHER"
+assert_eq "$(git -C "$CHECKOUT" worktree list | wc -l)" "2" "only the checkout + unrelated worktree stay registered"
+
 # ── #34: a FAILED spawn_bug fix must NOT leave the issue stamped agent-working ──
 # Else the open bug keeps agent-working with no live session → bug_lane_issues excludes it and the
 # lane never re-claims it. Force `worktree add` to fail; the stamp must come AFTER worktree setup.
