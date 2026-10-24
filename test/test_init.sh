@@ -79,9 +79,10 @@ assert "init places no engine *.sh scripts"            "[[ -z \"\$(find '$PROJ/.
 
 # ── not-in-project error (#55): a state-requiring subcommand run OUTSIDE any Harness project (no
 # .harness/config walking up) errors clearly and exits non-zero — not a cryptic deep-in-lib failure.
+# (`doctor`, not `status`: outside any project `status` is now the host view of every fleet, #184.)
 NOPROJ="$(mktemp -d)"
 ( cd "$NOPROJ"; unset HARNESS_DIR STATE_DIR
-  out="$("$HERE/../bin/harness" status 2>&1)"; rc=$?
+  out="$("$HERE/../bin/harness" doctor 2>&1)"; rc=$?
   [[ $rc -ne 0 ]] || { echo "  FAIL: subcommand outside a project should exit non-zero (got $rc)"; exit 1; }
   grep -qiE 'harness init|not (in|inside).*[Hh]arness project|\.harness/config' <<<"$out" \
     || { echo "  FAIL: not-in-project error lacks a helpful message — got: $out"; exit 1; }
