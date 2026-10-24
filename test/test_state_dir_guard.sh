@@ -89,8 +89,9 @@ out="$(run "$TMP/nowhere" env STATE_DIR="$A/.harness" bash "$CLI" status)"
 assert_ok "vendored: status runs"       grep -q "RAN status" <<<"$out"
 assert_ok "vendored: STATE_DIR is A's"  grep -qF "STATE_DIR=$A/.harness" <<<"$out"
 
+# (`stop`, not `status`: outside any project `status` is now the host view of every fleet, #184.)
 echo "── 3b. no STATE_DIR and no project at all → the pre-existing clear error (unchanged)"
-out="$(run "$TMP/nowhere" bash "$CLI" status)"; rc=$?
+out="$(run "$TMP/nowhere" bash "$CLI" stop)"; rc=$?
 TESTS_RUN=$((TESTS_RUN+1))
 if [[ $rc -ne 0 ]] && grep -qi "not inside a Harness project" <<<"$out"; then
   echo "  ok: outside any project the original error still fires"

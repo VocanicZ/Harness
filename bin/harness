@@ -72,7 +72,7 @@ usage: harness <command> [args]
   init                 interactive setup wizard (writes config, creates labels, seeds repo)
   start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
   stop  [--clean]      stop the pool (--clean also removes worktrees)
-  status [--watch [s]] dashboard
+  status [--watch [s]] [--all]  dashboard (outside a project, or --all: every fleet on this host)
   doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
@@ -128,7 +128,16 @@ case "$cmd" in
   # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.
   start)  require_state_dir; exec bash "$ENGINE_DIR/scripts/start.sh" "$@";;
   stop)   require_state_dir; exec bash "$ENGINE_DIR/scripts/stop.sh" "$@";;
-  status) require_state_dir; exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
+  # status outside any project (or --all from anywhere) is the HOST view — every registered fleet,
+  # read from $HARNESS_FLEETS_DIR — instead of the not-inside-a-project error (#184). Inside a
+  # project it is unchanged; --watch passes through to whichever view runs.
+  status)
+    if [[ " $* " == *" --all "* ]]; then
+      _sa=(); for _x in "$@"; do [[ "$_x" == --all ]] || _sa+=("$_x"); done
+      exec python3 "$ENGINE_DIR/scripts/fleetview.py" ${_sa[@]+"${_sa[@]}"}
+    fi
+    [[ -n "${STATE_DIR:-}" ]] || discover_state_dir >/dev/null || exec python3 "$ENGINE_DIR/scripts/fleetview.py" "$@"
+    require_state_dir; exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
   doctor) require_state_dir; exec bash "$ENGINE_DIR/scripts/doctor.sh" "$@";;
   attach) require_state_dir; exec bash "$ENGINE_DIR/scripts/attach.sh" "$@";;
   pause)  require_state_dir; exec bash "$ENGINE_DIR/scripts/pause.sh" "$@";;
