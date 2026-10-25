@@ -152,6 +152,12 @@ python3 "$ISSUELIB" complete acme/widget >/dev/null 2>&1
 assert_no "an unnamed 403 with no readable budget holds nothing" gh_rate_held
 mkdir -p "$RATE_DIR"; echo '{garbled' > "$RATE_DIR/gh-auth.hold"
 assert_no "a garbled hold file is no hold" gh_rate_held
+# a reader that exits 0 with no epoch / no budget line (a stubbed python3) holds nothing
+python3(){ return 0; }
+assert_no "an empty rate-held answer is no hold" gh_rate_held
+assert_eq "$(gh_rate_wait; echo returned)" "returned" "gh_rate_wait does not spin on an empty answer"
+assert_no "an empty rate-low answer is not a low budget" gh_budget_low
+unset -f python3
 
 # ── D: harness status — each token's budget, reset, and hold ──────────────────
 fresh; reset=$(( $(date +%s) + 3600 )); rate 900 4500 "$reset"

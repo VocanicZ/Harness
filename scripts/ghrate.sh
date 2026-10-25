@@ -11,8 +11,9 @@
 #      live agents. In-flight sessions are never touched by either.
 # The token, not the CLI, is what is limited, so this is the same for every HARNESS_CLI.
 
-# gh_rate_held — print this token's hold reset epoch; true while a hold is open.
-gh_rate_held(){ python3 "$ISSUELIB" rate-held 2>/dev/null; }
+# gh_rate_held — print this token's hold reset epoch; true while a hold is open. Anything but an
+# epoch on stdout is no hold: a wedged or stubbed reader must never park the dispatcher.
+gh_rate_held(){ local r; r="$(python3 "$ISSUELIB" rate-held 2>/dev/null)" && [[ "$r" =~ ^[0-9]+$ ]] && echo "$r"; }
 
 # gh_rate_wait [fn] — while a hold is open, sleep until its reset, running <fn> (gh-free work, e.g.
 # watchdog_team) every POLL seconds meanwhile. The hold is re-read each round, so one another worker
@@ -37,6 +38,7 @@ gh_budget_low(){ local low res rem lim reset
   low="$(python3 "$ISSUELIB" rate-low "$HARNESS_GH_BUDGET_PCT" "$HARNESS_GH_RATE_TTL" 2>/dev/null)" \
     || { _GH_LOW_LOGGED=""; return 1; }
   IFS=$'\t' read -r res rem lim reset <<< "$low"
+  [[ -n "$res" && "$rem$lim$reset" =~ ^[0-9]+$ ]] || { _GH_LOW_LOGGED=""; return 1; }   # not a budget line
   if [[ "${_GH_LOW_LOGGED:-}" != "$res:$reset" ]]; then
     _GH_LOW_LOGGED="$res:$reset"
     log "github $res budget low ($rem/$lim < ${HARNESS_GH_BUDGET_PCT}%) — no new claims, polling every $(( POLL * 2 ))s until $(date -d "@$reset" '+%H:%M' 2>/dev/null || echo "$reset") (#183)"
