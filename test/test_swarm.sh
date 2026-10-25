@@ -79,6 +79,10 @@ for o in "$FAKE_SWARM_STATE/acme-widgets-7-baseline/outs/"*; do
 done
 assert_eq "$(cat "$T/out")" "3 files, 0 failing" "green prints the merge summary"
 
+rc="$(RUN_DIR= STATE_DIR="$T/state dir" run_suite "$WT" fallback test/test_ok.sh)"
+assert_eq "$rc" 0 "no RUN_DIR in the env → still runs"
+assert_ok "no RUN_DIR → job dir under \$STATE_DIR/run/swarm" test -f "$T/state dir/run/swarm/fallback/swarm.toml"
+
 echo "-- red job: failing files printed, exit 1"
 rc="$(run_suite "$WT" red test/test_ok.sh test/test_red.sh)"
 assert_eq "$rc" 1 "a failing file → exit 1"
