@@ -46,6 +46,12 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
        git worktree remove --force /tmp/hz-baseline-{{ISSUE}}
      Then run the suite on your branch. The bar is NO NEW FAILURES vs that baseline plus your own
      tests green.
+     ON SWARM — this fleet runs HARNESS_SWARM=`{{SWARM}}`. When that is `auto`, run both suites (the
+     baseline in /tmp/hz-baseline-{{ISSUE}}, then your branch in "$PWD") as swarm jobs instead:
+       {{SWARM_SUITE}} <worktree> {{SLUG}}-{{ISSUE}}-<baseline|final> [test files...]
+     Exit `0` green · `1` red (the failing files are printed — compare them against the baseline
+     exactly as you would a local run) · `3` not run on swarm (swarm absent, off, or timed out) →
+     run that suite locally as above. The NO NEW FAILURES bar is the same either way.
    Never delete, skip, or weaken a test to go green, and never clear the uncovered report by
    deleting the code it points at.
 5. Commit, push, open/refresh the PR:

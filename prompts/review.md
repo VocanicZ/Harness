@@ -34,7 +34,11 @@ Both are parsed by the engine, not decoration, and getting either wrong wedges t
 
 PHASE 1 — CRITERIA GATE (always).
 1. Read PRD #{{PRD}} and its `## Acceptance criteria`.  gh issue view {{PRD}} -R {{SLUG}}
-2. Review the implemented code against EVERY acceptance criterion. Run the test suite. Spawn a
+2. Review the implemented code against EVERY acceptance criterion. Run the test suite — when
+   this fleet's HARNESS_SWARM (`{{SWARM}}`) is `auto`, as a swarm job:
+     {{SWARM_SUITE}} "$PWD" {{SLUG}}-prd{{PRD}}-review
+   Exit `0` green · `1` red (the failing files are printed) · `3` not run on swarm (swarm absent,
+   off, or timed out) → run the suite locally. Spawn a
    review sub-agent for a thorough pass (correctness, edge cases, the criteria the spec
    set for {{PROJECT}} — e.g. go/no-go gate numbers if this is a spike).
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in

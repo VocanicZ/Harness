@@ -75,6 +75,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_SECURITY_AUDIT_ROUNDS:=2}"  # security audit: rounds with filed findings before the reviewer concedes
 : "${HARNESS_SEED_CI:=0}"               # 1 = seed.sh commits a CI workflow + CI-requiring branch protection to unit repos; 0 = off
 : "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
+: "${HARNESS_SWARM:=auto}"               # #202: auto = lanes run full-suite verification as a swarm job when `swarm` is on PATH; off = always local
 
 export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
   HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
@@ -84,7 +85,7 @@ export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNE
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
-  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL
+  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -1188,6 +1189,10 @@ fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
     [[ "$(dirname "$prj")" == "$dir" ]] && { printf '%s\n' "$slugs"; return 0; }
   done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
   printf '\n'; }
+# swarm_suite_cmd — the full-suite-on-swarm helper as one shell-quoted command, rendered into the lane
+# prompts as {{SWARM_SUITE}} (#202). It carries the fleet's mode and run dir explicitly: a Claude
+# session does not inherit this process's environment, so it cannot be left to find them itself.
+swarm_suite_cmd(){ printf 'HARNESS_SWARM=%q RUN_DIR=%q bash %q' "$HARNESS_SWARM" "$RUN_DIR" "$ENGINE_DIR/scripts/swarm-suite.sh"; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re
 tmpl = open(sys.argv[1]).read()
