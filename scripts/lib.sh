@@ -466,16 +466,22 @@ orch_worktree(){ echo "$WORKTREES_DIR/orch-$(printf '%s' "$1" | tr '/' '_')-p$2"
 # base refs under their scratchpad, /tmp/claude-<uid>/<wd with every non-alnum as '-'>/…. Each is a
 # full checkout that nothing else ever removes (72 of them, 12.9 GB, piled up on one fleet host).
 # Removes every worktree of <checkout> in either place, plus its throwaway worktree-* branch.
-remove_session_worktrees(){ local checkout="$1" wd="$2" san p b
+# Then the scratch itself (#180): the session's Claude Code scratch dir, and the /tmp/hz-*-<n> base
+# checkouts the lane prompts make for issue <n> (resume.md). /tmp is a tmpfs on fleet hosts, so what
+# is left there is RAM — 17 finished sessions' dirs plus a 2.4 GB go-build cache on one host.
+# HARNESS_TMP_ROOT is the test seam for /tmp.
+remove_session_worktrees(){ local checkout="$1" wd="$2" san p b n tmp="${HARNESS_TMP_ROOT:-/tmp}"
   [[ -n "$wd" ]] || return 0
   san="$(printf '%s' "$wd" | sed 's/[^A-Za-z0-9]/-/g')"
+  n=""; [[ "$wd" =~ -i([0-9]+)$ ]] && n="${BASH_REMATCH[1]}"
   while IFS=$'\t' read -r p b; do
-    case "$p" in "$wd"/*|*/claude-*/"$san"/*) ;; *) continue ;; esac
+    case "$p" in "$wd"/*|*/claude-*/"$san"/*) ;; "$tmp"/hz-*-"$n") [[ -n "$n" ]] || continue ;; *) continue ;; esac
     git -C "$checkout" worktree remove --force --force "$p" 2>/dev/null || rm -rf "$p"
     [[ "$b" == worktree-* ]] && git -C "$checkout" branch -D "$b" >/dev/null 2>&1
   done < <(git -C "$checkout" worktree list --porcelain 2>/dev/null | awk '
     /^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)}
     /^$/{if(p!="")print p"\t"b; p=b=""} END{if(p!="")print p"\t"b}')
+  rm -rf "$tmp/claude-$(id -u)/$san"
   return 0; }
 # remove_worktree <checkout> <wd> [branch] — best-effort teardown of one worktree (+ optional local
 # branch), then prune the registration. Tolerates a missing worktree/branch (idempotent). Falls

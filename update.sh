@@ -25,6 +25,12 @@ echo "  engine updated at $ENGINE_DIR — every project picks it up immediately.
 HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
 ensure_rtdd
 
+# harness supervise (#180): an installed unit is rewritten and restarted from THIS engine, so the
+# long-running supervisor loop never keeps running the code the pull just replaced.
+if [[ -f "$ENGINE_DIR/scripts/supervise.sh" ]] && ( source "$ENGINE_DIR/scripts/supervise.sh"; sup_installed ); then
+  bash "$ENGINE_DIR/scripts/supervise.sh" --install || echo "WARNING: redeploying harness supervise failed" >&2
+fi
+
 # optional host-level plugin/skill refresh (reuse install.sh's ensure_skills + the /harness skill
 # deploy). The engine was just ff-pulled, so redeploy its /harness skills to user scope from THIS
 # engine — otherwise an engine update leaves stale ~/.claude/skills copies behind.
