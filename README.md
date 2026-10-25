@@ -141,6 +141,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
 | `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `1` | `1` = hold new dispatch while the default branch's own CI is red (live sessions drain; the bug lane is never gated); `0` = off. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally. See [Never merging red](#never-merging-red) |
+| `HARNESS_SWARM` | `auto` | `auto` = when [swarm](https://github.com/VocanicZ/swarm) is on `PATH`, lanes run their full-suite verification (the FULL-SUITE BAR baseline + final run, review's suite run) as a swarm job; `off` = always local. No swarm installed → exactly the local behaviour. See [Offloading tests to swarm](#offloading-tests-to-swarm) |
 | `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). Repos that already have CI are unaffected either way |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
 | `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
@@ -330,6 +331,45 @@ writes its run into `.harness/security-audit/<unit>/p<prd>/r<round>/`.
 Round markers — this one and the gauntlet's — only count when the fleet's own GitHub login wrote
 them. Anyone who can comment on a PRD can post the marker text, so an outsider's copy is ignored
 and can never push a review past its cap.
+
+## Offloading tests to swarm
+
+A lane's full suite — the FULL-SUITE BAR baseline and final run in `impl.md` / `bug-fix.md`, the
+same pair in `resume.md` (including its baseline worktree), and review's "Run the test suite" — can
+run as a [swarm](https://github.com/VocanicZ/swarm) job on the coordinator and spare machines
+instead of in the lane's own session. With `HARNESS_SWARM=auto` (the default) the prompts call:
+
+```bash
+scripts/swarm-suite.sh <worktree> <job-name> [test files...]
+```
+
+| Exit | Meaning | The lane then… |
+|---|---|---|
+| `0` | every test file passed | treats the run as green |
+| `1` | red — each failing file is printed with its shard's `output.log` dir | compares the failures against the baseline, as for a local run |
+| `3` | not run on swarm: no `swarm` on `PATH`, `HARNESS_SWARM=off`, the job timed out (it is cancelled), or the job failed with no failing file listed | runs the suite locally, exactly as today |
+
+The bar itself does not change: **no new failures vs the baseline**, wherever the suite ran.
+
+How the job is built (the [swarm.toml contract](https://github.com/VocanicZ/swarm/blob/main/skill/SKILL.md)):
+
+- The job dir is `$RUN_DIR/swarm/<job-name>/` — never inside the worktree, which is the job's
+  `workdir` and is tarred at submit.
+- **One shard per test file.** No files named → every tracked `test_*` / `*_test` `.sh`/`.py` file.
+  Shard ids are the path with every byte outside `[A-Za-z0-9.-]` escaped as `_` + 3 octal digits,
+  so `test/sub dir/test_a.sh` becomes `test_057sub_040dir_057test_137a.sh` — valid for swarm, and
+  decodable by the shard itself on a worker that cannot read the job dir. `shards.tsv` in the job
+  dir maps each id back to its path.
+- `run` executes that one file — `bash` for `.sh`, `python3` for a `.py` with a `__main__` block,
+  `pytest` otherwise, or `HARNESS_SWARM_TEST_CMD` (`{file}`, optional `{junit}`) — and writes
+  `status`, `output.log` and `junit.xml` into `{out}`. It always exits 0: a red file is a finished
+  shard, not one to retry; a shard stopped mid-test has no `status` yet and reruns that file.
+- `merge` writes `failures.txt` (file, status, out dir) and `summary.txt`, and exits 1 when any file
+  failed — which is what `swarm wait` reports.
+- `HARNESS_SWARM_TIMEOUT` (default `1800`) is the `swarm wait` budget in seconds.
+
+A lane already running keeps the prompt it was rendered with; a host without swarm never sees a
+difference.
 
 ## Commands
 

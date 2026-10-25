@@ -73,6 +73,13 @@ Steps:
    FAILURES vs that baseline, plus your regression test green. Never a globally green suite: real repos
    carry pre-existing reds, and an agent told "all green required" will either chase them forever or
    edit tests until they pass.
+   ON SWARM — this fleet runs HARNESS_SWARM=`{{SWARM}}`. When that is `auto`, run each of those
+   full-suite runs (the baseline and the final one) as a swarm job instead of locally:
+     {{SWARM_SUITE}} <worktree> {{SLUG}}-{{ISSUE}}-<baseline|final> [test files...]
+   (<worktree> is this one, "$PWD".) Exit `0` green · `1` red (the failing files are printed —
+   compare them against the baseline exactly as you would a local run) · `3` not run on swarm
+   (swarm absent, off, or timed out) → run that suite locally as above. The NO NEW FAILURES bar is
+   the same either way.
    Never delete, skip, or weaken a test to go green, and never edit a test so the uncovered report
    clears. If a pre-existing failure genuinely blocks the fix, say so in an issue comment and route
    around it.

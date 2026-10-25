@@ -85,7 +85,7 @@ render "$HERE/../prompts/bug-fix.md" \
   ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
   PROMISE='BUG 42 fix DONE' \
   LABEL_READY=ready-for-agent LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
-  LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged > "$FIX"
+  LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" > "$FIX"
 
 assert_ok "fix: implements the refined bug-triaged issue" \
   grep -qi 'bug-triaged' "$FIX"
