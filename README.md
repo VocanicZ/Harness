@@ -347,6 +347,7 @@ harness <command>
 | `attach <unit> [issue]` | tmux-attach to a running session |
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
 | `poll [--once\|--status]` | Host-level debug entry to the shared snapshot poller. `--once` refreshes every registered repo once; `--status` reports the poller pid + registered slugs/cadences. Normal operation needs no manual `poll` — workers self-heal it (see [Host poller](#host-poller)) |
+| `supervise [--once] [--dry-run]` | Host-level supervisor for **every fleet on the host**: restarts dead pool/priority workers, clears orphaned `agent-working` locks, and nudges — then checkpoints to GitHub and kills — sessions frozen at their prompt. `--install` / `--uninstall` manage its systemd user unit. See [Host supervisor](#host-supervisor) |
 | `plan "<brief>"` | Inject a plan/topology change (PLAN.md / `targets.tsv`, incl. seeding a new target repo) into a **live** fleet. Grill via [`/harness-plan`](#per-command-shortcuts) |
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
@@ -431,6 +432,64 @@ Each checkpoint and resume is appended to `~/.harness/events.jsonl` as a `usage_
 `usage_resume` event, and `harness status` shows every window, with `HOLD` on an account being
 waited out. New panes pick their account at launch, so a hold on any account holds every claim of
 the fleet.
+
+## Host supervisor
+
+Nothing inside a fleet can restart a worker that died, and a session frozen at its prompt holds its
+issue lock forever. `harness supervise` watches every fleet on the host from outside. It finds them
+in the fleet registry (`~/.harness/fleets`) plus `~/*/.harness`. A fleet that is `PAUSED`, or that has
+no worker pid files because it was stopped on purpose, is skipped. Each pass (every `INTERVAL`
+seconds):
+
+1. **Dead workers.** A pool or priority-lane pid file whose process is gone → `harness start` for
+   that fleet.
+2. **Orphan locks.** An open `agent-working` issue with no live `<prefix>-*` session, labelled more
+   than `LOCK_GRACE` seconds ago → the label is removed with a comment, and the pool re-dispatches it.
+3. **Frozen sessions.** A pane is *active* if, since the last pass, the text above its input prompt
+   changed, a background-agent or shell timer in the footer moved, or its process tree used more than
+   `CPU_ACTIVE_S` CPU seconds (long builds and tests count). After `NUDGE_MIN` minutes with no
+   activity, the supervisor clears the input line and sends one nudge, at most once per `RENUDGE_S`.
+   If the nudge is ignored and the pane stays quiet until `KILL_MIN`, the session's work is
+   checkpointed and the session is killed, so the pool reaps and re-dispatches it:
+   - WIP in its worktree is committed (`--no-verify`, never `.claude/` or `.harness-task.md`) and
+     pushed to its branch. If that branch has diverged, it goes to `<branch>-checkpoint-<ts>`
+     instead. Nothing is ever force-pushed.
+   - A `<!-- harness-handoff … -->` comment with the last screen is posted, and the relaunch resumes
+     from it.
+   - **If nothing can be pushed, the session is not killed.** An `ERROR` is logged for a human.
+
+   The supervisor only types into an idle input prompt, never into a dialog or menu. It leaves alone
+   any pane showing a usage, credit or rate-limit message. The prompt patterns come from each CLI
+   (`claude`, `agy`).
+4. **Other agent panes.** Agent panes outside Harness, whose tmux session matches `EXTRA_RE`, get the
+   same activity test after `EXTRA_MIN` minutes. They are nudged only, never killed, because nothing
+   re-dispatches them.
+5. **Offline host.** While `ONLINE_URL` is unreachable, every action is held. When the network
+   returns, every pane is re-armed for an immediate nudge.
+
+Every action is logged to `~/.harness/supervise.log`. `harness supervise --once --dry-run` previews a
+pass without acting. Knobs are bash assignments in `~/.harness/supervise.conf`:
+
+| Knob | Default | |
+|------|---------|-|
+| `INTERVAL` | `300` | seconds between passes |
+| `LOCK_GRACE` | `1200` | seconds an orphaned `agent-working` label must age before it is cleared |
+| `NUDGE_MIN` / `KILL_MIN` | `45` / `120` | quiet minutes before the nudge / the checkpoint-and-kill |
+| `RENUDGE_S` | `10800` | at most one nudge per pane in this many seconds |
+| `CPU_ACTIVE_S` | `10` | CPU seconds per pass that count as activity |
+| `EXTRA_RE` / `EXTRA_MIN` | empty / `60` | tmux session regex for non-Harness agent panes, e.g. `'^hg2(-loops)?$'` |
+| `ONLINE_URL` | `https://api.anthropic.com` | reachability probe for the offline hold |
+
+`harness supervise --install` writes and starts the systemd user unit `harness-supervise.service`
+(`Restart=always`, `KillMode=process` so a restart never takes down the fleets it started) and
+enables linger, so the unit keeps running after you log out. The unit's `PATH` holds the directories
+of `claude`, `agy`, `gh`, `rtdd`, `tmux` and `git` as found at install time. A missing `rtdd` is
+warned about, because without it every relaunched lane falls back to the full test suite.
+`harness update` rewrites and restarts an installed unit from the updated engine. `harness
+supervise --uninstall`, or uninstalling the engine, removes it.
+
+When a session's worktree is reaped, its scratch goes too: its Claude Code scratch dir
+(`/tmp/claude-<uid>/<worktree path>`) and the `/tmp/hz-*-<issue>` base checkouts the lane prompts make.
 
 ## Host poller
 

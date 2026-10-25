@@ -149,6 +149,10 @@ main(){
     echo "  Preserving $SHARED_ENGINE and the 'harness' PATH link ($PATH_LINK)."
     echo "  Re-run with --force-engine to remove them anyway."
   else
+    # the supervisor unit runs FROM the engine: remove it first, or systemd restarts a missing script forever.
+    if [[ -f "$ENGINE_DIR/scripts/supervise.sh" ]] && ( source "$ENGINE_DIR/scripts/supervise.sh"; sup_installed ); then
+      bash "$ENGINE_DIR/scripts/supervise.sh" --uninstall
+    fi
     remove_engine
     remove_path_link
   fi
