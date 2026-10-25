@@ -56,6 +56,7 @@ render_once(){
   echo "  FLEET: $verdict"
   echo "  pool=$POOL  cap=$CAP/worker  poll=${POLL}s   units: $done_n/$all_n complete   $(date '+%H:%M:%S')"
   usage_report   # #194: each account's usage windows, and any checkpoint hold
+  gh_rate_report   # #183: each GitHub token's remaining budget, reset time, and any rate-limit hold
   echo "───────────────────────────────────────────────────────────────────"
 
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes

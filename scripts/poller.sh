@@ -53,6 +53,7 @@ case "$mode" in
     trap 'rm -f "$POLLER_PID"' EXIT
     declare -A LAST=()
     while :; do
+      gh_rate_wait   # #183: a rate-limited snapshot read holds the token — refresh nothing until the reset
       mapfile -t slugs < <(poller_registry_slugs)
       # Empty registry → nothing references any repo (refcount 0): idle/exit. A returning fleet's
       # worker tick calls ensure_poller, which relaunches us.

@@ -71,6 +71,166 @@ def _looks_transient(stderr):
     return any(s in e for s in sigs)
 
 
+# ── GitHub rate-limit awareness (#183) ──────────────────────────────────────────────────────────
+# Every fleet on a host — and every agent session in it — spends ONE token's budget, so a rate limit
+# used to mean a HOLD every poll: each retry spent more of the budget the agents needed to finish.
+# On a 403/429/rate-limit failure we now read the reset time (`gh api rate_limit`, which does not
+# count against the budget) and record a per-token HOLD under $HARNESS_HOME/ghrate; until that reset
+# every gh read in this module refuses BEFORE calling gh, and the bash dispatchers sleep until it
+# (lib.sh gh_rate_wait). The budget guard (rate-low) reads the same probe, cached so N workers
+# probing every poll cost one call per TTL. Engaged only when HARNESS_GH_RATE_GUARD=1 (lib.sh's
+# default), so a bare import — tests, one-off tooling — never writes host state.
+_RATE_RESOURCES = ("core", "graphql")
+_RATE_SIGS = ("rate limit", "rate-limit", "http 429", "too many requests")
+_SECONDARY_WAIT = 60   # a secondary limit names no reset; GitHub asks for at least a minute
+
+
+def _rate_guard():
+    return os.environ.get("HARNESS_GH_RATE_GUARD") == "1"
+
+
+def _rate_dir():
+    home = os.environ.get("HARNESS_HOME") or os.path.expanduser("~/.harness")
+    return os.environ.get("HARNESS_GH_RATE_DIR") or os.path.join(home, "ghrate")
+
+
+def _token_key():
+    """Which budget this process spends: an env token (by hash, never the token itself), else gh's
+    own stored login."""
+    tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    return "token-" + hashlib.sha256(tok.encode()).hexdigest()[:8] if tok else "gh-auth"
+
+
+def _rate_file(ext, key=None):
+    return os.path.join(_rate_dir(), f"{key or _token_key()}.{ext}")
+
+
+def _read_json(path):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, path)
+
+
+def rate_hold_until(key=None):
+    """The reset epoch of this token's open rate-limit hold, or None (no hold / it has passed)."""
+    if not _rate_guard():
+        return None
+    d = _read_json(_rate_file("hold", key))
+    reset = int(d.get("reset") or 0) if isinstance(d, dict) else 0
+    return reset if reset > time.time() else None
+
+
+def _rate_hold_check():
+    held = rate_hold_until()
+    if held:
+        raise GhError(f"rate limit hold until {held} — gh not called (#183)")
+
+
+def rate_limits():
+    """{resource: {limit, remaining, reset}} for core + graphql, from `gh api rate_limit`, and
+    refresh the probe cache. Raises GhError when the probe itself fails."""
+    try:
+        r = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True, timeout=30)
+    except Exception as e:
+        raise GhError("gh api rate_limit: %s" % e)
+    if r.returncode != 0:
+        raise GhError("gh api rate_limit exited %d: %s" % (r.returncode, (r.stderr or "").strip()[:200]))
+    try:
+        res = json.loads(r.stdout)["resources"]
+        out = {k: {f: int(res[k][f]) for f in ("limit", "remaining", "reset")}
+               for k in _RATE_RESOURCES if isinstance(res.get(k), dict)}
+    except (ValueError, KeyError, TypeError):
+        raise GhError("gh api rate_limit: unparseable output")
+    if _rate_guard():
+        _write_json(_rate_file("rate"), {"checked_at": int(time.time()), "resources": out})
+    return out
+
+
+def _cached_rate_limits(ttl):
+    d = _read_json(_rate_file("rate"))
+    if isinstance(d, dict) and time.time() - int(d.get("checked_at") or 0) < ttl:
+        res = d.get("resources") or {}
+        # a probe from before a reset describes a budget that has since refilled: re-read it
+        if all(isinstance(v, dict) and int(v.get("reset") or 0) > time.time() for v in res.values()):
+            return res
+    return rate_limits()
+
+
+def _record_rate_hold(stderr, header_reset=None):
+    """After a failed gh call: when it was a rate limit, hold this token's gh calls until the reset.
+    The reset is the response's own X-RateLimit-Reset when the read carried headers and its budget
+    was spent, else the exhausted resource's from `gh api rate_limit`; a limit that names itself
+    with budget left is a secondary limit (a minute's wait). A plain 403 with budget left is a
+    permission error, not a limit, and holds nothing."""
+    if not _rate_guard():
+        return
+    if str(header_reset or "").isdigit() and int(header_reset) > time.time():
+        _write_json(_rate_file("hold"), {"reset": int(header_reset), "resource": "header", "since": int(time.time())})
+        return
+    e = (stderr or "").lower()
+    named = any(s in e for s in _RATE_SIGS)
+    if not (named or "403" in e):
+        return
+    reset, resource = 0, ""
+    try:
+        for k, v in rate_limits().items():
+            if v["remaining"] <= 0 and v["reset"] > reset:
+                reset, resource = v["reset"], k
+    except GhError:
+        pass
+    if not reset:
+        if not named:
+            return
+        reset, resource = int(time.time()) + _SECONDARY_WAIT, "secondary"
+    _write_json(_rate_file("hold"), {"reset": reset, "resource": resource, "since": int(time.time())})
+
+
+def rate_budget_low(pct, ttl):
+    """(resource, remaining, limit, reset) of the first resource under pct% of its budget, else
+    None. Fail-open: a probe that fails reads as not low."""
+    try:
+        res = _cached_rate_limits(ttl)
+    except GhError:
+        return None
+    for k in _RATE_RESOURCES:
+        v = res.get(k)
+        if isinstance(v, dict) and v.get("limit") and v["remaining"] * 100 < pct * v["limit"]:
+            return k, v["remaining"], v["limit"], v["reset"]
+    return None
+
+
+def rate_report():
+    """One line per token seen on this host: each resource's remaining/limit and reset, plus HOLD.
+    Probes this process's token first, so the current one is never stale."""
+    try:
+        rate_limits()
+    except GhError:
+        pass
+    d = _rate_dir()
+    keys = sorted(f[:-5] for f in (os.listdir(d) if os.path.isdir(d) else []) if f.endswith(".rate"))
+    lines = []
+    for key in keys:
+        c = _read_json(_rate_file("rate", key)) or {}
+        res = c.get("resources") or {}
+        parts = [f"{k} {res[k]['remaining']}/{res[k]['limit']} resets "
+                 + time.strftime("%H:%M", time.localtime(res[k]["reset"]))
+                 for k in _RATE_RESOURCES if isinstance(res.get(k), dict)]
+        held = rate_hold_until(key)
+        hold = f"  HOLD until {time.strftime('%H:%M:%S', time.localtime(held))} (no gh calls)" if held else ""
+        lines.append(f"{key}: " + (", ".join(parts) or "no data") + hold)
+    return lines
+
+
 def _gh_json(args, allow_absent=False):
     """Run a gh command and parse JSON stdout. Returns the parsed value on success (which may be a
     legitimately empty [] / {} / null). Raises GhError on a transient/ambiguous failure so the caller
@@ -79,11 +239,13 @@ def _gh_json(args, allow_absent=False):
     the resource is genuinely missing, which is not an error — while a transient failure still raises.
     `gh issue list` is always allow_absent=False: an empty repo exits 0, so ANY non-zero is a real
     failure and must never be read as an empty issue set."""
+    _rate_hold_check()
     try:
         out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
     except Exception as e:
         raise GhError("gh %s: %s" % (" ".join(args), e))
     if out.returncode != 0:
+        _record_rate_hold(out.stderr)
         if allow_absent and not _looks_transient(out.stderr):
             return None
         raise GhError("gh %s exited %d: %s" % (" ".join(args), out.returncode, (out.stderr or "").strip()[:200]))
@@ -100,12 +262,14 @@ def _gh_api_read(path, jq):
     HTTP 404, the file isn't committed), and raises GhError only on a POSITIVELY transient failure
     (403 rate limit / 5xx / network) so a shared-token throttle is never mistaken for 'no plan'.
     (The --jq output is a raw scalar, not JSON, so this can't go through _gh_json.)"""
+    _rate_hold_check()
     try:
         r = subprocess.run(["gh", "api", path, "--jq", jq], capture_output=True, text=True, timeout=60)
     except Exception as e:
         raise GhError("gh api %s: %s" % (path, e))
     if r.returncode == 0:
         return r.stdout
+    _record_rate_hold(r.stderr)
     if _looks_transient(r.stderr):
         raise GhError("gh api %s exited %d: %s" % (path, r.returncode, (r.stderr or "").strip()[:200]))
     return None
@@ -472,6 +636,7 @@ def _gh_api_cond(path, etag=None):
     args = ["api", "-i", path]
     if etag:
         args += ["-H", f"If-None-Match: {etag}"]
+    _rate_hold_check()
     try:
         r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
     except Exception as e:
@@ -481,6 +646,10 @@ def _gh_api_cond(path, etag=None):
         return 304, headers, None
     if r.returncode == 0 and status is not None and 200 <= status < 300:
         return status, headers, body
+    if status in (403, 429) or r.returncode != 0:
+        # #183: this read carries the response headers, so a spent budget names its own reset
+        _record_rate_hold(r.stderr if status is None else f"HTTP {status} {r.stderr or ''}",
+                          headers.get("x-ratelimit-reset") if headers.get("x-ratelimit-remaining") == "0" else None)
     if (status is not None and (status == 429 or status >= 500 or
                                 (status == 403 and "0" == headers.get("x-ratelimit-remaining", "")))) \
             or _looks_transient(r.stderr):
@@ -927,6 +1096,22 @@ def main():
         path = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("HARNESS_SNAPSHOT_FILE", "")
         refresh = int(sys.argv[3]) if len(sys.argv) > 3 else 0
         sys.exit(0 if _snapshot_fresh(path, refresh) else 1)
+    # #183 GitHub budget commands; none takes a repo (a budget is per token, not per repo).
+    #   rate-held             print the hold's reset epoch, exit 0 while held; exit 1 otherwise
+    #   rate-low <pct> [ttl]  print `<resource>\t<remaining>\t<limit>\t<reset>`, exit 0 when under pct%
+    #   rate-report           one line per token: remaining budget, reset time, HOLD
+    if cmd == "rate-held":
+        held = rate_hold_until()
+        if held: print(held)
+        sys.exit(0 if held else 1)
+    if cmd == "rate-low":
+        low = rate_budget_low(int(sys.argv[2]) if len(sys.argv) > 2 else 20,
+                              int(sys.argv[3]) if len(sys.argv) > 3 else 60)
+        if low: print("\t".join(str(x) for x in low))
+        sys.exit(0 if low else 1)
+    if cmd == "rate-report":
+        for line in rate_report(): print(line)
+        return
     if len(sys.argv) < 3: print(__doc__); sys.exit(2)
     repo = sys.argv[2]
     # Any gh-touching command HOLDS on a transient gh failure: GhError → print nothing to stdout and

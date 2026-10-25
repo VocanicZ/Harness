@@ -94,6 +94,7 @@ reap_lane(){ local repo slug n
 bug_tick(){ local wid="$1" ref
   if is_paused; then return 3; fi
   if usage_held; then return 3; fi   # #194: near a usage limit — no new bug claims until the window resets
+  if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — no new bug claims, half-rate polls
   ref="$(claim_next_bug "$wid")"
   if [[ -z "$ref" ]]; then return 1; fi
   log "priority $wid claimed bug $ref"; drive_bug "$ref"; release_bug_claim "$ref"; log "priority $wid released bug $ref"; return 0; }
@@ -112,11 +113,13 @@ bug_step(){ local wid="$1"
     [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
     sleep "$PRIORITY_POLL"; return 4
   fi
+  gh_rate_wait   # #183: rate-limited — sleep until the reset before reap_lane's gh reads/writes
   reap_lane; usage_watch; bug_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     1) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "no bugs — idle, watching"; _IDLE_LOGGED=1; }
        sleep "$PRIORITY_POLL" ;;
+    5) sleep "$(( PRIORITY_POLL * 2 ))" ;;
     *) sleep "$PRIORITY_POLL" ;;
   esac
   return "$rc"; }

@@ -19,6 +19,7 @@ HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HA
   HARNESS_LABEL_BUG_TRIAGED HARNESS_MAIN_REPO HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER
   HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI
   HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE
+  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL
   HARNESS_CLI HARNESS_AGY_BIN HARNESS_AGY_FLAGS"
 
 # unset_inherited_config — drop a LIVE fleet's config out of the environment.
@@ -55,6 +56,9 @@ make_env(){
   # is shared by every co-resident fleet, so fixture entries there make `harness start` abort a real
   # fleet on a bogus prefix collision. Same seam, different root.
   export HARNESS_HOME="$RUN_DIR/host"
+  # #183: the rate-limit guard probes `gh api rate_limit` from issuelib — a real network call from a
+  # test with no stubbed gh binary. Off by default; test_ghrate.sh turns it on against its stub.
+  export HARNESS_GH_RATE_GUARD=0
   # The host FLEET registry is the same seam one notch worse (lib.sh:99-100): it too prefers an
   # inherited value over the HARNESS_HOME just set and is exported by every fleet process, but its
   # entries are DELETED by `doctor --fix` (test_doctor.sh calls doctor_main --fix before its own

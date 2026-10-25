@@ -2,6 +2,10 @@ import importlib.util, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("issuelib", os.path.join(HERE, "..", "scripts", "issuelib.py"))
 il = importlib.util.module_from_spec(spec); spec.loader.exec_module(il)
+# #183: the rate-limit guard writes host state ($HARNESS_HOME/ghrate) on a rate-limited gh read, and
+# several tests below simulate exactly that. A live fleet exports HARNESS_GH_RATE_GUARD=1 to every
+# session, so drop it: only the #183 tests turn it on, against a throwaway dir.
+os.environ.pop("HARNESS_GH_RATE_GUARD", None)
 _REAL_COMPUTE_STATE = il.compute_state   # tests that stub compute_state must restore this
 
 # Other tests monkeypatch il._spec_hash without restoring it; keep a handle to the real one so the
@@ -1843,6 +1847,183 @@ def test_rest_to_gh_issue_maps_bots_and_nulls():
                               "user": {"login": "dependabot[bot]", "type": "Bot"}, "updated_at": "2026-01-01T00:00:00Z"})
     assert g["state"] == "CLOSED" and g["body"] == "" and g["author"]["login"] == "app/dependabot", g
     assert g["labels"][0]["name"] == "bug" and g["updatedAt"] == "2026-01-01T00:00:00Z", g
+
+# ── #183: rate-limit-aware dispatch ─────────────────────────────────────────────────────────────
+import contextlib as _ctx, io as _io, json as _json, tempfile as _tempfile, time as _time
+
+@_ctx.contextmanager
+def _rate_env(responses):
+    """Guard on, a throwaway rate dir, no env token, and a fake subprocess.run: `gh api rate_limit`
+    answers responses["rate"] (a dict → JSON, a string → raw stdout, None → exit 1, an Exception →
+    raised); anything else answers responses["err"] (stderr, exit 1) or `[]`. Yields the call log."""
+    calls = []
+    def run(argv, **k):
+        calls.append(list(argv))
+        if argv[1:3] == ["api", "rate_limit"]:
+            r = responses.get("rate")
+            if isinstance(r, Exception): raise r
+            if r is None: return il.subprocess.CompletedProcess(argv, 1, "", "boom")
+            return il.subprocess.CompletedProcess(argv, 0, r if isinstance(r, str) else _json.dumps(r), "")
+        if argv[1:3] == ["api", "-i"] and "cond" in responses:
+            out, rc = responses["cond"]
+            return il.subprocess.CompletedProcess(argv, rc, out, responses.get("err", ""))
+        if responses.get("err"):
+            return il.subprocess.CompletedProcess(argv, 1, "", responses["err"])
+        return il.subprocess.CompletedProcess(argv, 0, "[]", "")
+    saved = {k: os.environ.get(k) for k in ("HARNESS_GH_RATE_GUARD", "HARNESS_GH_RATE_DIR", "GH_TOKEN", "GITHUB_TOKEN")}
+    real = il.subprocess.run
+    os.environ.update(HARNESS_GH_RATE_GUARD="1", HARNESS_GH_RATE_DIR=_tempfile.mkdtemp())
+    os.environ.pop("GH_TOKEN", None); os.environ.pop("GITHUB_TOKEN", None)
+    il.subprocess.run = run
+    try:
+        yield calls
+    finally:
+        il.subprocess.run = real
+        for k, v in saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+
+def _budget(core, graphql, reset):
+    return {"resources": {"core": {"limit": 5000, "remaining": core, "reset": reset},
+                          "graphql": {"limit": 5000, "remaining": graphql, "reset": reset}}}
+
+def _raises_gh(fn):
+    try: fn()
+    except il.GhError as e: return str(e)
+    raise AssertionError("expected GhError")
+
+def test_rate_limit_holds_until_reset_and_refuses_gh():
+    reset = int(_time.time()) + 100
+    with _rate_env({"rate": _budget(0, 4000, reset), "err": "gh: API rate limit exceeded (HTTP 403)"}) as calls:
+        _raises_gh(lambda: il._gh_json(["issue", "list"]))
+        assert il.rate_hold_until() == reset, "the hold carries the exhausted resource's reset"
+        n = len(calls)
+        assert "gh not called" in _raises_gh(lambda: il._gh_json(["issue", "list"]))
+        assert "gh not called" in _raises_gh(lambda: il._gh_api_read("repos/x/contents/PLAN.md", ".sha"))
+        assert len(calls) == n, "a held read never calls gh"
+
+def test_conditional_read_holds_on_its_own_reset_header():
+    reset = int(_time.time()) + 200
+    spent = (f"HTTP/2.0 403 Forbidden\r\nX-Ratelimit-Remaining: 0\r\nX-Ratelimit-Reset: {reset}\r\n\r\n{{}}", 1)
+    with _rate_env({"cond": spent, "rate": _budget(4000, 4000, reset + 999)}) as calls:
+        _raises_gh(lambda: il._gh_api_cond("repos/acme/widget/issues"))
+        assert il.rate_hold_until() == reset, "the response's X-RateLimit-Reset is the hold"
+        assert ["gh", "api", "rate_limit"] not in calls, "a reset header needs no probe"
+        n = len(calls)
+        assert "gh not called" in _raises_gh(lambda: il._gh_api_cond("repos/acme/widget/issues", "W/x"))
+        assert len(calls) == n
+    with _rate_env({"cond": ("HTTP/2.0 404 Not Found\r\n\r\n{}", 1)}):
+        assert il._gh_api_cond("repos/acme/widget/issues")[0] == 404
+        assert il.rate_hold_until() is None, "a 404 holds nothing"
+    with _rate_env({"cond": ("", 1), "err": "gh: API rate limit exceeded (HTTP 403)",
+                    "rate": _budget(0, 4000, reset)}):
+        _raises_gh(lambda: il._gh_api_cond("repos/acme/widget/issues"))
+        assert il.rate_hold_until() == reset, "no response headers: the probe's reset"
+
+def test_api_read_rate_limit_records_hold():
+    reset = int(_time.time()) + 100
+    with _rate_env({"rate": _budget(4000, 0, reset), "err": "HTTP 429: too many requests"}):
+        _raises_gh(lambda: il._gh_api_read("repos/x/contents/PLAN.md", ".sha"))
+        assert il.rate_hold_until() == reset
+
+def test_secondary_limit_holds_a_minute():
+    with _rate_env({"rate": _budget(4000, 4000, int(_time.time()) + 3600),
+                    "err": "You have exceeded a secondary rate limit (HTTP 403)"}):
+        _raises_gh(lambda: il._gh_json(["issue", "list"]))
+        held = il.rate_hold_until(); now = _time.time()
+        assert held and now + 55 <= held <= now + 61, held
+
+def test_non_limit_failures_hold_nothing():
+    for err, rate in (("HTTP 403: Resource not accessible by integration", _budget(4000, 4000, int(_time.time()) + 3600)),
+                      ("HTTP 403: forbidden", None),
+                      ("HTTP 403: forbidden", RuntimeError("no gh")),
+                      ("HTTP 403: forbidden", "not json"),
+                      ("gh: Not Found (HTTP 404)", None)):
+        with _rate_env({"rate": rate, "err": err}):
+            try: il._gh_json(["issue", "view", "1"], allow_absent=True)
+            except il.GhError: pass   # a 403 is transient to the reader either way; only the hold is under test
+            assert il.rate_hold_until() is None, (err, rate)
+
+def test_rate_guard_off_records_and_refuses_nothing():
+    with _rate_env({"rate": _budget(0, 0, int(_time.time()) + 100), "err": "API rate limit exceeded"}) as calls:
+        os.environ["HARNESS_GH_RATE_GUARD"] = "0"
+        _raises_gh(lambda: il._gh_json(["issue", "list"]))
+        assert not os.listdir(os.environ["HARNESS_GH_RATE_DIR"]), "guard off: no host state written"
+        assert il.rate_hold_until() is None
+        assert ["gh", "api", "rate_limit"] not in calls, "guard off: no probe on a failure"
+
+def test_expired_or_garbled_hold_is_no_hold():
+    with _rate_env({}):
+        il._write_json(il._rate_file("hold"), {"reset": int(_time.time()) - 1})
+        assert il.rate_hold_until() is None
+        with open(il._rate_file("hold"), "w") as fh: fh.write("{garbled")
+        assert il.rate_hold_until() is None
+
+def test_rate_budget_low_thresholds_and_cache():
+    reset = int(_time.time()) + 3600
+    resp = {"rate": _budget(900, 4000, reset)}
+    with _rate_env(resp) as calls:
+        assert il.rate_budget_low(20, 60) == ("core", 900, 5000, reset)
+        resp["rate"] = _budget(4000, 400, reset)
+        assert il.rate_budget_low(20, 60)[0] == "core", "a fresh probe is reused within the TTL"
+        assert len(calls) == 1
+        assert il.rate_budget_low(20, 0)[:2] == ("graphql", 400), "past the TTL it re-probes"
+        resp["rate"] = _budget(2000, 2000, reset)
+        assert il.rate_budget_low(20, 0) is None, "40% left is not low"
+        resp["rate"] = None
+        assert il.rate_budget_low(20, 0) is None, "a failed probe is fail-open"
+
+def test_rate_cache_from_before_a_reset_is_reprobed():
+    with _rate_env({"rate": _budget(4000, 4000, int(_time.time()) + 3600)}) as calls:
+        il._write_json(il._rate_file("rate"), {"checked_at": int(_time.time()),
+                                               "resources": _budget(0, 0, int(_time.time()) - 5)["resources"]})
+        assert il.rate_budget_low(20, 60) is None, "a budget past its reset has refilled: re-read it"
+        assert len(calls) == 1
+
+def test_token_key_hashes_env_token():
+    with _rate_env({}):
+        assert il._token_key() == "gh-auth"
+        os.environ["GH_TOKEN"] = "s3cret"
+        k = il._token_key()
+        assert k.startswith("token-") and len(k) == 14 and "s3cret" not in k
+
+def test_rate_report_lists_every_token_with_hold():
+    reset = int(_time.time()) + 3600
+    resp = {"rate": _budget(900, 4500, reset)}
+    with _rate_env(resp):
+        os.environ["GH_TOKEN"] = "s3cret"; il.rate_report(); os.environ.pop("GH_TOKEN")
+        resp["rate"] = _budget(1200, 4800, reset)
+        il._write_json(il._rate_file("hold"), {"reset": reset})
+        with open(il._rate_file("rate", "empty"), "w") as fh: fh.write("{}")
+        lines = il.rate_report()
+        hm = _time.strftime("%H:%M", _time.localtime(reset))
+        assert f"gh-auth: core 1200/5000 resets {hm}, graphql 4800/5000 resets {hm}  HOLD until" in "\n".join(lines), lines
+        assert any(l.startswith("token-") and "core 900/5000" in l for l in lines), lines
+        assert "empty: no data" in lines
+        assert not any("s3cret" in l for l in lines)
+
+def test_rate_cli_commands():
+    reset = int(_time.time()) + 3600
+    with _rate_env({"rate": _budget(900, 4000, reset)}):
+        real_argv = sys.argv
+        def cli(*args):
+            sys.argv = ["issuelib.py", *args]; buf = _io.StringIO(); rc = 0
+            try:
+                with _ctx.redirect_stdout(buf): il.main()
+            except SystemExit as e:
+                rc = e.code
+            finally:
+                sys.argv = real_argv
+            return rc, buf.getvalue().strip()
+        assert cli("rate-held") == (1, "")
+        assert cli("rate-low", "20", "60") == (0, f"core\t900\t5000\t{reset}")
+        assert cli("rate-low")[0] == 0, "pct and ttl default"
+        assert cli("rate-low", "10", "60") == (1, "")
+        il._write_json(il._rate_file("hold"), {"reset": reset})
+        assert cli("rate-held") == (0, str(reset))
+        rc, out = cli("rate-report")
+        assert rc == 0 and out.startswith("gh-auth: core 900/5000") and "HOLD" in out, out
+
 
 if __name__ == "__main__":
     fails = 0

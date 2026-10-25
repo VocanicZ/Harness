@@ -66,6 +66,9 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
 : "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire claude worktrees' status line to report usage windows; 0 = off
+: "${HARNESS_GH_RATE_GUARD:=1}"          # #183: 1 = sleep through a GitHub rate limit + hold claims on a low budget; 0 = off
+: "${HARNESS_GH_BUDGET_PCT:=20}"         # #183: below this % of the token's core/graphql budget, claim nothing new until the reset
+: "${HARNESS_GH_RATE_TTL:=60}"           # #183: seconds a `gh api rate_limit` probe is reused across this host's workers
 : "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
 : "${HARNESS_GAUNTLET_ROUNDS:=3}"        # gauntlet review: rounds allowed before the reviewer concedes
 : "${HARNESS_SECURITY_AUDIT:=0}"         # 1 = PRD review runs the vendored security-audit skill after the criteria gate
@@ -80,7 +83,8 @@ export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNE
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
-  HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE
+  HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
+  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -1661,3 +1665,4 @@ _checkpoint_target(){  # <session>
 
 # #194 usage watch + checkpoint (needs the config above and the helpers in this file).
 source "$(dirname "${BASH_SOURCE[0]}")/usage.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/ghrate.sh"
