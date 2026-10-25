@@ -5,7 +5,9 @@ answers from a table; the filesystem side (registry, run dirs, pid files, logs) 
 """
 import contextlib, importlib.util, io, json, os, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("fleetview", os.path.join(HERE, "..", "scripts", "fleetview.py"))
+# normpath: an unnormalized `test/../scripts/…` filename is what the coverage tracer records, and it
+# would credit these lines to a path that is not scripts/fleetview.py.
+spec = importlib.util.spec_from_file_location("fleetview", os.path.normpath(os.path.join(HERE, "..", "scripts", "fleetview.py")))
 fv = importlib.util.module_from_spec(spec); spec.loader.exec_module(fv)
 _REAL_RUN_CMD = fv.run_cmd
 NOW = 1_800_000_000
@@ -159,6 +161,8 @@ def test_probes_degrade_on_failure():
                                 ("tmux", "ls"): (0, "a\t\nb\tnope\n\n")})
         assert fv.gh_budget(NOW) is None
         assert fv.host_sessions() == {"a": None, "b": None}
+        assert fv.session_models() == {}                                 # list-panes failed
+        assert fv._tail_lines(os.path.join(tempfile.mkdtemp(), "gone.log")) == []
         fv.run_cmd = fake_cmds({("gh", "api", "rate_limit"): (0, json.dumps({"resources": {
             "core": {"remaining": 1, "limit": 2}}}))})
         assert "core 1/2 (reset ?" in fv.gh_budget(NOW)
@@ -262,6 +266,15 @@ def test_watch_reuses_gh_counts_within_ttl():
     table = dict(HOST_TABLE)
     table[("gh", "issue", "list")] = lambda argv: (calls.append(argv), (0, "[]"))[1]
     fv.run_cmd = fake_cmds(table)
+    # The warm-up pool, run serially: the refresh it performs is the TTL logic under test, and the
+    # coverage tracer is per-thread, so pool threads would leave that refresh unrecorded.
+    real_pool = fv.ThreadPoolExecutor
+    class SerialPool:
+        def __init__(self, max_workers=None): pass
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def map(self, fn, items): return map(fn, items)
+    fv.ThreadPoolExecutor = SerialPool
     try:
         cache = {}
         fv.render(now=NOW, counts_cache=cache)
@@ -270,7 +283,7 @@ def test_watch_reuses_gh_counts_within_ttl():
         fv.render(now=NOW + fv.GH_TTL, counts_cache=cache)
         assert len(calls) == 2, calls
     finally:
-        fv.run_cmd = _REAL_RUN_CMD
+        fv.run_cmd, fv.ThreadPoolExecutor = _REAL_RUN_CMD, real_pool
 
 
 if __name__ == "__main__":
