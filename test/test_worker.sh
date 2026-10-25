@@ -21,6 +21,9 @@ worker_tick W1; assert_eq "$?" "2" "all complete -> rc 2 (resident: idle, not re
 # --- resident pool (#24): worker_step idles on all_complete instead of retiring ----
 # worker_step wraps worker_tick: rc 0 does work, rc 2 (all_complete) logs an idle banner
 # ONCE per idle streak (deduped across polls) and keeps polling — it must NOT exit.
+# This is the direct-gh loop: the host poller is ON by default since #182, so switch it off here
+# (the snapshot-gated loop is covered in the PRD-B section below).
+HARNESS_USE_POLLER=0
 POLL=0
 IDLELOG="$RUN_DIR/idle.log"; : > "$IDLELOG"
 worker_step W1 >>"$IDLELOG" 2>&1; assert_eq "$?" "2" "worker_step: all_complete -> rc 2 (no exit/retire)"
@@ -70,7 +73,7 @@ printf '{"schema_version":999,"generated_at":%s,"slug":"acme/widget","issues":[]
 
 # ── snapshot_gate: flag OFF = no-op; flag ON + fresh = serve+export+ensure_poller; stale = hold ──
 rm -f "$POLLER_PID"
-( unset HARNESS_USE_POLLER; snapshot_gate ); assert_eq "$?" "0" "snapshot_gate: flag OFF -> 0 (today's path)"
+( HARNESS_USE_POLLER=0; snapshot_gate ); assert_eq "$?" "0" "snapshot_gate: flag OFF (=0) -> 0 (direct-gh path)"
 assert_ok "snapshot_gate: flag OFF launches no poller" bash -c "[[ ! -f '$POLLER_PID' ]]"
 
 s3_snap "$NOW"; unset HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR

@@ -236,10 +236,10 @@ _ISSUE_LIST_CAP = 100000
 
 
 def _fetch_issues(slug, extra=None):
-    """Raw `gh issue list` payload (number,title,state,labels,body,author) — no normalisation,
+    """Raw `gh issue list` payload (number,title,state,labels,body,author,updatedAt) — no normalisation,
     no author filtering. The snapshot command emits exactly this; always hits gh."""
     args = ["issue", "list", "-R", slug, "--state", "all", "--limit", str(_ISSUE_LIST_CAP),
-            "--json", "number,title,state,labels,body,author"]
+            "--json", "number,title,state,labels,body,author,updatedAt"]
     if extra:
         args += extra
     data = _gh_json(args) or []
@@ -322,6 +322,22 @@ def _author_filter(issues):
     return kept
 
 
+def _ext_dep_state(slug, number):
+    """A cross-repo dep's state as some snapshot's poller recorded it under `ext_deps` (#182): the
+    primary snapshot first, then every sibling in HARNESS_SNAPSHOT_DIR. None when nobody did."""
+    key = f"{slug}#{number}"
+    paths = [os.environ.get("HARNESS_SNAPSHOT_FILE", "")]
+    d = os.environ.get("HARNESS_SNAPSHOT_DIR", "")
+    if d and os.path.isdir(d):
+        paths += sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".json"))
+    for path in paths:
+        snap = _load_snapshot(path)
+        ent = (snap.get("ext_deps") or {}).get(key) if isinstance(snap, dict) else None
+        if isinstance(ent, dict) and "state" in ent:
+            return str(ent.get("state") or "").lower()
+    return None
+
+
 def _issue_state(slug, number):
     if _snapshot_mode():
         # resolve the dep's state from its repo's snapshot — never a gh call. A repo that is not
@@ -329,12 +345,19 @@ def _issue_state(slug, number):
         # (i.e. still blocking) and logged: erring toward not-dispatching is the safe direction.
         snap = _snapshot_for_slug(slug)
         if snap is None:
+            # a repo nobody polls: the poller resolved the ref for us (#182) — still no gh call here.
+            ext = _ext_dep_state(slug, number)
+            if ext is not None:
+                return ext
             print(f"[issuelib] dep {slug}#{number} not snapshotted — treating as not-closed (blocked)",
                   file=sys.stderr)
             return ""
         for it in snap.get("issues") or []:
             if it.get("number") == number:
                 return str(it.get("state", "")).lower()
+        ext = (snap.get("ext_deps") or {}).get(f"{slug}#{number}")
+        if isinstance(ext, dict) and "state" in ext:
+            return str(ext.get("state") or "").lower()   # a PR on this repo, resolved by the poller
         print(f"[issuelib] dep {slug}#{number} absent from snapshot — treating as not-closed (blocked)",
               file=sys.stderr)
         return ""
@@ -407,20 +430,252 @@ def _allowed(mode):
         "planned":    dict(plan=True,  prd=True,  decompose=True,  review=True),
     }.get(mode, dict(plan=False, prd=False, decompose=False, review=False))
 
-def snapshot(repo):
+# ── incremental board cache (#182) ────────────────────────────────────────────────────────────
+# The poller used to re-download the WHOLE board — bodies, closed issues and all — every poll. Now
+# the previous snapshot doubles as the cache: a poll asks REST for only the issues updated since the
+# last one, conditional on the stored ETag, and GitHub answers an unchanged board with a 304 — which
+# does not count against the rate limit. PLAN.md / the plan marker ride one conditional listing of
+# the repo root. A full resync (today's `gh issue list`) still runs when there is no usable previous
+# snapshot and every HARNESS_FULL_RESYNC seconds, to pick up deletions and transfers that `since`
+# never reports. compute_state reads the result exactly as before: the merged `issues` keep the
+# `gh issue list` shape and order.
+def FULL_RESYNC(): return int(os.environ.get("HARNESS_FULL_RESYNC", "3600") or 3600)
+def DEP_TTL(): return int(os.environ.get("HARNESS_DEP_TTL", "600") or 600)
+
+
+def _parse_http(text):
+    """Split `gh api -i` output into (status, headers, body). status is None when the output carries
+    no HTTP status line (gh failed before any response — or a stub that only knows other calls)."""
+    text = text or ""
+    head, body = text, ""
+    for sep in ("\r\n\r\n", "\n\n"):
+        if sep in text:
+            head, body = text.split(sep, 1)
+            break
+    lines = head.splitlines()
+    m = re.match(r"HTTP/\S+\s+(\d{3})", lines[0]) if lines else None
+    if not m:
+        return None, {}, text
+    headers = {}
+    for ln in lines[1:]:
+        k, sep, v = ln.partition(":")
+        if sep:
+            headers[k.strip().lower()] = v.strip()
+    return int(m.group(1)), headers, body
+
+
+def _gh_api_cond(path, etag=None):
+    """GET <path> through `gh api -i`, conditional on <etag> (If-None-Match). Returns
+    (status, headers, body); a 304 comes back as (304, headers, None) — the free answer. Raises
+    GhError on a transient failure (rate limit / 5xx / network), like every other read here. A
+    non-transient failure is returned as-is, with status None when gh produced no HTTP response."""
+    args = ["api", "-i", path]
+    if etag:
+        args += ["-H", f"If-None-Match: {etag}"]
+    try:
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    except Exception as e:
+        raise GhError("gh api %s: %s" % (path, e))
+    status, headers, body = _parse_http(r.stdout)
+    if status == 304:
+        return 304, headers, None
+    if r.returncode == 0 and status is not None and 200 <= status < 300:
+        return status, headers, body
+    if (status is not None and (status == 429 or status >= 500 or
+                                (status == 403 and "0" == headers.get("x-ratelimit-remaining", "")))) \
+            or _looks_transient(r.stderr):
+        raise GhError("gh api %s exited %d: %s" % (path, r.returncode, (r.stderr or "").strip()[:200]))
+    return status, headers, body
+
+
+def _link_next(headers):
+    """The rel="next" page of a paginated REST response, as a path gh api accepts; None at the end."""
+    for part in (headers.get("link") or "").split(","):
+        m = re.match(r'\s*<([^>]+)>\s*;\s*rel="next"', part)
+        if m:
+            return re.sub(r"^https://api\.github\.com/", "", m.group(1))
+    return None
+
+
+def _rest_to_gh_issue(it):
+    """A REST /issues item in the exact shape `gh issue list --json …` emits, so a merged cache and
+    a full fetch are indistinguishable to compute_state. gh names a bot author `app/<name>` where
+    REST says `<name>[bot]`; mirror that so the author allowlist matches the same string."""
+    u = it.get("user") or {}
+    is_bot = u.get("type") == "Bot"
+    login = str(u.get("login") or "")
+    if is_bot and login.endswith("[bot]"):
+        login = "app/" + login[:-len("[bot]")]
+    return {"number": it.get("number"),
+            "title": it.get("title") or "",
+            "state": str(it.get("state") or "").upper(),
+            "labels": [{"id": l.get("node_id", ""), "name": l.get("name", ""),
+                        "description": l.get("description") or "", "color": l.get("color", "")}
+                       for l in (it.get("labels") or [])],
+            "body": it.get("body") or "",
+            "author": {"id": u.get("node_id", ""), "is_bot": is_bot, "login": login, "name": ""},
+            "updatedAt": it.get("updated_at") or ""}
+
+
+class _Resync(Exception):
+    """The incremental path got a non-transient answer it cannot use — fall back to a full resync."""
+
+
+def _fetch_issue_delta(slug, since, etag):
+    """Issues (not PRs) updated at/after <since>, conditional on <etag>. Returns (delta, etag);
+    delta is None when GitHub answered 304 — nothing changed, nothing counted. Pages past the first
+    are followed unconditionally; the stored ETag is the first page's, the one the next poll sends."""
+    status, h, body = _gh_api_cond(f"repos/{slug}/issues?state=all&per_page=100&since={since}", etag)
+    if status == 304:
+        return None, etag
+    new_etag = h.get("etag")
+    items = []
+    while True:
+        if status != 200:
+            raise _Resync(f"issues delta for {slug}: HTTP {status}")
+        try:
+            items += json.loads(body or "[]")
+        except ValueError:
+            raise GhError(f"gh api issues delta for {slug}: unparseable JSON")
+        nxt = _link_next(h)
+        if not nxt:
+            break
+        status, h, body = _gh_api_cond(nxt)
+    return [_rest_to_gh_issue(i) for i in items if "pull_request" not in i], new_etag
+
+
+def _fetch_root(slug, sync, prev):
+    """(has_plan, plan_marker, root_etag, marker_dir_sha) from ONE conditional listing of the repo
+    root. 304 → reuse the previous snapshot's values for free. A changed root re-reads the marker
+    only when the directory holding it changed. A 404 (empty repo) means no plan and no marker."""
+    status, h, body = _gh_api_cond(f"repos/{slug}/contents/", sync.get("root_etag"))
+    if status == 304:
+        return prev.get("has_plan", False), prev.get("plan_marker"), sync.get("root_etag"), sync.get("marker_dir_sha")
+    if status == 404:
+        return False, None, None, None
+    if status != 200:
+        raise _Resync(f"root listing for {slug}: HTTP {status}")
+    try:
+        entries = json.loads(body or "[]")
+    except ValueError:
+        raise GhError(f"gh api root listing for {slug}: unparseable JSON")
+    entries = entries if isinstance(entries, list) else []
+    has_plan = any(e.get("name") == "PLAN.md" and e.get("sha") for e in entries)
+    top = PLAN_MARKER_PATH.split("/", 1)[0]
+    dir_sha = next((e.get("sha") for e in entries if e.get("name") == top), None)
+    if dir_sha is None:
+        marker = None
+    elif dir_sha == sync.get("marker_dir_sha"):
+        marker = prev.get("plan_marker")
+    else:
+        marker = _plan_marker(slug)
+    return has_plan, marker, h.get("etag"), dir_sha
+
+
+def _since_from(issues, fallback):
+    """The newest updatedAt on the board (GitHub's own clock), or <fallback> when none carries one."""
+    stamps = [i.get("updatedAt") for i in issues if i.get("updatedAt")]
+    return max(stamps) if stamps else fallback
+
+
+def _merge_issues(issues, delta):
+    """Overlay <delta> onto <issues> in place of the old copies; issues new to the board go first,
+    newest-numbered first — the order `gh issue list` itself returns (created-descending)."""
+    fresh = {d["number"]: d for d in delta}
+    merged = [fresh.pop(i["number"], i) for i in issues]
+    return sorted(fresh.values(), key=lambda d: -d["number"]) + merged
+
+
+def _resolve_ext_deps(slug, issues, prev_ext, now, snap_dir):
+    """State of every `## Blocked by` ref the snapshot itself cannot answer — one into ANOTHER repo
+    with no snapshot of its own, or one into this repo that is not an issue on the board (a PR: `gh
+    issue view` calls a merged one MERGED, which satisfies the ref) — so workers never have to call
+    gh for it. Each is one call, cached for HARNESS_DEP_TTL seconds; a satisfied (closed/merged)
+    state holds until the next full resync. Only refs compute_state can act on are resolved: those
+    of open issues and of PRDs."""
+    out = {}
+    on_board = {i.get("number") for i in issues}
+    for it in issues:
+        is_prd = (L_PRD() in {str(l.get("name", "")).lower() for l in it.get("labels", [])}
+                  or str(it.get("title", "")).startswith("[AFK] PRD:"))
+        if str(it.get("state", "")).lower() != "open" and not is_prd:
+            continue
+        for ref_repo, n in parse_blocked_by(it.get("body"), slug):
+            rs = _repo_slug(ref_repo)
+            key = f"{rs}#{n}"
+            if key in out or (rs == slug and n in on_board):
+                continue
+            if rs != slug and snap_dir and os.path.exists(os.path.join(snap_dir, _slug_filename(rs))):
+                continue
+            p = prev_ext.get(key)
+            if isinstance(p, dict) and (p.get("state") in _SATISFIED_STATES or now - p.get("at", 0) < DEP_TTL()):
+                out[key] = p
+                continue
+            out[key] = {"state": _issue_state(rs, n), "at": now}
+    return out
+
+
+def _usable_prev(prev, slug, now):
+    """The previous snapshot when an incremental refresh can build on it, else None (full resync)."""
+    if not isinstance(prev, dict) or prev.get("slug") != slug:
+        return None
+    if prev.get("schema_version") != SNAPSHOT_SCHEMA_VERSION:
+        return None
+    sync = prev.get("sync")
+    if not isinstance(sync, dict) or not sync.get("since") or not isinstance(prev.get("issues"), list):
+        return None
+    if now - int(sync.get("full_at", 0) or 0) >= FULL_RESYNC():
+        return None
+    return prev
+
+
+def snapshot(repo, prev=None, snap_dir=None):
     """The raw, versioned per-repo snapshot the host poller writes (PRD-B). Performs the GitHub
     reads — issue list, PLAN.md presence, plan-completion marker, bot login — and returns them
     unfiltered/uninterpreted: author filtering and label interpretation stay per-project on the
-    read side. Run with HARNESS_SNAPSHOT_FILE UNSET (the poller's env) so it reads gh, not itself."""
+    read side. Run with HARNESS_SNAPSHOT_FILE UNSET (the poller's env) so it reads gh, not itself.
+    Given the PREVIOUS snapshot (#182) it refreshes incrementally instead: see the cache notes above."""
     slug = _repo_slug(repo)
+    now = int(time.time())
+    base = _usable_prev(prev, slug, now)
+    if base is not None:
+        try:
+            return _snapshot_incremental(slug, base, now, snap_dir)
+        except _Resync as e:
+            print(f"[issuelib] incremental refresh of {slug} unusable ({e}) — full resync", file=sys.stderr)
+    issues = _fetch_issues(slug)   # exactly the gh payload — no _labels/_author derived fields
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 300))   # no updatedAt anywhere
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
-        "generated_at": int(time.time()),
+        "generated_at": now,
         "slug": slug,
-        "issues": _fetch_issues(slug),   # exactly the gh payload — no _labels/_author derived fields
+        "issues": issues,
         "has_plan": _has_plan(slug),
         "plan_marker": _plan_marker(slug),
         "self_login": _self_login(),
+        "ext_deps": _resolve_ext_deps(slug, issues, {}, now, snap_dir),
+        "sync": {"since": _since_from(issues, started), "issues_etag": None, "root_etag": None,
+                 "marker_dir_sha": None, "full_at": now},
+    }
+
+
+def _snapshot_incremental(slug, prev, now, snap_dir):
+    sync = prev["sync"]
+    delta, etag = _fetch_issue_delta(slug, sync["since"], sync.get("issues_etag"))
+    issues = prev["issues"] if delta is None else _merge_issues(prev["issues"], delta)
+    has_plan, marker, root_etag, dir_sha = _fetch_root(slug, sync, prev)
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": now,
+        "slug": slug,
+        "issues": issues,
+        "has_plan": has_plan,
+        "plan_marker": marker,
+        "self_login": prev.get("self_login", ""),
+        "ext_deps": _resolve_ext_deps(slug, issues, prev.get("ext_deps") or {}, now, snap_dir),
+        "sync": {"since": sync["since"] if delta is None else _since_from(issues, sync["since"]),
+                 "issues_etag": etag, "root_etag": root_etag, "marker_dir_sha": dir_sha,
+                 "full_at": sync.get("full_at", now)},
     }
 
 
@@ -681,7 +936,10 @@ def main():
     # any stdout is written, so partial output is never emitted.
     try:
         if cmd == "snapshot":
-            json.dump(snapshot(repo), sys.stdout, separators=(",", ":")); print()
+            # snapshot <repo> [<previous-snapshot>] — with the previous one, refresh incrementally.
+            prev_path = sys.argv[3] if len(sys.argv) > 3 else ""
+            snap_dir = os.path.dirname(prev_path) if prev_path else os.environ.get("HARNESS_SNAPSHOTS_DIR", "")
+            json.dump(snapshot(repo, _load_snapshot(prev_path), snap_dir), sys.stdout, separators=(",", ":")); print()
         elif cmd == "dispatch":
             free = int(sys.argv[3]) if len(sys.argv) > 3 else 1
             allow = sys.argv[sys.argv.index("--allow-orchestration")+1] == "1" if "--allow-orchestration" in sys.argv else True

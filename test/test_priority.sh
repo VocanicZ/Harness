@@ -227,7 +227,10 @@ reap_lane
 assert_eq "$(cat "$GHLOG")" "" "reap_lane did NOT touch a live-session bug's labels"
 assert_eq "$(cat "$WTLOG")" "" "reap_lane did NOT reap a live-session bug's worktree"
 
-# wiring: bug_step runs reap_lane at the top of EVERY poll (per-poll self-heal, like the pool)
+# wiring: bug_step runs reap_lane at the top of EVERY poll (per-poll self-heal, like the pool).
+# The direct-gh path: the host poller is ON by default since #182, so switch it off explicitly here
+# (the snapshot-gated path is covered below with HARNESS_USE_POLLER=1).
+HARNESS_USE_POLLER=0
 REAPED="$RUN_DIR/reaped"; : > "$REAPED"
 reap_lane(){ echo tick >> "$REAPED"; }                   # stub the now-tested reap to count calls
 _bug_numbers(){ :; }; PRIORITY_POLL=0; _IDLE_LOGGED=0
@@ -309,9 +312,10 @@ HARNESS_USE_POLLER=1 STATE_DIR="$SD/projB" HARNESS_POLLER_DIR="$SD/poller" HARNE
   bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
 assert_eq "$(poller_registry_slugs)" "" "stop(projB): last ref dropped -> slug gone (refcount 0)"
 # flag OFF: stop never touches the registry (regression — today's stop is registry-blind). The flag
-# is EXPORTED (lib.sh), so a child stop.sh would inherit our =1 — clear it explicitly to prove off.
+# is EXPORTED (lib.sh), so a child stop.sh would inherit our =1 — set it to 0 explicitly to prove off
+# (since #182 an EMPTY value means the default, which is ON).
 poller_register acme/widget 60 hz "$SD/projC"
-HARNESS_USE_POLLER= STATE_DIR="$SD/projC" HARNESS_POLLER_DIR="$SD/poller" HARNESS_HOME="$SD" RUN_DIR="$(mktemp -d)" \
+HARNESS_USE_POLLER=0 STATE_DIR="$SD/projC" HARNESS_POLLER_DIR="$SD/poller" HARNESS_HOME="$SD" RUN_DIR="$(mktemp -d)" \
   bash "$HERE/../scripts/stop.sh" >/dev/null 2>&1
 assert_eq "$(poller_registry_slugs)" "acme/widget" "stop with the flag OFF leaves the registry untouched"
 kill "$SDPOLL" 2>/dev/null; rm -rf "$SD"

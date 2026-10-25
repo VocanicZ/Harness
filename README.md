@@ -28,7 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | 
 
 `install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), installs [rtdd](#test-selection-rtdd) via `npx github:VocanicZ/rtdd` when `npx` is present (which also writes rtdd's agent skill into `~/.claude/skills/` and the equivalent for other agent CLIs on the host), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
 
-The `~/.harness/` host root also carries two subdirs created at install time — `poller/` and `snapshots/`. These back the optional **host poller** (one poll per repo, shared across every fleet on the host): `poller/` holds the refcounted registry + the poller pidfile, and `snapshots/` holds the per-repo snapshot JSON workers read from. They are **opt-in per fleet** behind `HARNESS_USE_POLLER` (default off — the engine writes nothing into them until a fleet enables the flag). See [Host poller](#host-poller).
+The `~/.harness/` host root also carries two subdirs created at install time — `poller/` and `snapshots/`. These back the **host poller** (one poll per repo, shared across every fleet on the host): `poller/` holds the refcounted registry + the poller pidfile, and `snapshots/` holds the per-repo snapshot JSON workers read from. The poller is **on by default** (`HARNESS_USE_POLLER=0` opts a fleet out); a fresh install leaves both dirs empty until the first `harness start`. See [Host poller](#host-poller).
 
 Then, from the root of each project you want to drive:
 
@@ -135,7 +135,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_LABEL_REVIEWED` | `reviewed` | Label applied to the PRD issue after review passes |
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
-| `HARNESS_USE_POLLER` | _(empty)_ | Host-poller opt-in. Empty = today's direct-`gh` polling (default off); set (e.g. `1`) = this fleet reads shared host snapshots instead of polling GitHub itself. Staged-rollout flag — see [Host poller](#host-poller) |
+| `HARNESS_USE_POLLER` | `1` | Host poller, **on by default** (#182): this fleet reads shared host snapshots instead of polling GitHub itself. Empty also means on (configs written before #182 carry an empty value); `0` = direct-`gh` polling. See [Host poller](#host-poller) |
 | `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree (and every multi-topology clone), with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 | `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
 | `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
@@ -447,8 +447,25 @@ independent of worker and fleet count. Crucially, only the *polling* is centrali
 still computes dispatch **locally with its own env**, so it keeps its own session prefix, mode,
 topology, label set, and author allowlist.
 
-**Opt-in, default off.** The poller is gated per fleet behind `HARNESS_USE_POLLER` (empty = today's
-direct-`gh` polling). A fresh install and any fleet without the flag are completely unaffected.
+**On by default.** Since #182 every fleet uses the poller unless its config sets
+`HARNESS_USE_POLLER=0` (direct-`gh` polling). An empty value — what configs written before #182
+carry — means the default, so those fleets switch over on their next `harness start`.
+
+**Incremental refresh (#182).** The previous snapshot is the cache. A refresh asks REST only for the
+issues updated since the last one (`GET /repos/{r}/issues?state=all&since=…`) and sends the stored
+`ETag`; an unchanged board answers `304 Not Modified`, which GitHub does **not** count against the
+rate limit. `PLAN.md` and the plan-completion marker ride one conditional listing of the repo root,
+and the bot login is reused from the cache. So a quiet board costs **zero** rate-limited calls per
+poll, and a change costs the delta alone. Because `since` never reports a deleted or transferred
+issue, a full resync (`gh issue list`, the old path) still runs every `HARNESS_FULL_RESYNC` seconds
+(default `3600`) and whenever there is no usable previous snapshot. A transient failure (rate limit,
+5xx, network) keeps the prior snapshot; a non-transient one the incremental path cannot use falls
+back to a full resync.
+
+`## Blocked by` refs the snapshot cannot answer itself — into a repo no fleet polls, or to a PR
+(`gh issue view` calls a merged one `MERGED`) — are resolved by the **poller**, recorded under the
+snapshot's `ext_deps`, and cached for `HARNESS_DEP_TTL` seconds (default `600`; a closed/merged state
+holds until the next full resync). Workers still make no `gh` call to read them.
 
 **Layout** (under the `~/.harness/` host root):
 
@@ -457,7 +474,8 @@ direct-`gh` polling). A fresh install and any fleet without the flag are complet
 ├── poller/
 │   ├── registry/<owner__repo>__<project>.json   one per (repo, fleet): slug, cadence, prefix, project
 │   └── poller.pid                                the poller — a background process, NOT a tmux session
-└── snapshots/<owner__repo>.json                  {schema_version, generated_at, slug, issues[], has_plan, …}
+└── snapshots/<owner__repo>.json                  {schema_version, generated_at, slug, issues[], has_plan,
+                                                   plan_marker, self_login, ext_deps, sync{since, etags, full_at}}
 ```
 
 **Self-healing — no daemon to manage.** There is no operator-facing poller lifecycle command:
@@ -477,23 +495,16 @@ automatically once the snapshot is fresh again.
 cadences; `harness poll --once` forces a single refresh pass (debug/test). Normal operation needs
 neither — the workers manage the poller for you.
 
-### Staged rollout / rollback
+### Rollout / rollback
 
-The new engine ships with the poller **off**, so deploying it changes nothing until you flip the
-flag. Cut fleets over one at a time:
+Since #182 the poller is on by default. After `harness update`, each fleet switches over on its next
+`harness stop && harness start --recover`: on start it registers its repos and brings the poller up,
+and the pool and bug lane become snapshot-served. To check one: its worker logs show no
+`gh issue list` for dispatch, the poller is writing `~/.harness/snapshots/<slug>.json`, and
+`harness poll --status` shows the slug registered.
 
-1. `harness update` — ff-pull the shared engine (every fleet picks it up; none change behavior yet).
-2. For one fleet: set `HARNESS_USE_POLLER=1` in its `.harness/config`, then
-   `harness stop && harness start --recover`. On start it registers its repos and brings the poller
-   up; the pool and bug lane become snapshot-served.
-3. **Validate:** that fleet's worker logs show snapshot reads (no `gh issue list` for dispatch), the
-   poller is writing `~/.harness/snapshots/<slug>.json`, and dispatch still completes work
-   (`harness poll --status` shows the slug registered).
-4. Repeat for the next fleet.
-
-**Rollback** at any point is trivial and per-fleet: unset `HARNESS_USE_POLLER` (or remove the line
-from `.harness/config`) and `harness stop && harness start --recover`. That fleet returns to
-direct-`gh` polling immediately. Snapshots are ephemeral (regenerated), so there is no migration
+**Rollback** is per fleet: set `HARNESS_USE_POLLER=0` in its `.harness/config` and
+`harness stop && harness start --recover`. That fleet returns to direct-`gh` polling immediately. Snapshots are ephemeral (regenerated), so there is no migration
 state to undo.
 
 ## Fleet prefixes
@@ -535,11 +546,11 @@ sees something the others cannot:
   `harness start` and removed by `harness stop`. This is the *reservation*: a fleet that is
   registered but has not spawned a session or a worker yet still owns its prefix, so two idle fleets
   cannot race into one namespace. It also supplies the repo slugs named in the refusal. The poller
-  registry (`~/.harness/poller/registry/`, populated only when `HARNESS_USE_POLLER` is set) is read
+  registry (`~/.harness/poller/registry/`, populated unless `HARNESS_USE_POLLER=0`) is read
   through the same source, so a poller-enabled fleet on an older engine is still seen.
 
 The **poller registry** used to be the only source, which made the guard a no-op for the default
-configuration — `HARNESS_USE_POLLER` is unset unless you opt in, so it was always empty, and
+configuration of the time — `HARNESS_USE_POLLER` was off unless you opted in, so it was always empty, and
 `~/.harness/fleets/` did not exist yet. Three fleets duly came up on the default `hz` and spent
 hours killing each other's sessions.
 

@@ -81,10 +81,11 @@ assert_ok "malformed entries are skipped, valid ones still read" \
 echo "== start.sh registers UNCONDITIONALLY (static: it can't run in this harness) =="
 START="$HERE/../scripts/start.sh"
 assert_ok "start.sh calls fleet_register" grep -q '^fleet_register' "$START"
-# It must NOT sit inside the HARNESS_USE_POLLER block — that flag is off by default, which is exactly
-# why the old guard read an empty registry and never fired.
+# It must NOT sit inside the HARNESS_USE_POLLER block — that flag was off by default when the guard
+# was written (exactly why the old guard read an empty registry and never fired), and =0 still
+# switches it off today (#182), so registration must never depend on it.
 reg_ln="$(grep -n '^fleet_register' "$START" | head -1 | cut -d: -f1)"
-poll_ln="$(grep -n 'if \[\[ -n "\${HARNESS_USE_POLLER:-}" \]\]' "$START" | head -1 | cut -d: -f1)"
+poll_ln="$(grep -n '^if poller_enabled; then' "$START" | head -1 | cut -d: -f1)"
 guard_ln="$(grep -n '^check_prefix_collision' "$START" | head -1 | cut -d: -f1)"
 assert_ok "found the fleet_register line"        test -n "$reg_ln"
 assert_ok "found the HARNESS_USE_POLLER block"   test -n "$poll_ln"
