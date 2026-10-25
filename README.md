@@ -390,7 +390,7 @@ harness <command>
 | `attach <unit> [issue]` | tmux-attach to a running session |
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
 | `poll [--once\|--status]` | Host-level debug entry to the shared snapshot poller. `--once` refreshes every registered repo once; `--status` reports the poller pid + registered slugs/cadences. Normal operation needs no manual `poll` — workers self-heal it (see [Host poller](#host-poller)) |
-| `supervise [--once] [--dry-run]` | Host-level supervisor for **every fleet on the host**: restarts dead pool/priority workers, clears orphaned `agent-working` locks, and nudges — then checkpoints to GitHub and kills — sessions frozen at their prompt. `--install` / `--uninstall` manage its systemd user unit. See [Host supervisor](#host-supervisor) |
+| `supervise [--once] [--dry-run]` | Host-level supervisor for **every fleet on the host**: restarts dead pool/priority workers, clears orphaned `agent-working` locks, nudges — then checkpoints to GitHub and kills — sessions frozen at their prompt, and runs the arc stall rules. `--alarms` lists the alarms still firing; `--install` / `--uninstall` manage its systemd user unit. See [Host supervisor](#host-supervisor) |
 | `plan "<brief>"` | Inject a plan/topology change (PLAN.md / `targets.tsv`, incl. seeding a new target repo) into a **live** fleet. Grill via [`/harness-plan`](#per-command-shortcuts) |
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
@@ -543,9 +543,22 @@ seconds):
    re-dispatches them.
 5. **Offline host.** While `ONLINE_URL` is unreachable, every action is held. When the network
    returns, every pane is re-armed for an immediate nudge.
+6. **Arc stall rules** (from the `/harness-arc` watchdog). Each must hold for 2 or more consecutive
+   passes. The strike counts and each PRD's criteria-gate round count are kept in
+   `~/.harness/supervise/rules/<prefix>.json`, so a supervisor restart resets neither.
+   - Fixed automatically: a **wedged** session (`STOP_HOOK_BLOCK_CAP` in its pane) is checkpointed
+     and killed like a frozen one. A **zombie** session, still alive after its issue closed, is
+     killed, and checkpointed first if it holds unpushed work. **Unlocked work**, a live session
+     on an open issue with no `agent-working`, gets the label back.
+   - Alarm only, for a human to decide: **review loop** (a PRD at the criteria gate 4+ times),
+     **no frontier** (open children, none unblocked, no session), **decompose stalled**,
+     **unfiled plan tasks** (a plan on the default branch naming tasks with no issue; list
+     topped-up plans in `.harness/reconciled-plans`), **missing `## Parent`** (not in
+     `issue-only` mode), **wayfinder leak**, and **deep context** (a pane past 250%).
+     `harness supervise --alarms` lists every alarm still firing.
 
-Every action is logged to `~/.harness/supervise.log`. `harness supervise --once --dry-run` previews a
-pass without acting. Knobs are bash assignments in `~/.harness/supervise.conf`:
+Every action, alarm and resolution is logged to `~/.harness/supervise.log`. `harness supervise --once
+--dry-run` previews a pass without acting (and without advancing the rule-6 strike counts). Knobs are bash assignments in `~/.harness/supervise.conf`:
 
 | Knob | Default | |
 |------|---------|-|
@@ -556,6 +569,7 @@ pass without acting. Knobs are bash assignments in `~/.harness/supervise.conf`:
 | `CPU_ACTIVE_S` | `10` | CPU seconds per pass that count as activity |
 | `EXTRA_RE` / `EXTRA_MIN` | empty / `60` | tmux session regex for non-Harness agent panes, e.g. `'^hg2(-loops)?$'` |
 | `ONLINE_URL` | `https://api.anthropic.com` | reachability probe for the offline hold |
+| `UNPARENTED_OK` | empty | comma-separated issue numbers exempt from the missing-`## Parent` alarm |
 
 `harness supervise --install` writes and starts the systemd user unit `harness-supervise.service`
 (`Restart=always`, `KillMode=process` so a restart never takes down the fleets it started) and
@@ -746,6 +760,8 @@ For one-shot ops without the state-detection dance, thin sibling skills map 1:1 
 | `/harness-issue`  | `harness issue`  | inject a discrete implementation issue into a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
 
 Use `/harness` when you want the full set-up-aware operator (detect state, observe, unstick); use the shortcuts when you already know the action you want.
+
+`/harness-arc` deploys a design too big for one PRD as a sequenced chain of PRDs plus a wayfinder map of the decisions the fleet cannot make. It ships whole (`SKILL.md`, `REFERENCE.md`, `scripts/preflight.sh`, `scripts/status-page.py`) and deploys with the other skills. Its stall rules run in the [host supervisor](#host-supervisor); the skill reads `harness supervise --alarms` instead of arming a watchdog of its own.
 
 ## Autonomy
 

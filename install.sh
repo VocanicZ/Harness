@@ -192,7 +192,8 @@ create_host_root(){
 # install_harness_skills — deploy the engine's OWN /harness operator skills to USER scope
 # (~/.claude/skills) ONCE per host, not vendored per project (#57, PRD #52). Source is the shared
 # engine's skill/ dir (place_engine runs first in main); the umbrella skill/SKILL.md → harness/, and
-# each per-command skill/<name>/SKILL.md → <name>/. Best-effort: a missing source warns, never fails.
+# each skill/<name>/ → <name>/, whole (harness-arc ships REFERENCE.md + scripts/ beside its SKILL.md).
+# Best-effort: a missing source warns, never fails.
 install_harness_skills(){
   local src="${HARNESS_SKILL_SRC:-${HARNESS_HOME:-$HOME/.harness}/engine/skill}"
   local dst="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
@@ -206,7 +207,7 @@ install_harness_skills(){
   fi
   for d in "$src"/*/; do
     [[ -f "$d/SKILL.md" ]] || continue
-    mkdir -p "$dst/$(basename "$d")"; cp "$d/SKILL.md" "$dst/$(basename "$d")/SKILL.md" && n=$((n+1))
+    mkdir -p "$dst/$(basename "$d")"; cp -R "$d." "$dst/$(basename "$d")/" && n=$((n+1))
   done
   echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
   if [[ -z "${HARNESS_USER_SKILLS:-}" || -n "${HARNESS_AGY_USER_SKILLS:-}" ]]; then
@@ -218,7 +219,7 @@ install_harness_skills(){
       fi
       for d in "$src"/*/; do
         [[ -f "$d/SKILL.md" ]] || continue
-        mkdir -p "$agy_dst/$(basename "$d")"; cp "$d/SKILL.md" "$agy_dst/$(basename "$d")/SKILL.md"
+        mkdir -p "$agy_dst/$(basename "$d")"; cp -R "$d." "$agy_dst/$(basename "$d")/"
       done
       echo "  ✓ installed $n /harness skill(s) into $agy_dst (agy user scope)"
     fi

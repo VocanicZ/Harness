@@ -17,9 +17,17 @@
 #   4. non-Harness agent panes (EXTRA_RE, host config): the same activity test, nudge only, never
 #      killed — nothing re-dispatches them.
 #   5. host offline: hold every action; on reconnect re-arm every pane so quiet ones are nudged at once.
+#   6. arc stall rules (#181, the old harness-arc watch.py), each strike-counted over 2+ passes with
+#      the counts on disk ($HARNESS_HOME/supervise/rules/<prefix>.json) so a restart resets nothing:
+#      auto-fixed: wedged session (STOP_HOOK_BLOCK_CAP in its pane) -> checkpoint + kill; zombie
+#      session (its issue closed) -> kill, checkpointing first if it holds unpushed work; unlocked
+#      work (live session, no agent-working label) -> re-label. Alarm only (a human decides):
+#      review loop, no frontier, decompose stalled, unfiled plan tasks, missing ## Parent,
+#      wayfinder leak, deep context. Alarms go to the log; `--alarms` lists the ones still firing.
 # Every action is logged to $HARNESS_HOME/supervise.log.
 #
-# usage: harness supervise [--once] [--dry-run] | --install | --uninstall
+# usage: harness supervise [--once] [--dry-run] | --alarms | --install | --uninstall
+#   --alarms     list every arc alarm still firing, per fleet
 #   --install    write + enable a systemd user unit (Restart=always, linger) running this loop;
 #                `harness update` re-runs it so the unit follows the engine
 #   --uninstall  stop, disable and remove that unit
@@ -35,10 +43,11 @@ SUP_CONF="${HARNESS_SUPERVISE_CONF:-$HARNESS_HOME/supervise.conf}"
 [[ -f "$SUP_CONF" ]] && source "$SUP_CONF"
 : "${INTERVAL:=300}" "${LOCK_GRACE:=1200}" "${NUDGE_MIN:=45}" "${KILL_MIN:=120}"
 : "${RENUDGE_S:=10800}" "${CPU_ACTIVE_S:=10}" "${EXTRA_RE:=}" "${EXTRA_MIN:=60}"
-: "${ONLINE_URL:=https://api.anthropic.com}"
+: "${ONLINE_URL:=https://api.anthropic.com}" "${UNPARENTED_OK:=}"
 SUP_STATE="${HARNESS_SUPERVISE_STATE:-$HARNESS_HOME/supervise}"
 SUP_LOG="${HARNESS_SUPERVISE_LOG:-$HARNESS_HOME/supervise.log}"
 SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_ENGINE_DIR/bin/harness}"
+SUP_RULES="${HARNESS_SUPERVISE_RULES:-$SUP_ENGINE_DIR/scripts/supervise_rules.py}"
 # Fleets the registry does not know (an engine that predates it) are found by this glob too.
 SUP_FLEET_GLOB="${HARNESS_SUPERVISE_GLOB:-$HOME/*/.harness}"
 SUP_UNIT_DIR="${HARNESS_SUPERVISE_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
@@ -106,14 +115,16 @@ sup_watch_pane(){
   return 0
 }
 
-# sup_checkpoint_and_kill <session> <idle min> <pane text> — never lose a frozen session's work:
+# sup_checkpoint_and_kill <session> <idle min> <pane text> [why] [stats reason] — never lose a frozen
+# (or wedged, or zombie) session's work:
 # commit + push its branch (never .claude/ or .harness-task.md, never a force-push; a diverged
 # remote gets <branch>-checkpoint-<ts> instead), post a harness-handoff comment with the last screen
 # (spawn_impl resumes from origin/issue/N + that handoff), THEN kill. If the work cannot be pushed
 # anywhere, do NOT kill — log an ERROR for a human. Runs inside sup_check_fleet (lib.sh sourced for
 # that fleet), so the session is parsed by the same _checkpoint_target `pause --force` uses.
 sup_checkpoint_and_kill(){
-  local s=$1 idle=$2 pane=$3 wd branch= sha= pushed= num= slug= body cpb ex=(':!.claude' ':!.harness-task.md')
+  local s=$1 idle=$2 pane=$3 why=${4:-} reason=${5:-frozen} wd branch= sha= pushed= num= slug= body cpb ex=(':!.claude' ':!.harness-task.md')
+  why=${why:-"Session \`$s\` showed no activity for ${idle} min (no screen change, no background timer, no CPU in its process tree) and did not react to a nudge, so it was restarted."}
   _CP_ISSUE= _CP_SLUG= _CP_BRANCH=
   if _checkpoint_target "$s"; then num=$_CP_ISSUE slug=$_CP_SLUG
   elif [[ $s =~ ^${HARNESS_SESS_PREFIX}-(.+)-p([0-9]+)$ ]]; then          # orch (decompose/review)
@@ -142,7 +153,7 @@ sup_checkpoint_and_kill(){
   fi
   body="<!-- harness-handoff issue=$num${branch:+ branch=$branch} -->
 ## Checkpoint by harness supervise
-Session \`$s\` showed no activity for ${idle} min (no screen change, no background timer, no CPU in its process tree) and did not react to a nudge, so it was restarted.
+$why
 ${pushed:+All work in progress was committed and pushed to \`$pushed\` @ \`$sha\`. }This was a mechanical checkpoint, not the agent's own handoff. Rebuild context from the branch's commits and diff against the base.
 
 Last screen:
@@ -151,8 +162,69 @@ $(tail -30 <<<"$pane" | cut -c1-200)
 \`\`\`"
   [[ -n $slug && -n $num ]] && sup_act gh issue comment "$num" -R "$slug" --body "$body"
   sup_act tmux kill-session -t "=$s"
-  (( SUP_DRY )) || stats_sess_event "$s" watchdog_kill reason=frozen >/dev/null 2>&1
+  (( SUP_DRY )) || stats_sess_event "$s" watchdog_kill reason="$reason" >/dev/null 2>&1
   return 0
+}
+
+# sup_kill_zombie <session> — rule 6: a session still alive after its issue closed holds a worktree
+# and can still push. Nothing of its own to keep -> just kill it; uncommitted or unpushed work ->
+# checkpoint it to GitHub first, exactly like a frozen session.
+sup_kill_zombie(){ local s=$1 wd
+  wd=$(cat "$RUN_DIR/$s.wd" 2>/dev/null)
+  if [[ -n $wd && -d $wd ]] && [[ -n $(git -C "$wd" status --porcelain -- . ':!.claude' ':!.harness-task.md' 2>/dev/null) \
+       || -n $(git -C "$wd" rev-list -n1 HEAD --not --remotes 2>/dev/null) ]]; then
+    sup_checkpoint_and_kill "$s" 0 "$(tmux capture-pane -p -t "$s" 2>/dev/null)" \
+      "Session \`$s\` was still alive after its issue closed, holding a worktree that could still push, so it was stopped." zombie
+    return
+  fi
+  sup_act tmux kill-session -t "=$s"
+  (( SUP_DRY )) || stats_sess_event "$s" watchdog_kill reason=zombie >/dev/null 2>&1
+  return 0
+}
+
+# sup_session_rows <sessions> — `<session>\t<slug>\t<issue>\t<kind>` per live session, the input
+# supervise_rules.py reads. Parsed by the same _checkpoint_target `pause --force` uses.
+sup_session_rows(){ local s kind
+  for s in $1; do
+    _CP_ISSUE= _CP_SLUG= _CP_BRANCH=
+    if _checkpoint_target "$s"; then
+      [[ $s == "$HARNESS_SESS_PREFIX"-bug-* ]] && kind=bug || kind=impl
+      printf '%s\t%s\t%s\t%s\n' "$s" "$_CP_SLUG" "$_CP_ISSUE" "$kind"
+    elif [[ $s =~ ^${HARNESS_SESS_PREFIX}-(.+)-p([0-9]+)$ ]]; then
+      printf '%s\t%s\t%s\torch\n' "$s" "$(unit_slug "${BASH_REMATCH[1]}")" "${BASH_REMATCH[2]}"
+    else
+      printf '%s\t\t\tother\n' "$s"
+    fi
+  done; }
+
+# sup_arc_rules <sessions> — rule 6, inside sup_check_fleet. supervise_rules.py judges (and keeps
+# the strike + round counters on disk); this acts on its FIX lines and logs its ALARM/RESOLVED ones.
+# Reads come from the host poller's snapshots when every one is fresh, so a pass costs no gh calls.
+sup_arc_rules(){ local sessions=$1 slugs sl line s slug num counters fresh=1
+  slugs=$(snapshot_slugs); [[ -n $slugs ]] || return 0
+  for sl in $slugs; do ensure_snapshot_fresh "$sl" || fresh=0; done
+  if (( fresh )) && poller_enabled; then
+    export HARNESS_SNAPSHOT_DIR="$HARNESS_SNAPSHOTS_DIR"
+    export HARNESS_SNAPSHOT_FILE="$(poller_snapshot_path "$(head -n1 <<<"$slugs")")"
+  fi
+  counters="$SUP_STATE/rules/$HARNESS_SESS_PREFIX.json"
+  if (( SUP_DRY )); then                                   # a preview must not advance the strikes
+    mkdir -p "$SUP_STATE/rules"; cp "$counters" "$counters.dry" 2>/dev/null || rm -f "$counters.dry"
+    counters="$counters.dry"
+  fi
+  while read -r line; do
+    case $line in
+      "FIX wedged "*) s=${line#FIX wedged }
+        sup_checkpoint_and_kill "$s" 0 "$(tmux capture-pane -p -t "$s" 2>/dev/null)" \
+          "Session \`$s\` hit the stop-hook block cap (\`STOP_HOOK_BLOCK_CAP\`): its loop will not resume and it held its issue lock, so it was restarted." wedged ;;
+      "FIX zombie "*) sup_kill_zombie "${line#FIX zombie }" ;;
+      "FIX unlocked "*) read -r _ _ slug num <<<"$line"
+        sup_act gh issue edit "$num" -R "$slug" --add-label "$HARNESS_LABEL_WORKING" ;;
+      ALARM\ *|RESOLVED\ *) sup_log "$line [fleet $HARNESS_SESS_PREFIX]" ;;
+    esac
+  done < <(sup_session_rows "$sessions" | UNPARENTED_OK="$UNPARENTED_OK" python3 "$SUP_RULES" --counters "$counters" --repo-dir "$PROJECT_ROOT" \
+             --reconciled "$STATE_DIR/reconciled-plans" $slugs 2>>"$SUP_LOG")
+  rm -f "$SUP_STATE/rules/$HARNESS_SESS_PREFIX.json.dry"
 }
 
 # sup_clean_env — drop any inherited fleet config before sourcing lib.sh for ANOTHER fleet. Config
@@ -165,7 +237,7 @@ sup_clean_env(){ local v
   done
   unset STATE_DIR RUN_DIR TARGETS_TSV CLAIMS_DIR POOL_LOCK PAUSE_FLAG; }
 
-# sup_check_fleet <state dir> — rules 1-3 for one fleet, in a subshell with that fleet's lib.sh.
+# sup_check_fleet <state dir> — rules 1-3 and 6 for one fleet, in a subshell with that fleet's lib.sh.
 sup_check_fleet(){ local sd=$1
   ( sup_clean_env; export STATE_DIR="$sd" ENGINE_DIR="$SUP_ENGINE_DIR"
     source "$SUP_ENGINE_DIR/scripts/lib.sh" >/dev/null 2>&1 || exit 0
@@ -210,6 +282,9 @@ sup_check_fleet(){ local sd=$1
     for f in "$SUP_STATE"/panes/"$prefix"-*; do                     # forget panes of ended sessions
       [[ -e $f ]] && ! tmux has-session -t "=${f##*/}" 2>/dev/null && rm -f "$f"
     done
+
+    # 6. arc stall rules (sessions killed by rule 3 above are gone from tmux, so re-list)
+    sup_arc_rules "$(tmux ls -F '#S' 2>/dev/null | grep "^$prefix-")"
     exit 0 )
 }
 
@@ -321,6 +396,7 @@ sup_installed(){ grep -qxF "ExecStart=$SUP_HARNESS supervise" "$SUP_UNIT_DIR/$SU
 for a; do case $a in
   --dry-run) SUP_DRY=1 ;; --once) SUP_ONCE=1 ;;
   --install) sup_install; exit ;; --uninstall) sup_uninstall; exit ;;
+  --alarms) python3 "$SUP_RULES" alarms "$SUP_STATE/rules"; exit ;;
   -h|--help) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
   *) echo "harness supervise: unknown option $a" >&2; exit 2 ;;
 esac; done

@@ -206,6 +206,69 @@ assert_eq "$rc" "2" "an unknown option exits 2"
 kill "$LIVE" 2>/dev/null
 tmux kill-server 2>/dev/null
 
+echo "=== arc rules (#181): supervise_rules.py judges, supervise acts ==="
+# A stub judge: records what it was handed, prints the canned verdict in $T/rules.out.
+cat >"$T/rules-stub" <<EOF
+import sys
+open("$T/rules.args", "w").write(" ".join(sys.argv[1:]) + "\\n")
+open("$T/rules.stdin", "w").write(sys.stdin.read())
+import os; open("$T/rules.env", "w").write(os.environ.get("HARNESS_SNAPSHOT_FILE", "") + "\\n")
+sys.stdout.write(open("$T/rules.out").read())
+EOF
+SUP_RULES="$T/rules-stub"
+sleep 600 & LIVE=$!
+arc_reset(){ fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; : >"$T/rules.out"; rm -f "$T/rules.args" "$T/rules.stdin"; }
+arc_out(){ printf '%s\n' "$@" >"$T/rules.out"; }
+zw="$T/zw"; git init -q --bare "$T/zremote.git"; git clone -q "$T/zremote.git" "$zw" 2>/dev/null
+gc "$zw" commit -q --allow-empty -m base; gc "$zw" push -q origin HEAD:main; gc "$zw" checkout -qb issue/6; gc "$zw" push -q origin issue/6
+mk fx-main-i6 "printf 'busy\n'; sleep 600"; mk fx-main-p3 "sleep 600"; mk fx-zz "sleep 600"
+arc_reset; arc_out "ALARM frontier:owner/fx NO FRONTIER owner/fx 3 open children" "RESOLVED unfiled"
+SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "the judge is handed every live session, parsed"  grep -qx "$(printf 'fx-main-i6\towner/fx\t6\timpl')" "$T/rules.stdin"
+assert_ok "…an orch session as orch"                        grep -qx "$(printf 'fx-main-p3\towner/fx\t3\torch')" "$T/rules.stdin"
+assert_ok "…anything else as other"                         grep -qx "$(printf 'fx-zz\t\t\tother')" "$T/rules.stdin"
+assert_ok "…its fleet's on-disk counters and slugs"         grep -q -- "--counters $SUP_STATE/rules/fx.json --repo-dir .* owner/fx" "$T/rules.args"
+assert_ok "an ALARM is logged, tagged with its fleet"       grep -q "ALARM frontier:owner/fx NO FRONTIER .*\[fleet fx\]" "$LOG"
+assert_ok "a RESOLVED is logged"                            grep -q "RESOLVED unfiled \[fleet fx\]" "$LOG"
+assert_eq "$(cat "$T/rules.env")" "" "no fresh poller snapshot → the judge reads gh directly"
+printf '{"schema_version":1,"slug":"owner/fx","generated_at":%s,"issues":[]}' "$(date +%s)" >"$HARNESS_SNAPSHOTS_DIR/owner__fx.json"
+arc_reset; SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_eq "$(cat "$T/rules.env")" "$HARNESS_SNAPSHOTS_DIR/owner__fx.json" "a fresh poller snapshot → the judge reads it, not gh"
+rm -f "$HARNESS_SNAPSHOTS_DIR/owner__fx.json"
+arc_reset; arc_out "FIX unlocked owner/fx 6"
+SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "unlocked work → agent-working re-added"          grep -q "issue edit 6 -R owner/fx --add-label agent-working" "$T/gh.calls"
+arc_reset; arc_out "FIX unlocked owner/fx 6"
+SUP_DRY=1 sup_check_fleet "$F/.harness"
+assert_no "--dry-run re-labels nothing"                     grep -q "add-label" "$T/gh.calls"
+assert_ok "--dry-run judges on a throwaway copy of the counters" grep -q -- "--counters $SUP_STATE/rules/fx.json.dry" "$T/rules.args"
+assert_no "…which is removed afterwards"                    test -e "$SUP_STATE/rules/fx.json.dry"
+echo "$zw" >"$F/.harness/run/fx-main-i6.wd"
+arc_reset; arc_out "FIX zombie fx-main-i6"
+SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_no "a clean zombie is killed"                        quiet tmux has-session -t =fx-main-i6
+assert_no "…without a checkpoint comment"                   grep -q "issue comment 6" "$T/gh.calls"
+mk fx-main-i6 "sleep 600"; echo wip >"$zw/z.txt"
+arc_reset; arc_out "FIX zombie fx-main-i6"
+SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "a zombie holding WIP is checkpointed first"      bash -c "git -C '$T/zremote.git' show issue/6:z.txt | grep -q wip"
+assert_ok "…with a comment saying why"                      grep -q "still alive after its issue closed" "$T/gh.calls"
+assert_no "…then killed"                                    quiet tmux has-session -t =fx-main-i6
+mk fx-main-i6 "printf 'STOP_HOOK_BLOCK_CAP\n'; sleep 600"; echo wip2 >"$zw/w.txt"; sleep 1
+arc_reset; arc_out "FIX wedged fx-main-i6"
+SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "a wedged session's WIP is pushed"                bash -c "git -C '$T/zremote.git' show issue/6:w.txt | grep -q wip2"
+assert_ok "…the handoff says it hit the block cap"          grep -q "hit the stop-hook block cap" "$T/gh.calls"
+assert_ok "…and carries its last screen"                    grep -q "STOP_HOOK_BLOCK_CAP" "$T/gh.calls"
+assert_no "…then it is killed"                              quiet tmux has-session -t =fx-main-i6
+# --alarms reads the real judge's on-disk counters
+mkdir -p "$SUP_STATE/rules"; printf '{"firing":["wf-leak:owner/fx"],"messages":{"wf-leak:owner/fx":"WAYFINDER LEAK owner/fx [11]"}}' >"$SUP_STATE/rules/fx.json"
+out="$(HARNESS_SUPERVISE_STATE="$SUP_STATE" bash "$HERE/../scripts/supervise.sh" --alarms)"
+assert_eq "$out" "$(printf 'fx\twf-leak:owner/fx\tWAYFINDER LEAK owner/fx [11]')" "supervise --alarms lists what is firing"
+kill "$LIVE" 2>/dev/null
+tmux kill-server 2>/dev/null
+SUP_RULES="$HERE/../scripts/supervise_rules.py"
+
 echo "=== non-Harness agent panes (EXTRA_RE): nudge only ==="
 : >"$LOG"; rm -rf "$SUP_STATE/panes"; EXTRA_MIN=0
 # pane_current_command must read `claude`: run the pane through a binary of that name.
