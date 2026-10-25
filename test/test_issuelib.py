@@ -2001,6 +2001,8 @@ def test_rate_report_lists_every_token_with_hold():
         assert any(l.startswith("token-") and "core 900/5000" in l for l in lines), lines
         assert "empty: no data" in lines
         assert not any("s3cret" in l for l in lines)
+        resp["rate"] = None
+        assert il.rate_report() == lines, "a failed probe still reports what the host last saw"
 
 def test_rate_cli_commands():
     reset = int(_time.time()) + 3600

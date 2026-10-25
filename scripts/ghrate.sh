@@ -15,17 +15,18 @@
 gh_rate_held(){ python3 "$ISSUELIB" rate-held 2>/dev/null; }
 
 # gh_rate_wait [fn] — while a hold is open, sleep until its reset, running <fn> (gh-free work, e.g.
-# watchdog_team) every POLL seconds meanwhile. Makes no gh call. Returns 0 either way.
+# watchdog_team) every POLL seconds meanwhile. The hold is re-read each round, so one another worker
+# extends (a fresh limit) or clears is followed. Makes no gh call. Returns 0 either way.
 gh_rate_wait(){ local fn="${1:-}" reset now left
-  reset="$(gh_rate_held)" || return 0
-  if [[ "${_GH_RATE_LOGGED:-}" != "$reset" ]]; then
-    _GH_RATE_LOGGED="$reset"; now="$(date +%s)"
-    log "github rate limit — no gh calls until $(date -d "@$reset" '+%H:%M:%S' 2>/dev/null || echo "$reset") ($(( reset - now ))s); live sessions keep running (#183)"
-    harness_event hold reason=rate_limit cause=gh_rate_limit secs="$(( reset - now ))"
-  fi
-  while now="$(date +%s)"; (( reset > now )); do
+  while reset="$(gh_rate_held)"; do
+    now="$(date +%s)"
+    if [[ "${_GH_RATE_LOGGED:-}" != "$reset" ]]; then
+      _GH_RATE_LOGGED="$reset"
+      log "github rate limit — no gh calls until $(date -d "@$reset" '+%H:%M:%S' 2>/dev/null || echo "$reset") ($(( reset - now ))s); live sessions keep running (#183)"
+      harness_event hold reason=rate_limit cause=gh_rate_limit secs="$(( reset - now ))"
+    fi
     [[ -n "$fn" ]] && "$fn"
-    left=$(( reset - now )); sleep "$(( left < POLL ? left : POLL ))"
+    left=$(( reset - now )); (( left > 0 )) && sleep "$(( left < POLL ? left : POLL ))"
   done
   return 0; }
 

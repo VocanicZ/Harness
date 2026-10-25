@@ -50,12 +50,17 @@ for cli in claude agy; do
   rm -f "$GH_ERR"
   # re-pin the reset 3s from NOW, so the waits below are timed from here, not from the slow reads above
   T=$(( $(date +%s) + 3 )); printf '{"reset": %s, "resource": "core"}' "$T" > "$RATE_DIR/gh-auth.hold"
-  TICKS="$RUN_DIR/ticks"; : > "$TICKS"; tick(){ echo x >> "$TICKS"; }
-  out="$(gh_rate_wait tick)"
+  out="$(gh_rate_wait)"
   assert_ok "$cli: gh_rate_wait slept until the reset" test "$(date +%s)" -ge "$T"
   assert_eq "$(calls)" "$n" "$cli: no gh call at all until the reset"
   assert_eq "$(grep -c 'github rate limit' <<< "$out")" "1" "$cli: one log line per hold, not one per poll"
-  assert_ok "$cli: gh-free work (the watchdog) keeps running while held" test "$(grep -c . "$TICKS")" -ge 2
+  # the watchdog runs every round while held; the hold is re-read each round (here: cleared on tick 3)
+  TICKS="$RUN_DIR/ticks"; : > "$TICKS"
+  tick(){ echo x >> "$TICKS"; (( $(grep -c . "$TICKS") < 3 )) || rm -f "$RATE_DIR/gh-auth.hold"; }
+  printf '{"reset": %s}' "$(( $(date +%s) + 600 ))" > "$RATE_DIR/gh-auth.hold"
+  out="$(gh_rate_wait tick)"
+  assert_eq "$(grep -c . "$TICKS")" "3" "$cli: gh-free work (the watchdog) keeps running while held"
+  assert_eq "$(grep -c 'github rate limit' <<< "$out")" "1" "$cli: a hold cleared mid-wait ends the wait, logged once"
   assert_ok "$cli: the hold is a stats hold event" grep -q '"cause": "gh_rate_limit"' "$HARNESS_EVENTS_FILE"
   dispatch_actions acme/widget 1 1 "" >/dev/null 2>&1; rc=$?
   assert_eq "$rc" "0" "$cli: after the reset, dispatch reads gh again"
