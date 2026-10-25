@@ -303,6 +303,142 @@ def test_edge_paths_degrade_quietly():
     finally:
         shutil.rmtree(d)
 
+# --- #186: rtdd events (VocanicZ/rtdd#503 v1 lines) -----------------------------
+def _rt(cmd="which", session=None, ts="2026-10-01T02:00:00Z", ctx=None, **kw):
+    c = dict(ctx or {})
+    if session:
+        c["HARNESS_SESSION"] = session
+    return dict({"v": 1, "ts": ts, "cmd": cmd, "argv": [cmd], "exit": 0, "duration_ms": 400, "ctx": c}, **kw)
+
+def _which(session, **kw):
+    kw.setdefault("changed_nodes", 6); kw.setdefault("round1", 31); kw.setdefault("round2", 12)
+    kw.setdefault("graph", {"source": "scanner", "built_at": "abc", "stale_files": 0, "nodes": 10, "edges": 20})
+    return _rt("which", session, **kw)
+
+def _write(path, lines):
+    with open(path, "w") as fh:
+        for l in lines:
+            fh.write(json.dumps(l) + "\n")
+
+def test_rtdd_event_joins_to_its_issue_and_session_in_issue_json():
+    with host() as d:
+        _write(os.path.join(d, "events.jsonl"), PRD_EVENTS)
+        _write(os.path.join(d, "rtdd-events.jsonl"), [
+            # the session's own launch record wins over a ctx that names another issue
+            _which("s1", ctx={"HARNESS_ISSUE": "99", "HARNESS_REPO": "acme/widget"},
+                   graph={"source": "graphify", "stale_files": 3}),
+            _rt("init", "s2", duration_ms=1000),
+            _which("s3", changed_nodes=100),                        # issue 12: not ours
+            # a session the events log no longer has: attributed by its own ctx
+            _which("gone", ctx={"HARNESS_ISSUE": "11", "HARNESS_REPO": "acme/widget", "HARNESS_PRD": "5"},
+                   round1=0, round2=0),
+            _which("s6", changed_nodes=1000),                       # issue 11, but other/repo
+        ])
+        rc, out = run(["report", "--issue", "11", "-R", "acme/widget", "--json"])
+        assert rc == 0, out
+        data = json.loads(out)
+        r = data["rtdd"]
+        assert r["calls"] == {"which": 2, "init": 1} and r["which"] == 2, r
+        assert (r["changed_nodes"], r["round1"], r["round2"]) == (12, 31, 12), r
+        assert r["stale_graph"] == 1 and r["graph_sources"] == {"graphify": 1, "scanner": 1}, r
+        assert (r["selective"], r["full_suite"], r["wall_ms"]) == (1, 1, 1800), r
+        by = {s["session"]: s["rtdd"] for s in data["sessions"]}
+        assert by["s1"]["which"] == 1 and by["s1"]["changed_nodes"] == 6 and by["s1"]["stale_graph"] == 1, by
+        assert by["s2"]["calls"] == {"init": 1} and by["s2"]["which"] == 0, by
+        rc, out = run(["report", "--issue", "11", "-R", "acme/widget"])
+        assert "rtdd  which 2  changed nodes 12  round1 31  round2 12  stale graph 1  selective 1/2  init 1  1.8s" in out, out
+        rc, out = run(["report", "--prd", "5", "-R", "acme/widget", "--json"])
+        p = json.loads(out)
+        assert p["total"]["rtdd"]["calls"] == {"which": 3, "init": 1}, p["total"]   # #11 (2 + init) + #12 (1)
+        i11 = next(c for c in p["children"] if c["issue"] == 11)
+        assert i11["rtdd"]["which"] == 2 and next(c for c in p["children"] if c["issue"] == 12)["rtdd"]["which"] == 1, p
+        assert next(c for c in p["children"] if c["issue"] is None)["rtdd"] == {}, p
+        assert json.loads(run(["report", "--prd", "5", "-R", "acme/widget", "--model", "sonnet", "--json"])[1]) \
+            ["total"]["rtdd"]["calls"] == {"which": 1, "init": 1}, "--model keeps only the kept sessions' rtdd calls"
+        rc, out = run(["report", "--prd", "5", "-R", "acme/widget"])
+        assert "#11: sessions 2" in out and "rtdd which 2" in out and "rtdd -" in out, out
+
+def test_no_rtdd_events_still_render_with_empty_rtdd_columns():
+    with host() as d:
+        _write(os.path.join(d, "events.jsonl"), PRD_EVENTS)
+        data = json.loads(run(["report", "--issue", "11", "-R", "acme/widget", "--json"])[1])
+        assert data["rtdd"] == {} and all(s["rtdd"] == {} for s in data["sessions"]) and len(data["sessions"]) == 2, data
+        rc, out = run(["report", "--issue", "11", "-R", "acme/widget"])
+        assert rc == 0 and "issue #11: 2 session(s)" in out and "rtdd  -" in out, out
+        p = json.loads(run(["report", "--prd", "5", "-R", "acme/widget", "--json"])[1])
+        assert p["total"]["sessions"] == 4 and p["total"]["rtdd"] == {} and all(c["rtdd"] == {} for c in p["children"])
+        f = json.loads(run(["report", "--since", "2026-01-01", "--json"])[1])
+        assert f["hz"]["sessions"] == 6 and f["hz"]["rtdd"] == {}, f
+        rc, out = run(["report", "--since", "2026-01-01"])
+        assert "fleet hz: sessions 6" in out and "rtdd    -" in out, out
+
+def test_fleet_rtdd_selective_share_and_rtdd_missing():
+    rtdd = st.join_rtdd([
+        _which("s1"), _which("s2"),
+        _which("s3", round1=0, round2=0),                  # empty selection → the full-suite bar
+        _which("s4", exit=2),                              # rtdd refused / failed
+        _which("s5", tier="T2"),                           # rtdd chose the whole suite itself
+        _which("s1", backfill=True, round1=None, round2=None),   # a transcript count: unclassified
+        _rt("doctor", "s1"),
+        _which("z1", ctx={"HARNESS_PREFIX": "bw"}, selection_fidelity="none"),
+    ], PRD_EVENTS)
+    evs = PRD_EVENTS + [_ev("rtdd_missing"), _ev("rtdd_missing")]
+    f = st.fleet_summary(evs, rtdd=rtdd)
+    r = f["hz"]["rtdd"]
+    assert (r["selective"], r["full_suite"], r["selective_share"], r["missing"]) == (2, 3, 0.4, 2), r
+    assert r["which"] == 6 and r["backfilled"] == 1 and r["calls"] == {"which": 6, "doctor": 1}, r
+    assert f["bw"]["rtdd"]["full_suite"] == 1 and f["bw"]["rtdd"]["selective_share"] == 0.0 and f["bw"]["sessions"] == 0, f
+    text = st.render_text("fleet", f)
+    assert "40% selective" in text and "rtdd missing at 2 start(s)" in text and "backfilled 1" in text, text
+    only_missing = st.fleet_summary([_ev("rtdd_missing")])
+    assert only_missing["hz"]["rtdd"] == {"missing": 1}, only_missing
+    assert st.render_text("fleet", only_missing).endswith("rtdd    rtdd missing at 1 start(s)")
+
+def test_goal_env_matches_the_launch_parse():
+    assert st.goal_env("ISSUE:7", "5") == ["KIND=impl", "ISSUE=7", "PRD=5"]
+    assert st.goal_env("BUG:3:fix") == ["KIND=bug-fix", "ISSUE=3"]
+    assert st.goal_env("REVIEW:9", "") == ["KIND=review", "PRD=9"]
+    assert st.goal_env("", "") == []
+    rc, out = run(["goal-env", "ISSUE:12"])
+    assert rc == 0 and out == "KIND=impl\nISSUE=12\n", repr(out)
+
+def test_backfill_rtdd_counts_bash_calls_once_and_is_idempotent():
+    with host() as d:
+        cfg = os.path.join(d, "cfg")
+        pdir = os.path.join(cfg, "projects", "-x--harness-worktrees-main-i8")
+        os.makedirs(os.path.join(pdir, "sid-8", "subagents"))
+        def bash(i, cmd, name="Bash", ts="2026-09-01T00:00:00Z"):
+            return {"type": "assistant", "timestamp": ts, "message": {"id": f"m{i}", "content": [
+                {"type": "tool_use", "id": f"t{i}", "name": name, "input": {"command": cmd}}]}}
+        _write(os.path.join(pdir, "sid-8.jsonl"), [
+            bash(1, "rtdd which --base origin/main"),
+            bash(1, "rtdd which --base origin/main"),         # the same block, streamed again
+            bash(2, "cd x && rtdd run --base origin/main; rtdd seed"),
+            bash(3, "echo rtdd which", name="Read"),          # not a Bash call
+            bash(4, "grep -n rtdd README.md"),                # mentions rtdd, runs none of its commands
+            {"type": "user", "message": {"content": "rtdd which"}},
+        ])
+        open(os.path.join(pdir, "sid-8.jsonl"), "a").write("torn\n")
+        _write(os.path.join(pdir, "sid-8", "subagents", "agent-a.jsonl"), [bash(9, "rtdd init")])
+        _write(os.path.join(pdir, "sid-live.jsonl"), [bash(1, "rtdd which")])   # already has live events
+        rp = os.path.join(d, "rtdd-events.jsonl")
+        _write(rp, [_which("sid-live")])
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfg
+        assert st.backfill_rtdd() == 4
+        lines = [json.loads(l) for l in open(rp)]
+        got = [(l["cmd"], l["ctx"]["HARNESS_SESSION"]) for l in lines[1:]]
+        assert sorted(got) == sorted([("which", "sid-8"), ("run", "sid-8"), ("seed", "sid-8"), ("init", "sid-8")]), got
+        assert all(l["backfill"] is True and l["v"] == 1 for l in lines[1:])
+        assert lines[1]["ctx"] == {"HARNESS_KIND": "impl", "HARNESS_ISSUE": "8", "HARNESS_SESSION": "sid-8"}, lines[1]
+        assert st.backfill_rtdd() == 0, "rtdd backfill is not idempotent"
+        rc, out = run(["backfill"])
+        assert rc == 0 and out.strip() == "backfilled 0 session(s), 0 rtdd call(s)", out
+        r = st.rtdd_summary(st.join_rtdd(st.load_events(rp), []))
+        assert r["calls"] == {"which": 2, "run": 1, "seed": 1, "init": 1} and r["backfilled"] == 4, r
+        assert r["selective"] == 1 and r["full_suite"] == 0, "a backfilled which is never classified"
+        assert st.rtdd_calls(os.path.join(pdir, "missing.jsonl")) == []
+
+
 def test_emit_swallows_unexpected_errors_and_runs_as_a_script():
     real = st.build_event
     st.build_event = lambda *a, **k: 1 / 0

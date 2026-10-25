@@ -46,6 +46,48 @@ assert_no "the context file is consumed" test -e "$RUN_DIR/hz-main-i7.stats"
 stats_sweep_ended
 assert_eq "$(nev)" 2 "a second sweep never re-emits"
 
+echo "=== #186: every lane session gets the rtdd event env, for claude AND agy ==="
+NEWSESS="$RUN_DIR/new-session.args"
+tmux(){ case "$1" in has-session) return 1;; new-session) printf '%s\n' "$@" > "$NEWSESS";; *) return 0;; esac; }
+for cli in claude agy; do
+  : > "$EVENTS"
+  HARNESS_CLI=$cli UNIT=main SLUG=acme/widget GOAL="ISSUE:7" STAT_PRD=5 launch_agent "hz-$cli-i7" "$WT" >/dev/null
+  for kv in "RTDD_EVENT_LOG=$HARNESS_HOME/rtdd-events.jsonl" "HARNESS_SESSION=$FIXTURE_SID" HARNESS_PREFIX=hz \
+            HARNESS_REPO=acme/widget HARNESS_KIND=impl HARNESS_ISSUE=7 HARNESS_PRD=5; do
+    assert_ok "$cli: tmux new-session sets -e $kv" grep -qxF -- "$kv" "$NEWSESS"
+  done
+  assert_eq "$(grep -cx -- -e "$NEWSESS")" 7 "$cli: exactly the rtdd env, nothing else"
+  assert_eq "$(ev 1 "e['session']")" "$FIXTURE_SID" "$cli: the launch event's session is the HARNESS_SESSION rtdd joins on"
+  rm -f "$RUN_DIR/hz-$cli-i7.stats"
+done
+GOAL="REVIEW:5" STAT_PRD="" HARNESS_RTDD_EVENTS_FILE="$RUN_DIR/r.jsonl" session_env u-1
+assert_eq "${SESSION_ENV[*]}" "-e RTDD_EVENT_LOG=$RUN_DIR/r.jsonl -e HARNESS_SESSION=u-1 -e HARNESS_PREFIX=hz -e HARNESS_KIND=review -e HARNESS_PRD=5" \
+  "session_env: a review session has no issue, its PRD from the GOAL; the log path honours its override"
+tmux(){ case "$1" in has-session) grep -qxF "$3" "$LIVE";; new-session) echo "$4" >> "$LIVE";; *) return 0;; esac; }
+
+echo "=== #186: start.sh records a missing rtdd as an rtdd_missing event ==="
+FAKE_BIN="$RUN_DIR/fakebin"; mkdir -p "$FAKE_BIN"
+for b in tmux claude gh; do printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/$b"; chmod +x "$FAKE_BIN/$b"; done
+SYS_PATH=/usr/bin:/bin
+if PATH=$SYS_PATH command -v rtdd >/dev/null; then   # rtdd installed system-wide: mirror the system bins minus it
+  SYS_PATH="$RUN_DIR/sysbin"; mkdir -p "$SYS_PATH"
+  for f in /bin/* /usr/bin/*; do [[ "${f##*/}" == rtdd ]] || ln -sf "$f" "$SYS_PATH/" 2>/dev/null; done
+fi
+mkdir -p "$STATE_DIR/run"; : > "$EVENTS"
+# a held start.lock makes start.sh exit 0 right after its prerequisite checks: nothing is launched
+flock "$STATE_DIR/run/start.lock" sleep 30 & HOLDER=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do flock -n "$STATE_DIR/run/start.lock" true || break; command sleep 0.1; done
+out="$(PATH="$FAKE_BIN:$SYS_PATH" bash "$HERE/../scripts/start.sh" 2>&1)"
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+assert_ok "start.sh still only warns" grep -q 'rtdd not found' <<<"$out"
+assert_eq "$(ev 1 "e['event'],e['prefix']")" "('rtdd_missing', 'hz')" "start.sh emits rtdd_missing"
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/rtdd"; chmod +x "$FAKE_BIN/rtdd"; : > "$EVENTS"
+flock "$STATE_DIR/run/start.lock" sleep 30 & HOLDER=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do flock -n "$STATE_DIR/run/start.lock" true || break; command sleep 0.1; done
+PATH="$FAKE_BIN:$SYS_PATH" bash "$HERE/../scripts/start.sh" >/dev/null 2>&1
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+assert_eq "$(nev)" 0 "rtdd on PATH: no rtdd_missing event"
+
 echo "=== watchdog / reaper / claim events ==="
 : > "$EVENTS"
 printf '{"session":"s-9","issue":9,"kind":"impl","repo":"acme/widget"}' > "$RUN_DIR/hz-main-i9.stats"

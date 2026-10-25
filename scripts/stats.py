@@ -11,6 +11,12 @@ assistant line carrying message.model + message.usage.
     stats.py parent-prd <slug>        PRD number of the issue body on stdin (## Parent), or nothing
     stats.py report [--prd N|--issue N] [-R owner/repo] [--since 7d] [--fleet P] [--model M] [--json]
     stats.py backfill                 rebuild session_end for past sessions from their transcripts
+    stats.py goal-env <goal> [prd]    KIND=/ISSUE=/PRD= lines for a lane's HARNESS_* session env (#186)
+
+rtdd activity (#186) lives beside it in $HARNESS_HOME/rtdd-events.jsonl: every lane session is
+launched with RTDD_EVENT_LOG pointing there plus HARNESS_SESSION/ISSUE/KIND/PRD/PREFIX/REPO, and rtdd
+appends one line per invocation, copying the HARNESS_* vars into its `ctx` (VocanicZ/rtdd#503, v1).
+The report joins each line to its session on ctx.HARNESS_SESSION.
 
 `emit` never raises: any failure exits 1 having printed nothing, and the bash caller (lib.sh
 harness_event) swallows it — logging must never block or fail dispatch.
@@ -32,6 +38,10 @@ def home():
 
 def events_path():
     return os.environ.get("HARNESS_EVENTS_FILE") or os.path.join(home(), "events.jsonl")
+
+
+def rtdd_events_path():
+    return os.environ.get("HARNESS_RTDD_EVENTS_FILE") or os.path.join(home(), "rtdd-events.jsonl")
 
 
 def now_iso(t=None):
@@ -99,6 +109,15 @@ def goal_fields(goal):
     if name == "INJECT":
         return {"kind": "inject"}
     return {}
+
+
+def goal_env(goal, prd=""):
+    """The HARNESS_* suffixes (KIND, ISSUE, PRD) launch_agent exports into a lane session, from the
+    same GOAL parse the launch event uses — so an rtdd event's ctx and the session agree."""
+    f = goal_fields(goal)
+    if str(prd).isdigit():
+        f["prd"] = int(prd)
+    return [f"{k.upper()}={f[k]}" for k in ("kind", "issue", "prd") if k in f]
 
 
 def model_effort(flags, worktree=None):
@@ -370,12 +389,15 @@ def _retries(sess):
     return redispatch + sum(s["watchdog_kills"] for s in sess)
 
 
-def fleet_summary(events, model=None):
-    """Per fleet (session prefix): sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes."""
+def fleet_summary(events, model=None, rtdd=()):
+    """Per fleet (session prefix): sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes,
+    and rtdd: selective vs full-suite `which` calls, plus each `rtdd_missing` start (#186)."""
     fleets = {}
     for e in events:
-        f = fleets.setdefault(e.get("prefix") or "?", {"events": []})
+        f = fleets.setdefault(e.get("prefix") or "?", {"events": [], "rtdd": []})
         f["events"].append(e)
+    for r in rtdd:
+        fleets.setdefault(r.get("prefix") or "?", {"events": [], "rtdd": []})["rtdd"].append(r)
     out = {}
     for pfx, f in sorted(fleets.items()):
         evs = f["events"]
@@ -390,29 +412,100 @@ def fleet_summary(events, model=None):
             "prds_closed": len({(e.get("repo"), e.get("prd")) for e in evs if e.get("event") == "prd_closed"}),
             "retries": _retries(sess),
             "hold_minutes": round(sum(int(e.get("secs") or 0) for e in evs if e.get("event") == "hold") / 60, 1),
+            "rtdd": rtdd_summary(f["rtdd"]),
         }
+        r = out[pfx]["rtdd"]
+        if r.get("selective", 0) + r.get("full_suite", 0):
+            r["selective_share"] = round(r["selective"] / (r["selective"] + r["full_suite"]), 2)
+        missing = sum(1 for e in evs if e.get("event") == "rtdd_missing")
+        if missing:
+            r["missing"] = missing
     return out
 
 
-def _sess_row(s, model=None):
+def _sess_row(s, model=None, rtdd=()):
     return {"session": s["session"], "kind": s.get("kind"), "model": s.get("model"),
             "effort": s.get("effort"), "launched": s.get("launched"), "wall_s": s.get("wall_s"),
-            "usage": add_usage({}, s["usage"], model), "watchdog_kills": s["watchdog_kills"]}
+            "usage": add_usage({}, s["usage"], model), "watchdog_kills": s["watchdog_kills"],
+            "rtdd": rtdd_summary([r for r in rtdd if r.get("session") == s["session"]])}
 
 
-def prd_rollup(events, prd, model=None):
+# --- rtdd events (#186) --------------------------------------------------------
+def join_rtdd(rtdd, events):
+    """Attribute each rtdd event line to its Harness session. ctx.HARNESS_SESSION names the session;
+    the session's own launch record (prefix/repo/issue/prd/kind) wins over the rest of the ctx, which
+    only fills in for a session the events log no longer has."""
+    by = {s["session"]: s for s in sessions(events)}
+    out = []
+    for r in rtdd:
+        ctx = r.get("ctx") if isinstance(r.get("ctx"), dict) else {}
+        rec = {"ts": r.get("ts"), "session": ctx.get("HARNESS_SESSION"), "rtdd": r}
+        for k in ("prefix", "repo", "issue", "prd", "kind"):
+            v = ctx.get(f"HARNESS_{k.upper()}")
+            if v is not None and v != "":
+                rec[k] = _coerce(str(v)) if k in ("issue", "prd") else v
+        s = by.get(rec["session"]) if rec["session"] else None
+        for k in ("prefix", "repo", "issue", "prd", "kind"):
+            if s and s.get(k) is not None:
+                rec[k] = s[k]
+        out.append(rec)
+    return out
+
+
+def _rtdd_full_suite(r):
+    """A `which` that left the lane on the full suite: rtdd failed, chose the whole suite itself (T2 /
+    fidelity none), or selected nothing — an empty selection sends the lane to the full-suite bar."""
+    if r.get("exit") not in (None, 0) or r.get("tier") == "T2" or r.get("selection_fidelity") == "none":
+        return True
+    return int(r.get("round1") or 0) + int(r.get("round2") or 0) == 0
+
+
+def rtdd_summary(recs):
+    """Totals over joined rtdd events; {} when there are none, so the rtdd columns render empty."""
+    if not recs:
+        return {}
+    out = {"calls": {}, "which": 0, "changed_nodes": 0, "round1": 0, "round2": 0, "stale_graph": 0,
+           "graph_sources": {}, "wall_ms": 0, "selective": 0, "full_suite": 0, "backfilled": 0}
+    for rec in recs:
+        r = rec["rtdd"]
+        cmd = r.get("cmd") or "?"
+        out["calls"][cmd] = out["calls"].get(cmd, 0) + 1
+        out["wall_ms"] += int(r.get("duration_ms") or 0)
+        g = r.get("graph") if isinstance(r.get("graph"), dict) else {}
+        out["stale_graph"] += 1 if int(g.get("stale_files") or 0) > 0 else 0
+        if g.get("source"):
+            out["graph_sources"][g["source"]] = out["graph_sources"].get(g["source"], 0) + 1
+        if r.get("backfill"):   # a transcript count: no selection data to classify
+            out["backfilled"] += 1
+        if cmd != "which":
+            continue
+        out["which"] += 1
+        for k in ("changed_nodes", "round1", "round2"):
+            out[k] += int(r.get(k) or 0)
+        if not r.get("backfill"):
+            out["full_suite" if _rtdd_full_suite(r) else "selective"] += 1
+    return out
+
+
+def prd_rollup(events, prd, model=None, rtdd=()):
     """PRD #prd and every child: each issue's sessions, model/effort, tokens, wall time and retries,
     rolled up to the PRD. A child is any session attributed to the PRD (`prd` field); the PRD's own
     DECOMPOSE/REVIEW sessions carry no issue and roll up under `issue: null`."""
     sess = [s for s in sessions(events) if s.get("prd") == prd and _sess_matches(s, model)]
+    kept = {s["session"] for s in sess}
+    rtdd = [r for r in rtdd if r.get("prd") == prd and (not model or r.get("session") in kept)]
     groups = {}
     for s in sess:
         groups.setdefault(s.get("issue"), []).append(s)
-    children, total = [], {"sessions": 0, "tokens": {}, "wall_s": 0, "retries": 0}
+    for r in rtdd:
+        groups.setdefault(r.get("issue"), [])
+    children, total = [], {"sessions": 0, "tokens": {}, "wall_s": 0, "retries": 0, "rtdd": rtdd_summary(rtdd)}
     for issue in sorted(groups, key=lambda i: (i is not None, i or 0)):
         ss = sorted(groups[issue], key=lambda s: s.get("launched") or "")
-        row = {"issue": issue, "sessions": [_sess_row(s, model) for s in ss], "tokens": {},
-               "wall_s": sum(int(s.get("wall_s") or 0) for s in ss), "retries": _retries(ss)}
+        rr = [r for r in rtdd if r.get("issue") == issue]
+        row = {"issue": issue, "sessions": [_sess_row(s, model, rr) for s in ss], "tokens": {},
+               "wall_s": sum(int(s.get("wall_s") or 0) for s in ss), "retries": _retries(ss),
+               "rtdd": rtdd_summary(rr)}
         for s in ss:
             add_usage(row["tokens"], s["usage"], model)
         children.append(row)
@@ -423,10 +516,11 @@ def prd_rollup(events, prd, model=None):
     return {"prd": prd, "children": children, "total": total}
 
 
-def issue_timeline(events, issue):
+def issue_timeline(events, issue, rtdd=()):
     tl = sorted((e for e in events if e.get("issue") == issue), key=lambda e: e.get("ts") or "")
-    return {"issue": issue, "events": tl,
-            "sessions": [_sess_row(s) for s in sessions(tl)]}
+    rr = [r for r in rtdd if r.get("issue") == issue]
+    return {"issue": issue, "events": tl, "rtdd": rtdd_summary(rr),
+            "sessions": [_sess_row(s, rtdd=rr) for s in sessions(tl)]}
 
 
 def _tok(usage):
@@ -435,6 +529,26 @@ def _tok(usage):
         parts.append(f"{model}: out {u['output']:,} in {u['input']:,} "
                      f"cache_create {u['cache_create']:,} cache_read {u['cache_read']:,}")
     return "; ".join(parts) or "-"
+
+
+def _rtdd(r):
+    if not r:
+        return "-"
+    parts = [f"which {r.get('which', 0)}"] if "which" in r else []
+    if "which" in r:
+        parts += [f"changed nodes {r['changed_nodes']}", f"round1 {r['round1']}", f"round2 {r['round2']}",
+                  f"stale graph {r['stale_graph']}", f"selective {r['selective']}/{r['selective'] + r['full_suite']}"]
+        others = {c: n for c, n in r["calls"].items() if c != "which"}
+        if others:
+            parts.append(" ".join(f"{c} {n}" for c, n in sorted(others.items())))
+        if r["backfilled"]:
+            parts.append(f"backfilled {r['backfilled']}")
+        parts.append(f"{r['wall_ms'] / 1000:.1f}s")
+    if "selective_share" in r:
+        parts.append(f"{round(r['selective_share'] * 100)}% selective")
+    if r.get("missing"):
+        parts.append(f"rtdd missing at {r['missing']} start(s)")
+    return "  ".join(parts)
 
 
 def _hms(s):
@@ -451,13 +565,16 @@ def render_text(kind, data):
             out.append(f"fleet {pfx}: sessions {f['sessions']}  issues closed {f['issues_closed']}  "
                        f"PRDs closed {f['prds_closed']}  retries {f['retries']}  HOLD {f['hold_minutes']}m")
             out.append(f"  tokens  {_tok(f['tokens'])}")
+            out.append(f"  rtdd    {_rtdd(f['rtdd'])}")
     elif kind == "prd":
         t = data["total"]
         out.append(f"PRD #{data['prd']}: sessions {t['sessions']}  wall {_hms(t['wall_s'])}  retries {t['retries']}")
         out.append(f"  tokens  {_tok(t['tokens'])}")
+        out.append(f"  rtdd    {_rtdd(t['rtdd'])}")
         for c in data["children"]:
             label = f"#{c['issue']}" if c["issue"] is not None else "(PRD orchestration)"
-            out.append(f"  {label}: sessions {len(c['sessions'])}  wall {_hms(c['wall_s'])}  retries {c['retries']}")
+            out.append(f"  {label}: sessions {len(c['sessions'])}  wall {_hms(c['wall_s'])}  retries {c['retries']}"
+                       f"  rtdd {_rtdd(c['rtdd'])}")
             for s in c["sessions"]:
                 out.append(f"    {s['launched'] or '?'}  {s['kind'] or '?'}  {s['model'] or '?'}/{s['effort'] or '?'}  "
                            f"wall {_hms(s['wall_s'])}  {_tok(s['usage'])}")
@@ -470,6 +587,7 @@ def render_text(kind, data):
             if e.get("usage"):
                 line += f"  {_tok(e['usage'])}"
             out.append(line)
+        out.append(f"  rtdd  {_rtdd(data['rtdd'])}")
     return "\n".join(out)
 
 
@@ -486,23 +604,27 @@ def cmd_report(argv):
     ap.add_argument("--model", help="substring of a model id")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--events", help=argparse.SUPPRESS)
+    ap.add_argument("--rtdd-events", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.backfill:
-        n = backfill(a.events)
-        print(f"backfilled {n} session(s)")
+        n, calls = backfill(a.events), backfill_rtdd(a.rtdd_events)
+        print(f"backfilled {n} session(s), {calls} rtdd call(s)")
         return 0
     try:
         since = parse_since(a.since) if a.since else (None if (a.prd or a.issue) else parse_since("7d"))
     except ValueError as e:
         print(f"harness stats: {e}", file=sys.stderr)
         return 2
-    evs = filter_events(load_events(a.events), since, a.fleet, a.repo)
+    every = load_events(a.events)
+    evs = filter_events(every, since, a.fleet, a.repo)
+    # joined against EVERY event: a --since that cuts a session's launch must not orphan its rtdd calls
+    rtdd = filter_events(join_rtdd(load_events(a.rtdd_events or rtdd_events_path()), every), since, a.fleet, a.repo)
     if a.prd is not None:
-        kind, data = "prd", prd_rollup(evs, a.prd, a.model)
+        kind, data = "prd", prd_rollup(evs, a.prd, a.model, rtdd)
     elif a.issue is not None:
-        kind, data = "issue", issue_timeline(evs, a.issue)
+        kind, data = "issue", issue_timeline(evs, a.issue, rtdd)
     else:
-        kind, data = "fleet", fleet_summary(evs, a.model)
+        kind, data = "fleet", fleet_summary(evs, a.model, rtdd)
     print(json.dumps(data, indent=2) if a.json else render_text(kind, data))
     return 0
 
@@ -571,30 +693,85 @@ def classify_dir(name, fleets):
     return None
 
 
-def backfill(path=None):
-    """Write a session_end (backfill: true) for every Harness-worktree transcript the log has none for.
-    Worker logs carry only HH:MM:SS, no date, so lifecycle events are not reconstructed from them."""
-    have = {e.get("session") for e in load_events(path) if e.get("event") == "session_end"}
-    fleets, n = _fleets(), 0
+RTDD_CALL_RE = re.compile(r"(?:^|[\s;&|(`])rtdd\s+(which|init|run|seed)\b")
+
+
+def rtdd_calls(transcript):
+    """[(ts, cmd)] for every `rtdd which|init` (and pre-v0.3 `rtdd run|seed`) a session's Bash tool
+    calls ran, over the main transcript and its subagents. A streamed message repeats its blocks, so
+    each tool_use id counts once."""
+    seen, out = set(), []
+    for path in [transcript] + sorted(glob.glob(os.path.join(transcript[:-len(".jsonl")], "subagents", "*.jsonl"))):
+        try:
+            fh = open(path)
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                content = (r.get("message") or {}).get("content") if r.get("type") == "assistant" else None
+                for b in content if isinstance(content, list) else ():
+                    if not isinstance(b, dict) or b.get("type") != "tool_use" or b.get("name") != "Bash":
+                        continue
+                    if b.get("id") in seen:
+                        continue
+                    seen.add(b.get("id"))
+                    for m in RTDD_CALL_RE.finditer(str((b.get("input") or {}).get("command") or "")):
+                        out.append((r.get("timestamp"), m.group(1)))
+    return out
+
+
+def _harness_transcripts():
+    """(attribution, session id, transcript) for every Harness-worktree main transcript on the host."""
+    fleets = _fleets()
     for d in config_dirs():
         for pdir in sorted(glob.glob(os.path.join(d, "projects", "*"))):
             attr = classify_dir(os.path.basename(pdir), fleets)
             if attr is None:
                 continue
             for tr in sorted(glob.glob(os.path.join(pdir, "*.jsonl"))):
-                sid = os.path.basename(tr)[:-len(".jsonl")]
-                if sid in have:
-                    continue
-                usage, first, last = session_usage(tr)
-                if not usage:
-                    continue
-                rec = dict(attr, session=sid, usage=usage, backfill=True, event="session_end",
-                           ts=now_iso(last or os.path.getmtime(tr)))
-                if first is not None and last is not None:
-                    rec["wall_s"] = int(last - first)
-                if append_event(rec, path):
-                    have.add(sid)
-                    n += 1
+                yield attr, os.path.basename(tr)[:-len(".jsonl")], tr
+
+
+def backfill(path=None):
+    """Write a session_end (backfill: true) for every Harness-worktree transcript the log has none for.
+    Worker logs carry only HH:MM:SS, no date, so lifecycle events are not reconstructed from them."""
+    have = {e.get("session") for e in load_events(path) if e.get("event") == "session_end"}
+    n = 0
+    for attr, sid, tr in _harness_transcripts():
+        if sid in have:
+            continue
+        usage, first, last = session_usage(tr)
+        if not usage:
+            continue
+        rec = dict(attr, session=sid, usage=usage, backfill=True, event="session_end",
+                   ts=now_iso(last or os.path.getmtime(tr)))
+        if first is not None and last is not None:
+            rec["wall_s"] = int(last - first)
+        if append_event(rec, path):
+            have.add(sid)
+            n += 1
+    return n
+
+
+def backfill_rtdd(path=None):
+    """For every Harness session with no rtdd events (one from before RTDD_EVENT_LOG was exported),
+    write one backfilled rtdd line per `rtdd` Bash call in its transcripts — counts only, no
+    selection data (#186). Returns the number of calls written."""
+    path = path or rtdd_events_path()
+    have = {e["ctx"].get("HARNESS_SESSION") for e in load_events(path) if isinstance(e.get("ctx"), dict)}
+    n = 0
+    for attr, sid, tr in _harness_transcripts():
+        if sid in have:
+            continue
+        ctx = {f"HARNESS_{k.upper()}": str(attr[k]) for k in ("prefix", "repo", "issue", "prd", "kind") if k in attr}
+        ctx["HARNESS_SESSION"] = sid
+        for ts, cmd in rtdd_calls(tr):
+            n += 1 if append_event({"v": 1, "ts": ts, "cmd": cmd, "backfill": True, "ctx": ctx}, path) else 0
+        have.add(sid)
     return n
 
 
@@ -621,6 +798,9 @@ def main(argv=None):
             return 1
     if cmd == "parent-prd":
         return cmd_parent_prd(rest)
+    if cmd == "goal-env":
+        print("\n".join(goal_env(*rest[:2])))
+        return 0
     if cmd == "backfill":
         return cmd_report(["--backfill"] + rest)
     if cmd == "report":
