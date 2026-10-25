@@ -55,6 +55,7 @@ reap_done_sessions(){
     goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"; [[ -z "$goal" ]] && continue
     if [[ "$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)" == DONE ]]; then
       log "session $s goal '$goal' satisfied → advancing"
+      stats_sess_event "$s" goal_satisfied
       tmux kill-session -t "$s" 2>/dev/null || true
       rm -f "$RUN_DIR/$s.goal"
     fi
@@ -62,11 +63,13 @@ reap_done_sessions(){
 }
 
 reap_team(){
+  stats_sweep_ended   # #185: before any worktree goes — its ralph state carries the iteration count
   shopt -s nullglob
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     local issue="${wd##*-i}" sess; sess="$(sess_impl "$UNIT" "$issue")"
     session_live "$sess" && continue
     log "reaping issue #$issue worktree"
+    harness_event reap kind=impl issue="$issue" reason=session_gone
     remove_worktree "$CHECKOUT" "$wd"
     local state
     state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || continue
@@ -77,6 +80,7 @@ reap_team(){
     else
       # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
       # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
+      harness_event merged kind=impl issue="$issue"
       git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
     fi
   done
@@ -99,6 +103,7 @@ reap_orch(){
     prd="${wd##*-p}"
     session_live "$(sess_orch "$UNIT" "$prd")" && continue
     log "reaping orch worktree for PRD #$prd"
+    harness_event reap kind=orch prd="$prd" reason=session_gone
     remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
   done
   shopt -u nullglob
@@ -118,6 +123,7 @@ finalize_unit(){
     tmux kill-session -t "$s" 2>/dev/null && log "finalize: reaped leftover session $s"
     rm -f "$RUN_DIR/$s.goal"
   done < <(team_sessions "$UNIT")
+  stats_sweep_ended
   shopt -s nullglob
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     issue="${wd##*-i}"
@@ -150,13 +156,16 @@ ensure_checkout(){  # clone unit repo into $CHECKOUT for multi topology if absen
 close_prd(){
   local prd="$1"
   log "engine closing reviewed PRD #$prd"
-  gh issue close "$prd" -R "$SLUG" --comment "All acceptance criteria met and reviewed — closing." 2>/dev/null || \
+  if gh issue close "$prd" -R "$SLUG" --comment "All acceptance criteria met and reviewed — closing." 2>/dev/null; then
+    harness_event prd_closed kind=orch prd="$prd"
+  else
     log "close of PRD #$prd failed (will retry next poll)"
+  fi
 }
 
 spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   local action="$1" payload="$2"; PROMISE="$3"; MAXITER="$ORCH_MAXITER"
-  local tmpl wd prd=0 base ground=""
+  local tmpl wd prd=0 base ground=""; STAT_PRD=""
   case "$action" in
     PLAN)      tmpl=plan.md;;
     PRD)       tmpl=prd.md;;
@@ -205,7 +214,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
 }
 
 spawn_impl(){   # <ISSUE> <PROMISE>
-  local issue="$1"; PROMISE="$2"; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$issue"
+  local issue="$1"; PROMISE="$2"; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$issue"; STAT_PRD=""
   local wd="$WORKTREES_DIR/$UNIT-i$issue" branch="issue/$issue" base; base="$(default_branch)"
   ensure_checkout || { log "checkout unavailable for #$issue"; return 1; }
   gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
@@ -226,6 +235,7 @@ spawn_impl(){   # <ISSUE> <PROMISE>
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" \
     LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" HANDOFF="$handoff" > "$wd/.harness-task.md"
+  STAT_PRD="$(issue_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"
 }
 
@@ -241,7 +251,7 @@ spawn_impl(){   # <ISSUE> <PROMISE>
 # the same bug while its session is in flight (bug_lane_issues excludes agent-working).
 spawn_bug(){
   local issue="$1" phase="$2" tmpl wd base handoff=""
-  PROMISE="BUG $issue $phase DONE"; MAXITER="$IMPL_MAXITER"; GOAL="BUG:$issue:$phase"
+  PROMISE="BUG $issue $phase DONE"; MAXITER="$IMPL_MAXITER"; GOAL="BUG:$issue:$phase"; STAT_PRD=""
   ensure_checkout || { log "checkout unavailable for bug #$issue"; return 1; }
   if [[ "$phase" == fix ]]; then
     # Repo-qualify the worktree dir (#37): issue numbers are per-repo, so two repos can each have
@@ -320,10 +330,10 @@ drive_unit(){
     # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
     # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
     # again. Placed after the reap sweep so a red branch never also stalls session bookkeeping.
-    if ! ci_gate_ok "$SLUG"; then sleep "$POLL"; continue; fi
+    if ! ci_gate_ok "$SLUG"; then harness_event hold reason=other cause=ci_red secs="$POLL"; sleep "$POLL"; continue; fi
     # #194: an account near its usage limit was checkpointed — hold NEW dispatch (never drain) until
     # the window resets, then the agent-paused issues re-dispatch through the resume path.
-    usage_watch; if usage_held; then sleep "$POLL"; continue; fi
+    usage_watch; if usage_held; then harness_event hold reason=rate_limit cause=usage_limit secs="$POLL"; sleep "$POLL"; continue; fi
     local active free allow_orch action payload promise
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then
@@ -332,7 +342,11 @@ drive_unit(){
       # actions); DECOMPOSE/REVIEW/CLOSE_PRD are gated by --busy-prds plus remaining capacity, so
       # PRD #2 can decompose while PRD #1's impl sessions are live.
       local busy; busy="$(busy_prds_for "$UNIT")"
-      local actions; actions="$(dispatch_actions "$REPO" "$free" "$allow_orch" "$busy")"
+      # stderr is captured (then replayed to the log) only to classify a HOLD tick for `stats` (#185).
+      local actions rc errf="$RUN_DIR/$UNIT.dispatch.err"
+      actions="$(dispatch_actions "$REPO" "$free" "$allow_orch" "$busy" 2>"$errf")"; rc=$?
+      [[ -s "$errf" ]] && cat "$errf" >&2
+      (( rc == 3 )) && harness_event hold reason="$(hold_reason "$(cat "$errf" 2>/dev/null)")" secs="$POLL"
       # A unit that is not complete, has nothing in flight and nothing dispatchable used to be
       # unreachable — a closed PRD ended the loop. Completion now also requires open_children == 0,
       # so it IS reachable: one open ready child that no lane can claim (blocked by an unclosed

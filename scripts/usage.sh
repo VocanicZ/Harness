@@ -87,17 +87,7 @@ if "statusLine" not in data:
 PY
 }
 
-# harness_event <event> [key=value ...] — append one JSON line to the host event log (#185's
-# ~/.harness/events.jsonl). Never blocks or fails the caller: any write error is swallowed.
-harness_event(){ local ev="$1"; shift
-  local f="${HARNESS_EVENTS_FILE:-$HARNESS_HOME/events.jsonl}"
-  mkdir -p "$(dirname "$f")" 2>/dev/null
-  ( flock 9; EV="$ev" PREFIX="$HARNESS_SESS_PREFIX" PROJECT="$STATE_DIR" python3 -c '
-import json, os, sys, time
-rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "prefix": os.environ["PREFIX"],
-       "project": os.environ["PROJECT"], "event": os.environ["EV"]}
-rec.update(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
-print(json.dumps(rec))' "$@" >&9 ) 9>>"$f" 2>/dev/null || true; }
+# harness_event <event> [key=value ...] — the host event log writer is lib.sh's (#185, stats.py).
 
 # checkpoint_sessions — every live impl + priority-lane session of this fleet: the sessions
 # `pause --force` and the usage checkpoint reach (orch sessions push no branch and own no issue).

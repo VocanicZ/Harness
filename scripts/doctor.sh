@@ -49,7 +49,9 @@ doctor_locks(){
         if [[ "$rest" == *start.sh* || "$rest" == *"harness "* ]]; then
           echo "        ↳ left running (looks like an in-flight start — refusing to kill)"
         else
-          kill "$pid" 2>/dev/null && echo "        ↳ killed orphan $pid" || echo "        ↳ kill failed (already gone?)"
+          if kill "$pid" 2>/dev/null; then
+            echo "        ↳ killed orphan $pid"; harness_event unlock lock="$name" pid="$pid"
+          else echo "        ↳ kill failed (already gone?)"; fi
         fi
       fi
     done < <(lock_holders "$lf")
