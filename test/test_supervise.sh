@@ -92,9 +92,12 @@ printf '❯ %s\n' "$*"; printf '%s\n' '─────────────�
 IFS= read -rsn1 k; [ "$k" = "$(printf '\033')" ] && echo '  ⎿  Interrupted · What should Claude do instead?'
 IFS= read -rs l; echo submitted; sleep 600
 PANE
-mk claude-longturn "bash $TP '5h 0m 3s' 'harness supervise: no activity for a while.'"
-mk claude-longtool "bash $TP '5h 0m 3s'"
-mk claude-shortturn "bash $TP '30m 12s' 'also check the flaky test'"
+# The panes must draw exactly the fixture: under rtdd's tracer SHELLOPTS=xtrace reaches them through
+# the tmux server's environment, and a trace line landing inside the input box reads as queued text.
+NOX="env -u SHELLOPTS -u BASH_XTRACEFD"
+mk claude-longturn "$NOX bash $TP '5h 0m 3s' 'harness supervise: no activity for a while.'"
+mk claude-longtool "$NOX bash $TP '5h 0m 3s'"
+mk claude-shortturn "$NOX bash $TP '30m 12s' 'also check the flaky test'"
 sleep 1
 SUP_DRY=1; : >"$LOG"
 pass claude-longturn claude-longtool claude-shortturn
@@ -109,7 +112,7 @@ assert_ok "the turn is interrupted and the queued text submitted" bash -c "tmux 
 assert_eq "$(cat "$SEV")" "claude-longturn turn_interrupted turn_s=18003 queued_nudges=1" \
   "a fleet session's interrupt is logged as turn_interrupted"
 unset -f stats_sess_event; source "$HERE/../scripts/lib.sh"   # restore the real one
-mk claude-deaf "bash -c \"printf '%s\n' '✻ Polling… (5h 0m 3s · ↓ 1k tokens · esc to interrupt)' '────' '❯ harness supervise: no activity' '────'; sleep 600\""
+mk claude-deaf "$NOX bash -c \"printf '%s\n' '✻ Polling… (5h 0m 3s · ↓ 1k tokens · esc to interrupt)' '────' '❯ harness supervise: no activity' '────'; sleep 600\""
 sleep 1; HARNESS_INTERRUPT_WAIT=0; : >"$LOG"
 pass claude-deaf
 assert_ok "a turn that never reports Interrupted is logged for a retry" grep -q "claude-deaf did not report Interrupted" "$LOG"
