@@ -98,12 +98,22 @@ for p in impl bug-fix; do
   f="$HERE/../prompts/$p.md"
   assert_ok "$p.md reads the check result"       grep -q 'gh pr checks' "$f"
   assert_ok "$p.md refuses to merge red"         grep -qi 'DO NOT MERGE' "$f"
-  assert_ok "$p.md forbids weakening the check"  grep -qi 'never disable or weaken' "$f"
+  assert_ok "$p.md forbids weakening the check"  grep -qi 'never disable, skip or weaken' "$f"
   assert_ok "$p.md withholds the promise on red" grep -qi 'is NOT a promise' "$f"
   # Ordering matters: a gate quoted after the merge step is decoration.
   gate="$(grep -n 'gh pr checks' "$f" | head -1 | cut -d: -f1)"
   merge="$(grep -n 'gh pr merge' "$f" | head -1 | cut -d: -f1)"
   assert_ok "$p.md gates BEFORE merging (gate@$gate < merge@$merge)" test "$gate" -lt "$merge"
+  # A repo that ships its own CI entrypoint (hosted CI behind a billing wall returns a zero-step
+  # "failure" no branch can fix) moves the gate there (#190): the prompt must name it, rank it over
+  # `gh pr checks`, check for it before the hosted gate, and treat editing it as weakening the gate.
+  assert_ok "$p.md names the local CI entrypoint"     grep -q 'scripts/ci-local.sh' "$f"
+  assert_ok "$p.md ranks it over gh pr checks"        grep -q 'it OVERRIDES `gh pr checks`' "$f"
+  assert_ok "$p.md forbids editing the local CI script" grep -qi 'editing the local' "$f"
+  assert_ok "$p.md promises only on the repo's gate"  grep -q "the repo's CI GATE was GREEN" "$f"
+  local_gate="$(grep -n 'LOCAL CI ENTRYPOINT' "$f" | head -1 | cut -d: -f1)"
+  assert_ok "$p.md checks for the local gate first (local@$local_gate < hosted@$gate)" \
+    test "${local_gate:-999999}" -lt "$gate"
 done
 # impl.md's autonomy clause must not be readable as "merge anyway".
 assert_ok "impl.md says the gate overrides 'never park'" \
