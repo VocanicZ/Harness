@@ -1342,6 +1342,18 @@ stats_sweep_ended(){ local f s claim
     harness_event session_end --ctx "$claim"; rm -f "$claim"
   done
   shopt -u nullglob; }
+# session_env <uuid> — fill SESSION_ENV with the `-e K=V` pairs `tmux new-session` gives a lane (#186).
+# RTDD_EVENT_LOG points every rtdd call the session makes at the host-wide rtdd log, and rtdd copies
+# each HARNESS_* var into the event's ctx (VocanicZ/rtdd#503), so `harness stats` can join the call to
+# its session, issue and PRD. Set on the session, not the typed command line, so claude and agy alike
+# inherit it. KIND/ISSUE/PRD come from the same GOAL parse the launch event uses.
+session_env(){ local kv
+  SESSION_ENV=(-e "RTDD_EVENT_LOG=${HARNESS_RTDD_EVENTS_FILE:-$HARNESS_HOME/rtdd-events.jsonl}"
+    -e "HARNESS_SESSION=$1" -e "HARNESS_PREFIX=$HARNESS_SESS_PREFIX")
+  [[ -n "${SLUG:-}" ]] && SESSION_ENV+=(-e "HARNESS_REPO=$SLUG")
+  while read -r kv; do [[ -n "$kv" ]] && SESSION_ENV+=(-e "HARNESS_$kv"); done \
+    < <(timeout 10 python3 "$STATS_PY" goal-env "${GOAL:-}" "${STAT_PRD:-}" 2>/dev/null)
+  return 0; }
 # issue_parent_prd <issue> — the PRD an issue's `## Parent` names (empty when unparented / gh fails).
 issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null || true; }
 launch_agent(){ local sess="$1" wd="$2" uuid
@@ -1352,7 +1364,8 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
   uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
-  tmux new-session -d -s "$sess" -c "$wd"; sleep 1.5
+  session_env "$uuid"
+  tmux new-session -d -s "$sess" -c "$wd" "${SESSION_ENV[@]}"; sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
   # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
   # the goal before `tmux new-session` opened a cross-lane TOCTOU window: a concurrent sweep in that

@@ -29,6 +29,7 @@ command -v gh     >/dev/null || die "gh not found — install the GitHub CLI fir
 command -v rtdd >/dev/null || {
   echo "  ! rtdd not found — lanes will fall back to full-suite runs (slow but correct)."
   echo "    Install it with:  npx -y github:VocanicZ/rtdd     (or: harness update)"
+  harness_event rtdd_missing   # #186: the slowdown shows up in `harness stats`, not just this terminal
 }
 
 # crash / migration recovery: GitHub is the source of truth, but two bits of local state
