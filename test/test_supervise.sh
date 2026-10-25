@@ -79,6 +79,43 @@ assert_no "reacted to the nudge → not killed"              grep -qx tp-u-i2 "$
 assert_no "a killed pane's state is forgotten"             test -f "$SUP_STATE/panes/tp-u-i1"
 tmux kill-server 2>/dev/null
 
+echo "=== #207: one endless turn with input queued → Escape, then Enter ==="
+# The spinner's timer ticks every second, so the activity test alone calls such a pane busy forever.
+# turnpane.sh draws a mid-turn Claude Code pane; like the real TUI it prints `Interrupted` on Escape,
+# and `submitted` once Enter delivers the queued text.
+TP="$T/turnpane.sh"
+cat >"$TP" <<'PANE'
+timer=$1; shift
+printf '%s\n' '⏺ Bash(timeout 590 bash -c "until grep -q done replay.log; do sleep 30; done")' \
+  "✻ Polling the bench replay… ($timer · ↓ 12.3k tokens · esc to interrupt)" '' '────────────────'
+printf '❯ %s\n' "$*"; printf '%s\n' '────────────────'
+IFS= read -rsn1 k; [ "$k" = "$(printf '\033')" ] && echo '  ⎿  Interrupted · What should Claude do instead?'
+IFS= read -rs l; echo submitted; sleep 600
+PANE
+mk claude-longturn "bash $TP '5h 0m 3s' 'harness supervise: no activity for a while.'"
+mk claude-longtool "bash $TP '5h 0m 3s'"
+mk claude-shortturn "bash $TP '30m 12s' 'also check the flaky test'"
+sleep 1
+SUP_DRY=1; : >"$LOG"
+pass claude-longturn claude-longtool claude-shortturn
+assert_ok "dry run: a 5 h turn with queued input gets Escape…" grep -q "DRY tmux send-keys -t claude-longturn Escape" "$LOG"
+assert_ok "…then Enter"                                        grep -q "DRY tmux send-keys -t claude-longturn Enter" "$LOG"
+assert_no "a 5 h turn with an empty input box is left alone"   grep -q "claude-longtool" "$LOG"
+assert_no "a 30 min turn with queued input is left alone"      grep -q "claude-shortturn" "$LOG"
+SUP_DRY=0; HARNESS_INTERRUPT_WAIT=5; : >"$LOG"; SEV="$T/turn.events"; : >"$SEV"
+stats_sess_event(){ echo "$1 $2 ${*:3}" >>"$SEV"; }
+pass claude-longturn
+assert_ok "the turn is interrupted and the queued text submitted" bash -c "tmux capture-pane -p -t claude-longturn | grep -q submitted"
+assert_eq "$(cat "$SEV")" "claude-longturn turn_interrupted turn_s=18003 queued_nudges=1" \
+  "a fleet session's interrupt is logged as turn_interrupted"
+unset -f stats_sess_event; source "$HERE/../scripts/lib.sh"   # restore the real one
+mk claude-deaf "bash -c \"printf '%s\n' '✻ Polling… (5h 0m 3s · ↓ 1k tokens · esc to interrupt)' '────' '❯ harness supervise: no activity' '────'; sleep 600\""
+sleep 1; HARNESS_INTERRUPT_WAIT=0; : >"$LOG"
+pass claude-deaf
+assert_ok "a turn that never reports Interrupted is logged for a retry" grep -q "claude-deaf did not report Interrupted" "$LOG"
+assert_no "…and gets no Enter"                                         grep -q "send-keys -t claude-deaf Enter" "$LOG"
+tmux kill-server 2>/dev/null
+
 echo "=== checkpoint before kill ==="
 gstub="$T/gstub"; mkdir -p "$gstub"
 printf '#!/bin/sh\necho "$@" >> %s/gh.calls\n' "$T" >"$gstub/gh"; chmod +x "$gstub/gh"

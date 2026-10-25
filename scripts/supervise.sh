@@ -14,6 +14,9 @@
 #      background-agent/shell timer in the footer moved, or the pane's process tree used more than
 #      CPU_ACTIVE_S CPU seconds since the last pass. Only an idle input prompt is ever typed into —
 #      never a dialog or menu — and panes showing a usage/credit/rate-limit message are left alone.
+#      Checked before activity: a pane in ONE turn for HARNESS_TURN_MAX with input queued in its box,
+#      or with a Harness nudge still queued a pass later, is never "quiet" (its spinner timer ticks),
+#      yet nothing typed into it lands -> Escape, wait for `Interrupted`, Enter (#207; rule 4 too).
 #   4. non-Harness agent panes (EXTRA_RE, host config): the same activity test, nudge only, never
 #      killed — nothing re-dispatches them.
 #   5. host offline: hold every action; on reconnect re-arm every pane so quiet ones are nudged at once.
@@ -46,6 +49,7 @@ SUP_CONF="${HARNESS_SUPERVISE_CONF:-$HARNESS_HOME/supervise.conf}"
 : "${ONLINE_URL:=https://api.anthropic.com}" "${UNPARENTED_OK:=}"
 SUP_STATE="${HARNESS_SUPERVISE_STATE:-$HARNESS_HOME/supervise}"
 SUP_LOG="${HARNESS_SUPERVISE_LOG:-$HARNESS_HOME/supervise.log}"
+source "$SUP_ENGINE_DIR/scripts/turn.sh"   # #207: stuck-turn detection + interrupt (after supervise.conf, which may set HARNESS_TURN_MAX)
 SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_ENGINE_DIR/bin/harness}"
 SUP_RULES="${HARNESS_SUPERVISE_RULES:-$SUP_ENGINE_DIR/scripts/supervise_rules.py}"
 # Fleets the registry does not know (an engine that predates it) are found by this glob too.
@@ -91,6 +95,11 @@ sup_watch_pane(){
   local t=$1 f=$2 nudge_min=$3 kill_min=$4 msg=$5 cli=$6 killfn=${7:-}
   local pane pre body bg cpu now old= oldbg= oldcpu=0 t0 nudged=0 lastn=0 idle
   pane=$(tmux capture-pane -p -t "$t" 2>/dev/null) || return 0
+  # #207: one endless turn with input queued behind it. The spinner's timer changes every second, so
+  # the activity test below would call it busy forever — it is checked first.
+  if turn_should_interrupt "$pane" "$SUP_STATE/turn/${f##*/}"; then
+    sup_turn_interrupt "$t" "$pane" "$SUP_STATE/turn/${f##*/}"; return 0
+  fi
   now=$(date +%s); t0=$now; pre=$(sup_prompt_re "$cli")
   body=$(sed -E "\%$pre%,\$d" <<<"$pane" | md5sum | cut -c1-12)
   bg=$(sed -nE "\%$pre%,\$p" <<<"$pane" | grep -oE "$(sup_bg_re "$cli")" | md5sum | cut -c1-12)
@@ -114,6 +123,19 @@ sup_watch_pane(){
   fi
   return 0
 }
+
+# sup_turn_interrupt <tmux target> <pane text> <turn state file> — #207: Escape the endless turn, wait
+# for `Interrupted`, then Enter so the queued nudges are delivered. A fleet session (lib.sh loaded)
+# also gets a turn_interrupted event for `harness stats`.
+sup_turn_interrupt(){ local t=$1 pane=$2 tf=$3 secs
+  secs=$(turn_secs "$pane")
+  sup_log "turn: $t has run one turn for ${secs}s with input queued behind it — Escape, then Enter"
+  if (( SUP_DRY )); then sup_act tmux send-keys -t "$t" Escape; sup_act tmux send-keys -t "$t" Enter; return 0; fi
+  turn_interrupt "$t" sup_act || { sup_log "turn: $t did not report Interrupted after Escape — retrying next pass"; return 0; }
+  rm -f "$tf"
+  declare -F stats_sess_event >/dev/null &&
+    stats_sess_event "${t%%:*}" turn_interrupted turn_s="$secs" queued_nudges="$(turn_queued_nudges "$pane")" >/dev/null 2>&1
+  return 0; }
 
 # sup_checkpoint_and_kill <session> <idle min> <pane text> [why] [stats reason] — never lose a frozen
 # (or wedged, or zombie) session's work:
@@ -279,7 +301,7 @@ sup_check_fleet(){ local sd=$1
     for s in $sessions; do
       sup_watch_pane "$s" "$SUP_STATE/panes/$s" "$NUDGE_MIN" "$KILL_MIN" "$SUP_NUDGE_MSG" "$HARNESS_CLI" sup_checkpoint_and_kill
     done
-    for f in "$SUP_STATE"/panes/"$prefix"-*; do                     # forget panes of ended sessions
+    for f in "$SUP_STATE"/{panes,turn}/"$prefix"-*; do               # forget panes of ended sessions
       [[ -e $f ]] && ! tmux has-session -t "=${f##*/}" 2>/dev/null && rm -f "$f"
     done
 

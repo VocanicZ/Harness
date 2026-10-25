@@ -341,7 +341,8 @@ def sessions(events):
         sid = e.get("session")
         if not sid:
             continue
-        s = by.setdefault(sid, {"session": sid, "usage": {}, "watchdog_kills": 0, "nudges": 0})
+        s = by.setdefault(sid, {"session": sid, "usage": {}, "watchdog_kills": 0, "nudges": 0,
+                                "turn_interrupts": 0})
         ev = e.get("event")
         for k in ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "model", "effort"):
             if e.get(k) is not None and (ev == "launch" or s.get(k) is None):
@@ -356,6 +357,8 @@ def sessions(events):
             s["watchdog_kills"] += 1
         elif ev == "nudge":
             s["nudges"] += 1
+        elif ev == "turn_interrupted":
+            s["turn_interrupts"] += 1
     return list(by.values())
 
 
@@ -581,7 +584,8 @@ def render_text(kind, data):
     elif kind == "issue":
         out.append(f"issue #{data['issue']}: {len(data['sessions'])} session(s)")
         for e in data["events"]:
-            extra = " ".join(f"{k}={e[k]}" for k in ("kind", "model", "effort", "reason", "pr", "wall_s", "reset")
+            extra = " ".join(f"{k}={e[k]}" for k in ("kind", "model", "effort", "reason", "pr", "wall_s", "reset",
+                                                         "turn_s", "queued_nudges")
                              if k in e)
             line = f"  {e.get('ts')}  {e.get('event')}  {extra}".rstrip()
             if e.get("usage"):

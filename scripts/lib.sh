@@ -77,6 +77,9 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_SEED_CI:=0}"               # 1 = seed.sh commits a CI workflow + CI-requiring branch protection to unit repos; 0 = off
 : "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
 : "${HARNESS_SWARM:=auto}"               # #202: auto = lanes run full-suite verification as a swarm job when `swarm` is on PATH; off = always local
+# #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
+# shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
+source "$(dirname "${BASH_SOURCE[0]}")/turn.sh"
 
 export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
   HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
@@ -86,7 +89,8 @@ export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNE
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
-  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM
+  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM \
+  HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -857,6 +861,16 @@ _watchdog_limit_nudge(){ local sess="$1"
 _watchdog_nudge(){ local sess="$1"
   tmux send-keys -t "$sess" -l "Please continue — the transient API error has cleared; resume the in-flight task." 2>/dev/null || true
   tmux send-keys -t "$sess" Enter 2>/dev/null || true; }
+# _watchdog_turn_interrupt <sess> <pane-text> — #207: interrupt a turn that queued input cannot reach
+# (see turn.sh), log a turn_interrupted event, and forget the queued-nudge state so a LATER stuck
+# turn is judged afresh. When the turn never reports `Interrupted`, the state is kept and the next
+# poll tries again.
+_watchdog_turn_interrupt(){ local sess="$1" pane="$2" secs
+  secs="$(turn_secs "$pane")"
+  log "watchdog: $sess has run one turn for ${secs}s with input queued behind it — Escape, then Enter to deliver it (#207)"
+  turn_interrupt "$sess" || { log "watchdog: $sess did not report Interrupted after Escape — retrying next poll (#207)"; return 0; }
+  stats_sess_event "$sess" turn_interrupted turn_s="$secs" queued_nudges="$(turn_queued_nudges "$pane")"
+  rm -f "$RUN_DIR/$sess.turnq"; }
 # watchdog_session <sess> — examine ONE live session for the #115 wedge and recover it. State (the
 # count of CONSECUTIVE stalled polls) lives in $RUN_DIR/<sess>.stall and is cleared the instant the
 # session is no longer stalled (recovered/busy/dead) — so a session that resumes after a nudge starts
@@ -864,7 +878,7 @@ _watchdog_nudge(){ local sess="$1"
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
-  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp"; return 0; }
+  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq"; return 0; }
   pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
@@ -887,6 +901,10 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     return 0
   fi
   rm -f "$limitf" "$RUN_DIR/$sess.limitcp"
+  # #207 one endless turn with nudges queued behind it — interrupt so the queued text is delivered.
+  if turn_should_interrupt "$pane" "$RUN_DIR/$sess.turnq"; then
+    rm -f "$stallf"; _watchdog_turn_interrupt "$sess" "$pane"; return 0
+  fi
   if ! session_stalled "$pane"; then rm -f "$stallf"; return 0; fi
   n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
   if (( n >= HARNESS_STALL_RETRIES )); then
