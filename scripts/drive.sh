@@ -321,6 +321,9 @@ drive_unit(){
     # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
     # again. Placed after the reap sweep so a red branch never also stalls session bookkeeping.
     if ! ci_gate_ok "$SLUG"; then sleep "$POLL"; continue; fi
+    # #194: an account near its usage limit was checkpointed — hold NEW dispatch (never drain) until
+    # the window resets, then the agent-paused issues re-dispatch through the resume path.
+    usage_watch; if usage_held; then sleep "$POLL"; continue; fi
     local active free allow_orch action payload promise
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then

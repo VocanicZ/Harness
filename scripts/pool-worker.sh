@@ -5,6 +5,7 @@ _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "${_HARNESS_DRIVE_SOURCED:-}" ]] && { source "$_PW_HERE/drive.sh"; _HARNESS_DRIVE_SOURCED=1; }
 worker_tick(){ local wid="$1" u
   if is_paused; then return 3; fi
+  if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
   u="$(claim_next "$wid")"
   if [[ -z "$u" ]]; then all_complete && return 2; return 1; fi
   log "worker $wid claimed $u"; seed_if_needed "$u"; drive_unit "$u"; release_claim "$u"; log "worker $wid released $u"; return 0; }
@@ -22,6 +23,7 @@ worker_step(){ local wid="$1"
     [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
     sleep "$POLL"; return 4
   fi
+  usage_watch   # #194: read usage before claiming, so a crossing checkpoints + holds before this claim
   worker_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
