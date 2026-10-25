@@ -969,6 +969,21 @@ def bug_lane_working(repo):
             and L_WORKING() in i["_labels"]]
 
 
+def working_locks(repo):
+    """(number, updatedAt) of every OPEN issue CARRYING L_WORKING, any lane — the stale-lock sweep's
+    candidates (#179). A gh outage at reap time leaves the label behind with no session to clear it,
+    so the pool worker walks these each poll and frees the ones no live session owns. agent-blocked
+    is excluded (a parked issue is a human's, exactly like recover_orphan_working); so are issues the
+    fleet could never have claimed (author filter). updatedAt is a conservative lower bound on the
+    label's age: the issue was labelled at or before its last update, so "updated more than N minutes
+    ago" implies "labelled more than N minutes ago" without a timeline read per candidate."""
+    slug = _repo_slug(repo)
+    issues = _author_filter(_list_issues(slug, ["--label", L_WORKING()]))
+    return [(i["number"], i.get("updatedAt") or "") for i in issues
+            if i["state"].lower() == "open"
+            and L_WORKING() in i["_labels"] and L_BLOCKED() not in i["_labels"]]
+
+
 # ── default-branch CI health (#50) ────────────────────────────────────────────────────────────
 # The fleet's merge decision used to read mergeable-state only and never the check RESULT, so a
 # repo with no REQUIRED status check (private repo on a free plan: branch protection and rulesets
@@ -1152,6 +1167,8 @@ def main():
             for n, phase in bug_lane_candidates(repo): print(f"{n}\t{phase}")
         elif cmd == "working-bugs":
             for n in bug_lane_working(repo): print(n)
+        elif cmd == "working":
+            for n, upd in working_locks(repo): print(f"{n}\t{upd}")
         elif cmd == "complete":
             print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
         elif cmd == "check":

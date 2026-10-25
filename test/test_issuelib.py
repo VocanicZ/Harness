@@ -596,6 +596,46 @@ def test_bug_lane_working_cli_prints_one_number_per_line():
         sys.argv = argv
     assert buf.getvalue().splitlines() == ["7", "8"], buf.getvalue()
 
+def test_working_locks_lists_open_unblocked_working_issues_with_updated_at():
+    # #179: the pool worker's stale-lock sweep needs EVERY open agent-working issue (any lane — the
+    # bash side decides liveness by session name) plus updatedAt, the label-age lower bound. A
+    # parked (agent-blocked) issue, a closed one, an unlabelled one and a stranger's are all excluded.
+    os.environ.pop("HARNESS_AUTHOR_ALLOWLIST", None)
+    os.environ.pop("HARNESS_LABEL_WORKING", None)
+    os.environ.pop("HARNESS_LABEL_BLOCKED", None)
+    il._self_login = lambda: "me"
+    seen = {}
+    def fake(slug, extra=None):
+        seen["extra"] = extra
+        return [
+            {"number": 5, "state": "OPEN", "_author": "me", "updatedAt": "2026-10-24T01:00:00Z",
+             "_labels": {"ready-for-agent", "agent-working"}},       # impl lock -> included
+            {"number": 6, "state": "OPEN", "_author": "me", "updatedAt": "2026-10-24T02:00:00Z",
+             "_labels": {"bug", "agent-working"}},                   # bug-lane lock -> included
+            {"number": 7, "state": "OPEN", "_author": "me", "updatedAt": "x",
+             "_labels": {"agent-working", "agent-blocked"}},         # parked -> excluded
+            {"number": 8, "state": "CLOSED", "_author": "me", "updatedAt": "x",
+             "_labels": {"agent-working"}},                          # closed -> excluded
+            {"number": 9, "state": "OPEN", "_author": "me", "updatedAt": "x",
+             "_labels": {"ready-for-agent"}},                        # not locked -> excluded
+            {"number": 10, "state": "OPEN", "_author": "stranger", "updatedAt": "x",
+             "_labels": {"agent-working"}},                          # never claimable -> excluded
+        ]
+    il._list_issues = fake
+    assert il.working_locks("acme/widget") == [(5, "2026-10-24T01:00:00Z"), (6, "2026-10-24T02:00:00Z")], \
+        il.working_locks("acme/widget")
+    # direct-gh mode narrows the list server-side to the label (a full list per poll would double cost)
+    assert seen["extra"] == ["--label", "agent-working"], seen
+    import io, contextlib
+    buf = io.StringIO(); argv = sys.argv
+    sys.argv = ["issuelib.py", "working", "acme/widget"]
+    try:
+        with contextlib.redirect_stdout(buf):
+            il.main()
+    finally:
+        sys.argv = argv
+    assert buf.getvalue().splitlines() == ["5\t2026-10-24T01:00:00Z", "6\t2026-10-24T02:00:00Z"], buf.getvalue()
+
 def test_parse_blocked_by_none_section_with_prose_harvests_nothing():
     # Regression for the permanent-PRD-deadlock bug (#85): a `## Blocked by` section whose first
     # token is `None` must yield NO refs, even when trailing prose name-drops merged PRs / issues.

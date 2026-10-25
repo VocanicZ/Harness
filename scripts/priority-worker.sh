@@ -80,7 +80,7 @@ reap_lane(){ local repo slug n
       [[ -n "$n" ]] || continue
       bug_session_live "$slug" "$n" && continue   # live session — never sweep (no double-dispatch, #43)
       log "priority: reaping stale agent-working on bug $repo#$n (no live session) — re-claimable next poll"
-      gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
+      unlock_issue "$slug" "$n" || true   # #179: a gh failure queues it for retry_pending_unlocks
       # The crash could have been in either phase; reap BOTH possible worktrees (idempotent on the
       # one that never existed) so a crashed triage OR fix never wedges the re-claim (#109).
       remove_worktree "$(bug_checkout "$repo")" "$(bug_worktree "$slug" "$n")" "issue/$n"
@@ -114,7 +114,7 @@ bug_step(){ local wid="$1"
     sleep "$PRIORITY_POLL"; return 4
   fi
   gh_rate_wait   # #183: rate-limited — sleep until the reset before reap_lane's gh reads/writes
-  reap_lane; usage_watch; bug_tick "$wid"; local rc=$?
+  reap_lane; retry_pending_unlocks; usage_watch; bug_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     1) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "no bugs — idle, watching"; _IDLE_LOGGED=1; }

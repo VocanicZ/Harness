@@ -72,11 +72,13 @@ reap_team(){
     harness_event reap kind=impl issue="$issue" reason=session_gone
     remove_worktree "$CHECKOUT" "$wd"
     local state
-    state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || continue
+    # #179: the worktree is gone, so this reap never comes round again — a gh failure here must not
+    # strand the lock. Unreadable state ⇒ queue the unlock (harmless on a closed issue).
+    state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || { unlock_issue "$SLUG" "$issue"; continue; }
     # fully autonomous: free a still-open issue's stale agent-working for retry, even if a
     # prior session left it agent-blocked (no human will ever clear that label for us).
     if echo "$state" | grep -q '"state":"OPEN"'; then
-      gh issue edit "$issue" -R "$SLUG" --remove-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
+      unlock_issue "$SLUG" "$issue" || true
     else
       # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
       # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
@@ -331,6 +333,7 @@ drive_unit(){
   # completion check (a gh read) runs again; the watchdog keeps tending live sessions meanwhile.
   while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
+    retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
     if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
     # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
     # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
