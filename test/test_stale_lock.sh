@@ -19,7 +19,10 @@ setup(){
   GHLOG="$RUN_DIR/gh.log"; : > "$GHLOG"; GHDOWN="$RUN_DIR/gh.down"; rm -f "$GHDOWN"
   LIVE="$RUN_DIR/live"; : > "$LIVE"
   # gh: fails outright while $GHDOWN exists (the outage); otherwise records the call and succeeds.
-  gh(){ [[ -f "$GHDOWN" ]] && return 1; echo "gh $*" >> "$GHLOG"
+  # $EDITDOWN fails only the label edit — the issue reads fine but the write does not land.
+  EDITDOWN="$RUN_DIR/edit.down"; rm -f "$EDITDOWN"
+  gh(){ [[ -f "$GHDOWN" ]] && return 1; [[ "$1 $2" == "issue edit" && -f "$EDITDOWN" ]] && return 1
+        echo "gh $*" >> "$GHLOG"
         [[ "$1 $2" == "issue view" ]] && echo '{"state":"OPEN","labels":[{"name":"agent-working"}]}'; return 0; }
   # tmux: a session is live iff its name is listed in $LIVE.
   tmux(){ [[ "$1" == has-session ]] && { grep -qxF "$3" "$LIVE"; return; }; return 0; }
@@ -48,6 +51,15 @@ for cli in claude agy; do
   assert_no "[$cli] worktree reaped on poll 1" test -d "$WORKTREES_DIR/main-i7"
   assert_eq "$(unlocks 7)" "1" "[$cli] agent-working cleared on #7 once gh recovered"
   assert_eq "$(cat "$RUN_DIR/pending-unlock")" "" "[$cli] queue drained after the successful retry"
+
+  echo "=== [$cli] reap of an OPEN issue whose label edit fails → queued, cleared on retry ==="
+  setup
+  mkdir -p "$WORKTREES_DIR/main-i8"
+  UNIT=main; SLUG=acme/widget; CHECKOUT="$RUN_DIR"
+  touch "$EDITDOWN"; reap_team >/dev/null
+  assert_eq "$(cat "$RUN_DIR/pending-unlock")" "acme/widget	8" "[$cli] the refused unlock is queued, not dropped"
+  rm -f "$EDITDOWN"; retry_pending_unlocks >/dev/null
+  assert_eq "$(unlocks 8)" "1" "[$cli] and cleared once the edit goes through"
 
   echo "=== [$cli] a failed unlock is queued once and kept until GitHub takes it ==="
   setup
