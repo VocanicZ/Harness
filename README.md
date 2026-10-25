@@ -142,6 +142,9 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `1` | `1` = hold new dispatch while the default branch's own CI is red (live sessions drain; the bug lane is never gated); `0` = off. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally. See [Never merging red](#never-merging-red) |
 | `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). Repos that already have CI are unaffected either way |
+| `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
+| `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
+| `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 
 ### Issue-author allowlist
 
@@ -399,6 +402,34 @@ all at once (no per-project re-pull, no version skew). Live workers keep the old
 you relaunch (`pause` → drain → `stop` → `start --recover`).
 
 New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
+
+### Usage-limit checkpoints
+
+A session cut off by a plan usage limit mid-task holds work that exists only in its worktree. So
+every poll Harness reads each account's usage windows through the CLI adapter, and when any window
+reaches `HARNESS_USAGE_CHECKPOINT_PCT` (default 90%) it:
+
+- sends every live impl and bug-lane session on that account the same checkpoint as
+  `pause --force`: commit + push the WIP branch, post a `<!-- harness-handoff -->` comment, and
+  swap the label to `agent-paused`;
+- stops claiming new work (pool and bug lane) until the window resets, then resumes by itself: the
+  `agent-paused` issues re-dispatch through the normal resume path.
+
+A session already frozen at a limit cannot run `/handoff`, so it gets a **mechanical** checkpoint:
+Harness commits and pushes its worktree (to a `-checkpoint-<time>` side branch if `origin` has
+diverged) and posts a handoff comment with the last screen. The session is left running, and keeps
+its `agent-working` label, so the existing limit watchdog resumes it when the limit resets. This
+also fires on the limit message itself, so a CLI that cannot report usage is still checkpointed.
+
+| CLI | Usage source |
+|-----|--------------|
+| `claude` | The status-line `rate_limits` data (`five_hour`, `seven_day`), wired per worktree by `HARNESS_USAGE_STATUSLINE`. The account is the `CLAUDE_CONFIG_DIR` the pane runs under |
+| `agy` | `usage unavailable`: Antigravity reports no usage windows. Checkpoints happen on the limit message only, unless you set `HARNESS_USAGE_CMD` |
+
+Each checkpoint and resume is appended to `~/.harness/events.jsonl` as a `usage_checkpoint` /
+`usage_resume` event, and `harness status` shows every window, with `HOLD` on an account being
+waited out. New panes pick their account at launch, so a hold on any account holds every claim of
+the fleet.
 
 ## Host poller
 

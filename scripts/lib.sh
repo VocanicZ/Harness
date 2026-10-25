@@ -63,6 +63,9 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
+: "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
+: "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
+: "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire claude worktrees' status line to report usage windows; 0 = off
 : "${HARNESS_WORKTREE_HOOK:=}"           # optional project script run in every fresh worktree after `worktree add`
 : "${HARNESS_GAUNTLET_ROUNDS:=3}"        # gauntlet review: rounds allowed before the reviewer concedes
 : "${HARNESS_SECURITY_AUDIT:=0}"         # 1 = PRD review runs the vendored security-audit skill after the criteria gate
@@ -76,7 +79,8 @@ export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNE
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
-  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS
+  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
+  HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE
 
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -760,16 +764,18 @@ _watchdog_nudge(){ local sess="$1"
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
-  session_live "$sess" || { rm -f "$stallf" "$limitf"; return 0; }
+  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp"; return 0; }
   pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
     rm -f "$stallf"
+    limit_checkpoint_once "$sess" "$pane"   # #194: frozen — it cannot /handoff, so checkpoint it mechanically
     log "watchdog: $sess blocked on the usage-limit menu — answering 'wait for reset' (#120)"
     _watchdog_limit_pick "$sess"; return 0
   fi
   if session_limit_idle "$pane"; then
     rm -f "$stallf"
+    limit_checkpoint_once "$sess" "$pane"
     n=$(( $(cat "$limitf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$limitf"
     if (( n == 1 || n % HARNESS_LIMIT_NUDGE_EVERY == 0 )); then
       log "watchdog: $sess parked at idle ❯ by the usage limit (poll $n) — nudging to resume (#120)"
@@ -777,7 +783,7 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     fi
     return 0
   fi
-  rm -f "$limitf"
+  rm -f "$limitf" "$RUN_DIR/$sess.limitcp"
   if ! session_stalled "$pane"; then rm -f "$stallf"; return 0; fi
   n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
   if (( n >= HARNESS_STALL_RETRIES )); then
@@ -1216,6 +1222,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   echo "$wd" > "$RUN_DIR/$sess.wd"   # record worktree so reap_finished_inject can find the ralph state file
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
+  ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
   if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
     local bin="${HARNESS_AGY_BIN:-${AGY_BIN:-agy}}" flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
     tmux send-keys -t "$sess" "exec $bin $flags -i \"\$(cat .harness-task.md)\"" Enter
@@ -1527,3 +1534,61 @@ seed_if_needed(){
     run_worktree_hook "$co"   # a multi-topology clone is as bare as a worktree — provision it the same way
   fi
 }
+
+# --- checkpoint instruction + target (pause --force, #194 usage checkpoint) ---
+# Build the one-line checkpoint instruction sent to a live agent. Single-quoted printf
+# format keeps the literal backticks/markers from being command-substituted by THIS shell.
+# An empty <branch> (a read-only triage session, #36) emits a no-push variant that still runs
+# /handoff and flips agent-working → agent-paused, so the lane is never left orphaned.
+_checkpoint_msg(){  # <issue> <slug> <branch> <working-label> <paused-label> [reason]
+  local why="${6:-pause requested}"
+  if [[ -n "$3" ]]; then
+    printf 'HARNESS CHECKPOINT — %s. Stop now. Commit ALL work in progress and push your branch to origin. Then run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s branch=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
+      "$why" "$1" "$2" "$1" "$3" "$1" "$2" "$4" "$5"
+  else
+    printf 'HARNESS CHECKPOINT — %s. Stop now. You have no code branch to push (read-only phase). Run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
+      "$why" "$1" "$2" "$1" "$1" "$2" "$4" "$5"
+  fi
+}
+
+# Parse a live session name into "<issue> <slug> <branch>" for the checkpoint, setting the
+# globals _CP_ISSUE/_CP_SLUG/_CP_BRANCH. Two shapes (#36): impl sessions hz-<unit>-i<issue>
+# (branch issue/<issue>), and priority-lane sessions hz-bug-<slug-sanitised>-<n>-(triage|fix) —
+# the fix carries branch issue/<n>, triage has none (read-only). Returns 1 for an unrecognised
+# session.
+#
+# The lane session carries the REPO (#44), but only sanitised (/ -> _), which can't be reversed
+# unambiguously (owner_repo). So the real owner/repo is recovered from the live bug claim's stored
+# token (third field), keyed by the same sanitised slug+number the session embeds. This is the
+# routing fix: a colliding issue #N in another repo no longer mis-resolves via the lossy bug_repo
+# rescan. A legacy bare session (hz-bug-<n>-(triage|fix)) still falls back to bug_repo.
+_checkpoint_target(){  # <session>
+  local sess="$1" issue unit phase
+  local bug_re="^${HARNESS_SESS_PREFIX}-bug-(.+)-([0-9]+)-(triage|fix)$"
+  local bug_bare_re="^${HARNESS_SESS_PREFIX}-bug-([0-9]+)-(triage|fix)$"
+  if [[ "$sess" =~ $bug_re ]]; then
+    local san="${BASH_REMATCH[1]}"; issue="${BASH_REMATCH[2]}"; phase="${BASH_REMATCH[3]}"
+    local tok; tok="$(awk '{print $3; exit}' "$CLAIMS_DIR/bug-${san}-${issue}.claim" 2>/dev/null)"
+    if [[ -n "$tok" ]]; then _CP_SLUG="$(_with_owner "$(_bug_ref_repo "$tok")")"
+    else _CP_SLUG="$(_with_owner "$(bug_repo "$issue")")"; fi
+    _CP_ISSUE="$issue"
+    [[ "$phase" == fix ]] && _CP_BRANCH="issue/$issue" || _CP_BRANCH=""
+    return 0
+  fi
+  if [[ "$sess" =~ $bug_bare_re ]]; then
+    issue="${BASH_REMATCH[1]}"; phase="${BASH_REMATCH[2]}"
+    _CP_ISSUE="$issue"; _CP_SLUG="$(_with_owner "$(bug_repo "$issue")")"
+    [[ "$phase" == fix ]] && _CP_BRANCH="issue/$issue" || _CP_BRANCH=""
+    return 0
+  fi
+  if [[ "$sess" =~ ^${HARNESS_SESS_PREFIX}-.*-i[0-9]+$ ]]; then
+    issue="${sess##*-i}"
+    unit="${sess#"$HARNESS_SESS_PREFIX"-}"; unit="${unit%-i$issue}"
+    _CP_ISSUE="$issue"; _CP_SLUG="$(unit_slug "$unit")"; _CP_BRANCH="issue/$issue"
+    return 0
+  fi
+  return 1
+}
+
+# #194 usage watch + checkpoint (needs the config above and the helpers in this file).
+source "$(dirname "${BASH_SOURCE[0]}")/usage.sh"

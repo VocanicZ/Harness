@@ -55,6 +55,7 @@ render_once(){
   echo "═══════════════════════  Harness fleet  ═══════════════════════════"
   echo "  FLEET: $verdict"
   echo "  pool=$POOL  cap=$CAP/worker  poll=${POLL}s   units: $done_n/$all_n complete   $(date '+%H:%M:%S')"
+  usage_report   # #194: each account's usage windows, and any checkpoint hold
   echo "───────────────────────────────────────────────────────────────────"
 
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes

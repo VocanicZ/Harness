@@ -39,6 +39,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     # the watchdog so a session parked at idle ❯ by a transient API error is nudged, then killed
     # (loop exits on the next session_live check → reap → re-dispatch frees the lane slot).
     watchdog_session "$sess"
+    usage_watch   # #194: the lane holds here for the whole session — the crossing must reach it too
     if bug_goal_done "$n" "$phase"; then
       tmux kill-session -t "$sess" 2>/dev/null || true; rm -f "$RUN_DIR/$sess.goal"; break
     fi
@@ -91,6 +92,7 @@ reap_lane(){ local repo slug n
 # releases before returning, so it is structurally serial — a second bug always waits.
 bug_tick(){ local wid="$1" ref
   if is_paused; then return 3; fi
+  if usage_held; then return 3; fi   # #194: near a usage limit — no new bug claims until the window resets
   ref="$(claim_next_bug "$wid")"
   if [[ -z "$ref" ]]; then return 1; fi
   log "priority $wid claimed bug $ref"; drive_bug "$ref"; release_bug_claim "$ref"; log "priority $wid released bug $ref"; return 0; }
@@ -109,7 +111,7 @@ bug_step(){ local wid="$1"
     [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
     sleep "$PRIORITY_POLL"; return 4
   fi
-  reap_lane; bug_tick "$wid"; local rc=$?
+  reap_lane; usage_watch; bug_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     1) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "no bugs — idle, watching"; _IDLE_LOGGED=1; }
