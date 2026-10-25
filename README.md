@@ -148,6 +148,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
 | `HARNESS_GH_RATE_TTL` | `60` | Seconds one `gh api rate_limit` probe is reused by every worker on the host |
+| `HARNESS_ORPHAN_LOCK_MIN` | `20` | Minutes an open `agent-working` issue may sit with no live session (impl, orch, or bug lane) and no worktree before the pool worker unlocks it with a comment. A reap whose unlock `gh` refused (an outage) is queued instead and retried every poll until it lands |
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 
 ### Issue-author allowlist
@@ -522,6 +523,8 @@ seconds):
    that fleet.
 2. **Orphan locks.** An open `agent-working` issue with no live `<prefix>-*` session, labelled more
    than `LOCK_GRACE` seconds ago → the label is removed with a comment, and the pool re-dispatches it.
+   The pool does this for its own units every poll as well (`HARNESS_ORPHAN_LOCK_MIN`), so this is
+   the backstop for a fleet whose workers are down.
 3. **Frozen sessions.** A pane is *active* if, since the last pass, the text above its input prompt
    changed, a background-agent or shell timer in the footer moved, or its process tree used more than
    `CPU_ACTIVE_S` CPU seconds (long builds and tests count). After `NUDGE_MIN` minutes with no

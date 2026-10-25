@@ -62,6 +62,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_USE_POLLER:=1}"           # #182: ON by default — workers read the host poller's shared snapshots; 0 = direct-gh polling
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
+: "${HARNESS_ORPHAN_LOCK_MIN:=20}"       # #179: minutes an agent-working issue may sit with no live session before the pool unlocks it
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
@@ -575,6 +576,84 @@ recover_orphan_working(){ local u slug n freed=0
                2>/dev/null)
   done
   echo "$freed"; }
+
+# --- #179: agent-working locks that nothing will ever clear --------------------------------------
+# A reap (reap_team / reap_lane) strips agent-working once its session is gone. If GitHub is
+# unreachable at that moment the edit fails, and the reap never comes round again: the worktree it
+# keyed off is already removed. The issue then looks claimed forever — no session works on it and
+# dispatch skips it. Two repairs, both per poll: a failed unlock is QUEUED and retried until GitHub
+# takes it, and the pool sweeps its unit's repo for any lock no live session owns.
+
+# issue_session_live <slug> <n> — does ANY of this fleet's sessions work issue #n of <slug>: an impl
+# or orch session of a unit on that repo, or either bug-lane phase (`<prefix>-bug-<slug>-<n>-*`)?
+issue_session_live(){ local slug="$1" n="$2" u
+  bug_session_live "$slug" "$n" && return 0
+  for u in $(all_units); do
+    [[ "$(unit_slug "$u")" == "$slug" ]] || continue
+    session_live "$(sess_impl "$u" "$n")" && return 0
+    session_live "$(sess_orch "$u" "$n")" && return 0
+  done
+  return 1; }
+# issue_worktree_present <slug> <n> — a worktree for #n still exists. Its session may be launching
+# (spawn creates the worktree, stamps the label, runs the hook, THEN starts the session) or dead —
+# either way the reaper that owns the worktree owns the label too, so the sweep keeps off it.
+issue_worktree_present(){ local slug="$1" n="$2" u
+  [[ -d "$(bug_worktree "$slug" "$n")" || -d "$(triage_worktree "$slug" "$n")" ]] && return 0
+  for u in $(all_units); do
+    [[ "$(unit_slug "$u")" == "$slug" && -d "$WORKTREES_DIR/$u-i$n" ]] && return 0
+  done
+  return 1; }
+
+# unlock_issue <slug> <n> — strip agent-working from #n. On a gh failure, queue it in
+# $RUN_DIR/pending-unlock for retry_pending_unlocks. Returns gh's verdict.
+unlock_issue(){ local slug="$1" n="$2" f="$RUN_DIR/pending-unlock" lockfd
+  gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1 && return 0
+  exec {lockfd}>"$f.lock"; flock "$lockfd"
+  grep -qxF "$slug"$'\t'"$n" "$f" 2>/dev/null || printf '%s\t%s\n' "$slug" "$n" >> "$f"
+  flock -u "$lockfd"; exec {lockfd}>&-
+  log "could not clear $HARNESS_LABEL_WORKING on $slug#$n (gh failed) — queued, retrying every poll (#179)"
+  return 1; }
+
+# retry_pending_unlocks — one pass over the queue: clear each lock GitHub now accepts, keep the rest.
+# An entry whose issue has a live session again was re-claimed since, so its lock is real — dropped.
+# Non-blocking on the queue lock: if another worker is mid-pass, this poll leaves it to them.
+retry_pending_unlocks(){ local f="$RUN_DIR/pending-unlock" lockfd slug n keep=""
+  [[ -s "$f" ]] || return 0
+  exec {lockfd}>"$f.lock"; flock -n "$lockfd" || { exec {lockfd}>&-; return 0; }
+  while IFS=$'\t' read -r slug n; do
+    [[ -n "$slug" && -n "$n" ]] || continue
+    issue_session_live "$slug" "$n" && continue
+    if gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1; then
+      log "cleared queued $HARNESS_LABEL_WORKING on $slug#$n — re-dispatchable (#179)"
+    else keep+="$slug"$'\t'"$n"$'\n'; fi
+  done < "$f"
+  printf '%s' "$keep" > "$f"
+  flock -u "$lockfd"; exec {lockfd}>&-; }
+
+# _working_locks <slug> — `<num>\t<updatedAt>` per open, unblocked agent-working issue. Overridable seam.
+_working_locks(){ python3 "$ISSUELIB" working "$1" 2>/dev/null; }
+
+# sweep_orphan_locks <unit> — free every lock in the unit's repo that no live session owns and that
+# has stood for HARNESS_ORPHAN_LOCK_MIN minutes, with a comment saying why. The bug lane has had this
+# since #42 (reap_lane); this is the impl/orch analog. Age is measured from updatedAt, a lower bound
+# on when the label went on, so a lock is never freed early. A freed issue is marked for the same
+# window: the snapshot may still show the label until the poller next refreshes, and a second
+# unlock + comment would be noise.
+sweep_orphan_locks(){ local slug n upd since now age grace mark
+  slug="$(unit_slug "$1")"; grace=$(( HARNESS_ORPHAN_LOCK_MIN * 60 ))
+  while IFS=$'\t' read -r n upd; do
+    [[ -n "$n" ]] || continue
+    issue_session_live "$slug" "$n" && continue       # in flight — never touch
+    issue_worktree_present "$slug" "$n" && continue   # launching, or its reaper still owns it
+    since="$(date -d "$upd" +%s 2>/dev/null)" || continue   # age unprovable — leave it
+    now="$(date +%s)"; age=$(( now - since )); (( age >= grace )) || continue
+    mark="$RUN_DIR/unlocked/$(printf '%s' "$slug" | tr '/' '_')-$n"
+    [[ -f "$mark" ]] && (( now - $(stat -c %Y "$mark") < grace )) && continue
+    mkdir -p "$RUN_DIR/unlocked"; touch "$mark"
+    log "unlocking $slug#$n — $HARNESS_LABEL_WORKING with no live session for $(( age / 60 ))m (#179)"
+    unlock_issue "$slug" "$n" || continue
+    gh issue comment "$n" -R "$slug" --body "harness: cleared stale \`$HARNESS_LABEL_WORKING\` — no live session has owned this issue for over $HARNESS_ORPHAN_LOCK_MIN minutes. The pool will re-dispatch it." >/dev/null 2>&1 || true
+  done < <(_working_locks "$slug"); }
 
 dispatch_actions(){ python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}"; }
 
