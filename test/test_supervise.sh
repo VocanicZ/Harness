@@ -122,6 +122,13 @@ sup_checkpoint_and_kill tp-u-i7 130 "❯ frozen"; rc=$?
 assert_no "returns failure when no push is possible"  test "$rc" = 0
 assert_ok "session NOT killed when no push is possible" tmux has-session -t =tp-u-i7
 assert_ok "ERROR logged for a human"                  grep -q "ERROR tp-u-i7: could not push" "$LOG"
+# not on a feature branch (detached HEAD): nowhere safe to push → must NOT kill
+gc "$T/wt" checkout -q --detach; mk tp-u-i7 "sleep 300"
+sup_checkpoint_and_kill tp-u-i7 130 "❯ frozen"; rc=$?
+gc "$T/wt" checkout -q issue/7
+assert_no "detached HEAD: returns failure"            test "$rc" = 0
+assert_ok "detached HEAD: session NOT killed"         tmux has-session -t =tp-u-i7
+assert_ok "detached HEAD: ERROR logged for a human"   grep -q "ERROR tp-u-i7: .* is not on a feature branch (detached)" "$LOG"
 # an orch (decompose/review) session has no branch: handoff comment, then kill
 : >"$T/gh.calls"; mk tp-u-p9 "sleep 300"
 sup_checkpoint_and_kill tp-u-p9 130 "❯ frozen"
@@ -181,6 +188,21 @@ assert_ok "--dry-run touches no label"                      bash -c "! grep -q '
 fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"
 HARNESS_SESS_PREFIX=leaked SUP_DRY=0 sup_check_fleet "$F/.harness"     # an inherited fleet config…
 assert_ok "…never overrides the fleet's own config"         grep -q "issue edit 5 -R owner/fx" "$T/gh.calls"
+# gh unreachable: logged, the pass goes on (no edit)
+mv "$gstub/gh" "$gstub/gh.ok"; printf '#!/bin/sh\necho "$@" >> %s/gh.calls; echo "connection refused" >&2; exit 1\n' "$T" >"$gstub/gh"; chmod +x "$gstub/gh"
+fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"
+SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "gh unreachable → WARN logged"                    grep -q "WARN owner/fx: gh unreachable (connection refused)" "$LOG"
+assert_no "gh unreachable → no label touched"               grep -q "issue edit" "$T/gh.calls"
+mv "$gstub/gh.ok" "$gstub/gh"
+# the CLI entry: one --once --dry-run pass over the fixture fleet; an unknown option is refused
+fleet_reset; dead_pid >"$F/.harness/run/worker-1.pid"
+out="$(HARNESS_SUPERVISE_GLOB="$SUP_FLEET_GLOB" HARNESS_SUPERVISE_HARNESS="$T/harness-stub" ONLINE_URL=file:///etc/hostname \
+  bash "$HERE/../scripts/supervise.sh" --once --dry-run 2>&1)"
+assert_ok "supervise --once --dry-run previews the restart"  grep -q "DRY env -C .* start" <<<"$out"
+assert_no "supervise --once --dry-run acts on nothing"       test -f "$T/harness.calls"
+bash "$HERE/../scripts/supervise.sh" --bogus >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "2" "an unknown option exits 2"
 kill "$LIVE" 2>/dev/null
 tmux kill-server 2>/dev/null
 
@@ -218,6 +240,9 @@ assert_no "another engine's checkout does not own the unit" other_engine
 rm "$T/tools/rtdd"
 out="$(PATH="$T/tools:/usr/bin:/bin" sup_install 2>&1)"
 assert_ok "a missing rtdd is warned about"                  grep -q "'rtdd' is not on PATH.*full test suites" <<<"$out"
+printf '#!/bin/sh\nexit 1\n' >"$T/loginctl"
+out="$(PATH="$T/tools:$PATH" sup_install 2>&1)"
+assert_ok "a linger failure is warned about"                grep -q "enable-linger failed" <<<"$out"
 sup_uninstall >/dev/null
 assert_no "--uninstall removes the unit"                    test -f "$U/harness-supervise.service"
 assert_ok "--uninstall disables it"                         grep -q "disable --now harness-supervise" "$T/systemctl.calls"
@@ -234,7 +259,7 @@ ENG="$T/engine"; git clone -q "$REMOTE" "$ENG"
 U2="$T/unit2"; mkdir -p "$U2"; : >"$T/systemctl.calls"
 printf '[Service]\nExecStart=%s/bin/harness supervise\nEnvironment=PATH=stale\n' "$ENG" >"$U2/harness-supervise.service"
 upd(){ HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$U2" HARNESS_SUPERVISE_SYSTEMCTL="$T/systemctl" \
-  HARNESS_SUPERVISE_LOGINCTL="$T/loginctl" ENGINE_DIR="$ENG" bash "$ENG/update.sh" >/dev/null 2>&1; }
+  HARNESS_SUPERVISE_LOGINCTL="$T/loginctl" ENGINE_DIR="$ENG" bash "$R/update.sh" >/dev/null 2>&1; }   # this checkout's update.sh, driving the $ENG install
 upd
 assert_no "update rewrites an installed unit (stale PATH gone)" grep -q "PATH=stale" "$U2/harness-supervise.service"
 assert_ok "update restarts the supervisor on the new engine"    grep -q "restart harness-supervise" "$T/systemctl.calls"
