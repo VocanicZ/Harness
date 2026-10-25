@@ -100,7 +100,16 @@ poll
 assert_eq "$(tail -n +"$(( mark + 1 ))" "$CALLS" | grep -c '^200 api -i repos/acme/widget/issues')" "1" "a changed board costs the delta call alone"
 assert_eq "$(served)" "$(printf 'IMPL\t9\tISSUE 9 DONE\nIMPL\t8\tISSUE 8 DONE')" "new issue #9 is served from the merged cache"
 
-# ── 3) on by default; 0 opts out ──────────────────────────────────────────────
+# ── 3) a rate-limited refresh keeps the cached snapshot intact ────────────────
+cp "$SNAP" "$WORK/before.json"
+RLBIN="$WORK/rlbin"; mkdir -p "$RLBIN"
+printf '#!/usr/bin/env bash\necho "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1\n' > "$RLBIN/gh"; chmod +x "$RLBIN/gh"
+PATH="$RLBIN:$PATH" poller_write_snapshot acme/widget; rc=$?
+assert_eq "$rc" "1" "rate-limited refresh reports failure"
+assert_ok "rate-limited refresh left the cached snapshot untouched" cmp -s "$SNAP" "$WORK/before.json"
+assert_eq "$(find "$HARNESS_SNAPSHOTS_DIR" -name '*.tmp*' | wc -l | tr -d ' ')" "0" "no partial snapshot left behind"
+
+# ── 4) on by default; 0 opts out ──────────────────────────────────────────────
 assert_ok "HARNESS_USE_POLLER unset -> poller on"  bash -c "unset HARNESS_USE_POLLER; source '$HERE/../scripts/lib.sh'; poller_enabled"
 assert_ok "HARNESS_USE_POLLER empty (pre-#182 config) -> poller on" bash -c "HARNESS_USE_POLLER= ; source '$HERE/../scripts/lib.sh'; poller_enabled"
 assert_no "HARNESS_USE_POLLER=0 -> poller off"     bash -c "HARNESS_USE_POLLER=0 ; source '$HERE/../scripts/lib.sh'; poller_enabled"
