@@ -38,7 +38,7 @@ fresh(){ rm -rf "$RATE_DIR" "$GH_ERR"; : > "$GH_CALLS"; _GH_RATE_LOGGED=""; _GH_
 for cli in claude agy; do
   export HARNESS_CLI="$cli"
   # ── A: a rate limit → hold until the reset, no gh call before it ──────────────
-  fresh; T=$(( $(date +%s) + 3 ))
+  fresh; T=$(( $(date +%s) + 30 ))   # far enough out that a loaded host cannot reach it mid-check
   rate 0 4000 "$T"; echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' > "$GH_ERR"
   dispatch_actions acme/widget 1 1 "" 2>/dev/null; rc=$?
   assert_eq "$rc" "3" "$cli: a rate-limited dispatch read HOLDs"
@@ -63,16 +63,23 @@ for cli in claude agy; do
     awk -v n="$n" -v t="$T" 'NR==n+1 { exit !($1 >= t) }' "$GH_CALLS"
 
   # drive_unit and the pool worker both sleep through a hold before their next gh read
-  fresh; T=$(( $(date +%s) + 2 )); rate 0 4000 "$T"
+  fresh; T=$(( $(date +%s) + 30 )); rate 0 4000 "$T"
   echo 'gh: API rate limit exceeded (HTTP 403)' > "$GH_ERR"; dispatch_actions acme/widget 1 1 "" 2>/dev/null
-  rm -f "$GH_ERR"
+  rm -f "$GH_ERR"; T=$(( $(date +%s) + 2 )); printf '{"reset": %s}' "$T" > "$RATE_DIR/gh-auth.hold"
   SEEN="$RUN_DIR/seen"; : > "$SEEN"
   unit_complete(){ date +%s >> "$SEEN"; return 0; }; finalize_unit(){ :; }; watchdog_team(){ :; }
   drive_unit main >/dev/null
   assert_ok "$cli: drive_unit's next completion read waits for the reset" test "$(head -1 "$SEEN")" -ge "$T"
-  fresh; T=$(( $(date +%s) + 2 )); rate 0 4000 "$T"
+  fresh; T=$(( $(date +%s) + 30 )); rate 0 4000 "$T"
   echo 'gh: API rate limit exceeded (HTTP 403)' > "$GH_ERR"; dispatch_actions acme/widget 1 1 "" 2>/dev/null
-  rm -f "$GH_ERR"; : > "$SEEN"; rate 4000 4000 "$T"   # the budget refills at the reset
+  rm -f "$GH_ERR"; : > "$SEEN"; T=$(( $(date +%s) + 2 )); printf '{"reset": %s}' "$T" > "$RATE_DIR/gh-auth.hold"
+  rate 4000 4000 "$T"   # the budget refills at the reset
+  python3 - "$RATE_DIR/gh-auth.rate" "$T" <<'PY2'
+import json, sys   # the probe cached at the limit, re-stamped to this reset: stale once it passes
+f, t = sys.argv[1], int(sys.argv[2]); d = json.load(open(f))
+for v in d["resources"].values(): v["reset"] = t
+json.dump(d, open(f, "w"))
+PY2
   claim_next(){ date +%s >> "$SEEN"; echo ""; }; all_complete(){ return 1; }; snapshot_gate(){ return 0; }
   worker_step W1 >/dev/null
   assert_ok "$cli: the pool worker's next claim waits for the reset" test "$(head -1 "$SEEN")" -ge "$T"
