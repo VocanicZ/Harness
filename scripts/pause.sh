@@ -42,6 +42,7 @@ force_pause(){
       labels="$(gh issue view "$i" -R "$sl" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
       if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]]; then
         echo "  confirmed paused: $sl#$i"
+        stats_sess_event "$u" paused
       else
         still+=("$item")
       fi

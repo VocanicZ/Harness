@@ -316,8 +316,10 @@ claimable_units(){ local u; for u in $(all_units); do
     unit_complete "$u" && continue; deps_complete "$u" || continue; is_claimed "$u" && continue; echo "$u"; done; }
 claim_next(){ local wid="$1" u lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
   u="$(claimable_units | head -n1)"; [[ -n "$u" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$u.claim"
-  flock -u "$lockfd"; exec {lockfd}>&-; echo "$u"; }
-release_claim(){ rm -f "$CLAIMS_DIR/$1.claim"; }
+  flock -u "$lockfd"; exec {lockfd}>&-
+  [[ -n "$u" ]] && harness_event claim unit="$u" worker="$wid"
+  echo "$u"; }
+release_claim(){ rm -f "$CLAIMS_DIR/$1.claim"; harness_event release unit="$1"; }
 worker_unit(){ local wid="$1" f; shopt -s nullglob
   for f in "$CLAIMS_DIR"/*.claim; do [[ "$(awk '{print $1; exit}' "$f")" == "$wid" ]] && { basename "$f" .claim; shopt -u nullglob; return; }; done
   shopt -u nullglob; }
@@ -586,6 +588,11 @@ ci_gate_ok(){ local slug="$1" verdict wf url
   [[ "${verdict:-unknown}" == fail ]] || return 0
   ci_gate_log "$slug" "$wf" "$url"; return 1; }
 
+# hold_reason <stderr-text> — network | rate_limit | other, for a HOLD tick's `hold` event (#185).
+hold_reason(){ local e; e="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+  if grep -qE 'rate.?limit|http 403|403 forbidden|http 429|too many requests' <<<"$e"; then echo rate_limit
+  elif grep -qE 'timeout|timed out|connection|could not resolve|network|tls|ssl|eof|50[0-4]|unavailable' <<<"$e"; then echo network
+  else echo other; fi; }
 # Deduped per (slug, run url) so a red branch logs once per NEW failure, not once per poll.
 ci_gate_log(){ local key="$1:$3"
   [[ "${_CI_GATE_LOGGED:-}" == "$key" ]] && return 0
@@ -656,6 +663,7 @@ tracked_worker_pid(){
 # session is STILL live is left alone: it is an in-flight claim a reaper still owns.
 gc_orphan_goals(){
   local f sess
+  stats_sweep_ended   # #185: session_end for self-exited sessions (Ralph promise, inject) too
   shopt -s nullglob
   for f in "$RUN_DIR"/*.goal; do
     sess="$(basename "$f" .goal)"
@@ -734,6 +742,8 @@ HARNESS_LIMIT_MENU_RE='Stop and wait for limit to reset'
 # the #115 stall path and the session was nudged ×K then KILLED — and every re-dispatch re-provisions
 # a worktree and dies again instantly, burning the lane in a loop for as long as the account is dry.
 HARNESS_LIMIT_IDLE_RE="hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit|out of usage credits|out of credits"
+# limit_reset <pane-text> — the "resets <when>" a limit message names, for the rate_limited event.
+limit_reset(){ printf '%s' "$1" | grep -oE 'resets [^·│]*' | tail -1 | sed 's/^resets //; s/[[:space:]]*$//'; }
 # session_limit_menu <pane-text> — true iff the pane is BLOCKED on the interactive limit menu.
 session_limit_menu(){ printf '%s' "$1" | grep -qE "$HARNESS_LIMIT_MENU_RE"; }
 # session_limit_idle <pane-text> — true iff a limit-aborted turn left the pane at the idle `❯`.
@@ -771,6 +781,7 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     rm -f "$stallf"
     limit_checkpoint_once "$sess" "$pane"   # #194: frozen — it cannot /handoff, so checkpoint it mechanically
     log "watchdog: $sess blocked on the usage-limit menu — answering 'wait for reset' (#120)"
+    stats_sess_event "$sess" rate_limited reset="$(limit_reset "$pane")"
     _watchdog_limit_pick "$sess"; return 0
   fi
   if session_limit_idle "$pane"; then
@@ -779,6 +790,8 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     n=$(( $(cat "$limitf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$limitf"
     if (( n == 1 || n % HARNESS_LIMIT_NUDGE_EVERY == 0 )); then
       log "watchdog: $sess parked at idle ❯ by the usage limit (poll $n) — nudging to resume (#120)"
+      (( n == 1 )) && stats_sess_event "$sess" rate_limited reset="$(limit_reset "$pane")"
+      stats_sess_event "$sess" nudge reason=rate_limit
       _watchdog_limit_nudge "$sess"
     fi
     return 0
@@ -788,11 +801,13 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
   n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
   if (( n >= HARNESS_STALL_RETRIES )); then
     log "watchdog: $sess wedged at idle ❯ after a transient API error for $n polls — killing for reap → re-dispatch (#115)"
+    stats_sess_event "$sess" watchdog_kill reason=transient_api_error
     tmux kill-session -t "$sess" 2>/dev/null || true
     rm -f "$stallf"
   else
     echo "$n" > "$stallf"
     log "watchdog: $sess wedged at idle ❯ after a transient API error (poll $n/$HARNESS_STALL_RETRIES) — nudging to resume (#115)"
+    stats_sess_event "$sess" nudge reason=transient_api_error
     _watchdog_nudge "$sess"
   fi; }
 # watchdog_team — run the watchdog over every live session of the CURRENT unit ($UNIT). The pool's
@@ -1203,6 +1218,38 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
   { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
   } > "$wd/.claude/ralph-loop.local.md"; }
+# --- #185: host-wide event log ------------------------------------------------
+# Every fleet on the host appends one JSON line per event to $HARNESS_HOME/events.jsonl, or to
+# HARNESS_EVENTS_FILE when set (stats.py does the flock + JSON); `harness stats` reports over it. A launched session's context (uuid, kind,
+# issue, prd, model, effort, worktree) is kept in $RUN_DIR/<sess>.stats so its later events — nudge,
+# watchdog_kill, session_end — carry it without re-deriving it. Logging NEVER blocks or fails the
+# caller: stats.py gives up on a held lock after 2s, `timeout` bounds the rest, every failure is
+# swallowed and only the FIRST one per process is logged (to stderr — several callers' stdout is a
+# captured return value, e.g. claim_next).
+STATS_PY="$ENGINE_DIR/scripts/stats.py"
+harness_event(){
+  timeout 10 python3 "$STATS_PY" emit "$@" -c "prefix=$HARNESS_SESS_PREFIX" -c "project=$PROJECT_ROOT" \
+    -c "repo=${SLUG:-}" -c "unit=${UNIT:-}" >/dev/null 2>&1 && return 0
+  [[ -n "${_HARNESS_EVENT_ERR:-}" ]] && return 0
+  _HARNESS_EVENT_ERR=1; log "stats: event log write failed (${HARNESS_EVENTS_FILE:-$HARNESS_HOME/events.jsonl}) — logging the rest silently (#185)" >&2
+  return 0; }
+# stats_sess_event <sess> <event> [k=v …] — an event about one launched session, carrying its context.
+stats_sess_event(){ local sess="$1"; shift; harness_event "$1" --ctx "$RUN_DIR/$sess.stats" "${@:2}"; }
+# stats_sweep_ended — emit session_end for every launched session whose tmux session is gone, then
+# drop its context. Called from every reaper BEFORE it removes worktrees (the ralph state file there
+# carries the iteration count). The rename claims the file atomically, so when two lanes sweep the
+# shared RUN_DIR at once exactly one emits.
+stats_sweep_ended(){ local f s claim
+  shopt -s nullglob
+  for f in "$RUN_DIR"/*.stats; do
+    s="$(basename "$f" .stats)"
+    session_live "$s" && continue
+    claim="$f.end.$$"; mv "$f" "$claim" 2>/dev/null || continue
+    harness_event session_end --ctx "$claim"; rm -f "$claim"
+  done
+  shopt -u nullglob; }
+# issue_parent_prd <issue> — the PRD an issue's `## Parent` names (empty when unparented / gh fails).
+issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null || true; }
 launch_agent(){ local sess="$1" wd="$2" uuid
   # #108: never re-enter a live session. If $sess is already up (e.g. a transiently-dropped
   # agent-working label re-dispatched the same issue), short-circuit BEFORE any side effect — no
@@ -1229,6 +1276,9 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   else
     tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
   fi
+  local flags="$CLAUDE_FLAGS"; [[ "${HARNESS_CLI:-claude}" == agy ]] && flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
+  harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
+    worktree="$wd" flags="$flags" ralph_iter=1 tmux="$sess"
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
 

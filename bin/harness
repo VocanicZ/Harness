@@ -73,6 +73,8 @@ usage: harness <command> [args]
   start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
   stop  [--clean]      stop the pool (--clean also removes worktrees)
   status [--watch [s]] dashboard
+  stats [--prd N|--issue N] [-R repo] [--since 7d] [--fleet P] [--model M] [--json] [--backfill]
+                       host-wide event log report: sessions, tokens by model, retries, HOLD time
   doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
@@ -123,6 +125,8 @@ case "$cmd" in
   # poll is HOST-level (the shared poller serves every project) — no project STATE_DIR needed.
   # Normal path is ensure_poller; this is the documented debug/test entry (#71).
   poll)   exec bash "$ENGINE_DIR/scripts/poller.sh" "$@";;
+  # stats is HOST-level like poll: the event log ($HARNESS_HOME/events.jsonl) covers every project (#185).
+  stats)  exec python3 "$ENGINE_DIR/scripts/stats.py" report "$@";;
   # init CREATES the project state, so it can't discover it: target $PWD/.harness (env override wins).
   init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/scripts/init.sh" "$@";;
   # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.

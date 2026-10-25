@@ -45,6 +45,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     fi
     sleep "$PRIORITY_POLL"
   done
+  stats_sweep_ended   # #185: session_end before the worktree (and its ralph iteration count) goes
   # Reap the phase worktree + local branch once its session has ended (#34) — the pool gets this via
   # reap_team/finalize_unit; the cap-1 lane had no equivalent, so it leaked a worktree + dead branch
   # on every phase and a crashed phase wedged the next attempt. BOTH phases now own a worktree (#109),

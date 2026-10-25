@@ -71,6 +71,9 @@ make_env(){
   export HARNESS_CLAUDE_CONFIG="$RUN_DIR/claude.json"
   export HARNESS_AGY_TRUST_FILE="$RUN_DIR/trustedFolders.json"
   unset CLAUDE_CONFIG_DIR
+  # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
+  # not pick up a real session's usage either.
+  export HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/claude-config"
   export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
   POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
