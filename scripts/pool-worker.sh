@@ -15,7 +15,7 @@ worker_tick(){ local wid="$1" u
 # terminate on stop (kill); pause keeps them drained (rc 3). Returns worker_tick's rc.
 worker_step(){ local wid="$1"
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
-  # PRD-B slice 3 (#72): with HARNESS_USE_POLLER set, gate dispatch on a fresh host snapshot. A
+  # PRD-B slice 3 (#72): with the host poller on (the default since #182), gate dispatch on a fresh host snapshot. A
   # stale/missing/unknown-schema snapshot HOLDS new dispatch (claim nothing, no gh fallback) — the
   # gate relaunches the poller; we log a deduped banner and leave in-flight sessions running. Flag
   # OFF: snapshot_gate returns 0 and this loop is byte-for-byte today's.

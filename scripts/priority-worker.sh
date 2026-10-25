@@ -104,7 +104,7 @@ bug_tick(){ local wid="$1" ref
 bug_step(){ local wid="$1"
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (e.g. a bug session
                     # that self-exited before bug_goal_done flipped leaves its goal behind)
-  # PRD-B slice 3 (#72): gate the WHOLE poll on a fresh host snapshot when HARNESS_USE_POLLER is set.
+  # PRD-B slice 3 (#72): gate the WHOLE poll on a fresh host snapshot unless HARNESS_USE_POLLER is off.
   # A stale/missing snapshot HOLDS — reap_lane is skipped too (its self-heal does gh writes), no
   # claim, no gh — the gate relaunches the poller and we log a deduped banner. Flag OFF: snapshot_gate
   # returns 0 and the poll is byte-for-byte today's (reap_lane + bug_tick).

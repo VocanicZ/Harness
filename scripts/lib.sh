@@ -59,7 +59,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_MAIN_REPO:=}"             # multi: umbrella repo for coordination issues (optional)
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
-: "${HARNESS_USE_POLLER:=}"            # PRD-B (#72): empty = today's direct-gh polling; set = read host snapshots
+: "${HARNESS_USE_POLLER:=1}"           # #182: ON by default — workers read the host poller's shared snapshots; 0 = direct-gh polling
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
@@ -1484,15 +1484,23 @@ poller_snapshot_path(){ printf '%s/%s.json' "$HARNESS_SNAPSHOTS_DIR" "$(_poller_
 # job), not a snapshot. On a failed/garbled generation it leaves any existing snapshot UNTOUCHED
 # (returns non-zero) — a transient gh failure must never clobber a good snapshot into garbage; it
 # just ages into staleness, which workers (slice 3) treat as a hold.
+#
+# Incremental (#182): the existing snapshot is handed back to issuelib as the cache, so a refresh asks
+# GitHub only for what changed since it (`since` + ETag → a free 304 on an unchanged board). Guarded
+# by a per-slug flock, so a `harness poll --once` racing the loop never builds on a half-read cache.
 poller_write_snapshot(){
-  local slug="$1" out tmp
+  local slug="$1" out tmp lockfd rc=1
   mkdir -p "$HARNESS_SNAPSHOTS_DIR"
   out="$(poller_snapshot_path "$slug")"; tmp="$out.tmp.$$"
-  if HARNESS_SNAPSHOT_FILE= HARNESS_SNAPSHOT_DIR= python3 "$ISSUELIB" snapshot "$slug" > "$tmp" 2>/dev/null \
+  exec {lockfd}>"$out.lock"; flock "$lockfd"
+  if HARNESS_SNAPSHOT_FILE= HARNESS_SNAPSHOT_DIR= python3 "$ISSUELIB" snapshot "$slug" "$out" > "$tmp" 2>/dev/null \
      && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
-    mv -f "$tmp" "$out"; return 0
+    mv -f "$tmp" "$out"; rc=0
+  else
+    rm -f "$tmp"
   fi
-  rm -f "$tmp"; return 1
+  flock -u "$lockfd"; exec {lockfd}>&-
+  return "$rc"
 }
 
 # poller_running — is a poller alive (its pidfile names a live process)?
@@ -1526,6 +1534,11 @@ ensure_poller(){
 }
 
 # --- PRD-B slice 3: wire workers to snapshots behind HARNESS_USE_POLLER (#72) -
+# poller_enabled — does this fleet read the host poller's snapshots? ON unless HARNESS_USE_POLLER is
+# explicitly off (#182: it was opt-in, no fleet opted in, and every worker polled GitHub itself). An
+# EMPTY value — what every config written before #182 carries — means the default, i.e. ON.
+poller_enabled(){ case "${HARNESS_USE_POLLER:-1}" in 0|off|OFF|false|FALSE|no|NO) return 1;; esac; return 0; }
+
 # snapshot_slugs — the unique, owner-qualified slugs THIS project serves (single: HARNESS_REPO;
 # multi: every targets row). Exactly the set `harness start` registers with the poller and the set
 # the workers gate freshness on. Empty when single-topology HARNESS_REPO is blank (hermetic tests).
@@ -1536,7 +1549,7 @@ snapshot_slugs(){
 
 # poller_register_project — register every repo this project serves with the host poller, keyed on
 # STATE_DIR (the refcount key) at this project's HARNESS_PRIORITY_POLL cadence and HARNESS_SESS_PREFIX.
-# Idempotent (re-drops the same files). Called by `harness start` only when HARNESS_USE_POLLER is set.
+# Idempotent (re-drops the same files). Called by `harness start` unless the poller is off (poller_enabled).
 poller_register_project(){
   local slug
   for slug in $(snapshot_slugs); do
@@ -1553,8 +1566,8 @@ ensure_snapshot_fresh(){ local slug="$1"
   python3 "$ISSUELIB" snapshot-fresh "$(poller_snapshot_path "$slug")" "$(poller_cadence_for "$slug")" 2>/dev/null; }
 
 # snapshot_gate — the PRD-B dispatch gate the pool + bug lane call before claiming. With
-# HARNESS_USE_POLLER UNSET it is a NO-OP (returns 0; the caller keeps today's direct-gh path with no
-# snapshot env). With the flag SET it (1) ensures the host poller is alive EVERY tick — so a killed
+# the poller OFF (HARNESS_USE_POLLER=0) it is a NO-OP (returns 0; the caller keeps today's direct-gh path with no
+# snapshot env). With it ON it (1) ensures the host poller is alive EVERY tick — so a killed
 # poller self-heals within one tick (G3); (2) requires every repo this project serves to have a
 # FRESH snapshot — any stale/missing/unknown-schema one returns non-zero so the caller HOLDS new
 # dispatch (no claim, no gh fallback); (3) on success exports HARNESS_SNAPSHOT_FILE/_DIR so the
@@ -1562,7 +1575,7 @@ ensure_snapshot_fresh(){ local slug="$1"
 # is intentionally called BEFORE the export, so the (re)launched poller child never inherits a stale
 # HARNESS_SNAPSHOT_FILE — and poller_write_snapshot clears it anyway, belt and braces.
 snapshot_gate(){
-  [[ -n "${HARNESS_USE_POLLER:-}" ]] || return 0
+  poller_enabled || return 0
   ensure_poller
   local slugs slug; slugs="$(snapshot_slugs)"
   [[ -n "$slugs" ]] || return 0

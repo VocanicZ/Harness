@@ -1459,6 +1459,391 @@ def test_cli_dispatch_parses_busy_prds(capsys=None):
         sys.argv = real_argv; il.compute_state = _REAL_COMPUTE_STATE
 
 
+
+# ── incremental board cache (#182) ────────────────────────────────────────────────────────────
+# A fake GitHub behind subprocess.run: it answers the full-fetch calls (`gh issue list`, `gh issue
+# view`, `gh api user`, the contents reads) AND the conditional REST calls (`gh api -i … -H
+# If-None-Match`) from ONE in-memory board, so a cache built from deltas can be compared with a full
+# fetch of the same board. Every call is recorded with whether it was a free 304.
+import json as _json, random as _random, base64 as _b64, hashlib as _hashlib
+from urllib.parse import urlsplit as _urlsplit, parse_qs as _parse_qs
+
+class _FakeGitHub:
+    LABELS = ["ready-for-agent", "prd", "agent-working", "agent-blocked", "bug", "reviewed", "agent-paused"]
+
+    def __init__(self, rnd, page=4):
+        self.rnd, self.page, self.tick = rnd, page, 0
+        self.boards = {"acme/widget": {}, "acme/lib": {}}
+        self.plan, self.marker = False, None
+        self.calls = []                       # (argv-summary, counted?) — counted = not a 304
+        for n in range(1, 4):                 # a static upstream repo for cross-repo refs
+            self._put("acme/lib", n, state=self.rnd.choice(["OPEN", "CLOSED"]), title=f"lib {n}")
+        for n in range(1, rnd.randint(3, 12)):
+            self._new_issue()
+
+    def _stamp(self):
+        self.tick += 1
+        return "2026-10-%02dT%02d:%02d:%02dZ" % (1 + self.tick // 86400, self.tick // 3600 % 24,
+                                                  self.tick // 60 % 60, self.tick % 60)
+
+    def _put(self, slug, n, **kw):
+        it = self.boards[slug].get(n) or {"number": n, "title": f"issue {n}", "state": "OPEN",
+                                          "labels": [], "body": "", "login": "me", "bot": False, "pr": False}
+        it.update(kw); it["updated"] = self._stamp()
+        self.boards[slug][n] = it
+
+    def _body(self):
+        b = self.boards["acme/widget"]
+        nums = list(b) or [1]
+        lines = []
+        if self.rnd.random() < 0.5:
+            refs = [f"#{self.rnd.choice(nums)}" for _ in range(self.rnd.randint(1, 2))]
+            if self.rnd.random() < 0.3:
+                refs.append(f"acme/lib#{self.rnd.randint(1, 3)}")
+            lines += ["## Blocked by", *[f"- {r}" for r in refs], ""]
+        prds = [n for n, i in b.items() if "prd" in i["labels"]]
+        if prds and self.rnd.random() < 0.6:
+            lines += ["## Parent", f"#{self.rnd.choice(prds)}", ""]
+        return "\n".join(lines)
+
+    def _new_issue(self):
+        b = self.boards["acme/widget"]
+        n = max(b, default=0) + 1
+        self._put("acme/widget", n, state="OPEN", body=self._body(),
+                  labels=self.rnd.sample(self.LABELS, self.rnd.randint(0, 2)),
+                  login=self.rnd.choice(["me", "me", "me", "stranger", "dependabot"]),
+                  bot=False, pr=self.rnd.random() < 0.2,
+                  title=("[AFK] PRD: thing %d" % n) if self.rnd.random() < 0.15 else f"issue {n}")
+        if b[n]["login"] == "dependabot":
+            b[n]["bot"] = True
+
+    def mutate(self):
+        b = self.boards["acme/widget"]
+        for _ in range(self.rnd.randint(0, 3)):
+            r = self.rnd.random()
+            n = self.rnd.choice(list(b))
+            if r < 0.25:
+                self._put("acme/widget", n, state="CLOSED" if b[n]["state"] == "OPEN" else "OPEN")
+            elif r < 0.5:
+                labs = set(b[n]["labels"]) ^ {self.rnd.choice(self.LABELS)}
+                self._put("acme/widget", n, labels=sorted(labs))
+            elif r < 0.65:
+                self._put("acme/widget", n, body=self._body())
+            elif r < 0.85:
+                self._new_issue()
+            elif r < 0.93:
+                self.plan = not self.plan
+            else:
+                self.marker = None if self.marker else {"spec_hash": ""}
+
+    # ── shapes ──
+    def _gh_shape(self, it):
+        login = ("app/" + it["login"]) if it["bot"] else it["login"]
+        return {"number": it["number"], "title": it["title"], "state": it["state"],
+                "labels": [{"id": "L" + l, "name": l, "description": "", "color": "ededed"} for l in it["labels"]],
+                "body": it["body"], "author": {"id": "U", "is_bot": it["bot"], "login": login, "name": ""},
+                "updatedAt": it["updated"]}
+
+    def _rest_shape(self, it):
+        d = {"number": it["number"], "title": it["title"], "state": it["state"].lower(),
+             "labels": [{"node_id": "L" + l, "name": l, "description": None, "color": "ededed"} for l in it["labels"]],
+             "body": it["body"] or None, "updated_at": it["updated"],
+             "user": {"login": it["login"] + ("[bot]" if it["bot"] else ""), "node_id": "U",
+                      "type": "Bot" if it["bot"] else "User"}}
+        if it["pr"]:
+            d["pull_request"] = {"url": "x"}
+        return d
+
+    def _root(self):
+        ents = [{"name": "README.md", "sha": "r0"}]
+        if self.plan: ents.append({"name": "PLAN.md", "sha": "p1"})
+        if self.marker: ents.append({"name": "docs", "sha": "d-" + _json.dumps(self.marker)})
+        return ents
+
+    # ── the fake gh ──
+    def _done(self, argv, rc, out="", err="", counted=True):
+        self.calls.append((" ".join(argv[1:4]), counted))
+        return il.subprocess.CompletedProcess(argv, rc, out, err)
+
+    def _http(self, argv, status, body, etag=None, link=None, sent=None):
+        if etag and sent == etag:
+            return self._done(argv, 1, "HTTP/2.0 304 Not Modified\nEtag: %s\n\n" % etag, "gh: HTTP 304", counted=False)
+        head = "HTTP/2.0 %d %s\n" % (status, "OK" if status == 200 else "Not Found")
+        if etag: head += "Etag: %s\n" % etag
+        if link: head += 'Link: <https://api.github.com/%s>; rel="next"\n' % link
+        return self._done(argv, 0 if status == 200 else 1, head + "\n" + body, "" if status == 200 else "gh: Not Found (HTTP 404)")
+
+    def run(self, argv, **kw):
+        a = list(argv[1:])
+        if a[:2] == ["issue", "list"]:
+            slug = a[a.index("-R") + 1]
+            its = sorted(self.boards[slug].values(), key=lambda i: -i["number"])
+            return self._done(argv, 0, _json.dumps([self._gh_shape(i) for i in its if not i["pr"]]))
+        if a[:2] == ["issue", "view"]:
+            slug, n = a[a.index("-R") + 1], int(a[2])
+            it = self.boards.get(slug, {}).get(n)
+            if not it: return self._done(argv, 1, "", "gh: Could not resolve to an issue (HTTP 404)")
+            st = ("MERGED" if it["state"] == "CLOSED" else "OPEN") if it["pr"] else it["state"]
+            return self._done(argv, 0, _json.dumps({"state": st}))
+        if a[:2] == ["api", "user"]:
+            return self._done(argv, 0, "me\n")
+        if a[0] == "api" and a[1] != "-i":
+            path = a[1]
+            if path.endswith("/contents/PLAN.md"):
+                return self._done(argv, 0, "p1\n") if self.plan else self._done(argv, 1, "", "gh: Not Found (HTTP 404)")
+            if self.marker:
+                return self._done(argv, 0, _b64.b64encode(_json.dumps(self.marker).encode()).decode())
+            return self._done(argv, 1, "", "gh: Not Found (HTTP 404)")
+        if a[:2] == ["api", "-i"]:
+            path = a[2]
+            sent = a[a.index("-H") + 1].split(": ", 1)[1] if "-H" in a else None
+            if path.endswith("/contents/"):
+                body = _json.dumps(self._root())
+                return self._http(argv, 200, body, '"%s"' % _hashlib.sha1(body.encode()).hexdigest(), sent=sent)
+            u = _urlsplit(path); q = _parse_qs(u.query)
+            since = q.get("since", [""])[0]; pg = int(q.get("page", ["1"])[0])
+            its = sorted((i for i in self.boards["acme/widget"].values() if i["updated"] >= since),
+                         key=lambda i: i["updated"], reverse=True)
+            chunk = its[(pg - 1) * self.page: pg * self.page]
+            nxt = None
+            if len(its) > pg * self.page:
+                nxt = "repositories/9/issues?state=all&per_page=100&since=%s&page=%d" % (since, pg + 1)
+            body = _json.dumps([self._rest_shape(i) for i in chunk])
+            etag = 'W/"%s"' % _hashlib.sha1(_json.dumps([self._rest_shape(i) for i in its]).encode()).hexdigest()
+            return self._http(argv, 200, body, etag if pg == 1 else None, nxt, sent)
+        return self._done(argv, 1, "", "unknown")
+
+    def counted(self, since_idx=0):
+        return [c for c, counted in self.calls[since_idx:] if counted]
+
+
+def _with_fake_gh(fake, fn):
+    """Run fn() with the fake GitHub installed and every read seam the REAL one; restore after."""
+    import tempfile
+    saved = dict(run=il.subprocess.run, cs=il.compute_state, li=il._list_issues, st=il._issue_state,
+                 hp=il._has_plan, pm=il._plan_marker, af=il._author_filter, sl=il._self_login,
+                 env={k: os.environ.get(k) for k in ("HARNESS_SNAPSHOT_FILE", "HARNESS_SNAPSHOT_DIR",
+                      "HARNESS_MODE", "HARNESS_AUTONOMOUS", "HARNESS_AUTHOR_ALLOWLIST", "HARNESS_SPEC",
+                      "HARNESS_DEP_TTL", "HARNESS_FULL_RESYNC", "HARNESS_OWNER")})
+    il.subprocess.run = fake.run
+    il.compute_state = _REAL_COMPUTE_STATE; il._list_issues = _REAL_LIST_ISSUES
+    il._issue_state = _REAL_ISSUE_STATE; il._has_plan = _REAL_HAS_PLAN
+    il._plan_marker = _REAL_PLAN_MARKER; il._author_filter = _REAL_AUTHOR_FILTER
+    il._self_login = lambda: "me"
+    for k in ("HARNESS_SNAPSHOT_FILE", "HARNESS_SNAPSHOT_DIR", "HARNESS_AUTHOR_ALLOWLIST", "HARNESS_SPEC"):
+        os.environ.pop(k, None)
+    os.environ.update(HARNESS_MODE="prd", HARNESS_AUTONOMOUS="false", HARNESS_OWNER="acme")
+    tmp = tempfile.mkdtemp()
+    try:
+        return fn(tmp)
+    finally:
+        il.subprocess.run = saved["run"]; il.compute_state = saved["cs"]; il._list_issues = saved["li"]
+        il._issue_state = saved["st"]; il._has_plan = saved["hp"]; il._plan_marker = saved["pm"]
+        il._author_filter = saved["af"]; il._self_login = saved["sl"]
+        for k, v in saved["env"].items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+
+
+def _state_from(snap, tmp):
+    """compute_state served from <snap> the way a worker reads it (snapshot env, no gh)."""
+    path = os.path.join(tmp, "acme__widget.json")
+    with open(path, "w") as f: _json.dump(snap, f)
+    os.environ["HARNESS_SNAPSHOT_FILE"] = path; os.environ["HARNESS_SNAPSHOT_DIR"] = tmp
+    try:
+        return il.compute_state("acme/widget")
+    finally:
+        os.environ.pop("HARNESS_SNAPSHOT_FILE", None); os.environ.pop("HARNESS_SNAPSHOT_DIR", None)
+
+
+def test_board_cache_property_incremental_equals_full_fetch():
+    # Acceptance (#182): compute_state returns IDENTICAL results from the incremental cache and from
+    # a full fetch, over many recorded random boards and random sequences of edits — state flips,
+    # label churn, body rewrites (blocked-by / parent / cross-repo refs), new issues, PRs mixed into
+    # the REST feed, bot authors, PLAN.md and plan-marker flips, and deltas spanning several pages.
+    def body(tmp):
+        os.environ["HARNESS_DEP_TTL"] = "0"     # cross-repo deps re-resolved every poll
+        for seed in range(60):
+            fake = _FakeGitHub(_random.Random(seed), page=_random.Random(seed).choice([2, 3, 100]))
+            il.subprocess.run = fake.run
+            snap = il.snapshot("acme/widget", None, tmp)              # first poll: full fetch
+            assert snap["sync"]["full_at"] > 0, snap
+            for step in range(8):
+                fake.mutate()
+                snap = il.snapshot("acme/widget", snap, tmp)          # every later poll: incremental
+                cached = _state_from(snap, tmp)
+                direct = il.compute_state("acme/widget")              # the same board, fetched whole
+                assert cached == direct, (seed, step, cached, direct)
+    _with_fake_gh(_FakeGitHub(_random.Random(0)), body)
+
+
+def test_board_cache_unchanged_board_costs_zero_counted_calls():
+    # Acceptance (#182): two consecutive polls on an unchanged board make 0 rate-limited calls —
+    # only 304s. (The poll right after a full fetch primes the ETags, so steady state starts after.)
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(7))
+        il.subprocess.run = fake.run
+        snap = il.snapshot("acme/widget", None, tmp)
+        snap = il.snapshot("acme/widget", snap, tmp)
+        mark = len(fake.calls)
+        snap = il.snapshot("acme/widget", snap, tmp)
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert fake.counted(mark) == [], fake.calls[mark:]
+        assert len(fake.calls[mark:]) == 4, fake.calls[mark:]         # 2 polls × (issues + root), all 304
+        # …and a change is still seen on the very next poll, at the cost of the delta alone.
+        fake._put("acme/widget", 1, state="CLOSED")
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert next(i for i in snap["issues"] if i["number"] == 1)["state"] == "CLOSED", snap["issues"]
+    _with_fake_gh(_FakeGitHub(_random.Random(7)), body)
+
+
+def test_board_cache_full_resync_drops_deleted_issues():
+    # `since` never reports a deletion or a transfer; the periodic full resync does.
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(3))
+        il.subprocess.run = fake.run
+        snap = il.snapshot("acme/widget", None, tmp)
+        gone = max(fake.boards["acme/widget"])
+        del fake.boards["acme/widget"][gone]
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert any(i["number"] == gone for i in snap["issues"]), "incremental cannot see a deletion"
+        os.environ["HARNESS_FULL_RESYNC"] = "0"                      # resync now due
+        mark = len(fake.calls)
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert not any(i["number"] == gone for i in snap["issues"]), snap["issues"]
+        assert any(c.startswith("issue list") for c, _ in fake.calls[mark:]), fake.calls[mark:]
+    _with_fake_gh(_FakeGitHub(_random.Random(3)), body)
+
+
+def test_board_cache_falls_back_to_full_when_rest_unusable():
+    # A gh that answers no conditional request at all (an old stub, an odd proxy) is a non-transient
+    # failure: refresh with a full fetch instead of holding forever on a stale cache.
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(5))
+        il.subprocess.run = fake.run
+        snap = il.snapshot("acme/widget", None, tmp)
+        real = fake.run
+        def no_rest(argv, **kw):
+            if list(argv[1:3]) == ["api", "-i"]:
+                return il.subprocess.CompletedProcess(argv, 1, "", "unknown flag")
+            return real(argv, **kw)
+        il.subprocess.run = no_rest
+        fake._put("acme/widget", 1, title="renamed")
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert next(i for i in snap["issues"] if i["number"] == 1)["title"] == "renamed", snap["issues"]
+    _with_fake_gh(_FakeGitHub(_random.Random(5)), body)
+
+
+def test_board_cache_transient_failure_holds():
+    # A rate-limited delta must HOLD (GhError → the poller keeps the prior snapshot), never fall
+    # back to a full fetch — that would spend more of the very budget that just ran out.
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(5))
+        il.subprocess.run = fake.run
+        snap = il.snapshot("acme/widget", None, tmp)
+        il.subprocess.run = lambda argv, **kw: il.subprocess.CompletedProcess(
+            argv, 1, "HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\n\n{}", "gh: API rate limit exceeded (HTTP 403)")
+        try:
+            il.snapshot("acme/widget", snap, tmp)
+            assert False, "expected GhError"
+        except il.GhError:
+            pass
+    _with_fake_gh(_FakeGitHub(_random.Random(5)), body)
+
+
+def test_board_cache_cross_repo_dep_resolved_by_poller_with_ttl():
+    # A `## Blocked by` ref into a repo nobody snapshots is resolved by the POLLER (one call) and
+    # cached for HARNESS_DEP_TTL; the worker reads it from the snapshot without calling gh.
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(1))
+        fake.boards["acme/widget"] = {}
+        fake.boards["acme/lib"][2]["state"] = "OPEN"
+        fake._put("acme/widget", 1, body="## Blocked by\n- acme/lib#2\n", labels=["ready-for-agent"])
+        il.subprocess.run = fake.run
+        os.environ["HARNESS_DEP_TTL"] = "3600"
+        snap = il.snapshot("acme/widget", None, tmp)
+        assert snap["ext_deps"]["acme/lib#2"]["state"] == "open", snap["ext_deps"]
+        fake.boards["acme/lib"][2]["state"] = "CLOSED"                # upstream closes …
+        mark = len(fake.calls)
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert not any(c.startswith("issue view") for c, _ in fake.calls[mark:]), "TTL not honoured"
+        assert 1 not in _state_from(snap, tmp)["unblocked"]            # … still cached as open
+        os.environ["HARNESS_DEP_TTL"] = "0"                           # TTL lapses
+        snap = il.snapshot("acme/widget", snap, tmp)
+        assert snap["ext_deps"]["acme/lib#2"]["state"] == "closed", snap["ext_deps"]
+        il.subprocess.run = lambda argv, **kw: (_ for _ in ()).throw(AssertionError("worker called gh"))
+        assert 1 in _state_from(snap, tmp)["unblocked"]
+    _with_fake_gh(_FakeGitHub(_random.Random(1)), body)
+
+
+def test_board_cache_edge_answers():
+    # The odd answers each read can get, and what the snapshot makes of them.
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(9))
+        il.subprocess.run = fake.run
+        base = il.snapshot("acme/widget", None, tmp)
+        def answering(match, out, rc=0, err=""):
+            def run(argv, **kw):
+                if match(list(argv[1:])):
+                    if isinstance(out, Exception): raise out
+                    return il.subprocess.CompletedProcess(argv, rc, out, err)
+                return fake.run(argv, **kw)
+            il.subprocess.run = run
+        is_issues = lambda a: a[:2] == ["api", "-i"] and "/issues?" in a[2]
+        is_root = lambda a: a[:2] == ["api", "-i"] and a[2].endswith("/contents/")
+        def holds(why):
+            try:
+                il.snapshot("acme/widget", base, tmp); assert False, why
+            except il.GhError:
+                pass
+        answering(is_issues, il.subprocess.TimeoutExpired("gh", 60)); holds("gh timeout must hold")
+        answering(is_issues, "HTTP/2.0 200 OK\nEtag: x\n\nnot json"); holds("garbled delta must hold")
+        answering(is_root, "HTTP/2.0 200 OK\nEtag: x\n\nnot json"); holds("garbled root must hold")
+        answering(is_root, "HTTP/2.0 404 Not Found\n\n{}", 1, "gh: This repository is empty. (HTTP 404)")
+        s = il.snapshot("acme/widget", base, tmp)
+        assert (s["has_plan"], s["plan_marker"], s["sync"]["root_etag"]) == (False, None, None), s
+        answering(is_root, "", 1, "unknown command")                # no HTTP answer at all → full resync
+        mark = len(fake.calls)
+        s = il.snapshot("acme/widget", base, tmp)
+        assert any(c.startswith("issue list") for c, _ in fake.calls[mark:]), fake.calls[mark:]
+        il.subprocess.run = fake.run
+        # a previous snapshot the incremental path must not build on → full fetch
+        for bad in (dict(base, schema_version=999), dict(base, sync=None), dict(base, slug="acme/other")):
+            mark = len(fake.calls)
+            il.snapshot("acme/widget", bad, tmp)
+            assert any(c.startswith("issue list") for c, _ in fake.calls[mark:]), bad.get("sync")
+        # a cross-repo ref into a repo that HAS its own snapshot is left to that snapshot
+        fake._put("acme/widget", 1, state="OPEN", body="## Blocked by\n- acme/lib#1\n")
+        open(os.path.join(tmp, "acme__lib.json"), "w").write("{}")
+        try:
+            s = il.snapshot("acme/widget", None, tmp)
+            assert "acme/lib#1" not in s["ext_deps"], s["ext_deps"]
+        finally:
+            os.remove(os.path.join(tmp, "acme__lib.json"))
+        # a worker asking for a dep nobody snapshotted or resolved: None → blocked, never a gh call
+        il.subprocess.run = lambda argv, **kw: (_ for _ in ()).throw(AssertionError("worker called gh"))
+        os.environ["HARNESS_SNAPSHOT_DIR"] = tmp
+        try:
+            assert il._ext_dep_state("other/ghost", 1) is None
+        finally:
+            os.environ.pop("HARNESS_SNAPSHOT_DIR", None)
+    _with_fake_gh(_FakeGitHub(_random.Random(9)), body)
+
+def test_parse_http_and_link_next():
+    st, h, b = il._parse_http('HTTP/2.0 200 OK\r\nEtag: W/"x"\r\nLink: <https://api.github.com/repositories/1/issues?page=2>; rel="next", <https://api.github.com/repositories/1/issues?page=5>; rel="last"\r\n\r\n[1]')
+    assert (st, h["etag"], b) == (200, 'W/"x"', "[1]"), (st, h, b)
+    assert il._link_next(h) == "repositories/1/issues?page=2", il._link_next(h)
+    assert il._link_next({}) is None
+    assert il._parse_http("")[0] is None and il._parse_http("not http")[0] is None
+
+
+def test_rest_to_gh_issue_maps_bots_and_nulls():
+    g = il._rest_to_gh_issue({"number": 3, "title": "t", "state": "closed", "body": None,
+                              "labels": [{"name": "bug", "node_id": "L", "color": "f00", "description": None}],
+                              "user": {"login": "dependabot[bot]", "type": "Bot"}, "updated_at": "2026-01-01T00:00:00Z"})
+    assert g["state"] == "CLOSED" and g["body"] == "" and g["author"]["login"] == "app/dependabot", g
+    assert g["labels"][0]["name"] == "bug" and g["updatedAt"] == "2026-01-01T00:00:00Z", g
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

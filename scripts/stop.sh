@@ -39,7 +39,7 @@ fleet_deregister "$STATE_DIR"
 # process (pid under HARNESS_POLLER_DIR, not RUN_DIR; not a tmux session), so the worker-session +
 # pidfile sweeps above never touch it, and other fleets may still need it. Flag OFF: registry-blind
 # (today's stop), so an un-flagged fleet sharing the host can't strip a flagged fleet's entries.
-if [[ -n "${HARNESS_USE_POLLER:-}" ]]; then
+if poller_enabled; then
   echo "Deregistering this project's repos from the host poller (refcount; poller left running):"
   poller_deregister "$STATE_DIR"
 fi

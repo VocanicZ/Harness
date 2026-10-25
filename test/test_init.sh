@@ -53,11 +53,11 @@ assert "priority-poll key written" "grep -q 'HARNESS_PRIORITY_POLL' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_POLL:-}" == "300" && "${HARNESS_PRIORITY_POLL:-}" == "60" ]] ) \
   && echo "  ok: poll cadences default 300/60 and round-trip" || { echo "  FAIL: poll cadence defaults"; exit 1; }
 
-# host-poller opt-in (#74, PRD-B): init documents HARNESS_USE_POLLER so a fresh install shows the
-# flag exists and is default-OFF (empty = today's direct-gh polling; set = read host snapshots).
+# host poller (#74, PRD-B; on by default since #182): init documents HARNESS_USE_POLLER so a fresh
+# install shows the flag exists and is ON (1 = read host snapshots; 0 = direct-gh polling).
 assert "use-poller key written" "grep -q 'HARNESS_USE_POLLER' '$CFG'"
-( source "$CFG"; [[ "${HARNESS_USE_POLLER-unset}" == "" ]] ) \
-  && echo "  ok: HARNESS_USE_POLLER defaults off (empty) and round-trips" || { echo "  FAIL: HARNESS_USE_POLLER default-off"; exit 1; }
+( source "$CFG"; [[ "${HARNESS_USE_POLLER-unset}" == "1" ]] ) \
+  && echo "  ok: HARNESS_USE_POLLER defaults on (1) and round-trips" || { echo "  FAIL: HARNESS_USE_POLLER default-on"; exit 1; }
 
 # ── state-only init in cwd (#55, PRD #52): `harness init` creates ./.harness/{config,run/claims,
 # worktrees} in the CURRENT project dir and places NO engine code there (the engine is one shared

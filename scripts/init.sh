@@ -97,10 +97,10 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
            HARNESS_SECURITY_AUDIT; do
     printf ': "${%s:=%s}"\n' "$v" "${!v:-}"
   done
-  # Host-poller opt-in (PRD-B, #74). Empty = today's direct-gh polling (default OFF); set to 1 to
-  # have this fleet read shared host snapshots instead. Staged-rollout flag — flip per fleet, then
-  # `harness stop && harness start --recover`. See README "Host poller".
-  printf ': "${%s:=%s}"\n' HARNESS_USE_POLLER "${HARNESS_USE_POLLER:-}"
+  # Host poller (PRD-B, #74; default ON since #182). 1 = this fleet reads the shared host snapshots;
+  # 0 = it polls GitHub itself. Flip per fleet, then `harness stop && harness start --recover`.
+  # See README "Host poller".
+  printf ': "${%s:=%s}"\n' HARNESS_USE_POLLER "${HARNESS_USE_POLLER:-1}"
 } > "$CONFIG"
 echo "wrote $CONFIG"
 if [[ "$ni" != 1 ]]; then
