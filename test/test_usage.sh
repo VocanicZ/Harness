@@ -207,6 +207,10 @@ mechanical_checkpoint hz-main-i7 "$(cat "$PANE")"; rc=$?
 assert_eq "$rc" "1" "unpushable work: mechanical checkpoint reports failure"
 assert_no "unpushable work: no handoff claiming a push" grep -q 'gh issue comment' "$CALLS"
 
+# a session that is no impl/lane session is never a checkpoint target
+_checkpoint_target hz-main-p0; rc=$?
+assert_eq "$rc" "1" "an orch session does not resolve to a checkpoint target"
+
 # an unresolvable repo never reaches gh (gh -R "" would hit the cwd's repo)
 HARNESS_TOPOLOGY=multi; : > "$TARGETS_TSV"; : > "$CALLS"
 mechanical_checkpoint hz-ghost-i120 "$(cat "$PANE")"; rc=$?
