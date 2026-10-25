@@ -94,6 +94,8 @@ def isolate_env(tmp):
         HARNESS_POLLER_DIR=str(host / "poller"),
         HARNESS_SNAPSHOTS_DIR=str(host / "snapshots"),
         HARNESS_FLEETS_DIR=str(host / "fleets"),
+        # #183: no test probes the real GitHub budget; test_ghrate.sh opts in against its stub gh.
+        HARNESS_GH_RATE_GUARD="0",
     )
     return env
 

@@ -144,6 +144,9 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). Repos that already have CI are unaffected either way |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
 | `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
+| `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
+| `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
+| `HARNESS_GH_RATE_TTL` | `60` | Seconds one `gh api rate_limit` probe is reused by every worker on the host |
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 
 ### Issue-author allowlist
@@ -432,6 +435,40 @@ Each checkpoint and resume is appended to `~/.harness/events.jsonl` as a `usage_
 `usage_resume` event, and `harness status` shows every window, with `HOLD` on an account being
 waited out. New panes pick their account at launch, so a hold on any account holds every claim of
 the fleet.
+
+### GitHub rate limits
+
+Every fleet on a host, and every agent session in it, spends **one GitHub token's** budget. A
+rate-limited dispatcher used to HOLD and retry every poll, spending more of the budget the agents
+needed to finish their own `gh` calls. Now:
+
+- **On a rate limit** (a `rate limit` / HTTP 403 / HTTP 429 failure) Harness reads the reset time
+  from `gh api rate_limit` (which does not count against the budget) and records a hold for that
+  token in `~/.harness/ghrate/`. Until the reset, every engine `gh` read refuses before calling
+  `gh`, and the pool workers, the bug lane, `drive_unit` and the host poller sleep until then,
+  logging one line per hold. Live sessions keep running and the watchdog keeps tending them. A
+  secondary limit names no reset, so it holds one minute. A 403 with budget left is a permission
+  error and holds nothing.
+- **Budget guard.** When `core` or `graphql` `remaining` falls below `HARNESS_GH_BUDGET_PCT`
+  (default 20%), the dispatchers stop claiming new work and poll at twice their interval until the
+  reset. The reaping sweeps still run, because they are how finished work gets closed.
+- `harness status` shows every token seen on the host: remaining budget and reset time per
+  resource, with `HOLD` on a token being waited out. A token from `GH_TOKEN` / `GITHUB_TOKEN` is
+  listed by a hash, never by value; gh's own stored login is `gh-auth`.
+
+The token is what is limited, not the agent CLI, so this works the same for `claude` and `agy`.
+
+**Optional: a GitHub App token per org.** For fleets on org repos, an installation token from a
+GitHub App installed on that org has its own budget (5,000+/hour, scaling with the org's repos).
+The user token then stays free for personal repos, and the agents and dispatchers stop competing
+for one budget. Harness does not mint App tokens itself. Installation tokens expire after an hour,
+and the workers are long-lived, so a `GH_TOKEN` exported once in `.harness/config` goes stale.
+Instead, put a small `gh` wrapper ahead of the real one on that fleet's `PATH`: it mints and caches
+the installation token with your App's private key (`POST /app/installations/<id>/access_tokens`),
+refreshes it before it expires, and runs the real `gh` with `GH_TOKEN` set. Holds and budgets are
+keyed by the `GH_TOKEN` / `GITHUB_TOKEN` in the dispatcher's own environment. A wrapper that sets
+the token only inside `gh` is still keyed as `gh-auth`, so its holds are shared with any other
+fleet on the host that uses `gh-auth`.
 
 ## Host supervisor
 

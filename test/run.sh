@@ -15,6 +15,7 @@ trap 'rm -rf "$TMPROOT"' EXIT
 # top level, so sourcing it here has no other effect. Tests re-drop them via make_env.)
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 unset_inherited_config
+export HARNESS_GH_RATE_GUARD=0   # #183: no test probes the real GitHub budget; test_ghrate.sh opts in
 rc=0
 for t in test_*.sh test_*.py; do
   [[ -e "$t" ]] || continue

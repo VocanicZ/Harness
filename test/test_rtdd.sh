@@ -97,7 +97,7 @@ assert "runner actually sets BASH_XTRACEFD in the child env" \
 assert "runner turns on xtrace for every child shell" \
   "grep -q 'SHELLOPTS=xtrace' '$RUNNER'"
 # Parity with test/run.sh's hermeticity pins, checked per-variable rather than by one sample.
-for v in STATE_DIR HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR HARNESS_FLEETS_DIR; do
+for v in STATE_DIR HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR HARNESS_FLEETS_DIR HARNESS_GH_RATE_GUARD; do
   assert "runner pins \$v like run.sh does" "grep -q '$v' '$RUNNER'"
 done
 # The selfcheck pins numbits, the repo-path filter, the executed-vs-read attribution rule, and

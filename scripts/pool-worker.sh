@@ -6,6 +6,7 @@ _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 worker_tick(){ local wid="$1" u
   if is_paused; then return 3; fi
   if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
+  if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — claim nothing, poll at half rate
   u="$(claim_next "$wid")"
   if [[ -z "$u" ]]; then all_complete && return 2; return 1; fi
   log "worker $wid claimed $u"; seed_if_needed "$u"; drive_unit "$u"; release_claim "$u"; log "worker $wid released $u"; return 0; }
@@ -15,6 +16,7 @@ worker_tick(){ local wid="$1" u
 # terminate on stop (kill); pause keeps them drained (rc 3). Returns worker_tick's rc.
 worker_step(){ local wid="$1"
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
+  gh_rate_wait      # #183: rate-limited — sleep until the reset; claim_next's completion reads are gh calls
   # PRD-B slice 3 (#72): with the host poller on (the default since #182), gate dispatch on a fresh host snapshot. A
   # stale/missing/unknown-schema snapshot HOLDS new dispatch (claim nothing, no gh fallback) — the
   # gate relaunches the poller; we log a deduped banner and leave in-flight sessions running. Flag
@@ -29,6 +31,7 @@ worker_step(){ local wid="$1"
     0) _IDLE_LOGGED=0 ;;
     2) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "all COMPLETE — idle, watching"; _IDLE_LOGGED=1; }
        sleep "$POLL" ;;
+    5) sleep "$(( POLL * 2 ))" ;;
     *) sleep "$POLL" ;;
   esac
   return "$rc"; }

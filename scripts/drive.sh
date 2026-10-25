@@ -324,7 +324,9 @@ drive_unit(){
   REPO="$(unit_repo "$UNIT")"; [[ -n "$REPO" ]] || { log "unknown unit: $UNIT"; return 1; }
   SLUG="$(unit_slug "$UNIT")"; PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"
   log "drive $SLUG — mode $HARNESS_MODE cap $CAP poll ${POLL}s"
-  while ! unit_complete "$UNIT"; do
+  # #183: gh_rate_wait first — after a rate-limited read the loop sleeps until the reset before the
+  # completion check (a gh read) runs again; the watchdog keeps tending live sessions meanwhile.
+  while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
     if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
     # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
@@ -334,6 +336,9 @@ drive_unit(){
     # #194: an account near its usage limit was checkpointed — hold NEW dispatch (never drain) until
     # the window resets, then the agent-paused issues re-dispatch through the resume path.
     usage_watch; if usage_held; then harness_event hold reason=rate_limit cause=usage_limit secs="$POLL"; sleep "$POLL"; continue; fi
+    # #183: the GitHub token is under its budget threshold — no new dispatch, half the poll rate, so
+    # what is left goes to the live agents. The sweeps above still ran: they are what finishes work.
+    if gh_budget_low; then harness_event hold reason=rate_limit cause=gh_budget secs="$(( POLL * 2 ))"; sleep "$(( POLL * 2 ))"; continue; fi
     local active free allow_orch action payload promise
     active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
     if (( free > 0 )); then
