@@ -19,7 +19,7 @@ fi
 echo "  engine updated at $ENGINE_DIR — every project picks it up immediately."
 
 # rtdd, ALWAYS — not behind --with-skills. The engine just ff-pulled prompts whose test loop IS
-# `rtdd run`; a host that last ran install.sh before rtdd existed would otherwise get the prompts
+# `rtdd which`; a host that last ran install.sh before rtdd existed would otherwise get the prompts
 # without the binary, and every lane would silently fall back to the full-suite bar this replaces.
 # No-op when it is already there, and never fatal: a failed install prints and the update stands.
 HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"

@@ -18,67 +18,19 @@ GOAL: implement issue #{{ISSUE}} test-guided via rtdd, get it merged, and close 
 
 Steps:
 1. Read the issue:  gh issue view {{ISSUE}} -R {{SLUG}}   — note its acceptance criteria.
-2. Implement. Your test loop is rtdd (`rtdd` skill) — NOT a full-suite run:
-     rtdd --version                              # NOT on PATH? install once: npx -y github:VocanicZ/rtdd
-     rtdd which --base origin/<default-branch>   # what already covers the code you are about to touch
-     ... edit ...
-     rtdd run   --base origin/<default-branch>   # runs ONLY the tests your diff actually touches
-   THREE conditions, all required, and together they ARE the test bar:
-   - every test in the selection passes;
-   - the UNCOVERED report is clear for the lines you changed — a changed line no test reached is a
-     line you have not tested, so write the test that reaches it and re-run until it clears
-     (`import-time` lines are reported separately and are NOT uncovered — never chase those); and
-   - AT LEAST ONE test FAILS WITHOUT YOUR CHANGE. Coverage is execution, not assertion: a test that
-     runs your new lines and asserts nothing clears the uncovered report while proving nothing.
-     Prove it the cheap way — `git stash` your source change (keep the test), run that test, watch
-     it fail, `git stash pop`. A change no test can fail for is a change with no test, however green
-     the report looks. This is the obligation TDD's red step used to carry; rtdd does not carry it.
-   That loop replaces the full-suite baseline: the whole suite tells you little about your change
-   that its covering tests do not, and it costs minutes per lane per run. What it DOES tell you is
-   whether you broke something with no recorded edge to your diff — which is why step 6 still gates
-   on the full suite running on the runner, and why, on a repo with NO CI checks configured, step 6
-   sends you back to run the full suite yourself before merging.
+2. Implement, test-guided:
+{{> _rtdd.md}}
+   THREE conditions, all required, and together they ARE the test bar: Rounds 1 and 2 pass;
+   `untested` is clear for what you changed; and AT LEAST ONE test FAILS WITHOUT YOUR CHANGE — a
+   test that reaches your new lines and asserts nothing clears `untested` while proving nothing.
+   Prove it the cheap way — `git stash` your source change (keep the test), run that test, watch
+   it fail, `git stash pop`. A change no test can fail for is a change with no test, however green
+   the report looks. This is the obligation TDD's red step used to carry; rtdd does not carry it.
    For sizeable / multi-subtask work, apply the audited `subagent-task-tree` discipline
    (planner → plan-auditor → per-subtask implementer + spec/quality/domain audits → drift-auditor),
    treating this issue's subtasks as the tree's tasks. For small issues, a single implementer +
    review (or `subagent-driven-development`) is fine — just do it. Stay in THIS repo.
-3. SET rtdd UP if this repo has no `.rtdd/map.jsonl` — once, before you edit anything, and commit
-   it. CHECK THE BASE FIRST, not just your worktree:
-     git fetch origin && git cat-file -e origin/<default-branch>:.rtdd/map.jsonl 2>/dev/null \
-       && git rebase origin/<default-branch>    # someone already seeded — take theirs, do NOT re-seed
-   Only if that comes back empty:
-     rtdd init && rtdd seed
-     printf '.rtdd/junit.xml\n.rtdd/meta.json\n.coverage\n' >> .gitignore   # per-run state, NEVER commit it
-     git add .rtdd/map.jsonl .rtdd/config.yaml .rtdd/adapters .gitattributes .gitignore
-     git commit -m "chore: seed rtdd map"
-   Stage those paths EXACTLY — `git add .rtdd` would commit `meta.json` (a per-run cycle counter with
-   no merge driver, so every later lane's PR conflicts on it) and `junit.xml` (which embeds the
-   output of any test that failed during the seed — on a repo with pre-existing reds that is an
-   arbitrary blob of test output landing on the default branch).
-   `rtdd init` ALSO writes agent front-ends — `AGENTS.md`, `.cursor/rules/rtdd.mdc`, and a repo
-   skill. It only ever writes inside its own markers and refuses rather than overwriting, but they
-   are new files this issue did not ask for: mention them in the PR body so a reviewer is not
-   surprised, and drop them if the repo's owner would not want them.
-   `rtdd seed` costs one full instrumented suite run — the same run the old baseline cost you
-   anyway — and the committed map stops every later lane in this repo from paying it again. Seeding
-   races are possible (parallel lanes can all miss the base check at once); a duplicate seed is
-   wasted time, not a broken map, because `.rtdd/map.jsonl` union-merges.
-   Handle EVERY one of these, and never work around one:
-   - `rtdd: command not found` → this host predates rtdd. Install it once: `npx -y github:VocanicZ/rtdd`
-     If that fails (no node, no network), use the FULL-SUITE BAR below and say so in an issue comment.
-   - `rtdd init` EXITS 2 AND SAYS NO ADAPTER MATCHED → a refusal, not a failure: nothing here can be
-     instrumented. THEN use the FULL-SUITE BAR below.
-   - Any OTHER rtdd error — a different exit 2 (usage/config), exit 3 (environment), a crash on a
-     stale map — is a broken setup, not a refusal. Fix it if it is yours to fix; otherwise use the
-     FULL-SUITE BAR below and name the exact command and output in an issue comment.
-   - An EMPTY selection is NOT green. The map has nothing to say about your change — use the
-     FULL-SUITE BAR for this change.
-   - Tier T2 means rtdd itself selected the whole suite. That is not an error and not a fallback:
-     run it, it is the answer.
-   - A failure in the selection is not automatically YOURS. Re-run that one test against the base
-     (a throwaway `git worktree add` on origin/<default-branch>) before you touch it; red there too
-     means a pre-existing red — leave it alone, note it, and move on.
-   THE FULL-SUITE BAR, referenced above: run the full suite BEFORE your first edit and save the
+3. THE FULL-SUITE BAR, referenced above: run the full suite BEFORE your first edit and save the
    failure list — that is the baseline — then run it again when you are done. The bar is NO NEW
    FAILURES vs that baseline, plus your own new test green. Never a globally green suite: real repos
    carry pre-existing reds, and an agent told "all green required" will either chase them forever or
@@ -90,7 +42,7 @@ Steps:
    compare them against the baseline exactly as you would a local run) · `3` not run on swarm
    (swarm absent, off, or timed out) → run that suite locally as above. The NO NEW FAILURES bar is
    the same either way.
-   Never delete, skip, or weaken a test to go green, and never edit a test so the uncovered report
+   Never delete, skip, or weaken a test to go green, and never edit a test so `untested`
    clears. If a pre-existing failure genuinely blocks your work, say so in an issue comment and
    route around it.
 4. Commit, push, open a PR:
@@ -102,8 +54,8 @@ Steps:
    Other lanes merge while you work. A green suite on your branch only proves your change against
    the base you STARTED from, and a conflict-free text merge can still be semantically broken:
    another lane edited the same function, moved a helper's contract, or rebuilt an artifact your
-   tests load. If the rebase moved anything: re-run the build, re-run `rtdd run --base
-   origin/<default-branch>` (the rebase changed your diff, so it re-selects), then
+   tests load. If the rebase moved anything: re-run the build, re-run `rtdd which --base
+   origin/<default-branch>` and its Rounds 1 and 2 (the rebase changed your diff, so it re-selects), then
    `git push --force-with-lease`. Repeat until the rebase is a no-op.
    This catches semantic merge conflicts. It CANNOT catch a failure that only reproduces on the
    runner — that is step 6's job, and the two are not interchangeable.
@@ -131,7 +83,7 @@ Steps:
    - (case b) gh reports NO CHECKS CONFIGURED on this repo → nothing server-side will ever run the full
      suite for you, and a private repo on a free plan CANNOT configure one. Run the full suite
      locally NOW (the FULL-SUITE BAR in step 3), then go to step 7. Your rtdd selection covered
-     your diff; it did not cover what your diff broke somewhere the map has no edge to.
+     your diff; it did not cover what your diff broke somewhere the graph has no edge to.
    - Non-zero → DO NOT MERGE. Get the failing detail (the local run's own output, or
      `gh run view <run-id> -R {{SLUG}} --log-failed`), fix the CAUSE on this branch, push, re-run
      the gate. Up to 3 attempts.

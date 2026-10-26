@@ -90,7 +90,7 @@ render "$HERE/../prompts/bug-fix.md" \
 assert_ok "fix: implements the refined bug-triaged issue" \
   grep -qi 'bug-triaged' "$FIX"
 assert_ok "fix: drives its tests with rtdd, not a full-suite baseline" \
-  grep -q 'rtdd run' "$FIX"
+  grep -q 'rtdd which' "$FIX"
 assert_ok "fix: still mandates a regression test" \
   grep -qi 'regression test is MANDATORY' "$FIX"
 assert_ok "fix: opens a PR" \

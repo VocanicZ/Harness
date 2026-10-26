@@ -8,10 +8,14 @@ gh(){ echo "gh $*" >> "$CALLS"; case "$1 $2" in "auth status") return 0;; "label
 export -f gh
 # fake claude/tmux on PATH so prereq checks pass
 BIN="$(mktemp -d)"; for t in tmux claude; do printf '#!/bin/sh\nexit 0\n' > "$BIN/$t"; chmod +x "$BIN/$t"; done
+# …and a fake v0.3 rtdd: setup installs rtdd's user-level skill (#187), which must never reach the
+# real ~/.claude from a test.
+printf '#!/bin/sh\necho "rtdd $*" >> "$CALLS"\n[ "$1" = --help ] && echo "rtdd uninstall [--legacy-files]"\nexit 0\n' > "$BIN/rtdd"; chmod +x "$BIN/rtdd"
 export PATH="$BIN:$PATH"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 bash "$HERE/../scripts/setup.sh" >/dev/null 2>&1
 assert "setup seeded labels (gh label create called)" "grep -q 'label create' '$CALLS'"
+assert "setup installs the user-level rtdd skill (#187)" "grep -qx 'rtdd skill install' '$CALLS'"
 # idempotent: second run also succeeds
 bash "$HERE/../scripts/setup.sh" >/dev/null 2>&1; assert "setup rerun ok" "true"
 rm -rf "$BIN" "$CALLS"

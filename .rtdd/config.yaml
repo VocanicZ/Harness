@@ -1,11 +1,53 @@
-# .rtdd/config.yaml — rtdd defaults, see docs/specs for what each one does.
-stale_commits: 50
-drift_guard: 100
-hub_threshold: 0.40
+# .rtdd/config.yaml — written by `rtdd init`. Every list is globs over
+# repo-relative paths; a key you set replaces its default wholesale.
+# See docs/specs/2026-10-07-node-graph.md §4.1, §5 and §6.
 
-# What `rtdd init` detected in this repository (spec §5). A record, not an input:
-# `rtdd doctor` derives fidelity from .rtdd/adapters/ live and is the source of truth.
-adapters:
-  - name: bash
-    selection: coverage
-    fidelity: execution-derived
+# Files the scanner never reads.
+scan_exclude:
+  - "vendor/**"
+  - "node_modules/**"
+  - "third_party/**"
+  - "**/*.min.js"
+  - "dist/**"
+  - "build/**"
+  - ".rtdd/**"
+  - "graphify-out/**"
+
+# Files read for their file node and the paths they name, never for definitions.
+definition_exclude:
+  - "**/*.md"
+  - "**/*.mdc"
+  - "**/*.markdown"
+  - "**/*.rst"
+  - "**/*.txt"
+  - "**/*.adoc"
+
+# A function, method or test in a matching file is a test.
+test_files:
+  - "**/test_*"
+  - "**/*_test.*"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/*Test.*"
+  - "**/*Tests.*"
+  - "**/tests/**"
+  - "**/test/**"
+  - "**/spec/**"
+  - "**/__tests__/**"
+
+# A matching file is never a test file, whatever test_files says.
+test_exclude:
+  - "**/testdata/**"
+  - "**/fixtures/**"
+
+# A matching test file runs only as a whole: its functions are helpers, its path is the test.
+whole_file_tests:
+  - "**/test_*.sh"
+  - "**/*_test.sh"
+  - "**/*.bats"
+
+# graphify's graph, used when this file exists. rtdd never runs graphify.
+graphify_path: "graphify-out/graph.json"
+
+# graphify is ignored when more than this share of its code files is stale.
+max_stale_ratio: 0.5
