@@ -1316,9 +1316,40 @@ fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
 # prompts as {{SWARM_SUITE}} (#202). It carries the fleet's mode and run dir explicitly: a Claude
 # session does not inherit this process's environment, so it cannot be left to find them itself.
 swarm_suite_cmd(){ printf 'HARNESS_SWARM=%q RUN_DIR=%q bash %q' "$HARNESS_SWARM" "$RUN_DIR" "$ENGINE_DIR/scripts/swarm-suite.sh"; }
+# rtdd_skill_install — the user-level `rtdd` skill the lane prompts defer to (#187). rtdd v0.3 writes
+# no agent files into projects, so this skill is where a lane learns its rounds. Upstream's install
+# is idempotent and covers ~/.claude; agy reads its own user skill dir, so an agy fleet also gets the
+# skill there, extracted from `rtdd skill prompt`. WARN and return 1 on any failure, never die: a lane
+# without the skill still has the prompt's own pointer and the full-suite bar.
+rtdd_skill_install(){ local d
+  command -v rtdd >/dev/null || return 0   # the missing-binary warning is setup's own
+  # --legacy-files is v0.3-only; an older rtdd's skill install merges into ~/.codex and ~/.gemini.
+  rtdd --help 2>&1 | grep -q -- '--legacy-files' || {
+    echo "  ! rtdd predates v0.3 — lanes need its rounds and fall back to the full suite. Upgrade: rtdd update"
+    return 1; }
+  rtdd skill install >/dev/null 2>&1 || {
+    echo "  ! rtdd skill install failed — lanes run without the rtdd skill. Retry: rtdd skill install"
+    return 1; }
+  if [[ "${HARNESS_CLI:-claude}" == agy ]]; then
+    d="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}/rtdd"
+    mkdir -p "$d" && rtdd skill prompt 2>/dev/null | awk '/^````$/{f=0} f; /^````markdown$/{f=1}' > "$d/SKILL.md.tmp" \
+      && [[ -s "$d/SKILL.md.tmp" ]] && mv "$d/SKILL.md.tmp" "$d/SKILL.md" || {
+      rm -f "$d/SKILL.md.tmp"
+      echo "  ! could not install the rtdd skill for agy into $d — retry: harness setup"
+      return 1; }
+  fi
+  echo "  ✓ rtdd skill installed"; }
 render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
-import sys, re
+import sys, re, os
 tmpl = open(sys.argv[1]).read()
+# {{> _part.md}} — a partial from the template's own dir, shared by several prompts so its text has
+# one copy (#187). Expanded BEFORE the keys, so a partial can use them like its host template. A
+# missing partial stays as its directive, like an unknown key: visible in the prompt, never empty.
+def part(m):
+    try: body = open(os.path.join(os.path.dirname(sys.argv[1]), m.group(1))).read()
+    except OSError: return m.group(0)
+    return body.rstrip('\n') + '\n' if m.group(0).endswith('\n') else body
+tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?', part, tmpl)
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
 sys.stdout.write(re.sub(r'{{(\w+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
@@ -1402,7 +1433,7 @@ session_env(){ local kv
 issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null || true; }
 # #213: the agent's prompt argument is this fixed bootstrap, NEVER the task text. Interpolating
 # the task file into the launch line put every lane's whole prompt in its argv, so one lane's
-# `pkill -f "rtdd run --base"` matched — and killed — every lane on the host. The task stays in
+# `pkill -f` on a phrase from its own prompt matched — and killed — every lane on the host. The task stays in
 # .harness-task.md (written before launch; write_state copies it for the ralph re-feed).
 HARNESS_BOOTSTRAP_PROMPT="Read .harness-task.md in this directory and follow it exactly."
 launch_agent(){ local sess="$1" wd="$2" uuid

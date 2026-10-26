@@ -456,8 +456,9 @@ def join_rtdd(rtdd, events):
 
 
 def _rtdd_full_suite(r):
-    """A `which` that left the lane on the full suite: rtdd failed, chose the whole suite itself (T2 /
-    fidelity none), or selected nothing — an empty selection sends the lane to the full-suite bar."""
+    """A `which` that left the lane on the full suite: rtdd failed, chose the whole suite itself (a v0.2
+    tier-2 pick / fidelity none), or selected nothing — an empty selection sends the lane to the
+    full-suite bar."""
     if r.get("exit") not in (None, 0) or r.get("tier") == "T2" or r.get("selection_fidelity") == "none":
         return True
     return int(r.get("round1") or 0) + int(r.get("round2") or 0) == 0
@@ -701,7 +702,7 @@ RTDD_CALL_RE = re.compile(r"(?:^|[\s;&|(`])rtdd\s+(which|init|run|seed)\b")
 
 
 def rtdd_calls(transcript):
-    """[(ts, cmd)] for every `rtdd which|init` (and pre-v0.3 `rtdd run|seed`) a session's Bash tool
+    """[(ts, cmd)] for every `rtdd which|init` (and the pre-v0.3 run/seed verbs) a session's Bash tool
     calls ran, over the main transcript and its subagents. A streamed message repeats its blocks, so
     each tool_use id counts once."""
     seen, out = set(), []

@@ -1,47 +1,109 @@
 #!/usr/bin/env bash
-# test_rtdd.sh — the rtdd contract in the lane prompts. rtdd is OPTIONAL: every prompt that
-# uses it must also keep the full-suite path, must not treat an empty selection as green, and
-# must never seed inside a lane (one full instrumented run per lane defeats the point).
+# test_rtdd.sh — the rtdd v0.3 contract in the lane prompts (#187). rtdd is OPTIONAL: every prompt
+# that uses it keeps the full-suite path, treats an empty selection as not green, and defers the
+# details to the user-level `rtdd` skill. The rtdd text lives in ONE partial, prompts/_rtdd.md.
+# Prompts are rendered to files and grepped from files: their bodies contain backticks, which would
+# execute if interpolated into a `bash -c` herestring.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/../scripts/lib.sh"
+source "$HERE/helpers.sh"
+make_env
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
+PR="$HERE/../prompts"
 
+echo "-- render expands {{> partial}} from the template's dir, keys included"
+T="$(mktemp -d)"
+printf 'head\n{{> _p.md}}\ntail {{K}}\n' > "$T/host.md"
+printf 'part {{K}}\n' > "$T/_p.md"
+render "$T/host.md" K=v > "$T/out"
+assert "partial expanded in place, its own line, keys substituted in it" \
+  "[[ \"\$(cat '$T/out')\" == \$'head\npart v\ntail v' ]]"
+printf 'part {{K}}' > "$T/_p.md"   # no final newline: still its own line
+render "$T/host.md" K=v > "$T/out"
+assert "partial with no final newline does not swallow the next line" \
+  "[[ \"\$(cat '$T/out')\" == \$'head\npart v\ntail v' ]]"
+rm "$T/_p.md"; render "$T/host.md" K=v > "$T/out"
+assert "missing partial left as its directive, prompt not emptied" \
+  "[[ \"\$(cat '$T/out')\" == \$'head\n{{> _p.md}}\ntail v' ]]"
+rm -rf "$T"
+
+echo "-- the rtdd text has one copy"
+assert "_rtdd.md names the v0.3 command" "grep -q 'rtdd which --base origin/<default-branch>' '$PR/_rtdd.md'"
 for p in impl bug-fix resume; do
-  P="$HERE/../prompts/$p.md"
-  assert "$p.md uses rtdd run"                "grep -q 'rtdd run' '$P'"
-  assert "$p.md keys off .rtdd/map.jsonl"     "grep -q '\.rtdd/map\.jsonl' '$P'"
-  assert "$p.md keeps the full-suite path"    "grep -qi 'full suite' '$P'"
-  assert "$p.md: empty selection not green"   "grep -qi 'EMPTY selection is NOT green' '$P'"
-  assert "$p.md handles an unseeded repo"     "grep -q 'rtdd init && rtdd seed' '$P'"
-  # Was `grep -qi 'exit'` — three unrelated hits, passed with the whole paragraph deleted.
-  assert "$p.md reads exit 2 as the no-adapter refusal, not any error" \
-    "grep -q 'EXITS 2' '$P' || grep -q 'exiting 2' '$P'"
-  assert "$p.md handles rtdd errors that are NOT the refusal" \
-    "grep -qiE 'any other rtdd error|other rtdd error' '$P'"
-  assert "$p.md handles a host with no rtdd binary" \
-    "grep -qE 'command not found|NOT on PATH' '$P'"
-  assert "$p.md names the real install command" "grep -q 'npx -y github:VocanicZ/rtdd' '$P'"
-  # The loophole the audit found: coverage is execution, not assertion. Every prompt must demand a
-  # test that FAILS without the change, or "uncovered report clear" is satisfiable by an
-  # assertion-free test that merely executes the new lines.
-  assert "$p.md requires a test that fails without the change" \
-    "grep -qiE 'FAILS WITHOUT|FAILS ON THE UNFIXED' '$P'"
-  # A repo with no CI has nothing server-side running the whole suite; the lane must run it itself.
-  assert "$p.md covers the no-CI-configured case" \
-    "grep -q 'NO CHECKS CONFIGURED' '$P'"
-  # Seeding must not commit per-run state into someone else's repo.
-  assert "$p.md keeps per-run state out of the seed commit" \
-    "grep -q 'meta.json' '$P'"
-  # rtdd REPLACES the full-suite baseline, but the test obligation survives it: an uncovered
-  # changed line is an untested line, and that is what the prompt must say.
-  assert "$p.md requires uncovered lines be covered" "grep -qi 'UNCOVERED' '$P'"
-  assert "$p.md forbids weakening a test to go green" "grep -qi 'never delete, skip, or weaken' '$P'"
+  assert "$p.md includes the partial"            "grep -qx '{{> _rtdd.md}}' '$PR/$p.md'"
+  assert "$p.md keeps no copy of its own"        "! grep -q 'NOT on PATH' '$PR/$p.md'"
 done
 
-# impl/bug-fix measure against the base, not the branch (a lane's branch carries its own edits).
+echo "-- rendered lane prompts"
 for p in impl bug-fix resume; do
-  assert "$p.md passes --base" "grep -q -- '--base origin/<default-branch>' '$HERE/../prompts/$p.md'"
+  R="$RUN_DIR/$p.txt"
+  render "$PR/$p.md" ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
+    PROMISE='ISSUE 42 DONE' LABEL_READY=ready LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
+    LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged HANDOFF= SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" > "$R"
+  assert "$p: no unrendered {{ token"            "! grep -q '{{' '$R'"
+  assert "$p: runs rtdd which against the base"  "grep -q 'rtdd which --base origin/<default-branch>' '$R'"
+  assert "$p: Round 1 then Round 2"              "grep -q 'Round 1' '$R' && grep -q 'Round 2' '$R'"
+  assert "$p: full suite once at the end (Round 3)" "grep -q 'Round 3' '$R'"
+  assert "$p: rounds run under the project's own test command" "grep -q \"project's OWN test command\" '$R'"
+  assert "$p: reads untested"                    "grep -q '\`untested\`' '$R'"
+  assert "$p: never blocks on rtdd"              "grep -q 'Never block on' '$R'"
+  assert "$p: missing/erroring rtdd → full suite" "grep -qE 'Missing, older than v0.3 .*erroring → FULL-SUITE BAR' '$R'"
+  assert "$p: names the FULL-SUITE BAR it points at" "grep -q 'THE FULL-SUITE BAR, referenced above' '$R'"
+  assert "$p: empty selection is not green"      "grep -q 'Both EMPTY is NOT' '$R'"
+  assert "$p: names the real install command"    "grep -q 'npx -y github:VocanicZ/rtdd' '$R'"
+  assert "$p: init only to create .rtdd/config.yaml" "grep -q 'NO \`.rtdd/config.yaml\` → \`rtdd init\` once, only to create it' '$R'"
+  assert "$p: never commits rtdd's agent files"  "grep -q 'never \`AGENTS.md\`, \`.claude/\` or \`.cursor/\`' '$R'"
+  assert "$p: pre-existing reds re-run on the base" "grep -q 'not automatically YOURS' '$R'"
+  # The loophole the audit found: a test that merely reaches the new code proves nothing.
+  assert "$p: requires a test that fails without the change" "grep -qiE 'FAILS WITHOUT|FAILS ON THE UNFIXED' '$R'"
+  assert "$p: covers the no-CI-configured case"  "grep -q 'NO CHECKS CONFIGURED' '$R'"
+  assert "$p: forbids weakening a test to go green" "grep -qi 'never delete, skip, or weaken' '$R'"
+  assert "$p: rebase re-selects with rtdd which" "grep -q 'Rounds 1 and 2 (the rebase changed your diff' '$R'"
+  # v0.3 removed all of these; a lane told to use them follows broken instructions.
+  assert "$p: no removed v0.2 workflow"          "! grep -qE 'rtdd (run|seed)|map\.jsonl|junit\.xml|adapters|T2|meta\.json|UNCOVERED|uncovered report' '$R'"
 done
+# Acceptance: each rendered prompt shrinks by >= 35 lines from its v0.2 size (impl 171, bug-fix 160).
+assert "impl renders in <= 136 lines"    "(( \$(wc -l < '$RUN_DIR/impl.txt') <= 136 ))"
+assert "bug-fix renders in <= 125 lines" "(( \$(wc -l < '$RUN_DIR/bug-fix.txt') <= 125 ))"
+
+echo "-- rtdd_skill_install, per CLI"
+# A fake rtdd: --help shows (or hides) the v0.3-only --legacy-files; `skill install` logs and exits
+# $FAKE_SKILL_RC; `skill prompt` prints upstream's shape — prose, then the skill in a fenced block.
+FB="$RUN_DIR/fakebin"; mkdir -p "$FB"
+cat > "$FB/rtdd" <<'EOF'
+#!/usr/bin/env bash
+echo "rtdd $*" >> "$FAKE_LOG"
+case "$1 ${2:-}" in
+  "--help ") echo "  rtdd uninstall [--dry-run]${FAKE_V03:+ [--legacy-files]}" ;;
+  "skill install") exit "${FAKE_SKILL_RC:-0}" ;;
+  "skill prompt") printf 'Save the document below.\n\n````markdown\n---\nname: rtdd\n---\nbody\n````\n' ;;
+esac
+EOF
+chmod +x "$FB/rtdd"
+export FAKE_LOG="$RUN_DIR/rtdd.log"
+for cli in claude agy; do
+  export HARNESS_AGY_USER_SKILLS="$RUN_DIR/agy-skills-$cli"
+  : > "$FAKE_LOG"
+  out="$(PATH="$FB:$PATH" FAKE_V03=1 HARNESS_CLI=$cli rtdd_skill_install)"; rc=$?
+  assert "[$cli] v0.3 rtdd: installs the user-level skill" "(( rc == 0 )) && grep -qx 'rtdd skill install' '$FAKE_LOG'"
+  assert "[$cli] v0.3 rtdd: reports it"                    "[[ '$out' == *'rtdd skill installed'* ]]"
+  if [[ $cli == agy ]]; then
+    assert "[agy] skill lands in agy's user skill dir, unfenced" \
+      "[[ \"\$(cat '$HARNESS_AGY_USER_SKILLS/rtdd/SKILL.md')\" == \$'---\nname: rtdd\n---\nbody' ]]"
+  else
+    assert "[claude] nothing written to agy's skill dir" "[[ ! -e '$HARNESS_AGY_USER_SKILLS' ]]"
+  fi
+  : > "$FAKE_LOG"
+  out="$(PATH="$FB:$PATH" HARNESS_CLI=$cli rtdd_skill_install)"; rc=$?
+  assert "[$cli] pre-v0.3 rtdd: warns, returns 1"          "(( rc == 1 )) && [[ '$out' == *'predates v0.3'* ]]"
+  assert "[$cli] pre-v0.3 rtdd: skill install NOT run"     "! grep -q 'skill install' '$FAKE_LOG'"
+  out="$(PATH="$FB:$PATH" FAKE_V03=1 FAKE_SKILL_RC=1 HARNESS_CLI=$cli rtdd_skill_install)"; rc=$?
+  assert "[$cli] failed skill install: warns, returns 1"   "(( rc == 1 )) && [[ '$out' == *'skill install failed'* ]]"
+done
+out="$(PATH="$RUN_DIR/empty" rtdd_skill_install 2>&1)"; rc=$?
+assert "no rtdd binary: silent no-op (setup warns itself)" "(( rc == 0 )) && [[ -z '$out' ]]"
+assert "setup.sh calls rtdd_skill_install when rtdd is present" "grep -q '^  rtdd_skill_install' '$HERE/../scripts/setup.sh'"
 
 # Installer: optional, best-effort, never fatal.
 I="$HERE/../install.sh"
@@ -67,48 +129,23 @@ assert "update.sh ensures it unconditionally" \
   "awk '/^if \\(\\( WITH_SKILLS \\)\\); then/{f=1} /ensure_rtdd/{if(!f) found=1} END{exit !found}' '$U'"
 
 # README: documented section + the prereq row marks it optional.
-R="$HERE/../README.md"
-assert "README has a Test selection section" "grep -qE '^### Test selection \(rtdd\)' '$R'"
-assert "README prereq row names rtdd the lane test loop" "grep -E '^\| \`rtdd\`' '$R' | grep -qi 'lane test loop'"
+RM="$HERE/../README.md"
+assert "README has a Test selection section" "grep -qE '^### Test selection \(rtdd\)' '$RM'"
+assert "README prereq row names rtdd the lane test loop" "grep -E '^\| \`rtdd\`' '$RM' | grep -qi 'lane test loop'"
+# The section only: swarm's own per-shard junit.xml is documented elsewhere in the README.
+awk '/^### Test selection \(rtdd\)/{f=1;next} /^### /{f=0} f' "$RM" > "$RUN_DIR/readme-rtdd.md"
+assert "README teaches the v0.3 rounds" "grep -q 'Round 3' '$RUN_DIR/readme-rtdd.md'"
+assert "README teaches no removed v0.2 workflow" "! grep -qE 'rtdd (run|seed)|map\.jsonl|junit\.xml|\.rtdd/adapters' '$RUN_DIR/readme-rtdd.md'"
 
 # ── this repo's own rtdd setup ────────────────────────────────────────────────────────────
-# Harness drives itself, so the same selection the prompts mandate has to work HERE. No shipped
-# adapter instruments bash, so the repo carries its own: the declaration plus the runner that
-# records per-test coverage from bash's xtrace. Guard the pieces that make it execution-derived.
-A="$HERE/../.rtdd/adapters/bash.yaml"
-RUNNER="$HERE/../scripts/rtdd-bash-runner.py"
-M="$HERE/../.rtdd/map.jsonl"
-assert "bash adapter declared"            "[[ -f '$A' ]]"
-assert "adapter records real coverage"    "grep -q '^coverage: sqlite' '$A'"
-# `coverage: sqlite` IS the not-static claim (rtdd rejects coverage:none without selection:static),
-# so assert the positive and that doctor-visible fidelity is what the README promises.
-assert "adapter declares no static selection" "! grep -qE '^selection:' '$A'"
-assert "adapter points at the runner"     "grep -q 'rtdd-bash-runner.py' '$A'"
-# Must be in full_escalate specifically — the path also appears in seed/subset/list, so a bare
-# grep for it passed even with full_escalate deleted entirely.
-assert "runner edit escalates to the full suite" \
-  "grep -E '^full_escalate:' '$A' | grep -q 'scripts/rtdd-bash-runner.py'"
-assert "adapter edit escalates to the full suite" \
-  "grep -E '^full_escalate:' '$A' | grep -q '.rtdd/adapters/bash.yaml'"
-assert "runner exists"                    "[[ -f '$RUNNER' ]]"
-# Load-bearing version: the trace has to be WIRED, not merely mentioned in a docstring.
-assert "runner actually sets BASH_XTRACEFD in the child env" \
-  "grep -q 'BASH_XTRACEFD=21 bash' '$RUNNER'"
-assert "runner turns on xtrace for every child shell" \
-  "grep -q 'SHELLOPTS=xtrace' '$RUNNER'"
-# Parity with test/run.sh's hermeticity pins, checked per-variable rather than by one sample.
-for v in STATE_DIR HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR HARNESS_FLEETS_DIR HARNESS_GH_RATE_GUARD; do
-  assert "runner pins \$v like run.sh does" "grep -q '$v' '$RUNNER'"
+# Harness drives itself, so the setup the prompts mandate holds HERE: v0.3's config is committed and
+# its graph cache ignored, and the v0.2 footprint (map, adapter + its runner, merge driver, the agent
+# files an older `rtdd init` wrote) is gone.
+ROOT="$HERE/.."
+assert "v0.3 config committed"            "[[ -f '$ROOT/.rtdd/config.yaml' ]] && grep -q '^whole_file_tests:' '$ROOT/.rtdd/config.yaml'"
+assert "graph cache ignored"              "grep -qx 'graph.json' '$ROOT/.rtdd/.gitignore'"
+for f in .rtdd/map.jsonl .rtdd/adapters scripts/rtdd-bash-runner.py .gitattributes AGENTS.md .cursor/rules/rtdd.mdc; do
+  assert "v0.2 footprint gone: $f"        "[[ ! -e '$ROOT/$f' ]]"
 done
-# The selfcheck pins numbits, the repo-path filter, the executed-vs-read attribution rule, and
-# that trace lines never reach the report. If it passes, those four are not silently broken.
-assert "runner self-check passes"         "python3 '$RUNNER' --selfcheck >/dev/null"
-
-# The map is committed — that is what stops every clone and every worktree from re-seeding.
-assert "map is committed"                 "[[ -f '$M' ]]"
-assert "map has a row per test file"      "[[ \$(wc -l < '$M') -ge \$(ls '$HERE'/test_*.sh '$HERE'/test_*.py | wc -l) ]]"
-assert "map rows name this adapter"       "grep -q '\"a\":\"bash\"' '$M'"
-assert "map covers a prompt, not just code" "grep -q 'prompts/impl.md' '$M'"
-assert "map union-merges across lanes"    "grep -q 'map.jsonl merge=union' '$HERE/../.gitattributes'"
 
 echo "── rtdd prompt contract ok"
