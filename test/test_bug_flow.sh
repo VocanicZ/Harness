@@ -158,6 +158,19 @@ assert_no "drive_bug(bug-triaged): does NOT use the bare unqualified bug-i42 pat
 assert_ok "triage and fix are TWO DISTINCT sessions" \
   bash -c "[[ -n '$sess_triage' && -n '$sess_fix' && '$sess_triage' != '$sess_fix' ]]"
 
+# #214: a triage the pool ran can hand the bug over before its own reap drops the triage worktree,
+# so the fix spawn clears it — unless that triage session is somehow still live.
+stub_bug; _bug_labels(){ echo "bug-triaged"; }
+drive_bug 42 >/dev/null 2>&1
+assert_ok "fix spawn reaps a leftover triage worktree + branch (#214)" \
+  grep -qE 'worktree remove --force .*/triage-acme_widget-i42$' "$CALLS"
+assert_ok "fix spawn drops the triage branch (#214)" grep -q 'branch -D agent/bug-triage-42' "$CALLS"
+stub_bug; _bug_labels(){ echo "bug-triaged"; }
+session_live(){ [[ "$1" == *-42-triage ]]; }
+drive_bug 42 >/dev/null 2>&1
+assert_no "fix spawn leaves a LIVE triage session's worktree alone (#214)" \
+  grep -q 'branch -D agent/bug-triage-42' "$CALLS"
+
 # ── spawn_bug fix RESUMES a checkpointed bug (resume.md), else starts fresh (#36) ──
 # A force-paused fix flips agent-working → agent-paused and pushes its issue/<n> branch. The next
 # claim must CONTINUE that WIP, not restart cold. Mirrors spawn_impl: agent-paused label OR an

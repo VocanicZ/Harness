@@ -2274,6 +2274,55 @@ def test_fetch_issue_branches_fails_open_on_non_transient_answers():
     _with_fake_gh(_FakeGitHub(_random.Random(1)), body)
 
 
+# ── #214: an idle pool slot takes bugs the busy priority lane cannot reach ────────────────────
+def _bug_board(issues, priority_free, free=1):
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    _stub_repo(issues)
+    try:
+        return il.dispatch("acme/widget", free, True, (), priority_free)
+    finally: _restore_repo()
+
+# gh order (newest first); #30 is the older bug
+_TWO_BUGS = [_issue(31, labels=["bug"]), _issue(30, labels=["bug-triaged"]),
+             _issue(5, "CLOSED", labels=["ready-for-agent"])]
+
+def test_pool_takes_older_bug_when_priority_lane_busy():
+    assert _bug_board(_TWO_BUGS, priority_free=0) == [("BUG", "30", "BUG 30 DONE")]
+    # oldest first regardless of phase: an older fresh bug beats a newer triaged one
+    board = [_issue(31, labels=["bug-triaged"]), _issue(30, labels=["bug"])]
+    assert _bug_board(board, priority_free=0) == [("BUG", "30", "BUG 30 DONE")]
+
+def test_pool_takes_no_bug_while_a_priority_slot_is_free():
+    assert _bug_board(_TWO_BUGS, priority_free=1) == []
+
+def test_pool_takes_no_bug_unless_the_caller_opted_in():
+    # no --priority-free (HARNESS_POOL_TAKES_BUGS=0, or an old caller) → the pre-#214 behaviour
+    assert _bug_board(_TWO_BUGS, priority_free=None) == []
+
+def test_pool_takes_bugs_only_when_it_has_no_impl_work():
+    board = _TWO_BUGS + [_issue(7, labels=["ready-for-agent"])]
+    assert _bug_board(board, priority_free=0) == [("IMPL", "7", "ISSUE 7 DONE")]
+    assert _bug_board(_TWO_BUGS, priority_free=0, free=0) == []
+
+def test_pool_never_offered_a_bug_another_lane_holds():
+    held = [_issue(31, labels=["bug", "agent-working"]), _issue(30, labels=["bug-triaged", "agent-working"])]
+    assert _bug_board(held, priority_free=0) == []
+    assert _bug_board(held + [_issue(33, labels=["bug"])], priority_free=0, free=3) == [("BUG", "33", "BUG 33 DONE")]
+
+def test_cli_dispatch_passes_priority_free():
+    seen = []
+    real = il.dispatch
+    il.dispatch = lambda repo, free, allow, busy, pfree=None: seen.append(pfree) or []
+    argv = sys.argv
+    try:
+        for extra in ([], ["--priority-free", "0"], ["--priority-free", "2"], ["--priority-free", ""]):
+            sys.argv = ["issuelib.py", "dispatch", "acme/widget", "1"] + extra
+            il.main()
+    finally: il.dispatch, sys.argv = real, argv
+    assert seen == [None, 0, 2, None], seen
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

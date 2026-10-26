@@ -76,6 +76,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_SECURITY_AUDIT_ROUNDS:=2}"  # security audit: rounds with filed findings before the reviewer concedes
 : "${HARNESS_SEED_CI:=0}"               # 1 = seed.sh commits a CI workflow + CI-requiring branch protection to unit repos; 0 = off
 : "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
+: "${HARNESS_POOL_TAKES_BUGS:=1}"         # #214: 1 = an idle pool slot takes the oldest bug while the priority lane is busy; 0 = bugs stay on the lane
 : "${HARNESS_SWARM:=auto}"               # #202: auto = lanes run full-suite verification as a swarm job when `swarm` is on PATH; off = always local
 # #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
 # shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
@@ -390,6 +391,27 @@ claimable_bugs(){ local tok; for tok in $(_bug_numbers); do is_bug_claimed "$tok
 claim_next_bug(){ local wid="$1" tok lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
   tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s %s\n' "$wid" "$$" "$tok" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
   flock -u "$lockfd"; exec {lockfd}>&-; echo "$tok"; }
+# claim_bug <wid> <ref> — claim ONE named bug, the pool's entry to the lane's claims (#214). Same
+# claim file and POOL_LOCK as claim_next_bug, so whichever lane gets there first holds it and the
+# other is refused: a bug is never offered to both. rc 1 when it is already claimed.
+claim_bug(){ local wid="$1" tok="$2" lockfd rc=1; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+  if ! is_bug_claimed "$tok"; then
+    printf '%s %s %s\n' "$wid" "$$" "$tok" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"; rc=0
+  fi
+  flock -u "$lockfd"; exec {lockfd}>&-; return "$rc"; }
+# pool_bug_claims [unit] — `<claim-file>\t<ref>` for every bug claim a POOL worker holds (#214), live
+# or stale; with <unit>, only that unit's. A pool claim's worker id is `pool-<unit>`.
+pool_bug_claims(){ local f wid tok; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/bug-*.claim; do
+    read -r wid _ tok < "$f" 2>/dev/null || continue
+    [[ "$wid" == pool-* && -n "$tok" ]] || continue
+    [[ -z "${1:-}" || "$wid" == "pool-$1" ]] && printf '%s\t%s\n' "$f" "$tok"
+  done; shopt -u nullglob; }
+# priority_free_slots — idle priority-lane slots: 1 while the lane is up and holds no bug, else 0.
+# A dead lane has no free slot, so the pool picks its bugs up instead of leaving them to wait.
+priority_free_slots(){ local p="$RUN_DIR/priority.pid"
+  [[ -f "$p" ]] && kill -0 "$(cat "$p" 2>/dev/null)" 2>/dev/null || { echo 0; return; }
+  [[ -n "$(lane_bug)" ]] && echo 0 || echo 1; }
 
 # lane_bug — the repo-qualified bug ref the cap-1 priority lane currently holds (its live
 # bug-*.claim), or empty when watching. Returns the claim's stored token (third field) so it is
@@ -400,6 +422,7 @@ claim_next_bug(){ local wid="$1" tok lockfd; exec {lockfd}>"$POOL_LOCK"; flock "
 # never shows a phantom bug.
 lane_bug(){ local f tok n; shopt -s nullglob
   for f in "$CLAIMS_DIR"/bug-*.claim; do
+    [[ "$(awk '{print $1; exit}' "$f" 2>/dev/null)" == pool-* ]] && continue   # a pool worker's (#214)
     tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
     n="$(basename "$f" .claim)"; n="${n#bug-}"
     [[ -n "$tok" ]] || tok="$n"
@@ -659,7 +682,10 @@ sweep_orphan_locks(){ local slug n upd since now age grace mark
     gh issue comment "$n" -R "$slug" --body "harness: cleared stale \`$HARNESS_LABEL_WORKING\` — no live session has owned this issue for over $HARNESS_ORPHAN_LOCK_MIN minutes. The pool will re-dispatch it." >/dev/null 2>&1 || true
   done < <(_working_locks "$slug"); }
 
-dispatch_actions(){ python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}"; }
+# --priority-free (#214) lets dispatch hand an idle pool slot a bug; leaving it off keeps bugs on the lane.
+dispatch_actions(){ local pfree=()
+  [[ "$HARNESS_POOL_TAKES_BUGS" == 1 ]] && pfree=(--priority-free "$(priority_free_slots)")
+  python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}" "${pfree[@]}"; }
 
 # --- default-branch CI gate (#50) --------------------------------------------
 # ci_status_default_branch <slug> — `<verdict>\t<workflow>\t<url>`, verdict ∈ pass|fail|unknown.

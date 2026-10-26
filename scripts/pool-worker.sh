@@ -17,6 +17,7 @@ worker_tick(){ local wid="$1" u
 worker_step(){ local wid="$1"
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
   gh_rate_wait      # #183: rate-limited — sleep until the reset; claim_next's completion reads are gh calls
+  reap_pool_bugs    # #214: tend bug sessions this pool took, even between units
   # PRD-B slice 3 (#72): with the host poller on (the default since #182), gate dispatch on a fresh host snapshot. A
   # stale/missing/unknown-schema snapshot HOLDS new dispatch (claim nothing, no gh fallback) — the
   # gate relaunches the poller; we log a deduped banner and leave in-flight sessions running. Flag
