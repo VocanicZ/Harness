@@ -1374,6 +1374,11 @@ session_env(){ local kv
   return 0; }
 # issue_parent_prd <issue> — the PRD an issue's `## Parent` names (empty when unparented / gh fails).
 issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null || true; }
+# #213: the agent's prompt argument is this fixed bootstrap, NEVER the task text. Interpolating
+# the task file into the launch line put every lane's whole prompt in its argv, so one lane's
+# `pkill -f "rtdd run --base"` matched — and killed — every lane on the host. The task stays in
+# .harness-task.md (written before launch; write_state copies it for the ralph re-feed).
+HARNESS_BOOTSTRAP_PROMPT="Read .harness-task.md in this directory and follow it exactly."
 launch_agent(){ local sess="$1" wd="$2" uuid
   # #108: never re-enter a live session. If $sess is already up (e.g. a transiently-dropped
   # agent-working label re-dispatched the same issue), short-circuit BEFORE any side effect — no
@@ -1397,9 +1402,9 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
   if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
     local bin="${HARNESS_AGY_BIN:-${AGY_BIN:-agy}}" flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
-    tmux send-keys -t "$sess" "exec $bin $flags -i \"\$(cat .harness-task.md)\"" Enter
+    tmux send-keys -t "$sess" "exec $bin $flags -i \"$HARNESS_BOOTSTRAP_PROMPT\"" Enter
   else
-    tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"\$(cat .harness-task.md)\"" Enter
+    tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"$HARNESS_BOOTSTRAP_PROMPT\"" Enter
   fi
   local flags="$CLAUDE_FLAGS"; [[ "${HARNESS_CLI:-claude}" == agy ]] && flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
