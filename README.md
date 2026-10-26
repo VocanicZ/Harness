@@ -95,6 +95,11 @@ agent writes this; the legacy `Part of #N` trailer is also honoured). A ready-la
 no parent — an injected task, say — is dispatched first and does not gate any PRD's review. The
 unit is COMPLETE only when every PRD is closed and no unparented issue is still open.
 
+Within each bucket (the unparented one, and each PRD's) issues are claimed **resumable first** — an
+issue whose remote `issue/<n>` branch exists (so any open PR from it) or that carries `agent-paused`
+— then **oldest first** by issue number. A half-finished PR is picked back up before it goes stale,
+and the newest injection no longer jumps the queue (#210).
+
 Each eligible PRD gets its own orchestration lane: DECOMPOSE, REVIEW and the engine's own
 `CLOSE_PRD` are gated per PRD rather than unit-wide, so two PRDs can orchestrate at once. Their
 sessions carry a `-p<n>` suffix and run in per-PRD worktrees, which is what keeps two concurrent
@@ -619,7 +624,9 @@ carry — means the default, so those fleets switch over on their next `harness 
 issues updated since the last one (`GET /repos/{r}/issues?state=all&since=…`) and sends the stored
 `ETag`; an unchanged board answers `304 Not Modified`, which GitHub does **not** count against the
 rate limit. `PLAN.md` and the plan-completion marker ride one conditional listing of the repo root,
-and the bot login is reused from the cache. So a quiet board costs **zero** rate-limited calls per
+and the bot login is reused from the cache. The remote `issue/<n>` branches dispatch orders by
+(#210) ride one more conditional listing (`git/matching-refs/heads/issue/`), recorded as
+`issue_branches`. So a quiet board costs **zero** rate-limited calls per
 poll, and a change costs the delta alone. Because `since` never reports a deleted or transferred
 issue, a full resync (`gh issue list`, the old path) still runs every `HARNESS_FULL_RESYNC` seconds
 (default `3600`) and whenever there is no usable previous snapshot. A transient failure (rate limit,
@@ -639,7 +646,8 @@ holds until the next full resync). Workers still make no `gh` call to read them.
 │   ├── registry/<owner__repo>__<project>.json   one per (repo, fleet): slug, cadence, prefix, project
 │   └── poller.pid                                the poller — a background process, NOT a tmux session
 └── snapshots/<owner__repo>.json                  {schema_version, generated_at, slug, issues[], has_plan,
-                                                   plan_marker, self_login, ext_deps, sync{since, etags, full_at}}
+                                                   plan_marker, self_login, ext_deps, issue_branches,
+                                                   sync{since, etags, full_at}}
 ```
 
 **Self-healing — no daemon to manage.** There is no operator-facing poller lifecycle command:
