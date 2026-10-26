@@ -543,6 +543,15 @@ seconds):
    The supervisor only types into an idle input prompt, never into a dialog or menu. It leaves alone
    any pane showing a usage, credit or rate-limit message. The prompt patterns come from each CLI
    (`claude`, `agy`).
+
+   **Stuck turns** are checked before activity. Text typed into a pane mid-turn only queues in the
+   input box, and a lane polling a long job can stay in one turn for hours. Its spinner timer ticks
+   every second, so it never looks quiet, yet nothing typed into it lands. A pane whose turn has run
+   `HARNESS_TURN_MAX` seconds (default 4 h) with input queued, or with a Harness nudge still queued a
+   pass later, gets Escape, then Enter once it shows `Interrupted`, so the queued text is submitted.
+   A long turn with an empty input box is a long tool call and is left alone. The fleet watchdog
+   does the same on every poll and logs a `turn_interrupted` event (turn length, queued nudges) for
+   `harness stats`.
 4. **Other agent panes.** Agent panes outside Harness, whose tmux session matches `EXTRA_RE`, get the
    same activity test after `EXTRA_MIN` minutes. They are nudged only, never killed, because nothing
    re-dispatches them.
