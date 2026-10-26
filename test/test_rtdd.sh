@@ -19,6 +19,13 @@ printf 'part {{K}}\n' > "$T/_p.md"
 render "$T/host.md" K=v > "$T/out"
 assert "partial expanded in place, its own line, keys substituted in it" \
   "[[ \"\$(cat '$T/out')\" == \$'head\npart v\ntail v' ]]"
+printf 'part {{K}}' > "$T/_p.md"   # no final newline: still its own line
+render "$T/host.md" K=v > "$T/out"
+assert "partial with no final newline does not swallow the next line" \
+  "[[ \"\$(cat '$T/out')\" == \$'head\npart v\ntail v' ]]"
+rm "$T/_p.md"; render "$T/host.md" K=v > "$T/out"
+assert "missing partial left as its directive, prompt not emptied" \
+  "[[ \"\$(cat '$T/out')\" == \$'head\n{{> _p.md}}\ntail v' ]]"
 rm -rf "$T"
 
 echo "-- the rtdd text has one copy"

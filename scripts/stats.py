@@ -456,7 +456,7 @@ def join_rtdd(rtdd, events):
 
 
 def _rtdd_full_suite(r):
-    """A `which` that left the lane on the full suite: rtdd failed, chose the whole suite itself (T2 /
+    """A `which` that left the lane on the full suite: rtdd failed, chose the whole suite itself (a v0.2 tier-2 pick /
     fidelity none), or selected nothing — an empty selection sends the lane to the full-suite bar."""
     if r.get("exit") not in (None, 0) or r.get("tier") == "T2" or r.get("selection_fidelity") == "none":
         return True

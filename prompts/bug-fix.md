@@ -78,9 +78,9 @@ Steps:
    Then, on whichever gate applies:
    - Exit 0 → go to step 7.
    - (case b) gh reports NO CHECKS CONFIGURED on this repo → nothing server-side will ever run the full
-     suite for you. Run the full suite locally NOW (the FULL-SUITE BAR in step 3), then go to
-     step 7. Your rtdd selection covered your diff; it did not cover what your diff broke
-     somewhere the graph has no edge to.
+     suite for you. Run the full suite locally NOW (the FULL-SUITE BAR in step 3; a Round 3
+     run on this rebased HEAD counts), then go to step 7. Your rtdd rounds covered your diff; only
+     the full suite covers what it broke elsewhere.
    - Non-zero → DO NOT MERGE. Get the failing detail (the local run's own output, or
      `gh run view <run-id> -R {{SLUG}} --log-failed`), fix the CAUSE on this branch, push, re-run
      the gate. Up to 3 attempts.

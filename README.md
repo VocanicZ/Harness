@@ -213,7 +213,7 @@ rtdd which --base origin/main    # Round 1, Round 2, and `untested`
 
 The bar adds one thing rtdd cannot check: **at least one test fails without the change**. A test that reaches the new code and asserts nothing clears `untested` while proving nothing; only the failing-without-the-change check carries what TDD's red step carried.
 
-**A repo with no CI keeps the full suite.** The argument above is "the runner already runs it" — so where `gh pr checks` reports no checks configured, and a private repo on a free plan *cannot* configure one (branch protection and rulesets both 403), the lane runs the full suite itself before merging. The selection covered the diff; it did not cover what the diff broke somewhere the graph has no edge to.
+**A repo with no CI keeps the full suite.** The argument above is "the runner already runs it" — so where `gh pr checks` reports no checks configured, and a private repo on a free plan *cannot* configure one (branch protection and rulesets both 403), the lane runs the full suite itself before merging — Round 3 counts when it ran on the rebased head. The rounds covered the diff; only the full suite covers what the diff broke elsewhere.
 
 **Lanes set it up themselves, and only that.** With no `.rtdd/config.yaml` the lane runs `rtdd init` once and commits only the files it reports creating (`.rtdd/config.yaml` and the `.rtdd/.gitignore` that keeps the `graph.json` cache out of git). It never commits `AGENTS.md`, `.claude/` or `.cursor/` changes rtdd made — rtdd's instructions come from the user-level skill, which `harness setup` installs once per host with `rtdd skill install` (and, for an `agy` fleet, into agy's user skill dir from `rtdd skill prompt`), warning rather than failing if it cannot.
 

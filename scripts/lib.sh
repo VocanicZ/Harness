@@ -1343,9 +1343,13 @@ render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
 import sys, re, os
 tmpl = open(sys.argv[1]).read()
 # {{> _part.md}} — a partial from the template's own dir, shared by several prompts so its text has
-# one copy (#187). Expanded BEFORE the keys, so a partial can use them like its host template.
-tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?',
-              lambda m: open(os.path.join(os.path.dirname(sys.argv[1]), m.group(1))).read(), tmpl)
+# one copy (#187). Expanded BEFORE the keys, so a partial can use them like its host template. A
+# missing partial stays as its directive, like an unknown key: visible in the prompt, never empty.
+def part(m):
+    try: body = open(os.path.join(os.path.dirname(sys.argv[1]), m.group(1))).read()
+    except OSError: return m.group(0)
+    return body.rstrip('\n') + '\n' if m.group(0).endswith('\n') else body
+tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?', part, tmpl)
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
 sys.stdout.write(re.sub(r'{{(\w+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
