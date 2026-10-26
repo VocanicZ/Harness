@@ -49,10 +49,12 @@ Prompt the user before each network or start action.
   So: `pause --force` on laptop, `resume` on a server — the work continues.
 
 ## Reading the dashboard
-Per unit it prints the `issuelib.py status` line: `mode=… PRD#… plan=… children=… open=… unblocked=… paused=… reviewed=… complete=…`.
+Per unit it prints the `issuelib.py status` line: `mode=… PRD#… plan=… children=… open=… unblocked=… waiting=… paused=… reviewed=… complete=… [held by: …]`.
+- `unblocked=` counts only work dispatch can claim now; `waiting=` is ready work whose PRD is still sequenced behind an open `## Blocked by`. `held by: #N, owner/repo#N` (printed only when `unblocked=0 waiting>0` and not complete) names those open blockers.
 - `FLEET: PAUSED` ⇒ drained; `resume` to continue.
 - `complete=Y` and idle ⇒ DONE, not stuck.
-- `open>0 unblocked=0` with no live session ⇒ likely a mis-pointed `## Blocked by` — investigate.
+- `unblocked=0 waiting>0` ⇒ starved on an upstream PRD blocker named in `held by` — unblock that, not this unit.
+- `open>0 unblocked=0 waiting=0` with no live session ⇒ likely a mis-pointed `## Blocked by` — investigate.
 
 ## Unstick (read-mostly)
 - Free a stale lock: `gh issue edit <n> -R <repo> --remove-label agent-working`.
