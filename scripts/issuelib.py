@@ -571,7 +571,9 @@ def _plan_marker(slug):
         return None
 
 
-def _is_unblocked(issue, slug, closed_cache, prd_num=None):
+def _unsatisfied_refs(issue, slug, closed_cache, prd_num=None):
+    """Yield each (slug, num) in the issue's `## Blocked by` that is not yet satisfied, lazily — so
+    _is_unblocked still stops querying states at the first open ref."""
     for ref_repo, ref_num in parse_blocked_by(issue.get("body"), slug):
         ref_slug = _repo_slug(ref_repo)
         # a child "blocked by" its own PRD is not a real block — the PRD stays open until review.
@@ -582,8 +584,16 @@ def _is_unblocked(issue, slug, closed_cache, prd_num=None):
         if key not in closed_cache:
             closed_cache[key] = _issue_state(ref_slug, ref_num) in _SATISFIED_STATES
         if not closed_cache[key]:
-            return False
-    return True
+            yield key
+
+
+def _is_unblocked(issue, slug, closed_cache, prd_num=None):
+    return next(_unsatisfied_refs(issue, slug, closed_cache, prd_num), None) is None
+
+
+def _open_blockers(issue, slug, closed_cache, prd_num=None):
+    """Every unsatisfied `## Blocked by` ref of the issue, in body order (#211 `held by:`)."""
+    return list(_unsatisfied_refs(issue, slug, closed_cache, prd_num))
 
 
 def _allowed(mode):
@@ -891,14 +901,18 @@ def compute_state(repo):
         return all_closed, unblocked
 
     prds = []
+    held_by = []
     for p in prd_issues:
         kids = by_parent[p["number"]]
         all_closed, unblocked = _bucket(kids, p["number"])
+        eligible = _is_unblocked(p, slug, closed_cache, p["number"])
+        if not eligible and unblocked:
+            held_by += [r for r in _open_blockers(p, slug, closed_cache, p["number"]) if r not in held_by]
         prds.append({"number": p["number"],
                      "open": p["state"].lower() == "open",
                      "reviewed": L_REVIEWED() in p["_labels"],
                      # a PRD's own `## Blocked by` is what sequences PRDs; no section = eligible now
-                     "eligible": _is_unblocked(p, slug, closed_cache, p["number"]),
+                     "eligible": eligible,
                      "children_exist": bool(kids),
                      "children_all_closed": all_closed,
                      "unblocked": unblocked})
@@ -923,6 +937,12 @@ def compute_state(repo):
             "children_exist": bool(children),
             "children_all_closed": bool(children) and all(i["state"].lower() == "closed" for i in children),
             "unblocked": unparented_unblocked + [n for p in prds for n in p["unblocked"]],
+            # #211: `unblocked` above keeps counting children of PRDs still sequenced behind an open
+            # `## Blocked by`, which dispatch() can never claim. `dispatchable` is what it can;
+            # `waiting` is the rest, and `held_by` names the upstream refs those PRDs wait on.
+            "dispatchable": unparented_unblocked + [n for p in prds if p["eligible"] for n in p["unblocked"]],
+            "waiting": [n for p in prds if not p["eligible"] for n in p["unblocked"]],
+            "held_by": held_by,
             "open_children": sum(1 for i in children if i["state"].lower() == "open"),
             "total_children": len(children),
             "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
@@ -1153,9 +1173,18 @@ def main():
         elif cmd == "status":
             s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
             prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
+            # unblocked= counts only what dispatch() could claim (#211); waiting= is ready work behind
+            # a blocked PRD, and a unit starved on that names the upstream refs in `held by:`.
+            ready, waiting = s.get("dispatchable", s["unblocked"]), s.get("waiting", [])
+            done = is_complete(s)
+            held = ""
+            if not ready and waiting and not done and s.get("held_by"):
+                slug = _repo_slug(repo)
+                held = " held by: " + ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in s["held_by"])
             print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
-                  f"children={s['total_children']} open={s['open_children']} unblocked={len(s['unblocked'])} "
-                  f"paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} complete={'Y' if is_complete(s) else 'N'}")
+                  f"children={s['total_children']} open={s['open_children']} unblocked={len(ready)} "
+                  f"waiting={len(waiting)} paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} "
+                  f"complete={'Y' if done else 'N'}{held}")
         elif cmd == "ci-status":
             # `<verdict>\t<workflow>\t<url>` for the default branch (or an explicit branch arg).
             # FAIL-OPEN by construction: on a transient gh failure the shared handler below prints

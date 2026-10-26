@@ -2067,6 +2067,78 @@ def test_rate_cli_commands():
         assert rc == 0 and out.startswith("gh-auth: core 900/5000") and "HOLD" in out, out
 
 
+# #211: `status` must count only claimable work as unblocked=; children of a PRD sequenced behind an
+# open `## Blocked by` are waiting=, and a starved unit names that upstream blocker in `held by:`.
+def _status_line(repo="acme/widget"):
+    import io as _io, contextlib as _ctx
+    real_argv = sys.argv; buf = _io.StringIO()
+    try:
+        sys.argv = ["issuelib.py", "status", repo]
+        with _ctx.redirect_stdout(buf): il.main()
+    finally:
+        sys.argv = real_argv
+    return buf.getvalue().strip()
+
+def _impl_count(repo="acme/widget"):
+    return sum(1 for a, _, _ in il.dispatch(repo, 99, True) if a == "IMPL")
+
+def test_status_unblocked_excludes_children_of_blocked_prd():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(10, labels=["prd"]),
+                _issue(11, labels=["ready-for-agent"], body="## Parent\n#10\n"),
+                _issue(20, labels=["prd"], body="## Blocked by\n#30\n"),
+                _issue(21, labels=["ready-for-agent"], body="## Parent\n#20\n"),
+                _issue(30)])
+    try:
+        line = _status_line()
+        assert "unblocked=1 waiting=1 " in line, line
+        assert "held by" not in line, line
+        assert line.index("open=") < line.index("unblocked=") < line.index("paused="), line
+        assert _impl_count() == 1, "unblocked= must equal dispatch's IMPL rows"
+        assert sorted(il.compute_state("acme/widget")["unblocked"]) == [11, 21], "aggregate unchanged"
+    finally: _restore_repo()
+
+def test_status_starved_unit_names_its_upstream_blocker():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(20, labels=["prd"], body="## Blocked by\n#30\n"),
+                _issue(21, labels=["ready-for-agent"], body="## Parent\n#20\n"),
+                _issue(30)])
+    try:
+        line = _status_line()
+        assert "unblocked=0 waiting=1 " in line, line
+        assert line.endswith("complete=N held by: #30"), line
+        assert _impl_count() == 0, "unblocked= must equal dispatch's IMPL rows"
+        assert il.compute_state("acme/widget")["unblocked"] == [21], "aggregate unchanged"
+    finally: _restore_repo()
+
+def test_status_held_by_prints_cross_repo_blocker_with_its_slug():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(20, labels=["prd"], body="## Blocked by\nother/repo#506\n#30\n"),
+                _issue(21, labels=["ready-for-agent"], body="## Parent\n#20\n"),
+                _issue(30)])
+    il._issue_state = lambda slug, n: "open"   # other/repo#506 and #30 both still open
+    try:
+        line = _status_line()
+        assert "unblocked=0 waiting=1 " in line, line
+        assert line.endswith("held by: other/repo#506, #30"), line
+        assert _impl_count() == 0
+    finally: _restore_repo()
+
+def test_status_unparented_ready_work_counts_as_claimable():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(5, labels=["ready-for-agent"]),
+                _issue(20, labels=["prd"], body="## Blocked by\n#30\n"),
+                _issue(21, labels=["ready-for-agent"], body="## Parent\n#20\n"),
+                _issue(30)])
+    try:
+        line = _status_line()
+        assert "unblocked=1 waiting=1 " in line, line
+        assert "held by" not in line, line
+        assert _impl_count() == 1
+        assert sorted(il.compute_state("acme/widget")["unblocked"]) == [5, 21], "aggregate unchanged"
+    finally: _restore_repo()
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
