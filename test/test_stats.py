@@ -280,8 +280,8 @@ def test_edge_paths_degrade_quietly():
         assert s[0]["nudges"] == 2, s
         s = st.sessions([_ev("launch", session="t"), _ev("turn_interrupted", session="t", turn_s=18003)])
         assert s[0]["turn_interrupts"] == 1, s   # #207
-        out = st.render_text("issue", {"issue": 9, "sessions": [], "events": [
-            _ev("turn_interrupted", issue=9, turn_s=18003, queued_nudges=3)]})
+        out = st.render_text("issue", st.issue_timeline(
+            [_ev("turn_interrupted", issue=9, turn_s=18003, queued_nudges=3)], 9))
         assert "turn_interrupted  turn_s=18003 queued_nudges=3" in out, out
         fl = os.path.join(d, "fleets"); os.makedirs(fl)
         open(os.path.join(fl, "bad.json"), "w").write("{not json")
