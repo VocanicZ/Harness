@@ -86,4 +86,34 @@ assert "README documents HARNESS_PREFIX_COLLISION" \
 assert "README documents the doctor escape hatch for stale entries" \
   "grep -qi 'doctor --fix' '$README'"
 
+# 7. rtdd v0.3 (#203) — rtdd selects, never runs. No v0.2 workflow terms anywhere in README except
+#    the swarm section, whose `junit.xml` is swarm's shard output, not rtdd's.
+PARTIAL="$HERE/../prompts/_rtdd.md"
+NOSWARM=$(awk '/^## Offloading tests to swarm/{s=1;next} s&&/^## /{s=0} !s' "$README")
+STALE=$(grep -nE 'rtdd (run|seed)|map\.jsonl|junit\.xml|adapters|\bT2\b' <<<"$NOSWARM")
+assert "README has no rtdd v0.2 terms outside the swarm section: ${STALE:-none}" "[[ -z \"\$STALE\" ]]"
+assert "README keeps the #test-selection-rtdd anchor target" "grep -qE '^### Test selection \(rtdd\)$' '$README'"
+assert "README still links #test-selection-rtdd" "grep -q '](#test-selection-rtdd)' '$README'"
+SECTION=$(awk '/^### Test selection \(rtdd\)$/{s=1} s&&/^### Never merging red/{s=0} s' "$README")
+CONTRIB=$(grep -E '^4\. \*\*Run the tests\*\*' "$README")
+# The README's steps and the lane prompt's steps, in the prompt's order: fallback, which, init,
+# Round 1, Round 2, untested, Round 3. Each pattern must match somewhere AFTER the previous one's
+# match, so an early aside ("no Round 1 in its output") cannot satisfy a later step.
+in_order(){ # text, then patterns
+  local rest="$1" p
+  shift
+  for p in "$@"; do
+    [[ "$rest" =~ $p ]] || return 1
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done; }
+STEPS=('older than v0\.3' 'rtdd which --base' 'rtdd init|\.rtdd/config\.yaml' 'Round 1' 'Round 2' 'untested' 'Round 3')
+assert "prompts/_rtdd.md lists the steps in order (the reference)" "in_order \"\$(cat '$PARTIAL')\" \"\${STEPS[@]}\""
+assert "README Test selection lists the same steps in the same order" "in_order \"\$SECTION\" \"\${STEPS[@]}\""
+assert "Contributing step 4 lists the same steps in the same order" "in_order \"\$CONTRIB\" \"\${STEPS[@]}\""
+assert "Test selection says rounds run with the project's own test command" \
+  "grep -qi \"project's own test command\" <<<\"\$SECTION\""
+assert "Test selection says rtdd never runs tests" "grep -qiE 'runs none|never runs' <<<\"\$SECTION\""
+assert "Test selection says the full suite runs once before the PR" \
+  "grep -qiE 'full suite, once, at the end, before the PR|full suite once' <<<\"\$SECTION\""
+
 echo "── readme docs ok"
