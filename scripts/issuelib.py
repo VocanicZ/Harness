@@ -751,6 +751,45 @@ def _fetch_root(slug, sync, prev):
     return has_plan, marker, h.get("etag"), dir_sha
 
 
+_ISSUE_BRANCH_RE = re.compile(r"refs/heads/issue/(\d+)")
+
+
+def _fetch_issue_branches(slug, etag=None):
+    """(numbers, etag): every issue <n> with a remote `issue/<n>` branch — the same signal spawn_impl
+    (drive.sh) keys its resume off, and the branch an open PR for <n> comes from (#210). ONE
+    conditional listing of the matching refs; a 304 returns (None, etag) for free. Advisory only (it
+    orders dispatch, never gates it), so a non-transient failure — an empty repo's 409, a stub that
+    knows no such call — reads as "no branches" rather than a resync; a transient one raises GhError
+    like every other read here."""
+    status, h, body = _gh_api_cond(f"repos/{slug}/git/matching-refs/heads/issue/", etag)
+    if status == 304:
+        return None, etag
+    new_etag, nums = (h.get("etag") if status == 200 else None), set()
+    while status == 200:
+        try:
+            refs = json.loads(body or "[]")
+        except ValueError:
+            return [], None
+        for r in refs if isinstance(refs, list) else []:
+            m = _ISSUE_BRANCH_RE.fullmatch(str(r.get("ref", "")) if isinstance(r, dict) else "")
+            if m:
+                nums.add(int(m.group(1)))
+        nxt = _link_next(h)
+        if not nxt:
+            break
+        status, h, body = _gh_api_cond(nxt)
+    return sorted(nums), new_etag
+
+
+def _issue_branches(slug):
+    """The set of issue numbers with a remote `issue/<n>` branch: from the snapshot when a worker
+    reads one (no gh), else one direct listing. A pre-#210 snapshot without the key reads as none."""
+    if _snapshot_mode():
+        snap = _snapshot_for_slug(slug) or {}
+        return set(snap.get("issue_branches") or [])
+    return set(_fetch_issue_branches(slug)[0] or [])
+
+
 def _since_from(issues, fallback):
     """The newest updatedAt on the board (GitHub's own clock), or <fallback> when none carries one."""
     stamps = [i.get("updatedAt") for i in issues if i.get("updatedAt")]
@@ -823,6 +862,7 @@ def snapshot(repo, prev=None, snap_dir=None):
         except _Resync as e:
             print(f"[issuelib] incremental refresh of {slug} unusable ({e}) — full resync", file=sys.stderr)
     issues = _fetch_issues(slug)   # exactly the gh payload — no _labels/_author derived fields
+    branches, branches_etag = _fetch_issue_branches(slug)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 300))   # no updatedAt anywhere
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
@@ -833,8 +873,9 @@ def snapshot(repo, prev=None, snap_dir=None):
         "plan_marker": _plan_marker(slug),
         "self_login": _self_login(),
         "ext_deps": _resolve_ext_deps(slug, issues, {}, now, snap_dir),
+        "issue_branches": branches,
         "sync": {"since": _since_from(issues, started), "issues_etag": None, "root_etag": None,
-                 "marker_dir_sha": None, "full_at": now},
+                 "marker_dir_sha": None, "branches_etag": branches_etag, "full_at": now},
     }
 
 
@@ -843,6 +884,9 @@ def _snapshot_incremental(slug, prev, now, snap_dir):
     delta, etag = _fetch_issue_delta(slug, sync["since"], sync.get("issues_etag"))
     issues = prev["issues"] if delta is None else _merge_issues(prev["issues"], delta)
     has_plan, marker, root_etag, dir_sha = _fetch_root(slug, sync, prev)
+    branches, branches_etag = _fetch_issue_branches(slug, sync.get("branches_etag"))
+    if branches is None:
+        branches = prev.get("issue_branches") or []
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "generated_at": now,
@@ -852,9 +896,10 @@ def _snapshot_incremental(slug, prev, now, snap_dir):
         "plan_marker": marker,
         "self_login": prev.get("self_login", ""),
         "ext_deps": _resolve_ext_deps(slug, issues, prev.get("ext_deps") or {}, now, snap_dir),
+        "issue_branches": branches,
         "sync": {"since": sync["since"] if delta is None else _since_from(issues, sync["since"]),
                  "issues_etag": etag, "root_etag": root_etag, "marker_dir_sha": dir_sha,
-                 "full_at": sync.get("full_at", now)},
+                 "branches_etag": branches_etag, "full_at": sync.get("full_at", now)},
     }
 
 
@@ -924,12 +969,26 @@ def compute_state(repo):
 
     # Legacy scalar keys, derived from the LOWEST-numbered PRD. Kept so `status`, `check` and every
     # existing consumer/test keeps working; only dispatch() and is_complete() read `prds`.
+    # Resumable candidates (#210) — dispatch claims these ahead of fresh work: a force-paused issue,
+    # or one whose `issue/<n>` branch (and so any open PR) already exists. The branch read is skipped
+    # when at most one candidate exists, since ordering cannot change what gets claimed then.
+    candidates = unparented_unblocked + [n for p in prds for n in p["unblocked"]]
+    resumable = {i["number"] for i in children
+                 if i["state"].lower() == "open" and L_PAUSED() in i["_labels"]}
+    if len(candidates) > 1:
+        try:
+            resumable |= _issue_branches(slug)
+        except GhError as e:
+            print(f"[issuelib] issue-branch read for {slug} failed ({e}) — dispatching oldest-first",
+                  file=sys.stderr)
+
     first = prds[0] if prds else None
     marker = _plan_marker(slug)
     return {"slug": slug, "has_plan": _has_plan(slug),
             "plan_marker_matches": marker is not None and marker.get("spec_hash") == _spec_hash(),
             "prds": prds,
             "unparented_unblocked": unparented_unblocked,
+            "resumable": sorted(n for n in resumable if n in candidates),
             "open_unparented": sum(1 for i in unparented if i["state"].lower() == "open"),
             "prd": first["number"] if first else None,
             "prd_open": bool(first) and first["open"],
@@ -1080,12 +1139,17 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=()):
             if p["open"] and not p["children_exist"] and p["number"] not in busy:
                 return [("DECOMPOSE", str(p["number"]), "DECOMPOSE DONE")]
     # Slots: unparented bucket (human injections) first, then eligible PRDs ascending, each
-    # spilling into the next only once it has no unblocked work left.
-    for num in s["unparented_unblocked"][:slots]:
+    # spilling into the next only once it has no unblocked work left. WITHIN a bucket (#210):
+    # resumable issues first — an open PR / pushed branch / paused lane goes stale while it waits —
+    # then oldest first. gh lists newest-first, so without this the latest injection jumped the queue.
+    resumable = set(s.get("resumable") or ())
+    def _order(nums):
+        return sorted(nums, key=lambda n: (n not in resumable, n))
+    for num in _order(s["unparented_unblocked"])[:slots]:
         out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
     for p in eligible:
         if len(out) >= slots: break
-        for num in p["unblocked"][:slots - len(out)]:
+        for num in _order(p["unblocked"])[:slots - len(out)]:
             out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
     # REVIEW/CLOSE_PRD gate on remaining CAPACITY, not on `not out` as the single-PRD version did:
     # with several PRDs, one PRD's impl work must not suppress another's review indefinitely.

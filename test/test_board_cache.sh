@@ -53,6 +53,8 @@ if a[:2] == ["api", "-i"]:
     path = a[2]; sent = a[a.index("-H") + 1].split(": ", 1)[1] if "-H" in a else None
     if path.endswith("/contents/"):
         body = json.dumps([{"name": "README.md", "sha": "r1"}])
+    elif path.endswith("/git/matching-refs/heads/issue/"):
+        body = json.dumps([])                             # no issue/<n> branches pushed (#210)
     else:
         since = parse_qs(urlsplit(path).query).get("since", [""])[0]
         body = json.dumps([i for i in board if i["updated_at"] >= since])
@@ -80,7 +82,7 @@ assert_no "second pass did NOT re-download the board" bash -c "[[ \$(grep -c '^2
 mark="$(wc -l < "$CALLS")"
 poll; poll                                            # two consecutive polls, nothing changed
 assert_eq "$(charged_since "$mark")" "0" "two polls on an unchanged board: 0 rate-limited calls"
-assert_eq "$(tail -n +"$(( mark + 1 ))" "$CALLS" | grep -c '^304 ')" "4" "…each answered by 304s (issues + root, twice)"
+assert_eq "$(tail -n +"$(( mark + 1 ))" "$CALLS" | grep -c '^304 ')" "6" "…each answered by 304s (issues + root + issue branches, twice)"
 
 served(){ HARNESS_SNAPSHOT_FILE="$SNAP" HARNESS_SNAPSHOT_DIR="$HARNESS_SNAPSHOTS_DIR" HARNESS_MODE=issue-only \
           HARNESS_OWNER=acme HARNESS_AUTONOMOUS=true HARNESS_AUTHOR_ALLOWLIST= PATH="$GHBIN:$PATH" GH_CALLS="$CALLS" \
@@ -98,7 +100,7 @@ PY
 mark="$(wc -l < "$CALLS")"
 poll
 assert_eq "$(tail -n +"$(( mark + 1 ))" "$CALLS" | grep -c '^200 api -i repos/acme/widget/issues')" "1" "a changed board costs the delta call alone"
-assert_eq "$(served)" "$(printf 'IMPL\t9\tISSUE 9 DONE\nIMPL\t8\tISSUE 8 DONE')" "new issue #9 is served from the merged cache"
+assert_eq "$(served)" "$(printf 'IMPL\t8\tISSUE 8 DONE\nIMPL\t9\tISSUE 9 DONE')" "new issue #9 is served from the merged cache (oldest first, #210)"
 
 # ── 3) a rate-limited refresh keeps the cached snapshot intact ────────────────
 cp "$SNAP" "$WORK/before.json"

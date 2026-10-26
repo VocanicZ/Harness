@@ -19,6 +19,7 @@ _REAL_ISSUE_STATE = il._issue_state
 _REAL_HAS_PLAN = il._has_plan
 _REAL_PLAN_MARKER = il._plan_marker
 _REAL_AUTHOR_FILTER = il._author_filter
+_REAL_ISSUE_BRANCHES = il._issue_branches
 
 def mk(**kw):
     base = dict(slug="acme/widget", has_plan=False, prd=None, prd_open=False, prd_reviewed=False,
@@ -277,6 +278,7 @@ def test_author_allowlist_member_allowed_additive_to_self():
     il._self_login = lambda: "me"
     il._has_plan = lambda slug: False
     il._plan_marker = lambda slug: None   # hermetic: never read the real repo
+    il._issue_branches = lambda slug: set()
     il._list_issues = lambda slug, extra=None: [
         {"number": 5, "title": "mine", "state": "OPEN", "body": "", "_author": "me",
          "_labels": {"ready-for-agent"}},
@@ -1241,8 +1243,8 @@ def _issue(n, state="OPEN", labels=(), body="", title="", author="bot"):
             "_labels": list(labels), "_author": author,
             "labels": [{"name": l} for l in labels], "author": {"login": author}}
 
-def _stub_repo(issues):
-    """Point compute_state at a fixed issue list, bypassing gh entirely."""
+def _stub_repo(issues, branches=()):
+    """Point compute_state at a fixed issue list (and remote `issue/<n>` branches), bypassing gh."""
     il.compute_state = _REAL_COMPUTE_STATE   # undo any prior stub
     il._list_issues = lambda slug, extra=None: issues
     il._has_plan = lambda slug: False
@@ -1250,11 +1252,12 @@ def _stub_repo(issues):
     il._author_filter = lambda xs: xs
     il._issue_state = lambda slug, n: next(
         (i["state"].lower() for i in issues if i["number"] == n), "")
+    il._issue_branches = lambda slug: set(branches)
 
 def _restore_repo():
     il._list_issues, il._has_plan = _REAL_LIST_ISSUES, _REAL_HAS_PLAN
     il._plan_marker, il._issue_state = _REAL_PLAN_MARKER, _REAL_ISSUE_STATE
-    il._author_filter = _REAL_AUTHOR_FILTER
+    il._author_filter, il._issue_branches = _REAL_AUTHOR_FILTER, _REAL_ISSUE_BRANCHES
 
 def test_prds_lists_every_prd_ascending():
     os.environ["HARNESS_MODE"] = "prd"
@@ -1520,6 +1523,7 @@ class _FakeGitHub:
         self.boards = {"acme/widget": {}, "acme/lib": {}}
         self.plan, self.marker = False, None
         self.calls = []                       # (argv-summary, counted?) — counted = not a 304
+        self.branches = set()                 # issue numbers with a remote issue/<n> branch (#210)
         for n in range(1, 4):                 # a static upstream repo for cross-repo refs
             self._put("acme/lib", n, state=self.rnd.choice(["OPEN", "CLOSED"]), title=f"lib {n}")
         for n in range(1, rnd.randint(3, 12)):
@@ -1575,7 +1579,9 @@ class _FakeGitHub:
                 self._put("acme/widget", n, body=self._body())
             elif r < 0.85:
                 self._new_issue()
-            elif r < 0.93:
+            elif r < 0.9:
+                self.branches ^= {n}
+            elif r < 0.95:
                 self.plan = not self.plan
             else:
                 self.marker = None if self.marker else {"spec_hash": ""}
@@ -1644,6 +1650,10 @@ class _FakeGitHub:
             if path.endswith("/contents/"):
                 body = _json.dumps(self._root())
                 return self._http(argv, 200, body, '"%s"' % _hashlib.sha1(body.encode()).hexdigest(), sent=sent)
+            if path.endswith("/git/matching-refs/heads/issue/"):
+                body = _json.dumps([{"ref": "refs/heads/issue/%d" % n} for n in sorted(self.branches)]
+                                   + [{"ref": "refs/heads/issue/notanumber"}])
+                return self._http(argv, 200, body, '"%s"' % _hashlib.sha1(body.encode()).hexdigest(), sent=sent)
             u = _urlsplit(path); q = _parse_qs(u.query)
             since = q.get("since", [""])[0]; pg = int(q.get("page", ["1"])[0])
             its = sorted((i for i in self.boards["acme/widget"].values() if i["updated"] >= since),
@@ -1666,6 +1676,7 @@ def _with_fake_gh(fake, fn):
     import tempfile
     saved = dict(run=il.subprocess.run, cs=il.compute_state, li=il._list_issues, st=il._issue_state,
                  hp=il._has_plan, pm=il._plan_marker, af=il._author_filter, sl=il._self_login,
+                 ib=il._issue_branches,
                  env={k: os.environ.get(k) for k in ("HARNESS_SNAPSHOT_FILE", "HARNESS_SNAPSHOT_DIR",
                       "HARNESS_MODE", "HARNESS_AUTONOMOUS", "HARNESS_AUTHOR_ALLOWLIST", "HARNESS_SPEC",
                       "HARNESS_DEP_TTL", "HARNESS_FULL_RESYNC", "HARNESS_OWNER")})
@@ -1673,6 +1684,7 @@ def _with_fake_gh(fake, fn):
     il.compute_state = _REAL_COMPUTE_STATE; il._list_issues = _REAL_LIST_ISSUES
     il._issue_state = _REAL_ISSUE_STATE; il._has_plan = _REAL_HAS_PLAN
     il._plan_marker = _REAL_PLAN_MARKER; il._author_filter = _REAL_AUTHOR_FILTER
+    il._issue_branches = _REAL_ISSUE_BRANCHES
     il._self_login = lambda: "me"
     for k in ("HARNESS_SNAPSHOT_FILE", "HARNESS_SNAPSHOT_DIR", "HARNESS_AUTHOR_ALLOWLIST", "HARNESS_SPEC"):
         os.environ.pop(k, None)
@@ -1683,7 +1695,7 @@ def _with_fake_gh(fake, fn):
     finally:
         il.subprocess.run = saved["run"]; il.compute_state = saved["cs"]; il._list_issues = saved["li"]
         il._issue_state = saved["st"]; il._has_plan = saved["hp"]; il._plan_marker = saved["pm"]
-        il._author_filter = saved["af"]; il._self_login = saved["sl"]
+        il._author_filter = saved["af"]; il._self_login = saved["sl"]; il._issue_branches = saved["ib"]
         for k, v in saved["env"].items():
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v
@@ -1733,7 +1745,7 @@ def test_board_cache_unchanged_board_costs_zero_counted_calls():
         snap = il.snapshot("acme/widget", snap, tmp)
         snap = il.snapshot("acme/widget", snap, tmp)
         assert fake.counted(mark) == [], fake.calls[mark:]
-        assert len(fake.calls[mark:]) == 4, fake.calls[mark:]         # 2 polls × (issues + root), all 304
+        assert len(fake.calls[mark:]) == 6, fake.calls[mark:]         # 2 polls × (issues + root + issue branches), all 304
         # …and a change is still seen on the very next poll, at the cost of the delta alone.
         fake._put("acme/widget", 1, state="CLOSED")
         snap = il.snapshot("acme/widget", snap, tmp)
@@ -2137,6 +2149,129 @@ def test_status_unparented_ready_work_counts_as_claimable():
         assert _impl_count() == 1
         assert sorted(il.compute_state("acme/widget")["unblocked"]) == [5, 21], "aggregate unchanged"
     finally: _restore_repo()
+
+# ── #210: dispatch order — resumable first, then oldest first ─────────────────────────────────
+# gh lists issues newest-first and dispatch used to claim in that order, so the latest injection
+# jumped the queue and an issue with a nearly-finished open PR waited behind fresh work.
+def _dispatch_board(issues, branches=(), free=1, mode="issue-only"):
+    os.environ["HARNESS_MODE"] = mode
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    _stub_repo(issues, branches)
+    try:
+        return [a[1] for a in il.dispatch("acme/widget", free, True) if a[0] == "IMPL"]
+    finally: _restore_repo()
+
+_NEWEST_FIRST = [_issue(12, labels=["ready-for-agent"]), _issue(11, labels=["ready-for-agent"]),
+                 _issue(10, labels=["ready-for-agent"])]
+
+def test_dispatch_claims_oldest_unparented_first_not_gh_order():
+    assert _dispatch_board(_NEWEST_FIRST) == ["10"]
+    assert _dispatch_board(_NEWEST_FIRST, free=3) == ["10", "11", "12"]
+
+def test_dispatch_claims_issue_with_open_pr_branch_first():
+    # #11 has an open PR from issue/11 — i.e. its remote issue/11 branch exists
+    assert _dispatch_board(_NEWEST_FIRST, branches={11}) == ["11"]
+    assert _dispatch_board(_NEWEST_FIRST, branches={11}, free=2) == ["11", "10"]
+    assert _dispatch_board(_NEWEST_FIRST, branches={11}, free=3) == ["11", "10", "12"]
+
+def test_dispatch_claims_agent_paused_issue_first():
+    board = [_issue(12, labels=["ready-for-agent", "agent-paused"])] + _NEWEST_FIRST[1:]
+    assert _dispatch_board(board, free=2) == ["12", "10"]
+
+def test_dispatch_orders_within_a_prd_bucket():
+    kids = [_issue(n, labels=["ready-for-agent"], body="## Parent\n#5\n") for n in (13, 12, 11)]
+    board = [_issue(5, labels=["prd"])] + kids
+    assert _dispatch_board(board, mode="prd") == ["11"]
+    assert _dispatch_board(board, branches={12}, free=2, mode="prd") == ["12", "11"]
+    # bucket order is unchanged: the unparented bucket still goes first, resumable or not
+    board2 = board + [_issue(20, labels=["ready-for-agent"])]
+    assert _dispatch_board(board2, branches={12}, free=2, mode="prd") == ["20", "12"]
+
+def test_resumable_ignores_branches_of_non_candidates():
+    # a branch for a closed / working issue is not a candidate and never enters `resumable`
+    board = _NEWEST_FIRST + [_issue(9, "CLOSED", labels=["ready-for-agent"]),
+                             _issue(8, labels=["ready-for-agent", "agent-working"])]
+    os.environ["HARNESS_MODE"] = "issue-only"
+    _stub_repo(board, {8, 9, 12})
+    try:
+        assert il.compute_state("acme/widget")["resumable"] == [12]
+    finally: _restore_repo()
+
+def test_branch_read_skipped_with_a_single_candidate():
+    os.environ["HARNESS_MODE"] = "issue-only"
+    _stub_repo(_NEWEST_FIRST[:1])
+    def boom(slug): raise AssertionError("branch read with one candidate")
+    il._issue_branches = boom
+    try:
+        assert il.compute_state("acme/widget")["resumable"] == []
+    finally: _restore_repo()
+
+def test_branch_read_failure_falls_back_to_oldest_first():
+    os.environ["HARNESS_MODE"] = "issue-only"
+    _stub_repo(_NEWEST_FIRST)
+    def flaky(slug): raise il.GhError("rate limited")
+    il._issue_branches = flaky
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["resumable"] == [] and s["unblocked"] == [12, 11, 10], s
+        il.compute_state = lambda r: s
+        assert [a[1] for a in il.dispatch("acme/widget", 1, True)] == ["10"]
+    finally:
+        _restore_repo(); il.compute_state = _REAL_COMPUTE_STATE
+
+def test_snapshot_carries_issue_branches_to_the_worker():
+    # The poller records issue/<n> branches in the snapshot (one conditional listing, a free 304
+    # when unchanged); a worker reads them back without calling gh.
+    def body(tmp):
+        fake = _FakeGitHub(_random.Random(11))
+        il.subprocess.run = fake.run
+        fake.branches = {2, 3}
+        snap = il.snapshot("acme/widget", None, tmp)
+        assert snap["issue_branches"] == [2, 3], snap["issue_branches"]
+        etag = snap["sync"]["branches_etag"]
+        assert etag, snap["sync"]
+        snap = il.snapshot("acme/widget", snap, tmp)                  # unchanged → 304, kept
+        assert snap["issue_branches"] == [2, 3] and snap["sync"]["branches_etag"] == etag, snap
+        fake.branches = {3, 7}
+        snap = il.snapshot("acme/widget", snap, tmp)                  # changed → re-read
+        assert snap["issue_branches"] == [3, 7], snap["issue_branches"]
+        path = os.path.join(tmp, "acme__widget.json")
+        with open(path, "w") as f: _json.dump(snap, f)
+        os.environ["HARNESS_SNAPSHOT_FILE"] = path
+        il.subprocess.run = lambda *a, **k: (_ for _ in ()).throw(AssertionError("worker called gh"))
+        try:
+            assert il._issue_branches("acme/widget") == {3, 7}
+            del snap["issue_branches"]                                # a pre-#210 snapshot
+            with open(path, "w") as f: _json.dump(snap, f)
+            assert il._issue_branches("acme/widget") == set()
+        finally:
+            os.environ.pop("HARNESS_SNAPSHOT_FILE", None)
+    _with_fake_gh(_FakeGitHub(_random.Random(11)), body)
+
+def test_fetch_issue_branches_fails_open_on_non_transient_answers():
+    def body(tmp):
+        def answer(status_line, out_body, rc=0):
+            il.subprocess.run = lambda argv, **kw: il.subprocess.CompletedProcess(
+                argv, rc, "%s\n\n%s" % (status_line, out_body) if status_line else out_body,
+                "" if rc == 0 else "gh: Conflict (HTTP 409)")
+        answer("HTTP/2.0 409 Conflict", '{"message":"Git Repository is empty."}', rc=1)
+        assert il._fetch_issue_branches("acme/widget") == ([], None)
+        answer("HTTP/2.0 200 OK", "not json")
+        assert il._fetch_issue_branches("acme/widget") == ([], None)
+        answer("HTTP/2.0 200 OK", '{"ref": "refs/heads/issue/4"}')     # not a list
+        assert il._fetch_issue_branches("acme/widget")[0] == []
+        answer("", "unknown flag", rc=1)                                # a stub with no HTTP reply
+        assert il._fetch_issue_branches("acme/widget") == ([], None)
+        # pages past the first are followed
+        pages = {"p1": ('HTTP/2.0 200 OK\nEtag: "e1"\nLink: <https://api.github.com/repos/acme/widget/git/matching-refs/heads/issue/?page=2>; rel="next"',
+                        '[{"ref":"refs/heads/issue/4"}, "junk"]'),
+                 "p2": ("HTTP/2.0 200 OK", '[{"ref":"refs/heads/issue/9"},{"ref":"refs/heads/issue/9x"}]')}
+        def paged(argv, **kw):
+            head, out = pages["p2" if "page=2" in argv[3] else "p1"]
+            return il.subprocess.CompletedProcess(argv, 0, head + "\n\n" + out, "")
+        il.subprocess.run = paged
+        assert il._fetch_issue_branches("acme/widget") == ([4, 9], '"e1"')
+    _with_fake_gh(_FakeGitHub(_random.Random(1)), body)
 
 
 if __name__ == "__main__":
