@@ -9,6 +9,10 @@ caveman mode to conserve tokens (no human reads it live). Keep these EXACT and u
 commit messages incl. `(closes #{{ISSUE}})`, PR title/body, code & test names, the
 `<!-- harness-handoff … -->` marker line, label names, and the literal `<promise>{{PROMISE}}</promise>`.
 
+SHARED HOST — stop a background job only by the PID you started (`$!`, or a PID file you wrote) —
+never `pkill -f`, `killall`, or `ps … | grep … | kill` by pattern. This host runs many lanes; a
+pattern kill can hit theirs.
+
 Repo: {{SLUG}}   Branch: {{BRANCH}} (already checked out)
 Issue: #{{ISSUE}}  (labelled `{{LABEL_WORKING}}` — it is yours)
 

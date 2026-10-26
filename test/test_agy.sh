@@ -97,7 +97,7 @@ assert_ok "launch_claude alias invokes CLAUDE_BIN" \
   launch_agent "sess-agy" "$TASK_DIR"
 )
 assert_ok "launch_agent for agy invokes AGY_BIN with AGY_FLAGS and -i" \
-  grep -F -q 'mock-agy --flag1 --flag2 -i "$(cat .harness-task.md)"' "$SENT_KEYS"
+  grep -F -q "mock-agy --flag1 --flag2 -i \"$HARNESS_BOOTSTRAP_PROMPT\"" "$SENT_KEYS"
 
 echo "=== Group 4: Watchdog patterns ==="
 # Test HARNESS_ACTIVE_TURN_RE via session_active_turn
