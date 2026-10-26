@@ -131,6 +131,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_CAP` | `3` | Max concurrent claude sessions per unit |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
+| `HARNESS_POOL_TAKES_BUGS` | `1` | `1` = a pool worker with no dispatchable impl work takes the oldest open `bug`/`bug-triaged` issue in its unit's repo while the priority lane is busy (or not running), through the lane's own triage→fix flow; the lane keeps first pick whenever it is free, and the shared bug claim means the two never take the same bug. `0` = bugs wait for the priority lane |
 | `HARNESS_SESS_PREFIX` | derived from the project dir at `init` (`hz` for pre-existing configs) | tmux session name prefix — **must be unique per fleet on a host**; a shared prefix makes `harness stop` in one project kill another's agents. See [Fleet prefixes](#fleet-prefixes) |
 | `HARNESS_PREFIX_COLLISION` | `refuse` | `refuse` \| `warn` — what `harness start` does when another fleet already owns this session prefix: `refuse` (default) dies, `warn` prints and continues |
 | `HARNESS_LABEL_READY` | `ready-for-agent` | Label that marks an issue dispatchable |

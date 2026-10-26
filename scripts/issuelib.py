@@ -1114,7 +1114,7 @@ def ci_status(repo, branch=None, limit=20):
     return ("pass", "", "")
 
 
-def dispatch(repo, free_slots, allow_orchestration, busy_prds=()):
+def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=None):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     prds = s["prds"]; busy = set(busy_prds); slots = max(0, free_slots)
     if allow_orchestration:
@@ -1168,6 +1168,13 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=()):
                 out.append(("REVIEW", str(p["number"]), "REVIEW DONE"))
             else:
                 out.append(("CLOSE_PRD", str(p["number"]), "PRD CLOSED"))
+    # #214: a pool slot with nothing else to do helps the bug lane. The lane keeps first pick: the
+    # pool spills only while EVERY priority slot is busy — a free one claims the queue head on its
+    # next poll, and the pool takes the rest once it has. Oldest bug first, either phase. None means
+    # the caller did not say (HARNESS_POOL_TAKES_BUGS=0, or a pre-#214 caller): never spill.
+    if not out and slots and priority_free is not None and priority_free <= 0:
+        for num in sorted(n for n, _phase in bug_lane_candidates(repo))[:slots]:
+            out.append(("BUG", str(num), f"BUG {num} DONE"))
     return out
 
 def is_complete(s):
@@ -1233,7 +1240,12 @@ def main():
             if "--busy-prds" in sys.argv:
                 raw = sys.argv[sys.argv.index("--busy-prds")+1]
                 busy = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
-            for action, payload, promise in dispatch(repo, free, allow, busy): print(f"{action}\t{payload}\t{promise}")
+            # --priority-free N (#214): idle priority-lane slots. Given, the pool may spill into bugs.
+            pfree = None
+            if "--priority-free" in sys.argv:
+                raw = sys.argv[sys.argv.index("--priority-free")+1]
+                pfree = int(raw) if raw.strip().isdigit() else None
+            for action, payload, promise in dispatch(repo, free, allow, busy, pfree): print(f"{action}\t{payload}\t{promise}")
         elif cmd == "status":
             s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
             prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")

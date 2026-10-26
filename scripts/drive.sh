@@ -266,6 +266,10 @@ spawn_bug(){
     # `worktree add` below fails (rc 128, 'issue/N' already used by worktree) and the bug stays
     # stuck under agent-working forever. Remove + prune so a fresh attempt always starts clean.
     remove_worktree "$CHECKOUT" "$wd"
+    # The triage is over once the bug is a fix. Its worktree is the triage lane's to reap, but a
+    # triage that ran under a different lane (#214: the pool) can hand over before that reap runs.
+    session_live "$(sess_bug "$SLUG" "$issue" triage)" \
+      || remove_worktree "$CHECKOUT" "$(triage_worktree "$SLUG" "$issue")" "agent/bug-triage-$issue"
     git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
     if ! git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" "origin/$base" 2>/dev/null; then
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
@@ -309,6 +313,60 @@ spawn_bug(){
   launch_claude "$(sess_bug "$SLUG" "$issue" "$phase")" "$wd"
 }
 
+# bug_goal_done <n> <phase> — has this phase's session delivered its outcome? triage: the issue
+# is closed (invalid/dup/wontfix) OR the label flipped to bug-triaged (now a fix). fix: the issue
+# is closed (its PR merged). Shared by the priority lane (drive_bug) and the pool (#214, reap_pool_bugs). Reads GitHub via the lib.sh seams (_bug_state/_bug_labels).
+bug_goal_done(){ local n="$1" phase="$2"
+  [[ "$(_bug_state "$n")" == CLOSED ]] && return 0
+  [[ "$phase" == triage && "$(bug_phase "$n")" == fix ]]; }
+
+# spawn_pool_bug <n> — an idle pool slot takes bug #n of this unit's repo (#214). It claims the bug
+# exactly as the lane would (claim_bug: same claim file, same lock, refused if either lane holds it)
+# and runs the lane's own spawn_bug, so the triage→fix prompts and the agent-working stamp are the
+# lane's. The claim then moves to the session's pane pid: it is held as long as the session lives
+# and goes stale with it, which is how the lane gets the bug back for its next phase.
+spawn_pool_bug(){ local n="$1" tok phase sess pid
+  tok="$SLUG#$n"
+  claim_bug "pool-$UNIT" "$tok" || { log "pool: bug $tok already claimed by another lane — skipping"; return 1; }
+  phase="$(bug_phase "$n")"; sess="$(sess_bug "$SLUG" "$n" "$phase")"
+  log "pool: idle slot takes bug #$n → $phase session ($sess)"
+  spawn_bug "$n" "$phase" || { log "pool: spawn failed for bug #$n"; release_bug_claim "$tok"; return 1; }
+  pid="$(tmux display-message -p -t "$sess" '#{pane_pid}' 2>/dev/null)"
+  [[ -n "$pid" ]] || { log "pool: no live session for bug #$n"; release_bug_claim "$tok"; return 1; }
+  local f; f="$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
+  printf '%s %s %s\n' "pool-$UNIT" "$pid" "$tok" > "$f.tmp" && mv -f "$f.tmp" "$f"; }
+
+# count_pool_bugs <unit> — live bug sessions the unit's pool worker took; they use its CAP slots.
+count_pool_bugs(){ local f tok
+  while IFS=$'\t' read -r f tok; do is_bug_claimed "$tok" && echo "$tok"; done < <(pool_bug_claims "$1") | grep -c . ; }
+
+# reap_pool_bugs — tend every bug session a pool worker took (#214): the pool's half of drive_bug's
+# hold loop. A live one is watchdogged and ended once its phase goal is met; once it is gone its
+# worktrees and claim are dropped. That teardown re-checks the claim under POOL_LOCK, so a claim the
+# lane has since taken over is never touched. A dead session's agent-working is reap_lane's to free.
+reap_pool_bugs(){ local f tok n phase sess SLUG lockfd
+  while IFS=$'\t' read -r f tok; do
+    SLUG="$(_with_owner "$(_bug_ref_repo "$tok")")"; n="$(_bug_ref_num "$tok")"
+    for phase in triage fix; do
+      sess="$(sess_bug "$SLUG" "$n" "$phase")"
+      session_live "$sess" || continue
+      watchdog_session "$sess"
+      if bug_goal_done "$n" "$phase"; then
+        log "pool: bug #$n $phase goal met — ending $sess"
+        tmux kill-session -t "$sess" 2>/dev/null || true; rm -f "$RUN_DIR/$sess.goal"
+      fi
+    done
+    bug_session_live "$SLUG" "$n" && continue
+    stats_sweep_ended   # #185: session_end before the worktree (and its ralph iteration count) goes
+    exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+    if [[ "$(awk '{print $1; exit}' "$f" 2>/dev/null)" == pool-* ]] && ! is_bug_claimed "$tok"; then
+      remove_worktree "$(bug_checkout "$SLUG")" "$(bug_worktree "$SLUG" "$n")" "issue/$n"
+      remove_worktree "$(bug_checkout "$SLUG")" "$(triage_worktree "$SLUG" "$n")" "agent/bug-triage-$n"
+      rm -f "$f"; log "pool: reaped bug $tok session — worktrees + claim released"
+    fi
+    flock -u "$lockfd"; exec {lockfd}>&-
+  done < <(pool_bug_claims); }
+
 # drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.
 # dispatch_stalled_banner <repo> <unit> — say WHY a unit is sitting still, once per distinct state.
 #
@@ -333,6 +391,7 @@ drive_unit(){
   # completion check (a gh read) runs again; the watchdog keeps tending live sessions meanwhile.
   while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
+    reap_pool_bugs   # #214: bug sessions an idle slot took — end on goal, release the claim once gone
     retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
     if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
     # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
@@ -346,7 +405,8 @@ drive_unit(){
     # what is left goes to the live agents. The sweeps above still ran: they are what finishes work.
     if gh_budget_low; then harness_event hold reason=rate_limit cause=gh_budget secs="$(( POLL * 2 ))"; sleep "$(( POLL * 2 ))"; continue; fi
     local active free allow_orch action payload promise
-    active="$(count_team_sessions "$UNIT")"; free=$(( CAP - active ))
+    active=$(( $(count_team_sessions "$UNIT") + $(count_pool_bugs "$UNIT") ))   # #214: pool-taken bugs hold slots
+    free=$(( CAP - active ))
     if (( free > 0 )); then
       allow_orch=0; (( active == 0 )) && allow_orch=1
       # `allow_orch` stays unit-wide and gates only PLAN/PRD (Task 5 took it off the per-PRD
@@ -370,6 +430,7 @@ drive_unit(){
         case "$action" in
           IMPL)      spawn_impl "$payload" "$promise";;
           CLOSE_PRD) close_prd "$payload";;        # engine-side close — no session, returns at once
+          BUG)       spawn_pool_bug "$payload";;  # #214: nothing else to do and the bug lane is busy
           *)         spawn_orch "$action" "$payload" "$promise";;
         esac
         sleep 2

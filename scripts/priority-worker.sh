@@ -9,13 +9,6 @@ _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "${_HARNESS_LIB_SOURCED:-}" ]]   && { source "$_PW_HERE/lib.sh";   _HARNESS_LIB_SOURCED=1; }
 [[ -z "${_HARNESS_DRIVE_SOURCED:-}" ]] && { source "$_PW_HERE/drive.sh"; _HARNESS_DRIVE_SOURCED=1; }
 
-# bug_goal_done <n> <phase> — has this phase's session delivered its outcome? triage: the issue
-# is closed (invalid/dup/wontfix) OR the label flipped to bug-triaged (now a fix). fix: the issue
-# is closed (its PR merged). Reads GitHub via the lib.sh seams (_bug_state/_bug_labels).
-bug_goal_done(){ local n="$1" phase="$2"
-  [[ "$(_bug_state "$n")" == CLOSED ]] && return 0
-  [[ "$phase" == triage && "$(bug_phase "$n")" == fix ]]; }
-
 # drive_bug <ref> — take one claimed bug through its current phase (#27). <ref> is a repo-qualified
 # "<repo>#<num>" token (#37): the repo is CARRIED from the claim, not re-scanned, so colliding
 # issue numbers across repos route to the right one. Pick the phase (triage|fix), spawn the matching
