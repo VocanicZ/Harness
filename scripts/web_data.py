@@ -296,9 +296,9 @@ def attention(fleet):
 
 
 def fleet_health(entry, rec, now, sessions, models, conf):
-    """Add `sessions`, `stale_locks`, `supervisor` and `attention` to one fleet_entry."""
+    """Add `sessions`, `stale_locks`, `supervisor`, `attention` and `awaiting` (a count) to one fleet_entry."""
     if entry["state"] == "missing":
-        entry.update(sessions=[], stale_locks=[], supervisor={"actions": [], "alarms": []})
+        entry.update(sessions=[], stale_locks=[], supervisor={"actions": [], "alarms": []}, awaiting=0)
         entry["attention"] = attention(entry)
         return entry
     cfg = fleetview.read_config(rec["project"])
@@ -306,7 +306,10 @@ def fleet_health(entry, rec, now, sessions, models, conf):
     entry["sessions"] = live_sessions(entry["prefix"], now, sessions, models, run_dir, cfg, conf)
     live = {fleetview.session_number(s["name"]) for s in entry["sessions"]} - {None}
     boards = {slug: board(slug) for slug in fleetview.fleet_slugs(rec)}
-    entry["stale_locks"] = stale_locks(rec, boards, live, fleetview.fleet_labels(cfg), entry["state"])
+    labels = fleetview.fleet_labels(cfg)
+    entry["stale_locks"] = stale_locks(rec, boards, live, labels, entry["state"])
+    # the fleet page's open "Awaiting you" items (#229), counted here so `/` answers "what needs me?" (#231)
+    entry["awaiting"] = sum(1 for b in boards.values() if b for a in web_dag.awaiting(b, labels) if not a["resolved"])
     entry["supervisor"] = supervisor(entry["prefix"], now)
     entry["attention"] = attention(entry)
     return entry

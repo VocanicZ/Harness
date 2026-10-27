@@ -130,6 +130,13 @@ def _attention_item(a):
     return f'{esc(k)} <span class="mono">{what}</span>'
 
 
+def _until(ts, now):
+    """`08:30 (in 30m)`: a hold's end as the host's clock reads it, then how far off (#231 — "until in
+    30m" read as a typo)."""
+    return (f'<time datetime="{iso(ts)}" title="{iso(ts)}">{time.strftime("%H:%M", time.localtime(ts))}</time> '
+            f'<span class="muted">({"in " + fleetview.fmt_age(ts - now) if ts > now else "past"})</span>')
+
+
 def _session_issue(s, prefix, many):
     """The session's issue, linked into the fleet page's drawer (#228) when it names one. <many>: the
     fleet serves several repos, so the link names the session's own repo (when its launch said)."""
@@ -149,31 +156,33 @@ def _sessions_table(sessions, now, prefix=None, many=False):
         act_html = (f'<span class="level {ACTIVITY.get(act, "level--grey")}">{esc(act)}</span>' if act
                     else '<span class="muted">unknown</span>')
         age = "?" if s["age_s"] is None else fleetview.fmt_age(s["age_s"])
+        model = s["model"] or "?"
+        # the kind beside the issue and the model's short name: four columns fit a 400 px card (#231)
         rows.append(f'<tr data-session="{esc(s["name"])}" data-activity="{esc(act or "unknown")}">'
-                    f'<td>{_session_issue(s, prefix, many)}'
+                    f'<td>{_session_issue(s, prefix, many)} <span class="muted">{esc(s["kind"])}</span>'
                     f'<span class="table__secondary mono">{esc(s["name"])}</span></td>'
-                    f'<td>{esc(s["kind"])}</td>'
-                    f'<td>{esc(s["cli"])}<span class="table__secondary mono">{esc(s["model"] or "?")}</span></td>'
+                    f'<td>{esc(s["cli"])}<span class="table__secondary mono" title="{esc(model)}">'
+                    f'{esc(model.replace("claude-", ""))}</span></td>'
                     f'<td class="num">{age}</td><td>{act_html}</td></tr>')
     return ('<div class="table-wrap"><table class="table fleet__sessions"><caption class="sr-only">Live sessions</caption>'
-            '<thead><tr><th scope="col">Issue</th><th scope="col">Kind</th><th scope="col">CLI · model</th>'
+            '<thead><tr><th scope="col">Issue · kind</th><th scope="col">CLI · model</th>'
             '<th scope="col" class="num">Age</th><th scope="col">Activity</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table></div>')
 
 
 def rate_line(rate, now):
-    """The shared GitHub budget, one line per token: each resource's remaining/limit, and any hold."""
+    """The shared GitHub budget, one item per token: each resource's remaining/limit and when it was
+    checked. Host-wide — every fleet spends the same token — so it is said once, in the page header
+    (#231); a hold is the host callout's."""
     if not rate:
-        return '<p class="fleet__rate muted">GitHub budget unknown (no rate-limit probe on this host yet)</p>'
+        return '<span class="fleet__rate">GitHub budget unknown (no rate-limit probe on this host yet)</span>'
     out = []
     for r in rate:
         res = " · ".join(f'{esc(k)} <span class="num">{"?" if v["remaining"] is None else v["remaining"]}'
                          f'/{"?" if v["limit"] is None else v["limit"]}</span>'
-                         for k, v in r["resources"].items()) or '<span class="muted">no data</span>'
-        hold = (f' <span class="level level--amber">held until {_rel(r["hold_until"], now)}</span>'
-                if r["hold_until"] else "")
-        checked = f' <span class="muted">checked {_rel(r["checked_at"], now)}</span>' if r["checked_at"] else ""
-        out.append(f'<p class="fleet__rate">GitHub <span class="mono">{esc(r["key"])}</span>: {res}{hold}{checked}</p>')
+                         for k, v in r["resources"].items()) or "no data"
+        checked = f' (checked {_rel(r["checked_at"], now)})' if r["checked_at"] else ""
+        out.append(f'<span class="fleet__rate">GitHub <span class="mono">{esc(r["key"])}</span>: {res}{checked}</span>')
     return "".join(out)
 
 
@@ -189,7 +198,7 @@ def _actions(sup):
     return f'<ol class="fleet__actions">{"".join(items)}</ol>'
 
 
-def health(f, rate, now):
+def health(f, now):
     """The card's health block: the verdict first, then what needs a human, sessions, budget, actions."""
     att = f.get("attention") or []
     if att:
@@ -198,14 +207,18 @@ def health(f, rate, now):
         verdict += f'<ul class="fleet__attention">{items}</ul>'
     else:
         verdict = '<p class="fleet__verdict level level--grey">healthy</p>'
+    aw = f.get("awaiting") or 0
+    if aw:      # the fleet page's "Awaiting you", one click away: `/` answers "what needs me?" (#231)
+        verdict += (f'<p class="fleet__awaiting"><a href="/fleet/{esc(f["prefix"])}#awaiting-title" '
+                    f'data-awaiting-count="{aw}"><span class="num">{aw}</span> awaiting you</a></p>')
     if f["state"] == "missing":
         return verdict
-    return (f'{verdict}\n{_sessions_table(f.get("sessions") or [], now, f["prefix"], len(f.get("repos") or ()) > 1)}\n{rate_line(rate, now)}\n'
+    return (f'{verdict}\n{_sessions_table(f.get("sessions") or [], now, f["prefix"], len(f.get("repos") or ()) > 1)}\n'
             f'<div class="fleet__log"><h3 class="fleet__subhead">Recent supervisor actions</h3>'
             f'{_actions(f.get("supervisor") or {"actions": []})}</div>')
 
 
-def fleet_card(f, now, rate=()):
+def fleet_card(f, now):
     cls, label = STATES.get(f["state"], ("level--grey", f["state"]))
     pfx = esc(f["prefix"])
     repos = "".join(f'<li><span class="mono">{esc(r["slug"])}</span> — {_tally_text(r["tally"])}</li>'
@@ -222,10 +235,10 @@ def fleet_card(f, now, rate=()):
 <header class="panel__header">
 <h2 class="panel__title"><a href="/fleet/{pfx}">{pfx}</a></h2>
 <span class="level {cls}">{esc(label)}</span>
-<span class="panel__meta mono">{esc(f["root"])}</span>
+<p class="fleet__root mono" title="{esc(f["root"])}">{esc(f["root"])}</p>
 </header>
 <div class="panel__body stack stack--sm">
-{health(f, rate, now)}
+{health(f, now)}
 {detail}
 <ul class="fleet__repos">{repos}</ul>
 </div>
@@ -237,7 +250,7 @@ def overview_regions(view, now):
     fleets = view["fleets"]
     rate = view.get("rate") or []
     if fleets:
-        cards = "\n".join(fleet_card(f, now, rate) for f in fleets)
+        cards = "\n".join(fleet_card(f, now) for f in fleets)
     else:
         cards = ('<div class="panel empty"><div><p class="empty__title">No fleets registered on this host.</p>'
                  '<p class="empty__text"><code>harness start</code> in a project registers its fleet here.</p>'
@@ -245,8 +258,8 @@ def overview_regions(view, now):
     n = len(fleets)
     host = "".join(
         f'<div class="callout callout--amber" data-attention="rate-hold"><div class="callout__body">'
-        f'<p class="callout__title">GitHub token <span class="mono">{esc(a["what"])}</span> is held on a rate limit '
-        f'until {_rel(a["until"], now)}</p><p>No fleet on this host calls <code>gh</code> with it until then; '
+        f'<p class="callout__title">GitHub token <span class="mono">{esc(a["what"])}</span> hit its rate limit: held until '
+        f'{_until(a["until"], now)}</p><p>No fleet on this host calls <code>gh</code> with it until then; '
         f'claims wait.</p></div></div>'
         for a in view.get("attention") or ())
     hidden = "" if host else " hidden"
@@ -254,7 +267,7 @@ def overview_regions(view, now):
         "header": f"""<section data-region="header" class="page-header">
 <div class="page-header__main">
 <h1 class="page-header__title">Fleets on this host</h1>
-<p class="page-header__meta"><span>{n} fleet{"" if n == 1 else "s"}</span>{asof_stamp(view["asof"], now, page=True)}</p>
+<p class="page-header__meta"><span>{n} fleet{"" if n == 1 else "s"}</span>{asof_stamp(view["asof"], now, page=True)}{rate_line(rate, now)}</p>
 </div>
 </section>""",
         "host-attention": f'<section data-region="host-attention" class="stack stack--sm"{hidden}>{host}</section>',
@@ -276,7 +289,8 @@ NODE_LABEL = {
     "closed": "closed", "agent-blocked": "agent-blocked", "in-progress": "in progress",
     "in-review": "in review", "blocked": "blocked", "open": "open",
 }
-CW, RH, BW, BH = 250, 96, 186, 54   # status-page.py's geometry: column, row, box width, box height
+CW, RH, BW, BH = 236, 66, 186, 50   # column, row, box width, box height (#231: tighter than status-page.py's)
+PAD = 6                             # the margin round the boxes, room for the focus ring
 STAT_H = 16                         # the stats overlay's third line (#229)
 
 
@@ -331,13 +345,14 @@ def dag_svg(nodes, edges, label, prd=False):
     cols = {}
     for n in sorted(by):
         cols.setdefault(by[n]["layer"], []).append(n)
-    W = max(CW * (max(cols) + 1) + 60, 420)
-    H = max(rh * max(len(v) for v in cols.values()) + 50, 160)
+    gap = rh - bh
+    W = CW * max(cols) + BW + 2 * PAD
+    H = rh * max(len(v) for v in cols.values()) - gap + 2 * PAD
     pos = {}
     for c, ns in cols.items():
-        off = (H - len(ns) * rh) / 2
+        off = (H - len(ns) * rh + gap) / 2
         for i, n in enumerate(ns):
-            pos[n] = (40 + c * CW, off + i * rh + 12)
+            pos[n] = (PAD + c * CW, off + i * rh)
     out = [f'<svg class="dag__svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="group" '
            f'aria-label="{esc(label)}">']
     for a, b in edges:
@@ -352,22 +367,22 @@ def dag_svg(nodes, edges, label, prd=False):
         node = by[n]
         title = node["title"].replace("[AFK] PRD:", "").strip() if prd else node["title"]
         head, _, rest = title.partition("—")
-        # the mono line holds ~21 characters inside the box, "#N " included
-        head, rest = _short(head.strip(), max(21 - len(f"#{n} "), 8)), _short(rest.strip(), 26)
+        # the title line holds ~24 characters inside the box, "#N " included
+        head, rest = _short(head.strip(), max(24 - len(f"#{n} "), 8)), _short(rest.strip(), 25)
         st = node["state"]
         extra = f' data-prd="{n}" data-layer="{node["layer"]}"' if prd else f' data-layer="{node["layer"]}"'
         sub = rest or NODE_LABEL.get(st, st)
         stat = ""
         if node.get("stats"):
-            stat = (f'<text class="dag__stat" x="{x + 14:g}" y="{y + 54:g}"{_stat_attrs(node["stats"])}>'
+            stat = (f'<text class="dag__stat" x="{x + 14:g}" y="{y + 50:g}"{_stat_attrs(node["stats"])}>'
                     f'{esc(_short(" · ".join(_stat_parts(node["stats"], True)), 32))}</text>')
         out.append(
             f'<a href="?issue={n}" data-issue="{n}"{extra} data-state="{esc(st)}" tabindex="0" '
             f'aria-label="#{n} {esc(title)} — {esc(NODE_LABEL.get(st, st))}">'
-            f'<rect class="dag__box" x="{x:g}" y="{y:g}" width="{BW}" height="{bh}" rx="4"/>'
-            f'<rect class="dag__bar" x="{x:g}" y="{y:g}" width="3.5" height="{bh}" rx="1.75"/>'
-            f'<text class="dag__num" x="{x + 14:g}" y="{y + 21:g}">#{n} {esc(head)}</text>'
-            f'<text class="dag__sub" x="{x + 14:g}" y="{y + 38:g}">{esc(sub)}</text>{stat}</a>')
+            f'<rect class="dag__box" x="{x:g}" y="{y:g}" width="{BW}" height="{bh}" rx="6"/>'
+            f'<rect class="dag__bar" x="{x + 0.75:g}" y="{y + 0.75:g}" width="4" height="{bh - 1.5:g}" rx="2"/>'
+            f'<text class="dag__num" x="{x + 14:g}" y="{y + 20:g}"><tspan class="dag__id">#{n}</tspan> {esc(head)}</text>'
+            f'<text class="dag__sub" x="{x + 14:g}" y="{y + 36:g}">{esc(sub)}</text>{stat}</a>')
     out.append("</svg>")
     return "".join(out)
 
@@ -415,7 +430,7 @@ def unit_regions(u, now):
     return {f"dag-{u['slug']}": f"""<section data-region="dag-{slug}" class="panel unit" aria-labelledby="unit-{slug}">
 <header class="panel__header">
 <h2 class="panel__title" id="unit-{slug}"><span class="mono">{slug}</span></h2>
-{asof_stamp(u["asof"], now)}
+<span class="panel__meta">{asof_stamp(u["asof"], now)}</span>
 </header>
 <div class="panel__body stack">
 {dag}
@@ -489,15 +504,17 @@ def fleet(view, now, issue=None):
     """/fleet/<prefix>: per unit (repo), the PRD → issue map as a layered DAG + the unparented list.
     <issue> (an issue_view) opens its drawer on first paint — outside every region, so no push closes it."""
     regs = fleet_regions(view, now)
-    header, units = regs.pop("header"), "\n".join(regs.values())
-    legend = "".join(f"<li>{_pill(s)}</li>" for s in ("closed", "agent-blocked", "in-progress", "in-review",
-                                                      "blocked", "open"))
+    header, awaiting = regs.pop("header"), regs.pop("awaiting")
+    units = "\n".join(regs.values())
+    legend = "".join(f'<li data-state="{s}"><span class="dag-legend__swatch"></span>{esc(NODE_LABEL[s])}</li>'
+                     for s in ("closed", "in-progress", "in-review", "blocked", "agent-blocked", "open"))
     body = f"""{header}
+{awaiting}
 <ul class="dag-legend" aria-label="Issue states">{legend}</ul>
 {units or '<p class="muted">This fleet serves no repos.</p>'}
 <div data-drawer-host>{drawer(issue, now) if issue else ""}</div>"""
     return page(f"Fleet {view['prefix']}", body, view["asof"], now, crumbs=[(f"Fleet {view['prefix']}", None)],
-                view=f"/fleet/{view['prefix']}", ver=version(dict(regs, header=header)))
+                view=f"/fleet/{view['prefix']}", ver=version(dict(regs, header=header, awaiting=awaiting)))
 
 
 # --- the issue drawer (#228) ---------------------------------------------------------------------
@@ -531,6 +548,12 @@ def _timeline(events, now):
         items.append(f'<li data-event="{esc(e.get("event"))}"><span class="drawer__when">{when}</span> '
                      f'<span class="mono">{esc(e.get("event"))}</span>{detail}</li>')
     return f'<ol class="drawer__timeline">{"".join(items)}</ol>'
+
+
+def _kv(*rows):
+    """A field's key/value rows: the key a fixed quiet column, so the values line up (#231)."""
+    return '<div class="drawer__kv">' + "".join(f'<span class="drawer__key">{k}</span><span>{v}</span>'
+                                                for k, v in rows) + "</div>"
 
 
 def _field(name, label, body):
@@ -575,14 +598,14 @@ def drawer(v, now):
         sess = '<p class="muted" data-session="none">No live session.</p>'
     return f"""<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-issue="{n}" data-repo="{esc(slug)}" tabindex="-1">
 <header class="drawer__header">
-<h2 class="drawer__title" id="drawer-title"><span class="mono">#{n}</span> {esc(v["title"])}</h2>
+<h2 class="drawer__title" id="drawer-title"><span class="drawer__num">#{n}</span> {esc(v["title"])}</h2>
 <button type="button" class="btn btn--ghost btn--sm" data-drawer-close aria-label="Close issue #{n}">Close</button>
 </header>
 <p class="drawer__meta"><span class="mono muted">{esc(slug)}</span> {_pill(v["state"])}{asof_stamp(v["asof"], now)}</p>
 <dl class="drawer__fields">
 {_field("labels", "Labels", labels)}
-{_field("deps", "Blocked by · Parent", f'{deps}<p class="drawer__parent">Parent {parent}</p>')}
-{_field("pr", "PR · CI", f'<p>{pr_html}</p><p>CI {ci_html}</p>')}
+{_field("deps", "Dependencies", _kv(("Blocked by", deps), ("Parent", parent)))}
+{_field("pr", "Pull request", _kv(("PR", pr_html), ("CI", ci_html)))}
 {_field("session", "Session", sess + _timeline(v["timeline"], now))}
 {_field("github", "On GitHub", f'<a href="{esc(v["url"])}">{esc(slug)}#{n}</a>')}
 </dl>
