@@ -59,8 +59,9 @@ SUP_UNIT_DIR="${HARNESS_SUPERVISE_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/sy
 SUP_UNIT=harness-supervise.service
 SUP_SYSTEMCTL="${HARNESS_SUPERVISE_SYSTEMCTL:-systemctl}"
 SUP_LOGINCTL="${HARNESS_SUPERVISE_LOGINCTL:-loginctl}"
-# Usage / credit / rate-limit messages: such a pane is parked by the account, not frozen (#120).
-SUP_LIMIT_RE='limit reached|usage limit|resets (at|in)|rate.limit|out of (extra )?usage|out of (usage )?credits|hit your [a-z]+ limit|Stop and wait for limit to reset'
+# Usage / credit / rate-limit messages: such a pane is parked by the account, not frozen (#120). A
+# CLI-neutral net, widened per pane by its adapter's own limit strings (sup_limit_re).
+SUP_LIMIT_RE='limit reached|usage limit|resets (at|in)|rate.limit|out of (extra )?usage|out of (usage )?credits|hit your [a-z]+ limit'
 SUP_NUDGE_MSG="harness supervise: no activity for a while. If your goal is met, finish it now (push, PR, labels); if you are waiting on background work, check it and report; otherwise continue the task."
 SUP_EXTRA_MSG="harness supervise: no activity for a while. If an API/network error or a broken wake-up cut you off, resume your task now; if you are waiting on background work, check it, report, and keep your wake-ups going."
 SUP_DRY=0 SUP_ONCE=0
@@ -70,20 +71,34 @@ sup_act(){ if (( SUP_DRY )); then sup_log "DRY $*"; else sup_log "ACT $*"; "$@" 
 sup_alive(){ [[ -f $1 ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
 # --- how each agent CLI's pane reads: the CLI adapters (scripts/cli/, #188) ----------------------
-# sup_prompt_re <cli> — a line that IS the idle input prompt. Everything above the first such line
-# is the "screen"; a pane with no such line is a dialog or menu and is never typed into.
-# HARNESS_SUPERVISE_PROMPT_RE overrides it for every CLI. A pane whose command has no adapter is
-# read as claude's.
+# sup_cli <cli> — <cli> when it has an adapter, else the default CLI (cli_name): every pane
+# function below reads the pane through that adapter.
+sup_cli(){ if cli_list | grep -qxF -- "$1"; then echo "$1"; else cli_name; fi; }
+# sup_prompt_re <cli> — a line that IS the idle input prompt. Everything above the LAST such line
+# is the "screen" (sup_prompt_line); a pane with no such line is a dialog or menu and is never typed
+# into. HARNESS_SUPERVISE_PROMPT_RE overrides it for every CLI.
 sup_prompt_re(){
   [[ -n "${HARNESS_SUPERVISE_PROMPT_RE:-}" ]] && { echo "$HARNESS_SUPERVISE_PROMPT_RE"; return; }
-  cli_with "$1" cli_idle_re 2>/dev/null || cli_with claude cli_idle_re; }
+  cli_with "$(sup_cli "$1")" cli_idle_re; }
+# sup_prompt_line <cli> <pane> — line number of the last idle-prompt line, 0 if none.
+sup_prompt_line(){ printf '%s\n' "$2" | grep -nE -- "$(sup_prompt_re "$1")" | tail -1 | cut -d: -f1 | grep . || echo 0; }
 # sup_dialog <cli> <pane> — a dialog owns the pane (agy's trust dialog shows a `>` line at column 0).
-sup_dialog(){ cli_with "$1" cli_pane_dialog "$2" 2>/dev/null || cli_with claude cli_pane_dialog "$2"; }
+sup_dialog(){ cli_with "$(sup_cli "$1")" cli_pane_dialog "$2"; }
 # sup_bg_re <cli> — the footer's background-agent / shell timers and token counters; one moving
-# means work is in flight even though the screen above the prompt is still.
-sup_bg_re(){ echo '[0-9]+h [0-9]+m [0-9]+s|[0-9]+m [0-9]+s|↓ [0-9.]+k tokens'; }
+# means work is in flight even though the screen above the prompt is still. '' = the CLI has none.
+sup_bg_re(){ cli_with "$(sup_cli "$1")" cli_bg_re; }
+# sup_limit_re <cli> — the CLI-neutral SUP_LIMIT_RE plus the CLI's own limit and limit-menu strings.
+sup_limit_re(){ local c re x; c=$(sup_cli "$1"); re=$SUP_LIMIT_RE
+  for x in "$(cli_with "$c" cli_limit_re)" "$(cli_with "$c" cli_limit_menu_re)"; do [[ -n $x ]] && re="$re|$x"; done
+  echo "$re"; }
 # sup_agent_cmds — pane_current_command values that are agent CLIs (for the EXTRA_RE panes).
 sup_agent_cmds(){ local c; for c in $(cli_list); do basename "$(cli_with "$c" cli_bin)"; done | paste -sd'|'; }
+# sup_cmd_cli <pane command> — the CLI whose binary that is (EXTRA_RE panes); the command itself if none.
+sup_cmd_cli(){ local c; for c in $(cli_list); do
+    [[ $(basename "$(cli_with "$c" cli_bin)") == "$1" ]] && { echo "$c"; return; }; done; echo "$1"; }
+# sup_agent_bins — every agent CLI's binary, the default CLI's first (the unit's PATH must reach
+# whichever a fleet runs, and the default one wins a directory-order tie).
+sup_agent_bins(){ local c; cli_bin; for c in $(cli_list); do cli_with "$c" cli_bin; done; }
 
 # sup_tree_cpu <pid> — total CPU seconds used by a process and all its descendants.
 sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
@@ -95,16 +110,18 @@ sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
 # supervise_rules.pane_activity reads this format for `harness web` (#225): change both together.
 sup_watch_pane(){
   local t=$1 f=$2 nudge_min=$3 kill_min=$4 msg=$5 cli=$6 killfn=${7:-}
-  local pane pre body bg cpu now old= oldbg= oldcpu=0 t0 nudged=0 lastn=0 idle
+  local pane n bgre body bg cpu now old= oldbg= oldcpu=0 t0 nudged=0 lastn=0 idle
   pane=$(tmux capture-pane -p -t "$t" 2>/dev/null) || return 0
+  cli=$(sup_cli "$cli")
   # #207: one endless turn with input queued behind it. The spinner's timer changes every second, so
-  # the activity test below would call it busy forever — it is checked first.
-  if turn_should_interrupt "$pane" "$SUP_STATE/turn/${f##*/}"; then
-    sup_turn_interrupt "$t" "$pane" "$SUP_STATE/turn/${f##*/}"; return 0
+  # the activity test below would call it busy forever — it is checked first, through the pane's CLI.
+  if cli_with "$cli" turn_should_interrupt "$pane" "$SUP_STATE/turn/${f##*/}"; then
+    cli_with "$cli" sup_turn_interrupt "$t" "$pane" "$SUP_STATE/turn/${f##*/}"; return 0
   fi
-  now=$(date +%s); t0=$now; pre=$(sup_prompt_re "$cli")
-  body=$(sed -E "\%$pre%,\$d" <<<"$pane" | md5sum | cut -c1-12)
-  bg=$(sed -nE "\%$pre%,\$p" <<<"$pane" | grep -oE "$(sup_bg_re "$cli")" | md5sum | cut -c1-12)
+  now=$(date +%s); t0=$now; n=$(sup_prompt_line "$cli" "$pane"); bgre=$(sup_bg_re "$cli")
+  (( n > 0 )) || n=$(( $(wc -l <<<"$pane") + 1 ))                  # no prompt: it is all screen
+  body=$(awk -v n="$n" 'NR < n' <<<"$pane" | md5sum | cut -c1-12)
+  bg=$(awk -v n="$n" 'NR >= n' <<<"$pane" | { [[ -n $bgre ]] && grep -oE -- "$bgre"; } | md5sum | cut -c1-12)
   cpu=$(sup_tree_cpu "$(tmux display -p -t "$t" '#{pane_pid}' 2>/dev/null)")
   mkdir -p "$(dirname "$f")"
   [[ -f $f ]] && read -r old oldbg oldcpu t0 nudged lastn <"$f"
@@ -113,9 +130,9 @@ sup_watch_pane(){
   fi
   echo "$body $bg $cpu $t0 $nudged $lastn" >"$f"                   # quiet: keep the CPU baseline current
   idle=$(( (now - t0) / 60 ))
-  grep -qE "$pre" <<<"$pane" || return 0                            # dialog/menu, not an idle prompt
+  (( $(sup_prompt_line "$cli" "$pane") > 0 )) || return 0           # dialog/menu, not an idle prompt
   sup_dialog "$cli" "$pane" && return 0
-  grep -qiE "$SUP_LIMIT_RE" <<<"$(tail -40 <<<"$pane")" && return 0 # parked at a usage limit
+  grep -qiE "$(sup_limit_re "$cli")" <<<"$(tail -40 <<<"$pane")" && return 0 # parked at a usage limit
   if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
     "$killfn" "${t%%:*}" "$idle" "$pane" && rm -f "$f"
   elif (( idle >= nudge_min && nudged == 0 && now - lastn >= RENUDGE_S )); then
@@ -128,8 +145,8 @@ sup_watch_pane(){
 }
 
 # sup_turn_interrupt <tmux target> <pane text> <turn state file> — #207: Escape the endless turn, wait
-# for `Interrupted`, then Enter so the queued nudges are delivered. A fleet session (lib.sh loaded)
-# also gets a turn_interrupted event for `harness stats`.
+# for it to end (turn_interrupt), then Enter so the queued nudges are delivered. A fleet session
+# (lib.sh loaded) also gets a turn_interrupted event for `harness stats`.
 sup_turn_interrupt(){ local t=$1 pane=$2 tf=$3 secs
   secs=$(turn_secs "$pane")
   sup_log "turn: $t has run one turn for ${secs}s with input queued behind it — Escape, then Enter"
@@ -317,7 +334,7 @@ sup_check_fleet(){ local sd=$1
 sup_check_extra(){ local t cmd
   [[ -n $EXTRA_RE ]] || return 0
   while read -r t cmd; do
-    sup_watch_pane "$t" "$SUP_STATE/panes/x_$(tr ':.' '__' <<<"$t")" "$EXTRA_MIN" 0 "$SUP_EXTRA_MSG" "$cmd"
+    sup_watch_pane "$t" "$SUP_STATE/panes/x_$(tr ':.' '__' <<<"$t")" "$EXTRA_MIN" 0 "$SUP_EXTRA_MSG" "$(sup_cmd_cli "$cmd")"
   done < <(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}' 2>/dev/null \
            | awk -v re="$EXTRA_RE" -v cmds="^($(sup_agent_cmds))\$" '$2 ~ cmds { split($1,a,":"); if (a[1] ~ re) print }')
 }
@@ -365,7 +382,7 @@ sup_pass(){ local sd
 # start` it may run) needs. systemd hands a user unit a bare PATH, and a missing `rtdd` there
 # silently downgrades every relaunched lane to the full test suite.
 sup_unit_path(){ local b p out=()
-  for b in claude agy gh rtdd tmux git python3 curl; do
+  for b in $(sup_agent_bins) gh rtdd tmux git python3 curl; do
     p=$(command -v "$b" 2>/dev/null) && [[ $p == /* ]] && out+=("$(dirname "$p")")
   done
   out+=("$HOME/.local/bin" /usr/local/bin /usr/bin /bin)
@@ -375,7 +392,7 @@ sup_unit_path(){ local b p out=()
 # up, are children of this unit. systemd's default control-group kill would take every one of them
 # down with the supervisor on each restart — and `harness update` restarts it.
 sup_install(){ local b unit="$SUP_UNIT_DIR/$SUP_UNIT"
-  for b in claude gh rtdd; do
+  for b in "$(cli_bin)" gh rtdd; do
     command -v "$b" >/dev/null 2>&1 && continue
     echo "WARNING: '$b' is not on PATH, so the supervisor's unit cannot find it$([[ $b == rtdd ]] && echo ' — relaunched lanes silently fall back to full test suites')" >&2
   done

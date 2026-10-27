@@ -1,6 +1,10 @@
 # claude.sh — the Claude Code adapter (#188). Facts: docs/cli-capabilities.md § `claude`; panes:
 # test/fixtures/cli/claude/. Loaded by dispatch.sh; defines claude_<fn> for the cli_* interface.
 
+: "${HARNESS_CLAUDE_BIN:=claude}"
+: "${HARNESS_CLAUDE_FLAGS:=--dangerously-skip-permissions --effort high}"
+export HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS
+
 claude_bin(){ echo "${CLAUDE_BIN:-${HARNESS_CLAUDE_BIN:-claude}}"; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
@@ -25,6 +29,21 @@ claude_limit_re(){ echo 'hit your [a-z]+ limit|usage limit reached|limit reached
 claude_limit_menu_re(){ echo 'Stop and wait for limit to reset'; }
 claude_transient_re(){ echo 'API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|[^0-9])(429|500|502|503|529)([^0-9]|$)'; }
 claude_dialog_re(){ echo 'Yes, I trust this folder|Enter to confirm · Esc to cancel'; }
+# The footer's background-agent / shell timers and token counters; one moving means work is in
+# flight even though the screen above the prompt is still (supervise.sh).
+claude_bg_re(){ echo "$(_cli_default_bg_re)|↓ [0-9.]+k tokens"; }
+
+# --- the running turn (#207, turn.sh) ---------------------------------------------------------
+# The spinner's timer above the input box: "✻ Running… (21h 3m 12s · ↓ 4.2k tokens · esc to
+# interrupt)". The " ·" after the timer is what separates the spinner from a tool line's own "(32s)".
+claude_turn_secs(){ local n
+  n=$(cli_pane_prompt_line "$1")
+  printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
+    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
+           s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
+         END { print s + 0 }'; }
+# Escape ends the turn with "⎿  Interrupted · What should Claude do instead?".
+claude_interrupted_re(){ echo 'Interrupted'; }
 
 # --- workspace trust (#67) ----------------------------------------------------------------------
 # Claude Code reads workspace trust from $CLAUDE_CONFIG_DIR/.claude.json when that var is set, else
@@ -165,23 +184,51 @@ for f in sorted(glob.glob(os.path.join(os.environ["USAGE_DIR"], "*.json"))):
         print(f"{acct}\t{win}\t{w['used_percentage']}\t{reset}")
 PY
 }
+# usage_statusline_install <dir> — point a claude worktree's status line at usage-statusline.sh,
+# only when no statusLine is set there already.
+usage_statusline_install(){ local dir="$1"
+  mkdir -p "$dir/.claude" "$(_usage_dir)"
+  F="$dir/.claude/settings.local.json" CMD="bash '$ENGINE_DIR/scripts/usage-statusline.sh' '$(_usage_dir)'" python3 - <<'PY'
+import json, os, tempfile
+f = os.environ["F"]
+try:
+    with open(f) as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except (FileNotFoundError, ValueError):
+    data = {}
+if "statusLine" not in data:
+    data["statusLine"] = {"type": "command", "command": os.environ["CMD"]}
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".settings.harness.")
+    with os.fdopen(fd, "w") as fh:
+        json.dump(data, fh, indent=2)
+    os.replace(tmp, f)
+PY
+}
 claude_usage_setup(){ usage_statusline_install "$1"; }
 
 # --- prerequisites ------------------------------------------------------------------------------
 # The binary, plus the plugins every lane needs: ralph-loop (the goal loop's Stop hook) and
 # superpowers (the skills the prompts name). --install installs what is missing.
-claude_prereqs(){ local bin rc=0 p f
+# HARNESS_MARKETPLACE / HARNESS_MARKETPLACE_NAME name the marketplace they come from (install.sh).
+claude_prereqs(){ local bin rc=0 p f mk="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
   bin="$(claude_bin)"
   if command -v "$bin" >/dev/null; then echo "ok      claude binary ($bin)"
   else echo "MISSING claude binary ($bin): curl -fsSL https://claude.ai/install.sh | bash"; return 1; fi
+  [[ "${1:-}" == --install ]] &&
+    "$bin" plugin marketplace add "${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}" >/dev/null 2>&1
   for p in ralph-loop superpowers; do
     f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
     if [[ -f "$f" ]] && P="$p" F="$f" python3 -c 'import json,os,sys
 d = json.load(open(os.environ["F"])).get("plugins", {})
 sys.exit(0 if any(k.split("@")[0] == os.environ["P"] for k in d) else 1)' 2>/dev/null; then
       echo "ok      claude plugin $p"
-    elif [[ "${1:-}" == --install ]] && "$bin" plugin install "$p@claude-plugins-official" --scope user >/dev/null 2>&1; then
+    elif [[ "${1:-}" == --install ]] && "$bin" plugin install "$p@$mk" --scope user >/dev/null 2>&1; then
       echo "ok      claude plugin $p (installed)"
-    else echo "MISSING claude plugin $p: $bin plugin install $p@claude-plugins-official"; rc=1; fi
+    else echo "MISSING claude plugin $p: $bin plugin install $p@$mk"; rc=1; fi
   done
+  # ralph-loop's Stop hook must be executable, or the goal loop never re-feeds the task.
+  [[ "${1:-}" == --install ]] && find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache" \
+    -path '*/ralph-loop/*/hooks/*.sh' -exec chmod +x {} \; 2>/dev/null
   return $rc; }

@@ -47,6 +47,12 @@ _cli_default_transcripts(){ :; }
 _cli_default_usage(){ :; }
 _cli_default_limit_usage(){ return 1; }
 _cli_default_usage_setup(){ :; }
+_cli_default_turn_secs(){ :; }
+_cli_default_interrupted_re(){ :; }
+# Elapsed-time shapes ("1h 2m 3s", "4m 5s") in the footer: a background job's running timer.
+_cli_default_bg_re(){ echo '[0-9]+h [0-9]+m [0-9]+s|[0-9]+m [0-9]+s'; }
+_cli_default_runnable(){ "$(cli_bin)" --version >/dev/null 2>&1; }
+_cli_default_uninstall(){ :; }
 
 # --- the interface ------------------------------------------------------------------------------
 cli_bin(){ _cli_call bin "$@"; }                       # the executable
@@ -74,6 +80,11 @@ cli_transcripts(){ _cli_call transcripts "$@"; }       # <wd> <session id> → t
 cli_usage(){ _cli_call usage "$@"; }                   # <transcript>… → <model>\t<in>\t<out>\t<cache_read>\t<cache_write>
 cli_usage_setup(){ _cli_call usage_setup "$@"; }       # <wd> → wire the worktree so cli_limit_usage can see it
 cli_prereqs(){ _cli_call prereqs "$@"; }               # [--install] → one line per prerequisite; rc 1 = one missing
+cli_runnable(){ _cli_call runnable; }                  # 0 iff the installed binary actually runs
+cli_uninstall(){ _cli_call uninstall; }                # remove what Harness installed into the CLI (best-effort)
+cli_turn_secs(){ _cli_call turn_secs "$@"; }           # <pane> → seconds the running turn has taken; 0 = no turn; '' = no turn timer
+cli_interrupted_re(){ _cli_call interrupted_re; }      # ERE: the line an interrupted turn prints ('' = none: wait for not-busy)
+cli_bg_re(){ _cli_call bg_re; }                        # ERE: footer timers/counters that move while work runs
 # cli_limit_usage — `<account>\t<window>\t<pct used>\t<resets_at>` lines; rc 1 = unavailable.
 # HARNESS_USAGE_CMD overrides the adapter for ANY CLI (an operator's own source, and the test stub).
 cli_limit_usage(){
@@ -86,6 +97,14 @@ _cli_re_hits(){ [[ -n "$1" ]] && printf '%s\n' "$2" | grep -qE -- "$1"; }
 cli_pane_busy(){ _cli_re_hits "$(cli_busy_re)" "$1"; }
 # cli_pane_prompt <pane> — the pane shows the input prompt and no dialog owns it.
 cli_pane_prompt(){ _cli_re_hits "$(cli_idle_re)" "$1" && ! cli_pane_dialog "$1"; }
+# cli_pane_prompt_line <pane> — line number of the LAST input-prompt line, 0 if none. The last one:
+# a CLI that echoes each submitted prompt at the prompt's own column (agy) leaves earlier matches
+# in the scrollback above the live input box.
+cli_pane_prompt_line(){ local re; re="$(cli_idle_re)"; [[ -n "$re" ]] || { echo 0; return; }
+  printf '%s\n' "$1" | grep -nE -- "$re" | tail -1 | cut -d: -f1 | grep . || echo 0; }
+# cli_prompt_text <line> — a prompt line with the prompt itself stripped: the text typed into it.
+cli_prompt_text(){ local re; re="$(cli_idle_re)"
+  if [[ -n "$re" && $1 =~ $re ]]; then printf '%s\n' "${1#"${BASH_REMATCH[0]}"}"; else printf '%s\n' "$1"; fi; }
 # cli_pane_dialog <pane> — a dialog owns the pane. Only its foot is read: a dialog is drawn at the
 # bottom, and the same words higher up are scrollback (an agent quoting them), not a dialog.
 cli_pane_dialog(){ _cli_re_hits "$(cli_dialog_re)" "$(printf '%s\n' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | tail -n 15)"; }

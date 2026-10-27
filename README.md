@@ -231,6 +231,12 @@ ln -sfn "$HOME/toolchains/sdk" ./sdk     # symlink big untracked deps, never cop
 
 Keep it **idempotent** — it may run against a reused path. Failures are logged and swallowed: the session still launches, because a hard failure here would strand the issue under `agent-working` with no session to work it. Empty (the default) is a true no-op.
 
+The hook can also pick the lane's **model and effort**: write `model=<m>` and/or `effort=<e>` lines to `.harness-lane` in the worktree. Harness passes them to the CLI adapter's launch line (`--model` / `--effort`, replacing the configured flags' own), so they apply on every CLI, and keeps the file out of the lane's commits:
+
+```sh
+printf 'model=sonnet\neffort=medium\n' > .harness-lane
+```
+
 ### Parallel-lane merge safety
 
 Workers branch off the default branch independently and merge back independently, so by the time a lane is ready its base has usually moved. A suite that went green on a lane's branch only proves that change against the base it *started* from, and a conflict-free text merge can still be semantically broken — another lane edited the same function, moved a helper's contract, or rebuilt an artifact the tests load.

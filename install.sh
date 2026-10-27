@@ -7,56 +7,40 @@ set -uo pipefail
 HARNESS_REPO_URL="${HARNESS_REPO_URL:-https://github.com/VocanicZ/Harness.git}"
 HARNESS_HOME="${HARNESS_HOME:-${HOME:-}/.harness}"           # host root for the shared engine (+ PRD-B subdirs)
 HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-${HOME:-}/.local/bin}"   # where the `harness` PATH symlink is placed
-HARNESS_MARKETPLACE="${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}"
-HARNESS_MARKETPLACE_NAME="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
 MATTPOCOCK_SKILLS_URL="${MATTPOCOCK_SKILLS_URL:-https://github.com/mattpocock/skills.git}"
 VOCANICZ_TOOLS_URL="${VOCANICZ_TOOLS_URL:-https://github.com/VocanicZ/vocanicz-ai-tools.git}"
 RTDD_INSTALL_SPEC="${RTDD_INSTALL_SPEC:-github:VocanicZ/rtdd}"   # upstream's own installer, run via npx
 
 need(){ command -v "$1" >/dev/null 2>&1; }
-# agy_bin — the agy binary, resolved through HARNESS_AGY_BIN like the rest of the engine (lib.sh:48,
-# uninstall.sh). Read at CALL time, not source time, so a caller that sets it after sourcing this
-# file (test_install.sh, update.sh's environment) is honoured (#240). A name that does not resolve
-# reads as "agy absent" everywhere below.
-agy_bin(){ printf '%s' "${HARNESS_AGY_BIN:-agy}"; }
+# _load_cli_seam — source the agent CLI adapters (scripts/cli/dispatch.sh, #188): every CLI fact —
+# binary, plugins, skills dir — is the adapter's, never this file's. This checkout's copy when
+# install.sh runs from one, else the placed engine's (a piped install has no checkout to read).
+_load_cli_seam(){ local d
+  declare -F cli_list >/dev/null && return 0
+  for d in "$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd)" "${HARNESS_HOME:-$HOME/.harness}/engine"; do
+    [[ -f "$d/scripts/cli/dispatch.sh" ]] && { source "$d/scripts/cli/dispatch.sh"; return 0; }
+  done
+  return 1; }
+_load_cli_seam
+# _host_clis — every CLI with an adapter whose binary is on this host. Binaries are resolved at CALL
+# time through the adapter (HARNESS_<CLI>_BIN), so a caller that sets one after sourcing this file
+# (test_install.sh, update.sh's environment) is honoured (#240); a name that does not resolve reads
+# as that CLI being absent.
+_host_clis(){ local c; declare -F cli_list >/dev/null || return 0
+  for c in $(cli_list); do need "$(cli_with "$c" cli_bin)" && echo "$c"; done; return 0; }
 check_prereqs(){
-  local ok=1
+  local ok=1 c any=
   for b in git tmux python3; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
   if ! need gh; then echo "MISSING: gh (install: https://cli.github.com)" >&2; ok=0
   elif ! gh auth status >/dev/null 2>&1; then echo "gh not authenticated — run: gh auth login" >&2; ok=0; fi
-  local agy; agy="$(agy_bin)"
-  if ! need claude && ! need "$agy"; then echo "MISSING: claude or agy (install Claude Code CLI or Antigravity CLI)" >&2; ok=0
-  elif need claude && ! claude --version >/dev/null 2>&1; then echo "claude present but not runnable (model configured?)" >&2; ok=0
-  elif need "$agy" && ! "$agy" --version >/dev/null 2>&1; then echo "agy present but not runnable" >&2; ok=0; fi
-  [[ "$ok" == 1 ]]
-}
-
-_plugin_installed(){  # $1 = name@marketplace
-  local f="$HOME/.claude/plugins/installed_plugins.json"
-  [[ -f "$f" ]] && python3 -c "import json,sys
-d=json.load(open(sys.argv[1]))
-sys.exit(0 if sys.argv[2] in d.get('plugins',{}) else 1)" "$f" "$1" 2>/dev/null
-}
-_ensure_plugin(){  # $1 = plugin name
-  local ref="$1@$HARNESS_MARKETPLACE_NAME"
-  if _plugin_installed "$ref"; then echo "  ✓ plugin $ref already installed"; return 0; fi
-  echo "  installing plugin $ref ..."
-  claude plugin install "$ref" --scope user >/dev/null 2>&1 \
-    && echo "  ✓ installed $ref" \
-    || echo "  ! could not install $ref — install manually: claude plugin install $ref"
-}
-_agy_plugin_installed(){
-  "$(agy_bin)" plugin list 2>/dev/null | grep -q "\"$1\""
-}
-_ensure_agy_plugin(){
-  local name="$1" dir="$2" agy; agy="$(agy_bin)"
-  if _agy_plugin_installed "$name"; then echo "  ✓ agy plugin $name already installed"; return 0; fi
-  if [[ -d "$dir" ]]; then
-    echo "  installing agy plugin $name ..."
-    "$agy" plugin install "$dir" >/dev/null 2>&1 \
-      && echo "  ✓ installed agy plugin $name" \
-      || echo "  ! could not install agy plugin $name — install manually: $agy plugin install $dir"
+  if declare -F cli_list >/dev/null; then       # no adapters yet (a piped install): main re-checks after place_engine
+    for c in $(_host_clis); do
+      any=1
+      cli_with "$c" cli_runnable || { echo "$c present but not runnable ($(cli_with "$c" cli_bin))" >&2; ok=0; }
+    done
+    [[ -n "$any" ]] || { echo "MISSING: an agent CLI — install one of: $(cli_list | xargs)" >&2; ok=0; }
   fi
+  [[ "$ok" == 1 ]]
 }
 # ensure_rtdd — install the coverage-derived test selector the IMPL/bug-fix/resume prompts use AS
 # their test loop, in place of two full-suite runs per lane. Its own function because BOTH entry
@@ -103,21 +87,16 @@ ensure_rtdd(){
   rm -f "$rtdd_log"
 }
 ensure_skills(){
-  echo "ensuring required Claude plugins + skills (best-effort) ..."
-  if need claude; then
-    claude plugin marketplace add "$HARNESS_MARKETPLACE" >/dev/null 2>&1 || true
-    _ensure_plugin superpowers
-    _ensure_plugin ralph-loop
-    find "$HOME/.claude/plugins/cache" -path '*/ralph-loop/*/hooks/*.sh' -exec chmod +x {} \; 2>/dev/null || true
-  else
-    echo "  ! 'claude' CLI not found — install superpowers + ralph-loop plugins manually"
-  fi
-  if need "$(agy_bin)"; then
-    echo "ensuring required Antigravity plugins + skills (best-effort) ..."
-    local agy_plugin_dir="${HARNESS_HOME:-$HOME/.harness}/engine/plugins/ralph-loop"
-    [[ -d "$agy_plugin_dir" ]] || agy_plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugins/ralph-loop"
-    _ensure_agy_plugin harness-ralph "$agy_plugin_dir"
-  fi
+  # Each agent CLI on this host gets the plugins its lanes need, installed by its own adapter
+  # (cli_prereqs --install). Harness's own plugins come from the placed engine's plugins/ when there
+  # is one (HARNESS_ENGINE_PLUGINS): that copy outlives the checkout this script may be running from.
+  local c any= plugins="${HARNESS_HOME:-$HOME/.harness}/engine/plugins"
+  [[ -d "$plugins" ]] || plugins="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugins"
+  for c in $(_host_clis); do
+    any=1; echo "ensuring the $c CLI's plugins (best-effort) ..."
+    HARNESS_ENGINE_PLUGINS="$plugins" cli_with "$c" cli_prereqs --install 2>&1 | sed 's/^/  /'
+  done
+  [[ -n "$any" ]] || echo "  ! no agent CLI found — install one, then re-run to provision its plugins"
   local sk="$HOME/.claude/skills"
   if [[ -d "$sk/to-prd" && -d "$sk/to-issues" ]]; then
     echo "  ✓ matt-pocock skills (to-prd/to-issues) already present"
@@ -216,20 +195,24 @@ install_harness_skills(){
     mkdir -p "$dst/$(basename "$d")"; cp -R "$d." "$dst/$(basename "$d")/" && n=$((n+1))
   done
   echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
-  if [[ -z "${HARNESS_USER_SKILLS:-}" || -n "${HARNESS_AGY_USER_SKILLS:-}" ]]; then
-    local agy_dst="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}"
-    if need "$(agy_bin)" || [[ -d "$HOME/.gemini" ]]; then
-      mkdir -p "$agy_dst"
-      if [[ -f "$src/SKILL.md" ]]; then
-        mkdir -p "$agy_dst/harness"; cp "$src/SKILL.md" "$agy_dst/harness/SKILL.md"
-      fi
-      for d in "$src"/*/; do
-        [[ -f "$d/SKILL.md" ]] || continue
-        mkdir -p "$agy_dst/$(basename "$d")"; cp -R "$d." "$agy_dst/$(basename "$d")/"
-      done
-      echo "  ✓ installed $n /harness skill(s) into $agy_dst (agy user scope)"
+  # A CLI that reads user skills somewhere else (cli_user_skills_dir) gets its own copy, when it is
+  # installed or its config dir exists. A pinned HARNESS_USER_SKILLS is a sandbox: it never reaches
+  # into the real HOME's other CLI dirs.
+  local c cdst
+  for c in $(cli_list 2>/dev/null); do
+    cdst="$(cli_with "$c" cli_user_skills_dir)"; [[ -n "$cdst" ]] || continue
+    [[ -n "${HARNESS_USER_SKILLS:-}" && "$cdst" == "$HOME"/* ]] && continue
+    need "$(cli_with "$c" cli_bin)" || [[ -d "$(dirname "$cdst")" ]] || continue
+    mkdir -p "$cdst"
+    if [[ -f "$src/SKILL.md" ]]; then
+      mkdir -p "$cdst/harness"; cp "$src/SKILL.md" "$cdst/harness/SKILL.md"
     fi
-  fi
+    for d in "$src"/*/; do
+      [[ -f "$d/SKILL.md" ]] || continue
+      mkdir -p "$cdst/$(basename "$d")"; cp -R "$d." "$cdst/$(basename "$d")/"
+    done
+    echo "  ✓ installed $n /harness skill(s) into $cdst ($c user scope)"
+  done
 }
 
 # print_path_instructions — portability fallback when the PATH symlink can't be written: tell the
@@ -265,9 +248,12 @@ link_path(){
 
 main(){
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
+  place_engine || { echo "Engine install/update failed — see above; not finalizing." >&2; exit 1; }
+  if ! declare -F cli_list >/dev/null; then     # a piped install: the adapters arrived with the engine
+    _load_cli_seam && check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
+  fi
   ensure_skills
   ensure_rtdd
-  place_engine || { echo "Engine install/update failed — see above; not finalizing." >&2; exit 1; }
   create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path

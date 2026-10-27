@@ -7,6 +7,7 @@ ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-}}"   # this project's .harness/ (bin/harness discovers it); may be empty
 HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}"
 HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"
+_SKILLS_PINNED="${HARNESS_USER_SKILLS:+1}"   # an explicit skills dir is a sandbox (remove_skills)
 HARNESS_USER_SKILLS="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
 SHARED_ENGINE="$HARNESS_HOME/engine"
 PATH_LINK="$HARNESS_BIN_DIR/harness"
@@ -94,21 +95,23 @@ remove_skills(){
   done
   shopt -u nullglob
   echo "  removed $n /harness skill dir(s) from $HARNESS_USER_SKILLS"
-  if [[ -z "${HARNESS_USER_SKILLS:-}" || -n "${HARNESS_AGY_USER_SKILLS:-}" ]]; then
-    local agy_us="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}"
+  # Every CLI's own copy (cli_user_skills_dir) and whatever Harness installed into the CLI itself
+  # (cli_uninstall: agy's harness-ralph plugin, #236). lib.sh is sourced best-effort above, so the
+  # adapter seam is sourced on its own; a pinned HARNESS_USER_SKILLS (a sandbox) never reaches into
+  # the real HOME's other CLI dirs. Best-effort: a missing or failing binary never fails this.
+  declare -F cli_list >/dev/null || source "$ENGINE_DIR/scripts/cli/dispatch.sh" 2>/dev/null || return 0
+  local c us
+  for c in $(cli_list); do
+    us="$(cli_with "$c" cli_user_skills_dir)"
+    [[ -n "$us" ]] && ! [[ -n "$_SKILLS_PINNED" && "$us" == "$HOME"/* ]] || continue
     shopt -s nullglob
-    for d in "$agy_us"/harness "$agy_us"/harness-*; do
+    for d in "$us"/harness "$us"/harness-*; do
       [[ -e "$d" ]] || continue
       rm -rf "$d"
     done
     shopt -u nullglob
-  fi
-  # Resolve agy through HARNESS_AGY_BIN like the rest of the engine (lib.sh:48), read locally since
-  # lib.sh is sourced best-effort (#236). Best-effort: a missing or failing binary never fails this.
-  local agy_bin="${HARNESS_AGY_BIN:-agy}"
-  if command -v "$agy_bin" >/dev/null 2>&1; then
-    "$agy_bin" plugin uninstall harness-ralph >/dev/null 2>&1 || true
-  fi
+  done
+  for c in $(cli_list); do cli_with "$c" cli_uninstall >/dev/null 2>&1 || true; done
   return 0
 }
 

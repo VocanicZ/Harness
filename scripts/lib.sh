@@ -42,10 +42,6 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_ORCH_MAXITER:=8}"
 : "${HARNESS_INJECT_MAXITER:=15}"
 : "${HARNESS_SESS_PREFIX:=hz}"
-: "${HARNESS_CLAUDE_BIN:=claude}"
-: "${HARNESS_CLAUDE_FLAGS:=--dangerously-skip-permissions --effort high}"
-: "${HARNESS_AGY_BIN:=agy}"
-: "${HARNESS_AGY_FLAGS:=--dangerously-skip-permissions --effort high}"
 : "${HARNESS_LABEL_READY:=ready-for-agent}"
 : "${HARNESS_LABEL_PRD:=prd}"
 : "${HARNESS_LABEL_WORKING:=agent-working}"
@@ -65,7 +61,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
-: "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire claude worktrees' status line to report usage windows; 0 = off
+: "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire each worktree to report its usage windows (cli_usage_setup); 0 = off
 : "${HARNESS_GH_RATE_GUARD:=1}"          # #183: 1 = sleep through a GitHub rate limit + hold claims on a low budget; 0 = off
 : "${HARNESS_GH_BUDGET_PCT:=20}"         # #183: below this % of the token's core/graphql budget, claim nothing new until the reset
 : "${HARNESS_GH_RATE_TTL:=60}"           # #183: seconds a `gh api rate_limit` probe is reused across this host's workers
@@ -82,10 +78,10 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 # shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
 source "$(dirname "${BASH_SOURCE[0]}")/turn.sh"
 # #188: the agent CLI adapter seam — the only reader of the fleet's CLI setting (cli_* functions).
+# Each adapter defaults and exports its own config (HARNESS_<CLI>_BIN / _FLAGS) when it is sourced.
 source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
 
-export HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
-  HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
@@ -98,8 +94,6 @@ export HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS
 OWNER="$HARNESS_OWNER"
 CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
 IMPL_MAXITER="$HARNESS_IMPL_MAXITER"; ORCH_MAXITER="$HARNESS_ORCH_MAXITER"
-CLAUDE_BIN="$HARNESS_CLAUDE_BIN"; CLAUDE_FLAGS="$HARNESS_CLAUDE_FLAGS"
-AGY_BIN="$HARNESS_AGY_BIN"; AGY_FLAGS="$HARNESS_AGY_FLAGS"
 CLAIMS_DIR="${CLAIMS_DIR:-$RUN_DIR/claims}"
 POOL_LOCK="${POOL_LOCK:-$RUN_DIR/pool.lock}"
 PAUSE_FLAG="${PAUSE_FLAG:-$RUN_DIR/PAUSED}"
@@ -145,6 +139,24 @@ run_worktree_hook(){
   log "worktree hook: $hook ($wd)"
   ( cd "$wd" && "$hook" "$wd" ) || log "worktree hook FAILED in $wd — launching anyway"
 }
+# lane_setting <wd> <model|effort> — the lane's own model or effort, as the worktree hook set it:
+# a `model=<m>` / `effort=<e>` line in <wd>/.harness-lane (empty = the CLI's default). The file is
+# CLI-neutral; launch_agent hands both to cli_launch, so every CLI launches the lane with them. It
+# is kept out of the lane's commits (info/exclude), like the bypass settings.
+HARNESS_LANE_FILE=.harness-lane
+lane_setting(){ local f="$1/$HARNESS_LANE_FILE" k v out=
+  [[ -f "$f" ]] || return 0
+  git_exclude "$1" "$HARNESS_LANE_FILE"
+  while IFS='=' read -r k v; do [[ "$k" == "$2" ]] && out="${v//[[:space:]]/}"; done < "$f"
+  printf '%s' "$out"; }
+# git_exclude <dir> <pattern> — add <pattern> to <dir>'s info/exclude (a worktree's own), once.
+git_exclude(){ local excl
+  # --git-path is relative to <dir> in a plain repo; this shell's cwd is not <dir>.
+  excl="$(cd "$1" && git rev-parse --git-path info/exclude 2>/dev/null)" || return 0
+  [[ -n "$excl" && "$excl" != /* ]] && excl="$1/$excl"
+  [[ -n "$excl" ]] || return 0
+  mkdir -p "$(dirname "$excl")"
+  grep -qxF "$2" "$excl" 2>/dev/null || echo "$2" >> "$excl"; }
 # ensure_trusted <dir> — pre-accept the agent CLI's workspace-trust dialog for <dir> so an autonomous
 # (headless) launch in a never-trusted tree doesn't block FOREVER at the "Do you trust the files in
 # this folder?" gate (#67). The skip-permissions flags suppress tool-permission prompts but NOT this
@@ -792,7 +804,7 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     limit_checkpoint_once "$sess" "$pane"
     n=$(( $(cat "$limitf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$limitf"
     if (( n == 1 || n % HARNESS_LIMIT_NUDGE_EVERY == 0 )); then
-      log "watchdog: $sess parked at idle ❯ by the usage limit (poll $n) — nudging to resume (#120)"
+      log "watchdog: $sess parked at its idle prompt by the usage limit (poll $n) — nudging to resume (#120)"
       (( n == 1 )) && stats_sess_event "$sess" rate_limited reset="$(limit_reset "$pane")"
       stats_sess_event "$sess" nudge reason=rate_limit
       _watchdog_limit_nudge "$sess"
@@ -807,13 +819,13 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
   if ! session_stalled "$pane"; then rm -f "$stallf"; return 0; fi
   n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
   if (( n >= HARNESS_STALL_RETRIES )); then
-    log "watchdog: $sess wedged at idle ❯ after a transient API error for $n polls — killing for reap → re-dispatch (#115)"
+    log "watchdog: $sess wedged at its idle prompt after a transient API error for $n polls — killing for reap → re-dispatch (#115)"
     stats_sess_event "$sess" watchdog_kill reason=transient_api_error
     cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true
     rm -f "$stallf"
   else
     echo "$n" > "$stallf"
-    log "watchdog: $sess wedged at idle ❯ after a transient API error (poll $n/$HARNESS_STALL_RETRIES) — nudging to resume (#115)"
+    log "watchdog: $sess wedged at its idle prompt after a transient API error (poll $n/$HARNESS_STALL_RETRIES) — nudging to resume (#115)"
     stats_sess_event "$sess" nudge reason=transient_api_error
     _watchdog_nudge "$sess"
   fi; }
@@ -1340,18 +1352,20 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
-  local line; line="$(cli_launch "$wd" "$uuid" "" "")"
+  local model effort line
+  model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
+  line="$(cli_launch "$wd" "$uuid" "$model" "$effort")"
   tmux send-keys -t "$sess" "$line" Enter
-  _launch_first_input "$sess"
+  _launch_first_input "$sess" "$effort"
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
     worktree="$wd" flags="$line" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
-# _launch_first_input <sess> — a CLI that cannot take its prompt or effort on the command line gets
-# them typed once its input prompt first shows (cli_first_input); every other CLI has none, and
-# this returns without polling the pane.
+# _launch_first_input <sess> [effort] — a CLI that cannot take its prompt or effort on the command
+# line gets them typed once its input prompt first shows (cli_first_input); every other CLI has
+# none, and this returns without polling the pane.
 _launch_first_input(){ local sess="$1" in i pane
-  in="$(cli_first_input "${HARNESS_EFFORT:-}")"; [[ -n "$in" ]] || return 0
+  in="$(cli_first_input "${2:-${HARNESS_EFFORT:-}}")"; [[ -n "$in" ]] || return 0
   for (( i = 0; i < 60; i++ )); do
     pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)"
     cli_pane_prompt "$pane" && ! cli_pane_busy "$pane" && break
