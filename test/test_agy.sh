@@ -112,7 +112,7 @@ assert_ok "session_limit_idle detects agy > prompt" cli_with agy session_limit_i
 
 # Test stall detection in session_stalled
 assert_ok "session_stalled detects Claude ❯ prompt on API Error" session_stalled $'API Error\n❯ '
-assert_ok "session_stalled detects agy > prompt on its retry give-up" cli_with agy session_stalled $'Model unavailable (attempt 10/10), retrying in 12s\n> '
+assert_ok "session_stalled detects agy > prompt on its retry give-up" cli_with agy session_stalled $'Agent execution terminated due to error.\n> '
 
 echo "=== Group 5: Setup & Start checks ==="
 FAKE_BIN_DIR="$RUN_DIR/fake_bin"
@@ -235,5 +235,58 @@ loop_file
 res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$WORK_DIR" "$RUN_DIR/agy-done.jsonl" | "$HOOK")"
 assert_ok "agy: the model's own promise ends the loop" grep -q '"decision": "allow"' <<< "$res"
 assert_no "agy: loop file removed on the model's promise" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
+
+echo "=== Group 8 (#256): usage cache, transient regex, session id ==="
+AGY_FIX="$HERE/fixtures/cli/agy"
+agy_usage_stub(){ printf '#!/bin/sh\nexec cat %q\n' "$2" > "$1"; chmod +x "$1"; }
+# A worker that opened the cache before a refresh never reads it half written: the refresh lands as
+# a new file renamed over it, so the open one still holds the whole old answer.
+agy_usage_stub "$RUN_DIR/agy-usage-ok" "$AGY_FIX/usage-windows.json"
+CACHE="$(_usage_dir)/agy.tsv"; mkdir -p "${CACHE%/*}"
+printf 'old\tcache\t1\t0\n' > "$CACHE"; touch -d '1 hour ago' "$CACHE"
+exec {rfd}<"$CACHE"
+( unset HARNESS_USAGE_CMD; HARNESS_AGY_BIN="$RUN_DIR/agy-usage-ok" HARNESS_CLI=agy cli_limit_usage >/dev/null )
+assert_eq "$(cat <&$rfd)" "$(printf 'old\tcache\t1\t0')" "agy usage cache: a reader holding the old cache is not rewritten under it"
+exec {rfd}<&-
+assert_eq "$(cut -f1-3 "$CACHE")" "$(cat "$AGY_FIX/usage-windows.expected")" "agy usage cache: the refresh replaces the cache"
+assert_eq "$(compgen -G "$CACHE.*" | wc -l)" "0" "agy usage cache: no temp file left beside it"
+# One bucket with a non-string reset_time drops that row, not every window.
+rm -rf "$(_usage_dir)"
+python3 - "$AGY_FIX/usage-windows.json" "$RUN_DIR/usage-bad-row.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["command"]["data"]["groups"][0]["buckets"][0]["reset_time"] = 12345
+json.dump(d, open(sys.argv[2], "w"))
+PY
+agy_usage_stub "$RUN_DIR/agy-usage-bad" "$RUN_DIR/usage-bad-row.json"
+got="$(unset HARNESS_USAGE_CMD; HARNESS_AGY_BIN="$RUN_DIR/agy-usage-bad" HARNESS_CLI=agy cli_limit_usage | cut -f1-3)"
+assert_eq "$got" "$(sed 1d "$AGY_FIX/usage-windows.expected")" "agy usage: a bad reset_time skips its row and keeps the rest"
+
+# agy's retry-in-progress status shows over the `>` input box: busy, never a transient give-up.
+RETRYING="$(cat "$AGY_FIX/transient-retrying.txt")"
+assert_no "agy transient regex: the retrying status does not match" grep -qE "$(cli_with agy cli_transient_re)" <<<"$RETRYING"
+assert_ok "agy transient regex: the give-up line matches" grep -qE "$(cli_with agy cli_transient_re)" "$AGY_FIX/transient.txt"
+assert_no "agy: a pane still retrying is not stalled" cli_with agy session_stalled "$RETRYING"
+assert_ok "agy: a pane still retrying reads as busy" cli_with agy cli_pane_busy "$RETRYING"
+# Without the bypass flag agy asks before a tool runs; its selected option sits at column 0 like the
+# input box, and supervise must never type a nudge into it.
+assert_no "agy: a tool-permission prompt is not the input prompt" cli_with agy cli_pane_prompt "$(cat "$AGY_FIX/permission.txt")"
+# Trust as agy_trust writes it, seen on the host: the exact path opens with no dialog, while a
+# directory under a trusted one still asks — so every worktree is trusted by its own path.
+assert_no "agy: a worktree agy_trust pre-accepted opens with no trust dialog" grep -qE "$(cli_with agy cli_dialog_re)" "$AGY_FIX/bypass-subagent.txt"
+assert_ok "agy: a directory under a trusted one still shows the trust dialog" grep -qE "$(cli_with agy cli_dialog_re)" "$AGY_FIX/trust-child-of-trusted.txt"
+
+# The session id: the workspace's last conversation counts only when it started at or after this
+# session's launch (write_state's started_at), so a relaunch never reports the previous one.
+SID_WD="$RUN_DIR/sid-wd"; mkdir -p "$SID_WD"; echo task > "$SID_WD/.harness-task.md"
+sid_conv(){ local t="$HARNESS_AGY_HOME/brain/$1/.system_generated/logs"; mkdir -p "$t" "$HARNESS_AGY_HOME/cache"
+  printf '{"step_index":0,"created_at":"%s"}\n' "$2" > "$t/transcript.jsonl"
+  printf '{"%s": "%s"}' "$SID_WD" "$1" > "$HARNESS_AGY_HOME/cache/last_conversations.json"; }
+sid_conv prev-conv 2026-01-01T00:00:00Z
+assert_eq "$(cli_with agy cli_session_id "$SID_WD" u1)" "prev-conv" "agy session id: no launch recorded, the mapped id stands"
+write_state "$SID_WD" "" "" u1
+assert_eq "$(cli_with agy cli_session_id "$SID_WD" u1)" "" "agy session id: right after a relaunch, the previous session's id is not reported"
+sid_conv new-conv "$(date -u -d '+5 seconds' +%Y-%m-%dT%H:%M:%SZ)"
+assert_eq "$(cli_with agy cli_session_id "$SID_WD" u1)" "new-conv" "agy session id: the conversation started since the launch is reported"
 
 finish

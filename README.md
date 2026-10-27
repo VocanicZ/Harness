@@ -67,7 +67,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 | `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ |
 | `launch-model` | A lane's model, pinned by the worktree hook (`.harness-lane`), reaches the launch `launch_agent` types | ✓ | ✓ |
 | `launch-effort-once` | That lane's effort replaces the configured one in the typed launch, once | ✓ | ✓ |
-| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`) | ✓ | ✓ |
+| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`, counted only when that conversation started since the launch) | ✓ | ✓ |
 | `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ |
 | `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ |
 | `busy-is-busy` | Every captured running turn is read as busy (claude: the spinner, which Harness's status line leaves without `esc to interrupt`) | ✓ | ✓ |
@@ -78,7 +78,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 | `limit-parks` | A usage-limit message at the prompt parks the lane (#120) | ✓ | ✓ |
 | `transient-is-not-limit` | A transient error is not a limit park | ✓ | ✓ |
 | `trust-pre-accepted` | Workspace trust is pre-accepted (claude: `.claude.json` of every account; agy: `trustedWorkspaces` in `settings.json`) | ✓ | ✓ |
-| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit per agy's changelog) | ✓ | ✓ |
+| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit, seen on the host in `test/fixtures/cli/agy/bypass-subagent.jsonl`) | ✓ | ✓ |
 | `done-signal` | The goal loop's end is seen (the loop state file is gone) | ✓ | ✓ |
 | `loop-mode` | The goal loop runs: the CLI's Stop hook (`ralph-loop` / `harness-ralph`) re-feeds the task until the turn outputs the promise, then ends the loop | ✓ | ✓ |
 | `transcripts-found` | The session's transcripts are found (agy: `conversations/<id>.db`) | ✓ | ✓ |

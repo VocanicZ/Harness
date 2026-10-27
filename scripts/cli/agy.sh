@@ -15,23 +15,55 @@ _agy_flags(){ echo "${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"; }
 # session id either; agy_session_id discovers it after launch.
 agy_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "exec $(agy_bin) $(_cli_flags "$(_agy_flags)" "$model" "$effort") -i \"$HARNESS_BOOTSTRAP_PROMPT\""; }
-# agy records the conversation it last ran in each workspace in cache/last_conversations.json.
-agy_session_id(){ WD="$1" F="$(_agy_home)/cache/last_conversations.json" python3 -c 'import json,os
-print(json.load(open(os.environ["F"])).get(os.environ["WD"], ""))' 2>/dev/null; return 0; }
+# agy records the conversation it last ran in each workspace in cache/last_conversations.json. Right
+# after a relaunch in the same worktree that is still the previous session's, so the id counts only
+# when its conversation started at or after this launch: write_state's `started_at`, against the
+# `created_at` of the conversation's first transcript step (its db's mtime when there is no
+# transcript). With no launch time recorded, the mapped id stands.
+agy_session_id(){ WD="$1" H="$(_agy_home)" python3 - 2>/dev/null <<'PY'
+import json, os, re
+from datetime import datetime, timezone
+wd, h = os.environ["WD"], os.environ["H"]
+sid = json.load(open(os.path.join(h, "cache", "last_conversations.json"))).get(wd, "")
+def ts(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+try:
+    m = re.search(r'^started_at: "([^"]+)"', open(os.path.join(wd, ".claude", "ralph-loop.local.md")).read(), re.M)
+    launched = ts(m.group(1))
+except Exception:
+    launched = None
+if sid and launched is not None:
+    try:
+        with open(os.path.join(h, "brain", sid, ".system_generated", "logs", "transcript.jsonl")) as f:
+            start = ts(json.loads(f.readline())["created_at"])
+    except Exception:
+        try:
+            start = os.stat(os.path.join(h, "conversations", sid + ".db")).st_mtime
+        except OSError:
+            start = None
+    if start is None or start < launched:
+        sid = ""
+print(sid)
+PY
+  return 0; }
 
 # --- panes (test/fixtures/cli/agy/*.txt) --------------------------------------------------------
 # The input box line is `>` at column 0 (idle.txt; older builds drew it boxed, `│ > `). The trust
 # dialog's `> Yes, I trust this folder` is at column 0 too (trust.txt), so it is told apart by
-# agy_dialog_re, never by this regex.
+# agy_dialog_re, never by this regex. So is a tool-permission prompt's `> 1. Yes, run command`
+# (permission.txt: agy without --dangerously-skip-permissions).
 agy_idle_re(){ echo '^(│ *)?>( |$)'; }
-agy_dialog_re(){ echo 'I trust this folder|enter Confirm'; }
+agy_dialog_re(){ echo 'I trust this folder|enter Confirm|Requesting permission for:'; }
 # A turn shows a braille spinner with "Loading..." then "Generating..." (busy.txt,
 # busy-generating.txt); the binary also carries "Working..." and the "(%s · esc to cancel)" hint.
-agy_busy_re(){ echo '(Loading|Generating|Working)\.\.\.|esc to cancel'; }
+# While agy retries an unavailable model the spinner says so instead (transient-retrying.txt).
+agy_busy_re(){ echo '(Loading|Generating|Working)\.\.\.|esc to cancel|, retrying in [0-9]+s'; }
 # Quota/credit strings from the agy 1.4.8 binary (README of the fixtures). agy retries 5xx and
 # per-minute 429 itself; what reaches the pane is its give-up line.
 agy_limit_re(){ echo 'exhausted your quota|Quota exhausted|AI credits balance is too low'; }
-agy_transient_re(){ echo 'Model unavailable \(attempt|Agent execution terminated due to error'; }
+# `Model unavailable (attempt N/10), retrying in Ns` is agy's in-progress status while it retries
+# (transient-retrying.txt), not a give-up: only the terminal error stalls a session.
+agy_transient_re(){ echo 'Agent execution terminated due to error'; }
 # No turn timer and no interrupt line in agy's panes (busy*.txt): agy_turn_secs and
 # agy_interrupted_re keep the dispatch defaults ('' = unavailable). turn.sh then reads a running
 # turn off agy_busy_re and an interrupt as the busy line going away.
@@ -74,9 +106,10 @@ agy_trusted(){ TF="$(_agy_settings)" DIR="$1" python3 -c 'import json,os,sys
 sys.exit(0 if os.environ["DIR"] in (json.load(open(os.environ["TF"])).get("trustedWorkspaces") or []) else 1)' 2>/dev/null; }
 
 # --- permission bypass ----------------------------------------------------------------------------
-# --dangerously-skip-permissions is agy's always-proceed mode, and sub-agents inherit it (changelog
-# 1.1.22 and 1.1.26 fixed sub-agents prompting under it). Nothing is written per worktree; the
-# check is that the flag reaches the launch line.
+# --dangerously-skip-permissions is agy's always-proceed mode, and sub-agents inherit it: seen on the
+# host (bypass-subagent.jsonl: a sub-agent ran a shell command with no prompt, where the same agy
+# without the flag asked first, permission.txt). Nothing is written per worktree; the check is that
+# the flag reaches the launch line.
 agy_bypass(){ :; }
 agy_bypassed(){ grep -qE -- '(^| )--dangerously-skip-permissions( |$)' <<<"$(agy_launch "$1" "" "" "")"; }
 
@@ -91,7 +124,7 @@ agy_usage(){ (( $# )) && python3 "$CLI_DIR/agy_usage.py" "$@"; }
 # Usage windows (#194): `agy -p /usage --output-format json` runs no turn and reports each model
 # group's 5h and weekly buckets as remaining_fraction (cli-capabilities Findings 3). Every worker
 # polls usage, so the answer is cached HARNESS_AGY_USAGE_TTL seconds in the usage dir.
-agy_limit_usage(){ local c out now; c="$(_usage_dir)/agy.tsv"; now="$(date +%s)"
+agy_limit_usage(){ local c out now tmp; c="$(_usage_dir)/agy.tsv"; now="$(date +%s)"
   if [[ -f "$c" ]] && (( now - $(stat -c %Y "$c") < ${HARNESS_AGY_USAGE_TTL:-120} )); then
     [[ -s "$c" ]] && { cat "$c"; return 0; }; return 1; fi
   mkdir -p "$(dirname "$c")"
@@ -102,14 +135,21 @@ for g in json.load(sys.stdin)["command"]["data"]["groups"]:
         rf = b.get("remaining_fraction")
         if rf is None:
             continue
-        reset = b.get("reset_time") or ""
+        # One malformed bucket (a non-string reset_time, a non-number fraction) skips that row only.
         try:
-            reset = int(datetime.fromisoformat(reset.replace("Z", "+00:00")).timestamp())
-        except ValueError:
-            reset = 0
-        acct, win = g.get("name") or "agy", b.get("window") or b.get("id")
-        print(f"{acct}\t{win}\t{round((1 - rf) * 100, 1)}\t{reset}")' 2>/dev/null)"
-  printf '%s' "${out:+$out$'\n'}" > "$c"
+            reset = b.get("reset_time") or ""
+            try:
+                reset = int(datetime.fromisoformat(reset.replace("Z", "+00:00")).timestamp())
+            except ValueError:
+                reset = 0
+            acct, win = g.get("name") or "agy", b.get("window") or b.get("id")
+            print(f"{acct}\t{win}\t{round((1 - rf) * 100, 1)}\t{reset}")
+        except (AttributeError, TypeError):
+            continue' 2>/dev/null)"
+  # Every worker reads this cache: write a temp file beside it and rename, so no reader sees it half
+  # written.
+  tmp="$(mktemp "$c.XXXXXX")" || return 1
+  printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
   [[ -n "$out" ]] && echo "$out"; }
 
 # --- prerequisites ------------------------------------------------------------------------------
