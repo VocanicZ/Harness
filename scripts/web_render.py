@@ -80,7 +80,7 @@ def page(title, body, asof, now, crumbs=(), view=None, ver=None):
 <header class="topbar">
 <nav class="breadcrumbs" aria-label="Breadcrumb"><ol>{"".join(items)}</ol></nav>
 <div class="topbar__end">
-<span class="live" data-live="idle" role="status"><span class="live__reconnecting">reconnecting…</span><span class="live__offline">live updates off — reload to retry</span></span>
+<span class="live" data-live="idle" role="status"><span class="live__reconnecting">reconnecting…</span><span class="live__offline">live updates off — retrying</span></span>
 <button type="button" class="btn btn--ghost btn--sm" data-theme-toggle aria-label="Theme: follow the system">Theme: auto</button>
 </div>
 </header>

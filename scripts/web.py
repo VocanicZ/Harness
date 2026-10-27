@@ -97,16 +97,24 @@ class Model:
         regs = web_render.regions(path, v, now)
         return {"version": web_render.version(regs), "regions": regs, "asof": v["asof"]}
 
-    def live(self, path):
-        """The shared live rendering of <path> (None for no such page); the first one starts the collector."""
+    def live(self, path, fresh=False):
+        """The shared live rendering of <path> (None for no such page); the first one starts the
+        collector. <fresh> re-renders it now (a client catching up gets nothing older than its page)."""
         with self._cond:
             entry = self._live.get(path)
-        if entry is None:
-            entry = self.render(path)
-            if entry is None:
+        if entry is None or fresh:
+            new = self.render(path)
+            if new is None:
                 return None
             with self._cond:
-                entry = self._live.setdefault(path, entry)
+                if path not in self._live:
+                    # rendered outside the lock: a change the collector saw meanwhile skipped this
+                    # page, so make its next tick rebuild everything
+                    self._sig = None
+                old = self._live.get(path)
+                entry = self._live[path] = new if fresh or old is None else old
+                if old is not None and old["version"] != entry["version"]:
+                    self._cond.notify_all()
         self._start()
         return entry
 
@@ -179,13 +187,15 @@ class Model:
             except Exception as e:   # a bad tick must not end live updates for good
                 print(f"harness web: collector: {e!r}", file=sys.stderr, flush=True)
                 continue
-            self._sig = sig
             with self._cond:
                 for p, entry in fresh.items():
                     if entry is None:
                         self._live.pop(p, None)   # the fleet left the registry: its streams end
                     else:
                         self._live[p] = entry
+                # a page first cached during this rebuild was rendered against unknown state: keep
+                # the signature unset so the next tick rebuilds it too
+                self._sig = sig if set(self._live) <= set(fresh) else None
                 self._cond.notify_all()
 
 
@@ -265,6 +275,10 @@ def make_server(bind, port, model):
                 last = self.headers.get("Last-Event-ID") or (q.get("since") or [""])[0]
                 if not last:
                     last = entry["version"]
+                if last != entry["version"]:
+                    entry = model.live(path, fresh=True)
+                    if entry is None:
+                        return
                 sent = entry["regions"] if last == entry["version"] else {}
                 self._frame(f"retry: {RETRY_MS}\n\n")
                 while True:

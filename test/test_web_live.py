@@ -79,6 +79,19 @@ def test_stream_sends_only_what_changed_and_resumes_by_last_event_id():
             assert stream.next_event("patch", timeout=1, missing_ok=True) is None
 
 
+def test_catch_up_is_rendered_at_connect_not_taken_from_the_cache():
+    """A client behind gets the page as it reads now: never older than the page it just loaded."""
+    with wf.serving(tick=0.2) as (base, host):
+        host.model.clock = lambda: wf.NOW + 5                  # hz's board is 65s old
+        with wf.sse(base + "/events?view=/fleet/hz") as first:  # caches the page at NOW+5
+            first.first_retry()
+            host.model.clock = lambda: wf.NOW + 20             # same minute: no collector rebuild
+            with wf.sse(base + "/events?view=/fleet/hz", last_event_id="0000stale0000000") as late:
+                late.first_retry()
+                ev = late.next_event("patch", timeout=5)
+                assert "80s ago" in ev["regions"]["header"], ev["regions"]["header"]
+
+
 def test_events_route_rules():
     with wf.serving(tick=0.2) as (base, host):
         assert wf.get(base + "/events?view=/fleet/nope")[0] == 404
