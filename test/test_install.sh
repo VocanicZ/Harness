@@ -2,8 +2,16 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export HARNESS_INSTALL_NOMAIN=1
-source "$HERE/../install.sh"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
+
+# The host's agy is host state (#240, install-side twin of #236): ensure_skills runs
+# `agy plugin install`, which re-registers agy's harness-ralph plugin on the real host. Pin BOTH
+# seams at a logging stub BEFORE install.sh is sourced — export HARNESS_AGY_BIN (overriding any value
+# a live fleet exported, which would bypass PATH) and put the stub first on PATH as a fallback.
+AGY_STUB_DIR="$(mktemp -d)"; AGY_LOG="$AGY_STUB_DIR/agy.log"; : > "$AGY_LOG"
+printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
+export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
+source "$HERE/../install.sh"
 
 # ── prereqs (unchanged) ───────────────────────────────────────────────────────
 # PATH stubs to simulate tool presence; check_prereqs uses real `command -v` + `gh auth status`
@@ -12,9 +20,17 @@ PATHBIN="$(mktemp -d)"; export PATH="$PATHBIN:$PATH"
 for t in git tmux python3 gh claude; do printf '#!/bin/sh\nexit 0\n' > "$PATHBIN/$t"; chmod +x "$PATHBIN/$t"; done
 printf '#!/bin/sh\ncase "$1" in auth) exit 0;; version) exit 0;; esac\nexit 0\n' > "$PATHBIN/gh"; chmod +x "$PATHBIN/gh"
 assert "prereqs pass when all present" "check_prereqs"
-# remove claude -> fail
+# remove claude -> fail. agy is absent too: HARNESS_AGY_BIN names a binary that does not exist, which
+# must read as "agy absent" (#240) rather than satisfying the claude-or-agy check.
+# Both run on a PATH of only the stubs + the system bin dirs (no host claude/agy) with a fresh hash
+# table — the deleted claude stub is still hashed from the run above.
 rm -f "$PATHBIN/claude"
-assert "prereqs fail without claude"   "! check_prereqs 2>/dev/null"
+noclaude(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin"; check_prereqs ); }
+assert "prereqs fail without claude"   "! HARNESS_AGY_BIN='$AGY_STUB_DIR/nope' noclaude 2>/dev/null"
+# ...while a present HARNESS_AGY_BIN satisfies it, and is the binary probed (not PATH's agy).
+: > "$AGY_LOG"
+assert "prereqs pass with only agy (via HARNESS_AGY_BIN)" "noclaude"
+assert "check_prereqs probes HARNESS_AGY_BIN --version" "grep -qx -- '--version' '$AGY_LOG'"
 printf '#!/bin/sh\nexit 0\n' > "$PATHBIN/claude"; chmod +x "$PATHBIN/claude"
 # unauthenticated gh -> fail
 printf '#!/bin/sh\ncase "$1" in auth) exit 1;; esac\nexit 0\n' > "$PATHBIN/gh"; chmod +x "$PATHBIN/gh"
@@ -122,5 +138,33 @@ assert "ensure_skills installs to-prd"                "[[ -d '$A2HOME/.claude/sk
 assert "ensure_skills installs to-issues"             "[[ -d '$A2HOME/.claude/skills/to-issues' ]]"
 assert "ensure_skills does NOT clobber user's evil skill" "grep -q MY_OWN_SENTINEL '$A2HOME/.claude/skills/evil/SKILL.md'"
 assert "ensure_skills does NOT pull in unrequested evil skill" "! grep -q PAYLOAD '$A2HOME/.claude/skills/evil/SKILL.md'"
+
+# ── ensure_skills drives agy through HARNESS_AGY_BIN, never the host's agy (#240) ──
+# Sandbox HOME *and* HARNESS_HOME (install.sh computed HARNESS_HOME from the real $HOME at source
+# time), so the plugin dir handed to `plugin install` is inside the sandbox, never ~/.harness.
+A3="$(mktemp -d)"; A3HOME="$A3/home"; A3HH="$A3/.harness"
+mkdir -p "$A3HOME/.claude/skills/to-prd" "$A3HOME/.claude/skills/to-issues" "$A3HH/engine/plugins/ralph-loop"
+: > "$AGY_LOG"
+HOME="$A3HOME" HARNESS_HOME="$A3HH" ensure_skills >/dev/null 2>&1; es_rc=$?
+assert "ensure_skills logs exactly plugin list then plugin install <sandbox dir>" \
+  "[[ \"\$(cat '$AGY_LOG')\" == \"plugin list
+plugin install $A3HH/engine/plugins/ralph-loop\" ]]"
+assert "ensure_skills exits 0 with the agy stub" "[[ $es_rc -eq 0 ]]"
+# already registered: `plugin list` names harness-ralph -> no install
+printf '#!/usr/bin/env bash\necho "$*" >> %q\n[[ "$1" == plugin && "$2" == list ]] && echo \x27{"name": "harness-ralph"}\x27\nexit 0\n' \
+  "$AGY_LOG" > "$AGY_STUB_DIR/agy-listed"; chmod +x "$AGY_STUB_DIR/agy-listed"
+: > "$AGY_LOG"
+HOME="$A3HOME" HARNESS_HOME="$A3HH" HARNESS_AGY_BIN="$AGY_STUB_DIR/agy-listed" ensure_skills >/dev/null 2>&1
+assert "a registered harness-ralph is not re-installed" "[[ \"\$(cat '$AGY_LOG')\" == 'plugin list' ]]"
+# a failing agy keeps ensure_skills best-effort
+printf '#!/usr/bin/env bash\necho "$*" >> %q\nexit 1\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy-fail"; chmod +x "$AGY_STUB_DIR/agy-fail"
+: > "$AGY_LOG"
+HOME="$A3HOME" HARNESS_HOME="$A3HH" HARNESS_AGY_BIN="$AGY_STUB_DIR/agy-fail" ensure_skills >/dev/null 2>&1; es_rc=$?
+assert "a failing agy is non-fatal for ensure_skills" "[[ $es_rc -eq 0 ]]"
+assert "the failing agy was still the one called" "grep -qx 'plugin install $A3HH/engine/plugins/ralph-loop' '$AGY_LOG'"
+# a nonexistent HARNESS_AGY_BIN reads as agy absent: the agy block is skipped, no call at all
+: > "$AGY_LOG"
+HOME="$A3HOME" HARNESS_HOME="$A3HH" HARNESS_AGY_BIN="$AGY_STUB_DIR/nope" ensure_skills >/dev/null 2>&1; es_rc=$?
+assert "a missing HARNESS_AGY_BIN skips the agy block, exit 0" "[[ $es_rc -eq 0 && ! -s '$AGY_LOG' ]]"
 
 echo "── install ok"
