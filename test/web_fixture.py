@@ -84,6 +84,24 @@ class Host:
         with open(os.path.join(self.snapshots, slug.replace("/", "__") + ".json"), "w") as fh:
             json.dump(snap, fh)
 
+    def write_board(self, name, issues, generated_at):
+        """Replace <name>.json's issues and generated_at, atomically, as the poller writes it."""
+        path = os.path.join(self.snapshots, name + ".json")
+        with open(path) as fh:
+            snap = json.load(fh)
+        snap.update(issues=issues, generated_at=generated_at)
+        with open(path + ".tmp", "w") as fh:
+            json.dump(snap, fh)
+        os.replace(path + ".tmp", path)
+
+    def set_tmux(self, ls):
+        """What the stub `tmux ls` prints from now on (it reads $WEB_TMUX_LS on every call)."""
+        os.environ["WEB_TMUX_LS"] = ls
+
+    def drop_streams(self):
+        """Close every open SSE stream, the way a server restart would (#227)."""
+        self.model.close_streams()
+
 
 def build_host(root):
     host = Host(root)
@@ -124,11 +142,11 @@ def build_host(root):
 @contextlib.contextmanager
 def serving(tmux_ls="", now=None, tick=None, events="events.jsonl"):
     """(base_url, host) for a web server over a fresh fixture host. `now` pins the model's clock;
-    `tick` and `events` are for the later tasks' collector and event log (unused before #227)."""
+    `tick` is the SSE collector's period (#227); `events` is for the later tasks' event log."""
     web = load("web")
     root = tempfile.mkdtemp(prefix="harness-web-")
     saved = {k: os.environ.get(k) for k in _ENV_KEYS}
-    srv = None
+    srv = model = None
     try:
         host = build_host(root)
         os.environ.update({
@@ -142,10 +160,13 @@ def serving(tmux_ls="", now=None, tick=None, events="events.jsonl"):
             "WEB_GH_CALLED": host.gh_called, "WEB_TMUX_LS": tmux_ls,
         })
         clock = (lambda: now) if now is not None else (lambda: NOW + 30)
-        srv = web.make_server("127.0.0.1", 0, web.Model(clock=clock))
+        model = host.model = web.Model(clock=clock, tick=tick)
+        srv = web.make_server("127.0.0.1", 0, model)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         yield f"http://127.0.0.1:{srv.server_address[1]}", host
     finally:
+        if model is not None:
+            model.stop()
         if srv is not None:
             srv.shutdown()
             srv.server_close()
@@ -184,12 +205,140 @@ def headers(url, method="GET"):
     u = urllib.parse.urlsplit(url)
     conn = http.client.HTTPConnection(u.hostname, u.port, timeout=10)
     try:
-        conn.request(method, u.path)
+        conn.request(method, u.path + (("?" + u.query) if u.query else ""))
         resp = conn.getresponse()
         resp.read()
         return dict(resp.getheaders())
     finally:
         conn.close()
+
+
+class SSE:
+    """One open `text/event-stream` response, read frame by frame. .last_id is the last `id:` seen."""
+
+    def __init__(self, sock, resp):
+        self.sock, self.resp, self.last_id = sock, resp, None
+
+    def frame(self, timeout):
+        """{field: value} of the next frame (a ":" comment is {"comment": …}); None at end of stream.
+        Raises TimeoutError when nothing completes a frame within <timeout> seconds."""
+        self.sock.settimeout(timeout)
+        out = {}
+        while True:
+            try:
+                line = self.resp.fp.readline()
+            except (TimeoutError, OSError) as e:
+                raise TimeoutError("no SSE frame in %ss" % timeout) from e
+            if not line:
+                return None
+            line = line.decode("utf-8").rstrip("\r\n")
+            if not line:
+                if out:
+                    if "id" in out:
+                        self.last_id = out["id"]
+                    return out
+                continue
+            field, _, value = line.partition(":")
+            out[field or "comment"] = value[1:] if value.startswith(" ") else value
+
+    def first_retry(self):
+        f = self.frame(5)
+        assert f and "retry" in f, f"first frame is not retry: {f}"
+        return int(f["retry"])
+
+    def next_event(self, name, timeout=5, missing_ok=False):
+        """The data (parsed JSON) of the next `event: <name>` frame within <timeout> seconds."""
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            try:
+                f = self.frame(max(left, 0.01)) if left > 0 else None
+            except TimeoutError:
+                f = None
+            if f is None:
+                if missing_ok:
+                    return None
+                raise AssertionError(f"no `event: {name}` within {timeout}s")
+            if f.get("event") == name:
+                return json.loads(f["data"])
+
+    def closed(self, timeout=5):
+        """True once the server ends the stream (pings in between are skipped)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if self.frame(max(deadline - time.monotonic(), 0.01)) is None:
+                    return True
+            except TimeoutError:
+                return False
+        return False
+
+
+@contextlib.contextmanager
+def sse(url, last_event_id=None):
+    """An SSE stream on <url>, as an EventSource would open it (Last-Event-ID on a reconnect)."""
+    u = urllib.parse.urlsplit(url)
+    conn = http.client.HTTPConnection(u.hostname, u.port, timeout=10)
+    try:
+        hdrs = {"Accept": "text/event-stream"}
+        if last_event_id:
+            hdrs["Last-Event-ID"] = last_event_id
+        conn.request("GET", u.path + (("?" + u.query) if u.query else ""), headers=hdrs)
+        sock = conn.sock          # a `Connection: close` response detaches it from conn
+        resp = conn.getresponse()
+        assert resp.status == 200, f"GET {url} -> {resp.status}"
+        assert resp.getheader("Content-Type", "").startswith("text/event-stream"), resp.getheaders()
+        yield SSE(sock, resp)
+    finally:
+        conn.close()
+        if "resp" in locals():
+            resp.close()
+
+
+class Page:
+    """A page open in headless Chrome, driven through test/web_cdp.mjs one JSON line at a time."""
+
+    def __init__(self, proc):
+        self.proc = proc
+
+    def _call(self, msg):
+        self.proc.stdin.write(json.dumps(msg) + "\n")
+        self.proc.stdin.flush()
+        line = self.proc.stdout.readline()
+        if not line:
+            raise AssertionError("web_cdp.mjs exited: " + self.proc.stderr.read())
+        r = json.loads(line)
+        if not r.get("ok"):
+            raise AssertionError(f"{msg.get('op')} {msg.get('expr')!r}: {r.get('error')}")
+        return r.get("value")
+
+    def eval(self, expr):
+        return self._call({"op": "eval", "expr": expr})
+
+    def wait(self, expr, timeout):
+        """Poll <expr> in the page until it is truthy; fails after <timeout> seconds."""
+        return self._call({"op": "wait", "expr": expr, "timeout": timeout})
+
+
+@contextlib.contextmanager
+def cdp(browser, url):
+    """<url> loaded in headless <browser>; yields a Page. The browser dies with the context."""
+    proc = subprocess.Popen(["node", os.path.join(HERE, "web_cdp.mjs"), browser, url], text=True,
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        ready = proc.stdout.readline()
+        if not ready or not json.loads(ready).get("ok"):
+            raise AssertionError(f"browser did not open {url}: {ready} {proc.stderr.read() if not ready else ''}")
+        yield Page(proc)
+    finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill(); proc.wait()
 
 
 def run_tests(ns):

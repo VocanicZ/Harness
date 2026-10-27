@@ -8,6 +8,10 @@
 .fleet__repos { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .asof { color: var(--color-text-muted); }
 .asof__unknown { font-style: italic; }
+/* Live updates (#227): a quiet status chip, shown only while the stream is down — never a modal. */
+.live { font-size: var(--text-sm); color: var(--color-amber-text); }
+.live > span { display: none; }
+.live[data-live="reconnecting"] .live__reconnecting, .live[data-live="offline"] .live__offline { display: inline; }
 
 /* Fleet page (#224): the layered PRD → issue DAG. The panel scrolls inside itself, so at 400 px the
    SVG keeps status-page.py's geometry and the page never scrolls sideways. Node colour is meaning,

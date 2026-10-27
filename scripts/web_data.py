@@ -8,8 +8,12 @@ rate-limit files (#225). None of them calls `gh` — fleetview.issue_counts and 
 issuelib.rate_limits / rate_report, so they are never reached from here; the board snapshot's tally
 and the `.rate` files stand in for them. A missing or garbled source degrades its own field to None
 (rendered "unknown") and never fails the view, the rule fleetview.py follows too.
+
+signature() (#227) is the cheap change detector behind the SSE collector: a `stat` of every file the
+views read, the liveness of every pid they judge, and `tmux ls` — a rebuild runs only when it moves.
 """
 import glob
+import hashlib
 import os
 import re
 import sys
@@ -18,6 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleetview  # noqa: E402
 import issuelib   # noqa: E402
+import stats      # noqa: E402
 import supervise_rules  # noqa: E402
 import web_dag    # noqa: E402
 
@@ -213,20 +218,24 @@ def stale_locks(rec, boards, live, labels=None, state=None):
         if not fleetview.pid_alive(p):
             out.append({"kind": "pidfile", "what": base})
     for p in sorted(glob.glob(os.path.join(run_dir, "claims", "*.claim"))):
-        fields = (_read(p) or "").split()
-        pid = fields[1] if len(fields) > 1 else ""
-        alive = False
-        if pid.isdigit():
-            try:
-                os.kill(int(pid), 0)
-                alive = True
-            except PermissionError:
-                alive = True
-            except OSError:
-                pass
-        if not alive:
+        if not claim_alive(p):
             out.append({"kind": "claim", "what": os.path.basename(p)[:-len(".claim")]})
     return out
+
+
+def claim_alive(path):
+    """The claim's recorded pid (its second field) is a live process — lib.sh is_claimed's rule."""
+    fields = (_read(path) or "").split()
+    pid = fields[1] if len(fields) > 1 else ""
+    if not pid.isdigit():
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def rate_state(now):
@@ -308,6 +317,48 @@ def host_view(now=None):
     return {"asof": min(stamps) if stamps else None, "fleets": fleets, "rate": rate,
             "attention": [{"kind": "rate-hold", "what": r["key"], "until": r["hold_until"]}
                           for r in rate if r["hold_until"]]}
+
+
+def _stat(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return (path,)
+    return (path, st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _stats(pattern):
+    return tuple(_stat(p) for p in sorted(glob.glob(pattern)))
+
+
+# A fleet's run-dir files the views read (fleet_state, stale_locks, live_sessions) — never its logs,
+# which grow on every agent turn and would rebuild every view each tick for nothing.
+RUN_INPUTS = ("*.pid", "PAUSED", "*.stats", os.path.join("claims", "*.claim"))
+
+
+def signature():
+    """A value that changes whenever an input of host_view or fleet_view does: the stat (inode, size,
+    mtime) of the registry, every board snapshot, the event logs, the supervisor's log, conf, pane and
+    rule files, the rate-limit files and each fleet's config and run-dir inputs; whether each pid file
+    and claim names a live process; and the `tmux ls` session list. Reads nothing remote."""
+    sup = sup_state_dir()
+    sig = [_stats(os.path.join(fleetview.fleets_dir(), "*.json")),
+           _stats(os.path.join(snapshots_dir(), "*.json")),
+           _stat(stats.events_path()), _stat(stats.rtdd_events_path()),
+           _stat(sup_log_path()),
+           _stat(os.environ.get("HARNESS_SUPERVISE_CONF") or os.path.join(_home(), "supervise.conf")),
+           _stats(os.path.join(sup, "panes", "*")), _stats(os.path.join(sup, "rules", "*.json")),
+           _stats(os.path.join(issuelib._rate_dir(), "*"))]
+    for rec in registry():
+        run_dir = rec.get("run_dir") or os.path.join(rec["project"], "run")
+        sig.append(_stat(os.path.join(rec["project"], "config")))
+        for pat in RUN_INPUTS:
+            sig.append(_stats(os.path.join(run_dir, pat)))
+        sig.append(tuple(fleetview.pid_alive(p) for p in sorted(glob.glob(os.path.join(run_dir, "*.pid")))))
+        sig.append(tuple(claim_alive(p) for p in sorted(glob.glob(os.path.join(run_dir, "claims", "*.claim")))))
+    sessions = sorted(fleetview.host_sessions().items(), key=lambda kv: kv[0])
+    sig.append(hashlib.sha1(repr(sessions).encode()).hexdigest())
+    return tuple(sig)
 
 
 def live_numbers(prefix):
