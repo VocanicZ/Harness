@@ -12,15 +12,16 @@ assert_eq "$HARNESS_AGY_BIN" "agy" "default HARNESS_AGY_BIN is agy"
 assert_eq "$HARNESS_AGY_FLAGS" "--dangerously-skip-permissions --effort high" "default HARNESS_AGY_FLAGS"
 
 echo "=== Group 2: Workspace trust ==="
-# Test _trust_agy_config
-export HARNESS_AGY_TRUST_FILE="$RUN_DIR/trustedFolders.json"
+# The agy adapter's trust (#188: agy reads "trustedWorkspaces" in its settings.json)
+export HARNESS_AGY_TRUST_FILE="$RUN_DIR/agy-settings.json"
 rm -f "$HARNESS_AGY_TRUST_FILE"
-_trust_agy_config "/path/to/repo1"
+cli_with agy cli_trust "/path/to/repo1"
 assert_ok "trust file created" test -f "$HARNESS_AGY_TRUST_FILE"
 assert_ok "repo1 trusted" grep -q '"/path/to/repo1"' "$HARNESS_AGY_TRUST_FILE"
+assert_ok "trust is a trustedWorkspaces entry" cli_with agy cli_trusted "/path/to/repo1"
 
 # Add second path, ensure both exist
-_trust_agy_config "/path/to/repo2"
+cli_with agy cli_trust "/path/to/repo2"
 assert_ok "repo1 still trusted" grep -q '"/path/to/repo1"' "$HARNESS_AGY_TRUST_FILE"
 assert_ok "repo2 trusted" grep -q '"/path/to/repo2"' "$HARNESS_AGY_TRUST_FILE"
 
@@ -103,15 +104,15 @@ echo "=== Group 4: Watchdog patterns ==="
 # Test HARNESS_ACTIVE_TURN_RE via session_active_turn
 assert_ok "matches Claude cancel" session_active_turn "esc to interrupt"
 assert_ok "matches Claude background" session_active_turn "to run in background"
-assert_ok "matches agy Generating..." session_active_turn "⣟  Generating..."
+assert_ok "matches agy Generating..." cli_with agy session_active_turn "⣟  Generating..."
 
 # Test idle prompt detection in session_limit_idle
 assert_ok "session_limit_idle detects Claude ❯ prompt" session_limit_idle $'usage limit reached\n❯ '
-assert_ok "session_limit_idle detects agy > prompt" session_limit_idle $'usage limit reached\n> '
+assert_ok "session_limit_idle detects agy > prompt" cli_with agy session_limit_idle $'You have exhausted your quota on this model.\n> '
 
 # Test stall detection in session_stalled
 assert_ok "session_stalled detects Claude ❯ prompt on API Error" session_stalled $'API Error\n❯ '
-assert_ok "session_stalled detects agy > prompt on API Error" session_stalled $'API Error\n> '
+assert_ok "session_stalled detects agy > prompt on its retry give-up" cli_with agy session_stalled $'Model unavailable (attempt 10/10), retrying in 12s\n> '
 
 echo "=== Group 5: Setup & Start checks ==="
 FAKE_BIN_DIR="$RUN_DIR/fake_bin"
@@ -218,5 +219,21 @@ echo "Still working..." > "$TRANSCRIPT"
 res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 5}' "$WORK_DIR" "$TRANSCRIPT" | "$HOOK")"
 assert_ok "hook allows on max iterations" grep -q '"decision": "allow"' <<< "$res"
 assert_no "loop file unlinked after max iterations" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
+
+# Case E (#188): a real agy 1.4 transcript. The agent read its task file, whose text names the
+# promise; agy logs that read's output as source=MODEL type=GENERIC. Only the model's own replies
+# (PLANNER_RESPONSE) may end the loop, and none of them output the promise.
+loop_file(){ printf -- '---\nactive: true\niteration: 1\nmax_iterations: 4\ncompletion_promise: "ZEBRA DONE"\n---\n\nOnly on your THIRD reply output <promise>ZEBRA DONE</promise>.\n' > "$WORK_DIR/.claude/ralph-loop.local.md"; }
+loop_file
+AGY_TR="$HERE/fixtures/cli/agy/hook-transcript.jsonl"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$WORK_DIR" "$AGY_TR" | "$HOOK")"
+assert_ok "agy: the promise inside tool output does not end the loop" grep -q '"decision": "continue"' <<< "$res"
+assert_ok "agy: loop file kept while the model has not output the promise" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
+# …and the same transcript with one more reply that DOES output it ends the loop.
+loop_file
+{ cat "$AGY_TR"; echo '{"step_index": 9, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "content": "<promise>ZEBRA DONE</promise>"}'; } > "$RUN_DIR/agy-done.jsonl"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$WORK_DIR" "$RUN_DIR/agy-done.jsonl" | "$HOOK")"
+assert_ok "agy: the model's own promise ends the loop" grep -q '"decision": "allow"' <<< "$res"
+assert_no "agy: loop file removed on the model's promise" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
 
 finish

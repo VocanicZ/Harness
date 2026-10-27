@@ -55,12 +55,14 @@ def main():
                     c = ""
                     try:
                         row = json.loads(line)
-                        if row.get("source") == "MODEL" or row.get("role") == "assistant":
+                        # Only the model's own replies count. agy 1.4 logs tool output (a file read,
+                        # a shell result) as source=MODEL type=GENERIC, and the user prompt as
+                        # USER_INPUT — both echo the task, which names the promise, so reading them
+                        # ended every loop after its first turn (#188).
+                        if row.get("type") == "PLANNER_RESPONSE" or row.get("role") == "assistant":
                             c = row.get("content", "")
                             if isinstance(c, list):
                                 c = " ".join([b.get("text", "") for b in c if isinstance(b, dict)])
-                        elif "content" in row:
-                            c = row.get("content", "")
                     except Exception:
                         c = line
                     if not c:

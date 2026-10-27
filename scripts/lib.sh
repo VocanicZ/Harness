@@ -42,7 +42,6 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_ORCH_MAXITER:=8}"
 : "${HARNESS_INJECT_MAXITER:=15}"
 : "${HARNESS_SESS_PREFIX:=hz}"
-: "${HARNESS_CLI:=claude}"
 : "${HARNESS_CLAUDE_BIN:=claude}"
 : "${HARNESS_CLAUDE_FLAGS:=--dangerously-skip-permissions --effort high}"
 : "${HARNESS_AGY_BIN:=agy}"
@@ -81,8 +80,10 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 # #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
 # shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
 source "$(dirname "${BASH_SOURCE[0]}")/turn.sh"
+# #188: the agent CLI adapter seam — the only reader of the fleet's CLI setting (cli_* functions).
+source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
 
-export HARNESS_CLI HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
+export HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS \
   HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
@@ -143,149 +144,21 @@ run_worktree_hook(){
   log "worktree hook: $hook ($wd)"
   ( cd "$wd" && "$hook" "$wd" ) || log "worktree hook FAILED in $wd — launching anyway"
 }
-# ensure_trusted <dir> — pre-accept Claude Code's workspace-trust dialog for <dir> in ~/.claude.json
-# so an autonomous (headless) launch in a never-trusted tree doesn't block FOREVER at the
-# "Do you trust the files in this folder?" gate (#67). --dangerously-skip-permissions suppresses
-# tool-permission prompts but NOT this separate workspace-trust gate, and the only bypass is
-# non-interactive (-p) mode, which the harness can't use (launch_claude drives the interactive TUI).
-# Mirrors ensure_safe: a small, idempotent, per-dir helper on the spawn path. Scoped to autonomous
-# runs (consistent with the --dangerously-skip-permissions posture) — a supervised launch keeps
-# Claude Code's default trust prompt. Atomic + race-safe (flock + tmp-file-and-rename) because
-# multiple agents call launch_claude near-simultaneously. HARNESS_CLAUDE_CONFIG is a test seam; in
-# production it is unset and ensure_trusted picks the targets itself (see below).
-#
-# WHICH FILE: Claude Code reads workspace trust from $CLAUDE_CONFIG_DIR/.claude.json when that var is
-# set, else ~/.claude.json. Writing only ~/.claude.json silently stopped working once the claude-acc
-# account switcher was installed: ~/.bashrc exports CLAUDE_CONFIG_DIR=~/.claude-switch/accounts/<acct>
-# in EVERY interactive bash, including the one `tmux new-session` opens for the lane, so the pane
-# reads the per-account config while the pre-accept landed in ~/.claude.json — and #67's forever-block
-# came back on every new worktree. We cannot resolve the account here: it is chosen AFTER we run, by
-# the pane's .bashrc, and the pool worker carries no CLAUDE_CONFIG_DIR of its own (nor can we cache a
-# decision — `claude-acc default` may be flipped between spawn and launch). So seed every config the
-# pane could possibly read; an entry in a config the pane never opens is inert.
-# _trust_config <cfg> <dir> — merge the trust flag for <dir> into one config file. Atomic + flocked.
-_trust_config(){
-  local dir="$2" cfg="$1" lockfd
-  exec {lockfd}>"$cfg.harness-trust.lock"; flock "$lockfd"
-  CFG="$cfg" DIR="$dir" python3 - <<'PY'
-import json, os, tempfile
-cfg, d = os.environ["CFG"], os.environ["DIR"]
-try:
-    with open(cfg) as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        data = {}
-except (FileNotFoundError, ValueError):
-    data = {}
-projects = data.get("projects")
-if not isinstance(projects, dict):
-    projects = data["projects"] = {}
-entry = projects.get(d)
-if not isinstance(entry, dict):
-    entry = projects[d] = {}
-entry["hasTrustDialogAccepted"] = True
-dirn = os.path.dirname(os.path.abspath(cfg)) or "."
-os.makedirs(dirn, exist_ok=True)
-fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".claude.json.harness.")
-try:
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, cfg)
-except BaseException:
-    os.path.exists(tmp) and os.unlink(tmp)
-    raise
-PY
-  flock -u "$lockfd"; exec {lockfd}>&-
-}
-# _trust_agy_config <dir> — pre-accept workspace trust for Antigravity (agy) in ~/.gemini/trustedFolders.json
-_trust_agy_config(){
-  local dir="$1" tf="${HARNESS_AGY_TRUST_FILE:-$HOME/.gemini/trustedFolders.json}" lockfd
-  [[ -d "$(dirname "$tf")" ]] || return 0
-  exec {lockfd}>"$tf.harness-trust.lock"; flock "$lockfd"
-  TF="$tf" DIR="$dir" python3 - <<'PY'
-import json, os, tempfile
-tf, d = os.environ["TF"], os.environ["DIR"]
-try:
-    with open(tf) as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        data = {}
-except (FileNotFoundError, ValueError):
-    data = {}
-data[d] = "TRUST_FOLDER"
-dirn = os.path.dirname(os.path.abspath(tf)) or "."
-os.makedirs(dirn, exist_ok=True)
-fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".trustedFolders.json.harness.")
-try:
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, tf)
-except BaseException:
-    os.path.exists(tmp) and os.unlink(tmp)
-    raise
-PY
-  flock -u "$lockfd"; exec {lockfd}>&-
-}
+# ensure_trusted <dir> — pre-accept the agent CLI's workspace-trust dialog for <dir> so an autonomous
+# (headless) launch in a never-trusted tree doesn't block FOREVER at the "Do you trust the files in
+# this folder?" gate (#67). The skip-permissions flags suppress tool-permission prompts but NOT this
+# separate gate. Scoped to autonomous runs (consistent with the skip-permissions posture) — a
+# supervised launch keeps the CLI's default trust prompt. Where the trust lives is the adapter's
+# (cli_trust): claude seeds every account config the pane may read, agy its settings.json.
 ensure_trusted(){
   [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
-  local dir="$1" acct
-  if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
-    _trust_agy_config "$dir"
-    return 0
-  fi
-  # test seam: an explicit config is authoritative and stays single-file (never touches a real $HOME)
-  if [[ -n "${HARNESS_CLAUDE_CONFIG:-}" ]]; then _trust_config "$HARNESS_CLAUDE_CONFIG" "$dir"; return 0; fi
-  _trust_config "$HOME/.claude.json" "$dir"                       # no switcher, or switcher not active yet
-  if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then                      # a worker that DID inherit a config dir
-    _trust_config "$CLAUDE_CONFIG_DIR/.claude.json" "$dir"
-  fi
-  for acct in "$HOME"/.claude-switch/accounts/*/; do              # every claude-acc account the pane may pick
-    [[ -d "$acct" ]] || continue                                  # unmatched glob stays literal — skip it
-    _trust_config "$acct.claude.json" "$dir"
-  done
-  return 0
-}
-# ensure_bypass <dir> — default the spawned session AND its sub-agents to bypassPermissions by merging
-# permissions.defaultMode into <dir>/.claude/settings.local.json. --dangerously-skip-permissions only
-# sets the MAIN session's mode; Task/sub-agents (subagent-driven-development) do NOT inherit it and
-# fall back to "default" (ask) mode, wedging an autonomous run FOREVER on the first mutating-command
-# prompt (no human to answer). settings.local.json is read by the session + its sub-agents (cwd-scoped)
-# and is git-ignored by convention; we also add it to the worktree's info/exclude so `git add -A` can
-# never commit it on installs lacking that global ignore. Scoped to autonomous runs, mirroring
-# ensure_trusted. No flock: each session owns a unique <dir>, so there's no shared-file race.
+  cli_trust "$1"; return 0; }
+# ensure_bypass <dir> — the spawned session AND its sub-agents run without approval prompts
+# (cli_bypass): an autonomous run has no human to answer one, and a sub-agent that fell back to
+# ask mode wedged the lane forever. Scoped to autonomous runs, mirroring ensure_trusted.
 ensure_bypass(){
   [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
-  local dir="$1" f="$1/.claude/settings.local.json"
-  mkdir -p "$dir/.claude"
-  F="$f" python3 - <<'PY'
-import json, os, tempfile
-f = os.environ["F"]
-try:
-    with open(f) as fh:
-        data = json.load(fh)
-    if not isinstance(data, dict):
-        data = {}
-except (FileNotFoundError, ValueError):
-    data = {}
-perms = data.get("permissions")
-if not isinstance(perms, dict):
-    perms = data["permissions"] = {}
-perms["defaultMode"] = "bypassPermissions"
-d = os.path.dirname(f) or "."
-fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings.harness.")
-try:
-    with os.fdopen(fd, "w") as fh:
-        json.dump(data, fh, indent=2)
-    os.replace(tmp, f)
-except BaseException:
-    os.path.exists(tmp) and os.unlink(tmp)
-    raise
-PY
-  local excl; excl="$(git -C "$dir" rev-parse --git-path info/exclude 2>/dev/null)" || return 0
-  [[ -n "$excl" ]] || return 0
-  mkdir -p "$(dirname "$excl")"
-  grep -qxF '.claude/settings.local.json' "$excl" 2>/dev/null || echo '.claude/settings.local.json' >> "$excl"
-}
+  cli_bypass "$1"; }
 is_paused(){ [[ -f "$PAUSE_FLAG" ]]; }
 
 _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && echo "$HARNESS_OWNER/$1" || echo "$1";; esac; }
@@ -804,9 +677,9 @@ reap_finished_inject(){ local unit="$1" sess wd
   session_live "$sess" || return 0
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || return 0
   [[ -n "$wd" ]] || return 0
-  [[ -f "$wd/.claude/ralph-loop.local.md" ]] && return 0   # loop still active → leave it
+  cli_done "$wd" || return 0   # loop still active → leave it
   log "reaped finished inject session $sess (ralph loop ended)"
-  tmux kill-session -t "$sess" 2>/dev/null || true
+  cli_kill "$sess" "$wd" || true
   rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"
 }
 # --- #115: stalled-session watchdog ------------------------------------------
@@ -818,9 +691,9 @@ reap_finished_inject(){ local unit="$1" sess wd
 # it classifies that exact state and recovers it (nudge → kill after K polls) WITHOUT disturbing a
 # busy or a healthy-between-turns session.
 #
-# Transient-API-error markers as they appear in the TUI pane. Matched only IN COMBINATION with the
-# idle `❯` prompt + the absence of an active spinner, so an in-scrollback string alone never trips it.
-HARNESS_STALL_ERROR_RE='API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|[^0-9])(429|500|502|503|529)([^0-9]|$)'
+# Transient-API-error markers as they appear in the TUI pane (cli_transient_re). Matched only IN
+# COMBINATION with the idle prompt + the absence of an active turn, so an in-scrollback string alone
+# never trips it. Every pane regex is the CLI adapter's (scripts/cli/<cli>.sh, #188).
 # session_stalled <pane-text> — true iff the captured pane is the #115 wedge: an idle interactive
 # prompt (`❯`) with NO active turn ("(esc to interrupt)" absent ⇒ not mid-tool-use / not a busy
 # spinner) AND a transient-API-error marker. A busy session (esc-to-interrupt present) and a healthy
@@ -832,13 +705,14 @@ HARNESS_STALL_ERROR_RE='API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|
 # a multi-minute build/test suite "not mid-turn"; an error marker anywhere in its own tool output —
 # a 500 in a log tail, the literal words "API Error" — then satisfied the rest of session_stalled and
 # the lane was nudged ×K and KILLED mid-work, over and over, never finishing the command it was on.
-# Matched on the stable tail of the hint so a change to the key prefix does not reopen this.
-HARNESS_ACTIVE_TURN_RE='esc to interrupt|to run in background|Generating\.\.\.'
-session_active_turn(){ printf '%s' "$1" | grep -qE "$HARNESS_ACTIVE_TURN_RE"; }
+# Matched on the stable tail of the hint so a change to the key prefix does not reopen this. (#188: on
+# a Harness worktree the custom status line hides "(esc to interrupt)" altogether, so cli_busy_re
+# also keys on the spinner's own "… (<timer> ·" shape.)
+session_active_turn(){ cli_pane_busy "$1"; }
 session_stalled(){ local pane="$1"
   session_active_turn "$pane" && return 1                         # active turn → never stalled
-  printf '%s' "$pane" | grep -qE '❯|>' || return 1                  # no idle prompt → not parked
-  printf '%s' "$pane" | grep -qE "$HARNESS_STALL_ERROR_RE"; }      # …and a transient-error marker
+  cli_pane_prompt "$pane" || return 1                             # no idle prompt (or a dialog) → not parked
+  _cli_re_hits "$(cli_transient_re)" "$pane"; }                   # …and a transient-error marker
 # --- #120: quota-parked watchdog ---------------------------------------------
 # A plan usage-limit hit is NOT the #115 transient wedge and must not be treated as one. It parks a
 # session in one of TWO shapes, neither of which any reaper or the #115 watchdog can see:
@@ -855,38 +729,35 @@ session_stalled(){ local pane="$1"
 # default-highlighted "wait for reset"); idle → nudge to resume, backed off to every Nth poll so an
 # exhausted account is not re-probed every poll for the hours a weekly limit can last. Both clear
 # the #115 stall counter, so a quota park can never escalate into a kill.
-HARNESS_LIMIT_MENU_RE='Stop and wait for limit to reset'
 # Credit exhaustion ("You're out of usage credits. Run /usage-credits to keep using <model> or /model
 # to switch models.") is the SAME class as a limit park and must be listed here: it too aborts the turn
 # and drops the pane to idle ❯, but it matched none of the limit alternatives, so it fell through to
 # the #115 stall path and the session was nudged ×K then KILLED — and every re-dispatch re-provisions
 # a worktree and dies again instantly, burning the lane in a loop for as long as the account is dry.
-HARNESS_LIMIT_IDLE_RE="hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit|out of usage credits|out of credits"
+# The menu and idle strings are cli_limit_menu_re / cli_limit_re.
 # limit_reset <pane-text> — the "resets <when>" a limit message names, for the rate_limited event.
 limit_reset(){ printf '%s' "$1" | grep -oE 'resets [^·│]*' | tail -1 | sed 's/^resets //; s/[[:space:]]*$//'; }
 # session_limit_menu <pane-text> — true iff the pane is BLOCKED on the interactive limit menu.
-session_limit_menu(){ printf '%s' "$1" | grep -qE "$HARNESS_LIMIT_MENU_RE"; }
+session_limit_menu(){ _cli_re_hits "$(cli_limit_menu_re)" "$1"; }
 # session_limit_idle <pane-text> — true iff a limit-aborted turn left the pane at the idle `❯`.
 session_limit_idle(){ local pane="$1"
   session_active_turn "$pane" && return 1                         # active turn → not parked
-  printf '%s' "$pane" | grep -qE '❯|>' || return 1                  # no idle prompt → not parked
-  printf '%s' "$pane" | grep -qE "$HARNESS_LIMIT_IDLE_RE"; }
+  cli_pane_prompt "$pane" || return 1                             # no idle prompt (or a dialog) → not parked
+  _cli_re_hits "$(cli_limit_re)" "$pane"; }
 # _watchdog_limit_pick <sess> — answer the blocking menu with its default choice ("stop and wait for
 # limit to reset"). A bare Enter, never a typed line: the pane is a menu, not a prompt.
 _watchdog_limit_pick(){ tmux send-keys -t "$1" Enter 2>/dev/null || true; }
 # _watchdog_limit_nudge <sess> — re-submit a continue once the quota is back. Same live-pane
 # send-keys pattern as _watchdog_nudge (#108 guard honoured: a plain line, never `exec claude …`).
 _watchdog_limit_nudge(){ local sess="$1"
-  tmux send-keys -t "$sess" -l "Please continue — the usage limit has reset; resume the in-flight task where you left off." 2>/dev/null || true
-  tmux send-keys -t "$sess" Enter 2>/dev/null || true; }
+  cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "Please continue — the usage limit has reset; resume the in-flight task where you left off."; }
 # _watchdog_nudge <sess> — re-submit a continue into a session this watchdog has classified STALLED,
 # so the agent resumes its preserved in-flight context now the transient error has cleared. Uses the
 # exact send-keys-into-a-live-pane pattern as pause.sh:82-83. It NEVER types a second `exec claude …`
 # (honours the #108 live-session guard) — only a plain continue line — and is only ever reached from
 # watchdog_session AFTER session_stalled is true, so a healthy/busy pane is never typed into.
 _watchdog_nudge(){ local sess="$1"
-  tmux send-keys -t "$sess" -l "Please continue — the transient API error has cleared; resume the in-flight task." 2>/dev/null || true
-  tmux send-keys -t "$sess" Enter 2>/dev/null || true; }
+  cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "Please continue — the transient API error has cleared; resume the in-flight task."; }
 # _watchdog_turn_interrupt <sess> <pane-text> — #207: interrupt a turn that queued input cannot reach
 # (see turn.sh), log a turn_interrupted event, and forget the queued-nudge state so a LATER stuck
 # turn is judged afresh. When the turn never reports `Interrupted`, the state is kept and the next
@@ -936,7 +807,7 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
   if (( n >= HARNESS_STALL_RETRIES )); then
     log "watchdog: $sess wedged at idle ❯ after a transient API error for $n polls — killing for reap → re-dispatch (#115)"
     stats_sess_event "$sess" watchdog_kill reason=transient_api_error
-    tmux kill-session -t "$sess" 2>/dev/null || true
+    cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true
     rm -f "$stallf"
   else
     echo "$n" > "$stallf"
@@ -1330,12 +1201,13 @@ rtdd_skill_install(){ local d
   rtdd skill install >/dev/null 2>&1 || {
     echo "  ! rtdd skill install failed — lanes run without the rtdd skill. Retry: rtdd skill install"
     return 1; }
-  if [[ "${HARNESS_CLI:-claude}" == agy ]]; then
-    d="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}/rtdd"
+  d="$(cli_user_skills_dir)"   # a CLI whose user skills `rtdd skill install` does not reach
+  if [[ -n "$d" ]]; then
+    d="$d/rtdd"
     mkdir -p "$d" && rtdd skill prompt 2>/dev/null | awk '/^````$/{f=0} f; /^````markdown$/{f=1}' > "$d/SKILL.md.tmp" \
       && [[ -s "$d/SKILL.md.tmp" ]] && mv "$d/SKILL.md.tmp" "$d/SKILL.md" || {
       rm -f "$d/SKILL.md.tmp"
-      echo "  ! could not install the rtdd skill for agy into $d — retry: harness setup"
+      echo "  ! could not install the rtdd skill for $(cli_name) into $d — retry: harness setup"
       return 1; }
   fi
   echo "  ✓ rtdd skill installed"; }
@@ -1414,9 +1286,18 @@ stats_sweep_ended(){ local f s claim
     s="$(basename "$f" .stats)"
     session_live "$s" && continue
     claim="$f.end.$$"; mv "$f" "$claim" 2>/dev/null || continue
-    harness_event session_end --ctx "$claim"; rm -f "$claim"
+    harness_event session_end --ctx "$claim" usage_tsv="$(_stats_cli_usage "$claim")"; rm -f "$claim"
   done
   shopt -u nullglob; }
+# _stats_cli_usage <ctx file> — the ended session's per-model usage lines, read by the CLI adapter
+# from the CLI's own transcripts (#188); empty when it has none. stats.py prefers a claude
+# transcript it finds itself (it also dates the session's last turn from it).
+_stats_cli_usage(){ local wd sid files
+  IFS=$'\t' read -r wd sid < <(python3 -c 'import json,sys
+c = json.load(open(sys.argv[1])); print(c.get("worktree", ""), c.get("session", ""), sep="\t")' "$1" 2>/dev/null)
+  sid="$(cli_session_id "$wd" "$sid")"; [[ -n "$sid" ]] || return 0
+  files="$(cli_transcripts "$wd" "$sid")"; [[ -n "$files" ]] || return 0
+  mapfile -t files <<<"$files"; cli_usage "${files[@]}" 2>/dev/null; return 0; }
 # session_env <uuid> — fill SESSION_ENV with the `-e K=V` pairs `tmux new-session` gives a lane (#186).
 # RTDD_EVENT_LOG points every rtdd call the session makes at the host-wide rtdd log, and rtdd copies
 # each HARNESS_* var into the event's ctx (VocanicZ/rtdd#503), so `harness stats` can join the call to
@@ -1457,17 +1338,24 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
-  if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
-    local bin="${HARNESS_AGY_BIN:-${AGY_BIN:-agy}}" flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
-    tmux send-keys -t "$sess" "exec $bin $flags -i \"$HARNESS_BOOTSTRAP_PROMPT\"" Enter
-  else
-    tmux send-keys -t "$sess" "exec $CLAUDE_BIN --session-id $uuid $CLAUDE_FLAGS \"$HARNESS_BOOTSTRAP_PROMPT\"" Enter
-  fi
-  local flags="$CLAUDE_FLAGS"; [[ "${HARNESS_CLI:-claude}" == agy ]] && flags="${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"
+  local line; line="$(cli_launch "$wd" "$uuid" "" "")"
+  tmux send-keys -t "$sess" "$line" Enter
+  _launch_first_input "$sess"
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
-    worktree="$wd" flags="$flags" ralph_iter=1 tmux="$sess"
+    worktree="$wd" flags="$line" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
+# _launch_first_input <sess> — a CLI that cannot take its prompt or effort on the command line gets
+# them typed once its input prompt first shows (cli_first_input); every other CLI has none, and
+# this returns without polling the pane.
+_launch_first_input(){ local sess="$1" in i pane
+  in="$(cli_first_input "${HARNESS_EFFORT:-}")"; [[ -n "$in" ]] || return 0
+  for (( i = 0; i < 60; i++ )); do
+    pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)"
+    cli_pane_prompt "$pane" && ! cli_pane_busy "$pane" && break
+    sleep 1
+  done
+  while IFS= read -r i; do cli_send "$sess" "" "$i"; done <<<"$in"; }
 
 # --- PRD-B host poller: refcounted registry + supervision (#71) --------------
 # A drop-a-file, refcounted registry under $POLLER_REGISTRY_DIR: one file per (repo, registrant)
@@ -1791,13 +1679,13 @@ seed_if_needed(){
 # An empty <branch> (a read-only triage session, #36) emits a no-push variant that still runs
 # /handoff and flips agent-working → agent-paused, so the lane is never left orphaned.
 _checkpoint_msg(){  # <issue> <slug> <branch> <working-label> <paused-label> [reason]
-  local why="${6:-pause requested}"
+  local why="${6:-pause requested}" skill; skill="$(cli_skill handoff)"
   if [[ -n "$3" ]]; then
-    printf 'HARNESS CHECKPOINT — %s. Stop now. Commit ALL work in progress and push your branch to origin. Then run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s branch=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
-      "$why" "$1" "$2" "$1" "$3" "$1" "$2" "$4" "$5"
+    printf 'HARNESS CHECKPOINT — %s. Stop now. Commit ALL work in progress and push your branch to origin. Then run the %s skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s branch=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
+      "$why" "$skill" "$1" "$2" "$1" "$3" "$1" "$2" "$4" "$5"
   else
-    printf 'HARNESS CHECKPOINT — %s. Stop now. You have no code branch to push (read-only phase). Run the /handoff skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
-      "$why" "$1" "$2" "$1" "$1" "$2" "$4" "$5"
+    printf 'HARNESS CHECKPOINT — %s. Stop now. You have no code branch to push (read-only phase). Run the %s skill and post the handoff as a GitHub issue comment: gh issue comment %s -R %s --body-file <file>, whose FIRST line is exactly `<!-- harness-handoff issue=%s -->`. Then swap labels: gh issue edit %s -R %s --remove-label %s --add-label %s. Do NOT merge or close the issue. Then output your completion promise and exit.' \
+      "$why" "$skill" "$1" "$2" "$1" "$1" "$2" "$4" "$5"
   fi
 }
 

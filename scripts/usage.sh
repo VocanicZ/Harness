@@ -9,7 +9,7 @@
 #      account the same HARNESS CHECKPOINT as `pause --force`, and HOLD new claims (usage_held)
 #      until the window resets — then release the hold so the normal resume path re-dispatches the
 #      agent-paused issues;
-#   3. a session ALREADY frozen at the limit cannot run /handoff, so it gets a mechanical
+#   3. a session ALREADY frozen at the limit cannot run its handoff skill, so it gets a mechanical
 #      checkpoint instead (commit + push its worktree, post a handoff comment with the last screen)
 #      and is left alive for #120's nudge. watchdog_session also calls this on the limit message
 #      itself, so checkpoints still happen for a CLI that cannot report usage.
@@ -21,52 +21,18 @@ _usage_hold_dir(){ echo "$RUN_DIR/usage-holds"; }              # one <account>.h
 
 _usage_key(){ printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 
-# _usage_claude — the Claude Code adapter. Claude Code hands its status line the documented
-# `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}`; scripts/usage-statusline.sh
-# (wired into each worktree by ensure_usage_statusline) drops that into $USAGE_DIR/<account>.json.
-# A window whose resets_at has passed has reset, so it is skipped rather than reported stale. No
-# drop at all = usage unavailable (rc 1).
-_usage_claude(){
-  compgen -G "$(_usage_dir)/*.json" >/dev/null || return 1
-  USAGE_DIR="$(_usage_dir)" python3 - <<'PY'
-import glob, json, os, time
-now = time.time()
-for f in sorted(glob.glob(os.path.join(os.environ["USAGE_DIR"], "*.json"))):
-    try:
-        with open(f) as fh:
-            d = json.load(fh)
-    except (OSError, ValueError):
-        continue
-    acct = d.get("account") or "default"
-    for win, w in sorted((d.get("rate_limits") or {}).items()):
-        if not isinstance(w, dict) or w.get("used_percentage") is None:
-            continue
-        reset = int(w.get("resets_at") or 0)
-        if reset and reset <= now:
-            continue
-        print(f"{acct}\t{win}\t{w['used_percentage']}\t{reset}")
-PY
-}
-# _usage_agy — Antigravity exposes no usage windows to Harness: `usage unavailable`. Its sessions
-# are still checkpointed on the limit message itself (watchdog_session → limit_checkpoint_once).
-_usage_agy(){ return 1; }
-# cli_limit_usage — the one place usage is read per CLI. HARNESS_USAGE_CMD overrides the adapter
-# for ANY CLI (an operator's own source, and the test stub): it prints the usage lines itself.
-cli_limit_usage(){
-  if [[ -n "${HARNESS_USAGE_CMD:-}" ]]; then bash -c "$HARNESS_USAGE_CMD"; return; fi
-  case "${HARNESS_CLI:-claude}" in
-    claude) _usage_claude ;;
-    agy)    _usage_agy ;;
-    *)      return 1 ;;
-  esac; }
+# The usage windows themselves are read per CLI by the adapter (cli_limit_usage, scripts/cli/).
 
-# ensure_usage_statusline <dir> — point a claude worktree's status line at usage-statusline.sh so
-# its sessions report their windows. Only Harness-owned trees (never PROJECT_ROOT, where the owner
-# works interactively) and only when no statusLine is set there already. HARNESS_USAGE_STATUSLINE=0
-# turns it off.
+# ensure_usage_statusline <dir> — wire a worktree so its sessions report their usage windows, the
+# CLI adapter's way (cli_usage_setup; claude: usage_statusline_install). Only Harness-owned trees
+# (never PROJECT_ROOT, where the owner works interactively). HARNESS_USAGE_STATUSLINE=0 turns it off.
 ensure_usage_statusline(){ local dir="$1"
-  [[ "${HARNESS_USAGE_STATUSLINE:-1}" == 1 && "${HARNESS_CLI:-claude}" == claude ]] || return 0
+  [[ "${HARNESS_USAGE_STATUSLINE:-1}" == 1 ]] || return 0
   [[ "$dir" != "$PROJECT_ROOT" ]] || return 0
+  cli_usage_setup "$dir"; }
+# usage_statusline_install <dir> — point a claude worktree's status line at usage-statusline.sh,
+# only when no statusLine is set there already.
+usage_statusline_install(){ local dir="$1"
   mkdir -p "$dir/.claude" "$(_usage_dir)"
   F="$dir/.claude/settings.local.json" CMD="bash '$ENGINE_DIR/scripts/usage-statusline.sh' '$(_usage_dir)'" python3 - <<'PY'
 import json, os, tempfile
@@ -154,8 +120,7 @@ usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg
     fi
     _checkpoint_target "$sess" || continue
     msg="$(_checkpoint_msg "$_CP_ISSUE" "$_CP_SLUG" "$_CP_BRANCH" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED" "$reason")"
-    tmux send-keys -t "$sess" -l "$msg" 2>/dev/null || true
-    tmux send-keys -t "$sess" Enter 2>/dev/null || true
+    cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "$msg"
     log "usage: checkpoint requested: $sess ($_CP_SLUG#$_CP_ISSUE)"
   done < <(checkpoint_sessions); }
 
@@ -185,7 +150,7 @@ usage_watch(){ local out lockfd acct win pct reset key hf now; local -A over=()
       usage_checkpoint_account "$acct" "usage limit near ($win window at ${pct}%)"
     done
   elif [[ ! -f "$RUN_DIR/usage.unavailable" ]]; then
-    touch "$RUN_DIR/usage.unavailable"; log "usage: usage unavailable for ${HARNESS_CLI:-claude} — checkpointing on the limit message only"
+    touch "$RUN_DIR/usage.unavailable"; log "usage: usage unavailable for $(cli_name) — checkpointing on the limit message only"
   fi
   now="$(date +%s)"; shopt -s nullglob
   for hf in "$(_usage_hold_dir)"/*.hold; do
@@ -199,7 +164,7 @@ usage_watch(){ local out lockfd acct win pct reset key hf now; local -A over=()
 
 # usage_report — the windows and holds, one line per account window (harness status).
 usage_report(){ local out acct win pct reset hold
-  out="$(cli_limit_usage 2>/dev/null)" || { echo "  usage: unavailable for ${HARNESS_CLI:-claude} (checkpoints on the limit message only)"; return 0; }
+  out="$(cli_limit_usage 2>/dev/null)" || { echo "  usage: unavailable for $(cli_name) (checkpoints on the limit message only)"; return 0; }
   [[ -n "$out" ]] || { echo "  usage: no open windows reported"; return 0; }
   while IFS=$'\t' read -r acct win pct reset; do
     [[ -n "$acct" ]] || continue

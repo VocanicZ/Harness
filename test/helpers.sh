@@ -73,7 +73,9 @@ make_env(){
   # throwaway by default and drop the inherited config dir; tests that exercise the fan-out override
   # both explicitly (test_spawn.sh group 3b). Same seam, different root.
   export HARNESS_CLAUDE_CONFIG="$RUN_DIR/claude.json"
-  export HARNESS_AGY_TRUST_FILE="$RUN_DIR/trustedFolders.json"
+  export HARNESS_AGY_TRUST_FILE="$RUN_DIR/agy-settings.json"
+  # …and agy's own state dir (#188: conversation ids, transcripts, the usage-window cache).
+  export HARNESS_AGY_HOME="$RUN_DIR/agy-home"
   unset CLAUDE_CONFIG_DIR
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.

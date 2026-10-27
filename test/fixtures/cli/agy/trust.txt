@@ -1,0 +1,45 @@
+Accessing workspace:
+
+/tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i188/df46c444-3d54-448f-b5e0-4ac14b620474/scratchpad/cap/agy/repo
+
+Do you trust the contents of this project?
+
+Antigravity CLI requires permission to read, edit, and execute files here.
+
+> Yes, I trust this folder
+  No, exit
+
+  ↑/↓ Navigate · enter Confirm
+0k ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ (0%|0%)                             3 ░░░░░░░░ 0%   3 ░░░░░░░░ 0%   G ░░░░░░░░ 1%   G ░░░░░░░░ 1%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -9,7 +9,7 @@
 #   2. below HARNESS_GH_BUDGET_PCT of either budget (core / graphql), gh_budget_low stops new claims
 #      and the dispatcher polls at twice its interval until the reset, leaving what is left to the
 #      live agents. In-flight sessions are never touched by either.
-# The token, not the CLI, is what is limited, so this is the same for every HARNESS_CLI.
+# The token, not the agent CLI, is what is limited, so this is the same for every CLI adapter.
 
 # gh_rate_held — print this token's hold reset epoch; true while a hold is open. Anything but an
 # epoch on stdout is no hold: a wedged or stubbed reader must never park the dispatcher.

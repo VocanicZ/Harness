@@ -50,6 +50,7 @@ SUP_CONF="${HARNESS_SUPERVISE_CONF:-$HARNESS_HOME/supervise.conf}"
 SUP_STATE="${HARNESS_SUPERVISE_STATE:-$HARNESS_HOME/supervise}"
 SUP_LOG="${HARNESS_SUPERVISE_LOG:-$HARNESS_HOME/supervise.log}"
 source "$SUP_ENGINE_DIR/scripts/turn.sh"   # #207: stuck-turn detection + interrupt (after supervise.conf, which may set HARNESS_TURN_MAX)
+source "$SUP_ENGINE_DIR/scripts/cli/dispatch.sh"   # #188: each CLI's pane regexes (cli_with <cli> …)
 SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_ENGINE_DIR/bin/harness}"
 SUP_RULES="${HARNESS_SUPERVISE_RULES:-$SUP_ENGINE_DIR/scripts/supervise_rules.py}"
 # Fleets the registry does not know (an engine that predates it) are found by this glob too.
@@ -68,21 +69,21 @@ sup_log(){ mkdir -p "$(dirname "$SUP_LOG")"; echo "$(date '+%F %T') $*" >>"$SUP_
 sup_act(){ if (( SUP_DRY )); then sup_log "DRY $*"; else sup_log "ACT $*"; "$@" >>"$SUP_LOG" 2>&1; fi; }
 sup_alive(){ [[ -f $1 ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
-# --- CLI adapter (the #188 seam): how each agent CLI's pane reads -----------------------------
+# --- how each agent CLI's pane reads: the CLI adapters (scripts/cli/, #188) ----------------------
 # sup_prompt_re <cli> — a line that IS the idle input prompt. Everything above the first such line
 # is the "screen"; a pane with no such line is a dialog or menu and is never typed into.
-# HARNESS_SUPERVISE_PROMPT_RE overrides it for every CLI.
+# HARNESS_SUPERVISE_PROMPT_RE overrides it for every CLI. A pane whose command has no adapter is
+# read as claude's.
 sup_prompt_re(){
   [[ -n "${HARNESS_SUPERVISE_PROMPT_RE:-}" ]] && { echo "$HARNESS_SUPERVISE_PROMPT_RE"; return; }
-  case "$1" in
-    agy) echo '^(│ *)?>( |$)' ;;    # Antigravity's boxed input line
-    *)   echo '^❯' ;;           # claude
-  esac; }
+  cli_with "$1" cli_idle_re 2>/dev/null || cli_with claude cli_idle_re; }
+# sup_dialog <cli> <pane> — a dialog owns the pane (agy's trust dialog shows a `>` line at column 0).
+sup_dialog(){ cli_with "$1" cli_pane_dialog "$2" 2>/dev/null || cli_with claude cli_pane_dialog "$2"; }
 # sup_bg_re <cli> — the footer's background-agent / shell timers and token counters; one moving
 # means work is in flight even though the screen above the prompt is still.
 sup_bg_re(){ echo '[0-9]+h [0-9]+m [0-9]+s|[0-9]+m [0-9]+s|↓ [0-9.]+k tokens'; }
 # sup_agent_cmds — pane_current_command values that are agent CLIs (for the EXTRA_RE panes).
-sup_agent_cmds(){ echo 'claude|agy'; }
+sup_agent_cmds(){ local c; for c in $(cli_list); do basename "$(cli_with "$c" cli_bin)"; done | paste -sd'|'; }
 
 # sup_tree_cpu <pid> — total CPU seconds used by a process and all its descendants.
 sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
@@ -112,6 +113,7 @@ sup_watch_pane(){
   echo "$body $bg $cpu $t0 $nudged $lastn" >"$f"                   # quiet: keep the CPU baseline current
   idle=$(( (now - t0) / 60 ))
   grep -qE "$pre" <<<"$pane" || return 0                            # dialog/menu, not an idle prompt
+  sup_dialog "$cli" "$pane" && return 0
   grep -qiE "$SUP_LIMIT_RE" <<<"$(tail -40 <<<"$pane")" && return 0 # parked at a usage limit
   if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
     "$killfn" "${t%%:*}" "$idle" "$pane" && rm -f "$f"
@@ -299,7 +301,7 @@ sup_check_fleet(){ local sd=$1
     # 3. frozen sessions
     local s f
     for s in $sessions; do
-      sup_watch_pane "$s" "$SUP_STATE/panes/$s" "$NUDGE_MIN" "$KILL_MIN" "$SUP_NUDGE_MSG" "$HARNESS_CLI" sup_checkpoint_and_kill
+      sup_watch_pane "$s" "$SUP_STATE/panes/$s" "$NUDGE_MIN" "$KILL_MIN" "$SUP_NUDGE_MSG" "$(cli_name)" sup_checkpoint_and_kill
     done
     for f in "$SUP_STATE"/{panes,turn}/"$prefix"-*; do               # forget panes of ended sessions
       [[ -e $f ]] && ! tmux has-session -t "=${f##*/}" 2>/dev/null && rm -f "$f"

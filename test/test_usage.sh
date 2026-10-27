@@ -25,8 +25,20 @@ for cli in claude agy; do
   assert_eq "$(HARNESS_CLI=$cli cli_limit_usage)" "$(printf 'acctA\tfive_hour\t42\t%s' "$future")" \
     "$cli: HARNESS_USAGE_CMD is read through cli_limit_usage"
 done
-( unset HARNESS_USAGE_CMD; HARNESS_CLI=agy cli_limit_usage >/dev/null ); rc=$?
-assert_eq "$rc" "1" "agy with no usage source: usage unavailable"
+( unset HARNESS_USAGE_CMD; HARNESS_AGY_BIN="$RUN_DIR/no-such-agy" HARNESS_CLI=agy cli_limit_usage >/dev/null ); rc=$?
+assert_eq "$rc" "1" "agy with no usage source (no agy binary): usage unavailable"
+# #188: agy reports its windows itself (`agy -p /usage`); the adapter turns remaining into used %.
+rm -rf "$(_usage_dir)"   # the failed read above is cached too (HARNESS_AGY_USAGE_TTL)
+AGYSTUB="$RUN_DIR/agy-stub"
+printf '#!/bin/sh
+echo "$*" >> %q.calls
+exec cat %q
+' "$AGYSTUB" "$HERE/fixtures/cli/agy/usage-windows.json" > "$AGYSTUB"; chmod +x "$AGYSTUB"
+got="$(unset HARNESS_USAGE_CMD; HARNESS_AGY_BIN="$AGYSTUB" HARNESS_CLI=agy cli_limit_usage | cut -f1-3)"
+assert_eq "$got" "$(cat "$HERE/fixtures/cli/agy/usage-windows.expected")" "agy: usage windows from agy -p /usage, as used %"
+( unset HARNESS_USAGE_CMD; HARNESS_AGY_BIN="$AGYSTUB" HARNESS_CLI=agy cli_limit_usage >/dev/null )
+assert_eq "$(wc -l < "$AGYSTUB.calls")" "1" "agy: a second read inside HARNESS_AGY_USAGE_TTL reuses the first (one agy call)"
+rm -rf "$(_usage_dir)"
 ( unset HARNESS_USAGE_CMD; HARNESS_CLI=claude cli_limit_usage >/dev/null ); rc=$?
 assert_eq "$rc" "1" "claude before any status-line drop: usage unavailable"
 ( unset HARNESS_USAGE_CMD; HARNESS_CLI=other cli_limit_usage >/dev/null ); rc=$?

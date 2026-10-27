@@ -12,6 +12,8 @@ assistant line carrying message.model + message.usage.
     stats.py report [--prd N|--issue N] [-R owner/repo] [--since 7d] [--fleet P] [--model M] [--json]
     stats.py backfill                 rebuild session_end for past sessions from their transcripts
     stats.py goal-env <goal> [prd]    KIND=/ISSUE=/PRD= lines for a lane's HARNESS_* session env (#186)
+    stats.py transcripts <session>    a claude session's transcript paths, sub-agents included (#188)
+    stats.py usage <transcript>...    per-model `<model>\t<in>\t<out>\t<cache_read>\t<cache_write>` (#188)
 
 rtdd activity (#186) lives beside it in $HARNESS_HOME/rtdd-events.jsonl: every lane session is
 launched with RTDD_EVENT_LOG pointing there plus HARNESS_SESSION/ISSUE/KIND/PRD/PREFIX/REPO, and rtdd
@@ -209,12 +211,38 @@ def _file_usage(path, acc, span):
             tot[dst] += int(u.get(src) or 0)
 
 
+def transcript_files(transcript):
+    """The main transcript and every subagent transcript beside it."""
+    return [transcript] + sorted(glob.glob(os.path.join(transcript[:-len(".jsonl")], "subagents", "*.jsonl")))
+
+
+def usage_tsv(acc):
+    """{model: usage} as the CLI adapter's `<model>\t<input>\t<output>\t<cache_read>\t<cache_write>` lines."""
+    return "".join(f"{m}\t{u['input']}\t{u['output']}\t{u['cache_read']}\t{u['cache_create']}\n" for m, u in sorted(acc.items()))
+
+
+def parse_usage_tsv(text):
+    """The inverse of usage_tsv: a CLI adapter's usage lines (#188) as {model: usage}."""
+    acc = {}
+    for line in str(text).splitlines():
+        p = line.split("\t")
+        if len(p) != 5:
+            continue
+        try:
+            n = [int(x) for x in p[1:]]
+        except ValueError:
+            continue
+        tot = acc.setdefault(p[0], {k: 0 for _, k in USAGE_KEYS})
+        for k, v in zip(("input", "output", "cache_read", "cache_create"), n):
+            tot[k] += v
+    return acc
+
+
 def session_usage(transcript):
     """({model: usage}, first_ts, last_ts) over the main transcript AND every subagent transcript."""
     acc, span = {}, [None, None]
-    _file_usage(transcript, acc, span)
-    for sub in sorted(glob.glob(os.path.join(transcript[:-len(".jsonl")], "subagents", "*.jsonl"))):
-        _file_usage(sub, acc, span)
+    for f in transcript_files(transcript):
+        _file_usage(f, acc, span)
     return acc, span[0], span[1]
 
 
@@ -253,8 +281,11 @@ def build_event(event, common, ctx, kv, now=None):
         launched = rec.get("launched")
         tr = find_transcript(rec["session"]) if rec.get("session") else None
         last = None
+        tsv = rec.pop("usage_tsv", None)   # #188: what the CLI adapter folded from its own transcripts
         if tr and "usage" not in rec:
             rec["usage"], _, last = session_usage(tr)
+        elif tsv and "usage" not in rec:
+            rec["usage"] = parse_usage_tsv(tsv) or None
         if "wall_s" not in rec and isinstance(launched, int):
             rec["wall_s"] = max(0, int((last or now) - launched))
         it = ralph_iter(rec["worktree"]) if rec.get("worktree") else None
@@ -805,6 +836,16 @@ def main(argv=None):
         return cmd_parent_prd(rest)
     if cmd == "goal-env":
         print("\n".join(goal_env(*rest[:2])))
+        return 0
+    if cmd == "transcripts":   # the claude adapter's cli_transcripts (#188)
+        tr = find_transcript(rest[0]) if rest else None
+        print("\n".join(transcript_files(tr)) if tr else "")
+        return 0
+    if cmd == "usage":         # the claude adapter's cli_usage (#188)
+        acc, span = {}, [None, None]
+        for f in rest:
+            _file_usage(f, acc, span)
+        sys.stdout.write(usage_tsv(acc))
         return 0
     if cmd == "backfill":
         return cmd_report(["--backfill"] + rest)

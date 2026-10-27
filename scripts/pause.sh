@@ -28,8 +28,7 @@ force_pause(){
     _checkpoint_target "$sess" || { echo "  skip unrecognised session: $sess"; continue; }
     issue="$_CP_ISSUE"; slug="$_CP_SLUG"; branch="$_CP_BRANCH"
     msg="$(_checkpoint_msg "$issue" "$slug" "$branch" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED")"
-    tmux send-keys -t "$sess" -l "$msg" 2>/dev/null || true
-    tmux send-keys -t "$sess" Enter 2>/dev/null || true
+    cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "$msg"
     pending+=("$sess:$issue:$slug")
     echo "  checkpoint requested: $sess (issue #$issue on $slug)"
   done <<< "$sessions"
