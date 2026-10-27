@@ -3,7 +3,9 @@
 // Launches <browser> headless on a free debugging port, opens <url> and waits for it to load, then
 // prints {"ok":true}. After that it reads one JSON request per stdin line and answers one per stdout
 // line: {"op":"eval","expr":E} → {"ok":true,"value":V}; {"op":"wait","expr":E,"timeout":S} polls E
-// until it is truthy. Any failure is {"ok":false,"error":…}. stdin closing closes the browser.
+// until it is truthy; {"op":"key","key":K,"shift":B} presses a real key (Enter, Escape, Tab);
+// {"op":"viewport","width":W,"height":H} resizes the page. Any failure is {"ok":false,"error":…}.
+// stdin closing closes the browser.
 // A test tool only (no npm package: Node >= 22's own WebSocket), never shipped to the page.
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -63,6 +65,20 @@ async function waitFor(expr, secs) {
   }
 }
 
+const KEYS = { Enter: [13, "\r"], Escape: [27, ""], Tab: [9, ""] };
+async function press(key, shift) {
+  const [code, text] = KEYS[key] || (() => { throw new Error("unknown key " + key); })();
+  const base = { key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers: shift ? 8 : 0 };
+  await send("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", text, ...base }, session);
+  await send("Input.dispatchKeyEvent", { type: "keyUp", ...base }, session);
+  return true;
+}
+
+async function viewport(width, height) {
+  await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false }, session);
+  return true;
+}
+
 async function main() {
   ws = new WebSocket(await wsUrl());
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error("ws error")); });
@@ -82,7 +98,10 @@ async function main() {
     if (!line.trim()) continue;
     try {
       const req = JSON.parse(line);
-      const value = req.op === "wait" ? await waitFor(req.expr, req.timeout || 5) : await evaluate(req.expr);
+      const value = req.op === "wait" ? await waitFor(req.expr, req.timeout || 5)
+        : req.op === "key" ? await press(req.key, req.shift)
+        : req.op === "viewport" ? await viewport(req.width, req.height || 800)
+        : await evaluate(req.expr);
       out({ ok: true, value });
     } catch (e) {
       out({ ok: false, error: String(e.message || e) });

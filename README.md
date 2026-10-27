@@ -634,6 +634,17 @@ one changes, it pushes the page parts that changed. An issue opened, closed, lab
 appears within one board-cache refresh, and the **data as of** stamp moves with it. A dropped stream
 reconnects by itself, and the header says "reconnecting…" until it does.
 
+Clicking an issue on a fleet page (a DAG node or a list row), or pressing Enter on it, opens the
+**issue drawer**: its title, labels, `## Blocked by` (each with its state) and `## Parent`, its open
+PR and that PR's CI state, its live session, the session timeline from the event log, and a link to
+the issue on GitHub. Esc closes it and puts focus back where it was. The page URL becomes
+`/fleet/<prefix>?issue=N`, which opens the drawer directly, and the overview's session rows link
+there, so any live issue's PR is two clicks from `/`. `/fleet/<prefix>/issue/<n>?repo=<owner/repo>`
+serves the drawer alone, and `/api/fleet/<prefix>/issue/<n>` the same as JSON. PR and CI come from
+the host poller, which caches each open `issue/<n>` PR and the combined status of its head commit in
+the board snapshot with conditional (ETag) reads, so an unchanged PR list costs nothing. A field the
+poller has not cached yet reads "unknown"; the dashboard never asks GitHub for it.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `HARNESS_WEB_BIND` | `127.0.0.1` | address the server listens on |

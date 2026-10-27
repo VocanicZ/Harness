@@ -10,7 +10,8 @@ Registry records in the fixtures carry @PROJECT_<prefix>@ / @RUN_<prefix>@ place
 rewrites them to the temp project dirs. Fleet `hz` gets worker-1.pid = this process (alive, so
 RUNNING), a dead.pid (a reaped child's pid) and the launch context of hz-arc-i11 (#225); `dp` gets
 no pid file (STOPPED). The supervisor's state (supervise/, supervise.log, supervise.conf) and the
-rate-limit files (ghrate/) are copied into the host, pane files stamped as written at NOW.
+rate-limit files (ghrate/) are copied into the host, pane files stamped as written at NOW. The
+recorded event log (events.jsonl, #228's session timelines) becomes the host's.
 """
 import contextlib, http.client, importlib.util, json, os, shutil, subprocess, sys, tempfile, threading, time
 import urllib.parse
@@ -21,7 +22,8 @@ FIX = os.path.join(HERE, "fixtures", "web")
 NOW = 1_800_000_000
 _ENV_KEYS = ("HARNESS_HOME", "HARNESS_FLEETS_DIR", "HARNESS_SNAPSHOTS_DIR", "HARNESS_POLLER_DIR",
              "HARNESS_SUPERVISE_STATE", "HARNESS_SUPERVISE_LOG", "HARNESS_SUPERVISE_CONF",
-             "HARNESS_GH_RATE_DIR", "PATH", "WEB_GH_CALLED", "WEB_TMUX_LS")
+             "HARNESS_GH_RATE_DIR", "HARNESS_EVENTS_FILE", "HARNESS_RTDD_EVENTS_FILE", "PATH", "WEB_GH_CALLED",
+             "WEB_TMUX_LS")
 
 
 def load(name):
@@ -142,13 +144,17 @@ def build_host(root):
 @contextlib.contextmanager
 def serving(tmux_ls="", now=None, tick=None, events="events.jsonl"):
     """(base_url, host) for a web server over a fresh fixture host. `now` pins the model's clock;
-    `tick` is the SSE collector's period (#227); `events` is for the later tasks' event log."""
+    `tick` is the SSE collector's period (#227); `events` names the fixture event log the host gets
+    (None: no event log at all)."""
     web = load("web")
     root = tempfile.mkdtemp(prefix="harness-web-")
     saved = {k: os.environ.get(k) for k in _ENV_KEYS}
     srv = model = None
     try:
         host = build_host(root)
+        events_file = os.path.join(host.home, "events.jsonl")
+        if events:
+            shutil.copy(os.path.join(FIX, events), events_file)
         os.environ.update({
             "HARNESS_HOME": host.home, "HARNESS_FLEETS_DIR": host.fleets,
             "HARNESS_SNAPSHOTS_DIR": host.snapshots, "HARNESS_POLLER_DIR": os.path.join(host.home, "poller"),
@@ -156,6 +162,8 @@ def serving(tmux_ls="", now=None, tick=None, events="events.jsonl"):
             "HARNESS_SUPERVISE_LOG": os.path.join(host.home, "supervise.log"),
             "HARNESS_SUPERVISE_CONF": os.path.join(host.home, "supervise.conf"),
             "HARNESS_GH_RATE_DIR": os.path.join(host.home, "ghrate"),
+            "HARNESS_EVENTS_FILE": events_file,
+            "HARNESS_RTDD_EVENTS_FILE": os.path.join(host.home, "rtdd-events.jsonl"),
             "PATH": host.bin + os.pathsep + (saved["PATH"] or ""),
             "WEB_GH_CALLED": host.gh_called, "WEB_TMUX_LS": tmux_ls,
         })
@@ -318,6 +326,14 @@ class Page:
     def wait(self, expr, timeout):
         """Poll <expr> in the page until it is truthy; fails after <timeout> seconds."""
         return self._call({"op": "wait", "expr": expr, "timeout": timeout})
+
+    def key(self, name, shift=False):
+        """Press and release one real key (Enter, Escape, Tab) — trusted input, not a synthetic event."""
+        return self._call({"op": "key", "key": name, "shift": shift})
+
+    def viewport(self, width, height=800):
+        """Resize the page's viewport to <width> x <height> CSS px (#228's 400 px check)."""
+        return self._call({"op": "viewport", "width": width, "height": height})
 
 
 @contextlib.contextmanager

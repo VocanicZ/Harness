@@ -3,6 +3,9 @@
 # Proves: `issuelib snapshot <repo>` emits a raw, versioned JSON snapshot; reading it back via
 # HARNESS_SNAPSHOT_FILE yields dispatch/complete/bugs/working-bugs IDENTICAL to the direct-gh path,
 # with ZERO gh calls (a sibling snapshot resolves a cross-repo dep; an unsnapshotted dep blocks).
+# #228: the snapshot also caches each open `issue/<n>` PR (`pulls`) and its head's combined status
+# (`checks`), conditionally — an unchanged PR list and status cost a 304, and a failed read keeps
+# what the last snapshot had.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
@@ -132,6 +135,76 @@ disp="$(snap dispatch acme/widget 3)"
 assert_ok "cross-repo dep (lib#42 closed) → #5 dispatched"   bash -c "grep -q $'^IMPL\t5\t' <<< \"\$1\"" _ "$disp"
 assert_ok "free issue #8 dispatched"                          bash -c "grep -q $'^IMPL\t8\t' <<< \"\$1\"" _ "$disp"
 assert_no "unsnapshotted dep (other/ghost#1) → #9 blocked"    bash -c "grep -q $'^IMPL\t9\t' <<< \"\$1\"" _ "$disp"
+
+# ── 5) #228: PR + CI cached in the snapshot, conditionally (a tiny GitHub over `gh api -i`).
+PRBIN="$WORK/prbin"; PR_CALLS="$WORK/pr.calls"; mkdir -p "$PRBIN"; : > "$PR_CALLS"
+cat > "$PRBIN/gh" <<'STUB'
+#!/usr/bin/env bash
+# Every call logs `<status> <path>`; a 304 is the only status GitHub does not charge for.
+exec python3 -c '
+import hashlib, json, os, sys
+a = sys.argv[1:]
+def out(status, text, rc=0):
+    sys.stdout.write(text)
+    open(os.environ["PR_CALLS"], "a").write("%s %s\n" % (status, a[2] if a[:2] == ["api", "-i"] else " ".join(a)))
+    sys.exit(rc)
+if a[:2] == ["issue", "list"]:
+    out(200, json.dumps([{"number": 13, "title": "t", "state": "OPEN", "labels": [], "body": "",
+                          "author": {"login": "me"}, "updatedAt": "2026-10-01T00:00:13Z"}]))
+if a[:2] == ["api", "user"]:
+    out(200, "me")
+if a[:2] != ["api", "-i"]:
+    out(404, "", 1)
+path = a[2]; sent = a[a.index("-H") + 1].split(": ", 1)[1] if "-H" in a else None
+S13 = "a" * 40
+if "/pulls?" in path:
+    if os.environ.get("PR_FAIL"):
+        out(502, "HTTP/2.0 502 Bad Gateway\n\n")
+    body = [{"number": 60, "html_url": "https://github.com/acme/widget/pull/60", "draft": False,
+             "head": {"ref": "issue/13", "sha": S13, "repo": {"full_name": "acme/widget"}}},
+            {"number": 61, "html_url": "u61", "head": {"ref": "feature/x", "sha": "b" * 40}},
+            {"number": 62, "html_url": "u62", "head": {"ref": "issue/14", "sha": "c" * 40,
+                                                       "repo": {"full_name": "fork/widget"}}}]
+elif path.endswith("/commits/%s/status" % S13):
+    body = {"state": "success", "total_count": 2}
+elif path.endswith("/git/matching-refs/heads/issue/"):
+    body = [] if os.environ.get("NO_BRANCHES") else [{"ref": "refs/heads/issue/13"}]
+elif path.endswith("/contents/") or "/issues?" in path:
+    body = []
+else:
+    out(404, "HTTP/2.0 404 Not Found\n\n", 1)
+body = json.dumps(body)
+etag = "\"%s\"" % hashlib.sha1(body.encode()).hexdigest()
+if sent == etag:
+    out(304, "HTTP/2.0 304 Not Modified\nEtag: %s\n\n" % etag, 1)
+out(200, "HTTP/2.0 200 OK\nEtag: %s\n\n%s" % (etag, body))
+' "$@"
+STUB
+chmod +x "$PRBIN/gh"
+prsnap(){ PATH="$PRBIN:$PATH" PR_CALLS="$PR_CALLS" env "${COMMON[@]}" python3 "$IL" snapshot acme/widget "$@"; }
+prs(){ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps([d.get("pulls"), d.get("checks")], sort_keys=True))' "$1"; }
+calls_since(){ tail -n +"$(( $1 + 1 ))" "$PR_CALLS" | grep -cE -- "$2"; }
+WANT='[[{"draft": false, "head_ref": "issue/13", "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "issue": 13, "number": 60, "url": "https://github.com/acme/widget/pull/60"}], {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {"etag": '
+
+prsnap > "$WORK/s1.json"
+assert_ok "full snapshot caches the issue/13 PR (not feature/x, not a fork's issue/14)" \
+  grep -qF -- "$WANT" <<<"$(prs "$WORK/s1.json")"
+assert_ok "…and its head's combined status" grep -qF -- '"state": "success"' <<<"$(prs "$WORK/s1.json")"
+mark="$(wc -l < "$PR_CALLS")"
+prsnap "$WORK/s1.json" > "$WORK/s2.json"
+assert_eq "$(prs "$WORK/s2.json")" "$(prs "$WORK/s1.json")" "incremental refresh keeps pulls + checks"
+assert_eq "$(calls_since "$mark" '^304 repos/acme/widget/(pulls|commits/a+/status)')" "2" \
+  "an unchanged PR list and status cost one 304 each"
+assert_eq "$(calls_since "$mark" '^200 repos/acme/widget/(pulls|commits)')" "0" "…and nothing charged"
+PR_FAIL=1 prsnap "$WORK/s2.json" > "$WORK/s3.json"; rc=$?
+assert_eq "$rc" "0" "a failed PR read never fails the snapshot"
+assert_eq "$(prs "$WORK/s3.json")" "$(prs "$WORK/s1.json")" "…and keeps the previous pulls + checks"
+PR_FAIL=1 prsnap > "$WORK/s4.json"
+assert_eq "$(prs "$WORK/s4.json")" "[null, null]" "never read: no pulls / checks keys (the drawer says unknown)"
+mark="$(wc -l < "$PR_CALLS")"
+NO_BRANCHES=1 prsnap "$WORK/s1.json" > "$WORK/s5.json"
+assert_eq "$(prs "$WORK/s5.json")" "[[], {}]" "no issue/<n> branch: no PR, and…"
+assert_eq "$(calls_since "$mark" 'pulls|/status')" "0" "…no PR or status call at all"
 
 rm -rf "$WORK"
 finish
