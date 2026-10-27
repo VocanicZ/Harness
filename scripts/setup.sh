@@ -4,13 +4,13 @@
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-echo "── Harness setup (mode=$HARNESS_MODE topology=$HARNESS_TOPOLOGY cli=${HARNESS_CLI:-claude}) ──"
+echo "── Harness setup (mode=$HARNESS_MODE topology=$HARNESS_TOPOLOGY cli=$(cli_name)) ──"
 command -v tmux   >/dev/null || die "tmux not found — install tmux"
-if [[ "${HARNESS_CLI:-claude}" == "agy" ]]; then
-  command -v agy >/dev/null || die "agy not found — install Antigravity CLI (agy)"
-else
-  command -v claude >/dev/null || die "claude not found — install Claude Code CLI"
-fi
+# #188: the agent CLI's binary and the plugins its lanes need. Only a missing binary is fatal; a
+# missing plugin is printed with the command that installs it (install.sh installs them).
+prereqs="$(cli_prereqs 2>&1)" || {
+  command -v "$(cli_bin)" >/dev/null || die "$(cli_bin) not found — install the $(cli_name) CLI: $(sed -n 1p <<<"$prereqs")"; }
+sed 's/^/  /' <<<"$prereqs"
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI"
 gh auth status >/dev/null 2>&1 || die "gh not authenticated — run: gh auth login"
 # rtdd is the lane test loop (prompts/_rtdd.md), not a hard prerequisite — a lane without it runs

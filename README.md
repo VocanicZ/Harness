@@ -46,8 +46,49 @@ harness init     # writes that project's config + state under .harness/
 | `tmux` | session multiplexer used by the worker pool |
 | `python3` | runs `issuelib.py` (state machine) |
 | `gh` | GitHub CLI — must be **authenticated** (`gh auth login`) |
-| `claude` or `agy` | Agent CLI — Claude Code CLI (default) or Google Antigravity CLI (`agy`) |
+| `claude` or `agy` | Agent CLI — Claude Code CLI (default) or Google Antigravity CLI (`agy`); see [Supported agent CLIs](#supported-agent-clis) |
 | `rtdd` | the lane test loop — names the tests a change needs, in rounds. `install.sh` installs it with `npx github:VocanicZ/rtdd` (needs `node` ≥ 18; without it lanes fall back to full-suite runs). See [Test selection](#test-selection-rtdd). |
+
+### Supported agent CLIs
+
+Harness lists a CLI here only when every feature works for it. Each CLI is one adapter,
+`scripts/cli/<cli>.sh`, behind the interface in `scripts/cli/dispatch.sh` (the only file that reads
+`HARNESS_CLI`), and `test/test_cli_matrix.sh` runs every row below for every adapter against panes
+and files captured from the real CLI. `test/test_cli_readme.sh` fails when this table and the
+matrix disagree. Each CLI's facts and their sources: [docs/cli-capabilities.md](docs/cli-capabilities.md).
+
+| feature | what it proves | `claude` | `agy` |
+|---|---|---|---|
+| verified on | `<cli> --version` of the captured fixtures | 2.1.311 (Claude Code), 2026-10-27 | 1.4.8, 2026-10-27 |
+| `fixtures-recorded` | Panes, transcript and usage samples captured from the real CLI (`test/fixtures/cli/<cli>/`) | ✓ | ✓ |
+| `launch-bootstrap-prompt` | The launch line carries the fixed bootstrap prompt | ✓ | ✓ |
+| `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ |
+| `launch-model` | A lane's model reaches the launch | ✓ | ✓ |
+| `launch-effort-once` | A lane's effort reaches the launch, once | ✓ | ✓ |
+| `session-id` | Harness knows the CLI's own session id (claude: set at launch; agy: read from `cache/last_conversations.json`) | ✓ | ✓ |
+| `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ |
+| `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ |
+| `busy-is-busy` | Every captured running turn is read as busy (claude: the spinner, which Harness's status line leaves without `esc to interrupt`) | ✓ | ✓ |
+| `trust-dialog-is-not-prompt` | The workspace-trust dialog is never mistaken for the prompt | ✓ | ✓ |
+| `transient-stalls` | A transient API error at the prompt is a #115 stall | ✓ | ✓ |
+| `idle-never-stalls` | A healthy idle pane is never a stall | ✓ | ✓ |
+| `busy-never-stalls` | A running turn is never a stall | ✓ | ✓ |
+| `limit-parks` | A usage-limit message at the prompt parks the lane (#120) | ✓ | ✓ |
+| `transient-is-not-limit` | A transient error is not a limit park | ✓ | ✓ |
+| `trust-pre-accepted` | Workspace trust is pre-accepted (claude: `.claude.json` of every account; agy: `trustedWorkspaces` in `settings.json`) | ✓ | ✓ |
+| `bypass-covers-subagents` | The session and its sub-agents run without approval prompts (claude: `settings.local.json`; agy: `--dangerously-skip-permissions`, inherited by sub-agents) | ✓ | ✓ |
+| `done-signal` | The goal loop's end is seen (the loop state file is gone) | ✓ | ✓ |
+| `loop-mode` | The goal loop is driven (both: a Stop hook — `ralph-loop` / `harness-ralph`) | ✓ | ✓ |
+| `transcripts-found` | The session's transcripts are found (agy: `conversations/<id>.db`) | ✓ | ✓ |
+| `usage-from-transcript` | Per-model token usage is read from them (agy: protobuf rows, decoded) | ✓ | ✓ |
+| `stats-session-end-usage` | `harness stats` session_end events carry that usage (#185) | ✓ | ✓ |
+| `usage-windows` | Usage windows are read for #194 checkpoints (claude: status line; agy: `agy -p /usage`) | ✓ | ✓ |
+| `checkpoint-skill` | `pause --force` names the CLI's handoff skill | ✓ | ✓ |
+| `send-and-kill` | Nudges and checkpoints are delivered; a session is ended | ✓ | ✓ |
+| `prereqs-named` | `harness setup` names the binary and plugins the CLI needs | ✓ | ✓ |
+
+`agy` lanes need the `harness-ralph` plugin (`plugins/ralph-loop`, installed by `install.sh`): it is
+agy's goal loop. Without it a lane runs one turn and stops; `harness setup` reports it missing.
 
 ## Pipeline modes
 
@@ -124,7 +165,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
-| `HARNESS_CLI` | `claude` | Agent CLI to drive: `claude` (Claude Code CLI) or `agy` (Antigravity CLI) |
+| `HARNESS_CLI` | `claude` | Agent CLI to drive: `claude` (Claude Code CLI) or `agy` (Antigravity CLI); one adapter per CLI under `scripts/cli/` ([Supported agent CLIs](#supported-agent-clis)) |
 | `HARNESS_AGY_BIN` | `agy` | Executable path for `agy` when `HARNESS_CLI=agy` |
 | `HARNESS_AGY_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `agy` CLI on launch |
 | `HARNESS_POOL` | `3` | Number of pool workers (unit-concurrency cap) |
@@ -449,7 +490,7 @@ also fires on the limit message itself, so a CLI that cannot report usage is sti
 | CLI | Usage source |
 |-----|--------------|
 | `claude` | The status-line `rate_limits` data (`five_hour`, `seven_day`), wired per worktree by `HARNESS_USAGE_STATUSLINE`. The account is the `CLAUDE_CONFIG_DIR` the pane runs under |
-| `agy` | `usage unavailable`: Antigravity reports no usage windows. Checkpoints happen on the limit message only, unless you set `HARNESS_USAGE_CMD` |
+| `agy` | `agy -p "/usage" --output-format json` (runs no turn): each model group's `5h` and `weekly` buckets, reported as used = 100 − remaining. The account is the model group (`Gemini Models`, `Claude and GPT models`). Cached `HARNESS_AGY_USAGE_TTL` seconds (120) |
 
 Each checkpoint and resume is appended to `~/.harness/events.jsonl` as a `usage_checkpoint` /
 `usage_resume` event, and `harness status` shows every window, with `HOLD` on an account being

@@ -1,0 +1,101 @@
+# dispatch.sh — the CLI adapter seam (#188, PRD #189). The ONE file that reads HARNESS_CLI: every
+# caller (lib.sh, usage.sh, supervise.sh, setup.sh, start.sh, status.sh, init.sh) calls the cli_*
+# interface below instead of branching on the CLI name. Sourced; defines functions only.
+#
+# Each adapter scripts/cli/<cli>.sh defines <cli>_<fn> for the interface functions its CLI needs;
+# a function it leaves out falls back to _cli_default_<fn> here. The CLI is resolved at CALL time,
+# so `HARNESS_CLI=agy cli_trust "$wd"` (a test, or the supervisor reading another fleet's pane)
+# reaches the agy adapter without re-sourcing anything. docs/plans/2026-10-24-multi-cli.md lists
+# the contract of each function; docs/cli-capabilities.md is where every CLI fact comes from.
+: "${HARNESS_CLI:=claude}"
+export HARNESS_CLI
+CLI_CONFIG_VAR=HARNESS_CLI    # the config key naming the fleet's CLI (init.sh writes it)
+CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# cli_list — every CLI with an adapter, one per line.
+cli_list(){ local f; for f in "$CLI_DIR"/*.sh; do f="${f##*/}"; [[ $f == dispatch.sh ]] || echo "${f%.sh}"; done; }
+# cli_load <cli> — make <cli> the fleet's CLI for every later cli_* call in this shell.
+cli_load(){ [[ -n "$1" && -f "$CLI_DIR/$1.sh" ]] || { echo "unknown agent CLI: ${1:-<empty>} (have: $(cli_list | xargs))" >&2; return 1; }
+  HARNESS_CLI="$1"; }
+# cli_name — the CLI this fleet drives.
+cli_name(){ echo "${HARNESS_CLI:-claude}"; }
+# cli_with <cli> <fn> [args…] — run one interface function for a CLI other than the fleet's own.
+cli_with(){ [[ -f "$CLI_DIR/$1.sh" ]] || return 1; HARNESS_CLI="$1" "${@:2}"; }
+
+_cli_call(){ local fn="$1" cli="${HARNESS_CLI:-claude}"; shift
+  if declare -F "${cli}_$fn" >/dev/null; then "${cli}_$fn" "$@"
+  elif [[ -f "$CLI_DIR/$cli.sh" ]] && declare -F "_cli_default_$fn" >/dev/null; then "_cli_default_$fn" "$@"
+  else echo "agent CLI '$cli' has no adapter (have: $(cli_list | xargs))" >&2; return 1; fi; }
+
+# --- defaults: an adapter overrides only what its CLI needs -----------------------------------
+_cli_default_lane_settings(){ :; }
+_cli_default_first_input(){ :; }
+_cli_default_send(){ tmux send-keys -t "$1" -l "$3" 2>/dev/null || true; tmux send-keys -t "$1" Enter 2>/dev/null || true; }
+_cli_default_kill(){ tmux kill-session -t "$1" 2>/dev/null; }
+_cli_default_session_id(){ echo "$2"; }
+_cli_default_limit_menu_re(){ :; }
+_cli_default_dialog_re(){ :; }
+_cli_default_loop(){ echo hook; }
+# The goal loop's state file: written by write_state, removed by the loop's Stop hook (ralph-loop
+# on claude, harness-ralph on agy) the moment the loop ends — promise, max-iter, or error.
+_cli_default_done(){ [[ ! -f "$1/.claude/ralph-loop.local.md" ]]; }
+_cli_default_trust(){ :; }
+_cli_default_trusted(){ :; }
+_cli_default_skill(){ echo "/$1"; }
+_cli_default_user_skills_dir(){ :; }
+_cli_default_transcripts(){ :; }
+_cli_default_usage(){ :; }
+_cli_default_limit_usage(){ return 1; }
+_cli_default_usage_setup(){ :; }
+
+# --- the interface ------------------------------------------------------------------------------
+cli_bin(){ _cli_call bin "$@"; }                       # the executable
+cli_launch(){ _cli_call launch "$@"; }                 # <wd> <uuid> <model> <effort> → the line typed into the pane
+cli_lane_settings(){ _cli_call lane_settings "$@"; }   # <wd> → per-lane settings written outside the launch line
+cli_first_input(){ _cli_call first_input "$@"; }       # <effort> → lines typed once the prompt first shows
+cli_send(){ _cli_call send "$@"; }                     # <sess> <wd> <text> → deliver a line to the running agent
+cli_kill(){ _cli_call kill "$@"; }                     # <sess> <wd> → end the session
+cli_session_id(){ _cli_call session_id "$@"; }         # <wd> <uuid> → the CLI's own id for this launch
+cli_idle_re(){ _cli_call idle_re; }                    # ERE: the line that is the input prompt
+cli_busy_re(){ _cli_call busy_re; }                    # ERE: a turn is running
+cli_limit_re(){ _cli_call limit_re; }                  # ERE: a usage/quota limit ended the turn
+cli_limit_menu_re(){ _cli_call limit_menu_re; }        # ERE: a blocking limit menu owns the pane ('' = none)
+cli_transient_re(){ _cli_call transient_re; }          # ERE: a transient API error ended the turn
+cli_dialog_re(){ _cli_call dialog_re; }                # ERE: a dialog/menu owns the pane, never a prompt ('' = none)
+cli_loop(){ _cli_call loop; }                          # hook | driven
+cli_done(){ _cli_call done "$@"; }                     # <wd> → 0 once the goal loop has ended
+cli_trust(){ _cli_call trust "$@"; }                   # <dir> → pre-accept the workspace-trust gate
+cli_trusted(){ _cli_call trusted "$@"; }               # <dir> → 0 iff pre-accepted
+cli_bypass(){ _cli_call bypass "$@"; }                 # <dir> → main session AND sub-agents skip approvals
+cli_bypassed(){ _cli_call bypassed "$@"; }             # <dir> → 0 iff that holds
+cli_skill(){ _cli_call skill "$@"; }                   # <name> → how a prompt invokes a skill
+cli_user_skills_dir(){ _cli_call user_skills_dir; }    # where Harness must copy a user skill itself ('' = none)
+cli_transcripts(){ _cli_call transcripts "$@"; }       # <wd> <session id> → transcript paths ('' = unavailable)
+cli_usage(){ _cli_call usage "$@"; }                   # <transcript>… → <model>\t<in>\t<out>\t<cache_read>\t<cache_write>
+cli_usage_setup(){ _cli_call usage_setup "$@"; }       # <wd> → wire the worktree so cli_limit_usage can see it
+cli_prereqs(){ _cli_call prereqs "$@"; }               # [--install] → one line per prerequisite; rc 1 = one missing
+# cli_limit_usage — `<account>\t<window>\t<pct used>\t<resets_at>` lines; rc 1 = unavailable.
+# HARNESS_USAGE_CMD overrides the adapter for ANY CLI (an operator's own source, and the test stub).
+cli_limit_usage(){
+  if [[ -n "${HARNESS_USAGE_CMD:-}" ]]; then bash -c "$HARNESS_USAGE_CMD"; return; fi
+  _cli_call limit_usage; }
+
+# --- pane helpers over the regexes (an empty regex matches nothing) ---------------------------
+_cli_re_hits(){ [[ -n "$1" ]] && printf '%s\n' "$2" | grep -qE -- "$1"; }
+# cli_pane_busy <pane> — a turn is running.
+cli_pane_busy(){ _cli_re_hits "$(cli_busy_re)" "$1"; }
+# cli_pane_prompt <pane> — the pane shows the input prompt and no dialog owns it.
+cli_pane_prompt(){ _cli_re_hits "$(cli_idle_re)" "$1" && ! cli_pane_dialog "$1"; }
+# cli_pane_dialog <pane> — a dialog owns the pane. Only its foot is read: a dialog is drawn at the
+# bottom, and the same words higher up are scrollback (an agent quoting them), not a dialog.
+cli_pane_dialog(){ _cli_re_hits "$(cli_dialog_re)" "$(printf '%s\n' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | tail -n 15)"; }
+
+# _cli_flags <flags> <model> <effort> — the configured flags with --model/--effort replaced by the
+# lane's own when it names one, so a launch line never carries the flag twice.
+_cli_flags(){ local f=" $1 "
+  [[ -n "$2" ]] && f="$(sed -E 's/ --model[= ][^ ]+//g' <<<"$f") --model $2"
+  [[ -n "$3" ]] && f="$(sed -E 's/ --effort[= ][^ ]+//g' <<<"$f") --effort $3"
+  f="$(tr -s ' ' <<<"$f")"; f="${f# }"; echo "${f% }"; }
+
+for _cli_f in "$CLI_DIR"/*.sh; do [[ "${_cli_f##*/}" == dispatch.sh ]] || source "$_cli_f"; done
+unset _cli_f

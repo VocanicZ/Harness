@@ -11,6 +11,8 @@ STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-$PWD/.harness}}"
 mkdir -p "$STATE_DIR/run/claims" "$STATE_DIR/worktrees"
 CONFIG="$STATE_DIR/config"
 ni="${HARNESS_INIT_NONINTERACTIVE:-0}"; [[ -t 0 ]] || ni=1
+# #188: the agent CLI question lists the adapters this engine ships (and names its config key).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cli/dispatch.sh"
 ask(){ local var="$1" prompt="$2" def="$3" val
   if [[ "$ni" == 1 ]]; then val="${!var:-$def}"; else read -rp "$prompt [$def]: " val; val="${val:-$def}"; fi
   printf -v "$var" '%s' "$val"; }
@@ -58,7 +60,7 @@ default_prefix(){
       "$p" "$hashed" >&2
     printf '%s\n' "$hashed"
   fi ); }
-ask HARNESS_CLI        "Agent CLI (claude|agy)"           "${HARNESS_CLI:-claude}"
+ask "$CLI_CONFIG_VAR"  "Agent CLI ($(cli_list | paste -sd'|'))" "$(cli_name)"   # #188: the adapters under scripts/cli/
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
@@ -89,7 +91,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
-  for v in HARNESS_CLI HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+  for v in "$CLI_CONFIG_VAR" HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \

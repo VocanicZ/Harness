@@ -1,0 +1,44 @@
+  to GNU Screen and first appeared in 2007. Nearly two decades later it remains one of the most widely used tools in the command line world, and for good
+  reason. It solves a problem that anyone who works in a shell eventually runs into: a terminal is fragile, and the work running inside it depends on the window
+  staying open.
+
+  The core idea is simple. tmux runs as a server in the background, and each session it manages keeps its processes alive whether or not anyone is looking at
+  them. You can start a long compile, a database migration, or a training run, detach from the session with a keystroke, close your laptop, and reattach hours
+  later from the same machine or a different one over SSH. The shell never noticed you left. This turns a remote server from a place you have to babysit into a
+  place you can simply visit.
+
+  Within a session, tmux organizes work into windows, which behave like tabs, and panes, which split a window into several views side by side or stacked. A
+  developer might keep an editor in one pane, a test runner in another, and a log tail in a third, all visible at once. Everything is driven from the keyboard.
+  By default every command starts with a prefix key, Ctrl-b, followed by a letter, so splitting a pane or switching windows becomes muscle memory rather than a
+  mouse gesture.
+
+  tmux is also highly scriptable. Its configuration lives in a plain text file, usually ~/.tmux.conf, where users rebind keys, change colors, set mouse support,
+  and adjust the status bar. Because every action is also available as a command, sessions can be created and arranged from shell scripts, which makes it
+  practical to start a standard development layout with one command. Plugin managers have grown up around it, though many experienced users prefer a small,
+  hand-written configuration.
+
+  The tool does have a learning curve. Its vocabulary of sessions, windows, and panes takes a little time to internalize, and the default keybindings are not
+  obvious. Scrollback and copy mode are unfamiliar to people raised on graphical terminals. Yet the investment pays off quickly, and the skills transfer
+  everywhere, since tmux is available on nearly every Unix-like system.
+
+  In the end, tmux rewards a simple habit: stop treating the terminal as disposable. Keep your work in sessions, detach when you leave, and reattach when you
+  return. That small shift in workflow is what makes tmux indispensable.
+
+✻ Brewed for 6s · done 8:34 AM
+
+❯ Think carefully step by step: how many primes are below 500? Answer with the number only, no tools.
+
+● 95
+
+✻ Churned for 1s · done 8:34 AM
+
+❯ Write a 1200-word story about a lighthouse keeper, plain text, no tools.
+
+✻ Puttering… (1s · ↓ 38 tokens · thinking)
+  ⎿  Tip: Use /memory to view and manage Claude memory
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  harness · 5h 3% · 7d 33%
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
