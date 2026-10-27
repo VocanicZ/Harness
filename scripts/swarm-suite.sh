@@ -11,16 +11,22 @@
 #   3  not run here — swarm missing, HARNESS_SWARM != auto, a timeout, or nothing to shard. The
 #      caller runs the suite LOCALLY, exactly as it would on a host without swarm.
 #
-# The job dir lives under $RUN_DIR/swarm/<name>, never in the worktree: the worktree IS the swarm
-# `workdir` (tarred at submit), and the lane's diff must not grow files it did not write.
+# The job dir lives under $RUN_DIR/swarm/<name>, never in the worktree: the lane's diff must not grow
+# files it did not write. #234: the swarm `workdir` is a hardlinked snapshot of what git sees in the
+# worktree (tracked files, submodules' tracked files, untracked-but-not-ignored files) staged in the
+# job dir — swarm tars it at submit, so ignored build output and caches never reach the tarball — and
+# swarm's `workdir.tar.gz` (plus its `.prev` copy) is deleted once the job has merged, failed or been
+# cancelled. Results and logs stay.
 #
 # Knobs (env): HARNESS_SWARM (auto|off), HARNESS_SWARM_TIMEOUT (seconds `swarm wait` gets, default
 # 1800), HARNESS_SWARM_TEST_CMD (per-file command with {file} and optional {junit}; default: bash for
-# .sh, python3 for a .py with a __main__ block, pytest for any other .py).
+# .sh, python3 for a .py with a __main__ block, pytest for any other .py), HARNESS_SWARM_PACK (git =
+# the snapshot above, the default; all = tar the whole worktree, ignored files included).
 # The swarm.toml contract: https://github.com/VocanicZ/swarm/blob/main/skill/SKILL.md
 set -uo pipefail
 
 SWARM_BIN="${SWARM_BIN:-swarm}"
+SWARM_JOBS_DIR="${SWARM_JOBS_DIR:-$HOME/.swarm/jobs}"   # swarm's own state root (one dir per job)
 unavailable(){ echo "swarm-suite: $* — run the suite locally" >&2; exit 3; }
 
 [[ $# -ge 2 ]] || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...]" >&2; exit 2; }
@@ -69,6 +75,24 @@ fi
 JOB="$RUN_DIR/swarm/$NAME"
 rm -rf "$JOB"; mkdir -p "$JOB" || unavailable "cannot create job dir $JOB"
 
+# stage_workdir <dir> — the snapshot swarm packs: every path git lists that still exists, hardlinked
+# (a copy across filesystems). The worktree's `.git` pointer file rides along as it always did.
+stage_workdir(){ local d="$1" f
+  mkdir -p "$d" || return 1
+  (
+    cd "$WT" || exit 1
+    { git ls-files -z --cached --recurse-submodules && git ls-files -z --others --exclude-standard; } |
+      while IFS= read -r -d '' f; do [[ -e "$f" || -L "$f" ]] && printf '%s\0' "$f"; done > "$d.list" || exit 1
+    [[ -f .git ]] && printf '.git\0' >> "$d.list"
+    [[ -s "$d.list" ]] || exit 0
+    xargs -0 cp -al --parents -t "$d" -- < "$d.list" 2>/dev/null && exit 0
+    find "$d" -mindepth 1 -delete && xargs -0 cp -a --parents -t "$d" -- < "$d.list"
+  ); local rc=$?
+  rm -f "$d.list"; return $rc; }
+
+# drop_tarball — swarm keeps every job's packed input forever; once the job is over it is dead weight.
+drop_tarball(){ rm -f "$SWARM_JOBS_DIR/$NAME/workdir.tar.gz" "$SWARM_JOBS_DIR/$NAME.prev/workdir.tar.gz"; }
+
 # The id→path map (one `id<TAB>path` line per shard, in split order) and the id list split prints.
 declare -A seen=()
 : > "$JOB/shards.tsv"; : > "$JOB/shards.ids"
@@ -98,9 +122,14 @@ fi
 # whether the tests passed or not — a red test file is a COMPLETE shard; non-zero would be retried.
 # Runs with cwd = the unpacked worktree, as the `swarm` user on a worker, so it touches nothing
 # outside it and {out}.
+WORKDIR="$WT"
+if [[ "${HARNESS_SWARM_PACK:-git}" != all ]] && git -C "$WT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  WORKDIR="$JOB/workdir"
+  stage_workdir "$WORKDIR" || unavailable "cannot stage the worktree snapshot in $WORKDIR"
+fi
 cat > "$JOB/swarm.toml" <<EOF
 name    = $(toml_str "$NAME")
-workdir = $(toml_str "$WT")
+workdir = $(toml_str "$WORKDIR")
 split   = "cat shards.ids"
 merge   = "sh merge.sh {outs}"
 run     = '''
@@ -144,8 +173,13 @@ printf '%s files, %s failing\n' "$n" "$nf" > summary.txt.tmp && mv summary.txt.t
 [ "$nf" -eq 0 ]
 EOF
 
-"$SWARM_BIN" submit "$JOB" >&2 || unavailable "swarm submit $JOB failed"
+"$SWARM_BIN" submit "$JOB" >&2; src=$?
+[[ "$WORKDIR" == "$WT" ]] || rm -rf "$WORKDIR"   # packed at submit; the snapshot is done with
+[[ $src -eq 0 ]] || unavailable "swarm submit $JOB failed"
 "$SWARM_BIN" wait "$NAME" --timeout "${HARNESS_SWARM_TIMEOUT:-1800}" >&2; rc=$?
+# Merged, failed or cancelled → no shard will fetch the input again. Any other wait exit leaves the
+# job's state unknown (it may still be running), so its tarball stays.
+case $rc in 0|1) drop_tarball ;; 124) "$SWARM_BIN" cancel "$NAME" >&2 && drop_tarball ;; esac
 case $rc in
   0) cat "$JOB/summary.txt" 2>/dev/null || echo "swarm job $NAME merged green"; exit 0 ;;
   1) if [[ -s "$JOB/failures.txt" ]]; then
@@ -155,7 +189,6 @@ case $rc in
      # Failed with no failing file listed: a shard ran out of retries or the merge never ran —
      # an infrastructure failure, not a test verdict.
      unavailable "swarm job $NAME failed without a failing-file list (see: swarm status $NAME)" ;;
-  124) "$SWARM_BIN" cancel "$NAME" >&2 || true
-       unavailable "swarm job $NAME timed out after ${HARNESS_SWARM_TIMEOUT:-1800}s (cancelled)" ;;
+  124) unavailable "swarm job $NAME timed out after ${HARNESS_SWARM_TIMEOUT:-1800}s (cancelled)" ;;
   *) unavailable "swarm wait $NAME exited $rc" ;;
 esac

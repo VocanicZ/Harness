@@ -325,8 +325,16 @@ The bar itself does not change: **no new failures vs the baseline**, wherever th
 
 How the job is built (the [swarm.toml contract](https://github.com/VocanicZ/swarm/blob/main/skill/SKILL.md)):
 
-- The job dir is `$RUN_DIR/swarm/<job-name>/` — never inside the worktree, which is the job's
-  `workdir` and is tarred at submit.
+- The job dir is `$RUN_DIR/swarm/<job-name>/` — never inside the worktree.
+- **Only what git sees is packed.** The job's `workdir` is a hardlinked snapshot of the worktree
+  staged in the job dir: tracked files (submodules' tracked files included) plus untracked files
+  that are not ignored — so ignored build output and caches (`.godot/`, `node_modules/`, `build/`)
+  never reach swarm's `workdir.tar.gz`. A `.swarmignore` in the worktree (tar `--exclude-from`
+  patterns) trims it further, e.g. large tracked assets the tests never read.
+  `HARNESS_SWARM_PACK=all` tars the whole worktree instead, ignored files included.
+- **The tarball does not outlive the job.** Once the job has merged, failed or been cancelled on
+  timeout, `~/.swarm/jobs/<job-name>/workdir.tar.gz` (and the `.prev` copy of the last run) is
+  deleted; results and logs stay.
 - **One shard per test file.** No files named → every tracked `test_*` / `*_test` `.sh`/`.py` file.
   Shard ids are the path with every byte outside `[A-Za-z0-9.-]` escaped as `_` + 3 octal digits,
   so `test/sub dir/test_a.sh` becomes `test_057sub_040dir_057test_137a.sh` — valid for swarm, and
