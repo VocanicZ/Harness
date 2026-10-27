@@ -32,6 +32,17 @@ def test_supervise_thresholds_read_the_conf_without_sourcing_it():
     assert not os.path.exists(os.path.join(d, "pwned"))
 
 
+def test_cli_and_model_come_from_the_adapter_or_fall_back():
+    assert web_data.fleet_cli({}) == ("claude", True)
+    assert web_data.fleet_cli({"HARNESS_CLI": "agy"}) == ("agy", True)
+    assert web_data.fleet_cli({"HARNESS_CLI": "nocli"}) == ("nocli", False)
+    live = {"zz-arc-i7": NOW - 60}
+    s = web_data.live_sessions("zz", NOW, live, {"zz-arc-i7": "m-1"}, None, {"HARNESS_CLI": "nocli"}, web_data.SUP_DEFAULTS)
+    assert (s[0]["cli"], s[0]["model"]) == ("nocli", None), s
+    s = web_data.live_sessions("zz", NOW, live, {"zz-arc-i7": "m-1"}, None, {}, web_data.SUP_DEFAULTS)
+    assert (s[0]["cli"], s[0]["model"]) == ("claude", "m-1"), s
+
+
 def test_overview_flags_hz_and_calls_dp_healthy():
     with wf.serving(tmux_ls=TMUX, now=NOW) as (base, host):
         h = wf.get_json(base + "/api/host")

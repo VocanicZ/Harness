@@ -152,10 +152,21 @@ def pane_activity(name, now, conf):
     return supervise_rules.pane_activity(line, now, conf["NUDGE_MIN"], conf["KILL_MIN"])["state"]
 
 
+CLI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli")
+
+
+def cli_config_var():
+    """The config key naming a fleet's CLI, as the adapter dispatcher declares it (CLI_CONFIG_VAR):
+    dispatch.sh is the one place that names it (#188)."""
+    m = re.search(r"^CLI_CONFIG_VAR=(\w+)", _read(os.path.join(CLI_DIR, "dispatch.sh")) or "", re.MULTILINE)
+    return m.group(1) if m else None
+
+
 def fleet_cli(cfg):
-    """The fleet's agent CLI (HARNESS_CLI, default claude) and whether it has an adapter (#188)."""
-    cli = cfg.get("HARNESS_CLI") or "claude"
-    return cli, os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli", cli + ".sh"))
+    """The fleet's agent CLI (its config's CLI key, default claude) and whether it has an adapter."""
+    key = cli_config_var()
+    cli = (cfg.get(key) if key else None) or "claude"
+    return cli, os.path.isfile(os.path.join(CLI_DIR, cli + ".sh"))
 
 
 def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=None, conf=None):
