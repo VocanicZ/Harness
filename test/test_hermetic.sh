@@ -76,6 +76,22 @@ for t in test_doctor.sh test_prefix_guard.sh test_fleet_registry.sh test_init.sh
   assert_eq "$(find "$host/fleets" -mindepth 1 | wc -l)" "1" "$t: no fixture entries in the live fleet registry"
 done
 
+# ── the host's agy binary is a FOURTH seam (#236) ──────────────────────────────────────────────
+# uninstall.sh's remove_skills ends with `agy plugin uninstall harness-ralph` — agy's goal loop. Run
+# by test_uninstall.sh against the host's real agy, the suite stripped that plugin off a live fleet
+# host and every agy lane after it lost its loop. Both seams leak: agy found on PATH, and an
+# inherited HARNESS_AGY_BIN (lib.sh:85 exports it from every fleet process) naming the real binary.
+# Plant a tripwire on BOTH; it must never see a `plugin uninstall`.
+# test_supervise.sh drives uninstall.sh --force too, so it is held to the same guard.
+for t in test_uninstall.sh test_supervise.sh; do
+  [[ -f "$HERE/$t" ]] || continue
+  TRIP="$(mktemp -d)"; : > "$TRIP/agy.log"
+  printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$TRIP/agy.log" > "$TRIP/agy"; chmod +x "$TRIP/agy"
+  PATH="$TRIP:$PATH" HARNESS_AGY_BIN="$TRIP/agy" bash "$HERE/$t" >/dev/null 2>&1
+  assert_eq "$(grep -c 'plugin uninstall' "$TRIP/agy.log")" "0" \
+    "$t: the host's agy plugin is never uninstalled (PATH or inherited HARNESS_AGY_BIN)"
+done
+
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
 # exported — make_env re-pins STATE_DIR and everything lib.sh derived from it.
 decoy="$(make_decoy)"

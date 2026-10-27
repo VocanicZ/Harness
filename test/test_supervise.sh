@@ -374,8 +374,11 @@ rm -f "$U2/harness-supervise.service"; : >"$T/systemctl.calls"; upd
 assert_no "update never installs a unit that was not installed" test -f "$U2/harness-supervise.service"
 UR="$T/un"; mkdir -p "$UR/.harness/engine" "$UR/bin" "$UR/proj/.harness"
 printf '[Service]\nExecStart=%s/bin/harness supervise\n' "$(cd "$R" && pwd)" >"$U2/harness-supervise.service"
+# HARNESS_AGY_BIN pinned at a no-op stub: remove_skills would otherwise run the host's real
+# `agy plugin uninstall harness-ralph` (#236).
+printf '#!/usr/bin/env bash\nexit 0\n' >"$T/agy"; chmod +x "$T/agy"
 ( HARNESS_UNINSTALL_NOMAIN=1 HARNESS_HOME="$UR/.harness" HARNESS_BIN_DIR="$UR/bin" HARNESS_USER_SKILLS="$UR/skills" \
-  STATE_DIR="$UR/proj/.harness" HARNESS_SUPERVISE_UNIT_DIR="$U2" HARNESS_SUPERVISE_SYSTEMCTL="$T/systemctl" \
+  HARNESS_AGY_BIN="$T/agy" STATE_DIR="$UR/proj/.harness" HARNESS_SUPERVISE_UNIT_DIR="$U2" HARNESS_SUPERVISE_SYSTEMCTL="$T/systemctl" \
   bash -c 'source "$1"; other_fleets_depend_on_engine(){ return 1; }; main --force' _ "$R/scripts/uninstall.sh" ) >/dev/null 2>&1 </dev/null
 assert_no "uninstall removes this engine's supervisor unit"     test -f "$U2/harness-supervise.service"
 

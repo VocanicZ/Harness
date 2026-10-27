@@ -103,8 +103,11 @@ remove_skills(){
     done
     shopt -u nullglob
   fi
-  if command -v agy >/dev/null 2>&1; then
-    agy plugin uninstall harness-ralph >/dev/null 2>&1 || true
+  # Resolve agy through HARNESS_AGY_BIN like the rest of the engine (lib.sh:48), read locally since
+  # lib.sh is sourced best-effort (#236). Best-effort: a missing or failing binary never fails this.
+  local agy_bin="${HARNESS_AGY_BIN:-agy}"
+  if command -v "$agy_bin" >/dev/null 2>&1; then
+    "$agy_bin" plugin uninstall harness-ralph >/dev/null 2>&1 || true
   fi
   return 0
 }
