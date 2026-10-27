@@ -1,9 +1,18 @@
 /* harness web — app.css (#223): the dashboard's own layout on top of tokens.css + components.css.
    Reads only the copied tokens, so both themes come free. */
-.fleets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-4); }
+/* One vertical rhythm for every page (#231): each block 16px under the last, the header 24px. */
+.page > .page-header { margin-bottom: var(--space-2); }
+.page > * + * { margin-top: var(--space-4); }
+.page > [hidden] + * { margin-top: 0; }
+
+/* Fleet cards fill the row (auto-fit), so two fleets get room for their sessions table; a short card
+   keeps its own height. */
+.fleets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--space-4); align-items: start; }
 .fleet .panel__title a { color: var(--color-text); }
 .fleet .panel__title a:hover { color: var(--color-accent-text); }
-.fleet .panel__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.fleet__root { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-muted); }
+.fleet__awaiting { font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .fleet__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--text-sm); color: var(--color-text-secondary); }
 .fleet__repos { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .asof { color: var(--color-text-muted); }
@@ -16,31 +25,48 @@
 /* Fleet page (#224): the layered PRD → issue DAG. The panel scrolls inside itself, so at 400 px the
    SVG keeps status-page.py's geometry and the page never scrolls sideways. Node colour is meaning,
    from the --s-* state tokens; the SVG carries data-state only (the CSP forbids inline style). */
-.unit { margin-top: var(--space-4); }
 .unit .panel__header { flex-wrap: wrap; }
 .dag { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+/* A graph wider than its panel fades out at the right edge until it is scrolled to the end, so a cut-off
+   node reads as "more this way" (#231). Scroll-driven: a graph that fits has no timeline, so no fade. */
+@property --dag-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes dag-fade { from { --dag-fade: 40px; } to { --dag-fade: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .dag { mask-image: linear-gradient(to right, #000 calc(100% - var(--dag-fade)), transparent);
+    animation: dag-fade linear both; animation-timeline: scroll(self inline); }
+}
 .dag__svg { display: block; }
-.dag__edge { fill: none; stroke: var(--color-border-strong); stroke-width: 1.5; }
+/* A node is a quiet card: a neutral 1px border and its state as the left bar, as a Linear issue row
+   carries its status icon — colour only where it means something (#231). */
+.dag__edge { fill: none; stroke: var(--color-border-strong); stroke-width: 1.25; }
 .dag__tip { fill: var(--color-border-strong); }
-.dag__box { fill: var(--color-surface); stroke: var(--dag-s, var(--s-ready)); stroke-width: 1.5; }
+.dag__box { fill: var(--color-surface); stroke: var(--color-border-strong); stroke-width: 1; }
 .dag__bar { fill: var(--dag-s, var(--s-ready)); }
-.dag__num { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; fill: var(--color-text); }
+.dag__num { font-family: var(--font-sans); font-size: 13px; font-weight: var(--weight-medium); fill: var(--color-text); }
+.dag__id { fill: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
 .dag__sub { font-family: var(--font-sans); font-size: 12px; fill: var(--color-text-secondary); }
-.dag a { outline: none; }
-.dag a:focus-visible .dag__box, .dag a:hover .dag__box { stroke: var(--color-focus); stroke-width: 3; }
+.dag a { outline: none; cursor: pointer; }
+.dag a:hover .dag__box { fill: var(--color-bg-hover); }
+.dag a:focus-visible .dag__box { stroke: var(--color-focus); stroke-width: 2; }
 .dag a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 [data-state="done"], [data-state="closed"] { --dag-s: var(--s-done); --dag-t: var(--color-green-text); }
 [data-state="running"], [data-state="in-progress"] { --dag-s: var(--s-running); --dag-t: var(--color-accent-text); }
-[data-state="in-review"] { --dag-s: var(--s-review); --dag-t: var(--color-accent-text); }
+[data-state="in-review"] { --dag-s: var(--s-review); --dag-t: var(--color-violet-text); }
 [data-state="waiting"], [data-state="blocked"] { --dag-s: var(--s-waiting); --dag-t: var(--color-amber-text); }
 [data-state="agent-blocked"] { --dag-s: var(--s-blocked); --dag-t: var(--color-red-text); }
 [data-state="ready"], [data-state="open"] { --dag-s: var(--s-ready); --dag-t: var(--color-grey-text); }
-.dag-pill { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); font-weight: normal;
-  padding: 0 var(--space-1-5); border: 1px solid currentColor; border-radius: var(--radius-xs);
-  white-space: nowrap; color: var(--dag-t, var(--color-text-secondary)); }
-.dag-legend { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
-.prd { border-top: 1px solid var(--color-border-subtle); padding-top: var(--space-3); }
+/* A state word: the legend's colour as a dot, then the word in the matching text colour (#231). */
+.dag-pill { display: inline-flex; align-items: center; gap: var(--space-1-5); font-size: var(--text-xs); line-height: var(--leading-xs);
+  font-weight: var(--weight-medium); white-space: nowrap; color: var(--dag-t, var(--color-text-secondary)); }
+.dag-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--dag-s, var(--s-ready)); flex: none; }
+/* The key to the node colours: a dot and a word each, quieter than the panels it explains. */
+.dag-legend { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
+  font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-muted); }
+.dag-legend li { display: inline-flex; align-items: center; gap: var(--space-1-5); }
+.dag-legend__swatch { width: 4px; height: 12px; border-radius: 2px; background: var(--dag-s); }
+.prd { border-top: 1px solid var(--color-border-subtle); padding-top: var(--space-4); }
 .prd__title { font-size: var(--text-sm); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); overflow-wrap: anywhere; }
+.prd__title > .muted, .prd__title .prd__stats { font-weight: var(--weight-regular); }
 .unparented { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .unparented a { color: var(--color-text); }
 
@@ -48,10 +74,13 @@
 .fleet__verdict { font-size: var(--text-base); }
 .fleet__attention { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm);
   padding-left: var(--space-3); border-left: 2px solid var(--color-amber-solid); overflow-wrap: anywhere; }
-.fleet__sessions td { overflow-wrap: anywhere; }
-.fleet__rate { font-size: var(--text-sm); color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.fleet__rate { overflow-wrap: anywhere; }
 .fleet__subhead { font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-text-muted); }
 .fleet__actions { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); overflow-wrap: anywhere; }
+.fleet__actions li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); }
+/* The sessions table inside a card: tighter cells, and the short columns never break mid-word. */
+.fleet__sessions th, .fleet__sessions td { padding-left: var(--space-2); padding-right: var(--space-2); }
+.fleet__sessions td { white-space: nowrap; }
 
 /* Issue drawer (#228): a dialog pinned to the right edge, the whole width at 400 px. It sits outside
    every live region, so a push swaps the page under it without closing it. */
@@ -60,10 +89,14 @@
   background: var(--color-surface-raised); border-left: 1px solid var(--color-border);
   box-shadow: var(--shadow-dialog); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3);
   overflow-wrap: anywhere; }
-.drawer:focus { outline: none; }
-.drawer:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+/* The drawer itself takes focus only to hold it (tabindex=-1, never a Tab stop): no ring round the whole
+   panel. Every control inside keeps its own. */
+.drawer:focus, .drawer:focus-visible { outline: none; }
 .drawer__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
-.drawer__title { font-size: var(--text-lg); line-height: var(--leading-lg); }
+.drawer__title { font-size: var(--text-lg); line-height: var(--leading-lg); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); }
+.drawer__num { color: var(--color-text-muted); font-weight: var(--weight-regular); }
+.drawer__kv { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: var(--space-1) var(--space-3); align-items: baseline; }
+.drawer__key { color: var(--color-text-muted); }
 .drawer__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); font-size: var(--text-sm); }
 .drawer__fields { display: flex; flex-direction: column; gap: var(--space-3); }
 .drawer__field { border-top: 1px solid var(--color-border-subtle); padding-top: var(--space-2); }
@@ -76,11 +109,13 @@
 .drawer__when { color: var(--color-text-secondary); }
 
 /* "Awaiting you" (#229): the human-only work leads the fleet page. Resolved tickets fold away. */
-.awaiting { list-style: none; display: flex; flex-direction: column; gap: var(--space-1-5); font-size: var(--text-sm); overflow-wrap: anywhere; }
-.awaiting a { color: var(--color-text); }
-.awaiting__kind { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--color-text-muted); background: var(--color-bg-muted);
-  padding: 0 var(--space-1-5); border-radius: var(--radius-xs); }
+.awaiting { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
+/* kind | title, the titles one aligned column; a repo and "needs first" sit under the title */
+.awaiting__item { display: grid; grid-template-columns: 112px minmax(0, 1fr); column-gap: var(--space-3); align-items: baseline; }
+.awaiting__item > :not(.awaiting__kind) { grid-column: 2; }
+.awaiting a { color: var(--color-text); font-weight: var(--weight-medium); }
+.awaiting__kind { justify-self: start; font-size: 11px; line-height: var(--leading-xs); font-weight: var(--weight-semibold);
+  text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--color-text-muted); white-space: nowrap; }
 .awaiting__item[data-kind="agent-blocked"] .awaiting__kind { color: var(--color-red-text); }
 .awaiting__item[data-resolved="true"] { opacity: 0.72; }
 .awaiting__resolved summary { cursor: pointer; font-size: var(--text-sm); color: var(--color-text-secondary); }

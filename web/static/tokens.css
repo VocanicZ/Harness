@@ -235,6 +235,13 @@
   --s-ready: var(--color-grey-solid);
   --s-waiting: var(--color-amber-solid);
   --s-blocked: var(--color-red-solid);
-  --s-review: var(--color-accent-border);
+  --s-review: var(--color-violet-solid);
   --s-gate: var(--color-amber-text);
+  /* In review is its own hue (#231): the accent's pale border it used to borrow was 1.5:1 on white. */
+  --color-violet-solid: #7C3AED;
+  --color-violet-text: #6D28D9;
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --color-violet-solid: #8B5CF6; --color-violet-text: #C4B5FD; }
+}
+:root[data-theme="dark"] { --color-violet-solid: #8B5CF6; --color-violet-text: #C4B5FD; }

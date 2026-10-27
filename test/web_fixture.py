@@ -335,6 +335,14 @@ class Page:
         """Resize the page's viewport to <width> x <height> CSS px (#228's 400 px check)."""
         return self._call({"op": "viewport", "width": width, "height": height})
 
+    def scheme(self, dark):
+        """Emulate prefers-color-scheme: dark (True) or light (False) — #231's both-themes checks."""
+        return self._call({"op": "scheme", "dark": bool(dark)})
+
+    def shot(self, path, full=True):
+        """Write a PNG of the page to <path>: full height, or only the viewport (#231's critique rounds)."""
+        return self._call({"op": "shot", "path": path, "full": full})
+
 
 @contextlib.contextmanager
 def cdp(browser, url):

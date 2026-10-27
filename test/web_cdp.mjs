@@ -4,18 +4,22 @@
 // prints {"ok":true}. After that it reads one JSON request per stdin line and answers one per stdout
 // line: {"op":"eval","expr":E} → {"ok":true,"value":V}; {"op":"wait","expr":E,"timeout":S} polls E
 // until it is truthy; {"op":"key","key":K,"shift":B} presses a real key (Enter, Escape, Tab);
-// {"op":"viewport","width":W,"height":H} resizes the page. Any failure is {"ok":false,"error":…}.
+// {"op":"viewport","width":W,"height":H} resizes the page; {"op":"scheme","dark":B} emulates
+// prefers-color-scheme; {"op":"shot","path":P,"full":B} writes a PNG of the page to P —
+// full height unless B is false (the viewport only, for a fixed drawer) (#231's
+// critique rounds). Any failure is {"ok":false,"error":…}.
 // stdin closing closes the browser.
 // A test tool only (no npm package: Node >= 22's own WebSocket), never shipped to the page.
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { writeFileSync } from "node:fs";
 
 const [browser, url] = process.argv.slice(2);
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const proc = spawn(browser, ["--headless=new", "--remote-debugging-port=0", "--no-first-run",
-  "--no-default-browser-check", "--disable-gpu", "--no-sandbox", "about:blank"],
+  "--no-default-browser-check", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "about:blank"],
   { stdio: ["ignore", "ignore", "pipe"] });
 let stopping = false;
 function stop(code) {
@@ -48,7 +52,7 @@ function send(method, params = {}, sessionId) {
 }
 
 async function evaluate(expr) {
-  const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true }, session);
+  const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true }, session);
   if (r.exceptionDetails) {
     throw new Error((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text);
   }
@@ -79,6 +83,23 @@ async function viewport(width, height) {
   return true;
 }
 
+async function scheme(dark) {
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: dark ? "dark" : "light" }] }, session);
+  await sleep(400);   // past every colour transition (--duration-slow is 260ms), so reads see the new theme
+  return true;
+}
+
+async function shot(path, full) {
+  const params = { format: "png" };
+  if (full) {
+    const { cssContentSize: c } = await send("Page.getLayoutMetrics", {}, session);
+    Object.assign(params, { captureBeyondViewport: true, clip: { x: 0, y: 0, width: c.width, height: c.height, scale: 1 } });
+  }
+  const { data } = await send("Page.captureScreenshot", params, session);
+  writeFileSync(path, Buffer.from(data, "base64"));
+  return true;
+}
+
 async function main() {
   ws = new WebSocket(await wsUrl());
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error("ws error")); });
@@ -101,6 +122,8 @@ async function main() {
       const value = req.op === "wait" ? await waitFor(req.expr, req.timeout || 5)
         : req.op === "key" ? await press(req.key, req.shift)
         : req.op === "viewport" ? await viewport(req.width, req.height || 800)
+        : req.op === "scheme" ? await scheme(req.dark)
+        : req.op === "shot" ? await shot(req.path, req.full !== false)
         : await evaluate(req.expr);
       out({ ok: true, value });
     } catch (e) {
