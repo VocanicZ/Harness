@@ -18,4 +18,5 @@ Per unit: `mode=… PRD#… plan=… children=… open=… unblocked=… waiting
 - `FLEET: PAUSED` ⇒ drained; `/harness-resume` to continue.
 - `complete=Y` and idle ⇒ DONE, not stuck.
 - `unblocked=0 waiting>0` ⇒ starved on an upstream PRD blocker named in `held by` — unblock that, not this unit.
+- A `STUCK — chain needs an issue no agent can take: #N` line above it ⇒ every open blocker of some PRD or ready child is an issue no lane will ever claim (no ready label, a foreign author, or `agent-blocked` on a non-autonomous fleet). Label it ready (or close it), or drop it from `## Blocked by`; `harness supervise` raises `UNCLAIMABLE BLOCKER` for the same state.
 - `open>0 unblocked=0 waiting=0` with no live session ⇒ likely a mis-pointed `## Blocked by` — investigate (use `/harness` to unstick).

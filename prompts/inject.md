@@ -72,6 +72,11 @@ issues should now depend on it. Build the intended ordering edges before mutatin
   Represent any cross-repo dependency as a same-repo tracking issue (and, if a coordination repo
   exists, reference it in the body as `{{OWNER}}/<coord-repo>#<n>`), never as a `## Blocked by` edge
   into another repo.
+- **Claimable blockers only.** Every `## Blocked by` ref must be an issue some lane can take: a
+  `{{LABEL_READY}}` issue, a `{{LABEL_PRD}}`, or a bug. NEVER name an operator-only step (no
+  `{{LABEL_READY}}` label, "not for the fleet") — nothing ever claims it, so nothing ever closes it,
+  and the whole chain behind it stalls silently. If the brief truly needs that step first, file it as
+  a `{{LABEL_READY}}` issue the fleet can do; otherwise drop the edge and note it in the summary.
 - **No cycles.** Before adding any `## Blocked by` edge, walk the existing dependency graph and
   confirm the new edge introduces no cycle (A blocks B blocks … blocks A). If it would, drop that
   edge and note it in the summary. A dependency cycle would deadlock dispatch forever.

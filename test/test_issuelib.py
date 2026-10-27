@@ -2323,6 +2323,113 @@ def test_cli_dispatch_passes_priority_free():
     assert seen == [None, 0, 2, None], seen
 
 
+# ── #221: a chain held only by an issue no lane can claim says so, loudly ─────────────────────
+# The hzhn fleet sat idle 6+ h with every PRD `## Blocked by` an operator-only issue (#191: no ready
+# label). Nothing ever claimed it, nothing ever closed it, and status said only "nothing dispatchable".
+def _stuck_board(issues, autonomous="true"):
+    os.environ["HARNESS_MODE"] = "prd"
+    os.environ["HARNESS_AUTONOMOUS"] = autonomous
+    _stub_repo(issues)
+    try:
+        return _status_line(), il.compute_state("acme/widget")["stuck_on"]
+    finally:
+        _restore_repo(); os.environ["HARNESS_AUTONOMOUS"] = "true"
+
+def test_status_warns_when_a_prds_only_blocker_is_unlabelled():
+    line, stuck = _stuck_board([_issue(189, labels=["prd"], body="## Blocked by\n#191\n"),
+                                _issue(191, title="operator: rotate the token")])
+    assert "chain needs an issue no agent can take: #191" in line, line
+    assert stuck == [("acme/widget", 191)], stuck
+
+def test_status_quiet_when_a_lane_can_claim_the_blocker():
+    for labels in (["ready-for-agent"], ["prd"], ["bug"], ["bug-triaged"], ["agent-working"]):
+        line, stuck = _stuck_board([_issue(189, labels=["prd"], body="## Blocked by\n#30\n"),
+                                    _issue(30, labels=labels)])
+        assert "no agent can take" not in line and stuck == [], (labels, line)
+    # a closed blocker is no blocker at all
+    line, stuck = _stuck_board([_issue(189, labels=["prd"], body="## Blocked by\n#30\n"),
+                                _issue(30, state="CLOSED")])
+    assert stuck == [], stuck
+
+def test_status_quiet_while_a_claimable_blocker_can_still_move_the_chain():
+    # #30 can be worked; only once it closes is #191 the PRD's ONLY blocker
+    board = [_issue(189, labels=["prd"], body="## Blocked by\n#30\n#191\n"),
+             _issue(30, labels=["ready-for-agent"]), _issue(191)]
+    assert _stuck_board(board)[1] == []
+    board[1] = _issue(30, state="CLOSED", labels=["ready-for-agent"])
+    assert _stuck_board(board)[1] == [("acme/widget", 191)]
+
+def test_agent_blocked_blocker_is_unclaimable_only_where_the_pool_skips_it():
+    board = [_issue(189, labels=["prd"], body="## Blocked by\n#30\n"),
+             _issue(30, labels=["ready-for-agent", "agent-blocked"])]
+    assert _stuck_board(board, autonomous="false")[1] == [("acme/widget", 30)]
+    assert _stuck_board(board, autonomous="true")[1] == []   # dispatch claims it anyway
+
+def test_status_warns_for_a_ready_child_held_by_an_unclaimable_issue():
+    line, stuck = _stuck_board([_issue(10, labels=["prd"]),
+                                _issue(11, labels=["ready-for-agent"], body="## Parent\n#10\n\n## Blocked by\n#191\n"),
+                                _issue(191)])
+    assert "chain needs an issue no agent can take: #191" in line and stuck == [("acme/widget", 191)], line
+
+def test_blocker_from_a_disallowed_author_is_unclaimable():
+    board = [_issue(189, labels=["prd"], body="## Blocked by\n#30\n"),
+             _issue(30, labels=["ready-for-agent"], author="stranger")]
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(board)
+    il._author_filter = lambda xs: [i for i in xs if i["_author"] != "stranger"]
+    try: assert il.compute_state("acme/widget")["stuck_on"] == [("acme/widget", 30)]
+    finally: _restore_repo()
+
+def test_cross_repo_blocker_is_never_judged_unclaimable():
+    # its labels live in another repo's listing — not ours to read; the warning stays quiet
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(189, labels=["prd"], body="## Blocked by\nother/repo#5\n")])
+    il._issue_state = lambda slug, n: "open"
+    try: assert il.compute_state("acme/widget")["stuck_on"] == []
+    finally: _restore_repo()
+
+
+# ── #221: DECOMPOSE files a PRD's `## Task 1` even when an unrelated child was pre-filed ──────
+_TASK1_PRD = ("Make the thing.\n\n## Task 1 — write the plan document\nWrite docs/plan.md first.\n\n"
+              "## Acceptance criteria\n1. it works\n\n## Blocked by\nNone\n")
+
+def _task1_board(children):
+    return [_issue(189, labels=["prd"], body=_TASK1_PRD)] + children
+
+def _decompose_acts(board):
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(board)
+    try: return [a for a in il.dispatch("acme/widget", 3, True) if a[0] == "DECOMPOSE"]
+    finally: _restore_repo()
+
+def _check_live(goal, board):
+    _stub_repo(board)
+    try: return _check(goal, il.compute_state("acme/widget"))
+    finally: _restore_repo()
+
+def test_decompose_fires_once_for_task1_prd_with_an_unrelated_child():
+    board = _task1_board([_issue(188, labels=["ready-for-agent"], title="[AFK] fix the parser",
+                                 body="## Parent\n#189\n")])
+    assert _decompose_acts(board) == [("DECOMPOSE", "189", "DECOMPOSE DONE")]
+    assert _check_live("DECOMPOSE:189", board) == "PENDING", "the session's goal is the Task-1 child"
+    board.append(_issue(230, labels=["ready-for-agent"], title="[AFK] Task 1 — write the plan document",
+                        body="## Parent\n#189\n"))
+    assert _decompose_acts(board) == [], "idempotent: the Task-1 child exists"
+    assert _check_live("DECOMPOSE:189", board) == "DONE"
+    board[-1] = dict(board[-1], state="CLOSED")
+    assert _decompose_acts(board) == [], "a merged Task-1 child still counts"
+
+def test_task1_match_is_exact_not_task_10():
+    board = _task1_board([_issue(240, labels=["ready-for-agent"], title="[AFK] Task 10 — polish",
+                                 body="## Parent\n#189\n")])
+    assert _decompose_acts(board) == [("DECOMPOSE", "189", "DECOMPOSE DONE")]
+
+def test_prd_without_task1_section_keeps_the_children_exist_rule():
+    board = [_issue(189, labels=["prd"], body="Make the thing.\n\n## Blocked by\nNone\n"),
+             _issue(188, labels=["ready-for-agent"], title="[AFK] fix the parser", body="## Parent\n#189\n")]
+    assert _decompose_acts(board) == []
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

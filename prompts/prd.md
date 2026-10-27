@@ -30,6 +30,8 @@ Steps:
    Independent workstreams get their own PRD and run in PARALLEL; a workstream that genuinely
    cannot start until another finishes declares it under `## Blocked by` and the harness holds it
    until that PRD closes. Prefer parallel — only sequence where there is a real dependency.
+   Name ONLY issues a lane can claim there (a PRD, or a `{{LABEL_READY}}` issue) — never an
+   operator-only step: nothing claims it, so the PRD would wait on a human forever.
      gh issue create -R {{SLUG}} --title "[AFK] PRD: {{PROJECT}} — <short scope>" \
        --label {{LABEL_PRD}} --body "<the PRD markdown, incl. an '## Acceptance criteria' section, and '## Quality bar' if step 3 produced one>
 

@@ -127,11 +127,17 @@ def evaluate(facts, counters, exempt=(), reconciled=()):
                 f"REVIEW LOOP {slug} PRD #{n} reached the criteria gate {r}x without sign-off (no engine "
                 f"cap exists on it). Read its gap issues: still finding NEW defects = working; "
                 f"re-litigating the same ground = narrow the criteria or make a human call.")
-        pending = [p["number"] for p in st["prds"] if p["open"] and p["eligible"] and not p["children_exist"]]
+        pending = [p["number"] for p in st["prds"]
+                   if p["open"] and p["eligible"] and (not p["children_exist"] or p.get("needs_task1"))]
         rules[f"decompose:{slug}"] = (
             bool(pending) and not sessions, 3,
             f"DECOMPOSE STALLED {slug} PRD(s) {pending} eligible with no children and no live session — "
             f"check `harness status`, then `harness start --recover`.")
+        stuck = ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in st.get("stuck_on") or ())
+        rules[f"unclaimable:{slug}"] = (
+            bool(stuck), 2,
+            f"UNCLAIMABLE BLOCKER {slug} chain needs an issue no agent can take: {stuck} — label it {lr} "
+            f"so a lane can do it, or drop it from the '## Blocked by' that names it (#221).")
         rules[f"frontier:{slug}"] = (
             st["open_children"] > 0 and not st["unblocked"] and not sessions, 2,
             f"NO FRONTIER {slug} {st['open_children']} open children, 0 unblocked, no live session — "

@@ -128,6 +128,21 @@ def test_decompose_stalled_needs_three_quiet_passes_and_no_session():
     assert passes(facts([sess("hz-u-p5", 5, kind="orch")], st=st), 4) == [[]] * 4
 
 
+def test_unclaimable_blocker_alarms_and_names_the_issue():
+    st = dict(state([prd(189, eligible=False, children_exist=False)]), stuck_on=[(SLUG, 191), ("x/y", 4)])
+    out = passes(facts(st=st), 2)
+    assert out[0] == [], out
+    assert out[1] and out[1][0].startswith("ALARM unclaimable:owner/repo UNCLAIMABLE BLOCKER"), out
+    assert "#191" in out[1][0] and "x/y#4" in out[1][0], out
+    assert passes(facts(st=state([prd(189, eligible=False)])), 3) == [[]] * 3
+
+
+def test_decompose_stalled_counts_a_prd_missing_its_task1_child():
+    st = state([dict(prd(5, children_exist=True), needs_task1=True)])
+    out = passes(facts(st=st), 3)
+    assert out[2] and out[2][0].startswith("ALARM decompose:owner/repo DECOMPOSE STALLED"), out
+
+
 def test_no_frontier():
     st = state(open_children=3, unblocked=[])
     out = passes(facts(st=st), 2)
