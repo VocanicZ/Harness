@@ -1,0 +1,3 @@
+# test fixture: the hz fleet's .harness/config (parsed by fleetview.read_config, never sourced)
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_MODE:=prd}"

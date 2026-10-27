@@ -1,0 +1,2 @@
+# test fixture: the dp fleet's .harness/config — custom ready label, default pool
+: "${HARNESS_LABEL_READY:=go}"

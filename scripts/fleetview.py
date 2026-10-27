@@ -169,8 +169,17 @@ def issue_counts(slug, labels):
         issues = json.loads(out or "[]")
     except ValueError:
         return None
+    return tally(issues, labels)
+
+
+def tally(issues, labels):
+    """{open, unblocked, working: [numbers], pending} over a repo's issues. Issues carrying a `state`
+    other than OPEN are skipped, so a board snapshot (every state) and gh's open-only list (no state
+    field) count alike — `harness web` reads the snapshot, issue_counts above reads gh (#223)."""
     c = {"open": 0, "unblocked": 0, "working": [], "pending": 0}
     for it in issues:
+        if str(it.get("state") or "OPEN").upper() != "OPEN":
+            continue
         names = {lb.get("name") for lb in it.get("labels") or []}
         c["open"] += 1
         if labels["blocked"] not in names:

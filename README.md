@@ -412,6 +412,7 @@ harness <command>
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
 | `poll [--once\|--status]` | Host-level debug entry to the shared snapshot poller. `--once` refreshes every registered repo once; `--status` reports the poller pid + registered slugs/cadences. Normal operation needs no manual `poll` — workers self-heal it (see [Host poller](#host-poller)) |
 | `supervise [--once] [--dry-run]` | Host-level supervisor for **every fleet on the host**: restarts dead pool/priority workers, clears orphaned `agent-working` locks, nudges — then checkpoints to GitHub and kills — sessions frozen at their prompt, and runs the arc stall rules. `--alarms` lists the alarms still firing; `--install` / `--uninstall` manage its systemd user unit. See [Host supervisor](#host-supervisor) |
+| `web` | Read-only **dashboard** of every fleet on the host, served in the foreground on `http://127.0.0.1:4637/`: each registered fleet with its state and a link to its page, from local snapshots only. See [Dashboard](#dashboard) |
 | `plan "<brief>"` | Inject a plan/topology change (PLAN.md / `targets.tsv`, incl. seeding a new target repo) into a **live** fleet. Grill via [`/harness-plan`](#per-command-shortcuts) |
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
@@ -613,6 +614,31 @@ supervise --uninstall`, or uninstalling the engine, removes it.
 
 When a session's worktree is reaped, its scratch goes too: its Claude Code scratch dir
 (`/tmp/claude-<uid>/<worktree path>`) and the `/tmp/hz-*-<issue>` base checkouts the lane prompts make.
+
+## Dashboard
+
+`harness web` serves a local, read-only dashboard in the foreground (Ctrl-C stops it). Its overview
+at `/` lists every fleet registered on the host (`~/.harness/fleets`, the same list `harness status`
+shows outside a project) with its state (running / paused / stopped / complete / dead / missing), its
+repos' open / unblocked / `agent-working` counts and workers, and links each one to `/fleet/<prefix>`.
+Every view carries a **data as of** stamp: the `generated_at` of the oldest board snapshot it used,
+so a stalled poller shows as stale data rather than as a quiet fleet. `/api/host` and
+`/api/fleet/<prefix>` return the same views as JSON.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HARNESS_WEB_BIND` | `127.0.0.1` | address the server listens on |
+| `HARNESS_WEB_PORT` | `4637` | port the server listens on |
+
+By default only the host itself can open it. The claude host sets `HARNESS_WEB_BIND=0.0.0.0` so the
+dashboard can be opened from the LAN.
+
+**Read-only is its only protection.** There is no login. Every route answers `GET` and `HEAD` and
+refuses every write method with `405`. Pages read only local state (the fleet registry, the host
+poller's board snapshots, each fleet's run dir and config) and never call `gh`, so opening the
+dashboard spends none of the GitHub budget. Never expose the port to the Internet. The look is copied
+from the owner's design-to-print tokens into `web/static/` (each file names its source commit),
+with light and dark themes from the same tokens, and no build step.
 
 ## Host poller
 

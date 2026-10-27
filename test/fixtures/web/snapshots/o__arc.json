@@ -1,0 +1,109 @@
+{
+ "schema_version": 1,
+ "generated_at": 1799999940,
+ "slug": "o/arc",
+ "issues": [
+  {
+   "number": 1,
+   "title": "Core",
+   "state": "CLOSED",
+   "labels": [
+    {
+     "name": "prd"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 2,
+   "title": "Left",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "prd"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 10,
+   "title": "Done child",
+   "state": "CLOSED",
+   "labels": [],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 11,
+   "title": "Working child",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "agent-working"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 12,
+   "title": "Ready child",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "ready-for-agent"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 14,
+   "title": "Stuck child",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "ready-for-agent"
+    },
+    {
+     "name": "agent-blocked"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  }
+ ],
+ "has_plan": false,
+ "plan_marker": null,
+ "self_login": "o",
+ "ext_deps": {},
+ "issue_branches": [],
+ "sync": {
+  "since": null,
+  "issues_etag": null,
+  "root_etag": null,
+  "marker_dir_sha": null,
+  "branches_etag": null,
+  "full_at": 1799999940
+ }
+}

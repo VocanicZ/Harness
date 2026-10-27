@@ -1,0 +1,240 @@
+/* Source: VocanicZ/design-to-print@53d910c7f409ce425d4de5836065ba9d9c0b19e0 app/styles/tokens.css — copied, not linked; edit here. */
+/* Copied verbatim below, minus the 3D-viewer mesh roles; the dashboard state tokens are appended at the end.
+   Fonts: design-to-print bundles Inter/JetBrains Mono; this dashboard ships no font files, so the stacks fall
+   through to the system faces (no web font is fetched at runtime). */
+
+/* Design-to-Print · app/styles/tokens.css (from docs/design/tokens.css; fonts are the bundled files in fonts.css)
+   Every colour, size and timing the components use. Components read only these custom properties,
+   so a theme is a change of values here, never a change of components.
+   Light is the default; dark applies with the OS setting unless the root element has data-theme="light",
+   or always with data-theme="dark". */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces ------------------------------------------------------------ */
+  --color-bg: #FFFFFF;              /* page, top bar, panels */
+  --color-bg-subtle: #F7F8FA;       /* sidebar, table header, quiet wells */
+  --color-bg-muted: #F1F3F6;        /* segmented-control track, code */
+  --color-bg-hover: #F4F5F7;        /* hover on white rows and ghost buttons */
+  --color-bg-active: #EBEEF2;       /* selected nav item, pressed ghost button */
+  --color-bg-selected: #F3F6FD;     /* selected table row */
+  --color-surface: #FFFFFF;         /* panels and cards */
+  --color-surface-raised: #FFFFFF;  /* menus, dialogs, tour card, toasts */
+  --color-viewer: #F4F5F7;          /* 3D preview well (also the Three.js scene background) */
+  --color-overlay: rgba(15, 23, 42, 0.44);   /* dialog backdrop */
+  --color-tour-dim: rgba(15, 23, 42, 0.16);  /* around the tour spotlight: light enough to read through */
+  --color-tooltip-bg: #0F172A;
+  --color-tooltip-text: #F8FAFC;
+
+  /* Borders ------------------------------------------------------------- */
+  --color-border: #E5E7EB;          /* panels, tables, dividers */
+  --color-border-subtle: #EEF0F3;   /* rows inside a panel */
+  --color-border-strong: #D1D5DB;   /* inputs, secondary buttons */
+
+  /* Text: every text colour here is >= 4.5:1 on --color-bg and --color-bg-subtle */
+  --color-text: #0F172A;
+  --color-text-secondary: #3F4A5C;
+  --color-text-muted: #5B6779;
+  --color-text-placeholder: #6B7686; /* placeholders and disabled labels only */
+  --color-text-inverse: #FFFFFF;
+
+  /* Accent: one blue for primary actions, links, focus and selection */
+  --color-accent: #2563EB;
+  --color-accent-hover: #1D4ED8;
+  --color-accent-active: #1E40AF;
+  --color-accent-text: #1D4ED8;     /* links on white: 6.7:1 */
+  --color-accent-subtle: #EFF4FF;
+  --color-accent-border: #BFD3FE;
+  --color-focus: #2563EB;
+
+  /* Status: red, amber, green, grey carry meaning and nothing else.
+     *-text on *-bg is >= 4.7:1. *-solid is for dots, icons and the 3px verdict rule. */
+  --color-red-text: #B91C1C;   --color-red-bg: #FEF2F2;   --color-red-border: #FECACA;   --color-red-solid: #DC2626;
+  --color-amber-text: #B45309; --color-amber-bg: #FFFBEB; --color-amber-border: #FDE68A; --color-amber-solid: #D97706;
+  --color-green-text: #15803D; --color-green-bg: #F0FDF4; --color-green-border: #BBF7D0; --color-green-solid: #16A34A;
+  --color-grey-text: #475569;  --color-grey-bg: #F1F5F9;  --color-grey-border: #E2E8F0;  --color-grey-solid: #94A3B8;
+
+
+  /* Type ------------------------------------------------------------------ */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Mono is for fingerprints, file paths and evidence ids only. Times, dates and counts use --font-sans; tabular-nums only where digits stand alone. */
+
+  --text-xs: 12px;   --leading-xs: 16px;
+  --text-sm: 13px;   --leading-sm: 18px;
+  --text-base: 14px; --leading-base: 20px;
+  --text-md: 16px;   --leading-md: 24px;
+  --text-lg: 20px;   --leading-lg: 28px;
+  --text-xl: 24px;   --leading-xl: 32px;
+  --text-2xl: 30px;  --leading-2xl: 36px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.011em;   /* 16-20px */
+  --tracking-tighter: -0.019em; /* 24-30px */
+  --tracking-caps: 0.04em;      /* 11px uppercase tags */
+
+  /* Spacing: a 4px grid ---------------------------------------------------- */
+  --space-0: 0;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radii ----------------------------------------------------------------- */
+  --radius-xs: 4px;    /* tags, chips, code */
+  --radius-sm: 6px;    /* buttons, inputs, menu items */
+  --radius-md: 8px;    /* panels, cards, tables, popovers */
+  --radius-lg: 12px;   /* dialogs, tour card */
+  --radius-full: 999px;
+
+  /* Shadows: floating layers only (menus, popovers, dialogs, toasts, tour card) */
+  --shadow-popover: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 4px 12px -2px rgba(15, 23, 42, 0.10), 0 2px 4px -2px rgba(15, 23, 42, 0.06);
+  --shadow-dialog: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 24px 48px -12px rgba(15, 23, 42, 0.28);
+  --shadow-toast: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 8px 24px -6px rgba(15, 23, 42, 0.20);
+  --shadow-tour: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 16px 40px -8px rgba(15, 23, 42, 0.30);
+
+  /* Layers ------------------------------------------------------------------- */
+  --z-sticky: 10;     /* top bar */
+  --z-sidebar: 20;    /* off-canvas sidebar on small screens */
+  --z-popover: 50;    /* menus and popovers (native popovers use the top layer anyway) */
+  --z-spotlight: 80;  /* the element the tour explains */
+  --z-tour: 90;       /* tour card */
+  --z-toast: 100;
+  --z-tooltip: 110;
+
+  /* Motion --------------------------------------------------------------------- */
+  --duration-fast: 120ms;  /* hover, press */
+  --duration-base: 180ms;  /* popovers, tabs */
+  --duration-slow: 260ms;  /* dialogs, drawer, tour card */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout -------------------------------------------------------------------- */
+  --sidebar-width: 240px;
+  --sidebar-rail-width: 56px;   /* the sidebar minimized to icons */
+  --sidebar-list-max: 50vh;     /* the Work list scrolls inside the sidebar past this */
+  --topbar-height: 56px;
+  --sticky-height: var(--topbar-height);  /* the top bar plus the page's answer under it, measured by the shell */
+  --rail-width: 320px;
+  --content-max: 1200px;
+  --gutter: max(32px, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));  /* clears a notch in landscape */
+  --control-height: 32px;     /* buttons, inputs, selects */
+  --control-height-sm: 28px;
+}
+
+@media (max-width: 720px) {
+  :root { --gutter: max(16px, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-fast: 0ms; --duration-base: 0ms; --duration-slow: 0ms; }
+}
+
+/* Dark: the same roles, re-valued. Kept in sync in both blocks below. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0F1115;
+    --color-bg-subtle: #15181E;
+    --color-bg-muted: #1B1F26;
+    --color-bg-hover: #1A1D23;
+    --color-bg-active: #232833;
+    --color-bg-selected: #16213A;
+    --color-surface: #13161B;
+    --color-surface-raised: #1A1E25;
+    --color-viewer: #1A1D23;
+    --color-overlay: rgba(0, 0, 0, 0.6);
+    --color-tour-dim: rgba(0, 0, 0, 0.4);
+    --color-tooltip-bg: #E8EAED;
+    --color-tooltip-text: #0F1115;
+    --color-border: #262B34;
+    --color-border-subtle: #1F232B;
+    --color-border-strong: #343A45;
+    --color-text: #E8EAED;
+    --color-text-secondary: #BAC1CC;
+    --color-text-muted: #8E97A4;
+    --color-text-placeholder: #737C89;
+    --color-text-inverse: #FFFFFF;
+    --color-accent: #2F6FED;
+    --color-accent-hover: #4A82F0;
+    --color-accent-active: #2563EB;
+    --color-accent-text: #7AA7FF;
+    --color-accent-subtle: #16213A;
+    --color-accent-border: #28427A;
+    --color-focus: #6E9EFF;
+    --color-red-text: #F87171;   --color-red-bg: #24151A;   --color-red-border: #5A2329;   --color-red-solid: #EF4444;
+    --color-amber-text: #FBBF24; --color-amber-bg: #221C10; --color-amber-border: #5C4715; --color-amber-solid: #F59E0B;
+    --color-green-text: #4ADE80; --color-green-bg: #0F1D15; --color-green-border: #1F4D30; --color-green-solid: #22C55E;
+    --color-grey-text: #BAC1CC;  --color-grey-bg: #1B1F26;  --color-grey-border: #2C323C;  --color-grey-solid: #6B7686;
+    --shadow-popover: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+    --shadow-dialog: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+    --shadow-toast: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 8px 24px -6px rgba(0, 0, 0, 0.6);
+    --shadow-tour: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px -8px rgba(0, 0, 0, 0.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0F1115;
+  --color-bg-subtle: #15181E;
+  --color-bg-muted: #1B1F26;
+  --color-bg-hover: #1A1D23;
+  --color-bg-active: #232833;
+  --color-bg-selected: #16213A;
+  --color-surface: #13161B;
+  --color-surface-raised: #1A1E25;
+  --color-viewer: #1A1D23;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-tour-dim: rgba(0, 0, 0, 0.4);
+  --color-tooltip-bg: #E8EAED;
+  --color-tooltip-text: #0F1115;
+  --color-border: #262B34;
+  --color-border-subtle: #1F232B;
+  --color-border-strong: #343A45;
+  --color-text: #E8EAED;
+  --color-text-secondary: #BAC1CC;
+  --color-text-muted: #8E97A4;
+  --color-text-placeholder: #737C89;
+  --color-text-inverse: #FFFFFF;
+  --color-accent: #2F6FED;
+  --color-accent-hover: #4A82F0;
+  --color-accent-active: #2563EB;
+  --color-accent-text: #7AA7FF;
+  --color-accent-subtle: #16213A;
+  --color-accent-border: #28427A;
+  --color-focus: #6E9EFF;
+  --color-red-text: #F87171;   --color-red-bg: #24151A;   --color-red-border: #5A2329;   --color-red-solid: #EF4444;
+  --color-amber-text: #FBBF24; --color-amber-bg: #221C10; --color-amber-border: #5C4715; --color-amber-solid: #F59E0B;
+  --color-green-text: #4ADE80; --color-green-bg: #0F1D15; --color-green-border: #1F4D30; --color-green-solid: #22C55E;
+  --color-grey-text: #BAC1CC;  --color-grey-bg: #1B1F26;  --color-grey-border: #2C323C;  --color-grey-solid: #6B7686;
+  --shadow-popover: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+  --shadow-dialog: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+  --shadow-toast: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 8px 24px -6px rgba(0, 0, 0, 0.6);
+  --shadow-tour: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px -8px rgba(0, 0, 0, 0.7);
+}
+
+/* Harness dashboard state tokens (not in design-to-print): built from its status palette, so they follow the
+   theme with no dark block of their own. Colour is meaning: green done, blue (accent) moving, amber waiting on
+   someone, red stuck, grey idle. -solid is for dots and DAG fills; text uses the matching *-text token. */
+:root {
+  --s-done: var(--color-green-solid);
+  --s-running: var(--color-accent);
+  --s-ready: var(--color-grey-solid);
+  --s-waiting: var(--color-amber-solid);
+  --s-blocked: var(--color-red-solid);
+  --s-review: var(--color-accent-border);
+  --s-gate: var(--color-amber-text);
+}

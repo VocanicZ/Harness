@@ -1,0 +1,50 @@
+{
+ "schema_version": 1,
+ "generated_at": 1799999880,
+ "slug": "o/quiet",
+ "issues": [
+  {
+   "number": 1,
+   "title": "Only task",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "go"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 2,
+   "title": "Old",
+   "state": "CLOSED",
+   "labels": [
+    {
+     "name": "go"
+    }
+   ],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  }
+ ],
+ "has_plan": false,
+ "plan_marker": null,
+ "self_login": "o",
+ "ext_deps": {},
+ "issue_branches": [],
+ "sync": {
+  "since": null,
+  "issues_etag": null,
+  "root_etag": null,
+  "marker_dir_sha": null,
+  "branches_etag": null,
+  "full_at": 1799999880
+ }
+}
