@@ -87,6 +87,7 @@ usage: harness <command> [args]
   supervise [--once] [--dry-run] | --install | --uninstall
                        host supervisor for every fleet: restart dead workers, clear orphan locks,
                        nudge/checkpoint/kill frozen sessions (--install: systemd user unit; #180)
+  web                  read-only dashboard of every fleet on this host (http://127.0.0.1:4637/)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
   issue "<brief>"      inject implementation issue(s) into a live fleet (grill via /harness-issue)
@@ -132,6 +133,8 @@ case "$cmd" in
   stats)  exec python3 "$ENGINE_DIR/scripts/stats.py" report "$@";;
   # supervise is HOST-level too: one supervisor walks every fleet on the host (#180).
   supervise) exec bash "$ENGINE_DIR/scripts/supervise.sh" "$@";;
+  # web is HOST-level too: the read-only dashboard over every registered fleet (#223).
+  web) exec bash "$ENGINE_DIR/scripts/web.sh" "$@";;
   # init CREATES the project state, so it can't discover it: target $PWD/.harness (env override wins).
   init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/scripts/init.sh" "$@";;
   # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.
