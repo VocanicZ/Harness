@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_cli_readme.sh — #188 / PRD #189: HARNESS_CLI is read only by the adapter dispatcher, and the
 # README's "Supported agent CLIs" table is the feature matrix: it lists exactly the CLIs whose matrix
-# column is green, each with its fixtures' version, and exactly the matrix's rows, ✓ where the cell
-# is ok.
+# column is green, each with its fixtures' version, and exactly the matrix's rows: ✓ where the cell
+# is ok, `n/a: <reason>` where the matrix says that row cannot exist for the CLI (n/a:<reason>).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
@@ -13,7 +13,7 @@ assert_eq "$(cd "$ROOT" && grep -l 'HARNESS_CLI' scripts/*.py)" "" "no python sc
 
 cells="$(bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
 assert_ok "the matrix produced cells" test -n "$cells"
-green="$(awk -F'\t' '$3!="ok"{bad[$1]=1} {all[$1]=1} END{for (c in all) if (!(c in bad)) print c}' <<<"$cells" | sort)"
+green="$(awk -F'\t' '$3!="ok" && $3!~/^n\/a:/{bad[$1]=1} {all[$1]=1} END{for (c in all) if (!(c in bad)) print c}' <<<"$cells" | sort)"
 table="$(sed -n '/^### Supported agent CLIs/,/^## /p' "$ROOT/README.md" | grep '^|')"
 header="$(head -1 <<<"$table")"
 listed="$(tr '|' '\n' <<<"$header" | sed -n 's/^ *`\([a-z-]*\)` *$/\1/p' | sort)"
@@ -35,8 +35,8 @@ for c in $green; do
   while IFS=$'\t' read -r cli row res; do
     [[ $cli == "$c" ]] || continue
     cell="$(grep "^| \`$row\` |" <<<"$table" | cut -d'|' -f"$(col "$c")" | xargs)"
-    [[ $res == ok && $cell == ✓* ]] || bad+=" $row"
+    [[ $res == ok && $cell == ✓* ]] || [[ $res == n/a:* && $cell == "n/a: ${res#n/a:}" ]] || bad+=" $row"
   done <<<"$cells"
-  assert_eq "${bad# }" "" "README: every $c row is ✓ exactly where its matrix cell is ok"
+  assert_eq "${bad# }" "" "README: every $c row is ✓ exactly where its matrix cell is ok, n/a with its reason"
 done
 finish

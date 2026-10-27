@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# fake-cli — what `claude` leaves on disk when a lane's launch line runs it (README.md): its transcript
+# under $CLAUDE_CONFIG_DIR/projects/<cwd>/<session>.jsonl, named by --session-id, or by an id claude
+# picks itself when the line passes none. Then the turn's tool call, $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sid=; while (( $# )); do [[ $1 == --session-id ]] && { sid="$2"; shift; }; shift; done
+[[ -n $sid ]] || sid="$(cat /proc/sys/kernel/random/uuid)"
+d="${HARNESS_CLAUDE_CONFIG_DIRS:?}/projects/$(pwd | tr '/.' '--')"; mkdir -p "$d"
+cp "$here/transcript.jsonl" "$d/$sid.jsonl"
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"

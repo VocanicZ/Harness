@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # test_cli_matrix.sh — #188 / PRD #189: every feature row for every CLI that has an adapter, run
 # against fixtures captured from the real CLI (test/fixtures/cli/<cli>/, see each README.md). One
-# cell per row; the README's support table is checked against these cells (test_cli_readme.sh).
-# --tsv prints `<cli>\t<row>\tok|FAIL` per cell instead of asserting.
+# cell per row, each driving Harness's own code path for the feature (launch_agent, inject.sh, the
+# drive.sh lanes, pause.sh, supervise.sh, stats.py, init.sh) through the adapter (#254). The README's
+# support table is checked against these cells (test_cli_readme.sh).
+# --tsv prints `<cli>\t<row>\tok|FAIL|n/a:<reason>` per cell instead of asserting.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"
@@ -10,11 +12,15 @@ source "$HERE/helpers.sh"
 make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 FIX="$HERE/fixtures/cli"
+# Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
+unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 cell(){ local cli="$1" row="$2"; shift 2
   if (( TSV )); then
     if "$@" >/dev/null 2>&1; then printf '%s\t%s\tok\n' "$cli" "$row"; else printf '%s\t%s\tFAIL\n' "$cli" "$row"; fi
   else assert_ok "$cli: $row" "$@"; fi; }
+# na <cli> <row> <reason> — a row that cannot exist for this CLI; the README cell shows the reason.
+na(){ if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi; }
 pane(){ cat "$FIX/$1/$2.txt"; }
 has(){ grep -qF -- "$1" <<<"$2"; }
 lacks(){ ! grep -qF -- "$1" <<<"$2"; }
@@ -38,7 +44,7 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
   esac; }
 # usage_windows_ok <cli> — the CLI's usage windows, read through the adapter from the fixture's real
 # source, report the expected <account> <window> <pct used>.
-usage_windows_ok(){ local cli="$1" got bin
+usage_windows_ok(){ ( local cli="$1" got bin
   rm -rf "$(_usage_dir)"; mkdir -p "$(_usage_dir)"
   case "$cli" in
     claude) python3 - "$FIX/claude/usage-drop.json" "$(_usage_dir)/main.json" <<'PY'
@@ -54,7 +60,7 @@ PY
       chmod +x "$bin"; export HARNESS_AGY_BIN="$bin" ;;
   esac
   got="$(unset HARNESS_USAGE_CMD; cli_limit_usage | cut -f1-3 | sort)"
-  [[ -n "$got" && "$got" == "$(sort "$FIX/$cli/usage-windows.expected")" ]]; }
+  [[ -n "$got" && "$got" == "$(sort "$FIX/$cli/usage-windows.expected")" ]] ); }
 # send_and_kill_ok — cli_send delivers the text then Enter to the session; cli_kill ends it.
 send_and_kill_ok(){ local log="$RUN_DIR/tmux.calls"; : > "$log"
   ( tmux(){ echo "$*" >> "$log"; }
@@ -84,6 +90,212 @@ done_signal_ok(){ local wd="$1"
   rm -f "$wd/.claude/ralph-loop.local.md"
   cli_done "$wd"; }
 
+# --- the real code paths, with tmux and GitHub faked ----------------------------------------------
+# fake_tmux — tmux as Harness drives it, each call one line of $TMUXLOG (its args tab-separated): no
+# session is live yet, a pane shows the CLI's idle prompt, `ls` lists $FAKE_LIVE. Exported, so a
+# script Harness runs as a child (pause.sh) drives it too. launch_agent's sleeps are skipped.
+fake_tmux(){ export TMUXLOG="$RUN_DIR/tmux.$BASHPID"; : > "$TMUXLOG"
+  tmux(){ local IFS=$'\t'; printf '%s\n' "$*" >> "$TMUXLOG"
+    case "$1" in has-session) return 1;; capture-pane) cat "$FIX/$HARNESS_CLI/idle.txt";; ls) printf '%s\n' ${FAKE_LIVE:-};; esac
+    return 0; }
+  sleep(){ :; }; export -f tmux; }
+# typed_line <sess> — the line Harness typed into <sess> to start the agent.
+typed_line(){ awk -F'\t' -v s="$1" '$1 == "send-keys" && $3 == s && $4 != "-l" && $5 == "Enter" && NF == 5 { print $4; exit }' "$TMUXLOG"; }
+# sent_text <sess> — each line delivered to <sess> through cli_send.
+sent_text(){ awk -F'\t' -v s="$1" '$1 == "send-keys" && $3 == s && $4 == "-l" { print $5 }' "$TMUXLOG"; }
+# session_env_of <sess> — the -e K=V pairs <sess> was created with.
+session_env_of(){ awk -F'\t' -v s="$1" '$1 == "new-session" { n = ""; for (i = 1; i < NF; i++) if ($i == "-s") n = $(i + 1)
+  if (n == s) for (i = 1; i < NF; i++) if ($i == "-e") print $(i + 1) }' "$TMUXLOG"; }
+state_uuid(){ sed -n 's/^session_id: //p' "$1/.claude/ralph-loop.local.md" 2>/dev/null; }
+# run_pane <sess> <wd> — run the typed line as the pane's shell would (in <wd>, with the session's
+# env) against the CLI's fake, which leaves on disk what the real CLI leaves (fake-cli). The fake runs
+# $FAKE_CLI_TURN as the turn's tool call; rtdd there is fake_rtdd.
+run_pane(){ local line bin d="$RUN_DIR/bin-$HARNESS_CLI" envs=()
+  line="$(typed_line "$1")"; [[ -n $line ]] || return 1
+  mapfile -t envs < <(session_env_of "$1")
+  bin="$(cli_bin)"; mkdir -p "$d"
+  printf '#!/usr/bin/env bash\nexec bash %q "$@"\n' "$FIX/$HARNESS_CLI/fake-cli" > "$d/${bin##*/}"
+  # rtdd's v1 event line (VocanicZ/rtdd#503): one per call, its ctx every HARNESS_* var it ran with.
+  cat > "$d/rtdd" <<'RTDD'
+#!/usr/bin/env bash
+[[ -n ${RTDD_EVENT_LOG:-} ]] || exit 0
+python3 -c 'import json, os, sys
+ctx = {k: v for k, v in os.environ.items() if k.startswith("HARNESS_")}
+print(json.dumps({"v": 1, "ts": "2026-10-27T00:00:00Z", "cmd": sys.argv[1], "argv": sys.argv[1:], "exit": 0,
+                  "duration_ms": 5, "changed_nodes": 2, "round1": 1, "round2": 0, "ctx": ctx}))' "$@" >> "$RTDD_EVENT_LOG"
+RTDD
+  chmod +x "$d/${bin##*/}" "$d/rtdd"
+  ( cd "$2" && env -u RTDD_EVENT_LOG -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX \
+      -u HARNESS_REPO PATH="$d:$PATH" "${envs[@]}" bash -c "$line" ) </dev/null >/dev/null 2>&1; }
+# new_wd <wd> — a fresh worktree with a task file.
+new_wd(){ mkdir -p "$1" && git -C "$1" init -q && printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$1/.harness-task.md"; }
+
+# lane_ok <sess> <wd> <promise> — a lane Harness set up was launched through this CLI's adapter: the
+# line typed is the CLI's own launch line for that worktree and lane, carrying the bootstrap and not
+# the task; the worktree is trusted and bypassed and its goal loop armed on the lane's promise; and
+# once the line runs, the session id Harness resolves finds the transcript the CLI wrote.
+lane_ok(){ local line uuid sid model effort
+  line="$(typed_line "$1")"; uuid="$(state_uuid "$2")"; [[ -n $line && -n $uuid ]] || return 1
+  model="$(lane_setting "$2" model)"; effort="$(lane_setting "$2" effort)"
+  same "$line" "$(cli_launch "$2" "$uuid" "$model" "$effort")" || return 1
+  has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input "$effort")" && lacks "$3" "$line" || return 1
+  grep -qF -- "$3" "$2/.harness-task.md" && grep -qF -- "$3" "$2/.claude/ralph-loop.local.md" || return 1
+  cli_trusted "$2" && cli_bypassed "$2" && not cli_done "$2" || return 1
+  run_pane "$1" "$2" || return 1
+  sid="$(cli_session_id "$2" "$uuid")"; [[ -n $sid ]] && test -n "$(cli_transcripts "$2" "$sid")"; }
+# lane_env — one unit (acme/widget, single topology) with fake_tmux, GitHub answering from FAKE_LABELS
+# / FAKE_HANDOFF, a pushed branch iff FAKE_REMOTE_BRANCH, and `worktree add` making a fresh repo.
+# Call it AFTER sourcing drive.sh, whose own default_branch it replaces.
+lane_env(){ fake_tmux
+  UNIT=main PROJECT=main DESC=widget SLUG=acme/widget
+  export HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_TOPOLOGY=single HARNESS_SESS_PREFIX=hz HARNESS_PAUSE_GRACE=2
+  CHECKOUT="$RUN_DIR/checkout-$HARNESS_CLI"; mkdir -p "$CHECKOUT" "$WORKTREES_DIR"; git -C "$CHECKOUT" init -q
+  ensure_checkout(){ :; }; unit_checkout(){ echo "$CHECKOUT"; }; default_branch(){ echo main; }; pool_live(){ return 0; }
+  ensure_safe(){ :; }; run_worktree_hook(){ :; }; remove_worktree(){ :; }; log(){ :; }
+  gh(){ case "$1 $2" in
+      "api user") echo fleetbot;;
+      "issue view") case "$*" in
+          *"--json labels"*) echo "${FAKE_LABELS:-[]}";;
+          *length*) echo 0;;
+          *"--json comments"*) printf '%s\n' "${FAKE_HANDOFF:-}";;
+        esac;;
+    esac; return 0; }
+  git(){ local a wt=
+    case " $* " in
+      *" worktree add "*) for a; do [[ $a == "$WORKTREES_DIR"/* ]] && wt="$a"; done
+        mkdir -p "$wt" && command git -C "$wt" init -q; return;;
+      *" ls-remote "*) [[ -z ${FAKE_REMOTE_BRANCH:-} ]] || printf 'abc\trefs/heads/%s\n' "$FAKE_REMOTE_BRANCH"; return 0;;
+      *" fetch "*|*" checkout "*|*" reset "*) return 0;;
+    esac; command git "$@"; }
+  export -f gh; }
+
+# lane_launch <wd> <model> <effort> — launch_agent a lane whose worktree hook pinned <model> and
+# <effort> (.harness-lane); prints the line typed, the CLI's lane settings and its first input.
+lane_launch(){ ( fake_tmux; new_wd "$1"; GOAL=ISSUE:4
+  printf 'model=%s\neffort=%s\n' "$2" "$3" > "$1/$HARNESS_LANE_FILE"
+  launch_agent hz-lane-i4 "$1" >/dev/null 2>&1; typed_line hz-lane-i4; cli_lane_settings "$1"; cli_first_input "$3" ) }
+# effort_once_ok <launch> <effort> — the lane's effort, and no other, reaches the launch exactly once.
+effort_once_ok(){ same "$(grep -o -- '--effort' <<<"$1" | wc -l)" 1 && has "--effort $2" "$1"; }
+# session_id_ok — the id Harness resolves for a launch is the one the CLI wrote its session under: the
+# typed line runs against the CLI's fake in a fresh worktree (no planted fixture answers for it).
+session_id_ok(){ ( fake_tmux; local wd="$RUN_DIR/sid-$HARNESS_CLI" uuid sid; new_wd "$wd"; GOAL=ISSUE:3
+  launch_agent hz-sid-i3 "$wd" >/dev/null 2>&1 && run_pane hz-sid-i3 "$wd" || exit 1
+  uuid="$(state_uuid "$wd")"; sid="$(cli_session_id "$wd" "$uuid")"
+  [[ -n $sid ]] && test -n "$(cli_transcripts "$wd" "$sid")" ); }
+# bypass_ok — after launch_agent, the worktree reads as bypassed, and the line cli_bypassed judges is
+# the line typed (claude: settings.local.json, which sub-agents read; agy: --dangerously-skip-permissions,
+# which they inherit).
+bypass_ok(){ ( fake_tmux; local wd="$RUN_DIR/bypass-$HARNESS_CLI"; new_wd "$wd"; GOAL=ISSUE:5
+  launch_agent hz-byp-i5 "$wd" >/dev/null 2>&1
+  cli_bypassed "$wd" && same "$(typed_line hz-byp-i5)" "$(cli_launch "$wd" "$(state_uuid "$wd")" "" "")" ); }
+# loop_ok — the goal loop as this CLI runs it (cli_loop). `hook`: the Stop hook of the plugin Harness
+# installs for it (fixtures/cli/<cli>/stop-hook) re-feeds the task after a turn without the promise,
+# and ends the loop — which cli_done sees — after a turn that outputs it.
+loop_ok(){ ( local wd="$RUN_DIR/loop-$HARNESS_CLI" sid=loop-session out
+  [[ "$(cli_loop)" == hook ]] || exit 1
+  new_wd "$wd"; write_state "$wd" "LOOP DONE" 5 "$sid"
+  out="$("$FIX/$HARNESS_CLI/stop-hook" "$wd" "$sid" 2>/dev/null)"
+  has UNIQUE_TASK_MARKER "$out" && not cli_done "$wd" || exit 1
+  "$FIX/$HARNESS_CLI/stop-hook" "$wd" "$sid" "all done <promise>LOOP DONE</promise>" >/dev/null 2>&1; cli_done "$wd" ); }
+
+# inject_ok — `/harness-issue|prd|plan` (inject.sh): each altitude's injector is launched on the
+# unit's checkout through the adapter.
+inject_ok(){ ( lane_env; local alt
+  for alt in issue prd plan; do
+    ( source "$HERE/../scripts/inject.sh" "$alt" "add a rate limiter" ) >/dev/null 2>&1 || exit 1
+    lane_ok "$(sess_inject main)" "$CHECKOUT" "INJECT DONE" || exit 1
+    : > "$TMUXLOG"
+  done ); }
+# bug_lane_ok — the bug lane (drive.sh spawn_bug): triage, then fix, each its own session through the adapter.
+bug_lane_ok(){ ( source "$HERE/../scripts/drive.sh"; lane_env
+  spawn_bug 9 triage >/dev/null 2>&1 && lane_ok "$(sess_bug acme/widget 9 triage)" "$(triage_worktree acme/widget 9)" "BUG 9 triage DONE" || exit 1
+  spawn_bug 9 fix >/dev/null 2>&1 && lane_ok "$(sess_bug acme/widget 9 fix)" "$(bug_worktree acme/widget 9)" "BUG 9 fix DONE" ); }
+# review_ok — the PRD review (drive.sh spawn_orch REVIEW) with its gauntlet round, through the adapter.
+review_ok(){ ( source "$HERE/../scripts/drive.sh"; lane_env; local wd
+  spawn_orch REVIEW 7 "REVIEW DONE" >/dev/null 2>&1 || exit 1
+  wd="$(orch_worktree acme/widget 7)"
+  lane_ok "$(sess_orch main 7)" "$wd" "REVIEW DONE" &&
+    grep -qF "Gauntlet: round 1 of $HARNESS_GAUNTLET_ROUNDS   Evidence dir: $STATE_DIR/gauntlet/main/p7" "$wd/.harness-task.md" ); }
+# checkpoint_ok — host A: an impl lane (spawn_impl) runs issue 7 through this CLI; `pause --force`
+# types the checkpoint into it through the adapter — naming the CLI's handoff skill as the CLI invokes
+# a skill (handoff-skill) and the handoff marker — and marks the fleet paused, killing nothing.
+checkpoint_ok(){ local sess msg
+  spawn_impl 7 "ISSUE 7 DONE" >/dev/null 2>&1 || return 1
+  sess="$(sess_impl main 7)"; lane_ok "$sess" "$WORKTREES_DIR/main-i7" "ISSUE 7 DONE" || return 1
+  FAKE_LIVE="$sess" FAKE_LABELS='["agent-paused"]' RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1 || return 1
+  msg="$(sent_text "$sess")"
+  has "HARNESS CHECKPOINT" "$msg" && has "run the $(cat "$FIX/$HARNESS_CLI/handoff-skill") skill" "$msg" &&
+    has '<!-- harness-handoff issue=7 branch=issue/7 -->' "$msg" && test -f "$RUN_DIR/PAUSED" && not grep -q '^kill-session' "$TMUXLOG"; }
+host_a(){ RUN_DIR="$RUN_DIR/host-a-$HARNESS_CLI"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$RUN_DIR"
+  source "$HERE/../scripts/drive.sh"; lane_env; }
+checkpoint_skill_ok(){ ( host_a; checkpoint_ok ); }
+# pause_resume_ok — host A checkpoints (checkpoint_ok); host B, with none of A's local state (its own
+# state dir, run dir, worktrees), resumes issue 7 from GitHub alone — the agent-paused label, the
+# pushed branch, the handoff comment — rendering resume.md with the handoff, through the adapter.
+pause_resume_ok(){ ( host_a; checkpoint_ok || exit 1
+  local b="${RUN_DIR%/*}/host-b-$HARNESS_CLI"; mkdir -p "$b"
+  RUN_DIR="$b/run" STATE_DIR="$b/state" WORKTREES_DIR="$b/worktrees"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$RUN_DIR"
+  lane_env
+  FAKE_LABELS='["agent-paused"]' FAKE_REMOTE_BRANCH=issue/7
+  FAKE_HANDOFF=$'<!-- harness-handoff issue=7 branch=issue/7 -->\nHOST A LEFT OFF HERE'
+  spawn_impl 7 "ISSUE 7 DONE" >/dev/null 2>&1 || exit 1
+  lane_ok "$(sess_impl main 7)" "$WORKTREES_DIR/main-i7" "ISSUE 7 DONE" &&
+    grep -qF "HOST A LEFT OFF HERE" "$WORKTREES_DIR/main-i7/.harness-task.md" &&
+    grep -qF "BEGIN HANDOFF" "$WORKTREES_DIR/main-i7/.harness-task.md" ); }
+# frozen_ok — #180: the CLI's idle, trust-dialog and limit panes, drawn in real tmux panes (a private
+# server) and gone quiet. supervise.sh nudges the idle prompt, never types into the dialog, and leaves
+# the limit-parked pane alone.
+frozen_ok(){ ( command -v tmux >/dev/null || exit 1
+  local cli="$HARNESS_CLI" k i
+  export TMUX_TMPDIR="$RUN_DIR/tmux-$cli"; mkdir -p "$TMUX_TMPDIR"; unset TMUX
+  export HARNESS_SUPERVISE_CONF=/dev/null HARNESS_SUPERVISE_STATE="$RUN_DIR/sup-$cli" HARNESS_SUPERVISE_LOG="$RUN_DIR/sup-$cli.log"
+  source "$HERE/../scripts/supervise.sh"; SUP_DRY=1 CPU_ACTIVE_S=0
+  trap 'tmux kill-server 2>/dev/null' EXIT
+  for k in idle trust limit; do [[ -f $FIX/$cli/$k.txt ]] || continue
+    tmux new-session -d -s "$cli-$k" -x 160 -y 45 "cat '$FIX/$cli/$k.txt'; exec sleep 600"; done
+  for (( i = 0; i < 50; i++ )); do tmux capture-pane -p -t "$cli-idle" 2>/dev/null | grep -qE "$(cli_idle_re)" && break; command sleep 0.1; done
+  command sleep 0.3
+  for i in 1 2; do for k in idle trust limit; do
+    sup_watch_pane "$cli-$k" "$SUP_STATE/panes/$cli-$k" 0 0 "nudge-$k" "$cli"; done; done
+  grep -qF "send-keys -t $cli-idle -l nudge-idle" "$SUP_LOG" && not grep -qF "$cli-trust" "$SUP_LOG" &&
+    not grep -qF "$cli-limit" "$SUP_LOG" ); }
+# rtdd_event_ok — #186: a lane launched through this CLI calls `rtdd which` from its turn; rtdd sees
+# the session's env through the CLI and logs it, and `harness stats` joins the call to the lane's
+# session and issue.
+rtdd_event_ok(){ ( lane_env; local wd="$RUN_DIR/rtdd-$HARNESS_CLI" sess uuid
+  export HARNESS_EVENTS_FILE="$RUN_DIR/rtdd-$HARNESS_CLI.events" HARNESS_RTDD_EVENTS_FILE="$RUN_DIR/rtdd-$HARNESS_CLI.jsonl"
+  rm -f "$HARNESS_EVENTS_FILE" "$HARNESS_RTDD_EVENTS_FILE"; new_wd "$wd"
+  GOAL=ISSUE:11 PROMISE="ISSUE 11 DONE" MAXITER=5 STAT_PRD=5; sess="$(sess_impl main 11)"
+  launch_agent "$sess" "$wd" >/dev/null 2>&1
+  FAKE_CLI_TURN='rtdd which --base origin/main' run_pane "$sess" "$wd" || exit 1
+  uuid="$(state_uuid "$wd")"
+  python3 "$HERE/../scripts/stats.py" report --issue 11 -R acme/widget --json 2>/dev/null | python3 -c 'import json, sys
+d = json.load(sys.stdin); by = {s["session"]: s["rtdd"] for s in d["sessions"]}
+sys.exit(0 if d["rtdd"].get("which") == 1 and by.get(sys.argv[1], {}).get("which") == 1 else 1)' "$uuid" ); }
+# init_choice_ok — `harness init` answered with this CLI (its non-interactive answer: the config key
+# in the environment) writes it to the config, and a fleet that loads that config (lib.sh) drives it.
+init_choice_ok(){ local cli="$HARNESS_CLI" d="$RUN_DIR/init-$HARNESS_CLI" out
+  mkdir -p "$d"
+  ( cd "$d" && env -u HARNESS_CLI STATE_DIR="$d/.harness" HARNESS_INIT_NONINTERACTIVE=1 "$CLI_CONFIG_VAR=$cli" \
+      HARNESS_TOPOLOGY=multi HARNESS_SESS_PREFIX=hzinit bash "$HERE/../scripts/init.sh" ) </dev/null >/dev/null 2>&1 || return 1
+  out="$(cd "$d" && env -u HARNESS_CLI STATE_DIR="$d/.harness" bash -c 'source "$1"; cli_name; cli_launch /wd uuid "" ""' _ \
+    "$HERE/../scripts/lib.sh" 2>/dev/null)"
+  grep -qxF ": \"\${$CLI_CONFIG_VAR:=$cli}\"" "$d/.harness/config" &&
+    same "$(sed -n 1p <<<"$out")" "$cli" && same "$(sed -n 2p <<<"$out")" "$(cli_launch /wd uuid "" "")"; }
+# prereqs_ok — `harness setup` through the adapter: with no binary it names the binary and fails; with
+# the binary but none of its plugins it names each missing one and fails; --install installs each
+# through the binary, by the command it named, and then passes.
+prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
+  export HOME="$d/home"; unset CLAUDE_CONFIG_DIR; mkdir -p "$HOME" "$d/bin" "$d/none"
+  bin="$(cli_bin)"
+  out="$(PATH="$d/none" cli_prereqs 2>&1)" && exit 1
+  grep -qF "MISSING $HARNESS_CLI binary ($bin)" <<<"$out" || exit 1
+  printf '#!/bin/sh\necho "$*" >> %q\n' "$d/calls" > "$d/bin/$bin"; chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
+  out="$(cli_prereqs 2>&1)" && exit 1
+  missing="$(sed -n "s/^MISSING [^:]*: $bin //p" <<<"$out")"; [[ -n $missing ]] || exit 1
+  cli_prereqs --install >/dev/null 2>&1 || exit 1
+  while read -r p; do grep -qF -- "$p" "$d/calls" || exit 1; done <<<"$missing" ); }
+
 rc=0
 for cli in $(cli_list); do
   ( cli_load "$cli" || exit 1
@@ -95,9 +307,10 @@ for cli in $(cli_list); do
     line="$(cli_launch "$WD" "$SID" "$MODEL" high)"
     cell "$cli" launch-bootstrap-prompt    has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"
     cell "$cli" launch-no-task-text        lacks UNIQUE_TASK_MARKER "$line"
-    cell "$cli" launch-model               has "$MODEL" "$line$(cli_lane_settings "$WD")"
-    cell "$cli" launch-effort-once         same "$(grep -o -- '--effort' <<<"$line" | wc -l)" 1
-    cell "$cli" session-id                 same "$(cli_session_id "$WD" "$SID")" "$SID"
+    lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"
+    cell "$cli" launch-model               has "$MODEL" "$lane"
+    cell "$cli" launch-effort-once         effort_once_ok "$lane" low
+    cell "$cli" session-id                 session_id_ok
     cell "$cli" idle-is-prompt             cli_pane_prompt "$(pane "$cli" idle)"
     cell "$cli" idle-is-not-busy           not cli_pane_busy "$(pane "$cli" idle)"
     cell "$cli" busy-is-busy               every_busy_is_busy "$cli"
@@ -108,16 +321,23 @@ for cli in $(cli_list); do
     cell "$cli" limit-parks                session_limit_idle "$(pane "$cli" limit)"
     cell "$cli" transient-is-not-limit     not session_limit_idle "$(pane "$cli" transient)"
     cli_trust "$WD";  cell "$cli" trust-pre-accepted       cli_trusted "$WD"
-    cli_bypass "$WD"; cell "$cli" bypass-covers-subagents  cli_bypassed "$WD"
+    cell "$cli" bypass-covers-subagents    bypass_ok
     cell "$cli" done-signal                done_signal_ok "$WD"
-    cell "$cli" loop-mode                  grep -qxE 'hook|driven' <<<"$(cli_loop)"
+    cell "$cli" loop-mode                  loop_ok
     cell "$cli" transcripts-found          test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"
     cell "$cli" usage-from-transcript      same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"
     cell "$cli" stats-session-end-usage    session_end_usage_ok "$WD" "$SID"
     cell "$cli" usage-windows              usage_windows_ok "$cli"
-    cell "$cli" checkpoint-skill           test -n "$(cli_skill handoff)"
+    cell "$cli" checkpoint-skill           checkpoint_skill_ok
+    cell "$cli" pause-force-resume-other-host pause_resume_ok
     cell "$cli" send-and-kill              send_and_kill_ok
-    cell "$cli" prereqs-named              grep -qF "$cli" <<<"$(cli_prereqs 2>&1)"
+    cell "$cli" inject-sessions            inject_ok
+    cell "$cli" bug-lane-triage-fix        bug_lane_ok
+    cell "$cli" review-gauntlet            review_ok
+    cell "$cli" supervisor-frozen-session  frozen_ok
+    cell "$cli" rtdd-event-context         rtdd_event_ok
+    cell "$cli" prereqs-named              prereqs_ok
+    cell "$cli" init-wizard-choice         init_choice_ok
     (( TSV )) || finish ) || rc=1
 done
 exit "$rc"

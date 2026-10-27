@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# stop-hook <wd> <session id> [reply] — one end of turn as agy runs it: the Stop hook of the
+# harness-ralph plugin agy_prereqs installs (plugins/ralph-loop), handed {workspacePaths,
+# transcriptPath}. The transcript is hook-transcript.jsonl plus one model reply (PLANNER_RESPONSE): [reply].
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; t="$(mktemp)"
+{ cat "$here/hook-transcript.jsonl"
+  python3 -c 'import json, sys; print(json.dumps({"source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "content": sys.argv[1]}))' "${3:-(working)}"; } > "$t"
+python3 -c 'import json, sys; print(json.dumps({"conversationId": sys.argv[1], "workspacePaths": [sys.argv[2]], "transcriptPath": sys.argv[3]}))' "$2" "$1" "$t" |
+  python3 "$here/../../../../plugins/ralph-loop/hooks/stop-hook.sh"
+rc=$?; rm -f "$t"; exit $rc
