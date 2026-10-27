@@ -38,8 +38,9 @@ def load(name):
 
 
 def dead_pid():
-    """A pid that was alive a moment ago and is not now: a reaped child's."""
-    p = subprocess.Popen(["true"])
+    """A pid that was alive a moment ago and is not now: a reaped child's. sys.executable, not `true`:
+    inside serving() PATH is the stub bin dir + whatever the runner had, which may be nothing."""
+    p = subprocess.Popen([sys.executable, "-c", ""])
     p.wait()
     return p.pid
 
