@@ -1,0 +1,45 @@
+exec agy --dangerously-skip-permissions --model gemini-3.8-flash-low -i "Spawn a sub-agent and have the sub-agent (not you) run the shell command: touch subagen
+t-proof.txt . Then reply with the single word done."
+claude@claude:@PROBE@/byp$ exec agy --da
+ngerously-skip-permissions --model gemini-3.8-flash-low -i "Spawn a sub-agent and have the sub-agent (not you) run the shell command: touch subagent-proof.txt .
+ Then reply with the single word done."
+
+      ▄▀▀▄        Antigravity CLI 1.4.8
+     ▀▀▀▀▀▀       vocanicz2@gmail.com (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Low)
+   ▄▀▀    ▀▀▄     @PROBE@/byp
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────
+> Spawn a sub-agent and have the sub-agent (not you) run the shell command: touch subagent-proof.txt . Then reply with the single word done.
+
+● Spawned 1 subagent (ctrl+o to expand)
+
+  I have launched the subagent to run the command and will wait for it to complete.
+
+  done
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+10.1k ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ (7%|1%)                          3 ░░░░░░░░ 0%   3 ░░░░░░░░ 0%   G ░░░░░░░░ 0%   G ░░░░░░░░ 0%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

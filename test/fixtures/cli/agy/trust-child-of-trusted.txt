@@ -1,0 +1,45 @@
+Accessing workspace:
+
+@PROBE@/trustp/child
+
+Do you trust the contents of this project?
+
+Antigravity CLI requires permission to read, edit, and execute files here.
+
+> Yes, I trust this folder
+  No, exit
+
+  ↑/↓ Navigate · enter Confirm
+9.4k ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ (6%|1%)                           3 ░░░░░░░░ 0%   3 ░░░░░░░░ 0%   G ░░░░░░░░ 0%   G ░░░░░░░░ 0%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
