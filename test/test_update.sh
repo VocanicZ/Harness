@@ -6,6 +6,12 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
+# The host's agy is host state (#240): update.sh sources install.sh, whose check_prereqs /
+# ensure_skills run agy. Pin BOTH seams at a logging stub — export HARNESS_AGY_BIN (overriding any
+# value a live fleet exported, which would bypass PATH) and put the stub first on PATH as a fallback.
+AGY_STUB_DIR="$(mktemp -d)"; AGY_LOG="$AGY_STUB_DIR/agy.log"; : > "$AGY_LOG"
+printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
+export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 
 # 1) a real "engine remote" with one commit, then the shared install cloned from it.
 REMOTE="$(mktemp -d)/remote.git"; git init -q --bare -b main "$REMOTE"

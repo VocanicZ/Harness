@@ -81,15 +81,18 @@ done
 # by test_uninstall.sh against the host's real agy, the suite stripped that plugin off a live fleet
 # host and every agy lane after it lost its loop. Both seams leak: agy found on PATH, and an
 # inherited HARNESS_AGY_BIN (lib.sh:85 exports it from every fleet process) naming the real binary.
-# Plant a tripwire on BOTH; it must never see a `plugin uninstall`.
-# test_supervise.sh drives uninstall.sh --force too, so it is held to the same guard.
-for t in test_uninstall.sh test_supervise.sh; do
+# Plant a tripwire on BOTH; it must never be called at all.
+# The install side leaks the same way (#240): install.sh's check_prereqs / ensure_skills run
+# `agy --version`, `agy plugin list` and `agy plugin install`, reached by test_install.sh directly and
+# by test_update.sh / test_supervise.sh through update.sh (which sources install.sh). Each suite pins
+# its own stub, so the tripwire log must come back EMPTY — not merely free of `plugin uninstall`.
+for t in test_install.sh test_update.sh test_supervise.sh test_uninstall.sh; do
   [[ -f "$HERE/$t" ]] || continue
   TRIP="$(mktemp -d)"; : > "$TRIP/agy.log"
   printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$TRIP/agy.log" > "$TRIP/agy"; chmod +x "$TRIP/agy"
   PATH="$TRIP:$PATH" HARNESS_AGY_BIN="$TRIP/agy" bash "$HERE/$t" >/dev/null 2>&1
-  assert_eq "$(grep -c 'plugin uninstall' "$TRIP/agy.log")" "0" \
-    "$t: the host's agy plugin is never uninstalled (PATH or inherited HARNESS_AGY_BIN)"
+  assert_eq "$(cat "$TRIP/agy.log")" "" \
+    "$t: the host's agy is never called (PATH or inherited HARNESS_AGY_BIN)"
 done
 
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR

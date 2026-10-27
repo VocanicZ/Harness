@@ -6,6 +6,12 @@
 # systemd unit, and the scratch reap. Every pane rule runs for each claimed CLI (claude, agy).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The host's agy is host state (#240): update.sh sources install.sh, whose check_prereqs /
+# ensure_skills run agy. Pin BOTH seams at a logging stub — export HARNESS_AGY_BIN (overriding any
+# value a live fleet exported, which would bypass PATH) and put the stub first on PATH as a fallback.
+AGY_STUB_DIR="$(mktemp -d)"; AGY_LOG="$AGY_STUB_DIR/agy.log"; : > "$AGY_LOG"
+printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
+export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
 make_env

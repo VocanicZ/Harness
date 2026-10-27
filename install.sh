@@ -14,14 +14,20 @@ VOCANICZ_TOOLS_URL="${VOCANICZ_TOOLS_URL:-https://github.com/VocanicZ/vocanicz-a
 RTDD_INSTALL_SPEC="${RTDD_INSTALL_SPEC:-github:VocanicZ/rtdd}"   # upstream's own installer, run via npx
 
 need(){ command -v "$1" >/dev/null 2>&1; }
+# agy_bin — the agy binary, resolved through HARNESS_AGY_BIN like the rest of the engine (lib.sh:48,
+# uninstall.sh). Read at CALL time, not source time, so a caller that sets it after sourcing this
+# file (test_install.sh, update.sh's environment) is honoured (#240). A name that does not resolve
+# reads as "agy absent" everywhere below.
+agy_bin(){ printf '%s' "${HARNESS_AGY_BIN:-agy}"; }
 check_prereqs(){
   local ok=1
   for b in git tmux python3; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
   if ! need gh; then echo "MISSING: gh (install: https://cli.github.com)" >&2; ok=0
   elif ! gh auth status >/dev/null 2>&1; then echo "gh not authenticated — run: gh auth login" >&2; ok=0; fi
-  if ! need claude && ! need agy; then echo "MISSING: claude or agy (install Claude Code CLI or Antigravity CLI)" >&2; ok=0
+  local agy; agy="$(agy_bin)"
+  if ! need claude && ! need "$agy"; then echo "MISSING: claude or agy (install Claude Code CLI or Antigravity CLI)" >&2; ok=0
   elif need claude && ! claude --version >/dev/null 2>&1; then echo "claude present but not runnable (model configured?)" >&2; ok=0
-  elif need agy && ! agy --version >/dev/null 2>&1; then echo "agy present but not runnable" >&2; ok=0; fi
+  elif need "$agy" && ! "$agy" --version >/dev/null 2>&1; then echo "agy present but not runnable" >&2; ok=0; fi
   [[ "$ok" == 1 ]]
 }
 
@@ -40,16 +46,16 @@ _ensure_plugin(){  # $1 = plugin name
     || echo "  ! could not install $ref — install manually: claude plugin install $ref"
 }
 _agy_plugin_installed(){
-  agy plugin list 2>/dev/null | grep -q "\"$1\""
+  "$(agy_bin)" plugin list 2>/dev/null | grep -q "\"$1\""
 }
 _ensure_agy_plugin(){
-  local name="$1" dir="$2"
+  local name="$1" dir="$2" agy; agy="$(agy_bin)"
   if _agy_plugin_installed "$name"; then echo "  ✓ agy plugin $name already installed"; return 0; fi
   if [[ -d "$dir" ]]; then
     echo "  installing agy plugin $name ..."
-    agy plugin install "$dir" >/dev/null 2>&1 \
+    "$agy" plugin install "$dir" >/dev/null 2>&1 \
       && echo "  ✓ installed agy plugin $name" \
-      || echo "  ! could not install agy plugin $name — install manually: agy plugin install $dir"
+      || echo "  ! could not install agy plugin $name — install manually: $agy plugin install $dir"
   fi
 }
 # ensure_rtdd — install the coverage-derived test selector the IMPL/bug-fix/resume prompts use AS
@@ -106,7 +112,7 @@ ensure_skills(){
   else
     echo "  ! 'claude' CLI not found — install superpowers + ralph-loop plugins manually"
   fi
-  if need agy; then
+  if need "$(agy_bin)"; then
     echo "ensuring required Antigravity plugins + skills (best-effort) ..."
     local agy_plugin_dir="${HARNESS_HOME:-$HOME/.harness}/engine/plugins/ralph-loop"
     [[ -d "$agy_plugin_dir" ]] || agy_plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugins/ralph-loop"
@@ -212,7 +218,7 @@ install_harness_skills(){
   echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
   if [[ -z "${HARNESS_USER_SKILLS:-}" || -n "${HARNESS_AGY_USER_SKILLS:-}" ]]; then
     local agy_dst="${HARNESS_AGY_USER_SKILLS:-$HOME/.gemini/config/skills}"
-    if need agy || [[ -d "$HOME/.gemini" ]]; then
+    if need "$(agy_bin)" || [[ -d "$HOME/.gemini" ]]; then
       mkdir -p "$agy_dst"
       if [[ -f "$src/SKILL.md" ]]; then
         mkdir -p "$agy_dst/harness"; cp "$src/SKILL.md" "$agy_dst/harness/SKILL.md"
