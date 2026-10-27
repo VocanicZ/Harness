@@ -42,6 +42,10 @@ _PARENT_HEADING = re.compile(r"^#{2,3}\s+Parent\s*:?\s*$", re.IGNORECASE | re.MU
 # Legacy fallback: the bare `Part of #N` trailer decompose.md has always emitted. Kept so children
 # filed by earlier engine versions keep their attribution across the upgrade, with no migration.
 _PART_OF = re.compile(r"(?<![\w.-])Part of\s+(?:([\w.-]+/[\w.-]+)#(\d+)|#(\d+))", re.IGNORECASE)
+# #221: a PRD's `## Task 1` section (the harness-arc "write the plan first" task). DECOMPOSE owes it a
+# child whose title names Task 1 — `Task 1` exactly, never `Task 10`.
+_TASK1_HEADING = re.compile(r"^#{2,3}\s+Task\s+1(?!\d)", re.IGNORECASE | re.MULTILINE)
+_TASK1_TITLE = re.compile(r"\bTask\s+1(?!\d)", re.IGNORECASE)
 # States that satisfy a blocked-by ref. "merged" covers a ref pointing at a merged PR: `gh issue
 # view <pr-number>` resolves the PR and returns {"state":"MERGED"}, so a merged PR must NOT block.
 _SATISFIED_STATES = {"closed", "merged"}
@@ -596,6 +600,32 @@ def _open_blockers(issue, slug, closed_cache, prd_num=None):
     return list(_unsatisfied_refs(issue, slug, closed_cache, prd_num))
 
 
+def _claimable(issue):
+    """Could some lane ever take this (open) issue? The pool claims ready work (agent-blocked only on
+    an autonomous fleet, exactly as compute_state's claim filter), the PRD pipeline closes PRDs, the
+    bug lane takes bugs, and an agent-working issue is already held. Anything else — an operator
+    step with no ready label — waits on a human forever (#221)."""
+    labels = issue["_labels"]
+    if L_WORKING() in labels or L_BUG() in labels or L_BUG_TRIAGED() in labels:
+        return True
+    if L_PRD() in labels or issue.get("title", "").startswith("[AFK] PRD:"):
+        return True
+    return L_READY() in labels and (AUTONOMOUS() or L_BLOCKED() not in labels)
+
+
+def _stuck_refs(blockers, slug, by_num, allowed):
+    """The open blockers when EVERY one is an issue no lane can claim, else [] — while any blocker
+    can still move, the chain is not stuck yet. Only same-repo refs are judged (another repo's labels
+    are not in this listing); a blocker from a disallowed author is never claimed either (#221)."""
+    stuck = []
+    for ref in blockers:
+        it = by_num.get(ref[1]) if ref[0] == slug else None
+        if it is None or (it["number"] in allowed and _claimable(it)):
+            return []
+        stuck.append(ref)
+    return stuck
+
+
 def _allowed(mode):
     """Which orchestration actions this mode permits (entry-stage gating)."""
     return {
@@ -915,7 +945,8 @@ def compute_state(repo):
     slug = _repo_slug(repo)
     # secure-by-default: drop issues from non-allowed authors up front, so neither PRD
     # selection nor the IMPL claimable filter below can be hijacked by a foreign author.
-    issues = _author_filter(_list_issues(slug))
+    listed = _list_issues(slug)
+    issues = _author_filter(listed)
     prd_issues = _prd_list(issues)
     # bug-lane issues live in a separate lane: never claimed by the normal pool and never
     # counted toward unit completion, even when they carry the ready label.
@@ -935,14 +966,25 @@ def compute_state(repo):
             unparented.append(i)
 
     closed_cache = {}
+    # #221: open blockers no lane can claim, for a PRD or ready child they alone hold.
+    by_num = {i["number"]: i for i in listed}
+    allowed = {i["number"] for i in issues}
+    stuck_on = []
+    def _note_stuck(issue, prd_num):
+        blockers = _open_blockers(issue, slug, closed_cache, prd_num)
+        stuck_on.extend(r for r in _stuck_refs(blockers, slug, by_num, allowed) if r not in stuck_on)
 
     def _bucket(kids, prd_num):
         all_closed = bool(kids) and all(k["state"].lower() == "closed" for k in kids)
-        unblocked = [k["number"] for k in kids
-                     if k["state"].lower() == "open"
-                     and L_WORKING() not in k["_labels"]
-                     and (AUTONOMOUS() or L_BLOCKED() not in k["_labels"])
-                     and _is_unblocked(k, slug, closed_cache, prd_num)]
+        unblocked = []
+        for k in kids:
+            if (k["state"].lower() != "open" or L_WORKING() in k["_labels"]
+                    or not (AUTONOMOUS() or L_BLOCKED() not in k["_labels"])):
+                continue
+            if _is_unblocked(k, slug, closed_cache, prd_num):
+                unblocked.append(k["number"])
+            else:
+                _note_stuck(k, prd_num)
         return all_closed, unblocked
 
     prds = []
@@ -953,12 +995,19 @@ def compute_state(repo):
         eligible = _is_unblocked(p, slug, closed_cache, p["number"])
         if not eligible and unblocked:
             held_by += [r for r in _open_blockers(p, slug, closed_cache, p["number"]) if r not in held_by]
+        is_open = p["state"].lower() == "open"
+        if not eligible and is_open:
+            _note_stuck(p, p["number"])
         prds.append({"number": p["number"],
-                     "open": p["state"].lower() == "open",
+                     "open": is_open,
                      "reviewed": L_REVIEWED() in p["_labels"],
                      # a PRD's own `## Blocked by` is what sequences PRDs; no section = eligible now
                      "eligible": eligible,
                      "children_exist": bool(kids),
+                     # #221: a `## Task 1` section with no child titled for it — a pre-filed child
+                     # must not stop DECOMPOSE filing the plan-first task.
+                     "needs_task1": bool(_TASK1_HEADING.search(p.get("body") or ""))
+                                    and not any(_TASK1_TITLE.search(k.get("title") or "") for k in kids),
                      "children_all_closed": all_closed,
                      "unblocked": unblocked})
     # The unparented bucket keeps the LEGACY exempt-PRD (the lowest-numbered one): a child with no
@@ -1002,6 +1051,7 @@ def compute_state(repo):
             "dispatchable": unparented_unblocked + [n for p in prds if p["eligible"] for n in p["unblocked"]],
             "waiting": [n for p in prds if not p["eligible"] for n in p["unblocked"]],
             "held_by": held_by,
+            "stuck_on": stuck_on,
             "open_children": sum(1 for i in children if i["state"].lower() == "open"),
             "total_children": len(children),
             "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
@@ -1136,7 +1186,7 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     # PLAN/PRD stay under `allow_orchestration`: they are unit-level and must not race anything.
     if a["decompose"]:
         for p in eligible:
-            if p["open"] and not p["children_exist"] and p["number"] not in busy:
+            if p["open"] and (not p["children_exist"] or p.get("needs_task1")) and p["number"] not in busy:
                 return [("DECOMPOSE", str(p["number"]), "DECOMPOSE DONE")]
     # Slots: unparented bucket (human injections) first, then eligible PRDs ascending, each
     # spilling into the next only once it has no unblocked work left. WITHIN a bucket (#210):
@@ -1257,6 +1307,12 @@ def main():
             if not ready and waiting and not done and s.get("held_by"):
                 slug = _repo_slug(repo)
                 held = " held by: " + ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in s["held_by"])
+            # #221: a chain only an unclaimable issue holds never moves on its own — say which, loudly.
+            if s.get("stuck_on") and not done:
+                slug = _repo_slug(repo)
+                refs = ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in s["stuck_on"])
+                print(f"{repo}: STUCK — chain needs an issue no agent can take: {refs} — label it "
+                      f"{L_READY()} (or close it), or drop it from `## Blocked by`")
             print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
                   f"children={s['total_children']} open={s['open_children']} unblocked={len(ready)} "
                   f"waiting={len(waiting)} paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} "
@@ -1289,7 +1345,7 @@ def main():
                 target = prds[0] if prds else None
             if goal == "PLAN": done = s["has_plan"]
             elif name == "PRD": done = bool(prds)
-            elif name == "DECOMPOSE": done = bool(target) and target["children_exist"]
+            elif name == "DECOMPOSE": done = bool(target) and target["children_exist"] and not target.get("needs_task1")
             elif name == "REVIEW": done = bool(target) and (target["reviewed"] or len(target["unblocked"]) > 0)
             elif name == "CLOSE_PRD": done = bool(target) and not target["open"]
             elif goal.startswith("ISSUE:"): done = _issue_state(s["slug"], int(goal.split(":",1)[1])) == "closed"

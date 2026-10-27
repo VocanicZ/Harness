@@ -18,6 +18,10 @@ Steps:
     duplicate a task that already has an issue (an injector may have already added some).
     Scope this to THIS PRD's children — a sibling PRD's issues are NOT yours and must not make
     you skip real work.
+2b. PRD body has a `## Task 1` section (e.g. "Task 1 — write the plan document")? File it as the
+    FIRST child, titled `[AFK] Task 1 — <its heading>`, and list it under the `## Blocked by` of
+    every other child you file. The harness keys on that `Task 1` title: until a child carries it,
+    DECOMPOSE re-fires for this PRD — even if other children already exist.
 3. For each task, create an issue in this repo:
      gh issue create -R {{SLUG}} --title "[AFK] <task>" --label {{LABEL_READY}} \
        --body "<what + acceptance criteria>
