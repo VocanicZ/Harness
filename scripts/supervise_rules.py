@@ -168,6 +168,26 @@ def evaluate(facts, counters, exempt=(), reconciled=()):
     return rules, fixes
 
 
+def pane_activity(line, now, nudge_min, kill_min):
+    """One pane file `sup_watch_pane` writes (`<body> <bg> <cpu> <t0> <nudged> <lastnudge>`), read the
+    way it acts on it: frozen at kill_min quiet minutes, nudged once flagged, quiet at nudge_min, else
+    active. A line that does not parse is active — `harness web` never alarms where supervise would not.
+    -> {"state": "active" | "quiet" | "nudged" | "frozen", "quiet_s": int}"""
+    parts = (line or "").split()
+    if len(parts) < 5 or not parts[3].isdigit() or parts[4] not in ("0", "1"):
+        return {"state": "active", "quiet_s": 0}
+    quiet = max(0, int(now) - int(parts[3]))
+    if quiet >= kill_min * 60:
+        state = "frozen"
+    elif parts[4] == "1":
+        state = "nudged"
+    elif quiet >= nudge_min * 60:
+        state = "quiet"
+    else:
+        state = "active"
+    return {"state": state, "quiet_s": quiet}
+
+
 SESSION_RULES = ("wedged", "deep-context", "zombie", "unlocked")
 
 

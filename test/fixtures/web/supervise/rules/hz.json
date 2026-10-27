@@ -1,0 +1,5 @@
+{
+ "firing": ["review-loop:o/arc#4"],
+ "messages": {"review-loop:o/arc#4": "REVIEW LOOP o/arc PRD #4 reached the criteria gate 4x without sign-off (no engine cap exists on it)."},
+ "strikes": {"review-loop:o/arc#4": 1}
+}
