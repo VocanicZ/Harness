@@ -24,34 +24,12 @@ _usage_key(){ printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 # The usage windows themselves are read per CLI by the adapter (cli_limit_usage, scripts/cli/).
 
 # ensure_usage_statusline <dir> — wire a worktree so its sessions report their usage windows, the
-# CLI adapter's way (cli_usage_setup; claude: usage_statusline_install). Only Harness-owned trees
+# CLI adapter's way (cli_usage_setup). Only Harness-owned trees
 # (never PROJECT_ROOT, where the owner works interactively). HARNESS_USAGE_STATUSLINE=0 turns it off.
 ensure_usage_statusline(){ local dir="$1"
   [[ "${HARNESS_USAGE_STATUSLINE:-1}" == 1 ]] || return 0
   [[ "$dir" != "$PROJECT_ROOT" ]] || return 0
   cli_usage_setup "$dir"; }
-# usage_statusline_install <dir> — point a claude worktree's status line at usage-statusline.sh,
-# only when no statusLine is set there already.
-usage_statusline_install(){ local dir="$1"
-  mkdir -p "$dir/.claude" "$(_usage_dir)"
-  F="$dir/.claude/settings.local.json" CMD="bash '$ENGINE_DIR/scripts/usage-statusline.sh' '$(_usage_dir)'" python3 - <<'PY'
-import json, os, tempfile
-f = os.environ["F"]
-try:
-    with open(f) as fh:
-        data = json.load(fh)
-    if not isinstance(data, dict):
-        data = {}
-except (FileNotFoundError, ValueError):
-    data = {}
-if "statusLine" not in data:
-    data["statusLine"] = {"type": "command", "command": os.environ["CMD"]}
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".settings.harness.")
-    with os.fdopen(fd, "w") as fh:
-        json.dump(data, fh, indent=2)
-    os.replace(tmp, f)
-PY
-}
 
 # harness_event <event> [key=value ...] — the host event log writer is lib.sh's (#185, stats.py).
 

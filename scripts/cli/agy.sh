@@ -1,6 +1,10 @@
 # agy.sh — the Google Antigravity CLI adapter (#188). Facts: docs/cli-capabilities.md § `agy`; panes:
 # test/fixtures/cli/agy/. Loaded by dispatch.sh; defines agy_<fn> for the cli_* interface.
 
+: "${HARNESS_AGY_BIN:=agy}"
+: "${HARNESS_AGY_FLAGS:=--dangerously-skip-permissions --effort high}"
+export HARNESS_AGY_BIN HARNESS_AGY_FLAGS
+
 _agy_home(){ echo "${HARNESS_AGY_HOME:-$HOME/.gemini/antigravity-cli}"; }
 # HARNESS_AGY_TRUST_FILE is a test seam (helpers.sh pins it).
 _agy_settings(){ echo "${HARNESS_AGY_TRUST_FILE:-$(_agy_home)/settings.json}"; }
@@ -28,6 +32,12 @@ agy_busy_re(){ echo '(Loading|Generating|Working)\.\.\.|esc to cancel'; }
 # per-minute 429 itself; what reaches the pane is its give-up line.
 agy_limit_re(){ echo 'exhausted your quota|Quota exhausted|AI credits balance is too low'; }
 agy_transient_re(){ echo 'Model unavailable \(attempt|Agent execution terminated due to error'; }
+# No turn timer and no interrupt line in agy's panes (busy*.txt): agy_turn_secs and
+# agy_interrupted_re keep the dispatch defaults ('' = unavailable). turn.sh then reads a running
+# turn off agy_busy_re and an interrupt as the busy line going away.
+# The footer opens with the context's token count ("10.2k ▁▁▁▆▆…", 10.1k idle → 10.2k busy): it moves
+# while a turn streams, so the supervisor reads it as activity.
+agy_bg_re(){ echo "$(_cli_default_bg_re)|^[0-9.]+k "; }
 
 # --- workspace trust: "trustedWorkspaces" in settings.json (cli-capabilities Findings 1) --------
 agy_trust(){
@@ -105,7 +115,9 @@ for g in json.load(sys.stdin)["command"]["data"]["groups"]:
 # --- prerequisites ------------------------------------------------------------------------------
 # The binary, plus the harness-ralph plugin (plugins/ralph-loop): agy's Stop hook that IS the goal
 # loop. Without it a lane runs one turn and stops.
-agy_prereqs(){ local bin plugin_dir="$CLI_DIR/../../plugins/ralph-loop"
+# HARNESS_ENGINE_PLUGINS names another engine's plugins/ (install.sh: the placed engine's, which
+# outlives the checkout install.sh ran from).
+agy_prereqs(){ local bin plugin_dir="${HARNESS_ENGINE_PLUGINS:-$CLI_DIR/../../plugins}/ralph-loop"
   bin="$(agy_bin)"
   if command -v "$bin" >/dev/null; then echo "ok      agy binary ($bin)"
   else echo "MISSING agy binary ($bin): curl -fsSL https://antigravity.google/cli/install.sh | bash"; return 1; fi
@@ -113,3 +125,6 @@ agy_prereqs(){ local bin plugin_dir="$CLI_DIR/../../plugins/ralph-loop"
   elif [[ "${1:-}" == --install ]] && "$bin" plugin install "$plugin_dir" >/dev/null 2>&1; then
     echo "ok      agy plugin harness-ralph (installed)"
   else echo "MISSING agy plugin harness-ralph: $bin plugin install $plugin_dir"; return 1; fi; }
+# The harness-ralph plugin is Harness's own: uninstall takes it back out of agy.
+agy_uninstall(){ local bin; bin="$(agy_bin)"
+  command -v "$bin" >/dev/null 2>&1 && "$bin" plugin uninstall harness-ralph >/dev/null 2>&1; return 0; }
