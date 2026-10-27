@@ -811,6 +811,92 @@ def _fetch_issue_branches(slug, etag=None):
     return sorted(nums), new_etag
 
 
+_ISSUE_HEAD_RE = re.compile(r"issue/(\d+)")
+# a commit's combined status → the drawer's CI word (#228); GitHub's `error` is a failure too
+_CI_STATES = {"success": "success", "failure": "failure", "error": "failure", "pending": "pending"}
+
+
+def _fetch_pulls(slug, etag=None):
+    """(pulls, etag): every open PR whose head is this repo's `issue/<n>` branch, as
+    [{"number", "url", "draft", "head_ref", "head_sha", "issue"}] — the harness web drawer's PR
+    (#228). ONE conditional listing; a 304 returns (None, etag) for free, and so does any answer it
+    cannot use (with no ETag), which the caller reads as "keep what you had"."""
+    status, h, body = _gh_api_cond(f"repos/{slug}/pulls?state=open&per_page=100", etag)
+    if status == 304:
+        return None, etag
+    new_etag, out = h.get("etag"), []
+    while True:
+        if status != 200:
+            return None, None
+        try:
+            items = json.loads(body or "[]")
+        except ValueError:
+            return None, None
+        for p in items if isinstance(items, list) else []:
+            head = (p.get("head") if isinstance(p, dict) else None) or {}
+            m = _ISSUE_HEAD_RE.fullmatch(str(head.get("ref") or ""))
+            repo = (head.get("repo") or {}).get("full_name") if isinstance(head.get("repo"), dict) else None
+            if m and isinstance(p.get("number"), int) and repo in (None, slug):
+                out.append({"number": p["number"], "url": p.get("html_url") or "", "draft": bool(p.get("draft")),
+                            "head_ref": head["ref"], "head_sha": head.get("sha") or "", "issue": int(m.group(1))})
+        nxt = _link_next(h)
+        if not nxt:
+            break
+        status, h, body = _gh_api_cond(nxt)
+    return sorted(out, key=lambda p: p["number"]), new_etag
+
+
+def _fetch_checks(slug, sha, etag=None):
+    """(state, etag): the combined status of commit <sha> — success / failure / pending, or none when
+    nothing reports on it. A 304 returns (None, etag); an unusable answer (None, None)."""
+    status, h, body = _gh_api_cond(f"repos/{slug}/commits/{sha}/status", etag)
+    if status == 304:
+        return None, etag
+    if status != 200:
+        return None, None
+    try:
+        d = json.loads(body or "{}")
+    except ValueError:
+        return None, None
+    if not isinstance(d, dict):
+        return None, None
+    return ("none" if not d.get("total_count") else _CI_STATES.get(d.get("state"), "pending")), h.get("etag")
+
+
+def _pr_cache(slug, branches, prev):
+    """({"pulls", "checks"}, pulls ETag) for the snapshot: the open `issue/<n>` PRs and the combined
+    status of each head (`checks: {sha: {"state", "etag"}}`), refreshed conditionally against <prev>.
+    Advisory, like issue_branches: a failed read — transient or not — keeps the previous value and
+    never fails the snapshot, and a value never read at all is left out ({}), which the drawer shows
+    as unknown. No `issue/<n>` branch means no such PR, so there is nothing to ask GitHub."""
+    prev = prev or {}
+    sync = prev.get("sync") if isinstance(prev.get("sync"), dict) else {}
+    had = isinstance(prev.get("pulls"), list)
+    if not branches:
+        return {"pulls": [], "checks": {}}, None
+    try:
+        pulls, etag = _fetch_pulls(slug, sync.get("pulls_etag") if had else None)
+    except GhError:
+        pulls, etag = None, sync.get("pulls_etag")
+    if pulls is None:
+        if not had:
+            return {}, None
+        pulls = prev["pulls"]
+    old = prev.get("checks") if isinstance(prev.get("checks"), dict) else {}
+    checks = {}
+    for sha in sorted({p["head_sha"] for p in pulls if isinstance(p, dict) and p.get("head_sha")}):
+        was = old.get(sha) if isinstance(old.get(sha), dict) else {}
+        try:
+            state, cetag = _fetch_checks(slug, sha, was.get("etag"))
+        except GhError:
+            state = None
+        if state is not None:
+            checks[sha] = {"state": state, "etag": cetag}
+        elif was.get("state"):
+            checks[sha] = was
+    return {"pulls": pulls, "checks": checks}, etag
+
+
 def _issue_branches(slug):
     """The set of issue numbers with a remote `issue/<n>` branch: from the snapshot when a worker
     reads one (no gh), else one direct listing. A pre-#210 snapshot without the key reads as none."""
@@ -894,6 +980,8 @@ def snapshot(repo, prev=None, snap_dir=None):
     issues = _fetch_issues(slug)   # exactly the gh payload — no _labels/_author derived fields
     branches, branches_etag = _fetch_issue_branches(slug)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 300))   # no updatedAt anywhere
+    # a full resync still answers PR / CI conditionally against the last snapshot of this repo
+    prs, pulls_etag = _pr_cache(slug, branches, prev if isinstance(prev, dict) and prev.get("slug") == slug else None)
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "generated_at": now,
@@ -904,8 +992,10 @@ def snapshot(repo, prev=None, snap_dir=None):
         "self_login": _self_login(),
         "ext_deps": _resolve_ext_deps(slug, issues, {}, now, snap_dir),
         "issue_branches": branches,
+        **prs,
         "sync": {"since": _since_from(issues, started), "issues_etag": None, "root_etag": None,
-                 "marker_dir_sha": None, "branches_etag": branches_etag, "full_at": now},
+                 "marker_dir_sha": None, "branches_etag": branches_etag, "pulls_etag": pulls_etag,
+                 "full_at": now},
     }
 
 
@@ -917,6 +1007,7 @@ def _snapshot_incremental(slug, prev, now, snap_dir):
     branches, branches_etag = _fetch_issue_branches(slug, sync.get("branches_etag"))
     if branches is None:
         branches = prev.get("issue_branches") or []
+    prs, pulls_etag = _pr_cache(slug, branches, prev)
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "generated_at": now,
@@ -927,9 +1018,10 @@ def _snapshot_incremental(slug, prev, now, snap_dir):
         "self_login": prev.get("self_login", ""),
         "ext_deps": _resolve_ext_deps(slug, issues, prev.get("ext_deps") or {}, now, snap_dir),
         "issue_branches": branches,
+        **prs,
         "sync": {"since": sync["since"] if delta is None else _since_from(issues, sync["since"]),
                  "issues_etag": etag, "root_etag": root_etag, "marker_dir_sha": dir_sha,
-                 "branches_etag": branches_etag, "full_at": sync.get("full_at", now)},
+                 "branches_etag": branches_etag, "pulls_etag": pulls_etag, "full_at": sync.get("full_at", now)},
     }
 
 

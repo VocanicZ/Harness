@@ -4,7 +4,8 @@
 A Python-stdlib ThreadingHTTPServer on HARNESS_WEB_BIND (default 127.0.0.1) : HARNESS_WEB_PORT
 (default 4637). `/` is the host overview: every fleet registered under $HARNESS_FLEETS_DIR with its
 state, the view `harness status` gives outside a project (#184), each linking to /fleet/<prefix>:
-that fleet's PRD → issue map as a layered DAG per repo (#224).
+that fleet's PRD → issue map as a layered DAG per repo (#224). `/fleet/<prefix>/issue/<n>[?repo=<slug>]`
+is one issue's drawer fragment, and `/fleet/<prefix>?issue=<n>` opens the page with it (#228).
 
 Read-only is the safety boundary — the page has no auth. Every route answers GET and HEAD only;
 POST/PUT/PATCH/DELETE/OPTIONS get 405 on every path, known or not. Pages read only local snapshots
@@ -75,6 +76,12 @@ class Model:
             if f["prefix"] == prefix:
                 return f
         return None
+
+    def issue(self, prefix, n, slug=None, now=None):
+        """The drawer view of issue <n> (web_data.issue_view), or None. With no <slug>, the first of
+        the fleet's repos that carries <n>."""
+        slug = slug or web_data.issue_slug(prefix, n)
+        return web_data.issue_view(prefix, slug, n, self.now() if now is None else now) if slug else None
 
     def fleet_page(self, prefix, now=None):
         """The /fleet/<prefix> view (web_data.fleet_view), or None for an unknown prefix."""
@@ -311,12 +318,28 @@ def make_server(bind, port, model):
                 return self._html(web_render.overview(model.host(now), now))
             if path == "/api/host":
                 return self._json(model.host(now))
+            q = parse_qs(url.query)
+            repo = (q.get("repo") or [None])[0]
+            m = re.match(r"^/(api/)?fleet/([^/]+)/issue/(\d+)$", path)
+            if m and PREFIX_RE.match(m.group(2)):
+                v = model.issue(m.group(2), int(m.group(3)), repo, now)
+                if v is None:
+                    return self._not_found()
+                return self._json(v) if m.group(1) else self._html(web_render.drawer(v, now))
             m = re.match(r"^/(api/)?fleet/([^/]+)$", path)
             if m and PREFIX_RE.match(m.group(2)):
                 f = model.fleet(m.group(2), now) if m.group(1) else model.fleet_page(m.group(2), now)
                 if f is None:
                     return self._not_found()
-                return self._json(f) if m.group(1) else self._html(web_render.fleet(f, now))
+                if m.group(1):
+                    return self._json(f)
+                issue = None
+                n = (q.get("issue") or [""])[0]
+                if n:
+                    issue = model.issue(m.group(2), int(n), repo, now) if n.isdigit() else None
+                    if issue is None:
+                        return self._not_found()
+                return self._html(web_render.fleet(f, now, issue))
             if path.startswith("/static/"):
                 name = path[len("/static/"):]
                 if name in allowed:

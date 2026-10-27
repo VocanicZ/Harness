@@ -9,6 +9,10 @@ issuelib.rate_limits / rate_report, so they are never reached from here; the boa
 and the `.rate` files stand in for them. A missing or garbled source degrades its own field to None
 (rendered "unknown") and never fails the view, the rule fleetview.py follows too.
 
+issue_view() (#228) is the issue drawer's model: the board issue, its DAG state and deps, the PR and
+CI state the poller cached in the snapshot (`pulls` / `checks` — never fetched here), its live session
+and its timeline from the host event log.
+
 signature() (#227) is the cheap change detector behind the SSE collector: a `stat` of every file the
 views read, the liveness of every pid they judge, and `tmux ls` — a rebuild runs only when it moves.
 """
@@ -187,7 +191,7 @@ def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=Non
         ctx = issuelib._read_json(os.path.join(run_dir, name + ".stats")) if run_dir else None
         ctx = ctx if isinstance(ctx, dict) else {}
         created = sessions[name]
-        out.append({"name": name, "issue": fleetview.session_issue(name),
+        out.append({"name": name, "issue": fleetview.session_issue(name), "repo": ctx.get("repo"),
                     "kind": ctx.get("kind") or session_kind(name),
                     "age_s": None if created is None else max(0, int(now) - created),
                     "model": (models.get(name) or ctx.get("model")) if adapted else None,
@@ -367,11 +371,16 @@ def live_numbers(prefix):
                                  if s.startswith(prefix + "-")) if n is not None)
 
 
+def fleet_record(prefix):
+    """The registry record carrying <prefix>, or None."""
+    return next((r for r in registry() if (r.get("prefix") or "?") == prefix), None)
+
+
 def fleet_view(prefix, now=None):
     """/fleet/<prefix>: {"prefix", "root", "state", "asof", "units": [web_dag.unit_graph | stub]}, or
     None for a prefix no registry record carries. A unit whose board is missing or unreadable is
     {"slug", "asof": None, "prds": [], "edges": [], "unparented": [], "issues": {}, "missing": True}."""
-    rec = next((r for r in registry() if (r.get("prefix") or "?") == prefix), None)
+    rec = fleet_record(prefix)
     if rec is None:
         return None
     entry = fleet_entry(rec)
@@ -389,3 +398,70 @@ def fleet_view(prefix, now=None):
     stamps = [u["asof"] for u in units if u["asof"] is not None]
     return {"prefix": entry["prefix"], "root": entry["root"], "state": entry["state"],
             "asof": min(stamps) if stamps else None, "units": units}
+
+
+# --- the issue drawer (#228) ---------------------------------------------------------------------
+def _find(snap, n):
+    return next((i for i in snap["issues"] if i.get("number") == n), None)
+
+
+def issue_slug(prefix, n):
+    """The first of <prefix>'s repos whose board carries issue <n> (a `?issue=N` link names no repo)."""
+    rec = fleet_record(prefix)
+    for slug in fleetview.fleet_slugs(rec) if rec else ():
+        snap = board(slug)
+        if snap is not None and _find(snap, n) is not None:
+            return slug
+    return None
+
+
+def issue_view(prefix, slug, n, now=None):
+    """The drawer for issue <n> of <slug> on fleet <prefix>: {"prefix", "slug", "number", "title", "url",
+    "state", "labels", "blocked_by": [{"number", "state"}], "parent", "pr": {...} | None, "pr_cached",
+    "ci", "session": live_sessions row | None, "timeline": [event], "asof"}, or None when the fleet
+    does not serve <slug> or its board has no such issue.
+
+    PR and CI come from the snapshot's `pulls` / `checks` alone. A snapshot written before the poller
+    cached them has no `pulls`: then `pr_cached` is False (rendered "unknown", never fetched); with it,
+    no PR for <n> is `pr: None`. `ci` is the PR head's combined status, None when not cached."""
+    now = int(time.time()) if now is None else int(now)
+    rec = fleet_record(prefix)
+    if rec is None or slug not in fleetview.fleet_slugs(rec):
+        return None
+    snap = board(slug)
+    issue = _find(snap, n) if snap is not None else None
+    if issue is None:
+        return None
+    cfg = fleetview.read_config(rec["project"]) if os.path.isdir(rec["project"]) else {}
+    labels = fleetview.fleet_labels(cfg)
+    run_dir = rec.get("run_dir") or os.path.join(rec["project"], "run")
+    sessions = live_sessions(prefix, now, run_dir=run_dir, cfg=cfg)
+    live = frozenset(fleetview.session_number(s["name"]) for s in sessions) - {None}
+    graph = web_dag.unit_graph(snap, labels, live)
+    nodes = graph["issues"]
+
+    def state_of(num):
+        if num in nodes:
+            return nodes[num]["state"]
+        other = _find(snap, num)
+        if other is None:
+            return "unknown"
+        return "closed" if str(other.get("state", "")).upper() == "CLOSED" else "open"
+
+    pulls = snap.get("pulls")
+    cached = isinstance(pulls, list)
+    mine = [p for p in pulls or () if isinstance(p, dict) and p.get("issue") == n]
+    pr = max(mine, key=lambda p: p.get("number") or 0) if mine else None
+    checks = snap.get("checks") if isinstance(snap.get("checks"), dict) else {}
+    ci = (checks.get(pr.get("head_sha")) or {}).get("state") if pr else None
+    session = next((s for s in sessions if fleetview.session_number(s["name"]) == n
+                    and s.get("repo") in (None, slug)), None)
+    events = [e for e in stats.load_events() if e.get("repo") == slug]
+    body = issue.get("body")
+    return {"prefix": prefix, "slug": slug, "number": n, "title": issue.get("title") or "",
+            "url": f"https://github.com/{slug}/issues/{n}", "state": state_of(n),
+            "labels": sorted({lb.get("name") for lb in issue.get("labels") or [] if lb.get("name")}),
+            "blocked_by": [{"number": d, "state": state_of(d)} for d in web_dag.blocked_by_last(body)],
+            "parent": web_dag.parent_of(body), "pr": pr, "pr_cached": cached, "ci": ci,
+            "session": session, "timeline": stats.issue_timeline(events, n)["events"],
+            "asof": graph["asof"]}

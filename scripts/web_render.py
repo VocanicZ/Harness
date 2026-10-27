@@ -16,6 +16,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleetview  # noqa: E402
+import stats      # noqa: E402
 
 # state → (status-word class, label). Colour is meaning: green fine, amber waiting, red broken, grey idle.
 STATES = {
@@ -129,7 +130,17 @@ def _attention_item(a):
     return f'{esc(k)} <span class="mono">{what}</span>'
 
 
-def _sessions_table(sessions, now):
+def _session_issue(s, prefix, many):
+    """The session's issue, linked into the fleet page's drawer (#228) when it names one. <many>: the
+    fleet serves several repos, so the link names the session's own repo (when its launch said)."""
+    n = fleetview.session_number(s["name"])
+    if n is None or prefix is None:
+        return f'<span class="table__primary">{esc(s["issue"])}</span>'
+    repo = f'&repo={esc(s["repo"])}' if many and s.get("repo") else ""
+    return f'<a class="table__primary" href="/fleet/{esc(prefix)}?issue={n}{repo}">{esc(s["issue"])}</a>'
+
+
+def _sessions_table(sessions, now, prefix=None, many=False):
     if not sessions:
         return '<p class="muted">No live sessions.</p>'
     rows = []
@@ -139,7 +150,7 @@ def _sessions_table(sessions, now):
                     else '<span class="muted">unknown</span>')
         age = "?" if s["age_s"] is None else fleetview.fmt_age(s["age_s"])
         rows.append(f'<tr data-session="{esc(s["name"])}" data-activity="{esc(act or "unknown")}">'
-                    f'<td><span class="table__primary">{esc(s["issue"])}</span>'
+                    f'<td>{_session_issue(s, prefix, many)}'
                     f'<span class="table__secondary mono">{esc(s["name"])}</span></td>'
                     f'<td>{esc(s["kind"])}</td>'
                     f'<td>{esc(s["cli"])}<span class="table__secondary mono">{esc(s["model"] or "?")}</span></td>'
@@ -189,7 +200,7 @@ def health(f, rate, now):
         verdict = '<p class="fleet__verdict level level--grey">healthy</p>'
     if f["state"] == "missing":
         return verdict
-    return (f'{verdict}\n{_sessions_table(f.get("sessions") or [], now)}\n{rate_line(rate, now)}\n'
+    return (f'{verdict}\n{_sessions_table(f.get("sessions") or [], now, f["prefix"], len(f.get("repos") or ()) > 1)}\n{rate_line(rate, now)}\n'
             f'<div class="fleet__log"><h3 class="fleet__subhead">Recent supervisor actions</h3>'
             f'{_actions(f.get("supervisor") or {"actions": []})}</div>')
 
@@ -393,14 +404,105 @@ def regions(path, view, now):
     return overview_regions(view, now) if path == "/" else fleet_regions(view, now)
 
 
-def fleet(view, now):
-    """/fleet/<prefix>: per unit (repo), the PRD → issue map as a layered DAG + the unparented list."""
+def fleet(view, now, issue=None):
+    """/fleet/<prefix>: per unit (repo), the PRD → issue map as a layered DAG + the unparented list.
+    <issue> (an issue_view) opens its drawer on first paint — outside every region, so no push closes it."""
     regs = fleet_regions(view, now)
     header, units = regs.pop("header"), "\n".join(regs.values())
     legend = "".join(f"<li>{_pill(s)}</li>" for s in ("closed", "agent-blocked", "in-progress", "in-review",
                                                       "blocked", "open"))
     body = f"""{header}
 <ul class="dag-legend" aria-label="Issue states">{legend}</ul>
-{units or '<p class="muted">This fleet serves no repos.</p>'}"""
+{units or '<p class="muted">This fleet serves no repos.</p>'}
+<div data-drawer-host>{drawer(issue, now) if issue else ""}</div>"""
     return page(f"Fleet {view['prefix']}", body, view["asof"], now, crumbs=[(f"Fleet {view['prefix']}", None)],
                 view=f"/fleet/{view['prefix']}", ver=version(dict(regs, header=header)))
+
+
+# --- the issue drawer (#228) ---------------------------------------------------------------------
+CI = {"success": "level--green", "failure": "level--red", "pending": "level--amber", "none": "level--grey"}
+
+
+def _event_detail(e):
+    """The few facts worth a glance on one timeline line: model, why, how long, how much output."""
+    bits = []
+    if e.get("model"):
+        bits.append(esc(e["model"]))
+    if e.get("reason"):
+        bits.append(esc(e["reason"]))
+    if isinstance(e.get("wall_s"), int):
+        bits.append(f'{fleetview.fmt_age(e["wall_s"])} wall')
+    out = sum(u.get("output") or 0 for u in (e.get("usage") or {}).values() if isinstance(u, dict))
+    if out:
+        bits.append(f'<span class="num">{out:,}</span> output tokens')
+    return " · ".join(bits)
+
+
+def _timeline(events, now):
+    if not events:
+        return '<p class="muted" data-timeline="empty">No events recorded for this issue.</p>'
+    items = []
+    for e in events:
+        ts = stats.parse_ts(e.get("ts"))
+        when = _rel(int(ts), now) if ts is not None else '<span class="muted">?</span>'
+        detail = _event_detail(e)
+        detail = f' <span class="muted">{detail}</span>' if detail else ""
+        items.append(f'<li data-event="{esc(e.get("event"))}"><span class="drawer__when">{when}</span> '
+                     f'<span class="mono">{esc(e.get("event"))}</span>{detail}</li>')
+    return f'<ol class="drawer__timeline">{"".join(items)}</ol>'
+
+
+def _field(name, label, body):
+    return f'<div class="drawer__field" data-field="{name}"><dt>{label}</dt><dd>{body}</dd></div>'
+
+
+def drawer(v, now):
+    """The issue drawer: a dialog with the fields in #228's order — title, labels, `## Blocked by` /
+    `## Parent`, the linked PR and its CI state, the live session and its timeline — and the issue on
+    GitHub last. PR and CI that the poller has not cached read "unknown"; nothing is fetched for them."""
+    n, slug = v["number"], v["slug"]
+    labels = "".join(f'<li class="drawer__label mono" data-label="{esc(l)}">{esc(l)}</li>' for l in v["labels"])
+    labels = f'<ul class="drawer__labels">{labels}</ul>' if labels else '<span class="muted">none</span>'
+    deps = "".join(f'<li data-blocked-by="{d["number"]}" data-state="{esc(d["state"])}">'
+                   f'<a href="?issue={d["number"]}&amp;repo={esc(slug)}" data-issue="{d["number"]}">#{d["number"]}</a> '
+                   f'{_pill(d["state"])}</li>' for d in v["blocked_by"])
+    deps = f'<ul class="drawer__deps">{deps}</ul>' if deps else '<span class="muted">nothing</span>'
+    parent = (f'<a href="?issue={v["parent"]}&amp;repo={esc(slug)}" data-parent="{v["parent"]}" '
+              f'data-issue="{v["parent"]}">#{v["parent"]}</a>' if v["parent"] is not None
+              else '<span class="muted" data-parent="none">none</span>')
+    pr = v["pr"]
+    if pr:
+        draft = ' <span class="level level--grey">draft</span>' if pr.get("draft") else ""
+        pr_html = (f'<a href="{esc(pr.get("url"))}" data-pr="{esc(pr.get("number"))}">PR #{esc(pr.get("number"))}</a>'
+                   f'{draft} <span class="mono muted">{esc(pr.get("head_ref"))}</span>')
+    elif v["pr_cached"]:
+        pr_html = '<span class="muted" data-pr="none">no open PR</span>'
+    else:
+        pr_html = '<span class="muted" data-pr="unknown">unknown (not cached by the poller yet)</span>'
+    ci = v["ci"]
+    ci_html = (f'<span class="level {CI.get(ci, "level--grey")}" data-ci="{esc(ci)}">{esc(ci)}</span>' if ci
+               else '<span class="muted" data-ci="unknown">unknown</span>')
+    s = v["session"]
+    if s:
+        act = s.get("activity")
+        act_html = (f' <span class="level {ACTIVITY.get(act, "level--grey")}">{esc(act)}</span>' if act else "")
+        age = "" if s.get("age_s") is None else f' <span class="muted">up {fleetview.fmt_age(s["age_s"])}</span>'
+        sess = (f'<p data-session="{esc(s["name"])}"><span class="mono">{esc(s["name"])}</span>{act_html}{age}'
+                f'<span class="table__secondary">{esc(s.get("cli"))} · <span class="mono">{esc(s.get("model") or "?")}</span>'
+                f' — <code>tmux attach -t {esc(s["name"])}</code></span></p>')
+    else:
+        sess = '<p class="muted" data-session="none">No live session.</p>'
+    return f"""<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-issue="{n}" data-repo="{esc(slug)}" tabindex="-1">
+<header class="drawer__header">
+<h2 class="drawer__title" id="drawer-title"><span class="mono">#{n}</span> {esc(v["title"])}</h2>
+<button type="button" class="btn btn--ghost btn--sm" data-drawer-close aria-label="Close issue #{n}">Close</button>
+</header>
+<p class="drawer__meta"><span class="mono muted">{esc(slug)}</span> {_pill(v["state"])}{asof_stamp(v["asof"], now)}</p>
+<dl class="drawer__fields">
+{_field("labels", "Labels", labels)}
+{_field("deps", "Blocked by · Parent", f'{deps}<p class="drawer__parent">Parent {parent}</p>')}
+{_field("pr", "PR · CI", f'<p>{pr_html}</p><p>CI {ci_html}</p>')}
+{_field("session", "Session", sess + _timeline(v["timeline"], now))}
+{_field("github", "On GitHub", f'<a href="{esc(v["url"])}">{esc(slug)}#{n}</a>')}
+</dl>
+</aside>"""

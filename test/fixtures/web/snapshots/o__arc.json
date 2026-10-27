@@ -271,6 +271,23 @@
   "root_etag": null,
   "marker_dir_sha": null,
   "branches_etag": null,
-  "full_at": 1799999940
+  "full_at": 1799999940,
+  "pulls_etag": "\"p-1\""
+ },
+ "pulls": [
+  {
+   "number": 60,
+   "url": "https://github.com/o/arc/pull/60",
+   "draft": false,
+   "head_ref": "issue/13",
+   "head_sha": "6d1c0a5e3b2f4a7c9e8d1b0a2c3e4f5a6b7c8d9e",
+   "issue": 13
+  }
+ ],
+ "checks": {
+  "6d1c0a5e3b2f4a7c9e8d1b0a2c3e4f5a6b7c8d9e": {
+   "state": "success",
+   "etag": "\"c-60\""
+  }
  }
 }
