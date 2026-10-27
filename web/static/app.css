@@ -8,3 +8,34 @@
 .fleet__repos { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .asof { color: var(--color-text-muted); }
 .asof__unknown { font-style: italic; }
+
+/* Fleet page (#224): the layered PRD → issue DAG. The panel scrolls inside itself, so at 400 px the
+   SVG keeps status-page.py's geometry and the page never scrolls sideways. Node colour is meaning,
+   from the --s-* state tokens; the SVG carries data-state only (the CSP forbids inline style). */
+.unit { margin-top: var(--space-4); }
+.unit .panel__header { flex-wrap: wrap; }
+.dag { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+.dag__svg { display: block; }
+.dag__edge { fill: none; stroke: var(--color-border-strong); stroke-width: 1.5; }
+.dag__tip { fill: var(--color-border-strong); }
+.dag__box { fill: var(--color-surface); stroke: var(--dag-s, var(--s-ready)); stroke-width: 1.5; }
+.dag__bar { fill: var(--dag-s, var(--s-ready)); }
+.dag__num { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; fill: var(--color-text); }
+.dag__sub { font-family: var(--font-sans); font-size: 12px; fill: var(--color-text-secondary); }
+.dag a { outline: none; }
+.dag a:focus-visible .dag__box, .dag a:hover .dag__box { stroke: var(--color-focus); stroke-width: 3; }
+.dag a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+[data-state="done"], [data-state="closed"] { --dag-s: var(--s-done); --dag-t: var(--color-green-text); }
+[data-state="running"], [data-state="in-progress"] { --dag-s: var(--s-running); --dag-t: var(--color-accent-text); }
+[data-state="in-review"] { --dag-s: var(--s-review); --dag-t: var(--color-accent-text); }
+[data-state="waiting"], [data-state="blocked"] { --dag-s: var(--s-waiting); --dag-t: var(--color-amber-text); }
+[data-state="agent-blocked"] { --dag-s: var(--s-blocked); --dag-t: var(--color-red-text); }
+[data-state="ready"], [data-state="open"] { --dag-s: var(--s-ready); --dag-t: var(--color-grey-text); }
+.dag-pill { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); font-weight: normal;
+  padding: 0 var(--space-1-5); border: 1px solid currentColor; border-radius: var(--radius-xs);
+  white-space: nowrap; color: var(--dag-t, var(--color-text-secondary)); }
+.dag-legend { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.prd { border-top: 1px solid var(--color-border-subtle); padding-top: var(--space-3); }
+.prd__title { font-size: var(--text-sm); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); overflow-wrap: anywhere; }
+.unparented { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.unparented a { color: var(--color-text); }

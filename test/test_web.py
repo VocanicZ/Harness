@@ -22,7 +22,7 @@ def test_overview_lists_every_fleet_with_state_and_link():
             assert re.search(rf'data-fleet="{pfx}"[^>]*data-state="{state}"', body), (pfx, state)
         assert re.search(r'data as of <time datetime="\d{4}-\d\d-\d\dT[\d:]+Z"', body), "no as-of stamp"
         code, _ = wf.get(base + "/fleet/hz")
-        assert code == 200, f"fleet stub: {code}"
+        assert code == 200, f"fleet page: {code}"
         assert wf.get(base + "/fleet/nope")[0] == 404
         assert not os.path.exists(host.gh_called), "gh was invoked while serving pages"
 
@@ -82,8 +82,9 @@ def test_api_host_reports_state_tally_and_asof_from_snapshots():
         hz, dp = fleets["hz"], fleets["dp"]
         assert (hz["state"], hz["workers"], hz["pool"]) == ("running", 1, 2), hz
         assert (dp["state"], dp["workers"], dp["pool"]) == ("stopped", 0, 3), dp
-        # o/arc: open #2 (prd), #11 (working), #12 (ready), #14 (ready+blocked); closed #1, #10 are not counted
-        assert hz["repos"][0]["tally"] == {"open": 4, "unblocked": 3, "working": [11], "pending": 4}, hz["repos"]
+        # o/arc (the #224 arc board): 14 open — PRDs #2-#4, working #11/#41/#42, ready #12-#15/#20, and
+        # wayfinder #30/#31 and operator #40 (not pending); #14 is agent-blocked; closed #1, #10, #32 are not counted
+        assert hz["repos"][0]["tally"] == {"open": 14, "unblocked": 13, "working": [11, 41, 42], "pending": 11}, hz["repos"]
         # dp's ready label is `go` (its config), so its one open issue is pending
         assert dp["repos"][0]["tally"] == {"open": 1, "unblocked": 1, "working": [], "pending": 1}, dp["repos"]
         # as-of is the board's own generated_at — the oldest one — never the server clock

@@ -73,6 +73,38 @@ def layers(nodes, deps):
     return lay
 
 
+def arc_model(prds, allis):
+    """The arc's DAG as data: {"deps", "kids", "layers", "states"}, each keyed by PRD number.
+    Children count by `## Parent` (PRDs and wayfinder issues are never children); a PRD is done
+    (closed) / waiting (an open dep) / running (has children or is agent-working) / ready.
+    `harness web`'s fleet page (scripts/web_dag.py) is golden-tested against this (#224)."""
+    deps = {p["number"]: blocked_by(p["body"]) for p in prds}
+    closed = {p["number"] for p in prds if p["state"] == "CLOSED"}
+
+    kids = {p["number"]: {"open": 0, "closed": 0} for p in prds}
+    for i in allis:
+        names = [l["name"] for l in i["labels"]]
+        if "prd" in names or any(n.startswith("wayfinder") for n in names):
+            continue
+        pa = parent_of(i["body"])
+        if pa in kids:
+            kids[pa]["closed" if i["state"] == "CLOSED" else "open"] += 1
+    working = {i["number"] for i in allis
+               if any(l["name"] == "agent-working" for l in i["labels"])}
+
+    def state_of(n):
+        if n in closed:
+            return "done"
+        if any(d not in closed for d in deps[n]):
+            return "waiting"
+        if kids[n]["open"] or kids[n]["closed"] or n in working:
+            return "running"
+        return "ready"
+
+    return {"deps": deps, "kids": kids, "layers": layers(set(deps), deps),
+            "states": {n: state_of(n) for n in deps}}
+
+
 def dag_svg(prds, deps, state_of):
     """Layered DAG. Colours come from CSS vars so both themes resolve."""
     nums = [p["number"] for p in prds]
@@ -133,29 +165,11 @@ def main():
     if not prds:
         sys.exit(f"no PRDs found in {SLUG}")
     allis = issues()
-    deps = {p["number"]: blocked_by(p["body"]) for p in prds}
-    closed = {p["number"] for p in prds if p["state"] == "CLOSED"}
-
-    kids = {p["number"]: {"open": 0, "closed": 0} for p in prds}
-    for i in allis:
-        names = [l["name"] for l in i["labels"]]
-        if "prd" in names or any(n.startswith("wayfinder") for n in names):
-            continue
-        pa = parent_of(i["body"])
-        if pa in kids:
-            kids[pa]["closed" if i["state"] == "CLOSED" else "open"] += 1
-    working = {i["number"] for i in allis
-               if any(l["name"] == "agent-working" for l in i["labels"])}
+    model = arc_model(prds, allis)
+    deps, kids = model["deps"], model["kids"]
 
     def state_of(p):
-        n = p["number"]
-        if n in closed:
-            return "done"
-        if any(d not in closed for d in deps[n]):
-            return "waiting"
-        if kids[n]["open"] or kids[n]["closed"] or n in working:
-            return "running"
-        return "ready"
+        return model["states"][p["number"]]
 
     wf_map = next((i for i in allis if any(l["name"] == "wayfinder:map" for l in i["labels"])), None)
     tickets = sorted([i for i in allis

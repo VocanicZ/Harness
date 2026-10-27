@@ -3,7 +3,8 @@
 
 A Python-stdlib ThreadingHTTPServer on HARNESS_WEB_BIND (default 127.0.0.1) : HARNESS_WEB_PORT
 (default 4637). `/` is the host overview: every fleet registered under $HARNESS_FLEETS_DIR with its
-state, the view `harness status` gives outside a project (#184), each linking to /fleet/<prefix>.
+state, the view `harness status` gives outside a project (#184), each linking to /fleet/<prefix>:
+that fleet's PRD → issue map as a layered DAG per repo (#224).
 
 Read-only is the safety boundary — the page has no auth. Every route answers GET and HEAD only;
 POST/PUT/PATCH/DELETE/OPTIONS get 405 on every path, known or not. Pages read only local snapshots
@@ -56,6 +57,10 @@ class Model:
             if f["prefix"] == prefix:
                 return f
         return None
+
+    def fleet_page(self, prefix, now=None):
+        """The /fleet/<prefix> view (web_data.fleet_view), or None for an unknown prefix."""
+        return web_data.fleet_view(prefix, self.now() if now is None else now)
 
 
 def static_files():
@@ -113,10 +118,10 @@ def make_server(bind, port, model):
                 return self._json(model.host(now))
             m = re.match(r"^/(api/)?fleet/([^/]+)$", path)
             if m and PREFIX_RE.match(m.group(2)):
-                f = model.fleet(m.group(2), now)
+                f = model.fleet(m.group(2), now) if m.group(1) else model.fleet_page(m.group(2), now)
                 if f is None:
                     return self._not_found()
-                return self._json(f) if m.group(1) else self._html(web_render.fleet_stub(f, now))
+                return self._json(f) if m.group(1) else self._html(web_render.fleet(f, now))
             if path.startswith("/static/"):
                 name = path[len("/static/"):]
                 if name in allowed:

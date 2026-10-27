@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleetview  # noqa: E402
 import issuelib   # noqa: E402
+import web_dag    # noqa: E402
 
 tally = fleetview.tally
 
@@ -84,3 +85,33 @@ def host_view(now=None):
     fleets = [fleet_entry(rec) for rec in registry()]
     stamps = [f["asof"] for f in fleets if f["asof"] is not None]
     return {"asof": min(stamps) if stamps else None, "fleets": fleets}
+
+
+def live_numbers(prefix):
+    """Issue numbers with a live `<prefix>-…-i<N>` tmux session — `tmux ls` only, never gh."""
+    return frozenset(n for n in (fleetview.session_number(s) for s in fleetview.host_sessions()
+                                 if s.startswith(prefix + "-")) if n is not None)
+
+
+def fleet_view(prefix, now=None):
+    """/fleet/<prefix>: {"prefix", "root", "state", "asof", "units": [web_dag.unit_graph | stub]}, or
+    None for a prefix no registry record carries. A unit whose board is missing or unreadable is
+    {"slug", "asof": None, "prds": [], "edges": [], "unparented": [], "issues": {}, "missing": True}."""
+    rec = next((r for r in registry() if (r.get("prefix") or "?") == prefix), None)
+    if rec is None:
+        return None
+    entry = fleet_entry(rec)
+    labels = fleetview.fleet_labels(fleetview.read_config(rec["project"])) if entry["state"] != "missing" \
+        else fleetview.fleet_labels({})
+    live = live_numbers(prefix)
+    units = []
+    for slug in fleetview.fleet_slugs(rec):
+        snap = board(slug)
+        if snap is None:
+            units.append({"slug": slug, "asof": None, "prds": [], "edges": [], "unparented": [],
+                          "issues": {}, "missing": True})
+        else:
+            units.append(dict(web_dag.unit_graph(snap, labels, live), slug=slug))
+    stamps = [u["asof"] for u in units if u["asof"] is not None]
+    return {"prefix": entry["prefix"], "root": entry["root"], "state": entry["state"],
+            "asof": min(stamps) if stamps else None, "units": units}
