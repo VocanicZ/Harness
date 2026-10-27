@@ -1,0 +1,287 @@
+# Agent CLI capabilities
+
+What each agent CLI in PRD #189 offers Harness, checked 2026-10-27. `docs/plans/2026-10-24-multi-cli.md` builds one adapter per CLI from these rows, and an adapter may encode only what a row here cites.
+
+**How to read a row.**
+- Every row cites its source: an official doc page, an upstream source file pinned to the version checked, a file in this repo (`scripts/lib.sh:823`), or `local:` plus a command run read-only on the fleet host on 2026-10-27.
+- **UNVERIFIED** means the value comes from source or docs but has not been seen on a real pane or file. The CLI's task must confirm it with a fixture in `test/fixtures/cli/<cli>/` and change the row's source to that fixture.
+- **MISSING** means the CLI has no such capability. The row names the Harness-side substitute the adapter implements instead.
+- Upstream source paths are abbreviated per section; each section says what its prefix expands to.
+- `copilot` and `cursor-agent` are closed source. Their TUI strings come from the published package or the docs, and are confirmed only by their fixtures.
+
+## Summary
+
+| CLI | version checked | caller-set session id | goal loop | trust gate | token usage source | usage windows |
+|---|---|---|---|---|---|---|
+| `claude` | 2.1.311 | yes (`--session-id`) | Stop hook (ralph-loop) | dialog; `.claude.json` | JSONL transcript | status line `rate_limits` |
+| `agy` | 1.1.27 | no (discover) | Stop hook (`harness-ralph`) | dialog; `settings.json` `trustedWorkspaces` | protobuf in SQLite | `agy -p /usage` |
+| `codex` | 0.154.0 | no (discover) | Stop hook | dialog; `config.toml` `[projects]` | JSONL rollout | `token_count.rate_limits` |
+| `gemini` | 0.65.0 | yes (`--session-id`) | `AfterAgent` hook | dialog; `trustedFolders.json` / `--skip-trust` | JSONL chat record | `/stats` only |
+| `copilot` | 1.0.104 | yes (`--session-id`) | `agentStop` hook (8-block cap) | dialog; `config.json` `trustedFolders` | JSONL events (UNVERIFIED) | none |
+| `cursor-agent` | 2026.10.22 | via `create-chat` | `stop` hook `followup_message` | dialog; `--trust` | none in transcript | none |
+| `opencode` | 1.19.4 (v1) | no (v1); yes (v2) | plugin on `session.idle` | none | SQLite | none |
+| `zcode` | 3.16.2 (repo) | no (discover) | Harness-driven | none for running; hooks only | SQLite | none |
+| `hermes` | 0.22.5 | no (`-c <title> --create-if-missing`) | Harness-driven (`/goal` exists) | none for running | SQLite | `hermes usage --json` |
+| `openclaw` | 2026.10.7 | yes (`agent --session-id`) | Harness-driven (`/goal` exists) | none | SQLite | `openclaw status --usage` |
+
+## Findings that change Harness code
+
+These are defects in what Harness does today, found while filling the rows. Task 1 of the plan fixes them.
+
+1. **`agy` trust is written to the wrong file.** `_trust_agy_config` (`scripts/lib.sh:200-226`) writes `~/.gemini/trustedFolders.json`, which is Gemini CLI's file. `agy` 1.1.27 reads `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`; the binary contains no `trustedFolders` string. A fresh `agy` worktree stops on the trust dialog.
+2. **The `agy` trust dialog matches the `agy` idle regex.** Its selected option renders as `> Yes, I trust this folder` at column 0, which `^(│ *)?>( |$)` (`scripts/supervise.sh:78`) and the unanchored `'❯|>'` (`scripts/lib.sh:840`, `scripts/lib.sh:872`) both match, so supervise would type a nudge into the dialog.
+3. **`agy` does expose usage windows.** `agy -p "/usage" --output-format json` returns the 5-hour and weekly buckets per model group without running a turn, contrary to `scripts/usage.sh:50-52`.
+4. **`agy` token usage is not in its transcript JSONL.** It is protobuf in `~/.gemini/antigravity-cli/conversations/<id>.db`; `scripts/stats.py` reads only `claude` JSONL.
+5. **`claude`'s busy hint may be hidden by Harness's own status line.** The docs say a custom `statusLine` hides `esc to interrupt` in the footer, and `ensure_usage_statusline` installs one in every `claude` worktree. The fixture must show whether the spinner line still carries it.
+
+## `claude` — Claude Code
+
+Version on the fleet host: `2.1.311 (Claude Code)`. Docs: `https://code.claude.com/docs/en/`.
+
+| field | value | source |
+|---|---|---|
+| install | `curl -fsSL https://claude.ai/install.sh \| bash` (also `npm install -g @anthropic-ai/claude-code`, `brew install --cask claude-code`). Binary `claude`. | https://code.claude.com/docs/en/setup |
+| version checked | `2.1.311 (Claude Code)`, 2026-10-27 | local: `claude --version` |
+| launch | `exec claude --session-id <uuid> --dangerously-skip-permissions --effort high "<bootstrap>"` (interactive TUI, prompt positional). Headless: `claude -p "<prompt>" --output-format text\|json\|stream-json`. | https://code.claude.com/docs/en/cli-reference ; `scripts/lib.sh:1463` |
+| prompt passing | Positional argument. Stdin only with `-p`. No prompt-file flag; Harness passes the fixed bootstrap and keeps the task in `.harness-task.md` (#213). | local: `claude --help` ; `scripts/lib.sh:1434-1438` |
+| session id | Caller sets it: `--session-id <uuid>` (must be a UUID). Resume: `-r/--resume <id\|name>`, `-c/--continue`. The id names the transcript file and is in every transcript line (`sessionId`) and hook payload (`session_id`). | https://code.claude.com/docs/en/cli-reference ; https://code.claude.com/docs/en/sessions |
+| model flag | `--model <alias\|full id>`; aliases `fable`, `opus`, `sonnet`, `haiku`. `--fallback-model`. | local: `claude --help` ; https://code.claude.com/docs/en/cli-reference |
+| effort flag | `--effort low\|medium\|high\|xhigh\|max` (levels depend on the model). | local: `claude --help` |
+| permission bypass | `--dangerously-skip-permissions` (= `--permission-mode bypassPermissions`). Docs: a sub-agent runs in its parent's `bypassPermissions` mode. Harness also writes `permissions.defaultMode=bypassPermissions` to `<wt>/.claude/settings.local.json` because sub-agents were seen falling back to ask mode. Refused as root outside a sandbox. Resuming does not restore bypass. | https://code.claude.com/docs/en/permission-modes ; https://code.claude.com/docs/en/sub-agents ; `scripts/lib.sh:247-287` |
+| workspace trust | Interactive dialog ("Quick safety check: Is this a project you created or one you trust?", default highlight `❯ No, exit`). Pre-accept: `projects["<abs path>"].hasTrustDialogAccepted = true` in `$CLAUDE_CONFIG_DIR/.claude.json` (else `~/.claude.json`), keyed on the git repo root. `-p` never shows it. | https://code.claude.com/docs/en/permissions ; `scripts/lib.sh:150-235` ; local: `claude` in an untrusted scratch dir, captured with `tmux capture-pane -p` |
+| hooks / plugins / skills | `Stop` hook returning `{"decision":"block","reason":…}` (or exit 2) keeps the session going: Harness's goal loop is the `ralph-loop@claude-plugins-official` plugin, state in `.claude/ralph-loop.local.md`. Plugins: `claude plugin install <name>@<marketplace>`. Skills: `~/.claude/skills/<name>/SKILL.md`, `.claude/skills/`; invoked as `/<name>`. | https://code.claude.com/docs/en/hooks ; `install.sh:100-105` ; `scripts/lib.sh:1386-1389` |
+| transcript location | `$CLAUDE_CONFIG_DIR/projects/<cwd, non-alphanumerics → '-'>/<session-id>.jsonl`; sub-agents in `<session-id>/subagents/agent-*.jsonl`. 30-day retention. | https://code.claude.com/docs/en/sessions ; `scripts/stats.py:157-178` |
+| usage format | `type=="assistant"` lines: `message.model`, `message.usage.{input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}`. A streamed message repeats its usage per block: dedupe by `message.id`. | `scripts/stats.py:181-210` ; local: `python3 -I` key dump of a transcript under `~/.claude-switch/accounts/main/projects/` |
+| usage windows | Status-line stdin JSON `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}` (Pro/Max, after the first response). Harness drops it per account via `scripts/usage-statusline.sh`. | https://code.claude.com/docs/en/statusline ; `scripts/usage.sh:24-48` |
+| idle string | `❯` at column 0 inside the input box. The trust dialog's `❯` is indented one space, so `^❯` excludes it. | `scripts/turn.sh:21` ; `scripts/supervise.sh:79` |
+| busy string | Spinner line ending `(… · esc to interrupt)`; during a long shell command `(ctrl+b ctrl+b (twice) to run in background)`. Matcher `esc to interrupt\|to run in background\|Generating\.\.\.`. UNVERIFIED with Harness's custom status line set (Findings 5). | `scripts/lib.sh:829-836` ; https://code.claude.com/docs/en/statusline |
+| limit string | Blocking menu `1. Stop and wait for limit to reset` (Enter = option 1). Idle form `You've hit your session limit · resets <t>`; also weekly / per-model variants and `You're out of usage credits. Run /usage-credits …`. | `scripts/lib.sh:844-864` ; https://code.claude.com/docs/en/errors |
+| transient-error string | `API Error: 500 …`, `API Error: Repeated 529 Overloaded errors …`, `Request rejected (429)`, retry spinner `Retrying in Ns · attempt x/y`. Matcher `API Error\|[Oo]verloaded\|overloaded_error\|rate.?limit\|(^\|[^0-9])(429\|500\|502\|503\|529)([^0-9]\|$)`. | https://code.claude.com/docs/en/errors ; `scripts/lib.sh:823` |
+
+## `agy` — Google Antigravity CLI
+
+Version on the fleet host: `1.1.27`. Docs: `https://antigravity.google/docs/`. The binary embeds its own docs and changelog; strings marked "binary" were read with a byte-regex search of `~/.local/bin/agy`.
+
+| field | value | source |
+|---|---|---|
+| install | `curl -fsSL https://antigravity.google/cli/install.sh \| bash`; `agy update` updates. Binary `agy`. | https://codelabs.developers.google.com/antigravity-cli-hands-on ; local: `agy help install` |
+| version checked | `1.1.27`, 2026-10-27 | local: `agy --version` |
+| launch | `exec agy --dangerously-skip-permissions [--model <m>] [--effort <e>] -i "<bootstrap>"`. Headless: `agy -p "<prompt>" --output-format text\|json\|stream-json`. | local: `agy --help` ; `scripts/lib.sh:1460-1462` |
+| prompt passing | Flag value only: `-i <prompt>` (interactive) or `-p <prompt>`. No positional prompt, no prompt-file flag. | local: `agy --help` ; local: `agy changelog` (1.1.18) |
+| session id | MISSING — no flag sets the id at launch; resume with `--conversation <id>`. Harness substitute: after launch, read the id `cache/last_conversations.json` maps the worktree path to (or the Stop hook payload's `conversationId`) into `$RUN_DIR/<sess>.stats`. | local: `agy --help` ; local: `cat ~/.gemini/antigravity-cli/cache/last_conversations.json` |
+| model flag | `--model <name>`; `agy models` lists `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-low`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`. UNVERIFIED whether `--model` takes the slug, the label, or both. | local: `agy models` ; local: `agy --help` |
+| effort flag | `--effort low\|medium\|high`, only for models with effort variants. | local: `agy --help` |
+| permission bypass | `--dangerously-skip-permissions` (always-proceed mode; since 1.1.21 also MCP calls). Sub-agents: changelog 1.1.22 and 1.1.26 fix sub-agents prompting under always-proceed, so they are meant to inherit it. UNVERIFIED end to end. | local: `agy --help` ; local: `agy changelog` ; https://antigravity.google/docs/permissions |
+| workspace trust | Dialog `Do you trust the contents of this project?` with `> Yes, I trust this folder` / `  No, exit`. Pre-accept: append the path to `"trustedWorkspaces"` (JSON array) in `~/.gemini/antigravity-cli/settings.json`. Harness writes the wrong file today (Findings 1). UNVERIFIED whether a trusted parent covers worktrees beneath it. | https://codelabs.developers.google.com/antigravity-cli-hands-on ; local: `cat ~/.gemini/antigravity-cli/settings.json` ; `scripts/lib.sh:200-226` |
+| hooks / plugins / skills | `hooks.json` (`.agents/hooks.json`, `~/.gemini/config/hooks.json`, or a plugin root). `Stop` event: output `{"decision":"continue","reason":…}` re-enters the loop; any other decision lets it stop. Harness ships this as the `harness-ralph` plugin. Plugins: `agy plugin install <dir\|url>`, landing in `~/.gemini/antigravity-cli/plugins/<name>/`. Skills: `~/.gemini/config/skills/<name>/SKILL.md`, `.agents/skills/`. | https://antigravity.google/docs/hooks ; https://antigravity.google/docs/plugins ; `plugins/ralph-loop/hooks.json` ; `install.sh:42-53` |
+| transcript location | `~/.gemini/antigravity-cli/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (no token counts). Token counts: `~/.gemini/antigravity-cli/conversations/<id>.db` (SQLite). | local: `find ~/.gemini/antigravity-cli -name '*.jsonl'` ; local: `sqlite3` schema dump of a copied `conversations/<id>.db` |
+| usage format | `gen_metadata.data` protobuf, `ModelUsageStats` at field 1.4: `input_tokens`(2), `output_tokens`(3), `cache_write_tokens`(4), `cache_read_tokens`(5), `thinking_output_tokens`(9); model name string at field 1.19. No `.proto` ships: the adapter needs a protobuf wire decoder. | local: `python3 -I` wire-decode of `gen_metadata` row 1 of a copied `conversations/<id>.db` |
+| usage windows | `agy -p "/usage" --output-format json` → `command.data.groups[].buckets[]{id, window (5h\|weekly), remaining_fraction, reset_time}`; reports remaining, not used. Runs no turn. | local: `timeout 60 agy -p "/usage" --output-format json` |
+| idle string | UNVERIFIED — Harness assumes a boxed `│ > ` line (`^(│ *)?>( \|$)`); a fixture of an idle trusted session must confirm it, and the regex must not match the trust dialog (Findings 2). | `scripts/supervise.sh:76-80` ; `test/test_supervise.sh:26` |
+| busy string | UNVERIFIED — binary format string `%s… (%s · esc to cancel)` (e.g. `Working… (12s · esc to cancel)`). Harness's `esc to interrupt` matcher does not match it. | local: `python3 -I` byte-regex `esc to cancel` over `~/.local/bin/agy` ; `scripts/lib.sh:836` |
+| limit string | UNVERIFIED — binary strings `You have exhausted your quota on this model.`, `Quota exhausted`, `Your AI credits balance is too low to continue.` None matches `HARNESS_LIMIT_IDLE_RE`. | local: `python3 -I` byte-regex `exhausted your` over `~/.local/bin/agy` ; `scripts/lib.sh:864` |
+| transient-error string | UNVERIFIED — binary strings `Model unavailable (attempt N/10), retrying in Ns`, `Agent execution terminated due to error.` agy retries 502/503/504 and per-minute 429 itself. | local: `python3 -I` byte-regex `Model unavailable` over `~/.local/bin/agy` |
+
+## `codex` — OpenAI Codex CLI
+
+Version on the fleet host: `codex-cli 0.154.0`. `U/` = `https://github.com/openai/codex/blob/rust-v0.154.0/`. Docs: `https://learn.chatgpt.com/docs/` (where `developers.openai.com/codex` redirects).
+
+| field | value | source |
+|---|---|---|
+| install | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh`, `npm install -g @openai/codex`, or `brew install --cask codex`; `codex update`. Binary `codex`. | https://learn.chatgpt.com/docs/codex/cli ; `U/README.md` |
+| version checked | `codex-cli 0.154.0`, 2026-10-27 | local: `codex --version` |
+| launch | `exec codex --no-alt-screen -m <model> -c model_reasoning_effort=<e> --dangerously-bypass-approvals-and-sandbox "<bootstrap>"`. `--no-alt-screen` keeps scrollback for `capture-pane`. Headless: `codex exec [--json] "<prompt>"`. | local: `codex --help` ; local: `codex exec --help` |
+| prompt passing | TUI: positional `[PROMPT]` only. `exec`: positional, or stdin when omitted or `-`. | local: `codex --help` ; `U/codex-rs/tui/src/cli.rs` |
+| session id | MISSING — Codex generates a UUIDv7; no flag sets it. Resume: `codex resume <id>`. Harness substitute: after launch, take the id from the newest `~/.codex/sessions/**/rollout-*-<uuid>.jsonl` whose first line's `session_meta.payload.cwd` is the worktree. | local: `codex resume --help` ; `U/codex-rs/rollout/src/rollout_file_name.rs` |
+| model flag | `-m, --model <MODEL>` (e.g. `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.5` in this host's catalog). | local: `codex --help` ; local: `python3 -I` read of `~/.codex/models_cache.json` |
+| effort flag | MISSING as a flag — Harness substitute: the config override `-c model_reasoning_effort=<low\|medium\|high\|xhigh\|max\|ultra>` on the launch line (levels depend on the model). | https://learn.chatgpt.com/docs/config-file/config-reference ; `U/codex-rs/protocol/src/openai_models.rs` |
+| permission bypass | `--dangerously-bypass-approvals-and-sandbox` (alias `--yolo`): sandbox `danger-full-access`, approval `never`. Sub-agents "inherit the parent turn's current sandbox and approval settings". `--full-auto` is removed. | local: `codex --help` ; https://learn.chatgpt.com/docs/agent-configuration/subagents |
+| workspace trust | Dialog `Do you trust the contents of this directory?` / `1. Yes, continue` / `2. No, quit`, shown even with `--yolo`. Pre-accept in `~/.codex/config.toml`: `[projects."<abs path>"]` `trust_level = "trusted"`. Lookup falls back to the git repo root, and a linked worktree resolves to the main checkout. | `U/codex-rs/tui/src/onboarding/trust_directory.rs` ; `U/codex-rs/config/src/config_toml.rs` ; `U/codex-rs/core/src/worktree_trust_tests.rs` |
+| hooks / plugins / skills | Hooks in `~/.codex/hooks.json` or `[hooks]` in `config.toml`. `Stop` hook printing `{"decision":"block","reason":…}` continues with `reason` as the next prompt. Untrusted hooks run only after `/hooks` trust or with `--dangerously-bypass-hook-trust`. Skills: `$HOME/.agents/skills/<name>/SKILL.md`, repo `.agents/skills`; invoked as `$<name>`. Instructions file `AGENTS.md`. | https://learn.chatgpt.com/docs/hooks ; `U/codex-rs/hooks/src/events/stop.rs` ; https://learn.chatgpt.com/docs/build-skills |
+| transcript location | `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`; files 7 days or older are compressed to `.jsonl.zst`. Sub-agents write their own rollouts (`session_meta.parent_thread_id`). | `U/codex-rs/rollout/src/lib.rs` ; `U/codex-rs/rollout/src/compression.rs` |
+| usage format | `event_msg` lines with `payload.type == "token_count"`: `payload.info.last_token_usage.{input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_output_tokens}`. No model field: take `model` from the preceding `turn_context` line. UNVERIFIED on a real file (none on the host). | `U/codex-rs/protocol/src/protocol.rs` ; local: `ls ~/.codex/sessions` |
+| usage windows | Same `token_count` line: `payload.rate_limits.{primary,secondary}.{used_percent, window_minutes, resets_at}`. | `U/codex-rs/protocol/src/protocol.rs` |
+| idle string | Composer `›` followed by the placeholder `Ask Codex to do anything`, and no ` to interrupt)` status row. The glyph is `»` at ultra effort and `!` in bash mode. | `U/codex-rs/tui/src/bottom_pane/chat_composer.rs` ; `U/codex-rs/tui/src/custom_terminal.rs` |
+| busy string | Status row `<spinner> <Header> (<elapsed> • esc to interrupt)`; the header varies (reasoning title), so match the suffix ` to interrupt)`. | `U/codex-rs/tui/src/status_indicator_widget.rs` |
+| limit string | Red error cell `■ You've hit your usage limit…` (plan-specific tails) or `Usage limit reached`. Match `You've hit your usage limit\|Usage limit reached`. | `U/codex-rs/protocol/src/error.rs` ; `U/codex-rs/tui/src/history_cell/notices.rs` |
+| transient-error string | Busy header `Reconnecting... <n>/<max>` or `Reconnecting... waiting for network`; after the last retry `■ stream disconnected before completion: …` or `■ rate limit exceeded: …`. | `U/codex-rs/core/src/responses_retry.rs` ; `U/codex-rs/protocol/src/error.rs` |
+
+Unattended notes: set `check_for_update_on_startup = false` or the `✨ Update available!` modal blocks startup (`U/codex-rs/tui/src/update_prompt.rs`). Inside the agent's shell `CODEX_THREAD_ID` is set.
+
+## `gemini` — Google Gemini CLI
+
+Latest release `0.65.0` (npm `@google/gemini-cli`, 2026-10-20); not installed on the fleet host. `G/` = `https://github.com/google-gemini/gemini-cli/blob/v0.65.0/`.
+
+| field | value | source |
+|---|---|---|
+| install | `npm install -g @google/gemini-cli` (or `brew install gemini-cli`). Binary `gemini`. | `G/packages/cli/package.json` ; `G/README.md` |
+| version checked | `0.65.0` (npm `latest`), 2026-10-27; not installed on the host | https://registry.npmjs.org/@google/gemini-cli |
+| launch | `exec gemini --session-id <uuid> -m <model> --yolo --skip-trust -i "<bootstrap>"`. Headless: `gemini -p "<prompt>" -o json`. `CI=true`, `GITHUB_ACTIONS=true` or a non-TTY stdin force headless, so lanes must not export them. | `G/packages/cli/src/config/config.ts` ; `G/packages/core/src/utils/headless.ts` |
+| prompt passing | `-i/--prompt-interactive "<p>"` (interactive), `-p` (headless), positional, or stdin (headless only). | `G/packages/cli/src/config/config.ts` |
+| session id | Caller sets it: `--session-id <id>` (fails if it exists). Resume: `--resume latest\|<index>\|<uuid>`. The id is `sessionId` on line 1 of the chat file. | `G/packages/cli/src/config/config.ts` ; `G/packages/cli/src/gemini.tsx` |
+| model flag | `-m/--model <alias\|id>`: aliases `auto`, `pro`, `flash`, `flash-lite`, or an id such as `gemini-3.1-pro-preview`. Does not change the sub-agent model. | `G/packages/core/src/config/models.ts` ; `G/docs/cli/model.md` |
+| effort flag | MISSING — no CLI flag; thinking is set in settings (`modelConfigs` → `thinkingConfig.thinkingLevel` `LOW\|HIGH`, or `thinkingBudget`). Harness substitute: `cli_launch` writes the lane's level into `<wt>/.gemini/settings.json` before launch. | `G/docs/cli/generation-settings.md` ; `G/packages/core/src/config/defaultModelConfigs.ts` |
+| permission bypass | `-y/--yolo` (or `--approval-mode yolo`). Disabled in an untrusted folder. Sub-agents run on the parent's approval mode (from code; docs silent): UNVERIFIED. | `G/packages/cli/src/config/config.ts` ; `G/packages/core/src/agents/local-executor.ts` |
+| workspace trust | Dialog `Do you trust the files in this folder?`, on by default. Pre-accept: `--skip-trust` or `GEMINI_CLI_TRUST_WORKSPACE=true` per launch, or `{"<abs path>": "TRUST_FOLDER"}` in `~/.gemini/trustedFolders.json`. | `G/packages/cli/src/ui/components/FolderTrustDialog.tsx` ; `G/packages/core/src/utils/trust.ts` |
+| hooks / plugins / skills | Hooks under `hooks` in `settings.json`. `AfterAgent` (fires after each final response) returning `decision:"deny"` plus `reason` sends the reason back as a new prompt: the goal-loop seam. Extensions: `gemini extensions install <url\|path> --consent`. Skills: `~/.gemini/skills/` or `~/.agents/skills/<name>/SKILL.md`. Context file `GEMINI.md`. | `G/docs/hooks/reference.md` ; `G/packages/core/src/hooks/types.ts` ; `G/docs/cli/skills.md` |
+| transcript location | `~/.gemini/tmp/<project-slug>/chats/session-<YYYY-MM-DDTHH-MM>-<first 8 of id>.jsonl`; slug = the project dir's basename (map in `~/.gemini/projects.json`). Match a session on line 1's `sessionId`, not the filename. | `G/packages/core/src/services/chatRecordingService.ts` ; `G/packages/core/src/config/storage.ts` |
+| usage format | `type:"gemini"` records: `model` and `tokens.{input, output, cached, thoughts, tool, total}`. A message `id` can be appended more than once: keep the last record per `id`. | `G/packages/core/src/services/chatRecordingTypes.ts` |
+| usage windows | MISSING — quota shows only inside `/stats` (`<n>% used (Limit resets in <t>)`). Harness substitute: `cli_limit_usage` returns unavailable and the fleet checkpoints on the limit message. | `G/packages/cli/src/ui/components/QuotaStatsInfo.tsx` |
+| idle string | `>` (or `*` under `--yolo`) followed by `  Type your message or @path/to/file`. Pane title `◇  Ready (<folder>)`. | `G/packages/cli/src/ui/components/InputPrompt.tsx` ; `G/packages/cli/src/utils/windowTitle.ts` |
+| busy string | Loading line `… (esc to cancel, <N>s)`; pane title `✦  …`. | `G/packages/cli/src/ui/components/LoadingIndicator.tsx` |
+| limit string | Blocking dialog `Usage limit reached for <model>.` / `Access resets at <time>.` with options `Keep trying` / `Switch to <fallback>` / `Stop`. API-key auth: inline `[API Error: …]` plus `Please wait and try again later.` | `G/packages/cli/src/ui/hooks/useQuotaAndFallback.ts` ; `G/packages/core/src/utils/errorParsing.ts` |
+| transient-error string | Loading line `This is taking a bit longer, we're still on it.` during retries (up to 10); final `[API Error: <message> (Status: <STATUS>)]`. The server's 503 text is UNVERIFIED. | `G/packages/cli/src/ui/hooks/useLoadingIndicator.ts` ; `G/packages/core/src/utils/retry.ts` |
+
+Unattended notes: the TUI needs `security.auth.selectedType` in `~/.gemini/settings.json` or it opens the auth dialog; set `general.enableAutoUpdate` and `general.enableAutoUpdateNotification` false (`G/packages/cli/src/ui/auth/useAuth.ts`, `G/packages/cli/src/config/settingsSchema.ts`).
+
+## `copilot` — GitHub Copilot CLI
+
+Latest release `1.0.104` (npm `@github/copilot`, 2026-10-27); not installed on the fleet host. The package is closed source: `P/` = the JS bundle embedded in the `copilot` binary of `npm pack @github/copilot-linux-x64@1.0.104`, unpacked and read as data, never run. Docs: `https://docs.github.com/en/copilot/reference/copilot-cli-reference/`.
+
+| field | value | source |
+|---|---|---|
+| install | `npm install -g @github/copilot` (or `curl -fsSL https://gh.io/copilot-install \| bash`). Binary `copilot`. Needs a Copilot subscription. | https://github.com/github/copilot-cli |
+| version checked | `1.0.104` (npm `latest`), 2026-10-27; not installed on the host | https://api.github.com/repos/github/copilot-cli/releases/latest |
+| launch | `exec copilot --session-id=<uuid> --model=<m> --effort=<e> --yolo --no-ask-user --no-auto-update -i "<bootstrap>"`. Headless: `copilot -p "<p>" --allow-all-tools --output-format=json`. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference |
+| prompt passing | `-i "<p>"` (interactive, runs it immediately) or `-p "<p>"` / piped stdin (headless). | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference |
+| session id | Caller sets it: `--session-id=<uuid>` (creates the session when the id is new). Resume `--resume=<id>`. The exit summary prints `copilot --resume=<id>`; state dir `~/.copilot/session-state/<id>/`. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference ; `P/cli-main.js` |
+| model flag | `--model=<m>` (env `COPILOT_MODEL`; `auto`), e.g. `claude-sonnet-5.5`, `gpt-6-sol`. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference ; `P/prebuilds/linux-x64/cli-native.node` |
+| effort flag | `--effort=<low\|medium\|high\|xhigh\|max>` (alias `--reasoning-effort`); a level the model lacks is reported and left unapplied. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference ; `P/changelog.json` |
+| permission bypass | `--yolo` (= `--allow-all-tools --allow-all-paths --allow-all-urls`); add `--no-ask-user` so the agent cannot stop on a question. Sub-agent coverage UNVERIFIED. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference |
+| workspace trust | Dialog `Do you trust the files in this folder?` with `Yes` / `Yes, and remember this folder for future sessions` / `No`. Pre-accept: append the path to the `trustedFolders` array in `~/.copilot/config.json`, or set `COPILOT_ALLOW_ALL=true` (exact string) in the pane's env. | `P/cli-main.js` ; https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/configure-copilot-cli |
+| hooks / plugins / skills | Hooks JSON `{"version":1,"hooks":{…}}` in `~/.copilot/hooks/*.json` or `.github/hooks/*.json`. `agentStop` returning `{"decision":"block","reason":…}` forces another turn, but the CLI ends the turn after 8 consecutive blocks, so the Harness-driven loop must take over past that. Skills `~/.copilot/skills/<name>/SKILL.md`; custom agents `~/.copilot/agents/`. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference |
+| transcript location | `~/.copilot/session-state/<id>/events.jsonl` (JSONL `SessionEvent`s). | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference |
+| usage format | Per-call `assistant.usage` is ephemeral (not written to disk). On disk: `session.usage_record` (same `usage` object: `model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `reasoningTokens`) and `session.shutdown.modelMetrics.<model>.usage`. UNVERIFIED which lines land in `events.jsonl`. | `P/schemas/session-events.schema.json` |
+| usage windows | MISSING — quota shows only in the TUI footer and `/usage`; `assistant.usage.quotaSnapshots` is not persisted. Harness substitute: `cli_limit_usage` returns unavailable; checkpoint on the limit message. | https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference ; `P/schemas/session-events.schema.json` |
+| idle string | UNVERIFIED — the input box's placeholder is not resolvable from the minified bundle; a fixture must capture an idle pane. | `P/cli-main.js` |
+| busy string | `<pulse> <label> (Esc to cancel)`; label `Working`, the current intent, or `Executing` while a shell runs. Match `(Esc to cancel)`. | `P/cli-main.js` |
+| limit string | `You've hit your rate limit.`, `You've hit the rate limit for this model.`, `You've reached your weekly rate limit.`, `You've run out of your included AI credits for the month. …`; prompt `Rate limit hit. Switch to the auto model?` How the fragments join on screen is UNVERIFIED. | `P/prebuilds/linux-x64/runtime.node` ; `P/cli-main.js` |
+| transient-error string | `Failed to get response from the AI model; retried …`, `No response was returned. Send your message again to retry.`, `exceeded maximum number of retries`. | `P/prebuilds/linux-x64/runtime.node` |
+
+Unattended notes: authenticate with `COPILOT_GITHUB_TOKEN` (or `GH_TOKEN`); startup blocks on the screen-reader prompt, the trust dialog and the Copilot Free signup until answered (`P/cli-main.js`); `--no-auto-update` or `COPILOT_AUTO_UPDATE=false`.
+
+## `cursor-agent` — Cursor CLI
+
+Latest release `2026.10.22-27dcf5f`; not installed on the fleet host. The installer links the same binary as `agent` (primary) and `cursor-agent` (legacy). Closed source and not on npm, so no string here comes from the binary. Docs: `https://cursor.com/docs/cli/`.
+
+| field | value | source |
+|---|---|---|
+| install | `curl https://cursor.com/install -fsS \| bash` → `~/.local/bin/agent` and `~/.local/bin/cursor-agent`. | https://cursor.com/install ; https://cursor.com/docs/cli/installation.md |
+| version checked | `2026.10.22-27dcf5f` (the version the install script pins), 2026-10-27; not installed on the host | https://cursor.com/install ; https://cursor.com/docs/cli/changelog.md |
+| launch | `exec cursor-agent --resume <id> --model <variant> --yolo --approve-mcps --trust "<bootstrap>"`. Headless: `cursor-agent -p "<p>" --force --trust --output-format stream-json`. | https://cursor.com/docs/cli/reference/parameters.md ; https://cursor.com/docs/cli/headless.md |
+| prompt passing | Positional `[prompt…]`; stdin only in print mode. | https://cursor.com/docs/cli/reference/parameters.md ; https://cursor.com/docs/cli/reference/output-format.md |
+| session id | Not at launch, but `cursor-agent create-chat` mints an empty chat and prints its id; Harness then launches `--resume <id> "<bootstrap>"`. Resuming with a positional prompt is UNVERIFIED. The id is `session_id` in JSON output and `conversation_id` in hooks. | https://cursor.com/docs/cli/reference/parameters.md ; https://cursor.com/docs/hooks.md |
+| model flag | `--model <m>`; `cursor-agent models` lists the ids. | https://cursor.com/docs/cli/reference/parameters.md |
+| effort flag | MISSING — effort is part of the model variant slug, not a flag. Harness substitute: `cli_launch` maps `<model>` + `<effort>` to the variant slug `cursor-agent models` lists (slug spellings UNVERIFIED). | https://cursor.com/docs/cli/changelog.md ; https://cursor.com/docs/cli/reference/configuration.md |
+| permission bypass | `--yolo` (alias of `-f/--force`: auto-approves trust, MCP and commands) plus `--approve-mcps`. Sub-agents "inherit all tools from the parent"; whether `--yolo` covers their shell commands is UNVERIFIED. | https://cursor.com/docs/cli/reference/parameters.md ; https://cursor.com/docs/subagents.md |
+| workspace trust | Dialog on a new workspace (text UNVERIFIED). `--trust` skips it and records the same saved decision (interactive since v2026.07.20); where it is saved is UNVERIFIED. | https://cursor.com/docs/cli/reference/parameters.md ; https://cursor.com/docs/cli/changelog.md |
+| hooks / plugins / skills | `~/.cursor/hooks.json` / `<repo>/.cursor/hooks.json`. The `stop` hook returning `{"followup_message": …}` submits it as the next user message: the goal-loop seam, capped by `loop_limit` (default 5; `null` = no cap). Rules `.cursor/rules`, `AGENTS.md`, `CLAUDE.md`. | https://cursor.com/docs/hooks.md |
+| transcript location | `~/.cursor/projects/<encoded cwd>/agent-transcripts/<id>/<id>.jsonl` (from a forum post; docs say only that transcripts persist); hooks get `transcript_path`. UNVERIFIED on a real install. | https://forum.cursor.com/t/richer-agent-transcripts-lifecycle-data-for-observability-langfuse-stop-hooks/166592 ; https://cursor.com/docs/hooks.md |
+| usage format | MISSING — the transcript and the `stop` payload carry no token counts. Harness substitute: a `statusLine` command (which receives live token usage) installed per worktree drops per-session totals, as `scripts/usage-statusline.sh` does for `claude`; field names UNVERIFIED. | https://forum.cursor.com/t/richer-agent-transcripts-lifecycle-data-for-observability-langfuse-stop-hooks/166592 ; https://cursor.com/docs/cli/changelog.md ; `scripts/usage-statusline.sh` |
+| usage windows | MISSING — usage meters only in the interactive `/usage`. Harness substitute: `cli_limit_usage` returns unavailable; checkpoint on the limit message. | https://cursor.com/docs/cli/changelog.md |
+| idle string | UNVERIFIED — no doc quotes the idle input line; a fixture must capture it. | https://cursor.com/docs/cli/reference/configuration.md |
+| busy string | UNVERIFIED — a working status pinned above the prompt with progress and token counts; text must be captured. | https://cursor.com/docs/cli/changelog.md |
+| limit string | UNVERIFIED — rate limits "render with their real message"; no literal is published. | https://cursor.com/docs/cli/changelog.md |
+| transient-error string | `Reconnecting…` while transport errors retry; the network hint's text is UNVERIFIED. | https://cursor.com/docs/cli/changelog.md |
+
+Unattended notes: authenticate with `CURSOR_API_KEY`; in tmux, never send a bare Enter to a busy pane (it stops the turn and sends the queued message) and use Ctrl+J for a newline; `--disable-auto-update` (https://cursor.com/docs/cli/using.md, https://cursor.com/docs/cli/changelog.md).
+
+## `opencode` — OpenCode
+
+Latest v1 release `1.19.4` (npm `opencode-ai`, 2026-10-22); not installed on the fleet host. `O/` = `https://github.com/anomalyco/opencode/blob/v1.19.4/packages/`. OpenCode 2 (`@opencode/cli` 2.1.4) installs a binary also called `opencode` with different flags, so the adapter pins v1 and checks `opencode --version`.
+
+| field | value | source |
+|---|---|---|
+| install | `npm install -g opencode-ai@1` (or `curl -fsSL https://opencode.ai/install \| bash`). Binary `opencode`. Plain `brew install opencode` now gives v2. | https://opencode.ai/docs/ ; `O/opencode/package.json` |
+| version checked | `1.19.4` (npm `latest`), 2026-10-27; not installed on the host | https://registry.npmjs.org/opencode-ai |
+| launch | `exec opencode <worktree> -m <provider/model> --auto --prompt "<bootstrap>"`. Headless: `opencode run "<prompt>" --variant <e> --format json --auto`. | `O/opencode/src/cli/cmd/tui.ts` ; `O/opencode/src/cli/cmd/run.ts` |
+| prompt passing | TUI `--prompt "<p>"`. UNVERIFIED whether it submits or only pre-fills. `run`: positional or stdin. | `O/opencode/src/cli/cmd/tui.ts` |
+| session id | MISSING in v1 — ids are generated (`ses_…`); `-s/--session` only resumes an existing one. Harness substitute: after launch, `opencode session list --format json` filtered on `directory` = the worktree, newest first. | `O/opencode/src/cli/tui/validate-session.ts` ; `O/opencode/src/session/session.ts` |
+| model flag | `-m, --model <provider>/<model>`. | `O/opencode/src/cli/cmd/run.ts` |
+| effort flag | MISSING on the v1 TUI (`run` has `--variant`). Harness substitute: `cli_launch` writes `agent.build.variant = "<e>"` into `<wt>/opencode.json`. | `O/core/src/v1/config/agent.ts` ; https://opencode.ai/docs/models/ |
+| permission bypass | `--auto` (aliases `--yolo`, `--dangerously-skip-permissions`), or `"permission": "allow"` in `opencode.json`. The TUI auto-answers every `permission.asked`, including child sessions. Also set `"question": "deny"`, or the agent can stop on a question dialog. | `O/opencode/src/cli/cmd/tui.ts` ; `O/tui/src/context/sync.tsx` ; https://opencode.ai/docs/permissions/ |
+| workspace trust | MISSING — no trust gate exists; project config and plugins load automatically. Harness substitute: none needed; `cli_trust` is a no-op. | grep `trust` over `O/opencode/src/` |
+| hooks / plugins / skills | JS/TS plugins in `.opencode/plugins/` or `~/.config/opencode/plugins/` get an SDK `client` and an `event` hook; on `session.idle` a plugin can call `client.session.prompt(…)`: the goal-loop seam. Skills: `~/.config/opencode/skills/`, `~/.claude/skills/`, `~/.agents/skills/` (`SKILL.md`). Rules `AGENTS.md`. | `O/plugin/src/index.ts` ; `O/opencode/src/session/status.ts` ; https://opencode.ai/docs/plugins/ ; https://opencode.ai/docs/skills/ |
+| transcript location | SQLite `~/.local/share/opencode/opencode.db` (`opencode db path`), tables `session`, `message`, `part`. | `O/core/src/database/database.ts` ; `O/core/src/session/sql.ts` |
+| usage format | Assistant `message.data` JSON: `providerID`, `modelID`, `tokens.{input, output, reasoning, cache.read, cache.write}`, `cost`. `opencode stats --models` prints per-model totals. | `O/schema/src/v1/session.ts` ; `O/opencode/src/cli/cmd/stats.ts` |
+| usage windows | MISSING — no quota meter; limits appear only as retry text. Harness substitute: `cli_limit_usage` returns unavailable; checkpoint on the limit message. | `O/opencode/src/session/retry.ts` |
+| idle string | No `esc interrupt` in the footer; the last turn ends with `▣  <Mode> · <model> · <duration>`. Home-screen placeholder `Ask anything… "<example>"`; none inside a session. | `O/tui/src/routes/home.tsx` ; `O/tui/src/routes/session/index.tsx` |
+| busy string | Footer `esc interrupt`, then `esc again to interrupt` (hard-coded `esc`). A permission ask shows `Permission required` while the footer still reads busy. | `O/tui/src/component/prompt/index.tsx` ; `O/tui/src/routes/session/permission.tsx` |
+| limit string | Retry text `<limitName> usage limit reached. It will reset in <t>. …`, `Free usage exceeded, subscribe to Go`, or `Quota exceeded. Check your plan and billing details.` | `O/opencode/src/session/retry.ts` ; `O/opencode/src/provider/error.ts` |
+| transient-error string | Busy footer `<message> [retrying in <dur> attempt #<n>]` (messages include `Too Many Requests`, `Provider is overloaded`); after 5 retries a bordered error box and the session goes idle. | `O/tui/src/component/prompt/index.tsx` ; `O/opencode/src/session/retry.ts` |
+
+Unattended notes: `opencode --port <p>` exposes an HTTP API (`GET /session/status`, SSE `/event`, `POST /session/:id/prompt_async`) that could replace pane scraping (https://opencode.ai/docs/server/); not adopted by this plan. Set `OPENCODE_DISABLE_AUTOUPDATE=1`.
+
+## `zcode` — Z.ai ZCode
+
+Identity confirmed: Z.ai's (Zhipu's) coding agent, repo `zai-org/ZCode` (Apache-2.0), binary `zcode`, homepage `https://zcode.z.ai/`. No prebuilt CLI is published; it is built from source. `Z/` = `https://github.com/zai-org/ZCode/blob/3c5b227649371507ddc4eb46ac5133afe6db1cab/apps/zcode-cli/`. The UI also ships zh-CN strings, so the adapter passes `--locale en-US`.
+
+| field | value | source |
+|---|---|---|
+| install | Build from source (Node 24, pnpm 10): `pnpm install --frozen-lockfile && pnpm --filter @zcode/cli... build`, then link `packages/cli/dist/zcode.cjs` as `zcode`. No official npm package (`zcode-app-cli` is third-party). | https://github.com/zai-org/ZCode ; `Z/docs/usage/01-quickstart.md` |
+| version checked | Repo `3.16.2` (`package.json`, commit `3c5b227`), CLI package `0.1.0`, 2026-10-27; not installed on the host | `Z/packages/cli/package.json` ; https://github.com/zai-org/ZCode/blob/3c5b227649371507ddc4eb46ac5133afe6db1cab/package.json |
+| launch | `exec zcode tui --cwd <worktree> --mode yolo --locale en-US`; the bootstrap is typed after the idle string appears. Headless: `zcode --prompt "<p>" --cwd <dir> --mode yolo --output-format stream-json`. | `Z/packages/cli/src/run.ts` ; `Z/docs/usage/02-cli-reference.md` |
+| prompt passing | MISSING for the TUI — it takes no initial prompt (`--prompt` goes headless). Harness substitute: `cli_launch` starts the TUI bare and `launch_agent` sends `$HARNESS_BOOTSTRAP_PROMPT` with `tmux send-keys` once `cli_idle_re` matches. | `Z/packages/cli/src/run.ts` ; `Z/packages/cli/src/arguments.ts` |
+| session id | MISSING — no flag sets it (`sess_…` generated); resume with `--resume <id>`. Harness substitute: read the newest session for the worktree from `~/.zcode/cli/db/db.sqlite` after launch. | `Z/packages/cli/src/arguments.ts` ; `Z/docs/usage/06-sessions.md` |
+| model flag | MISSING — no `--model` (the parser is strict). Harness substitute: per-lane `ZCODE_DATA_BASE_DIR` holding a `provider_config.json` with `defaultModelSelection.{providerId,modelId}`. | `Z/docs/usage/02-cli-reference.md` ; `Z/docs/usage/03-config.md` |
+| effort flag | MISSING — only the TUI `/effort` command. Harness substitute: `cli_launch` types `/effort <e>` before the bootstrap; the level list is UNVERIFIED. | `Z/packages/tui/src/app-input.ts` |
+| permission bypass | `--mode yolo` (skips prompts for ordinary tools; `alwaysAsk` tools and untrusted hooks can still deny). Sub-agents take their profile's mode: inheritance UNVERIFIED. | `Z/docs/usage/05-permissions.md` ; `Z/packages/core/src/subagent/runner.ts` |
+| workspace trust | MISSING — no folder-trust dialog in source; trust applies only to project hooks (`zcode hooks trust grant`). Harness substitute: `cli_trust` is a no-op; the fixture confirms no dialog in a fresh worktree. | `Z/docs/usage/09-hooks.md` |
+| hooks / plugins / skills | Hooks (`SessionStart`, `PreToolUse`, `Stop`, …) under `hooks.events` in `~/.zcode/cli/config.json`; whether `Stop` can force a continue is UNVERIFIED, so `cli_loop` is `driven`. Skills: `.zcode/skills`, `.agents/skills` (`SKILL.md`). Built-in `/goal`. | `Z/docs/usage/09-hooks.md` ; `Z/docs/usage/08-skills.md` |
+| transcript location | SQLite `~/.zcode/cli/db/db.sqlite` (`ZCODE_SESSION_DB_PATH` overrides); the schema is called an implementation detail. | `Z/packages/adapters/src/storage/session-store/paths.ts` |
+| usage format | `ModelUsage`: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `reasoningTokens`. Where it sits in the DB is UNVERIFIED. | `Z/packages/contracts/src/model/index.ts` |
+| usage windows | MISSING — no usage command. Harness substitute: `cli_limit_usage` returns unavailable. | `Z/packages/i18n/src/locales/en-US.ts` |
+| idle string | Placeholder `Type a prompt`, status `Ready.` | `Z/packages/i18n/src/locales/en-US.ts` |
+| busy string | Hint `esc to interrupt`, placeholder `Type to queue input`, status `Thinking...` / `Calling model...`. | `Z/packages/i18n/src/locales/en-US.ts` |
+| limit string | Classifier `Provider rate limited the model request.`; quota errors (GLM `1308`, `insufficient_quota`) end the turn with `Model request failed: <message>` / `Turn failed.` Rendered form UNVERIFIED. | `Z/packages/adapters/src/model/failure-classifier.ts` ; `Z/packages/adapters/src/model/workflow-model-failure-policy.ts` |
+| transient-error string | `Retrying model request <n>/<max> in <delay>: <reason>`, `Provider is overloaded.`, `Model stream stalled.` | `Z/packages/i18n/src/locales/en-US.ts` ; `Z/packages/adapters/src/model/failure-classifier.ts` |
+
+## `hermes` — Hermes Agent (Nous Research)
+
+Latest release `v0.22.5` (2026-10-23); not installed on the fleet host. `H/` = `https://github.com/NousResearch/hermes-agent/blob/085f562af53a6fedadac3681e2c498fc71316132/`.
+
+| field | value | source |
+|---|---|---|
+| install | `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash`; `hermes update`. Binary `hermes`. | `H/website/docs/getting-started/installation.md` |
+| version checked | `v0.22.5` (GitHub release), 2026-10-27; not installed on the host | https://github.com/NousResearch/hermes-agent/releases/tag/v0.22.5 |
+| launch | `exec hermes chat -c <sess> --create-if-missing -m <model> --reasoning <e> --yolo --accept-hooks -q "<bootstrap>"` with `HERMES_HOME=<per-lane dir>`. On a TTY `-q` submits the first turn and the session stays open. Headless: `hermes chat --oneshot -q "<p>" --format stream-json`. | `H/website/docs/reference/cli-commands.md` ; `H/hermes_cli/_parser.py` |
+| prompt passing | `-q/--query "<p>"`, or `--query-file <path>` (`-` = stdin). | `H/hermes_cli/_parser.py` |
+| session id | MISSING as an id — ids are generated (`YYYYMMDD_HHMMSS_<hex>`). Harness substitute: `-c <tmux session name> --create-if-missing` gives a deterministic session by title; the real id comes from `hermes sessions list` (or `HERMES_SESSION_ID` in the agent's env). | `H/website/docs/user-guide/sessions.md` |
+| model flag | `-m/--model <model>` with `--provider <id>`. | `H/hermes_cli/_parser.py` |
+| effort flag | `--reasoning none\|minimal\|low\|medium\|high\|xhigh\|max\|ultra`. | `H/hermes_cli/_parser.py` ; `H/website/docs/user-guide/configuration.md` |
+| permission bypass | `--yolo` (or `approvals.mode: off` in `~/.hermes/config.yaml`, which covers the whole profile). Whether `--yolo` covers `delegate_task` children is UNVERIFIED; the adapter sets `approvals.mode: off` in the lane's `HERMES_HOME` as well. | `H/website/docs/user-guide/security.md` |
+| workspace trust | MISSING — no folder gate on running; only project skills (`hermes skills trust`) and shell hooks (`--accept-hooks`) are gated. Harness substitute: `cli_trust` runs `hermes skills trust` for the worktree so its `.agents/skills` load. | `H/website/docs/user-guide/features/skills.md` ; `H/website/docs/user-guide/features/hooks.md` |
+| hooks / plugins / skills | Shell hooks under `hooks:` in `config.yaml`; Python plugin hooks (`pre_verify` can keep a turn going). Built-in `/goal` with a judge model. Skills: `~/.hermes/skills/`, `skills.external_dirs`. No documented Stop-equivalent a Harness hook can block, so `cli_loop` is `driven`. | `H/website/docs/user-guide/features/hooks.md` ; `H/website/docs/user-guide/features/goals.md` |
+| transcript location | SQLite `$HERMES_HOME/state.db` (`sessions`, `messages`); export with `hermes sessions export <id> --format jsonl`. | `H/website/docs/developer-guide/session-storage.md` |
+| usage format | `sessions` columns `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`. | `H/website/docs/developer-guide/session-storage.md` |
+| usage windows | `hermes usage --json`: the account's rate-limit windows without a session. | `H/website/docs/reference/cli-commands.md` |
+| idle string | UNVERIFIED — the classic CLI's `❯` composer; its idle placeholder must be captured. | `H/website/docs/user-guide/cli.md` |
+| busy string | Spinner on the composer's top rule (`── ⠹ <label> · 14s ──`, generic `Working…`) and the hint `enter interrupt · tab queue · ctrl+c stop`. | `H/website/docs/user-guide/cli.md` ; `H/locales/en.yaml` |
+| limit string | `⏱️ Rate limited. Resets in <t>. Waiting <s>s (attempt n/m)...`; Nous quota `⏳ Your Nous account has hit its rate limit; it resets in <t>.` | `H/agent/turn_recovery.py` ; `H/agent/turn_api_call.py` |
+| transient-error string | `⏳ Retrying in <s>s (attempt n/m)...`, `⏱️ Provider overloaded. … Waiting …`, `⚠️ Upstream <name> rate-limited — switching to fallback model...` | `H/agent/turn_recovery.py` |
+
+Unattended notes: `hermes chat` attaches to a per-profile gateway daemon, and killing the pane does not stop the turn; each lane needs its own `HERMES_HOME`, and the gateway refuses `--worktree` (`H/website/docs/user-guide/cli.md`). `hermes pause` stops a turn.
+
+## `openclaw` — OpenClaw
+
+Latest npm release `2026.10.7` (2026-10-24); not installed on the fleet host. `C/` = `https://github.com/openclaw/openclaw/blob/main/` read at commit `4d8806c` on 2026-10-27. OpenClaw is a gateway-centred personal assistant: its TUI works in the agent workspace (`~/.openclaw/workspace`), not the shell's cwd. Repo work goes through `openclaw agent exec --cwd`, so this adapter is the one CLI driven headless.
+
+| field | value | source |
+|---|---|---|
+| install | `npm install -g openclaw@latest --allow-scripts=openclaw` (Node ≥ 24.22.1), or `curl -fsSL https://openclaw.ai/install-cli.sh \| bash`. Binary `openclaw`. | `C/docs/install/index.md` ; https://registry.npmjs.org/openclaw/latest |
+| version checked | `2026.10.7` (npm `latest`), 2026-10-27; not installed on the host | https://registry.npmjs.org/openclaw |
+| launch | The TUI cannot be pointed at a worktree, so the lane runs a loop in its pane: `openclaw agent exec --cwd <worktree> --model <m> --thinking <e> --message-file .harness-task.md --json` per iteration. TUI form for reference: `openclaw tui --message "<p>"`. | `C/docs/cli/agent.md` ; `C/docs/cli/tui.md` |
+| prompt passing | `--message <text>` or `--message-file <path>` (`-` = stdin), on `agent` and `agent exec`. | `C/docs/cli/agent.md` |
+| session id | `openclaw agent --session-id <id>` creates or resumes a named session; `agent exec` returns `sessionId` in its JSON and keeps state only with `--state-dir`. | `C/docs/cli/agent.md` |
+| model flag | `--model <provider/model>` (`--fallback` repeatable on `agent exec`). | `C/docs/cli/agent.md` |
+| effort flag | `--thinking off\|minimal\|low\|medium\|high` plus provider levels (`xhigh`, `max`, …); unsupported levels are clamped. | `C/docs/cli/agent.md` |
+| permission bypass | `agent exec` runs with the full execution policy and no sandbox by default. Elsewhere YOLO needs both `tools.exec.mode: full` and an approvals document with `askFallback: "full"` (`openclaw exec-policy preset yolo`). Sub-agent coverage UNVERIFIED. | `C/docs/tools/exec-approvals.md` ; `C/docs/cli/agent.md` |
+| workspace trust | MISSING — no trust prompt; the workspace is the default cwd, not a sandbox. Harness substitute: `cli_trust` is a no-op; `--cwd` scopes file tools to the worktree. | `C/docs/concepts/agent-workspace.md` |
+| hooks / plugins / skills | Internal hooks (`HOOK.md` + JS handler, gateway events); plugin hooks via `api.on(…)`. Skills: `<workspace>/skills`, `<workspace>/.agents/skills`, `~/.agents/skills`. Built-in `/goal`. `cli_loop` is `driven`: each `agent exec` is one iteration. | `C/docs/automation/hooks.md` ; `C/docs/tools/skills.md` ; `C/docs/tools/goal.md` |
+| transcript location | Per-agent SQLite `~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite` (`OPENCLAW_STATE_DIR` overrides); `agent exec --state-dir <dir>` keeps a run's state where Harness puts it. Per-message token columns UNVERIFIED. | `C/docs/cli/sessions.md` ; `C/docs/cli/transcripts.md` |
+| usage format | `agent exec --json` envelope: `model`, `provider`, `usage.{input, output, total}`, `costUsd`. No cache split. | `C/docs/cli/agent.md` |
+| usage windows | `openclaw status --usage` (per-provider usage normalized to `X% left`). | `C/docs/concepts/usage-tracking.md` |
+| idle string | TUI status `connected \| idle` (`local ready \| idle` locally). For the `agent exec` loop the idle signal is the shell prompt after the JSON envelope. | `C/src/tui/tui.ts` ; `C/src/tui/tui-activity-status.ts` |
+| busy string | TUI status `<activity> • <elapsed> \| <connection>` with activity `sending`, `waiting`, `streaming`, `running`, `finishing context`, `starting up`. For the loop, a live `openclaw agent exec` child process. | `C/src/tui/tui-activity-status.ts` |
+| limit string | `⚠️ The AI service needs a short break. Please try again in a few minutes.`; billing `⚠️ The AI service reported a billing problem. …`. | `C/src/agents/failover/user-copy.ts` |
+| transient-error string | `The AI service is temporarily overloaded. Please try again in a moment.`, `⚠️ Selected model is at capacity. …`, `Rate-limit recovery stopped … after <n> automatic retries …`. | `C/src/agents/failover/user-copy.ts` |
