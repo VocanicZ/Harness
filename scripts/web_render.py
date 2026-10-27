@@ -3,9 +3,13 @@
 
 Every view is rendered here from the plain dicts web_data.py builds; nothing else, including app.js,
 renders the same data a second time. Each live part of a page is a `<section data-region="…">`, the
-unit a later SSE push replaces whole. No inline style or script: the server's CSP refuses both.
+unit an SSE push (#227) replaces whole: regions(path, view, now) is every region of one page, the page
+itself is built from that same dict, and version() names it. No inline style or script: the server's
+CSP refuses both.
 """
+import hashlib
 import html
+import json
 import os
 import sys
 import time
@@ -32,17 +36,26 @@ def iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
 
 
-def asof_stamp(asof, now):
-    """`data as of <time>` — the board's own clock (a dead poller reads stale), never the server's."""
+def asof_stamp(asof, now, page=False):
+    """`data as of <time>` — the board's own clock (a dead poller reads stale), never the server's.
+    <page> marks the page-level stamp (`<time data-asof>`), the one a push advances."""
     if asof is None:
         return '<span class="asof">data as of <span class="asof__unknown">unknown (no board snapshot)</span></span>'
-    return (f'<span class="asof">data as of <time datetime="{iso(asof)}" title="{iso(asof)}">'
+    mark = " data-asof" if page else ""
+    return (f'<span class="asof">data as of <time{mark} datetime="{iso(asof)}" title="{iso(asof)}">'
             f'{fleetview.fmt_age(now - asof)} ago</time></span>')
 
 
-def page(title, body, asof, now, crumbs=()):
-    """A whole document: the copied design tokens, the top bar with breadcrumbs and the theme toggle,
-    then <body>. <crumbs> is [(label, href)] after "Harness"; the last one is the current page."""
+def version(regions):
+    """A short hash naming one rendering of a page's regions: the SSE event id (#227)."""
+    return hashlib.sha1(json.dumps(regions, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def page(title, body, asof, now, crumbs=(), view=None, ver=None):
+    """A whole document: the copied design tokens, the top bar with breadcrumbs, the live-update
+    status and the theme toggle, then <body>. <crumbs> is [(label, href)] after "Harness"; the last
+    one is the current page. <view> (the page's path) and <ver> (its regions' version) tell app.js
+    which SSE stream to open and what it already holds."""
     trail = [("Harness", "/")] + list(crumbs)
     items = []
     for i, (label, href) in enumerate(trail):
@@ -50,8 +63,9 @@ def page(title, body, asof, now, crumbs=()):
             items.append(f'<li><span aria-current="page">{esc(label)}</span></li>')
         else:
             items.append(f'<li><a href="{esc(href)}">{esc(label)}</a></li>')
+    live = f' data-view="{esc(view)}" data-version="{esc(ver)}"' if view is not None else ""
     return f"""<!doctype html>
-<html lang="en">
+<html lang="en"{live}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -66,6 +80,7 @@ def page(title, body, asof, now, crumbs=()):
 <header class="topbar">
 <nav class="breadcrumbs" aria-label="Breadcrumb"><ol>{"".join(items)}</ol></nav>
 <div class="topbar__end">
+<span class="live" data-live="idle" role="status"><span class="live__reconnecting">reconnecting…</span><span class="live__offline">live updates off — retrying</span></span>
 <button type="button" class="btn btn--ghost btn--sm" data-theme-toggle aria-label="Theme: follow the system">Theme: auto</button>
 </div>
 </header>
@@ -206,8 +221,8 @@ def fleet_card(f, now, rate=()):
 </article>"""
 
 
-def overview(view, now):
-    """The host overview: every registered fleet, its state, and a link to its page."""
+def overview_regions(view, now):
+    """The host overview's regions: the header (fleet count, as-of), host-wide attention, the fleets."""
     fleets = view["fleets"]
     rate = view.get("rate") or []
     if fleets:
@@ -223,17 +238,25 @@ def overview(view, now):
         f'until {_rel(a["until"], now)}</p><p>No fleet on this host calls <code>gh</code> with it until then; '
         f'claims wait.</p></div></div>'
         for a in view.get("attention") or ())
-    host = f'<section data-region="host-attention" class="stack stack--sm">{host}</section>\n' if host else ""
-    body = f"""<div class="page-header">
+    hidden = "" if host else " hidden"
+    return {
+        "header": f"""<section data-region="header" class="page-header">
 <div class="page-header__main">
 <h1 class="page-header__title">Fleets on this host</h1>
-<p class="page-header__meta"><span>{n} fleet{"" if n == 1 else "s"}</span>{asof_stamp(view["asof"], now)}</p>
+<p class="page-header__meta"><span>{n} fleet{"" if n == 1 else "s"}</span>{asof_stamp(view["asof"], now, page=True)}</p>
 </div>
-</div>
-{host}<section data-region="fleets" class="fleets">
+</section>""",
+        "host-attention": f'<section data-region="host-attention" class="stack stack--sm"{hidden}>{host}</section>',
+        "fleets": f"""<section data-region="fleets" class="fleets">
 {cards}
-</section>"""
-    return page("Fleets", body, view["asof"], now)
+</section>""",
+    }
+
+
+def overview(view, now):
+    """The host overview: every registered fleet, its state, and a link to its page."""
+    regs = overview_regions(view, now)
+    return page("Fleets", "\n".join(regs.values()), view["asof"], now, view="/", ver=version(regs))
 
 
 # DAG node state → its label. Colour comes from app.css (`.dag [data-state=…]`, the --s-* tokens).
@@ -300,8 +323,9 @@ def _pill(state):
     return f'<span class="dag-pill" data-state="{esc(state)}">{esc(NODE_LABEL.get(state, state))}</span>'
 
 
-def unit_section(u, now):
-    """One repo: its PRD DAG, each PRD's children as their own DAG, then the unparented issues."""
+def unit_regions(u, now):
+    """One repo's two regions: its PRD DAG with each PRD's children as their own DAG, then the
+    unparented issues."""
     slug = esc(u["slug"])
     if u.get("missing"):
         dag = ('<p class="muted">No board snapshot for this repo yet — the poller writes one on its next '
@@ -334,7 +358,7 @@ def unit_section(u, now):
         loose_html = f'<ul class="unparented">{items}</ul>'
     else:
         loose_html = '<p class="muted">None.</p>'
-    return f"""<section data-region="dag-{slug}" class="panel unit" aria-labelledby="unit-{slug}">
+    return {f"dag-{u['slug']}": f"""<section data-region="dag-{slug}" class="panel unit" aria-labelledby="unit-{slug}">
 <header class="panel__header">
 <h2 class="panel__title" id="unit-{slug}"><span class="mono">{slug}</span></h2>
 {asof_stamp(u["asof"], now)}
@@ -342,28 +366,41 @@ def unit_section(u, now):
 <div class="panel__body stack">
 {dag}
 </div>
-</section>
-<section data-region="unparented-{slug}" class="panel unit">
+</section>""", f"unparented-{u['slug']}": f"""<section data-region="unparented-{slug}" class="panel unit">
 <header class="panel__header"><h2 class="panel__title">Unparented issues <span class="mono muted">{slug}</span></h2></header>
 <div class="panel__body">
 {loose_html}
 </div>
-</section>"""
+</section>"""}
+
+
+def fleet_regions(view, now):
+    """/fleet/<prefix>'s regions: the header (state, as-of), then each unit's DAG and unparented list."""
+    cls, label = STATES.get(view["state"], ("level--grey", view["state"]))
+    regs = {"header": f"""<section data-region="header" class="page-header">
+<div class="page-header__main">
+<h1 class="page-header__title">Fleet {esc(view["prefix"])} <span class="level {cls}">{esc(label)}</span></h1>
+<p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now, page=True)}</p>
+</div>
+</section>"""}
+    for u in view["units"]:
+        regs.update(unit_regions(u, now))
+    return regs
+
+
+def regions(path, view, now):
+    """Every region of the page at <path> ("/" or "/fleet/<prefix>"), in page order."""
+    return overview_regions(view, now) if path == "/" else fleet_regions(view, now)
 
 
 def fleet(view, now):
     """/fleet/<prefix>: per unit (repo), the PRD → issue map as a layered DAG + the unparented list."""
-    cls, label = STATES.get(view["state"], ("level--grey", view["state"]))
-    units = "\n".join(unit_section(u, now) for u in view["units"]) or \
-        '<p class="muted">This fleet serves no repos.</p>'
+    regs = fleet_regions(view, now)
+    header, units = regs.pop("header"), "\n".join(regs.values())
     legend = "".join(f"<li>{_pill(s)}</li>" for s in ("closed", "agent-blocked", "in-progress", "in-review",
                                                       "blocked", "open"))
-    body = f"""<div class="page-header">
-<div class="page-header__main">
-<h1 class="page-header__title">Fleet {esc(view["prefix"])} <span class="level {cls}">{esc(label)}</span></h1>
-<p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now)}</p>
-</div>
-</div>
+    body = f"""{header}
 <ul class="dag-legend" aria-label="Issue states">{legend}</ul>
-{units}"""
-    return page(f"Fleet {view['prefix']}", body, view["asof"], now, crumbs=[(f"Fleet {view['prefix']}", None)])
+{units or '<p class="muted">This fleet serves no repos.</p>'}"""
+    return page(f"Fleet {view['prefix']}", body, view["asof"], now, crumbs=[(f"Fleet {view['prefix']}", None)],
+                view=f"/fleet/{view['prefix']}", ver=version(dict(regs, header=header)))

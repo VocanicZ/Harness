@@ -627,10 +627,19 @@ Every view carries a **data as of** stamp: the `generated_at` of the oldest boar
 so a stalled poller shows as stale data rather than as a quiet fleet. `/api/host` and
 `/api/fleet/<prefix>` return the same views as JSON.
 
+Open pages update live, with no reload. Each page subscribes to `GET /events?view=<page>`, a
+Server-Sent Events stream. The server checks its local inputs every `HARNESS_WEB_TICK` seconds: the
+board snapshots, the event log, the run dirs, the supervisor and rate-limit files and `tmux ls`. When
+one changes, it pushes the page parts that changed. An issue opened, closed, labelled or claimed
+appears within one board-cache refresh, and the **data as of** stamp moves with it. A dropped stream
+reconnects by itself, and the header says "reconnecting…" until it does.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `HARNESS_WEB_BIND` | `127.0.0.1` | address the server listens on |
 | `HARNESS_WEB_PORT` | `4637` | port the server listens on |
+| `HARNESS_WEB_TICK` | `2` | seconds between the live-update checks of local state |
+| `HARNESS_WEB_MAX_STREAMS` | `32` | open live-update streams allowed; the next one gets `503` |
 
 By default only the host itself can open it. The claude host sets `HARNESS_WEB_BIND=0.0.0.0` so the
 dashboard can be opened from the LAN.

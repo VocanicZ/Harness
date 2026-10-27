@@ -1,6 +1,7 @@
-/* harness web — app.js (#223). Theme toggle only, for now: auto (follow the OS) → light → dark.
-   The choice is a per-viewer convenience kept in localStorage; every access is guarded, so the page
-   renders the same with storage blocked. All HTML comes from the server (scripts/web_render.py). */
+/* harness web — app.js (#223). The theme toggle: auto (follow the OS) → light → dark, a per-viewer
+   convenience kept in localStorage; every access is guarded, so the page renders the same with
+   storage blocked. Live updates (#227): an EventSource on /events swaps each pushed region whole.
+   All HTML comes from the server (scripts/web_render.py); nothing here renders data. */
 (function () {
   "use strict";
   var KEY = "harness-web-theme";
@@ -32,5 +33,75 @@
       apply(next);
       label(btn, next);
     });
+  });
+
+  // --- live updates (#227) ----------------------------------------------------------------------
+  // `patch` carries {asof, regions: {id: html}}: each region's <section data-region> is replaced
+  // whole. Focus inside a replaced region goes back to the same issue node or link, else to the
+  // region. A region the page does not have means the page's shape changed (a repo joined): reload.
+  function region(id) {
+    var all = document.querySelectorAll("[data-region]");
+    for (var i = 0; i < all.length; i++) if (all[i].getAttribute("data-region") === id) return all[i];
+    return null;
+  }
+  function swap(id, html) {
+    var old = region(id);
+    if (!old) return false;
+    var active = document.activeElement;
+    var had = active && old.contains(active);
+    var issue = had && active.getAttribute ? active.getAttribute("data-issue") : null;
+    var href = had && active.getAttribute ? active.getAttribute("href") : null;
+    var tpl = document.createElement("template");
+    tpl.innerHTML = html.trim();
+    var fresh = tpl.content.firstElementChild;
+    if (!fresh) return true;
+    old.replaceWith(fresh);
+    if (had) {
+      var target = null, cands = fresh.querySelectorAll(issue ? "[data-issue]" : "[href]");
+      for (var i = 0; i < cands.length && !target; i++) {
+        if (issue ? cands[i].getAttribute("data-issue") === issue : cands[i].getAttribute("href") === href) target = cands[i];
+      }
+      if (!target) { fresh.setAttribute("tabindex", "-1"); target = fresh; }
+      target.focus();
+    }
+    return true;
+  }
+  function live(state) {
+    var el = document.querySelector("[data-live]");
+    if (el) el.setAttribute("data-live", state);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var root = document.documentElement;
+    var view = root.getAttribute("data-view");
+    if (!view || !window.EventSource) return;
+    // EventSource retries a dropped stream by itself, but gives up for good on a non-200 answer
+    // (a fleet briefly unregistered by `harness stop`/`update`, a 503 when every slot is taken).
+    // Then open a fresh one after a pause, from the version this page holds.
+    function connect() {
+      var es = new EventSource("/events?view=" + encodeURIComponent(view) +
+        "&since=" + encodeURIComponent(root.getAttribute("data-version") || ""));
+      es.addEventListener("open", function () { live("live"); });
+      es.addEventListener("error", function () {
+        if (es.readyState !== EventSource.CLOSED) { live("reconnecting"); return; }
+        live("offline");
+        es.close();
+        setTimeout(connect, 15000);
+      });
+      es.addEventListener("patch", onPatch);
+    }
+    function onPatch(ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      var regions = msg.regions || {};
+      for (var id in regions) {
+        if (Object.prototype.hasOwnProperty.call(regions, id) && !swap(id, regions[id])) {
+          window.location.reload();
+          return;
+        }
+      }
+      if (ev.lastEventId) root.setAttribute("data-version", ev.lastEventId);
+    }
+    connect();
   });
 })();
