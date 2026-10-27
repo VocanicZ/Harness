@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # seed.sh — create (if absent) and seed a GitHub repo for a harness unit:
 #   labels (harness vocabulary), auto-merge enabled, and — only with HARNESS_SEED_CI=1 — a
-#   language-agnostic CI workflow plus branch protection requiring it.
+#   language-agnostic CI workflow plus branch protection requiring it. Unless HARNESS_DISABLE_CI=0,
+#   it also disables the repo's existing test-CI workflows (#245: Harness projects run no GitHub CI).
 # Idempotent.
 #
 # Usage:
 #   seed.sh --labels-only <owner/repo>   # only create/update labels on an existing repo
+#   seed.sh --disable-ci <owner/repo>    # only disable the repo's GitHub Actions per HARNESS_DISABLE_CI
 #   seed.sh <unit-id>                    # full bootstrap for a unit
 #
 # Generalisation notes (vs. original seed-repo.sh):
@@ -52,6 +54,48 @@ _seed_labels(){
 }
 
 # ---------------------------------------------------------------------------
+# _seed_disable_ci — disable $_SEED_SLUG's GitHub Actions workflows (#245).
+#
+# Harness disables GitHub CI by default: the gate is local (scripts/ci-local.sh, else the full suite
+# on the rebased head), so a leftover ci.yml only burns Actions minutes and hands lanes a verdict
+# they must not read. HARNESS_DISABLE_CI picks the reach:
+#   1   (default) — test-CI only; a workflow whose name or file says release/deploy/publish/pages/cd is
+#                   left alone, because that is how the project ships, not how it gates.
+#   all           — every active workflow, release and deploy included.
+#   0             — touch nothing.
+# HARNESS_SEED_CI=1 is an explicit opt-in to GitHub CI, so it wins: nothing is disabled.
+# GitHub-managed workflows (dependabot, CodeQL default setup — paths outside .github/workflows/)
+# cannot be disabled this way and are skipped. Best-effort: a gh failure logs and moves on.
+# ---------------------------------------------------------------------------
+_seed_disable_ci(){
+  local mode="${HARNESS_DISABLE_CI:-1}" rows name path state id kept=""
+  [[ "$mode" == 0 || "${HARNESS_SEED_CI:-0}" == 1 ]] && return 0
+  rows="$(gh api "repos/$_SEED_SLUG/actions/workflows" --paginate \
+            --jq '.workflows[] | [.id, .state, .path, .name] | @tsv' 2>/dev/null)" \
+    || { log "warn: could not list $_SEED_SLUG's workflows — none disabled"; return 0; }
+  while IFS=$'\t' read -r id state path name; do
+    [[ -n "$id" && "$state" == active && "$path" == .github/workflows/* ]] || continue
+    if [[ "$mode" != all ]] && _seed_is_ship_workflow "$name" "$path"; then kept+=" ${path##*/}"; continue; fi
+    if gh workflow disable "$id" -R "$_SEED_SLUG" >/dev/null 2>&1; then
+      log "disabled GitHub CI workflow on $_SEED_SLUG: ${path##*/} ($name) — the gate is local (#245)"
+    else log "warn: could not disable workflow ${path##*/} on $_SEED_SLUG (continuing)"; fi
+  done <<<"$rows"
+  [[ -z "$kept" ]] || log "left release/deploy workflows on $_SEED_SLUG running:$kept (HARNESS_DISABLE_CI=all disables them too)"
+}
+# _seed_is_ship_workflow <name> <path> — 0 when the workflow releases or deploys rather than tests.
+_seed_is_ship_workflow(){
+  grep -qiE '(^|[^a-z])(releases?|deploys?|deployments?|publish|pages|cd)([^a-z]|$)' <<<"$1 ${2##*/}"; }
+
+# ---------------------------------------------------------------------------
+# --disable-ci <slug> fast path (harness init / setup on a single-topology repo)
+# ---------------------------------------------------------------------------
+if [[ "${1:-}" == "--disable-ci" ]]; then
+  _SEED_SLUG="${2:?--disable-ci requires <owner/repo>}"
+  _seed_disable_ci
+  return 0 2>/dev/null || exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # --labels-only <slug> fast path
 # Source-safe: `return 0` succeeds when sourced; falls back to `exit 0` when run.
 # ---------------------------------------------------------------------------
@@ -85,6 +129,8 @@ fi
 
 # Labels.
 _seed_labels
+# Existing GitHub CI off (#245) — before the opt-in seeding below, which turns this into a no-op.
+_seed_disable_ci
 
 # Language-agnostic CI workflow — OPT-IN. Committing a workflow into someone's repo is not the
 # engine's call to make by default: it lands a commit on their default branch and spends their

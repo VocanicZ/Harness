@@ -57,7 +57,8 @@ for p in impl bug-fix resume; do
   assert "$p: pre-existing reds re-run on the base" "grep -q 'not automatically YOURS' '$R'"
   # The loophole the audit found: a test that merely reaches the new code proves nothing.
   assert "$p: requires a test that fails without the change" "grep -qiE 'FAILS WITHOUT|FAILS ON THE UNFIXED' '$R'"
-  assert "$p: covers the no-CI-configured case"  "grep -q 'NO CHECKS CONFIGURED' '$R'"
+  # #245: no GitHub CI — a repo without its own CI entrypoint is gated on the full local suite.
+  assert "$p: full suite is the gate when no local CI entrypoint" "grep -qi 'otherwise the FULL suite' '$R'"
   assert "$p: forbids weakening a test to go green" "grep -qi 'never delete, skip, or weaken' '$R'"
   assert "$p: rebase re-selects with rtdd which" "grep -q 'Rounds 1 and 2 (the rebase changed your diff' '$R'"
   # v0.3 removed all of these; a lane told to use them follows broken instructions.

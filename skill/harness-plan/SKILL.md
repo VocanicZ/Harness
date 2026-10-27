@@ -8,7 +8,7 @@ description: Inject a structural / topology change into a LIVE Harness fleet —
 Thin wrapper around `.harness/bin/harness plan "<brief>"`. The altitude here is **structural**: edit
 the umbrella `PLAN.md` and/or the multi-target `targets.tsv` (add a unit, change a dependency edge),
 cascading down into the PRD body + delta issues, and — for a brand-new target unit — seed it
-(`seed.sh <unit>`: clone + labels + CI) so the pool can claim it once its deps complete. The
+(`seed.sh <unit>`: clone + labels, existing test CI disabled) so the pool can claim it once its deps complete. The
 mutation happens in a headless injector; your job here is to **grill the change, then gate it behind
 an explicit human confirmation**. Mutate NOTHING while grilling.
 
