@@ -10,6 +10,14 @@ UNINSTALL="$HERE/../scripts/uninstall.sh"
 CLI="$HERE/../bin/harness"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 
+# The host's agy is host state too (#236): remove_skills runs `agy plugin uninstall harness-ralph`,
+# and against the real binary that strips agy's goal loop off a live fleet host. Pin BOTH seams at a
+# logging stub — export HARNESS_AGY_BIN (overriding any value a live fleet exported, which would
+# bypass PATH) and put the stub first on PATH as a fallback. Every subprocess below inherits both.
+AGY_STUB_DIR="$(mktemp -d)"; AGY_LOG="$AGY_STUB_DIR/agy.log"; : > "$AGY_LOG"
+printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
+export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
+
 # mk_layout <root> — build a throwaway install+project under <root>: a shared engine dir, a PATH
 # symlink onto it, user-scope /harness* skills (umbrella + per-command) alongside an UNRELATED
 # skill that must survive, and a project whose state-only .harness/ + .gitignore carry a removable
@@ -51,6 +59,22 @@ assert "--force removes umbrella /harness skill"   "[[ ! -e '$R/.claude/skills/h
 assert "--force removes /harness-init skill"        "[[ ! -e '$R/.claude/skills/harness-init' ]]"
 assert "--force removes /harness-uninstall skill"   "[[ ! -e '$R/.claude/skills/harness-uninstall' ]]"
 assert "--force keeps unrelated skill (to-prd)"     "[[ -e '$R/.claude/skills/to-prd' ]]"
+assert "--force uninstalls the agy harness-ralph plugin via HARNESS_AGY_BIN" \
+  "[[ \"\$(cat '$AGY_LOG')\" == 'plugin uninstall harness-ralph' ]]"
+
+# ── agy is best-effort: a missing or failing HARNESS_AGY_BIN never fails the uninstall ─────
+for agy_case in missing failing; do
+  RA="$(mktemp -d)"; mk_layout "$RA"
+  if [[ $agy_case == missing ]]; then agy_bin="$RA/no-such-agy"
+  else agy_bin="$RA/failing-agy"; printf '#!/usr/bin/env bash\nexit 7\n' > "$agy_bin"; chmod +x "$agy_bin"; fi
+  HARNESS_AGY_BIN="$agy_bin" HARNESS_UNINSTALL_NOMAIN=1 HARNESS_HOME="$RA/.harness" HARNESS_BIN_DIR="$RA/bin" \
+    HARNESS_USER_SKILLS="$RA/.claude/skills" STATE_DIR="$RA/proj/.harness" \
+    bash -c "$SINGLE_FLEET" _ "$UNINSTALL" --force </dev/null >/dev/null 2>&1; rca=$?
+  assert "$agy_case HARNESS_AGY_BIN: --force still exits 0"        "[[ $rca -eq 0 ]]"
+  assert "$agy_case HARNESS_AGY_BIN: still removes the engine"     "[[ ! -e '$RA/.harness/engine' ]]"
+  assert "$agy_case HARNESS_AGY_BIN: still removes project state"  "[[ ! -e '$RA/proj/.harness' ]]"
+  assert "$agy_case HARNESS_AGY_BIN: still removes /harness skills" "[[ ! -e '$RA/.claude/skills/harness' ]]"
+done
 
 # ── confirm guard: declining the default (confirm-gated) path removes NOTHING ───────────
 R2="$(mktemp -d)"; mk_layout "$R2"
