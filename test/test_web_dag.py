@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """test_web_dag.py — #224: the fleet page's DAG is status-page.py's DAG. On the recorded o/arc board,
 web_dag's nodes, edges, layers, parent attribution and PRD states equal what status-page.py's own
-logic derives (arc_model), and that answer is frozen in arc-golden.json so it survives status-page.py
-being removed (#230)."""
-import importlib.util, json, os, re, sys
+logic derived (arc_model). That answer is frozen in arc-golden.json, which outlives the script
+(removed in #230) as the reference expectation."""
+import json, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import web_fixture as wf
@@ -11,28 +11,12 @@ dag = wf.load("web_dag")
 BOARD = json.load(open(os.path.join(wf.FIX, "snapshots", "o__arc.json")))
 GOLDEN = os.path.join(wf.FIX, "arc-golden.json")
 LABELS = {"prd": "prd", "working": "agent-working", "blocked": "agent-blocked", "ready": "ready-for-agent"}
-SP = os.path.join(wf.ROOT, "skill", "harness-arc", "scripts", "status-page.py")
-
-
-def status_page():
-    spec = importlib.util.spec_from_file_location("status_page", SP)
-    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-    return m
-
-
-def labelled(i, name):
-    return any(l["name"] == name for l in i["labels"])
 
 
 def test_matches_status_page_exactly():
     got = dag.arc_projection(dag.unit_graph(BOARD, LABELS))
     golden = json.load(open(GOLDEN))
     assert got == golden, json.dumps({"got": got, "golden": golden}, indent=1)
-    if os.path.exists(SP):    # until #230 removes it, the golden must still be status-page.py's answer
-        issues = BOARD["issues"]
-        prds = sorted((i for i in issues if labelled(i, "prd")), key=lambda i: i["number"])
-        want = json.loads(json.dumps(status_page().arc_model(prds, issues)))   # int keys -> str, as on disk
-        assert golden == want, "arc-golden.json drifted from status-page.py"
 
 
 def test_last_blocked_by_section_wins():

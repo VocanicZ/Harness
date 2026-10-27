@@ -89,25 +89,28 @@ failure each one was written for are in [REFERENCE.md](REFERENCE.md).
 
 Never hand-do a unit's implementation work. Operate the fleet like a CI operator.
 
-## 5. Status page — hand the human a link, not a CLI
+## 5. Dashboard — hand the human a link, not a CLI
 
 An arc runs for days across a chain the user never sees whole. `harness status` answers "is it up";
-it does not answer "where is this going and what does it need from me". Publish a page that does:
+it does not answer "where is this going and what does it need from me". The fleet page does:
 
-```bash
-HARNESS_SLUG=owner/repo HARNESS_UNIT=<unit> HARNESS_SESS_PREFIX=<prefix> \
-  python3 scripts/status-page.py -o <scratch>/arc.html --title "<Name> Delivery Arc"
+```
+http://<host>:4637/fleet/<prefix>
 ```
 
-Then publish it with the Artifact tool (favicon 🧭). **Re-run the same command and republish the
-same file path** to refresh it — the URL is stable, so one link stays current for the whole arc.
+`<prefix>` is the fleet's session prefix (`HARNESS_SESS_PREFIX`). `harness web` serves it in the
+foreground; `harness web --install` keeps it running as a systemd user unit that `harness update`
+redeploys. On the claude host, install it with `HARNESS_WEB_BIND=0.0.0.0` so the link opens from
+the LAN. Hand the user that link once — the page is live (it updates itself within one board-cache
+refresh of an issue opening, closing, being labelled or claimed), so there is nothing to regenerate.
 
-It reads the chain from GitHub and invents nothing: PRDs by the `prd` label, edges from the **last**
-`## Blocked by` header in each body (prose mentions the header too — parsing the first match is how
-a PRD silently reads as unblocked), child counts by `## Parent`, decisions from `wayfinder:*`, and
-live panes from tmux. The chain renders as a **layered DAG**, not a list, because a fork is real
-information: a list of six sequential-looking rows hides that two of them run in parallel.
+It reads the chain from the poller's board cache and invents nothing: PRDs by the `prd` label,
+edges from the **last** `## Blocked by` header in each body (prose mentions the header too —
+parsing the first match is how a PRD silently reads as unblocked), child counts by `## Parent`,
+decisions from `wayfinder:*`, and live panes from tmux. The chain renders as a **layered DAG**, not
+a list, because a fork is real information: a list of six sequential-looking rows hides that two of
+them run in parallel.
 
-Regenerate it at the moments the user actually needs it: after filing the chain, when a PRD closes,
-and whenever a wayfinder ticket becomes answerable. The "Awaiting you" count is the number that
-matters — it is the arc's only real blocking surface.
+Point the user at it at the moments they actually need it: after filing the chain, when a PRD
+closes, and whenever a wayfinder ticket becomes answerable. The "Awaiting you" panel is the number
+that matters — it is the arc's only real blocking surface.

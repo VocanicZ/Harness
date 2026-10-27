@@ -105,24 +105,24 @@ the supervisor neither resets the review-loop count nor re-fires an alarm alread
 - **Read a whole section before concluding.** A `## Blocked by` with two entries looks like one if
   you capture only the first line.
 
-## Status page (`scripts/status-page.py`)
+## Dashboard (`http://<host>:4637/fleet/<prefix>`)
+
+Served by `harness web`; the DAG is `scripts/web_dag.py`, its inputs `scripts/web_data.py`. It
+reads only local state — the poller's board snapshots, never `gh` per page view.
 
 | Reads | From |
 |---|---|
-| PRDs, state, URLs | `gh issue list --label prd` |
+| PRDs, state | the `prd` label in the unit's board snapshot |
 | Dependency edges | the **last** `## Blocked by` header per body — never the first |
 | Child counts | `## Parent` on every non-PRD, non-wayfinder issue |
-| Decisions | `wayfinder:*` labels; the map is `wayfinder:map` |
-| In-flight | `agent-working` label + `tmux ls` matched on `HARNESS_SESS_PREFIX` |
+| Decisions | `wayfinder:*` labels; the map is `wayfinder:map` — the "Awaiting you" panel |
+| In-flight | `agent-working` label + live tmux sessions matched on the fleet prefix |
 
 State is derived, not stored: `done` = closed; `waiting` = any dep still open; `running` = has
-children or an `agent-working` label; `ready` = eligible with nothing started. `ready` sitting
-still across two regenerations is the **decompose stalled** signal from the supervisor table, visible
-here as a box that never turns amber.
+children or an `agent-working` label; `ready` = eligible with nothing started. A node that stays
+`ready` across two cache refreshes is the **decompose stalled** signal from the supervisor table,
+visible here as a box that never turns amber.
 
 Layering is longest-path with a cycle guard, so a mis-wired self-referential `## Blocked by`
-renders instead of hanging.
-
-Colour tokens are defined on bare `:root` and redefined for both dark paths — a token defined only
-inside a media block renders one theme's text on the other theme's ground. If you extend the
-template, keep that shape.
+renders instead of hanging. `test/test_web_dag.py` pins all of it to a frozen golden,
+`test/fixtures/web/arc-golden.json`.

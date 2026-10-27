@@ -859,7 +859,7 @@ For one-shot ops without the state-detection dance, thin sibling skills map 1:1 
 
 Use `/harness` when you want the full set-up-aware operator (detect state, observe, unstick); use the shortcuts when you already know the action you want.
 
-`/harness-arc` deploys a design too big for one PRD as a sequenced chain of PRDs plus a wayfinder map of the decisions the fleet cannot make. It ships whole (`SKILL.md`, `REFERENCE.md`, `scripts/preflight.sh`, `scripts/status-page.py`) and deploys with the other skills. Its stall rules run in the [host supervisor](#host-supervisor); the skill reads `harness supervise --alarms` instead of arming a watchdog of its own.
+`/harness-arc` deploys a design too big for one PRD as a sequenced chain of PRDs plus a wayfinder map of the decisions the fleet cannot make. It ships whole (`SKILL.md`, `REFERENCE.md`, `scripts/preflight.sh`) and deploys with the other skills; its status view is the `harness web` fleet page, `http://<host>:4637/fleet/<prefix>`. Its stall rules run in the [host supervisor](#host-supervisor); the skill reads `harness supervise --alarms` instead of arming a watchdog of its own.
 
 ## Autonomy
 
