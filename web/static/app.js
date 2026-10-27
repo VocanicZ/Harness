@@ -152,7 +152,8 @@
     });
   }
   function opener(t) {
-    var sel = '[data-issue="' + CSS.escape(t.issue) + '"]';
+    var n = CSS.escape(t.issue);
+    var sel = '[data-issue="' + n + '"], [data-awaiting="' + n + '"] > a';   // a DAG node, or an "Awaiting you" item
     var scopes = [t.region && document.querySelector('[data-region="' + CSS.escape(t.region) + '"]'), document.querySelector("main")];
     for (var s = 0; s < scopes.length; s++) {
       var all = scopes[s] ? scopes[s].querySelectorAll(sel) : [];

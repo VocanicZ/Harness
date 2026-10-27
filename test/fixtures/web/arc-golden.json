@@ -41,5 +41,15 @@
   "2": "running",
   "3": "running",
   "4": "waiting"
- }
+ },
+ "tickets": [
+  [
+   31,
+   false
+  ],
+  [
+   32,
+   true
+  ]
+ ]
 }

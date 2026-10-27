@@ -74,3 +74,17 @@
 .drawer__timeline { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs);
   border-left: 2px solid var(--color-border-subtle); padding-left: var(--space-2); }
 .drawer__when { color: var(--color-text-secondary); }
+
+/* "Awaiting you" (#229): the human-only work leads the fleet page. Resolved tickets fold away. */
+.awaiting { list-style: none; display: flex; flex-direction: column; gap: var(--space-1-5); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.awaiting a { color: var(--color-text); }
+.awaiting__kind { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--color-text-muted); background: var(--color-bg-muted);
+  padding: 0 var(--space-1-5); border-radius: var(--radius-xs); }
+.awaiting__item[data-kind="agent-blocked"] .awaiting__kind { color: var(--color-red-text); }
+.awaiting__item[data-resolved="true"] { opacity: 0.72; }
+.awaiting__resolved summary { cursor: pointer; font-size: var(--text-sm); color: var(--color-text-secondary); }
+.awaiting__resolved[open] summary { margin-bottom: var(--space-1-5); }
+/* The stats overlay (#229): tokens · model · retries, quieter than the node's own text. */
+.dag__stat { font-family: var(--font-sans); font-size: 11px; fill: var(--color-text-muted); }
+.prd__stats { font-size: var(--text-xs); }

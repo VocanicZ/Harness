@@ -74,7 +74,8 @@ def layers(nodes, deps):
 
 
 def arc_model(prds, allis):
-    """The arc's DAG as data: {"deps", "kids", "layers", "states"}, each keyed by PRD number.
+    """The arc's DAG as data: {"deps", "kids", "layers", "states"}, each keyed by PRD number, plus
+    "tickets": [[number, resolved]] of the wayfinder tickets (the "Awaiting you" panel's).
     Children count by `## Parent` (PRDs and wayfinder issues are never children); a PRD is done
     (closed) / waiting (an open dep) / running (has children or is agent-working) / ready.
     `harness web`'s fleet page (scripts/web_dag.py) is golden-tested against this (#224)."""
@@ -102,7 +103,15 @@ def arc_model(prds, allis):
         return "ready"
 
     return {"deps": deps, "kids": kids, "layers": layers(set(deps), deps),
-            "states": {n: state_of(n) for n in deps}}
+            "states": {n: state_of(n) for n in deps},
+            "tickets": sorted([t["number"], t["state"] == "CLOSED"] for t in wayfinder_tickets(allis))}
+
+
+def wayfinder_tickets(allis):
+    """Every `wayfinder:*` issue but the map, in number order."""
+    return sorted([i for i in allis
+                   if any(l["name"].startswith("wayfinder:") and l["name"] != "wayfinder:map"
+                          for l in i["labels"])], key=lambda i: i["number"])
 
 
 def dag_svg(prds, deps, state_of):
@@ -172,9 +181,7 @@ def main():
         return model["states"][p["number"]]
 
     wf_map = next((i for i in allis if any(l["name"] == "wayfinder:map" for l in i["labels"])), None)
-    tickets = sorted([i for i in allis
-                      if any(l["name"].startswith("wayfinder:") and l["name"] != "wayfinder:map"
-                             for l in i["labels"])], key=lambda i: i["number"])
+    tickets = wayfinder_tickets(allis)
 
     root = pathlib.Path.cwd()
     logs = sorted((root / ".harness" / "run").glob("worker-*.log")) if (root / ".harness").exists() else []

@@ -277,36 +277,74 @@ NODE_LABEL = {
     "in-review": "in review", "blocked": "blocked", "open": "open",
 }
 CW, RH, BW, BH = 250, 96, 186, 54   # status-page.py's geometry: column, row, box width, box height
+STAT_H = 16                         # the stats overlay's third line (#229)
 
 
 def _short(s, n):
     return s if len(s) <= n else s[:n - 1] + "…"
 
 
+def _compact(n):
+    """8700 → 8.7k, 2400000 → 2.4M: a token count that fits a DAG box."""
+    for div, unit in ((1_000_000, "M"), (1_000, "k")):
+        if n >= div:
+            return f"{n / div:.1f}".rstrip("0").rstrip(".") + unit
+    return str(n)
+
+
+def _stat_parts(st, short):
+    """The overlay's words, tokens · model · retries (#229), each only when the log has it. <short>:
+    the DAG box's compact form."""
+    parts = []
+    if "tokens" in st:
+        parts.append(f'{_compact(st["tokens"])} out' if short else f'{st["tokens"]:,} output tokens')
+    if st.get("model"):
+        parts.append(st["model"].replace("claude-", "") if short else st["model"])
+    r = st["retries"]
+    parts.append(f'{r} {"retry" if r == 1 else "retries"}')
+    return parts
+
+
+def _stat_attrs(st):
+    return (f' data-tokens="{st["tokens"]}"' if "tokens" in st else "") + f' data-retries="{st["retries"]}"'
+
+
+def prd_stats_line(st):
+    """A PRD header's rollup (stats.prd_rollup's total), or nothing at all without data."""
+    if not st:
+        return ""
+    n = st["sessions"]
+    words = " · ".join(esc(w) for w in _stat_parts(st, False) + [f'{n} session{"" if n == 1 else "s"}'])
+    return f'<span class="prd__stats muted"{_stat_attrs(st)}>{words}</span>'
+
+
 def dag_svg(nodes, edges, label, prd=False):
     """A layered DAG as inline SVG, laid out as status-page.py lays it out: one column per layer,
     nodes in number order down a column, centred. Each node is a focusable `<a href="?issue=N">`.
-    <prd> marks PRD nodes (data-prd, and the "[AFK] PRD:" title prefix trimmed)."""
+    <prd> marks PRD nodes (data-prd, and the "[AFK] PRD:" title prefix trimmed). A node with `stats`
+    (#229) gets a third line, and every box in that DAG grows to hold it."""
     if not nodes:
         return ""
     by = {n["number"]: n for n in nodes}
+    grow = STAT_H if any(n.get("stats") for n in nodes) else 0
+    bh, rh = BH + grow, RH + grow
     cols = {}
     for n in sorted(by):
         cols.setdefault(by[n]["layer"], []).append(n)
     W = max(CW * (max(cols) + 1) + 60, 420)
-    H = max(RH * max(len(v) for v in cols.values()) + 50, 160)
+    H = max(rh * max(len(v) for v in cols.values()) + 50, 160)
     pos = {}
     for c, ns in cols.items():
-        off = (H - len(ns) * RH) / 2
+        off = (H - len(ns) * rh) / 2
         for i, n in enumerate(ns):
-            pos[n] = (40 + c * CW, off + i * RH + 12)
+            pos[n] = (40 + c * CW, off + i * rh + 12)
     out = [f'<svg class="dag__svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="group" '
            f'aria-label="{esc(label)}">']
     for a, b in edges:
         if a not in pos or b not in pos:
             continue
         (x1, y1), (x2, y2) = pos[a], pos[b]
-        sx, sy, ex, ey = x1 + BW, y1 + BH / 2, x2, y2 + BH / 2
+        sx, sy, ex, ey = x1 + BW, y1 + bh / 2, x2, y2 + bh / 2
         mx = (sx + ex) / 2
         out.append(f'<path class="dag__edge" d="M{sx:g} {sy:g} C{mx:g} {sy:g} {mx:g} {ey:g} {ex:g} {ey:g}" '
                    f'data-edge="{a}-{b}"/><circle class="dag__tip" cx="{ex:g}" cy="{ey:g}" r="2.5"/>')
@@ -319,13 +357,17 @@ def dag_svg(nodes, edges, label, prd=False):
         st = node["state"]
         extra = f' data-prd="{n}" data-layer="{node["layer"]}"' if prd else f' data-layer="{node["layer"]}"'
         sub = rest or NODE_LABEL.get(st, st)
+        stat = ""
+        if node.get("stats"):
+            stat = (f'<text class="dag__stat" x="{x + 14:g}" y="{y + 54:g}"{_stat_attrs(node["stats"])}>'
+                    f'{esc(_short(" · ".join(_stat_parts(node["stats"], True)), 32))}</text>')
         out.append(
             f'<a href="?issue={n}" data-issue="{n}"{extra} data-state="{esc(st)}" tabindex="0" '
             f'aria-label="#{n} {esc(title)} — {esc(NODE_LABEL.get(st, st))}">'
-            f'<rect class="dag__box" x="{x:g}" y="{y:g}" width="{BW}" height="{BH}" rx="4"/>'
-            f'<rect class="dag__bar" x="{x:g}" y="{y:g}" width="3.5" height="{BH}" rx="1.75"/>'
+            f'<rect class="dag__box" x="{x:g}" y="{y:g}" width="{BW}" height="{bh}" rx="4"/>'
+            f'<rect class="dag__bar" x="{x:g}" y="{y:g}" width="3.5" height="{bh}" rx="1.75"/>'
             f'<text class="dag__num" x="{x + 14:g}" y="{y + 21:g}">#{n} {esc(head)}</text>'
-            f'<text class="dag__sub" x="{x + 14:g}" y="{y + 38:g}">{esc(sub)}</text></a>')
+            f'<text class="dag__sub" x="{x + 14:g}" y="{y + 38:g}">{esc(sub)}</text>{stat}</a>')
     out.append("</svg>")
     return "".join(out)
 
@@ -352,7 +394,8 @@ def unit_regions(u, now):
             k = p["kids"]
             head = (f'<h3 class="prd__title"><a href="?issue={p["number"]}">#{p["number"]}</a> '
                     f'{esc(p["title"].replace("[AFK] PRD:", "").strip())} {_pill(p["state"])} '
-                    f'<span class="muted num">{k["closed"]}/{k["closed"] + k["open"]} children closed</span></h3>')
+                    f'<span class="muted num">{k["closed"]}/{k["closed"] + k["open"]} children closed</span>'
+                    f'{prd_stats_line(p.get("stats"))}</h3>')
             if kids:
                 sib = {c["number"] for c in kids}
                 body = (f'<div class="dag">{dag_svg(kids, [e for e in u["edges"] if e[1] in sib], f"Children of #{p['number']}")}'
@@ -385,15 +428,53 @@ def unit_regions(u, now):
 </section>"""}
 
 
+AWAITING_TAG = {"wayfinder": "decision", "agent-blocked": "agent question", "operator": "operator task"}
+
+
+def _awaiting_item(slug, a, many):
+    """One item. Its link opens the drawer but carries no data-issue — that names the issue's DAG node,
+    which the page (and app.js) find by it; the drawer finds this opener by its li's data-awaiting."""
+    repo = f' <span class="mono muted">{esc(slug)}</span>' if many else ""
+    needs = (' <span class="awaiting__needs muted">needs first ' +
+             ", ".join(f'<span class="mono">#{d}</span>' for d in a["needs"]) + "</span>") if a["needs"] else ""
+    return (f'<li class="awaiting__item" data-awaiting="{a["number"]}" data-kind="{esc(a["kind"])}" '
+            f'data-resolved="{"true" if a["resolved"] else "false"}">'
+            f'<span class="awaiting__kind">{esc(AWAITING_TAG.get(a["kind"], a["kind"]))}</span> '
+            f'<a href="?issue={a["number"]}&amp;repo={esc(slug)}">'
+            f'<span class="mono">#{a["number"]}</span> {esc(a["title"])}</a>{repo}{needs}</li>')
+
+
+def awaiting_region(units):
+    """"Awaiting you" (#229): the human-only work across the fleet's repos — open items first, the
+    resolved wayfinder tickets collapsed at the end. status-page.py's wayfinder section, plus
+    agent-blocked questions and operator issues."""
+    many = len(units) > 1
+    items = [(u["slug"], a) for u in units for a in u.get("awaiting") or ()]
+    todo = [_awaiting_item(slug, a, many) for slug, a in items if not a["resolved"]]
+    done = [_awaiting_item(slug, a, many) for slug, a in items if a["resolved"]]
+    body = f'<ul class="awaiting">{"".join(todo)}</ul>' if todo else '<p class="muted">Nothing needs you right now.</p>'
+    if done:
+        body += (f'<details class="awaiting__resolved"><summary>{len(done)} resolved</summary>'
+                 f'<ul class="awaiting">{"".join(done)}</ul></details>')
+    count = f' <span class="level level--amber num">{len(todo)}</span>' if todo else ""
+    return f"""<section data-region="awaiting" class="panel" aria-labelledby="awaiting-title">
+<header class="panel__header"><h2 class="panel__title" id="awaiting-title">Awaiting you{count}</h2></header>
+<div class="panel__body stack stack--sm">
+{body}
+</div>
+</section>"""
+
+
 def fleet_regions(view, now):
-    """/fleet/<prefix>'s regions: the header (state, as-of), then each unit's DAG and unparented list."""
+    """/fleet/<prefix>'s regions: the header (state, as-of), "Awaiting you" (#229) — answer first: the
+    work only a human can do leads the page — then each unit's DAG and unparented list."""
     cls, label = STATES.get(view["state"], ("level--grey", view["state"]))
     regs = {"header": f"""<section data-region="header" class="page-header">
 <div class="page-header__main">
 <h1 class="page-header__title">Fleet {esc(view["prefix"])} <span class="level {cls}">{esc(label)}</span></h1>
 <p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now, page=True)}</p>
 </div>
-</section>"""}
+</section>""", "awaiting": awaiting_region(view["units"])}
     for u in view["units"]:
         regs.update(unit_regions(u, now))
     return regs
