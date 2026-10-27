@@ -20,5 +20,8 @@ throwaway git repo, model `gemini-3.8-flash-low`, launched as Harness does:
 | `hook-transcript.jsonl` | `brain/<id>/.system_generated/logs/transcript.jsonl` of a goal-loop run whose task file names the promise. The agent read that file, and the read's output (logged `source: MODEL`, `type: GENERIC`) carries `<promise>ZEBRA DONE</promise>`; the model's own replies (`PLANNER_RESPONSE`) do not. The harness-ralph Stop hook must keep looping on it. |
 | `model` | The model the capture ran. |
 | `VERSION` | `agy --version`, then the capture date and host. |
+| `fake-cli` | Stands in for `agy` when the matrix runs a typed launch line: it records `session` for the workspace in `cache/last_conversations.json` and puts `transcript.db` at `conversations/<id>.db`, as the capture did. |
+| `stop-hook` | One end of turn as agy runs it: the harness-ralph Stop hook (`plugins/ralph-loop`, which `agy_prereqs` installs), handed `{conversationId, workspacePaths, transcriptPath}`, over `hook-transcript.jsonl` plus one model reply (`PLANNER_RESPONSE`). |
+| `handoff-skill` | How a prompt invokes the handoff skill: agy expands skills as slash commands, `/<name>` (local: `agy --help`, `--disable-slash-commands  Disable slash command and skill expansion`). |
 | `usage-windows.json` | `agy -p "/usage" --output-format json`, run on the host the same day (runs no turn). |
 | `usage-windows.expected` | `<group>\t<window>\t<pct used>` it reports: `100 - remaining_fraction*100`. |

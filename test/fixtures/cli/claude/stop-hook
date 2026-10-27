@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# stop-hook <wd> <session id> [reply] — one end of turn as Claude Code runs it: the Stop hook of the
+# ralph-loop plugin claude_prereqs installs (ralph-loop/, vendored from claude-plugins-official 1.0.1),
+# run in <wd> and handed {session_id, transcript_path}. The transcript is transcript.jsonl written
+# compact, as Claude Code writes it (the capture is pretty-printed), plus one assistant reply: [reply].
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; t="$(mktemp)"
+python3 - "$here/transcript.jsonl" "${3:-(working)}" > "$t" <<'PY'
+import json, sys
+for line in open(sys.argv[1]):
+    print(json.dumps(json.loads(line), separators=(",", ":")))
+reply = {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": sys.argv[2]}]}}
+print(json.dumps(reply, separators=(",", ":")))
+PY
+( cd "$1" && jq -nc --arg s "$2" --arg t "$t" '{session_id: $s, transcript_path: $t}' | bash "$here/ralph-loop/stop-hook.sh" )
+rc=$?; rm -f "$t"; exit $rc

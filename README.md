@@ -55,7 +55,9 @@ Harness lists a CLI here only when every feature works for it. Each CLI is one a
 `scripts/cli/<cli>.sh`, behind the interface in `scripts/cli/dispatch.sh` (the only file that reads
 `HARNESS_CLI`), and `test/test_cli_matrix.sh` runs every row below for every adapter against panes
 and files captured from the real CLI. `test/test_cli_readme.sh` fails when this table and the
-matrix disagree. Each CLI's facts and their sources: [docs/cli-capabilities.md](docs/cli-capabilities.md).
+matrix disagree. Each cell drives Harness's own code path for its row through the adapter. A cell
+that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their sources:
+[docs/cli-capabilities.md](docs/cli-capabilities.md).
 
 | feature | what it proves | `claude` | `agy` |
 |---|---|---|---|
@@ -63,9 +65,9 @@ matrix disagree. Each CLI's facts and their sources: [docs/cli-capabilities.md](
 | `fixtures-recorded` | Panes, transcript and usage samples captured from the real CLI (`test/fixtures/cli/<cli>/`) | ✓ | ✓ |
 | `launch-bootstrap-prompt` | The launch line carries the fixed bootstrap prompt | ✓ | ✓ |
 | `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ |
-| `launch-model` | A lane's model reaches the launch | ✓ | ✓ |
-| `launch-effort-once` | A lane's effort reaches the launch, once | ✓ | ✓ |
-| `session-id` | Harness knows the CLI's own session id (claude: set at launch; agy: read from `cache/last_conversations.json`) | ✓ | ✓ |
+| `launch-model` | A lane's model, pinned by the worktree hook (`.harness-lane`), reaches the launch `launch_agent` types | ✓ | ✓ |
+| `launch-effort-once` | That lane's effort replaces the configured one in the typed launch, once | ✓ | ✓ |
+| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`) | ✓ | ✓ |
 | `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ |
 | `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ |
 | `busy-is-busy` | Every captured running turn is read as busy (claude: the spinner, which Harness's status line leaves without `esc to interrupt`) | ✓ | ✓ |
@@ -76,16 +78,23 @@ matrix disagree. Each CLI's facts and their sources: [docs/cli-capabilities.md](
 | `limit-parks` | A usage-limit message at the prompt parks the lane (#120) | ✓ | ✓ |
 | `transient-is-not-limit` | A transient error is not a limit park | ✓ | ✓ |
 | `trust-pre-accepted` | Workspace trust is pre-accepted (claude: `.claude.json` of every account; agy: `trustedWorkspaces` in `settings.json`) | ✓ | ✓ |
-| `bypass-covers-subagents` | The session and its sub-agents run without approval prompts (claude: `settings.local.json`; agy: `--dangerously-skip-permissions`, inherited by sub-agents) | ✓ | ✓ |
+| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit per agy's changelog) | ✓ | ✓ |
 | `done-signal` | The goal loop's end is seen (the loop state file is gone) | ✓ | ✓ |
-| `loop-mode` | The goal loop is driven (both: a Stop hook — `ralph-loop` / `harness-ralph`) | ✓ | ✓ |
+| `loop-mode` | The goal loop runs: the CLI's Stop hook (`ralph-loop` / `harness-ralph`) re-feeds the task until the turn outputs the promise, then ends the loop | ✓ | ✓ |
 | `transcripts-found` | The session's transcripts are found (agy: `conversations/<id>.db`) | ✓ | ✓ |
 | `usage-from-transcript` | Per-model token usage is read from them (agy: protobuf rows, decoded) | ✓ | ✓ |
 | `stats-session-end-usage` | `harness stats` session_end events carry that usage (#185) | ✓ | ✓ |
 | `usage-windows` | Usage windows are read for #194 checkpoints (claude: status line; agy: `agy -p /usage`) | ✓ | ✓ |
-| `checkpoint-skill` | `pause --force` names the CLI's handoff skill | ✓ | ✓ |
+| `checkpoint-skill` | `pause --force` types the checkpoint into a live lane, naming the handoff skill as the CLI invokes skills (`/handoff`) | ✓ | ✓ |
+| `pause-force-resume-other-host` | That checkpoint, then another host with none of the first one's local state resumes the issue from GitHub (label, pushed branch, handoff comment) | ✓ | ✓ |
+| `inject-sessions` | `/harness-issue`, `/harness-prd` and `/harness-plan` (`inject.sh`) launch their injector through the CLI | ✓ | ✓ |
+| `bug-lane-triage-fix` | The bug lane launches its triage and then its fix session through the CLI | ✓ | ✓ |
+| `review-gauntlet` | The PRD review, with its gauntlet round, launches through the CLI | ✓ | ✓ |
+| `supervisor-frozen-session` | `harness supervise` (#180) nudges the CLI's quiet idle pane, never types into its trust dialog, leaves its limit pane parked | ✓ | ✓ |
+| `rtdd-event-context` | `rtdd` run from a lane's turn gets the session's context through the CLI, and `harness stats` joins the call to the session (#186) | ✓ | ✓ |
 | `send-and-kill` | Nudges and checkpoints are delivered; a session is ended | ✓ | ✓ |
-| `prereqs-named` | `harness setup` names the binary and plugins the CLI needs | ✓ | ✓ |
+| `prereqs-named` | `harness setup` names the missing binary and plugins the CLI needs, and `--install` installs them through it | ✓ | ✓ |
+| `init-wizard-choice` | `harness init` writes the CLI chosen, and a fleet loading that config drives it | ✓ | ✓ |
 
 `agy` lanes need the `harness-ralph` plugin (`plugins/ralph-loop`, installed by `install.sh`): it is
 agy's goal loop. Without it a lane runs one turn and stops; `harness setup` reports it missing.

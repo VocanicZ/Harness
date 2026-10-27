@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# fake-cli — what `agy` leaves on disk when a lane's launch line runs it (README.md): it picks its own
+# conversation id (`session`), records it for the workspace in cache/last_conversations.json, and
+# keeps the token counts in conversations/<id>.db. Then the turn's tool call, $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sid="$(cat "$here/session")"; h="${HARNESS_AGY_HOME:?}"
+mkdir -p "$h/cache" "$h/conversations"
+python3 - "$h/cache/last_conversations.json" "$PWD" "$sid" <<'PY'
+import json, os, sys
+f, wd, sid = sys.argv[1:]
+d = json.load(open(f)) if os.path.exists(f) else {}
+d[wd] = sid
+json.dump(d, open(f, "w"))
+PY
+cp "$here/transcript.db" "$h/conversations/$sid.db"
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"

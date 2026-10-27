@@ -19,4 +19,8 @@ and Harness's own status line (`usage-statusline.sh`) in `.claude/settings.local
 | `model` | The model the capture ran (`--model haiku`). |
 | `VERSION` | `claude --version`, then the capture date and host. |
 | `usage-drop.json` | The file `usage-statusline.sh` (Harness's status line) dropped during the capture from the `rate_limits` Claude Code piped it; `cli_limit_usage` reads these. |
+| `fake-cli` | Stands in for `claude` when the matrix runs a typed launch line: it writes `transcript.jsonl` where Claude Code writes a session's transcript, `projects/<cwd>/<id>.jsonl`, named by `--session-id` (or by an id it picks itself when the line passes none, as claude does). |
+| `stop-hook` | One end of turn as Claude Code runs it: `ralph-loop/stop-hook.sh` in the worktree, handed `{session_id, transcript_path}`, over `transcript.jsonl` written compact (as Claude Code writes it; the capture here is pretty-printed) plus one assistant reply. |
+| `ralph-loop/` | `hooks/stop-hook.sh` and `LICENSE` (Apache-2.0) of the `ralph-loop` plugin 1.0.1 from `claude-plugins-official`, the goal loop `claude_prereqs` installs, copied unchanged from the host's plugin cache. |
+| `handoff-skill` | How a prompt invokes the handoff skill: Claude Code runs a skill as a slash command, `/<name>` (https://code.claude.com/docs/en/skills). |
 | `usage-windows.expected` | `<account>\t<window>\t<pct used>` that drop reports (the test re-dates `resets_at` into the future, since a passed reset is skipped). |
