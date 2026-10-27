@@ -30,6 +30,11 @@ ensure_rtdd
 if [[ -f "$ENGINE_DIR/scripts/supervise.sh" ]] && ( source "$ENGINE_DIR/scripts/supervise.sh"; sup_installed ); then
   bash "$ENGINE_DIR/scripts/supervise.sh" --install || echo "WARNING: redeploying harness supervise failed" >&2
 fi
+# harness web (#226): the same for the dashboard's unit — rewritten from THIS engine (keeping its
+# bind/port) and restarted, so the server never keeps serving the code the pull just replaced.
+if [[ -f "$ENGINE_DIR/scripts/web.sh" ]] && ( source "$ENGINE_DIR/scripts/web.sh"; web_installed ); then
+  bash "$ENGINE_DIR/scripts/web.sh" --install || echo "WARNING: redeploying harness web failed" >&2
+fi
 
 # optional host-level plugin/skill refresh (reuse install.sh's ensure_skills + the /harness skill
 # deploy). The engine was just ff-pulled, so redeploy its /harness skills to user scope from THIS

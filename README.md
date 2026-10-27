@@ -414,7 +414,7 @@ harness <command>
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
 | `poll [--once\|--status]` | Host-level debug entry to the shared snapshot poller. `--once` refreshes every registered repo once; `--status` reports the poller pid + registered slugs/cadences. Normal operation needs no manual `poll` — workers self-heal it (see [Host poller](#host-poller)) |
 | `supervise [--once] [--dry-run]` | Host-level supervisor for **every fleet on the host**: restarts dead pool/priority workers, clears orphaned `agent-working` locks, nudges — then checkpoints to GitHub and kills — sessions frozen at their prompt, and runs the arc stall rules. `--alarms` lists the alarms still firing; `--install` / `--uninstall` manage its systemd user unit. See [Host supervisor](#host-supervisor) |
-| `web` | Read-only **dashboard** of every fleet on the host, served in the foreground on `http://127.0.0.1:4637/`: each registered fleet with its state and a link to its page, from local snapshots only. See [Dashboard](#dashboard) |
+| `web` | Read-only **dashboard** of every fleet on the host, served in the foreground on `http://127.0.0.1:4637/`: each registered fleet with its state and a link to its page, from local snapshots only. `--install` / `--uninstall` manage its systemd user unit. See [Dashboard](#dashboard) |
 | `plan "<brief>"` | Inject a plan/topology change (PLAN.md / `targets.tsv`, incl. seeding a new target repo) into a **live** fleet. Grill via [`/harness-plan`](#per-command-shortcuts) |
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
@@ -634,6 +634,21 @@ so a stalled poller shows as stale data rather than as a quiet fleet. `/api/host
 
 By default only the host itself can open it. The claude host sets `HARNESS_WEB_BIND=0.0.0.0` so the
 dashboard can be opened from the LAN.
+
+To keep it running, install it as a systemd user unit:
+
+```bash
+harness web --install                              # this host only, 127.0.0.1:4637
+HARNESS_WEB_BIND=0.0.0.0 harness web --install     # the claude host: open from the LAN
+```
+
+`--install` writes and starts `harness-web.service` (`Restart=always`, `WantedBy=default.target`)
+with the bind and port from the shell it runs in, and enables linger, so the dashboard comes back
+after a crash, a `systemctl --user restart` and a reboot, with no login session open. Re-running it
+is idempotent; a re-run with neither variable set keeps the unit's current bind and port. `harness
+update` rewrites and restarts an installed unit from the updated engine (keeping its bind and port)
+and installs nothing on a host without one. `harness web --uninstall`, or uninstalling the engine,
+removes it.
 
 **Read-only is its only protection.** There is no login. Every route answers `GET` and `HEAD` and
 refuses every write method with `405`. Pages read only local state (the fleet registry, the host

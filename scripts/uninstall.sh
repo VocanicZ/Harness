@@ -156,6 +156,9 @@ main(){
     if [[ -f "$ENGINE_DIR/scripts/supervise.sh" ]] && ( source "$ENGINE_DIR/scripts/supervise.sh"; sup_installed ); then
       bash "$ENGINE_DIR/scripts/supervise.sh" --uninstall
     fi
+    if [[ -f "$ENGINE_DIR/scripts/web.sh" ]] && ( source "$ENGINE_DIR/scripts/web.sh"; web_installed ); then
+      bash "$ENGINE_DIR/scripts/web.sh" --uninstall
+    fi
     remove_engine
     remove_path_link
   fi
