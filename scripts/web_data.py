@@ -13,6 +13,9 @@ issue_view() (#228) is the issue drawer's model: the board issue, its DAG state 
 CI state the poller cached in the snapshot (`pulls` / `checks` — never fetched here), its live session
 and its timeline from the host event log.
 
+issue_stats() / prd_stats() (#229) are the fleet page's stats overlay: `harness stats`' tokens, model and
+retries for one issue or PRD, read from the event log (None when it has nothing for it).
+
 signature() (#227) is the cheap change detector behind the SSE collector: a `stat` of every file the
 views read, the liveness of every pid they judge, and `tmux ls` — a rebuild runs only when it moves.
 """
@@ -376,10 +379,56 @@ def fleet_record(prefix):
     return next((r for r in registry() if (r.get("prefix") or "?") == prefix), None)
 
 
+# --- the stats overlay (#229): `harness stats` numbers on DAG nodes and PRD headers ---------------
+def _overlay(rows, usage, retries):
+    """{"tokens", "model", "retries", "sessions"} over session rows, or None for none. tokens is the
+    output total and only present when some session reported usage; model is every model the
+    sessions ran, in launch order — a key with no data is left out, never a placeholder."""
+    if not rows:
+        return None
+    out = {}
+    if usage:
+        out["tokens"] = sum(u["output"] for u in usage.values())
+    models = []
+    for r in sorted(rows, key=lambda r: r.get("launched") or ""):
+        for m in [r.get("model")] if r.get("model") else sorted(r.get("usage") or ()):
+            if m not in models:
+                models.append(m)
+    if models:
+        out["model"] = ", ".join(models)
+    out.update(retries=retries, sessions=len(rows))
+    return out
+
+
+def issue_stats(events, repo, n):
+    """Issue <n> of <repo>: every session the event log launched for it, rolled up."""
+    sess = stats.sessions([e for e in events if e.get("repo") == repo and e.get("issue") == n])
+    usage = {}
+    for s in sess:
+        stats.add_usage(usage, s["usage"])
+    return _overlay(sess, usage, stats._retries(sess))
+
+
+def prd_stats(events, repo, prd):
+    """PRD <prd> of <repo>: stats.prd_rollup's total — its children's sessions and its own."""
+    roll = stats.prd_rollup([e for e in events if e.get("repo") == repo], prd)
+    rows = [r for c in roll["children"] for r in c["sessions"]]
+    return _overlay(rows, roll["total"]["tokens"], roll["total"]["retries"])
+
+
+def overlay_stats(graph, events):
+    """Put a `stats` key on every node of one unit_graph: prd_stats on PRDs, issue_stats on the rest."""
+    slug = graph["slug"]
+    for n, node in graph["issues"].items():
+        node["stats"] = (prd_stats if "children" in node else issue_stats)(events, slug, n)
+    return graph
+
+
 def fleet_view(prefix, now=None):
     """/fleet/<prefix>: {"prefix", "root", "state", "asof", "units": [web_dag.unit_graph | stub]}, or
-    None for a prefix no registry record carries. A unit whose board is missing or unreadable is
-    {"slug", "asof": None, "prds": [], "edges": [], "unparented": [], "issues": {}, "missing": True}."""
+    None for a prefix no registry record carries. Every unit node carries its `stats` (#229). A unit
+    whose board is missing or unreadable is {"slug", "asof": None, "prds": [], "edges": [],
+    "unparented": [], "issues": {}, "awaiting": [], "missing": True}."""
     rec = fleet_record(prefix)
     if rec is None:
         return None
@@ -387,14 +436,15 @@ def fleet_view(prefix, now=None):
     labels = fleetview.fleet_labels(fleetview.read_config(rec["project"])) if entry["state"] != "missing" \
         else fleetview.fleet_labels({})
     live = live_numbers(prefix)
+    events = stats.load_events()
     units = []
     for slug in fleetview.fleet_slugs(rec):
         snap = board(slug)
         if snap is None:
             units.append({"slug": slug, "asof": None, "prds": [], "edges": [], "unparented": [],
-                          "issues": {}, "missing": True})
+                          "issues": {}, "awaiting": [], "missing": True})
         else:
-            units.append(dict(web_dag.unit_graph(snap, labels, live), slug=slug))
+            units.append(overlay_stats(dict(web_dag.unit_graph(snap, labels, live), slug=slug), events))
     stamps = [u["asof"] for u in units if u["asof"] is not None]
     return {"prefix": entry["prefix"], "root": entry["root"], "state": entry["state"],
             "asof": min(stamps) if stamps else None, "units": units}

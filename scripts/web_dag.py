@@ -7,6 +7,9 @@ means no edges), layering is longest-path with a cycle guard, and a PRD is done 
 ready exactly as status-page.py derives it. test/test_web_dag.py pins all of that to status-page.py's
 own answer (arc_model) on one recorded board, frozen in test/fixtures/web/arc-golden.json.
 
+awaiting() (#229) is the "Awaiting you" panel: status-page.py's wayfinder tickets plus the two other kinds
+of human-only work, agent-blocked questions and operator issues.
+
 issuelib.parse_blocked_by reads the FIRST section, so it is not reused here. Pure functions of the
 board dict: nothing here reads the host or runs a command.
 """
@@ -70,8 +73,9 @@ def unit_graph(board, labels, live=frozenset()):
 
     <labels> is fleetview.fleet_labels (prd / working / blocked / ready); <live> the issue numbers with
     a live session. PRDs (sorted by number) carry their `children`, layered among siblings only.
-    Wayfinder issues are neither children nor unparented (#228 shows them). Edges are [from, to]
-    between nodes drawn on the same level: PRD → PRD, child → sibling child."""
+    Wayfinder issues are neither children nor unparented: they are `awaiting` (#229), with the rest of
+    the human-only work. Edges are [from, to] between nodes drawn on the same level: PRD → PRD,
+    child → sibling child."""
     slug = board.get("slug") or ""
     issues = sorted((i for i in board.get("issues") or [] if isinstance(i.get("number"), int)),
                     key=lambda i: i["number"])
@@ -145,7 +149,42 @@ def unit_graph(board, labels, live=frozenset()):
 
     asof = board.get("generated_at")
     return {"slug": slug, "asof": asof if isinstance(asof, int) else None, "prds": prds,
-            "edges": edges, "unparented": unparented, "issues": nodes}
+            "edges": edges, "unparented": unparented, "issues": nodes, "awaiting": awaiting(board, labels)}
+
+
+AWAITING_KINDS = ("wayfinder", "agent-blocked", "operator")
+OPS_RE = re.compile(r"^\s*\[ops\]", re.I)
+
+
+def awaiting(board, labels):
+    """The work only a human can do: [{"kind", "number", "title", "url", "resolved", "needs"}].
+
+    kind is "wayfinder" (any `wayfinder:*` issue but the map, open or closed — status-page.py's
+    tickets, closed = resolved), "agent-blocked" (an open issue carrying the blocked label) or
+    "operator" (an open issue titled `[ops] …` that no agent would claim: no prd / ready / working
+    label). The kinds are exclusive, in that order. needs is the last `## Blocked by`. Open items
+    come first, by kind then number; resolved tickets last."""
+    slug = board.get("slug") or ""
+    agent = {labels["prd"], labels["ready"], labels["working"]}
+    out = []
+    for i in board.get("issues") or []:
+        n, names = i.get("number"), _names(i)
+        if not isinstance(n, int):
+            continue
+        if any((x or "").startswith("wayfinder:") and x != "wayfinder:map" for x in names):
+            kind = "wayfinder"
+        elif _closed(i):
+            continue
+        elif labels["blocked"] in names:
+            kind = "agent-blocked"
+        elif OPS_RE.match(i.get("title") or "") and not names & agent:
+            kind = "operator"
+        else:
+            continue
+        out.append({"kind": kind, "number": n, "title": i.get("title") or "",
+                    "url": f"https://github.com/{slug}/issues/{n}", "resolved": _closed(i),
+                    "needs": blocked_by_last(i.get("body"))})
+    return sorted(out, key=lambda a: (a["resolved"], AWAITING_KINDS.index(a["kind"]), a["number"]))
 
 
 def arc_projection(graph):
@@ -154,4 +193,5 @@ def arc_projection(graph):
     return {"deps": {str(p["number"]): list(p["deps"]) for p in prds},
             "kids": {str(p["number"]): dict(p["kids"]) for p in prds},
             "layers": {str(p["number"]): p["layer"] for p in prds},
-            "states": {str(p["number"]): p["state"] for p in prds}}
+            "states": {str(p["number"]): p["state"] for p in prds},
+            "tickets": sorted([a["number"], a["resolved"]] for a in graph["awaiting"] if a["kind"] == "wayfinder")}
