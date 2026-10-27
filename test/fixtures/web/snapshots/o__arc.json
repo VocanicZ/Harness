@@ -5,14 +5,14 @@
  "issues": [
   {
    "number": 1,
-   "title": "Core",
+   "title": "[AFK] PRD: Core \u2014 the base layer everything needs",
    "state": "CLOSED",
    "labels": [
     {
      "name": "prd"
     }
    ],
-   "body": "",
+   "body": "Mentions ## Blocked by in prose before the real section.\n\n## Blocked by\nNone\n",
    "author": {
     "login": "o"
    },
@@ -20,14 +20,44 @@
   },
   {
    "number": 2,
-   "title": "Left",
+   "title": "[AFK] PRD: Left \u2014 fork A",
    "state": "OPEN",
    "labels": [
     {
      "name": "prd"
     }
    ],
-   "body": "",
+   "body": "## Blocked by\n#1\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 3,
+   "title": "[AFK] PRD: Right \u2014 fork B",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "prd"
+    }
+   ],
+   "body": "## Blocked by\n#99\n\n## Notes\nThe first section above is stale.\n\n## Blocked by\n#1\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 4,
+   "title": "[AFK] PRD: Join \u2014 needs both forks",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "prd"
+    }
+   ],
+   "body": "## Blocked by\n#2, #3\n",
    "author": {
     "login": "o"
    },
@@ -37,8 +67,12 @@
    "number": 10,
    "title": "Done child",
    "state": "CLOSED",
-   "labels": [],
-   "body": "",
+   "labels": [
+    {
+     "name": "ready-for-agent"
+    }
+   ],
+   "body": "## Parent\n#2\n",
    "author": {
     "login": "o"
    },
@@ -53,7 +87,7 @@
      "name": "agent-working"
     }
    ],
-   "body": "",
+   "body": "## Parent\n#2\n",
    "author": {
     "login": "o"
    },
@@ -61,14 +95,29 @@
   },
   {
    "number": 12,
-   "title": "Ready child",
+   "title": "Waiting child",
    "state": "OPEN",
    "labels": [
     {
      "name": "ready-for-agent"
     }
    ],
-   "body": "",
+   "body": "## Blocked by\n#11\n\n## Parent\n#2\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 13,
+   "title": "Child in review",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "ready-for-agent"
+    }
+   ],
+   "body": "## Parent\n#3\n",
    "author": {
     "login": "o"
    },
@@ -86,7 +135,123 @@
      "name": "agent-blocked"
     }
    ],
+   "body": "## Parent\n#3\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 15,
+   "title": "Ready child",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "ready-for-agent"
+    }
+   ],
+   "body": "## Parent\n#3\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 20,
+   "title": "Loose end",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "ready-for-agent"
+    }
+   ],
+   "body": "No parent here.\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 30,
+   "title": "Wayfinder map",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "wayfinder:map"
+    }
+   ],
    "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 31,
+   "title": "Pick a threshold",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "wayfinder:decision"
+    }
+   ],
+   "body": "## Blocked by\n#4\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 32,
+   "title": "Pick a name",
+   "state": "CLOSED",
+   "labels": [
+    {
+     "name": "wayfinder:decision"
+    }
+   ],
+   "body": "## Blocked by\nNone\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 40,
+   "title": "[ops] Deploy the dashboard host",
+   "state": "OPEN",
+   "labels": [],
+   "body": "",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 41,
+   "title": "Live join child",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "agent-working"
+    }
+   ],
+   "body": "## Parent\n#4\n",
+   "author": {
+    "login": "o"
+   },
+   "updatedAt": "2027-01-15T07:00:00Z"
+  },
+  {
+   "number": 42,
+   "title": "Stale-lock join child",
+   "state": "OPEN",
+   "labels": [
+    {
+     "name": "agent-working"
+    }
+   ],
+   "body": "## Parent\n#4\n",
    "author": {
     "login": "o"
    },
@@ -97,7 +262,9 @@
  "plan_marker": null,
  "self_login": "o",
  "ext_deps": {},
- "issue_branches": [],
+ "issue_branches": [
+  13
+ ],
  "sync": {
   "since": null,
   "issues_etag": null,

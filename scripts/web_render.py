@@ -131,16 +131,134 @@ def overview(view, now):
     return page("Fleets", body, view["asof"], now)
 
 
-def fleet_stub(f, now):
-    """/fleet/<prefix> until the DAG page lands (#224): the fleet's overview card on its own."""
+# DAG node state → its label. Colour comes from app.css (`.dag [data-state=…]`, the --s-* tokens).
+NODE_LABEL = {
+    "done": "closed", "waiting": "waiting on a PRD", "running": "in flight", "ready": "claimable",
+    "closed": "closed", "agent-blocked": "agent-blocked", "in-progress": "in progress",
+    "in-review": "in review", "blocked": "blocked", "open": "open",
+}
+CW, RH, BW, BH = 250, 96, 186, 54   # status-page.py's geometry: column, row, box width, box height
+
+
+def _short(s, n):
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def dag_svg(nodes, edges, label, prd=False):
+    """A layered DAG as inline SVG, laid out as status-page.py lays it out: one column per layer,
+    nodes in number order down a column, centred. Each node is a focusable `<a href="?issue=N">`.
+    <prd> marks PRD nodes (data-prd, and the "[AFK] PRD:" title prefix trimmed)."""
+    if not nodes:
+        return ""
+    by = {n["number"]: n for n in nodes}
+    cols = {}
+    for n in sorted(by):
+        cols.setdefault(by[n]["layer"], []).append(n)
+    W = max(CW * (max(cols) + 1) + 60, 420)
+    H = max(RH * max(len(v) for v in cols.values()) + 50, 160)
+    pos = {}
+    for c, ns in cols.items():
+        off = (H - len(ns) * RH) / 2
+        for i, n in enumerate(ns):
+            pos[n] = (40 + c * CW, off + i * RH + 12)
+    out = [f'<svg class="dag__svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="group" '
+           f'aria-label="{esc(label)}">']
+    for a, b in edges:
+        if a not in pos or b not in pos:
+            continue
+        (x1, y1), (x2, y2) = pos[a], pos[b]
+        sx, sy, ex, ey = x1 + BW, y1 + BH / 2, x2, y2 + BH / 2
+        mx = (sx + ex) / 2
+        out.append(f'<path class="dag__edge" d="M{sx:g} {sy:g} C{mx:g} {sy:g} {mx:g} {ey:g} {ex:g} {ey:g}" '
+                   f'data-edge="{a}-{b}"/><circle class="dag__tip" cx="{ex:g}" cy="{ey:g}" r="2.5"/>')
+    for n, (x, y) in sorted(pos.items()):
+        node = by[n]
+        title = node["title"].replace("[AFK] PRD:", "").strip() if prd else node["title"]
+        head, _, rest = title.partition("—")
+        # the mono line holds ~21 characters inside the box, "#N " included
+        head, rest = _short(head.strip(), max(21 - len(f"#{n} "), 8)), _short(rest.strip(), 26)
+        st = node["state"]
+        extra = f' data-prd="{n}" data-layer="{node["layer"]}"' if prd else f' data-layer="{node["layer"]}"'
+        sub = rest or NODE_LABEL.get(st, st)
+        out.append(
+            f'<a href="?issue={n}" data-issue="{n}"{extra} data-state="{esc(st)}" tabindex="0" '
+            f'aria-label="#{n} {esc(title)} — {esc(NODE_LABEL.get(st, st))}">'
+            f'<rect class="dag__box" x="{x:g}" y="{y:g}" width="{BW}" height="{BH}" rx="4"/>'
+            f'<rect class="dag__bar" x="{x:g}" y="{y:g}" width="3.5" height="{BH}" rx="1.75"/>'
+            f'<text class="dag__num" x="{x + 14:g}" y="{y + 21:g}">#{n} {esc(head)}</text>'
+            f'<text class="dag__sub" x="{x + 14:g}" y="{y + 38:g}">{esc(sub)}</text></a>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def _pill(state):
+    return f'<span class="dag-pill" data-state="{esc(state)}">{esc(NODE_LABEL.get(state, state))}</span>'
+
+
+def unit_section(u, now):
+    """One repo: its PRD DAG, each PRD's children as their own DAG, then the unparented issues."""
+    slug = esc(u["slug"])
+    if u.get("missing"):
+        dag = ('<p class="muted">No board snapshot for this repo yet — the poller writes one on its next '
+               'refresh.</p>')
+    elif not u["prds"]:
+        dag = '<p class="muted">No PRDs on this board.</p>'
+    else:
+        prds = u["prds"]
+        prd_edges = [e for e in u["edges"] if e[1] in {p["number"] for p in prds}]
+        parts = [f'<div class="dag">{dag_svg(prds, prd_edges, "PRD dependency graph for " + u["slug"], prd=True)}</div>']
+        for p in prds:
+            kids = p["children"]
+            k = p["kids"]
+            head = (f'<h3 class="prd__title"><a href="?issue={p["number"]}">#{p["number"]}</a> '
+                    f'{esc(p["title"].replace("[AFK] PRD:", "").strip())} {_pill(p["state"])} '
+                    f'<span class="muted num">{k["closed"]}/{k["closed"] + k["open"]} children closed</span></h3>')
+            if kids:
+                sib = {c["number"] for c in kids}
+                body = (f'<div class="dag">{dag_svg(kids, [e for e in u["edges"] if e[1] in sib], f"Children of #{p['number']}")}'
+                        f'</div>')
+            else:
+                body = '<p class="muted">No children yet.</p>'
+            parts.append(f'<div class="prd stack stack--sm" data-prd-children="{p["number"]}">{head}{body}</div>')
+        dag = "\n".join(parts)
+    loose = u["unparented"]
+    if loose:
+        items = "".join(f'<li><a href="?issue={i["number"]}" data-issue="{i["number"]}" data-state="{esc(i["state"])}">'
+                        f'<span class="mono">#{i["number"]}</span> {esc(i["title"])}</a> {_pill(i["state"])}</li>'
+                        for i in loose)
+        loose_html = f'<ul class="unparented">{items}</ul>'
+    else:
+        loose_html = '<p class="muted">None.</p>'
+    return f"""<section data-region="dag-{slug}" class="panel unit" aria-labelledby="unit-{slug}">
+<header class="panel__header">
+<h2 class="panel__title" id="unit-{slug}"><span class="mono">{slug}</span></h2>
+{asof_stamp(u["asof"], now)}
+</header>
+<div class="panel__body stack">
+{dag}
+</div>
+</section>
+<section data-region="unparented-{slug}" class="panel unit">
+<header class="panel__header"><h2 class="panel__title">Unparented issues <span class="mono muted">{slug}</span></h2></header>
+<div class="panel__body">
+{loose_html}
+</div>
+</section>"""
+
+
+def fleet(view, now):
+    """/fleet/<prefix>: per unit (repo), the PRD → issue map as a layered DAG + the unparented list."""
+    cls, label = STATES.get(view["state"], ("level--grey", view["state"]))
+    units = "\n".join(unit_section(u, now) for u in view["units"]) or \
+        '<p class="muted">This fleet serves no repos.</p>'
+    legend = "".join(f"<li>{_pill(s)}</li>" for s in ("closed", "agent-blocked", "in-progress", "in-review",
+                                                      "blocked", "open"))
     body = f"""<div class="page-header">
 <div class="page-header__main">
-<h1 class="page-header__title">Fleet {esc(f["prefix"])}</h1>
-<p class="page-header__meta"><span class="mono">{esc(f["root"])}</span>{asof_stamp(f["asof"], now)}</p>
+<h1 class="page-header__title">Fleet {esc(view["prefix"])} <span class="level {cls}">{esc(label)}</span></h1>
+<p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now)}</p>
 </div>
 </div>
-<section data-region="fleet" class="fleets">
-{fleet_card(f, now)}
-</section>
-<p class="muted">The PRD → issue map for this fleet is not on this page yet.</p>"""
-    return page(f"Fleet {f['prefix']}", body, f["asof"], now, crumbs=[(f"Fleet {f['prefix']}", None)])
+<ul class="dag-legend" aria-label="Issue states">{legend}</ul>
+{units}"""
+    return page(f"Fleet {view['prefix']}", body, view["asof"], now, crumbs=[(f"Fleet {view['prefix']}", None)])
