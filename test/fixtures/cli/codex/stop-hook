@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# stop-hook <wd> <session id> [reply] — one end of turn as Codex runs it: the Stop hook of the
+# harness-ralph plugin codex_prereqs installs (plugins/codex/harness-ralph), run in <wd> and handed
+# hook-input.json — captured from that hook in a real session — for this worktree and session, its
+# last_assistant_message being [reply].
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 -c 'import json, sys
+d = json.load(open(sys.argv[1])); d.update(cwd=sys.argv[2], session_id=sys.argv[3], last_assistant_message=sys.argv[4])
+print(json.dumps(d))' "$here/hook-input.json" "$1" "$2" "${3:-(working)}" |
+  ( cd "$1" && PLUGIN_ROOT="$here/../../../../plugins/codex/harness-ralph" python3 "$here/../../../../plugins/codex/harness-ralph/hooks/stop-hook.py" )

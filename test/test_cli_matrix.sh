@@ -13,7 +13,7 @@ make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 FIX="$HERE/fixtures/cli"
 # Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
-unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy FIX
+unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 cell(){ local cli="$1" row="$2"; shift 2
   if (( TSV )); then
@@ -41,6 +41,8 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
     claude) cp "$FIX/claude/transcript.jsonl" "$HARNESS_CLAUDE_CONFIG_DIRS/projects/fixture/$sid.jsonl" ;;
     agy)    sed "s#@WD@#$wd#" "$FIX/agy/last_conversations.json" > "$HARNESS_AGY_HOME/cache/last_conversations.json"
             cp "$FIX/agy/transcript.db" "$HARNESS_AGY_HOME/conversations/$sid.db" ;;
+    codex)  mkdir -p "$CODEX_HOME/sessions/2026/10/27"
+            sed "s#@CWD@#$wd#" "$FIX/codex/transcript.jsonl" > "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$sid.jsonl" ;;
   esac; }
 # usage_windows_ok <cli> — the CLI's usage windows, read through the adapter from the fixture's real
 # source, report the expected <account> <window> <pct used>.
@@ -58,6 +60,18 @@ PY
     agy) bin="$RUN_DIR/bin/agy"; mkdir -p "${bin%/*}"
       printf '#!/bin/sh\n[ "$1 $2 $3 $4" = "-p /usage --output-format json" ] && exec cat %q\nexit 2\n' "$FIX/agy/usage-windows.json" > "$bin"
       chmod +x "$bin"; export HARNESS_AGY_BIN="$bin" ;;
+    codex) export CODEX_HOME="$RUN_DIR/codex-usage"; mkdir -p "$CODEX_HOME/sessions/2026/10/27"
+      python3 - "$FIX/codex/transcript.jsonl" "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$(cat "$FIX/codex/session").jsonl" <<'PY'
+import json, sys, time
+with open(sys.argv[2], "w") as out:
+    for line in open(sys.argv[1]):
+        d = json.loads(line)
+        for w in ((d.get("payload") or {}).get("rate_limits") or {}).values():
+            if isinstance(w, dict) and "resets_at" in w:
+                w["resets_at"] = int(time.time()) + 3600      # a passed reset is (correctly) skipped
+        print(json.dumps(d), file=out)
+PY
+      ;;
   esac
   got="$(unset HARNESS_USAGE_CMD; cli_limit_usage | cut -f1-3 | sort)"
   [[ -n "$got" && "$got" == "$(sort "$FIX/$cli/usage-windows.expected")" ]] ); }
@@ -174,8 +188,10 @@ lane_env(){ fake_tmux
 lane_launch(){ ( fake_tmux; new_wd "$1"; GOAL=ISSUE:4
   printf 'model=%s\neffort=%s\n' "$2" "$3" > "$1/$HARNESS_LANE_FILE"
   launch_agent hz-lane-i4 "$1" >/dev/null 2>&1; typed_line hz-lane-i4; cli_lane_settings "$1"; cli_first_input "$3" ) }
-# effort_once_ok <launch> <effort> — the lane's effort, and no other, reaches the launch exactly once.
-effort_once_ok(){ same "$(grep -o -- '--effort' <<<"$1" | wc -l)" 1 && has "--effort $2" "$1"; }
+# effort_once_ok <launch> <effort> — the lane's effort, and no other, reaches the launch exactly once,
+# in the CLI's own spelling (fixtures/cli/<cli>/effort-flag: `--effort `, or codex's config override).
+effort_once_ok(){ local f; f="$(cat "$FIX/$HARNESS_CLI/effort-flag")"
+  same "$(grep -oF -- "$f" <<<"$1" | wc -l)" 1 && has "$f$2" "$1"; }
 # session_id_ok — the id Harness resolves for a launch is the one the CLI wrote its session under: the
 # typed line runs against the CLI's fake in a fresh worktree (no planted fixture answers for it).
 session_id_ok(){ ( fake_tmux; local wd="$RUN_DIR/sid-$HARNESS_CLI" uuid sid; new_wd "$wd"; GOAL=ISSUE:3

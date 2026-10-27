@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# fake-cli — what `codex` leaves on disk when a lane's launch line runs it (README.md): it names the
+# thread itself (`session`) and writes its rollout to $CODEX_HOME/sessions/YYYY/MM/DD/
+# rollout-<ts>-<id>.jsonl, whose first line, session_meta, records the cwd and the start time. Then
+# the turn's tool call, $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sid="$(cat "$here/session")"; d="${CODEX_HOME:?}/sessions/$(date -u +%Y/%m/%d)"; mkdir -p "$d"
+python3 - "$here/transcript.jsonl" "$PWD" > "$d/rollout-$(date -u +%Y-%m-%dT%H-%M-%S)-$sid.jsonl" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+src, cwd = sys.argv[1:]
+for i, line in enumerate(open(src)):
+    d = json.loads(line.replace("@CWD@", cwd))
+    if i == 0:
+        d["payload"]["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    print(json.dumps(d))
+PY
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"
