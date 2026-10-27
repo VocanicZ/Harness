@@ -41,6 +41,7 @@ for name in "${!CMD[@]}"; do
   assert "deploy lands /$name" "[[ -f '$USK/$name/SKILL.md' ]]"
 done
 # #181: harness-arc ships in the repo and deploys WHOLE — its REFERENCE.md and scripts/ beside SKILL.md.
+# #230: its status-page.py is gone; §5 links the `harness web` fleet page instead.
 # Its old watch.py is folded into `harness supervise`, so it is not shipped and §4 points there.
 A="$SK/harness-arc"
 assert "harness-arc has name: harness-arc"        "head -5 '$A/SKILL.md' | grep -qx 'name: harness-arc'"
@@ -50,11 +51,11 @@ assert "REFERENCE.md tables the supervisor rules"  "grep -q '^## Supervisor rule
 assert "harness-arc ships no watch.py"            "! ls '$A'/scripts/watch.py* 2>/dev/null | grep -q ."
 assert "deploy lands harness-arc REFERENCE.md"    "[[ -f '$USK/harness-arc/REFERENCE.md' ]]"
 assert "deploy lands an executable preflight.sh"  "[[ -x '$USK/harness-arc/scripts/preflight.sh' ]]"
-assert "deploy lands status-page.py"              "[[ -f '$USK/harness-arc/scripts/status-page.py' ]]"
+assert "deploy carries no status-page.py (#230)"  "[[ ! -e '$USK/harness-arc/scripts/status-page.py' ]]"
 AGY="$TMP/agy-skills"; mkdir -p "$TMP/home/.gemini"
 HOME="$TMP/home" HARNESS_SKILL_SRC="$SK" HARNESS_USER_SKILLS="$USK" HARNESS_AGY_USER_SKILLS="$AGY" install_harness_skills >/dev/null
 assert "agy deploy lands harness-arc whole"      "[[ -x '$AGY/harness-arc/scripts/preflight.sh' && -f '$AGY/harness-arc/REFERENCE.md' ]]"
-assert "status-page.py still compiles"            "python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' '$A/scripts/status-page.py'"
+assert "agy deploy carries no status-page.py"     "[[ ! -e '$AGY/harness-arc/scripts/status-page.py' ]]"
 assert "preflight.sh still parses"                "bash -n '$A/scripts/preflight.sh'"
 rm -rf "$TMP"
 echo "── subskills ok"

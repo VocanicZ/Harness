@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """web_dag.py — the PRD → issue DAG behind `harness web`'s fleet page (#224), from one board snapshot.
 
-A port of skill/harness-arc/scripts/status-page.py's semantics, not its code paths: children are
+A port of skill/harness-arc/scripts/status-page.py's semantics (the script itself is gone, #230), not its code paths: children are
 attributed by `## Parent`, dependency edges come from the LAST `## Blocked by` section (a `None` in it
 means no edges), layering is longest-path with a cycle guard, and a PRD is done / waiting / running /
 ready exactly as status-page.py derives it. test/test_web_dag.py pins all of that to status-page.py's
