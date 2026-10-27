@@ -52,6 +52,17 @@ assert "README has a Security audit review section" \
   "grep -qE '^### Security audit review' '$README'"
 assert "config table lists HARNESS_SEED_CI (CI workflow seeding is opt-in)" \
   "grep -qE '^\| \`HARNESS_SEED_CI\` \| \`0\`' '$README'"
+# #245: Harness projects run no GitHub CI — the gate is local, the CI gate is off, seeding disables CI.
+assert "README documents the no-GitHub-CI default" \
+  "grep -qE '^### No GitHub CI — the gate is local' '$README'"
+assert "README names ci-local.sh, else the full local suite, as the gate" \
+  "grep -q 'otherwise the \*\*full suite run locally on the rebased head\*\*' '$README'"
+assert "config table: HARNESS_CI_GATE defaults to 0" \
+  "grep -qE '^\| \`HARNESS_CI_GATE\` \| \`0\`' '$README'"
+assert "config table: HARNESS_DISABLE_CI defaults to 1 (the opt-out flag)" \
+  "grep -qE '^\| \`HARNESS_DISABLE_CI\` \| \`1\`' '$README'"
+assert "README never presents gh pr checks as the gate" \
+  "! grep -q 'gh pr checks --watch' '$README'"
 
 # 5. Multi-PRD in `prd` mode — a unit may hold several PRDs, they run in parallel unless a PRD
 #    declares `## Blocked by`, children are attributed by `## Parent` (with the `Part of #N`

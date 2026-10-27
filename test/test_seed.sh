@@ -30,4 +30,53 @@ assert_ok "default: auto-merge still enabled" grep -q "allow_auto_merge=true" "$
 assert_ok "HARNESS_SEED_CI=1: ci.yml committed" grep -q -- "--method PUT repos/acme/widget/contents/.github/workflows/ci.yml" "$CALLS"
 assert_ok "HARNESS_SEED_CI=1: branch protection requires the test check" grep -q "branches/main/protection" "$CALLS"
 assert_eq "$(env -u HARNESS_SEED_CI bash -c "source '$HERE/../scripts/lib.sh'; echo \$HARNESS_SEED_CI")" "0" "HARNESS_SEED_CI defaults to 0"
+
+echo "=== #245: seeding disables the repo's existing test-CI workflows (HARNESS_DISABLE_CI, default 1) ==="
+# The stub stands in for `gh api .../actions/workflows --jq …@tsv` (rows already jq-shaped) and logs
+# every `gh workflow disable`. Fixture: two test-CI workflows, a release one, a deploy one, one already
+# disabled, and a GitHub-managed dynamic one that `gh workflow disable` cannot touch.
+gh(){ echo "$*" >> "$CALLS"
+  case "$*" in
+    *"actions/workflows"*) printf '%s\t%s\t%s\t%s\n' \
+        11 active .github/workflows/ci.yml ci \
+        12 active .github/workflows/submodule-pin-guard.yml "submodule pin guard" \
+        13 active .github/workflows/release.yml "Release" \
+        14 active .github/workflows/pages.yml "Deploy docs" \
+        15 disabled_manually .github/workflows/old.yml old \
+        16 active dynamic/dependabot/dependabot-updates "Dependabot Updates";;
+  esac; return 0; }
+LOGS="$RUN_DIR/seed.log"
+disabled(){ grep -q "^workflow disable $1 -R acme/widget" "$CALLS"; }
+: > "$CALLS"; ( unset HARNESS_DISABLE_CI HARNESS_SEED_CI; source "$HERE/../scripts/seed.sh" main ) >"$LOGS" 2>&1
+assert_ok "default: test-CI ci.yml disabled"                disabled 11
+assert_ok "default: any non-release check disabled too"     disabled 12
+assert_no "default: release workflow left alone"            disabled 13
+assert_no "default: deploy workflow left alone"             disabled 14
+assert_no "default: an already-disabled workflow is not re-disabled" disabled 15
+assert_no "default: GitHub-managed dynamic workflow skipped" disabled 16
+assert_ok "default: logs which workflow it disabled"        grep -q "disabled GitHub CI workflow on acme/widget: ci.yml" "$LOGS"
+assert_ok "default: logs the release/deploy it kept"        grep -q "left release/deploy workflows on acme/widget running: release.yml pages.yml" "$LOGS"
+: > "$CALLS"; ( HARNESS_DISABLE_CI=all; unset HARNESS_SEED_CI; source "$HERE/../scripts/seed.sh" main ) >/dev/null 2>&1
+assert_ok "HARNESS_DISABLE_CI=all: release disabled too"    disabled 13
+assert_ok "HARNESS_DISABLE_CI=all: deploy disabled too"     disabled 14
+: > "$CALLS"; ( HARNESS_DISABLE_CI=0; unset HARNESS_SEED_CI; source "$HERE/../scripts/seed.sh" main ) >/dev/null 2>&1
+assert_no "HARNESS_DISABLE_CI=0: opt-out touches no workflow" grep -q "workflow disable" "$CALLS"
+: > "$CALLS"; ( unset HARNESS_DISABLE_CI; HARNESS_SEED_CI=1; source "$HERE/../scripts/seed.sh" main ) >/dev/null 2>&1
+assert_no "HARNESS_SEED_CI=1 (explicit CI opt-in) disables nothing" grep -q "workflow disable" "$CALLS"
+# harness init / setup on a single-topology repo reach it through the --disable-ci fast path.
+: > "$CALLS"; ( unset HARNESS_DISABLE_CI HARNESS_SEED_CI; source "$HERE/../scripts/seed.sh" --disable-ci acme/widget ) >/dev/null 2>&1
+assert_ok "--disable-ci <slug>: disables test CI"           disabled 11
+assert_no "--disable-ci <slug>: creates no labels"          grep -q "label create" "$CALLS"
+gh(){ echo "$*" >> "$CALLS"; case "$*" in *"actions/workflows"*) return 1;; esac; return 0; }
+: > "$CALLS"; ( unset HARNESS_DISABLE_CI HARNESS_SEED_CI; source "$HERE/../scripts/seed.sh" --disable-ci acme/widget ) >"$LOGS" 2>&1
+assert_ok "listing fails: warns and disables nothing" grep -q "could not list acme/widget's workflows" "$LOGS"
+assert_eq "$(env -u HARNESS_DISABLE_CI bash -c "source '$HERE/../scripts/lib.sh'; echo \$HARNESS_DISABLE_CI")" "1" "HARNESS_DISABLE_CI defaults to 1"
+# harness init and setup both seed through seed_if_needed; on a single-topology repo that must reach
+# the workflow-disable step too, not just the labels.
+gh(){ echo "$*" >> "$CALLS"
+  case "$*" in *"actions/workflows"*) printf '11\tactive\t.github/workflows/ci.yml\tci\n';; esac; return 0; }
+export -f gh; export CALLS   # seed_if_needed runs seed.sh as a child process
+: > "$CALLS"; ( unset HARNESS_DISABLE_CI HARNESS_SEED_CI; seed_if_needed main ) >/dev/null 2>&1
+assert_ok "seed_if_needed (harness init/setup, single topology) disables test CI" disabled 11
+assert_ok "seed_if_needed (single topology) still seeds labels" grep -q "label create go" "$CALLS"
 finish

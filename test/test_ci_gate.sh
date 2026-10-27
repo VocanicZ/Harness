@@ -6,7 +6,9 @@
 # four PRs landed on a red default branch and nothing noticed for eleven hours. Two halves are
 # guarded here, matching the two halves of the fix:
 #   1. ci_gate_ok  — the pool holds NEW dispatch while the default branch is red (blast-radius cap).
-#   2. the prompts — an impl/bug-fix session reads `gh pr checks` and refuses to merge red.
+#   2. the prompts — an impl/bug-fix session runs the LOCAL gate and refuses to merge red.
+# #245 then made GitHub CI off by default: the gate is opt-in (HARNESS_CI_GATE=0) and the prompts
+# gate on the repo's own scripts/ci-local.sh, else the full local suite — never `gh pr checks`.
 # Group 1 drives lib.sh directly through the ci_status_default_branch seam; no gh, no Actions run.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,6 +25,9 @@ log(){ LOG_LINES+="$*"$'\n'; }
 set_ci(){ eval "ci_status_default_branch(){ printf '%s\n' ${1@Q}; }"; }
 
 echo "-- group 1: ci_gate_ok"
+# #245: Harness projects run no GitHub CI, so a gate on its result is opt-in.
+assert_eq "$(env -u HARNESS_CI_GATE bash -c "source '$HERE/../scripts/lib.sh'; echo \$HARNESS_CI_GATE")" "0" \
+  "HARNESS_CI_GATE defaults to 0 (no GitHub CI)"
 HARNESS_CI_GATE=1
 
 set_ci $'pass\t\t'
@@ -91,29 +96,35 @@ SPAWNED=""; _PASSES=0
 drive_unit widget >/dev/null 2>&1
 assert_ok "green branch: drive_unit spawns IMPL" grep -q "IMPL:7" <<<"$SPAWNED"
 
-echo "-- group 4: the prompts refuse to merge a red PR"
+echo "-- group 4: the prompts gate locally and refuse to merge a red PR"
 # The engine cannot enforce this one — it lives in the agent's instructions — so pin the
-# instruction text. Both merge-capable prompts must gate, and must gate BEFORE they merge.
-for p in impl bug-fix; do
+# instruction text. Every merge-capable prompt must gate, locally, and BEFORE it merges.
+for p in impl bug-fix resume; do
   f="$HERE/../prompts/$p.md"
-  assert_ok "$p.md reads the check result"       grep -q 'gh pr checks' "$f"
   assert_ok "$p.md refuses to merge red"         grep -qi 'DO NOT MERGE' "$f"
-  assert_ok "$p.md forbids weakening the check"  grep -qi 'never disable, skip or weaken' "$f"
-  assert_ok "$p.md withholds the promise on red" grep -qi 'is NOT a promise' "$f"
+  assert_ok "$p.md never merges red to unblock"  grep -qi 'Never merge red to unblock' "$f"
+  # #190/#245: the repo's own CI entrypoint is the gate; without one, the full local suite is.
+  assert_ok "$p.md names the local CI entrypoint" grep -q 'scripts/ci-local.sh' "$f"
+  assert_ok "$p.md falls back to the full local suite" grep -qi 'otherwise the FULL suite' "$f"
+  assert_ok "$p.md says the gate is always local" grep -q 'the gate is ALWAYS local' "$f"
+  # #245: GitHub CI is disabled on Harness repos, so its result must be neither blocker nor
+  # permission — no step may RUN `gh pr checks`; the prompt may only name it to forbid it.
+  assert_no "$p.md runs no gh pr checks"         grep -qE '^ +gh pr checks' "$f"
+  assert_no "$p.md pulls no Actions logs"        grep -q 'gh run view' "$f"
+  assert_ok "$p.md forbids gh pr checks as the gate" \
+    grep -q 'NEVER use `gh pr checks`, a GitHub Actions run, or mergeable-state as the gate' "$f"
   # Ordering matters: a gate quoted after the merge step is decoration.
-  gate="$(grep -n 'gh pr checks' "$f" | head -1 | cut -d: -f1)"
+  gate="$(grep -n 'scripts/ci-local.sh' "$f" | head -1 | cut -d: -f1)"
   merge="$(grep -n 'gh pr merge' "$f" | head -1 | cut -d: -f1)"
   assert_ok "$p.md gates BEFORE merging (gate@$gate < merge@$merge)" test "$gate" -lt "$merge"
-  # A repo that ships its own CI entrypoint (hosted CI behind a billing wall returns a zero-step
-  # "failure" no branch can fix) moves the gate there (#190): the prompt must name it, rank it over
-  # `gh pr checks`, check for it before the hosted gate, and treat editing it as weakening the gate.
-  assert_ok "$p.md names the local CI entrypoint"     grep -q 'scripts/ci-local.sh' "$f"
-  assert_ok "$p.md ranks it over gh pr checks"        grep -q 'it OVERRIDES `gh pr checks`' "$f"
+done
+for p in impl bug-fix; do
+  f="$HERE/../prompts/$p.md"
+  assert_ok "$p.md forbids weakening the check"  grep -qi 'never disable, skip or weaken' "$f"
+  assert_ok "$p.md withholds the promise on red" grep -qi 'is NOT a promise' "$f"
   assert_ok "$p.md forbids editing the local CI script" grep -qi 'editing the local' "$f"
   assert_ok "$p.md promises only on the repo's gate"  grep -q "the repo's CI GATE was GREEN" "$f"
-  local_gate="$(grep -n 'LOCAL CI ENTRYPOINT' "$f" | head -1 | cut -d: -f1)"
-  assert_ok "$p.md checks for the local gate first (local@$local_gate < hosted@$gate)" \
-    test "${local_gate:-999999}" -lt "$gate"
+  assert_no "$p.md promises on no hosted check"  grep -q 'hosted checks otherwise' "$f"
 done
 # impl.md's autonomy clause must not be readable as "merge anyway".
 assert_ok "impl.md says the gate overrides 'never park'" \

@@ -74,7 +74,8 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_SECURITY_AUDIT:=0}"         # 1 = PRD review runs the vendored security-audit skill after the criteria gate
 : "${HARNESS_SECURITY_AUDIT_ROUNDS:=2}"  # security audit: rounds with filed findings before the reviewer concedes
 : "${HARNESS_SEED_CI:=0}"               # 1 = seed.sh commits a CI workflow + CI-requiring branch protection to unit repos; 0 = off
-: "${HARNESS_CI_GATE:=1}"                # #50: 1 = hold unit dispatch while the default branch's CI is red; 0 = off
+: "${HARNESS_CI_GATE:=0}"                # #50/#245: 1 = hold unit dispatch while the default branch's GitHub CI is red; 0 = off (default: no GitHub CI)
+: "${HARNESS_DISABLE_CI:=1}"             # #245: seeding disables a repo's GitHub Actions — 1 = test-CI only (release/deploy kept); all = every workflow; 0 = off
 : "${HARNESS_POOL_TAKES_BUGS:=1}"         # #214: 1 = an idle pool slot takes the oldest bug while the priority lane is busy; 0 = bugs stay on the lane
 : "${HARNESS_SWARM:=auto}"               # #202: auto = lanes run full-suite verification as a swarm job when `swarm` is on PATH; off = always local
 # #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
@@ -89,7 +90,7 @@ export HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS HARNESS_AGY_BIN HARNESS_AGY_FLAGS
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
-  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
+  HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
   HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM \
   HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
@@ -570,7 +571,8 @@ ci_status_default_branch(){ python3 "$ISSUELIB" ci-status "$1" 2>/dev/null; }
 #
 # Non-zero ONLY on a positively-red default branch, because a fleet that halts on uncertainty is
 # worse than one that merges a bad commit: every other verdict (unknown / no Actions / gh outage /
-# empty output from a HOLD exit) returns 0. HARNESS_CI_GATE=0 disables it outright.
+# empty output from a HOLD exit) returns 0. HARNESS_CI_GATE=0 — the default since #245, because
+# Harness projects run no GitHub CI — disables it outright.
 #
 # The remedy path is deliberately NOT gated: the priority bug lane claims through a red branch, so
 # filing a `bug` issue is how a fleet digs itself out. Nothing here touches live sessions either —
@@ -1664,6 +1666,7 @@ seed_if_needed(){
   local unit="$1" slug; slug="$(unit_slug "$unit")"
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then
     bash "$ENGINE_DIR/scripts/seed.sh" --labels-only "$slug"
+    bash "$ENGINE_DIR/scripts/seed.sh" --disable-ci "$slug"   # #245: seed.sh <unit> does this inline
   else
     bash "$ENGINE_DIR/scripts/seed.sh" "$unit"
     local co; co="$(unit_checkout "$unit")"

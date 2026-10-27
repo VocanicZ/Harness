@@ -56,31 +56,28 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
    function, moved a helper's contract, or rebuilt an artifact your tests load. If the rebase
    moved anything: re-run the build, re-run `rtdd which --base origin/<default-branch>` and its
    Rounds 1 and 2 (the rebase changed your diff, so it re-selects), then `git push --force-with-lease`. Repeat until the rebase is a no-op.
-6b. GATE ON CI — read the PR's CHECK RESULT before merging, every time:
-     gh pr checks <pr-number> -R {{SLUG}} --watch --fail-fast --interval 30
-   Mergeable-state is NOT a green build, and `--auto` on a repo with no REQUIRED check merges a red
-   PR happily. This lane's local runs cannot see a failure that only reproduces on the runner, so
-   this is the only step that does — do not skip it.
-   - Exit 0 → go to step 7.
-   - gh reports NO CHECKS CONFIGURED → nothing server-side will ever run the full suite for you (a
-     private repo on a free plan CANNOT configure one). Run the FULL suite locally NOW, same
-     no-new-failures bar as step 4, then go to step 7.
-   - Non-zero → DO NOT MERGE. Pull the failing log (`gh run view <run-id> -R {{SLUG}} --log-failed`),
-     fix the cause on this branch, push, re-run the watch. Up to 3 attempts; still red after 3, leave
-     the PR OPEN, comment on #{{ISSUE}} naming the failing workflow and run URL, and end WITHOUT the
-     promise. Never merge red to unblock yourself.
+6b. GATE LOCALLY — run the repo's gate on your rebased HEAD and read its RESULT before merging, every
+   time. Harness projects run NO GitHub CI, so the gate is ALWAYS local: the repo's own CI entrypoint
+   (`scripts/ci-local.sh`, `make ci`, or whatever CLAUDE.md / README names) when it ships one — its
+   exit code is the verdict — otherwise the FULL suite on this rebased HEAD, same no-new-failures
+   bar as step 4. NEVER use `gh pr checks`, a GitHub Actions run, or mergeable-state as the gate or
+   as permission to merge: GitHub CI is disabled by design, so what it reports is stale or absent.
+   - Green → go to step 7.
+   - Red → DO NOT MERGE. Fix the cause on this branch, push, re-run the gate. Up to 3 attempts;
+     still red after 3, leave the PR OPEN, comment on #{{ISSUE}} naming the failing step and its
+     output, and end WITHOUT the promise. Never merge red to unblock yourself.
 7. Drive the issue to closed. Get the PR MERGED — robustly, because some repos disable auto-merge:
    a. FIRST try to enable auto-merge:
         gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
    b. If that FAILS because the repo forbids auto-merge (gh prints something like
       "Auto-merge is not allowed for this repository" or "Pull request is not mergeable"),
-      FALL BACK to a direct squash merge once the PR is green/mergeable:
+      FALL BACK to a direct squash merge once the step 6b gate is green:
         gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
    The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
 
 If this harness is configured AUTONOMOUS: never park the work, drive it to closed.
 
 Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
-NOT merely opened), its checks were GREEN when it merged (step 6b), AND the issue is closing. On an auto-merge-disabled repo, complete the
+NOT merely opened), its local gate was GREEN when it merged (step 6b), AND the issue is closing. On an auto-merge-disabled repo, complete the
 direct squash merge (step 7b) BEFORE promising. When that holds, output exactly:
 <promise>{{PROMISE}}</promise>
