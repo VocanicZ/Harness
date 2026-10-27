@@ -84,7 +84,102 @@ def _tally_text(t):
             f'<span class="num">{len(t["working"])}</span> agent-working')
 
 
-def fleet_card(f, now):
+# session activity (the supervisor's pane rule) → status-word class. Only trouble is coloured.
+ACTIVITY = {"active": "level--green", "quiet": "level--grey", "nudged": "level--amber", "frozen": "level--red"}
+
+
+def _rel(ts, now):
+    """`<time>` for an epoch: "in 30m" ahead of now, "5m ago" behind it, the ISO stamp as its title."""
+    rel = f"in {fleetview.fmt_age(ts - now)}" if ts > now else f"{fleetview.fmt_age(now - ts)} ago"
+    return f'<time datetime="{iso(ts)}" title="{iso(ts)}">{rel}</time>'
+
+
+def _attention_item(a):
+    k, what = a["kind"], esc(a.get("what"))
+    if k == "frozen":
+        return f'session <span class="mono">{what}</span> is frozen — no activity past the supervisor\'s kill time'
+    if k == "stale-lock":
+        repo = f' <span class="mono muted">{esc(a["repo"])}</span>' if a.get("repo") else ""
+        return f'<span class="mono">{what}</span>{repo} holds the working label with no live session'
+    if k == "stale-pidfile":
+        return f'pid file <span class="mono">{what}</span> names a process that is gone'
+    if k == "stale-claim":
+        return f'claim <span class="mono">{what}</span> is held by a worker that is gone'
+    if k == "alarm":
+        return f'alarm <span class="mono">{what}</span>: {esc(a.get("message"))}'
+    if k == "dead":
+        return 'fleet is dead — pid files but no live process (<code>harness start --recover</code>)'
+    if k == "missing":
+        return 'project dir is gone — stale registry entry (<code>harness doctor --fix</code> prunes it)'
+    return f'{esc(k)} <span class="mono">{what}</span>'
+
+
+def _sessions_table(sessions, now):
+    if not sessions:
+        return '<p class="muted">No live sessions.</p>'
+    rows = []
+    for s in sessions:
+        act = s["activity"]
+        act_html = (f'<span class="level {ACTIVITY.get(act, "level--grey")}">{esc(act)}</span>' if act
+                    else '<span class="muted">unknown</span>')
+        age = "?" if s["age_s"] is None else fleetview.fmt_age(s["age_s"])
+        rows.append(f'<tr data-session="{esc(s["name"])}" data-activity="{esc(act or "unknown")}">'
+                    f'<td><span class="table__primary">{esc(s["issue"])}</span>'
+                    f'<span class="table__secondary mono">{esc(s["name"])}</span></td>'
+                    f'<td>{esc(s["kind"])}</td>'
+                    f'<td>{esc(s["cli"])}<span class="table__secondary mono">{esc(s["model"] or "?")}</span></td>'
+                    f'<td class="num">{age}</td><td>{act_html}</td></tr>')
+    return ('<div class="table-wrap"><table class="table fleet__sessions"><caption class="sr-only">Live sessions</caption>'
+            '<thead><tr><th scope="col">Issue</th><th scope="col">Kind</th><th scope="col">CLI · model</th>'
+            '<th scope="col" class="num">Age</th><th scope="col">Activity</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>')
+
+
+def rate_line(rate, now):
+    """The shared GitHub budget, one line per token: each resource's remaining/limit, and any hold."""
+    if not rate:
+        return '<p class="fleet__rate muted">GitHub budget unknown (no rate-limit probe on this host yet)</p>'
+    out = []
+    for r in rate:
+        res = " · ".join(f'{esc(k)} <span class="num">{"?" if v["remaining"] is None else v["remaining"]}'
+                         f'/{"?" if v["limit"] is None else v["limit"]}</span>'
+                         for k, v in r["resources"].items()) or '<span class="muted">no data</span>'
+        hold = (f' <span class="level level--amber">held until {_rel(r["hold_until"], now)}</span>'
+                if r["hold_until"] else "")
+        checked = f' <span class="muted">checked {_rel(r["checked_at"], now)}</span>' if r["checked_at"] else ""
+        out.append(f'<p class="fleet__rate">GitHub <span class="mono">{esc(r["key"])}</span>: {res}{hold}{checked}</p>')
+    return "".join(out)
+
+
+def _actions(sup):
+    acts = sup["actions"]
+    if not acts:
+        return '<p class="muted">No recent supervisor actions.</p>'
+    items = []
+    for line in reversed(acts):                       # newest first
+        parts = line.split(" ", 2)
+        when, text = (parts[1][:5], parts[2]) if len(parts) == 3 else ("", line)
+        items.append(f'<li><span class="muted num">{esc(when)}</span> <span class="mono">{esc(_short(text, 140))}</span></li>')
+    return f'<ol class="fleet__actions">{"".join(items)}</ol>'
+
+
+def health(f, rate, now):
+    """The card's health block: the verdict first, then what needs a human, sessions, budget, actions."""
+    att = f.get("attention") or []
+    if att:
+        verdict = f'<p class="fleet__verdict level level--amber">needs attention ({len(att)})</p>'
+        items = "".join(f'<li data-attention="{esc(a["kind"])}">{_attention_item(a)}</li>' for a in att)
+        verdict += f'<ul class="fleet__attention">{items}</ul>'
+    else:
+        verdict = '<p class="fleet__verdict level level--grey">healthy</p>'
+    if f["state"] == "missing":
+        return verdict
+    return (f'{verdict}\n{_sessions_table(f.get("sessions") or [], now)}\n{rate_line(rate, now)}\n'
+            f'<div class="fleet__log"><h3 class="fleet__subhead">Recent supervisor actions</h3>'
+            f'{_actions(f.get("supervisor") or {"actions": []})}</div>')
+
+
+def fleet_card(f, now, rate=()):
     cls, label = STATES.get(f["state"], ("level--grey", f["state"]))
     pfx = esc(f["prefix"])
     repos = "".join(f'<li><span class="mono">{esc(r["slug"])}</span> — {_tally_text(r["tally"])}</li>'
@@ -96,13 +191,15 @@ def fleet_card(f, now):
         pool = "?" if f["pool"] is None else f["pool"]
         detail = (f'<p class="fleet__meta"><span>workers <span class="num">{f["workers"]}/{pool}</span></span>'
                   f'{asof_stamp(f["asof"], now)}</p>')
-    return f"""<article class="panel fleet" data-fleet="{pfx}" data-state="{esc(f["state"])}">
+    hl = "attention" if f.get("attention") else "healthy"
+    return f"""<article class="panel fleet" data-fleet="{pfx}" data-state="{esc(f["state"])}" data-health="{hl}">
 <header class="panel__header">
 <h2 class="panel__title"><a href="/fleet/{pfx}">{pfx}</a></h2>
 <span class="level {cls}">{esc(label)}</span>
 <span class="panel__meta mono">{esc(f["root"])}</span>
 </header>
 <div class="panel__body stack stack--sm">
+{health(f, rate, now)}
 {detail}
 <ul class="fleet__repos">{repos}</ul>
 </div>
@@ -112,20 +209,28 @@ def fleet_card(f, now):
 def overview(view, now):
     """The host overview: every registered fleet, its state, and a link to its page."""
     fleets = view["fleets"]
+    rate = view.get("rate") or []
     if fleets:
-        cards = "\n".join(fleet_card(f, now) for f in fleets)
+        cards = "\n".join(fleet_card(f, now, rate) for f in fleets)
     else:
         cards = ('<div class="panel empty"><div><p class="empty__title">No fleets registered on this host.</p>'
                  '<p class="empty__text"><code>harness start</code> in a project registers its fleet here.</p>'
                  '</div></div>')
     n = len(fleets)
+    host = "".join(
+        f'<div class="callout callout--amber" data-attention="rate-hold"><div class="callout__body">'
+        f'<p class="callout__title">GitHub token <span class="mono">{esc(a["what"])}</span> is held on a rate limit '
+        f'until {_rel(a["until"], now)}</p><p>No fleet on this host calls <code>gh</code> with it until then; '
+        f'claims wait.</p></div></div>'
+        for a in view.get("attention") or ())
+    host = f'<section data-region="host-attention" class="stack stack--sm">{host}</section>\n' if host else ""
     body = f"""<div class="page-header">
 <div class="page-header__main">
 <h1 class="page-header__title">Fleets on this host</h1>
 <p class="page-header__meta"><span>{n} fleet{"" if n == 1 else "s"}</span>{asof_stamp(view["asof"], now)}</p>
 </div>
 </div>
-<section data-region="fleets" class="fleets">
+{host}<section data-region="fleets" class="fleets">
 {cards}
 </section>"""
     return page("Fleets", body, view["asof"], now)

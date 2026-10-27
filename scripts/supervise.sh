@@ -92,6 +92,7 @@ sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
 
 # sup_watch_pane <tmux target> <state file> <nudge min> <kill min, 0 = never> <nudge text> <cli> [kill fn]
 # State file: "<screen hash> <footer hash> <tree cpu> <quiet since> <nudged 0|1> <last nudge>".
+# supervise_rules.pane_activity reads this format for `harness web` (#225): change both together.
 sup_watch_pane(){
   local t=$1 f=$2 nudge_min=$3 kill_min=$4 msg=$5 cli=$6 killfn=${7:-}
   local pane pre body bg cpu now old= oldbg= oldcpu=0 t0 nudged=0 lastn=0 idle

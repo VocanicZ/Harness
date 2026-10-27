@@ -39,3 +39,12 @@
 .prd__title { font-size: var(--text-sm); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); overflow-wrap: anywhere; }
 .unparented { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .unparented a { color: var(--color-text); }
+
+/* Overview health (#225): the verdict leads each card; only trouble is coloured (the level tokens). */
+.fleet__verdict { font-size: var(--text-base); }
+.fleet__attention { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm);
+  padding-left: var(--space-3); border-left: 2px solid var(--color-amber-solid); overflow-wrap: anywhere; }
+.fleet__sessions td { overflow-wrap: anywhere; }
+.fleet__rate { font-size: var(--text-sm); color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.fleet__subhead { font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-text-muted); }
+.fleet__actions { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); overflow-wrap: anywhere; }

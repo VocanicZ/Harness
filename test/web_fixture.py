@@ -8,9 +8,11 @@ snapshots, one project dir per fleet holding its fixture config), puts a bin dir
 
 Registry records in the fixtures carry @PROJECT_<prefix>@ / @RUN_<prefix>@ placeholders; serving()
 rewrites them to the temp project dirs. Fleet `hz` gets worker-1.pid = this process (alive, so
-RUNNING); `dp` gets no pid file (STOPPED).
+RUNNING), a dead.pid (a reaped child's pid) and the launch context of hz-arc-i11 (#225); `dp` gets
+no pid file (STOPPED). The supervisor's state (supervise/, supervise.log, supervise.conf) and the
+rate-limit files (ghrate/) are copied into the host, pane files stamped as written at NOW.
 """
-import contextlib, http.client, importlib.util, json, os, shutil, sys, tempfile, threading, time
+import contextlib, http.client, importlib.util, json, os, shutil, subprocess, sys, tempfile, threading, time
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +20,8 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 FIX = os.path.join(HERE, "fixtures", "web")
 NOW = 1_800_000_000
 _ENV_KEYS = ("HARNESS_HOME", "HARNESS_FLEETS_DIR", "HARNESS_SNAPSHOTS_DIR", "HARNESS_POLLER_DIR",
-             "PATH", "WEB_GH_CALLED", "WEB_TMUX_LS")
+             "HARNESS_SUPERVISE_STATE", "HARNESS_SUPERVISE_LOG", "HARNESS_SUPERVISE_CONF",
+             "HARNESS_GH_RATE_DIR", "PATH", "WEB_GH_CALLED", "WEB_TMUX_LS")
 
 
 def load(name):
@@ -32,6 +35,14 @@ def load(name):
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def dead_pid():
+    """A pid that was alive a moment ago and is not now: a reaped child's. sys.executable, not `true`:
+    inside serving() PATH is the stub bin dir + whatever the runner had, which may be nothing."""
+    p = subprocess.Popen([sys.executable, "-c", ""])
+    p.wait()
+    return p.pid
 
 
 class Host:
@@ -65,6 +76,10 @@ class Host:
         self.projects[prefix] = state
         return state
 
+    def write_json(self, path, data):
+        with open(path, "w") as fh:
+            json.dump(data, fh)
+
     def write_snapshot(self, slug, snap):
         with open(os.path.join(self.snapshots, slug.replace("/", "__") + ".json"), "w") as fh:
             json.dump(snap, fh)
@@ -82,6 +97,19 @@ def build_host(root):
             config = fh.read()
         host.add_fleet(prefix, rec["slugs"], config, alive=(prefix == "hz"),
                        rec_extra={"started_at": rec["started_at"]})
+    for name in ("supervise", "ghrate"):
+        shutil.copytree(os.path.join(FIX, name), os.path.join(host.home, name))
+    for name in ("supervise.log", "supervise.conf"):
+        shutil.copy(os.path.join(FIX, name), host.home)
+    panes = os.path.join(host.home, "supervise", "panes")
+    for name in os.listdir(panes):
+        os.utime(os.path.join(panes, name), (NOW, NOW))     # the supervisor's last pass was just now
+    hz_run = os.path.join(host.projects["hz"], "run")
+    with open(os.path.join(hz_run, "dead.pid"), "w") as fh:
+        fh.write(str(dead_pid()))
+    host.write_json(os.path.join(hz_run, "hz-arc-i11.stats"),
+                    {"prefix": "hz", "repo": "o/arc", "issue": 11, "kind": "impl",
+                     "model": "claude-opus-5-5", "launched": NOW - 600})
     os.makedirs(host.bin)
     stubs = {"gh": '#!/bin/sh\ntouch "$WEB_GH_CALLED"\nexit 1\n',
              "tmux": '#!/bin/sh\nprintf "%s" "$WEB_TMUX_LS"\n'}
@@ -106,6 +134,10 @@ def serving(tmux_ls="", now=None, tick=None, events="events.jsonl"):
         os.environ.update({
             "HARNESS_HOME": host.home, "HARNESS_FLEETS_DIR": host.fleets,
             "HARNESS_SNAPSHOTS_DIR": host.snapshots, "HARNESS_POLLER_DIR": os.path.join(host.home, "poller"),
+            "HARNESS_SUPERVISE_STATE": os.path.join(host.home, "supervise"),
+            "HARNESS_SUPERVISE_LOG": os.path.join(host.home, "supervise.log"),
+            "HARNESS_SUPERVISE_CONF": os.path.join(host.home, "supervise.conf"),
+            "HARNESS_GH_RATE_DIR": os.path.join(host.home, "ghrate"),
             "PATH": host.bin + os.pathsep + (saved["PATH"] or ""),
             "WEB_GH_CALLED": host.gh_called, "WEB_TMUX_LS": tmux_ls,
         })
