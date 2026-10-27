@@ -12,6 +12,9 @@ assert(){
   TESTS_RUN=$((TESTS_RUN+1))
   if eval "$cmd"; then echo "  ok: $name"; else echo "  FAIL: $name"; TESTS_FAIL=$((TESTS_FAIL+1)); fi
 }
+# excl_of <wd> — <wd>'s own info/exclude as an ABSOLUTE path: a plain repo's --git-path is relative
+# to <wd>, not to this script's cwd, so a bare --git-path read the wrong file (#255).
+excl_of(){ git -C "$1" rev-parse --path-format=absolute --git-path info/exclude; }
 mode_of(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('permissions',{}).get('defaultMode','(none)'))" "$1" 2>/dev/null; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -23,7 +26,7 @@ sl="$wd/.claude/settings.local.json"
 assert "A1: settings.local.json created"            "[[ -f '$sl' ]]"
 assert "A1: defaultMode == bypassPermissions"       "[[ \"\$(mode_of '$sl')\" == bypassPermissions ]]"
 assert "A1: valid JSON"                              "python3 -c 'import json;json.load(open(\"$sl\"))'"
-assert "A1: pattern added to worktree info/exclude"  "grep -qxF '.claude/settings.local.json' \"\$(git -C '$wd' rev-parse --git-path info/exclude)\""
+assert "A1: pattern added to worktree info/exclude"  "grep -qxF '.claude/settings.local.json' \"\$(excl_of '$wd')\""
 
 # ── A2: existing allow rules are PRESERVED (merge, not clobber) ───────────────────────────────
 wd2="$TMP/existing"; mkdir -p "$wd2/.claude"; git -C "$wd2" init -q
@@ -38,7 +41,7 @@ assert "A2: unrelated top-level key preserved"       "python3 -c 'import json;as
 
 # ── A3: idempotent — second run keeps one exclude line, mode still set ─────────────────────────
 HARNESS_AUTONOMOUS=true ensure_bypass "$wd"
-excl="$(git -C "$wd" rev-parse --git-path info/exclude)"
+excl="$(excl_of "$wd")"
 assert "A3: exclude line not duplicated"             "[[ \$(grep -cxF '.claude/settings.local.json' \"\$excl\") -eq 1 ]]"
 assert "A3: mode still bypassPermissions"            "[[ \"\$(mode_of '$sl')\" == bypassPermissions ]]"
 
@@ -46,6 +49,13 @@ assert "A3: mode still bypassPermissions"            "[[ \"\$(mode_of '$sl')\" =
 wd3="$TMP/supervised"; mkdir -p "$wd3"; git -C "$wd3" init -q
 HARNESS_AUTONOMOUS=false ensure_bypass "$wd3"
 assert "A4: no settings.local.json written when supervised" "[[ ! -f '$wd3/.claude/settings.local.json' ]]"
+
+# ── A5: called from ANOTHER repo's cwd → writes <wd>'s exclude, never the cwd repo's ──────────
+wd4="$TMP/elsewhere-target"; other="$TMP/elsewhere-cwd"; mkdir -p "$wd4" "$other"
+git -C "$wd4" init -q; git -C "$other" init -q
+(cd "$other" && HARNESS_AUTONOMOUS=true ensure_bypass "$wd4")
+assert "A5: target's info/exclude gets the pattern"  "grep -qxF '.claude/settings.local.json' \"\$(excl_of '$wd4')\""
+assert "A5: cwd repo's info/exclude untouched"       "! grep -qxF '.claude/settings.local.json' \"\$(excl_of '$other')\""
 
 echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"
 [[ $TESTS_FAIL -eq 0 ]]
