@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# update.sh [--with-skills] — update the ONE shared engine install (#54, PRD #52). The engine lives
+# update.sh [--with-skills] [--rollback] — update the ONE shared engine install (#54, PRD #52). The engine lives
 # at $HARNESS_HOME/engine (resolved here via ENGINE_DIR, set by bin/harness from the realpath of the
 # entrypoint). One update moves every project at once — no per-project re-pull, no skew.
 #   --with-skills  also refresh the superpowers/ralph-loop plugins + matt-pocock skills (host-level).
@@ -13,12 +13,16 @@
 # runs from the NEW release (`update.sh --post-flip`, internal), so units and skills come from the
 # code they belong to. Exit 0 for every plain fact (current, updated, nothing published), 2 for a
 # config problem the operator can fix, 3 for an environment failure (network, checksum, disk).
+#   --rollback  flip engine back to the previous installed release (#280; rel_previous) and redeploy
+#               from it, exactly like an update. Nothing is downloaded or pruned, and the flip is
+#               recorded in releases/.installed, so a second --rollback goes forward again. With no
+#               previous release it says so and exits 2, engine unchanged.
 # A git-checkout engine keeps the `git pull --ff-only` path — no destructive git op that could
 # discard untracked/ignored files.
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-WITH_SKILLS=0; POST_FLIP=0
-for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; esac; done
+WITH_SKILLS=0; POST_FLIP=0; ROLLBACK=0
+for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; --rollback) ROLLBACK=1 ;; esac; done
 
 if (( POST_FLIP )); then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
@@ -30,7 +34,15 @@ elif [[ -L "${HARNESS_HOME:-${HOME:-}/.harness}/engine" ]]; then
     if (( WITH_SKILLS )); then ensure_skills; install_harness_skills; fi
     exit 0; }
   cur="$(engine_version)"
-  if [[ -n "${HARNESS_REF:-}" ]]; then
+  if (( ROLLBACK )); then
+    prev="$(rel_previous)"
+    if [[ -z "$prev" ]]; then
+      echo "harness update: no previous release to roll back to; engine unchanged at $cur" >&2
+      exit 2
+    fi
+    engine_flip "$prev" || exit 3
+    echo "rolled back Harness $cur -> $(engine_version)"
+  elif [[ -n "${HARNESS_REF:-}" ]]; then
     tag="$HARNESS_REF"
     [[ "$tag" == "$(engine_current)" ]] && done_current "Harness $tag is already installed."
   else
@@ -45,10 +57,12 @@ elif [[ -L "${HARNESS_HOME:-${HOME:-}/.harness}/engine" ]]; then
     fi
     (( order <= 0 )) && done_current "Harness $cur is the latest release."
   fi
-  rel_install "$tag" || exit 3
-  engine_flip "$tag" || exit 3
-  rel_prune
-  echo "updated Harness $cur -> $tag at $HARNESS_HOME/releases/$tag"
+  if (( ! ROLLBACK )); then
+    rel_install "$tag" || exit 3
+    engine_flip "$tag" || exit 3
+    rel_prune
+    echo "updated Harness $cur -> $tag at $HARNESS_HOME/releases/$tag"
+  fi
   new="$(realpath "$HARNESS_HOME/engine")"
   # A release cut before --post-flip existed (an older HARNESS_REF pin) would read the flag as a
   # plain update and re-run all of this; its redeploy tail then runs from here instead.
@@ -58,6 +72,10 @@ elif [[ -L "${HARNESS_HOME:-${HOME:-}/.harness}/engine" ]]; then
   fi
   ENGINE_DIR="$new"; HARNESS_ENGINE_LINK="$HARNESS_HOME/engine"; POST_FLIP=1
 else
+  if (( ROLLBACK )); then
+    echo "harness update: $ENGINE_DIR is a git checkout, not a release; no previous release to roll back to; engine unchanged" >&2
+    exit 2
+  fi
   # fast-forward ONLY. No destructive git operations.
   if ! git -C "$ENGINE_DIR" pull --ff-only; then
     echo "ERROR: 'git pull --ff-only' failed in $ENGINE_DIR (diverged or local engine edits)." >&2

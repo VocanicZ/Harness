@@ -96,7 +96,7 @@ usage: harness <command> [args]
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   resume               clear pause; resume here or start --recover (works across machines)
-  update [--with-skills]   ff-pull the shared engine install (one place; all projects pick it up)
+  update [--with-skills] [--rollback]   install the latest release (--rollback: flip back to the previous one)
   release [--dry-run] [--ref <rev>]
                        cut the next Harness release from this checkout (gate: test/run.sh)
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine

@@ -186,6 +186,17 @@ engine_current(){ [[ -L "$HARNESS_HOME/engine" ]] && basename "$(readlink "$HARN
 # engine_version — line 1 of engine/VERSION; v0.0.0 when there is none, so a migrated git-<sha>
 # tree orders below every release.
 engine_version(){ local v; v="$(sed -n 1p "$HARNESS_HOME/engine/VERSION" 2>/dev/null)"; echo "${v:-v0.0.0}"; }
+# rel_previous — the release `update --rollback` flips to: the newest releases/.installed entry that
+# is not the current target and whose releases/<name> still exists. Empty when there is none.
+rel_previous(){
+  local rel="$HARNESS_HOME/releases" cur name
+  cur="$(engine_current)"
+  while IFS= read -r name; do
+    [[ -n "$name" && "$name" != "$cur" && "$name" != .* && "$name" != */* && -d "$rel/$name" ]] || continue
+    echo "$name"; return 0
+  done < <(tac "$rel/.installed" 2>/dev/null)
+  return 0
+}
 # proc_engine_dir <pid> — a process's ENGINE_DIR from its exec-time environ (the twin of lib.sh's
 # proc_state_dir; copied here because a piped install has no lib.sh).
 proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
