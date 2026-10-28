@@ -171,6 +171,9 @@ assert_eq "$(cut -f1 "$F/usage.expected")" "$(cat "$F/model")" "…under the mod
 # The captured transcript is the lane's runs/<session>.jsonl: the launch's id finds it, and the CLI's
 # session id is that same id.
 SID="$(cat "$F/session")"; cp "$F/transcript.jsonl" "$WD/.harness-openclaw/runs/$SID.jsonl"
+is_uuid(){ [[ $1 =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; }
+assert_ok "the session fixture is a run id as --run takes it (a uuid)" is_uuid "$SID"
+assert_eq "$(cli_transcripts "$WD" 99999999-8888-7777-6666-555555555555)" "" "…and an id with no run file finds no transcript"
 assert_eq "$(cli_session_id "$WD" "$SID")" "$SID" "the session id is the launch's own (the matrix's session fixture)"
 assert_eq "$(cli_usage $(cli_transcripts "$WD" "$SID"))" "$(cat "$F/usage.expected")" "…whose transcript cli_transcripts finds and cli_usage folds"
 

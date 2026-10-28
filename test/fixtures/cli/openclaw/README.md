@@ -28,6 +28,10 @@ claude-cli/claude-haiku-5-5 --thinking low] --timeout 14400 "<bootstrap>"`, so e
 | `bypass-subagent.txt` | A lane asked to have a sub-agent (`sessions_spawn`) run `touch subagent-proof.txt`: both spawns failed `published reply runtime missing for main`; no child ran, no file. Sub-agents need the Gateway; an `agent exec` turn has none. |
 | `skill.txt` | A lane with a project skill `.agents/skills/echo-proof/SKILL.md`, asked to run it and say whether a `handoff` skill is available: it ran echo-proof, and found `handoff` at `~/.claude/skills/handoff/SKILL.md` through the lane config's `skills.load.extraDirs`. Before the adapter listed `~/.claude/skills`'s skill dirs one by one, `handoff` was not available: that dir has a `SKILL.md` of its own, which OpenClaw reads as one skill (`openclaw skills list --json` on a dir with a root `SKILL.md` and a sub-skill listed only the root one). |
 | `smoke.log` | The smoke run (see the PR): a lane on a linked worktree through `launch_agent`, tended by `watchdog_session` every 8 s, model `claude-cli/claude-haiku-5-5`, effort `low`, the task to write `hello.txt`, then commit it and print the promise. Paths are shown as `<scratch>` and `~`. |
+| `session` | `transcript.jsonl`'s run id: the `<uuid>` its lane's launch passed to `--run`, the file's name under `runs/`. |
+| `model` | The model the captures ran, as a lane's `--model` names it: `claude-cli/claude-haiku-5-5`. |
+| `effort-flag` | How a lane's effort reaches OpenClaw: `--thinking `, the loop's flag that `openclaw_launch` puts before the effort and passes to each `agent exec` turn. |
+| `handoff-skill` | How a prompt names the handoff skill: `handoff`, found through the lane config's `skills.load.extraDirs` (`skill.txt`). |
 | `fake-cli` | Not a capture: what the matrix runs as `openclaw` — it prints `transcript.jsonl`'s first envelope under a new session id. |
 | `turn-end` | Not a capture: one turn's envelope appended the way the loop records it, for the matrix's driven-loop row. |
 
