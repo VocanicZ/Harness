@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGY_STUB_DIR="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' >"$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
 export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 source "$HERE/helpers.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T" "$AGY_STUB_DIR"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "$T" "$AGY_STUB_DIR"; tmp_cleanup' EXIT
 printf '#!/bin/sh\necho "$@" >> %s/systemctl.calls\n' "$T" >"$T/systemctl"; chmod +x "$T/systemctl"
 printf '#!/bin/sh\necho "$@" >> %s/loginctl.calls\n' "$T" >"$T/loginctl"; chmod +x "$T/loginctl"
 export HARNESS_WEB_UNIT_DIR="$T/unit" HARNESS_WEB_SYSTEMCTL="$T/systemctl" HARNESS_WEB_LOGINCTL="$T/loginctl"

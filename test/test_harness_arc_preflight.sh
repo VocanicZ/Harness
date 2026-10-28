@@ -5,7 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 PF="$HERE/../skill/harness-arc/scripts/preflight.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
 mkdir -p "$T/engine" "$T/bin"
 cat >"$T/engine/issuelib.py" <<'EOF'
 import sys

@@ -16,7 +16,7 @@ source "$HERE/helpers.sh"
 unset_inherited_config
 unset STATE_DIR HARNESS_STATE_DIR_OK
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"; tmp_cleanup' EXIT
 
 # --- throwaway engine: real entrypoint, stub subcommand scripts -------------------------------
 ENGINE="$TMP/engine"; mkdir -p "$ENGINE/bin" "$ENGINE/scripts"

@@ -10,7 +10,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 source "$ROOT/scripts/lib.sh"
 source "$HERE/helpers.sh"
 make_env
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
 mkdir -p "$T/bin" "$T/abs/path"
 # The stub claude: records its environment's CLAUDE_CONFIG_DIR and answers --version.
 STUB='#!/bin/sh

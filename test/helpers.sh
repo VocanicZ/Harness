@@ -37,8 +37,33 @@ HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HA
 # empties them mid-test rather than restoring defaults. run.sh drops them once before the loop, so
 # every test gets a clean process; test_init.sh re-drops for a direct `bash test_init.sh`.
 unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
+
+# Temp hygiene (#294). make_env's RUN_DIR holds stubs, claims, state and tmux sockets — thousands of
+# inodes — and a script calls make_env many times, so an unremoved one per call exhausted a shared
+# host's /tmp. tmp_track records a path; tmp_cleanup removes every recorded one. The first
+# tmp_track in a shell installs `tmp_cleanup` as its EXIT trap, AFTER any trap already set there. A
+# test that sets its OWN EXIT trap later replaces this one, so it must call tmp_cleanup last itself:
+#   trap 'tmux kill-server 2>/dev/null; tmp_cleanup' EXIT
+# A subshell inherits the list but not the trap: its first tmp_track starts a list of its own, so
+# its exit removes only what it made and never the parent's RUN_DIR.
+TMP_TRACKED=(); TMP_OWNER=""
+# A no-op in a subshell that tracked nothing itself: the list it inherited is the parent's to remove.
+tmp_cleanup(){ [[ "$TMP_OWNER" == "$BASHPID" ]] || return 0
+  (( ${#TMP_TRACKED[@]} )) && rm -rf "${TMP_TRACKED[@]}"; TMP_TRACKED=(); return 0; }
+tmp_track(){
+  if [[ "$TMP_OWNER" != "$BASHPID" ]]; then
+    local prev=""
+    # Only the top-level shell keeps an earlier trap: in a subshell `trap -p` reports the PARENT's.
+    if [[ "$BASHPID" == "$$" ]]; then prev="$(trap -p EXIT)"; else TMP_TRACKED=(); fi
+    TMP_TRACKED+=("$@"); TMP_OWNER="$BASHPID"
+    # `trap -p` prints `trap -- 'CMD' EXIT`; re-split it (this clobbers $@, already recorded) for CMD.
+    if [[ -n "$prev" ]]; then eval "set -- $prev"; trap -- "$3; tmp_cleanup" EXIT; else trap tmp_cleanup EXIT; fi
+    return 0
+  fi
+  TMP_TRACKED+=("$@")
+}
 make_env(){
-  RUN_DIR="$(mktemp -d)"; CLAIMS_DIR="$RUN_DIR/claims"; POOL_LOCK="$RUN_DIR/pool.lock"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$CLAIMS_DIR"
+  RUN_DIR="$(mktemp -d)"; tmp_track "$RUN_DIR"; CLAIMS_DIR="$RUN_DIR/claims"; POOL_LOCK="$RUN_DIR/pool.lock"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$CLAIMS_DIR"
   # Hermetic state. lib.sh honours an inherited STATE_DIR (scripts/lib.sh:15) and every pool worker
   # exports its project's own to every child, so a test run inside a live agent session resolved
   # CONFIG / WORKTREES_DIR / CHECKOUTS_DIR at that fleet's REAL .harness/ and wrote to it. Re-pin
@@ -93,7 +118,7 @@ make_env(){
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
   POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
   mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$POLLER_REGISTRY_DIR" "$HARNESS_SNAPSHOTS_DIR"
-  TARGETS_TSV="$(mktemp)"; COMPLETE_SET="$(mktemp)"; POLL=0
+  TARGETS_TSV="$RUN_DIR/targets.tsv"; COMPLETE_SET="$RUN_DIR/complete.set"; : > "$TARGETS_TSV"; : > "$COMPLETE_SET"; POLL=0
   HARNESS_TOPOLOGY=multi   # tests that feed targets.tsv use multi; single-topology tests set it themselves
   unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }
 }
