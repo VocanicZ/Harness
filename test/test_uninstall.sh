@@ -201,6 +201,25 @@ outg="$(HARNESS_UNINSTALL_NOMAIN=1 bash -c 'source "$1"; STATE_DIR="$2" remove_p
 assert "R13 valid .harness IS removed"                  "[[ ! -e '$RG/.harness' ]]"
 assert "R13 parent .gitignore '.harness/' stripped"     "! grep -qxF '.harness/' '$RG/.gitignore'"
 
+# ── R14: a release-based engine (#281): the engine link goes, then every releases/<name> no live
+# worker runs from; one a live worker's ENGINE_DIR points into is kept, named, and releases/ stays.
+# The worker is exec'd with ENGINE_DIR in its environment, as pool.sh execs pool-worker.sh.
+RR="$(mktemp -d)"; mkdir -p "$RR/.harness/releases/v0.1.0/bin" "$RR/.harness/releases/v0.2.0/bin"
+echo v0.1.0 > "$RR/.harness/releases/.installed"; echo v0.2.0 >> "$RR/.harness/releases/.installed"
+ln -s releases/v0.2.0 "$RR/.harness/engine"
+ENGINE_DIR="$RR/.harness/releases/v0.1.0" sleep 300 & live=$!
+outr="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_HOME="$RR/.harness" HARNESS_UNINSTALL_WORKER_PIDS="$live" \
+        bash -c 'source "$1"; remove_engine' _ "$UNINSTALL" 2>&1)"
+kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+assert "R14 the engine link is removed"                 "[[ ! -L '$RR/.harness/engine' && ! -e '$RR/.harness/engine' ]]"
+assert "R14 a release no worker runs from is removed"   "[[ ! -e '$RR/.harness/releases/v0.2.0' ]]"
+assert "R14 the release a live worker runs from is kept" "[[ -d '$RR/.harness/releases/v0.1.0' ]]"
+assert "R14 the kept release is named"                  "grep -qF 'v0.1.0' <<< \"\$outr\""
+HARNESS_UNINSTALL_NOMAIN=1 HARNESS_HOME="$RR/.harness" HARNESS_UNINSTALL_WORKER_PIDS="" \
+  bash -c 'source "$1"; remove_engine' _ "$UNINSTALL" >/dev/null 2>&1
+assert "R14 with no live worker, releases/ goes too"    "[[ ! -e '$RR/.harness/releases' ]]"
+rm -rf "$RR"
+
 # ── CLI: `harness help` lists uninstall; `harness uninstall` dispatches via bin/harness ─
 assert "help lists uninstall" "\"$CLI\" help 2>&1 | grep -q uninstall"
 # end-to-end through the CLI from INSIDE a project (STATE_DIR discovered from cwd), --force path

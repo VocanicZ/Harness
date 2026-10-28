@@ -17,16 +17,58 @@
 #               from it, exactly like an update. Nothing is downloaded or pruned, and the flip is
 #               recorded in releases/.installed, so a second --rollback goes forward again. With no
 #               previous release it says so and exits 2, engine unchanged.
-# A git-checkout engine keeps the `git pull --ff-only` path — no destructive git op that could
-# discard untracked/ignored files.
+# A git-checkout engine ($HARNESS_HOME/engine a real directory with .git) is MIGRATED once a release
+# exists (#281): the release is installed, the checkout is moved aside — uncommitted edits and all —
+# to releases/git-<sha>/, where it counts as a release for retention and --rollback, and engine
+# becomes the symlink. While nothing is published it keeps the `git pull --ff-only` path. Neither
+# path runs a destructive git op that could discard untracked/ignored files.
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 WITH_SKILLS=0; POST_FLIP=0; ROLLBACK=0
 for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; --rollback) ROLLBACK=1 ;; esac; done
 
+# hand_off — after a flip, run the redeploy tail from the release engine now points at: exec its
+# `update.sh --post-flip`, or, for a release cut before that flag existed (an older HARNESS_REF pin,
+# which would read it as a plain update and re-run all of this), return so the tail runs from here.
+hand_off(){
+  new="$(realpath "$HARNESS_HOME/engine")"
+  if grep -q -- '--post-flip' "$new/update.sh" 2>/dev/null; then
+    post=(--post-flip); (( WITH_SKILLS )) && post+=(--with-skills)
+    exec env ENGINE_DIR="$new" HARNESS_ENGINE_LINK="$HARNESS_HOME/engine" bash "$new/update.sh" "${post[@]}"
+  fi
+  ENGINE_DIR="$new"; HARNESS_ENGINE_LINK="$HARNESS_HOME/engine"; POST_FLIP=1
+}
+_engine="${HARNESS_HOME:-${HOME:-}/.harness}/engine"
+migrate_tag=""
+# Only the engine this update runs from migrates: a dev clone or a test sandbox updating itself
+# (ENGINE_DIR elsewhere) keeps its ff-pull and never touches, or queries for, the host's engine.
+if (( ! POST_FLIP && ! ROLLBACK )) && [[ -d "$_engine" && ! -L "$_engine" && -e "$_engine/.git" ]] \
+   && [[ "$(realpath "$_engine" 2>/dev/null)" == "$(realpath "$ENGINE_DIR" 2>/dev/null)" ]]; then
+  HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
+  if [[ -n "${HARNESS_REF:-}" ]]; then
+    migrate_tag="$HARNESS_REF"
+  else
+    migrate_tag="$(rel_latest_tag)"; rc=$?
+    if (( rc == 2 )); then
+      echo "harness update: $HARNESS_API_URL named no release; if a release exists it may still be an unpublished draft"
+      migrate_tag=""
+    elif (( rc != 0 )); then
+      exit 3
+    fi
+  fi
+fi
+
 if (( POST_FLIP )); then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
-elif [[ -L "${HARNESS_HOME:-${HOME:-}/.harness}/engine" ]]; then
+elif [[ -n "$migrate_tag" ]]; then
+  # This running update.sh is the git checkout's own: bash keeps reading it through its open fd
+  # after the directory is renamed, and nothing more is sourced from it — hand_off execs straight
+  # into the new release.
+  engine_migrate_git "$migrate_tag" || exit 3
+  ENGINE_DIR="$(realpath "$HARNESS_HOME/engine")"
+  echo "migrated the git-checkout engine to $HARNESS_HOME/releases/$ENGINE_MIGRATED; updated Harness -> $migrate_tag"
+  hand_off
+elif [[ -L "$_engine" ]]; then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
   # already current / nothing to do: rtdd is still ensured (and --with-skills still honoured), and
   # neither the engine link nor releases/ is touched.
@@ -63,14 +105,7 @@ elif [[ -L "${HARNESS_HOME:-${HOME:-}/.harness}/engine" ]]; then
     rel_prune
     echo "updated Harness $cur -> $tag at $HARNESS_HOME/releases/$tag"
   fi
-  new="$(realpath "$HARNESS_HOME/engine")"
-  # A release cut before --post-flip existed (an older HARNESS_REF pin) would read the flag as a
-  # plain update and re-run all of this; its redeploy tail then runs from here instead.
-  if grep -q -- '--post-flip' "$new/update.sh" 2>/dev/null; then
-    post=(--post-flip); (( WITH_SKILLS )) && post+=(--with-skills)
-    exec env ENGINE_DIR="$new" HARNESS_ENGINE_LINK="$HARNESS_HOME/engine" bash "$new/update.sh" "${post[@]}"
-  fi
-  ENGINE_DIR="$new"; HARNESS_ENGINE_LINK="$HARNESS_HOME/engine"; POST_FLIP=1
+  hand_off
 else
   if (( ROLLBACK )); then
     echo "harness update: $ENGINE_DIR is a git checkout, not a release; no previous release to roll back to; engine unchanged" >&2

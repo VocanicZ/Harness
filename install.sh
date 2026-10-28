@@ -197,6 +197,33 @@ rel_previous(){
   done < <(tac "$rel/.installed" 2>/dev/null)
   return 0
 }
+# engine_migrate_git <tag> — move a git-checkout engine onto releases (#281). A no-op unless
+# $HARNESS_HOME/engine is a real directory with .git. Installs <tag> FIRST, so a failed download
+# leaves the git engine exactly where it was; then moves the checkout, uncommitted edits and all, to
+# releases/git-<12-char sha> (-2, -3 … if taken) and points engine at releases/<tag>, back to back.
+# No git command runs on the tree but rev-parse. Both names go to .installed (the old tree first),
+# so it counts as a release for retention and --rollback. Sets ENGINE_MIGRATED to the old tree's
+# name. rc 3 on any failure.
+engine_migrate_git(){
+  local tag="$1" h="$HARNESS_HOME" sha name i=1 tmp="$HARNESS_HOME/engine.flip.$$"
+  ENGINE_MIGRATED=""
+  [[ -d "$h/engine" && ! -L "$h/engine" && -e "$h/engine/.git" ]] || return 0
+  rel_install "$tag" || return 3
+  sha="$(git -C "$h/engine" rev-parse --short=12 HEAD 2>/dev/null)" || sha="unknown"
+  name="git-$sha"
+  while [[ -e "$h/releases/$name" ]]; do i=$((i+1)); name="git-$sha-$i"; done
+  rm -f "$tmp"
+  ln -s "releases/$tag" "$tmp" || { echo "harness update: could not create $tmp" >&2; return 3; }
+  if ! mv -T "$h/engine" "$h/releases/$name"; then
+    rm -f "$tmp"; echo "harness update: could not move $h/engine to $h/releases/$name" >&2; return 3
+  fi
+  if ! mv -T "$tmp" "$h/engine"; then
+    mv -T "$h/releases/$name" "$h/engine" 2>/dev/null; rm -f "$tmp"
+    echo "harness update: could not point $h/engine at releases/$tag" >&2; return 3
+  fi
+  printf '%s\n%s\n' "$name" "$tag" >> "$h/releases/.installed"
+  ENGINE_MIGRATED="$name"
+}
 # proc_engine_dir <pid> — a process's ENGINE_DIR from its exec-time environ (the twin of lib.sh's
 # proc_state_dir; copied here because a piped install has no lib.sh).
 proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
