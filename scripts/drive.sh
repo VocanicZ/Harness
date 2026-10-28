@@ -393,7 +393,12 @@ drive_unit(){
     reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
     reap_pool_bugs   # #214: bug sessions an idle slot took — end on goal, release the claim once gone
     retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
-    if is_paused; then log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
+    if is_paused; then
+      # #259: a driven goal loop (cli_loop driven) advances only from this loop's watchdog, so its
+      # sessions are drained by polling on, without dispatch, until none is left.
+      if [[ "$(cli_loop)" == driven ]] && (( $(count_team_sessions "$UNIT") > 0 )); then
+        log "$UNIT paused — draining (no new dispatch); driving the live goal loops until they end"; sleep "$POLL"; continue; fi
+      log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
     # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
     # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
     # again. Placed after the reap sweep so a red branch never also stalls session bookkeeping.

@@ -120,6 +120,49 @@ assert_eq "$?" 0 "max_iterations ends the driven loop after one re-prompt"
   limit_checkpoint_once(){ :; }; watchdog_session "$sess"; watchdog_session "$sess"
   [[ -s $TMUXLOG ]] && ! grep -qF 'Ralph iteration' "$TMUXLOG" )
 assert_eq "$?" 0 "a busy or limit-parked pane is not re-prompted"
+# …nor an injector's, which no watchdog tends (reap_finished_inject runs the tick itself).
+( fake_tmux; session_live(){ return 0; }; sess="$(sess_inject main)"; w="$RUN_DIR/inj"; mkdir -p "$w"; printf 'GOAL: x\n' > "$w/.harness-task.md"
+  write_state "$w" "NEVER" 5 "$UUID"; echo "$w" > "$RUN_DIR/$sess.wd"; FAKE_PANE="$F/limit.txt"
+  for r in one two three; do "$F/turn-end" "$w" "$UUID" "$r"; reap_finished_inject main; done
+  [[ -s $TMUXLOG ]] && ! grep -qF 'Ralph iteration' "$TMUXLOG" && grep -qx 'iteration: 1' "$w/.claude/ralph-loop.local.md" )
+assert_eq "$?" 0 "an injector parked at a limit is not re-prompted"
+( fake_tmux; session_live(){ return 0; }; sess="$(sess_inject main)"; w="$RUN_DIR/inj2"; mkdir -p "$w"; printf 'GOAL: x\n' > "$w/.harness-task.md"
+  write_state "$w" "INJ DONE" 5 "$UUID"; echo "$w" > "$RUN_DIR/$sess.wd"
+  "$F/turn-end" "$w" "$UUID" "<promise>INJ DONE</promise>"; reap_finished_inject main
+  cli_done "$w" && grep -qF "kill-session" "$TMUXLOG" )
+assert_eq "$?" 0 "an injector's promise ends its loop and the injector is reaped"
+# Only the turn's last message answers it: a promise announced mid-run is no answer.
+( fake_tmux; session_live(){ return 0; }; sess=hz-mid-i10; w="$RUN_DIR/mid"; mkdir -p "$w"; printf 'GOAL: x\n' > "$w/.harness-task.md"
+  write_state "$w" "MID DONE" 5 "$UUID"; echo "$w" > "$RUN_DIR/$sess.wd"
+  "$F/turn-end" "$w" "$UUID" "I will output <promise>MID DONE</promise> once the tests pass"
+  f="$COPILOT_HOME/session-state/$UUID/events.jsonl"
+  python3 -c 'import json,sys; l=open(sys.argv[1]).read().splitlines(); end=l.pop(); m=json.loads(l[-1]); m["id"]="m2"; m["data"]["content"]="tests still failing"; l.append(json.dumps(m)); l.append(end); open(sys.argv[1],"w").write("\n".join(l)+"\n")' "$f"
+  watchdog_session "$sess"; ! cli_done "$w" && [[ $(sent_text "$sess" | wc -l) == 1 ]] )
+assert_eq "$?" 0 "a promise announced before the turn's last message does not end the loop"
+# A turn that answers the transient-error nudge leaves the error line on screen: its promise is still read.
+( fake_tmux; session_live(){ return 0; }; sess=hz-err-i11; w="$RUN_DIR/err"; mkdir -p "$w"; printf 'GOAL: x\n' > "$w/.harness-task.md"
+  write_state "$w" "ERR DONE" 5 "$UUID"; echo "$w" > "$RUN_DIR/$sess.wd"; FAKE_PANE="$F/transient.txt"
+  watchdog_session "$sess"; "$F/turn-end" "$w" "$UUID" "<promise>ERR DONE</promise>"; watchdog_session "$sess"
+  cli_done "$w" && [[ $(cat "$RUN_DIR/$sess.stall" 2>/dev/null || echo 0) == 0 ]] )
+assert_eq "$?" 0 "a promise given with the transient-error line still on screen ends the loop"
+# A paused pool keeps polling (no dispatch) while a driven goal loop is live: only its watchdog advances it.
+( source "$HERE/../scripts/drive.sh"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; CAP=2; POLL=0; touch "$PAUSE_FLAG"
+  dispatched=""; polls="$RUN_DIR/polls"; : > "$polls"
+  reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; reap_pool_bugs(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
+  reap_finished_inject(){ :; }; gh_rate_wait(){ :; }; unit_complete(){ return 1; }; finalize_unit(){ :; }
+  watchdog_team(){ echo poll >> "$polls"; }; count_team_sessions(){ (( $(wc -l < "$polls") < 3 )) && echo 1 || echo 0; }
+  dispatch_actions(){ dispatched=yes; }; drive_unit main >/dev/null 2>&1
+  [[ -z $dispatched && $(wc -l < "$polls") == 3 ]] )
+assert_eq "$?" 0 "a paused pool drains a driven goal loop by polling its watchdog until no session is left"
+# …and so does the bug lane, which holds its session in drive_bug.
+( source "$HERE/../scripts/priority-worker.sh"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; PRIORITY_POLL=0
+  polls="$RUN_DIR/lane-polls"; : > "$polls"
+  _bug_ref_repo(){ echo acme/widget; }; _bug_ref_num(){ echo 5; }; bug_phase(){ echo fix; }; bug_checkout(){ echo "$RUN_DIR/co"; }
+  spawn_bug(){ return 0; }; remove_worktree(){ :; }; bug_worktree(){ echo x; }; triage_worktree(){ echo y; }; stats_sweep_ended(){ :; }
+  is_paused(){ return 0; }; usage_watch(){ :; }; bug_goal_done(){ return 1; }
+  session_live(){ (( $(wc -l < "$polls") < 3 )); }; watchdog_session(){ echo poll >> "$polls"; }
+  drive_bug "acme/widget#5" >/dev/null 2>&1; [[ $(wc -l < "$polls") == 3 ]] )
+assert_eq "$?" 0 "a paused bug lane drains a driven goal loop by polling its watchdog until the session ends"
 
 # --- usage windows -------------------------------------------------------------------------------
 python3 - "$F/transcript.jsonl" "$COPILOT_HOME/session-state/$UUID/events.jsonl" <<'PY'

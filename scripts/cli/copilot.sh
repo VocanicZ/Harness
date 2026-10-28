@@ -171,7 +171,8 @@ PY
 
 # --- the Harness-driven goal loop (lib.sh goal_loop_tick) -----------------------------------------
 # copilot_last_reply <wd> <session id> — the id of the last prompt the session was given, then the
-# text the agent answered it with (every assistant.message since that user.message). rc 1 while that
+# text the agent answered it with: the last non-empty assistant.message since that user.message (a
+# promise the agent only announced mid-run is no answer). rc 1 while that
 # prompt's turn is still running: no assistant.turn_end after it yet, or a turn_start after the last
 # turn_end (a turn is one model call; a prompt runs several, transcript.jsonl). A sub-agent writes its
 # own prompt, turns and replies into the same file, each event tagged with its agentId
@@ -193,7 +194,7 @@ for line in open(sys.argv[1]):
     elif pid is None:
         continue
     elif t == "assistant.message" and x.get("content"):
-        reply.append(x["content"])
+        reply = [x["content"]]
     elif t == "assistant.turn_start":
         ended = False
     elif t in ("assistant.turn_end", "abort"):
