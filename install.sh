@@ -89,6 +89,144 @@ ensure_rtdd(){
   fi
   rm -f "$rtdd_log"
 }
+
+# ── releases (PRD #274, #279) ──────────────────────────────────────────────────────────────────────
+# A host runs a published release: $HARNESS_HOME/releases/vX.Y.Z/ is one release, extracted once and
+# never modified, and $HARNESS_HOME/engine is a relative symlink to one of them, flipped by a single
+# rename(2). These mirror rtdd's internal/selfupdate/: the same messages (rtdd → Harness,
+# checksums.txt → SHA256SUMS) and the same exit discipline — rc 2 a configuration problem the
+# operator can fix, rc 3 an environment that failed underneath (network, checksum, disk).
+HARNESS_RELEASE_REPO="${HARNESS_RELEASE_REPO:-VocanicZ/Harness}"
+HARNESS_API_URL="${HARNESS_API_URL:-https://api.github.com/repos/$HARNESS_RELEASE_REPO/releases/latest}"
+HARNESS_BASE_URL="${HARNESS_BASE_URL:-https://github.com/$HARNESS_RELEASE_REPO/releases/download}"
+
+# semver_cmp <a> <b> — prints -1, 0 or 1 as <a> is older than, the same as, or newer than <b>. rc 2
+# (and nothing printed) when either is not [v]MAJOR.MINOR.PATCH[-pre]. A pre-release sorts below its
+# release; two pre-releases of one version compare as strings (rtdd's parseVersion/compare).
+semver_cmp(){
+  local re='^v?([0-9]+)\.([0-9]+)\.([0-9]+)(-([0-9A-Za-z.-]+))?$' a b i x y
+  [[ "$1" =~ $re ]] || return 2; a=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}")
+  [[ "$2" =~ $re ]] || return 2; b=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}")
+  for i in 0 1 2; do
+    x=$((10#${a[i]})); y=$((10#${b[i]}))
+    (( x < y )) && { echo -1; return 0; }; (( x > y )) && { echo 1; return 0; }
+  done
+  x="${a[3]}"; y="${b[3]}"
+  if [[ "$x" == "$y" ]]; then echo 0
+  elif [[ -z "$x" ]]; then echo 1
+  elif [[ -z "$y" || "$x" < "$y" ]]; then echo -1
+  else echo 1; fi
+}
+# rel_latest_tag — the tag_name $HARNESS_API_URL (releases/latest) names. rc 2: it named no release
+# (none published, or only a draft — GitHub answers 404 {"message":"Not Found"}, hence no curl -f);
+# rc 3: unreachable or unreadable. Errors go to stderr in rtdd's words.
+rel_latest_tag(){
+  local body tag
+  if ! body="$(curl -sSL "$HARNESS_API_URL" 2>&1)"; then
+    echo "harness update: could not resolve the latest release from $HARNESS_API_URL: ${body:-curl failed}" >&2; return 3
+  fi
+  if ! tag="$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print((d.get("tag_name") or "") if isinstance(d,dict) else "")' <<<"$body" 2>/dev/null)"; then
+    echo "harness update: could not resolve the latest release from $HARNESS_API_URL: the response is not JSON" >&2; return 3
+  fi
+  [[ -n "$tag" ]] || return 2
+  printf '%s\n' "$tag"
+}
+# rel_fetch <tag> <dir> — download harness-<tag>.tar.gz and SHA256SUMS from $HARNESS_BASE_URL/<tag>/
+# into <dir> and verify the archive against the SHA256SUMS line whose LAST field is its name. A
+# missing entry is a failure, never a skip. rc 3 on a failed fetch, a missing entry, or a mismatch.
+rel_fetch(){
+  local tag="$1" dir="$2" arc="harness-$1.tar.gz" want got
+  local url="$HARNESS_BASE_URL/$tag"
+  curl -fsSL -o "$dir/$arc" "$url/$arc" || { echo "harness update: could not download $url/$arc" >&2; return 3; }
+  curl -fsSL -o "$dir/SHA256SUMS" "$url/SHA256SUMS" || { echo "harness update: could not download $url/SHA256SUMS" >&2; return 3; }
+  want="$(awk -v n="$arc" '{ f=$NF; sub(/^\*/, "", f) } f == n { print $1; exit }' "$dir/SHA256SUMS")"
+  [[ -n "$want" ]] || { echo "harness update: SHA256SUMS carries no entry for $arc" >&2; return 3; }
+  got="$(sha256sum "$dir/$arc" | awk '{print $1}')"
+  [[ "$want" == "$got" ]] || { echo "harness update: checksum mismatch for $arc: expected $want, got $got" >&2; return 3; }
+}
+# rel_install <tag> — fetch + verify <tag>, extract it into releases/.staging-<tag>.XXXX (same
+# filesystem), require VERSION line 1 == <tag>, then rename it to releases/<tag>. An existing
+# releases/<tag> carrying that VERSION is a no-op. Any failure removes the staging and temp dirs, so
+# releases/<tag> never exists half-written. rc 3 on any failure.
+rel_install(){
+  local tag="$1" rel="$HARNESS_HOME/releases" tmp stage
+  if [[ -d "$rel/$tag" ]]; then
+    [[ "$(sed -n 1p "$rel/$tag/VERSION" 2>/dev/null)" == "$tag" ]] && return 0
+    echo "harness update: $rel/$tag exists but is not release $tag; move it aside and retry" >&2; return 3
+  fi
+  mkdir -p "$rel" || return 3
+  tmp="$(mktemp -d)" || return 3
+  if ! stage="$(mktemp -d "$rel/.staging-$tag.XXXX")"; then rm -rf "$tmp"; return 3; fi
+  _rel_install_into "$tag" "$tmp" "$stage"; local rc=$?
+  rm -rf "$tmp"; (( rc == 0 )) || rm -rf "$stage"
+  return $rc
+}
+_rel_install_into(){
+  local tag="$1" tmp="$2" stage="$3"
+  rel_fetch "$tag" "$tmp" || return 3
+  tar -xzf "$tmp/harness-$tag.tar.gz" -C "$stage" --strip-components=1 \
+    || { echo "harness update: could not extract harness-$tag.tar.gz" >&2; return 3; }
+  [[ "$(sed -n 1p "$stage/VERSION" 2>/dev/null)" == "$tag" ]] \
+    || { echo "harness update: harness-$tag.tar.gz does not carry VERSION $tag" >&2; return 3; }
+  chmod 755 "$stage"
+  mv -T "$stage" "$HARNESS_HOME/releases/$tag" || { echo "harness update: could not place $HARNESS_HOME/releases/$tag" >&2; return 3; }
+}
+# engine_flip <name> — point $HARNESS_HOME/engine at releases/<name> with ONE rename(2): a new
+# relative link beside it, then mv -T over it, so a path through engine never sees it missing or
+# half-written. Appends <name> to releases/.installed (newest last).
+engine_flip(){
+  local h="$HARNESS_HOME" tmp="$HARNESS_HOME/engine.flip.$$"
+  rm -f "$tmp"
+  ln -s "releases/$1" "$tmp" && mv -T "$tmp" "$h/engine" \
+    || { rm -f "$tmp"; echo "harness update: could not point $h/engine at releases/$1" >&2; return 3; }
+  echo "$1" >> "$h/releases/.installed"
+}
+# engine_current — the release name engine points at; empty when engine is not a symlink.
+engine_current(){ [[ -L "$HARNESS_HOME/engine" ]] && basename "$(readlink "$HARNESS_HOME/engine")"; return 0; }
+# engine_version — line 1 of engine/VERSION; v0.0.0 when there is none, so a migrated git-<sha>
+# tree orders below every release.
+engine_version(){ local v; v="$(sed -n 1p "$HARNESS_HOME/engine/VERSION" 2>/dev/null)"; echo "${v:-v0.0.0}"; }
+# proc_engine_dir <pid> — a process's ENGINE_DIR from its exec-time environ (the twin of lib.sh's
+# proc_state_dir; copied here because a piped install has no lib.sh).
+proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
+# rel_in_use <dir> — rc 0 iff some live process's ENGINE_DIR, realpath'd, is <dir> or under it. Reads
+# each environ in-shell (no fork per process): a fleet host runs hundreds of them.
+rel_in_use(){
+  local want e kv
+  want="$(realpath -m "$1" 2>/dev/null)" || want="$1"
+  for e in /proc/[0-9]*/environ; do
+    while IFS= read -r -d '' kv; do
+      [[ "$kv" == ENGINE_DIR=* ]] || continue
+      kv="$(realpath -m "${kv#ENGINE_DIR=}" 2>/dev/null)" || break
+      [[ "$kv" == "$want" || "$kv" == "$want"/* ]] && return 0
+      break
+    done 2>/dev/null < "$e"
+  done
+  return 1
+}
+# rel_prune — keep the current release and the previous 2 (the last 3 distinct names in
+# releases/.installed); remove every other releases/<name> unless it is the engine's target or a
+# live process runs from it. Dotfiles are never touched, except a .staging-* dir over an hour old
+# (an interrupted install's leftover). Only ever rm -rf's releases/<name> directories.
+rel_prune(){
+  local rel="$HARNESS_HOME/releases" cur keep=" " n d name
+  [[ -d "$rel" ]] || return 0
+  cur="$(engine_current)"
+  n=0
+  while IFS= read -r name; do
+    [[ -n "$name" && "$keep" != *" $name "* ]] || continue
+    keep+="$name "; n=$((n+1)); (( n >= 3 )) && break
+  done < <(tac "$rel/.installed" 2>/dev/null)
+  for d in "$rel"/*/; do
+    [[ -d "$d" ]] || continue
+    name="$(basename "$d")"
+    [[ "$keep" == *" $name "* || "$name" == "$cur" ]] && continue
+    rel_in_use "$rel/$name" && continue
+    rm -rf "${rel:?}/$name"
+  done
+  find "$rel" -mindepth 1 -maxdepth 1 -type d -name '.staging-*' -mmin +60 -exec rm -rf {} + 2>/dev/null
+  return 0
+}
 ensure_skills(){
   # Each agent CLI on this host gets the plugins its lanes need, installed by its own adapter
   # (cli_prereqs --install). Harness's own plugins come from the placed engine's plugins/ when there

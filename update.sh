@@ -1,28 +1,78 @@
 #!/usr/bin/env bash
-# update.sh [--with-skills] — fast-forward the ONE shared engine install (#54, PRD #52). The engine
-# lives at $HARNESS_HOME/engine (resolved here via ENGINE_DIR, set by bin/harness from the realpath
-# of the entrypoint). One ff-pull updates every project at once — no per-project re-pull, no skew.
+# update.sh [--with-skills] — update the ONE shared engine install (#54, PRD #52). The engine lives
+# at $HARNESS_HOME/engine (resolved here via ENGINE_DIR, set by bin/harness from the realpath of the
+# entrypoint). One update moves every project at once — no per-project re-pull, no skew.
 #   --with-skills  also refresh the superpowers/ralph-loop plugins + matt-pocock skills (host-level).
-# rtdd is ensured on EVERY update, with or without that flag: the prompts this pull brings call it.
-# Touches NO project .harness/: config + state live in the project, separate from the engine. Runs
-# `git pull --ff-only` ONLY — no destructive git op that could discard untracked/ignored files.
+# rtdd is ensured on EVERY update, with or without that flag: the prompts this update brings call it.
+# Touches NO project .harness/: config + state live in the project, separate from the engine.
+#
+# A release-based engine ($HARNESS_HOME/engine is a symlink into releases/, PRD #274) follows GitHub
+# releases the way `rtdd update` does (#279): releases/latest (or HARNESS_REF=<tag>, never compared),
+# semver against the installed VERSION, download + SHA256SUMS verify, extract to releases/<tag>/,
+# one rename(2) of the engine link, prune to the current release + the previous 2. The redeploy then
+# runs from the NEW release (`update.sh --post-flip`, internal), so units and skills come from the
+# code they belong to. Exit 0 for every plain fact (current, updated, nothing published), 2 for a
+# config problem the operator can fix, 3 for an environment failure (network, checksum, disk).
+# A git-checkout engine keeps the `git pull --ff-only` path — no destructive git op that could
+# discard untracked/ignored files.
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-WITH_SKILLS=0; [[ "${1:-}" == "--with-skills" ]] && WITH_SKILLS=1
+WITH_SKILLS=0; POST_FLIP=0
+for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; esac; done
 
-# fast-forward ONLY. No destructive git operations.
-if ! git -C "$ENGINE_DIR" pull --ff-only; then
-  echo "ERROR: 'git pull --ff-only' failed in $ENGINE_DIR (diverged or local engine edits)." >&2
-  echo "       Resolve there manually; no project state is touched." >&2
-  exit 1
+if (( POST_FLIP )); then
+  HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
+elif [[ -L "${HARNESS_HOME:-${HOME:-}/.harness}/engine" ]]; then
+  HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
+  # already current / nothing to do: rtdd is still ensured (and --with-skills still honoured), and
+  # neither the engine link nor releases/ is touched.
+  done_current(){ echo "$1"; ensure_rtdd
+    if (( WITH_SKILLS )); then ensure_skills; install_harness_skills; fi
+    exit 0; }
+  cur="$(engine_version)"
+  if [[ -n "${HARNESS_REF:-}" ]]; then
+    tag="$HARNESS_REF"
+    [[ "$tag" == "$(engine_current)" ]] && done_current "Harness $tag is already installed."
+  else
+    tag="$(rel_latest_tag)"; rc=$?
+    if (( rc == 2 )); then
+      done_current "harness update: $HARNESS_API_URL named no release; if a release exists it may still be an unpublished draft"
+    fi
+    (( rc == 0 )) || exit 3
+    if ! order="$(semver_cmp "$tag" "$cur")"; then
+      echo "harness update: cannot tell whether $tag is newer than the running version \"$cur\" (not [v]MAJOR.MINOR.PATCH). Name the release to install with HARNESS_REF=<tag>" >&2
+      exit 2
+    fi
+    (( order <= 0 )) && done_current "Harness $cur is the latest release."
+  fi
+  rel_install "$tag" || exit 3
+  engine_flip "$tag" || exit 3
+  rel_prune
+  echo "updated Harness $cur -> $tag at $HARNESS_HOME/releases/$tag"
+  new="$(realpath "$HARNESS_HOME/engine")"
+  # A release cut before --post-flip existed (an older HARNESS_REF pin) would read the flag as a
+  # plain update and re-run all of this; its redeploy tail then runs from here instead.
+  if grep -q -- '--post-flip' "$new/update.sh" 2>/dev/null; then
+    post=(--post-flip); (( WITH_SKILLS )) && post+=(--with-skills)
+    exec env ENGINE_DIR="$new" HARNESS_ENGINE_LINK="$HARNESS_HOME/engine" bash "$new/update.sh" "${post[@]}"
+  fi
+  ENGINE_DIR="$new"; HARNESS_ENGINE_LINK="$HARNESS_HOME/engine"; POST_FLIP=1
+else
+  # fast-forward ONLY. No destructive git operations.
+  if ! git -C "$ENGINE_DIR" pull --ff-only; then
+    echo "ERROR: 'git pull --ff-only' failed in $ENGINE_DIR (diverged or local engine edits)." >&2
+    echo "       Resolve there manually; no project state is touched." >&2
+    exit 1
+  fi
+  echo "  engine updated at $ENGINE_DIR — every project picks it up immediately."
+  # Sourced AFTER the pull, so the functions below are the ones the pull just brought.
+  HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
 fi
-echo "  engine updated at $ENGINE_DIR — every project picks it up immediately."
 
 # rtdd, ALWAYS — not behind --with-skills. The engine just ff-pulled prompts whose test loop IS
 # `rtdd which`; a host that last ran install.sh before rtdd existed would otherwise get the prompts
 # without the binary, and every lane would silently fall back to the full-suite bar this replaces.
 # No-op when it is already there, and never fatal: a failed install prints and the update stands.
-HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
 ensure_rtdd
 
 # harness supervise (#180): an installed unit is rewritten and restarted from THIS engine, so the
@@ -41,7 +91,7 @@ fi
 # engine — otherwise an engine update leaves stale ~/.claude/skills copies behind.
 if (( WITH_SKILLS )); then
   ensure_skills
-  HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-$ENGINE_DIR/skill}" install_harness_skills
+  HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-${HARNESS_ENGINE_LINK:-$ENGINE_DIR}/skill}" install_harness_skills
 fi
 
 # if a pool is running (in this project's state dir), new engine logic only applies after a relaunch.
@@ -49,7 +99,11 @@ run_dir="${STATE_DIR:-$ENGINE_DIR}/run"
 if compgen -G "$run_dir/worker-*.pid" >/dev/null 2>&1; then
   for pf in "$run_dir"/worker-*.pid; do
     kill -0 "$(cat "$pf" 2>/dev/null)" 2>/dev/null && {
-      echo "NOTE: a worker pool is running. Live workers keep the OLD engine logic until relaunched."
+      if (( POST_FLIP )); then
+        echo "NOTE: a worker pool is running. Live workers keep running their release directory until relaunched."
+      else
+        echo "NOTE: a worker pool is running. Live workers keep the OLD engine logic until relaunched."
+      fi
       echo "      To apply this update safely: harness pause  →  let sessions drain  →  harness stop  →  harness start --recover"
       break
     }
