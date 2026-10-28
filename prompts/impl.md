@@ -91,6 +91,8 @@ Steps:
         gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
    The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
 
+{{> _followup.md}}
+
 AUTONOMY — if this harness is configured AUTONOMOUS (no human): NEVER apply `agent-blocked`,
 never wait for a human/credential/resource. Provision runtimes yourself (`docker compose up -d`,
 run setup scripts, install deps). Make ambiguous calls yourself, document them in an issue comment,

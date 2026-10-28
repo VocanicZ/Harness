@@ -14,6 +14,8 @@
   guarantee.
 - The engine closes a PRD only once every one of its `ready-for-agent` children is CLOSED — so a
   follow-up filed alongside a sign-off correctly holds the PRD open instead of being stranded.
+- Any OPEN issue naming a PRD as parent (`## Parent`, `Part of #N`, `Parent: #N`) holds its REVIEW and
+  CLOSE_PRD whatever its labels; an unlabelled one gets `ready-for-agent` from the engine (`LABEL_READY`).
 - `_is_unblocked` **exempts a child's reference to its own PRD**, which absorbs the very common
   `Part of #<prd>` trailer leaking into the `## Blocked by` section. Load-bearing: DECOMPOSE
   formatting drifts between sessions and this leak appears often. Any *other* stray number is a

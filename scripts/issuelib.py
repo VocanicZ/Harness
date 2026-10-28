@@ -42,6 +42,11 @@ _PARENT_HEADING = re.compile(r"^#{2,3}\s+Parent\s*:?\s*$", re.IGNORECASE | re.MU
 # Legacy fallback: the bare `Part of #N` trailer decompose.md has always emitted. Kept so children
 # filed by earlier engine versions keep their attribution across the upgrade, with no migration.
 _PART_OF = re.compile(r"(?<![\w.-])Part of\s+(?:([\w.-]+/[\w.-]+)#(\d+)|#(\d+))", re.IGNORECASE)
+# #287: the one-line forms lanes write when filing a follow-up — `## Parent #N` (heading and ref on
+# one line) and `Parent: #N` anywhere. Same two-alternative ref groups as `_PART_OF`.
+_PARENT_INLINE = re.compile(r"^#{2,3}[ \t]+Parent[ \t]*:?[ \t]*(?:([\w.-]+/[\w.-]+)#(\d+)|#(\d+))",
+                            re.IGNORECASE | re.MULTILINE)
+_PARENT_COLON = re.compile(r"(?<![\w.-])Parent:[ \t]*(?:([\w.-]+/[\w.-]+)#(\d+)|#(\d+))", re.IGNORECASE)
 # #221: a PRD's `## Task 1` section (the harness-arc "write the plan first" task). DECOMPOSE owes it a
 # child whose title names Task 1 — `Task 1` exactly, never `Task 10`.
 _TASK1_HEADING = re.compile(r"^#{2,3}\s+Task\s+1(?!\d)", re.IGNORECASE | re.MULTILINE)
@@ -369,9 +374,10 @@ def parse_parent(body, self_repo):
 
     Primary form is a `## Parent` section holding one ref, parsed exactly like `## Blocked by`
     (bare `#N` resolves against self_repo; `owner/repo#N` is honoured; a `None` section means
-    deliberately unparented). When no such section exists, falls back to the bare `Part of #N`
+    deliberately unparented). When no such section exists, the one-line `## Parent #N` and
+    `Parent: #N` forms a lane writes on a follow-up (#287) are honoured, then the bare `Part of #N`
     trailer that decompose.md emits today, so pre-upgrade children keep their attribution.
-    A `## Blocked by` ref is never harvested — only the two forms above."""
+    A `## Blocked by` ref is never harvested — only the forms above."""
     if not body:
         return None
     m = _PARENT_HEADING.search(body)
@@ -386,10 +392,11 @@ def parse_parent(body, self_repo):
             num = qual_num if qual_num is not None else bare_num
             return (repo_part or self_repo, int(num))
         return None
-    m = _PART_OF.search(body)
-    if m:
-        num = m.group(2) if m.group(2) is not None else m.group(3)
-        return (m.group(1) or self_repo, int(num))
+    for rx in (_PARENT_INLINE, _PARENT_COLON, _PART_OF):
+        m = rx.search(body)
+        if m:
+            num = m.group(2) if m.group(2) is not None else m.group(3)
+            return (m.group(1) or self_repo, int(num))
     return None
 
 
@@ -1126,6 +1133,19 @@ def compute_state(repo):
         else:
             unparented.append(i)
 
+    # #287: an OPEN issue that names a PRD as its parent but is in no bucket (a lane filed it with no
+    # lane label) never held that PRD's sign-off, so review signed off, the engine closed the PRD, and
+    # the child was stranded. Every such issue — whatever its labels — is a stray that holds REVIEW
+    # and CLOSE_PRD; dispatch labels an unlabelled one ready so a lane can take it.
+    kid_nums = {i["number"] for i in children}
+    strays = {p["number"]: [] for p in prd_issues}
+    for i in issues:
+        if i["state"].lower() != "open" or i["number"] in kid_nums or i["number"] in strays:
+            continue
+        p = parse_parent(i.get("body"), slug)
+        if p is not None and _repo_slug(p[0]) == slug and p[1] in strays:
+            strays[p[1]].append(i)
+
     closed_cache = {}
     # #221: open blockers no lane can claim, for a PRD or ready child they alone hold.
     by_num = {i["number"]: i for i in listed}
@@ -1151,10 +1171,16 @@ def compute_state(repo):
                 _note_stuck(k, prd_num)
         return all_closed, unblocked
 
+    lane_labels = {L_READY(), L_BUG(), L_BUG_TRIAGED()}
     prds = []
     held_by = []
     for p in prd_issues:
         kids = by_parent[p["number"]]
+        stray = strays[p["number"]]
+        # a labelled stray no lane can take holds its PRD for good — name it, like a #221 blocker
+        stuck_on.extend(r for r in ((slug, i["number"]) for i in stray
+                                    if i["_labels"] and not lane_labels & set(i["_labels"]))
+                        if r not in stuck_on)
         all_closed, unblocked = _bucket(kids, p["number"])
         eligible = _is_unblocked(p, slug, closed_cache, p["number"])
         if not eligible and unblocked:
@@ -1173,6 +1199,10 @@ def compute_state(repo):
                      "needs_task1": bool(_TASK1_HEADING.search(p.get("body") or ""))
                                     and not any(_TASK1_TITLE.search(k.get("title") or "") for k in kids),
                      "children_all_closed": all_closed,
+                     # #287: open issues naming this PRD outside its ready children; `unlabelled` is
+                     # the subset dispatch labels ready
+                     "stray": [i["number"] for i in stray],
+                     "unlabelled": [i["number"] for i in stray if not i["_labels"]],
                      "unblocked": unblocked})
     # The unparented bucket keeps the LEGACY exempt-PRD (the lowest-numbered one): a child with no
     # `## Parent`/`Part of` attribution that names a PRD in its `## Blocked by` is the pre-upgrade
@@ -1377,7 +1407,7 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     if a["review"]:
         for p in eligible:
             if len(out) >= slots: break
-            if p["number"] in busy or not p["open"] or not p["children_all_closed"]:
+            if p["number"] in busy or not p["open"] or not p["children_all_closed"] or p.get("stray"):
                 continue
             if not p["reviewed"]:
                 out.append(("REVIEW", str(p["number"]), "REVIEW DONE"))
@@ -1390,6 +1420,13 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     if not out and slots and priority_free is not None and priority_free <= 0:
         for num in sorted(n for n, _phase in bug_lane_candidates(repo))[:slots]:
             out.append(("BUG", str(num), f"BUG {num} DONE"))
+    # #287: an unlabelled open issue naming an open PRD is labelled ready by the engine (drive.sh
+    # label_ready, one idempotent gh call), so it joins that PRD's children and is dispatched next
+    # poll. Takes no slot: there is no session, and it must never wait behind one.
+    if a["review"]:
+        for p in prds:
+            if p["open"]:
+                out += [("LABEL_READY", str(n), "-") for n in p.get("unlabelled", ())]
     return out
 
 def is_complete(s):

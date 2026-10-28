@@ -167,6 +167,17 @@ close_prd(){
   fi
 }
 
+# label_ready <issue> — the LABEL_READY dispatch action (#287). An open issue that names an open PRD
+# as its parent but carries no label at all (a lane filed a follow-up bare) is in no lane's queue,
+# and used to let that PRD sign off and close over it. One idempotent gh call, re-emitted every poll
+# until the label lands; the issue then joins the PRD's children and holds its review until closed.
+label_ready(){
+  local n="$1"
+  log "labelling stray child #$n $HARNESS_LABEL_READY (names an open PRD as parent, had no label)"
+  gh issue edit "$n" -R "$SLUG" --add-label "$HARNESS_LABEL_READY" >/dev/null 2>&1 \
+    || log "label of #$n failed (will retry next poll)"
+}
+
 spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   local action="$1" payload="$2"; PROMISE="$3"; MAXITER="$ORCH_MAXITER"
   local tmpl wd prd=0 base ground=""; STAT_PRD=""
@@ -437,6 +448,7 @@ drive_unit(){
         case "$action" in
           IMPL)      spawn_impl "$payload" "$promise";;
           CLOSE_PRD) close_prd "$payload";;        # engine-side close — no session, returns at once
+          LABEL_READY) label_ready "$payload";;    # #287: engine labels a stray child — no session
           BUG)       spawn_pool_bug "$payload";;  # #214: nothing else to do and the bug lane is busy
           *)         spawn_orch "$action" "$payload" "$promise";;
         esac

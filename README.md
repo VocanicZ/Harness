@@ -154,9 +154,15 @@ is held until #41 closes, giving you a strict **one-by-one** sequence. Mix freel
 what genuinely depends on something else.
 
 Children are attributed to their PRD by a `## Parent` section in the issue body (the decompose
-agent writes this; the legacy `Part of #N` trailer is also honoured). A ready-labelled issue with
-no parent — an injected task, say — is dispatched first and does not gate any PRD's review. The
-unit is COMPLETE only when every PRD is closed and no unparented issue is still open.
+agent writes this; the one-line `## Parent #N` / `Parent: #N` forms and the legacy `Part of #N`
+trailer are also honoured). A ready-labelled issue with no parent — an injected task, say — is
+dispatched first and does not gate any PRD's review.
+The unit is COMPLETE only when every PRD is closed and no unparented issue is still open.
+
+Any OPEN issue that names a PRD as its parent holds that PRD's `REVIEW` and `CLOSE_PRD`, whatever its
+labels — a lane that files a follow-up bare used to let the PRD sign off and close over it, stranding
+it. One with no label at all is labelled `ready-for-agent` by the engine (the `LABEL_READY` dispatch
+action), so it joins the PRD's children and is dispatched.
 
 Within each bucket (the unparented one, and each PRD's) issues are claimed **resumable first** — an
 issue whose remote `issue/<n>` branch exists (so any open PR from it) or that carries `agent-paused`

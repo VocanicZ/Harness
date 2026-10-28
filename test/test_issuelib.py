@@ -2577,6 +2577,77 @@ def test_status_names_a_parked_issue():
     assert "PARKED" in out and "#5" in out, out
     assert "complete=N" in out, out
 
+# ── #287: an unlabelled lane-filed follow-up must not be stranded under a closed PRD ─────────────
+def test_parse_parent_accepts_inline_heading_and_colon_forms():
+    # rtdd#554 wrote `## Parent #511` on ONE line; others write `Parent: #N`. Both name the parent.
+    assert il.parse_parent("Fix it.\n\n## Parent #511\n", "acme/widget") == ("acme/widget", 511)
+    assert il.parse_parent("## Parent: other/repo#3\n", "acme/widget") == ("other/repo", 3)
+    assert il.parse_parent("Follow-up.\nParent: #9\n", "acme/widget") == ("acme/widget", 9)
+    # the own-line section still wins, and a prose `parent` with no ref is not a parent
+    assert il.parse_parent("## Parent\n#41\n\nParent: #9\n", "acme/widget") == ("acme/widget", 41)
+    assert il.parse_parent("the parent issue is closed", "acme/widget") is None
+
+def test_unlabelled_part_of_child_blocks_signoff_and_gets_labelled():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]),
+        _issue(11, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(18, body="A follow-up the lane filed.\n\nPart of #10\n"),   # ImPrint#18: no labels
+    ])
+    try:
+        s = il.compute_state("acme/widget")
+        p10 = s["prds"][0]
+        assert p10["children_all_closed"] is True, p10   # the ready-labelled kids alone look done
+        assert p10["stray"] == [18], p10
+        acts = il.dispatch("acme/widget", 3, True)
+        assert ("LABEL_READY", "18", "-") in acts, acts
+        assert all(a[0] not in ("REVIEW", "CLOSE_PRD") for a in acts), acts
+    finally: _restore_repo()
+
+def test_stray_child_holds_close_of_a_reviewed_prd():
+    # rtdd#554: the follow-up was filed after review signed off; the engine must not close the PRD.
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd", "reviewed"]),
+        _issue(11, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(54, body="## Parent #10\n"),
+    ])
+    try:
+        acts = il.dispatch("acme/widget", 3, True)
+        assert acts == [("LABEL_READY", "54", "-")], acts
+    finally: _restore_repo()
+
+def test_labelled_stray_blocks_signoff_but_is_not_relabelled():
+    # Any open issue naming the PRD holds sign-off whatever its labels; only an UNLABELLED one is
+    # labelled. One carrying a non-lane label no agent can take is named STUCK instead.
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]),
+        _issue(11, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#10\n"),
+        _issue(12, labels=["bug"], body="Parent: #10\n"),
+        _issue(13, labels=["enhancement"], body="Part of #10\n"),
+        _issue(14, "CLOSED", body="Part of #10\n"),       # closed: never holds anything
+        _issue(15, body="Part of #20\n"),                 # names a PRD that does not exist
+    ])
+    try:
+        s = il.compute_state("acme/widget")
+        assert s["prds"][0]["stray"] == [12, 13], s["prds"][0]
+        assert ("acme/widget", 13) in s["stuck_on"] and ("acme/widget", 12) not in s["stuck_on"], s
+        assert il.dispatch("acme/widget", 3, True) == [], "no sign-off, nothing to label"
+    finally: _restore_repo()
+
+def test_no_stray_keeps_review_flowing():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(10, labels=["prd"]),
+        _issue(11, "CLOSED", labels=["ready-for-agent"], body="Part of #10\n"),
+        _issue(99, body="unrelated, unlabelled, no parent"),
+    ])
+    try:
+        assert il.compute_state("acme/widget")["prds"][0]["stray"] == []
+        assert il.dispatch("acme/widget", 3, True) == [("REVIEW", "10", "REVIEW DONE")]
+    finally: _restore_repo()
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

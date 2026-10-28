@@ -87,6 +87,8 @@ Steps:
         gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
    The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
 
+{{> _followup.md}}
+
 AUTONOMY — this lane is autonomous. NEVER apply `agent-blocked`, never wait for a human or a
 credential. Provision runtimes yourself, make ambiguous calls yourself and document them in an
 issue comment, and drive the bug to closed. If a route seems impossible, find another.
