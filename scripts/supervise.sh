@@ -51,7 +51,12 @@ SUP_STATE="${HARNESS_SUPERVISE_STATE:-$HARNESS_HOME/supervise}"
 SUP_LOG="${HARNESS_SUPERVISE_LOG:-$HARNESS_HOME/supervise.log}"
 source "$SUP_ENGINE_DIR/scripts/turn.sh"   # #207: stuck-turn detection + interrupt (after supervise.conf, which may set HARNESS_TURN_MAX)
 source "$SUP_ENGINE_DIR/scripts/cli/dispatch.sh"   # #188: each CLI's pane regexes (cli_with <cli> …)
-SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_ENGINE_DIR/bin/harness}"
+# The unit and every restart go through the STABLE engine path bin/harness exported (#281), so a
+# release flip takes effect on restart without rewriting the unit. Taken only when it resolves to
+# this engine: a link inherited from some other engine's environment never redirects the unit.
+SUP_LINK="${HARNESS_ENGINE_LINK:-$SUP_ENGINE_DIR}"
+[[ "$(realpath -m "$SUP_LINK" 2>/dev/null)" == "$(realpath -m "$SUP_ENGINE_DIR" 2>/dev/null)" ]] || SUP_LINK="$SUP_ENGINE_DIR"
+SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_LINK/bin/harness}"
 SUP_RULES="${HARNESS_SUPERVISE_RULES:-$SUP_ENGINE_DIR/scripts/supervise_rules.py}"
 # Fleets the registry does not know (an engine that predates it) are found by this glob too.
 SUP_FLEET_GLOB="${HARNESS_SUPERVISE_GLOB:-$HOME/*/.harness}"

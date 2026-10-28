@@ -10,6 +10,14 @@ set -uo pipefail
 _self="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 ENGINE_DIR="$(cd "$(dirname "$_self")/.." && pwd)"
 export ENGINE_DIR
+# HARNESS_ENGINE_LINK — the STABLE path to this engine, for anything long-lived that must follow an
+# update (#281): the supervise/web units' ExecStart, the /harness skills source. $HARNESS_HOME/engine
+# when it resolves to this ENGINE_DIR (a release behind the engine link, or today's git checkout),
+# else ENGINE_DIR itself (a dev clone or test sandbox keeps naming itself). ENGINE_DIR stays the
+# concrete release, so a launched worker keeps reading its own release after the link flips.
+_link="${HARNESS_HOME:-$HOME/.harness}/engine"
+if [[ "$(realpath "$_link" 2>/dev/null)" == "$ENGINE_DIR" ]]; then HARNESS_ENGINE_LINK="$_link"; else HARNESS_ENGINE_LINK="$ENGINE_DIR"; fi
+export HARNESS_ENGINE_LINK
 
 # discover_state_dir — walk UP from cwd for a .harness/config; echo that .harness dir, or fail (1).
 discover_state_dir(){
@@ -81,10 +89,16 @@ print_version(){
   else
     echo "harness unknown (no VERSION file)"
   fi
+  # --verbose: where this engine runs from, and the stable path units reach it through (#281).
+  if [[ "${1:-}" == --verbose ]]; then
+    echo "engine: $ENGINE_DIR"
+    echo "stable: $HARNESS_ENGINE_LINK"
+  fi
 }
 usage(){ cat <<EOF
 usage: harness <command> [args]
-  --version            print this engine's release (or dev checkout) and commit
+  --version [--verbose]  print this engine's release (or dev checkout) and commit
+                       (--verbose: also the engine dir and the stable path units use)
   install              install the engine once to ~/.harness/engine + link 'harness' onto PATH
   init                 interactive setup wizard (writes config, creates labels, seeds repo)
   start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
@@ -147,7 +161,7 @@ case "$cmd" in
   # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   # --version is engine-level too: it reads only ENGINE_DIR, never a project .harness/ (#277).
-  --version|version) print_version; exit 0;;
+  --version|version) print_version "$@"; exit 0;;
   update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
   # release is engine-level: it acts on the git checkout it is run in, never a project .harness/ (#278).
   release) exec bash "$ENGINE_DIR/scripts/release.sh" "$@";;

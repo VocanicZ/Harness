@@ -43,9 +43,42 @@ other_fleets_depend_on_engine(){
   return 1
 }
 
-# remove the ONE shared host engine install. Idempotent.
+# release_in_use <dir> — rc 0 iff a live worker (_worker_pids) runs from <dir>: its exec-time
+# ENGINE_DIR, realpath'd, is <dir> or under it. Workers only — this uninstall's own process carries
+# the ENGINE_DIR of the release it runs from, and must not count as a user of it.
+declare -F proc_engine_dir >/dev/null || \
+  proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
+release_in_use(){
+  local want pid e
+  want="$(realpath -m "$1" 2>/dev/null)" || want="$1"
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    e="$(proc_engine_dir "$pid")"; [[ -n "$e" ]] || continue
+    e="$(realpath -m "$e" 2>/dev/null)" || continue
+    [[ "$e" == "$want" || "$e" == "$want"/* ]] && return 0
+  done < <(_worker_pids)
+  return 1
+}
+# remove the ONE shared host engine install. Idempotent. A release-based host (#281): the engine
+# symlink, then every releases/<name> no live worker runs from; one still in use is kept and named,
+# and releases/ stays with it.
 remove_engine(){
-  [[ -e "$SHARED_ENGINE" ]] && rm -rf "$SHARED_ENGINE" && echo "  removed shared engine $SHARED_ENGINE"
+  if [[ -L "$SHARED_ENGINE" ]]; then
+    rm -f "$SHARED_ENGINE" && echo "  removed shared engine link $SHARED_ENGINE"
+  elif [[ -e "$SHARED_ENGINE" ]]; then
+    rm -rf "$SHARED_ENGINE" && echo "  removed shared engine $SHARED_ENGINE"
+  fi
+  local rel="$HARNESS_HOME/releases" d kept=()
+  [[ -d "$rel" ]] || return 0
+  for d in "$rel"/*/; do
+    d="${d%/}"; [[ -d "$d" ]] || continue
+    if release_in_use "$d"; then kept+=("$(basename "$d")"); else rm -rf "$d"; fi
+  done
+  if (( ${#kept[@]} )); then
+    echo "  kept releases a live worker still runs from: ${kept[*]} (in $rel)"
+  else
+    rm -rf "$rel" && echo "  removed releases $rel"
+  fi
   return 0
 }
 # remove the `harness` PATH entrypoint. -L catches a dangling symlink (engine already gone);

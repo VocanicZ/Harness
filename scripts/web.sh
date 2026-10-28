@@ -9,7 +9,10 @@
 #                idempotent, and `harness update` re-runs it so the unit follows the engine
 #   --uninstall  stop, disable and remove that unit
 WEB_ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-WEB_HARNESS="${HARNESS_WEB_HARNESS:-$WEB_ENGINE_DIR/bin/harness}"
+# The unit runs the STABLE engine path (#281) when it resolves to this engine; see supervise.sh.
+WEB_LINK="${HARNESS_ENGINE_LINK:-$WEB_ENGINE_DIR}"
+[[ "$(realpath -m "$WEB_LINK" 2>/dev/null)" == "$(realpath -m "$WEB_ENGINE_DIR" 2>/dev/null)" ]] || WEB_LINK="$WEB_ENGINE_DIR"
+WEB_HARNESS="${HARNESS_WEB_HARNESS:-$WEB_LINK/bin/harness}"
 WEB_UNIT_DIR="${HARNESS_WEB_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 WEB_UNIT=harness-web.service
 WEB_SYSTEMCTL="${HARNESS_WEB_SYSTEMCTL:-systemctl}"
