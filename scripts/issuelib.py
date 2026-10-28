@@ -536,6 +536,17 @@ def _issue_state(slug, number):
     return str(d.get("state", "")).lower()
 
 
+def _issue_labels(slug, number):
+    """The issue's labels, lowercased — from the snapshot in snapshot mode, else one gh read. An issue
+    the read cannot find has none. A transient failure raises GhError, like _issue_state."""
+    if _snapshot_mode():
+        snap = _snapshot_for_slug(slug) or {}
+        it = next((i for i in snap.get("issues") or [] if i.get("number") == number), None)
+    else:
+        it = _gh_json(["issue", "view", str(number), "-R", slug, "--json", "labels"], allow_absent=True)
+    return {str(l.get("name", "")).lower() for l in (it or {}).get("labels", [])}
+
+
 def _spec_hash():
     """sha256 hex of the current HARNESS_SPEC file's content; "" when unset/unreadable.
     drive.sh writes the same digest into the marker (via `issuelib.py spec-hash`), so both sides
@@ -600,17 +611,75 @@ def _open_blockers(issue, slug, closed_cache, prd_num=None):
     return list(_unsatisfied_refs(issue, slug, closed_cache, prd_num))
 
 
-def _claimable(issue):
-    """Could some lane ever take this (open) issue? The pool claims ready work (agent-blocked only on
-    an autonomous fleet, exactly as compute_state's claim filter), the PRD pipeline closes PRDs, the
-    bug lane takes bugs, and an agent-working issue is already held. Anything else — an operator
-    step with no ready label — waits on a human forever (#221)."""
+# ── parked issues (#271) ──────────────────────────────────────────────────────────────────────
+# An agent-blocked issue used to be re-dispatched on an autonomous fleet the moment its reap freed
+# it, so a lane that parked on a blocker nothing had fixed was relaunched into the same blocker, in a
+# loop. reap_team (drive.sh) now records each issue it frees while agent-blocked — when, and the
+# `updatedAt` it read AFTER its own unlock — and the issue stays held until something changes it (a
+# comment, a label edit) or HARNESS_BLOCKED_BACKOFF_MIN passes. Record lines are
+# `<slug>\t<n>\t<parked epoch>\t<updatedAt>`; the last line for an issue wins.
+def _parked_file():
+    return os.environ.get("HARNESS_PARKED_FILE") or os.path.join(os.environ.get("STATE_DIR", ""), "run", "parked")
+
+
+_parked_cache = {}
+def _park_records():
+    """{(slug, n): (parked_epoch, updatedAt)} from the park file, re-read only when it changes."""
+    path = _parked_file()
+    try:
+        st = os.stat(path); key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {}
+    if key not in _parked_cache:
+        recs = {}
+        try:
+            with open(path) as f:
+                for line in f:
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) == 4 and parts[1].isdigit() and parts[2].isdigit():
+                        recs[(parts[0], int(parts[1]))] = (int(parts[2]), parts[3])
+        except OSError:
+            return {}
+        _parked_cache.clear(); _parked_cache[key] = recs
+    return _parked_cache[key]
+
+
+def _parked(issue, slug):
+    """True while an agent-blocked issue's park record stands: nothing touched the issue since the
+    engine parked it, and the time back-off (if any) has not run out. GitHub's updatedAt is ISO-8601
+    UTC, so the string order is the time order."""
+    rec = _park_records().get((_repo_slug(slug), issue["number"]))
+    if rec is None or L_BLOCKED() not in issue["_labels"]:
+        return False
+    at, upd = rec
+    if (issue.get("updatedAt") or "") > upd:
+        return False
+    backoff = int(os.environ.get("HARNESS_BLOCKED_BACKOFF_MIN", "0") or 0)
+    return not (backoff > 0 and time.time() - at >= backoff * 60)
+
+
+def _blocked_hold(issue, slug):
+    """The one agent-blocked dispatch filter, shared by the pool (compute_state), stall diagnostics
+    (_claimable) and the bug lane: a non-autonomous fleet never takes agent-blocked work; an
+    autonomous one holds it only while it is parked (#271)."""
+    if L_BLOCKED() not in issue["_labels"]:
+        return False
+    return not AUTONOMOUS() or _parked(issue, slug)
+
+
+def _claimable(issue, slug):
+    """Could some lane ever take this (open) issue? The pool claims ready work that is not held
+    agent-blocked (exactly as compute_state's claim filter), the PRD pipeline closes PRDs, the bug
+    lane takes bugs, and an agent-working issue is already held. Anything else — an operator step
+    with no ready label, or a parked issue nothing has changed — waits on a human (#221, #271)."""
     labels = issue["_labels"]
-    if L_WORKING() in labels or L_BUG() in labels or L_BUG_TRIAGED() in labels:
+    if L_WORKING() in labels:
         return True
+    if L_BUG() in labels or L_BUG_TRIAGED() in labels:
+        return not _blocked_hold(issue, slug)
     if L_PRD() in labels or issue.get("title", "").startswith("[AFK] PRD:"):
         return True
-    return L_READY() in labels and (AUTONOMOUS() or L_BLOCKED() not in labels)
+    return L_READY() in labels and not _blocked_hold(issue, slug)
 
 
 def _stuck_refs(blockers, slug, by_num, allowed):
@@ -620,7 +689,7 @@ def _stuck_refs(blockers, slug, by_num, allowed):
     stuck = []
     for ref in blockers:
         it = by_num.get(ref[1]) if ref[0] == slug else None
-        if it is None or (it["number"] in allowed and _claimable(it)):
+        if it is None or (it["number"] in allowed and _claimable(it, slug)):
             return []
         stuck.append(ref)
     return stuck
@@ -1062,6 +1131,7 @@ def compute_state(repo):
     by_num = {i["number"]: i for i in listed}
     allowed = {i["number"] for i in issues}
     stuck_on = []
+    parked = []   # #271: agent-blocked children an autonomous fleet holds until they change
     def _note_stuck(issue, prd_num):
         blockers = _open_blockers(issue, slug, closed_cache, prd_num)
         stuck_on.extend(r for r in _stuck_refs(blockers, slug, by_num, allowed) if r not in stuck_on)
@@ -1070,8 +1140,10 @@ def compute_state(repo):
         all_closed = bool(kids) and all(k["state"].lower() == "closed" for k in kids)
         unblocked = []
         for k in kids:
-            if (k["state"].lower() != "open" or L_WORKING() in k["_labels"]
-                    or not (AUTONOMOUS() or L_BLOCKED() not in k["_labels"])):
+            if k["state"].lower() != "open" or L_WORKING() in k["_labels"]:
+                continue
+            if _blocked_hold(k, slug):
+                if AUTONOMOUS(): parked.append(k["number"])
                 continue
             if _is_unblocked(k, slug, closed_cache, prd_num):
                 unblocked.append(k["number"])
@@ -1144,6 +1216,7 @@ def compute_state(repo):
             "waiting": [n for p in prds if not p["eligible"] for n in p["unblocked"]],
             "held_by": held_by,
             "stuck_on": stuck_on,
+            "parked": sorted(parked),
             "open_children": sum(1 for i in children if i["state"].lower() == "open"),
             "total_children": len(children),
             "paused": sum(1 for i in children if i["state"].lower() == "open" and L_PAUSED() in i["_labels"])}
@@ -1164,7 +1237,7 @@ def bug_lane_candidates(repo):
                  if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
                  and i["state"].lower() == "open"
                  and L_WORKING() not in i["_labels"]
-                 and (AUTONOMOUS() or L_BLOCKED() not in i["_labels"])]
+                 and not _blocked_hold(i, slug)]
     claimable.sort(key=lambda i: 0 if L_BUG_TRIAGED() in i["_labels"] else 1)
     return [(i["number"], "fix" if L_BUG_TRIAGED() in i["_labels"] else "triage")
             for i in claimable]
@@ -1405,6 +1478,11 @@ def main():
                 refs = ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in s["stuck_on"])
                 print(f"{repo}: STUCK — chain needs an issue no agent can take: {refs} — label it "
                       f"{L_READY()} (or close it), or drop it from `## Blocked by`")
+            # #271: an autonomous fleet holds a parked issue until something about it changes.
+            if s.get("parked") and not done:
+                refs = ", ".join(f"#{n}" for n in s["parked"])
+                print(f"{repo}: PARKED — {L_BLOCKED()} and unchanged since its lane stopped: {refs} — "
+                      f"comment on it or edit its labels once the blocker is fixed to re-dispatch it")
             print(f"{repo}: mode={MODE()} {prd} plan={'Y' if s['has_plan'] else 'N'} "
                   f"children={s['total_children']} open={s['open_children']} unblocked={len(ready)} "
                   f"waiting={len(waiting)} paused={s['paused']} reviewed={'Y' if s['prd_reviewed'] else 'N'} "
@@ -1440,7 +1518,11 @@ def main():
             elif name == "DECOMPOSE": done = bool(target) and target["children_exist"] and not target.get("needs_task1")
             elif name == "REVIEW": done = bool(target) and (target["reviewed"] or len(target["unblocked"]) > 0)
             elif name == "CLOSE_PRD": done = bool(target) and not target["open"]
-            elif goal.startswith("ISSUE:"): done = _issue_state(s["slug"], int(goal.split(":",1)[1])) == "closed"
+            elif goal.startswith("ISSUE:"):
+                # #271: an open issue its lane labelled agent-blocked is parked — that session is done
+                # too, so the reap frees its slot instead of letting it idle at its prompt.
+                n = int(goal.split(":",1)[1]); st = _issue_state(s["slug"], n)
+                done = st == "closed" or (st == "open" and L_BLOCKED() in _issue_labels(s["slug"], n))
             print("DONE" if done else "PENDING")
         else: print(f"unknown command: {cmd}", file=sys.stderr); sys.exit(2)
     except GhError as e:

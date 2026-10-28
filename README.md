@@ -214,6 +214,7 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
 | `HARNESS_GH_RATE_TTL` | `60` | Seconds one `gh api rate_limit` probe is reused by every worker on the host |
 | `HARNESS_ORPHAN_LOCK_MIN` | `20` | Minutes an open `agent-working` issue may sit with no live session (impl, orch, or bug lane) and no worktree before the pool worker unlocks it with a comment. A reap whose unlock `gh` refused (an outage) is queued instead and retried every poll until it lands |
+| `HARNESS_BLOCKED_BACKOFF_MIN` | `0` | An autonomous fleet ends a lane that labels its issue `agent-blocked` and parks the issue: it is not re-dispatched until someone comments on it or edits its labels. This many minutes after the park it is retried even unchanged; `0` = only on a change. A non-autonomous fleet never dispatches `agent-blocked` work |
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 
 ### Issue-author allowlist
@@ -888,7 +889,7 @@ Use `/harness` when you want the full set-up-aware operator (detect state, obser
 
 | Setting | Behaviour |
 |---------|-----------|
-| `HARNESS_AUTONOMOUS=true` (default) | Agents are instructed never to apply `agent-blocked`. Every obstacle is resolved by the agent. Stale `agent-working` labels are reaped automatically. |
+| `HARNESS_AUTONOMOUS=true` (default) | Agents are instructed never to apply `agent-blocked`. Every obstacle is resolved by the agent. Stale `agent-working` labels are reaped automatically. If a lane applies `agent-blocked` anyway, its session is ended and the issue is parked: it is not re-dispatched until it changes (a comment or a label edit) or `HARNESS_BLOCKED_BACKOFF_MIN` passes. `harness status` lists it as `PARKED`. |
 | `HARNESS_AUTONOMOUS=false` | Agents may apply `agent-blocked` to park work that genuinely requires human input. Blocked issues are excluded from dispatch until the label is removed. |
 
 ## Usage note — `issue-only` mode

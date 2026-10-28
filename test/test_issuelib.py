@@ -2430,6 +2430,153 @@ def test_prd_without_task1_section_keeps_the_children_exist_rule():
     assert _decompose_acts(board) == []
 
 
+
+# ── #271: an agent-blocked issue parks — its session is reaped, and an autonomous fleet holds it ──
+import tempfile, time as _time
+
+def _check_issue(goal, state, labels):
+    """`check ISSUE:<n>` against a stubbed issue read: <state> + <labels>."""
+    il._issue_state = lambda slug, n: state
+    il._issue_labels = lambda slug, n: set(labels)
+    try: return _check(goal, mk())
+    finally: il._issue_state = _REAL_ISSUE_STATE; il._issue_labels = _REAL_ISSUE_LABELS
+
+_REAL_ISSUE_LABELS = getattr(il, "_issue_labels", None)
+
+def test_check_issue_done_when_open_and_agent_blocked():
+    os.environ.pop("HARNESS_LABEL_BLOCKED", None)
+    assert _check_issue("ISSUE:5", "open", {"ready-for-agent", "agent-blocked"}) == "DONE"
+    assert _check_issue("ISSUE:5", "open", {"ready-for-agent", "agent-working", "agent-blocked"}) == "DONE"
+    assert _check_issue("ISSUE:5", "open", {"ready-for-agent", "agent-working"}) == "PENDING"
+    assert _check_issue("ISSUE:5", "open", {"ready-for-agent"}) == "PENDING"
+    assert _check_issue("ISSUE:5", "closed", set()) == "DONE"
+
+def _park_board(upd5="2026-10-28T02:13:00Z"):
+    return [dict(_issue(5, labels=["ready-for-agent", "agent-blocked"]), updatedAt=upd5),
+            dict(_issue(6, labels=["ready-for-agent"]), updatedAt="2026-10-28T00:00:00Z")]
+
+def _park_file(rows):
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "parked")
+    with open(path, "w") as f:
+        for slug, n, at, upd in rows:
+            f.write(f"{slug}\t{n}\t{at}\t{upd}\n")
+    os.environ["HARNESS_PARKED_FILE"] = path
+    return path
+
+def _park_env(autonomous="true", backoff=None):
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = autonomous
+    if backoff is None: os.environ.pop("HARNESS_BLOCKED_BACKOFF_MIN", None)
+    else: os.environ["HARNESS_BLOCKED_BACKOFF_MIN"] = str(backoff)
+
+def _park_cleanup():
+    os.environ.pop("HARNESS_PARKED_FILE", None)
+    os.environ.pop("HARNESS_BLOCKED_BACKOFF_MIN", None)
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    _restore_repo()
+
+def test_parked_issue_is_not_redispatched_on_an_autonomous_fleet():
+    _park_env()
+    _park_file([("acme/widget", 5, int(_time.time()), "2026-10-28T02:13:00Z")])
+    board = _park_board()
+    _stub_repo(board)
+    try:
+        for _poll in range(3):
+            s = il.compute_state("acme/widget")
+            assert 5 not in s["unblocked"] and 5 not in s["dispatchable"], s
+            assert s["parked"] == [5], s
+            assert il.dispatch("acme/widget", 1, False) == [("IMPL", "6", "ISSUE 6 DONE")]
+        assert il.is_complete(il.compute_state("acme/widget")) is False, "a parked child keeps the unit open"
+    finally: _park_cleanup()
+
+def test_unparked_agent_blocked_issue_still_dispatches_on_an_autonomous_fleet():
+    # no park record: the label alone does not hold it (a lane may have left it from an earlier run)
+    _park_env(); _park_file([])
+    _stub_repo(_park_board())
+    try: assert il.dispatch("acme/widget", 1, False) == [("IMPL", "5", "ISSUE 5 DONE")]
+    finally: _park_cleanup()
+
+def test_change_since_park_reenables_the_issue():
+    _park_env()
+    _park_file([("acme/widget", 5, int(_time.time()), "2026-10-28T02:13:00Z")])
+    _stub_repo(_park_board(upd5="2026-10-28T03:00:00Z"))   # someone commented / edited labels
+    try:
+        assert 5 in il.compute_state("acme/widget")["dispatchable"]
+        assert il.dispatch("acme/widget", 1, False) == [("IMPL", "5", "ISSUE 5 DONE")]
+    finally: _park_cleanup()
+
+def test_engine_unlock_is_not_a_change():
+    # the record holds the updatedAt read AFTER the engine's own unlock; a snapshot still carrying the
+    # pre-unlock value, or one showing exactly the post-unlock value, is no change either way.
+    _park_env()
+    _park_file([("acme/widget", 5, int(_time.time()), "2026-10-28T02:13:00Z")])
+    try:
+        for upd in ("2026-10-28T02:12:00Z", "2026-10-28T02:13:00Z"):
+            _stub_repo(_park_board(upd5=upd))
+            assert il.dispatch("acme/widget", 1, False) == [("IMPL", "6", "ISSUE 6 DONE")], upd
+    finally: _park_cleanup()
+
+def test_time_backoff_expires_a_park():
+    _park_env(backoff=60)
+    _park_file([("acme/widget", 5, int(_time.time()) - 3601, "2026-10-28T02:13:00Z")])
+    _stub_repo(_park_board())
+    try: assert il.dispatch("acme/widget", 1, False) == [("IMPL", "5", "ISSUE 5 DONE")]
+    finally: _park_cleanup()
+    _park_env(backoff=60)
+    _park_file([("acme/widget", 5, int(_time.time()) - 60, "2026-10-28T02:13:00Z")])
+    _stub_repo(_park_board())
+    try: assert il.dispatch("acme/widget", 1, False) == [("IMPL", "6", "ISSUE 6 DONE")]
+    finally: _park_cleanup()
+
+def test_park_is_keyed_by_repo():
+    _park_env()
+    _park_file([("other/repo", 5, int(_time.time()), "2026-10-28T02:13:00Z")])
+    _stub_repo(_park_board())
+    try: assert il.dispatch("acme/widget", 1, False) == [("IMPL", "5", "ISSUE 5 DONE")]
+    finally: _park_cleanup()
+
+def test_park_predicate_shared_by_claimable_and_bug_lane():
+    _park_env()
+    _park_file([("acme/widget", 5, int(_time.time()), "2026-10-28T02:13:00Z"),
+                ("acme/widget", 7, int(_time.time()), "2026-10-28T02:13:00Z")])
+    board = _park_board() + [
+        dict(_issue(7, labels=["bug-triaged", "agent-blocked"]), updatedAt="2026-10-28T02:13:00Z"),
+        dict(_issue(8, labels=["bug"]), updatedAt="2026-10-28T02:13:00Z"),
+        dict(_issue(9, labels=["ready-for-agent"], body="## Blocked by\n#5\n"), updatedAt="2026-10-28T00:00:00Z")]
+    _stub_repo(board)
+    try:
+        assert il._claimable(board[0], "acme/widget") is False, "a parked issue is no lane's to take"
+        assert il._claimable(board[1], "acme/widget") is True
+        assert il.bug_lane_candidates("acme/widget") == [(8, "triage")]
+        assert ("acme/widget", 5) in il.compute_state("acme/widget")["stuck_on"], "#9 waits on parked #5"
+    finally: _park_cleanup()
+
+def test_non_autonomous_never_dispatches_agent_blocked():
+    _park_env(autonomous="false")
+    try:
+        for rows in ([], [("acme/widget", 5, int(_time.time()), "2026-10-28T02:13:00Z")]):
+            _park_file(rows)
+            _stub_repo(_park_board(upd5="2026-10-28T09:00:00Z"))
+            s = il.compute_state("acme/widget")
+            assert 5 not in s["dispatchable"], s
+            assert il.dispatch("acme/widget", 1, False) == [("IMPL", "6", "ISSUE 6 DONE")]
+    finally: _park_cleanup()
+
+def test_status_names_a_parked_issue():
+    import io, contextlib
+    _park_env()
+    _park_file([("acme/widget", 5, int(_time.time()), "2026-10-28T02:13:00Z")])
+    _stub_repo([_park_board()[0]])
+    argv = sys.argv; sys.argv = ["issuelib.py", "status", "acme/widget"]
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf): il.main()
+    finally: sys.argv = argv; _park_cleanup()
+    out = buf.getvalue()
+    assert "PARKED" in out and "#5" in out, out
+    assert "complete=N" in out, out
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
