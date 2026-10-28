@@ -125,7 +125,7 @@ run_init(){ ( cd "$I/proj" && env STATE_DIR="$I/proj/.harness" HARNESS_INIT_NONI
 run_init bogus-cli; rc=$?
 assert_no "init with an unknown CLI exits non-zero" test "$rc" = 0
 assert_no "…and writes no config" test -f "$I/proj/.harness/config"
-assert_ok "…and lists the CLIs it has" grep -q "unknown agent CLI: bogus-cli (have: agy claude codex copilot hermes opencode)" "$I/out"
+assert_ok "…and lists the CLIs it has" grep -q "unknown agent CLI: bogus-cli (have: agy claude codex copilot hermes openclaw opencode)" "$I/out"
 run_init agy; rc=$?
 assert_eq "$rc" "0" "init accepts a CLI that has an adapter"
 assert_ok "…and writes it" grep -qx ': "${HARNESS_CLI:=agy}"' "$I/proj/.harness/config"

@@ -12,8 +12,9 @@ export HARNESS_CLI
 CLI_CONFIG_VAR=HARNESS_CLI    # the config key naming the fleet's CLI (init.sh writes it)
 CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# cli_list — every CLI with an adapter, one per line.
-cli_list(){ local f; for f in "$CLI_DIR"/*.sh; do f="${f##*/}"; [[ $f == dispatch.sh ]] || echo "${f%.sh}"; done; }
+# cli_list — every CLI with an adapter, one per line. A *-loop.sh is a program an adapter's pane runs
+# (openclaw-loop.sh), not an adapter.
+cli_list(){ local f; for f in "$CLI_DIR"/*.sh; do f="${f##*/}"; [[ $f == dispatch.sh || $f == *-loop.sh ]] || echo "${f%.sh}"; done; }
 # cli_load <cli> — make <cli> the fleet's CLI for every later cli_* call in this shell.
 cli_load(){ [[ -n "$1" && -f "$CLI_DIR/$1.sh" ]] || { echo "unknown agent CLI: ${1:-<empty>} (have: $(cli_list | xargs))" >&2; return 1; }
   HARNESS_CLI="$1"; }
@@ -140,5 +141,5 @@ _cli_flags(){ local f=" $1 "
   [[ -n "$3" ]] && f="$(sed -E 's/ --effort[= ][^ ]+//g' <<<"$f") --effort $3"
   f="$(tr -s ' ' <<<"$f")"; f="${f# }"; echo "${f% }"; }
 
-for _cli_f in "$CLI_DIR"/*.sh; do [[ "${_cli_f##*/}" == dispatch.sh ]] || source "$_cli_f"; done
+for _cli_f in "$CLI_DIR"/*.sh; do [[ "${_cli_f##*/}" == dispatch.sh || "${_cli_f##*/}" == *-loop.sh ]] || source "$_cli_f"; done
 unset _cli_f

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# fake-cli — what `openclaw agent exec --json` does when a lane's loop (openclaw-loop.sh) runs it
+# (README.md): it prints the JSON envelope of a turn, transcript.jsonl's first, under a new OpenClaw
+# session id. Then the turn's tool call, $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN" >&2
+python3 - "$here/transcript.jsonl" <<'PY'
+import json, sys, uuid
+d = json.loads(open(sys.argv[1]).readline())
+d.pop("harness", None)
+d["sessionId"] = str(uuid.uuid4())
+print(json.dumps(d, indent=2, ensure_ascii=False))
+PY

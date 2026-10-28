@@ -1,0 +1,1 @@
+`agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools

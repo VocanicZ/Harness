@@ -1,0 +1,1 @@
+{"ok":false,"status":"error","final":"","payloads":[],"model":null,"provider":null,"sessionId":"8fcc4e1d-7d43-4302-bea1-e5d473643a93","error":{"message":"\u26a0\ufe0f You have reached your usage limit for this period.; Retry-After: 7200 seconds","kind":"exception"},"harness":{"exit":1,"ended":1793192964,"message":"Read .harness-task.md in this directory and follow it exactly."}}

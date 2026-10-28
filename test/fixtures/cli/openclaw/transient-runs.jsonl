@@ -1,0 +1,1 @@
+{"ok":false,"status":"error","final":"","payloads":[],"model":null,"provider":null,"sessionId":"129bdd12-1e86-4b7c-8595-c67c6098dd10","error":{"message":"The AI service is temporarily overloaded. Please try again in a moment.","kind":"exception"},"harness":{"exit":1,"ended":1793192919,"message":"Read .harness-task.md in this directory and follow it exactly."}}

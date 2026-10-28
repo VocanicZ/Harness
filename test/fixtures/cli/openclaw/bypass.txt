@@ -1,0 +1,24 @@
+I ran `touch exec-proof.txt` in the working directory, and it completed with no
+output and no error.
+harness-openclaw ❯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

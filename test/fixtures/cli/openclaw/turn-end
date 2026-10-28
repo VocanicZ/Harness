@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# turn-end <wd> <session id> [reply] — one prompt's turn ending as the lane's loop records it
+# (openclaw-loop.sh): the turn's `agent exec` envelope, transcript.jsonl's shape with [reply] as its
+# final text, appended to the session's runs/<id>.jsonl. The pane is then idle at its prompt
+# (idle.txt), which is when the Harness-driven goal loop reads the reply.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+f="$1/.harness-openclaw/runs/$2.jsonl"; mkdir -p "${f%/*}"
+python3 - "$here/transcript.jsonl" "${3:-(working)}" >> "$f" <<'PY'
+import json, sys, time, uuid
+d = json.loads(open(sys.argv[1]).readline())
+d.update(final=sys.argv[2], payloads=[{"text": sys.argv[2], "mediaUrl": None}], sessionId=str(uuid.uuid4()))
+d["harness"] = {"exit": 0, "ended": int(time.time()), "message": "Read .harness-task.md in this directory and follow it exactly."}
+print(json.dumps(d, separators=(",", ":"), ensure_ascii=False))
+PY
