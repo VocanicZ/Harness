@@ -4,6 +4,7 @@
 # Relies on bash dynamic scoping: drive_unit sets UNIT/REPO/SLUG/PROJECT/DESC/CHECKOUT as
 # locals, and the helpers below read them.
 _HARNESS_DRIVE_SOURCED=1
+source "$(dirname "${BASH_SOURCE[0]}")/autorelease.sh"   # #283: the fleet cuts its own Harness releases
 
 # Committed plan-completion artifacts (mirrors issuelib.py PLAN_MARKER_PATH). These live in the
 # unit's repo — NOT the gitignored .harness runtime clone — so the marker survives a fresh checkout.
@@ -85,6 +86,8 @@ reap_team(){
       # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
       # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
       harness_event merged kind=impl issue="$issue"
+      # #283: a merged bug fix in the Harness repo is queued for the next throttled patch release.
+      grep -qiE "\"name\":\"($HARNESS_LABEL_BUG|$HARNESS_LABEL_BUG_TRIAGED)\"" <<<"$state" && release_on_bug_merge "$issue"
       git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
     fi
   done
@@ -162,6 +165,7 @@ close_prd(){
   log "engine closing reviewed PRD #$prd"
   if gh issue close "$prd" -R "$SLUG" --comment "All acceptance criteria met and reviewed — closing." 2>/dev/null; then
     harness_event prd_closed kind=orch prd="$prd"
+    release_on_prd_close "$prd"   # #283: once per reviewed PRD close, and only in the Harness repo
   else
     log "close of PRD #$prd failed (will retry next poll)"
   fi
@@ -366,6 +370,7 @@ reap_pool_bugs(){ local f tok n phase sess SLUG lockfd
       watchdog_session "$sess"
       if bug_goal_done "$n" "$phase"; then
         log "pool: bug #$n $phase goal met — ending $sess"
+        [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge
         cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"
       fi
     done
@@ -405,6 +410,7 @@ drive_unit(){
   while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
     reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
     reap_pool_bugs   # #214: bug sessions an idle slot took — end on goal, release the claim once gone
+    release_tick     # #283: a throttled patch release for queued bug fixes (Harness repo only)
     retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
     if is_paused; then
       # #259: a driven goal loop (cli_loop driven) advances only from this loop's watchdog, so its
