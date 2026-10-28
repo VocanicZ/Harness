@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  Read .harness-task.md in this directory and follow it exactly.
+  ┃
+
+     ▣  Build · M1
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · M1 Fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝5-hour⬝usage limit reached. It will reset in 1 minute. To continue using thi
+    click to expand) [retrying in 2s attempt #1]
+

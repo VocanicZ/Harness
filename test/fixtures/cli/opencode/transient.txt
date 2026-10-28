@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  Read .harness┃                                                          ┃
+  ┃               ┃  Service Unavailable: {"error": {"message": "Service     ┃
+                  ┃  Unavailable", "type": "server_error"}}                  ┃
+  ┃               ┃                                                          ┃
+  ┃  Service Unavailable: {"error": {"message": "Service Unavailable", "type":
+  ┃   "server_error"}}
+  ┃
+
+     ▣  Build · M1
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · M1 Fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-home-claude-harness-dev--harness-    tab      ctrl+p
+   worktrees-harness-i261/a78db2f4-6249-4a3e-87e3-        agents   commands
+   41b19fed00d2/scratchpad/cap-transient
+

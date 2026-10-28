@@ -13,7 +13,7 @@ make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 FIX="$HERE/fixtures/cli"
 # Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
-unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot FIX
+unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot HARNESS_OPENCODE_BIN=opencode FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 cell(){ local cli="$1" row="$2"; shift 2
   if (( TSV )); then
@@ -45,6 +45,9 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
             sed "s#@CWD@#$wd#" "$FIX/codex/transcript.jsonl" > "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$sid.jsonl" ;;
     copilot) mkdir -p "$COPILOT_HOME/session-state/$sid"
             sed "s#@CWD@#$wd#" "$FIX/copilot/transcript.jsonl" > "$COPILOT_HOME/session-state/$sid/events.jsonl" ;;
+    opencode) mkdir -p "$XDG_DATA_HOME/opencode"; cp "$FIX/opencode/transcript.db" "$XDG_DATA_HOME/opencode/opencode.db"
+            python3 -c 'import sqlite3, sys
+c = sqlite3.connect(sys.argv[1]); c.execute("UPDATE session SET directory = ?", (sys.argv[2],)); c.commit()' "$XDG_DATA_HOME/opencode/opencode.db" "$wd" ;;
   esac; }
 # usage_windows_ok <cli> — the CLI's usage windows, read through the adapter from the fixture's real
 # source, report the expected <account> <window> <pct used>.
@@ -333,14 +336,18 @@ init_choice_ok(){ local cli="$HARNESS_CLI" d="$RUN_DIR/init-$HARNESS_CLI" out
 # prereqs_ok — `harness setup` through the adapter: with no binary it names the binary and fails; with
 # the binary but none of its plugins it names each missing one and fails; --install installs each
 # through the binary, by the command it named, and then passes. A CLI Harness installs nothing into
-# (copilot: its goal loop is Harness's own) passes on the binary alone, naming nothing missing.
+# (copilot: its goal loop is Harness's own; opencode: its loop plugin loads from the engine,
+# fixtures/cli/<cli>/installs-nothing) passes on the binary alone, naming nothing missing. The binary
+# answers --version with the fixtures' (opencode refuses any but a 1.x).
 prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
   export HOME="$d/home"; unset CLAUDE_CONFIG_DIR; mkdir -p "$HOME" "$d/bin" "$d/none"
   bin="$(cli_bin)"
   out="$(PATH="$d/none" cli_prereqs 2>&1)" && exit 1
   grep -qF "MISSING $HARNESS_CLI binary ($bin)" <<<"$out" || exit 1
-  printf '#!/bin/sh\necho "$*" >> %q\n' "$d/calls" > "$d/bin/$bin"; chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
-  if out="$(cli_prereqs 2>&1)"; then [[ $(cli_loop) == driven ]] && not grep -q '^MISSING' <<<"$out"; exit; fi
+  printf '#!/bin/sh\necho "$*" >> %q\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$d/calls" "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
+  chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
+  if out="$(cli_prereqs 2>&1)"; then
+    [[ $(cli_loop) == driven || -s "$FIX/$HARNESS_CLI/installs-nothing" ]] && not grep -q '^MISSING' <<<"$out"; exit; fi
   missing="$(sed -n "s/^MISSING [^:]*: $bin //p" <<<"$out")"; [[ -n $missing ]] || exit 1
   cli_prereqs --install >/dev/null 2>&1 || exit 1
   while read -r p; do grep -qF -- "$p" "$d/calls" || exit 1; done <<<"$missing" ); }
@@ -363,7 +370,8 @@ for cli in $(cli_list); do
     cell "$cli" idle-is-prompt             cli_pane_prompt "$(pane "$cli" idle)"
     cell "$cli" idle-is-not-busy           not cli_pane_busy "$(pane "$cli" idle)"
     cell "$cli" busy-is-busy               every_busy_is_busy "$cli"
-    [[ -f "$F/trust.txt" ]] && cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)"
+    if [[ -f "$F/trust.txt" ]]; then cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)"
+    elif [[ -s "$F/trust.na" ]]; then na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")"; fi
     cell "$cli" transient-stalls           session_stalled "$(pane "$cli" transient)"
     cell "$cli" idle-never-stalls          not session_stalled "$(pane "$cli" idle)"
     cell "$cli" busy-never-stalls          no_busy_stalls "$cli"
@@ -376,7 +384,8 @@ for cli in $(cli_list); do
     cell "$cli" transcripts-found          test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"
     cell "$cli" usage-from-transcript      same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"
     cell "$cli" stats-session-end-usage    session_end_usage_ok "$WD" "$SID"
-    cell "$cli" usage-windows              usage_windows_ok "$cli"
+    if [[ -s "$F/usage-windows.na" ]]; then na "$cli" usage-windows "$(cat "$F/usage-windows.na")"
+    else cell "$cli" usage-windows              usage_windows_ok "$cli"; fi
     cell "$cli" checkpoint-skill           checkpoint_skill_ok
     cell "$cli" pause-force-resume-other-host pause_resume_ok
     cell "$cli" send-and-kill              send_and_kill_ok

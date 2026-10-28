@@ -1,0 +1,1 @@
+OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking

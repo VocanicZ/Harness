@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# stop-hook <wd> <session id> [reply] — one end of turn as an OpenCode lane runs it: the step the
+# goal-loop plugin (scripts/cli/opencode-ralph.js, loaded by the lane's inline config) takes on
+# `session.idle` after a clean turn — the script OPENCODE_HARNESS_LOOP names (lib.sh's GOAL_LOOP_PY,
+# this checkout's), run in <wd> and handed {cwd, session_id, last_assistant_message: [reply]}. Prints
+# the prompt the plugin then sends into the session (the script's `reason`), nothing when the loop
+# has ended. test_cli_opencode.sh drives the plugin itself under node, where node is installed.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+py="$here/../../../../plugins/codex/harness-ralph/hooks/stop-hook.py"
+python3 -c 'import json, sys
+print(json.dumps({"cwd": sys.argv[1], "session_id": sys.argv[2], "last_assistant_message": sys.argv[3]}))' "$1" "$2" "${3:-(working)}" |
+  ( cd "$1" && python3 "$py" ) | python3 -c 'import json, sys
+s = sys.stdin.read().strip()
+d = json.loads(s) if s else {}
+d.get("decision") == "block" and print(d["reason"])'

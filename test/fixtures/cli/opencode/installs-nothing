@@ -1,0 +1,1 @@
+the goal-loop plugin is loaded from the engine by each lane's inline config (OPENCODE_CONFIG_CONTENT); only the opencode 1.x binary is a prerequisite
