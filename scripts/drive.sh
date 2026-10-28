@@ -76,9 +76,11 @@ reap_team(){
     # strand the lock. Unreadable state ⇒ queue the unlock (harmless on a closed issue).
     state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || { unlock_issue "$SLUG" "$issue"; continue; }
     # fully autonomous: free a still-open issue's stale agent-working for retry, even if a
-    # prior session left it agent-blocked (no human will ever clear that label for us).
+    # prior session left it agent-blocked (no human will ever clear that label for us). An
+    # agent-blocked one is parked as well (#271), so it is retried only once something changes it.
     if echo "$state" | grep -q '"state":"OPEN"'; then
       unlock_issue "$SLUG" "$issue" || true
+      grep -qiF "\"name\":\"$HARNESS_LABEL_BLOCKED\"" <<<"$state" && park_issue "$SLUG" "$issue"
     else
       # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
       # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
@@ -380,7 +382,7 @@ dispatch_stalled_banner(){ local st
   [[ -z "$st" || "${_STALL_LOGGED:-}" == "$st" ]] && return 0
   _STALL_LOGGED="$st"
   log "$2: nothing dispatchable and nothing in flight — holding. $st"
-  log "  a ready child that no lane can claim (unclosed dep, or agent-blocked on a non-autonomous fleet) keeps the unit incomplete by design; close or unblock it to let the unit finish."; }
+  log "  a ready child that no lane can claim (unclosed dep, agent-blocked on a non-autonomous fleet, or parked agent-blocked and unchanged on an autonomous one) keeps the unit incomplete by design; close or unblock it to let the unit finish."; }
 
 drive_unit(){
   local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT drained=0

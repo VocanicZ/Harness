@@ -58,6 +58,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_ORPHAN_LOCK_MIN:=20}"       # #179: minutes an agent-working issue may sit with no live session before the pool unlocks it
+: "${HARNESS_BLOCKED_BACKOFF_MIN:=0}"    # #271: minutes a parked agent-blocked issue is held before an autonomous fleet retries it unchanged; 0 = until it changes
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
@@ -88,7 +89,7 @@ export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HAR
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
-  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM \
+  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM HARNESS_BLOCKED_BACKOFF_MIN \
   HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
 
 OWNER="$HARNESS_OWNER"
@@ -527,6 +528,26 @@ unlock_issue(){ local slug="$1" n="$2" f="$RUN_DIR/pending-unlock" lockfd
   log "could not clear $HARNESS_LABEL_WORKING on $slug#$n (gh failed) — queued, retrying every poll (#179)"
   return 1; }
 
+# parked_file — #271: the park records issuelib.py's `_parked_file` reads (same default, same override).
+parked_file(){ printf '%s' "${HARNESS_PARKED_FILE:-$STATE_DIR/run/parked}"; }
+
+# park_issue <slug> <n> — #271: record that the engine freed <slug>#<n> while it carried agent-blocked,
+# so an autonomous fleet holds it instead of relaunching a lane into the same blocker. The updatedAt is
+# read AFTER the engine's own unlock: that label edit bumps it, and must not count as the change that
+# re-enables the issue. Unreadable, it falls back to now — no later edit can predate it either.
+park_issue(){ local slug="$1" n="$2" f upd lockfd; f="$(parked_file)"
+  upd="$(gh issue view "$n" -R "$slug" --json updatedAt -q .updatedAt 2>/dev/null)"
+  [[ "$upd" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]] || upd="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir -p "$(dirname "$f")"
+  exec {lockfd}>"$f.lock"; flock "$lockfd"
+  { awk -F'\t' -v s="$slug" -v n="$n" '!($1 == s && $2 == n)' "$f" 2>/dev/null
+    printf '%s\t%s\t%s\t%s\n' "$slug" "$n" "$(date +%s)" "$upd"; } > "$f.tmp" && mv -f "$f.tmp" "$f"
+  flock -u "$lockfd"; exec {lockfd}>&-
+  log "parked $slug#$n — $HARNESS_LABEL_BLOCKED; held from dispatch until it changes (#271)"; }
+
+# is_parked <slug> <n> — a park record exists for <slug>#<n>.
+is_parked(){ awk -F'\t' -v s="$1" -v n="$2" '$1 == s && $2 == n { f = 1 } END { exit !f }' "$(parked_file)" 2>/dev/null; }
+
 # retry_pending_unlocks — one pass over the queue: clear each lock GitHub now accepts, keep the rest.
 # An entry whose issue has a live session again was re-claimed since, so its lock is real — dropped.
 # Non-blocking on the queue lock: if another worker is mid-pass, this poll leaves it to them.
@@ -538,6 +559,8 @@ retry_pending_unlocks(){ local f="$RUN_DIR/pending-unlock" lockfd slug n keep=""
     issue_session_live "$slug" "$n" && continue
     if gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1; then
       log "cleared queued $HARNESS_LABEL_WORKING on $slug#$n — re-dispatchable (#179)"
+      # #271: this late unlock bumped updatedAt past the park record — re-read it, or it un-parks.
+      is_parked "$slug" "$n" && park_issue "$slug" "$n"
     else keep+="$slug"$'\t'"$n"$'\n'; fi
   done < "$f"
   printf '%s' "$keep" > "$f"
