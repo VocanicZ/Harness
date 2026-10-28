@@ -37,6 +37,28 @@ def test_operator_issue_rule():
     assert got == [("agent-blocked", 7), ("operator", 1)], got
 
 
+def test_needs_drops_closed_blockers_keeps_open_and_off_board():
+    """#273: a CLOSED blocker blocks nothing — it must not show under "needs first". A blocker that is
+    not on the board has unknown state and stays listed."""
+    r = wf.load("web_render")
+    def issue(n, title, state="OPEN", body=""):
+        return {"number": n, "title": title, "state": state, "labels": [], "body": body}
+    board = {"slug": "o/x", "issues": [
+        issue(10, "[ops] mixed", body="## Blocked by\n\n- #11\n- #12\n"),
+        issue(20, "[ops] all closed", body="## Blocked by\n\n- #11\n- #13\n"),
+        issue(30, "[ops] off board", body="## Blocked by\n\n- #11\n- #99\n"),
+        issue(11, "a", "CLOSED"), issue(12, "b"), issue(13, "c", "CLOSED")]}
+    a = {x["number"]: x for x in dag.awaiting(board, LABELS)}
+    assert a[10]["needs"] == [12], a[10]
+    assert a[20]["needs"] == [], a[20]
+    assert a[30]["needs"] == [99], a[30]
+    assert "needs first" not in r._awaiting_item("o/x", a[20], False)
+    li = r._awaiting_item("o/x", a[10], False)
+    m = re.search(r'<span class="awaiting__needs[^"]*">.*?</span></span>', li)
+    assert m and "#12" in m.group(0), li
+    assert "#11" not in li, li
+
+
 def test_issue_and_prd_stats_from_the_event_log():
     s11 = web_data.issue_stats(EVENTS, "o/arc", 11)
     assert s11 == {"tokens": 8700, "model": "claude-opus-5-5", "retries": 0, "sessions": 1}, s11
