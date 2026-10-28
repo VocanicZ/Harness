@@ -56,7 +56,7 @@ reap_done_sessions(){
     if [[ "$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)" == DONE ]]; then
       log "session $s goal '$goal' satisfied → advancing"
       stats_sess_event "$s" goal_satisfied
-      tmux kill-session -t "$s" 2>/dev/null || true
+      cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
       rm -f "$RUN_DIR/$s.goal"
     fi
   done < <(team_sessions "$UNIT")
@@ -124,7 +124,7 @@ finalize_unit(){
   archive_plan   # archive PLAN.md + write the spec-keyed completion marker (idempotent no-op if none)
   while read -r s; do
     [[ -z "$s" ]] && continue
-    tmux kill-session -t "$s" 2>/dev/null && log "finalize: reaped leftover session $s"
+    cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" && log "finalize: reaped leftover session $s"
     rm -f "$RUN_DIR/$s.goal"
   done < <(team_sessions "$UNIT")
   stats_sweep_ended
@@ -366,7 +366,7 @@ reap_pool_bugs(){ local f tok n phase sess SLUG lockfd
       watchdog_session "$sess"
       if bug_goal_done "$n" "$phase"; then
         log "pool: bug #$n $phase goal met — ending $sess"
-        tmux kill-session -t "$sess" 2>/dev/null || true; rm -f "$RUN_DIR/$sess.goal"
+        cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"
       fi
     done
     bug_session_live "$SLUG" "$n" && continue

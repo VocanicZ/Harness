@@ -8,8 +8,13 @@ requested model is not supported`). The operator home `~/.hermes` was set to `mo
 `model.default: gpt-4.1` (`hermes config set`). Each capture ran in a throwaway git repo. Each `.txt` is
 `tmux capture-pane -p` of the pane. Unless a row says otherwise the pane is a lane launched by
 `launch_agent` from `scripts/lib.sh` with `HARNESS_CLI=hermes` — tmux's default 80x24, the line
-`exec env HERMES_HOME=<wt>/.harness-hermes hermes chat -c <uuid> --create-if-missing --yolo
---accept-hooks -q "<bootstrap>"`, the lane's home seeded by `hermes_launch`.
+`exec env HERMES_HOME=<home> hermes chat -c <uuid> --create-if-missing --yolo --accept-hooks -q
+"<bootstrap>"`, the lane's home seeded by `hermes_launch`. `idle.txt` and `busy.txt` (and the smoke
+run) ran on the shipped home, a profile `~/.hermes/profiles/harness<hash>`; the other panes on the
+first adapter's home, `<wt>/.harness-hermes` with the root's `installs/` and `tools/` linked in —
+the same TUI, but for the idle composer's profile prefix (`harness<hash> ❯`). That home was dropped:
+Hermes repointed the host's `hermes` launcher at its linked `tools/` (the review caught it; a
+`hermes` run with the root home put it back).
 
 The plan's launch line (`-m <model> --reasoning <e>` beside `-c <uuid> --create-if-missing`) was tried
 first and refused on every title, new or not: `Error: Resume retains gateway session policy; creation
@@ -25,8 +30,8 @@ the next line typed was appended under it. With 0.2 s or 0.5 s between them the 
 | file | how |
 |---|---|
 | `busy-start.txt` | A lane 2 s into its first turn: the top rule `── ⠋ ( ͡° ͜ʖ ͡°) deliberating... · 2s ───── <uuid> ─`, the composer `☤ ❯ type to redirect this turn · Tab queues it for after`, the status bar's `⏱ 2s`. The `-q` bootstrap is echoed above as `❯ <prompt>` between 40-dash rules. |
-| `busy.txt` | While the agent's foreground `sleep 40` ran: `── ⠸ 💻 sleep 40 + 1 command · 18s · ↓ 39 tok ──`. |
-| `idle.txt` | That lane once its turn ended (`─ 1m00s · read 1 file · ran 1 command · 10:48 AM`): the title rule `───── <uuid> ─`, the composer `❯ <rotating placeholder>`, the status bar. |
+| `busy.txt` | A profile lane while the agent's foreground `sleep 30` ran: `── ⠹ 💻 sleep 30 · 10s · ↓ 16 tok ──`. |
+| `idle.txt` | A profile lane once its turn ended (`─ 1m01s · read 1 file · ran 1 command · 12:18 PM`): the title rule `───── <uuid> ─`, the composer `harness<hash> ❯ <rotating placeholder>`, the status bar. |
 | `busy-typed.txt` | `Please continue — redirect test: reply only REDIRECT-SEEN` typed during a turn (`sleep 50`), before its Enter: it sits in the busy composer after `☤ ❯ `. |
 | `steer.txt` | That line Entered: the turn is redirected (`Your correction redirected the current run without discarding completed work`), the running `sleep 50` moved to the background (`Processes · 1 running`), the composer empty again. The turn then answered `REDIRECT-SEEN`. |
 | `interrupted.txt` | Escape during a turn changed nothing; Ctrl-C (the footer's `ctrl+c stop`) ended it: `✗ $ sleep 60  13.5s [exit 130]`, then the turn line and the idle prompt. Its assistant message in `state.db` is empty, `display_kind` `hidden`. |
@@ -52,7 +57,9 @@ the next line typed was appended under it. With 0.2 s or 0.5 s between them the 
 | `fake-cli` | Stands in for `hermes` when the matrix runs a typed launch line: it writes `transcript.db` as `$HERMES_HOME/state.db`, its lane session titled as `-c` named it, its cwd the pane's and its start time now. |
 | `turn-end` | One prompt's turn ending as Hermes records it: a user message, then an assistant message with `finish_reason` `stop`, appended to the lane's `state.db`. |
 
-Also seen, not kept as files: killing a lane's pane while its foreground `sleep 45 && touch
+Also seen, not kept as files: two profile lanes each running `sleep 50 && touch <x>.txt`; `cli_kill`
+of one (pane, then `HERMES_HOME=<its profile> hermes gateway stop -y`) left no `a.txt`, the other
+wrote `b.txt`, and the root's host gateway, which serves every profile, stayed up. Killing a lane's pane while its foreground `sleep 45 && touch
 proof-after-kill.txt` ran interrupted the turn (`Operation interrupted: waiting for model response`;
 no `proof-after-kill.txt`), and the lane's gateway (`$HERMES_HOME/gateway.pid`) stayed up. `hermes
 gateway stop -y` with that `HERMES_HOME` stopped it (`✓ Stopped gateway for this profile`). Stopping the

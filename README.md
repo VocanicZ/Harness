@@ -67,7 +67,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 | `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `launch-model` | A lane's model, pinned by the worktree hook (`.harness-lane`), reaches the launch `launch_agent` types | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `launch-effort-once` | That lane's effort replaces the configured one in the typed launch, once | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`, counted only when that conversation started since the launch; codex: the `session_meta` id of the newest rollout started in the worktree since the launch; copilot: set at launch by `--session-id=`; opencode: the newest top-level session of the worktree in `opencode.db` since the launch; hermes: the top-level session titled by `-c <uuid> --create-if-missing` in the lane's own `state.db`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`, counted only when that conversation started since the launch; codex: the `session_meta` id of the newest rollout started in the worktree since the launch; copilot: set at launch by `--session-id=`; opencode: the newest top-level session of the worktree in `opencode.db` since the launch; hermes: the session titled by `-c <uuid> --create-if-missing` in the lane profile's `state.db`, the first of its compression chain) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `busy-is-busy` | Every captured running turn is read as busy (claude: the spinner, which Harness's status line leaves without `esc to interrupt`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -78,7 +78,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 | `limit-parks` | A usage-limit message at the prompt parks the lane (#120) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `transient-is-not-limit` | A transient error is not a limit park | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `trust-pre-accepted` | Workspace trust is pre-accepted (claude: `.claude.json` of every account; agy: `trustedWorkspaces` in `settings.json`; codex: `[projects."<dir>"]` in `config.toml`; copilot: `trustedFolders` in `config.json`; opencode: no trust gate; hermes: no gate on running, the worktree's own skills trusted in `skills.trusted_project_dirs` of the lane's config) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit, seen on the host in `test/fixtures/cli/agy/bypass-subagent.jsonl`; codex: `--dangerously-bypass-approvals-and-sandbox`, likewise, `test/fixtures/cli/codex/bypass-subagent.jsonl`; copilot: `--yolo`, likewise, `test/fixtures/cli/copilot/bypass-subagent.jsonl`; opencode: `--auto`, which answers a sub-agent's asks too, `test/fixtures/cli/opencode/bypass-subagent.db`, plus `question: deny` in the lane's inline config; hermes: `--yolo` and `approvals.mode: off` in the lane's own config, which a `delegate_task` child runs under, `test/fixtures/cli/hermes/bypass-subagent.txt`, plus the clarify toolset off) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit, seen on the host in `test/fixtures/cli/agy/bypass-subagent.jsonl`; codex: `--dangerously-bypass-approvals-and-sandbox`, likewise, `test/fixtures/cli/codex/bypass-subagent.jsonl`; copilot: `--yolo`, likewise, `test/fixtures/cli/copilot/bypass-subagent.jsonl`; opencode: `--auto`, which answers a sub-agent's asks too, `test/fixtures/cli/opencode/bypass-subagent.db`, plus `question: deny` in the lane's inline config; hermes: `--yolo` and `approvals.mode: off` in the lane profile's config, which a `delegate_task` child runs under, `test/fixtures/cli/hermes/bypass-subagent.txt`, plus the clarify toolset off) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `done-signal` | The goal loop's end is seen (the loop state file is gone) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `loop-mode` | The goal loop runs: the CLI's Stop hook (`ralph-loop` / `harness-ralph`, a plugin on agy and on codex) re-feeds the task until the turn outputs the promise, then ends the loop (copilot: Harness drives it — the watchdog reads the reply from the transcript once the pane is idle and types the next iteration, since `agentStop` gives up after 8 blocks; opencode: the `opencode-ralph.js` plugin each lane loads re-prompts on `session.idle`; hermes: Harness drives it, reading the reply from the lane's `state.db`, which has no Stop hook Harness can block) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `transcripts-found` | The session's transcripts are found (agy: `conversations/<id>.db`; codex: the session's rollout and its sub-agents'; copilot: `session-state/<id>/events.jsonl`; opencode: the session and its sub-agents' child sessions in `opencode.db`; hermes: the session and its `delegate_task` children in the lane's `state.db`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -114,10 +114,12 @@ opencode/big-pickle` via `.harness-lane`). Its goal loop is an OpenCode plugin,
 `hermes` lanes need the `hermes` binary (Hermes Agent's installer, `curl -fsSL
 https://hermes-agent.nousresearch.com/install.sh | bash`), with a stored login and a model in its
 home (`~/.hermes`, or `HARNESS_HERMES_HOME`; `hermes model`, `hermes auth`: on the fleet host the
-GitHub CLI's login, through Hermes's Copilot provider). Each lane runs on its own Hermes home,
-`<worktree>/.harness-hermes` (ignored, never committed), seeded at launch from that one: the runtime
-and skills linked, the login copied, its `config.yaml` copied with the lane's model and effort,
-approvals off, the clarify toolset off and Harness's user skills (`~/.claude/skills`) added.
+GitHub CLI's login, through Hermes's Copilot provider). Each lane runs on its own Hermes profile,
+`~/.hermes/profiles/harness<hash of the worktree>`, seeded at launch from that home: the login
+(`auth.json`, not `.env`) copied, its `config.yaml` copied with the lane's model and effort,
+approvals off, the clarify toolset off and the home's and Harness's user skills (`~/.claude/skills`)
+added as external skill dirs. Nothing is written into the worktree; a lane profile whose worktree is
+gone is removed at a later launch.
 Harness drives its goal loop, as for copilot.
 
 ## Pipeline modes

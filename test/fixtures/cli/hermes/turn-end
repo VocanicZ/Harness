@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# turn-end <wd> <session id> [reply] — one prompt's turn ending as Hermes records it in the lane's
-# state.db (transcript.db's shapes): a user message, then the assistant message that ends the turn
-# (finish_reason `stop`) holding [reply]. With no session id yet, it is the session the launch
+# turn-end <wd> <session id> [reply] — one prompt's turn ending as Hermes records it in the lane
+# profile's state.db (transcript.db's shapes): a user message, then the assistant message that ends
+# the turn (finish_reason `stop`) holding [reply]. With no session id yet, it is the session the launch
 # titled (the state file's session_id), created as `--create-if-missing` creates it on the first
 # turn. The pane is then idle at its prompt (idle.txt), which is when the Harness-driven goal loop
 # reads the reply.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-db="$1/.harness-hermes/state.db"; mkdir -p "${db%/*}"; [[ -f $db ]] || cp "$here/transcript.db" "$db"
+source "$here/../../../../scripts/cli/hermes.sh"   # the lane's state.db: _hermes_db
+db="$(_hermes_db "$1")"; mkdir -p "${db%/*}"; [[ -f $db ]] || cp "$here/transcript.db" "$db"
 python3 - "$db" "${2:-}" "$(sed -n 's/^session_id: //p' "$1/.claude/ralph-loop.local.md" 2>/dev/null)" "${3:-(working)}" <<'PY'
 import sqlite3, sys, time
 db, sid, title, reply = sys.argv[1:]

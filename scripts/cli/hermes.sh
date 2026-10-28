@@ -3,55 +3,75 @@
 #
 # Hermes runs each chat as a client of a gateway daemon of its home (HERMES_HOME): the gateway runs
 # the turn, and two lanes sharing a home share a gateway, its state.db and its config. So each lane
-# gets its own home, <wd>/.harness-hermes, seeded from the operator's (HARNESS_HERMES_HOME, default
-# ~/.hermes): the runtime Hermes installed there (installs/, tools/: a home without them re-installs
-# it) and its skills are linked, its stored login (auth.json, .env) copied, and its config.yaml
-# copied with the lane's own settings written into it (_hermes_seed).
+# gets its own home: a Hermes profile of the operator's (HARNESS_HERMES_HOME, default ~/.hermes),
+# <op>/profiles/harness<hash of the worktree>. A profile runs on the runtime its root installed; a
+# home anywhere else re-installs it, and one that links the root's tools/ in makes Hermes repoint
+# the host's `hermes` launcher at that home's path (gone with the worktree). Nothing is written
+# into the worktree. The profile is seeded from the operator's home (_hermes_seed) and removed once
+# its worktree is gone (_hermes_gc).
 
 : "${HARNESS_HERMES_BIN:=hermes}"
 export HARNESS_HERMES_BIN
 
 hermes_bin(){ echo "${HARNESS_HERMES_BIN:-hermes}"; }
 _hermes_op_home(){ echo "${HARNESS_HERMES_HOME:-$HOME/.hermes}"; }
-_hermes_home(){ echo "$1/.harness-hermes"; }
+# _hermes_home <wd> — the lane's profile (a profile name is lowercase letters and digits).
+_hermes_home(){ echo "$(_hermes_op_home)/profiles/harness$(printf '%s' "$1" | sha1sum | cut -c1-12)"; }
 _hermes_db(){ echo "$(_hermes_home "$1")/state.db"; }
-_hermes_json(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1:] if len(sys.argv) > 2 else sys.argv[1]))' "$@"; }
+_hermes_json(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"; }
+_hermes_jlist(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"; }
 
-# _hermes_seed <wd> [model] [effort] — (re)write the lane's home from the operator's. Its config.yaml
-# is the operator's with: approvals off (the session and every delegate_task child: no one is there
-# to answer one); the clarify toolset off (a question no one answers holds the turn for
-# agent.clarify_timeout); no update checks (a lane must not swap the CLI under a running fleet); the
-# user skills Harness installs (HARNESS_USER_SKILLS, ~/.claude/skills) as an external skills dir; the
+# _hermes_seed <wd> [model] [effort] — (re)write the lane's profile from the operator's home: its
+# stored login (auth.json; not .env, whose messaging-bot tokens would put every lane's gateway on
+# the operator's bots) and persona, and its config.yaml with: approvals off (the session and every
+# delegate_task child: no one is there to answer one); the clarify toolset off as well as the
+# operator's (a question no one answers holds the turn for agent.clarify_timeout); no update checks
+# (a lane must not swap the CLI under a running fleet); the operator's skills and the user skills
+# Harness installs (HARNESS_USER_SKILLS, ~/.claude/skills) as external, read-only skill dirs; the
 # lane's model and effort when it names them (Hermes refuses -m and --reasoning beside
-# `-c <title> --create-if-missing`); and the worktrees cli_trust trusted (harness.trusted). The home
-# is in the worktree, kept out of the lane's commits by its own .gitignore and info/exclude.
-_hermes_seed(){ local wd="$1" model="${2:-}" effort="${3:-}" home op d skills sets=()
+# `-c <title> --create-if-missing`); and the worktrees cli_trust trusted (harness.trusted).
+_hermes_seed(){ local wd="$1" model="${2:-}" effort="${3:-}" home op d skills sets=() ext=()
   home="$(_hermes_home "$wd")"; op="$(_hermes_op_home)"; skills="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
   mkdir -p "$home" 2>/dev/null || return 1
-  printf '*\n' > "$home/.gitignore"
-  git_exclude "$wd" ".harness-hermes/"
-  for d in installs tools skills; do
-    [[ -e "$op/$d" && ! -L "$home/$d" ]] && { rm -rf "${home:?}/$d"; ln -s "$op/$d" "$home/$d"; }; done
-  for d in auth.json .env SOUL.md; do [[ -f "$op/$d" ]] && cp -p "$op/$d" "$home/$d"; done
+  _hermes_gc "$home"
+  printf '%s\n' "$wd" > "$home/harness.wd"
+  for d in auth.json SOUL.md; do [[ -f "$op/$d" ]] && cp -p "$op/$d" "$home/$d"; done
   : > "$home/harness.settings"
   [[ -n $model ]] && { sets+=("model.default=$(_hermes_json "$model")"); echo "model.default=$model" >> "$home/harness.settings"; }
   [[ -n $effort ]] && { sets+=("agent.reasoning_effort=$(_hermes_json "$effort")"); echo "agent.reasoning_effort=$effort" >> "$home/harness.settings"; }
-  [[ -d $skills ]] && sets+=("skills.external_dirs=[$(_hermes_json "$skills")]")
+  for d in "$op/skills" "$skills"; do [[ -d $d ]] && ext+=("$d"); done
+  (( ${#ext[@]} )) && sets+=("skills.external_dirs+=$(_hermes_jlist "${ext[@]}")")
   [[ -s "$home/harness.trusted" ]] && sets+=("$(_hermes_trust_set "$home")")
   if [[ -f "$op/config.yaml" ]]; then cp "$op/config.yaml" "$home/config.yaml"; else : > "$home/config.yaml"; fi
-  _hermes_yaml_set "$home/config.yaml" approvals.mode=off updates.check=false 'agent.disabled_toolsets=["clarify"]' "${sets[@]}"; }
-_hermes_trust_set(){ local -a dirs; mapfile -t dirs < "$1/harness.trusted"
-  echo "skills.trusted_project_dirs=$( (( ${#dirs[@]} == 1 )) && echo "[$(_hermes_json "${dirs[0]}")]" || _hermes_json "${dirs[@]}")"; }
-# _hermes_yaml_set <config.yaml> <block>.<key>=<yaml value>… — set keys of top-level blocks in place,
-# every other line (and its comments) kept as it was. A key's old value — its line and the
-# deeper-indented or list lines under it — is replaced; a missing block or key is added.
+  _hermes_yaml_set "$home/config.yaml" approvals.mode=off updates.check=false 'agent.disabled_toolsets+=["clarify"]' "${sets[@]}"; }
+_hermes_trust_set(){ local -a dirs; mapfile -t dirs < "$1/harness.trusted"; echo "skills.trusted_project_dirs+=$(_hermes_jlist "${dirs[@]}")"; }
+# _hermes_gc <keep> — remove every other lane profile whose worktree (harness.wd) is gone and whose
+# gateway is not running.
+_hermes_gc(){ local p wd pid
+  for p in "$(_hermes_op_home)"/profiles/harness*/; do p="${p%/}"; [[ -d $p && $p != "$1" ]] || continue
+    wd="$(cat "$p/harness.wd" 2>/dev/null)"; [[ -n $wd && ! -d $wd ]] || continue
+    pid="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["pid"])' "$p/gateway.pid" 2>/dev/null)"
+    [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null && continue
+    rm -rf "${p:?}"; done; }
+# _hermes_yaml_set <config.yaml> <block>.<key>=<yaml value>|<block>.<key>+=<json list>… — set the
+# keys of top-level blocks in place, every other line (and its comments) kept as it was; `+=`
+# appends the list's items to the key's own list (block or flow style), once each. A key's old
+# value — its line and the lines under it indented deeper than the key (blank lines between them
+# included) — is replaced; a missing block or key is added, at the block's own indent. A block
+# written as a flow mapping (`approvals: {mode: manual, timeout: 60}`) is unfolded into lines first.
 _hermes_yaml_set(){ python3 - "$@" <<'PY'
-import os, re, sys, tempfile
+import json, os, re, sys, tempfile
 path, sets = sys.argv[1], sys.argv[2:]
 lines = open(path).read().splitlines()
+def ind(l):
+    return len(l) - len(l.lstrip(" "))
+def scalar(t):
+    t = t.strip()
+    return t[1:-1] if len(t) > 1 and t[0] == t[-1] and t[0] in "'\"" else t
 for s in sets:
     k, v = s.split("=", 1)
-    block, key = k.split(".", 1)
+    add = k.endswith("+")
+    block, key = k.rstrip("+").split(".", 1)
     b = re.escape(block)
     head = next((i for i, l in enumerate(lines) if re.match(rf"{b}:\s*(#.*)?$", l)), None)
     if head is None:
@@ -60,17 +80,33 @@ for s in sets:
             lines += ["", f"{block}:"]
             head = len(lines) - 1
         else:
-            lines[head] = f"{block}:"
+            m = re.match(rf"{b}:\s*\{{([^{{}}\[\]]*)\}}\s*(#.*)?$", lines[head])
+            pairs = [p.split(":", 1) for p in m.group(1).split(",") if ":" in p] if m else []
+            lines[head:head + 1] = [f"{block}:"] + [f"  {a.strip()}: {c.strip()}" for a, c in pairs]
     end = next((j for j in range(head + 1, len(lines)) if re.match(r"[^\s#]", lines[j])), len(lines))
-    at = next((j for j in range(head + 1, end) if re.match(rf"  {re.escape(key)}:", lines[j])), None)
-    new = f"  {key}: {v}"
+    body = [l for l in lines[head + 1:end] if l.strip() and not l.lstrip().startswith("#")]
+    pad = " " * (ind(body[0]) if body else 2)
+    at = next((j for j in range(head + 1, end) if re.match(rf"{pad}{re.escape(key)}:", lines[j])), None)
+    old, nxt = [], (at + 1 if at is not None else None)
+    if at is not None:
+        while nxt < end and (not lines[nxt].strip() or ind(lines[nxt]) > len(pad)
+                             or (ind(lines[nxt]) == len(pad) and lines[nxt].lstrip().startswith("- "))):
+            nxt += 1
+        while nxt > at + 1 and not lines[nxt - 1].strip():
+            nxt -= 1
+        if add:
+            inline = lines[at].split(":", 1)[1].split(" #")[0].strip()
+            if inline.startswith("[") and inline.endswith("]"):
+                old = [scalar(x) for x in inline[1:-1].split(",") if x.strip()]
+            old += [scalar(l.lstrip()[2:]) for l in lines[at + 1:nxt] if l.lstrip().startswith("- ")]
+    if add:
+        items = old + [x for x in json.loads(v) if x not in old]
+        v = json.dumps(items)
+    new = f"{pad}{key}: {v}"
     if at is None:
         lines.insert(head + 1, new)
-        continue
-    nxt = at + 1
-    while nxt < end and re.match(r"   |  - ", lines[nxt]):
-        nxt += 1
-    lines[at:nxt] = [new]
+    else:
+        lines[at:nxt] = [new]
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".config.yaml.")
 with os.fdopen(fd, "w") as f:
     f.write("\n".join(lines) + "\n")
@@ -96,12 +132,25 @@ hermes_send(){ tmux send-keys -t "$1" -l "$3" 2>/dev/null || true; sleep 0.5; tm
 # a new gateway for its home.
 hermes_kill(){ local home rc; home="$(_hermes_home "${2:-}")"
   tmux kill-session -t "$1" 2>/dev/null; rc=$?
-  [[ -n "${2:-}" && -d "$home" ]] && HERMES_HOME="$home" _cli_run "$(hermes_bin)" gateway stop -y >/dev/null 2>&1 </dev/null
+  [[ -n "${2:-}" && -d "$home" ]] && HERMES_HOME="$home" timeout 60 $(hermes_bin) gateway stop -y >/dev/null 2>&1 </dev/null
   return "$rc"; }
 
-# hermes_session_id <wd> <uuid> — the top-level session titled <uuid> in the lane's state.db.
+# hermes_session_id <wd> <uuid> — the session titled <uuid> in the lane's state.db: the first of its
+# compression chain. Hermes compresses a long session by ending it (`end_reason` compression) and
+# going on in a child session, which the title may move to; delegate_task children are no part of
+# the chain (source subagent).
 hermes_session_id(){ [[ -n "${2:-}" ]] || return 0
-  _hermes_sql "$(_hermes_db "$1")" "SELECT id FROM sessions WHERE title = ? AND parent_session_id IS NULL ORDER BY started_at DESC LIMIT 1" "$2"
+  SID="$2" DB="$(_hermes_db "$1")" python3 - 2>/dev/null <<'PY'
+import os, sqlite3
+c = sqlite3.connect(f"file:{os.environ['DB']}?mode=ro", uri=True)
+r = c.execute("SELECT id, parent_session_id FROM sessions WHERE title = ? ORDER BY started_at DESC LIMIT 1", (os.environ["SID"],)).fetchone()
+while r and r[1]:
+    up = c.execute("SELECT id, parent_session_id FROM sessions WHERE id = ? AND end_reason = 'compression'", (r[1],)).fetchone()
+    if not up:
+        break
+    r = up
+r and print(r[0])
+PY
   return 0; }
 # _hermes_sql <db> <query> [args…] — the first column of each row; nothing when the db is absent.
 _hermes_sql(){ python3 - "$@" 2>/dev/null <<'PY'
@@ -210,11 +259,12 @@ PY
 }
 
 # --- the Harness-driven goal loop (lib.sh goal_loop_tick) -----------------------------------------
-# hermes_last_reply <wd> <session id> — the id of the session's last user message (a prompt, a
-# redirect, or the message Hermes injects when a background delegation or process ends), then the
-# reply that ended its turn: the last assistant message, which must have finished (`stop`). rc 1
-# while the turn runs (the gateway holds a turn lease on the session), while a delegate_task child
-# dispatched to the background still runs (Hermes resumes the session when it ends), and for a turn
+# hermes_last_reply <wd> <session id> — the id of the last user message (a prompt, a redirect, or the
+# message Hermes injects when a background delegation or process ends) in the newest session of the
+# session's compression chain, then the reply that ended its turn: the last assistant message, which
+# must have finished (`stop`). rc 1 while the turn runs (the gateway holds a turn lease on the
+# chain), while a delegate_task child dispatched to the background still runs or its result is not
+# yet delivered (Hermes resumes the session with it), and for a turn
 # that failed (`failed_turn`: transient.txt, limit.txt) or was interrupted (an empty message):
 # those are the watchdog's.
 hermes_last_reply(){ [[ -n "${2:-}" ]] || return 1
@@ -222,6 +272,15 @@ hermes_last_reply(){ [[ -n "${2:-}" ]] || return 1
 import os, sqlite3, sys, time
 sid, db = os.environ["SID"], os.environ["DB"]
 c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+chain = [sid]
+while True:
+    nxt = c.execute("SELECT s.id FROM sessions p JOIN sessions s ON s.parent_session_id = p.id WHERE p.id = ?"
+                    " AND p.end_reason = 'compression' AND COALESCE(s.source, '') NOT IN ('subagent', 'tool')"
+                    " ORDER BY s.started_at DESC LIMIT 1", (chain[-1],)).fetchone()
+    if not nxt or nxt[0] in chain:
+        break
+    chain.append(nxt[0])
+marks = ",".join("?" * len(chain))
 def alive(pid):
     try:
         os.kill(int(pid), 0)
@@ -231,15 +290,16 @@ def alive(pid):
     except PermissionError:
         return True
 try:
-    if c.execute("SELECT 1 FROM session_turn_leases WHERE conversation_id = ? AND expires_at > ?", (sid, time.time())).fetchone():
+    if c.execute(f"SELECT 1 FROM session_turn_leases WHERE conversation_id IN ({marks}) AND expires_at > ?", (*chain, time.time())).fetchone():
         sys.exit(1)
-    for (pid,) in c.execute("SELECT owner_pid FROM async_delegations WHERE parent_session_id = ? AND completed_at IS NULL", (sid,)):
+    for (pid,) in c.execute(f"SELECT owner_pid FROM async_delegations WHERE parent_session_id IN ({marks})"
+                            " AND (completed_at IS NULL OR delivery_state != 'delivered')", chain):
         if alive(pid):
             sys.exit(1)
 except sqlite3.OperationalError:
     pass
 rows = c.execute("SELECT id, role, content, finish_reason, display_kind FROM messages WHERE session_id = ? AND active = 1"
-                 " ORDER BY id", (sid,)).fetchall()
+                 " ORDER BY id", (chain[-1],)).fetchall()
 users = [r for r in rows if r[1] == "user"]
 if not users:
     sys.exit(1)

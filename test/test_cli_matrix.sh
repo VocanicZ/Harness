@@ -48,7 +48,7 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
     opencode) mkdir -p "$XDG_DATA_HOME/opencode"; cp "$FIX/opencode/transcript.db" "$XDG_DATA_HOME/opencode/opencode.db"
             python3 -c 'import sqlite3, sys
 c = sqlite3.connect(sys.argv[1]); c.execute("UPDATE session SET directory = ?", (sys.argv[2],)); c.commit()' "$XDG_DATA_HOME/opencode/opencode.db" "$wd" ;;
-    hermes) mkdir -p "$wd/.harness-hermes"; cp "$FIX/hermes/transcript.db" "$wd/.harness-hermes/state.db" ;;
+    hermes) mkdir -p "$(_hermes_home "$wd")"; cp "$FIX/hermes/transcript.db" "$(_hermes_db "$wd")" ;;
   esac; }
 # usage_windows_ok <cli> — the CLI's usage windows, read through the adapter from the fixture's real
 # source, report the expected <account> <window> <pct used>.

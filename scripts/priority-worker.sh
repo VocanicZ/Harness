@@ -35,7 +35,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     watchdog_session "$sess"
     usage_watch   # #194: the lane holds here for the whole session — the crossing must reach it too
     if bug_goal_done "$n" "$phase"; then
-      tmux kill-session -t "$sess" 2>/dev/null || true; rm -f "$RUN_DIR/$sess.goal"; break
+      cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"; break
     fi
     sleep "$PRIORITY_POLL"
   done

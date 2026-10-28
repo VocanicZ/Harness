@@ -18,17 +18,22 @@ mkdir -p "$RUN_DIR/bin"; cat > "$RUN_DIR/bin/hermes" <<'STUB'
 echo "$HERMES_HOME $*" >> "$HERMES_CALLS"
 STUB
 chmod +x "$RUN_DIR/bin/hermes"; export PATH="$RUN_DIR/bin:$PATH" HERMES_CALLS="$RUN_DIR/hermes.calls"
-# The operator's home: the runtime Hermes installed, its login, its config with a key a lane must keep.
+# The operator's home: the runtime Hermes installed, its login and bot tokens, its config with keys a
+# lane must keep.
 OP="$HARNESS_HERMES_HOME"; mkdir -p "$OP/installs" "$OP/tools" "$OP/skills"
-echo '{"version": 1}' > "$OP/auth.json"
+echo '{"version": 1}' > "$OP/auth.json"; echo 'TELEGRAM_BOT_TOKEN=operators-bot' > "$OP/.env"
 printf 'model:\n  default: "gpt-4.1"\n  provider: "copilot"\n\nagent:\n  # keep this comment\n  disabled_toolsets:\n    - browser\n  max_turns: 90\n' > "$OP/config.yaml"
 export HARNESS_USER_SKILLS="$RUN_DIR/user-skills"; mkdir -p "$HARNESS_USER_SKILLS"
-H="$WD/.harness-hermes"; CFG="$H/config.yaml"
+H="$(_hermes_home "$WD")"; CFG="$H/config.yaml"
 block(){ sed -n "/^$1:/,/^[^[:space:]#]/p" "$CFG" | grep -v "^[^[:space:]]" ; }
 
 # --- the launch line and the lane's own home ------------------------------------------------------
 line="$(cli_launch "$WD" "$UUID" anthropic/claude-sonnet-5.5 high)"
-assert_ok "a lane has its own HERMES_HOME" has "exec env HERMES_HOME=$H hermes chat " "$line"
+assert_ok "a lane's home is a profile of the operator's, its name the worktree's" has "$OP/profiles/harness" "$H"
+assert_ok "…a profile name Hermes takes (lowercase letters and digits)" grep -qxE 'harness[0-9a-f]{12}' <<<"${H##*/}"
+same_home(){ [[ "$(_hermes_home "$RUN_DIR/other")" == "$H" ]]; }
+assert_no "…another worktree gets another" same_home
+assert_ok "the launch runs on that home" has "exec env HERMES_HOME=$H hermes chat " "$line"
 assert_ok "addressed by title, created if missing" has "-c $UUID --create-if-missing" "$line"
 assert_ok "yolo and hooks accepted at launch" has '--yolo --accept-hooks' "$line"
 assert_ok "first turn submitted with -q" has "-q \"$HARNESS_BOOTSTRAP_PROMPT\"" "$line"
@@ -38,21 +43,31 @@ assert_ok "the lane's model is in its config" grep -qx '  default: "anthropic/cl
 assert_ok "…the operator's provider kept" grep -qx '  provider: "copilot"' <(block model)
 assert_ok "the lane's effort is in its config" grep -qx '  reasoning_effort: "high"' <(block agent)
 assert_ok "approvals off for the whole lane profile" grep -qx '  mode: off' <(block approvals)
-assert_ok "the clarify toolset is off" grep -qxF '  disabled_toolsets: ["clarify"]' <(block agent)
-assert_no "…replacing the operator's list, every line of it" grep -qx '    - browser' <(block agent)
+assert_ok "the clarify toolset is off, beside the operator's" grep -qxF '  disabled_toolsets: ["browser", "clarify"]' <(block agent)
 assert_ok "…the operator's other agent keys kept" grep -qx '  max_turns: 90' <(block agent)
 assert_ok "…and its comments" grep -qx '  # keep this comment' <(block agent)
 assert_ok "no update checks in a lane" grep -qx '  check: false' <(block updates)
-assert_ok "Harness's user skills are an external skills dir" grep -qxF "  external_dirs: [\"$HARNESS_USER_SKILLS\"]" <(block skills)
+assert_ok "the operator's skills and Harness's user skills are external skill dirs" \
+  grep -qxF "  external_dirs: [\"$OP/skills\", \"$HARNESS_USER_SKILLS\"]" <(block skills)
 assert_eq "$(cli_lane_settings "$WD")" $'model.default=anthropic/claude-sonnet-5.5\nagent.reasoning_effort=high' "the lane settings the launch event records"
-assert_eq "$(readlink "$H/installs"):$(readlink "$H/tools"):$(readlink "$H/skills")" "$OP/installs:$OP/tools:$OP/skills" "the runtime and skills are linked from the operator's home"
 assert_ok "the operator's stored login is copied" cmp -s "$OP/auth.json" "$H/auth.json"
-assert_eq "$(git -C "$WD" status --porcelain -- .harness-hermes)" "" "the lane's home is never committed"
-assert_eq "$(cat "$H/.gitignore")" "*" "…ignored by its own .gitignore, whatever the worktree's exclude says"
-assert_ok "…kept out by info/exclude as well" grep -qxF '.harness-hermes/' "$(git -C "$WD" rev-parse --absolute-git-dir)/info/exclude"
+assert_no "…its .env (messaging-bot tokens) is not" test -e "$H/.env"
+assert_eq "$(ls "$H" | grep -cxE 'installs|tools|skills')" 0 "the runtime is the profile root's: nothing linked in (a linked tools/ repoints the host's launcher)"
+assert_eq "$(git -C "$WD" status --porcelain --ignored | grep -v harness-task)" "" "nothing is written into the worktree"
 cli_launch "$WD" "$UUID" "" "" >/dev/null
 assert_ok "a relaunch with no model takes the operator's again" grep -qx '  default: "gpt-4.1"' <(block model)
 assert_eq "$(cli_lane_settings "$WD")" "" "…and records no lane settings"
+# A lane profile whose worktree is gone is removed at the next launch; one with a live gateway, or
+# whose worktree is still there, is kept.
+GONE="$OP/profiles/harness000000000001"; LIVE="$OP/profiles/harness000000000002"; KEPT="$OP/profiles/harness000000000003"
+mkdir -p "$GONE" "$LIVE" "$KEPT" "$OP/profiles/mine"
+echo "$RUN_DIR/removed-wt" | tee "$GONE/harness.wd" > "$LIVE/harness.wd"; echo "$WD" > "$KEPT/harness.wd"
+echo "{\"pid\": $$}" > "$LIVE/gateway.pid"
+cli_launch "$WD" "$UUID" "" "" >/dev/null
+assert_no "a lane profile whose worktree is gone is removed" test -d "$GONE"
+assert_ok "…not while its gateway runs" test -d "$LIVE"
+assert_ok "…nor while its worktree is there" test -d "$KEPT"
+assert_ok "…and no profile of the operator's own" test -d "$OP/profiles/mine"
 
 # --- trust: the lane config's skills.trusted_project_dirs, kept across relaunches -----------------
 cli_trust "$WD"; cli_trust "$WD"
@@ -75,11 +90,19 @@ assert_eq "$(cat "$TMUXLOG")" "tmux kill-session -t sess-x" "…once the pane is
 : > "$HERMES_CALLS"; cli_kill sess-y "$RUN_DIR/no-such-wd"
 assert_eq "$(cat "$HERMES_CALLS")" "" "a session with no lane home stops no gateway"
 unset -f tmux sleep
+# A lane whose goal is met is ended through the adapter too: its gateway does not outlive it.
+: > "$HERMES_CALLS"
+( source "$HERE/../scripts/drive.sh"; UNIT=main REPO=acme/widget
+  team_sessions(){ echo hz-main-i9; }; stats_sess_event(){ :; }; log(){ :; }; tmux(){ :; }
+  ISSUELIB="$RUN_DIR/issuelib-done.py"; echo 'print("DONE")' > "$ISSUELIB"
+  echo ISSUE:9 > "$RUN_DIR/hz-main-i9.goal"; echo "$WD" > "$RUN_DIR/hz-main-i9.wd"
+  reap_done_sessions )
+assert_ok "reap_done_sessions stops the met lane's gateway" grep -qxF "$H gateway stop -y" "$HERMES_CALLS"
 
 # --- panes ----------------------------------------------------------------------------------------
 assert_eq "$(cli_loop)" driven "no Stop hook Harness can block: Harness drives"
 assert_eq "$(cli_skill handoff)" handoff "a skill is named, not slashed (Hermes's own /handoff shadows it)"
-assert_eq "$(cli_turn_secs "$(pane busy)")" 18 "turn time off the busy top rule"
+assert_eq "$(cli_turn_secs "$(pane busy)")" 10 "turn time off the busy top rule"
 assert_eq "$(cli_turn_secs "$(pane busy-retrying)")" 47 "…or the status bar's ⏱ when the rule is truncated"
 assert_eq "$(cli_turn_secs "$(pane idle)")" 0 "no turn at the idle prompt"
 assert_eq "$(cli_turn_secs '── ⠸ 💻 make test · 1h 5m · ↓ 3 tok ──')" 3900 "hours and minutes"
@@ -108,8 +131,11 @@ sql "UPDATE session_turn_leases SET expires_at = 1"
 assert_ok "…a lapsed lease holds nothing" replies "$WD" "$SID"
 sql "UPDATE async_delegations SET completed_at = NULL, owner_pid = ?" "$$"
 assert_no "no reply while a background delegation it dispatched still runs" replies "$WD" "$SID"
+sql "UPDATE async_delegations SET completed_at = 5, delivery_state = 'pending'"
+assert_no "…nor while its finished result is not yet delivered to the session" replies "$WD" "$SID"
 sql "UPDATE async_delegations SET owner_pid = 999999999"
 assert_ok "…one whose owner died holds nothing" replies "$WD" "$SID"
+sql "UPDATE async_delegations SET delivery_state = 'delivered'"
 sql "INSERT INTO messages (session_id, role, content, timestamp, active) VALUES (?, 'user', 'go on', 1, 1)" "$SID"
 assert_no "a prompt not yet answered has no reply" replies "$WD" "$SID"
 sql "INSERT INTO messages (session_id, role, content, timestamp, finish_reason, display_kind, active) VALUES (?, 'assistant', 'Your request was not processed.', 2, NULL, 'failed_turn', 1)" "$SID"
@@ -117,6 +143,16 @@ assert_no "a failed turn is the watchdog's" replies "$WD" "$SID"
 sql "INSERT INTO messages (session_id, role, content, timestamp, active) VALUES (?, 'user', 'again', 3, 1)" "$SID"
 sql "INSERT INTO messages (session_id, role, content, timestamp, finish_reason, display_kind, active) VALUES (?, 'assistant', '', 4, NULL, 'hidden', 1)" "$SID"
 assert_no "…so is an interrupted one" replies "$WD" "$SID"
+# Compression: Hermes ends the session (end_reason compression) and goes on in a child session, the
+# title moved onto it (hermes_state_compression.py, hermes_state_titles.py).
+sql "UPDATE sessions SET end_reason = 'compression', title = NULL WHERE id = ?" "$SID"
+sql "INSERT INTO sessions (id, source, title, model, parent_session_id, started_at) VALUES ('local-tip', 'local', ?, 'gpt-4.1', ?, 9e9)" "$(cat "$F/session")" "$SID"
+sql "INSERT INTO messages (session_id, role, content, timestamp, active) VALUES ('local-tip', 'user', 'carry on', 5, 1)"
+sql "INSERT INTO messages (session_id, role, content, timestamp, finish_reason, active) VALUES ('local-tip', 'assistant', 'compressed reply', 6, 'stop', 1)"
+assert_eq "$(cli_session_id "$WD" "$(cat "$F/session")")" "$SID" "a compressed session keeps its id, the title moved onto its continuation"
+assert_eq "$(cli_last_reply "$WD" "$SID" | tail -n +2)" "compressed reply" "…and its reply is read from that continuation"
+sql "UPDATE session_turn_leases SET expires_at = ? WHERE conversation_id = ?" "$(( $(date +%s) + 300 ))" "$SID"
+assert_no "…while the gateway holds the lease it keys on the first session" replies "$WD" "$SID"
 
 # --- transcripts + usage: the session's own, then its delegate_task child's ------------------------
 cp "$F/bypass-subagent.db" "$DB"
