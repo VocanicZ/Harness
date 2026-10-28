@@ -1,0 +1,24 @@
+iod.
+⏱️ Rate limited. Resets in ~1h 59m. Waiting 5.7s (attempt 3/3)...
+⚠️  Attempt 3/3 failed: HTTP 429: You have reached your usage limit for this per
+iod.
+❌ Rate limited after 3 retries — HTTP 429: You have reached your usage limit fo
+r this period. (resets in ~1h 59m)
+   💀 Final error: HTTP 429: You have reached your usage limit for this period.
+
+────────────────────────────────────────
+☤ Hermes
+custom rate-limited every one of 3 attempts — its usage limit resets in ~2h. Sen
+d /retry after that, or switch models with /model. To avoid this in future, add
+a backup provider with hermes fallback add.
+
+Provider said: HTTP 429: You have reached your usage limit for this period.
+
+Limit resets at 13:01 (in 2h 00m).
+────────────────────────────────────────
+
+─ 12.4s · 11:01 AM
+───────────────────────────────────────── e412dbdb-d5f0-4088-9c64-bdfd5f248e4d ─
+❯ Research this topic and write me a brief
+────────────────────────────────────────────────────────────────────────────────
+ ☤ m1 · 0/256K · [░░░░░░░░░░] 0% · 14s · ⏲ 11s · ✓ 0s · ⚠ YOLO

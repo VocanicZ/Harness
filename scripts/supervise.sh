@@ -140,6 +140,7 @@ sup_watch_pane(){
   elif (( idle >= nudge_min && nudged == 0 && now - lastn >= RENUDGE_S )); then
     sup_act tmux send-keys -t "$t" C-u
     sup_act tmux send-keys -t "$t" -l "$msg"
+    (( SUP_DRY )) || sleep 0.5   # an Enter in the same burst as the text is a newline to hermes (cli_send)
     sup_act tmux send-keys -t "$t" Enter
     echo "$body $bg $cpu $t0 1 $now" >"$f"
   fi

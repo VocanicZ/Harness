@@ -1,0 +1,24 @@
+❯ [IMPORTANT: The user has invoked the "echo-proof" skill, indicating they want
+you to follow its instructions. The full skill content is loaded below.]
+
+... (+7 more lines)
+[Skill directory: /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-h
+arness-i263/95d16149-d649-4463-9f95-0b529469264b/scratchpad/w-skill/.agents/skil
+ls/echo-proof]
+Resolve any relative paths in this skill (e.g. `scripts/foo.js`, `templates/conf
+ig.yaml`) against that directory, then run them with the terminal tool using the
+ absolute path.
+────────────────────────────────────────
+
+⚡ Loading skill: echo-proof
+
+────────────────────────────────────────
+☤ Hermes
+ECHO-PROOF-SKILL-RAN
+────────────────────────────────────────
+
+─ 3.2s · 11:06 AM
+───────────────────────────────────────── 6170d22f-83a6-4f71-900f-7fb31737caca ─
+❯ Ask anything, or type / for commands…
+────────────────────────────────────────────────────────────────────────────────
+ ☤ gpt-4.1 · 12K/128K · [█░░░░░░░░░] 9% · ◎ 72.7% · ◷ 3.9s · ↑ 3 t/s · 21s ·...

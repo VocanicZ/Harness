@@ -83,6 +83,8 @@ make_env(){
   export COPILOT_HOME="$RUN_DIR/copilot-home"
   # …and OpenCode's data dir (#261: the opencode.db its sessions and usage live in).
   export XDG_DATA_HOME="$RUN_DIR/xdg-data"
+  # …and the operator's Hermes home each lane's own is seeded from (#263: its config.yaml, login, runtime).
+  export HARNESS_HERMES_HOME="$RUN_DIR/hermes-home"
   unset CLAUDE_CONFIG_DIR
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.
