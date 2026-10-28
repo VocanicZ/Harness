@@ -26,7 +26,24 @@ Install the engine **once per host**, then drive any number of projects with it:
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), places the engine at the single host location `~/.harness/engine/`, installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), installs [rtdd](#test-selection-rtdd) via `npx github:VocanicZ/rtdd` when `npx` is present (which also writes rtdd's agent skill into `~/.claude/skills/` and the equivalent for other agent CLIs on the host), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
+`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), installs the latest Harness **release** at the single host location `~/.harness/engine` (see below), installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), installs [rtdd](#test-selection-rtdd) via `npx github:VocanicZ/rtdd` when `npx` is present (which also writes rtdd's agent skill into `~/.claude/skills/` and the equivalent for other agent CLIs on the host), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
+
+**The engine is a release, not a clone.** `install.sh` asks GitHub for the latest release of `VocanicZ/Harness`, downloads its `harness-vX.Y.Z.tar.gz` and `SHA256SUMS`, refuses an archive whose checksum does not match, and extracts it to `~/.harness/releases/vX.Y.Z/`. `~/.harness/engine` is a symlink to that directory, so everything that says "the engine" (the `harness` on your `PATH`, the supervise/web units, the `/harness` skills) follows the symlink. To install one particular release instead of the latest, pin it with `HARNESS_REF=<tag>`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | HARNESS_REF=v0.1.0 bash
+```
+
+A `HARNESS_REF` tag is never compared against anything: an older release installs as readily as a newer one. If nothing is published yet, or the pinned tag has no release, the install says so and installs nothing. Re-running the installer over an engine that is already a git checkout (how Harness was installed before releases) migrates it the same way `harness update` does — see [Updating](#pause--resume--update).
+
+To see what a host is running:
+
+```sh
+harness --version            # harness v0.3.1 (3f3b94b) — the release tag and the commit it was built from
+harness --version --verbose  # + engine: the release directory it runs from, stable: ~/.harness/engine
+```
+
+A git checkout of the engine (a dev checkout) has no release, so it prints `harness <git describe> (dev checkout)` instead. What changed in a release is on its [GitHub release page](https://github.com/VocanicZ/Harness/releases); see [Releases](#releases).
 
 The `~/.harness/` host root also carries two subdirs created at install time — `poller/` and `snapshots/`. These back the **host poller** (one poll per repo, shared across every fleet on the host): `poller/` holds the refcounted registry + the poller pidfile, and `snapshots/` holds the per-repo snapshot JSON workers read from. The poller is **on by default** (`HARNESS_USE_POLLER=0` opts a fleet out); a fresh install leaves both dirs empty until the first `harness start`. See [Host poller](#host-poller).
 
@@ -511,7 +528,7 @@ This is not hypothetical: a Claude session launched **inside** a fleet inherits 
 harness pause           # soft drain — stop claiming; live agents finish (local)
 harness pause --force   # checkpoint every agent to GitHub, then idle
 harness resume          # clear pause; resume here, or start --recover elsewhere
-harness update          # ff-pull the one shared engine install (every project picks it up)
+harness update          # install the latest release (verified); --rollback flips back
 harness setup           # verify prereqs + seed labels on all units (no start)
 ```
 
@@ -521,11 +538,107 @@ Because all of that lives in GitHub, you can `resume` on a *different* machine: 
 `start --recover`, re-dispatches the `agent-paused` issues, and each agent fetches its branch, reads
 the handoff comment, and finishes the work.
 
-**`update` never touches your config.** It runs `git pull --ff-only` on the single shared engine
-install (`~/.harness/engine`) and nothing else — no project `.harness/` is touched, and it never
-runs a destructive git op. Because every project shares that one install, one `update` updates them
-all at once (no per-project re-pull, no version skew). Live workers keep the old engine logic until
-you relaunch (`pause` → drain → `stop` → `start --recover`).
+**`update` follows releases.** One host has one engine, `~/.harness/engine`, shared by every
+project on it, so one `harness update` moves them all (no per-project update, no version skew). It
+never touches a project's `.harness/` config or state, and never runs a destructive git op.
+
+```bash
+harness update                     # install the latest release, if it is newer
+harness update --rollback          # flip back to the release you ran before
+HARNESS_REF=v0.2.0 harness update  # install exactly this release, newer or older
+harness update --with-skills       # also refresh the Claude plugins + skills
+```
+
+`harness update` asks GitHub for the latest release and compares its semver tag with the running
+`VERSION`. It ends in one of three ways, each with its own line:
+
+| Outcome | Prints | Exit |
+|---------|--------|------|
+| Already current | `Harness v0.3.1 is the latest release.` (or, with `HARNESS_REF`, `Harness v0.2.0 is already installed.`) | `0` |
+| Newer release installed | `updated Harness v0.3.1 -> v0.4.0 at ~/.harness/releases/v0.4.0` | `0` |
+| Nothing published | `harness update: … named no release; if a release exists it may still be an unpublished draft` | `0` |
+
+Any other failure leaves the engine as it was. A running version that is not `vMAJOR.MINOR.PATCH`
+exits `2` and asks you to name the release with `HARNESS_REF=<tag>`; a failed download, a checksum
+mismatch or a full disk exits `3`.
+
+How an update installs a release:
+
+- **Verified.** It downloads `harness-<tag>.tar.gz` and the release's `SHA256SUMS`, and refuses the
+  archive unless its SHA-256 matches. The archive is extracted into a staging directory and renamed
+  to `~/.harness/releases/<tag>/` only when complete, so a release directory is never half-written.
+- **One atomic flip.** `~/.harness/engine` is then repointed at `releases/<tag>` with one `rename(2)`:
+  nothing ever sees an engine that is half old, half new. Each flip is logged, newest last, in
+  `~/.harness/releases/.installed`.
+- **Two previous releases kept.** After the flip, `releases/` is pruned to the current release and
+  the previous 2. Older release directories are deleted; every release stays on GitHub, so
+  `HARNESS_REF` can always reach it again.
+- **Redeployed from the new release.** The update's tail runs from the release it just installed: it
+  ensures [rtdd](#test-selection-rtdd), rewrites and restarts the `harness supervise` and `harness web`
+  units if they are installed, and with `--with-skills` refreshes the plugins and redeploys the
+  `/harness` skills.
+- **Live workers keep their release.** A running worker was launched from a concrete
+  `releases/<tag>/` directory, not through the `engine` symlink, so it keeps running the release it
+  started with. It moves to the new release when you relaunch it (`harness pause` → let sessions
+  drain → `harness stop` → `harness start --recover`); `update` prints that reminder when a pool is
+  running.
+
+**`harness update --rollback`** flips `engine` back to the previous installed release (the newest
+`.installed` entry that is not the current one and whose directory still exists) and redeploys from
+it exactly like an update. It downloads and prunes nothing, and the flip is itself logged, so a
+second `--rollback` goes forward again. With no previous release it says so, exits `2`, and leaves
+the engine unchanged.
+
+**`HARNESS_REF=<tag>`** pins the release to install, for `install.sh` and `harness update` alike.
+The tag is never compared with the running version, so it is also how you go to an older release
+that has already been pruned from the host.
+
+**Migrating a git-checkout engine.** Before releases, `~/.harness/engine` was a git clone of `main`.
+The first `harness update` (or `install.sh` run) after a release is published migrates it once: the
+release is installed, the old checkout is moved aside — uncommitted edits and all — to
+`~/.harness/releases/git-<sha>/`, and `engine` becomes the symlink. That `releases/git-<sha>/`
+directory counts as a release, so `harness update --rollback` can flip back to it and it is pruned
+like any other. Until a release exists, a git-checkout engine keeps updating from git, fast-forward
+only, and refuses rather than overwrite local edits. One caveat for the migrating update only:
+workers launched before it reach the engine through the old `~/.harness/engine` path, which now
+resolves to the new release, so relaunch them as above.
+
+### Releases
+
+Harness ships as [GitHub releases](https://github.com/VocanicZ/Harness/releases) with semver tags
+(`vX.Y.Z`). Each release page carries the release notes — the commits since the previous tag,
+grouped by type — plus the `harness-vX.Y.Z.tar.gz` archive (with a `VERSION` file: tag, then commit)
+and its `SHA256SUMS`. That page is how you answer "what changed?"; `harness --version` answers "what
+is this host on?".
+
+Harness runs no GitHub Actions (see [No GitHub CI](#no-github-ci--the-gate-is-local)), so releases are
+cut on a fleet host with **`harness release`**, from a checkout of this repo:
+
+```bash
+harness release              # cut the next release from HEAD
+harness release --dry-run    # print the next version and its notes; no gate, tag or publish
+harness release --ref <rev>  # release <rev> instead of HEAD
+```
+
+It gates on `test/run.sh`, run against a `git archive` of exactly the tree that ships, and takes the
+next version from [Conventional Commits](https://www.conventionalcommits.org/) since the last
+`vX.Y.Z` tag (a breaking change bumps minor while `0.x` and major from `1.0`; any `feat` bumps minor;
+anything else patch; no prior tag → `v0.1.0`). Then it pushes an annotated tag, builds the archive and
+`SHA256SUMS`, and publishes the release as latest. Re-running it on an already released commit is a
+no-op. Exit codes: `0` released (or already), `2` configuration, `3` environment (safe to re-run),
+`4` the gate failed.
+
+**The fleet cuts releases itself.** A fleet working on the Harness repo (and only that repo,
+`HARNESS_RELEASE_REPO`, default `VocanicZ/Harness`) runs `harness release` on two triggers:
+
+- **A reviewed PRD closes** — one release for that close.
+- **A bug fix merges** — queued; one patch release is cut once the oldest queued fix is
+  `HARNESS_RELEASE_THROTTLE` seconds old (default `3600`, so at most one an hour), covering every fix
+  queued by then.
+
+A red release gate files one `bug` issue for that commit and is never re-run on it; the fix is a new
+commit, released like any other. Trigger state and gate logs live in `~/.harness/autorelease/`.
+Nothing updates a host by itself: a new release reaches a host when its operator runs `harness update`.
 
 New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
 

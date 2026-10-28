@@ -157,7 +157,7 @@ done
 set -- ${_argv[@]+"${_argv[@]}"}
 cmd="${1:-}"; shift || true
 case "$cmd" in
-  # engine-level: no project state needed. install bootstraps the host engine; update ff-pulls it
+  # engine-level: no project state needed. install bootstraps the host engine; update installs the latest release
   # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   # --version is engine-level too: it reads only ENGINE_DIR, never a project .harness/ (#277).
