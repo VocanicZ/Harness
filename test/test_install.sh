@@ -39,26 +39,26 @@ assert "prereqs fail when gh not authed" "! check_prereqs 2>/dev/null"
 printf '#!/bin/sh\ncase "$1" in auth) exit 0;; version) exit 0;; esac\nexit 0\n' > "$PATHBIN/gh"; chmod +x "$PATHBIN/gh"
 
 # ── shared-install: engine goes to ONE host location (#54, PRD #52 slice 2) ────
-# Done poking at prereqs; restore the REAL PATH so place_engine clones with real git/ln/realpath.
+# Done poking at prereqs; restore the REAL PATH so place_engine runs real curl/tar/ln/realpath.
 export PATH="$REAL_PATH"
-# Build a throwaway "engine remote" (a real git repo) and clone FROM it into HARNESS_HOME/engine.
-SRC="$(mktemp -d)/engine-src"; mkdir -p "$SRC/bin"
-printf '#!/usr/bin/env bash\necho stub-engine\n' > "$SRC/bin/harness"; chmod +x "$SRC/bin/harness"
-git -C "$SRC" init -q
-git -C "$SRC" -c user.email=t@t -c user.name=t add -A
-git -C "$SRC" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+# The engine is a published release now (#282), not a clone: serve a fake one over file:// and
+# install FROM it into HARNESS_HOME/releases/<tag>, behind the HARNESS_HOME/engine symlink.
+source "$HERE/release_fixture.sh"
+SRV="$(mktemp -d)/srv"; rel_server "$SRV"; rel_publish "$SRV" v0.1.0; rel_latest "$SRV" v0.1.0
 
 HOME_TMP="$(mktemp -d)"; HH="$HOME_TMP/.harness"
-HARNESS_HOME="$HH" HARNESS_REPO_URL="$SRC" place_engine >/dev/null 2>&1
+HARNESS_HOME="$HH" place_engine >/dev/null 2>&1
 assert "engine installed to the single host location ~/.harness/engine" "[[ -x '$HH/engine/bin/harness' ]]"
-assert "installed engine is a git checkout (update can ff-pull it)"      "[[ -d '$HH/engine/.git' ]]"
+assert "installed engine is a release behind the engine symlink (update can flip it)" \
+  "[[ -L '$HH/engine' && \"\$(readlink '$HH/engine')\" == releases/v0.1.0 ]]"
 
-# re-running place_engine is idempotent (ff-pulls, does not re-clone / error)
-HARNESS_HOME="$HH" HARNESS_REPO_URL="$SRC" place_engine >/dev/null 2>&1
-assert "place_engine is idempotent on an existing install" "[[ -x '$HH/engine/bin/harness' ]]"
+# re-running place_engine is idempotent (an installed same tag is a no-op flip, not a re-download)
+HARNESS_HOME="$HH" place_engine >/dev/null 2>&1; pe_rc=$?
+assert "place_engine is idempotent on an existing install" "[[ $pe_rc -eq 0 && -x '$HH/engine/bin/harness' ]]"
 
-# ── place_engine surfaces a FAILED ff-pull as non-zero (consistent with update.sh; not swallowed) ──
-# Build a real remote+clone, then DIVERGE the local engine so `pull --ff-only` cannot fast-forward.
+# ── place_engine over a git-checkout engine: migrated aside, local edits kept (not ff-pulled) ──
+# Before releases, a diverged ff-pull made place_engine fail non-zero. Now install moves the checkout,
+# local commit and all, to releases/git-<sha> and flips engine to the release — never git-resets it.
 DREMOTE="$(mktemp -d)/dremote.git"; git init -q --bare -b main "$DREMOTE"
 DWORK="$(mktemp -d)"; : > "$DWORK/f"
 git -C "$DWORK" init -q; git -C "$DWORK" branch -M main
@@ -68,11 +68,11 @@ git -C "$DWORK" remote add origin "$DREMOTE"; git -C "$DWORK" -c user.email=t@t 
 DHH="$(mktemp -d)/.harness"; mkdir -p "$DHH"; git clone -q "$DREMOTE" "$DHH/engine"
 # local diverging commit on the engine
 printf 'local\n' > "$DHH/engine/f"; git -C "$DHH/engine" -c user.email=t@t -c user.name=t commit -qam local >/dev/null
-# divergent upstream advance
-printf 'upstream\n' > "$DWORK/f"; git -C "$DWORK" -c user.email=t@t -c user.name=t commit -qam up >/dev/null
-git -C "$DWORK" -c user.email=t@t -c user.name=t push -q
+DSHA="$(git -C "$DHH/engine" rev-parse --short=12 HEAD)"
 HARNESS_HOME="$DHH" place_engine >/dev/null 2>&1; pe_rc=$?
-assert "place_engine returns non-zero on a diverged ff-pull" "[[ $pe_rc -ne 0 ]]"
+assert "place_engine over a git-checkout engine succeeds" "[[ $pe_rc -eq 0 ]]"
+assert "the git checkout's engine now points at the release" "[[ \"\$(readlink '$DHH/engine')\" == releases/v0.1.0 ]]"
+assert "the git checkout is kept, local commit and all" "[[ \"\$(cat '$DHH/releases/git-$DSHA/f')\" == local ]]"
 
 # ── PATH symlink: harness -> ~/.harness/engine/bin/harness, resolved via realpath ──
 BIN_TMP="$(mktemp -d)/bin"
