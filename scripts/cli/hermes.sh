@@ -27,7 +27,7 @@ _hermes_json(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1:] if l
 # is in the worktree, kept out of the lane's commits by its own .gitignore and info/exclude.
 _hermes_seed(){ local wd="$1" model="${2:-}" effort="${3:-}" home op d skills sets=()
   home="$(_hermes_home "$wd")"; op="$(_hermes_op_home)"; skills="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
-  mkdir -p "$home" || return 1
+  mkdir -p "$home" 2>/dev/null || return 1
   printf '*\n' > "$home/.gitignore"
   git_exclude "$wd" ".harness-hermes/"
   for d in installs tools skills; do
