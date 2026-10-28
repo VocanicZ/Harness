@@ -46,6 +46,7 @@ assert_ok "…in the worktree" has "--cwd $(printf '%q' "$WD") " "$line"
 assert_ok "…its session the launch's own id" has "--run $UUID " "$line"
 assert_ok "the lane's model" has '--model claude-cli/claude-sonnet-5-5 ' "$line"
 assert_ok "the lane's effort as --thinking" has '--thinking high ' "$line"
+assert_ok "…spelled as the matrix's effort-flag fixture says" has "$(cat "$F/effort-flag")high " "$line"
 assert_ok "a turn may run for hours (agent exec's own default is 600s)" has "--timeout $HARNESS_OPENCLAW_TIMEOUT " "$line"
 assert_ok "the bootstrap is the first message" has "\"$HARNESS_BOOTSTRAP_PROMPT\"" "$line"
 assert_ok "…never the task" lacks UNIQUE_TASK_MARKER "$line"
@@ -151,6 +152,7 @@ unset -f tmux; rm -f "$WD/.harness-openclaw/running"
 # --- panes ----------------------------------------------------------------------------------------
 assert_eq "$(cli_loop)" driven "Harness drives every turn"
 assert_eq "$(cli_skill handoff)" handoff "a skill is named (skill.txt)"
+assert_eq "$(cli_skill handoff)" "$(cat "$F/handoff-skill")" "…as the matrix's handoff-skill fixture says"
 assert_eq "$(cli_turn_secs "$(pane busy)")" "" "the loop draws no turn timer"
 assert_ok "text typed under a running turn: still busy (busy-typed.txt)" cli_pane_busy "$(pane busy-typed)"
 assert_eq "$(turn_queued "$(pane busy-typed)")" "" "…nothing queued in an input box (the terminal holds it for the next turn)"
@@ -165,6 +167,12 @@ assert_ok "…not even OpenClaw's own copy at column 0" not_limit "$(printf '⚠
 # --- usage: per <provider>/<model>, every turn's envelope -------------------------------------------
 assert_eq "$(cli_usage "$F/transcript.jsonl")" "$(cat "$F/usage.expected")" "usage folds the transcript's envelopes"
 assert_eq "$(cli_usage "$F/transcript.jsonl" "$F/limit-runs.jsonl")" "$(cat "$F/usage.expected")" "…a failed turn has none"
+assert_eq "$(cut -f1 "$F/usage.expected")" "$(cat "$F/model")" "…under the model the matrix launches with, as --model names it"
+# The captured transcript is the lane's runs/<session>.jsonl: the launch's id finds it, and the CLI's
+# session id is that same id.
+SID="$(cat "$F/session")"; cp "$F/transcript.jsonl" "$WD/.harness-openclaw/runs/$SID.jsonl"
+assert_eq "$(cli_session_id "$WD" "$SID")" "$SID" "the session id is the launch's own (the matrix's session fixture)"
+assert_eq "$(cli_usage $(cli_transcripts "$WD" "$SID"))" "$(cat "$F/usage.expected")" "…whose transcript cli_transcripts finds and cli_usage folds"
 
 col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="openclaw" && $3!="ok" && $3 !~ /^n\/a:/')"
 assert_eq "$col" "" "every openclaw matrix cell is ok or n/a"
