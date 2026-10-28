@@ -124,11 +124,12 @@ agy_usage(){ (( $# )) && python3 "$CLI_DIR/agy_usage.py" "$@"; }
 # Usage windows (#194): `agy -p /usage --output-format json` runs no turn and reports each model
 # group's 5h and weekly buckets as remaining_fraction (cli-capabilities Findings 3). Every worker
 # polls usage, so the answer is cached HARNESS_AGY_USAGE_TTL seconds in the usage dir.
-agy_limit_usage(){ local c out now tmp; c="$(_usage_dir)/agy.tsv"; now="$(date +%s)"
+agy_limit_usage(){ local c out now tmp; local -a cmd; c="$(_usage_dir)/agy.tsv"; now="$(date +%s)"
   if [[ -f "$c" ]] && (( now - $(stat -c %Y "$c") < ${HARNESS_AGY_USAGE_TTL:-120} )); then
     [[ -s "$c" ]] && { cat "$c"; return 0; }; return 1; fi
   mkdir -p "$(dirname "$c")"
-  out="$(timeout 90 "$(agy_bin)" -p "/usage" --output-format json 2>/dev/null | python3 -c 'import json,sys
+  read -ra cmd <<<"$(agy_bin)"   # a command line (#272): timeout runs its words, not a function
+  out="$(timeout 90 "${cmd[@]}" -p "/usage" --output-format json 2>/dev/null | python3 -c 'import json,sys
 from datetime import datetime
 for g in json.load(sys.stdin)["command"]["data"]["groups"]:
     for b in g.get("buckets") or []:
@@ -159,12 +160,12 @@ for g in json.load(sys.stdin)["command"]["data"]["groups"]:
 # outlives the checkout install.sh ran from).
 agy_prereqs(){ local bin plugin_dir="${HARNESS_ENGINE_PLUGINS:-$CLI_DIR/../../plugins}/ralph-loop"
   bin="$(agy_bin)"
-  if command -v "$bin" >/dev/null; then echo "ok      agy binary ($bin)"
+  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      agy binary ($bin)"
   else echo "MISSING agy binary ($bin): curl -fsSL https://antigravity.google/cli/install.sh | bash"; return 1; fi
-  if "$bin" plugin list 2>/dev/null | grep -q 'harness-ralph'; then echo "ok      agy plugin harness-ralph"
-  elif [[ "${1:-}" == --install ]] && "$bin" plugin install "$plugin_dir" >/dev/null 2>&1; then
+  if _cli_run "$bin" plugin list 2>/dev/null | grep -q 'harness-ralph'; then echo "ok      agy plugin harness-ralph"
+  elif [[ "${1:-}" == --install ]] && _cli_run "$bin" plugin install "$plugin_dir" >/dev/null 2>&1; then
     echo "ok      agy plugin harness-ralph (installed)"
   else echo "MISSING agy plugin harness-ralph: $bin plugin install $plugin_dir"; return 1; fi; }
 # The harness-ralph plugin is Harness's own: uninstall takes it back out of agy.
 agy_uninstall(){ local bin; bin="$(agy_bin)"
-  command -v "$bin" >/dev/null 2>&1 && "$bin" plugin uninstall harness-ralph >/dev/null 2>&1; return 0; }
+  command -v "$(_cli_exe "$bin")" >/dev/null 2>&1 && _cli_run "$bin" plugin uninstall harness-ralph >/dev/null 2>&1; return 0; }

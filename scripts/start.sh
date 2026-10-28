@@ -15,7 +15,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 rm -f "$PAUSE_FLAG"   # starting un-pauses this machine's pool
 
 command -v tmux   >/dev/null || die "tmux not found — install tmux first"
-command -v "$(cli_bin)" >/dev/null || die "$(cli_bin) not found on PATH — install the $(cli_name) CLI first (harness setup lists what it needs)"
+command -v "$(cli_exe)" >/dev/null || die "$(cli_exe) not found on PATH — install the $(cli_name) CLI first (harness setup lists what it needs)"
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI first"
 # rtdd is the lane test loop (prompts/_rtdd.md), not a hard prerequisite — a lane without it runs
 # the full suite instead of rtdd's rounds, which is correct but slow. WARN, never die. This check is also

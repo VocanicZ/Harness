@@ -211,5 +211,5 @@ PY
 # Copilot. It signs in with COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN, a stored `copilot login`,
 # or the GitHub CLI's own login.
 copilot_prereqs(){ local bin; bin="$(copilot_bin)"
-  if command -v "$bin" >/dev/null; then echo "ok      copilot binary ($bin)"
+  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      copilot binary ($bin)"
   else echo "MISSING copilot binary ($bin): npm install -g @github/copilot"; return 1; fi; }

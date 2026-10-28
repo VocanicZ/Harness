@@ -53,11 +53,12 @@ _cli_default_turn_secs(){ :; }
 _cli_default_interrupted_re(){ :; }
 # Elapsed-time shapes ("1h 2m 3s", "4m 5s") in the footer: a background job's running timer.
 _cli_default_bg_re(){ echo '[0-9]+h [0-9]+m [0-9]+s|[0-9]+m [0-9]+s'; }
-_cli_default_runnable(){ "$(cli_bin)" --version >/dev/null 2>&1; }
+_cli_default_runnable(){ command -v "$(cli_exe)" >/dev/null 2>&1 && _cli_run "$(cli_bin)" --version >/dev/null 2>&1; }
 _cli_default_uninstall(){ :; }
 
 # --- the interface ------------------------------------------------------------------------------
-cli_bin(){ _cli_call bin "$@"; }                       # the executable
+cli_bin(){ _cli_call bin "$@"; }                       # the command line that runs the CLI (HARNESS_<CLI>_BIN)
+cli_exe(){ _cli_exe "$(cli_bin)"; }                    # its executable: what to look for on PATH, or match a pane against
 cli_launch(){ _cli_call launch "$@"; }                 # <wd> <uuid> <model> <effort> → the line typed into the pane
 cli_lane_settings(){ _cli_call lane_settings "$@"; }   # <wd> → per-lane settings written outside the launch line
 cli_first_input(){ _cli_call first_input "$@"; }       # <effort> → lines typed once the prompt first shows
@@ -93,6 +94,26 @@ cli_bg_re(){ _cli_call bg_re; }                        # ERE: footer timers/coun
 cli_limit_usage(){
   if [[ -n "${HARNESS_USAGE_CMD:-}" ]]; then bash -c "$HARNESS_USAGE_CMD"; return; fi
   _cli_call limit_usage; }
+
+# --- the command line (#272) -------------------------------------------------------------------
+# HARNESS_<CLI>_BIN is a command line, not one executable: hosts pin the account with
+# `env CLAUDE_CONFIG_DIR=… claude`. The launch line runs it whole; anything that needs the executable
+# (a PATH check, a pane's command, the unit's PATH) takes _cli_exe of it. Words split on whitespace,
+# so a value with a space in it is not supported.
+# _cli_exe <command line> — its first word that is not `env`, an env option, or a NAME=value.
+_cli_exe(){ local w env= skip=; local -a ws; read -ra ws <<<"$1"
+  for w in "${ws[@]}"; do
+    if [[ -n $skip ]]; then skip=; continue; fi
+    case "$w" in
+      env|*/env) env=1;;
+      [A-Za-z_]*=*) [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "$w"; return; };;
+      -u|-C|-S|--unset|--chdir|--split-string) [[ -n $env ]] || { echo "$w"; return; }; skip=1;;
+      -*) [[ -n $env ]] || { echo "$w"; return; };;
+      *) echo "$w"; return;;
+    esac
+  done; }
+# _cli_run <command line> [args…] — run it, its words split (an `env` prefix applies its env).
+_cli_run(){ local -a ws; read -ra ws <<<"$1"; shift; "${ws[@]}" "$@"; }
 
 # --- pane helpers over the regexes (an empty regex matches nothing) ---------------------------
 _cli_re_hits(){ [[ -n "$1" ]] && printf '%s\n' "$2" | grep -qE -- "$1"; }

@@ -27,7 +27,10 @@ _load_cli_seam
 # (test_install.sh, update.sh's environment) is honoured (#240); a name that does not resolve reads
 # as that CLI being absent.
 _host_clis(){ local c; declare -F cli_list >/dev/null || return 0
-  for c in $(cli_list); do need "$(cli_with "$c" cli_bin)" && echo "$c"; done; return 0; }
+  for c in $(cli_list); do need "$(_cli_exe_of "$c")" && echo "$c"; done; return 0; }
+# _cli_exe_of <cli> — the CLI's executable (#272: HARNESS_<CLI>_BIN may be `env VAR=… claude`). An
+# older placed engine's seam has no cli_exe; its cli_bin is then the best there is.
+_cli_exe_of(){ if declare -F cli_exe >/dev/null; then cli_with "$1" cli_exe; else cli_with "$1" cli_bin; fi; }
 check_prereqs(){
   local ok=1 c any=
   for b in git tmux python3; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
@@ -202,7 +205,7 @@ install_harness_skills(){
   for c in $(cli_list 2>/dev/null); do
     cdst="$(cli_with "$c" cli_user_skills_dir)"; [[ -n "$cdst" ]] || continue
     [[ -n "${HARNESS_USER_SKILLS:-}" && "$cdst" == "$HOME"/* ]] && continue
-    need "$(cli_with "$c" cli_bin)" || [[ -d "$(dirname "$cdst")" ]] || continue
+    need "$(_cli_exe_of "$c")" || [[ -d "$(dirname "$cdst")" ]] || continue
     mkdir -p "$cdst"
     if [[ -f "$src/SKILL.md" ]]; then
       mkdir -p "$cdst/harness"; cp "$src/SKILL.md" "$cdst/harness/SKILL.md"

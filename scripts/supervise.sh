@@ -94,13 +94,13 @@ sup_limit_re(){ local c re x; c=$(sup_cli "$1"); re=$SUP_LIMIT_RE
   for x in "$(cli_with "$c" cli_limit_re)" "$(cli_with "$c" cli_limit_menu_re)"; do [[ -n $x ]] && re="$re|$x"; done
   echo "$re"; }
 # sup_agent_cmds — pane_current_command values that are agent CLIs (for the EXTRA_RE panes).
-sup_agent_cmds(){ local c; for c in $(cli_list); do basename "$(cli_with "$c" cli_bin)"; done | paste -sd'|'; }
+sup_agent_cmds(){ local c; for c in $(cli_list); do basename "$(cli_with "$c" cli_exe)"; done | paste -sd'|'; }
 # sup_cmd_cli <pane command> — the CLI whose binary that is (EXTRA_RE panes); the command itself if none.
 sup_cmd_cli(){ local c; for c in $(cli_list); do
-    [[ $(basename "$(cli_with "$c" cli_bin)") == "$1" ]] && { echo "$c"; return; }; done; echo "$1"; }
+    [[ $(basename "$(cli_with "$c" cli_exe)") == "$1" ]] && { echo "$c"; return; }; done; echo "$1"; }
 # sup_agent_bins — every agent CLI's binary, the default CLI's first (the unit's PATH must reach
 # whichever a fleet runs, and the default one wins a directory-order tie).
-sup_agent_bins(){ local c; cli_bin; for c in $(cli_list); do cli_with "$c" cli_bin; done; }
+sup_agent_bins(){ local c; cli_exe; for c in $(cli_list); do cli_with "$c" cli_exe; done; }
 
 # sup_tree_cpu <pid> — total CPU seconds used by a process and all its descendants.
 sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
@@ -394,7 +394,7 @@ sup_unit_path(){ local b p out=()
 # up, are children of this unit. systemd's default control-group kill would take every one of them
 # down with the supervisor on each restart — and `harness update` restarts it.
 sup_install(){ local b unit="$SUP_UNIT_DIR/$SUP_UNIT"
-  for b in "$(cli_bin)" gh rtdd; do
+  for b in "$(cli_exe)" gh rtdd; do
     command -v "$b" >/dev/null 2>&1 && continue
     echo "WARNING: '$b' is not on PATH, so the supervisor's unit cannot find it$([[ $b == rtdd ]] && echo ' — relaunched lanes silently fall back to full test suites')" >&2
   done
