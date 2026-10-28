@@ -66,8 +66,25 @@ EOF
 # try_state_dir — best-effort STATE_DIR for engine-level commands (e.g. update) that work anywhere
 # but use project state when present. Never errors.
 try_state_dir(){ [[ -n "${STATE_DIR:-}" ]] || STATE_DIR="$(discover_state_dir 2>/dev/null)" || true; export STATE_DIR; }
+# print_version — this engine's release (#277). A release archive carries VERSION: line 1 the tag,
+# line 2 the full commit it was built from. A git checkout of the engine has none, so it reports
+# `git describe` marked as a dev build — but only when ENGINE_DIR is that repo's own top level, so an
+# engine merely nested in some other repo (a dotfiles $HOME) never borrows its describe. Never fails.
+print_version(){
+  local tag sha top
+  if [[ -r "$ENGINE_DIR/VERSION" ]]; then
+    tag="$(sed -n 1p "$ENGINE_DIR/VERSION")"; sha="$(sed -n 2p "$ENGINE_DIR/VERSION" | cut -c1-7)"
+    echo "harness $tag ($sha)"
+  elif top="$(git -C "$ENGINE_DIR" rev-parse --show-toplevel 2>/dev/null)" \
+       && [[ "$(cd "$top" && pwd -P)" == "$(cd "$ENGINE_DIR" && pwd -P)" ]]; then
+    echo "harness $(git -C "$ENGINE_DIR" describe --tags --always --dirty 2>/dev/null) (dev checkout)"
+  else
+    echo "harness unknown (no VERSION file)"
+  fi
+}
 usage(){ cat <<EOF
 usage: harness <command> [args]
+  --version            print this engine's release (or dev checkout) and commit
   install              install the engine once to ~/.harness/engine + link 'harness' onto PATH
   init                 interactive setup wizard (writes config, creates labels, seeds repo)
   start [--recover]    launch the worker pool (--recover = crash/new-host sweep first)
@@ -127,6 +144,8 @@ case "$cmd" in
   # engine-level: no project state needed. install bootstraps the host engine; update ff-pulls it
   # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
+  # --version is engine-level too: it reads only ENGINE_DIR, never a project .harness/ (#277).
+  --version|version) print_version; exit 0;;
   update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
   # poll is HOST-level (the shared poller serves every project) — no project STATE_DIR needed.
   # Normal path is ensure_poller; this is the documented debug/test entry (#71).

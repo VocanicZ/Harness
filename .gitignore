@@ -10,4 +10,5 @@ __pycache__/
 /graphify-out/
 .harness/
 .claude/
-
+# release archives carry VERSION (harness release writes it); a dev checkout never commits one (#277)
+/VERSION
