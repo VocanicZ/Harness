@@ -162,12 +162,15 @@ def awaiting(board, labels):
     kind is "wayfinder" (any `wayfinder:*` issue but the map, open or closed — status-page.py's
     tickets, closed = resolved), "agent-blocked" (an open issue carrying the blocked label) or
     "operator" (an open issue titled `[ops] …` that no agent would claim: no prd / ready / working
-    label). The kinds are exclusive, in that order. needs is the last `## Blocked by`. Open items
+    label). The kinds are exclusive, in that order. needs is the last `## Blocked by`, less any
+    blocker CLOSED on the board (#273) — one not on the board has unknown state and stays. Open items
     come first, by kind then number; resolved tickets last."""
     slug = board.get("slug") or ""
     agent = {labels["prd"], labels["ready"], labels["working"]}
+    issues = board.get("issues") or []
+    closed = {i.get("number") for i in issues if _closed(i)}
     out = []
-    for i in board.get("issues") or []:
+    for i in issues:
         n, names = i.get("number"), _names(i)
         if not isinstance(n, int):
             continue
@@ -183,7 +186,7 @@ def awaiting(board, labels):
             continue
         out.append({"kind": kind, "number": n, "title": i.get("title") or "",
                     "url": f"https://github.com/{slug}/issues/{n}", "resolved": _closed(i),
-                    "needs": blocked_by_last(i.get("body"))})
+                    "needs": [d for d in blocked_by_last(i.get("body")) if d not in closed]})
     return sorted(out, key=lambda a: (a["resolved"], AWAITING_KINDS.index(a["kind"]), a["number"]))
 
 
