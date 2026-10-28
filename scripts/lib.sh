@@ -670,6 +670,9 @@ lock_holders(){
 # proc_state_dir <pid> — echo a process's STATE_DIR from its environ (empty if gone/unreadable). Lets
 # doctor tell whether a lock-holder belongs to THIS project vs a co-resident sibling fleet.
 proc_state_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^STATE_DIR=//p' | head -1; }
+# proc_engine_dir <pid> — the same for ENGINE_DIR: the release directory a process runs from (#279).
+# install.sh's rel_prune never removes a release a live process's ENGINE_DIR points into.
+proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
 # lock_free <lockfile> — true iff the lock can be acquired right now (nobody holds it). A non-blocking
 # flock in a subshell; the fd closes on subshell exit so this never itself leaves a holder behind.
 lock_free(){ ( flock -n 9 ) 9>"$1" 2>/dev/null; }

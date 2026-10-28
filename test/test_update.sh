@@ -46,6 +46,13 @@ assert "update does not deploy into the engine's parent" "[[ ! -d '$(dirname "$E
 assert "update.sh has no git clean"        "! grep -qE 'git +clean' '$HERE/../update.sh'"
 assert "update.sh has no git reset --hard" "! grep -qE 'reset +--hard' '$HERE/../update.sh'"
 assert "update.sh has no git checkout -f"  "! grep -qE 'checkout +-f' '$HERE/../update.sh'"
+# …nor do the release functions update.sh sources (install.sh) or `harness release` (#279): pruning
+# removes releases/<name> directories only, never through git.
+for f in install.sh scripts/release.sh; do
+  assert "$f has no git clean"        "! grep -qE 'git +clean' '$HERE/../$f'"
+  assert "$f has no git reset --hard" "! grep -qE 'reset +--hard' '$HERE/../$f'"
+  assert "$f has no git checkout -f"  "! grep -qE 'checkout +-f' '$HERE/../$f'"
+done
 
 # ── --with-skills redeploys the engine's /harness skills to USER scope (#57) ──
 # After the engine ff-pulls, the user-scope skill copies must be refreshed from the new engine —
