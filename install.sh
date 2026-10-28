@@ -2,9 +2,9 @@
 # install.sh — install the engine ONCE per host (#54, PRD #52). The engine (all code/assets) lives
 # at a single host location, $HARNESS_HOME/engine, and `harness` is symlinked onto PATH. Projects
 # never get their own engine copy; per-project config + state live in <project>/.harness/ (created
-# by `harness init`). `harness update` ff-pulls only this one shared install.
+# by `harness init`). The engine is a published release (#282): releases/latest, or HARNESS_REF=<tag>,
+# verified against SHA256SUMS and extracted to $HARNESS_HOME/releases/<tag>/ behind the engine symlink.
 set -uo pipefail
-HARNESS_REPO_URL="${HARNESS_REPO_URL:-https://github.com/VocanicZ/Harness.git}"
 HARNESS_HOME="${HARNESS_HOME:-${HOME:-}/.harness}"           # host root for the shared engine (+ PRD-B subdirs)
 HARNESS_BIN_DIR="${HARNESS_BIN_DIR:-${HOME:-}/.local/bin}"   # where the `harness` PATH symlink is placed
 MATTPOCOCK_SKILLS_URL="${MATTPOCOCK_SKILLS_URL:-https://github.com/mattpocock/skills.git}"
@@ -33,7 +33,7 @@ _host_clis(){ local c; declare -F cli_list >/dev/null || return 0
 _cli_exe_of(){ if declare -F cli_exe >/dev/null; then cli_with "$1" cli_exe; else cli_with "$1" cli_bin; fi; }
 check_prereqs(){
   local ok=1 c any=
-  for b in git tmux python3; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
+  for b in git tmux python3 curl sha256sum tar; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
   if ! need gh; then echo "MISSING: gh (install: https://cli.github.com)" >&2; ok=0
   elif ! gh auth status >/dev/null 2>&1; then echo "gh not authenticated — run: gh auth login" >&2; ok=0; fi
   if declare -F cli_list >/dev/null; then       # no adapters yet (a piped install): main re-checks after place_engine
@@ -99,6 +99,7 @@ ensure_rtdd(){
 HARNESS_RELEASE_REPO="${HARNESS_RELEASE_REPO:-VocanicZ/Harness}"
 HARNESS_API_URL="${HARNESS_API_URL:-https://api.github.com/repos/$HARNESS_RELEASE_REPO/releases/latest}"
 HARNESS_BASE_URL="${HARNESS_BASE_URL:-https://github.com/$HARNESS_RELEASE_REPO/releases/download}"
+REL_CMD="harness update"   # who the messages below speak as; place_engine scopes it to `harness install`
 
 # semver_cmp <a> <b> — prints -1, 0 or 1 as <a> is older than, the same as, or newer than <b>. rc 2
 # (and nothing printed) when either is not [v]MAJOR.MINOR.PATCH[-pre]. A pre-release sorts below its
@@ -123,10 +124,10 @@ semver_cmp(){
 rel_latest_tag(){
   local body tag
   if ! body="$(curl -sSL "$HARNESS_API_URL" 2>&1)"; then
-    echo "harness update: could not resolve the latest release from $HARNESS_API_URL: ${body:-curl failed}" >&2; return 3
+    echo "$REL_CMD: could not resolve the latest release from $HARNESS_API_URL: ${body:-curl failed}" >&2; return 3
   fi
   if ! tag="$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print((d.get("tag_name") or "") if isinstance(d,dict) else "")' <<<"$body" 2>/dev/null)"; then
-    echo "harness update: could not resolve the latest release from $HARNESS_API_URL: the response is not JSON" >&2; return 3
+    echo "$REL_CMD: could not resolve the latest release from $HARNESS_API_URL: the response is not JSON" >&2; return 3
   fi
   [[ -n "$tag" ]] || return 2
   printf '%s\n' "$tag"
@@ -137,12 +138,12 @@ rel_latest_tag(){
 rel_fetch(){
   local tag="$1" dir="$2" arc="harness-$1.tar.gz" want got
   local url="$HARNESS_BASE_URL/$tag"
-  curl -fsSL -o "$dir/$arc" "$url/$arc" || { echo "harness update: could not download $url/$arc" >&2; return 3; }
-  curl -fsSL -o "$dir/SHA256SUMS" "$url/SHA256SUMS" || { echo "harness update: could not download $url/SHA256SUMS" >&2; return 3; }
+  curl -fsSL -o "$dir/$arc" "$url/$arc" || { echo "$REL_CMD: could not download $url/$arc" >&2; return 3; }
+  curl -fsSL -o "$dir/SHA256SUMS" "$url/SHA256SUMS" || { echo "$REL_CMD: could not download $url/SHA256SUMS" >&2; return 3; }
   want="$(awk -v n="$arc" '{ f=$NF; sub(/^\*/, "", f) } f == n { print $1; exit }' "$dir/SHA256SUMS")"
-  [[ -n "$want" ]] || { echo "harness update: SHA256SUMS carries no entry for $arc" >&2; return 3; }
+  [[ -n "$want" ]] || { echo "$REL_CMD: SHA256SUMS carries no entry for $arc" >&2; return 3; }
   got="$(sha256sum "$dir/$arc" | awk '{print $1}')"
-  [[ "$want" == "$got" ]] || { echo "harness update: checksum mismatch for $arc: expected $want, got $got" >&2; return 3; }
+  [[ "$want" == "$got" ]] || { echo "$REL_CMD: checksum mismatch for $arc: expected $want, got $got" >&2; return 3; }
 }
 # rel_install <tag> — fetch + verify <tag>, extract it into releases/.staging-<tag>.XXXX (same
 # filesystem), require VERSION line 1 == <tag>, then rename it to releases/<tag>. An existing
@@ -152,7 +153,7 @@ rel_install(){
   local tag="$1" rel="$HARNESS_HOME/releases" tmp stage
   if [[ -d "$rel/$tag" ]]; then
     [[ "$(sed -n 1p "$rel/$tag/VERSION" 2>/dev/null)" == "$tag" ]] && return 0
-    echo "harness update: $rel/$tag exists but is not release $tag; move it aside and retry" >&2; return 3
+    echo "$REL_CMD: $rel/$tag exists but is not release $tag; move it aside and retry" >&2; return 3
   fi
   mkdir -p "$rel" || return 3
   tmp="$(mktemp -d)" || return 3
@@ -165,11 +166,11 @@ _rel_install_into(){
   local tag="$1" tmp="$2" stage="$3"
   rel_fetch "$tag" "$tmp" || return 3
   tar -xzf "$tmp/harness-$tag.tar.gz" -C "$stage" --strip-components=1 \
-    || { echo "harness update: could not extract harness-$tag.tar.gz" >&2; return 3; }
+    || { echo "$REL_CMD: could not extract harness-$tag.tar.gz" >&2; return 3; }
   [[ "$(sed -n 1p "$stage/VERSION" 2>/dev/null)" == "$tag" ]] \
-    || { echo "harness update: harness-$tag.tar.gz does not carry VERSION $tag" >&2; return 3; }
+    || { echo "$REL_CMD: harness-$tag.tar.gz does not carry VERSION $tag" >&2; return 3; }
   chmod 755 "$stage"
-  mv -T "$stage" "$HARNESS_HOME/releases/$tag" || { echo "harness update: could not place $HARNESS_HOME/releases/$tag" >&2; return 3; }
+  mv -T "$stage" "$HARNESS_HOME/releases/$tag" || { echo "$REL_CMD: could not place $HARNESS_HOME/releases/$tag" >&2; return 3; }
 }
 # engine_flip <name> — point $HARNESS_HOME/engine at releases/<name> with ONE rename(2): a new
 # relative link beside it, then mv -T over it, so a path through engine never sees it missing or
@@ -178,7 +179,7 @@ engine_flip(){
   local h="$HARNESS_HOME" tmp="$HARNESS_HOME/engine.flip.$$"
   rm -f "$tmp"
   ln -s "releases/$1" "$tmp" && mv -T "$tmp" "$h/engine" \
-    || { rm -f "$tmp"; echo "harness update: could not point $h/engine at releases/$1" >&2; return 3; }
+    || { rm -f "$tmp"; echo "$REL_CMD: could not point $h/engine at releases/$1" >&2; return 3; }
   echo "$1" >> "$h/releases/.installed"
 }
 # engine_current — the release name engine points at; empty when engine is not a symlink.
@@ -213,13 +214,13 @@ engine_migrate_git(){
   name="git-$sha"
   while [[ -e "$h/releases/$name" ]]; do i=$((i+1)); name="git-$sha-$i"; done
   rm -f "$tmp"
-  ln -s "releases/$tag" "$tmp" || { echo "harness update: could not create $tmp" >&2; return 3; }
+  ln -s "releases/$tag" "$tmp" || { echo "$REL_CMD: could not create $tmp" >&2; return 3; }
   if ! mv -T "$h/engine" "$h/releases/$name"; then
-    rm -f "$tmp"; echo "harness update: could not move $h/engine to $h/releases/$name" >&2; return 3
+    rm -f "$tmp"; echo "$REL_CMD: could not move $h/engine to $h/releases/$name" >&2; return 3
   fi
   if ! mv -T "$tmp" "$h/engine"; then
     mv -T "$h/releases/$name" "$h/engine" 2>/dev/null; rm -f "$tmp"
-    echo "harness update: could not point $h/engine at releases/$tag" >&2; return 3
+    echo "$REL_CMD: could not point $h/engine at releases/$tag" >&2; return 3
   fi
   printf '%s\n%s\n' "$name" "$tag" >> "$h/releases/.installed"
   ENGINE_MIGRATED="$name"
@@ -323,25 +324,39 @@ ensure_skills(){
   fi
   return 0
 }
-# place_engine — clone/place the engine at the SINGLE host location $HARNESS_HOME/engine (never into
-# a project's ./.harness/). Idempotent: an existing install is fast-forwarded, not re-cloned.
+# place_engine — install a published release at the SINGLE host location $HARNESS_HOME/engine (never
+# into a project's ./.harness/), through the same rel_install + engine_flip as `harness update` (#282).
+# The tag is HARNESS_REF when set (never compared, even an older one), else releases/latest. A
+# git-checkout engine is migrated aside the way update does it (engine_migrate_git). An installed
+# same tag is a no-op flip. Any failure returns 1 with engine untouched and no releases/<tag> left
+# behind. Sets INSTALLED_TAG for main's closing line.
 place_engine(){
-  local home="${HARNESS_HOME:-$HOME/.harness}" dest
-  dest="$home/engine"
-  mkdir -p "$home"
-  if [[ -d "$dest/.git" ]]; then
-    echo "  engine already present at $dest — fast-forwarding"
-    # Surface a failed ff-pull as a NON-zero return (consistent with update.sh, which exit 1s on the
-    # same failure) instead of swallowing it — otherwise a diverged/dirty shared engine silently
-    # stays stale for ALL fleets while install still reports success.
-    if ! git -C "$dest" pull --ff-only; then
-      echo "  ! could not ff-pull $dest (diverged or local engine edits) — resolve there manually." >&2
-      return 1
+  local REL_CMD="harness install" tag rc
+  INSTALLED_TAG=""
+  mkdir -p "$HARNESS_HOME" || return 1
+  if [[ -n "${HARNESS_REF:-}" ]]; then
+    tag="$HARNESS_REF"
+    if [[ ! -d "$HARNESS_HOME/releases/$tag" ]] && ! curl -fsSL -o /dev/null "$HARNESS_BASE_URL/$tag/SHA256SUMS" 2>/dev/null; then
+      echo "harness install: no Harness release $tag at $HARNESS_BASE_URL/$tag" >&2; return 1
     fi
   else
-    echo "  installing engine to $dest ..."
-    git clone "$HARNESS_REPO_URL" "$dest"
+    tag="$(rel_latest_tag)"; rc=$?
+    if (( rc == 2 )); then
+      echo "harness install: $HARNESS_API_URL named no release; if a release exists it may still be an unpublished draft. Nothing installed." >&2
+      return 1
+    fi
+    (( rc == 0 )) || return 1
   fi
+  echo "  installing Harness $tag to $HARNESS_HOME/releases/$tag ..."
+  if [[ -d "$HARNESS_HOME/engine" && ! -L "$HARNESS_HOME/engine" && -e "$HARNESS_HOME/engine/.git" ]]; then
+    engine_migrate_git "$tag" || { rmdir "$HARNESS_HOME/releases" 2>/dev/null; return 1; }
+    echo "  migrated the git-checkout engine to $HARNESS_HOME/releases/$ENGINE_MIGRATED (local edits kept)"
+  elif [[ "$(engine_current)" != "$tag" ]]; then
+    rel_install "$tag" || { rmdir "$HARNESS_HOME/releases" 2>/dev/null; return 1; }
+    engine_flip "$tag" || return 1
+  fi
+  INSTALLED_TAG="$tag"
+  echo "  installed Harness $tag at $HARNESS_HOME/releases/$tag"
 }
 
 # create_host_root — establish the ~/.harness host ROOT with the poller/ and snapshots/ subdirs
@@ -437,7 +452,7 @@ main(){
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path
   cat <<EOF
-Done. The engine is installed once at $HARNESS_HOME/engine and linked as 'harness'.
+Done. Harness $INSTALLED_TAG is installed once at $HARNESS_HOME/engine and linked as 'harness'.
 Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
 EOF
 }
