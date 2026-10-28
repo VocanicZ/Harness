@@ -125,7 +125,7 @@ run_init(){ ( cd "$I/proj" && env STATE_DIR="$I/proj/.harness" HARNESS_INIT_NONI
 run_init bogus-cli; rc=$?
 assert_no "init with an unknown CLI exits non-zero" test "$rc" = 0
 assert_no "…and writes no config" test -f "$I/proj/.harness/config"
-assert_ok "…and lists the CLIs it has" grep -q "unknown agent CLI: bogus-cli (have: agy claude)" "$I/out"
+assert_ok "…and lists the CLIs it has" grep -q "unknown agent CLI: bogus-cli (have: agy claude codex)" "$I/out"
 run_init agy; rc=$?
 assert_eq "$rc" "0" "init accepts a CLI that has an adapter"
 assert_ok "…and writes it" grep -qx ': "${HARNESS_CLI:=agy}"' "$I/proj/.harness/config"
@@ -141,9 +141,13 @@ for cli in $(cli_list); do
   : > "$SENT"
   ( cli_load "$cli"; HARNESS_AUTONOMOUS=false launch_agent "hz-lane-$cli" "$WD" )
   line="$(grep -m1 -F 'exec ' "$SENT")"
-  assert_ok "$cli: the launch line carries the lane's model" grep -qF -- "--model lane-model-x" <<<"$line"
-  assert_ok "$cli: the launch line carries the lane's effort" grep -qF -- "--effort low" <<<"$line"
-  assert_eq "$(grep -o -- '--effort' <<<"$line" | wc -l)" "1" "$cli: the configured --effort is replaced, not repeated"
+  # Each CLI spells the effort its own way (fixtures/cli/<cli>/effort-flag: `--effort `, or codex's
+  # `-c model_reasoning_effort=`) and the model as --model or -m.
+  ef="$(cat "$HERE/fixtures/cli/$cli/effort-flag")"
+  assert_ok "$cli: the launch line carries the lane's model" grep -qE -- "(--model|-m) lane-model-x" <<<"$line"
+  assert_eq "$(grep -oE -- '(^| )(--model|-m) ' <<<"$line" | wc -l)" "1" "$cli: the model is given once"
+  assert_ok "$cli: the launch line carries the lane's effort" grep -qF -- "${ef}low" <<<"$line"
+  assert_eq "$(grep -oF -- "$ef" <<<"$line" | wc -l)" "1" "$cli: the configured effort is replaced, not repeated"
   assert_ok "$cli: .harness-lane is kept out of the lane's commits" \
     grep -qxF .harness-lane "$(git -C "$WD" rev-parse --absolute-git-dir)/info/exclude"
   rm -f "$WD/.harness-lane"; : > "$SENT"

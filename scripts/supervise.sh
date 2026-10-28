@@ -60,8 +60,10 @@ SUP_UNIT=harness-supervise.service
 SUP_SYSTEMCTL="${HARNESS_SUPERVISE_SYSTEMCTL:-systemctl}"
 SUP_LOGINCTL="${HARNESS_SUPERVISE_LOGINCTL:-loginctl}"
 # Usage / credit / rate-limit messages: such a pane is parked by the account, not frozen (#120). A
-# CLI-neutral net, widened per pane by its adapter's own limit strings (sup_limit_re).
-SUP_LIMIT_RE='limit reached|usage limit|resets (at|in)|rate.limit|out of (extra )?usage|out of (usage )?credits|hit your [a-z]+ limit'
+# CLI-neutral net, widened per pane by its adapter's own limit strings (sup_limit_re). A bare "usage
+# limit" counts only as the end of a phrase or before reached/exceeded/hit/for: Codex's idle pane
+# can carry "You have 1 usage limit reset available" (fixtures/cli/codex/idle.txt), which is no park.
+SUP_LIMIT_RE='limit reached|usage limit([^ a-z]|$| (reached|exceeded|hit|for))|resets (at|in)|rate.limit|out of (extra )?usage|out of (usage )?credits|hit your [a-z]+ limit'
 SUP_NUDGE_MSG="harness supervise: no activity for a while. If your goal is met, finish it now (push, PR, labels); if you are waiting on background work, check it and report; otherwise continue the task."
 SUP_EXTRA_MSG="harness supervise: no activity for a while. If an API/network error or a broken wake-up cut you off, resume your task now; if you are waiting on background work, check it, report, and keep your wake-ups going."
 SUP_DRY=0 SUP_ONCE=0

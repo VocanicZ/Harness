@@ -1,0 +1,6 @@
+{
+  "name": "harness",
+  "plugins": [
+    {"name": "harness-ralph", "source": {"source": "local", "path": "./harness-ralph"}}
+  ]
+}

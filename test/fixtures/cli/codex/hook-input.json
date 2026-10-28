@@ -1,0 +1,11 @@
+{
+  "session_id": "01a17f8b-e1bf-73c3-bb8d-72ec34849315",
+  "turn_id": "01a17f8b-e33a-7181-9206-c606001cb95d",
+  "transcript_path": "@CODEX_HOME@/sessions/2026/10/27/rollout-2026-10-27T22-47-16-01a17f8b-e1bf-73c3-bb8d-72ec34849315.jsonl",
+  "cwd": "@CWD@",
+  "hook_event_name": "Stop",
+  "model": "gpt-5.6-luna",
+  "permission_mode": "bypassPermissions",
+  "stop_hook_active": false,
+  "last_assistant_message": "STILL WORKING"
+}
