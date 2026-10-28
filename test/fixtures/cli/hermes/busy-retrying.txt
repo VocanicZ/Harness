@@ -1,0 +1,24 @@
+│                                       commands                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+Session local-e7e2cc848e145b83b21a976bc17f77a1284d476f89f9e11ad4dcb260aa876d2d
+found but has no messages. Starting fresh.
+Welcome to Hermes Agent! Type your message or /help for commands.
+✦ Tip: hermes import-agent openclaw --dry-run previews OpenClaw migration
+without writing anything.
+
+
+
+────────────────────────────────────────
+❯ Read .harness-task.md in this directory and follow it exactly.
+────────────────────────────────────────
+Session local-e7e2cc848e145b83b21a976bc17f77a1284d476f89f9e11ad4dcb260aa876d2d
+found but has no messages. Starting fresh.
+⏳ Provider temporarily unavailable — retrying automatically in 17s (cycle 1/5);
+ press Esc to stop
+⏳ Provider temporarily unavailable — retrying automatically in 31s (cycle 2/5);
+ press Esc to stop
+── ⠙ ⏳ Provider temporarily unavailable — retrying automatically in 31s (cyc...
+☤ ❯ type to redirect this turn · Tab queues it for after
+────────────────────────────────────────────────────────────────────────────────
+ ☤ m1 · ctx -- · [░░░░░░░░░░] -- · 50s · ⏱ 47s · ⚠ YOLO

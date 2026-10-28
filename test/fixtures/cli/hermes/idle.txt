@@ -1,0 +1,24 @@
+
+
+
+────────────────────────────────────────
+❯ Read .harness-task.md in this directory and follow it exactly.
+────────────────────────────────────────
+Session local-dbcdff398933264ff6953605c840bf980300b531bb983b27bd14f94ceed007f0
+found but has no messages. Starting fresh.
+
+📖 Read .harness-task.md  0.3s
+💻 $ sleep 40 + 1 command  40.5s
+  (tip) That tool ran for a while. Use /verbose to cycle tool-progress display m
+odes (all -> new -> off -> verbose). This tip only shows once.
+
+────────────────────────────────────────
+☤ Hermes
+<promise>CAP DONE</promise>
+────────────────────────────────────────
+
+─ 1m00s · read 1 file · ran 1 command · 10:48 AM
+───────────────────────────────────────── 7c0db3b0-cd00-4c2e-baf0-45410c3202af ─
+❯ Draft a reply to the last email in my inbox
+────────────────────────────────────────────────────────────────────────────────
+ ☤ gpt-4.1 · ~12K/128K · [█░░░░░░░░░] ~9% · ◎ 66.1% · ◷ 5.1s · ↑ 3 t/s · 1m ·...

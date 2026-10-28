@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# fake-cli — what `hermes` leaves on disk when a lane's launch line runs it (README.md): the lane's
+# $HERMES_HOME/state.db with transcript.db's session, titled as `-c <title>` named it, its cwd the
+# pane's and its start time now, as Hermes's `--create-if-missing` does. Then the turn's tool call,
+# $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+title=""; while (( $# )); do [[ $1 == -c ]] && title="$2"; shift; done
+[[ -n $title ]] || title="$(cat "$here/session")"
+mkdir -p "${HERMES_HOME:?}"; cp "$here/transcript.db" "$HERMES_HOME/state.db"
+python3 - "$HERMES_HOME/state.db" "$title" "$PWD" <<'PY'
+import sqlite3, sys, time
+db, title, cwd = sys.argv[1:]
+c = sqlite3.connect(db)
+c.execute("UPDATE sessions SET title = ?, cwd = ?, started_at = ? WHERE parent_session_id IS NULL", (title, cwd, time.time()))
+c.commit()
+PY
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"

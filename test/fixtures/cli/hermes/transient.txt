@@ -1,0 +1,24 @@
+⏳ Retrying in 5.8s (attempt 2/3)...
+⚠️  Attempt 3/3 failed: HTTP 503: Service Unavailable
+⚠️  Attempt 1/3 failed: HTTP 503: Service Unavailable
+⏳ Retrying in 2.7s (attempt 1/3)...
+⚠️  Attempt 2/3 failed: HTTP 503: Service Unavailable
+⏳ Retrying in 4.3s (attempt 2/3)...
+⚠️  Attempt 3/3 failed: HTTP 503: Service Unavailable
+❌ API failed after 3 retries — HTTP 503: Service Unavailable
+   💀 Final error: HTTP 503: Service Unavailable
+
+────────────────────────────────────────
+☤ Hermes
+custom reported it was overloaded on all 3 attempts — it looks temporarily unava
+ilable. Wait a minute and send /retry, or switch models with /model. To avoid th
+is in future, add a backup provider with hermes fallback add.
+
+Provider said: HTTP 503: Service Unavailable
+────────────────────────────────────────
+
+─ 4m47s · 11:05 AM
+───────────────────────────────────────── e7e08814-7b7e-4490-bbb4-2dfe99c77341 ─
+❯ Summarize what's in this folder
+────────────────────────────────────────────────────────────────────────────────
+ ☤ m1 · 0/256K · [░░░░░░░░░░] 0% · 5m · ⏲ 4m 45s · ✓ 0s · ⚠ YOLO

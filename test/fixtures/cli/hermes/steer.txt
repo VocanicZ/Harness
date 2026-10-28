@@ -1,0 +1,24 @@
+────────────────────────────────────────
+☤ Hermes
+OK0.5
+────────────────────────────────────────
+
+─ 4.4s · 10:58 AM
+
+
+────────────────────────────────────────
+❯ Run the shell command 'sleep 50' in the foreground, then reply DONE.
+────────────────────────────────────────
+
+💻 $ sleep 50  2.4s
+  ↪ Redirected current turn: 'Please continue — redirect test: reply only REDIRE
+CT-SEEN'
+  (tip) Your correction redirected the current run without discarding completed
+work. Use /stop to cancel or /busy queue to wait for a separate turn. This tip o
+nly shows once.
+ Processes · 1 running · Ctrl+T expand · Ctrl+R collapse
+ ⚙ sleep 50 · 2s · starting
+── ⠇ ◉_◉ analyzing... · 10s · ↓ 16 tok ── 7b721655-9117-4547-98e2-fa01215d9ddb ─
+☤ ❯ type to redirect this turn · Tab queues it for after
+────────────────────────────────────────────────────────────────────────────────
+ ☤ gpt-4.1 · 12K/128K · [█░░░░░░░░░] 9% · ◎ 66.1% · ◷ 8.6s · ↑ 1 t/s · ⚙ 1 ·...

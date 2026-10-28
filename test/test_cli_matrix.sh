@@ -13,7 +13,7 @@ make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 FIX="$HERE/fixtures/cli"
 # Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
-unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot HARNESS_OPENCODE_BIN=opencode FIX
+unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot HARNESS_OPENCODE_BIN=opencode HARNESS_HERMES_BIN=hermes FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 cell(){ local cli="$1" row="$2"; shift 2
   if (( TSV )); then
@@ -48,6 +48,7 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
     opencode) mkdir -p "$XDG_DATA_HOME/opencode"; cp "$FIX/opencode/transcript.db" "$XDG_DATA_HOME/opencode/opencode.db"
             python3 -c 'import sqlite3, sys
 c = sqlite3.connect(sys.argv[1]); c.execute("UPDATE session SET directory = ?", (sys.argv[2],)); c.commit()' "$XDG_DATA_HOME/opencode/opencode.db" "$wd" ;;
+    hermes) mkdir -p "$wd/.harness-hermes"; cp "$FIX/hermes/transcript.db" "$wd/.harness-hermes/state.db" ;;
   esac; }
 # usage_windows_ok <cli> — the CLI's usage windows, read through the adapter from the fixture's real
 # source, report the expected <account> <window> <pct used>.

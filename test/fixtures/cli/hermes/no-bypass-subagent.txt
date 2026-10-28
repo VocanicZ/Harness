@@ -1,0 +1,24 @@
+💻 $ mkdir -p junk-dir + 1 command  0.9s
+🔀 Delegate 1x: Run the shell command 'rm -...  0.3s
+↩ Background task running — I'll resume when it finishes. Keep chatting.
+
+────────────────────────────────────────
+☤ Hermes
+<promise>CAP DONE</promise>
+────────────────────────────────────────
+
+─ 47.8s · ran 1 command · delegated 1 task · 11:04 AM
+
+◈ Subagent Task Completed: Run the shell command 'rm -r junk-dir' and report the
+result.
+
+────────────────────────────────────────
+☤ Hermes
+The subagent deleted 'junk-dir' as requested. The task is completely finished.
+────────────────────────────────────────
+
+─ 3.9s · 11:05 AM
+──────────────────────────────────────────────────────────────────── perm-test ─
+❯ Research this topic and write me a brief
+────────────────────────────────────────────────────────────────────────────────
+ ☤ gpt-4.1 · 12.9K/128K · [█░░░░░░░░░] 10% · ◎ 73.4% · ◷ 11.6s · ↑ 2 t/s · 2m...

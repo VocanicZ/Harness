@@ -1,0 +1,24 @@
+─ 51.9s · read 1 file · 10:56 AM
+
+
+────────────────────────────────────────
+❯ Read .harness-task.md in this directory and follow it exactly.
+────────────────────────────────────────
+Session local-03955ec71cf5b802c9125717f633d378157525968394f5e87e775c355e88f405
+found but has no messages. Starting fresh.
+
+📖 Read .harness-task.md  0.3s
+✗ $ sleep 60  13.5s [exit 130]
+─ 51.9s · read 1 file · 10:56 AM
+───────────────────────────────────────── 7b721655-9117-4547-98e2-fa01215d9ddb ─
+❯ Plan a feature, then build it step by step
+────────────────────────────────────────────────────────────────────────────────
+ ☤ gpt-4.1 · ~12K/128K · [█░░░░░░░░░] ~9% · ◎ 49.5% · ◷ 17.1s · ↑ 1 t/s · 56s...
+
+
+
+
+
+
+
+

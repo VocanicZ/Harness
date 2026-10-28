@@ -1,0 +1,24 @@
+│                                       codebase-inspection, +11 more          │
+│                                       web: blocked-page-recovery             │
+│                                                                              │
+│                                       20 tools · 54 skills · /help for       │
+│                                       commands                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+Session local-dbcdff398933264ff6953605c840bf980300b531bb983b27bd14f94ceed007f0
+found but has no messages. Starting fresh.
+Welcome to Hermes Agent! Type your message or /help for commands.
+✦ Tip: prefill_messages_file in config.yaml injects few-shot examples into every
+API call, never saved to history.
+
+
+
+────────────────────────────────────────
+❯ Read .harness-task.md in this directory and follow it exactly.
+────────────────────────────────────────
+Session local-dbcdff398933264ff6953605c840bf980300b531bb983b27bd14f94ceed007f0
+found but has no messages. Starting fresh.
+── ⠋ ( ͡° ͜ʖ ͡°) deliberating... · 2s ────── 7c0db3b0-cd00-4c2e-baf0-45410c3202af ─
+☤ ❯ type to redirect this turn · Tab queues it for after
+────────────────────────────────────────────────────────────────────────────────
+ ☤ gpt-4.1 · ctx -- · [░░░░░░░░░░] -- · 8s · ⏱ 2s · ⚠ YOLO
