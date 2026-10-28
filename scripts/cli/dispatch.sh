@@ -39,6 +39,8 @@ _cli_default_loop(){ echo hook; }
 # The goal loop's state file: written by write_state, removed by the loop's Stop hook (ralph-loop
 # on claude, harness-ralph on agy) the moment the loop ends — promise, max-iter, or error.
 _cli_default_done(){ [[ ! -f "$1/.claude/ralph-loop.local.md" ]]; }
+# A hook-looped CLI never needs it: its own Stop hook reads the reply.
+_cli_default_last_reply(){ return 1; }
 _cli_default_trust(){ :; }
 _cli_default_trusted(){ :; }
 _cli_default_skill(){ echo "/$1"; }
@@ -70,6 +72,7 @@ cli_transient_re(){ _cli_call transient_re; }          # ERE: a transient API er
 cli_dialog_re(){ _cli_call dialog_re; }                # ERE: a dialog/menu owns the pane, never a prompt ('' = none)
 cli_loop(){ _cli_call loop; }                          # hook | driven
 cli_done(){ _cli_call done "$@"; }                     # <wd> → 0 once the goal loop has ended
+cli_last_reply(){ _cli_call last_reply "$@"; }         # <wd> <session id> → last prompt's id, then the reply; rc 1 = turn not over (driven loop)
 cli_trust(){ _cli_call trust "$@"; }                   # <dir> → pre-accept the workspace-trust gate
 cli_trusted(){ _cli_call trusted "$@"; }               # <dir> → 0 iff pre-accepted
 cli_bypass(){ _cli_call bypass "$@"; }                 # <dir> → main session AND sub-agents skip approvals

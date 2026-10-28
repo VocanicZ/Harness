@@ -1,0 +1,45 @@
+ [Current]  Sessions   Issues   Pull requests   Gists
+
+  ╭─╮╭─╮
+  ╰─╯╰─╯  Copilot v1.0.105 uses AI.
+  █ ▘▝ █  Check for mistakes.
+   ▔▔▔▔
+
+ ✗ Model "gpt-6-luna" from --model flag is not available. Using "auto" instead.
+
+ ● Tip: /init
+   └ Initialize Copilot instructions for this repository
+
+ ● No copilot-instructions.md found. Run /init to generate.
+
+ ❯ Run the shell command 'sleep 25' in the foreground, then reply with exactly: STILL WORKING                                                            02:30
+
+ $ Shell Run a foreground sleep command for 25 seconds as requested
+   sleep 25
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i259/a66e9e9d-b354-4877-b44c-e3ef2528fac6/.../cap2 [⎇ master%]     Session: 0.31 AIC used
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ◉ Working · 133 B esc esc interrupt                                                                                                  Auto → mai-code-1.1-flash

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# fake-cli — what `copilot` leaves on disk when a lane's launch line runs it (README.md): the session
+# --session-id=<id> names, its events written to $COPILOT_HOME/session-state/<id>/events.jsonl as
+# transcript.jsonl, session.start stamped with the pane's cwd and the time now, as the capture did.
+# Then the turn's tool call, $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sid=""; for a; do [[ $a == --session-id=* ]] && sid="${a#--session-id=}"; done
+[[ -n $sid ]] || sid="$(cat "$here/session")"
+d="${COPILOT_HOME:-$HOME/.copilot}/session-state/$sid"; mkdir -p "$d"
+python3 - "$here/transcript.jsonl" "$PWD" "$sid" > "$d/events.jsonl" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+src, cwd, sid = sys.argv[1:]
+for i, line in enumerate(open(src)):
+    d = json.loads(line.replace("@CWD@", cwd))
+    if d["type"] == "session.start":
+        d["data"].update(sessionId=sid, startTime=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z")
+    print(json.dumps(d, ensure_ascii=False))
+PY
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"

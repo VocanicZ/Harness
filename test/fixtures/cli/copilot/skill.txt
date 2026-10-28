@@ -1,0 +1,45 @@
+ [Current]  Sessions   Issues   Pull requests   Gists
+
+  ╭─╮╭─╮
+  ╰─╯╰─╯  Copilot v1.0.105 uses AI.
+  █ ▘▝ █  Check for mistakes.
+   ▔▔▔▔
+
+ ● No copilot-instructions.md found. Run /init to generate.
+
+ ● Tip: /init
+   └ Initialize Copilot instructions for this repository
+
+ ❯ /echo-proof                                                                                                                                           02:41
+
+ ● skill(echo-proof)
+
+ ● ECHO PROOF SKILL RAN
+
+ ● MCP Servers reloaded: 1 server connected
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i259/a66e9e9d-b354-4877-b44c-e3ef2528fac6/.../cap2 [⎇ master%]     Session: 0.17 AIC used
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ← open sidebar · Interactive · Allow All · / commands · ? help · tab next tab                                                        Auto → mai-code-1.1-flash
