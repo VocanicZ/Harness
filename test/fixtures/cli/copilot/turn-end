@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# turn-end <wd> <session id> [reply] — one prompt's turn ending as Copilot records it: the user.message,
+# a model turn whose assistant.message is [reply], and its assistant.turn_end, appended to the
+# session's events.jsonl in the shapes transcript.jsonl captured. The pane is then idle at its prompt
+# (idle.txt), which is when the Harness-driven goal loop reads the reply.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+f="${COPILOT_HOME:-$HOME/.copilot}/session-state/$2/events.jsonl"; mkdir -p "${f%/*}"
+python3 - "$here/transcript.jsonl" "${3:-(working)}" >> "$f" <<'PY'
+import json, sys, uuid
+src, reply = sys.argv[1:]
+ev = {}
+for line in open(src):
+    d = json.loads(line)
+    ev.setdefault(d["type"], d)
+for t in ("user.message", "assistant.turn_start", "assistant.message", "assistant.turn_end"):
+    d = json.loads(json.dumps(ev[t]))
+    d["id"] = str(uuid.uuid4())
+    if t == "assistant.message":
+        d["data"]["content"] = reply
+    print(json.dumps(d, ensure_ascii=False))
+PY

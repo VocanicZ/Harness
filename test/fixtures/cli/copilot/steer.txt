@@ -1,0 +1,45 @@
+ [Current]  Sessions   Issues   Pull requests   Gists
+
+  ╰─╯╰─╯  Copilot v1.0.105 uses AI.                                                                                                                            ┃
+  █ ▘▝ █  Check for mistakes.                                                                                                                                  ┃
+   ▔▔▔▔                                                                                                                                                        ┃
+                                                                                                                                                               ┃
+ ✗ Model "gpt-6-luna" from --model flag is not available. Using "auto" instead.                                                                                ┃
+                                                                                                                                                               ┃
+ ● Tip: /init                                                                                                                                                  ┃
+   └ Initialize Copilot instructions for this repository                                                                                                       ┃
+                                                                                                                                                               ┃
+ ● No copilot-instructions.md found. Run /init to generate.                                                                                                    ┃
+                                                                                                                                                               ┃
+ ❯ Run the shell command 'sleep 25' in the foreground, then reply with exactly: STILL WORKING                                                            02:30 ┃
+                                                                                                                                                               ┃
+ $ Shell Run a foreground sleep command for 25 seconds as requested No Content                                                                             25s ┃
+   sleep 25                                                                                                                                                    ┃
+                                                                                                                                                               ┃
+ ● MCP Servers reloaded: 1 server connected                                                                                                                    ┃
+                                                                                                                                                               ┃
+ ● STILL WORKING                                                                                                                                               ┃
+                                                                                                                                                               ┃
+ ❯ Run the shell command 'sleep 40' in the foreground, then reply with exactly: SECOND                                                                   02:31 ┃
+                                                                                                                                                               ┃
+ $ Shell Run foreground sleep for 40 seconds as requested 1 line…                                                                                          30s ┃
+   sleep 40                                                                                                                                                    ┃
+                                                                                                                                                               ┃
+ ● SECOND                                                                                                                                                      ┃
+                                                                                                                                                               ┃
+ ● Shell "Run foreground sleep for 40 seconds as requested" completed                                                                                          ┃
+                                                                                                                                                               ┃
+ ● Read shell output Reading command output 1 line…                                                                                                            ┃
+                                                                                                                                                               ┃
+ ● SECOND                                                                                                                                                      ┃
+                                                                                                                                                               ┃
+ ❯ Run the shell command 'sleep 45' in the foreground, then reply with exactly: THIRD                                                                    02:32 ┃
+                                                                                                                                                               ┃
+ $ Shell Run endangered sleep command in foreground                                                                                                        11s ┃
+   sleep 45                                                                                                                                                    ┃
+                                                                                                                                                               ┃
+ /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i259/a66e9e9d-b354-4877-b44c-e3ef2528fac6/.../cap2 [⎇ master%]     Session: 0.49 AIC used
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ◎ Working · 117 B esc esc interrupt                                                                                                  Auto → mai-code-1.1-flash

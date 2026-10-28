@@ -13,7 +13,7 @@ make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 FIX="$HERE/fixtures/cli"
 # Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
-unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex FIX
+unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 cell(){ local cli="$1" row="$2"; shift 2
   if (( TSV )); then
@@ -43,6 +43,8 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
             cp "$FIX/agy/transcript.db" "$HARNESS_AGY_HOME/conversations/$sid.db" ;;
     codex)  mkdir -p "$CODEX_HOME/sessions/2026/10/27"
             sed "s#@CWD@#$wd#" "$FIX/codex/transcript.jsonl" > "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$sid.jsonl" ;;
+    copilot) mkdir -p "$COPILOT_HOME/session-state/$sid"
+            sed "s#@CWD@#$wd#" "$FIX/copilot/transcript.jsonl" > "$COPILOT_HOME/session-state/$sid/events.jsonl" ;;
   esac; }
 # usage_windows_ok <cli> — the CLI's usage windows, read through the adapter from the fixture's real
 # source, report the expected <account> <window> <pct used>.
@@ -69,6 +71,18 @@ with open(sys.argv[2], "w") as out:
         for w in ((d.get("payload") or {}).get("rate_limits") or {}).values():
             if isinstance(w, dict) and "resets_at" in w:
                 w["resets_at"] = int(time.time()) + 3600      # a passed reset is (correctly) skipped
+        print(json.dumps(d), file=out)
+PY
+      ;;
+    copilot) export COPILOT_HOME="$RUN_DIR/copilot-usage"; mkdir -p "$COPILOT_HOME/session-state/$(cat "$FIX/copilot/session")"
+      python3 - "$FIX/copilot/transcript.jsonl" "$COPILOT_HOME/session-state/$(cat "$FIX/copilot/session")/events.jsonl" <<'PY'
+import json, sys, time
+reset = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 3600))   # a passed reset is (correctly) skipped
+with open(sys.argv[2], "w") as out:
+    for line in open(sys.argv[1]):
+        d = json.loads(line)
+        for q in ((d.get("data") or {}).get("quotaSnapshots") or {}).values():
+            q["resetDate"] = reset
         print(json.dumps(d), file=out)
 PY
       ;;
@@ -206,14 +220,32 @@ bypass_ok(){ ( fake_tmux; local wd="$RUN_DIR/bypass-$HARNESS_CLI"; new_wd "$wd";
   cli_bypassed "$wd" && same "$(typed_line hz-byp-i5)" "$(cli_launch "$wd" "$(state_uuid "$wd")" "" "")" ); }
 # loop_ok — the goal loop as this CLI runs it (cli_loop). `hook`: the Stop hook of the plugin Harness
 # installs for it (fixtures/cli/<cli>/stop-hook) re-feeds the task after a turn without the promise,
-# and ends the loop — which cli_done sees — after a turn that outputs it.
+# and ends the loop — which cli_done sees — after a turn that outputs it. `driven`: driven_loop_ok.
 loop_ok(){ ( local wd="$RUN_DIR/loop-$HARNESS_CLI" sid=loop-session out
+  [[ "$(cli_loop)" == driven ]] && { driven_loop_ok; exit; }
   [[ "$(cli_loop)" == hook ]] || exit 1
   new_wd "$wd"; write_state "$wd" "LOOP DONE" 5 "$sid"
   out="$("$FIX/$HARNESS_CLI/stop-hook" "$wd" "$sid" 2>/dev/null)"
   has UNIQUE_TASK_MARKER "$out" && not cli_done "$wd" || exit 1
   "$FIX/$HARNESS_CLI/stop-hook" "$wd" "$sid" "all done <promise>LOOP DONE</promise>" >/dev/null 2>&1; cli_done "$wd" ); }
 
+# driven_loop_ok — #259: the Harness-driven goal loop, through the watchdog every lane's poll runs
+# (watchdog_session). The CLI records a turn that ends without the promise (fixtures/cli/<cli>/turn-end)
+# and its pane sits idle: the watchdog types the next iteration — the promise to output and the
+# bootstrap, never the task — once, however many polls see that same idle pane. A turn that outputs
+# the promise ends the loop, which cli_done sees.
+driven_loop_ok(){ ( fake_tmux; session_live(){ return 0; }
+  local wd="$RUN_DIR/driven-$HARNESS_CLI" sess=hz-loop-i6 uuid=66666666-7777-8888-9999-000000000000 sid msg
+  new_wd "$wd"; write_state "$wd" "LOOP DONE" 5 "$uuid"; echo "$wd" > "$RUN_DIR/$sess.wd"
+  sid="$(cli_session_id "$wd" "$uuid")"
+  watchdog_session "$sess"; [[ -z "$(sent_text "$sess")" ]] || exit 1          # no turn has ended yet
+  "$FIX/$HARNESS_CLI/turn-end" "$wd" "$sid" "STILL WORKING" || exit 1
+  watchdog_session "$sess"; watchdog_session "$sess"
+  msg="$(sent_text "$sess")"
+  same "$(wc -l <<<"$msg")" 1 && has "<promise>LOOP DONE</promise>" "$msg" && has "$HARNESS_BOOTSTRAP_PROMPT" "$msg" &&
+    lacks UNIQUE_TASK_MARKER "$msg" && grep -qx 'iteration: 2' "$wd/.claude/ralph-loop.local.md" && not cli_done "$wd" || exit 1
+  "$FIX/$HARNESS_CLI/turn-end" "$wd" "$sid" "all done <promise>LOOP DONE</promise>" || exit 1
+  watchdog_session "$sess"; cli_done "$wd" && same "$(sent_text "$sess" | wc -l)" 1 ); }
 # inject_ok — `/harness-issue|prd|plan` (inject.sh): each altitude's injector is launched on the
 # unit's checkout through the adapter.
 inject_ok(){ ( lane_env; local alt
@@ -300,14 +332,15 @@ init_choice_ok(){ local cli="$HARNESS_CLI" d="$RUN_DIR/init-$HARNESS_CLI" out
     same "$(sed -n 1p <<<"$out")" "$cli" && same "$(sed -n 2p <<<"$out")" "$(cli_launch /wd uuid "" "")"; }
 # prereqs_ok — `harness setup` through the adapter: with no binary it names the binary and fails; with
 # the binary but none of its plugins it names each missing one and fails; --install installs each
-# through the binary, by the command it named, and then passes.
+# through the binary, by the command it named, and then passes. A CLI Harness installs nothing into
+# (copilot: its goal loop is Harness's own) passes on the binary alone, naming nothing missing.
 prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
   export HOME="$d/home"; unset CLAUDE_CONFIG_DIR; mkdir -p "$HOME" "$d/bin" "$d/none"
   bin="$(cli_bin)"
   out="$(PATH="$d/none" cli_prereqs 2>&1)" && exit 1
   grep -qF "MISSING $HARNESS_CLI binary ($bin)" <<<"$out" || exit 1
   printf '#!/bin/sh\necho "$*" >> %q\n' "$d/calls" > "$d/bin/$bin"; chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
-  out="$(cli_prereqs 2>&1)" && exit 1
+  if out="$(cli_prereqs 2>&1)"; then [[ $(cli_loop) == driven ]] && not grep -q '^MISSING' <<<"$out"; exit; fi
   missing="$(sed -n "s/^MISSING [^:]*: $bin //p" <<<"$out")"; [[ -n $missing ]] || exit 1
   cli_prereqs --install >/dev/null 2>&1 || exit 1
   while read -r p; do grep -qF -- "$p" "$d/calls" || exit 1; done <<<"$missing" ); }

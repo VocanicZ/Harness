@@ -20,7 +20,8 @@ HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HA
   HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI
   HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE
   HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL
-  HARNESS_SWARM HARNESS_CLI HARNESS_AGY_BIN HARNESS_AGY_FLAGS HARNESS_CODEX_BIN HARNESS_CODEX_FLAGS"
+  HARNESS_SWARM HARNESS_CLI HARNESS_AGY_BIN HARNESS_AGY_FLAGS HARNESS_CODEX_BIN HARNESS_CODEX_FLAGS
+  HARNESS_COPILOT_BIN HARNESS_COPILOT_FLAGS"
 
 # unset_inherited_config — drop a LIVE fleet's config out of the environment.
 #
@@ -78,6 +79,8 @@ make_env(){
   export HARNESS_AGY_HOME="$RUN_DIR/agy-home"
   # …and Codex's home (#257: config.toml trust entries, rollouts, the harness-ralph plugin).
   export CODEX_HOME="$RUN_DIR/codex-home"
+  # …and Copilot's (#259: config.json trust entries, session-state transcripts).
+  export COPILOT_HOME="$RUN_DIR/copilot-home"
   unset CLAUDE_CONFIG_DIR
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.

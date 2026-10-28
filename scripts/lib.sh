@@ -674,7 +674,7 @@ gc_orphan_goals(){
   shopt -s nullglob
   for f in "$RUN_DIR"/*.goal; do
     sess="$(basename "$f" .goal)"
-    session_live "$sess" || rm -f "$f" "$RUN_DIR/$sess.wd"
+    session_live "$sess" || rm -f "$f" "$RUN_DIR/$sess.wd" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock"
   done
   shopt -u nullglob
 }
@@ -691,6 +691,7 @@ reap_finished_inject(){ local unit="$1" sess wd
   session_live "$sess" || return 0
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || return 0
   [[ -n "$wd" ]] || return 0
+  goal_loop_tick "$sess" "$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || true   # #259: no watchdog tends it
   cli_done "$wd" || return 0   # loop still active → leave it
   log "reaped finished inject session $sess (ralph loop ended)"
   cli_kill "$sess" "$wd" || true
@@ -782,6 +783,41 @@ _watchdog_turn_interrupt(){ local sess="$1" pane="$2" secs
   turn_interrupt "$sess" || { log "watchdog: $sess did not report Interrupted after Escape — retrying next poll (#207)"; return 0; }
   stats_sess_event "$sess" turn_interrupted turn_s="$secs" queued_nudges="$(turn_queued_nudges "$pane")"
   rm -f "$RUN_DIR/$sess.turnq"; }
+# --- #259: the Harness-driven goal loop ----------------------------------------
+# A CLI whose own hook cannot hold the goal loop open (cli_loop = driven; copilot's agentStop gives up
+# after 8 blocks, below HARNESS_IMPL_MAXITER) is looped here, once per poll, by whoever tends the
+# session (watchdog_session, reap_finished_inject). A session idle at its prompt with its state file
+# (write_state) present has ended a turn: the reply to its last prompt (cli_last_reply) goes through
+# ralph-loop's contract — the same script Codex's Stop hook runs — which ends the loop on the promise
+# or at max_iterations by removing the state file (cli_done), or counts the next iteration. The next
+# prompt is that iteration's line plus the bootstrap, never the task text (#213). Each prompt is
+# answered once: <sess>.loop keeps the id of the last one the loop has read, under a lock, since
+# several workers may tend one pool session. A pane parked at a usage limit is the limit watchdog's:
+# re-prompting it would only burn iterations. rc 0 = the tick acted (re-prompted or ended the loop).
+GOAL_LOOP_PY="${HARNESS_ENGINE_PLUGINS:-$ENGINE_DIR/plugins}/codex/harness-ralph/hooks/stop-hook.py"
+goal_loop_tick(){ local sess="$1" pane="$2" wd lockfd rc
+  [[ "$(cli_loop)" == driven ]] || return 1
+  wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; [[ -n "$wd" ]] || return 1
+  cli_done "$wd" && return 1
+  cli_pane_prompt "$pane" && ! cli_pane_busy "$pane" || return 1
+  session_limit_idle "$pane" && return 1
+  exec {lockfd}>"$RUN_DIR/$sess.loop.lock"; flock -n "$lockfd" || { exec {lockfd}>&-; return 1; }
+  _goal_loop_step "$sess" "$wd"; rc=$?
+  flock -u "$lockfd"; exec {lockfd}>&-; return "$rc"; }
+_goal_loop_step(){ local sess="$1" wd="$2" uuid sid out pid reply
+  uuid="$(sed -n 's/^session_id: //p' "$wd/.claude/ralph-loop.local.md" 2>/dev/null)"
+  sid="$(cli_session_id "$wd" "$uuid")"; [[ -n "$sid" ]] || return 1
+  out="$(cli_last_reply "$wd" "$sid")" || return 1
+  pid="$(head -1 <<<"$out")"; reply="$(tail -n +2 <<<"$out")"
+  [[ -n "$pid" && "$pid" != "$(cat "$RUN_DIR/$sess.loop" 2>/dev/null)" ]] || return 1
+  echo "$pid" > "$RUN_DIR/$sess.loop"
+  out="$(python3 -c 'import json, sys; print(json.dumps({"cwd": sys.argv[1], "last_assistant_message": sys.argv[2]}))' \
+    "$wd" "$reply" | (cd "$wd" && python3 "$GOAL_LOOP_PY") 2>/dev/null)"
+  if cli_done "$wd"; then log "goal loop: $sess ended its loop (promise or max iterations)"; return 0; fi
+  [[ -n "$out" ]] || return 1
+  out="$(python3 -c 'import json, sys; print(json.loads(sys.stdin.read())["reason"].splitlines()[0])' <<<"$out" 2>/dev/null)" || return 1
+  log "goal loop: $sess ended a turn without its promise — ${out%% |*}"
+  cli_send "$sess" "$wd" "$out $HARNESS_BOOTSTRAP_PROMPT"; }
 # watchdog_session <sess> — examine ONE live session for the #115 wedge and recover it. State (the
 # count of CONSECUTIVE stalled polls) lives in $RUN_DIR/<sess>.stall and is cleared the instant the
 # session is no longer stalled (recovered/busy/dead) — so a session that resumes after a nudge starts
@@ -789,7 +825,7 @@ _watchdog_turn_interrupt(){ local sess="$1" pane="$2" secs
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
-  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq"; return 0; }
+  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock"; return 0; }
   pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
@@ -816,6 +852,9 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
   if turn_should_interrupt "$pane" "$RUN_DIR/$sess.turnq"; then
     rm -f "$stallf"; _watchdog_turn_interrupt "$sess" "$pane"; return 0
   fi
+  # #259: a driven goal loop's fresh reply comes first. The turn that answered a nudge ends with the
+  # error line still on screen, which session_stalled would read as the wedge again.
+  if goal_loop_tick "$sess" "$pane"; then rm -f "$stallf"; return 0; fi
   if ! session_stalled "$pane"; then rm -f "$stallf"; return 0; fi
   n=$(( $(cat "$stallf" 2>/dev/null || echo 0) + 1 ))
   if (( n >= HARNESS_STALL_RETRIES )); then

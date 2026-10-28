@@ -26,7 +26,8 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
   # Hold the claim while the phase session is live; reap once its goal is satisfied. A pause
   # leaves the live session running (drained) — same contract as the pool.
   while session_live "$sess"; do
-    is_paused && { log "priority: paused — leaving bug #$n $phase session live"; break; }
+    # #259: a driven goal loop advances only from this watchdog, so a pause drains it by polling on.
+    is_paused && [[ "$(cli_loop)" != driven ]] && { log "priority: paused — leaving bug #$n $phase session live"; break; }
     # #115: the lane HOLDS here for the whole session, so bug_step's reap_lane never sees an
     # in-flight wedged session — this inner loop is the only per-poll point during the wedge. Run
     # the watchdog so a session parked at idle ❯ by a transient API error is nudged, then killed

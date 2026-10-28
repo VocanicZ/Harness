@@ -59,48 +59,52 @@ matrix disagree. Each cell drives Harness's own code path for its row through th
 that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their sources:
 [docs/cli-capabilities.md](docs/cli-capabilities.md).
 
-| feature | what it proves | `claude` | `agy` | `codex` |
-|---|---|---|---|---|
-| verified on | `<cli> --version` of the captured fixtures | 2.1.311 (Claude Code), 2026-10-27 | 1.4.8, 2026-10-27 | codex-cli 0.154.0, 2026-10-27 |
-| `fixtures-recorded` | Panes, transcript and usage samples captured from the real CLI (`test/fixtures/cli/<cli>/`) | ✓ | ✓ | ✓ |
-| `launch-bootstrap-prompt` | The launch line carries the fixed bootstrap prompt | ✓ | ✓ | ✓ |
-| `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ | ✓ |
-| `launch-model` | A lane's model, pinned by the worktree hook (`.harness-lane`), reaches the launch `launch_agent` types | ✓ | ✓ | ✓ |
-| `launch-effort-once` | That lane's effort replaces the configured one in the typed launch, once | ✓ | ✓ | ✓ |
-| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`, counted only when that conversation started since the launch; codex: the `session_meta` id of the newest rollout started in the worktree since the launch) | ✓ | ✓ | ✓ |
-| `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ | ✓ |
-| `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ | ✓ |
-| `busy-is-busy` | Every captured running turn is read as busy (claude: the spinner, which Harness's status line leaves without `esc to interrupt`) | ✓ | ✓ | ✓ |
-| `trust-dialog-is-not-prompt` | The workspace-trust dialog is never mistaken for the prompt | ✓ | ✓ | ✓ |
-| `transient-stalls` | A transient API error at the prompt is a #115 stall | ✓ | ✓ | ✓ |
-| `idle-never-stalls` | A healthy idle pane is never a stall | ✓ | ✓ | ✓ |
-| `busy-never-stalls` | A running turn is never a stall | ✓ | ✓ | ✓ |
-| `limit-parks` | A usage-limit message at the prompt parks the lane (#120) | ✓ | ✓ | ✓ |
-| `transient-is-not-limit` | A transient error is not a limit park | ✓ | ✓ | ✓ |
-| `trust-pre-accepted` | Workspace trust is pre-accepted (claude: `.claude.json` of every account; agy: `trustedWorkspaces` in `settings.json`; codex: `[projects."<dir>"]` in `config.toml`) | ✓ | ✓ | ✓ |
-| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit, seen on the host in `test/fixtures/cli/agy/bypass-subagent.jsonl`; codex: `--dangerously-bypass-approvals-and-sandbox`, likewise, `test/fixtures/cli/codex/bypass-subagent.jsonl`) | ✓ | ✓ | ✓ |
-| `done-signal` | The goal loop's end is seen (the loop state file is gone) | ✓ | ✓ | ✓ |
-| `loop-mode` | The goal loop runs: the CLI's Stop hook (`ralph-loop` / `harness-ralph`, a plugin on agy and on codex) re-feeds the task until the turn outputs the promise, then ends the loop | ✓ | ✓ | ✓ |
-| `transcripts-found` | The session's transcripts are found (agy: `conversations/<id>.db`; codex: the session's rollout and its sub-agents') | ✓ | ✓ | ✓ |
-| `usage-from-transcript` | Per-model token usage is read from them (agy: protobuf rows, decoded; codex: `token_count` events) | ✓ | ✓ | ✓ |
-| `stats-session-end-usage` | `harness stats` session_end events carry that usage (#185) | ✓ | ✓ | ✓ |
-| `usage-windows` | Usage windows are read for #194 checkpoints (claude: status line; agy: `agy -p /usage`; codex: the newest rollout's `rate_limits`) | ✓ | ✓ | ✓ |
-| `checkpoint-skill` | `pause --force` types the checkpoint into a live lane, naming the handoff skill as the CLI invokes skills (`/handoff`; codex: `$handoff`) | ✓ | ✓ | ✓ |
-| `pause-force-resume-other-host` | That checkpoint, then another host with none of the first one's local state resumes the issue from GitHub (label, pushed branch, handoff comment) | ✓ | ✓ | ✓ |
-| `inject-sessions` | `/harness-issue`, `/harness-prd` and `/harness-plan` (`inject.sh`) launch their injector through the CLI | ✓ | ✓ | ✓ |
-| `bug-lane-triage-fix` | The bug lane launches its triage and then its fix session through the CLI | ✓ | ✓ | ✓ |
-| `review-gauntlet` | The PRD review, with its gauntlet round, launches through the CLI | ✓ | ✓ | ✓ |
-| `supervisor-frozen-session` | `harness supervise` (#180) nudges the CLI's quiet idle pane, never types into its trust dialog, leaves its limit pane parked | ✓ | ✓ | ✓ |
-| `rtdd-event-context` | `rtdd` run from a lane's turn gets the session's context through the CLI, and `harness stats` joins the call to the session (#186) | ✓ | ✓ | ✓ |
-| `send-and-kill` | Nudges and checkpoints are delivered; a session is ended | ✓ | ✓ | ✓ |
-| `prereqs-named` | `harness setup` names the missing binary and plugins the CLI needs, and `--install` installs them through it | ✓ | ✓ | ✓ |
-| `init-wizard-choice` | `harness init` writes the CLI chosen, and a fleet loading that config drives it | ✓ | ✓ | ✓ |
+| feature | what it proves | `claude` | `agy` | `codex` | `copilot` |
+|---|---|---|---|---|---|
+| verified on | `<cli> --version` of the captured fixtures | 2.1.311 (Claude Code), 2026-10-27 | 1.4.8, 2026-10-27 | codex-cli 0.154.0, 2026-10-27 | GitHub Copilot CLI 1.0.105., 2026-10-28 |
+| `fixtures-recorded` | Panes, transcript and usage samples captured from the real CLI (`test/fixtures/cli/<cli>/`) | ✓ | ✓ | ✓ | ✓ |
+| `launch-bootstrap-prompt` | The launch line carries the fixed bootstrap prompt | ✓ | ✓ | ✓ | ✓ |
+| `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ | ✓ | ✓ |
+| `launch-model` | A lane's model, pinned by the worktree hook (`.harness-lane`), reaches the launch `launch_agent` types | ✓ | ✓ | ✓ | ✓ |
+| `launch-effort-once` | That lane's effort replaces the configured one in the typed launch, once | ✓ | ✓ | ✓ | ✓ |
+| `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`, counted only when that conversation started since the launch; codex: the `session_meta` id of the newest rollout started in the worktree since the launch; copilot: set at launch by `--session-id=`) | ✓ | ✓ | ✓ | ✓ |
+| `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ | ✓ | ✓ |
+| `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ | ✓ | ✓ |
+| `busy-is-busy` | Every captured running turn is read as busy (claude: the spinner, which Harness's status line leaves without `esc to interrupt`) | ✓ | ✓ | ✓ | ✓ |
+| `trust-dialog-is-not-prompt` | The workspace-trust dialog is never mistaken for the prompt | ✓ | ✓ | ✓ | ✓ |
+| `transient-stalls` | A transient API error at the prompt is a #115 stall | ✓ | ✓ | ✓ | ✓ |
+| `idle-never-stalls` | A healthy idle pane is never a stall | ✓ | ✓ | ✓ | ✓ |
+| `busy-never-stalls` | A running turn is never a stall | ✓ | ✓ | ✓ | ✓ |
+| `limit-parks` | A usage-limit message at the prompt parks the lane (#120) | ✓ | ✓ | ✓ | ✓ |
+| `transient-is-not-limit` | A transient error is not a limit park | ✓ | ✓ | ✓ | ✓ |
+| `trust-pre-accepted` | Workspace trust is pre-accepted (claude: `.claude.json` of every account; agy: `trustedWorkspaces` in `settings.json`; codex: `[projects."<dir>"]` in `config.toml`; copilot: `trustedFolders` in `config.json`) | ✓ | ✓ | ✓ | ✓ |
+| `bypass-covers-subagents` | After a launch the session and its sub-agents run without approval prompts (claude: `settings.local.json`, which sub-agents read; agy: `--dangerously-skip-permissions` on the typed line, which sub-agents inherit, seen on the host in `test/fixtures/cli/agy/bypass-subagent.jsonl`; codex: `--dangerously-bypass-approvals-and-sandbox`, likewise, `test/fixtures/cli/codex/bypass-subagent.jsonl`; copilot: `--yolo`, likewise, `test/fixtures/cli/copilot/bypass-subagent.jsonl`) | ✓ | ✓ | ✓ | ✓ |
+| `done-signal` | The goal loop's end is seen (the loop state file is gone) | ✓ | ✓ | ✓ | ✓ |
+| `loop-mode` | The goal loop runs: the CLI's Stop hook (`ralph-loop` / `harness-ralph`, a plugin on agy and on codex) re-feeds the task until the turn outputs the promise, then ends the loop (copilot: Harness drives it — the watchdog reads the reply from the transcript once the pane is idle and types the next iteration, since `agentStop` gives up after 8 blocks) | ✓ | ✓ | ✓ | ✓ |
+| `transcripts-found` | The session's transcripts are found (agy: `conversations/<id>.db`; codex: the session's rollout and its sub-agents'; copilot: `session-state/<id>/events.jsonl`) | ✓ | ✓ | ✓ | ✓ |
+| `usage-from-transcript` | Per-model token usage is read from them (agy: protobuf rows, decoded; codex: `token_count` events; copilot: `session.usage_record` events) | ✓ | ✓ | ✓ | ✓ |
+| `stats-session-end-usage` | `harness stats` session_end events carry that usage (#185) | ✓ | ✓ | ✓ | ✓ |
+| `usage-windows` | Usage windows are read for #194 checkpoints (claude: status line; agy: `agy -p /usage`; codex: the newest rollout's `rate_limits`; copilot: the newest session's `quotaSnapshots`) | ✓ | ✓ | ✓ | ✓ |
+| `checkpoint-skill` | `pause --force` types the checkpoint into a live lane, naming the handoff skill as the CLI invokes skills (`/handoff`; codex: `$handoff`) | ✓ | ✓ | ✓ | ✓ |
+| `pause-force-resume-other-host` | That checkpoint, then another host with none of the first one's local state resumes the issue from GitHub (label, pushed branch, handoff comment) | ✓ | ✓ | ✓ | ✓ |
+| `inject-sessions` | `/harness-issue`, `/harness-prd` and `/harness-plan` (`inject.sh`) launch their injector through the CLI | ✓ | ✓ | ✓ | ✓ |
+| `bug-lane-triage-fix` | The bug lane launches its triage and then its fix session through the CLI | ✓ | ✓ | ✓ | ✓ |
+| `review-gauntlet` | The PRD review, with its gauntlet round, launches through the CLI | ✓ | ✓ | ✓ | ✓ |
+| `supervisor-frozen-session` | `harness supervise` (#180) nudges the CLI's quiet idle pane, never types into its trust dialog, leaves its limit pane parked | ✓ | ✓ | ✓ | ✓ |
+| `rtdd-event-context` | `rtdd` run from a lane's turn gets the session's context through the CLI, and `harness stats` joins the call to the session (#186) | ✓ | ✓ | ✓ | ✓ |
+| `send-and-kill` | Nudges and checkpoints are delivered; a session is ended | ✓ | ✓ | ✓ | ✓ |
+| `prereqs-named` | `harness setup` names the missing binary and plugins the CLI needs, and `--install` installs them through it (copilot needs only its binary) | ✓ | ✓ | ✓ | ✓ |
+| `init-wizard-choice` | `harness init` writes the CLI chosen, and a fleet loading that config drives it | ✓ | ✓ | ✓ | ✓ |
 
 `agy` lanes need the `harness-ralph` plugin (`plugins/ralph-loop`, installed by `install.sh`): it is
 agy's goal loop. Without it a lane runs one turn and stops; `harness setup` reports it missing.
 `codex` lanes need the same loop as a Codex plugin, `harness-ralph@harness`, from Harness's own local
 marketplace `plugins/codex` (`codex plugin marketplace add …`, `codex plugin add …`; `harness setup`
 installs both).
+`copilot` lanes need only the `copilot` binary (`npm install -g @github/copilot`), signed in (a
+`COPILOT_GITHUB_TOKEN`/`GH_TOKEN`, `copilot login`, or the GitHub CLI's login). Its `agentStop` hook
+gives up after 8 blocks, so Harness drives its goal loop itself: the watchdog sees the lane idle,
+reads the reply from the session's transcript, and types the next iteration until the promise.
 
 ## Pipeline modes
 
