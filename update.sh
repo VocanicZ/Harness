@@ -40,7 +40,10 @@ hand_off(){
 }
 _engine="${HARNESS_HOME:-${HOME:-}/.harness}/engine"
 migrate_tag=""
-if (( ! POST_FLIP && ! ROLLBACK )) && [[ -d "$_engine" && ! -L "$_engine" && -e "$_engine/.git" ]]; then
+# Only the engine this update runs from migrates: a dev clone or a test sandbox updating itself
+# (ENGINE_DIR elsewhere) keeps its ff-pull and never touches, or queries for, the host's engine.
+if (( ! POST_FLIP && ! ROLLBACK )) && [[ -d "$_engine" && ! -L "$_engine" && -e "$_engine/.git" ]] \
+   && [[ "$(realpath "$_engine" 2>/dev/null)" == "$(realpath "$ENGINE_DIR" 2>/dev/null)" ]]; then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
   if [[ -n "${HARNESS_REF:-}" ]]; then
     migrate_tag="$HARNESS_REF"

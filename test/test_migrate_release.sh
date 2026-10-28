@@ -68,4 +68,12 @@ export HARNESS_HOME="$T/host2"; mkdir -p "$HARNESS_HOME"; cp -a "$H/releases/git
 rel_latest "$SRV" ""; clean bash "$HARNESS_HOME/engine/bin/harness" update >/dev/null 2>&1
 assert_ok "with nothing published, the git engine stays a directory" test -d "$HARNESS_HOME/engine/.git"
 assert_no "and no releases/ dir appears" test -e "$HARNESS_HOME/releases"
+
+# A git checkout that is NOT the host engine (a dev clone, a test sandbox) updating itself leaves the
+# host's git engine alone: it keeps its own ff-pull and never migrates $HARNESS_HOME/engine.
+export HARNESS_HOME="$T/host3"; mkdir -p "$HARNESS_HOME"; cp -a "$H/releases/git-$sha" "$HARNESS_HOME/engine"
+cp -a "$H/releases/git-$sha" "$T/clone"; rel_latest "$SRV" v0.5.0
+clean env ENGINE_DIR="$T/clone" bash "$T/clone/update.sh" >/dev/null 2>&1
+assert_ok "another checkout's update leaves the host's git engine a directory" test -d "$HARNESS_HOME/engine/.git"
+assert_no "and migrates nothing" test -e "$HARNESS_HOME/releases"
 finish
