@@ -240,6 +240,23 @@ assert "inject.md: same-repo Blocked by ordering present" \
 assert "inject.md: completion promise present" \
   "grep -q 'INJECT_DONE' <<<\"\$out_inject\" && grep -q '<promise>' <<<\"\$out_inject\""
 
+# ── #287: a lane-filed follow-up carries the ready label and a `## Parent` ──────────────────────
+for tmpl in impl bug-fix resume; do
+  out_fu="$(render "$HERE/../prompts/$tmpl.md" ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d \
+    LABEL_READY=go LABEL_WORKING=busy LABEL_PAUSED=held LABEL_BUG=bug LABEL_BUG_TRIAGED=triaged)"
+  assert "$tmpl.md: a filed follow-up is created with the custom ready label" \
+    "grep -q 'gh issue create … --label go' <<<\"\$out_fu\""
+  assert "$tmpl.md: a filed follow-up ends with ## Blocked by + ## Parent naming #42's PRD" \
+    "grep -q '^    ## Parent\$' <<<\"\$out_fu\" && grep -q '^    ## Blocked by\$' <<<\"\$out_fu\" && grep -q 'PRD that #42 names' <<<\"\$out_fu\""
+  assert "$tmpl.md: no unrendered partial or {{LABEL_ token" \
+    "! grep -qE '\{\{(>|LABEL_)' <<<\"\$out_fu\""
+done
+
+assert "review.md: sign-off counts every open issue naming the PRD, whatever its labels" \
+  "grep -q 'WHATEVER its labels' <<<\"\$out_review\" && grep -q 'Part of #7' <<<\"\$out_review\" && grep -q 'Parent: #7' <<<\"\$out_review\""
+assert "review.md: an unlabelled one is labelled ready, and any open one withholds sign-off" \
+  "grep -q 'gh issue edit <N> -R acme/widget --add-label go' <<<\"\$out_review\" && grep -q 'do NOT sign off' <<<\"\$out_review\""
+
 # ── summary ──────────────────────────────────────────────────────────────────
 echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"
 [[ $TESTS_FAIL -eq 0 ]]

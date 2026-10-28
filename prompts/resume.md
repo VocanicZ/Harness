@@ -75,6 +75,8 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
         gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
    The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
 
+{{> _followup.md}}
+
 If this harness is configured AUTONOMOUS: never park the work, drive it to closed.
 
 Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —

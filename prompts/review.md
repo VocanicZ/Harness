@@ -135,12 +135,21 @@ The bar names one real artifact to beat and the dimensions to judge on:
       Do NOT add `{{LABEL_REVIEWED}}`. The pool implements the gap issue, and review runs again at
       the next round. That is a completed review pass; go to OUTPUT.
 
-6. SIGN OFF — apply the label, and do NOT close the PRD yourself:
+6. SIGN OFF — first COUNT every OPEN issue that names PRD #{{PRD}} as its parent, WHATEVER its labels
+   (`## Parent #{{PRD}}`, `Part of #{{PRD}}`, or `Parent: #{{PRD}}` in the body):
+     gh issue list -R {{SLUG}} --state open --limit 1000 --json number,labels,body \
+       --jq '[.[] | select(.body // "" | test("(## Parent\\s*:?\\s*|Part of |Parent:\\s*)#{{PRD}}\\b"; "i")) | {number, labels: [.labels[].name]}]'
+   - Each one with NO label at all: label it so a lane can take it —
+       gh issue edit <N> -R {{SLUG}} --add-label {{LABEL_READY}}
+   - If ANY open issue is listed other than one you filed in THIS pass, do NOT sign off: comment the
+     numbers on PRD #{{PRD}}. That is a completed review pass; go to OUTPUT. Review runs again once
+     they close. (A lane-filed follow-up left unlabelled used to be signed off over and stranded.)
+   Otherwise apply the label, and do NOT close the PRD yourself:
      gh issue edit {{PRD}} -R {{SLUG}} --add-label {{LABEL_REVIEWED}}
      gh issue comment {{PRD}} -R {{SLUG}} --body "Reviewed: all acceptance criteria met."
    The `{{LABEL_REVIEWED}}` label is the authoritative SIGN-OFF and the ONLY state change you make
    here. The ENGINE closes the PRD, with one idempotent call retried every poll, and it does that
-   only once every `{{LABEL_READY}}` issue in the repo is CLOSED.
+   only once every `{{LABEL_READY}}` issue in the repo is CLOSED and no open issue names this PRD.
    That gate is the entire point, so closing the PRD yourself is not a harmless shortcut. A closed
    PRD makes the unit COMPLETE, and a complete unit is dropped from dispatch BEFORE the engine ever
    asks what work is outstanding. So if you filed ANY `{{LABEL_READY}}` issue in this session —
