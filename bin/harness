@@ -97,6 +97,8 @@ usage: harness <command> [args]
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills]   ff-pull the shared engine install (one place; all projects pick it up)
+  release [--dry-run] [--ref <rev>]
+                       cut the next Harness release from this checkout (gate: test/run.sh)
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
   uninstall [--force] [--force-engine]  stop the fleet + remove the engine, this project's .harness/, and /harness skills (--force-engine: remove the shared engine even if other fleets still depend on it)
   setup                verify prereqs + seed configured labels on all units (no start)
@@ -147,6 +149,8 @@ case "$cmd" in
   # --version is engine-level too: it reads only ENGINE_DIR, never a project .harness/ (#277).
   --version|version) print_version; exit 0;;
   update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
+  # release is engine-level: it acts on the git checkout it is run in, never a project .harness/ (#278).
+  release) exec bash "$ENGINE_DIR/scripts/release.sh" "$@";;
   # poll is HOST-level (the shared poller serves every project) — no project STATE_DIR needed.
   # Normal path is ensure_poller; this is the documented debug/test entry (#71).
   poll)   exec bash "$ENGINE_DIR/scripts/poller.sh" "$@";;
