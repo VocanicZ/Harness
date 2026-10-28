@@ -1,0 +1,1 @@
+OpenCode 1.x has no quota meter: a limit shows only as its error text at the prompt, which parks the lane (limit-parks)

@@ -1,0 +1,24 @@
+  ┃
+
+     → Read .harness-task.md
+
+     I'll spawn a sub-agent to run the command.
+
+     ✓ General Task — bypass capture
+       ↳ 1 toolcall · 5.9s
+
+     ctrl+x down view subagents
+
+     <promise>CAP DONE</promise>
+
+     ▣  Build · Big Pickle · 42.2s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · Big Pickle OpenCode
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-home-claude-harness-dev--harness-    18.1K (9%ctrl+p
+   worktrees-harness-i261/a78db2f4-6249-4a3e-87e3-                 commands
+   41b19fed00d2/scratchpad/capC
+

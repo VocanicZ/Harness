@@ -1,0 +1,24 @@
+
+     → Read .harness-task.md
+
+     + Thought: 13ms
+
+  ┃
+  ┃  $ sleep 25
+  ┃
+  ┃  (no output)
+  ┃
+
+     <promise>CAP DONE</promise>
+
+     ▣  Build · Big Pickle · 1m 1s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · Big Pickle OpenCode
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-home-claude-harness-dev--harness-   19.5K (10ctrl+p
+   worktrees-harness-i261/a78db2f4-6249-4a3e-87e3-                commands
+   41b19fed00d2/scratchpad/capA
+

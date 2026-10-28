@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  Run the shell command `sleep 40` in the foreground with your bash tool,
+  ┃  then reply OK.
+  ┃
+
+  ┃
+  ┃  ⠼ sleep 40
+  ┃
+
+     ▣  Build · Big Pickle
+
+  ┃
+  ┃  Please continue — queued test
+  ┃   QUEUED
+  ┃
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · Big Pickle OpenCode
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ■■■■■■⬝⬝  esc interrupt                        19.5K (10%)  ctrl+p commands
+

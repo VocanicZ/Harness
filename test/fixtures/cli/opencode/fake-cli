@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# fake-cli — what `opencode` leaves on disk when a lane's launch line runs it (README.md): the
+# sessions of transcript.db written into $XDG_DATA_HOME/opencode/opencode.db, each under a new id,
+# its directory the pane's cwd and its creation time now, as the capture did. Then the turn's tool
+# call, $FAKE_CLI_TURN, when set.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+db="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/opencode.db"; mkdir -p "${db%/*}"
+python3 - "$here/transcript.db" "$db" "$PWD" <<'PY'
+import os, sqlite3, sys, time
+src, dst, cwd = sys.argv[1:]
+s, d = sqlite3.connect(src), sqlite3.connect(dst)
+for (sql,) in s.execute("SELECT sql FROM sqlite_master WHERE type = 'table'"):
+    d.execute(sql.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1))
+now, tag = int(time.time() * 1000), os.urandom(4).hex()
+cols = [r[1] for r in s.execute("PRAGMA table_info(session)")]
+for row in s.execute("SELECT * FROM session"):
+    r = dict(zip(cols, row))
+    r.update(id=f"{r['id']}{tag}", parent_id=r["parent_id"] and f"{r['parent_id']}{tag}", directory=cwd, time_created=now)
+    d.execute(f"INSERT INTO session ({','.join(r)}) VALUES ({','.join('?' * len(r))})", list(r.values()))
+for mid, sid, tc, tu, data in s.execute("SELECT id, session_id, time_created, time_updated, data FROM message"):
+    d.execute("INSERT INTO message VALUES (?, ?, ?, ?, ?)", (f"{mid}{tag}", f"{sid}{tag}", tc, tu, data))
+d.commit()
+PY
+[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"

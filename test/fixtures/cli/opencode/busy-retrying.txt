@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  Read .harness-task.md in this directory and follow it exactly.
+  ┃
+
+     ▣  Build · M1
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · M1 Fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝Service Unavailable: {"error": {"message": "Service Unavailable", "type": "s
+    retrying in 10s attempt #4]
+

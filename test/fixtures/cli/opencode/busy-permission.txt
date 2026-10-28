@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  Run the shell command: touch perm-proof2.txt
+  ┃
+
+     + Thought: 184ms
+
+     $ touch perm-proof2.txt
+
+     ▣  Build · Big Pickle
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃    # Shell command
+  ┃
+  ┃  $ touch perm-proof2.txt
+  ┃
+  ┃
+  ┃   Allow once   Allow always   Reject  ctrl+f fullscreen  ⇆ select  enter con
+  ┃
+

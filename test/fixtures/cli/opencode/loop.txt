@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  🔄 Ralph iteration 2 | To stop: output <promise>CAP DONE</promise> (ONLY
+  ┃  when statement is TRUE - do not lie to exit!)
+  ┃
+  ┃  GOAL: a goal-loop capture. If the prompt you were just given contains
+  ┃  the words "Ralph iteration", reply with exactly <promise>CAP DONE</
+  ┃  promise> and nothing else. Otherwise reply with exactly STILL WORKING
+  ┃  and nothing else. Do not use any tools other than reading this file.
+  ┃
+
+     <promise>CAP DONE</promise>
+
+     ▣  Build · Big Pickle · 2.3s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · Big Pickle OpenCode
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-home-claude-harness-dev--harness-    18.0K (9%ctrl+p
+   worktrees-harness-i261/a78db2f4-6249-4a3e-87e3-                 commands
+   41b19fed00d2/scratchpad/loop1
+

@@ -1,0 +1,24 @@
+  ┃  GOAL: a goal-loop capture. Look at the prompt you were just given:
+  ┃  - if it contains "Ralph iteration 2": run the shell command `sleep 90`
+  ┃  in the foreground with your bash tool and wait for it, then reply with
+  ┃  exactly STILL WORKING;
+  ┃  - if it contains "Ralph iteration" with any other number: reply with
+  ┃  exactly <promise>CAP DONE</promise>;
+  ┃  - otherwise reply with exactly STILL WORKING.
+  ┃
+
+     + Thought: 280ms
+
+     <promise>CAP DONE</promise>
+
+     ▣  Build · DeepSeek V4.1 Flash Free · 1.9s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · DeepSeek V4.1 Flash Free OpenCode
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-home-claude-harness-dev--harness-   20.0K (10ctrl+p
+   worktrees-harness-i261/a78db2f4-6249-4a3e-87e3-                commands
+   41b19fed00d2/scratchpad/loop2
+
