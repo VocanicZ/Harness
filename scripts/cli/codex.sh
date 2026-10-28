@@ -236,18 +236,18 @@ PY
 # outlives the checkout install.sh ran from).
 codex_prereqs(){ local bin mkt="${HARNESS_ENGINE_PLUGINS:-$CLI_DIR/../../plugins}/codex"
   bin="$(codex_bin)"
-  if command -v "$bin" >/dev/null; then echo "ok      codex binary ($bin)"
+  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      codex binary ($bin)"
   else echo "MISSING codex binary ($bin): curl -fsSL https://chatgpt.com/codex/install.sh | sh"; return 1; fi
   # grep reads the whole listing (no -q): stopping at the match would kill codex with SIGPIPE, and
   # pipefail would read that as the plugin missing.
-  if "$bin" plugin list 2>/dev/null | grep -E '^harness-ralph@harness +installed, enabled' >/dev/null; then
+  if _cli_run "$bin" plugin list 2>/dev/null | grep -E '^harness-ralph@harness +installed, enabled' >/dev/null; then
     echo "ok      codex plugin harness-ralph"
-  elif [[ "${1:-}" == --install ]] && { "$bin" plugin marketplace add "$mkt" >/dev/null 2>&1; "$bin" plugin add harness-ralph@harness >/dev/null 2>&1; }; then
+  elif [[ "${1:-}" == --install ]] && { _cli_run "$bin" plugin marketplace add "$mkt" >/dev/null 2>&1; _cli_run "$bin" plugin add harness-ralph@harness >/dev/null 2>&1; }; then
     echo "ok      codex plugin harness-ralph (installed)"
   else
     echo "MISSING codex marketplace harness: $bin plugin marketplace add $mkt"
     echo "MISSING codex plugin harness-ralph: $bin plugin add harness-ralph@harness"; return 1; fi; }
 # The harness-ralph plugin and its marketplace are Harness's own: uninstall takes them back out.
 codex_uninstall(){ local bin; bin="$(codex_bin)"
-  command -v "$bin" >/dev/null 2>&1 || return 0
-  "$bin" plugin remove harness-ralph@harness >/dev/null 2>&1; "$bin" plugin marketplace remove harness >/dev/null 2>&1; return 0; }
+  command -v "$(_cli_exe "$bin")" >/dev/null 2>&1 || return 0
+  _cli_run "$bin" plugin remove harness-ralph@harness >/dev/null 2>&1; _cli_run "$bin" plugin marketplace remove harness >/dev/null 2>&1; return 0; }
