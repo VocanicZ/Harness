@@ -35,6 +35,11 @@ for t in test_*.sh test_*.py; do
   export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
   export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
   mkdir -p "$HARNESS_POLLER_DIR/registry" "$HARNESS_SNAPSHOTS_DIR"
+  # Temp root too (#294): every bare mktemp / tempfile.mkdtemp() a test makes lands here rather than
+  # in the host's /tmp, and the whole per-test subtree goes as soon as the test ends — so a test that
+  # forgets its own cleanup leaks into nothing, and peak use is one test's worth, not the suite's.
+  export TMPDIR="$TMPROOT/$t/tmp"; mkdir -p "$TMPDIR"
   case "$t" in *.py) python3 "$t" || rc=1;; *) bash "$t" || rc=1;; esac
+  rm -rf "${TMPROOT:?}/$t"
 done
 exit $rc

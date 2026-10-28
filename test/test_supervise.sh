@@ -18,7 +18,7 @@ make_env
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; exit 0; }
 T="$(mktemp -d)"
 export TMUX_TMPDIR="$T/tmux"; mkdir -p "$TMUX_TMPDIR"; unset TMUX   # a private server: no live session is touched
-trap 'tmux kill-server 2>/dev/null; rm -rf "$T"' EXIT
+trap 'tmux kill-server 2>/dev/null; rm -rf "$T" "$AGY_STUB_DIR"; tmp_cleanup' EXIT
 export HARNESS_SUPERVISE_CONF="$T/none.conf" HARNESS_SUPERVISE_STATE="$T/sup" HARNESS_SUPERVISE_LOG="$T/sup.log"
 source "$HERE/../scripts/supervise.sh"
 SUP_DRY=1 CPU_ACTIVE_S=0

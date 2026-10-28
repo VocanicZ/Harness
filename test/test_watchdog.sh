@@ -23,7 +23,7 @@ S_STALL="$PFX-stalled"; S_BUSY="$PFX-busy"; S_OK="$PFX-ok"
 # `command tmux`: later sections redefine tmux() as a recording stub, so the EXIT trap must reach
 # the REAL binary to actually reap these live panes (else they leak on the host).
 cleanup(){ for s in "$S_STALL" "$S_BUSY" "$S_OK"; do command tmux kill-session -t "$s" 2>/dev/null || true; done; }
-trap cleanup EXIT
+trap 'cleanup; tmp_cleanup' EXIT
 
 # Stalled: the documented wedge — a satisfied-looking promise, then a 529 error line, then the idle
 # `❯` prompt with NO active "(esc to interrupt)" spinner. This is the state that must be recovered.

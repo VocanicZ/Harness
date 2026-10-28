@@ -12,7 +12,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 SUITE="$HERE/../scripts/swarm-suite.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
 export RUN_DIR="$T/run"; unset HARNESS_SWARM HARNESS_SWARM_TEST_CMD HARNESS_SWARM_TIMEOUT HARNESS_SWARM_PACK
 export SWARM_JOBS_DIR="$T/swarm jobs"
 FAKEBIN="$T/bin"; mkdir -p "$FAKEBIN"

@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 CLI="$HERE/../bin/harness"
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
 export HARNESS_HOME="$T/host" HARNESS_FLEETS_DIR="$T/host/fleets"
 mkdir -p "$HARNESS_FLEETS_DIR" "$T/bin" "$T/alpha/.harness/run" "$T/elsewhere"
 unset STATE_DIR HARNESS_STATE_DIR_OK
