@@ -1,0 +1,14 @@
+{
+ "ok": true,
+ "status": "ok",
+ "final": "The shell command `touch exec-proof.txt` was not run: the gateway's exec policy is set to deny, so the request was rejected and no file was created.",
+ "toolSummary": {
+  "calls": 1,
+  "tools": [
+   "mcp__openclaw__exec"
+  ],
+  "failures": 1
+ },
+ "model": "claude-haiku-5-5",
+ "provider": "claude-cli"
+}

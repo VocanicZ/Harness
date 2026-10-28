@@ -1,0 +1,24 @@
+I'll read the task file first.
+
+<promise>CAP DONE</promise>
+harness-openclaw ❯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

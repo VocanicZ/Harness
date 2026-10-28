@@ -1,0 +1,24 @@
+The spawn returned an error, but it reports a child session was created. I'll ch
+eck its status before retrying so I don't start a duplicate.
+
+No sub-agent was registered, so nothing ran. I'll retry the spawn once.
+
+The sub-agent did not run, and the `touch` command was not run by anyone. The ta
+sk requires the sub-agent to run it, so I did not create the file myself.
+
+Both `sessions_spawn` attempts failed with `published reply runtime missing for
+main`. A child session key was returned each time, but `subagents` lists no sub-
+agent activity, so the children never started. The file `subagent-proof.txt` was
+ not created.
+
+This looks like a Gateway-side problem with the main agent's reply runtime. Once
+ that is fixed, the spawn can be retried.
+harness-openclaw ❯
+
+
+
+
+
+
+
+

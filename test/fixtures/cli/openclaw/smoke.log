@@ -1,0 +1,23 @@
+== OpenClaw 2026.10.8 (dc2523e) | cli=openclaw | 2026-10-28T13:37:20Z
+== prereqs
+ok      openclaw binary (openclaw)
+== launch_agent hz-smoke-i1 <scratch>/wt-i1
+13:37:22 [harness] launched session hz-smoke-i1 (cwd <scratch>/wt-i1)
+== typed: exec env OPENCLAW_INCLUDE_ROOTS=~/.openclaw bash ~/harness-dev/.harness/worktrees/harness-i264/scripts/cli/openclaw-loop.sh --bin openclaw --cwd <scratch>/wt-i1 --run b3035fce-469b-4def-a7bf-f8eebf89377a --config <scratch>/wt-i1/.harness-openclaw/openclaw.json --model claude-cli/claude-haiku-5-5 --thinking low --timeout 14400 "Read .harness-task.md in this directory and follow it exactly."
+== worktree files: ?? .claude/ ?? .harness-task.md !! .harness-lane !! .harness-openclaw/
+== trusted: yes   bypassed: yes
+13:38:03 [harness] goal loop: hz-smoke-i1 ended a turn without its promise — 🔄 Ralph iteration 2
+13:38:43 [harness] goal loop: hz-smoke-i1 ended its loop (promise or max iterations)
+== cli_done after ~81s: yes
+== pane (prompt=yes busy=no)
+<promise>ISSUE 1 DONE</promise>
+harness-openclaw ❯
+== git log
+d521ab8 add hello (closes #1)
+2e4da6a init
+== worktree files: ?? .harness-task.md !! .harness-lane !! .harness-openclaw/
+== transcript turns: 2
+== usage: claude-cli/claude-haiku-5-5	4	9	93490	425
+== cli_kill rc=0 live=no
+== left in the worktree after kill: 0 processes
+== session_end usage: {"claude-cli/claude-haiku-5-5": {"input": 4, "output": 9, "cache_create": 425, "cache_read": 93490}}
