@@ -165,4 +165,25 @@ kill "$HOLD" 2>/dev/null; wait "$HOLD" 2>/dev/null
 release_kick prd:278; wait "$(cat "$HARNESS_AUTORELEASE_DIR/release.pid")" 2>/dev/null
 assert_ok "a kick runs the release in the background" grep -qx 'prd:278' "$RLOG"
 assert_ok "and logs it" grep -q 'released fffffff (prd:278)' "$HARNESS_AUTORELEASE_DIR/release.log"
+
+# ── #329: a failed fetch releases no stale origin head, and the queued PRD close stays queued ──
+source "$HERE/../scripts/autorelease.sh"           # the real release_head
+release_kick(){ release_run "$@"; }; default_branch(){ echo main; }
+gc(){ git -C "$1" -c user.name=t -c user.email=t@t "${@:2}"; }
+O="$RUN_DIR/rh-origin.git"; W="$RUN_DIR/rh-work"; CHECKOUT="$RUN_DIR/rh-checkout"
+git init -q --bare -b main "$O"; git clone -q "$O" "$W" 2>/dev/null
+gc "$W" commit -q --allow-empty -m a; git -C "$W" push -q origin main 2>/dev/null
+git clone -q "$O" "$CHECKOUT" 2>/dev/null
+gc "$W" commit -q --allow-empty -m 'the PRD last child'; git -C "$W" push -q origin main 2>/dev/null
+FRESH="$(git -C "$W" rev-parse HEAD)"
+git -C "$CHECKOUT" remote set-url origin "$RUN_DIR/unreachable.git"
+: > "$RLOG"; : > "$REFS"; rm -f "$HARNESS_AUTORELEASE_DIR/pending" "$HARNESS_AUTORELEASE_DIR/retry-after"
+SLUG=acme/harness; release_on_prd_close 281 >/dev/null 2>&1
+assert_eq "$(grep -c . "$RLOG")" 0 "a failed fetch runs no release on the stale origin head"
+assert_ok "the PRD close stays queued" grep -qP '\tprd:281$' "$HARNESS_AUTORELEASE_DIR/pending"
+git -C "$CHECKOUT" remote set-url origin "$O"
+release_tick >/dev/null 2>&1; release_tick >/dev/null 2>&1
+assert_eq "$(cat "$RLOG")" "prd:281" "once the fetch succeeds, one release covers it"
+assert_eq "$(cat "$REFS")" "$FRESH" "at the fetched head, after the PRD's last merge"
+assert_eq "$(grep -c . "$HARNESS_AUTORELEASE_DIR/pending")" 0 "and the released PRD leaves the queue"
 finish

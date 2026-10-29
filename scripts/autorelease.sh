@@ -79,8 +79,9 @@ release_kick(){ local d pid; d="$(release_dir)"; mkdir -p "$d"
   echo "$!" > "$d/release.pid"; }
 
 # release_head — the commit to release: origin/<default branch> of the Harness checkout, fresh.
+# A failed fetch prints nothing: the stale origin/<base> may predate the merge the release is for (#329).
 release_head(){ local base; base="$(default_branch)"
-  git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+  git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || return 0
   git -C "$CHECKOUT" rev-parse -q --verify "origin/$base^{commit}" 2>/dev/null; }
 
 # release_run <reason> — run `harness release` for the default branch's head, one at a time.
