@@ -5,13 +5,15 @@
 # drive.sh lanes, pause.sh, supervise.sh, stats.py, init.sh) through the adapter (#254). The README's
 # support table is checked against these cells (test_cli_readme.sh).
 # --tsv prints `<cli>\t<row>\tok|FAIL|n/a:<reason>` per cell instead of asserting.
+# test_cli_matrix_guard.sh reruns it on a cut-down fixture tree (HARNESS_MATRIX_FIX), for some CLIs
+# (HARNESS_MATRIX_CLIS), with adapter functions stubbed to `:` (HARNESS_MATRIX_STUB="trust trusted").
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
 make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
-FIX="$HERE/fixtures/cli"
+FIX="${HARNESS_MATRIX_FIX:-$HERE/fixtures/cli}"
 # Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
 unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot HARNESS_OPENCODE_BIN=opencode HARNESS_HERMES_BIN=hermes HARNESS_OPENCLAW_BIN=openclaw FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
@@ -233,12 +235,67 @@ session_id_ok(){ ( fake_tmux; local wd="$RUN_DIR/sid-$HARNESS_CLI" uuid sid; new
   launch_agent hz-sid-i3 "$wd" >/dev/null 2>&1 && run_pane hz-sid-i3 "$wd" || exit 1
   uuid="$(state_uuid "$wd")"; sid="$(cli_session_id "$wd" "$uuid")"
   [[ -n $sid ]] && test -n "$(cli_transcripts "$wd" "$sid")" ); }
-# bypass_ok — after launch_agent, the worktree reads as bypassed, and the line cli_bypassed judges is
-# the line typed (claude: settings.local.json, which sub-agents read; agy: --dangerously-skip-permissions,
-# which they inherit).
+# trust_ok — a fresh worktree is not trusted until cli_trust trusts it. trust_noop — it already is:
+# the CLI has no gate to pre-accept, so the row is n/a (#305), never a ✓ no test could fail.
+trust_ok(){ local wd="$RUN_DIR/trust-$HARNESS_CLI"; new_wd "$wd"; not cli_trusted "$wd" && cli_trust "$wd" && cli_trusted "$wd"; }
+trust_noop(){ local wd="$RUN_DIR/untrusted-$HARNESS_CLI"; new_wd "$wd"; cli_trusted "$wd"; }
+# bypass_ok — after launch_agent, the worktree reads as bypassed, the line cli_bypassed judges is the
+# line typed, and the CLI's own capture of a sub-agent run under that bypass shows it ran (subagent_ok).
 bypass_ok(){ ( fake_tmux; local wd="$RUN_DIR/bypass-$HARNESS_CLI"; new_wd "$wd"; GOAL=ISSUE:5
   launch_agent hz-byp-i5 "$wd" >/dev/null 2>&1
-  cli_bypassed "$wd" && same "$(typed_line hz-byp-i5)" "$(cli_launch "$wd" "$(state_uuid "$wd")" "" "")" ); }
+  cli_bypassed "$wd" && same "$(typed_line hz-byp-i5)" "$(cli_launch "$wd" "$(state_uuid "$wd")" "" "")" ) &&
+    subagent_ok "$HARNESS_CLI"; }
+# subagent_ok <cli> — #305: the real CLI, launched with the lane's bypass, had a sub-agent run a shell
+# command, and its own record (fixtures/cli/<cli>/bypass-subagent.*, see each README.md) shows that
+# sub-agent's call ran to success; where a control capture without the bypass exists, it shows the
+# approval prompt the bypass capture lacks. claude has no capture: its README row says what is checked.
+subagent_ok(){ [[ $1 == claude ]] && return 0
+  python3 - "$1" "$FIX/$1" <<'PY'
+import json, sqlite3, sys
+cli, d = sys.argv[1], sys.argv[2]
+rows = lambda f: [json.loads(l) for l in open(f"{d}/{f}") if l.strip()]
+text = lambda f: open(f"{d}/{f}").read()
+def prompt_only_in(control, marker):  # the control shows the prompt; the bypass capture does not
+    return marker in text(control) and marker not in text("bypass-subagent.txt")
+ok = False
+if cli == "agy":
+    r = rows("bypass-subagent.jsonl")
+    ok = (any("Created the following subagent" in x["content"] for x in r if x["conversation"] == "parent")
+          and any("Command exited with code 0." in x["content"] for x in r if x["conversation"] == "subagent")
+          and prompt_only_in("permission.txt", "Requesting permission for:"))
+elif cli == "codex":
+    r = rows("bypass-subagent.jsonl")
+    meta = {x["conversation"]: x["payload"] for x in r if x["type"] == "session_meta"}
+    sub = [x["payload"] for x in r if x["conversation"] == "subagent"]
+    calls = {p["call_id"] for p in sub if p.get("type") == "custom_tool_call" and p.get("status") == "completed"
+             and "touch subagent-proof.txt" in p.get("input", "")}
+    outs = {p["call_id"] for p in sub if p.get("type") == "custom_tool_call_output"}
+    ok = bool(calls & outs) and meta["subagent"].get("parent_thread_id") == meta["parent"]["id"]
+elif cli == "copilot":
+    r = [x for x in rows("bypass-subagent.jsonl") if x.get("agentId")]
+    started = {x["data"]["toolCallId"] for x in r if x["type"] == "tool.execution_start"
+               and x["data"]["toolName"] == "bash" and x["data"]["arguments"].get("command") == "touch subagent-proof.txt"}
+    done = {x["data"]["toolCallId"] for x in r if x["type"] == "tool.execution_complete"
+            and x["data"].get("success") and (x["data"].get("shellExecution") or {}).get("exitCode") == 0}
+    ok = bool(started & done)
+elif cli == "opencode":
+    c = sqlite3.connect(f"file:{d}/bypass-subagent.db?mode=ro", uri=True)
+    lane = open(f"{d}/session").read().strip()
+    kids = [k for (k,) in c.execute("SELECT id FROM session WHERE parent_id = ?", (lane,))]
+    msgs = [json.loads(m) for k in kids for (m,) in c.execute("SELECT data FROM message WHERE session_id = ?", (k,))]
+    ok = (any(m.get("role") == "assistant" and m.get("time", {}).get("completed") and not m.get("error") for m in msgs)
+          and "✓ General Task" in text("bypass-subagent.txt")
+          and prompt_only_in("busy-permission.txt", "Permission required"))
+elif cli == "hermes":
+    c = sqlite3.connect(f"file:{d}/bypass-subagent.db?mode=ro", uri=True)
+    kid = c.execute("SELECT id FROM sessions WHERE parent_session_id IS NOT NULL").fetchone() or ("",)
+    asked = [m for (m,) in c.execute("SELECT content FROM messages WHERE session_id = ? AND role = 'user'", kid)]
+    ran = [json.loads(m) for (m,) in c.execute(
+        "SELECT content FROM messages WHERE session_id = ? AND role = 'tool' AND tool_name = 'terminal'", kid)]
+    ok = any("rm -r junk-dir" in m for m in asked) and any(r.get("exit_code") == 0 and "approval" not in r for r in ran)
+sys.exit(0 if ok else 1)
+PY
+}
 # loop_ok — the goal loop as this CLI runs it (cli_loop). `hook`: the Stop hook of the plugin Harness
 # installs for it (fixtures/cli/<cli>/stop-hook) re-feeds the task after a turn without the promise,
 # and ends the loop — which cli_done sees — after a turn that outputs it. `driven`: driven_loop_ok.
@@ -320,23 +377,22 @@ pause_resume_ok(){ ( host_a; checkpoint_ok || exit 1
   lane_ok "$(sess_impl main 7)" "$WORKTREES_DIR/main-i7" "ISSUE 7 DONE" &&
     grep -qF "HOST A LEFT OFF HERE" "$WORKTREES_DIR/main-i7/.harness-task.md" &&
     grep -qF "BEGIN HANDOFF" "$WORKTREES_DIR/main-i7/.harness-task.md" ); }
-# frozen_ok — #180: the CLI's idle, trust-dialog and limit panes, drawn in real tmux panes (a private
-# server) and gone quiet. supervise.sh nudges the idle prompt, never types into the dialog, and leaves
-# the limit-parked pane alone.
+# frozen_ok <kind> — #180: the CLI's idle pane and its <kind> pane (trust dialog, limit), drawn in
+# real tmux panes (a private server) and gone quiet. supervise.sh nudges the idle prompt and never
+# types into the other. A missing fixture fails the cell: no half of it is skipped (#305).
 frozen_ok(){ ( command -v tmux >/dev/null || exit 1
-  local cli="$HARNESS_CLI" k i
+  local cli="$HARNESS_CLI" other="$1" k i
   export TMUX_TMPDIR="$RUN_DIR/tmux-$cli"; mkdir -p "$TMUX_TMPDIR"; unset TMUX
   export HARNESS_SUPERVISE_CONF=/dev/null HARNESS_SUPERVISE_STATE="$RUN_DIR/sup-$cli" HARNESS_SUPERVISE_LOG="$RUN_DIR/sup-$cli.log"
   source "$HERE/../scripts/supervise.sh"; SUP_DRY=1 CPU_ACTIVE_S=0
   trap 'tmux kill-server 2>/dev/null' EXIT
-  for k in idle trust limit; do [[ -f $FIX/$cli/$k.txt ]] || continue
+  for k in idle "$other"; do [[ -f $FIX/$cli/$k.txt ]] || exit 1
     tmux new-session -d -s "$cli-$k" -x 160 -y 45 "cat '$FIX/$cli/$k.txt'; exec sleep 600"; done
   for (( i = 0; i < 50; i++ )); do tmux capture-pane -p -t "$cli-idle" 2>/dev/null | grep -qE "$(cli_idle_re)" && break; command sleep 0.1; done
   command sleep 0.3
-  for i in 1 2; do for k in idle trust limit; do
+  for i in 1 2; do for k in idle "$other"; do
     sup_watch_pane "$cli-$k" "$SUP_STATE/panes/$cli-$k" 0 0 "nudge-$k" "$cli"; done; done
-  grep -qF "send-keys -t $cli-idle -l nudge-idle" "$SUP_LOG" && not grep -qF "$cli-trust" "$SUP_LOG" &&
-    not grep -qF "$cli-limit" "$SUP_LOG" ); }
+  grep -qF "send-keys -t $cli-idle -l nudge-idle" "$SUP_LOG" && not grep -qF "$cli-$other" "$SUP_LOG" ); }
 # rtdd_event_ok — #186: a lane launched through this CLI calls `rtdd which` from its turn; rtdd sees
 # the session's env through the CLI and logs it, and `harness stats` joins the call to the lane's
 # session and issue.
@@ -415,8 +471,9 @@ sys.exit(0 if os.environ["WANT"] in json.load(open(sys.argv[1]))["skills"]["load
   [[ $(cat "$want/SKILL.md") == "operator own" ]] ); }
 
 rc=0
-for cli in $(cli_list); do
+for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
   ( cli_load "$cli" || exit 1
+    for f in ${HARNESS_MATRIX_STUB:-}; do eval "${cli}_$f(){ :; }"; done
     F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q
     printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"
     SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"
@@ -433,14 +490,18 @@ for cli in $(cli_list); do
     cell "$cli" idle-is-not-busy           not cli_pane_busy "$(pane "$cli" idle)"
     cell "$cli" busy-is-busy               every_busy_is_busy "$cli"
     if [[ -f "$F/trust.txt" ]]; then cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)"
-    elif [[ -s "$F/trust.na" ]]; then na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")"; fi
+    elif [[ -s "$F/trust.na" ]]; then na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")"
+    else cell "$cli" trust-dialog-is-not-prompt false; fi
     cell "$cli" transient-stalls           session_stalled "$(pane "$cli" transient)"
     cell "$cli" idle-never-stalls          not session_stalled "$(pane "$cli" idle)"
     cell "$cli" busy-never-stalls          no_busy_stalls "$cli"
     cell "$cli" limit-parks                session_limit_idle "$(pane "$cli" limit)"
     cell "$cli" transient-is-not-limit     not session_limit_idle "$(pane "$cli" transient)"
-    cli_trust "$WD";  cell "$cli" trust-pre-accepted       cli_trusted "$WD"
-    cell "$cli" bypass-covers-subagents    bypass_ok
+    if [[ -s "$F/trust.na" ]] && trust_noop; then na "$cli" trust-pre-accepted "$(cat "$F/trust.na")"
+    else cell "$cli" trust-pre-accepted       trust_ok; fi
+    cli_trust "$WD"
+    if [[ -s "$F/bypass-subagent.na" ]]; then na "$cli" bypass-covers-subagents "$(cat "$F/bypass-subagent.na")"
+    else cell "$cli" bypass-covers-subagents    bypass_ok; fi
     cell "$cli" done-signal                done_signal_ok "$WD"
     cell "$cli" loop-mode                  loop_ok
     cell "$cli" transcripts-found          test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"
@@ -455,7 +516,10 @@ for cli in $(cli_list); do
     cell "$cli" inject-sessions            inject_ok
     cell "$cli" bug-lane-triage-fix        bug_lane_ok
     cell "$cli" review-gauntlet            review_ok
-    cell "$cli" supervisor-frozen-session  frozen_ok
+    cell "$cli" supervisor-frozen-session  frozen_ok limit
+    if [[ -f "$F/trust.txt" ]]; then cell "$cli" supervisor-skips-trust-dialog frozen_ok trust
+    elif [[ -s "$F/trust.na" ]]; then na "$cli" supervisor-skips-trust-dialog "$(cat "$F/trust.na")"
+    else cell "$cli" supervisor-skips-trust-dialog false; fi
     cell "$cli" rtdd-event-context         rtdd_event_ok
     cell "$cli" prereqs-named              prereqs_ok
     cell "$cli" init-wizard-choice         init_choice_ok
