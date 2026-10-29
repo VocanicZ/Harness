@@ -124,12 +124,10 @@ agy_usage(){ (( $# )) && python3 "$CLI_DIR/agy_usage.py" "$@"; }
 # Usage windows (#194): `agy -p /usage --output-format json` runs no turn and reports each model
 # group's 5h and weekly buckets as remaining_fraction (cli-capabilities Findings 3). Every worker
 # polls usage, so the answer is cached HARNESS_AGY_USAGE_TTL seconds in the usage dir.
-agy_limit_usage(){ local c out now tmp; local -a cmd; c="$(_usage_dir)/agy.tsv"; now="$(date +%s)"
-  if [[ -f "$c" ]] && (( now - $(stat -c %Y "$c") < ${HARNESS_AGY_USAGE_TTL:-120} )); then
-    [[ -s "$c" ]] && { cat "$c"; return 0; }; return 1; fi
-  mkdir -p "$(dirname "$c")"
+agy_limit_usage(){ _cli_usage_cached agy "${HARNESS_AGY_USAGE_TTL:-120}" _agy_limit_usage_fetch; }
+_agy_limit_usage_fetch(){ local -a cmd
   read -ra cmd <<<"$(agy_bin)"   # a command line (#272): timeout runs its words, not a function
-  out="$(timeout 90 "${cmd[@]}" -p "/usage" --output-format json 2>/dev/null | python3 -c 'import json,sys
+  timeout 90 "${cmd[@]}" -p "/usage" --output-format json 2>/dev/null | python3 -c 'import json,sys
 from datetime import datetime
 for g in json.load(sys.stdin)["command"]["data"]["groups"]:
     for b in g.get("buckets") or []:
@@ -146,12 +144,7 @@ for g in json.load(sys.stdin)["command"]["data"]["groups"]:
             acct, win = g.get("name") or "agy", b.get("window") or b.get("id")
             print(f"{acct}\t{win}\t{round((1 - rf) * 100, 1)}\t{reset}")
         except (AttributeError, TypeError):
-            continue' 2>/dev/null)"
-  # Every worker reads this cache: write a temp file beside it and rename, so no reader sees it half
-  # written.
-  tmp="$(mktemp "$c.XXXXXX")" || return 1
-  printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
-  [[ -n "$out" ]] && echo "$out"; }
+            continue'; }
 
 # --- prerequisites ------------------------------------------------------------------------------
 # The binary, plus the harness-ralph plugin (plugins/ralph-loop): agy's Stop hook that IS the goal

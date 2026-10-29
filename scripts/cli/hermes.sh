@@ -257,6 +257,33 @@ for m, t in sorted(tot.items()):
     print(m, *t, sep="\t")
 PY
 }
+# Usage windows (#194, #304): `hermes usage --json` fetches the configured provider's account limits
+# (openai-codex, anthropic OAuth, openrouter): {provider, windows: [{label, used_percent, resets_at}]}
+# (usage-windows.json); a provider with no usage endpoint (copilot) exits 1 (usage-none.txt). It runs
+# in the newest lane's profile — the provider and login every lane runs on (_hermes_seed) — or the
+# operator's home before any lane has one. A fetch per poll per worker would hit the provider's own
+# rate limit, so the answer is cached HARNESS_HERMES_USAGE_TTL seconds in the usage dir.
+hermes_limit_usage(){ _cli_usage_cached hermes "${HARNESS_HERMES_USAGE_TTL:-120}" _hermes_limit_usage_fetch; }
+_hermes_usage_home(){ local p
+  p="$(ls -td "$(_hermes_op_home)"/profiles/harness*/ 2>/dev/null | head -1)"
+  p="${p%/}"; echo "${p:-$(_hermes_op_home)}"; }
+_hermes_limit_usage_fetch(){ local -a cmd; read -ra cmd <<<"$(hermes_bin)"
+  HERMES_HOME="$(_hermes_usage_home)" timeout 90 "${cmd[@]}" usage --json 2>/dev/null | python3 -c 'import json, sys, time
+from datetime import datetime
+d, now = json.load(sys.stdin), time.time()
+acct = d.get("provider") or "hermes"
+for w in d.get("windows") or []:
+    # One malformed window (no percent, a bad reset) skips that row only; an unknown reset is 0.
+    try:
+        pct, reset = w.get("used_percent"), w.get("resets_at")
+        if pct is None:
+            continue
+        reset = int(datetime.fromisoformat(reset.replace("Z", "+00:00")).timestamp()) if reset else 0
+        if 0 < reset <= now:
+            continue
+        print(acct, w["label"], round(float(pct), 1), reset, sep="\t")
+    except (AttributeError, TypeError, ValueError, KeyError):
+        continue'; }
 
 # --- the Harness-driven goal loop (lib.sh goal_loop_tick) -----------------------------------------
 # hermes_last_reply <wd> <session id> — the id of the last user message (a prompt, a redirect, or the

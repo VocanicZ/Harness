@@ -177,6 +177,43 @@ assert_eq "$(cli_transcripts "$WD" 99999999-8888-7777-6666-555555555555)" "" "�
 assert_eq "$(cli_session_id "$WD" "$SID")" "$SID" "the session id is the launch's own (the matrix's session fixture)"
 assert_eq "$(cli_usage $(cli_transcripts "$WD" "$SID"))" "$(cat "$F/usage.expected")" "…whose transcript cli_transcripts finds and cli_usage folds"
 
+# --- usage windows: `openclaw status --usage --json`'s usage.providers ---------------------------
+# The stub logs its argv, then prints $OU_OUT (a status document).
+cat > "$RUN_DIR/bin/openclaw-usage" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$OU_CALLS"; cat "$OU_OUT"
+STUB
+chmod +x "$RUN_DIR/bin/openclaw-usage"; export OU_CALLS="$RUN_DIR/ou.calls" OU_OUT="$RUN_DIR/ou.json"
+# ou_doc <reset epoch> [python edit] — the real capture with every window's reset moved to <reset>.
+ou_doc(){ python3 - "$F/usage-windows.json" "$OU_OUT" "$1" "${2:-}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for p in d["usage"]["providers"]:
+    for w in p["windows"]:
+        w["resetAt"] = int(sys.argv[3]) * 1000
+exec(sys.argv[4])
+json.dump(d, open(sys.argv[2], "w"))
+PY
+}
+ou(){ rm -rf "$(_usage_dir)"; ( unset HARNESS_USAGE_CMD; HARNESS_OPENCLAW_BIN="$RUN_DIR/bin/openclaw-usage" cli_limit_usage ); }
+future=$(( $(date +%s) + 3600 ))
+ou_doc "$future"; : > "$OU_CALLS"
+assert_eq "$(ou)" "$(printf 'anthropic\t5h\t2.0\t%s\nanthropic\tWeek\t69.0\t%s' "$future" "$future")" \
+  "every window a provider reports: <provider> <label> <pct used> <reset epoch>"
+assert_eq "$(cat "$OU_CALLS")" "status --usage --json" "…read from status --usage --json"
+: > "$OU_CALLS"; ou >/dev/null
+( unset HARNESS_USAGE_CMD; HARNESS_OPENCLAW_BIN="$RUN_DIR/bin/openclaw-usage" cli_limit_usage >/dev/null )
+assert_eq "$(wc -l < "$OU_CALLS")" 1 "a second poll within HARNESS_OPENCLAW_USAGE_TTL reads the cache"
+ou_doc "$future" 'd["usage"]["providers"] = [{"provider": "openai-codex", "windows": [], "error": "HTTP 401"},
+    {"provider": "minimax", "windows": [{"label": "5h", "groupLabel": "Text", "usedPercent": 40}]}] + d["usage"]["providers"]
+d["usage"]["providers"][2]["windows"][0]["usedPercent"] = None'
+assert_eq "$(ou)" "$(printf 'minimax\tText 5h\t40.0\t0\nanthropic\tWeek\t69.0\t%s' "$future")" \
+  "every provider's windows: a failed provider adds none, a group labels its window, no reset reads 0, a bad row is skipped"
+ou_doc "$(( $(date +%s) - 60 ))"
+assert_no "a passed reset is no window: rc 1" ou
+cp "$F/usage-none.json" "$OU_OUT"
+assert_no "no provider usage (usage-none.json): rc 1" ou
+
 col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="openclaw" && $3!="ok" && $3 !~ /^n\/a:/')"
 assert_eq "$col" "" "every openclaw matrix cell is ok or n/a"
 finish

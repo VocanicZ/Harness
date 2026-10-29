@@ -97,6 +97,19 @@ cli_bg_re(){ _cli_call bg_re; }                        # ERE: footer timers/coun
 cli_limit_usage(){
   if [[ -n "${HARNESS_USAGE_CMD:-}" ]]; then bash -c "$HARNESS_USAGE_CMD"; return; fi
   _cli_call limit_usage; }
+# _cli_usage_cached <name> <ttl> <fn> — the usage lines <fn> prints, cached <ttl> seconds in the usage
+# dir as <name>.tsv (an empty cache = none: rc 1). For a CLI whose usage source is a command that
+# fetches from the provider: every worker polls usage, so one fetch serves them all.
+_cli_usage_cached(){ local c out now tmp; c="$(_usage_dir)/$1.tsv"; now="$(date +%s)"
+  if [[ -f "$c" ]] && (( now - $(stat -c %Y "$c") < $2 )); then
+    [[ -s "$c" ]] && { cat "$c"; return 0; }; return 1; fi
+  mkdir -p "$(dirname "$c")"
+  out="$("$3" 2>/dev/null)"
+  # Every worker reads this cache: write a temp file beside it and rename, so no reader sees it half
+  # written.
+  tmp="$(mktemp "$c.XXXXXX")" || return 1
+  printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
+  [[ -n "$out" ]] && echo "$out"; }
 
 # --- the skills the prompts name (#303) -------------------------------------------------------
 # cli_skills_dir — where this CLI loads user skills from: its own dir (cli_user_skills_dir), else

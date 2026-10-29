@@ -91,6 +91,22 @@ with open(sys.argv[2], "w") as out:
         print(json.dumps(d), file=out)
 PY
       ;;
+    hermes|openclaw) bin="$RUN_DIR/bin/$cli"; mkdir -p "${bin%/*}"
+      python3 - "$FIX/$cli/usage-windows.json" "$RUN_DIR/$cli-usage.json" <<'PY'
+import json, sys, time
+from datetime import datetime, timezone
+d = json.load(open(sys.argv[1]))
+reset = time.time() + 3600                     # a passed reset is (correctly) skipped
+for w in d.get("windows") or []:               # hermes usage --json
+    w["resets_at"] = datetime.fromtimestamp(reset, timezone.utc).isoformat()
+for p in (d.get("usage") or {}).get("providers") or []:   # openclaw status --usage --json
+    for w in p["windows"]:
+        w["resetAt"] = int(reset * 1000)
+json.dump(d, open(sys.argv[2], "w"))
+PY
+      if [[ $cli == hermes ]]; then printf '#!/bin/sh\n[ "$1 $2" = "usage --json" ] && exec cat %q\nexit 2\n' "$RUN_DIR/$cli-usage.json" > "$bin"
+      else printf '#!/bin/sh\n[ "$1 $2 $3" = "status --usage --json" ] && exec cat %q\nexit 2\n' "$RUN_DIR/$cli-usage.json" > "$bin"; fi
+      chmod +x "$bin"; export "HARNESS_${cli^^}_BIN=$bin" ;;
   esac
   got="$(unset HARNESS_USAGE_CMD; cli_limit_usage | cut -f1-3 | sort)"
   [[ -n "$got" && "$got" == "$(sort "$FIX/$cli/usage-windows.expected")" ]] ); }
