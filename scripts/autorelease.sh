@@ -2,7 +2,8 @@
 # autorelease.sh — the fleet cuts its own Harness releases (#283, PRD #274). Sourced by drive.sh (so
 # by pool-worker.sh and priority-worker.sh too), after lib.sh. Two triggers, both only for the
 # Harness repo itself ($HARNESS_RELEASE_REPO), never another target repo:
-#   - a reviewed PRD the engine closes (close_prd)  → one `harness release` for that close
+#   - a reviewed PRD the engine closes (close_prd)  → queued in `pending` as prd:<n>; release_tick
+#     releases it at once, and keeps it queued through a running job or an errored release (#326)
 #   - a merged bug fix (reap_team, drive_bug, reap_pool_bugs) → queued in `pending`; release_tick
 #     cuts one patch release once the oldest queued fix is $HARNESS_RELEASE_THROTTLE seconds old, so
 #     a burst of fixes is one release covering all of them and a late fix waits, never drops
@@ -10,7 +11,7 @@
 # re-run on it: the fix for that bug is a new commit, which is released like any other.
 # State lives host-wide in $HARNESS_AUTORELEASE_DIR (release.sh writes its gate logs there too):
 #   prd-<n>             a release was triggered for PRD <n> (CLOSE_PRD is re-emitted every poll)
-#   pending             "<epoch>\t<issue>" per merged fix not yet released
+#   pending             "<epoch>\t<issue>" per merged fix, "<epoch>\tprd:<n>" per PRD close, not yet released
 #   gate-failed-<sha>   the gate failed at <sha>; holds the bug issue filed for it, once filed
 #   retry-after         epoch before which release_tick does not retry a release that errored
 #   release.pid/.log    the background release job, stopped only by this PID
@@ -23,12 +24,16 @@ release_repo(){ echo "${HARNESS_RELEASE_REPO:-VocanicZ/Harness}"; }
 release_repo_is_engine(){ [[ -n "${1:-}" && "${1,,}" == "$(release_repo | tr '[:upper:]' '[:lower:]')" ]]; }
 
 # release_on_prd_close <prd> — one release per reviewed PRD close; the marker makes the re-emitted
-# CLOSE_PRD polls no-ops (noclobber: the first creator wins even across lanes).
-release_on_prd_close(){ local prd="$1" d; release_repo_is_engine "${SLUG:-}" || return 0
+# CLOSE_PRD polls no-ops (noclobber: the first creator wins even across lanes). The close is queued,
+# not kicked: a running job or an errored release leaves it in `pending` for the next tick (#326).
+release_on_prd_close(){ local prd="$1" d lockfd; release_repo_is_engine "${SLUG:-}" || return 0
   d="$(release_dir)"; mkdir -p "$d"
   ( set -o noclobber; : > "$d/prd-$prd" ) 2>/dev/null || return 0
   log "auto-release: PRD #$prd closed in $SLUG — releasing"
-  release_kick "prd:$prd"; }
+  exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
+  printf '%s\tprd:%s\n' "$(release_now)" "$prd" >> "$d/pending"
+  flock -u "$lockfd"; exec {lockfd}>&-
+  release_tick; }
 
 # release_on_bug_merge <n> — queue merged fix #n for the next throttled patch release (once per issue).
 release_on_bug_merge(){ local n="$1" d lockfd; release_repo_is_engine "${SLUG:-}" || return 0
@@ -40,15 +45,19 @@ release_on_bug_merge(){ local n="$1" d lockfd; release_repo_is_engine "${SLUG:-}
   fi
   flock -u "$lockfd"; exec {lockfd}>&-; }
 
-# release_tick — once per poll: a patch release when the oldest queued fix has waited the throttle.
-release_tick(){ local d now oldest nums after; release_repo_is_engine "${SLUG:-}" || return 0
+# release_tick — once per poll: a release when a PRD close is queued (no throttle), or a patch release
+# when the oldest queued fix has waited the throttle; never before `retry-after`.
+release_tick(){ local d now oldest prds nums after; release_repo_is_engine "${SLUG:-}" || return 0
   d="$(release_dir)"; [[ -s "$d/pending" ]] || return 0
   now="$(release_now)"
   after="$(cat "$d/retry-after" 2>/dev/null)"; [[ -n "$after" ]] && (( now < after )) && return 0
-  oldest="$(awk -F'\t' 'NR==1||$1<m{m=$1} END{print m}' "$d/pending")"
-  [[ -n "$oldest" ]] && (( now - oldest >= ${HARNESS_RELEASE_THROTTLE:-3600} )) || return 0
-  nums="$(cut -f2 "$d/pending" | paste -sd, -)"
-  release_kick "bug:$nums"; }
+  prds="$(cut -f2 "$d/pending" | grep '^prd:' | paste -sd' ' -)"
+  nums="$(cut -f2 "$d/pending" | grep -v '^prd:' | paste -sd, -)"
+  if [[ -z "$prds" ]]; then
+    oldest="$(awk -F'\t' 'NR==1||$1<m{m=$1} END{print m}' "$d/pending")"
+    [[ -n "$oldest" ]] && (( now - oldest >= ${HARNESS_RELEASE_THROTTLE:-3600} )) || return 0
+  fi
+  release_kick "$prds${prds:+${nums:+ }}${nums:+bug:$nums}"; }
 
 # release_tick_lane — the priority lane's release_tick: the bug lane outlives a completed unit, so
 # the fixes it merges are released even when no drive_unit poll is running for the Harness repo.
@@ -61,7 +70,8 @@ release_tick_lane(){ local repo SLUG CHECKOUT
 
 # release_kick <reason> — release_run as a background job (it runs the whole suite as its gate).
 # fd 9 is closed for it: start.sh's double-start lock must not be held by a job that outlives it.
-# One job at a time: while one is live, a new kick is covered by it (or by the next tick).
+# One job at a time: while one is live, a new kick starts nothing; what it was for stays queued in
+# `pending` unless that job's release covers it, so the next tick releases it.
 release_kick(){ local d pid; d="$(release_dir)"; mkdir -p "$d"
   pid="$(cat "$d/release.pid" 2>/dev/null)"
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then return 0; fi
@@ -74,11 +84,14 @@ release_head(){ local base; base="$(default_branch)"
   git -C "$CHECKOUT" rev-parse -q --verify "origin/$base^{commit}" 2>/dev/null; }
 
 # release_run <reason> — run `harness release` for the default branch's head, one at a time.
-release_run(){ local reason="$1" d lockfd start sha rc
+# What it covers is the `pending` it saw before resolving the head: an entry queued after that may
+# postdate the commit it releases, so it stays queued for the next tick.
+release_run(){ local reason="$1" d lockfd plock start covered sha rc
   d="$(release_dir)"; mkdir -p "$d"
   exec {lockfd}>"$d/lock"
-  flock -n "$lockfd" || { exec {lockfd}>&-; log "auto-release: a release is already running — $reason is covered by it"; return 0; }
+  flock -n "$lockfd" || { exec {lockfd}>&-; log "auto-release: a release is already running — $reason stays queued for the next tick"; return 0; }
   start="$(release_now)"
+  exec {plock}>"$d/pending.lock"; flock "$plock"; covered="$(cat "$d/pending" 2>/dev/null)"; flock -u "$plock"; exec {plock}>&-
   sha="$(release_head)"
   if [[ -z "$sha" ]]; then
     log "auto-release: cannot resolve the default branch of $CHECKOUT — $reason not released"
@@ -91,7 +104,7 @@ release_run(){ local reason="$1" d lockfd start sha rc
   ( cd "$CHECKOUT" && HARNESS_RELEASE_REASON="$reason" HARNESS_RELEASE_REPO="$(release_repo)" \
       HARNESS_AUTORELEASE_DIR="$d" bash "${HARNESS_RELEASE_CMD:-$ENGINE_DIR/scripts/release.sh}" --ref "$sha" ); rc=$?
   case "$rc" in
-    0) release_clear_pending "$start"; rm -f "$d/retry-after"
+    0) release_clear_pending "$covered"; rm -f "$d/retry-after"
        log "auto-release: released ${sha:0:7} ($reason)"
        harness_event release_published reason="$reason" sha="$sha";;
     4) : > "$d/gate-failed-$sha"
@@ -103,11 +116,11 @@ release_run(){ local reason="$1" d lockfd start sha rc
   esac
   flock -u "$lockfd"; exec {lockfd}>&-; return 0; }
 
-# release_clear_pending <epoch> — drop the queued fixes a release starting at <epoch> covered.
-release_clear_pending(){ local d tmp lockfd; d="$(release_dir)"; [[ -f "$d/pending" ]] || return 0
+# release_clear_pending <entries> — drop the queued entries (lines of `pending`) a release covered.
+release_clear_pending(){ local d tmp lockfd; d="$(release_dir)"; [[ -f "$d/pending" && -n "$1" ]] || return 0
   exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
   tmp="$(mktemp "$d/pending.XXXXXX")" \
-    && awk -F'\t' -v s="$1" '$1 >= s' "$d/pending" > "$tmp" && mv -f "$tmp" "$d/pending"
+    && awk 'NR==FNR{c[$0]=1; next} !($0 in c)' <(printf '%s\n' "$1") "$d/pending" > "$tmp" && mv -f "$tmp" "$d/pending"
   flock -u "$lockfd"; exec {lockfd}>&-; }
 
 # release_gate_bug <sha> <reason> — file one bug issue for a red gate at <sha>, idempotently: the

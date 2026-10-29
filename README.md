@@ -670,7 +670,9 @@ no-op. Exit codes: `0` released (or already), `2` configuration, `3` environment
 **The fleet cuts releases itself.** A fleet working on the Harness repo (and only that repo,
 `HARNESS_RELEASE_REPO`, default `VocanicZ/Harness`) runs `harness release` on two triggers:
 
-- **A reviewed PRD closes** — one release for that close.
+- **A reviewed PRD closes** — one release for that close, on a commit at or after it. The close is
+  queued, not fired once: a release already running, or one that errored, leaves it queued until a
+  release that started after the close succeeds.
 - **A bug fix merges** — queued; one patch release is cut once the oldest queued fix is
   `HARNESS_RELEASE_THROTTLE` seconds old (default `3600`, so at most one an hour), covering every fix
   queued by then.

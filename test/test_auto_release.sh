@@ -8,8 +8,10 @@ source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$H
 make_env
 export HARNESS_RELEASE_REPO=acme/harness HARNESS_AUTORELEASE_DIR="$RUN_DIR/autorelease"
 RLOG="$RUN_DIR/release.log"; GH_LOG="$RUN_DIR/gh.log"; EV="$RUN_DIR/events"; : > "$RLOG"; : > "$GH_LOG"; : > "$EV"
-# Stub release command: logs the reason it was run for, exits $STUB_RC (4 = the gate failed).
-printf '#!/usr/bin/env bash\necho "$HARNESS_RELEASE_REASON" >> %q\nexit "${STUB_RC:-0}"\n' "$RLOG" > "$RUN_DIR/release"
+# Stub release command: logs the reason it was run for (and the --ref to $REFS), exits $STUB_RC
+# (4 = the gate failed).
+REFS="$RUN_DIR/refs"; : > "$REFS"
+printf '#!/usr/bin/env bash\necho "$HARNESS_RELEASE_REASON" >> %q\necho "$2" >> %q\nexit "${STUB_RC:-0}"\n' "$RLOG" "$REFS" > "$RUN_DIR/release"
 chmod +x "$RUN_DIR/release"; export HARNESS_RELEASE_CMD="$RUN_DIR/release"
 gh(){ echo "$*" >> "$GH_LOG"
   case "$1 $2" in
@@ -81,6 +83,34 @@ assert_eq "$(grep -c . "$RLOG")" 1 "an errored release is not retried every poll
 HARNESS_NOW=$((t0+7200)) release_tick
 assert_eq "$(grep -c . "$RLOG")" 2 "it is retried once the throttle has passed"
 assert_eq "$(grep -c . "$HARNESS_AUTORELEASE_DIR/pending")" 0 "and the released fix leaves the queue"
+
+# ── #326: a PRD close while a release job is running is queued and released after it, not dropped ──
+: > "$RLOG"; : > "$REFS"; rm -f "$HARNESS_AUTORELEASE_DIR/pending" "$HARNESS_AUTORELEASE_DIR/retry-after"
+echo 1111111a > "$RUN_DIR/head"
+# The running job resolves its head, then PRD #279's last child merges and the PRD closes mid-run.
+release_head(){ cat "$RUN_DIR/head"; [[ -f "$HARNESS_AUTORELEASE_DIR/prd-279" ]] && return 0
+  close_prd 279 >/dev/null 2>&1; echo 2222222b > "$RUN_DIR/head"; }
+release_run bug:35
+release_head(){ cat "$RUN_DIR/head"; }
+assert_eq "$(cat "$RLOG")" "bug:35" "a PRD close while a release runs starts no second job"
+assert_ok "the close is queued, not dropped" grep -qP '\tprd:279$' "$HARNESS_AUTORELEASE_DIR/pending"
+release_tick
+assert_eq "$(tail -1 "$RLOG")" "prd:279" "the next tick releases the PRD after that job finished"
+assert_eq "$(tail -1 "$REFS")" 2222222b "on a commit at or after the close"
+release_tick; close_prd 279 >/dev/null 2>&1; release_tick
+assert_eq "$(grep -c . "$RLOG")" 2 "re-emitted CLOSE_PRD polls for that PRD release nothing more"
+assert_eq "$(grep -c . "$HARNESS_AUTORELEASE_DIR/pending")" 0 "and the released PRD leaves the queue"
+
+# ── #326: a PRD-close release that errored (rc 3) is retried after retry-after, no bug queued ──
+: > "$RLOG"; echo 3333333c > "$RUN_DIR/head"
+HARNESS_NOW=$t0 STUB_RC=3 close_prd 280 >/dev/null 2>&1
+HARNESS_NOW=$((t0+600)) release_tick
+assert_eq "$(grep -c . "$RLOG")" 1 "an errored PRD release is not retried before retry-after"
+HARNESS_NOW=$((t0+3600)) release_tick
+assert_eq "$(cat "$RLOG")" "prd:280
+prd:280" "it is retried by release_tick once retry-after has passed, with an empty bug queue"
+HARNESS_NOW=$((t0+7200)) release_tick; HARNESS_NOW=$((t0+7200)) close_prd 280 >/dev/null 2>&1
+assert_eq "$(grep -c . "$RLOG")" 2 "once released, neither the tick nor a re-emitted close releases it again"
 
 # ── the triggers are wired where fixes merge and where the lanes poll ──
 MERGED="$RUN_DIR/merged"; : > "$MERGED"
