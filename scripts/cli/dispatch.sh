@@ -30,6 +30,8 @@ _cli_call(){ local fn="$1" cli="${HARNESS_CLI:-claude}"; shift
 
 # --- defaults: an adapter overrides only what its CLI needs -----------------------------------
 _cli_default_lane_settings(){ :; }
+# The model and effort the line's --model/--effort name (`--model x` or `--model=x`).
+_cli_default_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--effort[= ]')"; }
 _cli_default_first_input(){ :; }
 _cli_default_send(){ tmux send-keys -t "$1" -l "$3" 2>/dev/null || true; tmux send-keys -t "$1" Enter 2>/dev/null || true; }
 _cli_default_kill(){ tmux kill-session -t "$1" 2>/dev/null; }
@@ -62,6 +64,7 @@ cli_bin(){ _cli_call bin "$@"; }                       # the command line that r
 cli_exe(){ _cli_exe "$(cli_bin)"; }                    # its executable: what to look for on PATH, or match a pane against
 cli_launch(){ _cli_call launch "$@"; }                 # <wd> <uuid> <model> <effort> → the line typed into the pane
 cli_lane_settings(){ _cli_call lane_settings "$@"; }   # <wd> → per-lane settings written outside the launch line
+cli_model_effort(){ _cli_call model_effort "$@"; }     # <launch line> <wd> → <model>\t<effort> the launch runs with ('' = the CLI's default)
 cli_first_input(){ _cli_call first_input "$@"; }       # <effort> → lines typed once the prompt first shows
 cli_send(){ _cli_call send "$@"; }                     # <sess> <wd> <text> → deliver a line to the running agent
 cli_kill(){ _cli_call kill "$@"; }                     # <sess> <wd> → end the session
@@ -174,6 +177,11 @@ _cli_flags(){ local f=" $1 "
   [[ -n "$2" ]] && f="$(sed -E 's/ --model[= ][^ ]+//g' <<<"$f") --model $2"
   [[ -n "$3" ]] && f="$(sed -E 's/ --effort[= ][^ ]+//g' <<<"$f") --effort $3"
   f="$(tr -s ' ' <<<"$f")"; f="${f# }"; echo "${f% }"; }
+# _cli_line_opt <line> <ERE: an option and its separator> — the value the LAST such option in a launch
+# line gives (up to the next space, quotes dropped); empty when the line names none. `(-m|--model)[= ]`
+# reads `-m x`, `--model x` and `--model=x`; `-c model_reasoning_effort=` reads codex's config override.
+_cli_line_opt(){ local v; v="$(grep -oE -- "(^| )($2)[^ ]+" <<<"$1" | tail -1)"; v="${v# }"
+  v="$(sed -E "s/^($2)//" <<<"$v")"; v="${v//\"/}"; printf '%s' "${v//\'/}"; }
 
 for _cli_f in "$CLI_DIR"/*.sh; do [[ "${_cli_f##*/}" == dispatch.sh || "${_cli_f##*/}" == *-loop.sh ]] || source "$_cli_f"; done
 unset _cli_f

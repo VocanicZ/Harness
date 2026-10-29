@@ -54,7 +54,7 @@ def test_launch_then_session_end_writes_usage_totals_including_subagents():
             fh.write("---\nactive: true\niteration: 4\n---\n")
         assert st.main(["emit", "launch", "--write-ctx", ctx, "-c", "prefix=hz", "-c", "repo=acme/widget",
                         "-c", "unit=main", f"session={FIXTURE_SID}", "goal=ISSUE:7", "prd=5",
-                        f"worktree={wt}", "flags=--dangerously-skip-permissions --effort high --model opus"]) == 0
+                        f"worktree={wt}", "model=opus", "effort=high"]) == 0
         saved = json.load(open(ctx))
         assert saved["session"] == FIXTURE_SID and saved["issue"] == 7 and saved["prd"] == 5, saved
         assert saved["model"] == "opus" and saved["effort"] == "high" and saved["kind"] == "impl", saved
@@ -67,17 +67,15 @@ def test_launch_then_session_end_writes_usage_totals_including_subagents():
         assert end["ralph_iter"] == 4 and isinstance(end["wall_s"], int), end
         assert "launched" not in end and "flags" not in end, end
 
-def test_model_comes_from_worktree_settings_when_flags_name_none():
-    d = tempfile.mkdtemp()
-    try:
-        os.makedirs(os.path.join(d, ".claude"))
-        with open(os.path.join(d, ".claude", "settings.local.json"), "w") as fh:
-            json.dump({"model": "sonnet"}, fh)
-        assert st.model_effort("--effort=max", d) == ("sonnet", "max")
-        assert st.model_effort("--model=opus --effort high", d) == ("opus", "high")
-        assert st.model_effort("", None) == (None, None)
-    finally:
-        shutil.rmtree(d)
+def test_launch_model_and_effort_are_the_callers_never_parsed_from_flags():
+    # #307: the CLI adapter reads them (cli_model_effort; test_cli_seam.sh, the matrix's
+    # stats-launch-model-effort row). A claude-spelled flag line is not parsed here any more.
+    with host() as d:
+        assert st.main(["emit", "launch", "session=s1", "flags=--model opus --effort high"]) == 0
+        assert st.main(["emit", "launch", "session=s2", "model=gpt-5.6-luna", "effort=low"]) == 0
+        a, b = events(d)
+        assert "model" not in a and "effort" not in a, a
+        assert b["model"] == "gpt-5.6-luna" and b["effort"] == "low", b
 
 def test_goal_fields():
     assert st.goal_fields("ISSUE:23") == {"kind": "impl", "issue": 23}
@@ -258,10 +256,6 @@ def test_edge_paths_degrade_quietly():
     d = tempfile.mkdtemp()
     try:
         assert st.parse_ts("") is None and st.parse_ts("nope") is None
-        os.makedirs(os.path.join(d, ".claude"))
-        with open(os.path.join(d, ".claude", "settings.json"), "w") as fh:
-            json.dump({"model": "haiku"}, fh)
-        assert st.model_effort("", d) == ("haiku", None)   # no settings.local.json → settings.json
         assert st.ralph_iter(os.path.join(d, "missing")) is None
         assert st.find_transcript("no-such-session", [FIXTURE_CFG]) is None
         acc, span = {}, [None, None]

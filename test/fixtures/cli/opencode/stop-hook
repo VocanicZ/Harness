@@ -6,7 +6,7 @@
 # the prompt the plugin then sends into the session (the script's `reason`), nothing when the loop
 # has ended. test_cli_opencode.sh drives the plugin itself under node, where node is installed.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-py="$here/../../../../plugins/codex/harness-ralph/hooks/stop-hook.py"
+py="$here/../../../../scripts/goal_loop.py"
 python3 -c 'import json, sys
 print(json.dumps({"cwd": sys.argv[1], "session_id": sys.argv[2], "last_assistant_message": sys.argv[3]}))' "$1" "$2" "${3:-(working)}" |
   ( cd "$1" && python3 "$py" ) | python3 -c 'import json, sys

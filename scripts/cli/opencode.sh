@@ -28,6 +28,10 @@ _opencode_flags(){ local f=" $1 "
 opencode_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "OPENCODE_CONFIG_CONTENT=$(_opencode_sq "$(_opencode_config "$effort")") OPENCODE_HARNESS_LOOP=$(_opencode_sq "${GOAL_LOOP_PY:-}")" \
     "OPENCODE_DISABLE_AUTOUPDATE=1 exec $(opencode_bin) $(_opencode_flags "${HARNESS_OPENCODE_FLAGS:-}" "$model") --prompt \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+# The model -m/--model names; the effort is the build agent's variant in the line's inline config.
+opencode_model_effort(){ local effort
+  effort="$(_opencode_line_config "$1" | python3 -c 'import json, sys; print(((json.load(sys.stdin).get("agent") or {}).get("build") or {}).get("variant") or "")' 2>/dev/null)"
+  printf '%s\t%s\n' "$(_cli_line_opt "$1" '(-m|--model)[= ]')" "$effort"; }
 # _opencode_config <effort> — the lane's inline config, one line of JSON.
 _opencode_config(){ PLUGIN="$CLI_DIR/opencode-ralph.js" EFFORT="$1" python3 -c 'import json, os, pathlib
 c = {"plugin": [pathlib.Path(os.environ["PLUGIN"]).resolve().as_uri()], "permission": {"question": "deny"}}
