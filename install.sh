@@ -372,7 +372,8 @@ create_host_root(){
 # (~/.claude/skills) ONCE per host, not vendored per project (#57, PRD #52). Source is the shared
 # engine's skill/ dir (place_engine runs first in main); the umbrella skill/SKILL.md → harness/, and
 # each skill/<name>/ → <name>/, whole (harness-arc ships REFERENCE.md + scripts/ beside its SKILL.md).
-# That includes the handoff skill every checkpoint names (#303), never over the operator's own.
+# That includes every skill the lane prompts name (#303, #315): the handoff skill, and to-prd, to-issues,
+# writing-plans, caveman and subagent-task-tree vendored from upstream — never over the operator's own.
 # Best-effort: a missing source warns, never fails.
 install_harness_skills(){
   local src="${HARNESS_SKILL_SRC:-${HARNESS_HOME:-$HOME/.harness}/engine/skill}"
@@ -411,8 +412,8 @@ install_harness_skills(){
 }
 
 # _place_skill <src dir> <dst dir> — copy one engine skill dir whole. A skill the prompts name rather
-# than a /harness one (skill/handoff, #303) carries a `<!-- harness-skill:` line; a same-named skill
-# already there WITHOUT that line is the operator's own and is left alone.
+# than a /harness one (skill/handoff and the vendored ones, #303, #315) carries a `<!-- harness-skill:`
+# line; a same-named skill already there WITHOUT that line is the operator's own and is left alone.
 _place_skill(){ local m='<!-- harness-skill:'
   if grep -qF "$m" "$1/SKILL.md" && [[ -f "$2/SKILL.md" ]] && ! grep -qF "$m" "$2/SKILL.md"; then return 0; fi
   mkdir -p "$2" && cp -R "$1." "$2/"; }

@@ -10,7 +10,7 @@ GOAL: produce PLAN.md for {{PROJECT}} and commit+push it to this repo's default 
 Steps:
 1. Read the spec at {{SPEC}} — focus on the {{PROJECT}} scope, its acceptance gates,
    and any sections it references. Scope strictly to {{PROJECT}}; do NOT design other modules.
-2. Invoke the `writing-plans` skill to produce a concrete implementation plan for {{PROJECT}} only.
+2. Invoke the {{skill:writing-plans}} skill to produce a concrete implementation plan for {{PROJECT}} only.
    Write it to PLAN.md in this repo root.
 3. Commit PLAN.md and push to the default branch:
      git add PLAN.md && git commit -m "plan({{PROJECT}}): implementation plan" && git push

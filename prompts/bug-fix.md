@@ -4,7 +4,7 @@ The bug was already triaged: issue #{{ISSUE}} carries `{{LABEL_BUG_TRIAGED}}` an
 acceptance criteria have been refined for you. Implement against THAT refined issue.
 Running in a DEDICATED git worktree on a feature branch. State persists in git + GitHub.
 
-OUTPUT STYLE — invoke the `caveman` skill at session start; keep all explanatory prose in
+OUTPUT STYLE — invoke the {{skill:caveman}} skill at session start; keep all explanatory prose in
 caveman mode to conserve tokens (no human reads it live). Keep these EXACT and uncompressed:
 commit messages incl. `(closes #{{ISSUE}})`, PR title/body, code & test names, the
 `<!-- harness-handoff … -->` marker line, label names, and the literal `<promise>{{PROMISE}}</promise>`.
@@ -94,7 +94,7 @@ credential. Provision runtimes yourself, make ambiguous calls yourself and docum
 issue comment, and drive the bug to closed. If a route seems impossible, find another.
 
 CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT": stop, commit ALL
-WIP and push your branch, run the {{HANDOFF_SKILL}} skill and post the handoff as a GitHub issue
+WIP and push your branch, run the {{skill:handoff}} skill and post the handoff as a GitHub issue
 comment whose first line is
 `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
 --remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.

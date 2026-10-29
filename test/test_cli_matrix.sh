@@ -539,6 +539,50 @@ sys.exit(0 if os.environ["WANT"] in json.load(open(sys.argv[1]))["skills"]["load
   cli_prereqs --install >/dev/null 2>&1
   ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
   [[ $(cat "$want/SKILL.md") == "operator own" ]] ); }
+# prompt_skills — every skill prompts/*.md name, read off the prompts themselves: each {{skill:<name>}}.
+# A skill named any other way ("`x` skill", "the x skill", "skill `x`") fails: render() would hand it
+# to the CLI verbatim, and cli_prereqs would never check it.
+prompt_skills(){ local raw
+  raw="$(grep -ohE '[^ ]+ skill\b|skill `[^`]+`' "$HERE"/../prompts/*.md | grep -vE '^\{\{skill:[A-Za-z0-9_.-]+\}\} skill$|^the skill$')"
+  [[ -z $raw ]] || { echo "a prompt names a skill outside {{skill:<name>}}: $raw" >&2; return 1; }
+  grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$HERE"/../prompts/*.md | sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u; }
+# prompt_skills_ok — #315: each skill a lane prompt names (prompt_skills) is one `harness setup`
+# (cli_prereqs) lists for this CLI, MISSING on a host without it; --install and install.sh
+# (install_harness_skills) place the engine's skill/<name> where the CLI loads user skills from
+# (fixtures/cli/<cli>/skills-dir); every rendered prompt names it as this CLI invokes a skill
+# (handoff-skill: `$handoff` on codex, `handoff` on hermes); an operator's own same-named skill is kept.
+# rtdd's skill is rtdd's own (rtdd skill install): listed, a warning when absent, never Harness's copy.
+prompt_skills_ok(){ ( local d="$RUN_DIR/prompt-skills-$HARNESS_CLI" bin out names n dir t r
+  names="$(prompt_skills)" || exit 1; [[ -n $names ]] || exit 1
+  export HOME="$d/home"; mkdir -p "$HOME" "$d/bin"
+  unset CLAUDE_CONFIG_DIR COPILOT_HOME HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS \
+    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS
+  bin="$(cli_bin)"; dir="$HOME/$(cat "$FIX/$HARNESS_CLI/skills-dir")"
+  printf '#!/bin/sh\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
+  chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
+  out="$(cli_prereqs 2>&1)" && exit 1
+  for n in $names; do
+    if [[ $n == rtdd ]]; then grep -qF "WARN    $HARNESS_CLI skill rtdd ($dir/rtdd)" <<<"$out" || exit 1; continue; fi
+    grep -qF "MISSING $HARNESS_CLI skill $n ($dir/$n)" <<<"$out" || exit 1
+  done
+  cli_prereqs --install >/dev/null 2>&1; out="$(cli_prereqs 2>&1)"
+  for n in $names; do [[ $n == rtdd ]] && continue
+    grep -qF "ok      $HARNESS_CLI skill $n ($dir/$n)" <<<"$out" && diff -rq "$HERE/../skill/$n" "$dir/$n" >/dev/null || exit 1
+  done
+  rm -rf "$HOME"; mkdir -p "$HOME"
+  ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
+  for n in $names; do [[ $n == rtdd ]] || diff -rq "$HERE/../skill/$n" "$dir/$n" >/dev/null || exit 1; done
+  for t in "$HERE"/../prompts/[a-z]*.md; do
+    r="$(render "$t")"; lacks "{{skill:" "$r" || exit 1
+    for n in $(grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$t" $(grep -oE '\{\{> *[A-Za-z0-9_.-]+' "$t" |
+        sed -E "s#^\{\{> *#$HERE/../prompts/#") | sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u); do
+      has " $(sed "s/handoff/$n/" "$FIX/$HARNESS_CLI/handoff-skill") skill" "$r" || exit 1
+    done
+  done
+  for n in $names; do [[ $n == rtdd ]] && continue; printf 'operator own\n' > "$dir/$n/SKILL.md"; done
+  cli_prereqs --install >/dev/null 2>&1
+  ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
+  for n in $names; do [[ $n == rtdd ]] || [[ $(cat "$dir/$n/SKILL.md") == "operator own" ]] || exit 1; done ); }
 
 rc=0
 for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
@@ -582,6 +626,7 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     else cell "$cli" usage-windows              usage_windows_ok "$cli"; fi
     cell "$cli" checkpoint-skill           checkpoint_skill_ok
     cell "$cli" handoff-skill-installed    handoff_skill_ok
+    cell "$cli" prompt-skills-installed    prompt_skills_ok
     cell "$cli" pause-force-resume-other-host pause_resume_ok
     cell "$cli" send-and-kill              send_and_kill_ok
     cell "$cli" inject-sessions            inject_ok

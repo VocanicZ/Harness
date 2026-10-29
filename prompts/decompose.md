@@ -8,7 +8,7 @@ GOAL: break PRD #{{PRD}} into implementation issues in THIS repo, with dependenc
 
 Steps:
 1. Read PRD #{{PRD}}:  gh issue view {{PRD}} -R {{SLUG}}
-2. Invoke the `to-issues` skill to slice the PRD into small, independently-shippable
+2. Invoke the {{skill:to-issues}} skill to slice the PRD into small, independently-shippable
    implementation tasks (each ~1 PR of work, with its own acceptance criteria).
 2a. Idempotency — before creating anything, list the issues that ALREADY belong to THIS PRD:
       gh issue list -R {{SLUG}} --label {{LABEL_READY}} --state all \

@@ -1,4 +1,4 @@
-   rtdd (the `rtdd` skill has the details) lists the tests your change needs, in rounds; it runs none.
+   rtdd (the {{skill:rtdd}} skill has the details) lists the tests your change needs, in rounds; it runs none.
    Missing, older than v0.3 (no "Round 1" in its output), or erroring → FULL-SUITE BAR. Never block on it.
      rtdd --version                              # NOT on PATH? install once: npx -y github:VocanicZ/rtdd
      rtdd which --base origin/<default-branch>   # re-run after every edit

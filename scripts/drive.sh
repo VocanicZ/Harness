@@ -234,7 +234,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     SECURITY_AUDIT="$HARNESS_SECURITY_AUDIT" SECURITY_AUDIT_ROUNDS="$HARNESS_SECURITY_AUDIT_ROUNDS" \
     SECURITY_AUDIT_ROUND="$saround" SECURITY_AUDIT_DIR="$STATE_DIR/security-audit/$UNIT/p$prd" \
     SECURITY_AUDIT_SKILL="$ENGINE_DIR/vendor/security-audit/SKILL.md" \
-    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" HANDOFF_SKILL="$(cli_skill handoff)" > "$wd/.harness-task.md"
+    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
   launch_claude "$(sess_orch "$UNIT" "$prd")" "$wd"
 }
 
@@ -262,7 +262,7 @@ spawn_impl(){   # <ISSUE> <PROMISE>
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" \
     LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" HANDOFF="$handoff" \
     SUBAGENT="$(cli_subagent "$wd" "$wd" "$STATE_DIR/subagent/$UNIT-i$issue/NAME.md")" \
-    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" HANDOFF_SKILL="$(cli_skill handoff)" > "$wd/.harness-task.md"
+    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
   STAT_PRD="$(issue_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"
 }
@@ -333,7 +333,7 @@ spawn_bug(){
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" \
     LABEL_BUG="$HARNESS_LABEL_BUG" LABEL_BUG_TRIAGED="$HARNESS_LABEL_BUG_TRIAGED" HANDOFF="$handoff" \
-    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" HANDOFF_SKILL="$(cli_skill handoff)" > "$wd/.harness-task.md"
+    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
   launch_claude "$(sess_bug "$SLUG" "$issue" "$phase")" "$wd"
 }
 

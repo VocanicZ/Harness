@@ -1291,7 +1291,13 @@ rtdd_skill_install(){ local d
       return 1; }
   fi
   echo "  ✓ rtdd skill installed"; }
-render(){ local tmpl="$1"; shift; python3 - "$tmpl" "$@" <<'PY'
+# {{skill:<name>}} — a skill the prompt names, as the configured CLI invokes it (cli_skill, #315).
+# cli_prereqs derives the skills it checks from these same tokens, so a prompt names a skill no other way.
+render(){ local tmpl="$1" n; shift
+  local -a sk=()
+  for n in $(grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$tmpl" "$(dirname "$tmpl")"/_*.md 2>/dev/null | sort -u); do
+    n="${n#\{\{skill:}"; n="${n%\}\}}"; sk+=("skill:$n=$(cli_skill "$n")"); done
+  python3 - "$tmpl" "$@" "${sk[@]}" <<'PY'
 import sys, re, os
 tmpl = open(sys.argv[1]).read()
 # {{> _part.md}} — a partial from the template's own dir, shared by several prompts so its text has
@@ -1303,7 +1309,7 @@ def part(m):
     return body.rstrip('\n') + '\n' if m.group(0).endswith('\n') else body
 tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?', part, tmpl)
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
-sys.stdout.write(re.sub(r'{{(\w+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
+sys.stdout.write(re.sub(r'{{(\w+|skill:[\w.-]+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
 }
 # fleet_login — the authenticated gh login, i.e. the identity every engine-trusted comment (round
