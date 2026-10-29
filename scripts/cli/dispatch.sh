@@ -166,6 +166,17 @@ _cli_exe(){ local w env= skip=; local -a ws; read -ra ws <<<"$1"
   done; }
 # _cli_run <command line> [args…] — run it, its words split (an `env` prefix applies its env).
 _cli_run(){ local -a ws; read -ra ws <<<"$1"; shift; "${ws[@]}" "$@"; }
+# _cli_bin_ensure <cli> <bin> <flag> <command> [<run>] — 0 iff the CLI's executable is on PATH (#316).
+# Missing, with <flag> = --install, it first runs <run> (default <command>): the vendor's own
+# non-interactive install, an npm package or a curl release script, when that tool (its first word)
+# is on PATH. Signing in stays the operator's. Still missing, it names <command> and fails.
+# HARNESS_INSTALL_CLI_BIN=0 skips the install (the suite pins it: a test never fetches a real CLI).
+_cli_bin_ensure(){ local exe run="${5:-$4}"; exe="$(_cli_exe "$2")"
+  if ! command -v "$exe" >/dev/null && [[ $3 == --install && ${HARNESS_INSTALL_CLI_BIN:-1} != 0 ]] &&
+    command -v "${run%% *}" >/dev/null; then
+    "${BASH:-bash}" -c "$run" >/dev/null 2>&1 </dev/null; hash -r; fi
+  command -v "$exe" >/dev/null && return 0
+  echo "MISSING $1 binary ($2): $4"; return 1; }
 
 # --- pane helpers over the regexes (an empty regex matches nothing) ---------------------------
 _cli_re_hits(){ [[ -n "$1" ]] && printf '%s\n' "$2" | grep -qE -- "$1"; }

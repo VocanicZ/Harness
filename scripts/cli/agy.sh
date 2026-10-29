@@ -153,8 +153,8 @@ for g in json.load(sys.stdin)["command"]["data"]["groups"]:
 # outlives the checkout install.sh ran from).
 agy_prereqs(){ local bin plugin_dir="${HARNESS_ENGINE_PLUGINS:-$CLI_DIR/../../plugins}/ralph-loop"
   bin="$(agy_bin)"
-  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      agy binary ($bin)"
-  else echo "MISSING agy binary ($bin): curl -fsSL https://antigravity.google/cli/install.sh | bash"; return 1; fi
+  _cli_bin_ensure agy "$bin" "${1:-}" 'curl -fsSL https://antigravity.google/cli/install.sh | bash' || return 1
+  echo "ok      agy binary ($bin)"
   if _cli_run "$bin" plugin list 2>/dev/null | grep -q 'harness-ralph'; then echo "ok      agy plugin harness-ralph"
   elif [[ "${1:-}" == --install ]] && _cli_run "$bin" plugin install "$plugin_dir" >/dev/null 2>&1; then
     echo "ok      agy plugin harness-ralph (installed)"

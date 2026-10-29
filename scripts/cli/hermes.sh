@@ -374,7 +374,6 @@ PY
 # host the GitHub CLI's, for the Copilot provider). --install runs Hermes's installer when there is
 # no binary at all.
 hermes_prereqs(){ local bin; bin="$(hermes_bin)"
-  if ! command -v "$(_cli_exe "$bin")" >/dev/null && [[ "${1:-}" == --install ]] && command -v curl >/dev/null; then
-    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup >/dev/null 2>&1; hash -r; fi
-  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      hermes binary ($bin)"
-  else echo "MISSING hermes binary ($bin): curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"; return 1; fi; }
+  _cli_bin_ensure hermes "$bin" "${1:-}" 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash' \
+    'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup' || return 1
+  echo "ok      hermes binary ($bin)"; }

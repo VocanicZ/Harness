@@ -22,9 +22,11 @@ assert_eq "$listed" "$green" "README lists exactly the CLIs whose matrix column 
 # col <cli> — the table column (1-based, after splitting on |) that holds <cli>.
 col(){ tr '|' '\n' <<<"$header" | grep -nxE " *\`$1\` *" | cut -d: -f1; }
 for c in $green; do
-  v="$(sed -n 1p "$HERE/fixtures/cli/$c/VERSION")"
+  # The fixture is the CLI's own --version line; a sentence's full stop there (copilot's) is not
+  # part of the version (#316).
+  v="$(sed -n 1p "$HERE/fixtures/cli/$c/VERSION")"; v="${v%.}"
   got="$(grep '^| verified on ' <<<"$table" | cut -d'|' -f"$(col "$c")")"
-  assert_ok "README: $c verified on its fixture version" grep -qF -- "$v" <<<"$got"
+  assert_ok "README: $c verified on its fixture version" test "${got#" $v, "}" != "$got"
 done
 
 rows="$(awk -F'\t' '{print $2}' <<<"$cells" | sort -u)"
@@ -39,4 +41,33 @@ for c in $green; do
   done <<<"$cells"
   assert_eq "${bad# }" "" "README: every $c row is ✓ exactly where its matrix cell is ok, n/a with its reason"
 done
+# #316: the config table has a row for every setting the adapters read: each HARNESS_* in
+# scripts/cli/*.sh, but for the few Harness sets itself, never an operator.
+internal="HARNESS_BOOTSTRAP_PROMPT HARNESS_SESSION HARNESS_ENGINE_PLUGINS HARNESS_CLAUDE_CONFIG HARNESS_AGY_TRUST_FILE"
+# HARNESS_BOOTSTRAP_PROMPT: lib.sh's fixed launch prompt. HARNESS_SESSION: a lane variable, set per
+# session. HARNESS_ENGINE_PLUGINS: install.sh points it at the placed engine. HARNESS_CLAUDE_CONFIG,
+# HARNESS_AGY_TRUST_FILE: test seams (helpers.sh).
+read_vars="$(cd "$ROOT" && grep -ohE '\bHARNESS_[A-Z0-9_]*[A-Z0-9]\b' scripts/cli/*.sh | sort -u)"
+config="$(sed -n '/^## Configuration/,/^### /p' "$ROOT/README.md" | grep '^| `HARNESS_' | cut -d'|' -f2 | grep -oE 'HARNESS_[A-Z0-9_]+' | sort -u)"
+undocumented="$(comm -23 <(echo "$read_vars") <(echo "$config") | grep -vxF -f <(tr ' ' '\n' <<<"$internal"))"
+assert_eq "$undocumented" "" "the config table has a row for every HARNESS_* setting the adapters read"
+for v in $internal; do
+  assert_ok "$v, left out of the config table, is still read by an adapter" grep -qw "$v" <<<"$read_vars"
+done
+
+# …and no README line outside the support table lists some of the supported CLIs as if they were all
+# of them (`claude` or `agy`): a run of backticked names, each perhaps glossed in parentheses, joined
+# by commas, slashes, `or` or `and`, that names two or more supported CLIs names every one.
+clis="$(tr '\n' ' ' <<<"$green")"
+item='`[a-z0-9-]+`( \([^)]*\))?'
+partial=""
+while IFS= read -r line; do
+  n="${line%%:*}"
+  while IFS= read -r run; do
+    [[ -n $run ]] || continue
+    k=0; for c in $clis; do grep -qF "\`$c\`" <<<"$run" && k=$((k+1)); done
+    (( k >= 2 && k < $(wc -w <<<"$clis") )) && partial+="README.md:$n: $run"$'\n'
+  done < <(grep -oE "$item( *(,|/| or| and|, or|, and) *$item)+" <<<"${line#*:}")
+done < <(awk '/^### Supported agent CLIs/{s=1} s && /^## /{s=0} !(s && /^\|/){print NR":"$0}' "$ROOT/README.md")
+assert_eq "${partial%$'\n'}" "" "no README line outside the support table names a subset of its CLIs as the list"
 finish
