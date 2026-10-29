@@ -47,6 +47,9 @@ _cli_default_last_reply(){ return 1; }
 _cli_default_trust(){ :; }
 _cli_default_trusted(){ :; }
 _cli_default_skill(){ echo "/$1"; }
+# The CLI's own sub-agent tool: a fresh context, which the matrix's bypass-covers-subagents row proves
+# runs under the lane's bypass.
+_cli_default_subagent(){ printf 'spawn it with your own sub-agent tool (a fresh context that sees none of yours), working in `%s`.\n' "$2"; }
 _cli_default_user_skills_dir(){ :; }
 _cli_default_transcripts(){ :; }
 _cli_default_usage(){ :; }
@@ -83,6 +86,7 @@ cli_trusted(){ _cli_call trusted "$@"; }               # <dir> → 0 iff pre-acc
 cli_bypass(){ _cli_call bypass "$@"; }                 # <dir> → main session AND sub-agents skip approvals
 cli_bypassed(){ _cli_call bypassed "$@"; }             # <dir> → 0 iff that holds
 cli_skill(){ _cli_call skill "$@"; }                   # <name> → how a prompt invokes a skill
+cli_subagent(){ _cli_call subagent "$@"; }             # <wd> <dir> <brief file> → how a prompt starts a fresh-context sub-agent in <dir> (#314)
 cli_user_skills_dir(){ _cli_call user_skills_dir; }    # where Harness must copy a user skill itself ('' = none)
 cli_transcripts(){ _cli_call transcripts "$@"; }       # <wd> <session id> → transcript paths ('' = unavailable)
 cli_usage(){ _cli_call usage "$@"; }                   # <transcript>… → <model>\t<in>\t<out>\t<cache_read>\t<cache_write>

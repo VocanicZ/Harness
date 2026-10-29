@@ -351,12 +351,68 @@ bug_lane_ok(){ ( source "$HERE/../scripts/drive.sh"; lane_env
   names_handoff_skill "$(triage_worktree acme/widget 9)/.harness-task.md" || exit 1
   spawn_bug 9 fix >/dev/null 2>&1 && lane_ok "$(sess_bug acme/widget 9 fix)" "$(bug_worktree acme/widget 9)" "BUG 9 fix DONE" &&
     names_handoff_skill "$(bug_worktree acme/widget 9)/.harness-task.md" ); }
-# review_ok — the PRD review (drive.sh spawn_orch REVIEW) with its gauntlet round, through the adapter.
+# review_ok — the PRD review (drive.sh spawn_orch REVIEW) with its gauntlet round, through the adapter;
+# its prompt starts each sub-agent the way this CLI can run one (subagent_named).
 review_ok(){ ( source "$HERE/../scripts/drive.sh"; lane_env; local wd
   spawn_orch REVIEW 7 "REVIEW DONE" >/dev/null 2>&1 || exit 1
   wd="$(orch_worktree acme/widget 7)"
   lane_ok "$(sess_orch main 7)" "$wd" "REVIEW DONE" &&
-    grep -qF "Gauntlet: round 1 of $HARNESS_GAUNTLET_ROUNDS   Evidence dir: $STATE_DIR/gauntlet/main/p7" "$wd/.harness-task.md" ); }
+    grep -qF "Gauntlet: round 1 of $HARNESS_GAUNTLET_ROUNDS   Evidence dir: $STATE_DIR/gauntlet/main/p7" "$wd/.harness-task.md" &&
+    subagent_named "$(sess_orch main 7)" "$wd" ); }
+# subagent_named <sess> <wd> — #314: review.md's two sub-agents (the review pass, in the worktree; the
+# gauntlet critic, in the round's evidence dir) are started by a mechanism this CLI can run. A CLI whose
+# own sub-agents ran under the lane's bypass (subagent_ok) spawns them; one whose cannot
+# (bypass-subagent.na) is handed the substitute command instead (subagent_substitute_ok), and the real
+# CLI's capture shows that substitute's critic run and answer (subagent_capture_ok).
+subagent_named(){ local t g="$STATE_DIR/gauntlet/main/p7/r1"; t="$(cat "$2/.harness-task.md")"
+  lacks "{{REVIEW_SUBAGENT}}" "$t" && lacks "{{CRITIC_SUBAGENT}}" "$t" || return 1
+  if [[ -s "$FIX/$HARNESS_CLI/bypass-subagent.na" ]]; then
+    lacks "your own sub-agent tool" "$t" && lacks "Spawn" "$t" &&
+      subagent_substitute_ok "$1" "$t" "$2" "$STATE_DIR/review/main/p7/subagent.md" &&
+      subagent_substitute_ok "$1" "$t" "$g" "$g-critic.md" && subagent_capture_ok
+  else
+    has "To start it, spawn it with your own sub-agent tool (a fresh context that sees none of yours), working in \`$2\`." "$t" &&
+      has "To start it, spawn it with your own sub-agent tool (a fresh context that sees none of yours), working in \`$g\`." "$t" &&
+      subagent_ok "$HARNESS_CLI"
+  fi; }
+# subagent_substitute_ok <sess> <task text> <dir> <brief> — the prompt says to write the brief to
+# <brief>, then run one command; that command, run against the CLI's fake, reaches the CLI with the
+# lane's config, a cwd of <dir>, a new empty state dir and the brief, and prints what the real critic
+# answered (fake-cli, subagent-critic.out).
+subagent_substitute_ok(){ ( local cmd d="$RUN_DIR/bin-$HARNESS_CLI" args="$RUN_DIR/subagent-args" bin cfg
+  cmd="$(BRIEF="$4" python3 -c 'import os, sys
+t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % os.environ["BRIEF"]
+i = t.find(b)
+sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2")" || exit 1
+  cfg="$(_cli_line_opt "$(typed_line "$1")" '--config ')"
+  # <dir> as the prompt leaves it (5c makes the round's evidence dirs); the brief's dir is already there.
+  bin="$(cli_bin)"; mkdir -p "$d" "$3"; test -d "${4%/*}" || exit 1; printf 'brief\n' > "$4"
+  printf '#!/usr/bin/env bash\nexec bash %q "$@"\n' "$FIX/$HARNESS_CLI/fake-cli" > "$d/${bin##*/}"; chmod +x "$d/${bin##*/}"
+  # Its fresh state dir comes from mktemp: keep it in this run's own dir.
+  mkdir -p "$RUN_DIR/subagent-tmp"
+  same "$(cd "$RUN_DIR" && TMPDIR="$RUN_DIR/subagent-tmp" FAKE_CLI_ARGS="$args" PATH="$d:$PATH" bash -c "$cmd")" "$(cat "$FIX/$HARNESS_CLI/subagent-critic.out")" &&
+    has $'--cwd\n'"$3"$'\n' "$(cat "$args")" && has $'--message-file\n'"$4"$'\n' "$(cat "$args")" &&
+    has $'--config\n'"$cfg"$'\n' "$(cat "$args")" && grep -qx 'state-dir: empty' "$args" ); }
+# subagent_capture_ok — the real CLI ran the substitute from a lane (fixtures/cli/<cli>/subagent-*, see
+# its README.md): the task named the substitute command; the critic was its own session, in the round
+# dir, its one message the brief alone, and it answered in the two lines; the lane replied with them.
+subagent_capture_ok(){ python3 - "$FIX/$HARNESS_CLI" <<'PY'
+import json, sys
+d = sys.argv[1]
+task = open(f"{d}/subagent-task.md").read()
+rows = lambda f: [json.loads(l) for l in open(f"{d}/{f}") if l.strip()]
+said = lambda r, role: ["".join(c["text"] for c in x["message"]["content"]) if isinstance(x["message"]["content"], list)
+                        else x["message"]["content"] for x in r if x.get("type") == "message" and x["message"]["role"] == role]
+critic, lane = rows("subagent-critic.jsonl"), rows("subagent-lane.jsonl")
+asked, answer = said(critic, "user"), said(critic, "assistant")
+ok = ('agent exec --config <scratch>/wt/.harness-openclaw/openclaw.json --cwd <scratch>/gauntlet/r1 --state-dir "$(mktemp -d)"' in task
+      and critic[0]["cwd"] == "<scratch>/gauntlet/r1" and critic[0]["id"] != lane[0]["id"]
+      and len(asked) == 1 and "Read nothing outside those two directories" in asked[0] and ".harness-task.md" not in asked[0]
+      and len(answer) == 1 and answer[0].splitlines()[0].startswith("winner: ") and answer[0].splitlines()[1].startswith("gap: ")
+      and all(l in said(lane, "assistant")[-1] for l in answer[0].splitlines()))
+sys.exit(0 if ok else 1)
+PY
+}
 # checkpoint_ok — host A: an impl lane (spawn_impl) runs issue 7 through this CLI, its prompt's
 # CHECKPOINT PROTOCOL naming the handoff skill as the CLI invokes a skill (handoff-skill, #303);
 # `pause --force` types the checkpoint into it through the adapter — naming that skill the same way,

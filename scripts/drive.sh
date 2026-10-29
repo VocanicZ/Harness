@@ -219,13 +219,18 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   fi
   # Round is computed HERE, not in the prompt: a Claude session cannot call a lib.sh function,
   # and letting it count its own comments makes the cap something it can miscount past.
-  local saround=""
-  if [[ "$action" == REVIEW ]]; then ground="$(gauntlet_round "$payload")"; saround="$(security_audit_round "$payload")"; fi
+  local saround="" gdir="$STATE_DIR/gauntlet/$UNIT/p$prd" rsub="" csub=""
+  if [[ "$action" == REVIEW ]]; then ground="$(gauntlet_round "$payload")"; saround="$(security_audit_round "$payload")"
+    # How this CLI starts each sub-agent review.md asks for (#314): the critic works in the round's
+    # evidence dir, its brief a sibling of that dir so the critic never sees it among A/ and B/.
+    mkdir -p "$STATE_DIR/review/$UNIT/p$prd"
+    rsub="$(cli_subagent "$wd" "$wd" "$STATE_DIR/review/$UNIT/p$prd/subagent.md")"
+    csub="$(cli_subagent "$wd" "$gdir/r$ground" "$gdir/r$ground-critic.md")"; fi
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" \
-    GAUNTLET_DIR="$STATE_DIR/gauntlet/$UNIT/p$prd" GAUNTLET_ROUNDS="$HARNESS_GAUNTLET_ROUNDS" \
-    GAUNTLET_ROUND="$ground" \
+    GAUNTLET_DIR="$gdir" GAUNTLET_ROUNDS="$HARNESS_GAUNTLET_ROUNDS" \
+    GAUNTLET_ROUND="$ground" REVIEW_SUBAGENT="$rsub" CRITIC_SUBAGENT="$csub" \
     SECURITY_AUDIT="$HARNESS_SECURITY_AUDIT" SECURITY_AUDIT_ROUNDS="$HARNESS_SECURITY_AUDIT_ROUNDS" \
     SECURITY_AUDIT_ROUND="$saround" SECURITY_AUDIT_DIR="$STATE_DIR/security-audit/$UNIT/p$prd" \
     SECURITY_AUDIT_SKILL="$ENGINE_DIR/vendor/security-audit/SKILL.md" \
@@ -251,10 +256,12 @@ spawn_impl(){   # <ISSUE> <PROMISE>
   if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "$branch" 2>/dev/null | grep -q .; then
     tmpl="resume.md"; handoff="$(resume_handoff "$issue")"; log "resuming paused issue #$issue from origin/$branch"
   fi
+  mkdir -p "$STATE_DIR/subagent/$UNIT-i$issue"   # where an impl.md sub-agent's brief goes (cli_subagent)
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" \
     LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" HANDOFF="$handoff" \
+    SUBAGENT="$(cli_subagent "$wd" "$wd" "$STATE_DIR/subagent/$UNIT-i$issue/NAME.md")" \
     SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" HANDOFF_SKILL="$(cli_skill handoff)" > "$wd/.harness-task.md"
   STAT_PRD="$(issue_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"

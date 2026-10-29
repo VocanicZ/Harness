@@ -2,7 +2,18 @@
 # fake-cli — what `openclaw agent exec --json` does when a lane's loop (openclaw-loop.sh) runs it
 # (README.md): it prints the JSON envelope of a turn, transcript.jsonl's first, under a new OpenClaw
 # session id. Then the turn's tool call, $FAKE_CLI_TURN, when set.
+# Without --json it is a sub-agent run (openclaw_subagent, #314): it prints the real critic's answer
+# (subagent-critic.out), and writes its args, one per line, to $FAKE_CLI_ARGS when set, with
+# `state-dir: empty` when its --state-dir is an existing empty dir.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ " $* " != *" --json "* ]]; then
+  if [[ -n ${FAKE_CLI_ARGS:-} ]]; then
+    printf '%s\n' "$@" > "$FAKE_CLI_ARGS"
+    a=("$@"); for i in "${!a[@]}"; do
+      [[ ${a[i]} == --state-dir && -d ${a[i+1]} && -z $(ls -A "${a[i+1]}") ]] && echo "state-dir: empty" >> "$FAKE_CLI_ARGS"; done
+  fi
+  cat "$here/subagent-critic.out"; exit 0
+fi
 [[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN" >&2
 python3 - "$here/transcript.jsonl" <<'PY'
 import json, sys, uuid
