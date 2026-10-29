@@ -28,6 +28,29 @@ def test_last_blocked_by_section_wins():
     assert g["issues"][3]["deps"] == [1] and [1, 3] in g["edges"] and [99, 3] not in g["edges"], g["edges"]
 
 
+def test_header_parsing_is_linear_on_a_run_of_blank_lines():
+    """#323: `## Parent` + 50k LF newlines + no `#N` backtracked cubically and froze the dashboard.
+    Run in a child with a timeout so a regression fails here instead of hanging the suite."""
+    probe = ("import sys, time; sys.path.insert(0, %r); import web_fixture as wf; dag = wf.load('web_dag')\n"
+             "body = '\\n' * 50000 + 'x'\n"
+             "t = time.monotonic(); p = dag.parent_of('## Parent' + body); tp = time.monotonic() - t\n"
+             "t = time.monotonic(); b = dag.blocked_by_last('## Blocked by' + body); tb = time.monotonic() - t\n"
+             "print(p, b, tp, tb)") % HERE
+    import subprocess
+    try:
+        out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        raise AssertionError("parent_of / blocked_by_last did not return within 10 s")
+    assert out.returncode == 0, out.stderr
+    p, b, tp, tb = out.stdout.split(maxsplit=3)
+    assert (p, b) == ("None", "[]"), out.stdout
+    assert float(tp) < 0.1 and float(tb) < 0.1, out.stdout
+    # same answers as before on the shapes the old regex accepted, CRLF included
+    assert dag.parent_of("x\n## Parent\n\n  #192\n") == 192
+    assert dag.parent_of("## Parent \r\n\r\n#7\r\n") == 7
+    assert dag.parent_of("## Parent #5\n") is None and dag.parent_of("## Parent\nsee #5\n") is None
+
+
 def test_parallel_prds_share_a_layer_and_join_after_both():
     lay = {p["number"]: p["layer"] for p in dag.unit_graph(BOARD, LABELS)["prds"]}
     assert lay[2] == lay[3] == lay[1] + 1 and lay[4] == lay[2] + 1, lay
