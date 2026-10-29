@@ -6,7 +6,7 @@
 
 <p align="center"><em>One orchestrator, a pool of autonomous agents, all state in GitHub.</em></p>
 
-A project-agnostic agent orchestrator that drives a fixed pool of autonomous Claude Code or Antigravity (`agy`) sessions against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
+A project-agnostic agent orchestrator that drives a fixed pool of autonomous agent CLI sessions — Claude Code or any other CLI in [Supported agent CLIs](#supported-agent-clis) — against a GitHub-issues board. A fixed pool of workers claims dependency-ready units, drives each through a GitHub-issue state machine to COMPLETE. All state lives 100% in GitHub (issues, labels, pushed commits) plus a small local run directory — no database, no daemon. Stateless and resumable from any host.
 
 The point is where the human sits. A typical agent loop, whether a chat agent or a single-agent loop harness, does one issue at a time, and you are its quality gate:
 
@@ -26,7 +26,7 @@ Install the engine **once per host**, then drive any number of projects with it:
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and the `harness-ralph` plugin plus skills into `agy` when present), installs the latest Harness **release** at the single host location `~/.harness/engine` (see below), installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), together with every skill the lane prompts name (`handoff`, plus `to-prd`, `to-issues`, `writing-plans`, `caveman` and `subagent-task-tree` vendored in `skill/` from upstream with their licenses) into `~/.claude/skills/` and the skills dir of each other agent CLI on the host — never over a same-named skill of your own — which `harness setup` checks and `--install`s for the configured CLI, installs [rtdd](#test-selection-rtdd) via `npx github:VocanicZ/rtdd` when `npx` is present (which also writes rtdd's agent skill into `~/.claude/skills/` and the equivalent for other agent CLIs on the host), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
+`install.sh` checks all prerequisites, provisions the required Claude plugins (`superpowers` and `ralph-loop` from the `anthropics/claude-plugins-official` marketplace) and the matt-pocock skills (`to-prd`, `to-issues` from `https://github.com/mattpocock/skills`) into your Claude install (and into every other [supported agent CLI](#supported-agent-clis) on the host, the plugins and skills its lanes need: the `harness-ralph` goal-loop plugin for agy and codex), installs the latest Harness **release** at the single host location `~/.harness/engine` (see below), installs the `/harness` operator skills **once** to your user scope (`~/.claude/skills/`, not vendored per project), together with every skill the lane prompts name (`handoff`, plus `to-prd`, `to-issues`, `writing-plans`, `caveman` and `subagent-task-tree` vendored in `skill/` from upstream with their licenses) into `~/.claude/skills/` and the skills dir of each other agent CLI on the host — never over a same-named skill of your own — which `harness setup` checks and `--install`s for the configured CLI, installs [rtdd](#test-selection-rtdd) via `npx github:VocanicZ/rtdd` when `npx` is present (which also writes rtdd's agent skill into `~/.claude/skills/` and the equivalent for other agent CLIs on the host), creates the `~/.harness/` host root, and symlinks `harness` onto your `PATH` (`~/.local/bin/harness` → `~/.harness/engine/bin/harness`). If `~/.local/bin` isn't writable it prints the exact `PATH` line to add instead. No engine copy and no skills are cloned into your project.
 
 **The engine is a release, not a clone.** `install.sh` asks GitHub for the latest release of `VocanicZ/Harness`, downloads its `harness-vX.Y.Z.tar.gz` and `SHA256SUMS`, refuses an archive whose checksum does not match, and extracts it to `~/.harness/releases/vX.Y.Z/`. `~/.harness/engine` is a symlink to that directory, so everything that says "the engine" (the `harness` on your `PATH`, the supervise/web units, the `/harness` skills) follows the symlink. To install one particular release instead of the latest, pin it with `HARNESS_REF=<tag>`:
 
@@ -63,7 +63,7 @@ harness init     # writes that project's config + state under .harness/
 | `tmux` | session multiplexer used by the worker pool |
 | `python3` | runs `issuelib.py` (state machine) |
 | `gh` | GitHub CLI — must be **authenticated** (`gh auth login`) |
-| `claude` or `agy` | Agent CLI — Claude Code CLI (default) or Google Antigravity CLI (`agy`); see [Supported agent CLIs](#supported-agent-clis) |
+| an agent CLI | Claude Code (`claude`, the default) or any CLI in [Supported agent CLIs](#supported-agent-clis); `harness setup --install` installs the one `HARNESS_CLI` names, and its plugins |
 | `rtdd` | the lane test loop — names the tests a change needs, in rounds. `install.sh` installs it with `npx github:VocanicZ/rtdd` (needs `node` ≥ 18; without it lanes fall back to full-suite runs). See [Test selection](#test-selection-rtdd). |
 
 ### Supported agent CLIs
@@ -78,7 +78,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 
 | feature | what it proves | `claude` | `agy` | `codex` | `copilot` | `opencode` | `hermes` | `openclaw` |
 |---|---|---|---|---|---|---|---|---|
-| verified on | `<cli> --version` of the captured fixtures | 2.1.311 (Claude Code), 2026-10-27 | 1.4.8, 2026-10-27 | codex-cli 0.154.0, 2026-10-27 | GitHub Copilot CLI 1.0.105., 2026-10-28 | 1.19.5, 2026-10-28 | Hermes Agent v0.22.5 (2026.9.24) · stable · local bf0203a794a0, 2026-10-28 | OpenClaw 2026.10.8 (dc2523e), 2026-10-28 |
+| verified on | `<cli> --version` of the captured fixtures | 2.1.311 (Claude Code), 2026-10-27 | 1.4.8, 2026-10-27 | codex-cli 0.154.0, 2026-10-27 | GitHub Copilot CLI 1.0.105, 2026-10-28 | 1.19.5, 2026-10-28 | Hermes Agent v0.22.5 (2026.9.24) · stable · local bf0203a794a0, 2026-10-28 | OpenClaw 2026.10.8 (dc2523e), 2026-10-28 |
 | `fixtures-recorded` | Panes, transcript and usage samples captured from the real CLI (`test/fixtures/cli/<cli>/`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `launch-bootstrap-prompt` | The launch line carries the fixed bootstrap prompt | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -114,7 +114,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 | `supervisor-skips-trust-dialog` | `harness supervise` (#180) nudges the CLI's quiet idle pane and never types into its quiet trust dialog | ✓ | ✓ | ✓ | ✓ | n/a: OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking | n/a: Hermes has no workspace-trust gate on running a folder: only the skills a worktree carries are gated, by skills.trusted_project_dirs, which cli_trust writes into the lane config (skill-project.txt) | n/a: `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools |
 | `rtdd-event-context` | `rtdd` run from a lane's turn gets the session's context through the CLI, and `harness stats` joins the call to the session (#186) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `send-and-kill` | Nudges and checkpoints are delivered; a session is ended | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `prereqs-named` | `harness setup` names the missing binary and plugins the CLI needs, and `--install` installs them through it (copilot needs only its binary; opencode its 1.x binary; hermes its binary) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `prereqs-named` | `harness setup` names the missing binary and plugins the CLI needs, and `--install` installs them: the binary by the command it named, the vendor's non-interactive install (an npm package or a curl release script), and the plugins through the binary (copilot needs only its binary; opencode its 1.x binary; hermes its binary) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `init-wizard-choice` | `harness init` writes the CLI chosen, and a fleet loading that config drives it | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 `agy` lanes need the `harness-ralph` plugin (`plugins/ralph-loop`, installed by `install.sh`): it is
@@ -244,12 +244,36 @@ Harness reads `.harness/config` (a sourceable `KEY=VALUE` file). Any key can be 
 | `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
-| `HARNESS_CLI` | `claude` | Agent CLI to drive: `claude` (Claude Code CLI) or `agy` (Antigravity CLI); one adapter per CLI under `scripts/cli/` ([Supported agent CLIs](#supported-agent-clis)) |
+| `HARNESS_CLI` | `claude` | Agent CLI to drive: any CLI in [Supported agent CLIs](#supported-agent-clis), one adapter per CLI under `scripts/cli/` |
 | `HARNESS_CLAUDE_BIN` | `claude` | Command line that runs `claude` when `HARNESS_CLI=claude`: an executable name or path, or a command line such as `env CLAUDE_CONFIG_DIR=~/.claude-switch/accounts/main claude` (pins the account even when tmux drops `CLAUDE_CONFIG_DIR`). The launch runs it whole; only its executable (the first word that is not `env`, an `env` option or a `NAME=value`) is checked for on PATH. Words split on whitespace, so a value containing a space is not supported |
 | `HARNESS_AGY_BIN` | `agy` | Executable path for `agy` when `HARNESS_CLI=agy`; a command line like `HARNESS_CLAUDE_BIN`'s |
 | `HARNESS_AGY_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `agy` CLI on launch |
+| `HARNESS_CLAUDE_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `claude` on launch; a lane's own model and effort (`.harness-lane`) replace the ones they carry |
+| `HARNESS_AGY_HOME` | `~/.gemini/antigravity-cli` | agy's state dir: its `settings.json` (workspace trust), conversations and session map |
+| `HARNESS_AGY_USAGE_TTL` | `120` | Seconds one `agy -p /usage` answer is reused by every worker |
+| `HARNESS_AGY_USER_SKILLS` | `~/.gemini/config/skills` | Where agy loads user skills from: `harness setup --install` and `install.sh` put the lane prompts' skills there |
+| `HARNESS_CODEX_BIN` | `codex` | Executable path for `codex` when `HARNESS_CLI=codex`; a command line like `HARNESS_CLAUDE_BIN`'s |
+| `HARNESS_CODEX_FLAGS` | `--no-alt-screen --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust -c model_reasoning_effort=high` | Flags passed to `codex` on launch |
+| `HARNESS_CODEX_USER_SKILLS` | `~/.agents/skills` | Where codex loads user skills from (as `HARNESS_AGY_USER_SKILLS`) |
+| `HARNESS_COPILOT_BIN` | `copilot` | Executable path for `copilot` when `HARNESS_CLI=copilot`; a command line like `HARNESS_CLAUDE_BIN`'s |
+| `HARNESS_COPILOT_FLAGS` | `--yolo --no-ask-user --no-auto-update` | Flags passed to `copilot` on launch |
+| `HARNESS_COPILOT_USER_SKILLS` | `$COPILOT_HOME/skills` (`~/.copilot/skills`) | Where copilot loads user skills from (as `HARNESS_AGY_USER_SKILLS`) |
+| `HARNESS_OPENCODE_BIN` | `opencode` | Executable path for `opencode` (OpenCode 1.x) when `HARNESS_CLI=opencode`; a command line like `HARNESS_CLAUDE_BIN`'s |
+| `HARNESS_OPENCODE_FLAGS` | `--auto` | Flags passed to `opencode` on launch |
+| `HARNESS_HERMES_BIN` | `hermes` | Executable path for `hermes` when `HARNESS_CLI=hermes`; a command line like `HARNESS_CLAUDE_BIN`'s |
+| `HARNESS_HERMES_HOME` | `~/.hermes` | The operator's Hermes home (login, `config.yaml`, skills) each lane's own profile is seeded from |
+| `HARNESS_HERMES_USAGE_TTL` | `120` | Seconds one `hermes usage --json` answer is reused by every worker |
+| `HARNESS_OPENCLAW_BIN` | `openclaw` | Executable path for `openclaw` when `HARNESS_CLI=openclaw`; a command line like `HARNESS_CLAUDE_BIN`'s |
+| `HARNESS_OPENCLAW_CONFIG` | `$OPENCLAW_CONFIG_PATH`, else `${OPENCLAW_STATE_DIR:-~/.openclaw}/openclaw.json` | The operator's OpenClaw config (login, default model) each lane's own config includes |
+| `HARNESS_OPENCLAW_TIMEOUT` | `14400` | Seconds one `openclaw agent exec` turn of a lane may run |
+| `HARNESS_OPENCLAW_SUBAGENT_TIMEOUT` | `3600` | Seconds one review or gauntlet sub-agent run (a fresh `openclaw agent exec`) may take |
+| `HARNESS_OPENCLAW_USAGE_TTL` | `120` | Seconds one `openclaw status --usage --json` answer is reused by every worker |
+| `HARNESS_OPENCLAW_AGENTS_SKILLS` | `~/.agents/skills` | A user skill dir an openclaw lane's config adds as an extra skill dir, after `HARNESS_USER_SKILLS` |
+| `HARNESS_USER_SKILLS` | `~/.claude/skills` | Where Harness installs user skills for claude and opencode, and the skill dir a hermes or openclaw lane gets as an external one |
+| `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
+| `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
 | `HARNESS_POOL` | `3` | Number of pool workers (unit-concurrency cap) |
-| `HARNESS_CAP` | `3` | Max concurrent claude sessions per unit |
+| `HARNESS_CAP` | `3` | Max concurrent agent sessions per unit |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
 | `HARNESS_POOL_TAKES_BUGS` | `1` | `1` = a pool worker with no dispatchable impl work takes the oldest open `bug`/`bug-triaged` issue in its unit's repo while the priority lane is busy (or not running), through the lane's own triage→fix flow; the lane keeps first pick whenever it is free, and the shared bug claim means the two never take the same bug. `0` = bugs wait for the priority lane |
@@ -342,7 +366,7 @@ The bar adds one thing rtdd cannot check: **at least one test fails without the 
 
 **The merge gate keeps the full suite.** The rounds covered the diff; only the full suite covers what the diff broke elsewhere. So unless the repo ships its own `scripts/ci-local.sh` (which then *is* the gate), the lane runs the full suite on the rebased head before merging — Round 3 counts when it ran there.
 
-**`harness stats` shows how each issue was tested.** Every lane session — `claude` or `agy` — is launched with `RTDD_EVENT_LOG=~/.harness/rtdd-events.jsonl` (`HARNESS_RTDD_EVENTS_FILE` overrides it) plus `HARNESS_SESSION` (the session uuid), `HARNESS_ISSUE`, `HARNESS_KIND`, `HARNESS_PRD`, `HARNESS_PREFIX` and `HARNESS_REPO`. rtdd appends one line per invocation and copies those vars into its `ctx` ([VocanicZ/rtdd#503](https://github.com/VocanicZ/rtdd/issues/503)); the report joins each line to its session on `ctx.HARNESS_SESSION`. Per issue and PRD you get `which` calls, changed nodes, Round 1 / Round 2 sizes, stale-graph count and rtdd wall time; the fleet summary gives the share of `which` calls that were selective vs left the lane on the full suite (an empty selection, a whole-suite / fidelity-`none` selection, or an rtdd error), and how many `harness start`s found no rtdd (`rtdd_missing`). rtdd never runs tests, so pass/fail stays in the transcript. `--backfill` counts the `rtdd` Bash calls (`which`, `init`, and the subcommands v0.3 removed) of older sessions — counts only, no selection data, and Claude transcripts only (agy writes none Harness can read).
+**`harness stats` shows how each issue was tested.** Every lane session, whatever its [CLI](#supported-agent-clis), is launched with `RTDD_EVENT_LOG=~/.harness/rtdd-events.jsonl` (`HARNESS_RTDD_EVENTS_FILE` overrides it) plus `HARNESS_SESSION` (the session uuid), `HARNESS_ISSUE`, `HARNESS_KIND`, `HARNESS_PRD`, `HARNESS_PREFIX` and `HARNESS_REPO`. rtdd appends one line per invocation and copies those vars into its `ctx` ([VocanicZ/rtdd#503](https://github.com/VocanicZ/rtdd/issues/503)); the report joins each line to its session on `ctx.HARNESS_SESSION`. Per issue and PRD you get `which` calls, changed nodes, Round 1 / Round 2 sizes, stale-graph count and rtdd wall time; the fleet summary gives the share of `which` calls that were selective vs left the lane on the full suite (an empty selection, a whole-suite / fidelity-`none` selection, or an rtdd error), and how many `harness start`s found no rtdd (`rtdd_missing`). rtdd never runs tests, so pass/fail stays in the transcript. `--backfill` counts the `rtdd` Bash calls (`which`, `init`, and the subcommands v0.3 removed) of older sessions — counts only, no selection data, and Claude transcripts only (agy writes none Harness can read).
 
 #### This repository's own setup
 
@@ -707,7 +731,7 @@ needed to finish their own `gh` calls. Now:
   resource, with `HOLD` on a token being waited out. A token from `GH_TOKEN` / `GITHUB_TOKEN` is
   listed by a hash, never by value; gh's own stored login is `gh-auth`.
 
-The token is what is limited, not the agent CLI, so this works the same for `claude` and `agy`.
+The token is what is limited, not the agent CLI, so this works the same for every [supported agent CLI](#supported-agent-clis).
 
 **Optional: a GitHub App token per org.** For fleets on org repos, an installation token from a
 GitHub App installed on that org has its own budget (5,000+/hour, scaling with the org's repos).
@@ -749,8 +773,8 @@ seconds):
    - **If nothing can be pushed, the session is not killed.** An `ERROR` is logged for a human.
 
    The supervisor only types into an idle input prompt, never into a dialog or menu. It leaves alone
-   any pane showing a usage, credit or rate-limit message. The prompt patterns come from each CLI
-   (`claude`, `agy`).
+   any pane showing a usage, credit or rate-limit message. The prompt patterns come from each
+   CLI's adapter ([Supported agent CLIs](#supported-agent-clis)).
 
    **Stuck turns** are checked before activity. Text typed into a pane mid-turn only queues in the
    input box, and a lane polling a long job can stay in one turn for hours. Its spinner timer ticks
@@ -796,7 +820,8 @@ Every action, alarm and resolution is logged to `~/.harness/supervise.log`. `har
 `harness supervise --install` writes and starts the systemd user unit `harness-supervise.service`
 (`Restart=always`, `KillMode=process` so a restart never takes down the fleets it started) and
 enables linger, so the unit keeps running after you log out. The unit's `PATH` holds the directories
-of `claude`, `agy`, `gh`, `rtdd`, `tmux` and `git` as found at install time. A missing `rtdd` is
+of every [supported agent CLI](#supported-agent-clis)'s binary, `gh`, `rtdd`, `tmux`, `git`, `python3` and `curl` as
+found at install time. A missing `rtdd` is
 warned about, because without it every relaunched lane falls back to the full test suite.
 `harness update` rewrites and restarts an installed unit from the updated engine. `harness
 supervise --uninstall`, or uninstalling the engine, removes it.

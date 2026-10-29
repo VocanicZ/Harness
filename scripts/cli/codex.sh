@@ -238,8 +238,8 @@ PY
 # outlives the checkout install.sh ran from).
 codex_prereqs(){ local bin mkt="${HARNESS_ENGINE_PLUGINS:-$CLI_DIR/../../plugins}/codex"
   bin="$(codex_bin)"
-  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      codex binary ($bin)"
-  else echo "MISSING codex binary ($bin): curl -fsSL https://chatgpt.com/codex/install.sh | sh"; return 1; fi
+  _cli_bin_ensure codex "$bin" "${1:-}" 'curl -fsSL https://chatgpt.com/codex/install.sh | sh' || return 1
+  echo "ok      codex binary ($bin)"
   # grep reads the whole listing (no -q): stopping at the match would kill codex with SIGPIPE, and
   # pipefail would read that as the plugin missing.
   if _cli_run "$bin" plugin list 2>/dev/null | grep -E '^harness-ralph@harness +installed, enabled' >/dev/null; then

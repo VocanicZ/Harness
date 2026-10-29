@@ -172,11 +172,8 @@ PY
 # flags. --install installs v1 from npm when there is no binary at all (never over an OpenCode 2).
 # The goal-loop plugin is per worktree (opencode_launch), so nothing is installed into OpenCode.
 opencode_prereqs(){ local bin v; bin="$(opencode_bin)"
-  if ! command -v "$(_cli_exe "$bin")" >/dev/null && [[ "${1:-}" == --install ]] && command -v npm >/dev/null; then
-    npm install -g --allow-scripts=opencode-ai opencode-ai@1 >/dev/null 2>&1 || npm install -g opencode-ai@1 >/dev/null 2>&1
-    hash -r; fi
-  if ! command -v "$(_cli_exe "$bin")" >/dev/null; then
-    echo "MISSING opencode binary ($bin): npm install -g opencode-ai@1"; return 1; fi
+  _cli_bin_ensure opencode "$bin" "${1:-}" 'npm install -g opencode-ai@1' \
+    'npm install -g --allow-scripts=opencode-ai opencode-ai@1 || npm install -g opencode-ai@1' || return 1
   v="$(_cli_run "$bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [[ -z $v ]]; then echo "MISSING opencode binary ($bin) reports no version: npm install -g opencode-ai@1"; return 1; fi
   if [[ ${v%%.*} != 1 ]]; then

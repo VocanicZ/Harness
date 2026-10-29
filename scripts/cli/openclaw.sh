@@ -209,7 +209,5 @@ _openclaw_tree(){ ps -e -o pid=,ppid= | awk -v r="$1" '{ up[$1] = $2 } END { s[r
 # launch, and OpenClaw signs in with the operator's own stored or external CLI credentials. --install
 # installs it from npm when there is no binary at all (OpenClaw needs node >= 24.22.1).
 openclaw_prereqs(){ local bin; bin="$(openclaw_bin)"
-  if ! command -v "$(_cli_exe "$bin")" >/dev/null && [[ "${1:-}" == --install ]] && command -v npm >/dev/null; then
-    npm install -g openclaw@latest --allow-scripts=openclaw >/dev/null 2>&1; hash -r; fi
-  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      openclaw binary ($bin)"
-  else echo "MISSING openclaw binary ($bin): npm install -g openclaw@latest --allow-scripts=openclaw"; return 1; fi; }
+  _cli_bin_ensure openclaw "$bin" "${1:-}" 'npm install -g openclaw@latest --allow-scripts=openclaw' || return 1
+  echo "ok      openclaw binary ($bin)"; }

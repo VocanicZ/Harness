@@ -222,8 +222,8 @@ claude_usage_setup(){ usage_statusline_install "$1"; }
 # HARNESS_MARKETPLACE / HARNESS_MARKETPLACE_NAME name the marketplace they come from (install.sh).
 claude_prereqs(){ local bin rc=0 p f mk="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
   bin="$(claude_bin)"
-  if command -v "$(_cli_exe "$bin")" >/dev/null; then echo "ok      claude binary ($bin)"
-  else echo "MISSING claude binary ($bin): curl -fsSL https://claude.ai/install.sh | bash"; return 1; fi
+  _cli_bin_ensure claude "$bin" "${1:-}" 'curl -fsSL https://claude.ai/install.sh | bash' || return 1
+  echo "ok      claude binary ($bin)"
   [[ "${1:-}" == --install ]] &&
     _cli_run "$bin" plugin marketplace add "${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}" >/dev/null 2>&1
   for p in ralph-loop superpowers; do

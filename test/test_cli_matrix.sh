@@ -486,8 +486,8 @@ init_choice_ok(){ local cli="$HARNESS_CLI" d="$RUN_DIR/init-$HARNESS_CLI" out
     "$HERE/../scripts/lib.sh" 2>/dev/null)"
   grep -qxF ": \"\${$CLI_CONFIG_VAR:=$cli}\"" "$d/.harness/config" &&
     same "$(sed -n 1p <<<"$out")" "$cli" && same "$(sed -n 2p <<<"$out")" "$(cli_launch /wd uuid "" "")"; }
-# prereqs_ok — `harness setup` through the adapter: with no binary it names the binary and fails; with
-# the binary but none of its plugins it names each missing one and fails; --install installs each
+# prereqs_ok — `harness setup` through the adapter: with no binary it names the binary's install command
+# and fails, and --install installs the binary by that command (#316); with the binary but none of its plugins it names each missing one and fails; --install installs each
 # through the binary, by the command it named, and then passes. A CLI Harness installs nothing into
 # (copilot: its goal loop is Harness's own; opencode: its loop plugin loads from the engine,
 # fixtures/cli/<cli>/installs-nothing) passes on the binary alone, naming nothing missing. The binary
@@ -499,8 +499,20 @@ prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
   bin="$(cli_bin)"
   out="$(PATH="$d/none" cli_prereqs 2>&1)" && exit 1
   grep -qF "MISSING $HARNESS_CLI binary ($bin)" <<<"$out" || exit 1
-  printf '#!/bin/sh\necho "$*" >> %q\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$d/calls" "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
-  chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
+  printf '#!/bin/sh\necho "$*" >> %q\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$d/calls" "$FIX/$HARNESS_CLI/VERSION" > "$d/stub"
+  chmod +x "$d/stub"
+  # #316: every vendor ships a non-interactive install (an npm package or a curl release script), so
+  # --install runs the command it named. This PATH holds stubs of both that log the call: npm puts
+  # the binary in, curl serves the script that does.
+  fetch="$(sed -n "s/^MISSING $HARNESS_CLI binary ($bin): //p" <<<"$out")"; fetch="${fetch%% |*}"
+  mkdir -p "$d/fetch"; for p in bash sh grep head; do ln -sf "$(command -v $p)" "$d/fetch/$p"; done
+  printf '#!/bin/sh\necho "npm $*" >> %q\n%q %q %q\n' "$d/fetched" "$(command -v cp)" "$d/stub" "$d/fetch/$bin" > "$d/fetch/npm"
+  printf '#!/bin/sh\necho "curl $*" >> %q\necho "%q %q %q"\n' "$d/fetched" "$(command -v cp)" "$d/stub" "$d/fetch/$bin" > "$d/fetch/curl"
+  chmod +x "$d/fetch/npm" "$d/fetch/curl"
+  out="$(PATH="$d/fetch" HARNESS_INSTALL_CLI_BIN=1 _cli_call prereqs --install 2>&1)"
+  grep -qxF "ok      $HARNESS_CLI binary ($bin)" <<<"$out" || grep -qF "ok      $HARNESS_CLI binary ($bin," <<<"$out" || exit 1
+  grep -qF -- "${fetch##* }" "$d/fetched" && [[ $(cut -d' ' -f1 "$d/fetched" | sort -u) == "${fetch%% *}" ]] || exit 1
+  rm -f "$d/fetch/$bin"; : > "$d/calls"; cp "$d/stub" "$d/bin/$bin"; export PATH="$d/bin:$PATH"
   # The handoff skill is missing on this empty HOME too (#303): handoff_skill_ok is its cell.
   out="$(cli_prereqs 2>&1)" && exit 1
   missing="$(sed -n "s/^MISSING [^:]*: $bin //p" <<<"$out")"

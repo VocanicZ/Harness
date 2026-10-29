@@ -114,6 +114,9 @@ make_env(){
   # handoff skill). Copilot's lives under COPILOT_HOME, pinned above.
   export HARNESS_USER_SKILLS="$RUN_DIR/user-skills" HARNESS_AGY_USER_SKILLS="$RUN_DIR/agy-skills"
   export HARNESS_CODEX_USER_SKILLS="$RUN_DIR/codex-skills"
+  # …and `--install`'s fetch of a missing CLI binary (#316): a real npm/curl install off the host's
+  # PATH. The matrix's prereqs-named cell turns it back on against its stub npm and curl.
+  export HARNESS_INSTALL_CLI_BIN=0
   unset CLAUDE_CONFIG_DIR
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.
