@@ -408,7 +408,8 @@ frozen_ok(){ ( command -v tmux >/dev/null || exit 1
   grep -qF "send-keys -t $cli-idle -l nudge-idle" "$SUP_LOG" && not grep -qF "$cli-$other" "$SUP_LOG" ); }
 # rtdd_event_ok — #186: a lane launched through this CLI calls `rtdd which` from its turn; rtdd sees
 # the session's env through the CLI and logs it, and `harness stats` joins the call to the lane's
-# session and issue.
+# session and issue. A CLI whose turns do not run in the pane's env has its fake drop what it would
+# not pass on (hermes: every lane variable its seeded config leaves out of client_env_passthrough).
 rtdd_event_ok(){ ( lane_env; local wd="$RUN_DIR/rtdd-$HARNESS_CLI" sess uuid
   export HARNESS_EVENTS_FILE="$RUN_DIR/rtdd-$HARNESS_CLI.events" HARNESS_RTDD_EVENTS_FILE="$RUN_DIR/rtdd-$HARNESS_CLI.jsonl"
   rm -f "$HARNESS_EVENTS_FILE" "$HARNESS_RTDD_EVENTS_FILE"; new_wd "$wd"

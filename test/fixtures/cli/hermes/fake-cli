@@ -2,7 +2,9 @@
 # fake-cli — what `hermes` leaves on disk when a lane's launch line runs it (README.md): the lane's
 # $HERMES_HOME/state.db with transcript.db's session, titled as `-c <title>` named it, its cwd the
 # pane's and its start time now, as Hermes's `--create-if-missing` does. Then the turn's tool call,
-# $FAKE_CLI_TURN, when set.
+# $FAKE_CLI_TURN, when set, in the environment the host gateway gives it (env-passthrough.txt,
+# env-no-passthrough.txt): a lane variable reaches it only when the lane's config.yaml names it in
+# terminal.client_env_passthrough.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 title=""; while (( $# )); do [[ $1 == -c ]] && title="$2"; shift; done
 [[ -n $title ]] || title="$(cat "$here/session")"
@@ -14,4 +16,9 @@ c = sqlite3.connect(db)
 c.execute("UPDATE sessions SET title = ?, cwd = ?, started_at = ? WHERE parent_session_id IS NULL", (title, cwd, time.time()))
 c.commit()
 PY
-[[ -z ${FAKE_CLI_TURN:-} ]] || eval "$FAKE_CLI_TURN"
+[[ -n ${FAKE_CLI_TURN:-} ]] || exit 0
+passed="$(python3 -c 'import json, re, sys
+m = re.search(r"^  client_env_passthrough: (\[.*\])\s*$", open(sys.argv[1]).read(), re.M)
+print(*json.loads(m.group(1)) if m else [], sep="\n")' "$HERMES_HOME/config.yaml" 2>/dev/null)"
+for v in $(compgen -e | grep -E '^(RTDD|HARNESS)_'); do grep -qxF -- "$v" <<<"$passed" || unset "$v"; done
+eval "$FAKE_CLI_TURN"
