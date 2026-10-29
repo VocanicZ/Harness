@@ -633,7 +633,7 @@ The tag is never compared with the running version, so it is also how you go to 
 that has already been pruned from the host.
 
 **Migrating a git-checkout engine.** Before releases, `~/.harness/engine` was a git clone of `main`.
-The first `harness update` (or `install.sh` run) after a release is published migrates it once: the
+A release-aware `harness update` (or `install.sh` run) migrates it once a release is published: the
 release is installed, the old checkout is moved aside — uncommitted edits and all — to
 `~/.harness/releases/git-<sha>/`, and `engine` becomes the symlink. That `releases/git-<sha>/`
 directory counts as a release, so `harness update --rollback` can flip back to it and it is pruned
@@ -641,6 +641,17 @@ like any other. Until a release exists, a git-checkout engine keeps updating fro
 only, and refuses rather than overwrite local edits. One caveat for the migrating update only:
 workers launched before it reach the engine through the old `~/.harness/engine` path, which now
 resolves to the new release, so relaunch them as above.
+
+An engine **installed before releases** runs its own old updater, which knows nothing of releases,
+so it reaches one in **two `harness update` runs**:
+
+1. The first only fast-forwards the checkout to `main`, which brings the release-aware updater.
+2. The second migrates it to the latest release. If no release is published yet, it prints
+   `harness update: … named no release` and stays a git checkout; run it again once one exists.
+
+After updating, relaunch the pool (`harness pause` → let sessions drain → `harness stop` →
+`harness start --recover`) so its workers run the new engine, including the fleet's auto-release
+code (see [Releases](#releases)).
 
 ### Releases
 
@@ -680,6 +691,13 @@ no-op. Exit codes: `0` released (or already), `2` configuration, `3` environment
 A red release gate files one `bug` issue for that commit and is never re-run on it; the fix is a new
 commit, released like any other. Trigger state and gate logs live in `~/.harness/autorelease/`.
 Nothing updates a host by itself: a new release reaches a host when its operator runs `harness update`.
+
+**The first release.** While the Harness repo has no `vX.Y.Z` tag at all, a release-aware fleet
+driving it cuts `v0.1.0` itself: its release poll finds no tag and queues one **bootstrap** release,
+released like a PRD close (no throttle, kept queued through a running or errored release). Each host
+asks once (`~/.harness/autorelease/bootstrap` records the answer). An operator can instead run
+`harness release` from a checkout of `main`. Tags are never made by hand: only `harness release`
+cuts them, gate first.
 
 New config keys: `HARNESS_LABEL_PAUSED` (default `agent-paused`), `HARNESS_PAUSE_GRACE` (default `300`s).
 

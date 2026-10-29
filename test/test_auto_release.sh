@@ -7,6 +7,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
 make_env
 export HARNESS_RELEASE_REPO=acme/harness HARNESS_AUTORELEASE_DIR="$RUN_DIR/autorelease"
+# #331: these checkouts carry no vX.Y.Z tag; the bootstrap release is test_auto_release_bootstrap.sh's.
+mkdir -p "$HARNESS_AUTORELEASE_DIR"; : > "$HARNESS_AUTORELEASE_DIR/bootstrap"
 RLOG="$RUN_DIR/release.log"; GH_LOG="$RUN_DIR/gh.log"; EV="$RUN_DIR/events"; : > "$RLOG"; : > "$GH_LOG"; : > "$EV"
 # Stub release command: logs the reason it was run for (and the --ref to $REFS), exits $STUB_RC
 # (4 = the gate failed).

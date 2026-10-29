@@ -2,6 +2,8 @@
 # autorelease.sh — the fleet cuts its own Harness releases (#283, PRD #274). Sourced by drive.sh (so
 # by pool-worker.sh and priority-worker.sh too), after lib.sh. Two triggers, both only for the
 # Harness repo itself ($HARNESS_RELEASE_REPO), never another target repo:
+#   - the Harness repo has no vX.Y.Z tag at all (#331) → release_tick queues one `bootstrap` per host,
+#     released like a PRD close: the first release, which no edge-triggered event may ever cut
 #   - a reviewed PRD the engine closes (close_prd)  → queued in `pending` as prd:<n>; release_tick
 #     releases it at once, and keeps it queued through a running job or an errored release (#326)
 #   - a merged bug fix (reap_team, drive_bug, reap_pool_bugs) → queued in `pending`; release_tick
@@ -11,7 +13,9 @@
 # re-run on it: the fix for that bug is a new commit, which is released like any other.
 # State lives host-wide in $HARNESS_AUTORELEASE_DIR (release.sh writes its gate logs there too):
 #   prd-<n>             a release was triggered for PRD <n> (CLOSE_PRD is re-emitted every poll)
-#   pending             "<epoch>\t<issue>" per merged fix, "<epoch>\tprd:<n>" per PRD close, not yet released
+#   bootstrap           the no-release-yet check ran to an answer: a bootstrap was queued, or a tag exists
+#   pending             "<epoch>\t<issue>" per merged fix, "<epoch>\tprd:<n>" per PRD close,
+#                       "<epoch>\tbootstrap" for the first release, not yet released
 #   gate-failed-<sha>   the gate failed at <sha>; holds the bug issue filed for it, once filed
 #   retry-after         epoch before which release_tick does not retry a release that errored
 #   release.pid/.log    the background release job, stopped only by this PID
@@ -45,14 +49,30 @@ release_on_bug_merge(){ local n="$1" d lockfd; release_repo_is_engine "${SLUG:-}
   fi
   flock -u "$lockfd"; exec {lockfd}>&-; }
 
-# release_tick — once per poll: a release when a PRD close is queued (no throttle), or a patch release
-# when the oldest queued fix has waited the throttle; never before `retry-after`.
+# release_bootstrap — queue one `bootstrap` release while the Harness repo has no vX.Y.Z tag (#331):
+# a PRD close or fix merged under an engine without these hooks was never queued, so nothing else
+# would cut the first release. Level-triggered, but asked once per host: the noclobber marker is
+# written as soon as the answer is known (no tag → queued; a tag → never needed), and once it exists
+# the check makes no git call. A failed fetch is no answer: no marker, so a later tick asks again.
+release_bootstrap(){ local d tags lockfd; d="$(release_dir)"; [[ -e "$d/bootstrap" ]] && return 0
+  git -C "$CHECKOUT" fetch -q --tags origin 2>/dev/null || return 0
+  tags="$(git -C "$CHECKOUT" tag -l 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null)" || return 0
+  mkdir -p "$d"; ( set -o noclobber; : > "$d/bootstrap" ) 2>/dev/null || return 0
+  [[ -z "$tags" ]] || return 0
+  log "auto-release: $SLUG has no release yet — queuing the bootstrap release"
+  exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
+  printf '%s\tbootstrap\n' "$(release_now)" >> "$d/pending"
+  flock -u "$lockfd"; exec {lockfd}>&-; }
+
+# release_tick — once per poll: a release when a PRD close or the bootstrap is queued (no throttle),
+# or a patch release when the oldest queued fix has waited the throttle; never before `retry-after`.
 release_tick(){ local d now oldest prds nums after; release_repo_is_engine "${SLUG:-}" || return 0
+  release_bootstrap
   d="$(release_dir)"; [[ -s "$d/pending" ]] || return 0
   now="$(release_now)"
   after="$(cat "$d/retry-after" 2>/dev/null)"; [[ -n "$after" ]] && (( now < after )) && return 0
-  prds="$(cut -f2 "$d/pending" | grep '^prd:' | paste -sd' ' -)"
-  nums="$(cut -f2 "$d/pending" | grep -v '^prd:' | paste -sd, -)"
+  prds="$(cut -f2 "$d/pending" | grep -E '^(prd:|bootstrap$)' | paste -sd' ' -)"
+  nums="$(cut -f2 "$d/pending" | grep -vE '^(prd:|bootstrap$)' | paste -sd, -)"
   if [[ -z "$prds" ]]; then
     oldest="$(awk -F'\t' 'NR==1||$1<m{m=$1} END{print m}' "$d/pending")"
     [[ -n "$oldest" ]] && (( now - oldest >= ${HARNESS_RELEASE_THROTTLE:-3600} )) || return 0
