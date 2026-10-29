@@ -55,6 +55,13 @@ for v in $internal; do
   assert_ok "$v, left out of the config table, is still read by an adapter" grep -qw "$v" <<<"$read_vars"
 done
 
+# #321: the usage-limit checkpoints' "Usage source" table has one row per CLI with an adapter
+# (cli_list), each naming where its windows come from, or that it has none — one CLI per row, so the
+# one-line subset check below never sees it.
+all_clis="$(source "$ROOT/scripts/cli/dispatch.sh"; cli_list | sort)"
+usage_rows="$(sed -n '/^### Usage-limit checkpoints/,/^### /p' "$ROOT/README.md" | sed -n 's/^| `\([a-z0-9-]*\)` | .*[^ ].* |$/\1/p' | sort)"
+assert_eq "$usage_rows" "$all_clis" "the README usage-source table has one row per CLI in cli_list"
+
 # …and no README line outside the support table lists some of the supported CLIs as if they were all
 # of them (`claude` or `agy`): a run of backticked names, each perhaps glossed in parentheses, joined
 # by commas, slashes, `or` or `and`, that names two or more supported CLIs names every one.

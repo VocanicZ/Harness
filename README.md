@@ -703,8 +703,11 @@ also fires on the limit message itself, so a CLI that cannot report usage is sti
 |-----|--------------|
 | `claude` | The status-line `rate_limits` data (`five_hour`, `seven_day`), wired per worktree by `HARNESS_USAGE_STATUSLINE`. The account is the `CLAUDE_CONFIG_DIR` the pane runs under |
 | `agy` | `agy -p "/usage" --output-format json` (runs no turn): each model group's `5h` and `weekly` buckets, reported as used = 100 − remaining. The account is the model group (`Gemini Models`, `Claude and GPT models`). Cached `HARNESS_AGY_USAGE_TTL` seconds (120) |
+| `codex` | The newest rollout's `rate_limits` (`primary`, `secondary`): each window's `used_percent`, read off the last `token_count` event of the newest rollout under `$CODEX_HOME/sessions` that has one. The account is the window's `limit_id` (`codex`). Read from disk each poll, so no cache |
+| `copilot` | The newest session's `quotaSnapshots`: each quota's used = 100 − `remainingPercentage`, read off the last `model.model_call_success` event of the newest `$COPILOT_HOME/session-state/<id>/events.jsonl` that has one (not `completions`, the editors' quota, nor an unlimited one). The account is `copilot`. Read from disk each poll, so no cache |
 | `hermes` | `hermes usage --json`, run in the newest lane's profile: the configured provider's windows (`openai-codex`, `anthropic` OAuth, `openrouter`; none for `copilot`). The account is the provider. Cached `HARNESS_HERMES_USAGE_TTL` seconds (120) |
 | `openclaw` | `openclaw status --usage --json`: the windows of every provider the operator's config holds auth for (none for `claude-cli`). The account is the provider. Cached `HARNESS_OPENCLAW_USAGE_TTL` seconds (120) |
+| `opencode` | None: OpenCode 1.x has no quota meter. A limit shows only as its error text at the prompt, which parks the lane (`limit-parks`) and gets the mechanical checkpoint above |
 
 Each checkpoint and resume is appended to `~/.harness/events.jsonl` as a `usage_checkpoint` /
 `usage_resume` event, and `harness status` shows every window, with `HOLD` on an account being

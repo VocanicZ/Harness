@@ -553,9 +553,12 @@ sys.exit(0 if os.environ["WANT"] in json.load(open(sys.argv[1]))["skills"]["load
   [[ $(cat "$want/SKILL.md") == "operator own" ]] ); }
 # prompt_skills — every skill prompts/*.md name, read off the prompts themselves: each {{skill:<name>}}.
 # A skill named any other way ("`x` skill", "the x skill", "skill `x`") fails: render() would hand it
-# to the CLI verbatim, and cli_prereqs would never check it.
-prompt_skills(){ local raw
-  raw="$(grep -ohE '[^ ]+ skill\b|skill `[^`]+`' "$HERE"/../prompts/*.md | grep -vE '^\{\{skill:[A-Za-z0-9_.-]+\}\} skill$|^the skill$')"
+# to the CLI verbatim, and cli_prereqs would never check it. So does a bare backticked skill-like
+# name (#321: "`subagent-driven-development`"), a kebab-case word that is none of Harness's labels.
+prompt_skills(){ local raw labels
+  labels="$(sed -nE 's/^: "\$\{HARNESS_LABEL_[A-Z_]+:=([^}]+)\}"$/\1/p' "$HERE"/../scripts/lib.sh)"
+  raw="$(grep -ohE '[^ ]+ skill\b|skill `[^`]+`' "$HERE"/../prompts/*.md | grep -vE '^\{\{skill:[A-Za-z0-9_.-]+\}\} skill$|^the skill$'
+    grep -ohE '`[a-z][a-z0-9]*(-[a-z0-9]+)+`' "$HERE"/../prompts/*.md | grep -vxF -f <(sed 's/.*/`&`/' <<<"$labels"))"
   [[ -z $raw ]] || { echo "a prompt names a skill outside {{skill:<name>}}: $raw" >&2; return 1; }
   grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$HERE"/../prompts/*.md | sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u; }
 # prompt_skills_ok — #315: each skill a lane prompt names (prompt_skills) is one `harness setup`
