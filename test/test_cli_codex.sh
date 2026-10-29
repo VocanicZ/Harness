@@ -155,7 +155,9 @@ out="$(pre cli_prereqs 2>&1)"
 assert_ok "the marketplace is named with its add command" has "MISSING codex marketplace harness: codex plugin marketplace add $(cd "$HERE/.." && pwd)/scripts/cli/../../plugins/codex" "$out"
 assert_ok "the plugin is named with its add command" has "MISSING codex plugin harness-ralph: codex plugin add harness-ralph@harness" "$out"
 assert_ok "the handoff skill is named where codex loads skills (#303)" has "MISSING codex skill handoff ($HARNESS_CODEX_USER_SKILLS/handoff)" "$out"
-touch "$RUN_DIR/pre/added"; mkdir -p "$HARNESS_CODEX_USER_SKILLS/handoff"; cp "$HERE/../skill/handoff/SKILL.md" "$HARNESS_CODEX_USER_SKILLS/handoff/"
+# Every skill the prompts name (#315) placed too: this checks the plugin, not the skills.
+touch "$RUN_DIR/pre/added"
+for n in $(cli_prompt_skills); do [[ $n == rtdd ]] || cli_skill_place "$HERE/../skill/$n" "$HARNESS_CODEX_USER_SKILLS/$n"; done
 assert_ok "an installed plugin passes" pre eval 'cli_prereqs >/dev/null'
 assert_ok "the marketplace it names holds the plugin" python3 -c 'import json, os, sys
 m = json.load(open(sys.argv[1] + "/.agents/plugins/marketplace.json"))
