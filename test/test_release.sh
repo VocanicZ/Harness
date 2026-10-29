@@ -4,6 +4,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
+# #325: a live auto-release environment (HARNESS_AUTORELEASE_DIR, …) must not steer the fixtures.
+unset_inherited_config
 RELEASE="$HERE/../scripts/release.sh"
 gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
