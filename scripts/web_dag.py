@@ -36,7 +36,9 @@ def blocked_by_last(body):
 def parent_of(body):
     if not body:
         return None
-    m = re.search(r"^## Parent\s*\n+\s*#(\d+)", body, flags=re.M)
+    # #323: `\s*\n+\s*` overlapped and backtracked cubically on a blank-line run with no `#N`; this
+    # accepts the same gaps (whitespace holding at least one newline, CRLF too) in linear time
+    m = re.search(r"^## Parent[^\S\n]*\n\s*#(\d+)", body, flags=re.M)
     return int(m.group(1)) if m else None
 
 
