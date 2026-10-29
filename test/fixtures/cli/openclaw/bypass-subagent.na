@@ -1,0 +1,1 @@
+`agent exec` turns run no sub-agents: `sessions_spawn` needs the Gateway, and both spawns a lane tried failed `published reply runtime missing for main` (bypass-subagent.txt)
