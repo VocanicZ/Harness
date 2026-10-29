@@ -115,6 +115,12 @@ done
 # idempotent re-install: still present, no error
 HARNESS_SKILL_SRC="$SK_SRC" HARNESS_USER_SKILLS="$USK" install_harness_skills >/dev/null
 assert "install_harness_skills is idempotent" "[[ -f '$USK/harness/SKILL.md' ]]"
+# #303: the handoff skill every checkpoint names ships with them; an operator's own same-named skill
+# is never overwritten.
+assert "handoff skill deployed to user scope (#303)" "cmp -s '$SK_SRC/handoff/SKILL.md' '$USK/handoff/SKILL.md'"
+USK2="$(mktemp -d)/skills"; mkdir -p "$USK2/handoff"; echo "operator own" > "$USK2/handoff/SKILL.md"
+HARNESS_SKILL_SRC="$SK_SRC" HARNESS_USER_SKILLS="$USK2" install_harness_skills >/dev/null
+assert "an operator's own handoff skill is kept (#303)" "[[ \"\$(cat '$USK2/handoff/SKILL.md')\" == 'operator own' ]]"
 # missing source: warn (best-effort), never fail the install
 miss_out="$(HARNESS_SKILL_SRC="$(mktemp -d)/nope" HARNESS_USER_SKILLS="$(mktemp -d)/sk" install_harness_skills 2>&1)"
 assert "missing skill source is non-fatal" "[[ \$? -eq 0 ]]"

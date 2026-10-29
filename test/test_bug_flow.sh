@@ -29,7 +29,7 @@ render "$HERE/../prompts/bug-triage.md" \
   ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
   PROMISE='BUG 42 triage DONE' \
   LABEL_READY=ready-for-agent LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
-  LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged > "$TRI"
+  LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged HANDOFF_SKILL="$(cli_skill handoff)" > "$TRI"
 
 assert_ok "triage: flips bug -> bug-triaged (remove bug, add bug-triaged)" \
   grep -qE -- '--remove-label bug .*--add-label bug-triaged' "$TRI"
@@ -85,7 +85,7 @@ render "$HERE/../prompts/bug-fix.md" \
   ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
   PROMISE='BUG 42 fix DONE' \
   LABEL_READY=ready-for-agent LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
-  LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" > "$FIX"
+  LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" HANDOFF_SKILL="$(cli_skill handoff)" > "$FIX"
 
 assert_ok "fix: implements the refined bug-triaged issue" \
   grep -qi 'bug-triaged' "$FIX"

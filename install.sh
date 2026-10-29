@@ -372,6 +372,7 @@ create_host_root(){
 # (~/.claude/skills) ONCE per host, not vendored per project (#57, PRD #52). Source is the shared
 # engine's skill/ dir (place_engine runs first in main); the umbrella skill/SKILL.md → harness/, and
 # each skill/<name>/ → <name>/, whole (harness-arc ships REFERENCE.md + scripts/ beside its SKILL.md).
+# That includes the handoff skill every checkpoint names (#303), never over the operator's own.
 # Best-effort: a missing source warns, never fails.
 install_harness_skills(){
   local src="${HARNESS_SKILL_SRC:-${HARNESS_HOME:-$HOME/.harness}/engine/skill}"
@@ -386,7 +387,7 @@ install_harness_skills(){
   fi
   for d in "$src"/*/; do
     [[ -f "$d/SKILL.md" ]] || continue
-    mkdir -p "$dst/$(basename "$d")"; cp -R "$d." "$dst/$(basename "$d")/" && n=$((n+1))
+    _place_skill "$d" "$dst/$(basename "$d")" && n=$((n+1))
   done
   echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
   # A CLI that reads user skills somewhere else (cli_user_skills_dir) gets its own copy, when it is
@@ -403,11 +404,18 @@ install_harness_skills(){
     fi
     for d in "$src"/*/; do
       [[ -f "$d/SKILL.md" ]] || continue
-      mkdir -p "$cdst/$(basename "$d")"; cp -R "$d." "$cdst/$(basename "$d")/"
+      _place_skill "$d" "$cdst/$(basename "$d")"
     done
     echo "  ✓ installed $n /harness skill(s) into $cdst ($c user scope)"
   done
 }
+
+# _place_skill <src dir> <dst dir> — copy one engine skill dir whole. A skill the prompts name rather
+# than a /harness one (skill/handoff, #303) carries a `<!-- harness-skill:` line; a same-named skill
+# already there WITHOUT that line is the operator's own and is left alone.
+_place_skill(){ local m='<!-- harness-skill:'
+  if grep -qF "$m" "$1/SKILL.md" && [[ -f "$2/SKILL.md" ]] && ! grep -qF "$m" "$2/SKILL.md"; then return 0; fi
+  mkdir -p "$2" && cp -R "$1." "$2/"; }
 
 # print_path_instructions — portability fallback when the PATH symlink can't be written: tell the
 # user exactly how to put the engine's bin/ on PATH themselves.

@@ -180,7 +180,11 @@ sed -i 's/2099-01-01T00:00:00Z/2001-01-01T00:00:00Z/g' "$COPILOT_HOME/session-st
 assert_no "a passed reset is no window" eval 'unset HARNESS_USAGE_CMD; cli_limit_usage'
 
 # --- prerequisites -------------------------------------------------------------------------------
-assert_ok "the binary is the only prerequisite" eval '{ PATH="$RUN_DIR/nobin:/usr/bin:/bin" cli_prereqs || :; } | grep -qxF "MISSING copilot binary (copilot): npm install -g @github/copilot"'
+# grep reads the whole report (no -q): the handoff skill's line follows, and an early exit would kill
+# the writer with SIGPIPE under pipefail.
+assert_ok "the binary is the only prerequisite" eval '{ PATH="$RUN_DIR/nobin:/usr/bin:/bin" cli_prereqs || :; } | grep -xF "MISSING copilot binary (copilot): npm install -g @github/copilot" >/dev/null'
+assert_ok "…beside the handoff skill, where copilot loads skills (#303)" \
+  has "MISSING copilot skill handoff ($COPILOT_HOME/skills/handoff)" "$(cli_prereqs 2>&1)"
 assert_ok "init offers copilot" grep -qx copilot <<<"$(cli_list)"
 
 col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot" && $3!="ok"')"

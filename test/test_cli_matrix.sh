@@ -262,23 +262,32 @@ inject_ok(){ ( lane_env; local alt
 # bug_lane_ok — the bug lane (drive.sh spawn_bug): triage, then fix, each its own session through the adapter.
 bug_lane_ok(){ ( source "$HERE/../scripts/drive.sh"; lane_env
   spawn_bug 9 triage >/dev/null 2>&1 && lane_ok "$(sess_bug acme/widget 9 triage)" "$(triage_worktree acme/widget 9)" "BUG 9 triage DONE" || exit 1
-  spawn_bug 9 fix >/dev/null 2>&1 && lane_ok "$(sess_bug acme/widget 9 fix)" "$(bug_worktree acme/widget 9)" "BUG 9 fix DONE" ); }
+  names_handoff_skill "$(triage_worktree acme/widget 9)/.harness-task.md" || exit 1
+  spawn_bug 9 fix >/dev/null 2>&1 && lane_ok "$(sess_bug acme/widget 9 fix)" "$(bug_worktree acme/widget 9)" "BUG 9 fix DONE" &&
+    names_handoff_skill "$(bug_worktree acme/widget 9)/.harness-task.md" ); }
 # review_ok — the PRD review (drive.sh spawn_orch REVIEW) with its gauntlet round, through the adapter.
 review_ok(){ ( source "$HERE/../scripts/drive.sh"; lane_env; local wd
   spawn_orch REVIEW 7 "REVIEW DONE" >/dev/null 2>&1 || exit 1
   wd="$(orch_worktree acme/widget 7)"
   lane_ok "$(sess_orch main 7)" "$wd" "REVIEW DONE" &&
     grep -qF "Gauntlet: round 1 of $HARNESS_GAUNTLET_ROUNDS   Evidence dir: $STATE_DIR/gauntlet/main/p7" "$wd/.harness-task.md" ); }
-# checkpoint_ok — host A: an impl lane (spawn_impl) runs issue 7 through this CLI; `pause --force`
-# types the checkpoint into it through the adapter — naming the CLI's handoff skill as the CLI invokes
-# a skill (handoff-skill) and the handoff marker — and marks the fleet paused, killing nothing.
+# checkpoint_ok — host A: an impl lane (spawn_impl) runs issue 7 through this CLI, its prompt's
+# CHECKPOINT PROTOCOL naming the handoff skill as the CLI invokes a skill (handoff-skill, #303);
+# `pause --force` types the checkpoint into it through the adapter — naming that skill the same way,
+# and the handoff marker — and marks the fleet paused, killing nothing.
 checkpoint_ok(){ local sess msg
   spawn_impl 7 "ISSUE 7 DONE" >/dev/null 2>&1 || return 1
   sess="$(sess_impl main 7)"; lane_ok "$sess" "$WORKTREES_DIR/main-i7" "ISSUE 7 DONE" || return 1
+  names_handoff_skill "$WORKTREES_DIR/main-i7/.harness-task.md" || return 1
   FAKE_LIVE="$sess" FAKE_LABELS='["agent-paused"]' RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1 || return 1
   msg="$(sent_text "$sess")"
   has "HARNESS CHECKPOINT" "$msg" && has "run the $(cat "$FIX/$HARNESS_CLI/handoff-skill") skill" "$msg" &&
     has '<!-- harness-handoff issue=7 branch=issue/7 -->' "$msg" && test -f "$RUN_DIR/PAUSED" && not grep -q '^kill-session' "$TMUXLOG"; }
+# names_handoff_skill <task file> — the rendered prompt names the CLI's handoff skill (handoff-skill)
+# and no other CLI's spelling of it: `/handoff` is a built-in that fails on hermes (handoff.txt).
+names_handoff_skill(){ local want; want="$(cat "$FIX/$HARNESS_CLI/handoff-skill")"
+  grep -qF "run the $want skill and post the handoff" "$1" && lacks "{{HANDOFF_SKILL}}" "$(cat "$1")" &&
+    { [[ $want == /handoff ]] || lacks "/handoff" "$(cat "$1")"; }; }
 host_a(){ RUN_DIR="$RUN_DIR/host-a-$HARNESS_CLI"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$RUN_DIR"
   source "$HERE/../scripts/drive.sh"; lane_env; }
 checkpoint_skill_ok(){ ( host_a; checkpoint_ok ); }
@@ -342,17 +351,52 @@ init_choice_ok(){ local cli="$HARNESS_CLI" d="$RUN_DIR/init-$HARNESS_CLI" out
 # fixtures/cli/<cli>/installs-nothing) passes on the binary alone, naming nothing missing. The binary
 # answers --version with the fixtures' (opencode refuses any but a 1.x).
 prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
-  export HOME="$d/home"; unset CLAUDE_CONFIG_DIR; mkdir -p "$HOME" "$d/bin" "$d/none"
+  export HOME="$d/home"; mkdir -p "$HOME" "$d/bin" "$d/none"
+  unset CLAUDE_CONFIG_DIR COPILOT_HOME HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS \
+    HARNESS_COPILOT_USER_SKILLS   # every skill dir under this HOME: one CLI's --install never feeds the next
   bin="$(cli_bin)"
   out="$(PATH="$d/none" cli_prereqs 2>&1)" && exit 1
   grep -qF "MISSING $HARNESS_CLI binary ($bin)" <<<"$out" || exit 1
   printf '#!/bin/sh\necho "$*" >> %q\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$d/calls" "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
   chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
-  if out="$(cli_prereqs 2>&1)"; then
-    [[ $(cli_loop) == driven || -s "$FIX/$HARNESS_CLI/installs-nothing" ]] && not grep -q '^MISSING' <<<"$out"; exit; fi
-  missing="$(sed -n "s/^MISSING [^:]*: $bin //p" <<<"$out")"; [[ -n $missing ]] || exit 1
+  # The handoff skill is missing on this empty HOME too (#303): handoff_skill_ok is its cell.
+  out="$(cli_prereqs 2>&1)" && exit 1
+  missing="$(sed -n "s/^MISSING [^:]*: $bin //p" <<<"$out")"
+  if [[ -z $missing ]]; then [[ $(cli_loop) == driven || -s "$FIX/$HARNESS_CLI/installs-nothing" ]] || exit 1; fi
   cli_prereqs --install >/dev/null 2>&1 || exit 1
-  while read -r p; do grep -qF -- "$p" "$d/calls" || exit 1; done <<<"$missing" ); }
+  [[ -z $missing ]] || while read -r p; do grep -qF -- "$p" "$d/calls" || exit 1; done <<<"$missing" ); }
+# handoff_skill_ok — #303: the handoff skill every checkpoint names (checkpoint_ok). On a host without
+# it `harness setup` (cli_prereqs) names it missing for this CLI; then each install path — `harness
+# setup`'s --install and install.sh (install_harness_skills) — puts Harness's own skill/handoff where
+# the CLI loads user skills from: fixtures/cli/<cli>/skills-dir, under HOME (docs/cli-capabilities.md).
+# hermes and openclaw read that dir only as one their lane's config names (_hermes_seed,
+# _openclaw_config), so their lane config must name it too. An operator's own handoff skill there is
+# kept, never overwritten.
+handoff_skill_ok(){ ( local d="$RUN_DIR/handoff-$HARNESS_CLI" bin out want src="$HERE/../skill/handoff/SKILL.md" wd
+  export HOME="$d/home"; mkdir -p "$HOME" "$d/bin"
+  unset CLAUDE_CONFIG_DIR COPILOT_HOME HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS \
+    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS
+  bin="$(cli_bin)"; want="$HOME/$(cat "$FIX/$HARNESS_CLI/skills-dir")/handoff"
+  printf '#!/bin/sh\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
+  chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
+  out="$(cli_prereqs 2>&1)" && exit 1
+  grep -qF "MISSING $HARNESS_CLI skill handoff ($want)" <<<"$out" || exit 1
+  cli_prereqs --install >/dev/null 2>&1
+  cmp -s "$src" "$want/SKILL.md" || exit 1
+  grep -qF "ok      $HARNESS_CLI skill handoff ($want)" <<<"$(cli_prereqs 2>&1)" || exit 1
+  rm -rf "$HOME"; mkdir -p "$HOME"
+  ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
+  cmp -s "$src" "$want/SKILL.md" || exit 1
+  wd="$d/wd"; mkdir -p "$wd"; git -C "$wd" init -q
+  case "$HARNESS_CLI" in
+    hermes) _hermes_seed "$wd" >/dev/null 2>&1; grep -qF "${want%/handoff}" "$(_hermes_home "$wd")/config.yaml" || exit 1 ;;
+    openclaw) _openclaw_config "$wd" >/dev/null 2>&1; WANT="${want%/handoff}" python3 -c 'import json, os, sys
+sys.exit(0 if os.environ["WANT"] in json.load(open(sys.argv[1]))["skills"]["load"]["extraDirs"] else 1)' "$(_openclaw_cfg "$wd")" || exit 1 ;;
+  esac
+  printf 'operator own\n' > "$want/SKILL.md"
+  cli_prereqs --install >/dev/null 2>&1
+  ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
+  [[ $(cat "$want/SKILL.md") == "operator own" ]] ); }
 
 rc=0
 for cli in $(cli_list); do
@@ -389,6 +433,7 @@ for cli in $(cli_list); do
     if [[ -s "$F/usage-windows.na" ]]; then na "$cli" usage-windows "$(cat "$F/usage-windows.na")"
     else cell "$cli" usage-windows              usage_windows_ok "$cli"; fi
     cell "$cli" checkpoint-skill           checkpoint_skill_ok
+    cell "$cli" handoff-skill-installed    handoff_skill_ok
     cell "$cli" pause-force-resume-other-host pause_resume_ok
     cell "$cli" send-and-kill              send_and_kill_ok
     cell "$cli" inject-sessions            inject_ok

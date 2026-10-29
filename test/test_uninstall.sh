@@ -32,6 +32,7 @@ mk_layout(){ local root="$1"
     mkdir -p "$root/.claude/skills/$s"; : > "$root/.claude/skills/$s/SKILL.md"
   done
   mkdir -p "$root/.claude/skills/to-prd"; : > "$root/.claude/skills/to-prd/SKILL.md"   # unrelated — survives
+  cp -R "$HERE/../skill/handoff" "$root/.claude/skills/handoff"   # Harness's own, by its marker (#303)
   printf ': "${HARNESS_MODE:=issue-only}"\n: "${HARNESS_TOPOLOGY:=single}"\n' > "$root/proj/.harness/config"
   printf 'node_modules/\n.harness/\ndist/\n' > "$root/proj/.gitignore"
 }
@@ -59,6 +60,7 @@ assert "--force removes umbrella /harness skill"   "[[ ! -e '$R/.claude/skills/h
 assert "--force removes /harness-init skill"        "[[ ! -e '$R/.claude/skills/harness-init' ]]"
 assert "--force removes /harness-uninstall skill"   "[[ ! -e '$R/.claude/skills/harness-uninstall' ]]"
 assert "--force keeps unrelated skill (to-prd)"     "[[ -e '$R/.claude/skills/to-prd' ]]"
+assert "--force removes Harness's handoff skill (#303)" "[[ ! -e '$R/.claude/skills/handoff' ]]"
 assert "--force uninstalls the agy harness-ralph plugin via HARNESS_AGY_BIN" \
   "[[ \"\$(cat '$AGY_LOG')\" == 'plugin uninstall harness-ralph' ]]"
 
