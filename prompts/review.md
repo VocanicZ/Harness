@@ -42,9 +42,9 @@ PHASE 1 — CRITERIA GATE (always).
    this fleet's HARNESS_SWARM (`{{SWARM}}`) is `auto`, as a swarm job:
      {{SWARM_SUITE}} "$PWD" {{SLUG}}-prd{{PRD}}-review
    Exit `0` green · `1` red (the failing files are printed) · `3` not run on swarm (swarm absent,
-   off, or timed out) → run the suite locally. Spawn a
-   review sub-agent for a thorough pass (correctness, edge cases, the criteria the spec
-   set for {{PROJECT}} — e.g. go/no-go gate numbers if this is a spike).
+   off, or timed out) → run the suite locally. Then have ONE review sub-agent do a thorough
+   pass (correctness, edge cases, the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate
+   numbers if this is a spike). To start it, {{REVIEW_SUBAGENT}}
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in
    this repo — with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above,
    which is mandatory on every issue you file — and comment the findings on PRD #{{PRD}}. Do NOT add
@@ -112,7 +112,8 @@ The bar names one real artifact to beat and the dimensions to judge on:
       echo "A=ours" > {{GAUNTLET_DIR}}/r{{GAUNTLET_ROUND}}/.mapping    # or "A=ref"
     `.mapping` is a SIBLING of A/ and B/ — never write it inside either, and never name the sides
     in any file under them.
-5d. JUDGE. Spawn ONE critic sub-agent with FRESH context. Give it exactly two things: the two
+5d. JUDGE. Start ONE critic sub-agent with FRESH context. To start it, {{CRITIC_SUBAGENT}}
+    Give it exactly two things: the two
     absolute directory paths, and the `Judged on` dimensions. Instruct it to read nothing outside
     those two directories — not .mapping, not this repo, not git history — and to answer in
     exactly two lines:

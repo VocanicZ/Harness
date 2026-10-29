@@ -1,0 +1,5 @@
+JUDGE. Start ONE critic sub-agent with FRESH context: this CLI cannot spawn sub-agents (sessions_spawn fails in an `agent exec` turn), so run it as its own fresh OpenClaw session: write its whole brief to `<scratch>/gauntlet/r1-critic.md`, then run `env OPENCLAW_INCLUDE_ROOTS=~/.openclaw openclaw agent exec --config <scratch>/wt/.harness-openclaw/openclaw.json --cwd <scratch>/gauntlet/r1 --state-dir "$(mktemp -d)" --timeout 3600 --message-file <scratch>/gauntlet/r1-critic.md`. Its answer is that command's output.
+Give it exactly two things: the two absolute directory paths <scratch>/gauntlet/r1/A and <scratch>/gauntlet/r1/B, and the Judged on dimensions: correctness on bad input, helpfulness of --help. Instruct it to read nothing outside those two directories - not .mapping, not this repo, not git history - and to answer in exactly two lines:
+  winner: A|B
+  gap: <one sentence>
+Do NOT judge A and B yourself and do not open them. Then reply with exactly the critic's two lines, prefixed by "critic said:".

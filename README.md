@@ -108,7 +108,7 @@ that cannot exist for a CLI reads `n/a: <reason>`. Each CLI's facts and their so
 | `pause-force-resume-other-host` | That checkpoint, then another host with none of the first one's local state resumes the issue from GitHub (label, pushed branch, handoff comment) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `inject-sessions` | `/harness-issue`, `/harness-prd` and `/harness-plan` (`inject.sh`) launch their injector through the CLI | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `bug-lane-triage-fix` | The bug lane launches its triage and then its fix session through the CLI | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `review-gauntlet` | The PRD review, with its gauntlet round, launches through the CLI | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `review-gauntlet` | The PRD review, with its gauntlet round, launches through the CLI, and its prompt starts the review sub-agent and the fresh-context gauntlet critic with a mechanism the CLI can run (`cli_subagent`): the CLI's own sub-agent tool where `bypass-covers-subagents` shows its sub-agents run; openclaw, which cannot spawn one, gets Harness's substitute — a separate `openclaw agent exec` run on the lane config with a cwd of the critic's dir, a new empty `--state-dir` and the brief from a file, a fresh session that sees none of the lane's context — and the cell runs that exact command, grounded in a real lane's critic run and answer (`test/fixtures/cli/openclaw/subagent-critic.txt`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `supervisor-frozen-session` | `harness supervise` (#180) nudges the CLI's quiet idle pane and leaves its limit pane parked | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `supervisor-skips-trust-dialog` | `harness supervise` (#180) nudges the CLI's quiet idle pane and never types into its quiet trust dialog | ✓ | ✓ | ✓ | ✓ | n/a: OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking | n/a: Hermes has no workspace-trust gate on running a folder: only the skills a worktree carries are gated, by skills.trusted_project_dirs, which cli_trust writes into the lane config (skill-project.txt) | n/a: `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools |
 | `rtdd-event-context` | `rtdd` run from a lane's turn gets the session's context through the CLI, and `harness stats` joins the call to the session (#186) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -384,7 +384,9 @@ round**: it provisions the named reference, runs one fixed task list against bot
 writes the two results into unlabelled `A/` and `B/` directories under
 `.harness/gauntlet/<unit>/r<round>/`, and hands only those two paths to a **fresh-context critic
 sub-agent**, which returns a binary winner plus the single largest gap. No scores — numeric
-scoring drifts upward every round.
+scoring drifts upward every round. On a CLI that cannot spawn a sub-agent (openclaw), the prompt
+names Harness's substitute instead: a separate `openclaw agent exec` session on its own state dir,
+working in the round dir, its brief read from a file (`cli_subagent`).
 
 If ours wins, the PRD is signed off. If it loses, the reviewer files **one** `ready-for-agent`
 issue for that one gap and leaves a `<!-- harness-gauntlet round=N -->` comment on the PRD; the

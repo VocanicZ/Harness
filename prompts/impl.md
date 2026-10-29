@@ -30,6 +30,7 @@ Steps:
    (planner → plan-auditor → per-subtask implementer + spec/quality/domain audits → drift-auditor),
    treating this issue's subtasks as the tree's tasks. For small issues, a single implementer +
    review (or `subagent-driven-development`) is fine — just do it. Stay in THIS repo.
+   Every sub-agent those start, NAME a short name unique to it: {{SUBAGENT}}
 3. THE FULL-SUITE BAR, referenced above: run the full suite BEFORE your first edit and save the
    failure list — that is the baseline — then run it again when you are done. The bar is NO NEW
    FAILURES vs that baseline, plus your own new test green. Never a globally green suite: real repos

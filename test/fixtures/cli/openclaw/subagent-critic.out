@@ -1,0 +1,2 @@
+winner: B
+gap: A crashes with a Python traceback on non-numeric input and prints nothing for `--help`, while B reports "error: x is not a number" with exit code 2 and prints a usage line for `--help`.

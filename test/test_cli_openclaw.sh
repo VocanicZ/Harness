@@ -71,6 +71,28 @@ assert_no "a lane config that asks is not bypassed" cli_bypassed "$WD"
 cli_bypass "$WD"
 assert_ok "…until cli_bypass rewrites it" cli_bypassed "$WD"
 
+# --- sub-agents: a fresh `agent exec` run, never a spawn (#314) -------------------------------------
+G="$RUN_DIR/gauntlet/r1"; BRIEF="$RUN_DIR/gauntlet/r1-critic.md"; mkdir -p "$G"
+sub="$(cli_subagent "$WD" "$G" "$BRIEF")"
+assert_ok "a sub-agent is not spawned: sessions_spawn fails in an agent exec turn (bypass-subagent.txt)" has "cannot spawn sub-agents" "$sub"
+assert_ok "…its brief goes to the file the prompt names" has "write its whole brief to \`$BRIEF\`" "$sub"
+cmd="$(sed -n 's/.*, then run `\([^`]*\)`.*/\1/p' <<<"$sub")"
+: > "$OC_CALLS"; : > "$OC_MSGS"; printf 'judge A and B\n' > "$BRIEF"
+out="$(cd "$WD" && OC_ENVELOPE= bash -c "$cmd")"; call="$(cat "$OC_CALLS")"
+assert_ok "the command runs agent exec on the lane config" has "agent exec --config $CFG --cwd $G --state-dir " "$call"
+sd="$(sed -n 's/.*--state-dir \([^ ]*\) .*/\1/p' <<<"$call")"
+assert_ok "…on a new state dir, not the lane's (its running turn holds that)" test -d "$sd" -a "$sd" != "$WD/.harness-openclaw"
+assert_ok "…its brief from the file" has "--timeout 3600 --message-file $BRIEF" "$call"
+assert_eq "$(cat "$OC_MSGS")" "judge A and B" "…the brief alone is its message"
+assert_ok "…its reply the plain stdout, no envelope" lacks "--json" "$call"
+assert_ok "the lane config may include the operator's" has "env OPENCLAW_INCLUDE_ROOTS=$(printf '%q' "${OP%/*}") " "$cmd"
+assert_ok "HARNESS_OPENCLAW_SUBAGENT_TIMEOUT sets its deadline" has "--timeout 99 " "$(HARNESS_OPENCLAW_SUBAGENT_TIMEOUT=99 cli_subagent "$WD" "$G" "$BRIEF")"
+for t in impl review; do
+  r="$(render "$HERE/../prompts/$t.md" SUBAGENT="$sub" REVIEW_SUBAGENT="$sub" CRITIC_SUBAGENT="$sub")"
+  assert_ok "$t.md starts its sub-agents through cli_subagent" has "$cmd" "$r"
+  assert_no "…and never tells an openclaw lane to spawn one" grep -qiE 'spawn (a|one|ONE)' <<<"$r"
+done
+
 # --- the loop: one `agent exec` per message ----------------------------------------------------------
 : > "$OC_CALLS"; : > "$OC_MSGS"
 out="$(printf 'Please continue — nudge\n\n🔄 Ralph iteration 2 | next\n' | bash "$LOOP" --bin openclaw --cwd "$WD" --run "$UUID" --config "$CFG" \

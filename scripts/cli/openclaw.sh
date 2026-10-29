@@ -105,6 +105,17 @@ sys.exit(0 if json.load(open(sys.argv[1]))["tools"]["exec"]["mode"] == "full" el
 # its config (_openclaw_config).
 openclaw_skill(){ echo "$1"; }
 
+# --- sub-agents: a fresh `agent exec` session (#314) ----------------------------------------------
+# sessions_spawn fails in an `agent exec` turn (bypass-subagent.txt), so a prompt's sub-agent is its
+# own `agent exec` run instead: the lane config, a cwd of <dir>, a new empty --state-dir (the lane's
+# is held by its running turn), the brief from a file. A fresh session that sees none of the lane's
+# context; its reply is the command's stdout (subagent-critic.txt).
+openclaw_subagent(){ local wd="$1" dir="$2" brief="$3"
+  printf 'this CLI cannot spawn sub-agents (sessions_spawn fails in an `agent exec` turn), so run it as its own fresh OpenClaw session: write its whole brief to `%s`, then run `%s`. Its answer is that command'"'"'s output.\n' \
+    "$brief" "$(_openclaw_subagent_cmd "$wd" "$dir" "$brief")"; }
+_openclaw_subagent_cmd(){ printf 'env OPENCLAW_INCLUDE_ROOTS=%q %s agent exec --config %q --cwd %q --state-dir "$(mktemp -d)" --timeout %s --message-file %q' \
+    "$(dirname "$(_openclaw_op_config)")" "$(openclaw_bin)" "$(_openclaw_cfg "$1")" "$2" "${HARNESS_OPENCLAW_SUBAGENT_TIMEOUT:-3600}" "$3"; }
+
 # --- transcripts + usage --------------------------------------------------------------------------
 openclaw_transcripts(){ local f; [[ -n "${2:-}" ]] || return 0
   f="$(_openclaw_runs "$1" "$2")"; [[ -s $f ]] && echo "$f"; return 0; }
