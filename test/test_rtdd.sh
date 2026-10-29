@@ -40,7 +40,8 @@ for p in impl bug-fix resume; do
   R="$RUN_DIR/$p.txt"
   render "$PR/$p.md" ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
     PROMISE='ISSUE 42 DONE' LABEL_READY=ready LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
-    LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged HANDOFF= SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" > "$R"
+    LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged HANDOFF= SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" \
+    HANDOFF_SKILL="$(cli_skill handoff)" > "$R"
   assert "$p: no unrendered {{ token"            "! grep -q '{{' '$R'"
   assert "$p: runs rtdd which against the base"  "grep -q 'rtdd which --base origin/<default-branch>' '$R'"
   assert "$p: Round 1 then Round 2"              "grep -q 'Round 1' '$R' && grep -q 'Round 2' '$R'"

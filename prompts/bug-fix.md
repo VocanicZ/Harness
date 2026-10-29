@@ -94,7 +94,8 @@ credential. Provision runtimes yourself, make ambiguous calls yourself and docum
 issue comment, and drive the bug to closed. If a route seems impossible, find another.
 
 CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT": stop, commit ALL
-WIP and push your branch, run /handoff and post it as a GitHub issue comment whose first line is
+WIP and push your branch, run the {{HANDOFF_SKILL}} skill and post the handoff as a GitHub issue
+comment whose first line is
 `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
 --remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.
 

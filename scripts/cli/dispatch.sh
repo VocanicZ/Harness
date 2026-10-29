@@ -84,7 +84,9 @@ cli_user_skills_dir(){ _cli_call user_skills_dir; }    # where Harness must copy
 cli_transcripts(){ _cli_call transcripts "$@"; }       # <wd> <session id> → transcript paths ('' = unavailable)
 cli_usage(){ _cli_call usage "$@"; }                   # <transcript>… → <model>\t<in>\t<out>\t<cache_read>\t<cache_write>
 cli_usage_setup(){ _cli_call usage_setup "$@"; }       # <wd> → wire the worktree so cli_limit_usage can see it
-cli_prereqs(){ _cli_call prereqs "$@"; }               # [--install] → one line per prerequisite; rc 1 = one missing
+# cli_prereqs [--install] → one line per prerequisite; rc 1 = one missing. The adapter's own (binary,
+# plugins), then the skills the prompts name through cli_skill (#303), for every CLI alike.
+cli_prereqs(){ local rc=0; _cli_call prereqs "$@" || rc=1; _cli_skill_prereq handoff "$@" || rc=1; return $rc; }
 cli_runnable(){ _cli_call runnable; }                  # 0 iff the installed binary actually runs
 cli_uninstall(){ _cli_call uninstall; }                # remove what Harness installed into the CLI (best-effort)
 cli_turn_secs(){ _cli_call turn_secs "$@"; }           # <pane> → seconds the running turn has taken; 0 = no turn; '' = no turn timer
@@ -95,6 +97,25 @@ cli_bg_re(){ _cli_call bg_re; }                        # ERE: footer timers/coun
 cli_limit_usage(){
   if [[ -n "${HARNESS_USAGE_CMD:-}" ]]; then bash -c "$HARNESS_USAGE_CMD"; return; fi
   _cli_call limit_usage; }
+
+# --- the skills the prompts name (#303) -------------------------------------------------------
+# cli_skills_dir — where this CLI loads user skills from: its own dir (cli_user_skills_dir), else
+# ~/.claude/skills (HARNESS_USER_SKILLS), which claude and opencode read and which a hermes or openclaw
+# lane gets as an external skill dir (_hermes_seed, _openclaw_config).
+cli_skills_dir(){ local d; d="$(cli_user_skills_dir)"; echo "${d:-${HARNESS_USER_SKILLS:-$HOME/.claude/skills}}"; }
+# A skill Harness ships carries this line (skill/handoff/SKILL.md). A same-named skill without it is
+# the operator's own: Harness never overwrites or removes it.
+CLI_SKILL_MARK='<!-- harness-skill:'
+# cli_skill_place <src dir> <dst dir> — copy one skill dir, unless <dst> holds the operator's own.
+cli_skill_place(){ [[ -f "$2/SKILL.md" ]] && ! grep -qF "$CLI_SKILL_MARK" "$2/SKILL.md" && return 0
+  mkdir -p "$2" && cp -R "$1/." "$2/"; }
+# _cli_skill_prereq <name> [--install] — the skill is where this CLI loads skills from; --install copies
+# the engine's own skill/<name> there.
+_cli_skill_prereq(){ local dst src; dst="$(cli_skills_dir)/$1"; src="$(cd "$CLI_DIR/../.." && pwd)/skill/$1"
+  if [[ -f "$dst/SKILL.md" ]]; then echo "ok      $(cli_name) skill $1 ($dst)"
+  elif [[ "${2:-}" == --install && -f "$src/SKILL.md" ]] && cli_skill_place "$src" "$dst"; then
+    echo "ok      $(cli_name) skill $1 ($dst, installed)"
+  else echo "MISSING $(cli_name) skill $1 ($dst): mkdir -p $dst && cp -R $src/. $dst/"; return 1; fi; }
 
 # --- the command line (#272) -------------------------------------------------------------------
 # HARNESS_<CLI>_BIN is a command line, not one executable: hosts pin the account with

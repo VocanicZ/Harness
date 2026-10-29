@@ -1759,7 +1759,8 @@ seed_if_needed(){
 # Build the one-line checkpoint instruction sent to a live agent. Single-quoted printf
 # format keeps the literal backticks/markers from being command-substituted by THIS shell.
 # An empty <branch> (a read-only triage session, #36) emits a no-push variant that still runs
-# /handoff and flips agent-working → agent-paused, so the lane is never left orphaned.
+# the handoff skill (skill/handoff, which setup and install.sh place for every CLI, #303) and flips
+# agent-working → agent-paused, so the lane is never left orphaned.
 _checkpoint_msg(){  # <issue> <slug> <branch> <working-label> <paused-label> [reason]
   local why="${6:-pause requested}" skill; skill="$(cli_skill handoff)"
   if [[ -n "$3" ]]; then

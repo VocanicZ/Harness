@@ -118,11 +118,14 @@ remove_project_state(){
   [[ -n "$parent" ]] && remove_gitignore_entry "$parent/.gitignore"
   return 0
 }
+# _marked_skills <dir> — the skill dirs in <dir> Harness shipped under another name (the handoff skill,
+# #303): their SKILL.md carries `<!-- harness-skill:`. A same-named skill without it is the operator's.
+_marked_skills(){ grep -lF '<!-- harness-skill:' "$1"/*/SKILL.md 2>/dev/null | xargs -r -n1 dirname; }
 # remove the deployed /harness operator skills (umbrella `harness` + every `harness-*`) from user
 # scope, leaving unrelated skills untouched. Idempotent (nullglob → no-op when none present).
 remove_skills(){
   shopt -s nullglob; local d n=0
-  for d in "$HARNESS_USER_SKILLS"/harness "$HARNESS_USER_SKILLS"/harness-*; do
+  for d in "$HARNESS_USER_SKILLS"/harness "$HARNESS_USER_SKILLS"/harness-* $(_marked_skills "$HARNESS_USER_SKILLS"); do
     [[ -e "$d" ]] || continue
     rm -rf "$d" && n=$((n+1))
   done
@@ -138,7 +141,7 @@ remove_skills(){
     us="$(cli_with "$c" cli_user_skills_dir)"
     [[ -n "$us" ]] && ! [[ -n "$_SKILLS_PINNED" && "$us" == "$HOME"/* ]] || continue
     shopt -s nullglob
-    for d in "$us"/harness "$us"/harness-*; do
+    for d in "$us"/harness "$us"/harness-* $(_marked_skills "$us"); do
       [[ -e "$d" ]] || continue
       rm -rf "$d"
     done

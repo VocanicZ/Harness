@@ -47,8 +47,8 @@ remove-label must already have run or the closed bug would strand carrying `{{LA
 AUTONOMY — this lane is autonomous. Make the reproduce/invalid/duplicate/wontfix call yourself
 and document it in a comment; never wait for a human and never apply `agent-blocked`.
 
-CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT": stop, run
-/handoff and post it as a GitHub issue comment whose first line is
+CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT": stop,
+run the {{HANDOFF_SKILL}} skill and post the handoff as a GitHub issue comment whose first line is
 `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
 --remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit.
 

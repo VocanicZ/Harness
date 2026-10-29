@@ -110,6 +110,10 @@ make_env(){
   export XDG_DATA_HOME="$RUN_DIR/xdg-data"
   # …and the operator's Hermes home each lane's own is seeded from (#263: its config.yaml, login, runtime).
   export HARNESS_HERMES_HOME="$RUN_DIR/hermes-home"
+  # …and the user skill dirs `harness setup --install` and rtdd_skill_install write into (#303: the
+  # handoff skill). Copilot's lives under COPILOT_HOME, pinned above.
+  export HARNESS_USER_SKILLS="$RUN_DIR/user-skills" HARNESS_AGY_USER_SKILLS="$RUN_DIR/agy-skills"
+  export HARNESS_CODEX_USER_SKILLS="$RUN_DIR/codex-skills"
   unset CLAUDE_CONFIG_DIR
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.
