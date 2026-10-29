@@ -159,4 +159,27 @@ for cli in $(cli_list); do
 done
 unset -f tmux sleep
 
+echo "=== 7: a launch's model and effort come from the adapter (#307) ==="
+WD="$RUN_DIR/me-claude"; mkdir -p "$WD/.claude"
+assert_eq "$(cli_with claude cli_model_effort 'exec claude --model=opus --effort high "go"' "$WD")" $'opus\thigh' \
+  "claude: --model=/--effort on the line"
+printf '{"model": "haiku"}' > "$WD/.claude/settings.json"
+assert_eq "$(cli_with claude cli_model_effort 'exec claude --effort=max "go"' "$WD")" $'haiku\tmax' \
+  "claude: no --model → the worktree's settings.json"
+printf '{"model": "sonnet"}' > "$WD/.claude/settings.local.json"
+assert_eq "$(cli_with claude cli_model_effort 'exec claude --effort=max "go"' "$WD")" $'sonnet\tmax' \
+  "claude: …settings.local.json (a worktree hook's pin) over settings.json"
+assert_eq "$(cli_with claude cli_model_effort 'exec claude --model opus "go"' "$WD")" $'opus\t' "claude: the line's --model wins"
+assert_eq "$(cli_with codex cli_model_effort 'exec codex -m gpt-5.6-luna -c model_reasoning_effort="low" "go"' "$WD")" \
+  $'gpt-5.6-luna\tlow' "codex: -m and the -c model_reasoning_effort= override, quotes dropped"
+assert_eq "$(cli_with copilot cli_model_effort 'exec copilot --model=gpt-4.1 --reasoning-effort=xhigh -i "go"' "$WD")" \
+  $'gpt-4.1\txhigh' "copilot: --reasoning-effort= is its effort too"
+assert_eq "$(cli_with agy cli_model_effort 'exec agy -i "go"' "$WD")" $'\t' "a line that names neither: both empty (the CLI's default)"
+
+echo "=== 8: the goal-loop script lives at a CLI-neutral path (#307) ==="
+assert_eq "$(cd "$ROOT" && grep -n 'plugins/codex' scripts/*.sh scripts/*.py)" "" "no top-level script reaches into plugins/codex"
+assert_eq "$GOAL_LOOP_PY" "$ENGINE_DIR/scripts/goal_loop.py" "the driven loop runs scripts/goal_loop.py"
+assert_ok "Codex's Stop hook is a byte-for-byte copy of it (Codex copies a plugin into its cache)" \
+  cmp -s "$ROOT/scripts/goal_loop.py" "$ROOT/plugins/codex/harness-ralph/hooks/stop-hook.py"
+
 finish

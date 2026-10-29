@@ -9,12 +9,20 @@ claude_bin(){ echo "${CLAUDE_BIN:-${HARNESS_CLAUDE_BIN:-claude}}"; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort") \"$HARNESS_BOOTSTRAP_PROMPT\""; }
-# A worktree hook may pin the lane's model in settings.local.json instead of the flags (stats.py
-# model_effort reads it the same way).
+# A worktree hook may pin the lane's model in settings.local.json instead of the flags.
 claude_lane_settings(){ local f="$1/.claude/settings.local.json"
   [[ -f "$f" ]] && F="$f" python3 -c 'import json,os
 m = (json.load(open(os.environ["F"])) or {}).get("model")
 m and print(f"model={m}")' 2>/dev/null; return 0; }
+# A --model/--effort on the line wins; otherwise the model the worktree's .claude/settings.local.json
+# (a worktree hook's pin) or settings.json names.
+claude_model_effort(){ local model effort f
+  model="$(_cli_line_opt "$1" '--model[= ]')"; effort="$(_cli_line_opt "$1" '--effort[= ]')"
+  for f in settings.local.json settings.json; do
+    [[ -z "$model" && -n "${2:-}" && -f "$2/.claude/$f" ]] || continue
+    model="$(F="$2/.claude/$f" python3 -c 'import json, os; print((json.load(open(os.environ["F"])) or {}).get("model") or "")' 2>/dev/null)"
+  done
+  printf '%s\t%s\n' "$model" "$effort"; }
 
 # --- panes (test/fixtures/cli/claude/*.txt) ---------------------------------------------------
 # The input prompt is `❯` at column 0; the trust dialog's `❯ No, exit` is indented, so `^` skips it.

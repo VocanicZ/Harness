@@ -21,6 +21,8 @@ _codex_flags(){ local f=" $1 "
 # codex_session_id discovers it.
 codex_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "exec $(codex_bin) $(_codex_flags "${HARNESS_CODEX_FLAGS:-}" "$model" "$effort") \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+# The model -m/--model names, the effort the -c model_reasoning_effort= override sets.
+codex_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '(-m|--model)[= ]')" "$(_cli_line_opt "$1" '-c model_reasoning_effort=')"; }
 
 # codex_session_id <wd> — Codex names its thread itself (a UUIDv7) and writes it into the rollout's
 # first line, session_meta {id, cwd, timestamp} (transcript.jsonl). The id is that of the newest

@@ -814,13 +814,14 @@ _watchdog_turn_interrupt(){ local sess="$1" pane="$2" secs
 # after 8 blocks, below HARNESS_IMPL_MAXITER) is looped here, once per poll, by whoever tends the
 # session (watchdog_session, reap_finished_inject). A session idle at its prompt with its state file
 # (write_state) present has ended a turn: the reply to its last prompt (cli_last_reply) goes through
-# ralph-loop's contract — the same script Codex's Stop hook runs — which ends the loop on the promise
-# or at max_iterations by removing the state file (cli_done), or counts the next iteration. The next
+# ralph-loop's contract — scripts/goal_loop.py, of which Codex's Stop hook runs a copy (#307) — which
+# ends the loop on the promise or at max_iterations by removing the state file (cli_done), or counts
+# the next iteration. The next
 # prompt is that iteration's line plus the bootstrap, never the task text (#213). Each prompt is
 # answered once: <sess>.loop keeps the id of the last one the loop has read, under a lock, since
 # several workers may tend one pool session. A pane parked at a usage limit is the limit watchdog's:
 # re-prompting it would only burn iterations. rc 0 = the tick acted (re-prompted or ended the loop).
-GOAL_LOOP_PY="${HARNESS_ENGINE_PLUGINS:-$ENGINE_DIR/plugins}/codex/harness-ralph/hooks/stop-hook.py"
+GOAL_LOOP_PY="$ENGINE_DIR/scripts/goal_loop.py"
 goal_loop_tick(){ local sess="$1" pane="$2" wd lockfd rc
   [[ "$(cli_loop)" == driven ]] || return 1
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; [[ -n "$wd" ]] || return 1
@@ -1417,13 +1418,17 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
-  local model effort line
+  local model effort line line_me
   model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
   line="$(cli_launch "$wd" "$uuid" "$model" "$effort")"
   tmux send-keys -t "$sess" "$line" Enter
   _launch_first_input "$sess" "$effort"
+  # #307: the model and effort this launch runs with, as the CLI's adapter reads them off its own line
+  # and lane config — not the lane pin alone, which names neither when the configured flags do.
+  line_me="$(cli_model_effort "$line" "$wd")"; model="${line_me%%$'\t'*}"; effort="${line_me#*$'\t'}"
+  [[ "$line_me" == *$'\t'* ]] || effort=""
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
-    worktree="$wd" flags="$line" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
+    worktree="$wd" model="$model" effort="$effort" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
 # _launch_first_input <sess> [effort] — a CLI that cannot take its prompt or effort on the command

@@ -2,8 +2,9 @@
 """stats.py — the host-wide Harness event log and the `harness stats` report over it (#185).
 
 Every fleet on the host appends one JSON line per event to $HARNESS_HOME/events.jsonl (default
-~/.harness/events.jsonl), under flock. The model, effort and token usage of each session come from
-Claude Code's own transcripts: every launch passes `--session-id <uuid>`, and Claude Code writes
+~/.harness/events.jsonl), under flock. A launch's model and effort are the CLI adapter's
+(lib.sh launch_agent: cli_model_effort, #307). A session's token usage comes from Claude Code's own
+transcripts (another CLI's adapter folds its own: usage_tsv, #188): every launch passes `--session-id <uuid>`, and Claude Code writes
 $CLAUDE_CONFIG_DIR/projects/<slugified cwd>/<uuid>.jsonl plus <uuid>/subagents/agent-*.jsonl, each
 assistant line carrying message.model + message.usage.
 
@@ -120,30 +121,6 @@ def goal_env(goal, prd=""):
     if str(prd).isdigit():
         f["prd"] = int(prd)
     return [f"{k.upper()}={f[k]}" for k in ("kind", "issue", "prd") if k in f]
-
-
-def model_effort(flags, worktree=None):
-    """(model, effort) a launch runs with. A --model/--effort in the CLI flags wins; otherwise the
-    model a worktree hook routed into the worktree's .claude/settings(.local).json."""
-    toks = (flags or "").split()
-    got = {}
-    for i, t in enumerate(toks):
-        for name in ("model", "effort"):
-            if t == f"--{name}" and i + 1 < len(toks):
-                got[name] = toks[i + 1]
-            elif t.startswith(f"--{name}="):
-                got[name] = t.split("=", 1)[1]
-    if "model" not in got and worktree:
-        for f in ("settings.local.json", "settings.json"):
-            try:
-                with open(os.path.join(worktree, ".claude", f)) as fh:
-                    m = json.load(fh).get("model")
-            except Exception:
-                continue
-            if m:
-                got["model"] = m
-                break
-    return got.get("model"), got.get("effort")
 
 
 def ralph_iter(worktree):
@@ -271,12 +248,7 @@ def build_event(event, common, ctx, kv, now=None):
     rec = dict(common)
     rec.update(ctx)
     rec.update(goal_fields(kv.pop("goal", "")))
-    flags = kv.pop("flags", None)
-    rec.update(kv)
-    if event == "launch":
-        model, effort = model_effort(flags, rec.get("worktree"))
-        rec.setdefault("model", model)
-        rec.setdefault("effort", effort)
+    rec.update(kv)   # a launch's model= and effort= are the CLI adapter's (cli_model_effort, #307)
     if event == "session_end":
         launched = rec.get("launched")
         tr = find_transcript(rec["session"]) if rec.get("session") else None

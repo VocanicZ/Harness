@@ -122,6 +122,27 @@ PY
 hermes_launch(){ _hermes_seed "$1" "$3" "$4"; _hermes_line "$1" "$2"; }
 _hermes_line(){ echo "exec env HERMES_HOME=$(printf '%q' "$(_hermes_home "$1")") $(hermes_bin) chat ${2:+-c $2 --create-if-missing }--yolo --accept-hooks -q \"$HARNESS_BOOTSTRAP_PROMPT\""; }
 hermes_lane_settings(){ cat "$(_hermes_home "$1")/harness.settings" 2>/dev/null; return 0; }
+# The line names neither: model.default and agent.reasoning_effort in the lane profile's config.yaml
+# (_hermes_seed: the lane's own, else the operator's), a `model: <name>` scalar read as the model.
+hermes_model_effort(){ python3 - "$(_hermes_home "$2")/config.yaml" 2>/dev/null <<'PY' || printf '\t\n'
+import re, sys
+want = {("model", "default"): "", ("agent", "reasoning_effort"): ""}
+block = None
+for l in open(sys.argv[1]).read().splitlines():
+    if not l.strip() or l.lstrip().startswith("#"):
+        continue
+    m = re.match(r"([^\s#][^:]*):\s*(.*?)\s*(#.*)?$", l)
+    if m:
+        block = m.group(1)
+        if block == "model" and m.group(2) and not m.group(2).startswith("{"):
+            want[("model", "default")] = m.group(2)
+        continue
+    m = re.match(r"\s+([^:\s]+):\s*(.*?)\s*(#.*)?$", l)
+    if m and (block, m.group(1)) in want:
+        want[(block, m.group(1))] = m.group(2)
+print("\t".join(v.strip("'\"") for v in want.values()))
+PY
+}
 
 # An Enter that reaches the composer in the same burst as the text is read as a newline in it, not
 # a submit (the text stays in the box): the Enter waits half a second.

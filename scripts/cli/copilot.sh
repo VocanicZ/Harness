@@ -23,6 +23,8 @@ _copilot_flags(){ local f=" $1 "
 copilot_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4" home=""
   [[ -n "${COPILOT_HOME:-}" ]] && home="COPILOT_HOME=$(printf '%q' "$COPILOT_HOME") "
   echo "${home}exec $(copilot_bin) ${uuid:+--session-id=$uuid }$(_copilot_flags "${HARNESS_COPILOT_FLAGS:-}" "$model" "$effort") -i \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+# --model, and --effort or its alias --reasoning-effort.
+copilot_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--(reasoning-)?effort[= ]')"; }
 
 # --- panes (test/fixtures/cli/copilot/*.txt) ----------------------------------------------------
 # The input box is `❯` at column 0 between two rules, drawn even while a turn runs (busy.txt). Copilot

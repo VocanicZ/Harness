@@ -134,6 +134,19 @@ for line in open(sys.argv[2]):
 sys.exit(0 if ev.get("usage") == want else 1)
 PY
 }
+# launch_event_ok <model> <effort> — #307: the `launch` event launch_agent logs for a lane pinned to
+# <model>/<effort> (.harness-lane, as launch-model pins it) carries both, read through the adapter
+# (cli_model_effort) off the CLI's own launch line and lane config.
+launch_event_ok(){ ( fake_tmux; local wd="$RUN_DIR/launch-ev-$HARNESS_CLI"; new_wd "$wd"; GOAL=ISSUE:6
+  export HARNESS_EVENTS_FILE="$RUN_DIR/launch-ev-$HARNESS_CLI.jsonl"; rm -f "$HARNESS_EVENTS_FILE"
+  printf 'model=%s\neffort=%s\n' "$1" "$2" > "$wd/$HARNESS_LANE_FILE"
+  launch_agent hz-ev-i6 "$wd" >/dev/null 2>&1
+  python3 - "$HARNESS_EVENTS_FILE" "$1" "$2" <<'PY'
+import json, sys
+ev = [e for e in map(json.loads, open(sys.argv[1])) if e.get("event") == "launch"]
+sys.exit(0 if ev and ev[-1].get("model") == sys.argv[2] and ev[-1].get("effort") == sys.argv[3] else 1)
+PY
+) }
 # done_signal_ok <wd> — the goal loop is running while its state file exists, ended once it is gone.
 done_signal_ok(){ local wd="$1"
   write_state "$wd" "ISSUE 1 DONE" 5 x
@@ -506,6 +519,7 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     cell "$cli" loop-mode                  loop_ok
     cell "$cli" transcripts-found          test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"
     cell "$cli" usage-from-transcript      same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"
+    cell "$cli" stats-launch-model-effort  launch_event_ok "$MODEL" low
     cell "$cli" stats-session-end-usage    session_end_usage_ok "$WD" "$SID"
     if [[ -s "$F/usage-windows.na" ]]; then na "$cli" usage-windows "$(cat "$F/usage-windows.na")"
     else cell "$cli" usage-windows              usage_windows_ok "$cli"; fi

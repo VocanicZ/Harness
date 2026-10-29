@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-# stop-hook.py — the goal loop for a Codex lane (#257): ralph-loop's contract as a Codex Stop hook.
-# Codex runs it at the end of every turn in the session's cwd, handing it {cwd, session_id,
-# transcript_path, last_assistant_message, stop_hook_active, …} on stdin
-# (test/fixtures/cli/codex/hook-input.json). While <cwd>/.claude/ralph-loop.local.md (write_state)
-# exists and the turn's last reply does not carry its <promise>, it answers
-# {"decision":"block","reason":<task>}: Codex takes `reason` as the next prompt. On the promise, or
-# at max_iterations, it removes the state file (the done signal cli_done reads) and lets the turn end.
-# Any other session — no state file — is left alone.
+# goal_loop.py — the goal loop (ralph-loop's contract) every CLI without ralph-loop itself runs: one end
+# of turn, handed {cwd, last_assistant_message, …} on stdin as a Codex Stop hook is
+# (test/fixtures/cli/codex/hook-input.json), run in the session's cwd. While
+# <cwd>/.claude/ralph-loop.local.md (write_state) exists and the turn's last reply does not carry its
+# <promise>, it answers {"decision":"block","reason":<task>}: `reason` is the next prompt. On the
+# promise, or at max_iterations, it removes the state file (the done signal cli_done reads) and lets
+# the turn end. Any other session — no state file — is left alone.
+# Callers: lib.sh's driven loop (GOAL_LOOP_PY: copilot, hermes, openclaw), opencode's opencode-ralph.js
+# plugin, and Codex's Stop hook — the harness-ralph plugin's hooks/stop-hook.py, a byte-for-byte copy
+# (#307): Codex copies a plugin into its cache, so the plugin cannot reach outside its own dir.
 import json, os, re, sys
 
 

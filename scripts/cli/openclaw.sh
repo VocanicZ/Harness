@@ -67,6 +67,9 @@ _openclaw_line(){ local wd="$1" uuid="$2" model="$3" effort="$4" op; op="$(_open
     "$(dirname "$op")" "$CLI_DIR/openclaw-loop.sh" "$(openclaw_bin)" "$wd" "$uuid" "$(_openclaw_cfg "$wd")" \
     "${model:+ --model $model}" "${effort:+ --thinking $effort}" "${HARNESS_OPENCLAW_TIMEOUT:-14400}" "$HARNESS_BOOTSTRAP_PROMPT"; }
 
+# The loop's --model and --thinking (the effort).
+openclaw_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--thinking[= ]')"; }
+
 # The session id is the launch's own (the loop's --run): each `agent exec` turn is its own OpenClaw
 # session, and the lane's transcript gathers them under this id. openclaw_session_id keeps the
 # dispatch default (echo <uuid>).
