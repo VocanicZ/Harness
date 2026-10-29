@@ -152,6 +152,15 @@ skill dirs) and per-turn envelopes live in `<worktree>/.harness-openclaw`, kept 
 turn may run `HARNESS_OPENCLAW_TIMEOUT` seconds (default 14400). Harness drives its goal loop, as for
 copilot.
 
+The matrix runs against captures; `test/smoke/fleet_smoke.sh <cli>` is the real thing, one fleet
+session completing a trivial issue end to end. It files a `ready-for-agent` issue (with a `## Parent`
+PRD) in a private sandbox repo, `<you>/harness-smoke-<cli>`, created on first use, then runs
+`harness init`, `setup` and `start` with that CLI, pool 1 and cap 1. It waits until the fleet's own
+claim → session → PR → merge closes the issue, and then tears the run down: the fleet stopped with
+`--clean`, anything left open closed, the run's branches deleted. It talks to GitHub and spends
+the CLI's quota, so `test/run.sh` never runs it. Its log, headed with the CLI version and the date, is
+the record for that CLI (`SMOKE_LOG`; the script header lists the other knobs).
+
 ## Pipeline modes
 
 `HARNESS_MODE` selects which orchestration actions the dispatch engine may emit:
