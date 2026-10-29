@@ -30,7 +30,10 @@ cp "$fix/agy/permission.txt" "$fix/agy/bypass-subagent.txt"
 cells="$(HARNESS_MATRIX_FIX="$fix" HARNESS_MATRIX_CLIS="claude codex agy" bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
 assert_eq "$(res "$cells" claude trust-dialog-is-not-prompt)" FAIL "no trust.txt, no trust.na: claude trust-dialog-is-not-prompt FAILs"
 assert_eq "$(res "$cells" claude supervisor-skips-trust-dialog)" FAIL "no trust.txt, no trust.na: claude supervisor-skips-trust-dialog FAILs"
-assert_eq "$(res "$cells" claude supervisor-frozen-session)" ok "…while its idle/limit half still runs"
+# frozen_ok draws real tmux panes; without tmux every frozen cell FAILs, so only the cut ones prove anything.
+if command -v tmux >/dev/null; then
+  assert_eq "$(res "$cells" claude supervisor-frozen-session)" ok "…while its idle/limit half still runs"
+fi
 assert_eq "$(res "$cells" codex supervisor-frozen-session)" FAIL "no limit.txt: codex supervisor-frozen-session FAILs"
 assert_eq "$(res "$cells" agy bypass-covers-subagents)" FAIL "agy's sub-agent pane shows the approval prompt: bypass-covers-subagents FAILs"
 finish

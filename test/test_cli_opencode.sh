@@ -155,6 +155,6 @@ else
 fi
 
 col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" { print $2, substr($3, 1, 4) }')"
-assert_eq "$col" "$(printf 'trust-dialog-is-not-prompt n/a:\nusage-windows n/a:')" \
-  "every opencode matrix cell is ok, but the two rows that cannot exist for it (n/a with a reason)"
+assert_eq "$col" "$(printf 'trust-dialog-is-not-prompt n/a:\ntrust-pre-accepted n/a:\nusage-windows n/a:\nsupervisor-skips-trust-dialog n/a:')" \
+  "every opencode matrix cell is ok, but the rows that cannot exist for it (n/a with a reason)"
 finish
