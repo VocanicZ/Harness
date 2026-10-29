@@ -1,10 +1,15 @@
 # hermes.sh — the Hermes Agent adapter (#263). Facts: docs/cli-capabilities.md § `hermes`; panes:
 # test/fixtures/cli/hermes/. Loaded by dispatch.sh; defines hermes_<fn> for the cli_* interface.
 #
-# Hermes runs each chat as a client of a gateway daemon of its home (HERMES_HOME): the gateway runs
-# the turn, and two lanes sharing a home share a gateway, its state.db and its config. So each lane
-# gets its own home: a Hermes profile of the operator's (HARNESS_HERMES_HOME, default ~/.hermes),
-# <op>/profiles/harness<hash of the worktree>. A profile runs on the runtime its root installed; a
+# Hermes runs each chat as a client of one host gateway, which serves every profile (its
+# gateway_state.json: served_profiles) and runs every session's turns. A turn's commands start from
+# the gateway's environment — that of whichever client started it, so another lane's — with only the
+# client variables Hermes allowlists (PATH, the toolchain names, and the profile's
+# terminal.client_env_passthrough) taken from the session's own client, every other one of those
+# names unset (agent/session_client_env.py; env-passthrough.txt). So each lane gets its own home: a
+# Hermes profile of the operator's (HARNESS_HERMES_HOME, default ~/.hermes),
+# <op>/profiles/harness<hash of the worktree>, with its own state.db and config, which passes the
+# lane's variables on (_hermes_seed). A profile runs on the runtime its root installed; a
 # home anywhere else re-installs it, and one that links the root's tools/ in makes Hermes repoint
 # the host's `hermes` launcher at that home's path (gone with the worktree). Nothing is written
 # into the worktree. The profile is seeded from the operator's home (_hermes_seed) and removed once
@@ -29,7 +34,9 @@ _hermes_jlist(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' 
 # (a lane must not swap the CLI under a running fleet); the operator's skills and the user skills
 # Harness installs (HARNESS_USER_SKILLS, ~/.claude/skills) as external, read-only skill dirs; the
 # lane's model and effort when it names them (Hermes refuses -m and --reasoning beside
-# `-c <title> --create-if-missing`); and the worktrees cli_trust trusted (harness.trusted).
+# `-c <title> --create-if-missing`); the worktrees cli_trust trusted (harness.trusted); and every
+# lane variable (LANE_ENV_NAMES: RTDD_EVENT_LOG, HARNESS_SESSION, …) in terminal.client_env_passthrough,
+# beside the operator's, so the lane's commands get its own values, not the gateway's (#313).
 _hermes_seed(){ local wd="$1" model="${2:-}" effort="${3:-}" home op d skills sets=() ext=()
   home="$(_hermes_home "$wd")"; op="$(_hermes_op_home)"; skills="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
   mkdir -p "$home" 2>/dev/null || return 1
@@ -42,6 +49,7 @@ _hermes_seed(){ local wd="$1" model="${2:-}" effort="${3:-}" home op d skills se
   for d in "$op/skills" "$skills"; do [[ -d $d ]] && ext+=("$d"); done
   (( ${#ext[@]} )) && sets+=("skills.external_dirs+=$(_hermes_jlist "${ext[@]}")")
   [[ -s "$home/harness.trusted" ]] && sets+=("$(_hermes_trust_set "$home")")
+  (( ${#LANE_ENV_NAMES[@]} )) && sets+=("terminal.client_env_passthrough+=$(_hermes_jlist "${LANE_ENV_NAMES[@]}")")
   if [[ -f "$op/config.yaml" ]]; then cp "$op/config.yaml" "$home/config.yaml"; else : > "$home/config.yaml"; fi
   _hermes_yaml_set "$home/config.yaml" approvals.mode=off updates.check=false 'agent.disabled_toolsets+=["clarify"]' "${sets[@]}"; }
 _hermes_trust_set(){ local -a dirs; mapfile -t dirs < "$1/harness.trusted"; echo "skills.trusted_project_dirs+=$(_hermes_jlist "${dirs[@]}")"; }

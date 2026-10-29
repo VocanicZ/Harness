@@ -77,6 +77,29 @@ cli_launch "$WD" "$UUID" "" "" >/dev/null
 assert_ok "…and still after a relaunch" cli_trusted "$WD"
 assert_no "another worktree is not" cli_trusted "$RUN_DIR/other"
 
+# --- the lane's variables: the one host gateway runs every lane's turns, a turn's commands getting a
+# client variable only when the profile names it in terminal.client_env_passthrough, and the
+# gateway's own (another lane's) otherwise (#313) ------------------------------------------------
+cp "$OP/config.yaml" "$RUN_DIR/op-config.yaml"
+printf '\nterminal:\n  backend: "local"\n  client_env_passthrough:\n    - MY_TOOL_HOME\n    - RTDD_EVENT_LOG\n' >> "$OP/config.yaml"
+passthrough(){ sed -n 's/^  client_env_passthrough: //p' "$CFG"; }
+cli_launch "$WD" "$UUID" "" "" >/dev/null
+assert_eq "$(passthrough)" "$(_hermes_jlist MY_TOOL_HOME "${LANE_ENV_NAMES[@]}")" \
+  "every lane variable passed to the lane's commands, after the operator's own, once each"
+assert_ok "…the operator's other terminal keys kept" grep -qx '  backend: "local"' <(block terminal)
+cli_launch "$WD" "$UUID" "" "" >/dev/null
+assert_eq "$(passthrough)" "$(_hermes_jlist MY_TOOL_HOME "${LANE_ENV_NAMES[@]}")" "…and still once each after a relaunch"
+cp "$RUN_DIR/op-config.yaml" "$OP/config.yaml"
+lane_names(){ local SLUG=acme/widget GOAL=ISSUE:11 STAT_PRD=5 kv; session_env 11111111
+  for kv in "${SESSION_ENV[@]}"; do [[ $kv == -e ]] || echo "${kv%%=*}"; done; }
+assert_eq "$(lane_names | grep -vxF -f <(printf '%s\n' "${LANE_ENV_NAMES[@]}"))" "" "LANE_ENV_NAMES names every variable session_env gives a lane"
+assert_eq "$(lane_names | wc -l)" 7 "…a lane with an issue, a PRD and a repo gets all seven"
+assert_ok "the real CLI: a passed lane variable reaches the lane's command (env-passthrough.txt)" \
+  grep -qx 'lane-after-313' "$F/env-passthrough.txt"
+assert_ok "…its own event log, not the gateway's" grep -q 'cap-after/rtdd-events.jsonl$' "$F/env-passthrough.txt"
+assert_ok "unpassed, the command saw the log of the lane that started the gateway (env-no-passthrough.txt)" \
+  grep -q 'cap-before/rtdd-events.jsonl$' "$F/env-no-passthrough.txt"
+
 # --- send, kill ------------------------------------------------------------------------------------
 TMUXLOG="$RUN_DIR/tmux.log"; : > "$TMUXLOG"
 tmux(){ echo "tmux $*" >> "$TMUXLOG"; }; sleep(){ echo "sleep $*" >> "$TMUXLOG"; }

@@ -1378,6 +1378,9 @@ c = json.load(open(sys.argv[1])); print(c.get("worktree", ""), c.get("session", 
   sid="$(cli_session_id "$wd" "$sid")"; [[ -n "$sid" ]] || return 0
   files="$(cli_transcripts "$wd" "$sid")"; [[ -n "$files" ]] || return 0
   mapfile -t files <<<"$files"; cli_usage "${files[@]}" 2>/dev/null; return 0; }
+# LANE_ENV_NAMES — every name session_env can set: a CLI whose turns' commands do not inherit the
+# pane's environment names them to the CLI (hermes: terminal.client_env_passthrough, #313).
+LANE_ENV_NAMES=(RTDD_EVENT_LOG HARNESS_SESSION HARNESS_PREFIX HARNESS_REPO HARNESS_KIND HARNESS_ISSUE HARNESS_PRD)
 # session_env <uuid> — fill SESSION_ENV with the `-e K=V` pairs `tmux new-session` gives a lane (#186).
 # RTDD_EVENT_LOG points every rtdd call the session makes at the host-wide rtdd log, and rtdd copies
 # each HARNESS_* var into the event's ctx (VocanicZ/rtdd#503), so `harness stats` can join the call to
