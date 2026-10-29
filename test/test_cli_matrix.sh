@@ -388,7 +388,9 @@ sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2")" || e
   # <dir> as the prompt leaves it (5c makes the round's evidence dirs); the brief's dir is already there.
   bin="$(cli_bin)"; mkdir -p "$d" "$3"; test -d "${4%/*}" || exit 1; printf 'brief\n' > "$4"
   printf '#!/usr/bin/env bash\nexec bash %q "$@"\n' "$FIX/$HARNESS_CLI/fake-cli" > "$d/${bin##*/}"; chmod +x "$d/${bin##*/}"
-  same "$(cd "$RUN_DIR" && FAKE_CLI_ARGS="$args" PATH="$d:$PATH" bash -c "$cmd")" "$(cat "$FIX/$HARNESS_CLI/subagent-critic.out")" &&
+  # Its fresh state dir comes from mktemp: keep it in this run's own dir.
+  mkdir -p "$RUN_DIR/subagent-tmp"
+  same "$(cd "$RUN_DIR" && TMPDIR="$RUN_DIR/subagent-tmp" FAKE_CLI_ARGS="$args" PATH="$d:$PATH" bash -c "$cmd")" "$(cat "$FIX/$HARNESS_CLI/subagent-critic.out")" &&
     has $'--cwd\n'"$3"$'\n' "$(cat "$args")" && has $'--message-file\n'"$4"$'\n' "$(cat "$args")" &&
     has $'--config\n'"$cfg"$'\n' "$(cat "$args")" && grep -qx 'state-dir: empty' "$args" ); }
 # subagent_capture_ok — the real CLI ran the substitute from a lane (fixtures/cli/<cli>/subagent-*, see
