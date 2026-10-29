@@ -119,7 +119,8 @@ remove_project_state(){
   return 0
 }
 # _marked_skills <dir> — the skill dirs in <dir> Harness shipped under another name (the handoff skill,
-# #303): their SKILL.md carries `<!-- harness-skill:`. A same-named skill without it is the operator's.
+# #303, and the vendored prompt skills, #315): their SKILL.md carries `<!-- harness-skill:`. A
+# same-named skill without it is the operator's.
 _marked_skills(){ grep -lF '<!-- harness-skill:' "$1"/*/SKILL.md 2>/dev/null | xargs -r -n1 dirname; }
 # remove the deployed /harness operator skills (umbrella `harness` + every `harness-*`) from user
 # scope, leaving unrelated skills untouched. Idempotent (nullglob → no-op when none present).

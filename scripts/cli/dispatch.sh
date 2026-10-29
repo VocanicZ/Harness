@@ -92,8 +92,9 @@ cli_transcripts(){ _cli_call transcripts "$@"; }       # <wd> <session id> → t
 cli_usage(){ _cli_call usage "$@"; }                   # <transcript>… → <model>\t<in>\t<out>\t<cache_read>\t<cache_write>
 cli_usage_setup(){ _cli_call usage_setup "$@"; }       # <wd> → wire the worktree so cli_limit_usage can see it
 # cli_prereqs [--install] → one line per prerequisite; rc 1 = one missing. The adapter's own (binary,
-# plugins), then the skills the prompts name through cli_skill (#303), for every CLI alike.
-cli_prereqs(){ local rc=0; _cli_call prereqs "$@" || rc=1; _cli_skill_prereq handoff "$@" || rc=1; return $rc; }
+# plugins), then every skill the prompts name (cli_prompt_skills, #303/#315), for every CLI alike.
+cli_prereqs(){ local rc=0 n; _cli_call prereqs "$@" || rc=1
+  for n in $(cli_prompt_skills); do _cli_skill_prereq "$n" "$@" || rc=1; done; return $rc; }
 cli_runnable(){ _cli_call runnable; }                  # 0 iff the installed binary actually runs
 cli_uninstall(){ _cli_call uninstall; }                # remove what Harness installed into the CLI (best-effort)
 cli_turn_secs(){ _cli_call turn_secs "$@"; }           # <pane> → seconds the running turn has taken; 0 = no turn; '' = no turn timer
@@ -118,7 +119,7 @@ _cli_usage_cached(){ local c out now tmp; c="$(_usage_dir)/$1.tsv"; now="$(date 
   printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
   [[ -n "$out" ]] && echo "$out"; }
 
-# --- the skills the prompts name (#303) -------------------------------------------------------
+# --- the skills the prompts name (#303, #315) -------------------------------------------------------
 # cli_skills_dir — where this CLI loads user skills from: its own dir (cli_user_skills_dir), else
 # ~/.claude/skills (HARNESS_USER_SKILLS), which claude and opencode read and which a hermes or openclaw
 # lane gets as an external skill dir (_hermes_seed, _openclaw_config).
@@ -129,10 +130,19 @@ CLI_SKILL_MARK='<!-- harness-skill:'
 # cli_skill_place <src dir> <dst dir> — copy one skill dir, unless <dst> holds the operator's own.
 cli_skill_place(){ [[ -f "$2/SKILL.md" ]] && ! grep -qF "$CLI_SKILL_MARK" "$2/SKILL.md" && return 0
   mkdir -p "$2" && cp -R "$1/." "$2/"; }
+# cli_prompt_skills — the skills the engine's prompts name, one per line: each `{{skill:<name>}}`,
+# which render() turns into cli_skill <name>. A prompt names a skill no other way (test_cli_matrix.sh).
+cli_prompt_skills(){ grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$CLI_DIR/../../prompts"/*.md 2>/dev/null |
+  sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u; }
 # _cli_skill_prereq <name> [--install] — the skill is where this CLI loads skills from; --install copies
-# the engine's own skill/<name> there.
+# the engine's own skill/<name> there (Harness's own, or one vendored from upstream with its LICENSE).
+# rtdd's skill is rtdd's own, versioned with its binary: rtdd writes it for every CLI (`rtdd skill
+# install`, run by install.sh's npx install and by harness setup's rtdd_skill_install), and a lane
+# without rtdd runs the full suite instead (#187), so a missing one warns and never fails.
 _cli_skill_prereq(){ local dst src; dst="$(cli_skills_dir)/$1"; src="$(cd "$CLI_DIR/../.." && pwd)/skill/$1"
   if [[ -f "$dst/SKILL.md" ]]; then echo "ok      $(cli_name) skill $1 ($dst)"
+  elif [[ $1 == rtdd ]]; then
+    echo "WARN    $(cli_name) skill rtdd ($dst): lanes run the full suite without it; harness setup installs it (rtdd skill install)"
   elif [[ "${2:-}" == --install && -f "$src/SKILL.md" ]] && cli_skill_place "$src" "$dst"; then
     echo "ok      $(cli_name) skill $1 ($dst, installed)"
   else echo "MISSING $(cli_name) skill $1 ($dst): mkdir -p $dst && cp -R $src/. $dst/"; return 1; fi; }

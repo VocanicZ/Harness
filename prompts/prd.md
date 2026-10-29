@@ -9,7 +9,7 @@ GOAL: turn PLAN.md into one PRD GitHub issue per independent workstream in THIS 
 
 Steps:
 1. Read PLAN.md (in this repo) and the {{PROJECT}} sections of {{SPEC}}.
-2. Invoke the `to-prd` skill to write a PRD for {{PROJECT}}: problem, scope, milestones, and
+2. Invoke the {{skill:to-prd}} skill to write a PRD for {{PROJECT}}: problem, scope, milestones, and
    explicit, testable acceptance criteria.
 3. QUALITY BAR — optional, and honestly optional. If (and only if) there is a real, specific
    artifact this project should beat, add ONE more section to the PRD body:

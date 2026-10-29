@@ -26,7 +26,8 @@ assert_no "…and fails" v2_prereqs
 v1_prereqs(){ cli_prereqs >/dev/null 2>&1; }
 assert_ok "the handoff skill is named where opencode loads skills (#303)" \
   has "MISSING opencode skill handoff ($HARNESS_USER_SKILLS/handoff)" "$(cli_prereqs 2>&1)"
-mkdir -p "$HARNESS_USER_SKILLS/handoff"; cp "$HERE/../skill/handoff/SKILL.md" "$HARNESS_USER_SKILLS/handoff/"
+# Every skill the prompts name (#315); rtdd's own skill only warns when absent.
+for n in $(cli_prompt_skills); do [[ $n == rtdd ]] || cli_skill_place "$HERE/../skill/$n" "$HARNESS_USER_SKILLS/$n"; done
 assert_ok "OpenCode 1 passes on the binary alone" v1_prereqs
 assert_ok "…naming its version" has "ok      opencode binary (opencode, 1.19.5)" "$(cli_prereqs)"
 
