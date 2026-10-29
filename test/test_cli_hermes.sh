@@ -160,6 +160,49 @@ mapfile -t ts < <(cli_transcripts "$WD" "$SID")
 assert_eq "${#ts[@]}" 2 "the session and its sub-agent"
 assert_eq "$(cli_usage "${ts[@]}")" $'gpt-4.1\t19650\t357\t68608\t0' "usage sums every transcript's session_model_usage"
 
+# --- usage windows: `hermes usage --json`, run in the newest lane's profile ------------------------
+# The stub logs its HERMES_HOME and argv, then answers with $HU_OUT (a file; none = the no-usage line
+# on stderr and exit 1, as usage-none.txt).
+cat > "$RUN_DIR/bin/hermes-usage" <<'STUB'
+#!/usr/bin/env bash
+echo "$HERMES_HOME $*" >> "$HU_CALLS"
+[[ "$1 $2" == "usage --json" && -s ${HU_OUT:-} ]] && exec cat "$HU_OUT"
+cat "$HU_NONE" >&2; exit 1
+STUB
+chmod +x "$RUN_DIR/bin/hermes-usage"
+export HU_CALLS="$RUN_DIR/hu.calls" HU_NONE="$F/usage-none.txt" HU_OUT="$RUN_DIR/hu.json"
+# hu_doc <reset epoch> [python edit] — the real capture with every window's reset moved to <reset>.
+hu_doc(){ python3 - "$F/usage-windows.json" "$HU_OUT" "$1" "${2:-}" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+d = json.load(open(sys.argv[1]))
+for w in d["windows"]:
+    w["resets_at"] = datetime.fromtimestamp(int(sys.argv[3]), timezone.utc).isoformat()
+exec(sys.argv[4])
+json.dump(d, open(sys.argv[2], "w"))
+PY
+}
+hu(){ rm -rf "$(_usage_dir)"; ( unset HARNESS_USAGE_CMD; HARNESS_HERMES_BIN="$RUN_DIR/bin/hermes-usage" cli_limit_usage ); }
+future=$(( $(date +%s) + 3600 ))
+hu_doc "$future"; : > "$HU_CALLS"
+assert_eq "$(hu)" "$(printf 'anthropic\tCurrent session\t2.0\t%s\nanthropic\tCurrent week\t69.0\t%s' "$future" "$future")" \
+  "every window the provider reports: <provider> <label> <pct used> <reset epoch>"
+assert_eq "$(cat "$HU_CALLS")" "$H usage --json" "…fetched in the newest lane's profile"
+touch -d '1 hour ago' "$H"; mkdir -p "$OP/profiles/harnessnewer"; : > "$HU_CALLS"; hu >/dev/null
+assert_eq "$(cat "$HU_CALLS")" "$OP/profiles/harnessnewer usage --json" "…the NEWEST lane's profile"
+mv "$OP/profiles" "$OP/profiles.away"; : > "$HU_CALLS"; hu >/dev/null; mv "$OP/profiles.away" "$OP/profiles"
+assert_eq "$(cat "$HU_CALLS")" "$OP usage --json" "…or the operator's home before any lane has one"
+: > "$HU_CALLS"; hu >/dev/null
+( unset HARNESS_USAGE_CMD; HARNESS_HERMES_BIN="$RUN_DIR/bin/hermes-usage" cli_limit_usage >/dev/null )
+assert_eq "$(wc -l < "$HU_CALLS")" 1 "a second poll within HARNESS_HERMES_USAGE_TTL reads the cache"
+assert_eq "$(cut -f1-3 "$(_usage_dir)/hermes.tsv")" "$(cat "$F/usage-windows.expected")" "…the windows, cached in the usage dir"
+hu_doc "$future" 'd["windows"][0]["used_percent"] = None; d["windows"][1]["resets_at"] = None'
+assert_eq "$(hu)" "$(printf 'anthropic\tCurrent week\t69.0\t0')" "a window with no percent is skipped; one with no reset reads 0"
+hu_doc "$(( $(date +%s) - 60 ))"
+assert_no "a passed reset is no window: rc 1" hu
+rm -f "$HU_OUT"
+assert_no "a provider with no usage endpoint (usage-none.txt): rc 1" hu
+
 col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="hermes" && $3!="ok" && $3 !~ /^n\/a:/')"
 assert_eq "$col" "" "every hermes matrix cell is ok or n/a"
 finish

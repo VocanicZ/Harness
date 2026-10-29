@@ -1,0 +1,23 @@
+{
+  "usage": {
+    "updatedAt": 1793235489735,
+    "providers": [
+      {
+        "provider": "anthropic",
+        "displayName": "Claude",
+        "windows": [
+          {
+            "label": "5h",
+            "usedPercent": 2,
+            "resetAt": 1793249999899
+          },
+          {
+            "label": "Week",
+            "usedPercent": 69,
+            "resetAt": 1793555999899
+          }
+        ]
+      }
+    ]
+  }
+}

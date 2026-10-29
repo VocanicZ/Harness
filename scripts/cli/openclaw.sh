@@ -131,6 +131,26 @@ for m, t in sorted(tot.items()):
     print(m, *t, sep="\t")
 PY
 }
+# Usage windows (#194, #304): `openclaw status --usage --json` fetches every provider the operator's
+# config holds auth for (the auth each lane config includes): usage.providers[] {provider, windows:
+# [{label, groupLabel?, usedPercent, resetAt? (ms)}], error?} (usage-windows.json); with none, an empty
+# providers list (usage-none.json). A fetch per poll per worker would hit the providers' own rate
+# limits, so the answer is cached HARNESS_OPENCLAW_USAGE_TTL seconds in the usage dir.
+openclaw_limit_usage(){ _cli_usage_cached openclaw "${HARNESS_OPENCLAW_USAGE_TTL:-120}" _openclaw_limit_usage_fetch; }
+_openclaw_limit_usage_fetch(){ local -a cmd; read -ra cmd <<<"$(openclaw_bin)"
+  timeout 90 "${cmd[@]}" status --usage --json 2>/dev/null | python3 -c 'import json, sys, time
+now = time.time()
+for p in (json.load(sys.stdin).get("usage") or {}).get("providers") or []:
+    # One malformed window skips that row only; an unknown reset is 0.
+    for w in p.get("windows") or []:
+        try:
+            reset = int(w.get("resetAt") or 0) // 1000
+            if 0 < reset <= now:
+                continue
+            win = " ".join(x for x in (w.get("groupLabel"), w["label"]) if x)
+            print(p.get("provider") or "openclaw", win, round(float(w["usedPercent"]), 1), reset, sep="\t")
+        except (AttributeError, TypeError, ValueError, KeyError):
+            continue'; }
 
 # --- the Harness-driven goal loop (lib.sh goal_loop_tick) -----------------------------------------
 # openclaw_last_reply <wd> <session id> — the last turn's id (its line in the transcript, and its own

@@ -1,0 +1,23 @@
+{
+  "provider": "anthropic",
+  "source": "oauth_usage_api",
+  "title": "Account limits",
+  "plan": null,
+  "fetched_at": "2026-10-29T00:57:22.207406+00:00",
+  "windows": [
+    {
+      "label": "Current session",
+      "used_percent": 2.0,
+      "resets_at": "2026-10-29T05:00:00.040092+00:00",
+      "detail": null
+    },
+    {
+      "label": "Current week",
+      "used_percent": 69.0,
+      "resets_at": "2026-11-01T18:00:00.040114+00:00",
+      "detail": null
+    }
+  ],
+  "details": [],
+  "unavailable_reason": null
+}

@@ -52,7 +52,9 @@ the next line typed was appended under it. With 0.2 s or 0.5 s between them the 
 | `effort-flag` | How a lane's effort reaches Hermes: `agent.reasoning_effort=`, the lane setting `hermes_launch` writes into the lane's `config.yaml` (and `cli_lane_settings` reports). |
 | `handoff-skill` | How a prompt names the handoff skill: `handoff`, loaded by the agent's skill tool (`skill.txt`, `handoff.txt`). |
 | `trust.na` | Why the `trust-dialog-is-not-prompt` row is n/a: there is no trust dialog. |
-| `usage-windows.na` | Why the `usage-windows` row is n/a: `hermes usage --json` printed `No account usage available for provider 'copilot'`. |
+| `usage-windows.json` | Captured 2026-10-29: `hermes usage --json --provider anthropic` on the fleet host — Hermes's Anthropic OAuth fetch, on the host's Claude Code login (`~/.claude/.credentials.json` under `CLAUDE_CONFIG_DIR`). The host's lanes run on `copilot`, which has no usage endpoint (`usage-none.txt`); this is the same command on a provider that reports windows. Schema: `website/docs/reference/cli-commands.md` (`hermes usage`) and `hermes_cli/subcommands/usage.py` in the Hermes checkout (`bf0203a794`). |
+| `usage-windows.expected` | What `hermes_limit_usage` reads from `usage-windows.json` (`<provider> <label> <pct used>`; the matrix moves each `resets_at` into the future first). |
+| `usage-none.txt` | `hermes usage --json` on this host's `copilot` provider: nothing on stdout, this line on stderr, exit 1 — so `hermes_limit_usage` returns rc 1. |
 | `VERSION` | `hermes --version`'s first line, then the capture date and host. |
 | `fake-cli` | Stands in for `hermes` when the matrix runs a typed launch line: it writes `transcript.db` as `$HERMES_HOME/state.db`, its lane session titled as `-c` named it, its cwd the pane's and its start time now. |
 | `turn-end` | One prompt's turn ending as Hermes records it: a user message, then an assistant message with `finish_reason` `stop`, appended to the lane's `state.db`. |
