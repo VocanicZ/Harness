@@ -29,6 +29,9 @@ turn_secs(){ cli_turn_secs "$1"; }
 # turn_queued <pane> — the text waiting in the input box (the last prompt line's text plus its
 # continuation lines up to the box's bottom rule), blank lines dropped; empty when the box is empty.
 # Without a bottom rule only the prompt line counts: what follows could be the footer, not more input.
+# NO-BREAK SPACE is folded to a space before the trim (#335): Claude Code draws its prompt as `❯` +
+# U+00A0, and [[:space:]] misses NBSP in every locale, so an EMPTY box read as a queued `\xc2\xa0` and
+# every 4 h+ turn was Escaped with nothing to deliver. Byte-level under LC_ALL=C, so no locale matters.
 turn_queued(){ local n first
   n=$(cli_pane_prompt_line "$1"); (( n > 0 )) || return 0
   first=$(cli_prompt_text "$(printf '%s\n' "$1" | sed -n "${n}p")")
@@ -36,7 +39,7 @@ turn_queued(){ local n first
     printf '%s\n' "$1" | awk -v n="$n" '
       NR > n { if ($0 ~ /^(─|━)/) { closed = 1; exit } more = more $0 "\n" }
       END { if (closed) printf "%s", more }'
-  } | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'; }
+  } | LC_ALL=C sed -E 's/\xc2\xa0/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'; }
 
 # turn_should_interrupt <pane> <state file> — true iff the lane's turn must be interrupted: it has run
 # HARNESS_TURN_MAX with input queued, or one of Harness's own nudges is still queued a poll after it
