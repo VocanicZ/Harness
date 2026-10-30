@@ -15,12 +15,14 @@ make_env
 NUDGE='Please continue — the transient API error has cleared; resume the in-flight task.'
 # pane_turn <file> <spinner timer> [queued line …] — a mid-turn Claude Code pane: a long-polling Bash
 # call, the spinner with its turn timer, and the input box holding whatever was typed during the turn.
+# PSEP is what follows the `❯`: an ASCII space here, the U+00A0 NO-BREAK SPACE real Claude Code draws (#335).
+PSEP=' '
 pane_turn(){ local f=$1 timer=$2; shift 2
   { printf '%s\n' '⏺ Bash(timeout 590 bash -c "until grep -q done replay.log; do sleep 30; done")' \
                   '  ⎿  Running… (32s)' \
                   "✻ Polling the bench replay… ($timer · ↓ 12.3k tokens · esc to interrupt)" '' \
                   '────────────────────────────────────────'
-    if (( $# )); then printf '❯ %s\n' "$1"; shift; printf '  %s\n' "$@"; else printf '❯ \n'; fi
+    if (( $# )); then printf '❯%s%s\n' "$PSEP" "$1"; shift; printf '  %s\n' "$@"; else printf '❯%s\n' "$PSEP"; fi
     printf '%s\n' '────────────────────────────────────────' '  ⏵⏵ bypass permissions on (shift+tab to cycle)'
   } > "$f"; }
 
@@ -98,5 +100,33 @@ echo '  ⎿  Interrupted · What should Claude do instead?' >> "$PANE"   # an OL
 watchdog_session "$SESS"
 assert_eq "$(keys)" "Escape" "no new Interrupted: Escape only, Enter withheld"
 assert_eq "$(cat "$EVENTS")" "" "no new Interrupted: no turn_interrupted event"
+
+# ── C: #335 — real Claude Code draws its prompt as `❯` + U+00A0 NO-BREAK SPACE, not `❯` + space. ─────
+# [[:space:]] misses NBSP in every locale, so an EMPTY box read as a queued `\xc2\xa0`: every 4 h+ turn
+# was Escaped with nothing to deliver, and a queued nudge never matched HARNESS_NUDGE_RE's `^`.
+NBSP=$'\xc2\xa0'; PSEP=$NBSP; INTERRUPTS=1; HARNESS_INTERRUPT_WAIT=1
+for loc in C C.UTF-8; do
+  pane_turn "$P" '4h 1m 2s'
+  assert_eq "$(LC_ALL=$loc turn_queued "$(cat "$P")")" "" "NBSP prompt, empty box ($loc): turn_queued queues nothing"
+  assert_eq "$(LC_ALL=$loc turn_queued "$(printf '%s\n' "❯$NBSP$NBSP  $NBSP" '────')")" "" \
+    "NBSP prompt, box of NBSPs and spaces ($loc): turn_queued queues nothing"
+  assert_no "NBSP prompt, empty box, 4 h turn ($loc): not interrupted" \
+    env LC_ALL=$loc bash -c 'source "$1/../scripts/lib.sh"; turn_should_interrupt "$(cat "$2")" "$3"' _ "$HERE" "$P" "$RUN_DIR/st335"
+  pane_turn "$P" '12m 2s' "$NUDGE"
+  assert_eq "$(LC_ALL=$loc turn_queued "$(cat "$P")")" "$NUDGE" "NBSP prompt + nudge ($loc): no leading NBSP"
+  assert_eq "$(LC_ALL=$loc turn_queued_nudges "$(cat "$P")")" "1" "NBSP prompt + nudge ($loc): the nudge is counted"
+done
+reset_rec; pane_turn "$PANE" '4h 1m 2s'
+watchdog_session "$SESS"; watchdog_session "$SESS"
+assert_eq "$(keys)" "" "NBSP prompt, empty box, 4 h turn: no Escape is sent"
+assert_eq "$(cat "$EVENTS")" "" "NBSP prompt, empty box, 4 h turn: no event"
+reset_rec; pane_turn "$PANE" '30m 12s' "$NUDGE"
+watchdog_session "$SESS"
+assert_eq "$(keys)" "" "NBSP prompt, nudge queued for the first time: give the turn one poll to end"
+watchdog_session "$SESS"
+assert_eq "$(keys)" "Escape Enter" "NBSP prompt, the same nudge still queued a poll later: interrupted"
+reset_rec; pane_turn "$PANE" '4h 1m 2s' 'also check the flaky test'
+watchdog_session "$SESS"
+assert_eq "$(keys)" "Escape Enter" "NBSP prompt, real queued text at HARNESS_TURN_MAX: still interrupted (#207)"
 
 finish
