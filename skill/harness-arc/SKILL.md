@@ -58,7 +58,7 @@ The reverse is safe: a wayfinder ticket may name a PRD in its own `## Blocked by
 
 ## 4. Watch — the supervisor watches; read its log or alarms
 
-There is no watchdog to arm. `harness supervise` (the host-level supervisor — see the README's
+There is no watchdog to arm. `harness supervise` (the host-level supervisor — see docs/reference.md's
 *Host supervisor* section) runs every arc stall rule on every fleet on the host, each pass. Make sure
 it is up, then read what it says:
 

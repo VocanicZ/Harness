@@ -131,9 +131,9 @@ assert "update.sh ensures it unconditionally" \
   "awk '/^if \\(\\( WITH_SKILLS \\)\\); then/{f=1} /ensure_rtdd/{if(!f) found=1} END{exit !found}' '$U'"
 
 # README: documented section + the prereq row marks it optional.
-RM="$HERE/../README.md"
-assert "README has a Test selection section" "grep -qE '^### Test selection \(rtdd\)' '$RM'"
-assert "README prereq row names rtdd the lane test loop" "grep -E '^\| \`rtdd\`' '$RM' | grep -qi 'lane test loop'"
+RM="$HERE/../docs/reference.md"
+assert "reference has a Test selection section" "grep -qE '^### Test selection \(rtdd\)' '$RM'"
+assert "README prereq: node row names rtdd the lane test loop, optional" "grep -E '^\| \`node\`' '$HERE/../README.md' | grep -i 'optional' | grep -qi 'lane test loop'"
 # The section only: swarm's own per-shard junit.xml is documented elsewhere in the README.
 awk '/^### Test selection \(rtdd\)/{f=1;next} /^### /{f=0} f' "$RM" > "$RUN_DIR/readme-rtdd.md"
 assert "README teaches the v0.3 rounds" "grep -q 'Round 3' '$RUN_DIR/readme-rtdd.md'"

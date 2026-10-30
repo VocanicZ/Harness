@@ -166,8 +166,8 @@ echo "-- config + prompts"
 ( unset_inherited_config; source "$HERE/../scripts/lib.sh" >/dev/null 2>&1; [[ "$HARNESS_SWARM" == auto ]] )
 assert_eq "$?" 0 "HARNESS_SWARM defaults to auto"
 assert_ok "HARNESS_SWARM is exported" grep -qE '^ +.*\bHARNESS_SWARM\b' "$HERE/../scripts/lib.sh"
-assert_ok "README Configuration row" grep -q '^| `HARNESS_SWARM` | `auto` |' "$HERE/../README.md"
-assert_ok "README section" grep -q '^## Offloading tests to swarm' "$HERE/../README.md"
+assert_ok "README Configuration row" grep -q '^| `HARNESS_SWARM` | `auto` |' "$HERE/../docs/reference.md"
+assert_ok "reference section" grep -q '^## Offloading tests to swarm' "$HERE/../docs/reference.md"
 for p in impl bug-fix resume review; do
   P="$HERE/../prompts/$p.md"
   assert_ok "$p.md runs the suite through {{SWARM_SUITE}}" grep -q '{{SWARM_SUITE}}' "$P"

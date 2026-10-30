@@ -4,7 +4,7 @@
 # the umbrella skill section was the third — see test_subskills.sh). Guards #81.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-README="$HERE/../README.md"
+README="$HERE/../docs/reference.md"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 
 assert "README exists" "[[ -f '$README' ]]"
@@ -106,7 +106,7 @@ assert "README has no rtdd v0.2 terms outside the swarm section: ${STALE:-none}"
 assert "README keeps the #test-selection-rtdd anchor target" "grep -qE '^### Test selection \(rtdd\)$' '$README'"
 assert "README still links #test-selection-rtdd" "grep -q '](#test-selection-rtdd)' '$README'"
 SECTION=$(awk '/^### Test selection \(rtdd\)$/{s=1} s&&/^### Never merging red/{s=0} s' "$README")
-CONTRIB=$(grep -E '^4\. \*\*Run the tests\*\*' "$README")
+CONTRIB=$(grep -E '^[0-9]+\. \*\*Run the tests\*\*' "$HERE/../CONTRIBUTING.md")
 # The README's steps and the lane prompt's steps, in the prompt's order: fallback, which, init,
 # Round 1, Round 2, untested, Round 3. Each pattern must match somewhere AFTER the previous one's
 # match, so an early aside ("no Round 1 in its output") cannot satisfy a later step.
