@@ -163,7 +163,7 @@ release_gate_bug(){ local sha="$1" reason="$2" d m short title open url n body l
       echo; echo "Failures in the gate log (each under its suite):"
       echo; echo '```'
       awk '!seen && !/^== / { print; next } /^== / { seen = 1; h = $0; shown = 0; next }
-           /FAIL|^ *not ok/ { if (!shown) print h; shown = 1; print }' "$log" 2>/dev/null | head -n 300
+           /^ *(FAIL|not ok)/ { if (!shown) print h; shown = 1; print }' "$log" 2>/dev/null | head -n 300
       echo '```'
       echo; echo "Last 80 lines of the gate log (\`$(hostname 2>/dev/null)\`:\`$log\`):"
       echo; echo '```'; tail -n 80 "$log" 2>/dev/null || echo "(no gate log at $log)"; echo '```'
