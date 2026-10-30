@@ -88,6 +88,21 @@ printf '%s\n' "$BUSYQ" > "$PANE"; spass agy-stuck; spass agy-stuck
 assert_ok "agy: a nudge stuck behind a running turn gets Escape…" grep -q "DRY tmux send-keys -t agy-stuck Escape" "$SUP_LOG"
 assert_ok "…then Enter" grep -q "DRY tmux send-keys -t agy-stuck Enter" "$SUP_LOG"
 unset -f tmux
+# #339: sup_cli decides adapter membership with no pipe into an early-exiting grep -q. A cli_list
+# still writing after the match must not SIGPIPE it (pipefail) into the fleet's CLI's adapter.
+cli_list_real="$(declare -f cli_list)"
+cli_list(){ echo agy; sleep 0.2; echo claude; echo codex; }
+assert_eq "$(HARNESS_CLI=claude sup_cli agy)" agy "sup_cli: agy resolves to agy while cli_list is still writing"
+assert_ok "sup_cli: agy's quota regex is in sup_limit_re while cli_list is still writing" \
+  grep -qF "exhausted your quota" <<<"$(HARNESS_CLI=claude sup_limit_re agy)"
+eval "$cli_list_real"
+for c in $(cli_list); do sup_cli_all_ok=1; [[ $(HARNESS_CLI=bogus sup_cli "$c") == "$c" ]] || { sup_cli_all_ok=0; break; }; done
+assert_eq "$sup_cli_all_ok" 1 "sup_cli: every adapter in cli_list resolves to itself"
+assert_eq "$(HARNESS_CLI=codex sup_cli bash)" codex "sup_cli: a name with no adapter falls back to the fleet's CLI"
+assert_eq "$(HARNESS_CLI=codex sup_cli dispatch)" codex "sup_cli: dispatch.sh is no adapter"
+# _cli_re_hits: a hit on line 1 of a >64 KiB pane is still reported under pipefail.
+big="agy-hit-line"$'\n'"$(head -c 200000 /dev/zero | tr '\0' x | fold -w 100)"
+assert_ok "_cli_re_hits: a hit on line 1 of a >64 KiB input is reported" _cli_re_hits 'agy-hit-line' "$big"
 
 echo "=== 4: harness setup installs missing prerequisites ==="
 S="$RUN_DIR/setup"; mkdir -p "$S/bin" "$S/state"
