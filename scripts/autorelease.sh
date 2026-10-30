@@ -158,6 +158,13 @@ release_gate_bug(){ local sha="$1" reason="$2" d m short title open url n body l
     log="$d/gate-$sha.log"; body="$(mktemp)"
     { echo "\`harness release\` ($reason) ran the release gate (\`test/run.sh\`) at $sha and it failed, so no release was cut."
       echo "The fleet will not re-run the gate on this commit. Fixing this is a new commit, which the next release picks up."
+      # #333: the failures first. Suites run alphabetically, so an early one's FAIL lines are far
+      # above the tail; each is shown under its suite header, after what run.sh printed itself.
+      echo; echo "Failures in the gate log (each under its suite):"
+      echo; echo '```'
+      awk '!seen && !/^== / { print; next } /^== / { seen = 1; h = $0; shown = 0; next }
+           /^ *(FAIL|not ok)/ { if (!shown) print h; shown = 1; print }' "$log" 2>/dev/null | head -n 300
+      echo '```'
       echo; echo "Last 80 lines of the gate log (\`$(hostname 2>/dev/null)\`:\`$log\`):"
       echo; echo '```'; tail -n 80 "$log" 2>/dev/null || echo "(no gate log at $log)"; echo '```'
     } > "$body"

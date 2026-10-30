@@ -55,4 +55,32 @@ assert_no "no red-gate marker" test -e "$HARNESS_AUTORELEASE_DIR/gate-failed-$sh
 assert_no "no bug filed" grep -q '^issue create' "$GH_LOG"
 [[ -e "$HARNESS_AUTORELEASE_DIR/gate-failed-$sha" ]] && cat "$RUN_DIR/run.log"
 
+# ── #333: the filed bug shows the FAILURES, not just the log's tail ──
+# The f4756cc gate failed in suites that run early; its last 80 lines were all `ok:`, so the bug
+# filed for it showed none of them. The body must carry every FAIL / not ok line under its suite
+# header, and whatever run.sh itself printed before the first suite.
+GL="$HARNESS_AUTORELEASE_DIR/gate-deadbeef.log"
+{ echo "test/run.sh: line 16: test/helpers.sh: No such file or directory"
+  echo "== test_alpha.sh =="; echo "  ok: a1"; echo "  FAIL: alpha broke — want [hz] got [hzhn]"; echo "── 1/2 passed"
+  echo "== test_beta.sh =="; echo "  ok: b1 is not ok (FAIL) when stubbed"
+  echo "== test_gamma.py =="; echo "not ok 3 - gamma broke"
+  for i in $(seq 1 200); do echo "  ok: filler $i"; done; } > "$GL"
+gh(){ local a; echo "$*" >> "$GH_LOG"
+  case "$1 $2" in
+    "issue list") echo '[]';;
+    "issue create") for a; do [[ $prev == --body-file ]] && cp "$a" "$RUN_DIR/bug-body"; prev=$a; done
+                    echo "https://github.com/acme/harness/issues/77";;
+  esac; return 0; }
+prev=""; release_gate_bug deadbeef prd:333 >/dev/null 2>&1
+B="$(cat "$RUN_DIR/bug-body" 2>/dev/null)"
+assert_eq "$_GATE_BUG" 77 "the red gate's bug is filed"
+assert_ok "the body carries the FAIL line" grep -qF 'FAIL: alpha broke — want [hz] got [hzhn]' <<<"$B"
+assert_ok "...under its suite header" grep -qF '== test_alpha.sh ==' <<<"$B"
+assert_ok "the body carries a not ok line" grep -qF 'not ok 3 - gamma broke' <<<"$B"
+assert_ok "...under its suite header" grep -qF '== test_gamma.py ==' <<<"$B"
+assert_no "a suite with no failure is not listed" grep -qF '== test_beta.sh ==' <<<"$B"
+assert_ok "what run.sh printed before the first suite is shown" grep -qF 'helpers.sh: No such file or directory' <<<"$B"
+assert_ok "the tail is still there" grep -qF 'ok: filler 200' <<<"$B"
+unset -f gh
+
 finish
