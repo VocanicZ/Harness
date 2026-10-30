@@ -12,31 +12,46 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./helpers.sh
 
-LOCK="$(mktemp -u)"
+# One lock file PER pattern (#337): a buggy-pattern worker slow to die under load must not leave the
+# lock held for the fixed-pattern check.
+LOCK_BUG="$(mktemp -u)"; LOCK_FIX="$(mktemp -u)"; tmp_track "$LOCK_BUG" "$LOCK_FIX"
 
 # helper: run start.sh's lock+spawn pattern with a given child-spawn redirection, leave a long-lived
 # child alive, exit the "start.sh" parent, then report whether the lock is still held.
-run_pattern(){ local redir="$1" pidf="$2"
+run_pattern(){ local redir="$1" pidf="$2" lock="$3"
   bash -c '
     redir="$1"; pidf="$2"; lock="$3"
     exec 9>"$lock"; flock -n 9 || exit 1
     if [[ "$redir" == close ]]; then nohup sleep 30 >/dev/null 2>&1 9>&- & else nohup sleep 30 >/dev/null 2>&1 & fi
     echo $! > "$pidf"
     exec 9>&-
-  ' _ "$redir" "$pidf" "$LOCK"
+  ' _ "$redir" "$pidf" "$lock"
+}
+
+# helper: is the lock free while the worker is still alive? `9>&-` is applied in the forked child
+# AFTER fork(), so for a moment the async worker still holds the inherited fd 9 — and the flock with
+# it — after the parent exits (#337). Poll up to a 5s wall-clock deadline rather than check once; the
+# invariant is that the worker does not hold the lock for its LIFETIME. kill -0 at the moment the lock
+# is found free stops a dead worker from passing.
+lock_free_while_alive(){ local lock="$1" pid="$(cat "$2")" deadline=$(( ${EPOCHREALTIME//[!0-9]/} + 5000000 ))
+  while (( ${EPOCHREALTIME//[!0-9]/} < deadline )); do
+    if flock -n 8 8>"$lock"; then kill -0 "$pid" 2>/dev/null; return; fi
+    sleep 0.1
+  done
+  return 1
 }
 
 # --- BUGGY pattern (child inherits fd 9): lock stays held after parent exits ---------------------
-PIDF_BUG="$(mktemp)"; run_pattern inherit "$PIDF_BUG"
+PIDF_BUG="$(mktemp)"; tmp_track "$PIDF_BUG"; run_pattern inherit "$PIDF_BUG" "$LOCK_BUG"
 assert_no "leaked-fd pattern: lock is HELD by the live worker after start exits (documents the bug)" \
-  flock -n 8 8>"$LOCK"
-kill "$(cat "$PIDF_BUG")" 2>/dev/null; sleep 0.3
+  flock -n 8 8>"$LOCK_BUG"
+kill "$(cat "$PIDF_BUG")" 2>/dev/null
 
 # --- FIXED pattern (child spawned with 9>&-): lock is free once parent exits ---------------------
-PIDF_FIX="$(mktemp)"; run_pattern close "$PIDF_FIX"
+PIDF_FIX="$(mktemp)"; tmp_track "$PIDF_FIX"; run_pattern close "$PIDF_FIX" "$LOCK_FIX"
 assert_ok "fixed pattern (9>&-): lock is FREE after start exits even though the worker is still alive" \
-  flock -n 8 8>"$LOCK"
-kill "$(cat "$PIDF_FIX")" 2>/dev/null; sleep 0.3
+  lock_free_while_alive "$LOCK_FIX" "$PIDF_FIX"
+kill "$(cat "$PIDF_FIX")" 2>/dev/null
 
 # --- static guard: start.sh must close fd 9 on the worker-script spawns --------------------------
 assert_ok "start.sh spawns pool.sh with fd 9 closed for the child"     grep -Eq 'pool\.sh"?[[:space:]]+9>&-'     ../scripts/start.sh
