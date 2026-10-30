@@ -161,7 +161,7 @@ def test_harness_web_entry_runs_the_server():
 
 
 def test_readme_documents_harness_web():
-    readme = open(os.path.join(wf.ROOT, "README.md"), encoding="utf-8").read()
+    readme = open(os.path.join(wf.ROOT, "docs", "reference.md"), encoding="utf-8").read()
     assert re.search(r"^\| `web` \|", readme, re.M), "no `web` row in the command table"
     assert "## Dashboard" in readme
     for needle in ("HARNESS_WEB_BIND", "HARNESS_WEB_PORT", "127.0.0.1:4637", "HARNESS_WEB_BIND=0.0.0.0", "Internet"):

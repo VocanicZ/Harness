@@ -102,7 +102,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
   done
   # Host poller (PRD-B, #74; default ON since #182). 1 = this fleet reads the shared host snapshots;
   # 0 = it polls GitHub itself. Flip per fleet, then `harness stop && harness start --recover`.
-  # See README "Host poller".
+  # See docs/reference.md "Host poller".
   printf ': "${%s:=%s}"\n' HARNESS_USE_POLLER "${HARNESS_USE_POLLER:-1}"
 } > "$CONFIG"
 echo "wrote $CONFIG"

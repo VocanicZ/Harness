@@ -14,7 +14,7 @@ assert_eq "$(cd "$ROOT" && grep -l 'HARNESS_CLI' scripts/*.py)" "" "no python sc
 cells="$(bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
 assert_ok "the matrix produced cells" test -n "$cells"
 green="$(awk -F'\t' '$3!="ok" && $3!~/^n\/a:/{bad[$1]=1} {all[$1]=1} END{for (c in all) if (!(c in bad)) print c}' <<<"$cells" | sort)"
-table="$(sed -n '/^### Supported agent CLIs/,/^## /p' "$ROOT/README.md" | grep '^|')"
+table="$(sed -n '/^### Supported agent CLIs/,/^## /p' "$ROOT/docs/reference.md" | grep '^|')"
 header="$(head -1 <<<"$table")"
 listed="$(tr '|' '\n' <<<"$header" | sed -n 's/^ *`\([a-z-]*\)` *$/\1/p' | sort)"
 assert_eq "$listed" "$green" "README lists exactly the CLIs whose matrix column is green"
@@ -48,7 +48,7 @@ internal="HARNESS_BOOTSTRAP_PROMPT HARNESS_SESSION HARNESS_ENGINE_PLUGINS HARNES
 # session. HARNESS_ENGINE_PLUGINS: install.sh points it at the placed engine. HARNESS_CLAUDE_CONFIG,
 # HARNESS_AGY_TRUST_FILE: test seams (helpers.sh).
 read_vars="$(cd "$ROOT" && grep -ohE '\bHARNESS_[A-Z0-9_]*[A-Z0-9]\b' scripts/cli/*.sh | sort -u)"
-config="$(sed -n '/^## Configuration/,/^### /p' "$ROOT/README.md" | grep '^| `HARNESS_' | cut -d'|' -f2 | grep -oE 'HARNESS_[A-Z0-9_]+' | sort -u)"
+config="$(sed -n '/^## Configuration/,/^### /p' "$ROOT/docs/reference.md" | grep '^| `HARNESS_' | cut -d'|' -f2 | grep -oE 'HARNESS_[A-Z0-9_]+' | sort -u)"
 undocumented="$(comm -23 <(echo "$read_vars") <(echo "$config") | grep -vxF -f <(tr ' ' '\n' <<<"$internal"))"
 assert_eq "$undocumented" "" "the config table has a row for every HARNESS_* setting the adapters read"
 for v in $internal; do
@@ -59,7 +59,7 @@ done
 # (cli_list), each naming where its windows come from, or that it has none — one CLI per row, so the
 # one-line subset check below never sees it.
 all_clis="$(source "$ROOT/scripts/cli/dispatch.sh"; cli_list | sort)"
-usage_rows="$(sed -n '/^### Usage-limit checkpoints/,/^### /p' "$ROOT/README.md" | sed -n 's/^| `\([a-z0-9-]*\)` | .*[^ ].* |$/\1/p' | sort)"
+usage_rows="$(sed -n '/^### Usage-limit checkpoints/,/^### /p' "$ROOT/docs/reference.md" | sed -n 's/^| `\([a-z0-9-]*\)` | .*[^ ].* |$/\1/p' | sort)"
 assert_eq "$usage_rows" "$all_clis" "the README usage-source table has one row per CLI in cli_list"
 
 # …and no README line outside the support table lists some of the supported CLIs as if they were all
@@ -75,6 +75,6 @@ while IFS= read -r line; do
     k=0; for c in $clis; do grep -qF "\`$c\`" <<<"$run" && k=$((k+1)); done
     (( k >= 2 && k < $(wc -w <<<"$clis") )) && partial+="README.md:$n: $run"$'\n'
   done < <(grep -oE "$item( *(,|/| or| and|, or|, and) *$item)+" <<<"${line#*:}")
-done < <(awk '/^### Supported agent CLIs/{s=1} s && /^## /{s=0} !(s && /^\|/){print NR":"$0}' "$ROOT/README.md")
+done < <(awk '/^### Supported agent CLIs/{s=1} s && /^## /{s=0} !(s && /^\|/){print NR":"$0}' "$ROOT/docs/reference.md"; grep -n '' "$ROOT/README.md")
 assert_eq "${partial%$'\n'}" "" "no README line outside the support table names a subset of its CLIs as the list"
 finish

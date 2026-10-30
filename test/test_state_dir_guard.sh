@@ -137,8 +137,8 @@ echo "── 5. the escape hatch is documented in --help"
 help="$(bash "$CLI" --help 2>&1)"
 assert_ok "help documents --state-dir"          grep -q -- "--state-dir" <<<"$help"
 assert_ok "help documents HARNESS_STATE_DIR_OK" grep -q "HARNESS_STATE_DIR_OK" <<<"$help"
-assert_ok "README documents the refusal"     grep -q -- "--state-dir" "$HERE/../README.md"
-assert_ok "README documents HARNESS_STATE_DIR_OK" grep -q "HARNESS_STATE_DIR_OK" "$HERE/../README.md"
+assert_ok "reference documents the refusal"     grep -q -- "--state-dir" "$HERE/../docs/reference.md"
+assert_ok "reference documents HARNESS_STATE_DIR_OK" grep -q "HARNESS_STATE_DIR_OK" "$HERE/../docs/reference.md"
 
 echo "── 6. uninstall is guarded too (it DELETES a project's .harness/)"
 out="$(run "$B" env STATE_DIR="$A/.harness" bash "$CLI" uninstall)"; rc=$?

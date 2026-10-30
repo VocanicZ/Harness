@@ -77,6 +77,6 @@ out="$(sup "SUP_UNIT_DIR='$U' SUP_SYSTEMCTL='$T/bin/systemctl' SUP_LOGINCTL='$T/
 assert_no "sup_install warns nothing about the env-prefix value" grep -q "not on PATH" <<<"$out"
 
 echo "=== 4: docs ==="
-assert_ok "README documents HARNESS_CLAUDE_BIN as a command line" grep -qE '^\| `HARNESS_CLAUDE_BIN` \| `claude` \|.*env CLAUDE_CONFIG_DIR=' "$ROOT/README.md"
+assert_ok "README documents HARNESS_CLAUDE_BIN as a command line" grep -qE '^\| `HARNESS_CLAUDE_BIN` \| `claude` \|.*env CLAUDE_CONFIG_DIR=' "$ROOT/docs/reference.md"
 
 finish
