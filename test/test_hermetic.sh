@@ -168,4 +168,58 @@ assert_ok "run.sh pins HARNESS_FLEETS_DIR per test" \
 assert_ok "make_env pins HARNESS_FLEETS_DIR too" \
   grep -q 'export HARNESS_FLEETS_DIR=' "$HERE/helpers.sh"
 
+# #333: the guard must RUN, not merely be named in run.sh. release.sh gates a release with
+# `cd <tree> && bash test/run.sh`; run.sh then cd'd into test/ and sourced helpers.sh by a path
+# relative to its OLD cwd (test/test/helpers.sh), so unset_inherited_config was never defined and
+# every fleet variable leaked into every test. Run a copy of run.sh exactly that way, on a tree whose
+# only test is a probe that records what it inherited.
+RT="$(mktemp -d)"; tmp_track "$RT"; mkdir -p "$RT/test"
+cp "$HERE/run.sh" "$HERE/helpers.sh" "$RT/test/"
+cat > "$RT/test/test_probe.sh" <<'EOF'
+#!/usr/bin/env bash
+for v in HARNESS_SESS_PREFIX HARNESS_CLAUDE_BIN HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR \
+  HARNESS_TURN_MAX TMUX TMUX_PANE; do echo "$v=${!v-<unset>}"; done > "$PROBE_OUT"
+printf '›\n' | grep -qE '^[›»]$' && echo "utf8=yes" >> "$PROBE_OUT" || echo "utf8=no" >> "$PROBE_OUT"
+EOF
+leaky(){ env -u LC_ALL -u LC_CTYPE PROBE_OUT="$RT/probe.out" LANG=C HARNESS_SESS_PREFIX=leak \
+  HARNESS_CLAUDE_BIN=/leak/claude HARNESS_SNAPSHOT_FILE=/leak/s.json HARNESS_SNAPSHOT_DIR=/leak \
+  HARNESS_TURN_MAX=1 TMUX=/leak,1,0 TMUX_PANE=%9 "$@"; }
+probe_clean(){ [[ "$(cat "$RT/probe.out" 2>/dev/null)" == "$(printf '%s=<unset>\n' HARNESS_SESS_PREFIX \
+  HARNESS_CLAUDE_BIN HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR HARNESS_TURN_MAX TMUX TMUX_PANE; echo utf8=yes)" ]]; }
+for how in root test abs; do
+  rm -f "$RT/probe.out"
+  case $how in
+    root) out="$(cd "$RT" && leaky bash test/run.sh 2>&1)";;
+    test) out="$(cd "$RT/test" && leaky bash run.sh 2>&1)";;
+    abs)  out="$(cd / && leaky bash "$RT/test/run.sh" 2>&1)";;
+  esac
+  assert_ok "run.sh ($how-relative) hands its tests none of the fleet's env, and a UTF-8 locale" probe_clean
+  assert_no "run.sh ($how-relative) runs its guard without an error" grep -qE 'No such file|command not found' <<<"$out"
+  probe_clean || { cat "$RT/probe.out" 2>/dev/null; head -5 <<<"$out"; }
+done
+# A run.sh that cannot load its guard must stop, not run the suite unguarded.
+mv "$RT/test/helpers.sh" "$RT/helpers.sh.away"; rm -f "$RT/probe.out"
+(cd "$RT" && leaky bash test/run.sh >/dev/null 2>&1); rc=$?
+assert_no "run.sh without helpers.sh exits non-zero" test "$rc" = 0
+assert_no "...before any test runs" test -e "$RT/probe.out"
+mv "$RT/helpers.sh.away" "$RT/test/helpers.sh"
+
+# #333: every HARNESS_* variable the engine EXPORTS reaches the agent session running this suite, so
+# every one must be in the drop list — snapshot_gate's HARNESS_SNAPSHOT_FILE/_DIR made issuelib.py
+# read the host's real poller snapshot instead of the stubbed gh, and an inherited absolute
+# HARNESS_CLAUDE_BIN satisfied check_prereqs with no claude on PATH. The four host path pins are
+# exempt: run.sh and make_env re-pin them to throwaways on purpose.
+exported_vars(){ local f; for f in "$HERE/../scripts/lib.sh" "$HERE/../scripts/supervise.sh" "$HERE/../scripts/cli/"*.sh; do
+    sed -e :a -e '/\\$/N; s/\\\n//; ta' "$f"; done |
+  awk '{ for (i = 1; i <= NF; i++) if ($i == "export") for (j = i + 1; j <= NF; j++) {
+           if ($j ~ /^HARNESS_[A-Z0-9_]+(=|$)/) { sub(/=.*/, "", $j); print $j } else if ($j !~ /^-/) break } }' | sort -u; }
+missing=""
+for v in $(exported_vars); do
+  case " HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR HARNESS_FLEETS_DIR " in *" $v "*) continue;; esac
+  [[ " $(echo $HARNESS_CONFIG_VARS) " == *" $v "* ]] || missing+=" $v"
+done
+assert_eq "$missing" "" "every HARNESS_* variable the engine exports is in HARNESS_CONFIG_VARS"
+assert_ok "the export scan sees the adapters' and snapshot_gate's exports" \
+  bash -c '[[ $(tr "\n" " " <<<"$1") == *HARNESS_CLAUDE_BIN*HARNESS_SNAPSHOT_FILE* ]]' _ "$(exported_vars)"
+
 finish

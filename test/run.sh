@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # run.sh — run every test_*.sh in this dir; non-zero exit if any fails.
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE" || exit 1
 # Blanket hermeticity guard. lib.sh takes STATE_DIR from the environment, and a pool worker exports
 # its project's STATE_DIR to every child — so running this suite from inside a live agent session
 # used to point every test's CONFIG / WORKTREES_DIR / CHECKOUTS_DIR at a REAL project's .harness/.
@@ -13,8 +14,17 @@ trap 'rm -rf "$TMPROOT"' EXIT
 # the live fleet running this suite BEATS the fixture's own value. Pinning paths was not enough —
 # drop the config vars too, before any test can read them. (helpers.sh only defines functions at
 # top level, so sourcing it here has no other effect. Tests re-drop them via make_env.)
-source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
+# By its absolute path (#333): release.sh gates with `cd <tree> && bash test/run.sh`, and a
+# BASH_SOURCE-relative path, read after the cd above, named test/test/helpers.sh — the guard was
+# never defined, so every fleet variable reached every test. A guard that cannot load stops the run.
+source "$HERE/helpers.sh" || { echo "run.sh: cannot load $HERE/helpers.sh — not running the suite unguarded" >&2; exit 1; }
 unset_inherited_config
+# The fleet's own tmux server is no test's (#333): a bare `tmux` in a test must never reach the
+# server every co-resident fleet runs on.
+unset TMUX TMUX_PANE
+# One locale for every run (#333): a fleet worker runs under LANG=C, where grep reads the adapters'
+# multibyte pane regexes as bytes. The suite's expectations are UTF-8's; test_cli_locale.sh covers C.
+unset LC_ALL; export LANG=C.UTF-8 LC_CTYPE=C.UTF-8
 export HARNESS_GH_RATE_GUARD=0   # #183: no test probes the real GitHub budget; test_ghrate.sh opts in
 rc=0
 for t in test_*.sh test_*.py; do

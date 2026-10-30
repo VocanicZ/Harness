@@ -12,6 +12,22 @@ export HARNESS_CLI
 CLI_CONFIG_VAR=HARNESS_CLI    # the config key naming the fleet's CLI (init.sh writes it)
 CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# #333: the pane regexes are multibyte (codex's `^[›»]`, hermes's `^─{3,} [^─]`), and under a C
+# locale grep and bash read a bracket expression as single BYTES, so a fleet started from LANG=C
+# (systemd, cron, a bare tmux) never saw a codex or hermes prompt. When this shell cannot match one,
+# pin LC_CTYPE alone to the first UTF-8 locale that can, and export it to every grep a caller runs
+# over a pane. A C LC_ALL would override it, so its value moves to LANG: collation and messages
+# stay the caller's. A caller that already matches is left exactly as it was.
+_cli_mb_ok(){ printf '\342\200\272\n' | grep -qE $'^[\342\200\272\302\273]$'; }
+cli_pin_utf8(){ local l
+  _cli_mb_ok && return 0
+  for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 $(locale -a 2>/dev/null | grep -iE 'utf-?8$'); do
+    ( export LC_ALL="$l"; _cli_mb_ok ) 2>/dev/null || continue
+    [[ -n "${LC_ALL:-}" ]] && { export LANG="$LC_ALL"; unset LC_ALL; }
+    export LC_CTYPE="$l"; return 0
+  done; return 1; }
+cli_pin_utf8 2>/dev/null
+
 # cli_list — every CLI with an adapter, one per line. A *-loop.sh is a program an adapter's pane runs
 # (openclaw-loop.sh), not an adapter.
 cli_list(){ local f; for f in "$CLI_DIR"/*.sh; do f="${f##*/}"; [[ $f == dispatch.sh || $f == *-loop.sh ]] || echo "${f%.sh}"; done; }
