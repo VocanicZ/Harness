@@ -195,7 +195,8 @@ _cli_bin_ensure(){ local exe run="${5:-$4}"; exe="$(_cli_exe "$2")"
   echo "MISSING $1 binary ($2): $4"; return 1; }
 
 # --- pane helpers over the regexes (an empty regex matches nothing) ---------------------------
-_cli_re_hits(){ [[ -n "$1" ]] && printf '%s\n' "$2" | grep -qE -- "$1"; }
+# A here-string, not `printf | grep -q`: grep's early exit would SIGPIPE a big pane's writer (#339).
+_cli_re_hits(){ [[ -n "$1" ]] && grep -qE -- "$1" <<<"$2"; }
 # cli_pane_busy <pane> — a turn is running.
 cli_pane_busy(){ _cli_re_hits "$(cli_busy_re)" "$1"; }
 # cli_pane_prompt <pane> — the pane shows the input prompt and no dialog owns it.

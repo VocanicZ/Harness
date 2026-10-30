@@ -79,8 +79,10 @@ sup_alive(){ [[ -f $1 ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
 # --- how each agent CLI's pane reads: the CLI adapters (scripts/cli/, #188) ----------------------
 # sup_cli <cli> — <cli> when it has an adapter, else the default CLI (cli_name): every pane
-# function below reads the pane through that adapter.
-sup_cli(){ if cli_list | grep -qxF -- "$1"; then echo "$1"; else cli_name; fi; }
+# function below reads the pane through that adapter. Membership is tested on cli_list's whole
+# output, never by piping it into `grep -q`: under pipefail the writer's SIGPIPE after an early
+# match would read as "no adapter" and send the pane through the wrong CLI's adapter (#339).
+sup_cli(){ if [[ $'\n'"$(cli_list)"$'\n' == *$'\n'"$1"$'\n'* ]]; then echo "$1"; else cli_name; fi; }
 # sup_prompt_re <cli> — a line that IS the idle input prompt. Everything above the LAST such line
 # is the "screen" (sup_prompt_line); a pane with no such line is a dialog or menu and is never typed
 # into. HARNESS_SUPERVISE_PROMPT_RE overrides it for every CLI.
