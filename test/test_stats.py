@@ -471,15 +471,27 @@ def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
         with open(os.path.join(lane, "events.jsonl"), "w") as out:
             for f in ("tool-use.jsonl", "normal.jsonl"):
                 out.write(open(os.path.join(fix, f)).read())
-        assert st.find_transcript(sid) == os.path.join(lane, "events.jsonl")
-        assert st.find_transcript("no-such-session") is None
-        usage, _, _ = st.session_usage(st.find_transcript(sid))
+        assert st.lane_events(sid) == os.path.join(lane, "events.jsonl")
+        assert st.lane_events("no-such-session") is None
+        assert st.find_transcript(sid) is None, "a lane's events are no transcript (forecast reads its path)"
+        usage, _, _ = st.session_usage(st.lane_events(sid))
         assert usage == {"claude-haiku-5-5": {"input": 8, "output": 182, "cache_create": 66287, "cache_read": 74625}}, usage
         rec = st.build_event("session_end", {}, {"session": sid, "launched": 1}, {}, now=100)
         assert rec["usage"] == usage, rec
+        # A turn cut off before its result (an interrupt, a kill) still counts what its messages carried;
+        # a streamed message repeats its usage per block and is counted once.
+        msg = {"type": "assistant", "message": {"id": "m1", "model": "claude-opus-5-5",
+               "usage": {"input_tokens": 3, "output_tokens": 40, "cache_read_input_tokens": 7}}}
+        with open(os.path.join(lane, "events.jsonl"), "a") as out:
+            for ev in ({"type": "harness", "subtype": "turn_start", "turn": 3}, msg, msg,
+                       {"type": "harness", "subtype": "turn_end", "turn": 3, "state": "idle"}):
+                out.write(json.dumps(ev) + "\n")
+        usage, _, _ = st.session_usage(st.lane_events(sid))
+        assert usage["claude-opus-5-5"] == {"input": 3, "output": 40, "cache_create": 0, "cache_read": 7}, usage
+        assert usage["claude-haiku-5-5"]["output"] == 182, usage   # the turns with a result: their totals only
         os.environ["HARNESS_HEADLESS_DIR"] = os.path.join(d, "elsewhere")
         try:
-            assert st.find_transcript(sid) is None   # the lanes root is HARNESS_HEADLESS_DIR when set
+            assert st.lane_events(sid) is None   # the lanes root is HARNESS_HEADLESS_DIR when set
         finally:
             os.environ.pop("HARNESS_HEADLESS_DIR")
 

@@ -7,8 +7,9 @@ Every fleet on the host appends one JSON line per event to $HARNESS_HOME/events.
 transcripts (another CLI's adapter folds its own: usage_tsv, #188): every launch passes `--session-id <uuid>`, and Claude Code writes
 $CLAUDE_CONFIG_DIR/projects/<slugified cwd>/<uuid>.jsonl plus <uuid>/subagents/agent-*.jsonl, each
 assistant line carrying message.model + message.usage. A headless lane's claude (#352) may keep no
-transcript there: its usage is then folded from the lane's events.jsonl, the stream-json `result`
-events' modelUsage (one per turn), found by the session id the lane's state.json names.
+transcript there: its session_end usage is then folded from the lane's events.jsonl (each turn's
+stream-json `result` modelUsage, or its assistant messages' usage when it ended without one), found by
+the session id the lane's state.json names.
 
     stats.py emit <event> [--ctx F] [--write-ctx F] [-c k=v]... [k=v]...   append one event
     stats.py parent-prd <slug>        PRD number of the issue body on stdin (## Parent), or nothing
@@ -173,13 +174,11 @@ def lane_events(session):
 
 
 def find_transcript(session, dirs=None):
-    """The claude transcript of <session> in any config dir, else — a headless lane whose claude kept no
-    transcript there (another config dir, --no-session-persistence) — its lane's events.jsonl."""
     for d in dirs if dirs is not None else config_dirs():
         hits = glob.glob(os.path.join(d, "projects", "*", f"{session}.jsonl"))
         if hits:
             return hits[0]
-    return lane_events(session) if session else None
+    return None
 
 
 # A stream-json `result` event's modelUsage (claude -p, #352): each turn's whole usage per model, the
@@ -192,8 +191,10 @@ def _file_usage(path, acc, span):
     """Fold one transcript into acc {model: {input,output,cache_create,cache_read}}. A streamed
     message is written once per content block with the SAME message id and usage, so usage is
     taken once per id (the last line wins), never summed per line. A headless lane's events.jsonl
-    (stream-json) is folded from its `result` events instead: one per turn, each the turn's total."""
-    per_id, results = {}, []
+    (stream-json, its turns split by the runner's `turn_start` markers) is folded per turn: a turn's
+    `result` modelUsage when it has one (the turn's total), else — a turn interrupted, killed or cut off
+    before its result — the usage its assistant messages carry."""
+    segs = [({}, [])]   # (per_id, result modelUsages) per turn; a transcript is one segment
     try:
         with open(path) as fh:
             for line in fh:
@@ -205,8 +206,11 @@ def _file_usage(path, acc, span):
                 if t is not None:
                     span[0] = t if span[0] is None else min(span[0], t)
                     span[1] = t if span[1] is None else max(span[1], t)
+                if r.get("type") == "harness" and r.get("subtype") == "turn_start":
+                    segs.append(({}, []))
+                    continue
                 if r.get("type") == "result" and isinstance(r.get("modelUsage"), dict):
-                    results.append(r["modelUsage"])
+                    segs[-1][1].append(r["modelUsage"])
                     continue
                 if r.get("type") != "assistant":
                     continue
@@ -214,10 +218,11 @@ def _file_usage(path, acc, span):
                 u, model = m.get("usage"), m.get("model")
                 if not u or not model or model == "<synthetic>":
                     continue
+                per_id = segs[-1][0]
                 per_id[m.get("id") or r.get("uuid") or len(per_id)] = (model, u)
     except OSError:
         return
-    if results:
+    for per_id, results in segs:
         for mu in results:
             for model, u in mu.items():
                 if not isinstance(u, dict) or model == "<synthetic>":
@@ -225,11 +230,10 @@ def _file_usage(path, acc, span):
                 tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
                 for src, dst in MODEL_USAGE_KEYS:
                     tot[dst] += int(u.get(src) or 0)
-        return
-    for model, u in per_id.values():
-        tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
-        for src, dst in USAGE_KEYS:
-            tot[dst] += int(u.get(src) or 0)
+        for model, u in per_id.values() if not results else ():
+            tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
+            for src, dst in USAGE_KEYS:
+                tot[dst] += int(u.get(src) or 0)
 
 
 def transcript_files(transcript):
@@ -296,6 +300,8 @@ def build_event(event, common, ctx, kv, now=None):
     if event == "session_end":
         launched = rec.get("launched")
         tr = find_transcript(rec["session"]) if rec.get("session") else None
+        if not tr and rec.get("session") and "usage" not in rec:
+            tr = lane_events(rec["session"])   # #352: a headless lane whose claude kept no transcript
         last = None
         tsv = rec.pop("usage_tsv", None)   # #188: what the CLI adapter folded from its own transcripts
         if tr and "usage" not in rec:

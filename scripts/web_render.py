@@ -600,7 +600,7 @@ def drawer(v, now):
         age = "" if s.get("age_s") is None else f' <span class="muted">up {fleetview.fmt_age(s["age_s"])}</span>'
         sess = (f'<p data-session="{esc(s["name"])}"><span class="mono">{esc(s["name"])}</span>{act_html}{age}'
                 f'<span class="table__secondary">{esc(s.get("cli"))} · <span class="mono">{esc(s.get("model") or "?")}</span>'
-                f' — <code>{esc(session_backend.attach_hint(s["name"]))}</code></span></p>')
+                f' — <code>{esc(session_backend.attach_hint(s["name"], "headless" if s.get("state") else None))}</code></span></p>')
     else:
         sess = '<p class="muted" data-session="none">No live session.</p>'
     return f"""<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-issue="{n}" data-repo="{esc(slug)}" tabindex="-1">

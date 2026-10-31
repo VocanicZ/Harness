@@ -30,34 +30,41 @@ def _tmux():
 SESSION_DISPATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session", "dispatch.sh")
 
 
-def _lane_rows_argv(fields):
-    """Prints the given 1-based columns of headless_lane_rows (name, created, runner pid, state)."""
-    return ["bash", "-c", 'source "$1" && HARNESS_SESSION_BACKEND=headless headless_lane_rows | cut -f"$2"',
-            "_", SESSION_DISPATCH, fields]
+def lane_rows_argv():
+    """Prints `<name>\\t<created epoch>\\t<runner pid>\\t<state>` per live headless lane
+    (headless.sh headless_lane_rows): every headless probe below is this one command, so a caller that
+    wants several columns runs it once (fleetview.host_probe)."""
+    return ["bash", "-c", 'source "$1" && HARNESS_SESSION_BACKEND=headless headless_lane_rows',
+            "_", SESSION_DISPATCH]
+
+
+# The column of lane_rows_argv's rows each headless probe reads (the name is column 0).
+LANE_COLUMN = {"created": 1, "pid": 2, "state": 3}
 
 
 def list_created_argv(b=None):
     """Prints `<session name>\\t<created epoch>` per live session of backend <b> (default: the configured
-    one). The host-wide views (fleetview, `harness web`) ask every backend: fleets on one host may differ."""
+    one) — a headless lane's row carries it in LANE_COLUMN["created"]. The host-wide views (fleetview,
+    `harness web`) ask every backend: fleets on one host may differ."""
     b = b or backend()
     if b == "tmux":
         return ["tmux", "ls", "-F", "#{session_name}\t#{session_created}"]
-    return _lane_rows_argv("1,2") if b == "headless" else None
+    return lane_rows_argv() if b == "headless" else None
 
 
 def pane_pids_argv(b=None):
-    """Prints `<session name>\\t<pane pid>` per pane. A headless lane's is its runner, whose argv carries
-    the lane's claude flags (`--flags=… --model X`)."""
+    """Prints `<session name>\\t<pane pid>` per pane. A headless lane's is its runner (LANE_COLUMN["pid"]),
+    whose argv carries the lane's claude flags (`--flags=… --model X`)."""
     b = b or backend()
     if b == "tmux":
         return ["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"]
-    return _lane_rows_argv("1,3") if b == "headless" else None
+    return lane_rows_argv() if b == "headless" else None
 
 
 def states_argv(b=None):
-    """Prints `<session name>\\t<state>` per live session whose backend keeps a state of its own: a
-    headless lane's idle | busy | limit | transient (#352). None for tmux: a pane has only its screen."""
-    return _lane_rows_argv("1,4") if (b or backend()) == "headless" else None
+    """The probe of each live session's own state where its backend keeps one: a headless lane's idle |
+    busy | limit | transient (#352, LANE_COLUMN["state"]). None for tmux: a pane has only its screen."""
+    return lane_rows_argv() if (b or backend()) == "headless" else None
 
 
 def headless_lane_dir(session):
@@ -78,8 +85,9 @@ def capture_argv(session, lines=40):
     return None
 
 
-def attach_hint(name):
-    """The command an operator runs to watch session `name`."""
-    if _tmux():
+def attach_hint(name, b=None):
+    """The command an operator runs to watch session `name` of backend <b> (default: the configured one)."""
+    b = b or backend()
+    if b == "tmux":
         return f"tmux attach -t {name}"
-    return f"harness attach {name}" if backend() == "headless" else "harness status"
+    return f"harness attach {name}" if b == "headless" else "harness status"

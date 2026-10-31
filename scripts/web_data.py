@@ -186,9 +186,10 @@ def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=Non
     `<prefix>-…` session, a tmux pane or a headless lane. The model is the pane's `--model` flag, else the
     session's launch context (<run_dir>/<session>.stats); a CLI with no adapter gets no model rather than
     a guessed one. state is a headless lane's own (idle | busy | limit | transient, #352), None on tmux."""
-    sessions = fleetview.host_sessions() if sessions is None else sessions
-    models = fleetview.session_models() if models is None else models
-    states = fleetview.session_states() if states is None else states
+    cache = {}
+    sessions = fleetview.host_sessions(cache) if sessions is None else sessions
+    models = fleetview.session_models(cache) if models is None else models
+    states = fleetview.session_states(cache) if states is None else states
     conf = supervise_conf() if conf is None else conf
     cli, adapted = fleet_cli(cfg or {})
     out = []
@@ -322,8 +323,7 @@ def host_view(now=None):
     "rate": rate_state, "attention": host-wide items}. A rate-limit hold is host-wide — every fleet
     spends the same token — so it never marks one fleet unhealthy."""
     now = int(time.time()) if now is None else int(now)
-    sessions, models, conf = fleetview.host_sessions(), fleetview.session_models(), supervise_conf()
-    states = fleetview.session_states()
+    (sessions, models, states), conf = fleetview.host_probe(), supervise_conf()
     fleets = [fleet_health(fleet_entry(rec), rec, now, sessions, models, conf, states) for rec in registry()]
     stamps = [f["asof"] for f in fleets if f["asof"] is not None]
     rate = rate_state(now)
@@ -370,8 +370,9 @@ def signature():
             sig.append(_stats(os.path.join(run_dir, pat)))
         sig.append(tuple(fleetview.pid_alive(p) for p in sorted(glob.glob(os.path.join(run_dir, "*.pid")))))
         sig.append(tuple(claim_alive(p) for p in sorted(glob.glob(os.path.join(run_dir, "claims", "*.claim")))))
-    sessions = sorted(fleetview.host_sessions().items(), key=lambda kv: kv[0])
-    states = sorted(fleetview.session_states().items())   # a headless lane's busy → idle moves no file above
+    cache = {}   # one lane-rows call serves both
+    sessions = sorted(fleetview.host_sessions(cache).items(), key=lambda kv: kv[0])
+    states = sorted(fleetview.session_states(cache).items())   # a headless lane's busy → idle moves no file above
     sig.append(hashlib.sha1(repr((sessions, states)).encode()).hexdigest())
     return tuple(sig)
 

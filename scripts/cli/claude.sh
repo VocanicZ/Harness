@@ -202,14 +202,14 @@ claude_usage(){ (( $# )) && python3 "$CLI_DIR/../stats.py" usage "$@"; }
 # into each worktree by claude_usage_setup) drops that into $USAGE_DIR/<account>.json. A headless lane
 # (#352) runs no status line: `claude -p` reports the same windows as rate_limit_event
 # `unifiedWindows` (utilization 0–1, resetsAt), which its runner keeps in the lane's state.json with the
-# account it runs on — read from every lane on the host, as usage is the account's, not the fleet's.
-# For each account window the newest reading of either source wins. A window whose resets_at has
-# passed has reset, so it is skipped rather than reported stale. No reading at all = usage unavailable
-# (rc 1).
+# account it runs on — read from this fleet's own lanes (`<prefix>-…`), as the drops are this fleet's: a
+# sibling fleet's account must not hold this fleet's claims. For each account window the newest reading
+# of either source wins. A window whose resets_at has passed has reset, so it is skipped rather than
+# reported stale. No drop and no lane reading at all = usage unavailable (rc 1).
 claude_limit_usage(){
-  USAGE_DIR="$(_usage_dir)" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" python3 - <<'PY'
+  USAGE_DIR="$(_usage_dir)" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" PREFIX="${HARNESS_SESS_PREFIX:-}" python3 - <<'PY'
 import glob, json, os, sys, time
-now, best = time.time(), {}
+now, best, seen = time.time(), {}, False
 def load(f):
     try:
         with open(f, encoding="utf-8") as fh:
@@ -227,19 +227,22 @@ def take(acct, win, pct, reset, at):   # pct: the reading as printed
     if (acct, win) not in best or at >= best[(acct, win)][2]:
         best[(acct, win)] = (pct, reset, at)
 for f in sorted(glob.glob(os.path.join(os.environ["USAGE_DIR"], "*.json"))):
+    seen = True
     d = load(f)
     for win, w in sorted((d.get("rate_limits") or {}).items()):
         if isinstance(w, dict) and w.get("used_percentage") is not None:
             take(d.get("account") or "default", win, w["used_percentage"], w.get("resets_at"), d.get("at") or os.path.getmtime(f))
-for f in sorted(glob.glob(os.path.join(os.environ["LANES"], "*", "state.json"))) if os.environ["LANES"] else ():
+pfx = os.environ["PREFIX"] + "-" if os.environ["PREFIX"] else ""
+for f in sorted(glob.glob(os.path.join(os.environ["LANES"], pfx + "*", "state.json"))) if os.environ["LANES"] else ():
     st = load(f)
     info = st.get("rate_limit") if isinstance(st.get("rate_limit"), dict) else {}
+    seen = seen or bool(info.get("unifiedWindows"))
     for win, w in sorted((info.get("unifiedWindows") or {}).items()):
         if isinstance(w, dict) and isinstance(w.get("utilization"), (int, float)):
             pct = round(w["utilization"] * 100, 1)
             take(st.get("account") or "default", win, int(pct) if pct == int(pct) else pct, w.get("resetsAt"),
                  st.get("rate_limit_at") or st.get("updated"))
-if not best:
+if not seen:
     sys.exit(1)
 for (acct, win), (pct, reset, _) in sorted(best.items()):
     print(f"{acct}\t{win}\t{pct}\t{reset}")

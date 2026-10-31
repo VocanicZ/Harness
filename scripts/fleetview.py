@@ -116,47 +116,58 @@ def session_number(name):
     return int(m.group(1)) if m else None
 
 
-def _probe(argv_of):
-    """[stdout lines] of one probe per session backend (session_backend.BACKENDS): fleets sharing a host
-    may run on different backends, and this view is every fleet's. A backend whose probe fails, or that
-    has none, adds nothing."""
-    lines = []
+def _probe(argv_of, column, cache=None):
+    """[(session name, value)] from one probe per session backend (session_backend.BACKENDS): fleets
+    sharing a host may run on different backends, and this view is every fleet's. <column> names the
+    value in a headless lane row (session_backend.LANE_COLUMN); a tmux probe prints `<name>\\t<value>`.
+    <cache> ({argv: (rc, out)}) lets the probes of one pass share a command: every headless probe is the
+    same lane-rows call. A backend whose probe fails, or that has none, adds nothing."""
+    pairs = []
     for b in session_backend.BACKENDS:
         argv = argv_of(b)
-        rc, out = run_cmd(argv) if argv else (1, "")
-        if rc == 0:
-            lines += out.splitlines()
-    return lines
+        if not argv:
+            continue
+        key = tuple(argv)
+        if cache is not None and key in cache:
+            rc, out = cache[key]
+        else:
+            rc, out = run_cmd(argv)
+            if cache is not None:
+                cache[key] = (rc, out)
+        if rc != 0:
+            continue
+        col = session_backend.LANE_COLUMN[column] if b == "headless" else 1
+        for line in out.splitlines():
+            f = line.split("\t")
+            pairs.append((f[0], f[col] if len(f) > col else ""))
+    return pairs
 
 
-def host_sessions():
+def host_sessions(cache=None):
     """{session name: created epoch} for every live session — tmux sessions and headless lanes alike;
     {} when there is none."""
-    sess = {}
-    for line in _probe(session_backend.list_created_argv):
-        name, _, created = line.partition("\t")
-        if name:
-            sess[name] = int(created) if created.strip().isdigit() else None
-    return sess
+    return {name: int(created) if created.strip().isdigit() else None
+            for name, created in _probe(session_backend.list_created_argv, "created", cache) if name}
 
 
-def session_states():
+def session_states(cache=None):
     """{session name: state} for every live session whose backend keeps one: a headless lane's idle |
     busy | limit | transient (#352). A tmux pane has none."""
-    out = {}
-    for line in _probe(session_backend.states_argv):
-        name, _, state = line.partition("\t")
-        if name and state.strip():
-            out[name] = state.strip()
-    return out
+    return {name: st.strip() for name, st in _probe(session_backend.states_argv, "state", cache)
+            if name and st.strip()}
 
 
-def session_models():
+def host_probe():
+    """(host_sessions, session_models, session_states) in one pass: each backend's commands run once."""
+    cache = {}
+    return host_sessions(cache), session_models(cache), session_states(cache)
+
+
+def session_models(cache=None):
     """{session name: model} — read off the `--model X` flag of a process under each session's pane (a
     headless lane: its runner, whose argv carries the lane's claude flags)."""
     panes = {}
-    for line in _probe(session_backend.pane_pids_argv):
-        name, _, pid = line.partition("\t")
+    for name, pid in _probe(session_backend.pane_pids_argv, "pid", cache):
         if pid.strip().isdigit():
             panes.setdefault(name, []).append(int(pid))
     if not panes:
@@ -376,7 +387,7 @@ def render(now=None, counts_cache=None):
               for r in recs if os.path.isdir(r["project"]) for s in fleet_slugs(r)}
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda k: counts_for(k[0], dict(k[1])), wanted))
-    sessions, models, states = host_sessions(), session_models(), session_states()
+    sessions, models, states = host_probe()
     for rec in recs:
         out.append("───────────────────────────────────────────────────────────────────────────")
         out.extend(render_fleet(rec, sessions, models, now, counts_for, states))

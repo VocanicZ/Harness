@@ -294,14 +294,19 @@ def test_headless_lanes_are_listed_with_model_and_state_beside_tmux_sessions():
     fv.run_cmd = fake_cmds({
         ("tmux", "ls"): (0, "alpha-main-i1\t%d\n" % (NOW - 60)),
         ("tmux", "list-panes"): (0, "alpha-main-i1\t10\n"),
-        tuple(sb.list_created_argv("headless")): (0, "alpha-main-i2\t%d\n" % (NOW - 120)),
-        tuple(sb.pane_pids_argv("headless")): (0, "alpha-main-i2\t40\n"),
-        tuple(sb.states_argv("headless")): (0, "alpha-main-i2\tbusy\nbad-row\t\n"),
+        tuple(sb.lane_rows_argv()): (0, "alpha-main-i2\t%d\t40\tbusy\nbad-row\n" % (NOW - 120)),
         ("ps",): (0, "10 1 claude --model opus\n40 1 python3 claude_headless.py run --flags=--x --model haiku\n")})
     try:
-        assert fv.host_sessions() == {"alpha-main-i1": NOW - 60, "alpha-main-i2": NOW - 120}
+        assert fv.host_sessions() == {"alpha-main-i1": NOW - 60, "alpha-main-i2": NOW - 120, "bad-row": None}
         assert fv.session_models() == {"alpha-main-i1": "opus", "alpha-main-i2": "haiku"}
         assert fv.session_states() == {"alpha-main-i2": "busy"}
+        assert sb.list_created_argv("headless") == sb.pane_pids_argv("headless") == sb.states_argv("headless")
+        calls = []
+        real = fv.run_cmd
+        fv.run_cmd = lambda argv, timeout=20: (calls.append(argv[0]), real(argv))[1]
+        assert fv.host_probe()[2] == {"alpha-main-i2": "busy"}
+        assert calls.count("bash") == 1, calls   # one lane-rows call serves sessions, models and states
+        fv.run_cmd = real
         assert sb.states_argv("tmux") is None, "a pane keeps no state of its own"
         assert sb.list_created_argv("nosuch") is None and sb.pane_pids_argv("nosuch") is None
         root, _, alpha, _ = make_host()

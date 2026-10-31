@@ -178,11 +178,13 @@ unset HARNESS_USAGE_CMD; rm -rf "$RUN_DIR/usage-holds"
 future=$(( $(date +%s) + 7200 )); past=$(( $(date +%s) - 60 ))
 lane_state(){ mkdir -p "$HARNESS_HOME/lanes/$1"; printf '%s' "$2" > "$HARNESS_HOME/lanes/$1/state.json"; }
 rm -rf "$HARNESS_HOME/lanes"
-lane_state old "{\"state\":\"ended\",\"account\":\"work\",\"rate_limit_at\":100,\"rate_limit\":{\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.5,\"resetsAt\":$future}}}}"
-lane_state new "{\"state\":\"busy\",\"account\":\"work\",\"rate_limit_at\":200,\"rate_limit\":{\"status\":\"allowed_warning\",\"unifiedWindows\":{\"five_hour\":{\"utilization\":0.02,\"resetsAt\":$past},\"seven_day\":{\"utilization\":0.94,\"resetsAt\":$future}}}}"
-lane_state junk 'not json'
+lane_state hus-old "{\"state\":\"ended\",\"account\":\"work\",\"rate_limit_at\":100,\"rate_limit\":{\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.5,\"resetsAt\":$future}}}}"
+lane_state hus-new "{\"state\":\"busy\",\"account\":\"work\",\"rate_limit_at\":200,\"rate_limit\":{\"status\":\"allowed_warning\",\"unifiedWindows\":{\"five_hour\":{\"utilization\":0.02,\"resetsAt\":$past},\"seven_day\":{\"utilization\":0.94,\"resetsAt\":$future}}}}"
+lane_state hus-junk 'not json'
+# A sibling fleet's lane on the same host: its account is not this fleet's to hold claims for.
+lane_state sib-x "{\"state\":\"busy\",\"account\":\"theirs\",\"rate_limit_at\":300,\"rate_limit\":{\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.99,\"resetsAt\":$future}}}}"
 assert_eq "$(cli_limit_usage)" "$(printf 'work\tseven_day\t94\t%s' "$future")" \
-  "the newest reading per account window, a reset window skipped"
+  "the newest reading per account window of this fleet's lanes, a reset window skipped"
 mkdir -p "$(_usage_dir)"; printf '{"account":"work","at":300,"rate_limits":{"seven_day":{"used_percentage":96.5,"resets_at":%s}}}' "$future" > "$(_usage_dir)/work.json"
 assert_eq "$(cli_limit_usage)" "$(printf 'work\tseven_day\t96.5\t%s' "$future")" "…a newer status-line drop wins over it"
 rm -rf "$(_usage_dir)"
@@ -191,6 +193,9 @@ assert_ok "the usage watch holds claims on a headless lane's reading" usage_held
 assert_ok "…naming the window" grep -qF "usage: work seven_day window at 94% (>= 90%)" "$LOG"
 rm -rf "$HARNESS_HOME/lanes" "$RUN_DIR/usage-holds"
 assert_no "no lane and no drop: usage unavailable" cli_limit_usage
+mkdir -p "$(_usage_dir)"; printf '{"account":"work","rate_limits":{"seven_day":{"used_percentage":50,"resets_at":%s}}}' "$past" > "$(_usage_dir)/work.json"
+assert_eq "$(cli_limit_usage; echo "rc=$?")" "rc=0" "a drop whose every window has reset: available, no open window (as before)"
+rm -rf "$(_usage_dir)"
 
 echo "== the lane runner records the account and when its rate-limit reading changed =="
 L="$RUN_DIR/lane-acct"; export FAKE_CLAUDE_DIR="$RUN_DIR/fake-acct"; mkdir -p "$FAKE_CLAUDE_DIR"; echo tool-use > "$FAKE_CLAUDE_DIR/plan"

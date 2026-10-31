@@ -124,8 +124,10 @@ usage_park_lanes(){ local f sess issue slug mark labels
     sess_turn_ended "$sess" "$mark" || continue
     labels="$(gh issue view "$issue" -R "$slug" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
     [[ "$labels" == *"\"$HARNESS_LABEL_PAUSED\""* ]] || continue
+    # Every worker runs this pass: the rename claims the park atomically, so exactly one ends the lane.
+    mv "$f" "$f.$$" 2>/dev/null || continue
     cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" >/dev/null 2>&1 || true
-    rm -f "$f"; log "usage: lane parked after its checkpoint: $sess ($slug#$issue)"
+    rm -f "$f.$$"; log "usage: lane parked after its checkpoint: $sess ($slug#$issue)"
     stats_sess_event "$sess" paused reason=usage_limit
   done
   shopt -u nullglob; }

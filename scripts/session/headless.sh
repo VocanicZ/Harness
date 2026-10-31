@@ -117,10 +117,12 @@ headless_sess_activity(){ local lane; headless_sess_live "$1" || return 0; lane=
 headless_sess_state(){ headless_sess_live "$1" || return 0; _hl_state "$1"; }
 # headless_lane_rows — `<name>\t<created epoch>\t<runner pid>\t<state>` per live lane: the one probe the
 # Python views (session_backend.py) run for a headless fleet's sessions, models and states (#352).
-headless_lane_rows(){ local n lane
-  while read -r n; do [[ -n $n ]] || continue; lane="$(headless_lane_dir "$n")"
-    printf '%s\t%s\t%s\t%s\n' "$n" "$(cat "$lane/created" 2>/dev/null)" "$(_hl_pid "$n")" "$(_hl_state "$n")"
-  done < <(headless_sess_list); }
+# sess_live's rule, its state read once per lane: the views run this every tick.
+headless_lane_rows(){ local n pid st
+  while read -r n; do [[ -n $n ]] || continue
+    pid="$(_hl_runner "$n")" || continue; st="$(_hl_state "$n")"; [[ $st == ended ]] && continue
+    printf '%s\t%s\t%s\t%s\n' "$n" "$(cat "$(headless_lane_dir "$n")/created" 2>/dev/null)" "$pid" "$st"
+  done < <(_hl_names); }
 headless_sess_turns(){ headless_sess_live "$1" || return 0
   python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field turn 2>/dev/null; }
 headless_sess_turn_ended(){ headless_sess_live "$1" || return 0
