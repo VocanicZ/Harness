@@ -19,6 +19,10 @@ tmux_sess_interrupt(){ tmux send-keys -t "$1" Escape; }
 tmux_sess_capture(){ tmux capture-pane -p ${2:+-S "-$2"} -t "$1" 2>/dev/null; }
 tmux_sess_pane_pid(){ tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null; }
 tmux_sess_kill(){ tmux kill-session -t "$1"; }
+tmux_sess_turns(){ return 0; }
+tmux_sess_turn_ended(){ return 1; }
+# A pane keeps no record of the claude session it ran: a relaunched tmux lane starts a new one.
+tmux_sess_resume_id(){ return 0; }
 tmux_sess_attach(){ exec tmux attach -t "$1"; }
 tmux_sess_attach_hint(){ echo "tmux attach -t $1"; }
 # tmux_sess_describe <fn> <target> [args…] — the tmux command line <fn> runs (sess_describe).

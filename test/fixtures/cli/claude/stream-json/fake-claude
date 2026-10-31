@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """fake-claude — stands in for `claude -p --output-format stream-json` (README.md): each run replays one
 captured turn from this directory, in the order $FAKE_CLAUDE_DIR/plan names them (one fixture name per
-line: normal, tool-use, limit, transient — or `hang`, a turn that never ends). Text after the name on a
+line: normal, tool-use, limit, transient, no-conversation — or `hang`, a turn that never ends). Text after the name on a
 plan line (`normal <promise>X</promise>`) replaces the turn's reply: the `result` text and the assistant
 message's text.
 
@@ -9,7 +9,9 @@ Per run it appends {argv, prompt (its stdin), pid} to $FAKE_CLAUDE_DIR/calls.jso
 fixture's events with every session_id set to the one the argv names (--session-id / --resume) or, when
 none, the fixture's own. While $FAKE_CLAUDE_DIR/hold exists it waits after the first event, so a test can
 act mid-turn. `hang` prints the init event, starts a grandchild (`sleep`), writes `<own pid> <grandchild
-pid>` to $FAKE_CLAUDE_DIR/pids and waits forever. It exits 1 after an error result, as claude does."""
+pid>` to $FAKE_CLAUDE_DIR/pids and waits forever. It exits 1 after an error result, as claude does.
+An executable $FAKE_CLAUDE_DIR/turn-hook runs first with the prompt on its stdin, in claude's working
+directory — the commands an agent would run in that turn (#350: a checkpoint's gh calls)."""
 import json, os, subprocess, sys, time
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +25,9 @@ prompt = sys.stdin.read()
 with open(os.path.join(d, "calls.jsonl"), "a") as f:
     f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
 n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
+hook = os.path.join(d, "turn-hook")
+if os.access(hook, os.X_OK):
+    subprocess.run([hook], input=prompt, text=True)
 plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
 name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
 

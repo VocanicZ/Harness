@@ -107,6 +107,32 @@ headless_sess_kill(){ local lane pid i
   for (( i = 0; i < HARNESS_HEADLESS_STOP_WAIT * 10; i++ )); do _hl_alive "$pid" || break; sleep 0.1; done
   if [[ "$(_hl_runner "$1")" == "$pid" ]]; then kill -KILL -- "-$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; fi
   _hl_reap_turn "$lane"; return 0; }
+headless_sess_turns(){ headless_sess_live "$1" || return 0
+  python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field turn 2>/dev/null; }
+headless_sess_turn_ended(){ headless_sess_live "$1" || return 0
+  LANE_STATE="$(headless_lane_dir "$1")/state.json" MARK="$2" python3 -c '
+import json, os, sys
+st = json.load(open(os.environ["LANE_STATE"], encoding="utf-8"))
+mark = int(os.environ["MARK"] or 0)
+try:   # a message on the inbox no turn has taken yet (the runner may not have read it)
+    waiting = os.path.getsize(os.path.join(os.path.dirname(os.environ["LANE_STATE"]), "inbox.jsonl")) > int(st.get("inbox_offset") or 0)
+except OSError:
+    waiting = False
+sys.exit(0 if int(st.get("turn") or 0) > mark and st.get("state") != "busy" and not st.get("queued") and not waiting else 1)' 2>/dev/null; }
+# The lane directory outlives its runner (a stop, a pause's end, a crash), and its state.json names the
+# claude session it ran: the one to resume when the same lane is launched again in the same worktree —
+# once that session exists (session_started), never while the lane is still live.
+headless_sess_resume_id(){ local lane="$(headless_lane_dir "$1")"
+  [[ -s $lane/state.json ]] && ! headless_sess_live "$1" || return 0
+  LANE_STATE="$lane/state.json" WD="$2" python3 -c '
+import json, os
+try:
+    st = json.load(open(os.environ["LANE_STATE"], encoding="utf-8"))
+except (OSError, ValueError):
+    st = {}
+sid = st.get("session_id") if isinstance(st, dict) else None
+if isinstance(sid, str) and sid and st.get("session_started") and st.get("cwd") == os.environ["WD"]:
+    print(sid)' 2>/dev/null; return 0; }
 # Watching a lane is reading it: its events and replies as they land (claude_headless.py watch).
 headless_sess_attach(){ headless_sess_live "$1" || { echo "no live headless lane $1" >&2; return 1; }
   echo "watching headless lane $1 (read-only; Ctrl-C to stop) — $(headless_lane_dir "$1")/events.jsonl"

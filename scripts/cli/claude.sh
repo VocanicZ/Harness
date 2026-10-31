@@ -10,13 +10,14 @@ claude_bin(){ echo "${CLAUDE_BIN:-${HARNESS_CLAUDE_BIN:-claude}}"; }
 claude_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort") \"$HARNESS_BOOTSTRAP_PROMPT\""; }
 # --- the headless lane (#349): claude is the one CLI with a headless lane runner -----------------
-# claude_headless <wd> <uuid> <model> <effort> — the runner's command, one argv word per line: the
+# claude_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line: the
 # headless session backend starts it in place of the pane's shell + launch line. Each turn is one
 # `claude -p` with the configured flags (the lane's model/effort replacing theirs); the bootstrap is
-# the first turn; the session id is ours, as on a pane.
+# the first turn; the session id is ours, as on a pane. A 5th argument (#350) says <uuid> is an existing
+# session the lane carries on: the first turn resumes it.
 claude_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   printf '%s\n' python3 "$CLI_DIR/claude_headless.py" run --cwd "$wd" --bin "$(claude_bin)" --session-id "$uuid" \
-    "--flags=$(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+    ${5:+--resume} "--flags=$(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
 # A pane's goal loop is ralph-loop's Stop hook. A headless lane is looped by Harness as well (the driven
 # loop, lib.sh goal_loop_tick): every `claude -p` turn that ends without the promise is re-prompted from
 # the lane's own last reply. Where ralph-loop's hook runs inside `claude -p` too, it holds the turn open

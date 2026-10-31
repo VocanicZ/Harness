@@ -232,6 +232,19 @@ queued behind it is interrupted (`interrupt`), exactly as on tmux. `harness stop
 request + SIGTERM, then SIGKILL of the runner's and claude's process groups) and `harness status` counts
 them.
 
+**Checkpoint and resume.** `harness pause --force` sends a headless lane the same checkpoint message as
+a pane (it waits in the inbox behind a running turn), then waits for both the `agent-paused` label and the
+lane's own state: once the checkpoint turn has ended (`state.json` past that turn, nothing queued) the lane
+is ended — a pane is left running, a lane has nothing left to do. The lane directory stays, its
+`state.json` naming the claude session it ran. When the issue is dispatched again — `harness resume`'s
+workers picking up the `agent-paused` issue, or the pool re-claiming one the crash-recovery sweep
+(`harness start --recover`) freed from a lane whose runner died with the box — `launch_agent` relaunches
+the lane in the same worktree and carries on that session: the runner starts with `--resume`, its first
+turn the bootstrap (now the resume prompt) under `claude -p --resume <session id>`, and the goal loop's
+state names the same id. Only issue lanes (impl, bug triage/fix) carry on; an orch or inject session starts
+fresh, and a pane always does. Should claude no longer have the session (`No conversation found`), the
+runner runs that first message again as a new session under the same id.
+
 **Watching a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
 read-only: each turn, its tool calls and its reply as they land in `events.jsonl` — Ctrl-C stops watching,
 not the lane. `python3 scripts/cli/claude_headless.py state --lane <dir>` prints its `state.json`;
