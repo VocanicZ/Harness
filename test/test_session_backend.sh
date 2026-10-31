@@ -141,12 +141,17 @@ import os, sys
 sys.path.insert(0, sys.argv[1])
 import session_backend as sb, fleetview as fv
 calls = []
-fv.run_cmd = lambda argv, timeout=20: (calls.append(argv), (0, "s1\t100\n"))[1]
-print(sb.backend(), sb.capture_argv("s1") is not None, sorted(fv.host_sessions()), len(calls), sb.attach_hint("s1"))
+# A tmux server answers s1, the headless lane probe (headless.sh headless_lane_rows) h1.
+fv.run_cmd = lambda argv, timeout=20: (calls.append(argv), (0, "s1\t100\n" if argv[0] == "tmux" else "h1\t200\n"))[1]
+print(sb.backend(), sb.capture_argv("s1") is not None, sorted(fv.host_sessions()), [a[0] for a in calls], sb.attach_hint("s1"))
 PY
 }
-assert_eq "$(py)" "tmux True ['s1'] 1 tmux attach -t s1" "tmux: the views list sessions through tmux's argv"
-assert_eq "$(HARNESS_SESSION_BACKEND=headless py)" "headless True [] 0 harness status" "headless: no probe runs, no session is listed; a lane's screen is capturable (#351)"
+# #352: the host views (fleetview, harness web) are every fleet's, and fleets on one host may run on
+# different backends — so they probe every backend, whichever one the viewer itself is configured for.
+assert_eq "$(py)" "tmux True ['h1', 's1'] ['tmux', 'bash'] tmux attach -t s1" \
+  "tmux: the views list tmux sessions through tmux's argv, and headless lanes beside them"
+assert_eq "$(HARNESS_SESSION_BACKEND=headless py)" "headless True ['h1', 's1'] ['tmux', 'bash'] harness attach s1" \
+  "headless: the same host-wide listing; a lane's screen is capturable (#351) and watched with harness attach"
 argv="$(HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR=/lanes python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import session_backend as sb; print(" ".join(sb.capture_argv("=hz-main-i1")[1:]))' "$ROOT/scripts")"
 assert_eq "$argv" "$ROOT/scripts/cli/claude_headless.py pane --lane /lanes/hz-main-i1" "headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux"
 
