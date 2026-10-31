@@ -1,13 +1,13 @@
 ---
 name: harness-one
-description: Work ONE issue by hand while the Harness fleet is paused or usage-HELD — check the precondition, show the issue's cost forecast against live usage and an APPROVE/DENY recommendation, and let the human decide. Trigger on /harness-one or "work one issue while the fleet is paused".
+description: Work ONE issue by hand while the Harness fleet is paused or usage-HELD — check the precondition, show the issue's cost forecast against live usage and an APPROVE/DENY recommendation, let the human decide, then work the approved issue in this session with a budget re-check before each phase. Trigger on /harness-one or "work one issue while the fleet is paused".
 ---
 
 # /harness-one — one issue at a time, with a budget gate
 
 Thin wrapper around `.harness/bin/harness one`. For when the fleet is PAUSED, or every claim is
 usage-HELD by the checkpoint (`HARNESS_USAGE_CHECKPOINT_PCT`), but budget remains in the window.
-Read-only up to the decision: nothing is claimed, labelled or run here.
+Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run before the human approves.
 
 1. **Precondition.** Run `.harness/bin/harness one check`.
    - Exit 0: the fleet is PAUSED or usage-HELD — go on.
@@ -22,11 +22,26 @@ Read-only up to the decision: nothing is claimed, labelled or run here.
    `RECOMMEND: APPROVE` (exit 0) or `RECOMMEND: DENY` (exit 1) line with its reason. Exit 3 is the
    precondition refusal (step 1); exit 2 is a bad issue or repo — fix the arguments.
 4. **The human decides — never auto-approve, not even on APPROVE.** Ask, with exactly these choices:
-   - **approve** — work this issue (the next step of `/harness-one`; this skill stops at the decision);
+   - **approve** — work this issue: step 5;
    - **pick another issue** — back to step 2, with a fresh forecast;
    - **stop** — end here; nothing was claimed.
    A DENY may still be approved by the human; say plainly that the forecast does not fit the stop %.
+5. **Claim + render.** Run `.harness/bin/harness one start <issue>` (same `-R` / `--unit`). It re-checks
+   the precondition right before the claim (exit 3: relay the refusal, as in step 1; exit 4: the issue
+   is closed or already `agent-working` — back to step 2), then claims it `agent-working` and sets it up
+   the way dispatch does: its worktree on `issue/<n>` and `prompts/impl.md` — `resume.md` for an
+   `agent-paused` issue — rendered into `<worktree>/.harness-task.md`. No new lane, no tmux pane.
+6. **Work it here.** Read that task file and follow it in THIS session, from the worktree. It ends with
+   the per-phase re-check: before each of explore / test / impl / gate / ship, run
+   `harness one phase <issue> <phase>`. FITS (exit 0) — go on. CHECKPOINT (exit 1) — do not start the
+   phase; follow the `HARNESS CHECKPOINT` message it prints exactly (commit + push the branch, the
+   handoff comment, `agent-working` → `agent-paused`) — the same one `pause --force` sends a lane.
+7. **Release.** Once checkpointed, or merged and closed, run `harness one release <issue>`: it drops the
+   worktree, local branch and lease so the pool resumes a checkpointed issue after the reset. Exit 4 =
+   work not pushed yet — push it; `--force` only if the human says to drop it. Tell the user where it
+   stands: done, or `agent-paused` and why (the window that would have passed the stop %).
 
 Settings (`.harness/config` or the environment): `HARNESS_ONE_STOP_PCT` (98), `HARNESS_ONE_RESERVE_PCT`
 (2), `HARNESS_ONE_STALE_MIN` (30) and `HARNESS_ONE_STALE_PAD_PCT` (3) for a stale reading, and
-`HARNESS_ONE_USD_PER_PCT` for a window with no $-per-% calibration yet.
+`HARNESS_ONE_USD_PER_PCT` for a window with no $-per-% calibration yet; `HARNESS_ONE_LEASE_MIN` (240) for
+how long a claim holds the pool's reapers off after its last `start` / `phase`.

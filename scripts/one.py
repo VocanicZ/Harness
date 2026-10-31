@@ -16,6 +16,10 @@ the work fits. The recommendation is only that — the human decides (skill/harn
 
     one.py gate --forecast F.json --readings R.tsv [--stop 98] [--reserve 2]
                 [--stale-min 30] [--stale-pad 3] [--json]
+    one.py phase --phase <explore|test|impl|gate|ship> --forecast F.json --readings R.tsv […]
+
+`phase` (#366) is the re-check before each phase of an approved issue: the same arithmetic on the
+forecast LEFT from that phase on (remaining), FITS (exit 0) or CHECKPOINT (exit 1) — see phase_check.
 
 R.tsv lines: `<account>\t<window>\t<pct>\t<resets_at>\t<age seconds, empty = unknown>`.
 Text output is the forecast, then the arithmetic; --json is the gate dict with the forecast under
@@ -105,6 +109,49 @@ def gate(fc, readings, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0):
             "reasons": reasons}
 
 
+def remaining(fc, phase):
+    """`fc` cut to the work left from `phase` on (#366): every total — the $ one and each window's %
+    row — becomes, per quantile, the sum of that quantile over `phase` .. ship, never above the
+    whole issue's own (a sum of per-phase p80s over-states the p80 of their sum). A row with no
+    per-phase split keeps its whole total, the conservative answer."""
+    phases = _forecast().PHASES
+    rest = phases[phases.index(phase):]
+
+    def cut(split, total):
+        if not total or not split or any(not split.get(p) for p in rest):
+            return total
+        return {q: round(min(sum(split[p][q] for p in rest), v), 2) for q, v in total.items()}
+
+    out = dict(fc, total=cut(fc.get("phases"), fc.get("total")), phase=phase)
+    if fc.get("pct"):
+        out["pct"] = [dict(r, total=cut(r.get("phases"), r.get("total"))) for r in fc["pct"]]
+    return out
+
+
+def phase_check(fc, readings, phase, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0):
+    """The per-phase re-check before `phase` (#366): the gate's arithmetic on the forecast LEFT
+    (remaining) — now% + remaining p80% + reserve vs stop — for every window read. The verdict is
+    CHECKPOINT iff some window's sum is over the stop %, else FITS. What the check cannot price
+    (no reading, a window with no p80 %) does not stop the work on its own — the gate recommended
+    DENY on that and the human approved anyway — but a window whose now% + reserve alone is over the
+    stop % is a CHECKPOINT whatever the work left would cost."""
+    g = gate(remaining(fc, phase), readings, stop, reserve, stale_min, stale_pad)
+    over, unchecked = [], []
+    for w in g["windows"]:
+        name = f"{w['account']} {w['window']}".strip()
+        if w["need"] is None:
+            floor = round(w["now"] + w["pad"] + reserve, 2)
+            if floor > stop:
+                over.append(f"{name}: {floor:g}% > {stop:g}% before any work (no p80 %)")
+            else:
+                unchecked.append(f"{name}: no p80 % ({w['p80_source']})")
+        elif not w["ok"]:
+            over.append(f"{name}: {w['need']:g}% > {stop:g}%")
+    unchecked += [r for r in g["reasons"] if not r.startswith(tuple(
+        f"{w['account']} {w['window']}".strip() + ":" for w in g["windows"]))]
+    return dict(g, phase=phase, verdict="CHECKPOINT" if over else "FITS", reasons=over, unchecked=unchecked)
+
+
 def _age(s):
     if s is None:
         return "age unknown"
@@ -136,10 +183,25 @@ def render(g):
     return "\n".join(out)
 
 
+def render_phase(g):
+    """The re-check before one phase: the arithmetic on what is left, then FITS or CHECKPOINT."""
+    lines = render(dict(g, reasons=[])).splitlines()[1:-2]   # the per-window lines only
+    out = [f"phase {g['phase']} of #{g['issue']}: CHECKPOINT iff now% + remaining p80% (from {g['phase']} on)"
+           f" + reserve {g['reserve']:g}% > stop {g['stop']:g}% in any window"] + lines
+    for r in g["unchecked"]:
+        out.append(f"  unchecked: {r}")
+    if g["verdict"] == "FITS":
+        out.append(f"FITS — go on with {g['phase']}.")
+    else:
+        out.append("CHECKPOINT — " + "; ".join(g["reasons"]))
+    return "\n".join(out)
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="harness one gate", description="the /harness-one budget gate (#365)")
-    ap.add_argument("cmd", choices=["gate"])
+    ap.add_argument("cmd", choices=["gate", "phase"])
+    ap.add_argument("--phase", choices=_forecast().PHASES, help="phase: the phase about to start")
     ap.add_argument("--forecast", required=True, help="harness forecast --json output")
     ap.add_argument("--readings", required=True, help="usage readings TSV")
     ap.add_argument("--stop", type=float, default=98.0)
@@ -156,6 +218,13 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print(f"harness one: cannot read the forecast or the readings: {e}", file=sys.stderr)
         return 2
+    if a.cmd == "phase":
+        if not a.phase:
+            print("harness one phase: --phase is required", file=sys.stderr)
+            return 2
+        g = phase_check(fc, readings, a.phase, a.stop, a.reserve, a.stale_min, a.stale_pad)
+        print(json.dumps(g, indent=2) if a.json else render_phase(g))
+        return 0 if g["verdict"] == "FITS" else 1
     g = gate(fc, readings, a.stop, a.reserve, a.stale_min, a.stale_pad)
     if a.json:
         print(json.dumps(dict(g, forecast=fc), indent=2))

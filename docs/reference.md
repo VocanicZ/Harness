@@ -183,6 +183,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_ONE_RESERVE_PCT` | `2` | % of a window the gate holds back for the checkpoint (commit, push, handoff) when the budget runs out |
 | `HARNESS_ONE_STALE_MIN` | `30` | A usage reading older than this many minutes, or of unknown age, is stale… |
 | `HARNESS_ONE_STALE_PAD_PCT` | `3` | …and the gate adds this many points to it |
+| `HARNESS_ONE_LEASE_MIN` | `240` | Minutes a `/harness-one` claim keeps the pool's reapers and lock sweeps off its issue after the last `harness one start`/`phase`; past it the session counts as dead and the pool reaps the issue like a dead lane |
 | `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
 | `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
@@ -364,6 +365,7 @@ Run from inside any `harness init`'d project:
 | `stats [--prd N\|--issue N] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes. `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, retries) up to the PRD; `--issue` is a per-session timeline. Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
 | `forecast <issue> [-R owner/repo] [--unit U] [--json]` | Per-phase cost forecast for one issue — explore / test / impl / gate / ship at p50 / p80 / p95 $ and in total, scaled by the issue's size — from the past lanes in the same event log. Says which history it used and when it fell back. See [Cost forecast](#cost-forecast) |
 | `one check` · `one gate <issue> [-R owner/repo] [--unit U] [--json]` | The `/harness-one` budget gate. `check`: exit 0 when the fleet is PAUSED or usage-HELD, else refuses (exit 1). `gate`: the check, the issue's forecast, the arithmetic for every window and `RECOMMEND: APPROVE` (exit 0) or `DENY` (exit 1); exit 3 = refused. See [One issue at a time](#one-issue-at-a-time-harness-one) |
+| `one start <issue>` · `one phase <issue> <phase> [--json]` · `one release <issue> [--force]` | `/harness-one` execution, in the invoking session. `start`: the check again, then claim + worktree + `impl.md`/`resume.md` as dispatch does (exit 3 refused, 4 not claimable). `phase`: FITS (exit 0) or CHECKPOINT (exit 1, printing the `pause --force` checkpoint). `release`: drop the worktree, branch and lease (exit 4 = unpushed work) |
 | `doctor [--fix]` | Diagnose what strands a pool — who holds `start.lock`/`pool.lock` (via a dependency-free `/proc` scan, so it works without `fuser`/`lsof`), orphaned lock-holders (a killed worker's leaked poll-`sleep`), and stale pidfiles. Report-only by default; `--fix` clears stale pidfiles and reaps **this project's** orphans (never touches a co-resident sibling fleet) |
 | `attach <unit> [issue]` | tmux-attach to a running session |
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
@@ -538,6 +540,23 @@ the operator keep going one issue at a time in their own session, with a budget 
   or no past lanes at all is a DENY: the gate cannot show the work fits.
 - **Decision** — the skill shows all of that and asks: approve / pick another issue / stop. It never
   approves by itself; a DENY is a recommendation the human may overrule.
+- **Start** — on approval, `harness one start <issue>` re-checks the precondition immediately before
+  the claim, then claims and sets the issue up exactly as dispatch does (`agent-working`, its worktree
+  on `issue/<n>`, `prompts/impl.md` rendered into `.harness-task.md` — `resume.md` for an
+  `agent-paused` issue, from its pushed branch and handoff). No lane, no tmux pane: the invoking
+  session works the task. A lease (`HARNESS_ONE_LEASE_MIN`, default 240 minutes since the last
+  `start`/`phase`) stands in for the lane session the pool's reapers and lock sweeps look for.
+- **Per phase** — before each of explore / test / impl / gate / ship the session runs
+  `harness one phase <issue> <phase>`: fresh usage against the forecast *left* from that phase on (the
+  sum of the phases' p80, never above the whole issue's p80), `now% + remaining p80% + reserve` vs
+  `HARNESS_ONE_STOP_PCT`. **FITS** (exit 0) goes on; **CHECKPOINT** (exit 1) prints the very
+  `HARNESS CHECKPOINT` message `pause --force` sends a lane — commit + push, handoff comment,
+  `agent-working` → `agent-paused`. A window it cannot price (no reading, no p80%) does not stop the
+  work on its own — the gate already said so — unless its `now% + reserve` alone is over the stop.
+- **Release** — after the checkpoint, or once merged, `harness one release <issue>` drops the
+  worktree, local branch and lease (it refuses while work is unpushed, short of `--force`) and clears
+  an `agent-working` that was never checkpointed. Nothing of the session's is left, so the pool
+  resumes an `agent-paused` issue through `resume.md` after the reset, like any checkpointed lane.
 
 ### GitHub rate limits
 

@@ -111,6 +111,9 @@ usage: harness <command> [args]
   one check | one gate <issue> [-R repo] [--unit U] [--json]
                        /harness-one: is the fleet PAUSED or usage-HELD; APPROVE/DENY the issue's
                        forecast against live usage (HARNESS_ONE_STOP_PCT) — the human decides
+  one start <issue> | one phase <issue> <phase> | one release <issue>
+                       /harness-one on approval: claim + render impl.md here; the per-phase
+                       budget re-check (CHECKPOINT = the pause --force checkpoint); give it back
   doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)

@@ -1,7 +1,8 @@
 """test_one.py — #365: the /harness-one gate thresholds. APPROVE iff now% + p80% + reserve <= stop for
 every window — exactly at the boundary approves, just above denies — honouring the stop % and the
 reserve; a stale reading is padded; a window with no p80 %, no reading, or no history denies. Then
-the one.py CLI on a forecast forecast.py itself built."""
+the one.py CLI on a forecast forecast.py itself built. #366: the per-phase re-check — the forecast
+left from a phase on (remaining), FITS at the stop % and CHECKPOINT just above it.""" 
 import importlib.util, json, os, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
@@ -104,6 +105,80 @@ def test_cli_on_a_real_forecast_prints_the_arithmetic():
         r = subprocess.run(cmd + ["--json"], capture_output=True, text=True)
         g = json.loads(r.stdout)
         assert g["verdict"] == "DENY" and g["forecast"]["issue"] == 7, g
+
+
+def fc_split(per_phase=2.0, total=8.0, account="main", window="seven_day"):
+    """A forecast with a per-phase split: each of the 5 phases p80 = `per_phase` % of the window, the
+    whole issue's p80 = `total` % (under the 10 % the five sum to); $ likewise at 5 $ per 1 %."""
+    split = {p: {"p50": per_phase / 2, "p80": per_phase, "p95": per_phase * 2} for p in fc_mod.PHASES}
+    usd = {p: {q: v * 5 for q, v in r.items()} for p, r in split.items()}
+    return {"issue": 7, "repo": "acme/widget", "basis": {"tier": "prd"},
+            "phases": usd, "total": {"p50": total * 2.5, "p80": total * 5, "p95": total * 10},
+            "pct": [{"account": account, "window": window, "source": "fit", "usd_per_pct": 5.0,
+                     "phases": split, "total": {"p50": total / 2, "p80": total, "p95": total * 2}}],
+            "calibration": {"fallback": None}}
+
+
+def test_remaining_is_the_forecast_left_from_the_phase_on():
+    f = fc_split(per_phase=2.0, total=8.0)
+    # from explore on: 5 × 2 = 10, capped at the whole issue's own p80 of 8
+    assert one.remaining(f, "explore")["pct"][0]["total"]["p80"] == 8.0
+    # from gate on: gate + ship = 4
+    r = one.remaining(f, "gate")
+    assert r["pct"][0]["total"]["p80"] == 4.0 and r["total"]["p80"] == 20.0, r
+    assert one.remaining(f, "ship")["pct"][0]["total"]["p80"] == 2.0
+    assert f["pct"][0]["total"]["p80"] == 8.0, "the forecast itself is untouched"
+    # a row with no per-phase split keeps its whole total
+    g = fc(6.0)
+    assert one.remaining(g, "ship")["pct"][0]["total"]["p80"] == 6.0
+
+
+def test_phase_check_fits_or_checkpoints():
+    f = fc_split(per_phase=2.0, total=8.0)
+    # before gate: 92 + 4 left + 2 reserve = 98 = the stop → FITS
+    c = one.phase_check(f, [rd(92.0)], "gate", stop=98, reserve=2)
+    assert c["verdict"] == "FITS" and c["windows"][0]["need"] == 98.0, c
+    # just above → CHECKPOINT, naming the window
+    c = one.phase_check(f, [rd(92.5)], "gate", stop=98, reserve=2)
+    assert c["verdict"] == "CHECKPOINT" and c["reasons"] == ["main seven_day: 98.5% > 98%"], c
+    # the same reading fits later on, with less left: 92.5 + 2 (ship) + 2 = 96.5
+    assert one.phase_check(f, [rd(92.5)], "ship", stop=98, reserve=2)["verdict"] == "FITS"
+    # any one window over is a checkpoint
+    f2 = fc_split(per_phase=2.0, total=8.0)
+    f2["pct"].append(dict(fc_split(per_phase=1.0, total=4.0, window="five_hour")["pct"][0]))
+    c = one.phase_check(f2, [rd(10.0), rd(95.5, window="five_hour")], "ship", stop=98, reserve=2)
+    assert c["verdict"] == "CHECKPOINT" and c["reasons"] == ["main five_hour: 98.5% > 98%"], c
+    # a window with no p80 % whose now% + reserve alone is over the stop: CHECKPOINT all the same
+    c = one.phase_check(f, [rd(10.0), rd(97.0, window="five_hour")], "ship", stop=98, reserve=2)
+    assert c["verdict"] == "CHECKPOINT" and "before any work" in c["reasons"][0], c
+    # a stale reading is padded here too: 90 + 3 + 4 + 2 = 99
+    c = one.phase_check(f, [rd(90.0, age=None)], "gate", stop=98, reserve=2, stale_pad=3)
+    assert c["verdict"] == "CHECKPOINT" and c["windows"][0]["pad"] == 3, c
+
+
+def test_phase_check_does_not_stop_on_what_it_cannot_measure():
+    # no reading, or a window with no p80 %: the gate's DENY, which the human overrode — not a stop
+    c = one.phase_check(fc_split(), [], "explore")
+    assert c["verdict"] == "FITS" and c["unchecked"], c
+    c = one.phase_check(fc(None), [rd(90.0)], "impl")
+    assert c["verdict"] == "FITS" and any("no p80" in r for r in c["unchecked"]), c
+
+
+def test_cli_phase_prints_fits_or_checkpoint():
+    with tempfile.TemporaryDirectory() as d:
+        fp, rp = os.path.join(d, "f.json"), os.path.join(d, "r.tsv")
+        with open(fp, "w") as fh: json.dump(fc_split(), fh)
+        cmd = [sys.executable, os.path.join(ROOT, "scripts", "one.py"), "phase", "--phase", "gate",
+               "--forecast", fp, "--readings", rp]
+        with open(rp, "w") as fh: fh.write("main\tseven_day\t92\t0\t60\n")
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        assert r.returncode == 0 and "FITS — go on with gate." in r.stdout, r.stdout
+        assert "now 92% + p80 4% (fit) + reserve 2% = 98% <= 98%" in r.stdout, r.stdout
+        with open(rp, "w") as fh: fh.write("main\tseven_day\t93\t0\t60\n")
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        assert r.returncode == 1 and "CHECKPOINT — main seven_day: 99% > 98%" in r.stdout, r.stdout
+        r = subprocess.run(cmd[:2] + ["phase", "--forecast", fp, "--readings", rp], capture_output=True, text=True)
+        assert r.returncode == 2, "phase without --phase is a usage error"
 
 
 if __name__ == "__main__":
