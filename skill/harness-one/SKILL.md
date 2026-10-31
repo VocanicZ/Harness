@@ -40,6 +40,14 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    worktree, local branch and lease so the pool resumes a checkpointed issue after the reset. Exit 4 =
    work not pushed yet — push it; `--force` only if the human says to drop it. Tell the user where it
    stands: done, or `agent-paused` and why (the window that would have passed the stop %).
+8. **Done → the next one.** Once it is merged and released, run `harness one done <issue>` (same `-R` /
+   `--unit`). It runs the goal check the pool's `reap_done_sessions` runs, and offers nothing until that
+   reports DONE (exit 4: not done yet — the issue is not closed; finish it, or tell the user where it
+   stands). On DONE it picks the next claimable issue the way dispatch would — open, `ready-for-agent`,
+   not `agent-working`, every `## Blocked by` closed, `agent-paused` ones first — and prints a **fresh**
+   forecast + gate for it (exit 0 APPROVE / 1 DENY; exit 3 is the precondition refusal, as in step 1).
+   Show that whole and go back to step 4 with that issue: the human decides, nothing is claimed until
+   they approve. Exit 5: no claimable issue — say so and stop.
 
 Settings (`.harness/config` or the environment): `HARNESS_ONE_STOP_PCT` (98), `HARNESS_ONE_RESERVE_PCT`
 (2), `HARNESS_ONE_STALE_MIN` (30) and `HARNESS_ONE_STALE_PAD_PCT` (3) for a stale reading, and

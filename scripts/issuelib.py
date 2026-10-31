@@ -1359,6 +1359,27 @@ def ci_status(repo, branch=None, limit=20):
     return ("pass", "", "")
 
 
+def impl_queue(s):
+    """Every issue dispatch() could claim, in the order it claims them: the unparented bucket (human
+    injections) first, then each eligible PRD ascending, a bucket spilling into the next only once
+    it has no unblocked work left. WITHIN a bucket (#210): resumable issues first — an open PR /
+    pushed branch / paused lane goes stale while it waits — then oldest first. gh lists
+    newest-first, so without this the latest injection jumped the queue."""
+    resumable = set(s.get("resumable") or ())
+    def _order(nums):
+        return sorted(nums, key=lambda n: (n not in resumable, n))
+    return _order(s["unparented_unblocked"]) + [
+        n for p in s["prds"] if p["eligible"] for n in _order(p["unblocked"])]
+
+
+def next_claimable(repo, exclude=()):
+    """The issue a one-slot dispatch would claim next (#367, `harness one done`): open, ready, not
+    agent-working, every `## Blocked by` satisfied, agent-paused ones included — impl_queue's head,
+    skipping `exclude`. None when nothing is claimable."""
+    skip = {int(n) for n in exclude}
+    return next((n for n in impl_queue(compute_state(repo)) if n not in skip), None)
+
+
 def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=None):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     prds = s["prds"]; busy = set(busy_prds); slots = max(0, free_slots)
@@ -1383,19 +1404,9 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
         for p in eligible:
             if p["open"] and (not p["children_exist"] or p.get("needs_task1")) and p["number"] not in busy:
                 return [("DECOMPOSE", str(p["number"]), "DECOMPOSE DONE")]
-    # Slots: unparented bucket (human injections) first, then eligible PRDs ascending, each
-    # spilling into the next only once it has no unblocked work left. WITHIN a bucket (#210):
-    # resumable issues first — an open PR / pushed branch / paused lane goes stale while it waits —
-    # then oldest first. gh lists newest-first, so without this the latest injection jumped the queue.
-    resumable = set(s.get("resumable") or ())
-    def _order(nums):
-        return sorted(nums, key=lambda n: (n not in resumable, n))
-    for num in _order(s["unparented_unblocked"])[:slots]:
+    # Slots: in impl_queue's order — unparented first, then eligible PRDs, resumable first (#210).
+    for num in impl_queue(s)[:slots]:
         out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
-    for p in eligible:
-        if len(out) >= slots: break
-        for num in _order(p["unblocked"])[:slots - len(out)]:
-            out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
     # REVIEW/CLOSE_PRD gate on remaining CAPACITY, not on `not out` as the single-PRD version did:
     # with several PRDs, one PRD's impl work must not suppress another's review indefinitely.
     #   • REVIEW signs off — it applies the reviewed label (and may file gap issues). Gated on
@@ -1537,6 +1548,14 @@ def main():
             for n in bug_lane_working(repo): print(n)
         elif cmd == "working":
             for n, upd in working_locks(repo): print(f"{n}\t{upd}")
+        elif cmd == "next":
+            # next <repo> [--exclude 7,9] — the issue a one-slot dispatch claims next (#367), or nothing.
+            exclude = ()
+            if "--exclude" in sys.argv:
+                raw = sys.argv[sys.argv.index("--exclude")+1]
+                exclude = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
+            n = next_claimable(repo, exclude)
+            if n is not None: print(n)
         elif cmd == "complete":
             print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
         elif cmd == "check":

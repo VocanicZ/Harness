@@ -2648,6 +2648,36 @@ def test_no_stray_keeps_review_flowing():
         assert il.dispatch("acme/widget", 3, True) == [("REVIEW", "10", "REVIEW DONE")]
     finally: _restore_repo()
 
+def test_next_claimable_on_a_fixture_issue_list():
+    # #367: the issue /harness-one offers next is the one dispatch would claim — open, ready, not
+    # agent-working, every `## Blocked by` closed; agent-paused is a candidate (resumable first).
+    os.environ["HARNESS_MODE"] = "prd"
+    os.environ["HARNESS_AUTONOMOUS"] = "false"
+    issues = [
+        _issue(10, labels=["prd"]),
+        _issue(11, "CLOSED", labels=["ready-for-agent"], body="Part of #10\n"),          # done
+        _issue(12, labels=["ready-for-agent"], body="## Blocked by\n#13\n\nPart of #10\n"),  # blocked
+        _issue(13, labels=["ready-for-agent", "agent-working"], body="Part of #10\n"),   # working
+        _issue(14, labels=["ready-for-agent"], body="Part of #10\n"),                    # ready
+        _issue(15, labels=["ready-for-agent", "agent-paused"], body="Part of #10\n"),    # paused
+        _issue(16, labels=["ready-for-agent", "agent-blocked"], body="Part of #10\n"),   # held
+        _issue(17, body="Part of #10\n"),                                                # not ready
+    ]
+    _stub_repo(issues)
+    try:
+        assert il.next_claimable("acme/widget") == 15, "an agent-paused issue first, as dispatch resumes it"
+        assert il.next_claimable("acme/widget", exclude=[15]) == 14, "then the oldest ready one"
+        assert il.next_claimable("acme/widget", exclude=[15, 14]) is None, \
+            "never the blocked, working, agent-blocked or unready ones"
+        # the order is dispatch's own: what it would claim with one slot
+        assert il.dispatch("acme/widget", 1, True)[0] == ("IMPL", "15", "ISSUE 15 DONE")
+        issues[3] = _issue(13, "CLOSED", labels=["ready-for-agent"], body="Part of #10\n")
+        assert il.next_claimable("acme/widget", exclude=[15, 14]) == 12, "its blocker closed: claimable"
+        _stub_repo([_issue(10, labels=["prd"]), issues[3]])
+        assert il.next_claimable("acme/widget") is None, "none claimable"
+    finally:
+        _restore_repo(); os.environ.pop("HARNESS_AUTONOMOUS", None)
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
