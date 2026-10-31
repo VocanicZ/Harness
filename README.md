@@ -45,19 +45,28 @@ Ask your agent:
 Or run:
 
 ```sh
+npx -y github:VocanicZ/Harness
+```
+
+or, without Node:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-<sub>Agents: run the `curl` line above and relay any missing prerequisites to the user.</sub>
+<sub>Agents: run the `npx` line above and relay any missing prerequisites to the user.</sub>
 
 Linux and macOS; on Windows, run it inside WSL2. Pin a release with `HARNESS_REF=v0.1.0`.
 
 | Prerequisite | |
 |---|---|
-| `git`, `tmux`, `python3`, `curl` | |
-| `gh` | signed in (`gh auth login`) |
-| an agent CLI | Claude Code by default; see [supported agent CLIs](docs/reference.md#supported-agent-clis) |
-| `node` ≥ 18 | optional: lets the installer add [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop. Without it lanes run the full suite |
+| `node` ≥ 18 | runs the installer and adds [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop. Optional with the `curl` line, which needs `bash` and `curl` instead; lanes without rtdd run the full suite |
+
+The installer offers to install the rest: `git`, `tmux`, `python3`, `curl`, `sha256sum`, `tar` and
+`gh` with your package manager (apt-get, dnf, pacman, zypper, apk or brew), `gh auth login`, and
+Claude Code when no [agent CLI](docs/reference.md#supported-agent-clis) is installed. It asks first;
+`HARNESS_INSTALL_PREREQS=1` answers yes, `0` no. With neither a terminal nor that setting, it prints
+the command to run and stops.
 
 ## Quick start
 

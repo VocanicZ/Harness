@@ -45,6 +45,81 @@ check_prereqs(){
   fi
   [[ "$ok" == 1 ]]
 }
+
+# ── offering missing prerequisites (#342) ───────────────────────────────────────────────────────
+# offer_prereqs asks to install what check_prereqs would find missing, instead of only failing.
+# Questions read from $HARNESS_TTY (/dev/tty: works under `curl | bash`, whose stdin is the script).
+# HARNESS_INSTALL_PREREQS=1 answers yes, 0 no; no terminal and no setting prints the command only.
+PREREQ_TOOLS="git tmux python3 curl sha256sum tar gh"
+# pkg_manager — the host package manager offer_prereqs installs with; nothing when none is known.
+pkg_manager(){ local m
+  for m in apt-get dnf pacman zypper apk brew; do need "$m" && { echo "$m"; return 0; }; done; return 1; }
+# pkg_name <manager> <tool> — the package that provides <tool> under <manager>.
+pkg_name(){
+  case "$1:$2" in
+    *:sha256sum)                echo coreutils ;;
+    pacman:gh|apk:gh)           echo github-cli ;;
+    pacman:python3|brew:python3) echo python ;;
+    *)                          echo "$2" ;;
+  esac; }
+# pkg_install_cmd <manager> <tool>… — the exact command that installs <tool>… (deduplicated packages),
+# through sudo when not root and sudo exists — never for brew, which refuses to run as root.
+pkg_install_cmd(){ local m="$1" p pkgs=" " su=""; shift
+  for p in "$@"; do p="$(pkg_name "$m" "$p")"; [[ "$pkgs" == *" $p "* ]] || pkgs+="$p "; done
+  pkgs="${pkgs# }"; pkgs="${pkgs% }"
+  [[ "$m" != brew && "$(id -u 2>/dev/null)" != 0 ]] && need sudo && su="sudo "
+  case "$m" in
+    apt-get) echo "${su}apt-get update && ${su}apt-get install -y $pkgs" ;;
+    dnf)     echo "${su}dnf install -y $pkgs" ;;
+    pacman)  echo "${su}pacman -S --needed --noconfirm $pkgs" ;;
+    zypper)  echo "${su}zypper --non-interactive install $pkgs" ;;
+    apk)     echo "${su}apk add $pkgs" ;;
+    brew)    echo "brew install $pkgs" ;;
+  esac; }
+_tty(){ echo "${HARNESS_TTY:-/dev/tty}"; }
+_has_tty(){ ( : <"$(_tty)" ) 2>/dev/null; }
+# ask_yes <question> — rc 0 yes, 1 no, 2 nobody to ask (no terminal, no HARNESS_INSTALL_PREREQS).
+ask_yes(){ local a
+  case "${HARNESS_INSTALL_PREREQS:-}" in 1) return 0 ;; 0) return 1 ;; esac
+  _has_tty || return 2
+  printf '%s [Y/n] ' "$1" >&2
+  IFS= read -r a <"$(_tty)" || a=n
+  [[ -z "$a" || "$a" == [Yy]* ]]; }
+# offer <question> <shown command> [<run>…] — ask; yes runs <run>… (default: <shown command> in bash,
+# stdin from the terminal so sudo / gh auth login can prompt). No or nobody to ask prints the command.
+offer(){ local q="$1" show="$2" rc; shift 2
+  ask_yes "$q"; rc=$?
+  if (( rc == 0 )); then
+    echo "  running: $show"
+    local in=/dev/null; _has_tty && in="$(_tty)"
+    if (( $# )); then "$@" <"$in"; else "${BASH:-bash}" -c "$show" <"$in"; fi
+    hash -r; return 0
+  fi
+  (( rc == 1 )) && echo "  skipped — install it yourself with:  $show" >&2 \
+                || echo "  no terminal to ask (set HARNESS_INSTALL_PREREQS=1 to accept) — run:  $show" >&2
+  return 1; }
+# offer_prereqs — the tools (one package-manager command), then gh sign-in, then an agent CLI (Claude
+# Code, through the claude adapter's own cli_prereqs --install) when adapters are loaded and no agent
+# CLI is on the host. Always rc 0: check_prereqs, which runs next, is the verdict.
+offer_prereqs(){ local b miss=() m cmd
+  for b in $PREREQ_TOOLS; do need "$b" || miss+=("$b"); done
+  if (( ${#miss[@]} )); then
+    if m="$(pkg_manager)"; then
+      cmd="$(pkg_install_cmd "$m" "${miss[@]}")"
+      offer "Missing ${miss[*]} — install with $m?" "$cmd"
+    else
+      echo "  ! missing ${miss[*]}, and no known package manager (apt-get dnf pacman zypper apk brew) to offer" >&2
+    fi
+  fi
+  if need gh && ! gh auth status >/dev/null 2>&1; then
+    offer "gh is not signed in — run gh auth login now?" "gh auth login"
+  fi
+  if declare -F cli_list >/dev/null && [[ -z "$(_host_clis)" ]] && cli_list | grep -qx claude; then
+    cmd="$(cli_with claude cli_prereqs 2>/dev/null | sed -n 's/^MISSING claude binary ([^)]*): //p' | head -1)"
+    offer "No agent CLI found — install Claude Code?" "${cmd:-cli_prereqs --install}" \
+      cli_with claude cli_prereqs --install
+  fi
+  return 0; }
 # ensure_rtdd — install the coverage-derived test selector the IMPL/bug-fix/resume prompts use AS
 # their test loop, in place of two full-suite runs per lane. Its own function because BOTH entry
 # points need it: an engine ff-pulled by `harness update` brings prompts that call `rtdd`, and a host
@@ -450,10 +525,11 @@ link_path(){
 }
 
 main(){
+  offer_prereqs
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   place_engine || { echo "Engine install/update failed — see above; not finalizing." >&2; exit 1; }
   if ! declare -F cli_list >/dev/null; then     # a piped install: the adapters arrived with the engine
-    _load_cli_seam && check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
+    _load_cli_seam && offer_prereqs && check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   fi
   ensure_skills
   ensure_rtdd
