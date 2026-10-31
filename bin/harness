@@ -20,7 +20,8 @@ if [[ "$(realpath "$_link" 2>/dev/null)" == "$ENGINE_DIR" ]]; then HARNESS_ENGIN
 export HARNESS_ENGINE_LINK
 # #355: on Windows, the path variables native programs read (python.exe for stats/fleetview/forecast,
 # exec'd straight from here) are exported in mixed form (C:/…); a no-op elsewhere.
-source "$ENGINE_DIR/scripts/portable.sh"
+# A stripped engine copy (a test fixture) may lack portable.sh: its paths then stay as they are.
+if [[ -f "$ENGINE_DIR/scripts/portable.sh" ]]; then source "$ENGINE_DIR/scripts/portable.sh"; else export_native_paths(){ :; }; fi
 export_native_paths
 
 # discover_state_dir — walk UP from cwd for a .harness/config; echo that .harness dir, or fail (1).
