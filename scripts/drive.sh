@@ -397,13 +397,13 @@ reap_pool_bugs(){ local f tok n phase sess SLUG lockfd
     done
     bug_session_live "$SLUG" "$n" && continue
     stats_sweep_ended   # #185: session_end before the worktree (and its ralph iteration count) goes
-    exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+    lock_acquire "$POOL_LOCK" lockfd
     if [[ "$(awk '{print $1; exit}' "$f" 2>/dev/null)" == pool-* ]] && ! is_bug_claimed "$tok"; then
       remove_worktree "$(bug_checkout "$SLUG")" "$(bug_worktree "$SLUG" "$n")" "issue/$n"
       remove_worktree "$(bug_checkout "$SLUG")" "$(triage_worktree "$SLUG" "$n")" "agent/bug-triage-$n"
       rm -f "$f"; log "pool: reaped bug $tok session — worktrees + claim released"
     fi
-    flock -u "$lockfd"; exec {lockfd}>&-
+    lock_release "$lockfd"
   done < <(pool_bug_claims); }
 
 # drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.

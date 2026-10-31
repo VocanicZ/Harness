@@ -126,6 +126,9 @@ POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
 # so tests can point it at a temp root; exported so sub-scripts inherit it.
 HARNESS_FLEETS_DIR="${HARNESS_FLEETS_DIR:-$HARNESS_HOME/fleets}"
 export HARNESS_FLEETS_DIR
+# #355: on Windows the path variables native programs (python.exe, gh.exe, claude.exe) read from the
+# environment are exported in mixed form (C:/…); a no-op elsewhere (portable.sh).
+export_native_paths
 
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -220,9 +223,9 @@ clear_stale_claims(){ shopt -s nullglob; local f pid u
   done; shopt -u nullglob; }
 claimable_units(){ local u; for u in $(all_units); do
     unit_complete "$u" && continue; deps_complete "$u" || continue; is_claimed "$u" && continue; echo "$u"; done; }
-claim_next(){ local wid="$1" u lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+claim_next(){ local wid="$1" u lockfd; lock_acquire "$POOL_LOCK" lockfd
   u="$(claimable_units | head -n1)"; [[ -n "$u" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$u.claim"
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
   [[ -n "$u" ]] && harness_event claim unit="$u" worker="$wid"
   echo "$u"; }
 release_claim(){ rm -f "$CLAIMS_DIR/$1.claim"; harness_event release unit="$1"; }
@@ -283,17 +286,17 @@ claimable_bugs(){ local tok; for tok in $(_bug_numbers); do is_bug_claimed "$tok
 # The claim file records "<wid> <pid> <token>": the third field carries the FULL repo-qualified
 # ref (#44) so lane_bug / _checkpoint_target recover the real owner/repo without reversing the
 # lossy sanitised claim key (owner_repo can't be split back into owner/repo unambiguously).
-claim_next_bug(){ local wid="$1" tok lockfd; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+claim_next_bug(){ local wid="$1" tok lockfd; lock_acquire "$POOL_LOCK" lockfd
   tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s %s\n' "$wid" "$$" "$tok" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
-  flock -u "$lockfd"; exec {lockfd}>&-; echo "$tok"; }
+  lock_release "$lockfd"; echo "$tok"; }
 # claim_bug <wid> <ref> — claim ONE named bug, the pool's entry to the lane's claims (#214). Same
 # claim file and POOL_LOCK as claim_next_bug, so whichever lane gets there first holds it and the
 # other is refused: a bug is never offered to both. rc 1 when it is already claimed.
-claim_bug(){ local wid="$1" tok="$2" lockfd rc=1; exec {lockfd}>"$POOL_LOCK"; flock "$lockfd"
+claim_bug(){ local wid="$1" tok="$2" lockfd rc=1; lock_acquire "$POOL_LOCK" lockfd
   if ! is_bug_claimed "$tok"; then
     printf '%s %s %s\n' "$wid" "$$" "$tok" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"; rc=0
   fi
-  flock -u "$lockfd"; exec {lockfd}>&-; return "$rc"; }
+  lock_release "$lockfd"; return "$rc"; }
 # pool_bug_claims [unit] — `<claim-file>\t<ref>` for every bug claim a POOL worker holds (#214), live
 # or stale; with <unit>, only that unit's. A pool claim's worker id is `pool-<unit>`.
 pool_bug_claims(){ local f wid tok; shopt -s nullglob
@@ -542,9 +545,9 @@ issue_worktree_present(){ local slug="$1" n="$2" u
 # $RUN_DIR/pending-unlock for retry_pending_unlocks. Returns gh's verdict.
 unlock_issue(){ local slug="$1" n="$2" f="$RUN_DIR/pending-unlock" lockfd
   gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" >/dev/null 2>&1 && return 0
-  exec {lockfd}>"$f.lock"; flock "$lockfd"
+  lock_acquire "$f.lock" lockfd
   grep -qxF "$slug"$'\t'"$n" "$f" 2>/dev/null || printf '%s\t%s\n' "$slug" "$n" >> "$f"
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
   log "could not clear $HARNESS_LABEL_WORKING on $slug#$n (gh failed) — queued, retrying every poll (#179)"
   return 1; }
 
@@ -559,10 +562,10 @@ park_issue(){ local slug="$1" n="$2" f upd lockfd; f="$(parked_file)"
   upd="$(gh issue view "$n" -R "$slug" --json updatedAt -q .updatedAt 2>/dev/null)"
   [[ "$upd" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]] || upd="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   mkdir -p "$(dirname "$f")"
-  exec {lockfd}>"$f.lock"; flock "$lockfd"
+  lock_acquire "$f.lock" lockfd
   { awk -F'\t' -v s="$slug" -v n="$n" '!($1 == s && $2 == n)' "$f" 2>/dev/null
     printf '%s\t%s\t%s\t%s\n' "$slug" "$n" "$(date +%s)" "$upd"; } > "$f.tmp" && mv -f "$f.tmp" "$f"
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
   log "parked $slug#$n — $HARNESS_LABEL_BLOCKED; held from dispatch until it changes (#271)"; }
 
 # is_parked <slug> <n> — a park record exists for <slug>#<n>.
@@ -573,7 +576,7 @@ is_parked(){ awk -F'\t' -v s="$1" -v n="$2" '$1 == s && $2 == n { f = 1 } END { 
 # Non-blocking on the queue lock: if another worker is mid-pass, this poll leaves it to them.
 retry_pending_unlocks(){ local f="$RUN_DIR/pending-unlock" lockfd slug n keep=""
   [[ -s "$f" ]] || return 0
-  exec {lockfd}>"$f.lock"; flock -n "$lockfd" || { exec {lockfd}>&-; return 0; }
+  lock_try "$f.lock" lockfd || { return 0; }
   while IFS=$'\t' read -r slug n; do
     [[ -n "$slug" && -n "$n" ]] || continue
     issue_session_live "$slug" "$n" && continue
@@ -584,7 +587,7 @@ retry_pending_unlocks(){ local f="$RUN_DIR/pending-unlock" lockfd slug n keep=""
     else keep+="$slug"$'\t'"$n"$'\n'; fi
   done < "$f"
   printf '%s' "$keep" > "$f"
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 
 # _working_locks <slug> — `<num>\t<updatedAt>` per open, unblocked agent-working issue. Overridable seam.
 _working_locks(){ python3 "$ISSUELIB" working "$1" 2>/dev/null; }
@@ -669,33 +672,13 @@ sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$
 team_sessions(){ sess_list | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i|-p)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
 session_live(){ sess_live "$1"; }
-# lock_holders <lockfile> — print one `PID<TAB>cmdline` line per process that currently holds the
-# file open (any fd). Dependency-free (`fuser`/`lsof` are NOT guaranteed present on every host —
-# this box has neither) — it scans /proc/*/fd symlinks for ones resolving to the lock's real path.
-# Deduped by pid. The reliable way to answer "who holds start.lock / pool.lock?" — the question
-# behind the fd-leak wedge (a killed worker's orphaned `sleep` keeps an inherited flock fd open).
-lock_holders(){
-  local lf="$1" rl fd tgt pid seen=" "
-  rl="$(readlink -f "$lf" 2>/dev/null)" || return 0
-  [[ -n "$rl" ]] || return 0
-  for fd in /proc/[0-9]*/fd/*; do
-    tgt="$(readlink "$fd" 2>/dev/null)" || continue
-    [[ "$tgt" == "$rl" ]] || continue
-    pid="${fd#/proc/}"; pid="${pid%%/*}"
-    [[ "$seen" == *" $pid "* ]] && continue
-    seen+="$pid "
-    printf '%s\t%s\n' "$pid" "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
-  done
-}
+# lock_holders / lock_free (who holds a fleet lock, can it be taken now) live in portable.sh (#355).
 # proc_state_dir <pid> — echo a process's STATE_DIR from its environ (empty if gone/unreadable). Lets
 # doctor tell whether a lock-holder belongs to THIS project vs a co-resident sibling fleet.
-proc_state_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^STATE_DIR=//p' | head -1; }
+proc_state_dir(){ proc_env "$1" STATE_DIR; }
 # proc_engine_dir <pid> — the same for ENGINE_DIR: the release directory a process runs from (#279).
 # install.sh's rel_prune never removes a release a live process's ENGINE_DIR points into.
-proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
-# lock_free <lockfile> — true iff the lock can be acquired right now (nobody holds it). A non-blocking
-# flock in a subshell; the fd closes on subshell exit so this never itself leaves a holder behind.
-lock_free(){ ( flock -n 9 ) 9>"$1" 2>/dev/null; }
+proc_engine_dir(){ proc_env "$1" ENGINE_DIR; }
 # tracked_worker_pid <pid> — true iff <pid> is one of THIS project's currently-recorded pool/lane
 # pids (RUN_DIR/*.pid). doctor's --fix never kills a tracked, live worker (it may legitimately hold
 # pool.lock for the duration of a claim); only untracked orphans are reapable.
@@ -848,9 +831,9 @@ goal_loop_tick(){ local sess="$1" pane="$2" wd lockfd rc
   cli_done "$wd" && return 1
   cli_pane_prompt "$pane" && ! cli_pane_busy "$pane" || return 1
   session_limit_idle "$pane" && return 1
-  exec {lockfd}>"$RUN_DIR/$sess.loop.lock"; flock -n "$lockfd" || { exec {lockfd}>&-; return 1; }
+  lock_try "$RUN_DIR/$sess.loop.lock" lockfd || { return 1; }
   _goal_loop_step "$sess" "$wd"; rc=$?
-  flock -u "$lockfd"; exec {lockfd}>&-; return "$rc"; }
+  lock_release "$lockfd"; return "$rc"; }
 _goal_loop_step(){ local sess="$1" wd="$2" uuid sid out pid reply
   uuid="$(sed -n 's/^session_id: //p' "$wd/.claude/ralph-loop.local.md" 2>/dev/null)"
   sid="$(cli_session_id "$wd" "$uuid")"; [[ -n "$sid" ]] || return 1
@@ -1104,24 +1087,14 @@ fleet_stale(){ local pfx="$1" rd="$2" name p _
 # and nothing to clean up at stop. It also sees fleets that were already running before the fleet
 # registry existed, which no file-based registry could.
 #
-# Reads /proc, like lock_holders does. On a host without /proc this yields nothing and the guard
-# degrades to its other two sources — never worse than before.
-running_fleet_prefixes(){ local self="$1" pid sd pfx cmd
-  command -v pgrep >/dev/null 2>&1 || return 0
+# Reads /proc (portable.sh proc_find / proc_env: Linux, and MSYS for its own bash workers). On a host
+# without /proc this yields nothing and the guard degrades to its other two sources — never worse.
+running_fleet_prefixes(){ local self="$1" pid sd pfx
   declare -A _seen=()
-  for pid in $(pgrep -f '(pool|priority)-worker\.sh' 2>/dev/null); do
-    [[ -r "/proc/$pid/environ" && -r "/proc/$pid/cmdline" ]] || continue
-    # Match the SCRIPT, not merely a command line that mentions it — a shell running
-    # `pgrep -af pool-worker.sh` carries the pattern in its own cmdline and would self-report.
-    cmd="$(tr '\0' '\n' < "/proc/$pid/cmdline" | grep -cE '(pool|priority)-worker\.sh$')"
-    [[ "${cmd:-0}" -gt 0 ]] || continue
-    sd=""; pfx=""
-    while IFS= read -r -d '' kv; do
-      case "$kv" in
-        STATE_DIR=*)           sd="${kv#STATE_DIR=}";;
-        HARNESS_SESS_PREFIX=*) pfx="${kv#HARNESS_SESS_PREFIX=}";;
-      esac
-    done < "/proc/$pid/environ"
+  # Match the SCRIPT as an argument of its own, not merely a command line that mentions it — a shell
+  # running `grep pool-worker.sh` carries the pattern in its own cmdline and would self-report.
+  for pid in $(proc_find '(^|[ /])(pool|priority)-worker\.sh( |$)'); do
+    sd="$(proc_env "$pid" STATE_DIR)"; pfx="$(proc_env "$pid" HARNESS_SESS_PREFIX)"
     [[ -n "$sd" && "$sd" != "$self" ]] || continue
     [[ -n "${_seen[$sd]:-}" ]] && continue
     _seen[$sd]=1
@@ -1438,7 +1411,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
   [[ "$sess" =~ ^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$ ]] && uuid="$(sess_resume_id "$sess" "$wd")"
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
-  else uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"; fi
+  else uuid="$(new_uuid)"; fi
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   session_env "$uuid"
   local model effort line line_me
@@ -1707,14 +1680,14 @@ poller_write_snapshot(){
   local slug="$1" out tmp lockfd rc=1
   mkdir -p "$HARNESS_SNAPSHOTS_DIR"
   out="$(poller_snapshot_path "$slug")"; tmp="$out.tmp.$$"
-  exec {lockfd}>"$out.lock"; flock "$lockfd"
+  lock_acquire "$out.lock" lockfd
   if HARNESS_SNAPSHOT_FILE= HARNESS_SNAPSHOT_DIR= python3 "$ISSUELIB" snapshot "$slug" "$out" > "$tmp" 2>/dev/null \
      && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$out"; rc=0
   else
     rm -f "$tmp"
   fi
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
   return "$rc"
 }
 
@@ -1730,8 +1703,8 @@ poller_running(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"; [[ 
 ensure_poller(){
   mkdir -p "$HARNESS_POLLER_DIR"
   local lockfd
-  exec {lockfd}>"$POLLER_LOCK"; flock "$lockfd"
-  if poller_running; then flock -u "$lockfd"; exec {lockfd}>&-; return 0; fi
+  lock_acquire "$POLLER_LOCK" lockfd
+  if poller_running; then lock_release "$lockfd"; return 0; fi
   rm -f "$POLLER_PID"
   # Spawn the poller with fd 9 CLOSED for the child (`9>&-`). start.sh calls ensure_poller while it
   # still holds the double-start lock on fd 9 (start.sh:101, before its own `exec 9>&-`); since
@@ -1745,7 +1718,7 @@ ensure_poller(){
     nohup bash "$ENGINE_DIR/scripts/poller.sh" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 9>&- &
   fi
   echo "$!" > "$POLLER_PID"
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
 }
 
 # --- PRD-B slice 3: wire workers to snapshots behind HARNESS_USE_POLLER (#72) -

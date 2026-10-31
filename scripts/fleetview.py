@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session_backend  # noqa: E402  #346: the session backend's probes
+import portable         # noqa: E402  #355: pid_alive (os.kill(pid, 0) is CTRL_C_EVENT on Windows)
 
 # A HOLD streak shorter than this is ordinary weather (one dropped poll) and stays quiet.
 HOLD_WARN = int(os.environ.get("HARNESS_HOLD_WARN", "3") or 3)
@@ -81,12 +82,9 @@ def pid_alive(path):
     try:
         with open(path) as fh:
             pid = int(fh.read().strip())
-        os.kill(pid, 0)
-    except PermissionError:
-        return True          # alive, just not ours
     except (OSError, ValueError):
         return False
-    return True
+    return portable.pid_alive(pid)
 
 
 def fmt_age(secs):

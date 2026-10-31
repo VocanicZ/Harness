@@ -106,7 +106,7 @@ _claude_trust_configs(){ local acct
 # flocked: several agents launch near-simultaneously.
 _claude_trust_config(){
   local dir="$2" cfg="$1" lockfd
-  exec {lockfd}>"$cfg.harness-trust.lock"; flock "$lockfd"
+  lock_acquire "$cfg.harness-trust.lock" lockfd
   CFG="$cfg" DIR="$dir" python3 - <<'PY'
 import json, os, tempfile
 cfg, d = os.environ["CFG"], os.environ["DIR"]
@@ -135,7 +135,7 @@ except BaseException:
     os.path.exists(tmp) and os.unlink(tmp)
     raise
 PY
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
 }
 claude_trust(){ local cfg
   while read -r cfg; do _claude_trust_config "$cfg" "$1"; done < <(_claude_trust_configs); }

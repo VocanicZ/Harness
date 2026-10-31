@@ -57,7 +57,7 @@ copilot_interrupted_re(){ echo 'Operation cancelled by user'; }
 copilot_trust(){
   local dir="$1" cfg lockfd; cfg="$(_copilot_home)/config.json"
   mkdir -p "$(dirname "$cfg")"
-  exec {lockfd}>"$cfg.trusted-folders.lock"; flock "$lockfd"
+  lock_acquire "$cfg.trusted-folders.lock" lockfd
   CFG="$cfg" DIR="$dir" python3 - <<'PY'
 import json, os, tempfile
 cfg, d = os.environ["CFG"], os.environ["DIR"]
@@ -84,7 +84,7 @@ except BaseException:
     os.path.exists(tmp) and os.unlink(tmp)
     raise
 PY
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 copilot_trusted(){ CFG="$(_copilot_home)/config.json" DIR="$1" python3 -c 'import json, os, sys
 body = "\n".join(l for l in open(os.environ["CFG"]) if not l.lstrip().startswith("//"))
 sys.exit(0 if os.environ["DIR"] in (json.loads(body).get("trustedFolders") or []) else 1)' 2>/dev/null; }

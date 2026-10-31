@@ -15,6 +15,8 @@
 export HARNESS_SESSION_BACKEND
 SESS_CONFIG_VAR=HARNESS_SESSION_BACKEND   # the config key naming the fleet's session backend
 SESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# #355: the process and locking primitives every backend, adapter and lib.sh caller goes through.
+source "$SESS_DIR/../portable.sh"
 
 # sess_backend_list — every session backend this engine ships, one per line.
 sess_backend_list(){ local f; for f in "$SESS_DIR"/*.sh; do f="${f##*/}"; [[ $f == dispatch.sh ]] || echo "${f%.sh}"; done; }

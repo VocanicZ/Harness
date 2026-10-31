@@ -152,7 +152,7 @@ _usage_reading_new(){ local f last; f="$RUN_DIR/usage-readings/$(_usage_key "$1"
 usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=() seen=(); local -a readings=()
   out="$(cli_limit_usage 2>/dev/null)"; local avail=$?
   mkdir -p "$(_usage_hold_dir)"
-  exec {lockfd}>"$RUN_DIR/usage.lock"; flock "$lockfd"
+  lock_acquire "$RUN_DIR/usage.lock" lockfd
   if (( avail == 0 )); then
     rm -f "$RUN_DIR/usage.unavailable"
     while IFS=$'\t' read -r acct win pct reset; do
@@ -181,7 +181,7 @@ usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=(
     rm -f "$hf"; log "usage: $acct $win window reset — resuming claims"
     harness_event usage_resume account="$acct" window="$win"
   done
-  shopt -u nullglob; flock -u "$lockfd"; exec {lockfd}>&-
+  shopt -u nullglob; lock_release "$lockfd"
   usage_park_lanes
   for r in "${readings[@]}"; do
     IFS=$'\t' read -r acct win pct reset <<< "$r"

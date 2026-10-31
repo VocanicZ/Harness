@@ -304,6 +304,31 @@ sandbox's `HARNESS_TURN_MAX` is lowered (`SMOKE_TURN_MAX`, 120) so the stuck-tur
 queued checkpoint into a long turn. The run fails if the issue closed before the checkpoint, or if the
 checkpoint was never confirmed. Recorded runs are committed under `test/smoke/logs/`.
 
+### Portable process and lock primitives
+
+The engine's process and locking primitives live in `scripts/portable.sh` and `scripts/portable.py`
+(#355, [ADR 0001](adr/0001-native-windows-runtime.md)), so the same engine runs under Git Bash on native
+Windows. On Linux each helper runs what the engine ran before; under Git Bash (`uname -s` MINGW/MSYS)
+it takes the Windows path:
+
+| Helper | Linux | Windows (Git Bash) |
+|---|---|---|
+| `lock_acquire` / `lock_try` / `lock_release` | `flock` on an fd | atomic `mkdir <lock>.d` + an `owner` file (`pid`, `winpid`, cmdline); a dead owner's lock is stolen (`HARNESS_LOCK_STALE_S`, 30, for one with no owner yet) |
+| `lock_holders` / `lock_free` | `/proc/*/fd` scan / `flock -n` | the lock's live `owner` |
+| `proc_find <regex>` | bash scan of `/proc/[0-9]*/cmdline` (no `pgrep`) | the same (MSYS `/proc`) |
+| `proc_alive` / `proc_ident` / `proc_args` | `kill -0` + procps `ps -o` | `kill -0`, `/proc/<pid>/winpid` + cmdline |
+| `proc_kill_tree` | process-group `kill -KILL` | `taskkill //T //F //PID <winpid>` |
+| `detach_prefix` | `setsid` | none |
+| `new_uuid` | `uuidgen`, else the kernel's | `python3 -c 'import uuid…'` |
+| `export_native_paths` | no-op | exported path variables (`STATE_DIR`, `HARNESS_HOME`, …) in `cygpath -m` form |
+| `portable.pid_alive` (Python) | `os.kill(pid, 0)` | `OpenProcess` + `GetExitCodeProcess` on the winpid |
+| `portable.lock_nb` / `unlock` (Python) | `fcntl.flock` | `msvcrt.locking` on byte 0 |
+
+`HARNESS_PLATFORM=windows` forces the Windows paths (the suite runs them on Linux: `test/test_portable.sh`,
+`test/test_portable.py`), and `test/test_portable_guard.py` fails on a raw `flock`, `/proc`, `pgrep`,
+`setsid`, `uuidgen`, procps `ps -o`, `fcntl` or `os.kill` anywhere else in the engine, except the uses it
+allowlists with their reasons (tmux-only CLIs, the self-contained lane runner's POSIX branch, `install.sh`).
+
 ### Autonomy
 
 | Setting | Behaviour |

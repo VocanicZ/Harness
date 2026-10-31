@@ -29,10 +29,10 @@ _hl_name(){ local t="${1#=}"; echo "${t%%:*}"; }
 headless_lane_dir(){ echo "$(_hl_root)/$(_hl_name "$1")"; }
 _hl_pid(){ local p; p="$(cat "$(headless_lane_dir "$1")/pid" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && echo "$p"; }
 # A zombie is not alive: a runner that exited but whose parent has not reaped it yet.
-_hl_alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+_hl_alive(){ proc_alive "$1"; }
 # _hl_ident <pid> — what tells this process from a later one given the same number: its start time and
-# command line.
-_hl_ident(){ printf '%s|%s' "$(ps -o lstart= -p "$1" 2>/dev/null)" "$(ps -o args= -p "$1" 2>/dev/null)"; }
+# command line (portable.sh proc_ident).
+_hl_ident(){ proc_ident "$1"; }
 # _hl_runner <target> — the lane's runner pid, while that process is the one this backend started.
 _hl_runner(){ local pid lane; lane="$(headless_lane_dir "$1")"; pid="$(_hl_pid "$1")" || return 1
   _hl_alive "$pid" && [[ -s "$lane/started" && "$(_hl_ident "$pid")" == "$(cat "$lane/started")" ]] && echo "$pid"; }
@@ -43,8 +43,8 @@ _hl_reap_turn(){ local lane="$1" cpid sid
   cpid="$(python3 "$HEADLESS_LANE_PY" state --lane "$lane" --field claude_pid 2>/dev/null)"
   sid="$(python3 "$HEADLESS_LANE_PY" state --lane "$lane" --field session_id 2>/dev/null)"
   [[ $cpid =~ ^[0-9]+$ && -n $sid ]] && _hl_alive "$cpid" || return 0
-  [[ "$(ps -o args= -p "$cpid" 2>/dev/null)" == *"$sid"* ]] || return 0
-  kill -KILL -- "-$cpid" 2>/dev/null; kill -KILL "$cpid" 2>/dev/null; return 0; }
+  [[ "$(proc_args "$cpid")" == *"$sid"* ]] || return 0
+  proc_kill_tree "$cpid"; return 0; }
 _hl_state(){ python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field state 2>/dev/null; }
 _hl_names(){ local d; shopt -s nullglob; for d in "$(_hl_root)"/*/; do d="${d%/}"; echo "${d##*/}"; done; shopt -u nullglob; }
 # _hl_send <target> <text> — one message onto the lane's inbox.
@@ -71,7 +71,7 @@ headless_sess_start(){ local name="$1" dir="$2" lane pid i; shift 2; local -a en
   [[ -d $lane ]] && _hl_reap_turn "$lane"   # a dead runner's turn must not keep editing the worktree
   rm -rf "$lane"; mkdir -p "$lane" || return 1
   printf '%s\n' "$dir" > "$lane/dir"; date +%s > "$lane/created"
-  command -v setsid >/dev/null 2>&1 && set -- setsid "$@"
+  local dp; dp="$(detach_prefix)"; [[ -n $dp ]] && set -- "$dp" "$@"
   ( cd "$dir" 2>/dev/null || exit 1
     exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" </dev/null >>"$lane/runner.log" 2>&1 ) &
   pid=$!; echo "$pid" > "$lane/pid"
@@ -105,7 +105,7 @@ headless_sess_kill(){ local lane pid i
   pid="$(_hl_runner "$1")"
   : > "$lane/stop"; kill -TERM "$pid" 2>/dev/null
   for (( i = 0; i < HARNESS_HEADLESS_STOP_WAIT * 10; i++ )); do _hl_alive "$pid" || break; sleep 0.1; done
-  if [[ "$(_hl_runner "$1")" == "$pid" ]]; then kill -KILL -- "-$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; fi
+  if [[ "$(_hl_runner "$1")" == "$pid" ]]; then proc_kill_tree "$pid"; fi
   _hl_reap_turn "$lane"; return 0; }
 # The turns it has started and how much it has logged: both move with every turn, even one that began
 # and ended between two looks (the drawn screen holds no reply text, so it is unchanged by one).

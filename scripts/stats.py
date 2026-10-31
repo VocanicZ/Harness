@@ -2,7 +2,7 @@
 """stats.py — the host-wide Harness event log and the `harness stats` report over it (#185).
 
 Every fleet on the host appends one JSON line per event to $HARNESS_HOME/events.jsonl (default
-~/.harness/events.jsonl), under flock. A launch's model and effort are the CLI adapter's
+~/.harness/events.jsonl), under an exclusive lock (portable.lock_nb: flock, or msvcrt on Windows). A launch's model and effort are the CLI adapter's
 (lib.sh launch_agent: cli_model_effort, #307). A session's token usage comes from Claude Code's own
 transcripts (another CLI's adapter folds its own: usage_tsv, #188): every launch passes `--session-id <uuid>`, and Claude Code writes
 $CLAUDE_CONFIG_DIR/projects/<slugified cwd>/<uuid>.jsonl plus <uuid>/subagents/agent-*.jsonl, each
@@ -27,15 +27,18 @@ The report joins each line to its session on ctx.HARNESS_SESSION.
 `emit` never raises: any failure exits 1 having printed nothing, and the bash caller (lib.sh
 harness_event) swallows it — logging must never block or fail dispatch.
 """
-import fcntl, glob, json, os, re, sys, time
+import glob, json, os, re, sys, time
 from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import portable  # noqa: E402  #355: flock / msvcrt.locking
 
 USAGE_KEYS = (("input_tokens", "input"), ("output_tokens", "output"),
               ("cache_creation_input_tokens", "cache_create"), ("cache_read_input_tokens", "cache_read"))
 # The context a session's later events inherit (nudge, watchdog_kill, session_end, …).
 CTX_KEYS = ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "session",
             "model", "effort", "worktree", "launched")
-LOCK_WAIT_S = 2.0   # flock is tried non-blocking for this long, then the event is dropped
+LOCK_WAIT_S = 2.0   # the lock is tried non-blocking for this long, then the event is dropped
 
 
 def home():
@@ -78,7 +81,7 @@ def parse_kv(items):
 
 
 def append_event(rec, path=None):
-    """Append one JSON line under flock. True on success; False (never an exception) otherwise."""
+    """Append one JSON line under an exclusive lock (portable.lock_nb). True on success; False (never an exception) otherwise."""
     path = path or events_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -86,14 +89,17 @@ def append_event(rec, path=None):
             deadline = time.monotonic() + LOCK_WAIT_S
             while True:
                 try:
-                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    portable.lock_nb(fh)
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:
                         return False
                     time.sleep(0.05)
-            fh.write(json.dumps(rec) + "\n")
-            fh.flush()
+            try:
+                fh.write(json.dumps(rec) + "\n")
+                fh.flush()
+            finally:
+                portable.unlock(fh)
         return True
     except Exception:
         return False
