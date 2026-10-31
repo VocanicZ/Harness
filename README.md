@@ -70,14 +70,18 @@ the command to run and stops.
 
 ## Quick start
 
-In your project repo, ask your agent:
+In your project repo, one step — tell your agent what to build:
 
-> /harness
+> `/harness <your idea>`
 
-It runs the setup wizard, seeds the GitHub labels and starts the fleet. Then give it work: file a
-`prd` issue, or label issues `ready-for-agent`, or add to a running fleet with `/harness-prd` or
-`/harness-issue` (both grill you first). Watch with `/harness-status`, `harness status --watch` or
-`harness web` (http://127.0.0.1:4637/).
+e.g. `/harness a CLI that turns my bookmarks into a weekly digest email`. It installs `harness` if
+it is missing, runs the setup wizard in `prd` mode, grills you on the idea until the goal, scope and
+acceptance criteria are clear, files the PRD, and starts the fleet, asking before each step. On a
+fleet that is already running it adds the idea through `/harness-prd` instead. It ends by telling you
+where to watch: `harness status --watch` or `harness web` (http://127.0.0.1:4637/).
+
+Plain `/harness` sets up and operates the fleet without filing work. Add more later with
+`/harness-prd` or `/harness-issue` (both grill you first), or label issues `ready-for-agent`.
 
 <details>
 <summary>Without an agent</summary>
