@@ -61,6 +61,10 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_BLOCKED_BACKOFF_MIN:=0}"    # #271: minutes a parked agent-blocked issue is held before an autonomous fleet retries it unchanged; 0 = until it changes
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
+: "${HARNESS_ONE_STOP_PCT:=98}"          # #365: /harness-one recommends APPROVE iff now% + p80% + reserve <= this % of every usage window
+: "${HARNESS_ONE_RESERVE_PCT:=2}"        # #365: % of a window held back for the checkpoint (commit, push, handoff) when the budget runs out
+: "${HARNESS_ONE_STALE_MIN:=30}"         # #365: a usage reading older than this many minutes (or of unknown age) is stale…
+: "${HARNESS_ONE_STALE_PAD_PCT:=3}"      # #365: …and the gate pads it by this many points
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
 : "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire each worktree to report its usage windows (cli_usage_setup); 0 = off
 : "${HARNESS_GH_RATE_GUARD:=1}"          # #183: 1 = sleep through a GitHub rate limit + hold claims on a low budget; 0 = off

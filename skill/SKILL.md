@@ -69,7 +69,8 @@ mode a human writes one `prd`-labelled issue; the agent decomposes + implements 
 
 ## Per-command shortcuts
 For a one-shot action without state detection, thin sibling skills map 1:1 to a subcommand:
-`/harness-init` `/harness-start` `/harness-stop` `/harness-pause` `/harness-resume` `/harness-status` `/harness-uninstall`.
+`/harness-init` `/harness-start` `/harness-stop` `/harness-pause` `/harness-resume` `/harness-status` `/harness-uninstall`,
+and `/harness-one` (work one issue by hand, budget-gated, while the fleet is paused or usage-HELD).
 Use those when the user already knows the action; use `/harness` (this skill) to detect state, observe, and unstick.
 
 ## Inject work into a LIVE fleet (no restart)

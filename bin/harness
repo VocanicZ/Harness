@@ -108,6 +108,9 @@ usage: harness <command> [args]
                        host-wide event log report: sessions, tokens by model, retries, HOLD time
   forecast <issue> [-R repo] [--unit U] [--json]
                        per-phase p50/p80/p95 \$ forecast for one issue, from past lanes in the event log
+  one check | one gate <issue> [-R repo] [--unit U] [--json]
+                       /harness-one: is the fleet PAUSED or usage-HELD; APPROVE/DENY the issue's
+                       forecast against live usage (HARNESS_ONE_STOP_PCT) — the human decides
   doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
@@ -193,6 +196,8 @@ case "$cmd" in
     fi
     [[ -n "${STATE_DIR:-}" ]] || discover_state_dir >/dev/null || exec python3 "$ENGINE_DIR/scripts/fleetview.py" "$@"
     require_state_dir; exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
+  # one is a project command: the precondition reads this fleet's pause flag and usage holds (#365).
+  one)    require_state_dir; exec bash "$ENGINE_DIR/scripts/one.sh" "$@";;
   doctor) require_state_dir; exec bash "$ENGINE_DIR/scripts/doctor.sh" "$@";;
   attach) require_state_dir; exec bash "$ENGINE_DIR/scripts/attach.sh" "$@";;
   pause)  require_state_dir; exec bash "$ENGINE_DIR/scripts/pause.sh" "$@";;

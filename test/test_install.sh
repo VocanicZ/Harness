@@ -109,7 +109,7 @@ USK="$(mktemp -d)/skills"
 HARNESS_SKILL_SRC="$SK_SRC" HARNESS_USER_SKILLS="$USK" install_harness_skills >/dev/null
 assert "umbrella /harness skill installed to user scope" "[[ -f '$USK/harness/SKILL.md' ]]"
 for n in harness-init harness-start harness-stop harness-pause harness-resume harness-status \
-         harness-plan harness-prd harness-issue; do
+         harness-plan harness-prd harness-issue harness-one; do
   assert "/$n deployed to user scope" "[[ -f '$USK/$n/SKILL.md' ]]"
 done
 # idempotent re-install: still present, no error
