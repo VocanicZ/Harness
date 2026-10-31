@@ -60,7 +60,7 @@ Linux and macOS; on Windows, run it inside WSL2. Pin a release with `HARNESS_REF
 
 | Prerequisite | |
 |---|---|
-| `node` ≥ 18 | runs the installer, and adds [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop (the `curl` line needs `bash` and `curl` instead, and lanes without rtdd run the full suite) |
+| `node` ≥ 18 | runs the installer and adds [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop. Optional with the `curl` line, which needs `bash` and `curl` instead; lanes without rtdd run the full suite |
 
 The installer offers to install the rest: `git`, `tmux`, `python3`, `curl`, `sha256sum`, `tar` and
 `gh` with your package manager (apt-get, dnf, pacman, zypper, apk or brew), `gh auth login`, and
