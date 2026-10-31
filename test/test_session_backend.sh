@@ -167,7 +167,17 @@ unset -f tmux
 echo "== harness start refuses an unknown backend =="
 out="$(cd "$proj" && STATE_DIR="$RUN_DIR/nostate" HARNESS_SESSION_BACKEND=screen bash "$ROOT/scripts/start.sh" 2>&1)"; rc=$?
 assert_no "start exits non-zero" test "$rc" -eq 0
-assert_ok "…naming the valid backends" grep -qF "(valid: headless tmux)" <<<"$out"
+assert_ok "…with start's own refusal, naming the valid backends" \
+  grep -qF "set HARNESS_SESSION_BACKEND in $RUN_DIR/nostate/config to one of: headless tmux" <<<"$out"
+
+echo "== launch_agent stops when the backend cannot start the session =="
+( export HARNESS_SESSION_BACKEND=headless; wd="$RUN_DIR/lwd"; mkdir -p "$wd"
+  sess_send_line(){ echo TYPED >> "$RUN_DIR/typed"; }; log(){ echo "$*" >> "$RUN_DIR/launch.log"; }
+  : > "$wd/.harness-task.md"; launch_agent hz-main-i9 "$wd" 2>/dev/null ); rc=$?
+assert_eq "$rc" 1 "launch_agent fails when sess_start does"
+assert_no "…types nothing into the session that never started" test -f "$RUN_DIR/typed"
+assert_no "…and records no goal for it" test -f "$RUN_DIR/hz-main-i9.goal"
+assert_ok "…and says why" grep -q "hz-main-i9 could not be started (backend headless)" "$RUN_DIR/launch.log"
 
 echo "== docs =="
 assert_ok "docs/reference.md documents HARNESS_SESSION_BACKEND and its values" \

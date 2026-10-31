@@ -807,7 +807,7 @@ session_limit_idle(){ local pane="$1"
   _cli_re_hits "$(cli_limit_re)" "$pane"; }
 # _watchdog_limit_pick <sess> — answer the blocking menu with its default choice ("stop and wait for
 # limit to reset"). A bare Enter, never a typed line: the pane is a menu, not a prompt.
-_watchdog_limit_pick(){ sess_enter "$1" || true; }
+_watchdog_limit_pick(){ sess_enter "$1" 2>/dev/null || true; }
 # _watchdog_limit_nudge <sess> — re-submit a continue once the quota is back. Same live-pane
 # send-keys pattern as _watchdog_nudge (#108 guard honoured: a plain line, never `exec claude …`).
 _watchdog_limit_nudge(){ local sess="$1"
@@ -1435,7 +1435,9 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   session_env "$uuid"
-  sess_start "$sess" "$wd" "${SESSION_ENV[@]}"; sleep 1.5
+  # A backend that cannot start the session (headless, #346) stops the launch here: nothing to type into.
+  sess_start "$sess" "$wd" "${SESSION_ENV[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
+  sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
   # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
   # the goal before `tmux new-session` opened a cross-lane TOCTOU window: a concurrent sweep in that
