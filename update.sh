@@ -24,6 +24,10 @@
 # path runs a destructive git op that could discard untracked/ignored files.
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Windows (#356): Git Bash's `ln -s` copies by default — the engine link this flips must be a real one.
+# (install.sh, which this sources, sets the same; set here too so no link is ever made without it.)
+case "${HARNESS_PLATFORM:-$(uname -s 2>/dev/null)}" in windows|MINGW*|MSYS*|CYGWIN*)
+  [[ " ${MSYS:-} " == *" winsymlinks:nativestrict "* ]] || export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict" ;; esac
 WITH_SKILLS=0; POST_FLIP=0; ROLLBACK=0
 for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; --rollback) ROLLBACK=1 ;; esac; done
 
@@ -121,6 +125,9 @@ else
   # Sourced AFTER the pull, so the functions below are the ones the pull just brought.
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
 fi
+
+# Windows (#356): rewrite the python3 shim from THIS engine's install.sh (a no-op elsewhere; never fatal).
+declare -F install_python_shim >/dev/null && { install_python_shim || echo "WARNING: the python3 shim was not rewritten" >&2; }
 
 # rtdd, ALWAYS — not behind --with-skills. The engine just ff-pulled prompts whose test loop IS
 # `rtdd which`; a host that last ran install.sh before rtdd existed would otherwise get the prompts

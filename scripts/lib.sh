@@ -1695,7 +1695,7 @@ poller_write_snapshot(){
 poller_running(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; }
 
 # ensure_poller — launch the host poller if none is alive. Idempotent and lock-guarded so concurrent
-# worker ticks can't double-spawn. The poller is a nohup BACKGROUND process (NOT a tmux session), so
+# worker ticks can't double-spawn. The poller is a detached BACKGROUND process (NOT a tmux session), so
 # `harness stop` (which kills ^<prefix>- tmux sessions) never touches it — correct, since other
 # fleets may still need it. The pid is recorded under the lock immediately so a near-simultaneous
 # caller sees a live pid and stands down. HARNESS_POLLER_CMD overrides the launched command (a test
@@ -1712,12 +1712,13 @@ ensure_poller(){
   # entire (fleet-outliving) life and wedge a later `start --recover` into launching ZERO workers —
   # the same leak class fixed for pool.sh/priority.sh. Closing it here covers every caller (start.sh
   # and the worker snapshot_gate) regardless of its own fd state.
+  # detach_launch (portable.sh) closes fd 9 for the child, and on Windows launches it so it outlives
+  # the ssh session that ran `harness start` (#356).
   if [[ -n "${HARNESS_POLLER_CMD:-}" ]]; then
-    nohup bash -c "$HARNESS_POLLER_CMD" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 9>&- &
+    detach_launch -a "$POLLER_PID" "$HARNESS_POLLER_DIR/poller.log" bash -c "$HARNESS_POLLER_CMD"
   else
-    nohup bash "$ENGINE_DIR/scripts/poller.sh" >> "$HARNESS_POLLER_DIR/poller.log" 2>&1 9>&- &
+    detach_launch -a "$POLLER_PID" "$HARNESS_POLLER_DIR/poller.log" bash "$ENGINE_DIR/scripts/poller.sh"
   fi
-  echo "$!" > "$POLLER_PID"
   lock_release "$lockfd"
 }
 

@@ -67,6 +67,16 @@ each helper's Linux branch is the current implementation, moved behind a functio
    absolute path. `harness start` launches workers and the poller detached from the calling
    session, through a scheduled task or `powershell Start-Process`, and records pid files.
    Processes `nohup`'d from an OpenSSH session die when that session ends (#356).
+   **As built (#356, probed on winsma 2026-10-31):** a plain `schtasks /Create /SC ONLOGON` task is
+   "Interactive only": `/Run` does nothing while no one is logged on at the console, and its default
+   72-hour run-time limit would end the supervisor. `/NP` (no stored password) prompts for one. So
+   the task is registered from an XML definition (`schtasks /Create /XML`, UTF-16LE with a BOM) with
+   the S4U logon type, which ran from an ssh-only session. It has boot and logon triggers and
+   `ExecutionTimeLimit PT0S`. Without an administrator it falls back to the plain logon-only task.
+   The detached launch is `Win32_Process.Create` (`powershell Invoke-CimMethod`): the process is
+   created by WMI, outside the ssh session, and a process launched this way was still alive in a
+   later ssh session. It gets the user's default environment, so a launcher script restores the
+   caller's.
 6. **Install/update:** `install.sh` / `update.sh` run under Git Bash. On Windows they set
    `MSYS=winsymlinks:nativestrict` so the engine link is a real symlink, and `doctor` proves a
    symlink can be created (Developer Mode or admin). They also put a `python3` shim in
@@ -131,12 +141,12 @@ as of `219444a`, how Git Bash on Windows handles it, and what replaces it there.
 | `kill -0` (shell) | 21 pid-liveness checks in 13 files | works for MSYS pids | kept; pid files hold MSYS pids, and native children are tracked by the runner | #355 |
 | `os.kill(pid, 0)` (Python) | `pid_alive` in `fleetview.py` and `web_data.py`; `cli/hermes.sh` | **wrong**: on Windows signal `0` is `CTRL_C_EVENT`, and the pid is an MSYS pid, not a Windows one | `pid_alive` helper: `OpenProcess` + `GetExitCodeProcess` via ctypes on the recorded winpid; hermes is tmux-only | #355 |
 | `trap … TERM` | `cli/openclaw-loop.sh`, `status.sh` watch | MSYS-to-MSYS only | the runner stops its turn with the `taskkill /T` path above; `status.sh`'s trap is cosmetic | #347, #355 |
-| `nohup … &` | `pool.sh`, `priority.sh`, `ensure_poller` (`lib.sh`) | present, but a process started from an OpenSSH session dies with that session | detached launch through a scheduled task or `powershell Start-Process`, with pid files | #356 |
+| `nohup … &` | `detach_launch` (`portable.sh`, called by `pool.sh`, `priority.sh`, `ensure_poller`), the headless lane start (`session/headless.sh`, run by an already-detached worker) | present, but a process started from an OpenSSH session dies with that session | detached launch through a scheduled task or `powershell Start-Process`, with pid files | #356 |
 | `systemctl --user` / `loginctl enable-linger` | `supervise.sh --install`, `web.sh --install`, `uninstall.sh` | absent | Task Scheduler: `schtasks /Create /SC ONLOGON` running Git's `bash.exe` by path; uninstall deletes the task | #356 |
 | `stat -c` | `lib.sh` grace-mark age, `cli/dispatch.sh` cache age | present (GNU coreutils) | none needed | none |
 | `date -d` | `supervise.sh`, `ghrate.sh`, `usage.sh`, `lib.sh` | present, including ISO and `@epoch` | none needed | none |
 | `readlink -f` / `realpath -m` | `bin/harness` self-location and `canon`, `lock_holders` | present; returns MSYS paths (`/c/…`) | none for bash; see paths below | #355 |
-| `mv -T` | `install.sh` / `update.sh` release placement and the engine-link flip | present | none for the command; whether renaming over a directory symlink is atomic must be verified on winsma | #356 |
+| `mv -T` | `install.sh` / `update.sh` release placement and the engine-link flip | present | none. Verified on winsma (#356): with `winsymlinks:nativestrict`, 300 flips of the engine link (`ln -s` + `mv -T` over it) failed none, and a reader that kept reading through the link meanwhile missed none of 1,500 reads | #356 |
 | `ln -s` / `ln -sfn` | the `install.sh` engine link (`$HARNESS_HOME/engine` → `releases/<tag>`), skill links | **copies silently** by default | `MSYS=winsymlinks:nativestrict` in install/update; `doctor` proves a symlink can be made (Developer Mode or admin) | #356 |
 | other GNU coreutils: `sort -V`, `base64 -w0`, `tac`, `sha256sum`, `md5sum`, `xargs -r`, `mktemp`, `timeout`, `tput`, `cp -al --parents` | `release.sh`, `seed.sh`, `install.sh`, `turn.sh`, `supervise.sh`, `uninstall.sh`, `status.sh`, `swarm-suite.sh` | present | none needed (swarm is off on Windows: `HARNESS_SWARM=off`) | none |
 | `chmod +x` | `cli/claude.sh` (the ralph-loop hook), `install.sh` | no-op on NTFS; MSYS runs a shebang `.sh` anyway | none for bash. Whether Claude Code on Windows runs a `.sh` Stop hook (through Git Bash) must be checked in the smoke; the headless runner's driven loop does not need the hook | #357, #358 |

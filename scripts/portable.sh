@@ -178,3 +178,139 @@ export_native_paths(){ is_windows || return 0
     f="$(declare -p "$v" 2>/dev/null)"; f="${f#declare -}"; [[ ${f%% *} == *x* ]] || continue
     printf -v "$v" '%s' "$(native_path "${!v}")"
   done; }
+
+# ------------------------------------------------------------------------------------ lifecycle ---
+# Native Windows has no systemd and no detaching `nohup` (#356, ADR 0001 §5): a process `nohup`'d from
+# an OpenSSH session dies with that session. These helpers are the Windows stand-ins; each POSIX
+# branch is the code the engine ran before.
+#
+# win_bash_exe — Git's bash.exe, in the form a Windows program reads (C:/Program Files/Git/bin/bash.exe).
+# Entrypoints that Windows starts (a scheduled task, a detached launch) name it by path: the `bash`
+# on the cmd PATH is C:\Windows\System32\bash.exe, which is WSL's. HARNESS_BASH_EXE overrides.
+win_bash_exe(){ local r c
+  [[ -n ${HARNESS_BASH_EXE:-} ]] && { printf '%s\n' "$HARNESS_BASH_EXE"; return 0; }
+  r="$(cygpath -m / 2>/dev/null)" || r=""
+  for c in "${r%/}/bin/bash.exe" "${r%/}/usr/bin/bash.exe"; do [[ -n $r && -f $c ]] && { printf '%s\n' "$c"; return 0; }; done
+  native_path "${BASH:-/usr/bin/bash}"; }
+# _ps_quote <s> — <s> as a PowerShell single-quoted string body (a ' is doubled).
+_ps_quote(){ printf '%s' "${1//\'/\'\'}"; }
+# _env_script — this shell's exported variables as `export NAME=value` lines a later bash can source.
+# Bash's own read-only and per-shell variables are left out; so is any name bash cannot assign.
+_env_script(){ local v
+  for v in $(compgen -e); do
+    [[ $v =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    case $v in BASHOPTS|SHELLOPTS|BASH_*|BASHPID|PPID|UID|EUID|SHLVL|PWD|OLDPWD|_) continue ;; esac
+    printf 'export %s=%q\n' "$v" "${!v}"
+  done; }
+
+# detach_launch [-a] <pidfile> <logfile> <cmd…> — start <cmd…> in the background so it outlives this
+# shell and the login session, with stdout+stderr to <logfile> (-a appends), and write its pid to
+# <pidfile>. rc 0 once the pid is recorded.
+#   POSIX:   `nohup <cmd…> >log 2>&1 9>&- &` and `$!` — exactly what pool.sh, priority.sh and
+#            ensure_poller did before #356. fd 9 is closed for the child: start.sh holds its
+#            double-start lock there, and a long-lived child must never inherit it.
+#   Windows: WMI starts the process (Win32_Process.Create through powershell's Invoke-CimMethod), so
+#            it is a child of the WMI service, not of this shell, and leaves the OpenSSH session's job
+#            object behind. It gets the user's default environment, not ours, so a launcher script
+#            beside <pidfile> (<pidfile>.launch.sh, mode 600 env beside it) restores this shell's
+#            exported variables and directory, records `$$` — the MSYS pid, which `exec` keeps and
+#            `kill -0`/`kill` understand — and execs <cmd…>. This waits up to HARNESS_DETACH_WAIT
+#            seconds (default 30) for the pid. HARNESS_POWERSHELL names powershell (a test fakes it).
+detach_launch(){ local append=0
+  [[ ${1:-} == -a ]] && { append=1; shift; }
+  local pidf="$1" log="$2"; shift 2
+  if ! is_windows; then
+    if (( append )); then nohup "$@" >>"$log" 2>&1 9>&- &
+    else nohup "$@" >"$log" 2>&1 9>&- & fi
+    echo "$!" > "$pidf"; return 0
+  fi
+  local launch="$pidf.launch.sh" envf="$pidf.env" redir='>' cl i
+  (( append )) && redir='>>'
+  ( umask 077; _env_script > "$envf" ) || return 1
+  {
+    printf '#!/usr/bin/env bash\n# written by harness (detach_launch, #356): restores the launching shell, then runs the command.\n'
+    printf 'source %q\n' "$envf"
+    printf 'cd %q 2>/dev/null || cd\n' "$PWD"
+    printf 'echo "$$" > %q && mv -f %q %q\n' "$pidf.new" "$pidf.new" "$pidf"
+    printf 'exec %s </dev/null %s%q 2>&1\n' "$(printf '%q ' "$@")" "$redir" "$log"
+  } > "$launch" || return 1
+  rm -f "$pidf" "$pidf.new"
+  cl="\"$(win_bash_exe)\" \"$(native_path "$launch")\""
+  MSYS2_ARG_CONV_EXCL='*' "${HARNESS_POWERSHELL:-powershell}" -NoProfile -NonInteractive -Command \
+    "\$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='$(_ps_quote "$cl")'}; exit \$r.ReturnValue" \
+    </dev/null >/dev/null 2>&1 || { echo "detach_launch: Win32_Process.Create failed for: $*" >&2; return 1; }
+  for (( i = 0; i < ${HARNESS_DETACH_WAIT:-30} * 10; i++ )); do
+    [[ -s $pidf ]] && return 0
+    sleep 0.1
+  done
+  echo "detach_launch: $* started but recorded no pid in $pidf" >&2; return 1; }
+
+# ---- services: Task Scheduler in place of a systemd user unit (#356) -------------------------------
+# A service is a launcher script <dir>/<name>.sh — the unit file's stand-in, with the same
+# `# ExecStart=<command>` line the engine checks to tell whose install it is — registered as the
+# scheduled task Harness\<name>. The task starts at logon and at boot (the boot trigger stands in for
+# linger, so the service runs with nobody logged in), with the S4U logon type (no stored password,
+# runs whether or not the user is logged on), no run-time limit (the default kills a task after 72h)
+# and one instance at a time. The launcher's own loop is Restart=always. Registering a boot trigger
+# needs an administrator; without one the task falls back to a logon-only, interactive-session task
+# and says so — the analogue of a failed enable-linger. HARNESS_SCHTASKS names schtasks (a test fakes it).
+_schtasks(){ MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${HARNESS_SCHTASKS:-schtasks}" "$@"; }
+win_task_name(){ printf 'Harness\\%s\n' "$1"; }
+win_task_file(){ printf '%s/%s.sh\n' "$1" "$2"; }
+# win_task_xml <launcher> <full:1|0> — the task definition. full: S4U + boot and logon triggers;
+# otherwise the interactive-token, logon-only task plain `schtasks /SC ONLOGON` makes.
+win_task_xml(){ local launch="$1" full="$2" user="${USERNAME:-$(id -un)}" trig logon=InteractiveToken
+  trig="<LogonTrigger><Enabled>true</Enabled><UserId>$user</UserId></LogonTrigger>"
+  (( full )) && { trig="<BootTrigger><Enabled>true</Enabled></BootTrigger>$trig"; logon=S4U; }
+  cat <<XML
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Harness: $(basename "$launch" .sh) (written by harness; see $(native_path "$launch"))</Description></RegistrationInfo>
+  <Triggers>$trig</Triggers>
+  <Principals><Principal id="Author"><UserId>$user</UserId><LogonType>$logon</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>$(win_bash_exe)</Command><Arguments>"$(native_path "$launch")"</Arguments></Exec></Actions>
+</Task>
+XML
+}
+# win_task_install <dir> <name> <restart-s> [VAR=value…] -- <cmd…> — write <dir>/<name>.sh (its
+# environment, then <cmd…> rerun <restart-s> seconds after each exit, logging to <dir>/<name>.log),
+# register it as Harness\<name> and (re)start it. Re-running rewrites both: idempotent.
+win_task_install(){ local dir="$1" name="$2" restart="$3"; shift 3
+  local kv envs=() launch xml tn
+  while (( $# )) && [[ $1 != -- ]]; do envs+=("$1"); shift; done
+  [[ ${1:-} == -- ]] && shift
+  mkdir -p "$dir" || { echo "ERROR: cannot create $dir" >&2; return 1; }
+  launch="$(win_task_file "$dir" "$name")"; xml="$dir/$name.xml"; tn="$(win_task_name "$name")"
+  {
+    printf '#!/usr/bin/env bash\n# %s: run by the scheduled task %s (#356). Written by harness; re-running the install rewrites it.\n' "$name" "$tn"
+    printf '# ExecStart=%s\n' "$*"
+    for kv in ${envs[@]+"${envs[@]}"}; do printf 'export %s=%q\n' "${kv%%=*}" "${kv#*=}"; done
+    printf 'while :; do\n  %s</dev/null >>%q 2>&1\n  sleep %s\ndone\n' "$(printf '%q ' "$@")" "$dir/$name.log" "$restart"
+  } > "$launch" || return 1
+  _win_task_register "$launch" "$xml" "$tn" 1 2>/dev/null || {
+    echo "WARNING: could not register $tn to start at boot (that needs an administrator) — it runs at your next logon, in your session" >&2
+    _win_task_register "$launch" "$xml" "$tn" 0 || { echo "WARNING: could not register the scheduled task $tn" >&2; return 1; }
+  }
+  echo "  wrote $launch (scheduled task $tn)"
+  _schtasks /End /TN "$tn" >/dev/null 2>&1
+  _schtasks /Run /TN "$tn" >/dev/null || echo "WARNING: could not (re)start $tn" >&2
+  return 0; }
+# schtasks reads a task definition only as UTF-16 (little-endian, with its byte-order mark).
+_win_task_register(){ local launch="$1" xml="$2" tn="$3" full="$4"
+  { printf '\xff\xfe'; win_task_xml "$launch" "$full" | iconv -f UTF-8 -t UTF-16LE; } > "$xml" || return 1
+  _schtasks /Create /F /TN "$tn" /XML "$(native_path "$xml")" >/dev/null; }
+# win_task_uninstall <dir> <name> — stop and delete Harness\<name> and its files.
+win_task_uninstall(){ local dir="$1" name="$2" tn; tn="$(win_task_name "$2")"
+  _schtasks /End /TN "$tn" >/dev/null 2>&1
+  _schtasks /Delete /F /TN "$tn" >/dev/null 2>&1
+  rm -f "$(win_task_file "$dir" "$name")" "$dir/$name.xml"; return 0; }
+# win_task_env <dir> <name> <VAR> — the value <name>'s launcher exports for <VAR> (empty when none).
+win_task_env(){ local f; f="$(win_task_file "$1" "$2")"; [[ -f $f ]] || return 0
+  ( unset "$3"; eval "$(grep -E "^export $3=" "$f" | tail -1)"; printf '%s' "${!3:-}" ); }
