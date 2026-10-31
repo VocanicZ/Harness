@@ -27,8 +27,14 @@ tmux_calls(){ case "$1" in
   *)    sed -E 's/(^|[[:space:]])#.*$//' "$1" | grep -nE \
           "(^|[^[:alnum:]_./-])tmux[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*($TMUX_SUB)([[:space:]]|\$|[;)|&])|command -v tmux" ;;
   esac; }
-# The engine's files as git knows them (tracked or new, never ignored — no __pycache__).
-repo_files(){ git -C "$ROOT" ls-files --cached --others --exclude-standard -- "$@" | sort -u; }
+# The engine's files as git knows them (tracked or new, never ignored — no __pycache__); off a git
+# checkout (a swarm snapshot, a release tarball) every file under the same pathspecs, caches dropped.
+repo_files(){
+  if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$ROOT" ls-files --cached --others --exclude-standard -- "$@"
+  else
+    local p; for p in "$@"; do ( cd "$ROOT" && find . -type f \( -path "./$p" -o -path "./$p/*" \) 2>/dev/null ) ; done | sed 's#^\./##' | grep -v -e '__pycache__/' -e '\.pyc$'
+  fi | sort -u; }
 engine_files(){ repo_files install.sh update.sh 'bin/*' 'scripts/*.sh' 'scripts/*.py' 'scripts/*.js'; }
 
 # The guard must be able to fail: each shape of a tmux call it exists to catch is caught.
