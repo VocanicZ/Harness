@@ -457,6 +457,33 @@ def test_emit_swallows_unexpected_errors_and_runs_as_a_script():
         sys.argv = saved
 
 
+def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
+    """#352: a headless lane's claude may keep no transcript; its events.jsonl is found by the session id
+    its state.json names, and folded from each turn's stream-json `result` modelUsage (summed over turns,
+    the assistant events' partial usage ignored)."""
+    fix = os.path.join(HERE, "fixtures", "cli", "claude", "stream-json")
+    with host() as d:
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = os.path.join(d, "none")
+        lane = os.path.join(d, "lanes", "hz-main-i9"); os.makedirs(lane)
+        sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        with open(os.path.join(lane, "state.json"), "w") as fh:
+            json.dump({"session_id": sid, "state": "ended"}, fh)
+        with open(os.path.join(lane, "events.jsonl"), "w") as out:
+            for f in ("tool-use.jsonl", "normal.jsonl"):
+                out.write(open(os.path.join(fix, f)).read())
+        assert st.find_transcript(sid) == os.path.join(lane, "events.jsonl")
+        assert st.find_transcript("no-such-session") is None
+        usage, _, _ = st.session_usage(st.find_transcript(sid))
+        assert usage == {"claude-haiku-5-5": {"input": 8, "output": 182, "cache_create": 66287, "cache_read": 74625}}, usage
+        rec = st.build_event("session_end", {}, {"session": sid, "launched": 1}, {}, now=100)
+        assert rec["usage"] == usage, rec
+        os.environ["HARNESS_HEADLESS_DIR"] = os.path.join(d, "elsewhere")
+        try:
+            assert st.find_transcript(sid) is None   # the lanes root is HARNESS_HEADLESS_DIR when set
+        finally:
+            os.environ.pop("HARNESS_HEADLESS_DIR")
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

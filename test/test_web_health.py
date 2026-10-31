@@ -104,5 +104,16 @@ def test_a_dead_claim_is_a_stale_lock_and_a_live_one_is_not():
         assert re.search(r'data-fleet="dp"[^>]*data-health="attention"', body)
 
 
+def test_a_headless_lane_row_carries_its_state():
+    """#352: a live headless lane's own state rides on its session row, the fleet card and the drawer."""
+    render = wf.load("web_render")
+    live = {"zz-arc-i7": NOW - 60, "zz-arc-i8": NOW - 60}
+    s = web_data.live_sessions("zz", NOW, live, {}, None, {}, web_data.SUP_DEFAULTS, {"zz-arc-i7": "limit"})
+    assert [(x["name"], x["state"]) for x in s] == [("zz-arc-i7", "limit"), ("zz-arc-i8", None)], s
+    html = render._sessions_table(s, NOW, "zz")
+    assert re.search(r'data-session="zz-arc-i7"[^>]*data-state="limit"', html), html
+    assert not re.search(r'data-session="zz-arc-i8"[^>]*data-state', html), html
+
+
 if __name__ == "__main__":
     sys.exit(wf.run_tests(globals()))

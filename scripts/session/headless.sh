@@ -112,6 +112,15 @@ headless_sess_kill(){ local lane pid i
 headless_sess_activity(){ local lane; headless_sess_live "$1" || return 0; lane="$(headless_lane_dir "$1")"
   printf 'turn=%s events=%s\n' "$(python3 "$HEADLESS_LANE_PY" state --lane "$lane" --field turn 2>/dev/null)" \
     "$( { wc -c < "$lane/events.jsonl"; } 2>/dev/null | tr -d ' ')"; }
+# The lane's state word (claude_headless.py's state.json): idle | busy | limit | transient — what
+# `harness status`, fleetview and `harness web` show beside a headless lane (#352).
+headless_sess_state(){ headless_sess_live "$1" || return 0; _hl_state "$1"; }
+# headless_lane_rows — `<name>\t<created epoch>\t<runner pid>\t<state>` per live lane: the one probe the
+# Python views (session_backend.py) run for a headless fleet's sessions, models and states (#352).
+headless_lane_rows(){ local n lane
+  while read -r n; do [[ -n $n ]] || continue; lane="$(headless_lane_dir "$n")"
+    printf '%s\t%s\t%s\t%s\n' "$n" "$(cat "$lane/created" 2>/dev/null)" "$(_hl_pid "$n")" "$(_hl_state "$n")"
+  done < <(headless_sess_list); }
 headless_sess_turns(){ headless_sess_live "$1" || return 0
   python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field turn 2>/dev/null; }
 headless_sess_turn_ended(){ headless_sess_live "$1" || return 0

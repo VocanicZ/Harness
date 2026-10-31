@@ -116,30 +116,51 @@ def session_number(name):
     return int(m.group(1)) if m else None
 
 
+def _probe(argv_of):
+    """[stdout lines] of one probe per session backend (session_backend.BACKENDS): fleets sharing a host
+    may run on different backends, and this view is every fleet's. A backend whose probe fails, or that
+    has none, adds nothing."""
+    lines = []
+    for b in session_backend.BACKENDS:
+        argv = argv_of(b)
+        rc, out = run_cmd(argv) if argv else (1, "")
+        if rc == 0:
+            lines += out.splitlines()
+    return lines
+
+
 def host_sessions():
-    """{session name: created epoch} for every live tmux session; {} when there is no server."""
-    argv = session_backend.list_created_argv()
-    rc, out = run_cmd(argv) if argv else (1, "")
+    """{session name: created epoch} for every live session — tmux sessions and headless lanes alike;
+    {} when there is none."""
     sess = {}
-    if rc == 0:
-        for line in out.splitlines():
-            name, _, created = line.partition("\t")
-            if name:
-                sess[name] = int(created) if created.strip().isdigit() else None
+    for line in _probe(session_backend.list_created_argv):
+        name, _, created = line.partition("\t")
+        if name:
+            sess[name] = int(created) if created.strip().isdigit() else None
     return sess
 
 
+def session_states():
+    """{session name: state} for every live session whose backend keeps one: a headless lane's idle |
+    busy | limit | transient (#352). A tmux pane has none."""
+    out = {}
+    for line in _probe(session_backend.states_argv):
+        name, _, state = line.partition("\t")
+        if name and state.strip():
+            out[name] = state.strip()
+    return out
+
+
 def session_models():
-    """{session name: model} — read off the `--model X` flag of a process under each tmux pane."""
-    argv = session_backend.pane_pids_argv()
-    rc, out = run_cmd(argv) if argv else (1, "")
-    if rc != 0:
-        return {}
+    """{session name: model} — read off the `--model X` flag of a process under each session's pane (a
+    headless lane: its runner, whose argv carries the lane's claude flags)."""
     panes = {}
-    for line in out.splitlines():
+    for line in _probe(session_backend.pane_pids_argv):
         name, _, pid = line.partition("\t")
         if pid.strip().isdigit():
             panes.setdefault(name, []).append(int(pid))
+    if not panes:
+        return {}
     rc, out = run_cmd(["ps", "-eo", "pid=,ppid=,args="])
     kids, args = {}, {}
     for line in out.splitlines() if rc == 0 else []:
@@ -276,7 +297,7 @@ def fleet_labels(cfg):
             "prd": cfg.get("HARNESS_LABEL_PRD", "prd")}
 
 
-def render_fleet(rec, sessions, models, now, counts_for):
+def render_fleet(rec, sessions, models, now, counts_for, states=None):
     project, prefix = rec["project"], rec.get("prefix") or "?"
     slugs = fleet_slugs(rec)
     root = os.path.dirname(project.rstrip("/")) or project
@@ -302,7 +323,9 @@ def render_fleet(rec, sessions, models, now, counts_for):
         for n in mine:
             created = sessions[n]
             age = fmt_age(now - created) if created else "?"
-            out.append(f"    ⟳ {n:<28} {session_issue(n):<14} {age:>5}  {models.get(n, '?')}")
+            st = (states or {}).get(n)
+            out.append(f"    ⟳ {n:<28} {session_issue(n):<14} {age:>5}  {models.get(n, '?')}"
+                       + (f"  [{st}]" if st else ""))
     else:
         out.append("  sessions: none live")
     live_nums = {session_number(n) for n in mine} - {None}
@@ -353,10 +376,10 @@ def render(now=None, counts_cache=None):
               for r in recs if os.path.isdir(r["project"]) for s in fleet_slugs(r)}
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda k: counts_for(k[0], dict(k[1])), wanted))
-    sessions, models = host_sessions(), session_models()
+    sessions, models, states = host_sessions(), session_models(), session_states()
     for rec in recs:
         out.append("───────────────────────────────────────────────────────────────────────────")
-        out.extend(render_fleet(rec, sessions, models, now, counts_for))
+        out.extend(render_fleet(rec, sessions, models, now, counts_for, states))
     out.append("═══════════════════════════════════════════════════════════════════════════")
     return out
 

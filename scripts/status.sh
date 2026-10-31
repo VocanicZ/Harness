@@ -37,6 +37,12 @@ fleet_verdict(){
   fi
 }
 
+# session_row <sess> <wd> — one live session's line under its worker: its goal loop's iteration and, for
+# a backend that keeps one, the session's own state (a headless lane's idle | busy | limit | transient,
+# #352 — a pane's state is only on its screen).
+session_row(){ local st; st="$(sess_state "$1" 2>/dev/null)"
+  printf '        ⟳ %-18s ralph-iter=%s%s\n' "$1" "$(iter_of "$2")" "${st:+  $(sess_backend): $st}"; }
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -96,7 +102,7 @@ render_once(){
         else
           wd="$checkout"
         fi
-        printf '        ⟳ %-18s ralph-iter=%s\n' "$s" "$(iter_of "$wd")"
+        session_row "$s" "$wd"
       done
     else
       echo "        · idle (no unit claimed)"

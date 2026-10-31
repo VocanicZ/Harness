@@ -65,6 +65,9 @@ sess_pane_pid(){ _sess_call pane_pid "$@"; }
 # same screen behind (#351: the supervisor's frozen-session test). Empty when the screen is the whole
 # story (a pane prints everything it does) or the session is not live.
 sess_activity(){ _sess_call activity "$@"; }
+# sess_state <target> — the session's own state word where the backend keeps one (a headless lane's
+# idle | busy | limit | transient, #352: status and the views show it); empty for a pane or a dead one.
+sess_state(){ _sess_call state "$@"; }
 # sess_kill <target> — end the session; false when there was none.
 sess_kill(){ _sess_call kill "$@"; }
 # sess_turns <target> — how many turns the session has started, a mark for sess_turn_ended; empty when

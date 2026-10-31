@@ -286,6 +286,34 @@ def test_watch_reuses_gh_counts_within_ttl():
         fv.run_cmd, fv.ThreadPoolExecutor = _REAL_RUN_CMD, real_pool
 
 
+def test_headless_lanes_are_listed_with_model_and_state_beside_tmux_sessions():
+    """#352: the host view asks every session backend — a headless lane (one bash probe into
+    headless.sh's lane rows) is listed beside the tmux sessions, its model read off its runner's flags,
+    its state shown on its row."""
+    sb = fv.session_backend
+    fv.run_cmd = fake_cmds({
+        ("tmux", "ls"): (0, "alpha-main-i1\t%d\n" % (NOW - 60)),
+        ("tmux", "list-panes"): (0, "alpha-main-i1\t10\n"),
+        tuple(sb.list_created_argv("headless")): (0, "alpha-main-i2\t%d\n" % (NOW - 120)),
+        tuple(sb.pane_pids_argv("headless")): (0, "alpha-main-i2\t40\n"),
+        tuple(sb.states_argv("headless")): (0, "alpha-main-i2\tbusy\nbad-row\t\n"),
+        ("ps",): (0, "10 1 claude --model opus\n40 1 python3 claude_headless.py run --flags=--x --model haiku\n")})
+    try:
+        assert fv.host_sessions() == {"alpha-main-i1": NOW - 60, "alpha-main-i2": NOW - 120}
+        assert fv.session_models() == {"alpha-main-i1": "opus", "alpha-main-i2": "haiku"}
+        assert fv.session_states() == {"alpha-main-i2": "busy"}
+        assert sb.states_argv("tmux") is None, "a pane keeps no state of its own"
+        assert sb.list_created_argv("nosuch") is None and sb.pane_pids_argv("nosuch") is None
+        root, _, alpha, _ = make_host()
+        rec = {"project": alpha, "prefix": "alpha", "run_dir": os.path.join(alpha, "run")}
+        rows = "\n".join(fv.render_fleet(rec, fv.host_sessions(), fv.session_models(), NOW,
+                                         lambda s, l: None, fv.session_states()))
+        assert "alpha-main-i2" in rows and "haiku  [busy]" in rows, rows
+        assert "opus  [" not in rows, rows   # the tmux session has no state to show
+    finally:
+        fv.run_cmd = _REAL_RUN_CMD
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
