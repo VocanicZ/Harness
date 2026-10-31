@@ -19,11 +19,21 @@ and is skipped.
 The distribution is p50/p80/p95 per phase and in total, scaled by the issue's body length over the
 median body of the pool's issues (clamped to SCALE_CLAMP). The pool is the issue's PRD siblings in
 its repo, else every lane of the unit (its repo), else every lane on the host — each fallback is
-named in the output. % of a usage window needs a $-per-% calibration (#364); until then it is n/a.
+named in the output.
+
+% of each usage window (#364): usage_watch logs every new reading as a `usage_reading` event
+(account, window, pct, resets_at). For each account/window, consecutive readings inside one window
+(the same resets_at — a pair across a reset is skipped) give a pair: the % it rose by, and the $ the
+event log's sessions on that account spent between the two (each message of their transcripts, by
+its timestamp; the account is the transcript's config dir, the name the status line reports). The fit
+is $ per 1%: central = Σ$ / Σ%, and the conservative bound — the low end, so the % a forecast needs is
+over- rather than under-estimated — is the BOUND_Q quantile of the per-pair $/1%, never above the
+central fit. An account/window with no usable pair falls back to HARNESS_ONE_USD_PER_PCT (the
+environment, else the project config), and the output says so; with neither, % is n/a.
 
     forecast.py <issue> [-R owner/repo] [--unit U] [--json]
 """
-import importlib.util, json, os, re, subprocess, sys
+import bisect, importlib.util, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -43,6 +53,9 @@ MIN_LANES = 3            # fewer past lanes than this in a pool → fall back to
 MIN_LANE_USD = 0.5       # a lane that spent less died at turn 1
 SCALE_CLAMP = (0.6, 2.0)
 QUANTILES = (("p50", 0.5), ("p80", 0.8), ("p95", 0.95))
+FALLBACK_SETTING = "HARNESS_ONE_USD_PER_PCT"
+BOUND_Q = 0.2            # the conservative $-per-1% bound: this quantile of the per-pair fits
+RESET_SLACK = 300        # two readings whose resets_at differ by more than this straddle a window reset
 
 # $ per Mtok at list price: input, output, 5-minute cache write, 1-hour cache write, cache read.
 # A model no family matches is priced as Opus — the conservative end, for a budget gate.
@@ -97,8 +110,9 @@ def phase_of(block, cur, edited):
 
 
 def _messages(path):
-    """[(key, model, usage, tool_use blocks)] in first-seen order. A streamed message is written once
-    per content block under one id: its blocks are gathered and its (last) usage taken once."""
+    """[(key, model, usage, tool_use blocks, timestamp)] in first-seen order. A streamed message is
+    written once per content block under one id: its blocks are gathered and its (last) usage taken
+    once; its timestamp is its first line's."""
     order, by = [], {}
     try:
         fh = open(path, errors="replace")
@@ -117,7 +131,7 @@ def _messages(path):
                 continue
             key = m.get("id") or r.get("requestId") or r.get("uuid") or f"{path}:{len(order)}"
             if key not in by:
-                by[key] = [key, m["model"], None, []]
+                by[key] = [key, m["model"], None, [], r.get("timestamp")]
                 order.append(key)
             by[key][2] = m["usage"]
             content = m.get("content")
@@ -132,7 +146,7 @@ def transcript_phases(files):
     out, seen = {p: 0.0 for p in PHASES}, set()
     for f in files:
         cur, edited = "explore", False
-        for key, model, usage, tools in _messages(f):
+        for key, model, usage, tools, _ in _messages(f):
             for b in tools:
                 cur = phase_of(b, cur, edited)
                 edited = edited or cur in ("test", "impl")
@@ -154,12 +168,14 @@ def lanes(events, find=None):
             continue
         key = ((s.get("repo") or "").lower(), s["issue"])
         ln = by.setdefault(key, {"repo": s.get("repo"), "issue": s["issue"], "unit": s.get("unit"),
-                                 "prd": s.get("prd"), "sessions": 0, "phases": None, "unattributed": 0.0})
+                                 "prd": s.get("prd"), "sessions": 0, "phases": None, "unattributed": 0.0,
+                                 "accounts": set()})
         ln["sessions"] += 1
         for k in ("repo", "unit", "prd"):
             ln[k] = ln[k] if ln[k] is not None else s.get(k)
         tr = find(s["session"])
         if tr:
+            ln["accounts"].add(transcript_account(tr))
             ph = transcript_phases(st.transcript_files(tr))
             ln["phases"] = {p: (ln["phases"] or {}).get(p, 0.0) + ph[p] for p in PHASES}
         else:
@@ -229,9 +245,123 @@ def choose_pool(all_lanes, repo, issue, prd):
     return "none", [], notes
 
 
-def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None):
+# --- usage calibration (#364) --------------------------------------------------
+def norm_account(a):
+    """usage-statusline.sh names an account after its config dir, "default" when none is set."""
+    a = str(a or "")
+    return "default" if a in ("", ".claude") else a
+
+
+def transcript_account(path):
+    """The account of a claude transcript (<config dir>/projects/<slug>/<session>.jsonl)."""
+    return norm_account(os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path)))))
+
+
+def readings(events):
+    """{(account, window): [(t, pct, resets_at)]} from the usage_reading events, in time order; a
+    reading that repeats the one before it (same pct and resets_at — several fleets poll one
+    account) is folded into its first sighting."""
+    by = {}
+    for e in events:
+        if e.get("event") != "usage_reading" or not e.get("window"):
+            continue
+        t = st.parse_ts(e.get("ts"))
+        try:
+            pct, reset = float(e.get("pct")), int(e.get("resets_at") or 0)
+        except (TypeError, ValueError):
+            continue
+        if t is not None:
+            by.setdefault((norm_account(e.get("account")), str(e["window"])), []).append((t, pct, reset))
+    out = {}
+    for k, rs in by.items():
+        out[k] = []
+        for r in sorted(rs):
+            if not out[k] or out[k][-1][1:] != r[1:]:
+                out[k].append(r)
+    return out
+
+
+def account_spend(events, start, end, find=None):
+    """{account: sorted [(t, $)]}: every message of every session's transcripts (main + sub-agents,
+    each message once) — for the sessions that can overlap [start, end]. A session with no claude
+    transcript has no account and no timeline, so it is left out."""
+    find = find or st.find_transcript
+    out = {}
+    for s in st.sessions(events):
+        launched, ended = st.parse_ts(s.get("launched")), st.parse_ts(s.get("ended"))
+        if (launched is not None and launched > end) or (ended is not None and ended < start):
+            continue
+        tr = find(s["session"])
+        if not tr:
+            continue
+        acc, seen = out.setdefault(transcript_account(tr), []), set()
+        for f in st.transcript_files(tr):
+            for key, model, usage, _, ts in _messages(f):
+                t = st.parse_ts(ts)
+                if key in seen or t is None:
+                    continue
+                seen.add(key)
+                acc.append((t, raw_cost(usage, model)))
+    for v in out.values():
+        v.sort()
+    return out
+
+
+def _spent_between(timeline, t0, t1):
+    """$ of the messages in (t0, t1]."""
+    ts = [t for t, _ in timeline]
+    return sum(c for _, c in timeline[bisect.bisect_right(ts, t0):bisect.bisect_right(ts, t1)])
+
+
+def calibrate(events, accounts=(), find=None):
+    """[{account, window, pairs, skipped_reset, central, bound}], one per account/window with readings
+    (central / bound $ per 1%, None without a usable pair), plus {account, window: None, pairs: 0}
+    for each of `accounts` (the lanes' accounts) that has no reading at all."""
+    rd = readings(events)
+    times = [r[0] for rs in rd.values() for r in rs]
+    spend = account_spend(events, min(times), max(times), find) if times else {}
+    out = []
+    for (acct, win), rs in sorted(rd.items()):
+        ratios, usd_sum, pct_sum, skipped = [], 0.0, 0.0, 0
+        for a, b in zip(rs, rs[1:]):
+            if abs(b[2] - a[2]) > RESET_SLACK or b[1] < a[1]:
+                skipped += 1   # the window reset between the two: no pair
+                continue
+            usd, d = _spent_between(spend.get(acct, []), a[0], b[0]), b[1] - a[1]
+            if d <= 0 or usd <= 0:
+                continue       # no % moved, or none of the event log's sessions spent: nothing to fit
+            ratios.append(usd / d)
+            usd_sum, pct_sum = usd_sum + usd, pct_sum + d
+        central = usd_sum / pct_sum if ratios else None
+        bound = min(central, quantile(ratios, BOUND_Q)) if ratios else None
+        out.append({"account": acct, "window": win, "pairs": len(ratios), "skipped_reset": skipped,
+                    "central": None if central is None else round(central, 2),
+                    "bound": None if bound is None else round(bound, 2)})
+    have = {c["account"] for c in out}
+    out += [{"account": a, "window": None, "pairs": 0, "skipped_reset": 0, "central": None, "bound": None}
+            for a in sorted({norm_account(a) for a in accounts} - have)]
+    return out
+
+
+def window_pct(cal, phases, total, fallback):
+    """The forecast as % of each window: [{...calibration, source, usd_per_pct, phases, total}] —
+    source "fit" (the bound), "fallback" (HARNESS_ONE_USD_PER_PCT) or "none" (n/a). With no
+    calibration at all, one account-less entry for the fallback."""
+    rows = cal or ([{"account": None, "window": None, "pairs": 0, "skipped_reset": 0, "central": None,
+                     "bound": None}] if fallback else [])
+    out = []
+    for c in rows:
+        usd, src = (c["bound"], "fit") if c["bound"] else (fallback, "fallback") if fallback else (None, "none")
+        pct = (lambda r: {q: round(v / usd, 2) for q, v in r.items()}) if usd else (lambda r: None)
+        out.append(dict(c, source=src, usd_per_pct=usd, phases={p: pct(phases[p]) for p in PHASES},
+                        total=pct(total)))
+    return out
+
+
+def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None, fallback=None):
     """The forecast dict for `issue` of `repo`. body: the issue's body text (None = unknown); bodies:
-    {issue number: body} for `repo`, used for the pool's median body length and the issue's PRD."""
+    {issue number: body} for `repo`, used for the pool's median body length and the issue's PRD;
+    fallback: the operator's $ per 1% (HARNESS_ONE_USD_PER_PCT) for a window with no calibration."""
     bodies = bodies or {}
     all_lanes = lanes(events, find)
     rl = (repo or "").lower()
@@ -256,13 +386,19 @@ def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None):
     phases = {p: {q: round(quantile([x[p] for x in per], v) * scale, 2) for q, v in QUANTILES} for p in PHASES}
     totals = [ln["total"] for ln in pool]
     total = {q: round(quantile(totals, v) * scale, 2) for q, v in QUANTILES}
+    cal = calibrate(events, set().union(*(ln["accounts"] for ln in all_lanes)), find)
+    windows = window_pct(cal, phases, total, fallback)
     return {
         "issue": issue, "repo": repo, "unit": unit, "prd": prd,
         "basis": {"tier": tier, "lanes": len(pool), "fallback": tier != "prd", "notes": notes,
                   "no_transcript": sum(1 for ln in pool if not ln["phases"])},
         "size": {"body": body_len, "median_body": med, "scale": round(scale, 2), "clamp": list(SCALE_CLAMP)},
         "phases": phases, "total": total,
-        "pct": None,   # % of each usage window: needs the $-per-% calibration (#364)
+        # % of each usage window (#364); None when no window has a $-per-% (no fit, no fallback)
+        "pct": [{k: w[k] for k in ("account", "window", "source", "usd_per_pct", "phases", "total")}
+                for w in windows] if any(w["usd_per_pct"] for w in windows) else None,
+        "calibration": {"windows": [{k: v for k, v in w.items() if k not in ("phases", "total")} for w in windows],
+                        "fallback": fallback, "setting": FALLBACK_SETTING, "bound_q": BOUND_Q},
         "spent": {"sessions": sum(ln["sessions"] for ln in own), "usd": round(sum(ln["total"] for ln in own), 2)},
     }
 
@@ -284,16 +420,70 @@ def render(f):
     else:
         out.append(f"  size: body {s['body']} chars vs median {s['median_body']:.0f} → scale x{s['scale']:.2f} "
                    f"(clamped {s['clamp'][0]}–{s['clamp'][1]})")
-    out.append(f"  {'phase':8} {'p50 $':>8} {'p80 $':>8} {'p95 $':>8}   % of window")
+    na = "   n/a" if f["pct"] is None else ""
+    out.append(f"  {'phase':8} {'p50 $':>8} {'p80 $':>8} {'p95 $':>8}" + ("   % of window" if na else ""))
     for p in PHASES:
         r = f["phases"][p]
-        out.append(f"  {p:8} {r['p50']:8.2f} {r['p80']:8.2f} {r['p95']:8.2f}   n/a")
+        out.append(f"  {p:8} {r['p50']:8.2f} {r['p80']:8.2f} {r['p95']:8.2f}" + na)
     t = f["total"]
-    out.append(f"  {'TOTAL':8} {t['p50']:8.2f} {t['p80']:8.2f} {t['p95']:8.2f}   n/a")
-    out.append("  % of each usage window: n/a until a $-per-% calibration exists (#364)")
+    out.append(f"  {'TOTAL':8} {t['p50']:8.2f} {t['p80']:8.2f} {t['p95']:8.2f}" + na)
+    out += render_pct(f)
     if f["spent"]["sessions"]:
         out.append(f"  already spent on #{f['issue']}: ${f['spent']['usd']:.2f} over {f['spent']['sessions']} session(s)")
     return "\n".join(out)
+
+
+def _window_name(w):
+    return " ".join(x for x in (w["account"], w["window"]) if x) or "any account"
+
+
+def render_pct(f):
+    """The % of each window table (p50/p80/p95 per phase and in total), then one line per window
+    naming the fit it used or the fallback."""
+    cal, out = f["calibration"], []
+    if f["pct"]:
+        cols = [(_window_name(w), w) for w in f["pct"]]
+        cell = lambda r: "n/a" if r is None else f"{r['p50']:.2f}/{r['p80']:.2f}/{r['p95']:.2f}"
+        width = [max(len(n), *(len(cell(w["phases"][p])) for p in PHASES), len(cell(w["total"]))) for n, w in cols]
+        out.append("  % of window, p50/p80/p95 at the conservative $-per-1% bound:")
+        out.append(f"  {'phase':8} " + "  ".join(f"{n:>{wd}}" for (n, _), wd in zip(cols, width)))
+        for p in PHASES:
+            out.append(f"  {p:8} " + "  ".join(f"{cell(w['phases'][p]):>{wd}}" for (_, w), wd in zip(cols, width)))
+        out.append(f"  {'TOTAL':8} " + "  ".join(f"{cell(w['total']):>{wd}}" for (_, w), wd in zip(cols, width)))
+    for w in cal["windows"]:
+        name = _window_name(w)
+        skipped = f" ({w['skipped_reset']} pair(s) skipped: window reset)" if w["skipped_reset"] else ""
+        why = "no usable reading pair" if w["window"] else "no usage readings"
+        if w["source"] == "fit":
+            out.append(f"  calibration {name}: {w['pairs']} pair(s), fit ${w['central']:.2f}/1%, "
+                       f"bound ${w['bound']:.2f}/1%{skipped}")
+        elif w["source"] == "fallback":
+            out.append(f"  calibration {name}: {why}{skipped} — FALLBACK {cal['setting']}=${w['usd_per_pct']:.2f}/1%")
+        else:
+            out.append(f"  calibration {name}: {why}{skipped} and {cal['setting']} unset — n/a")
+    if not f["pct"]:
+        out.append(f"  % of each usage window: n/a until a $-per-% calibration exists or {cal['setting']} is set")
+    return out
+
+
+def config_value(state_dir, name):
+    """A `: "${NAME:=value}"` setting from the project's .harness/config, or None."""
+    try:
+        with open(os.path.join(state_dir, "config")) as fh:
+            m = re.search(r'\b' + re.escape(name) + r':=([^}"]*)', fh.read())
+    except (OSError, TypeError):
+        return None
+    return m.group(1) if m else None
+
+
+def usd_per_pct_setting(state_dir):
+    """HARNESS_ONE_USD_PER_PCT from the environment, else the project config; None unless a positive number."""
+    v = os.environ.get(FALLBACK_SETTING) or config_value(state_dir, FALLBACK_SETTING)
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
 
 
 # --- project / GitHub --------------------------------------------------------
@@ -391,7 +581,8 @@ def main(argv=None):
         body = bodies.get(a.issue)
     else:
         body, bodies = gh_bodies(repo, a.issue)
-    f = forecast(events, repo, a.issue, body, bodies, unit)
+    f = forecast(events, repo, a.issue, body, bodies, unit,
+                 fallback=usd_per_pct_setting(os.environ.get("STATE_DIR")))
     print(json.dumps(f, indent=2) if a.json else render(f))
     if f["basis"]["tier"] == "none":
         print("harness forecast: no past lanes on this host to forecast from", file=sys.stderr)

@@ -78,6 +78,23 @@ printf 'not json' > "$WT3/s.json"; mkdir -p "$WT3/.claude"; mv "$WT3/s.json" "$W
 ensure_usage_statusline "$WT3"
 assert_ok "a corrupt settings file is replaced, not crashed on" grep -q 'usage-statusline.sh' "$WT3/.claude/settings.local.json"
 
+# ── B2 (#364): each new reading lands in the event log, once per account/window ──
+n_readings(){ grep -c '"event": "usage_reading"' "$HARNESS_EVENTS_FILE" 2>/dev/null || true; }
+printf 'acctR\tfive_hour\t12.5\t%s\nacctR\tseven_day\t40\t%s\nacctR\tfive_hour\t12.5\t%s\nacctR\tbad\tn/a\t0\n' \
+  "$future" "$future" "$future" > "$STUB"
+before="$(n_readings)"; usage_watch
+assert_eq "$(( $(n_readings) - before ))" "2" "one usage_reading per account/window per poll (a repeated line and a malformed one are not logged)"
+assert_ok "usage_reading carries account, window, pct and resets_at" \
+  grep -q "\"event\": \"usage_reading\".*\"account\": \"acctR\", \"window\": \"five_hour\", \"pct\": \"12.5\", \"resets_at\": $future" "$HARNESS_EVENTS_FILE"
+usage_watch
+assert_eq "$(( $(n_readings) - before ))" "2" "the next poll's unchanged readings are not logged again"
+printf 'acctR\tfive_hour\t13\t%s\nacctR\tseven_day\t40\t%s\n' "$future" "$future" > "$STUB"; usage_watch
+assert_eq "$(( $(n_readings) - before ))" "3" "a changed reading is logged"
+printf 'acctR\tfive_hour\t14\t%s\n' "$future" > "$STUB"
+( HARNESS_EVENTS_FILE=/nonexistent/dir/events.jsonl; usage_watch ); rc=$?
+assert_eq "$rc" "0" "a failing event log never fails the poll"
+rm -rf "$RUN_DIR/usage-readings"
+
 # ── C: crossing the threshold checkpoints every live session and holds claims ──
 export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_USAGE_CHECKPOINT_PCT=90
 CALLS="$RUN_DIR/calls"; : > "$CALLS"

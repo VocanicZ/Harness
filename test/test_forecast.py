@@ -304,6 +304,133 @@ def test_harness_forecast_cli_dispatch():
         assert "\n  forecast <issue>" in r.stdout, r.stdout
 
 
+# --- usage calibration (#364) --------------------------------------------------
+def at(hhmm):
+    return f"2026-10-02T{hhmm}:00Z"
+
+
+def timed(mid, hhmm, usd):
+    m = msg(mid, out=int(OPUS_OUT * usd))
+    m["timestamp"] = at(hhmm)
+    return m
+
+
+def reading(acct, win, hhmm, pct, reset):
+    return {"ts": at(hhmm), "event": "usage_reading", "prefix": "hz", "account": acct, "window": win,
+            "pct": pct, "resets_at": reset}
+
+
+def calibration_fixture(d):
+    """Account `main`: lane #1's session spends $10 @01:00, $20 @02:00, $5 @03:00, $40 @05:00, $30 @06:00.
+    Its seven_day readings: 10% @00:30 (seen again @01:30 and by a second fleet @02:40 — one reading),
+    11% @02:30, 11.5 @03:30, then the window resets (2% @04:30, a new resets_at) and 3% @06:30. Its
+    five_hour window has a single reading. Account `other`: lane #2 spends $100 @02:00 — never main's —
+    and has no readings at all. Lane #3 is another CLI's (no transcript, so no account)."""
+    main, other = os.path.join(d, "main"), os.path.join(d, "other")
+    R1, R2 = 1_800_000_000, 1_800_600_000
+    transcript(main, "sA", [timed("a1", "01:00", 10), timed("a2", "02:00", 20), timed("a3", "03:00", 5),
+                            timed("a4", "05:00", 40), timed("a5", "06:00", 30)])
+    transcript(other, "sB", [timed("b1", "02:00", 100)])
+    evs = []
+    for n, sid in ((1, "sA"), (2, "sB"), (3, "codex-3")):
+        for e in lane_events(W, n, sid, usage={"gpt-5-codex": {"input": 0, "output": 40_000, "cache_create": 0,
+                                                              "cache_read": 0}} if n == 3 else None):
+            e["ts"] = at("00:00" if e["event"] == "launch" else "07:00")
+            evs.append(e)
+    evs += [reading("main", "seven_day", "00:30", 10, R1), reading("main", "seven_day", "01:30", 10, R1),
+            reading("main", "seven_day", "02:30", 11, R1), reading("main", "seven_day", "02:40", 11, R1),
+            reading("main", "seven_day", "03:30", "11.5", R1), reading("main", "seven_day", "04:30", 2, R2),
+            reading("main", "seven_day", "06:30", 3, R2), reading("main", "five_hour", "01:00", 40, R1),
+            {"ts": at("01:00"), "event": "usage_reading", "account": "main", "window": "seven_day", "pct": "n/a"}]
+    events = os.path.join(d, "events.jsonl")
+    write_lines(events, evs)
+    return os.pathsep.join((main, other)), events
+
+
+def test_calibration_fits_usd_per_pct_skips_reset_pairs_and_lists_accounts_without_readings():
+    with tmp() as d:
+        cfgs, events = calibration_fixture(d)
+        saved = os.environ.get("HARNESS_CLAUDE_CONFIG_DIRS")
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfgs
+        try:
+            evs = fc.st.load_events(events)
+            r = fc.readings(evs)
+            assert [x[1] for x in r[("main", "seven_day")]] == [10, 11, 11.5, 2, 3], r
+            cal = fc.calibrate(evs, {"main", "other"})
+        finally:
+            if saved is None: os.environ.pop("HARNESS_CLAUDE_CONFIG_DIRS", None)
+            else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = saved
+        # pairs: 10→11 $30 (30/1%), 11→11.5 $5 (10/1%), [reset: skipped], 2→3 $70 (70/1%); other's $100 never counts
+        assert cal == [
+            {"account": "main", "window": "five_hour", "pairs": 0, "skipped_reset": 0, "central": None, "bound": None},
+            {"account": "main", "window": "seven_day", "pairs": 3, "skipped_reset": 1, "central": 42.0, "bound": 10.0},
+            {"account": "other", "window": None, "pairs": 0, "skipped_reset": 0, "central": None, "bound": None},
+        ], cal
+        assert fc.transcript_account("/x/.claude/projects/p/s.jsonl") == "default", "~/.claude is the default account"
+
+
+def test_forecast_prints_pct_of_each_window_from_the_bound_or_the_fallback():
+    with tmp() as d:
+        cfgs, events = calibration_fixture(d)
+        bodies = os.path.join(d, "bodies.json")
+        with open(bodies, "w") as fh:
+            json.dump([], fh)
+        saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+        try:
+            os.environ[fc.FALLBACK_SETTING] = "50"
+            rc, js, _ = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfgs)
+            rc2, text, _ = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies], cfgs)
+            os.environ.pop(fc.FALLBACK_SETTING)
+            _, js_none, _ = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfgs)
+            _, text_none, _ = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies], cfgs)
+        finally:
+            os.environ.pop(fc.FALLBACK_SETTING, None)
+            if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
+        assert rc == 0 and rc2 == 0, (rc, rc2)
+        f = json.loads(js)
+        # pool totals $1 (codex: 40k gpt output, priced as Opus), $100, $105 → p50 $100, p80/p95 $105
+        assert f["total"] == {"p50": 100.0, "p80": 105.0, "p95": 105.0}, f["total"]
+        pct = {(w["account"], w["window"]): w for w in f["pct"]}
+        assert pct[("main", "seven_day")]["source"] == "fit" and pct[("main", "seven_day")]["usd_per_pct"] == 10.0
+        assert pct[("main", "seven_day")]["total"] == {"p50": 10.0, "p80": 10.5, "p95": 10.5}, pct
+        for k in (("main", "five_hour"), ("other", None)):
+            assert pct[k]["source"] == "fallback" and pct[k]["total"] == {"p50": 2.0, "p80": 2.1, "p95": 2.1}, pct[k]
+        assert pct[("main", "seven_day")]["phases"]["explore"]["p95"] == round(f["phases"]["explore"]["p95"] / 10, 2)
+        assert "calibration main seven_day: 3 pair(s), fit $42.00/1%, bound $10.00/1% (1 pair(s) skipped: window reset)" \
+            in text, text
+        assert "calibration main five_hour: no usable reading pair — FALLBACK HARNESS_ONE_USD_PER_PCT=$50.00/1%" in text, text
+        assert "calibration other: no usage readings — FALLBACK HARNESS_ONE_USD_PER_PCT=$50.00/1%" in text, text
+        assert "main seven_day" in text and "10.00/10.50/10.50" in text and "2.00/2.10/2.10" in text, text
+        assert "% of window" in text and "n/a until" not in text, text
+        # no fallback set: the fitted window still shows, the others say n/a
+        fn = json.loads(js_none)
+        assert [(w["account"], w["window"], w["source"]) for w in fn["pct"]] == \
+            [("main", "five_hour", "none"), ("main", "seven_day", "fit"), ("other", None, "none")], fn["pct"]
+        assert fn["pct"][0]["total"] is None and fn["calibration"]["fallback"] is None
+        assert "calibration other: no usage readings and HARNESS_ONE_USD_PER_PCT unset — n/a" in text_none, text_none
+
+
+def test_fallback_alone_and_the_setting_from_config():
+    w = fc.window_pct([], {p: {"p50": 1.0, "p80": 2.0, "p95": 4.0} for p in fc.PHASES},
+                      {"p50": 5.0, "p80": 10.0, "p95": 20.0}, 40.0)
+    assert len(w) == 1 and (w[0]["account"], w[0]["source"]) == (None, "fallback"), w
+    assert w[0]["total"] == {"p50": 0.12, "p80": 0.25, "p95": 0.5}, w
+    assert fc.window_pct([], {}, {}, None) == []
+    with tmp() as d:
+        with open(os.path.join(d, "config"), "w") as fh:
+            fh.write(': "${HARNESS_TOPOLOGY:=single}"\n: "${HARNESS_ONE_USD_PER_PCT:=43}"\n')
+        saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+        try:
+            assert fc.usd_per_pct_setting(d) == 43.0, "read from the project config"
+            os.environ[fc.FALLBACK_SETTING] = "55.5"
+            assert fc.usd_per_pct_setting(d) == 55.5, "the environment wins"
+            os.environ[fc.FALLBACK_SETTING] = "nope"
+            assert fc.usd_per_pct_setting(None) is None
+        finally:
+            os.environ.pop(fc.FALLBACK_SETTING, None)
+            if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

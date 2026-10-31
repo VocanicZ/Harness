@@ -106,10 +106,20 @@ usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg
 # cannot be steered to a free account: it holds every claim of this fleet.
 usage_held(){ compgen -G "$(_usage_hold_dir)/*.hold" >/dev/null; }
 
+# _usage_reading_new <acct> <win> <pct> <reset> — true when this reading differs from the last one
+# logged for <acct>/<win> (and records it). Every worker polls the same windows, and a status-line
+# drop repeats its reading until the session renders again: only a changed reading is a new one (#364).
+_usage_reading_new(){ local f last; f="$RUN_DIR/usage-readings/$(_usage_key "$1")__$(_usage_key "$2")"
+  last="$(cat "$f" 2>/dev/null)"; [[ "$last" != "$3"$'\t'"$4" ]] || return 1
+  mkdir -p "${f%/*}" 2>/dev/null; printf '%s\t%s' "$3" "$4" > "$f" 2>/dev/null; return 0; }
+
 # usage_watch — one poll: read usage, open a hold (and checkpoint) for an account crossing the
 # threshold, release a hold whose window has reset. Every worker calls it; the flock makes the
 # crossing fire once. Unavailable usage changes nothing except a hold whose reset time has passed.
-usage_watch(){ local out lockfd acct win pct reset key hf now; local -A over=()
+# #364: each new reading is logged as one `usage_reading` event per account/window (forecast.py
+# calibrates $ per 1% from them), emitted after the lock is released so a slow log never holds the
+# other workers' polls.
+usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=() seen=(); local -a readings=()
   out="$(cli_limit_usage 2>/dev/null)"; local avail=$?
   mkdir -p "$(_usage_hold_dir)"
   exec {lockfd}>"$RUN_DIR/usage.lock"; flock "$lockfd"
@@ -118,6 +128,9 @@ usage_watch(){ local out lockfd acct win pct reset key hf now; local -A over=()
     while IFS=$'\t' read -r acct win pct reset; do
       [[ -n "$acct" && "${pct%.*}" =~ ^[0-9]+$ ]] || continue   # a malformed line is skipped, never fatal
       (( ${pct%.*} >= HARNESS_USAGE_CHECKPOINT_PCT )) && over[$acct]="$win"$'\t'"$pct"$'\t'"$reset"
+      key="$acct"$'\t'"$win"; [[ -n "$win" && -z "${seen[$key]:-}" ]] || continue
+      seen[$key]=1; _usage_reading_new "$acct" "$win" "$pct" "$reset" \
+        && readings+=("$acct"$'\t'"$win"$'\t'"$pct"$'\t'"$reset")
     done <<< "$out"
     for acct in "${!over[@]}"; do
       hf="$(_usage_hold_dir)/$(_usage_key "$acct").hold"; [[ -f "$hf" ]] && continue
@@ -138,7 +151,12 @@ usage_watch(){ local out lockfd acct win pct reset key hf now; local -A over=()
     rm -f "$hf"; log "usage: $acct $win window reset — resuming claims"
     harness_event usage_resume account="$acct" window="$win"
   done
-  shopt -u nullglob; flock -u "$lockfd"; exec {lockfd}>&-; return 0; }
+  shopt -u nullglob; flock -u "$lockfd"; exec {lockfd}>&-
+  for r in "${readings[@]}"; do
+    IFS=$'\t' read -r acct win pct reset <<< "$r"
+    harness_event usage_reading account="$acct" window="$win" pct="$pct" resets_at="$reset"
+  done
+  return 0; }
 
 # usage_report — the windows and holds, one line per account window (harness status).
 usage_report(){ local out acct win pct reset hold
