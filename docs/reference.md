@@ -257,6 +257,24 @@ fleet's own `HARNESS_SESSION_BACKEND` decides how its sessions are read, so one 
 headless fleets side by side; its systemd unit's `PATH` takes every backend's binaries the host has and
 requires none of them.
 
+**Usage, stats and status.** A headless claude runs no status line, so the usage watch reads a lane's
+windows off the `rate_limit_event`s claude prints: the runner keeps the latest in `state.json`
+(`rate_limit`, `rate_limit_at`) with the account the lane runs on (`account`: its `CLAUDE_CONFIG_DIR`'s
+name, `default` without one — the status line's rule), and the claude adapter reports each account window
+from the newest reading of this fleet's lanes (`<prefix>-…`) or status-line drops (utilization × 100, a
+window past its reset skipped) — a sibling fleet's account never holds this fleet's claims. At `HARNESS_USAGE_CHECKPOINT_PCT` every live lane on that account (or of unknown
+account) is sent the checkpoint message, which waits behind a running turn, and claims are held, as on
+tmux; once the lane's checkpoint turn has ended with its issue `agent-paused`, the next usage pass ends the
+lane (`usage: lane parked after its checkpoint`) and the resume carries on its claude session. A lane
+frozen at the limit gets the mechanical checkpoint, as a pane does. `session_end` is emitted by the
+usual sweep once the lane's runner has exited; its tokens come from claude's transcript when there is one,
+else from the lane's `events.jsonl` — the sum of each turn's stream-json `result` `modelUsage` (a turn
+cut off before its result counts its assistant messages' usage), found by the session id `state.json`
+names. `harness status` shows each lane's state beside its session row
+(`headless: busy`); fleetview and `harness web` list every live lane on the host — tmux sessions and
+headless lanes alike, whichever backend the viewer runs on — with its model (off its runner's flags) and
+state.
+
 **Watching a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
 read-only: each turn, its tool calls and its reply as they land in `events.jsonl` — Ctrl-C stops watching,
 not the lane. `python3 scripts/cli/claude_headless.py state --lane <dir>` prints its `state.json`;

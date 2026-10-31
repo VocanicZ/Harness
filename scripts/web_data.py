@@ -181,12 +181,15 @@ def fleet_cli(cfg):
     return cli, os.path.isfile(os.path.join(CLI_DIR, cli + ".sh"))
 
 
-def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=None, conf=None):
-    """[{"name", "issue", "kind", "age_s", "model", "cli", "activity"}] for every live `<prefix>-…`
-    tmux session. The model is the pane's `--model` flag, else the session's launch context
-    (<run_dir>/<session>.stats); a CLI with no adapter gets no model rather than a guessed one."""
-    sessions = fleetview.host_sessions() if sessions is None else sessions
-    models = fleetview.session_models() if models is None else models
+def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=None, conf=None, states=None):
+    """[{"name", "issue", "kind", "age_s", "model", "cli", "activity", "state"}] for every live
+    `<prefix>-…` session, a tmux pane or a headless lane. The model is the pane's `--model` flag, else the
+    session's launch context (<run_dir>/<session>.stats); a CLI with no adapter gets no model rather than
+    a guessed one. state is a headless lane's own (idle | busy | limit | transient, #352), None on tmux."""
+    cache = {}
+    sessions = fleetview.host_sessions(cache) if sessions is None else sessions
+    models = fleetview.session_models(cache) if models is None else models
+    states = fleetview.session_states(cache) if states is None else states
     conf = supervise_conf() if conf is None else conf
     cli, adapted = fleet_cli(cfg or {})
     out = []
@@ -198,7 +201,7 @@ def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=Non
                     "kind": ctx.get("kind") or session_kind(name),
                     "age_s": None if created is None else max(0, int(now) - created),
                     "model": (models.get(name) or ctx.get("model")) if adapted else None,
-                    "cli": cli, "activity": pane_activity(name, now, conf)})
+                    "cli": cli, "activity": pane_activity(name, now, conf), "state": states.get(name)})
     return out
 
 
@@ -295,7 +298,7 @@ def attention(fleet):
     return out
 
 
-def fleet_health(entry, rec, now, sessions, models, conf):
+def fleet_health(entry, rec, now, sessions, models, conf, states=None):
     """Add `sessions`, `stale_locks`, `supervisor`, `attention` and `awaiting` (a count) to one fleet_entry."""
     if entry["state"] == "missing":
         entry.update(sessions=[], stale_locks=[], supervisor={"actions": [], "alarms": []}, awaiting=0)
@@ -303,7 +306,7 @@ def fleet_health(entry, rec, now, sessions, models, conf):
         return entry
     cfg = fleetview.read_config(rec["project"])
     run_dir = rec.get("run_dir") or os.path.join(rec["project"], "run")
-    entry["sessions"] = live_sessions(entry["prefix"], now, sessions, models, run_dir, cfg, conf)
+    entry["sessions"] = live_sessions(entry["prefix"], now, sessions, models, run_dir, cfg, conf, states)
     live = {fleetview.session_number(s["name"]) for s in entry["sessions"]} - {None}
     boards = {slug: board(slug) for slug in fleetview.fleet_slugs(rec)}
     labels = fleetview.fleet_labels(cfg)
@@ -320,8 +323,8 @@ def host_view(now=None):
     "rate": rate_state, "attention": host-wide items}. A rate-limit hold is host-wide — every fleet
     spends the same token — so it never marks one fleet unhealthy."""
     now = int(time.time()) if now is None else int(now)
-    sessions, models, conf = fleetview.host_sessions(), fleetview.session_models(), supervise_conf()
-    fleets = [fleet_health(fleet_entry(rec), rec, now, sessions, models, conf) for rec in registry()]
+    (sessions, models, states), conf = fleetview.host_probe(), supervise_conf()
+    fleets = [fleet_health(fleet_entry(rec), rec, now, sessions, models, conf, states) for rec in registry()]
     stamps = [f["asof"] for f in fleets if f["asof"] is not None]
     rate = rate_state(now)
     return {"asof": min(stamps) if stamps else None, "fleets": fleets, "rate": rate,
@@ -350,7 +353,8 @@ def signature():
     """A value that changes whenever an input of host_view or fleet_view does: the stat (inode, size,
     mtime) of the registry, every board snapshot, the event logs, the supervisor's log, conf, pane and
     rule files, the rate-limit files and each fleet's config and run-dir inputs; whether each pid file
-    and claim names a live process; and the `tmux ls` session list. Reads nothing remote."""
+    and claim names a live process; and the session list (tmux and headless lanes, with each lane's
+    state). Reads nothing remote."""
     sup = sup_state_dir()
     sig = [_stats(os.path.join(fleetview.fleets_dir(), "*.json")),
            _stats(os.path.join(snapshots_dir(), "*.json")),
@@ -366,8 +370,10 @@ def signature():
             sig.append(_stats(os.path.join(run_dir, pat)))
         sig.append(tuple(fleetview.pid_alive(p) for p in sorted(glob.glob(os.path.join(run_dir, "*.pid")))))
         sig.append(tuple(claim_alive(p) for p in sorted(glob.glob(os.path.join(run_dir, "claims", "*.claim")))))
-    sessions = sorted(fleetview.host_sessions().items(), key=lambda kv: kv[0])
-    sig.append(hashlib.sha1(repr(sessions).encode()).hexdigest())
+    cache = {}   # one lane-rows call serves both
+    sessions = sorted(fleetview.host_sessions(cache).items(), key=lambda kv: kv[0])
+    states = sorted(fleetview.session_states(cache).items())   # a headless lane's busy → idle moves no file above
+    sig.append(hashlib.sha1(repr((sessions, states)).encode()).hexdigest())
     return tuple(sig)
 
 

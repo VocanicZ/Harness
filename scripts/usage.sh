@@ -8,7 +8,9 @@
 #   2. at HARNESS_USAGE_CHECKPOINT_PCT of any window, send every live impl/lane session on that
 #      account the same HARNESS CHECKPOINT as `pause --force`, and HOLD new claims (usage_held)
 #      until the window resets — then release the hold so the normal resume path re-dispatches the
-#      agent-paused issues;
+#      agent-paused issues. A headless lane (#352) is ended once it has checkpointed (usage_park_lanes),
+#      and its relaunch carries on its claude session; the claude adapter reads a headless lane's
+#      windows off its rate_limit_event readings, as it has no status line;
 #   3. a session ALREADY frozen at the limit cannot run its handoff skill, so it gets a mechanical
 #      checkpoint instead (commit + push its worktree, post a handoff comment with the last screen)
 #      and is left alive for #120's nudge. watchdog_session also calls this on the limit message
@@ -39,9 +41,12 @@ checkpoint_sessions(){ sess_list \
   | grep -E "^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$" || true; }
 
 # session_account <sess> — the account a session runs on, from the cwd map usage-statusline.sh
-# keeps; empty when unknown (no statusline drop yet, or a CLI with no adapter).
+# keeps, else (a headless lane runs no status line, #352) the account its lane runner recorded; empty
+# when unknown (no statusline drop yet, or a CLI with no adapter).
 session_account(){ local wd; wd="$(cat "$RUN_DIR/$1.wd" 2>/dev/null)" || return 0
-  cat "$(_usage_dir)/cwd/$(_usage_key "$wd")" 2>/dev/null || true; }
+  cat "$(_usage_dir)/cwd/$(_usage_key "$wd")" 2>/dev/null && return 0
+  [[ "$(sess_backend)" == headless && -s "$(headless_lane_dir "$1")/state.json" ]] || return 0
+  python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field account 2>/dev/null || true; }
 
 # mechanical_checkpoint <sess> <pane> — checkpoint a session that cannot run /handoff itself (it is
 # frozen at a limit): commit + push its worktree, post a `harness-handoff` comment carrying the
@@ -88,7 +93,7 @@ limit_checkpoint_once(){ local mark="$RUN_DIR/$1.limitcp"
 
 # usage_checkpoint_account <account> <reason> — checkpoint every live session on <account> (or of
 # unknown account: a checkpoint loses nothing, a missed one can lose a worktree).
-usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg
+usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg mark
   while read -r sess; do
     [[ -z "$sess" ]] && continue
     sa="$(session_account "$sess")"; [[ -z "$sa" || "$sa" == "$acct" ]] || continue
@@ -98,9 +103,34 @@ usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg
     fi
     _checkpoint_target "$sess" || continue
     msg="$(_checkpoint_msg "$_CP_ISSUE" "$_CP_SLUG" "$_CP_BRANCH" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED" "$reason")"
+    mark="$(sess_turns "$sess")"   # a backend that counts turns (headless): park the lane after this one
     cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "$msg"
+    [[ -n "$mark" ]] && printf '%s\t%s\t%s\n' "$_CP_ISSUE" "$_CP_SLUG" "$mark" > "$RUN_DIR/$sess.usagepark"
     log "usage: checkpoint requested: $sess ($_CP_SLUG#$_CP_ISSUE)"
   done < <(checkpoint_sessions); }
+
+# usage_park_lanes — end every lane the usage checkpoint asked to checkpoint (<sess>.usagepark: issue,
+# repo, turn mark) once it has: its issue carries the paused label and the lane has ended its checkpoint
+# turn with nothing queued behind it (sess_turn_ended) — `pause --force`'s rule for a headless lane
+# (#350, #352). A pane is left at its prompt as before; a lane has nothing left to do, holds a lane slot
+# while it idles, and the normal resume path relaunches it in its worktree carrying on its claude
+# session. A lane that is gone is forgotten; one not yet checkpointed is looked at again next poll.
+usage_park_lanes(){ local f sess issue slug mark labels
+  shopt -s nullglob
+  for f in "$RUN_DIR"/*.usagepark; do
+    sess="$(basename "$f" .usagepark)"
+    sess_live "$sess" || { rm -f "$f"; continue; }
+    IFS=$'\t' read -r issue slug mark < "$f"
+    sess_turn_ended "$sess" "$mark" || continue
+    labels="$(gh issue view "$issue" -R "$slug" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
+    [[ "$labels" == *"\"$HARNESS_LABEL_PAUSED\""* ]] || continue
+    # Every worker runs this pass: the rename claims the park atomically, so exactly one ends the lane.
+    mv "$f" "$f.$$" 2>/dev/null || continue
+    cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" >/dev/null 2>&1 || true
+    rm -f "$f.$$"; log "usage: lane parked after its checkpoint: $sess ($slug#$issue)"
+    stats_sess_event "$sess" paused reason=usage_limit
+  done
+  shopt -u nullglob; }
 
 # usage_held — true while ANY account is held. New panes pick their account at launch, so a hold
 # cannot be steered to a free account: it holds every claim of this fleet.
@@ -152,6 +182,7 @@ usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=(
     harness_event usage_resume account="$acct" window="$win"
   done
   shopt -u nullglob; flock -u "$lockfd"; exec {lockfd}>&-
+  usage_park_lanes
   for r in "${readings[@]}"; do
     IFS=$'\t' read -r acct win pct reset <<< "$r"
     harness_event usage_reading account="$acct" window="$win" pct="$pct" resets_at="$reset"

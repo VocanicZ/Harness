@@ -156,10 +156,14 @@ def _sessions_table(sessions, now, prefix=None, many=False):
         act = s["activity"]
         act_html = (f'<span class="level {ACTIVITY.get(act, "level--grey")}">{esc(act)}</span>' if act
                     else '<span class="muted">unknown</span>')
+        st = s.get("state")   # a headless lane's own state (#352): idle | busy | limit | transient
+        if st:
+            act_html += f'<span class="table__secondary mono">{esc(st)}</span>'
+        st_attr = f' data-state="{esc(st)}"' if st else ""
         age = "?" if s["age_s"] is None else fleetview.fmt_age(s["age_s"])
         model = s["model"] or "?"
         # the kind beside the issue and the model's short name: four columns fit a 400 px card (#231)
-        rows.append(f'<tr data-session="{esc(s["name"])}" data-activity="{esc(act or "unknown")}">'
+        rows.append(f'<tr data-session="{esc(s["name"])}" data-activity="{esc(act or "unknown")}"{st_attr}>'
                     f'<td>{_session_issue(s, prefix, many)} <span class="muted">{esc(s["kind"])}</span>'
                     f'<span class="table__secondary mono">{esc(s["name"])}</span></td>'
                     f'<td>{esc(s["cli"])}<span class="table__secondary mono" title="{esc(model)}">'
@@ -591,10 +595,12 @@ def drawer(v, now):
     if s:
         act = s.get("activity")
         act_html = (f' <span class="level {ACTIVITY.get(act, "level--grey")}">{esc(act)}</span>' if act else "")
+        if s.get("state"):   # a headless lane's own state (#352)
+            act_html += f' <span class="mono muted" data-state="{esc(s["state"])}">{esc(s["state"])}</span>'
         age = "" if s.get("age_s") is None else f' <span class="muted">up {fleetview.fmt_age(s["age_s"])}</span>'
         sess = (f'<p data-session="{esc(s["name"])}"><span class="mono">{esc(s["name"])}</span>{act_html}{age}'
                 f'<span class="table__secondary">{esc(s.get("cli"))} · <span class="mono">{esc(s.get("model") or "?")}</span>'
-                f' — <code>{esc(session_backend.attach_hint(s["name"]))}</code></span></p>')
+                f' — <code>{esc(session_backend.attach_hint(s["name"], "headless" if s.get("state") else None))}</code></span></p>')
     else:
         sess = '<p class="muted" data-session="none">No live session.</p>'
     return f"""<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-issue="{n}" data-repo="{esc(slug)}" tabindex="-1">

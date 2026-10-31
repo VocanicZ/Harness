@@ -116,30 +116,62 @@ def session_number(name):
     return int(m.group(1)) if m else None
 
 
-def host_sessions():
-    """{session name: created epoch} for every live tmux session; {} when there is no server."""
-    argv = session_backend.list_created_argv()
-    rc, out = run_cmd(argv) if argv else (1, "")
-    sess = {}
-    if rc == 0:
+def _probe(argv_of, column, cache=None):
+    """[(session name, value)] from one probe per session backend (session_backend.BACKENDS): fleets
+    sharing a host may run on different backends, and this view is every fleet's. <column> names the
+    value in a headless lane row (session_backend.LANE_COLUMN); a tmux probe prints `<name>\\t<value>`.
+    <cache> ({argv: (rc, out)}) lets the probes of one pass share a command: every headless probe is the
+    same lane-rows call. A backend whose probe fails, or that has none, adds nothing."""
+    pairs = []
+    for b in session_backend.BACKENDS:
+        argv = argv_of(b)
+        if not argv:
+            continue
+        key = tuple(argv)
+        if cache is not None and key in cache:
+            rc, out = cache[key]
+        else:
+            rc, out = run_cmd(argv)
+            if cache is not None:
+                cache[key] = (rc, out)
+        if rc != 0:
+            continue
+        col = session_backend.LANE_COLUMN[column] if b == "headless" else 1
         for line in out.splitlines():
-            name, _, created = line.partition("\t")
-            if name:
-                sess[name] = int(created) if created.strip().isdigit() else None
-    return sess
+            f = line.split("\t")
+            pairs.append((f[0], f[col] if len(f) > col else ""))
+    return pairs
 
 
-def session_models():
-    """{session name: model} — read off the `--model X` flag of a process under each tmux pane."""
-    argv = session_backend.pane_pids_argv()
-    rc, out = run_cmd(argv) if argv else (1, "")
-    if rc != 0:
-        return {}
+def host_sessions(cache=None):
+    """{session name: created epoch} for every live session — tmux sessions and headless lanes alike;
+    {} when there is none."""
+    return {name: int(created) if created.strip().isdigit() else None
+            for name, created in _probe(session_backend.list_created_argv, "created", cache) if name}
+
+
+def session_states(cache=None):
+    """{session name: state} for every live session whose backend keeps one: a headless lane's idle |
+    busy | limit | transient (#352). A tmux pane has none."""
+    return {name: st.strip() for name, st in _probe(session_backend.states_argv, "state", cache)
+            if name and st.strip()}
+
+
+def host_probe():
+    """(host_sessions, session_models, session_states) in one pass: each backend's commands run once."""
+    cache = {}
+    return host_sessions(cache), session_models(cache), session_states(cache)
+
+
+def session_models(cache=None):
+    """{session name: model} — read off the `--model X` flag of a process under each session's pane (a
+    headless lane: its runner, whose argv carries the lane's claude flags)."""
     panes = {}
-    for line in out.splitlines():
-        name, _, pid = line.partition("\t")
+    for name, pid in _probe(session_backend.pane_pids_argv, "pid", cache):
         if pid.strip().isdigit():
             panes.setdefault(name, []).append(int(pid))
+    if not panes:
+        return {}
     rc, out = run_cmd(["ps", "-eo", "pid=,ppid=,args="])
     kids, args = {}, {}
     for line in out.splitlines() if rc == 0 else []:
@@ -276,7 +308,7 @@ def fleet_labels(cfg):
             "prd": cfg.get("HARNESS_LABEL_PRD", "prd")}
 
 
-def render_fleet(rec, sessions, models, now, counts_for):
+def render_fleet(rec, sessions, models, now, counts_for, states=None):
     project, prefix = rec["project"], rec.get("prefix") or "?"
     slugs = fleet_slugs(rec)
     root = os.path.dirname(project.rstrip("/")) or project
@@ -302,7 +334,9 @@ def render_fleet(rec, sessions, models, now, counts_for):
         for n in mine:
             created = sessions[n]
             age = fmt_age(now - created) if created else "?"
-            out.append(f"    ⟳ {n:<28} {session_issue(n):<14} {age:>5}  {models.get(n, '?')}")
+            st = (states or {}).get(n)
+            out.append(f"    ⟳ {n:<28} {session_issue(n):<14} {age:>5}  {models.get(n, '?')}"
+                       + (f"  [{st}]" if st else ""))
     else:
         out.append("  sessions: none live")
     live_nums = {session_number(n) for n in mine} - {None}
@@ -353,10 +387,10 @@ def render(now=None, counts_cache=None):
               for r in recs if os.path.isdir(r["project"]) for s in fleet_slugs(r)}
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda k: counts_for(k[0], dict(k[1])), wanted))
-    sessions, models = host_sessions(), session_models()
+    sessions, models, states = host_probe()
     for rec in recs:
         out.append("───────────────────────────────────────────────────────────────────────────")
-        out.extend(render_fleet(rec, sessions, models, now, counts_for))
+        out.extend(render_fleet(rec, sessions, models, now, counts_for, states))
     out.append("═══════════════════════════════════════════════════════════════════════════")
     return out
 

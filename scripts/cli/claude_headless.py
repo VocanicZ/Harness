@@ -22,6 +22,8 @@ exposed over files in its lane directory, never over a pane:
                                 and null when none runs
                   last_reply    the last turn's `result` text; error is set when that turn failed
                   limit_resets_at, rate_limit, retry, queued, runner_pid, claude_pid, updated, ...
+                  rate_limit is the latest rate_limit_event's info, rate_limit_at when it last changed,
+                  account the config dir the lane runs on (#352: the usage watch reads both)
   stop          a stop request (`stop` writes it). A stop — this file, SIGTERM, SIGHUP or SIGINT — ends
                 the running turn's whole process tree, writes state `ended` and exits.
   interrupt     an interrupt request (#349, `interrupt` writes it): ends the RUNNING turn's process tree
@@ -265,6 +267,11 @@ class Runner:
             "retry": None, "queued": 0, "inbox_offset": int(prev.get("inbox_offset") or 0),
             "exit": prev.get("exit"), "runner_pid": os.getpid(), "claude_pid": None, "cwd": cwd,
             "interrupted": int(prev.get("interrupted") or 0),
+            # #352: the account the lane runs on (its config dir, as usage-statusline.sh names a pane's)
+            # and when rate_limit last changed — a headless claude runs no status line, so its
+            # rate_limit_event windows are how the usage watch (claude_limit_usage) sees it.
+            "account": os.path.basename((os.environ.get("CLAUDE_CONFIG_DIR") or "default").rstrip("/\\")) or "default",
+            "rate_limit_at": prev.get("rate_limit_at"),
         }
         if prev.get("state") in ("limit", "transient"):
             self.state["state"] = prev["state"]
@@ -274,6 +281,8 @@ class Runner:
         self.read_offset = self.state["inbox_offset"]
 
     def save(self, **kw):
+        if kw.get("rate_limit") and kw["rate_limit"] != self.state.get("rate_limit"):
+            kw["rate_limit_at"] = time.time()
         self.state.update(kw)
         self.state["queued"] = len(self.queue)
         self.state["updated"] = time.time()

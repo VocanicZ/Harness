@@ -199,28 +199,53 @@ claude_transcripts(){ [[ -n "$2" ]] && python3 "$CLI_DIR/../stats.py" transcript
 claude_usage(){ (( $# )) && python3 "$CLI_DIR/../stats.py" usage "$@"; }
 # Usage windows (#194): Claude Code hands its status line the documented
 # `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}`; scripts/usage-statusline.sh (wired
-# into each worktree by claude_usage_setup) drops that into $USAGE_DIR/<account>.json. A window
-# whose resets_at has passed has reset, so it is skipped rather than reported stale. No drop at all =
-# usage unavailable (rc 1).
+# into each worktree by claude_usage_setup) drops that into $USAGE_DIR/<account>.json. A headless lane
+# (#352) runs no status line: `claude -p` reports the same windows as rate_limit_event
+# `unifiedWindows` (utilization 0–1, resetsAt), which its runner keeps in the lane's state.json with the
+# account it runs on — read from this fleet's own lanes (`<prefix>-…`), as the drops are this fleet's: a
+# sibling fleet's account must not hold this fleet's claims. For each account window the newest reading
+# of either source wins. A window whose resets_at has passed has reset, so it is skipped rather than
+# reported stale. No drop and no lane reading at all = usage unavailable (rc 1).
 claude_limit_usage(){
-  compgen -G "$(_usage_dir)/*.json" >/dev/null || return 1
-  USAGE_DIR="$(_usage_dir)" python3 - <<'PY'
-import glob, json, os, time
-now = time.time()
-for f in sorted(glob.glob(os.path.join(os.environ["USAGE_DIR"], "*.json"))):
+  USAGE_DIR="$(_usage_dir)" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" PREFIX="${HARNESS_SESS_PREFIX:-}" python3 - <<'PY'
+import glob, json, os, sys, time
+now, best, seen = time.time(), {}, False
+def load(f):
     try:
-        with open(f) as fh:
+        with open(f, encoding="utf-8") as fh:
             d = json.load(fh)
+        return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
-        continue
-    acct = d.get("account") or "default"
+        return {}
+def take(acct, win, pct, reset, at):   # pct: the reading as printed
+    try:
+        reset, at = int(reset or 0), float(at or 0)
+    except (TypeError, ValueError):
+        return
+    if reset and reset <= now:
+        return
+    if (acct, win) not in best or at >= best[(acct, win)][2]:
+        best[(acct, win)] = (pct, reset, at)
+for f in sorted(glob.glob(os.path.join(os.environ["USAGE_DIR"], "*.json"))):
+    seen = True
+    d = load(f)
     for win, w in sorted((d.get("rate_limits") or {}).items()):
-        if not isinstance(w, dict) or w.get("used_percentage") is None:
-            continue
-        reset = int(w.get("resets_at") or 0)
-        if reset and reset <= now:
-            continue
-        print(f"{acct}\t{win}\t{w['used_percentage']}\t{reset}")
+        if isinstance(w, dict) and w.get("used_percentage") is not None:
+            take(d.get("account") or "default", win, w["used_percentage"], w.get("resets_at"), d.get("at") or os.path.getmtime(f))
+pfx = os.environ["PREFIX"] + "-" if os.environ["PREFIX"] else ""
+for f in sorted(glob.glob(os.path.join(os.environ["LANES"], pfx + "*", "state.json"))) if os.environ["LANES"] else ():
+    st = load(f)
+    info = st.get("rate_limit") if isinstance(st.get("rate_limit"), dict) else {}
+    seen = seen or bool(info.get("unifiedWindows"))
+    for win, w in sorted((info.get("unifiedWindows") or {}).items()):
+        if isinstance(w, dict) and isinstance(w.get("utilization"), (int, float)):
+            pct = round(w["utilization"] * 100, 1)
+            take(st.get("account") or "default", win, int(pct) if pct == int(pct) else pct, w.get("resetsAt"),
+                 st.get("rate_limit_at") or st.get("updated"))
+if not seen:
+    sys.exit(1)
+for (acct, win), (pct, reset, _) in sorted(best.items()):
+    print(f"{acct}\t{win}\t{pct}\t{reset}")
 PY
 }
 # usage_statusline_install <dir> — point a claude worktree's status line at usage-statusline.sh,

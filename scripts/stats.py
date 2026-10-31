@@ -6,7 +6,10 @@ Every fleet on the host appends one JSON line per event to $HARNESS_HOME/events.
 (lib.sh launch_agent: cli_model_effort, #307). A session's token usage comes from Claude Code's own
 transcripts (another CLI's adapter folds its own: usage_tsv, #188): every launch passes `--session-id <uuid>`, and Claude Code writes
 $CLAUDE_CONFIG_DIR/projects/<slugified cwd>/<uuid>.jsonl plus <uuid>/subagents/agent-*.jsonl, each
-assistant line carrying message.model + message.usage.
+assistant line carrying message.model + message.usage. A headless lane's claude (#352) may keep no
+transcript there: its session_end usage is then folded from the lane's events.jsonl (each turn's
+stream-json `result` modelUsage, or its assistant messages' usage when it ended without one), found by
+the session id the lane's state.json names.
 
     stats.py emit <event> [--ctx F] [--write-ctx F] [-c k=v]... [k=v]...   append one event
     stats.py parent-prd <slug>        PRD number of the issue body on stdin (## Parent), or nothing
@@ -149,6 +152,27 @@ def config_dirs():
     return out
 
 
+def lanes_root():
+    """Where headless lanes live (scripts/session/headless.sh _hl_root)."""
+    return os.environ.get("HARNESS_HEADLESS_DIR") or os.path.join(home(), "lanes")
+
+
+def lane_events(session):
+    """A headless lane's events.jsonl (#352) for claude session <session>: the stream-json claude printed
+    for every turn, whose `result` events carry each turn's usage per model. The lane whose state.json
+    names that session; None when there is none."""
+    for f in sorted(glob.glob(os.path.join(lanes_root(), "*", "state.json"))):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                st = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        ev = os.path.join(os.path.dirname(f), "events.jsonl")
+        if isinstance(st, dict) and st.get("session_id") == session and os.path.isfile(ev):
+            return ev
+    return None
+
+
 def find_transcript(session, dirs=None):
     for d in dirs if dirs is not None else config_dirs():
         hits = glob.glob(os.path.join(d, "projects", "*", f"{session}.jsonl"))
@@ -157,11 +181,20 @@ def find_transcript(session, dirs=None):
     return None
 
 
+# A stream-json `result` event's modelUsage (claude -p, #352): each turn's whole usage per model, the
+# turn's sub-agents and side calls included, which its `assistant` events alone do not carry.
+MODEL_USAGE_KEYS = (("inputTokens", "input"), ("outputTokens", "output"),
+                    ("cacheCreationInputTokens", "cache_create"), ("cacheReadInputTokens", "cache_read"))
+
+
 def _file_usage(path, acc, span):
     """Fold one transcript into acc {model: {input,output,cache_create,cache_read}}. A streamed
     message is written once per content block with the SAME message id and usage, so usage is
-    taken once per id (the last line wins), never summed per line."""
-    per_id = {}
+    taken once per id (the last line wins), never summed per line. A headless lane's events.jsonl
+    (stream-json, its turns split by the runner's `turn_start` markers) is folded per turn: a turn's
+    `result` modelUsage when it has one (the turn's total), else — a turn interrupted, killed or cut off
+    before its result — the usage its assistant messages carry."""
+    segs = [({}, [])]   # (per_id, result modelUsages) per turn; a transcript is one segment
     try:
         with open(path) as fh:
             for line in fh:
@@ -173,19 +206,34 @@ def _file_usage(path, acc, span):
                 if t is not None:
                     span[0] = t if span[0] is None else min(span[0], t)
                     span[1] = t if span[1] is None else max(span[1], t)
+                if r.get("type") == "harness" and r.get("subtype") == "turn_start":
+                    segs.append(({}, []))
+                    continue
+                if r.get("type") == "result" and isinstance(r.get("modelUsage"), dict):
+                    segs[-1][1].append(r["modelUsage"])
+                    continue
                 if r.get("type") != "assistant":
                     continue
                 m = r.get("message") or {}
                 u, model = m.get("usage"), m.get("model")
                 if not u or not model or model == "<synthetic>":
                     continue
+                per_id = segs[-1][0]
                 per_id[m.get("id") or r.get("uuid") or len(per_id)] = (model, u)
     except OSError:
         return
-    for model, u in per_id.values():
-        tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
-        for src, dst in USAGE_KEYS:
-            tot[dst] += int(u.get(src) or 0)
+    for per_id, results in segs:
+        for mu in results:
+            for model, u in mu.items():
+                if not isinstance(u, dict) or model == "<synthetic>":
+                    continue
+                tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
+                for src, dst in MODEL_USAGE_KEYS:
+                    tot[dst] += int(u.get(src) or 0)
+        for model, u in per_id.values() if not results else ():
+            tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
+            for src, dst in USAGE_KEYS:
+                tot[dst] += int(u.get(src) or 0)
 
 
 def transcript_files(transcript):
@@ -252,6 +300,8 @@ def build_event(event, common, ctx, kv, now=None):
     if event == "session_end":
         launched = rec.get("launched")
         tr = find_transcript(rec["session"]) if rec.get("session") else None
+        if not tr and rec.get("session") and "usage" not in rec:
+            tr = lane_events(rec["session"])   # #352: a headless lane whose claude kept no transcript
         last = None
         tsv = rec.pop("usage_tsv", None)   # #188: what the CLI adapter folded from its own transcripts
         if tr and "usage" not in rec:

@@ -22,6 +22,8 @@ tmux_sess_kill(){ tmux kill-session -t "$1"; }
 # Everything a pane does is on its screen: no mark beyond what sess_capture shows.
 tmux_sess_activity(){ return 0; }
 tmux_sess_turns(){ return 0; }
+# A pane has no state beyond its screen (the views read the supervisor's activity instead).
+tmux_sess_state(){ return 0; }
 tmux_sess_turn_ended(){ return 1; }
 # A pane keeps no record of the claude session it ran: a relaunched tmux lane starts a new one.
 tmux_sess_resume_id(){ return 0; }

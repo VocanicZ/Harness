@@ -5,8 +5,9 @@ fleet's sessions through the argv this module builds and never name a multiplexe
 function returns the command a caller runs through its own runner (fleetview.run_cmd,
 supervise_rules.sh), so a test that fakes the runner fakes the backend too; None means the backend has
 no such probe, which a caller reads as "no session". The backend is the one HARNESS_SESSION_BACKEND
-names (lib.sh exports it; tmux when unset). The headless backend has a screen to capture (#351); its
-other probes are tmux-only today.
+names (lib.sh exports it; tmux when unset). On the headless backend every probe is one bash call into
+scripts/session/headless.sh (headless_lane_rows: name, created, runner pid, state per live lane, #352),
+so a lane is live here exactly when the engine's sess_live says so; its screen is captured too (#351).
 """
 import os
 import sys
@@ -26,14 +27,44 @@ def _tmux():
     return backend() == "tmux"
 
 
-def list_created_argv():
-    """Prints `<session name>\\t<created epoch>` per live session."""
-    return ["tmux", "ls", "-F", "#{session_name}\t#{session_created}"] if _tmux() else None
+SESSION_DISPATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session", "dispatch.sh")
 
 
-def pane_pids_argv():
-    """Prints `<session name>\\t<pane pid>` per pane."""
-    return ["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"] if _tmux() else None
+def lane_rows_argv():
+    """Prints `<name>\\t<created epoch>\\t<runner pid>\\t<state>` per live headless lane
+    (headless.sh headless_lane_rows): every headless probe below is this one command, so a caller that
+    wants several columns runs it once (fleetview.host_probe)."""
+    return ["bash", "-c", 'source "$1" && HARNESS_SESSION_BACKEND=headless headless_lane_rows',
+            "_", SESSION_DISPATCH]
+
+
+# The column of lane_rows_argv's rows each headless probe reads (the name is column 0).
+LANE_COLUMN = {"created": 1, "pid": 2, "state": 3}
+
+
+def list_created_argv(b=None):
+    """Prints `<session name>\\t<created epoch>` per live session of backend <b> (default: the configured
+    one) — a headless lane's row carries it in LANE_COLUMN["created"]. The host-wide views (fleetview,
+    `harness web`) ask every backend: fleets on one host may differ."""
+    b = b or backend()
+    if b == "tmux":
+        return ["tmux", "ls", "-F", "#{session_name}\t#{session_created}"]
+    return lane_rows_argv() if b == "headless" else None
+
+
+def pane_pids_argv(b=None):
+    """Prints `<session name>\\t<pane pid>` per pane. A headless lane's is its runner (LANE_COLUMN["pid"]),
+    whose argv carries the lane's claude flags (`--flags=… --model X`)."""
+    b = b or backend()
+    if b == "tmux":
+        return ["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"]
+    return lane_rows_argv() if b == "headless" else None
+
+
+def states_argv(b=None):
+    """The probe of each live session's own state where its backend keeps one: a headless lane's idle |
+    busy | limit | transient (#352, LANE_COLUMN["state"]). None for tmux: a pane has only its screen."""
+    return lane_rows_argv() if (b or backend()) == "headless" else None
 
 
 def headless_lane_dir(session):
@@ -54,6 +85,9 @@ def capture_argv(session, lines=40):
     return None
 
 
-def attach_hint(name):
-    """The command an operator runs to watch session `name`."""
-    return f"tmux attach -t {name}" if _tmux() else "harness status"
+def attach_hint(name, b=None):
+    """The command an operator runs to watch session `name` of backend <b> (default: the configured one)."""
+    b = b or backend()
+    if b == "tmux":
+        return f"tmux attach -t {name}"
+    return f"harness attach {name}" if b == "headless" else "harness status"
