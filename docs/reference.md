@@ -178,6 +178,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). `1` is an explicit opt-in to GitHub CI, so it also skips `HARNESS_DISABLE_CI` |
 | `HARNESS_DISABLE_CI` | `1` | When `harness init` / `harness setup` seed a repo, `gh workflow disable` its existing GitHub Actions and log each one. `1` = test-CI only — a workflow whose name or file says `release`, `deploy`, `publish`, `pages` or `cd` keeps running; `all` = release and deploy too; `0` = touch nothing (the opt-out). See [No GitHub CI](#no-github-ci--the-gate-is-local) |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
+| `HARNESS_ONE_USD_PER_PCT` | _(empty)_ | `harness forecast`'s fallback $ per 1% of a usage window, for an account/window with no calibration yet (no usable `usage_reading` pair). Read from the environment, else this config. Empty = `n/a`. See [Cost forecast](#cost-forecast) |
 | `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
 | `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
@@ -473,7 +474,10 @@ worktree committed and pushed, a handoff comment with the last screen).
 | `openclaw` | `openclaw status --usage --json`: the windows of every provider the operator's config holds auth for (none for `claude-cli`). The account is the provider. Cached `HARNESS_OPENCLAW_USAGE_TTL` seconds (120) |
 | `opencode` | None: OpenCode 1.x has no quota meter. A limit shows only as its error text at the prompt, which parks the lane (`limit-parks`) and gets the mechanical checkpoint above |
 
-`harness status` shows every window, with `HOLD` on an account being waited out.
+`harness status` shows every window, with `HOLD` on an account being waited out. Every new reading
+(one per account and window, only when it changed since the last one logged) goes to the event log
+as a `usage_reading` event (`account`, `window`, `pct`, `resets_at`), whatever the CLI; the
+[cost forecast](#cost-forecast) calibrates $ per 1% from them.
 
 ### Cost forecast
 
@@ -496,11 +500,19 @@ one issue at a time while the fleet is paused or HELD (#362).
   own past sessions are never part of its forecast; their spend is shown as `already spent`.
 - **Size.** Every figure is scaled by the issue's body length over the median body of the history's
   issues, clamped to 0.6–2.0. The output prints the scale it applied.
-- **% of a usage window** is `n/a` until a $-per-% calibration exists.
+- **% of a usage window.** Each figure is also shown as % of each account's usage windows, at a
+  calibrated $ per 1%. For every account and window, two consecutive `usage_reading`s inside the same
+  window (a pair across a reset is skipped) give the % it rose by and the $ the event log's sessions
+  on that account spent in between (their transcripts' messages, by timestamp; a session's account is
+  its Claude config dir). The fit is Σ$ / Σ%; the forecast divides by its conservative bound — the
+  20th percentile of the per-pair $/1%, never above the fit — so the % it shows errs high. Each window
+  prints its fit (`n pair(s)`, fit, bound). A window with no usable pair, or an account with no
+  readings at all, uses `HARNESS_ONE_USD_PER_PCT` and prints `FALLBACK`; without that setting it is
+  `n/a`.
 
 The repo is `-R`, else the one the issue's own lanes ran in, else the current project's unit
 (`--unit` picks one in a multi-unit project). Issue bodies come from `gh`. `--json` prints the same
-numbers (`phases`, `total`, `size`, `basis`, `spent`) for scripts; the exit status is 1 when the host
+numbers (`phases`, `total`, `size`, `basis`, `spent`, `pct`, `calibration`) for scripts; the exit status is 1 when the host
 has no past lanes at all.
 
 ### GitHub rate limits
