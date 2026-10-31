@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""claude_headless.py — the headless lane runner for `claude` (#347, PRD #344).
+
+The long-running program a headless lane runs in place of claude's interactive TUI. Each turn is one
+`claude -p --output-format stream-json --verbose` process in the lane's worktree; every turn after the
+first passes `--resume <session id>`, so the lane is ONE claude session across turns. The lane is
+exposed over files in its lane directory, never over a pane:
+
+  inbox.jsonl   messages for the lane, one JSON object per line (`send` appends them). Each message is
+                delivered, in order, as the next turn; one arriving mid-turn waits for that turn to end.
+                A non-JSON line is taken as a message of its own text.
+  events.jsonl  every stream-json event claude printed, one per line, in order, plus the runner's own
+                `{"type":"harness","subtype":"turn_start"|"turn_end"|"stdout"|...}` markers.
+  stderr.log    claude's stderr, appended per turn.
+  state.json    what the engine reads, rewritten whole (write + rename) on every change:
+                  state         idle | busy | limit | transient | ended — from stream-json events
+                                (result / rate_limit_event / api_retry / the process exit), never from
+                                screen text. A headless lane has no dialog states (trust, permission).
+                  session_id    the claude session the lane resumes
+                  turn          turns started so far; turn_started is the running turn's start (epoch)
+                                and null when none runs
+                  last_reply    the last turn's `result` text; error is set when that turn failed
+                  limit_resets_at, rate_limit, retry, queued, runner_pid, claude_pid, updated, ...
+  stop          a stop request (`stop` writes it). A stop — this file, SIGTERM, SIGHUP or SIGINT — ends
+                the running turn's whole process tree, writes state `ended` and exits.
+
+Portable by construction (ADR 0001): python3 stdlib only, and the core path uses none of /proc, flock
+or setsid-only tricks. The one platform branch is kill_tree(): a POSIX process group (plus a `ps`
+walk for descendants that left it) on Linux, `taskkill /T /F` on Windows. A runner restarted on the
+same lane directory picks up its session id and inbox position from state.json.
+
+  claude_headless.py run   --lane <dir> --cwd <wd> [--bin <claude command>] [--session-id <id>]
+                           [--model <m>] [--effort <e>] [--flags="<extra claude flags>"]
+                           [--message <first message>]
+  claude_headless.py send  --lane <dir> [--kind <label>] (<message> | -)     # - reads stdin
+  claude_headless.py state --lane <dir> [--field <name>]
+  claude_headless.py stop  --lane <dir> [--timeout <s>]
+"""
+import argparse, json, os, shlex, shutil, signal, subprocess, sys, threading, time
+
+WINDOWS = os.name == "nt"
+POLL_S = 0.1
+
+
+# --- lane files ---------------------------------------------------------------------------------
+def paths(lane):
+    return {k: os.path.join(lane, f) for k, f in (
+        ("inbox", "inbox.jsonl"), ("events", "events.jsonl"), ("stderr", "stderr.log"),
+        ("state", "state.json"), ("stop", "stop"))}
+
+
+def read_state(lane):
+    try:
+        with open(paths(lane)["state"], encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_json_atomic(path, data):
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, separators=(",", ":"), ensure_ascii=False)
+    for _ in range(50):   # Windows refuses the rename while a reader holds the target open
+        try:
+            os.replace(tmp, path); return
+        except PermissionError:
+            time.sleep(0.02)
+    os.replace(tmp, path)
+
+
+def send(lane, text, kind="message"):
+    """Append one message to the lane's inbox — a single write of one line, so concurrent senders
+    never interleave inside a message."""
+    os.makedirs(lane, exist_ok=True)
+    line = json.dumps({"text": text, "kind": kind, "at": int(time.time())}, ensure_ascii=False) + "\n"
+    with open(paths(lane)["inbox"], "ab") as f:
+        f.write(line.encode("utf-8"))
+
+
+def read_inbox(lane, offset):
+    """(messages, new offset): the complete lines of the inbox past <offset>, each message's "_end"
+    the offset just past its line. A line still being written (no newline yet) is left for the next
+    read."""
+    try:
+        with open(paths(lane)["inbox"], "rb") as f:
+            f.seek(offset); data = f.read()
+    except OSError:
+        return [], offset
+    end = data.rfind(b"\n")
+    if end < 0:
+        return [], offset
+    msgs, pos = [], offset
+    for raw in data[:end].split(b"\n"):
+        pos += len(raw) + 1
+        line = raw.decode("utf-8", errors="replace").rstrip("\r")
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+            msg = d if isinstance(d, dict) and isinstance(d.get("text"), str) else {"text": line}
+        except ValueError:
+            msg = {"text": line}
+        msg["_end"] = pos
+        msgs.append(msg)
+    return msgs, offset + end + 1
+
+
+# --- reading a turn's events --------------------------------------------------------------------
+class Turn:
+    """Folds one turn's stream-json events into its outcome."""
+
+    def __init__(self):
+        self.session_id = None
+        self.result = None          # the `result` event, once seen
+        self.rejected = None        # rate_limit_info of a `rejected` rate_limit_event
+        self.rate_limit = None      # the latest rate_limit_info
+        self.retry = None           # the latest api_retry, while claude retries
+
+    def feed(self, ev):
+        if not isinstance(ev, dict):
+            return
+        if isinstance(ev.get("session_id"), str) and ev["session_id"]:
+            self.session_id = ev["session_id"]
+        t = ev.get("type")
+        if t == "rate_limit_event":
+            info = ev.get("rate_limit_info") or {}
+            self.rate_limit = info
+            if info.get("status") == "rejected":
+                self.rejected = info
+        elif t == "system" and ev.get("subtype") == "api_retry":
+            self.retry = {k: ev.get(k) for k in ("attempt", "max_retries", "error_status", "error", "retry_delay_ms")}
+        elif t == "result":
+            self.result = ev
+
+    def outcome(self, rc, stderr_tail=""):
+        """(state, reply, error, limit_resets_at) for the turn once its process exited with <rc>."""
+        r = self.result
+        if r is None:
+            why = f"claude exited {rc} with no result event"
+            return "transient", None, f"{why}: {stderr_tail}" if stderr_tail else why, None
+        reply = r.get("result") if isinstance(r.get("result"), str) else None
+        if not r.get("is_error") and r.get("subtype", "success") == "success":
+            return "idle", reply, None, None
+        error = reply or r.get("subtype") or "error"
+        if r.get("api_error") == "usage_limit_reached" or self.rejected is not None:
+            return "limit", reply, error, (self.rejected or {}).get("resetsAt")
+        return "transient", reply, error, None
+
+
+def classify(events, rc=0):
+    """The outcome of a turn that printed <events> and exited <rc> — Turn.outcome over a list."""
+    t = Turn()
+    for ev in events:
+        t.feed(ev)
+    return t.outcome(rc)
+
+
+# --- process trees ------------------------------------------------------------------------------
+def _descendants(root):
+    """Every pid under <root> (POSIX `ps`; empty when ps cannot say)."""
+    try:
+        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    kids = {}
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[0].isdigit() and p[1].isdigit():
+            kids.setdefault(int(p[1]), []).append(int(p[0]))
+    seen, todo = [], [root]
+    while todo:
+        for k in kids.get(todo.pop(), []):
+            if k not in seen:
+                seen.append(k); todo.append(k)
+    return seen
+
+
+def kill_tree(proc, grace=3.0):
+    """End <proc> and everything it started. POSIX: proc leads its own process group (spawn()); TERM
+    the group and every descendant found before the kill (one that left the group too), then KILL
+    whatever outlives <grace>. Windows: taskkill /T /F."""
+    if WINDOWS:
+        if proc.poll() is not None:
+            return
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        proc.wait(); return
+    tree = _descendants(proc.pid)
+
+    def signal_all(sig):
+        try:
+            os.killpg(proc.pid, sig)
+        except OSError:
+            pass
+        for p in tree:
+            try:
+                os.kill(p, sig)
+            except OSError:
+                pass
+
+    signal_all(signal.SIGTERM)
+    deadline = time.time() + grace
+    while time.time() < deadline and (proc.poll() is None or any(_alive(p) for p in tree)):
+        time.sleep(0.05)
+    signal_all(signal.SIGKILL)
+    proc.wait()
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0); return True
+    except OSError:
+        return False
+
+
+def spawn(argv, cwd, stdout, stderr):
+    kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
+    return subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, **kw)
+
+
+# --- the runner ---------------------------------------------------------------------------------
+class Runner:
+    def __init__(self, lane, cwd, bin_="claude", session_id=None, model=None, effort=None, flags=""):
+        self.lane, self.cwd, self.p = lane, cwd, paths(lane)
+        self.bin = shlex.split(bin_) if not WINDOWS else shlex.split(bin_, posix=False)
+        found = shutil.which(self.bin[0]) if self.bin else None
+        if found:
+            self.bin[0] = found
+        self.model, self.effort, self.flags = model, effort, shlex.split(flags or "")
+        self.stopping = False
+        self.queue = []      # read from the inbox, not yet delivered
+        prev = read_state(lane)
+        self.state = {
+            "state": "idle", "session_id": prev.get("session_id") or session_id,
+            "session_started": bool(prev.get("session_started")), "turn": int(prev.get("turn") or 0),
+            "turn_started": None, "last_turn_ended": prev.get("last_turn_ended"),
+            "last_reply": prev.get("last_reply"), "error": prev.get("error"),
+            "limit_resets_at": prev.get("limit_resets_at"), "rate_limit": prev.get("rate_limit"),
+            "retry": None, "queued": 0, "inbox_offset": int(prev.get("inbox_offset") or 0),
+            "exit": prev.get("exit"), "runner_pid": os.getpid(), "claude_pid": None, "cwd": cwd,
+        }
+        if prev.get("state") in ("limit", "transient"):
+            self.state["state"] = prev["state"]
+        # state.json's inbox_offset is past the last DELIVERED message (moved when its turn starts), so
+        # a runner that dies with messages queued delivers them after a restart; the read position is
+        # this process's own.
+        self.read_offset = self.state["inbox_offset"]
+
+    def save(self, **kw):
+        self.state.update(kw)
+        self.state["queued"] = len(self.queue)
+        self.state["updated"] = time.time()
+        write_json_atomic(self.p["state"], self.state)
+
+    def event(self, ev):
+        with open(self.p["events"], "a", encoding="utf-8") as f:
+            f.write(json.dumps(ev, separators=(",", ":"), ensure_ascii=False) + "\n")
+
+    def poll_inbox(self):
+        msgs, self.read_offset = read_inbox(self.lane, self.read_offset)
+        if msgs:
+            self.queue.extend(msgs)
+            self.save()
+
+    def stop_requested(self):
+        return self.stopping or os.path.exists(self.p["stop"])
+
+    def argv(self):
+        sid = self.state["session_id"]
+        a = list(self.bin) + ["-p", "--output-format", "stream-json", "--verbose"]
+        if sid:
+            a += ["--resume", sid] if self.state["session_started"] else ["--session-id", sid]
+        if self.model:
+            a += ["--model", self.model]
+        if self.effort:
+            a += ["--effort", self.effort]
+        return a + self.flags
+
+    def run_turn(self, msg):
+        n = self.state["turn"] + 1
+        started = time.time()
+        self.event({"type": "harness", "subtype": "turn_start", "turn": n, "kind": msg.get("kind", "message"),
+                    "message": msg["text"].splitlines()[0][:200] if msg["text"] else "", "at": started})
+        turn = Turn()
+        with open(self.p["stderr"], "ab") as err:
+            try:
+                proc = spawn(self.argv(), self.cwd, subprocess.PIPE, err)
+            except OSError as e:   # no claude to run: the turn fails, the runner stays up
+                self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": "transient",
+                            "exit": None, "at": time.time()})
+                self.save(state="transient", turn=n, error=f"cannot start claude: {e}", exit=None,
+                          inbox_offset=msg.get("_end", self.state["inbox_offset"]), last_turn_ended=time.time())
+                return
+            self.save(state="busy", turn=n, turn_started=started, claude_pid=proc.pid, retry=None,
+                      inbox_offset=msg.get("_end", self.state["inbox_offset"]))
+            try:   # the message goes on stdin: no argv length limit, no quoting
+                proc.stdin.write(msg["text"].encode("utf-8")); proc.stdin.close()
+            except OSError:
+                pass
+            lock = threading.Lock()
+
+            def reader():
+                for raw in proc.stdout:
+                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if not line.strip():
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        ev = {"type": "harness", "subtype": "stdout", "line": line}
+                    with lock:
+                        self.event(ev)
+                        before = (turn.session_id, turn.retry, turn.rate_limit)
+                        turn.feed(ev)
+                        if turn.session_id and not self.state["session_started"]:
+                            self.save(session_id=turn.session_id, session_started=True)
+                        elif (turn.session_id, turn.retry, turn.rate_limit) != before:
+                            self.save(session_id=turn.session_id or self.state["session_id"],
+                                      retry=turn.retry, rate_limit=turn.rate_limit or self.state["rate_limit"])
+            th = threading.Thread(target=reader, daemon=True); th.start()
+            stopped = False
+            while proc.poll() is None:
+                if self.stop_requested():
+                    kill_tree(proc); stopped = True; break
+                with lock:
+                    self.poll_inbox()
+                time.sleep(POLL_S)
+            th.join(timeout=5)
+            rc = proc.wait()
+        with lock:
+            if stopped:
+                self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": "ended", "exit": rc,
+                            "stopped": True, "at": time.time()})
+                self.save(claude_pid=None, turn_started=None, exit=rc, retry=None, error="stopped mid-turn")
+                return
+            state, reply, error, resets = turn.outcome(rc, self._stderr_tail())
+            self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": state, "exit": rc,
+                        "at": time.time()})
+            self.save(state=state, last_reply=reply, error=error, limit_resets_at=resets, exit=rc,
+                      claude_pid=None, turn_started=None, retry=None, last_turn_ended=time.time(),
+                      session_id=turn.session_id or self.state["session_id"],
+                      rate_limit=turn.rate_limit or self.state["rate_limit"])
+
+    def _stderr_tail(self):
+        try:
+            with open(self.p["stderr"], "rb") as f:
+                f.seek(max(0, os.path.getsize(self.p["stderr"]) - 2048))
+                lines = [l for l in f.read().decode("utf-8", "replace").splitlines() if l.strip()]
+            return lines[-1].strip()[:300] if lines else ""
+        except OSError:
+            return ""
+
+    def run(self):
+        os.makedirs(self.lane, exist_ok=True)
+        try:
+            os.remove(self.p["stop"])
+        except OSError:
+            pass
+
+        def on_signal(*_):
+            self.stopping = True
+        for s in ("SIGTERM", "SIGHUP", "SIGINT"):
+            if hasattr(signal, s):
+                signal.signal(getattr(signal, s), on_signal)
+        self.save()
+        while not self.stop_requested():
+            self.poll_inbox()
+            if self.queue:
+                msg = self.queue.pop(0)
+                self.run_turn(msg)
+            else:
+                time.sleep(POLL_S)
+        self.save(state="ended", claude_pid=None, turn_started=None)
+        return 0
+
+
+# --- CLI ----------------------------------------------------------------------------------------
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="claude_headless.py", description="headless claude lane runner (#347)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("run"); r.add_argument("--lane", required=True); r.add_argument("--cwd", required=True)
+    r.add_argument("--bin", default=os.environ.get("HARNESS_CLAUDE_BIN") or "claude")
+    r.add_argument("--session-id"); r.add_argument("--model"); r.add_argument("--effort")
+    r.add_argument("--flags", default=""); r.add_argument("--message")
+    s = sub.add_parser("send"); s.add_argument("--lane", required=True); s.add_argument("--kind", default="message")
+    s.add_argument("text")
+    q = sub.add_parser("state"); q.add_argument("--lane", required=True); q.add_argument("--field")
+    k = sub.add_parser("stop"); k.add_argument("--lane", required=True); k.add_argument("--timeout", type=float, default=15)
+    a = ap.parse_args(argv)
+
+    if a.cmd == "run":
+        if a.message:
+            send(a.lane, a.message, kind="bootstrap")
+        return Runner(a.lane, a.cwd, a.bin, a.session_id, a.model, a.effort, a.flags).run()
+    if a.cmd == "send":
+        send(a.lane, sys.stdin.read() if a.text == "-" else a.text, a.kind)
+        return 0
+    if a.cmd == "state":
+        st = read_state(a.lane)
+        if not st:
+            print("no runner state in " + a.lane, file=sys.stderr); return 1
+        if a.field:
+            v = st.get(a.field)
+            print("" if v is None else v if isinstance(v, str) else json.dumps(v))
+        else:
+            print(json.dumps(st, ensure_ascii=False))
+        return 0
+    if a.cmd == "stop":
+        os.makedirs(a.lane, exist_ok=True)
+        open(paths(a.lane)["stop"], "w").close()
+        pid = read_state(a.lane).get("runner_pid")
+        if pid and not WINDOWS:
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
+        deadline = time.time() + a.timeout
+        while time.time() < deadline:
+            if read_state(a.lane).get("state") == "ended":
+                return 0
+            time.sleep(POLL_S)
+        print(f"runner in {a.lane} did not stop within {a.timeout:g}s", file=sys.stderr)
+        return 1
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
