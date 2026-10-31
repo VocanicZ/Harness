@@ -245,6 +245,18 @@ state names the same id. Only issue lanes (impl, bug triage/fix) carry on; an or
 fresh, and a pane always does. Should claude no longer have the session (`No conversation found`), the
 runner runs that first message again as a new session under the same id.
 
+**The host supervisor.** `harness supervise` applies every rule it has for panes to a headless fleet's
+lanes, with no tmux on the host: a lane quiet for `NUDGE_MIN` is nudged through its inbox, one still quiet
+at `KILL_MIN` after that nudge is checkpointed to GitHub and then stopped, a turn stuck past
+`HARNESS_TURN_MAX` with a nudge queued behind it is interrupted (the nudge then runs as the next turn), a
+`limit` lane is left parked, and the arc rules read the lane's drawn screen. Activity is the drawn screen
+(the busy spinner's timer ticks), the CPU of the runner's process tree (claude's turn included), and the
+lane's own activity mark (`sess_activity`: its turn count and the size of `events.jsonl`) — the drawn
+screen holds no reply text, so a turn that ran and ended between two passes changes only the mark. Each
+fleet's own `HARNESS_SESSION_BACKEND` decides how its sessions are read, so one supervisor watches tmux and
+headless fleets side by side; its systemd unit's `PATH` takes every backend's binaries the host has and
+requires none of them.
+
 **Watching a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
 read-only: each turn, its tool calls and its reply as they land in `events.jsonl` — Ctrl-C stops watching,
 not the lane. `python3 scripts/cli/claude_headless.py state --lane <dir>` prints its `state.json`;
@@ -646,6 +658,7 @@ Each pass, every `INTERVAL` seconds:
    never force-pushed), a handoff comment posted, session killed and re-dispatched. If nothing can be
    pushed, it is not killed. Panes showing a dialog or a limit message are never typed into. A turn
    over `HARNESS_TURN_MAX` (default 4 h) with queued input is interrupted so the input lands.
+   Headless lanes get the same rules ([Headless lanes](#headless-lanes)).
 4. **Other agent panes** matching `EXTRA_RE` — nudged only.
 5. **Offline host** — everything held while `ONLINE_URL` is unreachable.
 6. **Arc stall rules** (2+ consecutive passes). Auto-fixed: wedged sessions, zombie sessions on

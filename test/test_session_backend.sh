@@ -146,7 +146,9 @@ print(sb.backend(), sb.capture_argv("s1") is not None, sorted(fv.host_sessions()
 PY
 }
 assert_eq "$(py)" "tmux True ['s1'] 1 tmux attach -t s1" "tmux: the views list sessions through tmux's argv"
-assert_eq "$(HARNESS_SESSION_BACKEND=headless py)" "headless False [] 0 harness status" "headless: no probe runs, no session is listed"
+assert_eq "$(HARNESS_SESSION_BACKEND=headless py)" "headless True [] 0 harness status" "headless: no probe runs, no session is listed; a lane's screen is capturable (#351)"
+argv="$(HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR=/lanes python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import session_backend as sb; print(" ".join(sb.capture_argv("=hz-main-i1")[1:]))' "$ROOT/scripts")"
+assert_eq "$argv" "$ROOT/scripts/cli/claude_headless.py pane --lane /lanes/hz-main-i1" "headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux"
 
 echo "== harness init writes the key; doctor reports it =="
 proj="$RUN_DIR/proj"; mkdir -p "$proj"

@@ -107,6 +107,11 @@ headless_sess_kill(){ local lane pid i
   for (( i = 0; i < HARNESS_HEADLESS_STOP_WAIT * 10; i++ )); do _hl_alive "$pid" || break; sleep 0.1; done
   if [[ "$(_hl_runner "$1")" == "$pid" ]]; then kill -KILL -- "-$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; fi
   _hl_reap_turn "$lane"; return 0; }
+# The turns it has started and how much it has logged: both move with every turn, even one that began
+# and ended between two looks (the drawn screen holds no reply text, so it is unchanged by one).
+headless_sess_activity(){ local lane; headless_sess_live "$1" || return 0; lane="$(headless_lane_dir "$1")"
+  printf 'turn=%s events=%s\n' "$(python3 "$HEADLESS_LANE_PY" state --lane "$lane" --field turn 2>/dev/null)" \
+    "$( { wc -c < "$lane/events.jsonl"; } 2>/dev/null | tr -d ' ')"; }
 headless_sess_turns(){ headless_sess_live "$1" || return 0
   python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field turn 2>/dev/null; }
 headless_sess_turn_ended(){ headless_sess_live "$1" || return 0

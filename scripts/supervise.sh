@@ -12,11 +12,17 @@
 #      ignored and still no activity at KILL_MIN -> checkpoint the work to GitHub, then kill (the
 #      pool reaps and re-dispatches). Activity = the pane text above the input prompt changed, a
 #      background-agent/shell timer in the footer moved, or the pane's process tree used more than
-#      CPU_ACTIVE_S CPU seconds since the last pass. Only an idle input prompt is ever typed into —
+#      CPU_ACTIVE_S CPU seconds since the last pass, or the session's own activity mark moved (a headless
+#      lane: its turn count or event log, #351 — its drawn screen shows no reply text, so a turn that
+#      ran between two passes leaves it unchanged). Only an idle input prompt is ever typed into —
 #      never a dialog or menu — and panes showing a usage/credit/rate-limit message are left alone.
 #      Checked before activity: a pane in ONE turn for HARNESS_TURN_MAX with input queued in its box,
 #      or with a Harness nudge still queued a pass later, is never "quiet" (its spinner timer ticks),
 #      yet nothing typed into it lands -> Escape, wait for `Interrupted`, Enter (#207; rule 4 too).
+#      A headless lane (the headless session backend, #351) gets every one of these rules: its
+#      screen is its state.json drawn in the claude TUI's shapes (spinner + turn timer, limit and
+#      interrupt lines, queued inbox messages in the input box), its CPU is its runner's process tree,
+#      and a nudge, an interrupt and a kill go to its inbox / interrupt / stop files. No tmux needed.
 #   4. non-Harness agent panes (EXTRA_RE, host config): the same activity test, nudge only, never
 #      killed — nothing re-dispatches them.
 #   5. host offline: hold every action; on reconnect re-arm every pane so quiet ones are nudged at once.
@@ -131,7 +137,7 @@ sup_watch_pane(){
   fi
   now=$(date +%s); t0=$now; n=$(sup_prompt_line "$cli" "$pane"); bgre=$(sup_bg_re "$cli")
   (( n > 0 )) || n=$(( $(wc -l <<<"$pane") + 1 ))                  # no prompt: it is all screen
-  body=$(awk -v n="$n" 'NR < n' <<<"$pane" | md5sum | cut -c1-12)
+  body=$({ awk -v n="$n" 'NR < n' <<<"$pane"; sess_activity "$t"; } | md5sum | cut -c1-12)   # '' from a pane: same hash as ever
   bg=$(awk -v n="$n" 'NR >= n' <<<"$pane" | { [[ -n $bgre ]] && grep -oE -- "$bgre"; } | md5sum | cut -c1-12)
   cpu=$(sup_tree_cpu "$(sess_pane_pid "$t")")
   mkdir -p "$(dirname "$f")"
@@ -393,8 +399,10 @@ sup_pass(){ local sd
 # sup_unit_path — the unit's PATH: the directories holding every tool a pass (and the `harness
 # start` it may run) needs. systemd hands a user unit a bare PATH, and a missing `rtdd` there
 # silently downgrades every relaunched lane to the full test suite.
-sup_unit_path(){ local b p out=()
-  for b in $(sup_agent_bins) gh rtdd $(sess_bins) git python3 curl; do
+# Every session backend's binaries, found or not: the unit's fleets may run any backend (#351), and one
+# a host lacks (tmux, on a headless-only host) is simply left out — never required.
+sup_unit_path(){ local b p sb out=()
+  for b in $(sup_agent_bins) gh rtdd $(for sb in $(sess_backend_list); do ( export "$SESS_CONFIG_VAR=$sb"; sess_bins ); done) git python3 curl; do
     p=$(command -v "$b" 2>/dev/null) && [[ $p == /* ]] && out+=("$(dirname "$p")")
   done
   out+=("$HOME/.local/bin" /usr/local/bin /usr/bin /bin)

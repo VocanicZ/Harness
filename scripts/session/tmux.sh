@@ -19,6 +19,8 @@ tmux_sess_interrupt(){ tmux send-keys -t "$1" Escape; }
 tmux_sess_capture(){ tmux capture-pane -p ${2:+-S "-$2"} -t "$1" 2>/dev/null; }
 tmux_sess_pane_pid(){ tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null; }
 tmux_sess_kill(){ tmux kill-session -t "$1"; }
+# Everything a pane does is on its screen: no mark beyond what sess_capture shows.
+tmux_sess_activity(){ return 0; }
 tmux_sess_turns(){ return 0; }
 tmux_sess_turn_ended(){ return 1; }
 # A pane keeps no record of the claude session it ran: a relaunched tmux lane starts a new one.

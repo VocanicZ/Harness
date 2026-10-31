@@ -60,6 +60,11 @@ sess_interrupt(){ _sess_call interrupt "$@"; }
 sess_capture(){ _sess_call capture "$@"; }
 # sess_pane_pid <target> — the process id the session's pane runs; empty when it is not live.
 sess_pane_pid(){ _sess_call pane_pid "$@"; }
+# sess_activity <target> — a mark that changes whenever the session works in a way its screen does not
+# show: a headless lane draws no reply text, so a turn that ran and ended between two looks leaves the
+# same screen behind (#351: the supervisor's frozen-session test). Empty when the screen is the whole
+# story (a pane prints everything it does) or the session is not live.
+sess_activity(){ _sess_call activity "$@"; }
 # sess_kill <target> — end the session; false when there was none.
 sess_kill(){ _sess_call kill "$@"; }
 # sess_turns <target> — how many turns the session has started, a mark for sess_turn_ended; empty when
