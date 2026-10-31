@@ -2,8 +2,10 @@
 # test_cli_matrix.sh — #188 / PRD #189: every feature row for every CLI that has an adapter, run
 # against fixtures captured from the real CLI (test/fixtures/cli/<cli>/, see each README.md). One
 # cell per row, each driving Harness's own code path for the feature (launch_agent, inject.sh, the
-# drive.sh lanes, pause.sh, supervise.sh, stats.py, init.sh) through the adapter (#254). The README's
-# support table is checked against these cells (test_cli_readme.sh).
+# drive.sh lanes, pause.sh, supervise.sh, stats.py, init.sh) through the adapter (#254). The headless-*
+# rows run the same features on the headless session backend (#353): a CLI with no headless lane
+# runner is n/a there, tmux-only. The README's support table is checked against these cells
+# (test_cli_readme.sh).
 # --tsv prints `<cli>\t<row>\tok|FAIL|n/a:<reason>` per cell instead of asserting.
 # test_cli_matrix_guard.sh reruns it on a cut-down fixture tree (HARNESS_MATRIX_FIX), for some CLIs
 # (HARNESS_MATRIX_CLIS), with adapter functions stubbed to `:` (HARNESS_MATRIX_STUB="trust trusted").
@@ -599,10 +601,232 @@ prompt_skills_ok(){ ( local d="$RUN_DIR/prompt-skills-$HARNESS_CLI" bin out name
   ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
   for n in $names; do [[ $n == rtdd ]] || [[ $(cat "$dir/$n/SKILL.md") == "operator own" ]] || exit 1; done ); }
 
+# matrix_stub — the adapter functions HARNESS_MATRIX_STUB names, stubbed to `:` (test_cli_matrix_guard.sh);
+# again after sourcing a script that re-sources lib.sh, which reloads the adapter.
+matrix_stub(){ local f; for f in ${HARNESS_MATRIX_STUB:-}; do eval "$(cli_name)_$f(){ :; }"; done; }
+
+# --- the headless session backend (#353, PRD #344) -------------------------------------------------
+# Each headless-* row runs the CLI with HARNESS_SESSION_BACKEND=headless through the code path the
+# row names — launch_agent, cli_send, the watchdog, the driven goal loop, turn_interrupt, pause.sh,
+# spawn_impl, supervise.sh, cli_limit_usage, the stats sweep, stop.sh — on the CLI's own headless lane
+# runner (cli_headless), a real detached process, whose CLI is the fake replaying the stream-json the
+# real CLI printed (fixtures/cli/<cli>/stream-json/, see its README.md). A CLI with no runner
+# (cli_headless_list) is refused on that backend (cli_backend_check): its rows are n/a, tmux-only.
+HEADLESS_ROWS="launch send busy-idle limit-parks transient-stalls loop-mode interrupt checkpoint resume supervisor-frozen-session usage-windows stats-session-end-usage stop"
+# hl_env — this (sub)shell on the headless backend: lanes in a dir of its own, the CLI the fake (a copy
+# of the stream-json dir whose rate-limit windows reset an hour from now: a passed reset is skipped),
+# no status-line drop or usage command. Every process it starts is killed on exit, by pid — never a
+# pattern: the host runs other lanes.
+hl_env(){ HL="$RUN_DIR/hl-$HARNESS_CLI-$BASHPID"; mkdir -p "$HL/lanes" "$HL/fake" "$HL/run"
+  # Its own run dir and worktrees too: the stats sweep ends every .stats session of its run dir.
+  export RUN_DIR="$HL/run" WORKTREES_DIR="$HL/worktrees" HARNESS_USAGE_DIR="$HL/usage"; PAUSE_FLAG="$RUN_DIR/PAUSED"
+  export HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR="$HL/lanes" HARNESS_SESS_PREFIX=hz HARNESS_INTERRUPT_WAIT=10
+  export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_EVENTS_FILE="$HL/events.jsonl" HARNESS_CLAUDE_CONFIG_DIRS="$HL/no-config"
+  unset HARNESS_USAGE_CMD CLAUDE_CONFIG_DIR
+  cp "$FIX/$HARNESS_CLI/stream-json/"* "$HL/fake/" || return 1
+  python3 - "$HL/fake" <<'PY' || return 1
+import glob, json, sys, time
+for f in glob.glob(sys.argv[1] + "/*.jsonl"):
+    rows = [json.loads(l) for l in open(f) if l.strip()]
+    for r in rows:
+        info = r.get("rate_limit_info") or {}
+        for w in [info] + list((info.get("unifiedWindows") or {}).values()):
+            if "resetsAt" in w:
+                w["resetsAt"] = int(time.time()) + 3600
+    open(f, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+  export "HARNESS_${HARNESS_CLI^^}_BIN=python3 $HL/fake/fake-$HARNESS_CLI"
+  log(){ printf '%s\n' "$*" >> "$HL/harness.log"; }; limit_checkpoint_once(){ :; }
+  trap hl_cleanup EXIT; }
+hl_cleanup(){ local d p; shopt -s nullglob
+  for d in "$HL"/lanes/*/; do p="$(cat "$d/pid" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done
+  for d in "$HL"/fake-*/; do
+    for p in $(python3 -c 'import json, sys; [print(json.loads(l)["pid"]) for l in open(sys.argv[1])]' "$d/calls.jsonl" 2>/dev/null) \
+        $(cat "$d/pids" 2>/dev/null); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done
+  done; shopt -u nullglob; }
+# hl_lane <name> <plan…> — a fresh worktree $WD and the fake's dir for the lane on it, replaying <plan>
+# (one stream-json fixture per turn: normal, tool-use, limit, transient, hang; text after it replaces
+# the reply).
+hl_lane(){ WD="$HL/wd-$1"; new_wd "$WD"; export FAKE_CLAUDE_DIR="$HL/fake-$1"; mkdir -p "$FAKE_CLAUDE_DIR"; shift
+  printf '%s\n' "$@" > "$FAKE_CLAUDE_DIR/plan"; }
+hl_wait(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; command sleep 0.1; done; return 1; }
+hl_alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+# hl_calls <field> — that field of each turn the fake ran (argv, prompt), one JSON value per line.
+hl_calls(){ python3 -c 'import json, sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
+  "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }
+hl_field(){ python3 "$HERE/../scripts/cli/claude_headless.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
+hl_busy(){ cli_pane_busy "$(sess_capture "$1")"; }
+hl_idle(){ local p; p="$(sess_capture "$1")" && cli_pane_prompt "$p" && not cli_pane_busy "$p"; }
+# hl_turn <sess> <n> — the lane has ended its <n>th turn and sits at its prompt.
+hl_turn(){ [[ "$(hl_field "$1" turn)" == "$2" && "$(hl_field "$1" state)" != busy ]] && hl_idle "$1"; }
+hl_launch(){ local s="$1"; shift; env_launch "$@" launch_agent "$s" "$WD" >/dev/null 2>&1; }
+env_launch(){ local kv=(); while [[ $1 == *=* ]]; do kv+=("$1"); shift; done; ( for a in "${kv[@]}"; do export "$a"; done; "$@" ); }
+
+# headless_launch_ok — launch_agent prepares the worktree as for a pane (trusted, bypassed, the goal loop
+# armed) and starts the CLI's runner on it, not a typed launch line: the lane is live and listed, its
+# first turn's prompt is the bootstrap on stdin under the loop's session id, and no argv carries the task.
+headless_launch_ok(){ ( hl_env; local s=hz-main-i21 uuid; hl_lane launch normal
+  hl_launch "$s" GOAL=ISSUE:21 PROMISE="ISSUE 21 DONE" || exit 1
+  sess_live "$s" && same "$(sess_list)" "$s" && cli_trusted "$WD" && cli_bypassed "$WD" || exit 1
+  uuid="$(state_uuid "$WD")"; [[ -n $uuid ]] && hl_wait 10 hl_turn "$s" 1 || exit 1
+  same "$(hl_calls prompt)" "\"$HARNESS_BOOTSTRAP_PROMPT\"" && has "\"--session-id\", \"$uuid\"" "$(hl_calls argv)" &&
+    lacks UNIQUE_TASK_MARKER "$(hl_calls argv)" && grep -qF "ISSUE 21 DONE" "$WD/.claude/ralph-loop.local.md" ); }
+# headless_send_ok — cli_send mid-turn waits in the lane's input box and is the next turn, carrying on
+# the same session (--resume).
+headless_send_ok(){ ( hl_env; local s=hz-main-i22 uuid; hl_lane send normal "normal sent"; touch "$FAKE_CLAUDE_DIR/hold"
+  hl_launch "$s" GOAL=ISSUE:22 || exit 1; uuid="$(state_uuid "$WD")"
+  hl_wait 10 hl_busy "$s" && cli_send "$s" "$WD" "a later message" || exit 1
+  grep -qxF "❯ a later message" <<<"$(sess_capture "$s")" || exit 1
+  rm -f "$FAKE_CLAUDE_DIR/hold"; hl_wait 15 hl_turn "$s" 2 || exit 1
+  same "$(hl_calls prompt | sed -n 2p)" '"a later message"' && has "\"--resume\", \"$uuid\"" "$(hl_calls argv | sed -n 2p)" ); }
+# headless_busy_idle_ok — a running turn reads busy (its input box drawn below, as the TUI's is), never
+# a stall; once it ends the lane reads as the idle prompt, not busy, not a stall and not a limit.
+headless_busy_idle_ok(){ ( hl_env; local s=hz-main-i23 p; hl_lane busy normal; touch "$FAKE_CLAUDE_DIR/hold"
+  hl_launch "$s" GOAL=ISSUE:23 && hl_wait 10 hl_busy "$s" || exit 1
+  p="$(sess_capture "$s")"; not session_stalled "$p" && same "$(sess_state "$s")" busy || exit 1
+  rm -f "$FAKE_CLAUDE_DIR/hold"; hl_wait 15 hl_turn "$s" 1 || exit 1
+  p="$(sess_capture "$s")"; not session_stalled "$p" && not session_limit_idle "$p" && same "$(sess_state "$s")" idle ); }
+# headless_limit_ok — a turn the usage limit ends parks the lane (with the CLI's reset time), not a
+# stall; the watchdog handles it as a limit park and its nudge is the lane's next turn.
+headless_limit_ok(){ ( hl_env; local s=hz-main-i24 p; hl_lane limit limit normal
+  hl_launch "$s" GOAL=ISSUE:24 && hl_wait 15 hl_turn "$s" 1 || exit 1
+  p="$(sess_capture "$s")"; session_limit_idle "$p" && not session_stalled "$p" && same "$(sess_state "$s")" limit &&
+    [[ -n "$(limit_reset "$p")" ]] || exit 1
+  watchdog_session "$s"; grep -qF "watchdog: $s parked at its idle prompt by the usage limit" "$HL/harness.log" &&
+    hl_wait 15 hl_turn "$s" 2 && has "the usage limit has reset" "$(hl_calls prompt | sed -n 2p)" ); }
+# headless_transient_ok — a turn a transient API error ends is the #115 wedge, not a limit; the
+# watchdog nudges it and the nudge runs a healthy turn.
+headless_transient_ok(){ ( hl_env; local s=hz-main-i25 p; hl_lane transient transient normal
+  hl_launch "$s" GOAL=ISSUE:25 && hl_wait 15 hl_turn "$s" 1 || exit 1
+  p="$(sess_capture "$s")"; session_stalled "$p" && not session_limit_idle "$p" && same "$(sess_state "$s")" transient || exit 1
+  watchdog_session "$s"; grep -qF "watchdog: $s wedged at its idle prompt after a transient API error" "$HL/harness.log" &&
+    hl_wait 15 hl_turn "$s" 2 && has "the transient API error has cleared" "$(hl_calls prompt | sed -n 2p)" &&
+    not session_stalled "$(sess_capture "$s")" ); }
+# headless_loop_ok — the goal loop a headless lane runs is the driven one: the watchdog re-prompts a
+# turn that ended without the promise (the promise and the bootstrap, never the task), once, and the
+# turn that outputs it ends the loop, which cli_done sees.
+headless_loop_ok(){ ( hl_env; local s=hz-main-i26 i; hl_lane loop "normal not yet" "normal all done <promise>LOOP DONE</promise>" normal
+  same "$(cli_loop)" driven || exit 1
+  hl_launch "$s" GOAL=ISSUE:26 PROMISE="LOOP DONE" MAXITER=5 || exit 1
+  for (( i = 0; i < 100; i++ )); do cli_done "$WD" && break; watchdog_session "$s"; command sleep 0.2; done
+  cli_done "$WD" && same "$(hl_calls prompt | wc -l)" 2 || exit 1
+  local p; p="$(hl_calls prompt | sed -n 2p)"
+  has "<promise>LOOP DONE</promise>" "$p" && has "$HARNESS_BOOTSTRAP_PROMPT" "$p" && lacks UNIQUE_TASK_MARKER "$p" &&
+    grep -qF "goal loop: $s ended its loop" "$HL/harness.log" ); }
+# headless_interrupt_ok — turn_interrupt ends a running turn's whole process tree, the runner lives on,
+# and the message queued behind the turn runs next.
+headless_interrupt_ok(){ ( hl_env; local s=hz-main-i27 fpid gpid rpid; hl_lane interrupt hang normal
+  hl_launch "$s" GOAL=ISSUE:27 && hl_wait 10 test -s "$FAKE_CLAUDE_DIR/pids" || exit 1
+  read -r fpid gpid < "$FAKE_CLAUDE_DIR/pids"; rpid="$(sess_pane_pid "$s")"
+  sess_type "$s" "Please continue — after the interrupt"; sess_enter "$s"
+  touch "$FAKE_CLAUDE_DIR/hold"   # the queued turn is held: turn_interrupt reads `Interrupted` while it runs
+  turn_interrupt "$s" || exit 1
+  hl_wait 10 bash -c "! kill -0 $fpid 2>/dev/null && ! kill -0 $gpid 2>/dev/null" && hl_alive "$rpid" &&
+    hl_wait 10 grep -qF "after the interrupt" "$FAKE_CLAUDE_DIR/calls.jsonl" ); }
+# hl_checkpoint — an impl lane (spawn_impl) on issue 17 mid-turn; `pause --force` sends it the
+# checkpoint, which waits behind the turn, then waits on the lane's state for the checkpoint turn and
+# ends the lane. Leaves $S, $UUID, $PAUSE_OUT.
+hl_checkpoint(){ local ppid
+  source "$HERE/../scripts/drive.sh"; matrix_stub; hl_env; lane_env; export HARNESS_PAUSE_GRACE=30
+  log(){ printf '%s\n' "$*" >> "$HL/harness.log"; }
+  hl_lane cp "normal working on it" "normal checkpointed" "normal resumed"; touch "$FAKE_CLAUDE_DIR/hold"
+  spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 || return 1
+  S="$(sess_impl main 17)"; WD="$WORKTREES_DIR/main-i17"; UUID="$(state_uuid "$WD")"
+  sess_live "$S" && hl_wait 10 hl_busy "$S" || return 1
+  PAUSE_OUT="$HL/pause.out"
+  FAKE_LABELS='["agent-paused"]' RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/pause.sh" --force > "$PAUSE_OUT" 2>&1 & ppid=$!
+  hl_wait 10 bash -c "grep -qF '❯ HARNESS CHECKPOINT' <<<\"\$(python3 '$HERE/../scripts/cli/claude_headless.py' pane --lane '$(headless_lane_dir "$S")')\"" || return 1
+  rm -f "$FAKE_CLAUDE_DIR/hold"; wait "$ppid"; }
+headless_checkpoint_ok(){ ( hl_checkpoint || exit 1; local msg
+  msg="$(hl_calls prompt | sed -n 2p)"
+  has "HARNESS CHECKPOINT" "$msg" && has "run the $(cat "$FIX/$HARNESS_CLI/handoff-skill") skill" "$msg" &&
+    has '<!-- harness-handoff issue=17 branch=issue/17 -->' "$msg" && has "\"--resume\", \"$UUID\"" "$(hl_calls argv | sed -n 2p)" &&
+    grep -qF "lane ended after its checkpoint: $S" "$PAUSE_OUT" && not sess_live "$S" && same "$(hl_field "$S" state)" ended &&
+    test -f "$PAUSE_FLAG" ); }
+# headless_resume_ok — that checkpointed lane, re-dispatched once the pause is cleared (the agent-paused
+# issue, its pushed branch, its handoff comment), relaunches in its worktree on the resume prompt and
+# carries on the same claude session: its first turn resumes it, no new session is started.
+headless_resume_ok(){ ( hl_checkpoint || exit 1
+  rm -f "$PAUSE_FLAG"; same "$(sess_resume_id "$S" "$WD")" "$UUID" || exit 1
+  FAKE_LABELS='["agent-paused"]' FAKE_REMOTE_BRANCH=issue/17 FAKE_HANDOFF=$'<!-- harness-handoff issue=17 branch=issue/17 -->\nLEFT OFF HERE'
+  spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 && sess_live "$S" && hl_wait 15 hl_turn "$S" 1 || exit 1
+  grep -qF "LEFT OFF HERE" "$WD/.harness-task.md" && same "$(state_uuid "$WD")" "$UUID" &&
+    same "$(hl_calls prompt | sed -n 3p)" "\"$HARNESS_BOOTSTRAP_PROMPT\"" &&
+    has "\"--resume\", \"$UUID\"" "$(hl_calls argv | sed -n 3p)" && lacks '"--session-id"' "$(hl_calls argv | sed -n 3p)" ); }
+# headless_supervisor_ok — #351: `harness supervise` nudges a quiet idle lane through its inbox (the
+# nudge is the lane's next turn) and leaves a limit-parked lane alone.
+headless_supervisor_ok(){ ( hl_env; local idle=hz-main-i28 lim=hz-main-i29 iwd t
+  export HARNESS_SUPERVISE_CONF=/dev/null HARNESS_SUPERVISE_STATE="$HL/sup" HARNESS_SUPERVISE_LOG="$HL/sup.log"
+  source "$HERE/../scripts/supervise.sh"; matrix_stub; SUP_DRY=0
+  hl_lane sup-idle normal normal; iwd="$WD"; hl_launch "$idle" GOAL=ISSUE:28 || exit 1; local ifake="$FAKE_CLAUDE_DIR"
+  hl_lane sup-limit limit; hl_launch "$lim" GOAL=ISSUE:29 || exit 1
+  hl_wait 15 hl_turn "$idle" 1 && hl_wait 15 hl_turn "$lim" 1 || exit 1
+  for t in 1 2; do for s in "$idle" "$lim"; do sup_watch_pane "$s" "$SUP_STATE/panes/$s" 0 0 "nudge-$s" "$HARNESS_CLI"; done; done
+  FAKE_CLAUDE_DIR="$ifake"; hl_wait 15 hl_turn "$idle" 2 && same "$(hl_calls prompt | sed -n 2p)" "\"nudge-$idle\"" &&
+    not grep -qF "$lim" "$SUP_LOG" && same "$(hl_field "$lim" turn)" 1 ); }
+# headless_usage_windows_ok — #352: no status line runs headless; the CLI's usage windows are read off
+# the rate_limit_event its turn printed (the runner keeps it in state.json), each window's utilization
+# as a percent, under the lane's account (`default`: no CLAUDE_CONFIG_DIR).
+headless_usage_windows_ok(){ ( hl_env; local s=hz-main-i30; hl_lane usage tool-use
+  hl_launch "$s" GOAL=ISSUE:30 && hl_wait 15 hl_turn "$s" 1 || exit 1
+  same "$(cli_limit_usage | cut -f1-3 | sort)" "$(sort "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected")" ); }
+# headless_stats_ok — #352: once the lane's runner has exited, the stats sweep emits its session_end
+# once, its usage the sum of its turns' stream-json `result` modelUsage (no transcript), its session the
+# lane's own.
+headless_stats_ok(){ ( hl_env; local s=hz-main-i31 uuid; hl_lane stats tool-use normal
+  hl_launch "$s" GOAL=ISSUE:31 && hl_wait 15 hl_turn "$s" 1 || exit 1; uuid="$(state_uuid "$WD")"
+  cli_send "$s" "$WD" "next" && hl_wait 15 hl_turn "$s" 2 || exit 1
+  stats_sweep_ended; [[ -z "$(grep session_end "$HARNESS_EVENTS_FILE")" ]] || exit 1   # still live: no session_end yet
+  sess_kill "$s" >/dev/null; stats_sweep_ended; stats_sweep_ended
+  python3 - "$HARNESS_EVENTS_FILE" "$uuid" "$HL/fake/tool-use.jsonl" "$HL/fake/normal.jsonl" <<'PY'
+import json, sys
+want = {}
+for f in sys.argv[3:]:
+    for r in map(json.loads, open(f)):
+        for m, u in (r.get("modelUsage") or {}).items() if r.get("type") == "result" else ():
+            t = want.setdefault(m, {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0})
+            for k, d in (("inputTokens", "input"), ("outputTokens", "output"),
+                         ("cacheReadInputTokens", "cache_read"), ("cacheCreationInputTokens", "cache_create")):
+                t[d] += u[k]
+ends = [e for e in map(json.loads, open(sys.argv[1])) if e.get("event") == "session_end"]
+sys.exit(0 if want and len(ends) == 1 and ends[0].get("session") == sys.argv[2] and ends[0].get("usage") == want else 1)
+PY
+) }
+# headless_stop_ok — `harness stop` ends a lane mid-turn: its runner, the CLI's turn and that turn's
+# own child are all gone, nothing is listed, and the lane's state reads ended.
+headless_stop_ok(){ ( hl_env; local s=hz-main-i32 rpid fpid gpid out p; hl_lane stop hang
+  hl_launch "$s" GOAL=ISSUE:32 && hl_wait 10 test -s "$FAKE_CLAUDE_DIR/pids" || exit 1
+  read -r fpid gpid < "$FAKE_CLAUDE_DIR/pids"; rpid="$(sess_pane_pid "$s")"; [[ -n $rpid ]] || exit 1
+  out="$(bash "$HERE/../scripts/stop.sh" 2>&1)"; has "killed headless $s" "$out" || exit 1
+  for p in "$rpid" "$fpid" "$gpid"; do hl_wait 5 not hl_alive "$p" || exit 1; done
+  same "$(sess_list)" "" && not sess_live "$s" && same "$(hl_field "$s" state)" ended ); }
+# headless_rows <cli> — every headless-* cell for <cli>: run where it has a headless runner; n/a where
+# the headless backend refuses it as tmux-only (cli_backend_check); FAIL where it is neither.
+headless_rows(){ local cli="$1" r
+  if [[ -z "$(cli_headless_list | grep -xF "$cli")" ]]; then
+    if not env_launch HARNESS_SESSION_BACKEND=headless cli_backend_check 2>/dev/null; then
+      for r in $HEADLESS_ROWS; do na "$cli" "headless-$r" "tmux-only"; done
+    else for r in $HEADLESS_ROWS; do cell "$cli" "headless-$r" false; done; fi
+    return
+  fi
+  cell "$cli" headless-launch                  headless_launch_ok
+  cell "$cli" headless-send                    headless_send_ok
+  cell "$cli" headless-busy-idle               headless_busy_idle_ok
+  cell "$cli" headless-limit-parks             headless_limit_ok
+  cell "$cli" headless-transient-stalls        headless_transient_ok
+  cell "$cli" headless-loop-mode               headless_loop_ok
+  cell "$cli" headless-interrupt               headless_interrupt_ok
+  cell "$cli" headless-checkpoint              headless_checkpoint_ok
+  cell "$cli" headless-resume                  headless_resume_ok
+  cell "$cli" headless-supervisor-frozen-session headless_supervisor_ok
+  cell "$cli" headless-usage-windows           headless_usage_windows_ok
+  cell "$cli" headless-stats-session-end-usage headless_stats_ok
+  cell "$cli" headless-stop                    headless_stop_ok; }
+
 rc=0
 for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
   ( cli_load "$cli" || exit 1
-    for f in ${HARNESS_MATRIX_STUB:-}; do eval "${cli}_$f(){ :; }"; done
+    matrix_stub
     F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q
     printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"
     SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"
@@ -654,6 +878,7 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     cell "$cli" rtdd-event-context         rtdd_event_ok
     cell "$cli" prereqs-named              prereqs_ok
     cell "$cli" init-wizard-choice         init_choice_ok
+    headless_rows "$cli"
     (( TSV )) || finish ) || rc=1
 done
 exit "$rc"

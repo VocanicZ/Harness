@@ -166,6 +166,7 @@ r = os.path.join(sys.argv[1], p["source"]["path"])
 sys.exit(0 if m["name"] == "harness" and json.load(open(r + "/.codex-plugin/plugin.json"))["name"] == "harness-ralph"
          and "Stop" in json.load(open(r + "/hooks/hooks.json"))["hooks"] else 1)' "$HERE/../plugins/codex"
 
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="codex" && $3!="ok"')"
-assert_eq "$col" "" "every codex matrix cell is ok"
+# #353: codex has no headless lane runner, so its headless-* rows read n/a, tmux-only — and only those.
+col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="codex" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only")')"
+assert_eq "$col" "" "every codex matrix cell is ok, but its headless-* rows: n/a, tmux-only"
 finish

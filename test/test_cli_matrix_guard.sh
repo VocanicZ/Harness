@@ -38,4 +38,24 @@ if [[ $frozen_here == ok ]]; then
 fi
 assert_eq "$(res "$cells" codex supervisor-frozen-session)" FAIL "no limit.txt: codex supervisor-frozen-session FAILs"
 assert_eq "$(res "$cells" agy bypass-covers-subagents)" FAIL "agy's sub-agent pane shows the approval prompt: bypass-covers-subagents FAILs"
+# Every tmux-only CLI's headless-* rows are n/a — the headless backend refuses it — never ok.
+for cli in codex agy; do
+  got="$(awk -F'\t' -v c="$cli" '$1 == c && $2 ~ /^headless-/ { print $3 }' <<<"$cells" | sort -u)"
+  assert_eq "$got" "n/a:tmux-only" "$cli, which has no headless runner, is n/a on every headless-* row"
+done
+
+# #353: claude's headless rows, with the adapter functions they lean on stubbed to `:`. With its
+# headless lane runner's command gone (claude_headless) no lane starts, and every headless-* row FAILs;
+# with the lane's last reply gone (claude_last_reply) the driven goal loop never ends; with its
+# usage-window reader gone (claude_limit_usage) no window is read. The pane rows the stubs leave alone
+# stay ok.
+headless_rows(){ awk -F'\t' '$1 == "claude" && $2 ~ /^headless-/ { print $2 "\t" $3 }' <<<"$1"; }
+cells="$(HARNESS_MATRIX_STUB=headless HARNESS_MATRIX_CLIS=claude bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
+assert_ok "stubbed runner: claude has headless-* rows" test -n "$(headless_rows "$cells")"
+assert_eq "$(headless_rows "$cells" | cut -f2 | sort -u)" FAIL "stubbed runner: every claude headless-* row FAILs"
+assert_eq "$(res "$cells" claude launch-bootstrap-prompt)" ok "…while its pane rows still pass"
+cells="$(HARNESS_MATRIX_STUB="last_reply limit_usage" HARNESS_MATRIX_CLIS=claude bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
+assert_eq "$(res "$cells" claude headless-loop-mode)" FAIL "stubbed last reply: claude headless-loop-mode FAILs"
+assert_eq "$(res "$cells" claude headless-usage-windows)" FAIL "stubbed usage windows: claude headless-usage-windows FAILs"
+assert_eq "$(res "$cells" claude headless-launch)" ok "…while headless-launch, which reads neither, still passes"
 finish

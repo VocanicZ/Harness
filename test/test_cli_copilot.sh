@@ -187,6 +187,7 @@ assert_ok "…beside the handoff skill, where copilot loads skills (#303)" \
   has "MISSING copilot skill handoff ($COPILOT_HOME/skills/handoff)" "$(cli_prereqs 2>&1)"
 assert_ok "init offers copilot" grep -qx copilot <<<"$(cli_list)"
 
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot" && $3!="ok"')"
-assert_eq "$col" "" "every copilot matrix cell is ok"
+# #353: copilot has no headless lane runner, so its headless-* rows read n/a, tmux-only — and only those.
+col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only")')"
+assert_eq "$col" "" "every copilot matrix cell is ok, but its headless-* rows: n/a, tmux-only"
 finish
