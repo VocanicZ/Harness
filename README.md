@@ -104,6 +104,7 @@ harness update            # install the latest release (--rollback to go back)
 | `/harness-start` · `/harness-stop` | Start or stop the worker pool |
 | `/harness-pause` · `/harness-resume` | Drain or checkpoint agents; resume here or on another host |
 | `/harness-status` | Per-unit state: running, complete, or stuck |
+| `/harness-one` | While the fleet is paused or usage-HELD: forecast one issue against live usage, APPROVE/DENY, you decide |
 | `/harness-issue` | Grill a task, then add it to a running fleet |
 | `/harness-prd` | Grill new scope, then grow a running fleet's PRD |
 | `/harness-plan` | Grill a topology change (new target repo, `PLAN.md`), then apply it |

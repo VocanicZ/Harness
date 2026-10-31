@@ -179,6 +179,10 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_DISABLE_CI` | `1` | When `harness init` / `harness setup` seed a repo, `gh workflow disable` its existing GitHub Actions and log each one. `1` = test-CI only — a workflow whose name or file says `release`, `deploy`, `publish`, `pages` or `cd` keeps running; `all` = release and deploy too; `0` = touch nothing (the opt-out). See [No GitHub CI](#no-github-ci--the-gate-is-local) |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
 | `HARNESS_ONE_USD_PER_PCT` | _(empty)_ | `harness forecast`'s fallback $ per 1% of a usage window, for an account/window with no calibration yet (no usable `usage_reading` pair). Read from the environment, else this config. Empty = `n/a`. See [Cost forecast](#cost-forecast) |
+| `HARNESS_ONE_STOP_PCT` | `98` | `/harness-one`'s gate: recommend APPROVE only when every usage window's `now% + p80% + HARNESS_ONE_RESERVE_PCT` stays at or under this %. See [One issue at a time](#one-issue-at-a-time-harness-one) |
+| `HARNESS_ONE_RESERVE_PCT` | `2` | % of a window the gate holds back for the checkpoint (commit, push, handoff) when the budget runs out |
+| `HARNESS_ONE_STALE_MIN` | `30` | A usage reading older than this many minutes, or of unknown age, is stale… |
+| `HARNESS_ONE_STALE_PAD_PCT` | `3` | …and the gate adds this many points to it |
 | `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
 | `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
@@ -359,6 +363,7 @@ Run from inside any `harness init`'d project:
 | `status [--watch [secs]] [--all]` | One-shot or live dashboard: pool state, per-unit progress, live sessions, gated units. Outside any project (or with `--all`) it shows **every fleet on the host** from `~/.harness/fleets`: state (RUNNING / PAUSED / STOPPED / COMPLETE / DEAD / missing), live sessions with issue, age and model, open / unblocked / agent-working counts with orphaned locks flagged, last log line, HOLD streaks, and the GitHub budget |
 | `stats [--prd N\|--issue N] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes. `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, retries) up to the PRD; `--issue` is a per-session timeline. Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
 | `forecast <issue> [-R owner/repo] [--unit U] [--json]` | Per-phase cost forecast for one issue — explore / test / impl / gate / ship at p50 / p80 / p95 $ and in total, scaled by the issue's size — from the past lanes in the same event log. Says which history it used and when it fell back. See [Cost forecast](#cost-forecast) |
+| `one check` · `one gate <issue> [-R owner/repo] [--unit U] [--json]` | The `/harness-one` budget gate. `check`: exit 0 when the fleet is PAUSED or usage-HELD, else refuses (exit 1). `gate`: the check, the issue's forecast, the arithmetic for every window and `RECOMMEND: APPROVE` (exit 0) or `DENY` (exit 1); exit 3 = refused. See [One issue at a time](#one-issue-at-a-time-harness-one) |
 | `doctor [--fix]` | Diagnose what strands a pool — who holds `start.lock`/`pool.lock` (via a dependency-free `/proc` scan, so it works without `fuser`/`lsof`), orphaned lock-holders (a killed worker's leaked poll-`sleep`), and stale pidfiles. Report-only by default; `--fix` clears stale pidfiles and reaps **this project's** orphans (never touches a co-resident sibling fleet) |
 | `attach <unit> [issue]` | tmux-attach to a running session |
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
@@ -515,6 +520,25 @@ The repo is `-R`, else the one the issue's own lanes ran in, else the current pr
 numbers (`phases`, `total`, `size`, `basis`, `spent`, `pct`, `calibration`) for scripts; the exit status is 1 when the host
 has no past lanes at all.
 
+### One issue at a time (`/harness-one`)
+
+While the fleet is paused, or every claim is usage-HELD by the checkpoint above, `/harness-one` lets
+the operator keep going one issue at a time in their own session, with a budget gate before each.
+
+- **Precondition** — `harness one check`. The fleet must be PAUSED (`harness pause`) or usage-HELD.
+  Anything else is refused: a running, un-held pool would race the session for the claim (a stopped
+  fleet too — pause it first, so a `harness start` cannot).
+- **Gate** — `harness one gate <issue>` prints the issue's [cost forecast](#cost-forecast), then for
+  every usage window `cli_limit_usage` reports: `now% + p80% + HARNESS_ONE_RESERVE_PCT`, against
+  `HARNESS_ONE_STOP_PCT`. It recommends **APPROVE** only when every window is at or under the stop
+  (exactly at it approves), else **DENY**, naming each window over it. `p80%` is the forecast's p80
+  total as % of that window (its calibrated fit, else `HARNESS_ONE_USD_PER_PCT`). A reading older
+  than `HARNESS_ONE_STALE_MIN` minutes — its status-line drop's age, or the adapter's usage cache's —
+  or of unknown age gets `HARNESS_ONE_STALE_PAD_PCT` points added. No reading, no p80% for a window,
+  or no past lanes at all is a DENY: the gate cannot show the work fits.
+- **Decision** — the skill shows all of that and asks: approve / pick another issue / stop. It never
+  approves by itself; a DENY is a recommendation the human may overrule.
+
 ### GitHub rate limits
 
 Every fleet on a host shares one GitHub token's budget.
@@ -640,6 +664,7 @@ unstick moves. It never does a unit's work by hand.
 | `/harness-pause`  | `harness pause`  | confirms first; soft drain vs `--force` checkpoint |
 | `/harness-resume` | `harness resume` | confirms first; works across machines |
 | `/harness-status` | `harness status` | read-only, runs immediately |
+| `/harness-one`    | `harness one`    | refuses unless the fleet is PAUSED or usage-HELD; shows the forecast and the APPROVE/DENY arithmetic, then the human picks approve / another issue / stop — never auto-approves. See [One issue at a time](#one-issue-at-a-time-harness-one) |
 | `/harness-plan`   | `harness plan`   | inject a topology/PLAN change into a live fleet; grills + replays a crystallized brief for confirmation (the human safety gate) before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
 | `/harness-prd`    | `harness prd`    | grow PRD scope → delta issues on a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
 | `/harness-issue`  | `harness issue`  | inject a discrete implementation issue into a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
