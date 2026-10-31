@@ -1435,7 +1435,10 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   session_env "$uuid"
-  # A backend that cannot start the session (headless, #346) stops the launch here: nothing to type into.
+  local model effort line line_me
+  if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" || return 1
+  else
+  # A backend that cannot start the session stops the launch here: nothing to type into.
   sess_start "$sess" "$wd" "${SESSION_ENV[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
   sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
@@ -1449,11 +1452,11 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
-  local model effort line line_me
   model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
   line="$(cli_launch "$wd" "$uuid" "$model" "$effort")"
   sess_send_line "$sess" "$line"
   _launch_first_input "$sess" "$effort"
+  fi
   # #307: the model and effort this launch runs with, as the CLI's adapter reads them off its own line
   # and lane config — not the lane pin alone, which names neither when the configured flags do.
   line_me="$(cli_model_effort "$line" "$wd")"; model="${line_me%%$'\t'*}"; effort="${line_me#*$'\t'}"
@@ -1462,6 +1465,20 @@ launch_agent(){ local sess="$1" wd="$2" uuid
     worktree="$wd" model="$model" effort="$effort" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
+# _launch_headless <sess> <wd> <uuid> — launch_agent on a headless backend (#349): the lane IS the CLI's
+# headless runner (cli_headless), started with the bootstrap as its first message — there is no shell
+# to type a launch line into, and no first input to wait for. The worktree is prepared BEFORE the start
+# (the runner's first turn begins at once); the .goal / .wd still land after the lane is live, as on
+# tmux (gc_orphan_goals). Sets launch_agent's model / effort / line for its launch event.
+_launch_headless(){ local sess="$1" wd="$2" uuid="$3" argv
+  ensure_trusted "$wd"; ensure_bypass "$wd"; ensure_usage_statusline "$wd"
+  model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
+  argv="$(cli_headless "$wd" "$uuid" "$model" "$effort")" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
+  local -a cmd; mapfile -t cmd <<<"$argv"
+  sess_start "$sess" "$wd" "${SESSION_ENV[@]}" "${cmd[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
+  echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
+  echo "$wd" > "$RUN_DIR/$sess.wd"
+  line="${cmd[*]}"; }
 # _launch_first_input <sess> [effort] — a CLI that cannot take its prompt or effort on the command
 # line gets them typed once its input prompt first shows (cli_first_input); every other CLI has
 # none, and this returns without polling the pane.

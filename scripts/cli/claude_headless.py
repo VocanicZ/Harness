@@ -23,6 +23,16 @@ exposed over files in its lane directory, never over a pane:
                   limit_resets_at, rate_limit, retry, queued, runner_pid, claude_pid, updated, ...
   stop          a stop request (`stop` writes it). A stop — this file, SIGTERM, SIGHUP or SIGINT — ends
                 the running turn's whole process tree, writes state `ended` and exits.
+  interrupt     an interrupt request (#349, `interrupt` writes it): ends the RUNNING turn's process tree
+                and only that — the file names the turn it is aimed at, so it never ends a later one;
+                the turn ends `idle`, `interrupted` counts it (the interrupted turns since
+                one last ended on its own), the runner stays up and delivers whatever is queued next. One
+                left over from a turn that already ended is dropped.
+
+The headless session backend (scripts/session/headless.sh, #349) runs this program as a lane and reads
+the lane through it: `pane` renders state.json and the undelivered inbox as the screen the claude
+adapter's pane regexes already read (scripts/cli/claude.sh), and `watch` follows events.jsonl as
+`harness attach` shows it.
 
 Portable by construction (ADR 0001): python3 stdlib only, and the core path uses none of /proc, flock
 or setsid-only tricks. The one platform branch is kill_tree(): a POSIX process group (plus a `ps`
@@ -35,6 +45,11 @@ same lane directory picks up its session id and inbox position from state.json.
   claude_headless.py send  --lane <dir> [--kind <label>] (<message> | -)     # - reads stdin
   claude_headless.py state --lane <dir> [--field <name>]
   claude_headless.py stop  --lane <dir> [--timeout <s>]
+  claude_headless.py interrupt --lane <dir>
+  claude_headless.py pane  --lane <dir>                  # the lane as a claude-shaped screen
+  claude_headless.py watch --lane <dir> [--lines <n>] [--no-follow]
+
+--lane defaults to $HARNESS_LANE_DIR, which the headless session backend sets for the lane it starts.
 """
 import argparse, json, os, shlex, shutil, signal, subprocess, sys, threading, time
 
@@ -46,7 +61,7 @@ POLL_S = 0.1
 def paths(lane):
     return {k: os.path.join(lane, f) for k, f in (
         ("inbox", "inbox.jsonl"), ("events", "events.jsonl"), ("stderr", "stderr.log"),
-        ("state", "state.json"), ("stop", "stop"))}
+        ("state", "state.json"), ("stop", "stop"), ("interrupt", "interrupt"))}
 
 
 def read_state(lane):
@@ -239,6 +254,7 @@ class Runner:
             "limit_resets_at": prev.get("limit_resets_at"), "rate_limit": prev.get("rate_limit"),
             "retry": None, "queued": 0, "inbox_offset": int(prev.get("inbox_offset") or 0),
             "exit": prev.get("exit"), "runner_pid": os.getpid(), "claude_pid": None, "cwd": cwd,
+            "interrupted": int(prev.get("interrupted") or 0),
         }
         if prev.get("state") in ("limit", "transient"):
             self.state["state"] = prev["state"]
@@ -265,6 +281,17 @@ class Runner:
 
     def stop_requested(self):
         return self.stopping or os.path.exists(self.p["stop"])
+
+    def take_interrupt(self, turn=None):
+        """True once per interrupt request aimed at <turn> (the file names the turn it was written for;
+        an empty one, any), which it consumes. A request for another turn is consumed and ignored."""
+        try:
+            with open(self.p["interrupt"], encoding="utf-8") as f:
+                aimed = f.read().strip()
+            os.remove(self.p["interrupt"])
+        except OSError:
+            return False
+        return turn is not None and aimed in ("", str(turn))
 
     def argv(self):
         sid = self.state["session_id"]
@@ -319,10 +346,12 @@ class Runner:
                             self.save(session_id=turn.session_id or self.state["session_id"],
                                       retry=turn.retry, rate_limit=turn.rate_limit or self.state["rate_limit"])
             th = threading.Thread(target=reader, daemon=True); th.start()
-            stopped = False
+            stopped = interrupted = False
             while proc.poll() is None:
                 if self.stop_requested():
                     kill_tree(proc); stopped = True; break
+                if self.take_interrupt(n):
+                    kill_tree(proc); interrupted = True; break
                 with lock:
                     self.poll_inbox()
                 time.sleep(POLL_S)
@@ -334,10 +363,18 @@ class Runner:
                             "stopped": True, "at": time.time()})
                 self.save(claude_pid=None, turn_started=None, exit=rc, retry=None, error="stopped mid-turn")
                 return
+            if interrupted:   # the turn is over, the lane is not: idle, with whatever is queued up next
+                self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": "idle", "exit": rc,
+                            "interrupted": True, "at": time.time()})
+                self.save(state="idle", last_reply=None, error="interrupted", exit=rc,
+                          interrupted=int(self.state.get("interrupted") or 0) + 1,
+                          claude_pid=None, turn_started=None, retry=None, last_turn_ended=time.time(),
+                          session_id=turn.session_id or self.state["session_id"])
+                return
             state, reply, error, resets = turn.outcome(rc, self._stderr_tail())
             self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": state, "exit": rc,
                         "at": time.time()})
-            self.save(state=state, last_reply=reply, error=error, limit_resets_at=resets, exit=rc,
+            self.save(state=state, last_reply=reply, error=error, limit_resets_at=resets, exit=rc, interrupted=0,
                       claude_pid=None, turn_started=None, retry=None, last_turn_ended=time.time(),
                       session_id=turn.session_id or self.state["session_id"],
                       rate_limit=turn.rate_limit or self.state["rate_limit"])
@@ -368,28 +405,164 @@ class Runner:
             self.poll_inbox()
             if self.queue:
                 msg = self.queue.pop(0)
+                self.take_interrupt()   # one aimed at a turn that has since ended must not end this one
                 self.run_turn(msg)
             else:
+                self.take_interrupt()
                 time.sleep(POLL_S)
         self.save(state="ended", claude_pid=None, turn_started=None)
         return 0
+
+
+# --- reading a lane (the headless session backend, #349) ----------------------------------------
+def undelivered(lane, st=None):
+    """The texts of the inbox messages no turn has taken yet (past state.json's inbox_offset)."""
+    st = read_state(lane) if st is None else st
+    msgs, _ = read_inbox(lane, int(st.get("inbox_offset") or 0))
+    return [m["text"] for m in msgs]
+
+
+def _dur(secs):
+    secs = max(0, int(secs))
+    h, m, s = secs // 3600, secs % 3600 // 60, secs % 60
+    return " ".join(f"{v}{u}" for v, u in ((h, "h"), (m, "m")) if v) + (" " if h or m else "") + f"{s}s"
+
+
+def _resets(st):
+    """`resets <when>` for a limit: the words claude's own limit reply used, else the window's resetsAt."""
+    reply = st.get("last_reply") or st.get("error") or ""
+    i = reply.find("resets ")
+    if i >= 0:
+        return reply[i:].splitlines()[0].strip()
+    at = st.get("limit_resets_at")
+    if isinstance(at, (int, float)) and at > 0:
+        return time.strftime("resets %H:%M (UTC)", time.gmtime(at))
+    return ""
+
+
+def pane(lane, now=None):
+    """The lane as the screen claude's TUI would show in that state, in the shapes the claude adapter's
+    pane regexes read (scripts/cli/claude.sh): the spinner `(<timer> · esc to interrupt)` while a turn
+    runs, `You've hit your usage limit · resets …` / `API Error: …` / `Interrupted` above an idle prompt
+    after such a turn, and the input box `❯ <text>` holding every message still waiting in the inbox
+    (what turn.sh reads as input queued behind a turn). The reply text itself is never drawn: words in it
+    ("API Error", "429") would read as the lane's own state. None when the lane has no state yet."""
+    st = read_state(lane)
+    if not st:
+        return None
+    now = time.time() if now is None else now
+    out, state = [], st.get("state")
+    if state == "busy":
+        started = st.get("turn_started") or now
+        retry = st.get("retry") or {}
+        what = f"Retrying (attempt {retry.get('attempt')}/{retry.get('max_retries')})" if retry else "Working"
+        out.append(f"✻ {what}… ({_dur(now - started)} · esc to interrupt)")
+    elif state == "limit":
+        out.append("  ⎿  You've hit your usage limit" + (f" · {_resets(st)}" if _resets(st) else ""))
+    elif state == "transient":
+        err = " ".join(str(st.get("error") or "the turn failed").split())[:200]
+        out.append(f"  ⎿  API Error: {err}" if not err.startswith("API Error") else f"  ⎿  {err}")
+    elif state == "ended":
+        out.append("  ⎿  (the lane has ended)")
+    # One line per interrupted turn since the last turn that ended on its own — kept while the next turn
+    # runs, as the TUI's scrollback keeps it: turn.sh counts these lines to see an interrupt land.
+    out.extend(["  ⎿  Interrupted · What should Claude do instead?"] * int(st.get("interrupted") or 0))
+    queued = undelivered(lane, st)
+    rule = "─" * 60
+    out.append(rule)
+    lines = "\n".join(queued).splitlines() or [""]
+    out.append("❯ " + lines[0])
+    out.extend(lines[1:])
+    out.append(rule)
+    return "\n".join(out) + "\n"
+
+
+def _watch_line(ev):
+    """One events.jsonl event as `harness attach` prints it; None for the ones it leaves out."""
+    t, sub = ev.get("type"), ev.get("subtype")
+    if t == "harness" and sub == "turn_start":
+        return f"── turn {ev.get('turn')} ({ev.get('kind', 'message')}) ── {ev.get('message', '')}"
+    if t == "harness" and sub == "turn_end":
+        extra = " (interrupted)" if ev.get("interrupted") else " (stopped)" if ev.get("stopped") else ""
+        return f"── turn {ev.get('turn')} ended: {ev.get('state')}{extra}"
+    if t == "harness" and sub == "stdout":
+        return ev.get("line")
+    if t == "assistant":
+        parts = []
+        for c in (ev.get("message") or {}).get("content") or []:
+            if c.get("type") == "text" and c.get("text", "").strip():
+                parts.append(c["text"].strip())
+            elif c.get("type") == "tool_use":
+                inp = c.get("input") or {}
+                arg = inp.get("command") or inp.get("file_path") or inp.get("description") or ""
+                parts.append(f"· {c.get('name')} {str(arg).splitlines()[0][:160] if arg else ''}".rstrip())
+        return "\n".join(parts) or None
+    if t == "system" and sub == "api_retry":
+        return f"· API retry {ev.get('attempt')}/{ev.get('max_retries')} ({ev.get('error_status')})"
+    if t == "rate_limit_event" and (ev.get("rate_limit_info") or {}).get("status") == "rejected":
+        return "· usage limit reached"
+    if t == "result":
+        return f"← {ev.get('result')}" if isinstance(ev.get("result"), str) else None
+    return None
+
+
+def watch(lane, lines=40, follow=True, out=sys.stdout):
+    """Print the lane's last <lines> events, then (follow) each new one as it lands. Read-only."""
+    path = paths(lane)["events"]
+    pos, first = 0, True
+    while True:
+        try:
+            with open(path, "rb") as f:
+                f.seek(pos); data = f.read()
+        except OSError:
+            data = b""
+        end = data.rfind(b"\n")
+        if end >= 0:
+            raw = data[:end].split(b"\n"); pos += end + 1
+            shown = [l for l in (_watch_line(_loads(r)) for r in raw) if l]
+            if first:
+                shown = shown[-lines:]
+            for l in shown:
+                print(l, file=out, flush=True)
+        first = False
+        if not follow:
+            return 0
+        time.sleep(0.5)
+
+
+def _loads(raw):
+    try:
+        ev = json.loads(raw.decode("utf-8", "replace"))
+        return ev if isinstance(ev, dict) else {}
+    except ValueError:
+        return {}
 
 
 # --- CLI ----------------------------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="claude_headless.py", description="headless claude lane runner (#347)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("run"); r.add_argument("--lane", required=True); r.add_argument("--cwd", required=True)
+    lane = {"default": os.environ.get("HARNESS_LANE_DIR"), "required": not os.environ.get("HARNESS_LANE_DIR")}
+    r = sub.add_parser("run"); r.add_argument("--lane", **lane); r.add_argument("--cwd", required=True)
     r.add_argument("--bin", default=os.environ.get("HARNESS_CLAUDE_BIN") or "claude")
     r.add_argument("--session-id"); r.add_argument("--model"); r.add_argument("--effort")
     r.add_argument("--flags", default=""); r.add_argument("--message")
-    s = sub.add_parser("send"); s.add_argument("--lane", required=True); s.add_argument("--kind", default="message")
+    s = sub.add_parser("send"); s.add_argument("--lane", **lane); s.add_argument("--kind", default="message")
     s.add_argument("text")
-    q = sub.add_parser("state"); q.add_argument("--lane", required=True); q.add_argument("--field")
-    k = sub.add_parser("stop"); k.add_argument("--lane", required=True); k.add_argument("--timeout", type=float, default=15)
+    q = sub.add_parser("state"); q.add_argument("--lane", **lane); q.add_argument("--field")
+    k = sub.add_parser("stop"); k.add_argument("--lane", **lane); k.add_argument("--timeout", type=float, default=15)
+    i = sub.add_parser("interrupt"); i.add_argument("--lane", **lane)
+    v = sub.add_parser("pane"); v.add_argument("--lane", **lane)
+    w = sub.add_parser("watch"); w.add_argument("--lane", **lane); w.add_argument("--lines", type=int, default=40)
+    w.add_argument("--no-follow", dest="follow", action="store_false")
     a = ap.parse_args(argv)
 
     if a.cmd == "run":
+        if not WINDOWS:   # its own session: a hangup or Ctrl-C aimed at whoever started it is not the lane's
+            try:
+                os.setsid()
+            except OSError:   # already a session (group) leader: `setsid` started it
+                pass
         if a.message:
             send(a.lane, a.message, kind="bootstrap")
         return Runner(a.lane, a.cwd, a.bin, a.session_id, a.model, a.effort, a.flags).run()
@@ -422,6 +595,24 @@ def main(argv=None):
             time.sleep(POLL_S)
         print(f"runner in {a.lane} did not stop within {a.timeout:g}s", file=sys.stderr)
         return 1
+    if a.cmd == "interrupt":   # aimed at the turn running now: one that ends first must not take the next
+        st = read_state(a.lane)
+        if st.get("state") != "busy":
+            return 0
+        os.makedirs(a.lane, exist_ok=True)
+        with open(paths(a.lane)["interrupt"], "w", encoding="utf-8") as f:
+            f.write(str(st.get("turn") or ""))
+        return 0
+    if a.cmd == "pane":
+        text = pane(a.lane)
+        if text is None:
+            print("no runner state in " + a.lane, file=sys.stderr); return 1
+        sys.stdout.write(text); return 0
+    if a.cmd == "watch":
+        try:
+            return watch(a.lane, a.lines, a.follow)
+        except KeyboardInterrupt:
+            return 0
     return 2
 
 

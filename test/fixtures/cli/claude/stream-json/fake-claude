@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """fake-claude — stands in for `claude -p --output-format stream-json` (README.md): each run replays one
 captured turn from this directory, in the order $FAKE_CLAUDE_DIR/plan names them (one fixture name per
-line: normal, tool-use, limit, transient — or `hang`, a turn that never ends).
+line: normal, tool-use, limit, transient — or `hang`, a turn that never ends). Text after the name on a
+plan line (`normal <promise>X</promise>`) replaces the turn's reply: the `result` text and the assistant
+message's text.
 
 Per run it appends {argv, prompt (its stdin), pid} to $FAKE_CLAUDE_DIR/calls.jsonl, then prints the
 fixture's events with every session_id set to the one the argv names (--session-id / --resume) or, when
@@ -22,13 +24,19 @@ with open(os.path.join(d, "calls.jsonl"), "a") as f:
     f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
 n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
 plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
-name = plan[n - 1] if n <= len(plan) else "normal"
+name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
 
 src = "normal" if name == "hang" else name
 events = [json.loads(l) for l in open(os.path.join(here, f"{src}.jsonl")) if l.strip()]
 for e in events:
     if sid and "session_id" in e:
         e["session_id"] = sid
+    if reply and e.get("type") == "result":
+        e["result"] = reply
+    if reply and e.get("type") == "assistant":
+        for c in (e.get("message") or {}).get("content") or []:
+            if c.get("type") == "text":
+                c["text"] = reply
 if name == "hang":
     events = events[:1]
 

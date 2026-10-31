@@ -65,6 +65,7 @@ default_prefix(){
   fi ); }
 ask "$CLI_CONFIG_VAR"  "Agent CLI ($(cli_list | paste -sd'|'))" "$(cli_name)"   # #188: the adapters under scripts/cli/
 cli_load "${!CLI_CONFIG_VAR}" || exit 1   # #253: a CLI with no adapter would only fail at the first launch
+cli_backend_check || exit 1               # #349: a tmux-only CLI on the headless backend could never launch a lane
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"

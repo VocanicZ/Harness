@@ -15,6 +15,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 rm -f "$PAUSE_FLAG"   # starting un-pauses this machine's pool
 
 sess_backend_check || die "set $SESS_CONFIG_VAR in $CONFIG to one of: $(sess_backend_list | xargs)"
+cli_backend_check || die "set $SESS_CONFIG_VAR or $CLI_CONFIG_VAR in $CONFIG (#349: the headless backend runs claude lanes only)"
 for b in $(sess_bins); do command -v "$b" >/dev/null || die "$b not found — install $b first"; done
 command -v "$(cli_exe)" >/dev/null || die "$(cli_exe) not found on PATH — install the $(cli_name) CLI first (harness setup lists what it needs)"
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI first"

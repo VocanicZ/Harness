@@ -118,6 +118,8 @@ doctor_main(){
   local sp=0
   if sess_backend_check 2>/dev/null; then echo "session backend: $(sess_backend)"
   else echo "session backend: $(sess_backend) — UNKNOWN (valid: $(sess_backend_list | xargs); set $SESS_CONFIG_VAR in $CONFIG)"; sp=1; fi
+  # #349: the backend must be one the fleet's CLI can run on (headless: claude only).
+  local why; why="$(cli_backend_check 2>&1)" || { echo "session backend: $why"; sp=1; }
   echo "locks:"
   local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?

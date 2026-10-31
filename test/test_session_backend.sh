@@ -122,15 +122,15 @@ for f in scripts/session/tmux.sh scripts/session/headless.sh; do
   assert_eq "$have" "$iface" "$f defines ${b}_sess_<fn> for every interface function"
 done
 
-echo "== the headless backend: accepted, starts nothing =="
+echo "== the headless backend: no tmux; a lane needs its runner's command (#349: test_headless_lane.sh) =="
 : > "$TL"
 export HARNESS_SESSION_BACKEND=headless
 msg="$(sess_start hz-main-i2 /w -e K=V 2>&1)"; rc=$?
-assert_eq "$rc" 1 "headless refuses to start a lane"
-assert_ok "…and says so" grep -q "headless.*cannot start a lane yet" <<<"$msg"
-assert_eq "$(sess_list)" "" "headless lists no session"
+assert_eq "$rc" 1 "headless starts no lane without the runner's command"
+assert_ok "…and says so" grep -q "headless.*needs the lane runner's command" <<<"$msg"
+assert_eq "$(sess_list)" "" "headless lists no session while no lane runs"
 assert_no "headless: nothing is live" sess_live hz-main-i1
-assert_eq "$(sess_bins)" "" "headless needs no multiplexer binary"
+assert_eq "$(sess_bins)" "python3" "headless needs python3 (its lane runner), no multiplexer binary"
 assert_eq "$(cat "$TL")" "" "no tmux ran under headless"
 unset HARNESS_SESSION_BACKEND; HARNESS_SESSION_BACKEND=tmux
 unset -f tmux
@@ -177,7 +177,8 @@ assert_ok "…with start's own refusal, naming the valid backends" \
   grep -qF "set HARNESS_SESSION_BACKEND in $RUN_DIR/nostate/config to one of: headless tmux" <<<"$out"
 
 echo "== launch_agent stops when the backend cannot start the session =="
-( export HARNESS_SESSION_BACKEND=headless; wd="$RUN_DIR/lwd"; mkdir -p "$wd"
+# A CLI with no headless lane runner (codex) cannot start a headless lane.
+( export HARNESS_SESSION_BACKEND=headless HARNESS_CLI=codex; wd="$RUN_DIR/lwd"; mkdir -p "$wd"
   sess_send_line(){ echo TYPED >> "$RUN_DIR/typed"; }; log(){ echo "$*" >> "$RUN_DIR/launch.log"; }
   : > "$wd/.harness-task.md"; launch_agent hz-main-i9 "$wd" 2>/dev/null ); rc=$?
 assert_eq "$rc" 1 "launch_agent fails when sess_start does"

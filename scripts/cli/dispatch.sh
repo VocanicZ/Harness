@@ -79,11 +79,14 @@ _cli_default_interrupted_re(){ :; }
 _cli_default_bg_re(){ echo '[0-9]+h [0-9]+m [0-9]+s|[0-9]+m [0-9]+s'; }
 _cli_default_runnable(){ command -v "$(cli_exe)" >/dev/null 2>&1 && _cli_run "$(cli_bin)" --version >/dev/null 2>&1; }
 _cli_default_uninstall(){ :; }
+# #349: only a CLI with a headless lane runner can run on a backend other than tmux.
+_cli_default_headless(){ echo "agent CLI '$(cli_name)' is tmux-only: it has no headless lane runner (set $SESS_CONFIG_VAR=tmux)" >&2; return 1; }
 
 # --- the interface ------------------------------------------------------------------------------
 cli_bin(){ _cli_call bin "$@"; }                       # the command line that runs the CLI (HARNESS_<CLI>_BIN)
 cli_exe(){ _cli_exe "$(cli_bin)"; }                    # its executable: what to look for on PATH, or match a pane against
 cli_launch(){ _cli_call launch "$@"; }                 # <wd> <uuid> <model> <effort> → the line typed into the pane
+cli_headless(){ _cli_call headless "$@"; }             # <wd> <uuid> <model> <effort> → the headless lane runner's argv, one word per line (#349)
 cli_lane_settings(){ _cli_call lane_settings "$@"; }   # <wd> → per-lane settings written outside the launch line
 cli_model_effort(){ _cli_call model_effort "$@"; }     # <launch line> <wd> → <model>\t<effort> the launch runs with ('' = the CLI's default)
 cli_first_input(){ _cli_call first_input "$@"; }       # <effort> → lines typed once the prompt first shows
@@ -136,6 +139,17 @@ _cli_usage_cached(){ local c out now tmp; c="$(_usage_dir)/$1.tsv"; now="$(date 
   tmp="$(mktemp "$c.XXXXXX")" || return 1
   printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
   [[ -n "$out" ]] && echo "$out"; }
+
+# cli_headless_list — every CLI with a headless lane runner (#349), one per line.
+cli_headless_list(){ local c; for c in $(cli_list); do declare -F "${c}_headless" >/dev/null && echo "$c"; done; return 0; }
+# cli_backend_check — true when the fleet's CLI can run on the fleet's session backend: any CLI on
+# tmux, only a CLI with a headless lane runner on headless. Otherwise says so, naming the CLI as
+# tmux-only, and is false. `harness init`, `doctor` and `start` refuse the pair with it.
+cli_backend_check(){ local b; b="$(sess_backend)"
+  [[ $b == tmux ]] && return 0
+  declare -F "$(cli_name)_headless" >/dev/null && return 0
+  echo "agent CLI '$(cli_name)' is tmux-only: session backend '$b' runs $(cli_headless_list | xargs | sed 's/ /, /g') lanes only — set $SESS_CONFIG_VAR=tmux or $CLI_CONFIG_VAR=$(cli_headless_list | head -1)" >&2
+  return 1; }
 
 # --- the skills the prompts name (#303, #315) -------------------------------------------------------
 # cli_skills_dir — where this CLI loads user skills from: its own dir (cli_user_skills_dir), else

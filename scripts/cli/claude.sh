@@ -9,6 +9,36 @@ claude_bin(){ echo "${CLAUDE_BIN:-${HARNESS_CLAUDE_BIN:-claude}}"; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort") \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+# --- the headless lane (#349): claude is the one CLI with a headless lane runner -----------------
+# claude_headless <wd> <uuid> <model> <effort> — the runner's command, one argv word per line: the
+# headless session backend starts it in place of the pane's shell + launch line. Each turn is one
+# `claude -p` with the configured flags (the lane's model/effort replacing theirs); the bootstrap is
+# the first turn; the session id is ours, as on a pane.
+claude_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
+  printf '%s\n' python3 "$CLI_DIR/claude_headless.py" run --cwd "$wd" --bin "$(claude_bin)" --session-id "$uuid" \
+    "--flags=$(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+# A pane's goal loop is ralph-loop's Stop hook. A headless lane is looped by Harness as well (the driven
+# loop, lib.sh goal_loop_tick): every `claude -p` turn that ends without the promise is re-prompted from
+# the lane's own last reply. Where ralph-loop's hook runs inside `claude -p` too, it holds the turn open
+# until the promise and the driven loop finds the loop already over (cli_done).
+claude_loop(){ [[ "$(sess_backend)" == headless ]] && echo driven || echo hook; }
+# claude_last_reply <wd> <session id> — the headless lane's last turn: `<session>:<turn>`, then its reply.
+# rc 1 while a turn runs or a message waits for one, before the first turn ends, and after a turn that
+# did not end with a reply (a limit, a transient error, an interrupt): those are the watchdog's.
+claude_last_reply(){ [[ "$(sess_backend)" == headless ]] || return 1
+  ROOT="$(_hl_root)" WD="$1" SID="$2" python3 -c '
+import glob, json, os, sys
+for f in glob.glob(os.path.join(os.environ["ROOT"], "*", "state.json")):
+    try:
+        st = json.load(open(f, encoding="utf-8"))
+    except (OSError, ValueError):
+        continue
+    if st.get("cwd") != os.environ["WD"] or (os.environ["SID"] and st.get("session_id") != os.environ["SID"]):
+        continue
+    if st.get("state") != "idle" or st.get("interrupted") or not st.get("turn") or st.get("queued"):
+        sys.exit(1)
+    print("%s:%s" % (st.get("session_id"), st["turn"])); print(st.get("last_reply") or ""); sys.exit(0)
+sys.exit(1)'; }
 # A worktree hook may pin the lane's model in settings.local.json instead of the flags.
 claude_lane_settings(){ local f="$1/.claude/settings.local.json"
   [[ -f "$f" ]] && F="$f" python3 -c 'import json,os
