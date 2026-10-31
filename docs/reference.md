@@ -295,6 +295,15 @@ read-only: each turn, its tool calls and its reply as they land in `events.jsonl
 not the lane. `python3 scripts/cli/claude_headless.py state --lane <dir>` prints its `state.json`;
 `tail -F <dir>/events.jsonl` is the raw stream.
 
+**Smoke run.** `SMOKE_BACKEND=headless bash test/smoke/fleet_smoke.sh claude` runs one real fleet on
+the headless backend through a trivial issue in a sandbox repo: claim → lane → PR → merge → close. Midway
+it checkpoints and resumes the lane (`SMOKE_CHECKPOINT`, on by default on headless): once the lane has run
+`SMOKE_CHECKPOINT_AFTER` seconds (90), `harness pause --force` checkpoints it to GitHub and ends it, and
+`harness resume` re-dispatches the `agent-paused` issue, which the resumed lane then finishes. The
+sandbox's `HARNESS_TURN_MAX` is lowered (`SMOKE_TURN_MAX`, 120) so the stuck-turn interrupt lets the
+queued checkpoint into a long turn. The run fails if the issue closed before the checkpoint, or if the
+checkpoint was never confirmed. Recorded runs are committed under `test/smoke/logs/`.
+
 ### Autonomy
 
 | Setting | Behaviour |

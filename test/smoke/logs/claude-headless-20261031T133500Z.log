@@ -1,0 +1,98 @@
+13:35:00Z == fleet smoke | cli=claude | 2.1.316 (Claude Code) | 2026-10-31T13:35:00Z
+13:35:00Z == session backend headless | checkpoint+resume on, 30s into the lane
+13:35:00Z == engine harness v0.1.1-16-g1e482e4-dirty (dev checkout) | repo VocanicZ/harness-smoke-claude | prefix smokeclaude
+13:35:03Z == harness init
+   wrote /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i354/e7b94064-b3da-4c6b-a021-d0f9aa035e9d/scratchpad/harness-smoke-claude.J4AEyN/harness-smoke-claude/.harness/config
+   : "${HARNESS_CLI:=claude}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_TOPOLOGY:=single}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-claude}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokeclaude}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_CAP:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+   : "${HARNESS_TURN_MAX:=120}"
+   : "${HARNESS_PAUSE_GRACE:=900}"
+   : "${HARNESS_CLAUDE_BIN:=/home/claude/bin/claude-main}"
+   : "${HARNESS_USAGE_CHECKPOINT_PCT:=99}"
+13:35:03Z == harness setup
+   ── Harness setup (mode=issue-only topology=single cli=claude) ──
+     ok      claude binary (/home/claude/bin/claude-main)
+     ok      claude plugin ralph-loop
+     ok      claude plugin superpowers
+     ok      claude skill caveman (/home/claude/.claude/skills/caveman)
+     ok      claude skill handoff (/home/claude/.claude/skills/handoff)
+     ok      claude skill rtdd (/home/claude/.claude/skills/rtdd)
+     ok      claude skill subagent-task-tree (/home/claude/.claude/skills/subagent-task-tree)
+     ok      claude skill to-issues (/home/claude/.claude/skills/to-issues)
+     ok      claude skill to-prd (/home/claude/.claude/skills/to-prd)
+     ok      claude skill writing-plans (/home/claude/.claude/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'main' (VocanicZ/harness-smoke-claude)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+13:35:16Z filed PRD #12 and issue #13
+13:35:16Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (cap=1) + 1 priority bug lane:
+   Launching 1 pool worker(s) (cap=1 sessions/worker, poll=30s):
+     worker-1: started (pid 583799) — log /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i354/e7b94064-b3da-4c6b-a021-d0f9aa035e9d/scratchpad/harness-smoke-claude.J4AEyN/harness-smoke-claude/.harness/run/worker-1.log
+   Launching the priority bug lane (cap=1, poll=60s):
+     priority: started (pid 583837) — log /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i354/e7b94064-b3da-4c6b-a021-d0f9aa035e9d/scratchpad/harness-smoke-claude.J4AEyN/harness-smoke-claude/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+13:35:19Z issue=OPEN labels=ready-for-agent sessions=none prs=#9 MERGED,#6 MERGED,#3 MERGED
+13:35:51Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-main-i13 prs=#9 MERGED,#6 MERGED,#3 MERGED
+13:36:23Z == checkpoint: harness pause --force (lane smokeclaude-main-i13 up 32s)
+     checkpoint requested: smokeclaude-main-i13 (issue #13 on VocanicZ/harness-smoke-claude)
+     lane ended after its checkpoint: smokeclaude-main-i13
+     confirmed paused: VocanicZ/harness-smoke-claude#13
+   FLEET: PAUSED — all in-flight agents checkpointed to GitHub. Resume anywhere: harness/resume.sh
+13:38:54Z after checkpoint: labels=agent-paused,ready-for-agent sessions=none
+13:38:55Z handoff comment posted on #13
+13:38:55Z == resume: harness resume
+   RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll.
+13:39:27Z issue=OPEN labels=agent-paused,agent-working,ready-for-agent sessions=none prs=#9 MERGED,#6 MERGED,#3 MERGED
+13:39:59Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-main-i13 prs=#9 MERGED,#6 MERGED,#3 MERGED
+13:45:19Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-main-i13 prs=#14 OPEN,#9 MERGED,#6 MERGED,#3 MERGED
+13:45:50Z issue=CLOSED labels=agent-working,ready-for-agent sessions=none prs=#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+13:45:50Z fleet sessions after close: none (ended by the fleet)
+13:45:51Z issue #13 CLOSED
+13:45:51Z merged PR: #14 feat: add smoke/20261031T133459Z.txt (closes #13) https://github.com/VocanicZ/harness-smoke-claude/pull/14 merged 2026-10-31T13:45:26Z
+13:45:53Z smoke/20261031T133459Z.txt on the default branch: hello from claude
+   issue #13: 1 session(s)
+     2026-10-31T13:35:47Z  launch  kind=impl effort=high
+     2026-10-31T13:37:54Z  turn_interrupted  kind=impl effort=high turn_s=125 queued_nudges=0
+     2026-10-31T13:38:53Z  paused  kind=impl effort=high
+     2026-10-31T13:39:12Z  session_end  kind=impl effort=high wall_s=181  claude-opus-5-5: out 5,778 in 50 cache_create 68,455 cache_read 1,088,181
+     2026-10-31T13:39:13Z  reap  kind=impl reason=session_gone
+     2026-10-31T13:39:30Z  launch  kind=impl effort=high
+     2026-10-31T13:45:50Z  session_end  kind=impl effort=high wall_s=376  claude-opus-5-5: out 10,483 in 88 cache_create 88,637 cache_read 2,579,347
+     rtdd  which 1  changed nodes 4  round1 1  round2 0  stale graph 0  selective 1/1  --version 1  0.2s
+   13:39:29 [main] session smokeclaude-main-i13 carries on agent session 69a99c9d-585d-47c5-8ea1-de1dfd0a9fd6
+13:45:54Z == teardown
+   Stopping pool workers:
+     killed priority (pid 583837)
+     killed worker-1 (pid 583799)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+13:45:59Z closed leftover issue #12
+13:46:00Z == result: PASS | log: /tmp/claude-1000/-home-claude-harness-dev--harness-worktrees-harness-i354/e7b94064-b3da-4c6b-a021-d0f9aa035e9d/scratchpad/claude-headless.log
