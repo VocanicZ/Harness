@@ -17,6 +17,7 @@ exposed over files in its lane directory, never over a pane:
                                 (result / rate_limit_event / api_retry / the process exit), never from
                                 screen text. A headless lane has no dialog states (trust, permission).
                   session_id    the claude session the lane resumes
+                  session_started  true once that session exists (every later turn passes --resume)
                   turn          turns started so far; turn_started is the running turn's start (epoch)
                                 and null when none runs
                   last_reply    the last turn's `result` text; error is set when that turn failed
@@ -39,7 +40,12 @@ or setsid-only tricks. The one platform branch is kill_tree(): a POSIX process g
 walk for descendants that left it) on Linux, `taskkill /T /F` on Windows. A runner restarted on the
 same lane directory picks up its session id and inbox position from state.json.
 
-  claude_headless.py run   --lane <dir> --cwd <wd> [--bin <claude command>] [--session-id <id>]
+A lane relaunched to carry on an earlier one (#350: `harness resume`, the crash-recovery sweep) passes
+`--resume` with that session's id: its first turn already resumes the session. Claude may no longer have
+it (another config dir, a cleared ~/.claude): that turn's `result` says `No conversation found`, and the
+runner runs the same message again as a new session under the same id, so the lane id never changes.
+
+  claude_headless.py run   --lane <dir> --cwd <wd> [--bin <claude command>] [--session-id <id> [--resume]]
                            [--model <m>] [--effort <e>] [--flags="<extra claude flags>"]
                            [--message <first message>]
   claude_headless.py send  --lane <dir> [--kind <label>] (<message> | -)     # - reads stdin
@@ -132,6 +138,7 @@ class Turn:
         self.rejected = None        # rate_limit_info of a `rejected` rate_limit_event
         self.rate_limit = None      # the latest rate_limit_info
         self.retry = None           # the latest api_retry, while claude retries
+        self.no_conversation = False  # claude had no session to --resume (#350)
 
     def feed(self, ev):
         if not isinstance(ev, dict):
@@ -148,6 +155,8 @@ class Turn:
             self.retry = {k: ev.get(k) for k in ("attempt", "max_retries", "error_status", "error", "retry_delay_ms")}
         elif t == "result":
             self.result = ev
+            errs = ev.get("errors") if isinstance(ev.get("errors"), list) else []
+            self.no_conversation = any("No conversation found" in str(e) for e in errs)
 
     def outcome(self, rc, stderr_tail=""):
         """(state, reply, error, limit_resets_at) for the turn once its process exited with <rc>."""
@@ -236,7 +245,7 @@ def spawn(argv, cwd, stdout, stderr):
 
 # --- the runner ---------------------------------------------------------------------------------
 class Runner:
-    def __init__(self, lane, cwd, bin_="claude", session_id=None, model=None, effort=None, flags=""):
+    def __init__(self, lane, cwd, bin_="claude", session_id=None, model=None, effort=None, flags="", resume=False):
         self.lane, self.cwd, self.p = lane, cwd, paths(lane)
         self.bin = shlex.split(bin_) if not WINDOWS else shlex.split(bin_, posix=False)
         found = shutil.which(self.bin[0]) if self.bin else None
@@ -248,7 +257,8 @@ class Runner:
         prev = read_state(lane)
         self.state = {
             "state": "idle", "session_id": prev.get("session_id") or session_id,
-            "session_started": bool(prev.get("session_started")), "turn": int(prev.get("turn") or 0),
+            "session_started": bool(prev.get("session_started") or (resume and session_id)),
+            "turn": int(prev.get("turn") or 0),
             "turn_started": None, "last_turn_ended": prev.get("last_turn_ended"),
             "last_reply": prev.get("last_reply"), "error": prev.get("error"),
             "limit_resets_at": prev.get("limit_resets_at"), "rate_limit": prev.get("rate_limit"),
@@ -374,6 +384,12 @@ class Runner:
             state, reply, error, resets = turn.outcome(rc, self._stderr_tail())
             self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": state, "exit": rc,
                         "at": time.time()})
+            if turn.no_conversation and self.state["session_started"]:
+                # #350: the session to resume is gone — start it afresh under the same id, same message
+                self.event({"type": "harness", "subtype": "resume_missing", "turn": n,
+                            "session_id": self.state["session_id"], "at": time.time()})
+                self.save(session_started=False, claude_pid=None, turn_started=None, retry=None)
+                return self.run_turn(msg)
             self.save(state=state, last_reply=reply, error=error, limit_resets_at=resets, exit=rc, interrupted=0,
                       claude_pid=None, turn_started=None, retry=None, last_turn_ended=time.time(),
                       session_id=turn.session_id or self.state["session_id"],
@@ -547,6 +563,7 @@ def main(argv=None):
     r.add_argument("--bin", default=os.environ.get("HARNESS_CLAUDE_BIN") or "claude")
     r.add_argument("--session-id"); r.add_argument("--model"); r.add_argument("--effort")
     r.add_argument("--flags", default=""); r.add_argument("--message")
+    r.add_argument("--resume", action="store_true", help="--session-id names a session that already exists")
     s = sub.add_parser("send"); s.add_argument("--lane", **lane); s.add_argument("--kind", default="message")
     s.add_argument("text")
     q = sub.add_parser("state"); q.add_argument("--lane", **lane); q.add_argument("--field")
@@ -565,7 +582,7 @@ def main(argv=None):
                 pass
         if a.message:
             send(a.lane, a.message, kind="bootstrap")
-        return Runner(a.lane, a.cwd, a.bin, a.session_id, a.model, a.effort, a.flags).run()
+        return Runner(a.lane, a.cwd, a.bin, a.session_id, a.model, a.effort, a.flags, a.resume).run()
     if a.cmd == "send":
         send(a.lane, sys.stdin.read() if a.text == "-" else a.text, a.kind)
         return 0

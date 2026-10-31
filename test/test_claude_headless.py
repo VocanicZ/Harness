@@ -30,7 +30,7 @@ def wait_for(pred, what, timeout=15):
 class Lane:
     """A runner on a fresh lane dir, its claude the fake replaying <plan>."""
 
-    def __init__(self, plan, session_id=None, hold=False):
+    def __init__(self, plan, session_id=None, hold=False, resume=False):
         self.tmp = tempfile.mkdtemp()
         self.lane, self.fake, self.wd = (os.path.join(self.tmp, p) for p in ("lane", "fake", "wd"))
         for p in (self.lane, self.fake, self.wd):
@@ -44,6 +44,8 @@ class Lane:
                "--bin", f"{sys.executable} {FAKE}", "--flags=--dangerously-skip-permissions"]
         if session_id:
             cmd += ["--session-id", session_id]
+        if resume:
+            cmd += ["--resume"]
         self.proc = subprocess.Popen(cmd, env=env)
         wait_for(lambda: self.state().get("runner_pid") == self.proc.pid or self.proc.poll() is not None,
                  "the runner's first state")
@@ -294,6 +296,44 @@ def test_killed_runner_redelivers_queued_not_delivered():
         assert [c["prompt"] for c in lane.calls()] == ["delivered", "queued"], lane.calls()
     finally:
         subprocess.run([sys.executable, RUNNER, "stop", "--lane", lane.lane]); p.wait(timeout=15)
+
+
+# --- #350: a lane relaunched to carry on an earlier one ------------------------------------------
+def test_resume_flag_resumes_the_session_from_the_first_turn():
+    sid = "bbbbbbbb-0000-0000-0000-000000000000"
+    lane = Lane(["normal", "normal"], session_id=sid, resume=True)
+    try:
+        assert lane.state()["session_started"] is True, lane.state()
+        lane.send("resume prompt"); lane.send("next")
+        st = lane.wait_turn(2, "idle")
+        a0, a1 = (c["argv"] for c in lane.calls())
+        assert a0[a0.index("--resume") + 1] == sid and "--session-id" not in a0, a0
+        assert a1[a1.index("--resume") + 1] == sid, a1
+        assert st["session_id"] == sid and st["last_reply"] == "PONG", st
+    finally:
+        lane.stop()
+
+
+def test_resume_of_a_session_claude_lost_starts_it_under_the_same_id():
+    # the real capture: `claude -p --resume <id>` of a session claude does not have
+    assert ch.classify(fixture("no-conversation"), 1)[0] == "transient"
+    sid = "cccccccc-0000-0000-0000-000000000000"
+    lane = Lane(["no-conversation", "normal", "normal"], session_id=sid, resume=True)
+    try:
+        lane.send("resume prompt")
+        st = lane.wait_turn(2, "idle")
+        calls = lane.calls()
+        assert [c["prompt"] for c in calls] == ["resume prompt", "resume prompt"], calls
+        a0, a1 = (c["argv"] for c in calls)
+        assert a0[a0.index("--resume") + 1] == sid, a0
+        assert a1[a1.index("--session-id") + 1] == sid and "--resume" not in a1, a1
+        assert st["session_id"] == sid and st["session_started"] is True and st["last_reply"] == "PONG", st
+        assert any(e.get("subtype") == "resume_missing" for e in lane.events()), "the fallback is logged"
+        lane.send("later"); lane.wait_turn(3, "idle")
+        a2 = lane.calls()[2]["argv"]
+        assert a2[a2.index("--resume") + 1] == sid, a2
+    finally:
+        lane.stop()
 
 
 def test_missing_claude_fails_the_turn_not_the_runner():

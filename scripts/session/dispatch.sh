@@ -62,6 +62,17 @@ sess_capture(){ _sess_call capture "$@"; }
 sess_pane_pid(){ _sess_call pane_pid "$@"; }
 # sess_kill <target> — end the session; false when there was none.
 sess_kill(){ _sess_call kill "$@"; }
+# sess_turns <target> — how many turns the session has started, a mark for sess_turn_ended; empty when
+# the backend cannot count them (a pane's turns are only screen text).
+sess_turns(){ _sess_call turns "$@"; }
+# sess_turn_ended <target> <turns> — true once the session has ended every turn it started after <turns>
+# (sess_turns), at least one, and has no message waiting for another — or is no longer live. False when
+# the backend cannot tell (#350: `pause --force` waits on it for a lane's checkpoint turn).
+sess_turn_ended(){ _sess_call turn_ended "$@"; }
+# sess_resume_id <name> <dir> — the agent CLI's session id an earlier, ended run of session <name> in
+# <dir> left behind to carry on (#350: a checkpointed or crashed lane relaunched by `harness resume` or
+# the crash-recovery sweep); empty when there is none, the session is live, or the backend keeps none.
+sess_resume_id(){ _sess_call resume_id "$@"; }
 # sess_attach <target> — put this terminal on the session (replaces the calling shell).
 sess_attach(){ _sess_call attach "$@"; }
 # sess_attach_hint <name> — the command an operator runs to watch <name>.

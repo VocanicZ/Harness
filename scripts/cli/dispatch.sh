@@ -86,7 +86,7 @@ _cli_default_headless(){ echo "agent CLI '$(cli_name)' is tmux-only: it has no h
 cli_bin(){ _cli_call bin "$@"; }                       # the command line that runs the CLI (HARNESS_<CLI>_BIN)
 cli_exe(){ _cli_exe "$(cli_bin)"; }                    # its executable: what to look for on PATH, or match a pane against
 cli_launch(){ _cli_call launch "$@"; }                 # <wd> <uuid> <model> <effort> → the line typed into the pane
-cli_headless(){ _cli_call headless "$@"; }             # <wd> <uuid> <model> <effort> → the headless lane runner's argv, one word per line (#349)
+cli_headless(){ _cli_call headless "$@"; }             # <wd> <uuid> <model> <effort> [resume] → the headless lane runner's argv, one word per line (#349); resume: <uuid> is an existing session to carry on (#350)
 cli_lane_settings(){ _cli_call lane_settings "$@"; }   # <wd> → per-lane settings written outside the launch line
 cli_model_effort(){ _cli_call model_effort "$@"; }     # <launch line> <wd> → <model>\t<effort> the launch runs with ('' = the CLI's default)
 cli_first_input(){ _cli_call first_input "$@"; }       # <effort> → lines typed once the prompt first shows

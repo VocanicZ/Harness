@@ -1426,17 +1426,23 @@ issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/nu
 # `pkill -f` on a phrase from its own prompt matched — and killed — every lane on the host. The task stays in
 # .harness-task.md (written before launch; write_state copies it for the ralph re-feed).
 HARNESS_BOOTSTRAP_PROMPT="Read .harness-task.md in this directory and follow it exactly."
-launch_agent(){ local sess="$1" wd="$2" uuid
+# A checkpointed or crashed issue lane relaunched in its worktree (#350: `harness resume`, the crash-recovery
+# sweep's re-dispatch) carries on the agent session the backend kept for it (sess_resume_id) — on headless,
+# the claude session its lane ran, resumed with the resume prompt as its next turn. Only the issue lanes
+# `pause --force` checkpoints (checkpoint_sessions): an orch or inject session always starts fresh.
+launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   # #108: never re-enter a live session. If $sess is already up (e.g. a transiently-dropped
   # agent-working label re-dispatched the same issue), short-circuit BEFORE any side effect — no
   # write_state (don't clobber the running agent's state file), no new-session, and above all no
   # send-keys typing a second `exec claude …` into the live pane. This guard MUST be first.
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
-  uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+  [[ "$sess" =~ ^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$ ]] && uuid="$(sess_resume_id "$sess" "$wd")"
+  if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
+  else uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"; fi
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   session_env "$uuid"
   local model effort line line_me
-  if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" || return 1
+  if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || return 1
   else
   # A backend that cannot start the session stops the launch here: nothing to type into.
   sess_start "$sess" "$wd" "${SESSION_ENV[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
@@ -1465,15 +1471,15 @@ launch_agent(){ local sess="$1" wd="$2" uuid
     worktree="$wd" model="$model" effort="$effort" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
-# _launch_headless <sess> <wd> <uuid> — launch_agent on a headless backend (#349): the lane IS the CLI's
+# _launch_headless <sess> <wd> <uuid> [resume] — launch_agent on a headless backend (#349): the lane IS the CLI's
 # headless runner (cli_headless), started with the bootstrap as its first message — there is no shell
 # to type a launch line into, and no first input to wait for. The worktree is prepared BEFORE the start
 # (the runner's first turn begins at once); the .goal / .wd still land after the lane is live, as on
 # tmux (gc_orphan_goals). Sets launch_agent's model / effort / line for its launch event.
-_launch_headless(){ local sess="$1" wd="$2" uuid="$3" argv
+_launch_headless(){ local sess="$1" wd="$2" uuid="$3" resume="${4:-}" argv
   ensure_trusted "$wd"; ensure_bypass "$wd"; ensure_usage_statusline "$wd"
   model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
-  argv="$(cli_headless "$wd" "$uuid" "$model" "$effort")" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
+  argv="$(cli_headless "$wd" "$uuid" "$model" "$effort" $resume)" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
   local -a cmd; mapfile -t cmd <<<"$argv"
   sess_start "$sess" "$wd" "${SESSION_ENV[@]}" "${cmd[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
   echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
