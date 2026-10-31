@@ -197,7 +197,7 @@ PY
 # is killed (`agent exec`, the claude-cli backend's `claude`, the turn's commands) is stopped here.
 openclaw_kill(){ local rc run pids=; run="$(cat "$(_openclaw_dir "${2:-/nonexistent}")/running" 2>/dev/null)"
   [[ $run =~ ^[0-9]+$ ]] && pids="$(_openclaw_tree "$run")"
-  tmux kill-session -t "$1" 2>/dev/null; rc=$?
+  sess_kill "$1"; rc=$?
   [[ -n $pids ]] && kill $pids 2>/dev/null
   return "$rc"; }
 _openclaw_tree(){ ps -e -o pid=,ppid= | awk -v r="$1" '{ up[$1] = $2 } END { s[r] = 1

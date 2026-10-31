@@ -83,6 +83,9 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 # #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
 # shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
 source "$(dirname "${BASH_SOURCE[0]}")/turn.sh"
+# #346: the session-backend seam — the only reader of the fleet's session-backend setting, and the only way
+# the engine reaches a lane's session (sess_* functions; scripts/session/tmux.sh is today's tmux).
+source "$(dirname "${BASH_SOURCE[0]}")/session/dispatch.sh"
 # #188: the agent CLI adapter seam — the only reader of the fleet's CLI setting (cli_* functions).
 # Each adapter defaults and exports its own config (HARNESS_<CLI>_BIN / _FLAGS) when it is sourced.
 source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
@@ -326,7 +329,7 @@ lane_bug(){ local f tok n; shopt -s nullglob
 # colliding issue number in another repo can't match the wrong session (#44). Empty when no
 # session is live. A bare ref (legacy single-topology) sanitises to itself.
 lane_phase(){ local key s; key="$(printf '%s' "$1" | tr '/#' '_-')"
-  s="$(tmux ls -F '#S' 2>/dev/null | grep -m1 -E "^${HARNESS_SESS_PREFIX}-bug-${key}-" || true)"
+  s="$(sess_list | grep -m1 -E "^${HARNESS_SESS_PREFIX}-bug-${key}-" || true)"
   [[ -n "$s" ]] && echo "${s##*-}"; }
 
 # pool_live — is anything resident to claim freshly-injected work? True if any pool worker pid
@@ -663,9 +666,9 @@ sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
 sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$3"; }
 # The `$` alternative keeps matching the BARE legacy orch name, so an orch session already in
 # flight when the engine upgrades is still counted and reaped instead of orphaned.
-team_sessions(){ tmux ls -F '#S' 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i|-p)" || true; }
+team_sessions(){ sess_list | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i|-p)" || true; }
 count_team_sessions(){ team_sessions "$1" | grep -c . ; }
-session_live(){ tmux has-session -t "$1" 2>/dev/null; }
+session_live(){ sess_live "$1"; }
 # lock_holders <lockfile> — print one `PID<TAB>cmdline` line per process that currently holds the
 # file open (any fd). Dependency-free (`fuser`/`lsof` are NOT guaranteed present on every host —
 # this box has neither) — it scans /proc/*/fd symlinks for ones resolving to the lock's real path.
@@ -734,7 +737,7 @@ reap_finished_inject(){ local unit="$1" sess wd
   session_live "$sess" || return 0
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || return 0
   [[ -n "$wd" ]] || return 0
-  goal_loop_tick "$sess" "$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || true   # #259: no watchdog tends it
+  goal_loop_tick "$sess" "$(sess_capture "$sess")" || true   # #259: no watchdog tends it
   cli_done "$wd" || return 0   # loop still active → leave it
   log "reaped finished inject session $sess (ralph loop ended)"
   cli_kill "$sess" "$wd" || true
@@ -804,7 +807,7 @@ session_limit_idle(){ local pane="$1"
   _cli_re_hits "$(cli_limit_re)" "$pane"; }
 # _watchdog_limit_pick <sess> — answer the blocking menu with its default choice ("stop and wait for
 # limit to reset"). A bare Enter, never a typed line: the pane is a menu, not a prompt.
-_watchdog_limit_pick(){ tmux send-keys -t "$1" Enter 2>/dev/null || true; }
+_watchdog_limit_pick(){ sess_enter "$1" || true; }
 # _watchdog_limit_nudge <sess> — re-submit a continue once the quota is back. Same live-pane
 # send-keys pattern as _watchdog_nudge (#108 guard honoured: a plain line, never `exec claude …`).
 _watchdog_limit_nudge(){ local sess="$1"
@@ -870,7 +873,7 @@ _goal_loop_step(){ local sess="$1" wd="$2" uuid sid out pid reply
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
   session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock"; return 0; }
-  pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)" || { rm -f "$stallf" "$limitf"; return 0; }
+  pane="$(sess_capture "$sess")" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
     rm -f "$stallf"
@@ -990,7 +993,7 @@ prefixes_collide(){ local a="$1" b="$2"
 # prefixes_collide; fleet_stale asks the narrower "does THIS registered fleet still have sessions of
 # its own" and so wants a literal `<pfx>-` match. Folding those into one predicate would make a
 # stale-check refuse on a merely-overlapping neighbour.
-tmux_sessions_with_paths(){ tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null || true; }
+tmux_sessions_with_paths(){ sess_list_paths || true; }
 
 # colliding_sessions — every LIVE tmux session whose prefix space overlaps ours, one
 # `<session>\t<session_path>\t<mine|theirs>` line each. This is the guard's ENFORCEMENT signal: tmux
@@ -1432,7 +1435,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   session_env "$uuid"
-  tmux new-session -d -s "$sess" -c "$wd" "${SESSION_ENV[@]}"; sleep 1.5
+  sess_start "$sess" "$wd" "${SESSION_ENV[@]}"; sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
   # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
   # the goal before `tmux new-session` opened a cross-lane TOCTOU window: a concurrent sweep in that
@@ -1447,7 +1450,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid
   local model effort line line_me
   model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
   line="$(cli_launch "$wd" "$uuid" "$model" "$effort")"
-  tmux send-keys -t "$sess" "$line" Enter
+  sess_send_line "$sess" "$line"
   _launch_first_input "$sess" "$effort"
   # #307: the model and effort this launch runs with, as the CLI's adapter reads them off its own line
   # and lane config — not the lane pin alone, which names neither when the configured flags do.
@@ -1463,7 +1466,7 @@ launch_claude(){ launch_agent "$@"; }
 _launch_first_input(){ local sess="$1" in i pane
   in="$(cli_first_input "${2:-${HARNESS_EFFORT:-}}")"; [[ -n "$in" ]] || return 0
   for (( i = 0; i < 60; i++ )); do
-    pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)"
+    pane="$(sess_capture "$sess")"
     cli_pane_prompt "$pane" && ! cli_pane_busy "$pane" && break
     sleep 1
   done

@@ -369,7 +369,7 @@ spawn_pool_bug(){ local n="$1" tok phase sess pid
   phase="$(bug_phase "$n")"; sess="$(sess_bug "$SLUG" "$n" "$phase")"
   log "pool: idle slot takes bug #$n → $phase session ($sess)"
   spawn_bug "$n" "$phase" || { log "pool: spawn failed for bug #$n"; release_bug_claim "$tok"; return 1; }
-  pid="$(tmux display-message -p -t "$sess" '#{pane_pid}' 2>/dev/null)"
+  pid="$(sess_pane_pid "$sess")"
   [[ -n "$pid" ]] || { log "pool: no live session for bug #$n"; release_bug_claim "$tok"; return 1; }
   local f; f="$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
   printf '%s %s %s\n' "pool-$UNIT" "$pid" "$tok" > "$f.tmp" && mv -f "$f.tmp" "$f"; }

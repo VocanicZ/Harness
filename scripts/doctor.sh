@@ -115,6 +115,9 @@ doctor_main(){
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
   echo "── harness doctor ${tag}── ${STATE_DIR:-?}"
   echo "RUN_DIR: $RUN_DIR"
+  local sp=0
+  if sess_backend_check 2>/dev/null; then echo "session backend: $(sess_backend)"
+  else echo "session backend: $(sess_backend) — UNKNOWN (valid: $(sess_backend_list | xargs); set $SESS_CONFIG_VAR in $CONFIG)"; sp=1; fi
   echo "locks:"
   local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?
@@ -122,7 +125,7 @@ doctor_main(){
   doctor_pidfiles || pp=$?
   echo "fleet registry:"
   doctor_fleets   || fp=$?
-  local total=$((lp+pp+fp))
+  local total=$((lp+pp+fp+sp))
   echo "────────────────────────────────────────────"
   if (( total == 0 )); then
     echo "healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries."

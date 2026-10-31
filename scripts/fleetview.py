@@ -22,6 +22,9 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import session_backend  # noqa: E402  #346: the session backend's probes
+
 # A HOLD streak shorter than this is ordinary weather (one dropped poll) and stays quiet.
 HOLD_WARN = int(os.environ.get("HARNESS_HOLD_WARN", "3") or 3)
 # --watch refreshes issue counts at most this often: one `gh issue list` per repo per frame would
@@ -115,7 +118,8 @@ def session_number(name):
 
 def host_sessions():
     """{session name: created epoch} for every live tmux session; {} when there is no server."""
-    rc, out = run_cmd(["tmux", "ls", "-F", "#{session_name}\t#{session_created}"])
+    argv = session_backend.list_created_argv()
+    rc, out = run_cmd(argv) if argv else (1, "")
     sess = {}
     if rc == 0:
         for line in out.splitlines():
@@ -127,7 +131,8 @@ def host_sessions():
 
 def session_models():
     """{session name: model} — read off the `--model X` flag of a process under each tmux pane."""
-    rc, out = run_cmd(["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"])
+    argv = session_backend.pane_pids_argv()
+    rc, out = run_cmd(argv) if argv else (1, "")
     if rc != 0:
         return {}
     panes = {}

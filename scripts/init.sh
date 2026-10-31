@@ -13,6 +13,9 @@ CONFIG="$STATE_DIR/config"
 ni="${HARNESS_INIT_NONINTERACTIVE:-0}"; [[ -t 0 ]] || ni=1
 # #188: the agent CLI question lists the adapters this engine ships (and names its config key).
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cli/dispatch.sh"
+# #346: …and so does the session backend (scripts/session/; the CLI seam sources it). Not asked —
+# tmux unless the environment names another — but written, and an unknown one is refused here.
+sess_backend_check || exit 1
 ask(){ local var="$1" prompt="$2" def="$3" val
   if [[ "$ni" == 1 ]]; then val="${!var:-$def}"; else read -rp "$prompt [$def]: " val; val="${val:-$def}"; fi
   printf -v "$var" '%s' "$val"; }
@@ -104,6 +107,8 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
   # 0 = it polls GitHub itself. Flip per fleet, then `harness stop && harness start --recover`.
   # See docs/reference.md "Host poller".
   printf ': "${%s:=%s}"\n' HARNESS_USE_POLLER "${HARNESS_USE_POLLER:-1}"
+  # Session backend (#346): what each lane's session runs in — $(sess_backend_list | xargs).
+  printf ': "${%s:=%s}"\n' "$SESS_CONFIG_VAR" "$(sess_backend)"
 } > "$CONFIG"
 echo "wrote $CONFIG"
 if [[ "$ni" != 1 ]]; then

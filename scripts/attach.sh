@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 UNIT="${1:-}"; ISSUE="${2:-}"
 if [[ -z "$UNIT" ]]; then
   echo "live sessions:"
-  tmux ls -F '  #S' 2>/dev/null | grep -E "^  ${HARNESS_SESS_PREFIX}-" || echo "  (none)"
+  sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-" || echo "  (none)"
   echo "usage: attach.sh <unit> [issue]"
   exit 0
 fi
@@ -32,7 +32,7 @@ else
 fi
 session_live "$sess" || {
   echo "no live session '$sess'"
-  tmux ls -F '  #S' 2>/dev/null | grep -E "^  ${HARNESS_SESS_PREFIX}-${UNIT}" || true
+  sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-${UNIT}" || true
   exit 1
 }
-exec tmux attach -t "$sess"
+sess_attach "$sess"

@@ -17,12 +17,15 @@ WEB_UNIT_DIR="${HARNESS_WEB_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/
 WEB_UNIT=harness-web.service
 WEB_SYSTEMCTL="${HARNESS_WEB_SYSTEMCTL:-systemctl}"
 WEB_LOGINCTL="${HARNESS_WEB_LOGINCTL:-loginctl}"
+# #346: the session backend's binaries (sess_bins) go on the unit's PATH. Only when the engine ships
+# the seam: `harness update` sources this file from whatever engine it is moving to.
+[[ -f "$WEB_ENGINE_DIR/scripts/session/dispatch.sh" ]] && source "$WEB_ENGINE_DIR/scripts/session/dispatch.sh"
 
 # --- systemd user unit (modelled on supervise.sh's sup_install, #180) ---------------------------
 # web_unit_path — the unit's PATH: systemd hands a user unit a bare one, and the server shells out
-# to tmux and ps for its live-session view.
+# to the session backend (sess_bins) and ps for its live-session view.
 web_unit_path(){ local b p out=()
-  for b in python3 tmux ps git; do
+  for b in python3 $(declare -F sess_bins >/dev/null && sess_bins) ps git; do
     p=$(command -v "$b" 2>/dev/null) && [[ $p == /* ]] && out+=("$(dirname "$p")")
   done
   out+=("$HOME/.local/bin" /usr/local/bin /usr/bin /bin)

@@ -154,13 +154,13 @@ PY
 
 # An Enter that reaches the composer in the same burst as the text is read as a newline in it, not
 # a submit (the text stays in the box): the Enter waits half a second.
-hermes_send(){ tmux send-keys -t "$1" -l "$3" 2>/dev/null || true; sleep 0.5; tmux send-keys -t "$1" Enter 2>/dev/null || true; }
+hermes_send(){ sess_type "$1" "$3" || true; sleep 0.5; sess_enter "$1" || true; }
 # hermes_kill <sess> <wd> — the pane, then the lane's gateway. The TUI leaving interrupts its turn
 # (a pane killed mid-command: `Operation interrupted`), but the gateway daemon outlives it: `gateway
 # stop -y` ends it, interrupting anything it still runs. In the other order the TUI, still up, starts
 # a new gateway for its home.
 hermes_kill(){ local home rc; home="$(_hermes_home "${2:-}")"
-  tmux kill-session -t "$1" 2>/dev/null; rc=$?
+  sess_kill "$1"; rc=$?
   [[ -n "${2:-}" && -d "$home" ]] && HERMES_HOME="$home" timeout 60 $(hermes_bin) gateway stop -y >/dev/null 2>&1 </dev/null
   return "$rc"; }
 

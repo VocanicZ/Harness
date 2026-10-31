@@ -10,7 +10,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 # usage checkpoint sends the very same instruction to the very same sessions.
 
 force_pause(){
-  command -v tmux >/dev/null || die "tmux not found"
+  local b; for b in $(sess_bins); do command -v "$b" >/dev/null || die "$b not found"; done
   command -v gh   >/dev/null || die "gh not found"
   local sessions sess issue slug branch msg
   # Match BOTH impl sessions (hz-<unit>-i<issue>) and priority-lane sessions
