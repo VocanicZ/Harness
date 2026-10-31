@@ -557,6 +557,12 @@ the operator keep going one issue at a time in their own session, with a budget 
   worktree, local branch and lease (it refuses while work is unpushed, short of `--force`) and clears
   an `agent-working` that was never checkpointed. Nothing of the session's is left, so the pool
   resumes an `agent-paused` issue through `resume.md` after the reset, like any checkpointed lane.
+- **Done → next** — once merged, `harness one done <issue>` runs the goal check `reap_done_sessions`
+  runs (`issuelib.py check <repo> ISSUE:<n>`); until it reports DONE (exit 4) nothing is offered. Then
+  it picks the next claimable issue exactly as a one-slot dispatch would (`issuelib.py next`: open,
+  ready, not `agent-working`, every `## Blocked by` closed; resumable — `agent-paused` or a pushed
+  branch — first, then oldest) and runs a fresh forecast + gate for it (exit 0 APPROVE / 1 DENY / 3
+  refused). The human decides again: approve / pick another / stop. None claimable is exit 5.
 
 ### GitHub rate limits
 

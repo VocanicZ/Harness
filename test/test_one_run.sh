@@ -85,6 +85,7 @@ assert_ok "impl.md is rendered for a fresh issue" grep -q '^You are an implement
 assert_ok "rendered for #7 with its promise" grep -q 'ISSUE 7 DONE' "$WD/.harness-task.md"
 assert_ok "the task ends with the per-phase re-check" grep -q 'one phase 7 <phase> --unit main' "$WD/.harness-task.md"
 assert_ok "and the release" grep -q 'one release 7 --unit main' "$WD/.harness-task.md"
+assert_ok "and the hand-back to done (#367)" grep -q 'one done 7 --unit main. confirms it DONE' "$WD/.harness-task.md"
 assert_ok "the lease is taken" test -f "$LEASE"
 assert_ok "start says what it rendered" grep -q 'rendered impl.md' <<<"$out"
 
@@ -172,4 +173,55 @@ reap_team
 assert_no "reap_team reaps a worktree whose lease went stale" test -d "$WD"
 assert_no "and drops the lease" test -f "$LEASE"
 assert_no "and the lock" has_label agent-working
+# ── done (#367): the goal check reap_done_sessions runs, then the next claimable issue's fresh gate ─
+# The board comes from a snapshot (issuelib's read seam), so `check` and `next` never reach gh.
+SNAP="$RUN_DIR/board.json"
+board(){ python3 - "$SNAP" "$@" <<'PYEOF'
+import json, sys
+path, spec = sys.argv[1], sys.argv[2:]
+issues = []
+for s in spec:   # <n>:<STATE>:<label,label>[:<blocked-by n>]
+    n, state, labels, *dep = s.split(":")
+    body = (f"## Blocked by\n#{dep[0]}\n" if dep else "")
+    issues.append({"number": int(n), "title": f"t{n}", "state": state, "body": body, "updatedAt": "",
+                   "author": {"login": "me"}, "labels": [{"name": l} for l in labels.split(",") if l]})
+json.dump({"slug": "acme/widget", "self_login": "me", "issues": issues}, open(path, "w"))
+PYEOF
+}
+done_(){ HARNESS_SNAPSHOT_FILE="$SNAP" HARNESS_MODE=issue-only HARNESS_AUTONOMOUS=false \
+  "${ONE[@]}" done "$1" --events "$EV" --bodies "$BODIES" "${@:2}"; }
+edits(){ wc -l < "$GH/log"; }
+board 7:OPEN:ready-for-agent,agent-working 8:OPEN:ready-for-agent 9:OPEN:ready-for-agent:10 \
+      10:OPEN:ready-for-agent,agent-working 11:OPEN:ready-for-agent,agent-paused 12:OPEN:ready-for-agent,agent-blocked
+before="$(edits)"
+out="$(done_ 7 2>&1)"; rc=$?
+assert_eq "$rc" "4" "done while the goal check is PENDING"
+assert_ok "says it is not done" grep -q 'not DONE' <<<"$out"
+assert_no "and offers nothing" grep -qE 'RECOMMEND|next claimable' <<<"$out"
+board 7:CLOSED:ready-for-agent 8:OPEN:ready-for-agent 9:OPEN:ready-for-agent:10 \
+      10:OPEN:ready-for-agent,agent-working 11:OPEN:ready-for-agent,agent-paused 12:OPEN:ready-for-agent,agent-blocked
+stub_usage 10
+out="$(done_ 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "done once #7 closed: the next issue fits — APPROVE"
+assert_ok "reports #7 DONE via the goal check" grep -q 'acme/widget#7 DONE (goal check)' <<<"$out"
+assert_ok "offers the agent-paused #11 first, as dispatch resumes it" grep -q 'next claimable: acme/widget#11' <<<"$out"
+assert_ok "with a fresh gate for #11" grep -q '^gate #11:' <<<"$out"
+assert_ok "and its recommendation" grep -q '^RECOMMEND: APPROVE' <<<"$out"
+assert_ok "handing the decision back" grep -q 'approve / pick another issue / stop' <<<"$out"
+assert_eq "$(edits)" "$before" "nothing is claimed or labelled without the human approving"
+done_ 7 --json > "$RUN_DIR/d.json" 2>/dev/null; rc=$?
+assert_eq "$rc:$(python3 -c 'import json,sys; g=json.load(open(sys.argv[1])); print(g["issue"], g["verdict"])' "$RUN_DIR/d.json")" \
+  "0:11 APPROVE" "--json: stdout is the next issue's gate JSON alone"
+stub_usage 97
+done_ 7 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "1" "the next issue's gate DENIES: done exits 1"
+board 7:CLOSED:ready-for-agent 9:OPEN:ready-for-agent:10 10:OPEN:ready-for-agent,agent-working \
+      12:OPEN:ready-for-agent,agent-blocked
+out="$(done_ 7 2>&1)"; rc=$?
+assert_eq "$rc" "5" "none claimable — blocked, working and agent-blocked are never offered"
+assert_ok "says so" grep -q 'no claimable issue' <<<"$out"
+assert_no "and gates nothing" grep -q 'RECOMMEND' <<<"$out"
+rm -f "$RUN_DIR/PAUSED"; board 7:CLOSED:ready-for-agent 8:OPEN:ready-for-agent
+done_ 7 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "3" "the next issue's gate still refuses on a RUNNING, un-held fleet"
 finish

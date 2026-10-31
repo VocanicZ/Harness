@@ -23,10 +23,16 @@
 #   harness one release <issue> [-R …] [--unit U] [--force]                                 (#366)
 #       after the checkpoint or the merge: drop the worktree, local branch and lease, so the pool
 #       resumes the issue as its own. Refuses to drop work that is not pushed, without --force.
+#   harness one done <issue> [-R …] [--unit U] [--json]                                    (#367)
+#       once it is worked: the goal check reap_done_sessions runs (issuelib check ISSUE:<n>) must
+#       report DONE; then the next claimable issue, picked as dispatch would (issuelib next), gets a
+#       fresh forecast + gate. It only offers — the human approves (start), picks another, or stops.
 #
 # Exit status: check 0 pass / 1 refused; gate 0 APPROVE / 1 DENY / 2 bad args or no forecast / 3 refused;
 # start 0 claimed / 2 bad args / 3 refused / 4 not claimable / 5 setup failed; phase 0 FITS /
-# 1 CHECKPOINT / 2 bad args or not started; release 0 released / 2 bad args / 4 unpushed work.
+# 1 CHECKPOINT / 2 bad args or not started; release 0 released / 2 bad args / 4 unpushed work;
+# done 0/1 the next issue's gate APPROVE/DENY / 2 bad args or unreadable / 3 refused / 4 not DONE /
+# 5 DONE, none claimable.
 # Sourced by test/test_one.sh; runs one_main only when executed directly.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
@@ -130,6 +136,8 @@ BEFORE EACH PHASE — explore, test, impl, gate, ship, in that order — run:
   exiting, run the release below and stop.
 WHEN DONE — merged and closed, or checkpointed — run:
   $h release $1 --unit $UNIT
+Then, once merged and closed, hand back to /harness-one: \`$h done $1 --unit $UNIT\` confirms it DONE
+and offers the next claimable issue with a fresh forecast — for the human to approve, never you.
 NOTE
 }
 
@@ -221,6 +229,38 @@ one_release(){ local issue="${1:-}" force="" a st wd; shift || true
     return 0; fi
   echo "harness one: released $SLUG#$issue — the pool resumes it (resume.md) once the fleet resumes or the usage hold lifts"; }
 
+# one_done <issue> [-R owner/repo] [--unit U] [forecast args…] [--json] — once the issue is worked:
+# the goal check reap_done_sessions runs (issuelib check ISSUE:<n>), and only when it reports DONE,
+# the next issue a one-slot dispatch would claim (issuelib next) with a FRESH forecast + gate for it.
+# Nothing is claimed: the gate only recommends, and `harness one start` waits on the human.
+one_done(){ local issue="${1:-}" skip="" a goal next rc
+  shift || true
+  [[ "$issue" =~ ^[0-9]+$ ]] || { echo "usage: harness one done <issue> [-R owner/repo] [--unit U] [--json]" >&2; return 2; }
+  local -a targs=() gargs=()
+  for a in "$@"; do
+    if [[ -n "$skip" ]]; then targs+=("$a"); skip=""
+    elif [[ "$a" == -R || "$a" == --unit ]]; then targs+=("$a"); skip=1
+    else gargs+=("$a"); fi
+  done
+  local UNIT REPO SLUG PROJECT DESC CHECKOUT
+  _one_target ${targs[@]+"${targs[@]}"} || return 2
+  # --json: stdout is the next issue's gate JSON alone; what done says goes to stderr.
+  local say=1; [[ " ${gargs[*]-} " == *" --json "* ]] && say=2
+  goal="$(python3 "$ISSUELIB" check "$REPO" "ISSUE:$issue" 2>/dev/null)"
+  if [[ "$goal" != DONE ]]; then
+    echo "harness one: $SLUG#$issue is not DONE (goal check: ${goal:-no answer}) — nothing is offered until it is" >&"$say"
+    return 4; fi
+  harness_event one_done kind=impl issue="$issue"
+  echo "harness one: $SLUG#$issue DONE (goal check)" >&"$say"
+  next="$(python3 "$ISSUELIB" next "$REPO" --exclude "$issue" 2>/dev/null)"; rc=$?
+  (( rc == 0 )) || { echo "harness one: cannot read $SLUG's issues to pick the next one — try again" >&2; return 2; }
+  if [[ -z "$next" ]]; then
+    echo "harness one: no claimable issue on $SLUG (open, $HARNESS_LABEL_READY, not $HARNESS_LABEL_WORKING, every blocker closed) — stop here" >&"$say"
+    return 5; fi
+  echo "harness one: next claimable: $SLUG#$next — the one dispatch would claim; a fresh forecast + gate for it:" >&"$say"
+  echo >&"$say"
+  one_gate "$next" -R "$SLUG" --unit "$UNIT" ${gargs[@]+"${gargs[@]}"}; }
+
 one_main(){ local cmd="${1:-}"; shift || true
   case "$cmd" in
     check)   one_check;;
@@ -228,7 +268,8 @@ one_main(){ local cmd="${1:-}"; shift || true
     start)   one_start "$@";;
     phase)   one_phase "$@";;
     release) one_release "$@";;
-    *) echo "usage: harness one check | gate <issue> | start <issue> | phase <issue> <phase> | release <issue>   [-R owner/repo] [--unit U]" >&2; return 2;;
+    done)    one_done "$@";;
+    *) echo "usage: harness one check | gate <issue> | start <issue> | phase <issue> <phase> | release <issue> | done <issue>   [-R owner/repo] [--unit U]" >&2; return 2;;
   esac; }
 
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && one_main "$@"
