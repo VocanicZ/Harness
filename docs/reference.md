@@ -7,7 +7,9 @@ Full reference for operators. Start with the [README](../README.md).
 ### Supported agent CLIs
 
 Pick one with `HARNESS_CLI`. A CLI is listed only when every row below passes for it
-(`test/test_cli_matrix.sh`, against captures from the real CLI). Per-CLI facts and sources:
+(`test/test_cli_matrix.sh`, against captures from the real CLI). The `headless-*` rows are the same
+features on the [headless session backend](#headless-lanes) (`HARNESS_SESSION_BACKEND=headless`): only
+`claude` has a headless lane runner, so every other CLI is tmux-only there. Per-CLI facts and sources:
 [cli-capabilities.md](cli-capabilities.md).
 
 | feature | what it proves | `claude` | `agy` | `codex` | `copilot` | `opencode` | `hermes` | `openclaw` |
@@ -50,6 +52,19 @@ Pick one with `HARNESS_CLI`. A CLI is listed only when every row below passes fo
 | `send-and-kill` | Nudges and checkpoints are delivered; a session is ended | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `prereqs-named` | `harness setup` names the missing binary and plugins the CLI needs, and `--install` installs them: the binary by the command it named, the vendor's non-interactive install (an npm package or a curl release script), and the plugins through the binary (copilot needs only its binary; opencode its 1.x binary; hermes its binary) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `init-wizard-choice` | `harness init` writes the CLI chosen, and a fleet loading that config drives it | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `headless-launch` | On `HARNESS_SESSION_BACKEND=headless` (#349) `launch_agent` prepares the worktree as for a pane (trusted, bypassed, the goal loop armed) and starts the CLI's headless lane runner, a detached process, not a typed launch line: the lane is live and listed, its first turn's prompt is the bootstrap on stdin under the loop's session id, and no argv carries the task. Every `headless-*` row runs on the runner (`scripts/cli/claude_headless.py`) with a fake CLI replaying the stream-json the real one printed (`test/fixtures/cli/claude/stream-json/`); a CLI with no runner is refused on that backend (`cli_backend_check`) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-send` | `cli_send` mid-turn waits in the lane's inbox (drawn in its input box) and is the next turn, carrying on the same session (`--resume`) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-busy-idle` | A running turn reads busy and never a stall; once it ends the lane reads as the idle prompt, not busy, not a stall, not a limit (`state.json`: `busy`, `idle`) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-limit-parks` | A turn the usage limit ends (stream-json `rate_limit_event` `rejected`, `api_error: usage_limit_reached`) parks the lane with the CLI's reset time, not a stall; the watchdog handles it as a limit park and its nudge is the next turn | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-transient-stalls` | A turn a transient API error ends (`api_retry` events, then an error `result`) is the #115 wedge, not a limit; the watchdog nudges it and the nudge runs a healthy turn | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-loop-mode` | The goal loop is the driven one: the watchdog reads the lane's last reply (`cli_last_reply`, off `state.json`) and re-prompts a turn without the promise once — the promise and the bootstrap, never the task — and the turn that outputs it ends the loop | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-interrupt` | `turn_interrupt` ends a running turn's whole process tree; the runner lives on and the message queued behind the turn runs next | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-checkpoint` | `pause --force` sends an impl lane the checkpoint (naming the handoff skill and marker), which waits behind its running turn, then waits on the lane's state for that turn and ends the lane (#350) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-resume` | That checkpointed lane, re-dispatched as an `agent-paused` issue with its handoff, relaunches in its worktree on the resume prompt and carries on the same claude session: its first turn is `--resume <id>`, no new session (#350) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-supervisor-frozen-session` | `harness supervise` nudges a quiet idle lane through its inbox (the nudge is its next turn) and leaves a limit-parked lane alone (#351) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-usage-windows` | With no status line, the usage windows are read off the `rate_limit_event` a turn printed, kept in `state.json`: each window's utilization as a percent, under the lane's account (#352) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-stats-session-end-usage` | Once the lane's runner has exited the stats sweep emits its `session_end` once, its usage the sum of its turns' stream-json `result` `modelUsage` (#352) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-stop` | `harness stop` ends a lane mid-turn: the runner, the CLI's turn and that turn's own child are gone, nothing is listed, the lane's state reads `ended` | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 
 Per-CLI setup (`harness setup --install` handles what it can):
 
