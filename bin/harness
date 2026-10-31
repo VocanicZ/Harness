@@ -106,6 +106,8 @@ usage: harness <command> [args]
   status [--watch [s]] [--all]  dashboard (outside a project, or --all: every fleet on this host)
   stats [--prd N|--issue N] [-R repo] [--since 7d] [--fleet P] [--model M] [--json] [--backfill]
                        host-wide event log report: sessions, tokens by model, retries, HOLD time
+  forecast <issue> [-R repo] [--unit U] [--json]
+                       per-phase p50/p80/p95 \$ forecast for one issue, from past lanes in the event log
   doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
   attach <unit> [issue] tmux-attach to a session
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
@@ -170,6 +172,8 @@ case "$cmd" in
   poll)   exec bash "$ENGINE_DIR/scripts/poller.sh" "$@";;
   # stats is HOST-level like poll: the event log ($HARNESS_HOME/events.jsonl) covers every project (#185).
   stats)  exec python3 "$ENGINE_DIR/scripts/stats.py" report "$@";;
+  # forecast reads the same host event log; the project (best-effort) only names the issue's unit (#363).
+  forecast) try_state_dir; exec python3 "$ENGINE_DIR/scripts/forecast.py" "$@";;
   # supervise is HOST-level too: one supervisor walks every fleet on the host (#180).
   supervise) exec bash "$ENGINE_DIR/scripts/supervise.sh" "$@";;
   # web is HOST-level too: the read-only dashboard over every registered fleet (#223).

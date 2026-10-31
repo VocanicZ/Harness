@@ -357,6 +357,7 @@ Run from inside any `harness init`'d project:
 | `stop [--clean]` | Stop the pool. `--clean` also removes worktrees |
 | `status [--watch [secs]] [--all]` | One-shot or live dashboard: pool state, per-unit progress, live sessions, gated units. Outside any project (or with `--all`) it shows **every fleet on the host** from `~/.harness/fleets`: state (RUNNING / PAUSED / STOPPED / COMPLETE / DEAD / missing), live sessions with issue, age and model, open / unblocked / agent-working counts with orphaned locks flagged, last log line, HOLD streaks, and the GitHub budget |
 | `stats [--prd N\|--issue N] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes. `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, retries) up to the PRD; `--issue` is a per-session timeline. Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
+| `forecast <issue> [-R owner/repo] [--unit U] [--json]` | Per-phase cost forecast for one issue — explore / test / impl / gate / ship at p50 / p80 / p95 $ and in total, scaled by the issue's size — from the past lanes in the same event log. Says which history it used and when it fell back. See [Cost forecast](#cost-forecast) |
 | `doctor [--fix]` | Diagnose what strands a pool — who holds `start.lock`/`pool.lock` (via a dependency-free `/proc` scan, so it works without `fuser`/`lsof`), orphaned lock-holders (a killed worker's leaked poll-`sleep`), and stale pidfiles. Report-only by default; `--fix` clears stale pidfiles and reaps **this project's** orphans (never touches a co-resident sibling fleet) |
 | `attach <unit> [issue]` | tmux-attach to a running session |
 | `migrate` | Convert a project's **vendored** `.harness/` (the pre-shared-engine layout) to state-only and re-point it at the shared engine. Idempotent; refuses if no shared engine is installed |
@@ -473,6 +474,34 @@ worktree committed and pushed, a handoff comment with the last screen).
 | `opencode` | None: OpenCode 1.x has no quota meter. A limit shows only as its error text at the prompt, which parks the lane (`limit-parks`) and gets the mechanical checkpoint above |
 
 `harness status` shows every window, with `HOLD` on an account being waited out.
+
+### Cost forecast
+
+`harness forecast <issue>` predicts what one issue will cost before a lane works it, from the past
+issue lanes (impl and bug-fix sessions) in the [event log](#commands) — the groundwork for working
+one issue at a time while the fleet is paused or HELD (#362).
+
+- **Phases.** Each past lane's spend is split from its Claude transcripts, sub-agents included:
+  everything before the first edit is `explore`; an edit on a test path is `test`, any other edit
+  `impl`; a test or gate runner (`test/run.sh`, `ci-local`, `swarm-suite`, `rtdd which`, `pytest`, …)
+  is `gate`; `gh pr`, `git push` and `gh issue close|edit|comment` are `ship`. A message counts once,
+  in the phase its own tool calls leave the lane in.
+- **Cost** is list price per model (Opus, Sonnet, Haiku; any other model is priced as Opus, the
+  conservative end). A lane with no Claude transcript — another CLI, whose adapter folded its usage
+  into `session_end` — adds its priced total, spread over the phases by the other lanes' mix. A lane
+  that spent under $0.50 died at its first turn and is skipped.
+- **History.** The forecast uses the issue's PRD siblings in the same repo; with fewer than 3 past
+  lanes there it falls back to every lane of the unit, then to every lane on the host, and prints
+  `FALLBACK` with the reason (`#N has no history`, `PRD #P has 1 past lane(s), need 3`). The issue's
+  own past sessions are never part of its forecast; their spend is shown as `already spent`.
+- **Size.** Every figure is scaled by the issue's body length over the median body of the history's
+  issues, clamped to 0.6–2.0. The output prints the scale it applied.
+- **% of a usage window** is `n/a` until a $-per-% calibration exists.
+
+The repo is `-R`, else the one the issue's own lanes ran in, else the current project's unit
+(`--unit` picks one in a multi-unit project). Issue bodies come from `gh`. `--json` prints the same
+numbers (`phases`, `total`, `size`, `basis`, `spent`) for scripts; the exit status is 1 when the host
+has no past lanes at all.
 
 ### GitHub rate limits
 
