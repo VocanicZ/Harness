@@ -261,15 +261,16 @@ requires none of them.
 windows off the `rate_limit_event`s claude prints: the runner keeps the latest in `state.json`
 (`rate_limit`, `rate_limit_at`) with the account the lane runs on (`account`: its `CLAUDE_CONFIG_DIR`'s
 name, `default` without one — the status line's rule), and the claude adapter reports each account window
-from the newest reading of every lane on the host or status-line drop (utilization × 100, a window past
-its reset skipped). At `HARNESS_USAGE_CHECKPOINT_PCT` every live lane on that account (or of unknown
+from the newest reading of this fleet's lanes (`<prefix>-…`) or status-line drops (utilization × 100, a
+window past its reset skipped) — a sibling fleet's account never holds this fleet's claims. At `HARNESS_USAGE_CHECKPOINT_PCT` every live lane on that account (or of unknown
 account) is sent the checkpoint message, which waits behind a running turn, and claims are held, as on
 tmux; once the lane's checkpoint turn has ended with its issue `agent-paused`, the next usage pass ends the
 lane (`usage: lane parked after its checkpoint`) and the resume carries on its claude session. A lane
 frozen at the limit gets the mechanical checkpoint, as a pane does. `session_end` is emitted by the
 usual sweep once the lane's runner has exited; its tokens come from claude's transcript when there is one,
-else from the lane's `events.jsonl` — the sum of each turn's stream-json `result` `modelUsage`, found by
-the session id `state.json` names. `harness status` shows each lane's state beside its session row
+else from the lane's `events.jsonl` — the sum of each turn's stream-json `result` `modelUsage` (a turn
+cut off before its result counts its assistant messages' usage), found by the session id `state.json`
+names. `harness status` shows each lane's state beside its session row
 (`headless: busy`); fleetview and `harness web` list every live lane on the host — tmux sessions and
 headless lanes alike, whichever backend the viewer runs on — with its model (off its runner's flags) and
 state.
