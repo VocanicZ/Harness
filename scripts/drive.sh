@@ -69,6 +69,8 @@ reap_team(){
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     local issue="${wd##*-i}" sess; sess="$(sess_impl "$UNIT" "$issue")"
     session_live "$sess" && continue
+    one_lease_live "$UNIT" "$issue" && continue   # #366: a /harness-one session is working it
+    rm -f "$(one_lease_file "$UNIT" "$issue")"
     log "reaping issue #$issue worktree"
     harness_event reap kind=impl issue="$issue" reason=session_gone
     remove_worktree "$CHECKOUT" "$wd"
@@ -238,8 +240,13 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   launch_claude "$(sess_orch "$UNIT" "$prd")" "$wd"
 }
 
-spawn_impl(){   # <ISSUE> <PROMISE>
-  local issue="$1"; PROMISE="$2"; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$issue"; STAT_PRD=""
+# prepare_impl <ISSUE> <PROMISE> — claim the issue (agent-working), set up its worktree on
+# issue/<n> and render impl.md — resume.md for a force-paused issue or one whose branch is already
+# pushed — into <worktree>/.harness-task.md. Everything spawn_impl does short of the launch, so
+# `harness one start` (#366) sets an issue up exactly the way dispatch does. Sets PROMISE and
+# IMPL_TMPL (the template rendered).
+prepare_impl(){   # <ISSUE> <PROMISE>
+  local issue="$1"; PROMISE="$2"
   local wd="$WORKTREES_DIR/$UNIT-i$issue" branch="issue/$issue" base; base="$(default_branch)"
   ensure_checkout || { log "checkout unavailable for #$issue"; return 1; }
   gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
@@ -256,6 +263,7 @@ spawn_impl(){   # <ISSUE> <PROMISE>
   if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "$branch" 2>/dev/null | grep -q .; then
     tmpl="resume.md"; handoff="$(resume_handoff "$issue")"; log "resuming paused issue #$issue from origin/$branch"
   fi
+  IMPL_TMPL="$tmpl"
   mkdir -p "$STATE_DIR/subagent/$UNIT-i$issue"   # where an impl.md sub-agent's brief goes (cli_subagent)
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
     SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" \
@@ -263,8 +271,14 @@ spawn_impl(){   # <ISSUE> <PROMISE>
     LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" HANDOFF="$handoff" \
     SUBAGENT="$(cli_subagent "$wd" "$wd" "$STATE_DIR/subagent/$UNIT-i$issue/NAME.md")" \
     SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
+  return 0   # as before the split: a failed render write never stopped the launch
+}
+
+spawn_impl(){   # <ISSUE> <PROMISE>
+  local issue="$1"; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$issue"; STAT_PRD=""
+  prepare_impl "$issue" "$2" || return 1
   STAT_PRD="$(issue_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
-  launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"
+  launch_claude "$(sess_impl "$UNIT" "$issue")" "$WORKTREES_DIR/$UNIT-i$issue"
 }
 
 # spawn_bug <issue> <phase> — launch ONE priority-lane session for a bug (#27). The phase

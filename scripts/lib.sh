@@ -65,6 +65,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_ONE_RESERVE_PCT:=2}"        # #365: % of a window held back for the checkpoint (commit, push, handoff) when the budget runs out
 : "${HARNESS_ONE_STALE_MIN:=30}"         # #365: a usage reading older than this many minutes (or of unknown age) is stale…
 : "${HARNESS_ONE_STALE_PAD_PCT:=3}"      # #365: …and the gate pads it by this many points
+: "${HARNESS_ONE_LEASE_MIN:=240}"         # #366: minutes a /harness-one claim holds off the reapers after its last `harness one start|phase`
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
 : "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire each worktree to report its usage windows (cli_usage_setup); 0 = off
 : "${HARNESS_GH_RATE_GUARD:=1}"          # #183: 1 = sleep through a GitHub rate limit + hold claims on a low budget; 0 = off
@@ -502,6 +503,17 @@ recover_orphan_working(){ local u slug n freed=0
 # dispatch skips it. Two repairs, both per poll: a failed unlock is QUEUED and retried until GitHub
 # takes it, and the pool sweeps its unit's repo for any lock no live session owns.
 
+# --- #366: the /harness-one lease ---
+# `harness one start` works an issue in the INVOKING session — there is no tmux session for the
+# reapers to see. Its lease stands in for one: while it is fresh (HARNESS_ONE_LEASE_MIN since the last
+# `harness one start|phase` touched it) reap_team keeps off the issue's worktree and the lock sweeps
+# keep off its agent-working. A lease nothing refreshes is a session that died; the pool then reaps
+# the issue like any dead lane. `harness one release` drops it.
+one_lease_file(){ echo "$RUN_DIR/one/$1-i$2.lease"; }   # <unit> <issue>
+one_lease_live(){ local f m; f="$(one_lease_file "$1" "$2")"
+  m="$(stat -c %Y "$f" 2>/dev/null)" || return 1
+  (( $(date +%s) - m < HARNESS_ONE_LEASE_MIN * 60 )); }
+
 # issue_session_live <slug> <n> — does ANY of this fleet's sessions work issue #n of <slug>: an impl
 # or orch session of a unit on that repo, or either bug-lane phase (`<prefix>-bug-<slug>-<n>-*`)?
 issue_session_live(){ local slug="$1" n="$2" u
@@ -509,6 +521,7 @@ issue_session_live(){ local slug="$1" n="$2" u
   for u in $(all_units); do
     [[ "$(unit_slug "$u")" == "$slug" ]] || continue
     session_live "$(sess_impl "$u" "$n")" && return 0
+    one_lease_live "$u" "$n" && return 0   # #366: worked in a /harness-one session
     session_live "$(sess_orch "$u" "$n")" && return 0
   done
   return 1; }
