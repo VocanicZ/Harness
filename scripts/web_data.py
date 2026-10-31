@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleetview  # noqa: E402
 import issuelib   # noqa: E402
 import stats      # noqa: E402
+import portable   # noqa: E402  #355: pid_alive
 import supervise_rules  # noqa: E402
 import web_dag    # noqa: E402
 
@@ -237,15 +238,7 @@ def claim_alive(path):
     """The claim's recorded pid (its second field) is a live process — lib.sh is_claimed's rule."""
     fields = (_read(path) or "").split()
     pid = fields[1] if len(fields) > 1 else ""
-    if not pid.isdigit():
-        return False
-    try:
-        os.kill(int(pid), 0)
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
+    return pid.isdigit() and portable.pid_alive(pid)
 
 
 def rate_state(now):

@@ -18,6 +18,11 @@ export ENGINE_DIR
 _link="${HARNESS_HOME:-$HOME/.harness}/engine"
 if [[ "$(realpath "$_link" 2>/dev/null)" == "$ENGINE_DIR" ]]; then HARNESS_ENGINE_LINK="$_link"; else HARNESS_ENGINE_LINK="$ENGINE_DIR"; fi
 export HARNESS_ENGINE_LINK
+# #355: on Windows, the path variables native programs read (python.exe for stats/fleetview/forecast,
+# exec'd straight from here) are exported in mixed form (C:/…); a no-op elsewhere.
+# A stripped engine copy (a test fixture) may lack portable.sh: its paths then stay as they are.
+if [[ -f "$ENGINE_DIR/scripts/portable.sh" ]]; then source "$ENGINE_DIR/scripts/portable.sh"; else export_native_paths(){ :; }; fi
+export_native_paths
 
 # discover_state_dir — walk UP from cwd for a .harness/config; echo that .harness dir, or fail (1).
 discover_state_dir(){
@@ -73,7 +78,10 @@ EOF
 }
 # try_state_dir — best-effort STATE_DIR for engine-level commands (e.g. update) that work anywhere
 # but use project state when present. Never errors.
-try_state_dir(){ [[ -n "${STATE_DIR:-}" ]] || STATE_DIR="$(discover_state_dir 2>/dev/null)" || true; export STATE_DIR; }
+# Its callers exec python3 (forecast) or update.sh straight from here, so the STATE_DIR it exports is
+# put in native form on Windows (#355; lib.sh does that for the project commands).
+try_state_dir(){ [[ -n "${STATE_DIR:-}" ]] || STATE_DIR="$(discover_state_dir 2>/dev/null)" || true; export STATE_DIR
+  export_native_paths STATE_DIR; }
 # print_version — this engine's release (#277). A release archive carries VERSION: line 1 the tag,
 # line 2 the full commit it was built from. A git checkout of the engine has none, so it reports
 # `git describe` marked as a dev build — but only when ENGINE_DIR is that repo's own top level, so an

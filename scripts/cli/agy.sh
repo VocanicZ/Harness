@@ -75,7 +75,7 @@ agy_bg_re(){ echo "$(_cli_default_bg_re)|^[0-9.]+k "; }
 agy_trust(){
   local dir="$1" tf; tf="$(_agy_settings)"
   [[ -d "$(dirname "$tf")" ]] || return 0      # no agy on this host: nothing to pre-accept
-  local lockfd; exec {lockfd}>"$tf.harness-trust.lock"; flock "$lockfd"
+  local lockfd; lock_acquire "$tf.harness-trust.lock" lockfd
   TF="$tf" DIR="$dir" python3 - <<'PY'
 import json, os, tempfile
 tf, d = os.environ["TF"], os.environ["DIR"]
@@ -101,7 +101,7 @@ except BaseException:
     os.path.exists(tmp) and os.unlink(tmp)
     raise
 PY
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 agy_trusted(){ TF="$(_agy_settings)" DIR="$1" python3 -c 'import json,os,sys
 sys.exit(0 if os.environ["DIR"] in (json.load(open(os.environ["TF"])).get("trustedWorkspaces") or []) else 1)' 2>/dev/null; }
 

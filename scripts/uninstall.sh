@@ -16,6 +16,8 @@ PATH_LINK="$HARNESS_BIN_DIR/harness"
 # other_fleets_depend_on_engine function so they never depend on lib at all.
 # shellcheck source=/dev/null
 [[ -f "$ENGINE_DIR/scripts/lib.sh" ]] && source "$ENGINE_DIR/scripts/lib.sh" 2>/dev/null || true
+# #355: proc_find / proc_env even when lib.sh could not be sourced (portable.sh is idempotent).
+[[ -f "$ENGINE_DIR/scripts/portable.sh" ]] && source "$ENGINE_DIR/scripts/portable.sh" 2>/dev/null || true
 
 # other_fleets_depend_on_engine — true (0) when a co-resident fleet/project STILL needs the shared
 # engine, so uninstalling THIS project must NOT remove $SHARED_ENGINE or the `harness` PATH link out
@@ -27,10 +29,12 @@ PATH_LINK="$HARNESS_BIN_DIR/harness"
 # before calling main, so the test never touches real /proc or the real registry.
 # _worker_pids — pids of live pool/priority workers, one per line. Factored out + overridable so a
 # CLI-level test (which can't source+stub the guard) can insulate signal (a) from real host /proc:
-# if HARNESS_UNINSTALL_WORKER_PIDS is SET (even to ""), it is used verbatim instead of scanning /proc.
+# if HARNESS_UNINSTALL_WORKER_PIDS is SET (even to ""), it is used verbatim instead of scanning /proc
+# (portable.sh proc_find: pgrep is missing from Git Bash).
 _worker_pids(){
   if [[ -n "${HARNESS_UNINSTALL_WORKER_PIDS+x}" ]]; then printf '%s\n' ${HARNESS_UNINSTALL_WORKER_PIDS}; return 0; fi
-  pgrep -f 'pool-worker\.sh|priority-worker\.sh' 2>/dev/null
+  declare -F proc_find >/dev/null || return 0
+  proc_find 'pool-worker\.sh|priority-worker\.sh'
 }
 other_fleets_depend_on_engine(){
   local pid sd
@@ -47,7 +51,7 @@ other_fleets_depend_on_engine(){
 # ENGINE_DIR, realpath'd, is <dir> or under it. Workers only — this uninstall's own process carries
 # the ENGINE_DIR of the release it runs from, and must not count as a user of it.
 declare -F proc_engine_dir >/dev/null || \
-  proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
+  proc_engine_dir(){ declare -F proc_env >/dev/null && proc_env "$1" ENGINE_DIR; }
 release_in_use(){
   local want pid e
   want="$(realpath -m "$1" 2>/dev/null)" || want="$1"

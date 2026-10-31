@@ -87,7 +87,7 @@ codex_bg_re(){ echo "$(_cli_default_bg_re)|\\([0-9]+s • esc"; }
 codex_trust(){
   local dir="$1" cfg lockfd; cfg="$(_codex_home)/config.toml"
   mkdir -p "$(dirname "$cfg")"
-  exec {lockfd}>"$cfg.harness-trust.lock"; flock "$lockfd"
+  lock_acquire "$cfg.harness-trust.lock" lockfd
   CFG="$cfg" DIR="$dir" python3 - <<'PY'
 import json, os, re, tempfile, tomllib
 cfg, d = os.environ["CFG"], os.environ["DIR"]
@@ -121,7 +121,7 @@ except BaseException:
     os.path.exists(tmp) and os.unlink(tmp)
     raise
 PY
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 codex_trusted(){ CFG="$(_codex_home)/config.toml" DIR="$1" python3 -c 'import os, sys, tomllib
 d = tomllib.load(open(os.environ["CFG"], "rb"))
 sys.exit(0 if ((d.get("projects") or {}).get(os.environ["DIR"]) or {}).get("trust_level") == "trusted" else 1)' 2>/dev/null; }

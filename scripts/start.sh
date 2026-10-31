@@ -48,11 +48,9 @@ recover(){
   # Acquire pool lock around clear_stale_claims to avoid racing a live claim_next.
   # --recover is normally run before workers start, but the lock is cheap insurance.
   local lockfd
-  exec {lockfd}>"$POOL_LOCK"
-  flock "$lockfd"
+  lock_acquire "$POOL_LOCK" lockfd
   clear_stale_claims
-  flock -u "$lockfd"
-  exec {lockfd}>&-
+  lock_release "$lockfd"
 
   # The priority lane reaps its fix worktrees in drive_bug, but an unclean host exit kills the lane
   # mid-fix and orphans a bug-<slug>-i<n> worktree on disk. Left in place it makes the next
@@ -105,11 +103,10 @@ set -- ${args[@]+"${args[@]}"}
 # near-simultaneous `start --recover` (e.g. resume.sh→start --recover overlapping a
 # manual one, or a double-invoke on a flaky reboot) would otherwise both run the
 # worktree + label sweeps unprotected and race a double rm -rf / double label write. (#88)
+# On Linux the lock is held on fd 9 (lock_try's fixed fd); on Windows it is portable.sh's mkdir lock.
 START_LOCK="$RUN_DIR/start.lock"
-exec 9>"$START_LOCK"
-if ! flock -n 9; then
+if ! lock_try "$START_LOCK" START_LH 9; then
   echo "  (another start is in progress — skipping)"
-  exec 9>&-
   exit 0
 fi
 
@@ -148,7 +145,7 @@ echo "Starting Harness delivery fleet — pool of $POOL workers (cap=$CAP) + 1 p
 # the children scopes the lock to start.sh's own critical section (this spawn), as intended.
 bash "$ENGINE_DIR/scripts/pool.sh"     9>&-
 bash "$ENGINE_DIR/scripts/priority.sh" 9>&-
-exec 9>&-
+lock_release "$START_LH"
 
 echo
 echo "Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]"

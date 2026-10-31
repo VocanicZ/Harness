@@ -34,20 +34,20 @@ release_on_prd_close(){ local prd="$1" d lockfd; release_repo_is_engine "${SLUG:
   d="$(release_dir)"; mkdir -p "$d"
   ( set -o noclobber; : > "$d/prd-$prd" ) 2>/dev/null || return 0
   log "auto-release: PRD #$prd closed in $SLUG — releasing"
-  exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
+  lock_acquire "$d/pending.lock" lockfd
   printf '%s\tprd:%s\n' "$(release_now)" "$prd" >> "$d/pending"
-  flock -u "$lockfd"; exec {lockfd}>&-
+  lock_release "$lockfd"
   release_tick; }
 
 # release_on_bug_merge <n> — queue merged fix #n for the next throttled patch release (once per issue).
 release_on_bug_merge(){ local n="$1" d lockfd; release_repo_is_engine "${SLUG:-}" || return 0
   d="$(release_dir)"; mkdir -p "$d"
-  exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
+  lock_acquire "$d/pending.lock" lockfd
   if ! cut -f2 "$d/pending" 2>/dev/null | grep -qx -- "$n"; then
     printf '%s\t%s\n' "$(release_now)" "$n" >> "$d/pending"
     log "auto-release: bug #$n merged — queued for the next patch release"
   fi
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 
 # release_bootstrap — queue one `bootstrap` release while the Harness repo has no vX.Y.Z tag (#331):
 # a PRD close or fix merged under an engine without these hooks was never queued, so nothing else
@@ -60,9 +60,9 @@ release_bootstrap(){ local d tags lockfd; d="$(release_dir)"; [[ -e "$d/bootstra
   mkdir -p "$d"; ( set -o noclobber; : > "$d/bootstrap" ) 2>/dev/null || return 0
   [[ -z "$tags" ]] || return 0
   log "auto-release: $SLUG has no release yet — queuing the bootstrap release"
-  exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
+  lock_acquire "$d/pending.lock" lockfd
   printf '%s\tbootstrap\n' "$(release_now)" >> "$d/pending"
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 
 # release_tick — once per poll: a release when a PRD close or the bootstrap is queued (no throttle),
 # or a patch release when the oldest queued fix has waited the throttle; never before `retry-after`.
@@ -109,18 +109,17 @@ release_head(){ local base; base="$(default_branch)"
 # postdate the commit it releases, so it stays queued for the next tick.
 release_run(){ local reason="$1" d lockfd plock start covered sha rc
   d="$(release_dir)"; mkdir -p "$d"
-  exec {lockfd}>"$d/lock"
-  flock -n "$lockfd" || { exec {lockfd}>&-; log "auto-release: a release is already running — $reason stays queued for the next tick"; return 0; }
+  lock_try "$d/lock" lockfd || { log "auto-release: a release is already running — $reason stays queued for the next tick"; return 0; }
   start="$(release_now)"
-  exec {plock}>"$d/pending.lock"; flock "$plock"; covered="$(cat "$d/pending" 2>/dev/null)"; flock -u "$plock"; exec {plock}>&-
+  lock_acquire "$d/pending.lock" plock; covered="$(cat "$d/pending" 2>/dev/null)"; lock_release "$plock"
   sha="$(release_head)"
   if [[ -z "$sha" ]]; then
     log "auto-release: cannot resolve the default branch of $CHECKOUT — $reason not released"
-    flock -u "$lockfd"; exec {lockfd}>&-; return 0; fi
+    lock_release "$lockfd"; return 0; fi
   # A red gate is never re-run on the same commit; only its bug filing is retried until it lands.
   if [[ -f "$d/gate-failed-$sha" ]]; then
     release_gate_bug "$sha" "$reason"
-    flock -u "$lockfd"; exec {lockfd}>&-; return 0; fi
+    lock_release "$lockfd"; return 0; fi
   harness_event release_triggered reason="$reason" sha="$sha"
   ( cd "$CHECKOUT" && HARNESS_RELEASE_REASON="$reason" HARNESS_RELEASE_REPO="$(release_repo)" \
       HARNESS_AUTORELEASE_DIR="$d" bash "${HARNESS_RELEASE_CMD:-$ENGINE_DIR/scripts/release.sh}" --ref "$sha" ); rc=$?
@@ -135,14 +134,14 @@ release_run(){ local reason="$1" d lockfd plock start covered sha rc
     *) echo $(( start + ${HARNESS_RELEASE_THROTTLE:-3600} )) > "$d/retry-after"
        log "auto-release: harness release exited $rc at ${sha:0:7} ($reason) — retrying after the throttle";;
   esac
-  flock -u "$lockfd"; exec {lockfd}>&-; return 0; }
+  lock_release "$lockfd"; return 0; }
 
 # release_clear_pending <entries> — drop the queued entries (lines of `pending`) a release covered.
 release_clear_pending(){ local d tmp lockfd; d="$(release_dir)"; [[ -f "$d/pending" && -n "$1" ]] || return 0
-  exec {lockfd}>"$d/pending.lock"; flock "$lockfd"
+  lock_acquire "$d/pending.lock" lockfd
   tmp="$(mktemp "$d/pending.XXXXXX")" \
     && awk 'NR==FNR{c[$0]=1; next} !($0 in c)' <(printf '%s\n' "$1") "$d/pending" > "$tmp" && mv -f "$tmp" "$d/pending"
-  flock -u "$lockfd"; exec {lockfd}>&-; }
+  lock_release "$lockfd"; }
 
 # release_gate_bug <sha> <reason> — file one bug issue for a red gate at <sha>, idempotently: the
 # marker records the issue once filed, and an open bug with the same title is never duplicated.
