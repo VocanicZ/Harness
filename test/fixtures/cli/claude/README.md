@@ -7,6 +7,7 @@ and Harness's own status line (`usage-statusline.sh`) in `.claude/settings.local
 
 | file | how |
 |---|---|
+| `stream-json/` | What a headless lane reads instead of a pane: `claude -p --output-format stream-json` captures (normal turn, tool use, usage limit, transient API error) and the fake claude that replays them for `claude_headless.py` (#347). Its own README says how they were captured. |
 | `trust.txt` | `claude --model haiku` in the repo before it was trusted: the workspace-trust dialog. |
 | `busy.txt` | Mid-turn while a foreground `python3 -c 'import time; time.sleep(45)'` ran: the spinner plus `(ctrl+b ctrl+b (twice) to run in background)`. |
 | `busy-spinner.txt` | Mid-turn while the model was writing (no tool running): the spinner line `✻ Puttering… (1s · ↓ 38 tokens · thinking)` only. No `esc to interrupt` anywhere: Harness's status line hides it (docs/cli-capabilities.md Findings 5, confirmed). |

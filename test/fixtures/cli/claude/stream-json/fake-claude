@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""fake-claude — stands in for `claude -p --output-format stream-json` (README.md): each run replays one
+captured turn from this directory, in the order $FAKE_CLAUDE_DIR/plan names them (one fixture name per
+line: normal, tool-use, limit, transient — or `hang`, a turn that never ends).
+
+Per run it appends {argv, prompt (its stdin), pid} to $FAKE_CLAUDE_DIR/calls.jsonl, then prints the
+fixture's events with every session_id set to the one the argv names (--session-id / --resume) or, when
+none, the fixture's own. While $FAKE_CLAUDE_DIR/hold exists it waits after the first event, so a test can
+act mid-turn. `hang` prints the init event, starts a grandchild (`sleep`), writes `<own pid> <grandchild
+pid>` to $FAKE_CLAUDE_DIR/pids and waits forever. It exits 1 after an error result, as claude does."""
+import json, os, subprocess, sys, time
+
+here = os.path.dirname(os.path.abspath(__file__))
+d = os.environ["FAKE_CLAUDE_DIR"]
+argv = sys.argv[1:]
+sid = None
+for i, a in enumerate(argv[:-1]):
+    if a in ("--session-id", "--resume"):
+        sid = argv[i + 1]
+prompt = sys.stdin.read()
+with open(os.path.join(d, "calls.jsonl"), "a") as f:
+    f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
+n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
+plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
+name = plan[n - 1] if n <= len(plan) else "normal"
+
+src = "normal" if name == "hang" else name
+events = [json.loads(l) for l in open(os.path.join(here, f"{src}.jsonl")) if l.strip()]
+for e in events:
+    if sid and "session_id" in e:
+        e["session_id"] = sid
+if name == "hang":
+    events = events[:1]
+
+err = False
+for i, e in enumerate(events):
+    print(json.dumps(e, separators=(",", ":")), flush=True)
+    err = err or (e.get("type") == "result" and e.get("is_error"))
+    if i == 0:
+        while os.path.exists(os.path.join(d, "hold")):
+            time.sleep(0.05)
+if name == "hang":
+    child = subprocess.Popen(["sleep", "600"])
+    with open(os.path.join(d, "pids"), "w") as f:
+        f.write(f"{os.getpid()} {child.pid}\n")
+    while True:
+        time.sleep(1)
+sys.exit(1 if err else 0)
