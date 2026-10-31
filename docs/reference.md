@@ -126,7 +126,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
-| `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = plain background processes, no multiplexer — accepted, but it starts no lane until the headless backend lands. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
+| `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = each lane a detached headless runner process, no multiplexer — `claude` only ([Headless lanes](#headless-lanes)); any other CLI is refused as tmux-only. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
 | `HARNESS_CLI` | `claude` | Agent CLI to drive: any CLI in [Supported agent CLIs](#supported-agent-clis), one adapter per CLI under `scripts/cli/` |
 | `HARNESS_CLAUDE_BIN` | `claude` | Command line that runs `claude` when `HARNESS_CLI=claude`: an executable name or path, or a command line such as `env CLAUDE_CONFIG_DIR=~/.claude-switch/accounts/main claude` (pins the account even when tmux drops `CLAUDE_CONFIG_DIR`). The launch runs it whole; only its executable (the first word that is not `env`, an `env` option or a `NAME=value`) is checked for on PATH. Words split on whitespace, so a value containing a space is not supported |
 | `HARNESS_AGY_BIN` | `agy` | Executable path for `agy` when `HARNESS_CLI=agy`; a command line like `HARNESS_CLAUDE_BIN`'s |
@@ -194,6 +194,48 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 | `HARNESS_LABEL_PAUSED` | `agent-paused` | Label on an issue checkpointed by `pause --force` or a usage-limit checkpoint |
 | `HARNESS_PAUSE_GRACE` | `300` | Seconds `pause --force` waits for agents to checkpoint |
+
+### Headless lanes
+
+With `HARNESS_SESSION_BACKEND=headless` a lane is not a tmux session but a detached background process: the
+CLI's headless lane runner. Only `claude` has one (`scripts/cli/claude_headless.py`); with any other CLI
+`harness init`, `harness doctor` and `harness start` refuse the pair, naming the CLI as tmux-only.
+
+**How a lane runs.** `launch_agent` prepares the worktree as it does for a pane (trust, bypass, the goal
+loop's state file), then starts the runner in the worktree (under `setsid`, so the worker that started it
+can exit). The runner runs one `claude -p --output-format stream-json --verbose` per message, the
+bootstrap first; every later turn passes `--resume <session id>`, so the lane is one claude session. There
+is no launch line typed into a shell and no terminal: `cli_send` (a watchdog nudge, a supervisor's, the
+goal loop's next prompt) appends a message to the lane's inbox, and a message that arrives mid-turn waits
+for the next turn. The goal loop is the driven one (`goal_loop_tick`): a turn that ends without the
+promise is re-prompted from the lane's last reply; where ralph-loop's Stop hook runs inside `claude -p`
+too, it holds the turn open until the promise and the driven loop finds the loop already over.
+
+**Where a lane lives.** `$HARNESS_HOME/lanes/<session name>/` (`HARNESS_HEADLESS_DIR` overrides the root),
+host-wide like the tmux server:
+
+| file | what |
+|---|---|
+| `inbox.jsonl` | messages for the lane, one JSON object per line, delivered in order as turns |
+| `events.jsonl` | every stream-json event claude printed, plus the runner's `turn_start` / `turn_end` markers |
+| `state.json` | `idle` / `busy` / `limit` / `transient` / `ended`, read from stream-json events (never screen text), plus the session id, turn count, the running turn's start, the last reply, the limit's reset |
+| `stderr.log`, `runner.log` | claude's stderr per turn; the runner's own output |
+| `pid`, `dir`, `created` | the runner's process id, start directory and start time |
+| `stop`, `interrupt` | requests: end the lane (the runner ends its turn's whole process tree and exits) / end only the running turn |
+
+A lane is live while its runner's pid is alive and its state is not `ended`. The engine reads it the way
+it reads a pane: `sess_capture` draws `state.json` and the undelivered inbox in the claude TUI's shapes
+(the spinner while busy, `You've hit your usage limit · resets …` or `API Error: …` above the prompt
+after such a turn, queued messages in the input box), so the usage-limit watchdog parks a `limit` lane and
+nudges it on reset, the #115 watchdog nudges then kills a `transient` one, and a turn stuck with nudges
+queued behind it is interrupted (`interrupt`), exactly as on tmux. `harness stop` stops every lane (stop
+request + SIGTERM, then SIGKILL of the runner's and claude's process groups) and `harness status` counts
+them.
+
+**Watching a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
+read-only: each turn, its tool calls and its reply as they land in `events.jsonl` — Ctrl-C stops watching,
+not the lane. `python3 scripts/cli/claude_headless.py state --lane <dir>` prints its `state.json`;
+`tail -F <dir>/events.jsonl` is the raw stream.
 
 ### Autonomy
 

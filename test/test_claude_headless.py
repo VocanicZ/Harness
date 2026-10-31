@@ -308,6 +308,114 @@ def test_missing_claude_fails_the_turn_not_the_runner():
         subprocess.run([sys.executable, RUNNER, "stop", "--lane", lane]); p.wait(timeout=15)
 
 
+# --- #349: what the headless session backend reads and asks of a lane ----------------------------
+def test_interrupt_ends_the_turn_not_the_runner():
+    lane = Lane(["hang", "normal"])
+    claude = grandchild = None
+    try:
+        lane.send("long turn")
+        pids = wait_for(lambda: open(os.path.join(lane.fake, "pids")).read().split()
+                        if os.path.exists(os.path.join(lane.fake, "pids")) else None, "the hung turn's pids")
+        claude, grandchild = map(int, pids)
+        lane.hold(); lane.send("next")
+        assert subprocess.run([sys.executable, RUNNER, "interrupt", "--lane", lane.lane]).returncode == 0
+        wait_for(lambda: gone(claude) and gone(grandchild), "the interrupted turn's tree to end", timeout=10)
+        st = wait_for(lambda: (lambda s: s if s.get("turn") == 2 else None)(lane.state()), "the queued turn")
+        assert lane.proc.poll() is None, "the runner must stay up"
+        assert st["interrupted"] == 1, st
+        assert ch.pane(lane.lane).count("Interrupted") == 1, "the next turn's screen still shows the interrupt"
+        ends = [e for e in lane.events() if e.get("subtype") == "turn_end"]
+        assert ends[0].get("interrupted") is True and ends[0]["state"] == "idle", ends
+        lane.release()
+        st = lane.wait_turn(2, "idle")
+        assert st["interrupted"] == 0 and st["last_reply"] == "PONG", st
+        assert "Interrupted" not in ch.pane(lane.lane), "a turn that ends on its own clears it"
+    finally:
+        lane.stop()
+        for p in (claude, grandchild):
+            if p and not gone(p):
+                os.kill(p, signal.SIGKILL)
+
+
+def test_stale_interrupt_does_not_end_the_next_turn():
+    lane = Lane(["normal"])
+    try:
+        open(os.path.join(lane.lane, "interrupt"), "w").close()   # aimed at a turn that is over
+        time.sleep(0.5)
+        lane.send("hello")
+        st = lane.wait_turn(1, "idle")
+        assert not st["interrupted"] and st["last_reply"] == "PONG", st
+    finally:
+        lane.stop()
+
+
+def test_interrupt_aimed_at_an_ended_turn_spares_the_next():
+    lane = Lane(["normal", "normal"], hold=True)
+    try:
+        lane.send("one"); wait_for(lambda: lane.state().get("state") == "busy", "busy")
+        with open(os.path.join(lane.lane, "interrupt"), "w") as f:
+            f.write("7")   # written for a turn that ended before the request landed
+        time.sleep(0.5)
+        lane.release()
+        st = lane.wait_turn(1, "idle")
+        assert not st["interrupted"] and st["last_reply"] == "PONG", st
+        assert not os.path.exists(os.path.join(lane.lane, "interrupt")), "the stray request is consumed"
+        # the CLI aims at the running turn, and writes nothing while none runs
+        assert subprocess.run([sys.executable, RUNNER, "interrupt", "--lane", lane.lane]).returncode == 0
+        assert not os.path.exists(os.path.join(lane.lane, "interrupt"))
+    finally:
+        lane.stop()
+
+
+def test_pane_draws_state_in_claude_shapes():
+    lane = tempfile.mkdtemp()
+    assert ch.pane(lane) is None
+    base = {"turn": 1, "inbox_offset": 0}
+    ch.write_json_atomic(ch.paths(lane)["state"], dict(base, state="busy", turn_started=1000))
+    p = ch.pane(lane, now=1075)
+    assert "✻ Working… (1m 15s · esc to interrupt)" in p and "\n❯ \n" in p, p
+    ch.send(lane, "Please continue — queued\nsecond line")
+    p = ch.pane(lane, now=1075)
+    assert "❯ Please continue — queued\nsecond line\n" in p, p
+    ch.write_json_atomic(ch.paths(lane)["state"], dict(base, state="limit", inbox_offset=10**6,
+                         last_reply="You've hit your 5-hour limit · resets 12:11pm (UTC)"))
+    p = ch.pane(lane)
+    assert "You've hit your usage limit · resets 12:11pm (UTC)" in p and "esc to interrupt" not in p, p
+    ch.write_json_atomic(ch.paths(lane)["state"], dict(base, state="limit", inbox_offset=10**6, limit_resets_at=0))
+    assert "You've hit your usage limit\n" in ch.pane(lane)
+    ch.write_json_atomic(ch.paths(lane)["state"], dict(base, state="transient", inbox_offset=10**6,
+                         error="API Error: 529 Overloaded.", last_reply="API Error: 529 Overloaded."))
+    assert "  ⎿  API Error: 529 Overloaded." in ch.pane(lane)
+    ch.write_json_atomic(ch.paths(lane)["state"], dict(base, state="idle", inbox_offset=10**6,
+                         last_reply="the words API Error and 429 in a reply"))
+    p = ch.pane(lane)
+    assert "API Error" not in p and "429" not in p, "the reply text is never drawn"
+
+
+def test_watch_prints_turns_tools_and_replies():
+    lane = Lane(["normal", "tool-use"])
+    try:
+        lane.send("one"); lane.wait_turn(1, "idle"); lane.send("two"); lane.wait_turn(2, "idle")
+        r = subprocess.run([sys.executable, RUNNER, "watch", "--lane", lane.lane, "--no-follow"],
+                           capture_output=True, text=True)
+        out = r.stdout
+        assert r.returncode == 0 and "── turn 1 (message) ── one" in out and "← PONG" in out, out
+        assert "· Bash echo hi > proof.txt" in out and "← DONE" in out and "── turn 2 ended: idle" in out, out
+        r = subprocess.run([sys.executable, RUNNER, "watch", "--lane", lane.lane, "--no-follow", "--lines", "1"],
+                           capture_output=True, text=True)
+        assert r.stdout.strip() == "── turn 2 ended: idle", r.stdout
+    finally:
+        lane.stop()
+
+
+def test_lane_dir_from_environment():
+    lane = tempfile.mkdtemp()
+    r = subprocess.run([sys.executable, RUNNER, "send", "from-env"], env=dict(os.environ, HARNESS_LANE_DIR=lane))
+    assert r.returncode == 0 and ch.read_inbox(lane, 0)[0][0]["text"] == "from-env"
+    env = {k: v for k, v in os.environ.items() if k != "HARNESS_LANE_DIR"}
+    assert subprocess.run([sys.executable, RUNNER, "send", "x"], env=env, capture_output=True).returncode != 0
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
