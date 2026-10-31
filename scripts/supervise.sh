@@ -50,6 +50,7 @@ SUP_CONF="${HARNESS_SUPERVISE_CONF:-$HARNESS_HOME/supervise.conf}"
 SUP_STATE="${HARNESS_SUPERVISE_STATE:-$HARNESS_HOME/supervise}"
 SUP_LOG="${HARNESS_SUPERVISE_LOG:-$HARNESS_HOME/supervise.log}"
 source "$SUP_ENGINE_DIR/scripts/turn.sh"   # #207: stuck-turn detection + interrupt (after supervise.conf, which may set HARNESS_TURN_MAX)
+source "$SUP_ENGINE_DIR/scripts/session/dispatch.sh"   # #346: every pane it reads, types into or kills (sess_*)
 source "$SUP_ENGINE_DIR/scripts/cli/dispatch.sh"   # #188: each CLI's pane regexes (cli_with <cli> …)
 # The unit and every restart go through the STABLE engine path bin/harness exported (#281), so a
 # release flip takes effect on restart without rewriting the unit. Taken only when it resolves to
@@ -74,7 +75,8 @@ SUP_EXTRA_MSG="harness supervise: no activity for a while. If an API/network err
 SUP_DRY=0 SUP_ONCE=0
 
 sup_log(){ mkdir -p "$(dirname "$SUP_LOG")"; echo "$(date '+%F %T') $*" >>"$SUP_LOG"; (( SUP_ONCE )) && echo "$*"; return 0; }
-sup_act(){ if (( SUP_DRY )); then sup_log "DRY $*"; else sup_log "ACT $*"; "$@" >>"$SUP_LOG" 2>&1; fi; }
+# A session action logs as the backend's own command line (sess_describe: `tmux send-keys -t … Enter`).
+sup_act(){ if (( SUP_DRY )); then sup_log "DRY $(sess_describe "$@")"; else sup_log "ACT $(sess_describe "$@")"; "$@" >>"$SUP_LOG" 2>&1; fi; }
 sup_alive(){ [[ -f $1 ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
 # --- how each agent CLI's pane reads: the CLI adapters (scripts/cli/, #188) ----------------------
@@ -120,7 +122,7 @@ sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
 sup_watch_pane(){
   local t=$1 f=$2 nudge_min=$3 kill_min=$4 msg=$5 cli=$6 killfn=${7:-}
   local pane n bgre body bg cpu now old= oldbg= oldcpu=0 t0 nudged=0 lastn=0 idle
-  pane=$(tmux capture-pane -p -t "$t" 2>/dev/null) || return 0
+  pane=$(sess_capture "$t") || return 0
   cli=$(sup_cli "$cli")
   # #207: one endless turn with input queued behind it. The spinner's timer changes every second, so
   # the activity test below would call it busy forever — it is checked first, through the pane's CLI.
@@ -131,7 +133,7 @@ sup_watch_pane(){
   (( n > 0 )) || n=$(( $(wc -l <<<"$pane") + 1 ))                  # no prompt: it is all screen
   body=$(awk -v n="$n" 'NR < n' <<<"$pane" | md5sum | cut -c1-12)
   bg=$(awk -v n="$n" 'NR >= n' <<<"$pane" | { [[ -n $bgre ]] && grep -oE -- "$bgre"; } | md5sum | cut -c1-12)
-  cpu=$(sup_tree_cpu "$(tmux display -p -t "$t" '#{pane_pid}' 2>/dev/null)")
+  cpu=$(sup_tree_cpu "$(sess_pane_pid "$t")")
   mkdir -p "$(dirname "$f")"
   [[ -f $f ]] && read -r old oldbg oldcpu t0 nudged lastn <"$f"
   if [[ $body != "$old" || $bg != "$oldbg" ]] || (( cpu - oldcpu > CPU_ACTIVE_S )); then
@@ -145,10 +147,10 @@ sup_watch_pane(){
   if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
     "$killfn" "${t%%:*}" "$idle" "$pane" && rm -f "$f"
   elif (( idle >= nudge_min && nudged == 0 && now - lastn >= RENUDGE_S )); then
-    sup_act tmux send-keys -t "$t" C-u
-    sup_act tmux send-keys -t "$t" -l "$msg"
+    sup_act sess_clear_line "$t"
+    sup_act sess_type "$t" "$msg"
     (( SUP_DRY )) || sleep 0.5   # an Enter in the same burst as the text is a newline to hermes (cli_send)
-    sup_act tmux send-keys -t "$t" Enter
+    sup_act sess_enter "$t"
     echo "$body $bg $cpu $t0 1 $now" >"$f"
   fi
   return 0
@@ -160,7 +162,7 @@ sup_watch_pane(){
 sup_turn_interrupt(){ local t=$1 pane=$2 tf=$3 secs
   secs=$(turn_secs "$pane")
   sup_log "turn: $t has run one turn for ${secs}s with input queued behind it — Escape, then Enter"
-  if (( SUP_DRY )); then sup_act tmux send-keys -t "$t" Escape; sup_act tmux send-keys -t "$t" Enter; return 0; fi
+  if (( SUP_DRY )); then sup_act sess_interrupt "$t"; sup_act sess_enter "$t"; return 0; fi
   turn_interrupt "$t" sup_act || { sup_log "turn: $t did not report Interrupted after Escape — retrying next pass"; return 0; }
   rm -f "$tf"
   declare -F stats_sess_event >/dev/null &&
@@ -213,7 +215,7 @@ Last screen:
 $(tail -30 <<<"$pane" | cut -c1-200)
 \`\`\`"
   [[ -n $slug && -n $num ]] && sup_act gh issue comment "$num" -R "$slug" --body "$body"
-  sup_act tmux kill-session -t "=$s"
+  sup_act sess_kill "=$s"
   (( SUP_DRY )) || stats_sess_event "$s" watchdog_kill reason="$reason" >/dev/null 2>&1
   return 0
 }
@@ -225,11 +227,11 @@ sup_kill_zombie(){ local s=$1 wd
   wd=$(cat "$RUN_DIR/$s.wd" 2>/dev/null)
   if [[ -n $wd && -d $wd ]] && [[ -n $(git -C "$wd" status --porcelain -- . ':!.claude' ':!.harness-task.md' 2>/dev/null) \
        || -n $(git -C "$wd" rev-list -n1 HEAD --not --remotes 2>/dev/null) ]]; then
-    sup_checkpoint_and_kill "$s" 0 "$(tmux capture-pane -p -t "$s" 2>/dev/null)" \
+    sup_checkpoint_and_kill "$s" 0 "$(sess_capture "$s")" \
       "Session \`$s\` was still alive after its issue closed, holding a worktree that could still push, so it was stopped." zombie
     return
   fi
-  sup_act tmux kill-session -t "=$s"
+  sup_act sess_kill "=$s"
   (( SUP_DRY )) || stats_sess_event "$s" watchdog_kill reason=zombie >/dev/null 2>&1
   return 0
 }
@@ -267,7 +269,7 @@ sup_arc_rules(){ local sessions=$1 slugs sl line s slug num counters fresh=1
   while read -r line; do
     case $line in
       "FIX wedged "*) s=${line#FIX wedged }
-        sup_checkpoint_and_kill "$s" 0 "$(tmux capture-pane -p -t "$s" 2>/dev/null)" \
+        sup_checkpoint_and_kill "$s" 0 "$(sess_capture "$s")" \
           "Session \`$s\` hit the stop-hook block cap (\`STOP_HOOK_BLOCK_CAP\`): its loop will not resume and it held its issue lock, so it was restarted." wedged ;;
       "FIX zombie "*) sup_kill_zombie "${line#FIX zombie }" ;;
       "FIX unlocked "*) read -r _ _ slug num <<<"$line"
@@ -309,7 +311,7 @@ sup_check_fleet(){ local sd=$1
 
     # 2. orphan agent-working locks
     local sessions repo nums num since age
-    sessions=$(tmux ls -F '#S' 2>/dev/null | grep "^$prefix-")
+    sessions=$(sess_list | grep "^$prefix-")
     for repo in $(snapshot_slugs); do
       if ! nums=$(gh issue list -R "$repo" --label "$lw" --state open --json number --jq '.[].number' 2>&1); then
         sup_log "WARN $repo: gh unreachable (${nums:0:120})"; continue
@@ -332,11 +334,11 @@ sup_check_fleet(){ local sd=$1
       sup_watch_pane "$s" "$SUP_STATE/panes/$s" "$NUDGE_MIN" "$KILL_MIN" "$SUP_NUDGE_MSG" "$(cli_name)" sup_checkpoint_and_kill
     done
     for f in "$SUP_STATE"/{panes,turn}/"$prefix"-*; do               # forget panes of ended sessions
-      [[ -e $f ]] && ! tmux has-session -t "=${f##*/}" 2>/dev/null && rm -f "$f"
+      [[ -e $f ]] && ! sess_live "=${f##*/}" && rm -f "$f"
     done
 
     # 6. arc stall rules (sessions killed by rule 3 above are gone from tmux, so re-list)
-    sup_arc_rules "$(tmux ls -F '#S' 2>/dev/null | grep "^$prefix-")"
+    sup_arc_rules "$(sess_list | grep "^$prefix-")"
     exit 0 )
 }
 
@@ -345,7 +347,7 @@ sup_check_extra(){ local t cmd
   [[ -n $EXTRA_RE ]] || return 0
   while read -r t cmd; do
     sup_watch_pane "$t" "$SUP_STATE/panes/x_$(tr ':.' '__' <<<"$t")" "$EXTRA_MIN" 0 "$SUP_EXTRA_MSG" "$(sup_cmd_cli "$cmd")"
-  done < <(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}' 2>/dev/null \
+  done < <(sess_panes \
            | awk -v re="$EXTRA_RE" -v cmds="^($(sup_agent_cmds))\$" '$2 ~ cmds { split($1,a,":"); if (a[1] ~ re) print }')
 }
 
@@ -392,7 +394,7 @@ sup_pass(){ local sd
 # start` it may run) needs. systemd hands a user unit a bare PATH, and a missing `rtdd` there
 # silently downgrades every relaunched lane to the full test suite.
 sup_unit_path(){ local b p out=()
-  for b in $(sup_agent_bins) gh rtdd tmux git python3 curl; do
+  for b in $(sup_agent_bins) gh rtdd $(sess_bins) git python3 curl; do
     p=$(command -v "$b" 2>/dev/null) && [[ $p == /* ]] && out+=("$(dirname "$p")")
   done
   out+=("$HOME/.local/bin" /usr/local/bin /usr/bin /bin)

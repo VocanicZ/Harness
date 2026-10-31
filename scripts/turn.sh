@@ -69,12 +69,12 @@ turn_queued_nudges(){ turn_queued "$1" | grep -cE "$HARNESS_NUDGE_RE"; }
 # poll tries again.
 turn_interrupt(){ local t=$1 re before i; shift
   re=$(cli_interrupted_re)
-  [[ -n $re ]] && before=$(tmux capture-pane -p -t "$t" 2>/dev/null | grep -cE -- "$re")
-  "$@" tmux send-keys -t "$t" Escape
+  [[ -n $re ]] && before=$(sess_capture "$t" | grep -cE -- "$re")
+  "$@" sess_interrupt "$t"
   for (( i = 0; i <= HARNESS_INTERRUPT_WAIT * 2; i++ )); do
-    if _turn_ended "$t" "$re" "${before:-0}"; then "$@" tmux send-keys -t "$t" Enter; return 0; fi
+    if _turn_ended "$t" "$re" "${before:-0}"; then "$@" sess_enter "$t"; return 0; fi
     (( i < HARNESS_INTERRUPT_WAIT * 2 )) && sleep 0.5
   done
   return 1; }
-_turn_ended(){ local pane; pane=$(tmux capture-pane -p -t "$1" 2>/dev/null)
+_turn_ended(){ local pane; pane=$(sess_capture "$1")
   if [[ -n $2 ]]; then (( $(grep -cE -- "$2" <<<"$pane") > $3 )); else ! cli_pane_busy "$pane"; fi; }

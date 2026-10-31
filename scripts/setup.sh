@@ -5,7 +5,7 @@ set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 echo "── Harness setup (mode=$HARNESS_MODE topology=$HARNESS_TOPOLOGY cli=$(cli_name)) ──"
-command -v tmux   >/dev/null || die "tmux not found — install tmux"
+for b in $(sess_bins); do command -v "$b" >/dev/null || die "$b not found — install $b"; done
 # #188/#253: the agent CLI's binary and the plugins its lanes need — checked, and what is missing
 # installed (cli_prereqs --install). Anything still missing after that is fatal: a lane without its
 # goal-loop plugin runs one turn and stops.

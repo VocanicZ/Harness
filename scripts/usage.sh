@@ -35,7 +35,7 @@ ensure_usage_statusline(){ local dir="$1"
 
 # checkpoint_sessions — every live impl + priority-lane session of this fleet: the sessions
 # `pause --force` and the usage checkpoint reach (orch sessions push no branch and own no issue).
-checkpoint_sessions(){ tmux ls -F '#S' 2>/dev/null \
+checkpoint_sessions(){ sess_list \
   | grep -E "^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$" || true; }
 
 # session_account <sess> — the account a session runs on, from the cwd map usage-statusline.sh
@@ -92,7 +92,7 @@ usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg
   while read -r sess; do
     [[ -z "$sess" ]] && continue
     sa="$(session_account "$sess")"; [[ -z "$sa" || "$sa" == "$acct" ]] || continue
-    pane="$(tmux capture-pane -p -t "$sess" 2>/dev/null)"
+    pane="$(sess_capture "$sess")"
     if session_limit_menu "$pane" || session_limit_idle "$pane"; then
       limit_checkpoint_once "$sess" "$pane"; continue
     fi

@@ -11,6 +11,8 @@
 export HARNESS_CLI
 CLI_CONFIG_VAR=HARNESS_CLI    # the config key naming the fleet's CLI (init.sh writes it)
 CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# #346: an adapter types into and kills its sessions through the session-backend seam (sess_*).
+source "$CLI_DIR/../session/dispatch.sh"
 
 # #333: the pane regexes are multibyte (codex's `^[›»]`, hermes's `^─{3,} [^─]`), and under a C
 # locale grep and bash read a bracket expression as single BYTES, so a fleet started from LANG=C
@@ -49,8 +51,8 @@ _cli_default_lane_settings(){ :; }
 # The model and effort the line's --model/--effort name (`--model x` or `--model=x`).
 _cli_default_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--effort[= ]')"; }
 _cli_default_first_input(){ :; }
-_cli_default_send(){ tmux send-keys -t "$1" -l "$3" 2>/dev/null || true; tmux send-keys -t "$1" Enter 2>/dev/null || true; }
-_cli_default_kill(){ tmux kill-session -t "$1" 2>/dev/null; }
+_cli_default_send(){ sess_type "$1" "$3" 2>/dev/null || true; sess_enter "$1" 2>/dev/null || true; }
+_cli_default_kill(){ sess_kill "$1" 2>/dev/null; }
 _cli_default_session_id(){ echo "$2"; }
 _cli_default_limit_menu_re(){ :; }
 _cli_default_dialog_re(){ :; }

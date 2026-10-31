@@ -25,6 +25,7 @@ import argparse, json, os, re, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import issuelib  # noqa: E402
+import session_backend  # noqa: E402  #346: the session backend's screen capture
 
 WEDGE = "STOP_HOOK_BLOCK_CAP"
 CONTEXT_RE = re.compile(r"\((\d{2,4})%\|\d+%\)")
@@ -44,7 +45,8 @@ def sh(argv):
 
 
 def capture(session):
-    return sh(["tmux", "capture-pane", "-p", "-S", "-40", "-t", session])
+    argv = session_backend.capture_argv(session, 40)
+    return sh(argv) if argv else ""
 
 
 def unfiled_plans(repo_dir):
