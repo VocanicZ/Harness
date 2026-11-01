@@ -12,6 +12,60 @@ VOCANICZ_TOOLS_URL="${VOCANICZ_TOOLS_URL:-https://github.com/VocanicZ/vocanicz-a
 RTDD_INSTALL_SPEC="${RTDD_INSTALL_SPEC:-github:VocanicZ/rtdd}"   # upstream's own installer, run via npx
 
 need(){ command -v "$1" >/dev/null 2>&1; }
+# ── native Windows (Git Bash, #356, docs/adr/0001-native-windows-runtime.md) ─────────────────────
+# install.sh runs before any engine exists (`curl | bash`), so it carries its own platform test:
+# portable.sh's is_windows, with the same HARNESS_PLATFORM=windows|posix override the suite forces.
+inst_windows(){ case "${HARNESS_PLATFORM:-$(uname -s 2>/dev/null)}" in windows|MINGW*|MSYS*|CYGWIN*) return 0 ;; esac; return 1; }
+# By default Git Bash's `ln -s` silently makes a COPY; the engine link must be a real symlink, so
+# every link install and update make is native (Developer Mode or an administrator; `harness doctor`
+# checks that one can be made). Exported, and set for update.sh too, which sources this file.
+if inst_windows && [[ " ${MSYS:-} " != *" winsymlinks:nativestrict "* ]]; then export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"; fi
+# py_runs <cmd…> — <cmd…> is a Python 3 that actually runs (the Microsoft Store `python3` stub does not).
+py_runs(){ local o; o="$("$@" -c 'import sys; print(sys.version_info[0])' 2>/dev/null)"; [[ $o == 3* ]]; }
+# python_probe — the interpreter the python3 shim runs: HARNESS_PYTHON, else the first of python3 /
+# python / `py -3` that runs, a single name resolved to its full path (so the shim never finds itself).
+# Looked up with the shim's own directory off PATH.
+python_probe(){ local c w path=":$PATH:" sd="${HARNESS_HOME:-$HOME/.harness}/bin"
+  path="${path//:$sd:/:}"; path="${path#:}"; path="${path%:}"
+  if [[ -n ${HARNESS_PYTHON:-} ]]; then printf '%s\n' "$HARNESS_PYTHON"; return 0; fi
+  for c in python3 python "py -3"; do
+    read -r -a w <<<"$c"
+    w[0]="$(PATH="$path" command -v "${w[0]}" 2>/dev/null)" || continue
+    PATH="$path" py_runs "${w[@]}" || continue
+    if (( ${#w[@]} == 1 )); then printf '%s\n' "${w[0]}"; else printf '%s\n' "$c"; fi
+    return 0
+  done
+  return 1; }
+# install_python_shim — Windows only: $HARNESS_HOME/bin/python3, which bin/harness puts first on PATH,
+# runs HARNESS_PYTHON (default: python_probe's answer, baked in), so the engine's `python3` calls
+# reach a real interpreter. Re-run by `harness update`.
+install_python_shim(){ local d="${HARNESS_HOME:-$HOME/.harness}/bin" py
+  inst_windows || return 0
+  py="$(python_probe)" || { echo "MISSING: a Python 3 that runs (python3/python/py -3; the Microsoft Store stub is not one) — install it, or set HARNESS_PYTHON" >&2; return 1; }
+  mkdir -p "$d" || return 1
+  { cat <<'EOF'
+#!/usr/bin/env bash
+# python3 — Harness's shim (#356): on Windows the `python3` on PATH is the Microsoft Store stub, so
+# this runs HARNESS_PYTHON instead (default: the interpreter install.sh found). Written by install.sh
+# and `harness update`; bin/harness puts this directory first on PATH.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EOF
+    printf 'p="${HARNESS_PYTHON:-%s}"\n' "$(printf '%q' "$py")"
+    cat <<'EOF'
+[[ -f $p ]] && exec "$p" "$@"
+read -r -a argv <<<"$p"
+s=":$PATH:"; s="${s//:$here:/:}"
+x="$(PATH="$s" command -v "${argv[0]}")" || { echo "python3 shim: '$p' not found — set HARNESS_PYTHON" >&2; exit 127; }
+exec "$x" "${argv[@]:1}" "$@"
+EOF
+  } >"$d/python3" || return 1
+  chmod +x "$d/python3"
+  echo "  python3 shim: $d/python3 -> $py"; }
+# inst_bash_exe — Git's bash.exe for the harness.cmd shim (WSL's bash.exe is first on the cmd PATH).
+inst_bash_exe(){ local r
+  [[ -n ${HARNESS_BASH_EXE:-} ]] && { printf '%s\n' "$HARNESS_BASH_EXE"; return 0; }
+  r="$(cygpath -w / 2>/dev/null)" || r='C:\Program Files\Git\'
+  printf '%s\\bin\\bash.exe\n' "${r%\\}"; }
 # _load_cli_seam — source the agent CLI adapters (scripts/cli/dispatch.sh, #188): every CLI fact —
 # binary, plugins, skills dir — is the adapter's, never this file's. This checkout's copy when
 # install.sh runs from one, else the placed engine's (a piped install has no checkout to read).
@@ -33,7 +87,12 @@ _host_clis(){ local c; declare -F cli_list >/dev/null || return 0
 _cli_exe_of(){ if declare -F cli_exe >/dev/null; then cli_with "$1" cli_exe; else cli_with "$1" cli_bin; fi; }
 check_prereqs(){
   local ok=1 c any=
-  for b in git tmux python3 curl sha256sum tar; do need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
+  for b in $PREREQ_TOOLS; do [[ $b == gh ]] || need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
+  # Windows (#356): no tmux (lanes are headless), and `python3` may be the Store stub — a Python 3
+  # that RUNS is the prerequisite; the shim install_python_shim writes makes it `python3`.
+  if inst_windows && ! python_probe >/dev/null; then
+    echo "MISSING: a Python 3 that runs (python3/python/py -3; the Microsoft Store stub is not one)" >&2; ok=0
+  fi
   if ! need gh; then echo "MISSING: gh (install: https://cli.github.com)" >&2; ok=0
   elif ! gh auth status >/dev/null 2>&1; then echo "gh not authenticated — run: gh auth login" >&2; ok=0; fi
   if declare -F cli_list >/dev/null; then       # no adapters yet (a piped install): main re-checks after place_engine
@@ -51,6 +110,8 @@ check_prereqs(){
 # Questions read from $HARNESS_TTY (/dev/tty: works under `curl | bash`, whose stdin is the script).
 # HARNESS_INSTALL_PREREQS=1 answers yes, 0 no; no terminal and no setting prints the command only.
 PREREQ_TOOLS="git tmux python3 curl sha256sum tar gh"
+# Windows (#356): Git for Windows brings git, curl, sha256sum and tar; Python is probed (python_probe).
+inst_windows && PREREQ_TOOLS="git curl sha256sum tar gh"
 # pkg_manager — the host package manager offer_prereqs installs with; nothing when none is known.
 pkg_manager(){ local m
   for m in apt-get dnf pacman zypper apk brew; do need "$m" && { echo "$m"; return 0; }; done; return 1; }
@@ -514,6 +575,12 @@ link_path(){
   mkdir -p "$bindir" 2>/dev/null
   if ln -sfn "$target" "$link" 2>/dev/null; then
     echo "  linked $link -> $target"
+    # Windows: cmd/PowerShell cannot run a bash script, and their `bash` is WSL's — harness.cmd runs
+    # the link through Git's bash.exe by path.
+    if inst_windows; then
+      printf '@echo off\r\n"%s" "%%~dp0harness" %%*\r\n' "$(inst_bash_exe)" >"$bindir/harness.cmd" \
+        && echo "  wrote $bindir/harness.cmd (runs harness through Git's bash)"
+    fi
     case ":$PATH:" in
       *":$bindir:"*) ;;
       *) echo "  NOTE: $bindir is not on your PATH yet. Add it:"
@@ -534,6 +601,7 @@ main(){
   ensure_skills
   ensure_rtdd
   create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
+  install_python_shim || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }   # Windows only (#356)
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path
   cat <<EOF

@@ -27,6 +27,13 @@ sess_backend(){ echo "${HARNESS_SESSION_BACKEND:-tmux}"; }
 sess_backend_check(){ local b="${1-$(sess_backend)}"
   [[ -n "$b" && $b != */* && -f "$SESS_DIR/$b.sh" && $b != dispatch ]] && return 0
   echo "unknown $SESS_CONFIG_VAR: ${b:-<empty>} (valid: $(sess_backend_list | xargs))" >&2; return 1; }
+# sess_platform_check [backend] — true when <backend> (default: the configured one) runs on this host.
+# Native Windows has no tmux, so only `headless` does there (#356, ADR 0001 §1); every backend does
+# elsewhere. Otherwise says why, naming the fix, and is false.
+sess_platform_check(){ local b="${1-$(sess_backend)}"
+  is_windows || return 0
+  [[ $b == headless ]] && return 0
+  echo "session backend '$b' cannot run on native Windows (no tmux) — set $SESS_CONFIG_VAR=headless" >&2; return 1; }
 
 _sess_call(){ local fn="$1" b; shift; b="$(sess_backend)"
   sess_backend_check "$b" || return 1

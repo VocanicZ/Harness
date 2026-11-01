@@ -324,10 +324,47 @@ it takes the Windows path:
 | `portable.pid_alive` (Python) | `os.kill(pid, 0)` | `OpenProcess` + `GetExitCodeProcess` on the winpid |
 | `portable.lock_nb` / `unlock` (Python) | `fcntl.flock` | `msvcrt.locking` on byte 0 |
 
+| `detach_launch [-a] <pidfile> <log> <cmd…>` | `nohup … &` and `$!` (fd 9 closed) | `Win32_Process.Create` through `powershell Invoke-CimMethod`: the process is WMI's child, so it outlives the ssh session; a launcher beside the pid file restores the caller's environment and directory and records the MSYS pid |
+| `win_task_install` / `win_task_uninstall` | not used (systemd user units) | a Task Scheduler task `Harness\<name>` running Git's `bash.exe` on a launcher script under `$HARNESS_HOME/tasks` |
+
 `HARNESS_PLATFORM=windows` forces the Windows paths (the suite runs them on Linux: `test/test_portable.sh`,
 `test/test_portable.py`), and `test/test_portable_guard.py` fails on a raw `flock`, `/proc`, `pgrep`,
 `setsid`, `uuidgen`, procps `ps -o`, `fcntl` or `os.kill` anywhere else in the engine, except the uses it
 allowlists with their reasons (tmux-only CLIs, the self-contained lane runner's POSIX branch, `install.sh`).
+
+### Native Windows
+
+Harness runs on native Windows under Git for Windows' bash with a native Python 3, on the headless
+session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Linux is unchanged.
+
+- **Install:** run `install.sh` from Git Bash. It needs Git for Windows (git, curl, sha256sum, tar), a
+  Python 3 that runs, `gh` and `claude`; tmux is not needed. It makes every link it creates a real
+  symlink (`MSYS=winsymlinks:nativestrict`; enable Developer Mode or run as an administrator), writes
+  a `python3` shim in `$HARNESS_HOME/bin` (the `python3` on a stock host's PATH is the Microsoft Store
+  stub) that runs `HARNESS_PYTHON` (default: the first of `python3`, `python`, `py -3` that runs), and
+  a `harness.cmd` next to the `harness` link that runs it through Git's `bash.exe` by path (the
+  `bash.exe` on the cmd PATH is WSL's). `harness update` rewrites the shim. `.gitattributes` keeps a
+  git-checkout engine LF under Git's default `core.autocrlf=true`.
+- **Fleet:** set `HARNESS_SESSION_BACKEND=headless`; `harness start` refuses any other backend there.
+  `harness start` launches the workers, the priority lane and the host poller with `detach_launch`,
+  so they keep running after the ssh session that started them ends. `harness stop` stops them by
+  their pid files, as on Linux.
+- **Services:** `harness supervise --install` and `harness web --install` register Task Scheduler
+  tasks (`Harness\harness-supervise`, `Harness\harness-web`) in place of the systemd user units. The
+  task runs `$HARNESS_HOME/tasks/<name>.sh`, which reruns the command after each exit (60s for
+  supervise, 5s for web), at boot and at logon. It uses the S4U logon type, so it runs with nobody
+  logged in and stores no password, and it has no run-time limit. Registering the boot trigger needs
+  an administrator. Without one, the task runs at the next logon in your session, and the install says
+  so. `--uninstall`, `harness update` and `uninstall.sh` act on the task as they do on the unit.
+- **`harness doctor`** adds a `windows:` section that checks the headless backend, that the shell and
+  the tasks' `bash.exe` are Git's (`uname -s` MINGW/MSYS, not WSL), that a Python 3 runs, that a
+  symlink can be made, that the engine is LF, and that `schtasks`, `powershell` and `taskkill` are
+  present. Each failure names its fix.
+
+Knobs (the suite fakes each Windows tool with them): `HARNESS_PYTHON`, `HARNESS_BASH_EXE` (Git's
+`bash.exe`), `HARNESS_SCHTASKS`, `HARNESS_POWERSHELL`, `HARNESS_DETACH_WAIT` (seconds `detach_launch`
+waits for the pid, 30). `test/test_windows_lifecycle.sh` covers the lifecycle with
+`HARNESS_PLATFORM=windows` on Linux.
 
 ### Autonomy
 
@@ -748,7 +785,8 @@ Log: `~/.harness/supervise.log`. Preview a pass with `harness supervise --once -
 | `UNPARENTED_OK` | empty | comma-separated issue numbers exempt from the missing-`## Parent` alarm |
 
 `harness supervise --install` installs and starts the `harness-supervise.service` systemd user unit
-(with linger); `--uninstall` removes it.
+(with linger); `--uninstall` removes it. On native Windows it registers the Task Scheduler task
+`Harness\harness-supervise` instead ([Native Windows](#native-windows)).
 
 ## Dashboard
 
@@ -765,7 +803,7 @@ state only, so it spends no GitHub budget.
 | `HARNESS_WEB_MAX_STREAMS` | `32` | open live-update streams allowed; the next one gets `503` |
 
 ```bash
-harness web --install                              # systemd user unit, 127.0.0.1:4637
+harness web --install                              # systemd user unit (Windows: a scheduled task), 127.0.0.1:4637
 HARNESS_WEB_BIND=0.0.0.0 harness web --install     # reachable from the LAN
 ```
 

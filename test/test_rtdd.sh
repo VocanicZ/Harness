@@ -146,8 +146,11 @@ assert "README teaches no removed v0.2 workflow" "! grep -qE 'rtdd (run|seed)|ma
 ROOT="$HERE/.."
 assert "v0.3 config committed"            "[[ -f '$ROOT/.rtdd/config.yaml' ]] && grep -q '^whole_file_tests:' '$ROOT/.rtdd/config.yaml'"
 assert "graph cache ignored"              "grep -qx 'graph.json' '$ROOT/.rtdd/.gitignore'"
-for f in .rtdd/map.jsonl .rtdd/adapters scripts/rtdd-bash-runner.py .gitattributes AGENTS.md .cursor/rules/rtdd.mdc; do
+for f in .rtdd/map.jsonl .rtdd/adapters scripts/rtdd-bash-runner.py AGENTS.md .cursor/rules/rtdd.mdc; do
   assert "v0.2 footprint gone: $f"        "[[ ! -e '$ROOT/$f' ]]"
 done
+# v0.2's .gitattributes held only its map's merge driver (`.rtdd/map.jsonl merge=union`); the file now
+# exists for the LF rule (#356), so the footprint is that line, not the file.
+assert "v0.2 footprint gone: .gitattributes merge driver" "! grep -qs 'rtdd' '$ROOT/.gitattributes'"
 
 echo "── rtdd prompt contract ok"
