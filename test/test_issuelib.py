@@ -2648,6 +2648,91 @@ def test_no_stray_keeps_review_flowing():
         assert il.dispatch("acme/widget", 3, True) == [("REVIEW", "10", "REVIEW DONE")]
     finally: _restore_repo()
 
+# ── #360: a human-in-the-loop child is filed WITHOUT the ready label on purpose ──────────────────
+# LABEL_READY (#287) labelled every unlabelled stray ready, so a lane claimed a task only a human can
+# do; the agent-blocked workaround then reported the expected wait as STUCK / UNCLAIMABLE BLOCKER.
+def _hitl_board(hitl, reviewed=False):
+    return [_issue(10, labels=["prd", "reviewed"] if reviewed else ["prd"]),
+            _issue(11, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#10\n"),
+            hitl]
+
+def test_hitl_labelled_stray_is_never_labelled_ready_or_claimed():
+    os.environ["HARNESS_MODE"] = "prd"
+    for labels in (["hitl"], ["hitl", "ready-for-agent"]):
+        _stub_repo(_hitl_board(_issue(20, labels=labels, body="Needs a human.\n\n## Parent\n#10\n")))
+        try:
+            s = il.compute_state("acme/widget")
+            assert 20 not in s["unblocked"] and 20 not in s["dispatchable"], (labels, s)
+            assert s["prds"][0]["unlabelled"] == [], (labels, s["prds"][0])
+            acts = il.dispatch("acme/widget", 3, True)
+            assert all(a[0] not in ("LABEL_READY", "IMPL") for a in acts), (labels, acts)
+            assert il.next_claimable("acme/widget") is None, labels
+        finally: _restore_repo()
+
+def test_hitl_bug_is_not_claimed_by_the_bug_lane():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([_issue(30, labels=["bug", "hitl"]), _issue(31, labels=["bug-triaged", "hitl"]),
+                _issue(32, labels=["bug"])])
+    try: assert il.bug_lane_candidates("acme/widget") == [(32, "triage")]
+    finally: _restore_repo()
+
+def test_hitl_label_name_is_configurable():
+    os.environ["HARNESS_MODE"] = "prd"; os.environ["HARNESS_LABEL_HITL"] = "human"
+    _stub_repo(_hitl_board(_issue(20, labels=["human", "ready-for-agent"], body="Part of #10\n")))
+    try:
+        assert il.dispatch("acme/widget", 3, True) == [], "a custom-named HITL issue is never claimed"
+    finally: _restore_repo(); os.environ.pop("HARNESS_LABEL_HITL", None)
+
+def test_unlabelled_hitl_titled_stray_is_not_labelled_ready():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(_hitl_board(_issue(20, title="[HITL] decide X", body="Needs a human.\n\n## Parent\n#10\n")))
+    try:
+        acts = il.dispatch("acme/widget", 3, True)
+        assert all(a[0] != "LABEL_READY" for a in acts), acts
+    finally: _restore_repo()
+    # the #287 case is unchanged: an unlabelled stray WITHOUT the [HITL] title is still labelled
+    _stub_repo(_hitl_board(_issue(20, title="[AFK] follow-up", body="## Parent\n#10\n")))
+    try: assert il.dispatch("acme/widget", 3, True) == [("LABEL_READY", "20", "-")]
+    finally: _restore_repo()
+
+def test_hitl_child_holds_review_and_close_of_its_prd():
+    os.environ["HARNESS_MODE"] = "prd"
+    for reviewed in (False, True):
+        for hitl in (_issue(20, labels=["hitl"], body="Part of #10\n"),
+                     _issue(20, labels=["hitl", "ready-for-agent"], body="Part of #10\n"),
+                     _issue(20, title="[HITL] decide X", body="Part of #10\n")):
+            _stub_repo(_hitl_board(hitl, reviewed))
+            try:
+                s = il.compute_state("acme/widget")
+                assert s["prds"][0]["stray"] == [20], (reviewed, hitl, s["prds"][0])
+                acts = il.dispatch("acme/widget", 3, True)
+                assert all(a[0] not in ("REVIEW", "CLOSE_PRD") for a in acts), (reviewed, hitl, acts)
+            finally: _restore_repo()
+    # once the human closes it, sign-off flows again
+    _stub_repo(_hitl_board(_issue(20, "CLOSED", labels=["hitl"], body="Part of #10\n")))
+    try: assert il.dispatch("acme/widget", 3, True) == [("REVIEW", "10", "REVIEW DONE")]
+    finally: _restore_repo()
+
+def test_hitl_child_is_waiting_on_a_human_not_stuck():
+    os.environ["HARNESS_MODE"] = "prd"
+    for hitl in (_issue(20, labels=["hitl"], body="Part of #10\n"),
+                 _issue(20, title="[HITL] decide X", body="Part of #10\n")):
+        _stub_repo(_hitl_board(hitl))
+        try:
+            s = il.compute_state("acme/widget")
+            assert s["stuck_on"] == [], s["stuck_on"]
+            assert s["hitl"] == [("acme/widget", 20)], s.get("hitl")
+            out = _status_line()
+            assert "STUCK" not in out, out
+            assert "WAITING ON HUMAN" in out and "#20" in out, out
+        finally: _restore_repo()
+    # a HITL child with no other work does not make the PRD look undecomposed (no DECOMPOSE loop)
+    _stub_repo([_issue(10, labels=["prd"]), _issue(20, labels=["hitl"], body="Part of #10\n")])
+    try:
+        assert il.compute_state("acme/widget")["prds"][0]["children_exist"] is True
+        assert all(a[0] != "DECOMPOSE" for a in il.dispatch("acme/widget", 3, True))
+    finally: _restore_repo()
+
 def test_next_claimable_on_a_fixture_issue_list():
     # #367: the issue /harness-one offers next is the one dispatch would claim — open, ready, not
     # agent-working, every `## Blocked by` closed; agent-paused is a candidate (resumable first).

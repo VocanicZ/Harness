@@ -33,7 +33,20 @@ Steps:
      #{{PRD}}
 
      Part of #{{PRD}}"
-   - Create labels once if missing: {{LABEL_READY}}, agent-working, agent-blocked, {{LABEL_REVIEWED}}.
+   - Create labels once if missing: {{LABEL_READY}}, {{LABEL_HITL}}, agent-working, agent-blocked, {{LABEL_REVIEWED}}.
+   - HUMAN-IN-THE-LOOP slice (the {{skill:to-issues}} skill marks it HITL: a task no fleet lane can
+     do — a human decision, a credential, a manual check)? File it with `{{LABEL_HITL}}`, NEVER
+     `{{LABEL_READY}}`, so no lane claims it, and title it `[HITL] <task>` instead of `[AFK]`:
+       gh issue create -R {{SLUG}} --title "[HITL] <task>" --label {{LABEL_HITL}} \
+         --body "<what the human must do + acceptance criteria>
+
+       ## Parent
+       #{{PRD}}
+
+       Part of #{{PRD}}"
+     It still holds this PRD's sign-off until a human closes it. NEVER list a HITL issue under any
+     sibling's `## Blocked by`: no lane can unblock it, so it would stall that sibling for good. Put
+     the decision it waits on in the HITL issue itself, and let AFK work proceed around it.
    - Order matters: list real intra-project dependencies under `## Blocked by` so the harness
      only dispatches unblocked work. Same-repo siblings are bare `#N` refs.
    - CROSS-UNIT dependency (a task here needs work done in ANOTHER unit/repo of this fleet)?

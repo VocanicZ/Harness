@@ -44,6 +44,7 @@ assert "author allowlist key written" "grep -q 'HARNESS_AUTHOR_ALLOWLIST' '$CFG'
 # bug-lane label keys are written with sensible defaults and round-trip
 assert "bug label key written"          "grep -q 'HARNESS_LABEL_BUG:=bug' '$CFG'"
 assert "bug-triaged label key written"  "grep -q 'HARNESS_LABEL_BUG_TRIAGED:=bug-triaged' '$CFG'"
+assert "HITL label key written (#360)"  "grep -q 'HARNESS_LABEL_HITL:=hitl' '$CFG'"
 ( source "$CFG"; [[ "${HARNESS_LABEL_BUG:-}" == "bug" && "${HARNESS_LABEL_BUG_TRIAGED:-}" == "bug-triaged" ]] ) \
   && echo "  ok: bug-lane labels round-trip" || { echo "  FAIL: bug-lane label round-trip"; exit 1; }
 # security audit at PRD review: written (default OFF) so it is discoverable and overridable

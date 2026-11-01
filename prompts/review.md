@@ -140,8 +140,10 @@ The bar names one real artifact to beat and the dimensions to judge on:
    (`## Parent #{{PRD}}`, `Part of #{{PRD}}`, or `Parent: #{{PRD}}` in the body):
      gh issue list -R {{SLUG}} --state open --limit 1000 --json number,labels,body \
        --jq '[.[] | select(.body // "" | test("(## Parent\\s*:?\\s*|Part of |Parent:\\s*)#{{PRD}}\\b"; "i")) | {number, labels: [.labels[].name]}]'
-   - Each one with NO label at all: label it so a lane can take it —
+   - Each one with NO label at all whose title does NOT start with `[HITL]`: label it so a lane can take it —
        gh issue edit <N> -R {{SLUG}} --add-label {{LABEL_READY}}
+   - One carrying `{{LABEL_HITL}}`, or titled `[HITL]`, is a human-in-the-loop task: never label it
+     `{{LABEL_READY}}`. It still withholds sign-off below until a human closes it.
    - If ANY open issue is listed other than one you filed in THIS pass, do NOT sign off: comment the
      numbers on PRD #{{PRD}}. That is a completed review pass; go to OUTPUT. Review runs again once
      they close. (A lane-filed follow-up left unlabelled used to be signed off over and stranded.)

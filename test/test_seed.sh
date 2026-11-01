@@ -4,6 +4,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
 HARNESS_LABEL_READY=go HARNESS_LABEL_PRD=spec HARNESS_LABEL_PAUSED=zzz   # custom names
 HARNESS_LABEL_BUG=buglbl HARNESS_LABEL_BUG_TRIAGED=trgd                  # bug-lane labels
+HARNESS_LABEL_HITL=human                                                 # #360: HITL label
 CALLS="$RUN_DIR/gh.calls"; : > "$CALLS"
 gh(){ echo "$*" >> "$CALLS"
   case "$1 $2" in "repo view") return 0;; "label create") return 0;; "api") return 0;; esac; return 0; }
@@ -15,6 +16,7 @@ assert_ok "created custom prd label"   bash -c "grep -q 'label create spec' '$CA
 assert_ok "created custom paused label" bash -c "grep -q 'label create zzz' '$CALLS'"
 assert_ok "created bug label"          bash -c "grep -q 'label create buglbl' '$CALLS'"
 assert_ok "created bug-triaged label"  bash -c "grep -q 'label create trgd' '$CALLS'"
+assert_ok "created custom HITL label"  bash -c "grep -q 'label create human' '$CALLS'"
 
 echo "=== full bootstrap: the CI workflow is OPT-IN (HARNESS_SEED_CI, default 0) ==="
 # Absent ci.yml (the contents GET fails) so the only thing deciding whether it is written is the flag.

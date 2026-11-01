@@ -23,6 +23,7 @@ L_REVIEWED = lambda: os.environ.get("HARNESS_LABEL_REVIEWED", "reviewed")
 L_PAUSED   = lambda: os.environ.get("HARNESS_LABEL_PAUSED", "agent-paused")
 L_BUG         = lambda: os.environ.get("HARNESS_LABEL_BUG", "bug")
 L_BUG_TRIAGED = lambda: os.environ.get("HARNESS_LABEL_BUG_TRIAGED", "bug-triaged")
+L_HITL        = lambda: os.environ.get("HARNESS_LABEL_HITL", "hitl")
 ALLOWLIST  = lambda: os.environ.get("HARNESS_AUTHOR_ALLOWLIST", "")
 
 _BLOCKED_BY_HEADING = re.compile(r"^#{2,3}\s+Blocked by\s*:?\s*$", re.IGNORECASE | re.MULTILINE)
@@ -665,6 +666,14 @@ def _parked(issue, slug):
     return not (backoff > 0 and time.time() - at >= backoff * 60)
 
 
+def _is_hitl(issue):
+    """A human-in-the-loop task (#360): it carries the HITL label, or — the backstop for a bare
+    hand-filed one — no labels at all and a `[HITL]` title. No lane ever claims it, the engine never
+    labels it ready, and while open it holds its PRD's sign-off as waiting on a human, not STUCK."""
+    labels = issue["_labels"]
+    return L_HITL() in labels or (not labels and (issue.get("title") or "").startswith("[HITL]"))
+
+
 def _blocked_hold(issue, slug):
     """The one agent-blocked dispatch filter, shared by the pool (compute_state), stall diagnostics
     (_claimable) and the bug lane: a non-autonomous fleet never takes agent-blocked work; an
@@ -682,6 +691,8 @@ def _claimable(issue, slug):
     labels = issue["_labels"]
     if L_WORKING() in labels:
         return True
+    if _is_hitl(issue):
+        return False   # #360: a HITL task waits on a human, whatever other labels it carries
     if L_BUG() in labels or L_BUG_TRIAGED() in labels:
         return not _blocked_hold(issue, slug)
     if L_PRD() in labels or issue.get("title", "").startswith("[AFK] PRD:"):
@@ -1118,8 +1129,11 @@ def compute_state(repo):
     prd_issues = _prd_list(issues)
     # bug-lane issues live in a separate lane: never claimed by the normal pool and never
     # counted toward unit completion, even when they carry the ready label.
+    # #360: a HITL task is never a claimable child, even if it also carries the ready label — one
+    # that names a PRD falls through to the strays below, where it holds sign-off as waiting on a human.
     children = [i for i in issues if L_READY() in i["_labels"] and L_PRD() not in i["_labels"]
-                and L_BUG() not in i["_labels"] and L_BUG_TRIAGED() not in i["_labels"]]
+                and L_BUG() not in i["_labels"] and L_BUG_TRIAGED() not in i["_labels"]
+                and not _is_hitl(i)]
 
     # Partition children by parent PRD. A parent ref that names another repo, or a PRD number
     # that does not exist here, is not attributable — those fall into the unparented bucket
@@ -1151,6 +1165,7 @@ def compute_state(repo):
     by_num = {i["number"]: i for i in listed}
     allowed = {i["number"] for i in issues}
     stuck_on = []
+    hitl = []     # #360: open HITL children holding a PRD — waiting on a human, not stuck
     parked = []   # #271: agent-blocked children an autonomous fleet holds until they change
     def _note_stuck(issue, prd_num):
         blockers = _open_blockers(issue, slug, closed_cache, prd_num)
@@ -1177,9 +1192,13 @@ def compute_state(repo):
     for p in prd_issues:
         kids = by_parent[p["number"]]
         stray = strays[p["number"]]
-        # a labelled stray no lane can take holds its PRD for good — name it, like a #221 blocker
+        # a labelled stray no lane can take holds its PRD for good — name it, like a #221 blocker;
+        # a HITL one holds it too, but on purpose: it is waiting on a human (#360)
+        hitl_nums = [i["number"] for i in stray if _is_hitl(i)]
+        hitl.extend(r for r in ((slug, n) for n in hitl_nums) if r not in hitl)
         stuck_on.extend(r for r in ((slug, i["number"]) for i in stray
-                                    if i["_labels"] and not lane_labels & set(i["_labels"]))
+                                    if i["_labels"] and not lane_labels & set(i["_labels"])
+                                    and i["number"] not in hitl_nums)
                         if r not in stuck_on)
         all_closed, unblocked = _bucket(kids, p["number"])
         eligible = _is_unblocked(p, slug, closed_cache, p["number"])
@@ -1193,7 +1212,9 @@ def compute_state(repo):
                      "reviewed": L_REVIEWED() in p["_labels"],
                      # a PRD's own `## Blocked by` is what sequences PRDs; no section = eligible now
                      "eligible": eligible,
-                     "children_exist": bool(kids),
+                     # a HITL child counts as filed, so a PRD decomposed into HITL work only
+                     # does not re-fire DECOMPOSE (#360)
+                     "children_exist": bool(kids) or bool(hitl_nums),
                      # #221: a `## Task 1` section with no child titled for it — a pre-filed child
                      # must not stop DECOMPOSE filing the plan-first task.
                      "needs_task1": bool(_TASK1_HEADING.search(p.get("body") or ""))
@@ -1202,7 +1223,7 @@ def compute_state(repo):
                      # #287: open issues naming this PRD outside its ready children; `unlabelled` is
                      # the subset dispatch labels ready
                      "stray": [i["number"] for i in stray],
-                     "unlabelled": [i["number"] for i in stray if not i["_labels"]],
+                     "unlabelled": [i["number"] for i in stray if not i["_labels"] and not _is_hitl(i)],
                      "unblocked": unblocked})
     # The unparented bucket keeps the LEGACY exempt-PRD (the lowest-numbered one): a child with no
     # `## Parent`/`Part of` attribution that names a PRD in its `## Blocked by` is the pre-upgrade
@@ -1246,6 +1267,7 @@ def compute_state(repo):
             "waiting": [n for p in prds if not p["eligible"] for n in p["unblocked"]],
             "held_by": held_by,
             "stuck_on": stuck_on,
+            "hitl": hitl,
             "parked": sorted(parked),
             "open_children": sum(1 for i in children if i["state"].lower() == "open"),
             "total_children": len(children),
@@ -1267,7 +1289,8 @@ def bug_lane_candidates(repo):
                  if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
                  and i["state"].lower() == "open"
                  and L_WORKING() not in i["_labels"]
-                 and not _blocked_hold(i, slug)]
+                 and not _blocked_hold(i, slug)
+                 and not _is_hitl(i)]   # #360: no lane claims a HITL task
     claimable.sort(key=lambda i: 0 if L_BUG_TRIAGED() in i["_labels"] else 1)
     return [(i["number"], "fix" if L_BUG_TRIAGED() in i["_labels"] else "triage")
             for i in claimable]
@@ -1526,6 +1549,11 @@ def main():
                 refs = ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in s["stuck_on"])
                 print(f"{repo}: STUCK — chain needs an issue no agent can take: {refs} — label it "
                       f"{L_READY()} (or close it), or drop it from `## Blocked by`")
+            # #360: a HITL child holds its PRD on purpose — say so, without the STUCK alarm.
+            if s.get("hitl") and not done:
+                slug = _repo_slug(repo)
+                refs = ", ".join(f"#{n}" if r == slug else f"{r}#{n}" for r, n in s["hitl"])
+                print(f"{repo}: WAITING ON HUMAN — {refs} ({L_HITL()})")
             # #271: an autonomous fleet holds a parked issue until something about it changes.
             if s.get("parked") and not done:
                 refs = ", ".join(f"#{n}" for n in s["parked"])

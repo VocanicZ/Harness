@@ -20,12 +20,12 @@ assert(){
 # ── render each template with custom label values ────────────────────────────
 out_review="$(render "$HERE/../prompts/review.md" \
   PRD=7 SLUG=acme/widget PROJECT=w DESC=d SPEC= \
-  LABEL_READY=go LABEL_PRD=spec LABEL_REVIEWED=verified \
+  LABEL_READY=go LABEL_PRD=spec LABEL_REVIEWED=verified LABEL_HITL=human \
   GAUNTLET_DIR=/tmp/gaunt GAUNTLET_ROUND=2 GAUNTLET_ROUNDS=3)"
 
 out_dec="$(render "$HERE/../prompts/decompose.md" \
   PRD=7 SLUG=acme/widget PROJECT=w DESC=d SPEC= OWNER=acme \
-  LABEL_READY=go LABEL_PRD=spec LABEL_REVIEWED=verified)"
+  LABEL_READY=go LABEL_PRD=spec LABEL_REVIEWED=verified LABEL_HITL=human)"
 
 out_prd="$(render "$HERE/../prompts/prd.md" \
   PRD=7 SLUG=acme/widget PROJECT=w DESC=d SPEC= \
@@ -121,6 +121,20 @@ assert "decompose.md: idempotent — lists existing with --state all" \
 
 assert "decompose.md: only-missing / no-duplicate rule present" \
   "grep -qi 'only' <<<\"\$out_dec\" && grep -qi 'duplicate' <<<\"\$out_dec\""
+
+# ── #360: a HITL slice is filed with the HITL label and a [HITL] title, never the ready label ──
+assert "decompose.md: a HITL slice is created with the custom HITL label and a [HITL] title" \
+  "grep -qE 'gh issue create .*--title \"\\[HITL\\] <task>\" --label human' <<<\"\$out_dec\""
+assert "decompose.md: a HITL slice never carries the ready label" \
+  "grep -qF 'File it with \`human\`, NEVER' <<<\"\$out_dec\" && grep -qF '\`go\`, so no lane claims it' <<<\"\$out_dec\""
+assert "decompose.md: a HITL issue is never in a sibling's ## Blocked by" \
+  "grep -qi 'NEVER list a HITL issue under any' <<<\"\$out_dec\" && grep -qF 'sibling'\''s \`## Blocked by\`' <<<\"\$out_dec\""
+assert "decompose.md: the HITL label is created if missing" \
+  "grep -q 'Create labels once if missing: go, human' <<<\"\$out_dec\""
+assert "decompose.md: no unrendered {{LABEL_HITL}}" \
+  "! grep -q '{{LABEL_HITL}}' <<<\"\$out_dec\""
+assert "review.md: a HITL stray is never labelled ready" \
+  "grep -qF 'One carrying \`human\`, or titled \`[HITL]\`' <<<\"\$out_review\" && ! grep -q '{{LABEL_HITL}}' <<<\"\$out_review\""
 
 # ── decompose.md cross-unit coordination (direct cross-repo deps) ─────────────
 assert "decompose.md: cross-unit fix issue filed directly in target unit's repo via targets.tsv" \
