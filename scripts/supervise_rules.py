@@ -159,6 +159,13 @@ def evaluate(facts, counters, exempt=(), reconciled=()):
         rules[f"wf-leak:{slug}"] = (
             bool(leak), 2,
             f"WAYFINDER LEAK {slug} {leak} carry {lr} — the fleet will claim a HITL ticket it can never close.")
+        # #360: the engine never claims a HITL issue, but one also labelled ready reads as fleet work
+        lh = issuelib.L_HITL()
+        hleak = sorted(i["number"] for i in ready if lh in i["_labels"])
+        rules[f"hitl-leak:{slug}"] = (
+            bool(hleak), 2,
+            f"HITL LEAK {slug} {hleak} carry both {lh} and {lr} — the fleet never claims them, but the ready "
+            f"label says otherwise; drop {lr} (a human does a {lh} task).")
 
     if facts["unfiled"] is not None:
         unfiled = [p for p in facts["unfiled"] if p not in reconciled]

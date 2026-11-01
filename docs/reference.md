@@ -182,6 +182,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_LABEL_WORKING` | `agent-working` | Label applied while a session owns an issue |
 | `HARNESS_LABEL_BLOCKED` | `agent-blocked` | Label applied to issues parked for human help (autonomous=false) |
 | `HARNESS_LABEL_REVIEWED` | `reviewed` | Label applied to the PRD issue after review passes |
+| `HARNESS_LABEL_HITL` | `hitl` | Human-in-the-loop task (#360): decompose files a slice no lane can do with this label and a `[HITL] …` title. No lane ever claims it (even if it also carries the ready label), the engine never labels it ready, and while open it holds its PRD's review and close; `harness status` reports it as `WAITING ON HUMAN`, not `STUCK`. An unlabelled issue titled `[HITL]` is treated the same |
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
 | `HARNESS_USE_POLLER` | `1` | Host poller, **on by default** (#182): this fleet reads shared host snapshots instead of polling GitHub itself. Empty also means on (configs written before #182 carry an empty value); `0` = direct-`gh` polling. See [Host poller](#host-poller) |

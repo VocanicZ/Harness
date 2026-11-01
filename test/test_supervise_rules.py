@@ -167,6 +167,19 @@ def test_wayfinder_leak():
     assert out[1] and out[1][0].startswith("ALARM wf-leak:owner/repo WAYFINDER LEAK owner/repo [11]"), out
 
 
+def test_hitl_child_is_not_an_unclaimable_blocker():
+    # #360: a HITL child waiting on a human is expected, not a wedged chain
+    st = dict(state([prd(10)]), stuck_on=[], hitl=[(SLUG, 20)])
+    assert passes(facts(st=st, issues=[issue(20, labels=["hitl"], body="Part of #10\n")]), 3) == [[]] * 3
+
+
+def test_hitl_leak():
+    # #360: an open issue carrying BOTH the HITL and the ready label is a HITL task offered to the fleet
+    iss = [issue(21, labels=["ready-for-agent", "hitl"])]
+    out = passes(facts(issues=iss, mode="issue-only"), 2)
+    assert out[1] and out[1][0].startswith("ALARM hitl-leak:owner/repo HITL LEAK owner/repo [21]"), out
+
+
 def test_unfiled_plans_honour_the_reconciled_allowlist():
     out = passes(facts(unfiled=["docs/superpowers/plans/a.md"]), 2)
     assert out[1] and out[1][0].startswith("ALARM unfiled UNFILED TASKS"), out
