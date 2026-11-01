@@ -303,7 +303,11 @@ it checkpoints and resumes the lane (`SMOKE_CHECKPOINT`, on by default on headle
 `harness resume` re-dispatches the `agent-paused` issue, which the resumed lane then finishes. The
 sandbox's `HARNESS_TURN_MAX` is lowered (`SMOKE_TURN_MAX`, 120) so the stuck-turn interrupt lets the
 queued checkpoint into a long turn. The run fails if the issue closed before the checkpoint, or if the
-checkpoint was never confirmed. Recorded runs are committed under `test/smoke/logs/`.
+checkpoint was never confirmed. Recorded runs are committed under `test/smoke/logs/`. On native
+Windows (#357) the smoke defaults to the headless backend, refuses tmux and every CLI but `claude`, logs
+`harness doctor` after setup and names its log `claude-headless-windows-<stamp>.log`;
+`test\smoke\fleet_smoke.cmd claude` runs it from cmd, PowerShell or ssh through Git's `bash.exe`. See
+[the Windows runbook](windows-smoke.md).
 
 ### Portable process and lock primitives
 
@@ -337,6 +341,7 @@ allowlists with their reasons (tmux-only CLIs, the self-contained lane runner's 
 
 Harness runs on native Windows under Git for Windows' bash with a native Python 3, on the headless
 session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Linux is unchanged.
+[The Windows runbook](windows-smoke.md) sets up a host step by step and runs the fleet smoke on it.
 
 - **Install:** run `install.sh` from Git Bash. It needs Git for Windows (git, curl, sha256sum, tar), a
   Python 3 that runs, `gh` and `claude`; tmux is not needed. It makes every link it creates a real

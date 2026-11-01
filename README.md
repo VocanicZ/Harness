@@ -56,7 +56,10 @@ curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | 
 
 <sub>Agents: run the `npx` line above and relay any missing prerequisites to the user.</sub>
 
-Linux and macOS; on Windows, run it inside WSL2. Pin a release with `HARNESS_REF=v0.1.0`.
+Linux and macOS, and native Windows: run the `curl` line from Git Bash. On Windows the fleet runs on
+the headless session backend only, with `claude` lanes only (the other CLIs need tmux): the
+[Windows runbook](docs/windows-smoke.md) sets up a host and runs the end-to-end smoke. WSL2 also
+works, as Linux. Pin a release with `HARNESS_REF=v0.1.0`.
 
 | Prerequisite | |
 |---|---|

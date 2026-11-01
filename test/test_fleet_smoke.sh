@@ -192,8 +192,81 @@ assert_ok "the missing checkpoint is named" grep -qF 'closed before its lane had
 assert_ok "teardown shows the lane's drawn screen" grep -qF -- '-- final pane of smokeclaude-main-i2' "$OUT"
 kill_lanes
 
+echo "── every run's log names its host"
+setup_stubs 1
+run_smoke
+assert_ok "a Linux run's header names the posix host, its bash and python3" \
+  grep -qE '== host posix \| [^|]+ \| bash [0-9][^ ]* \| python3 3\.[0-9]+' "$OUT"
+
+echo "── native Windows (#357): argument handling"
+# Usage errors come before any GitHub call. Run them behind a gh / claude / tmux that only fail, so a
+# regression that lets one through fails here instead of starting a real fleet against GitHub.
+mkdir -p "$ROOT/nogh"; for b in gh claude codex tmux; do printf '#!/usr/bin/env bash\nexit 1\n' > "$ROOT/nogh/$b"; chmod +x "$ROOT/nogh/$b"; done
+NOGH="$ROOT/nogh:$PATH"
+PATH="$NOGH" SMOKE_PLATFORM=windows SMOKE_BACKEND=tmux bash "$SMOKE" claude >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "Windows + SMOKE_BACKEND=tmux exits 2"
+assert_ok "...saying Windows has no tmux" grep -qF 'native Windows has no tmux — only SMOKE_BACKEND=headless runs there' "$ROOT/w.out"
+PATH="$NOGH" SMOKE_PLATFORM=windows bash "$SMOKE" codex >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "Windows + a tmux-only CLI exits 2"
+assert_ok "...naming the CLI tmux-only and the headless CLIs" grep -qF "'codex' is tmux-only — the headless backend runs claude lanes only" "$ROOT/w.out"
+PATH="$NOGH" SMOKE_BACKEND=headless bash "$SMOKE" codex >/dev/null 2>&1; assert_eq "$?" 2 "headless + a tmux-only CLI exits 2 on Linux too"
+PATH="$NOGH" SMOKE_PLATFORM=dos bash "$SMOKE" claude >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "an unknown SMOKE_PLATFORM exits 2"
+assert_ok "...naming the two it takes" grep -qF "SMOKE_PLATFORM must be windows or posix, not 'dos'" "$ROOT/w.out"
+
+echo "── native Windows: headless by default, the host and doctor in the log"
+setup_stubs 1
+run_smoke_cli claude HOME="$D" SMOKE_PLATFORM=windows SMOKE_CHECKPOINT=0 SMOKE_LOG= SMOKE_REAP_WAIT=0
+WLOG="$(ls "$D"/harness-smoke/claude-headless-windows-*.log 2>/dev/null | head -1)"
+assert_eq "$RC" 0 "a Windows run passes"
+assert_ok "the default log is named claude-headless-windows-<stamp>.log" test -n "$WLOG"
+OUT="${WLOG:-/dev/null}"
+assert_ok "with no SMOKE_BACKEND, init is given the headless backend" grep -qE '^harness init \| .*CLI=claude BACKEND=headless' "$CALLS"
+assert_eq "$(harness_verbs)" "init setup doctor start stats stop --clean" "init → setup → doctor → start → stats → stop --clean"
+assert_ok "the header's first line is the CLI's version and the date" grep -qE '== fleet smoke \| cli=claude \| 9\.9\.9 \(Claude Code\) \| 20[0-9]{2}-' "$OUT"
+assert_ok "the header names the windows host" grep -qE '== host windows \| [^|]+ \| bash [0-9][^ ]* \| python3 ' "$OUT"
+assert_ok "the header names the headless backend" grep -qF '== session backend headless | checkpoint+resume off' "$OUT"
+assert_ok "doctor's exit is logged" grep -qE 'doctor exit [0-9]+' "$OUT"
+assert_ok "the result line says PASS" grep -qE '== result: PASS' "$OUT"
+setup_stubs 1
+run_smoke
+assert_no "a Linux run never runs doctor" grep -qE '^harness .*doctor' "$CALLS"
+
+echo "── native Windows: the cmd wrapper"
+CMD="$HERE/smoke/fleet_smoke.cmd"
+assert_ok "test/smoke/fleet_smoke.cmd exists" test -f "$CMD"
+assert_eq "$(grep -c $'\r$' "$CMD")" "$(wc -l < "$CMD")" "every line of it is CRLF (cmd.exe's line ending)"
+assert_eq "$(git -C "$HERE/.." check-attr eol -- test/smoke/fleet_smoke.cmd | sed 's/.*: //')" crlf ".gitattributes checks *.cmd out CRLF"
+assert_eq "$(git -C "$HERE/.." check-attr eol -- test/smoke/fleet_smoke.sh | sed 's/.*: //')" lf "...and the script itself LF"
+c="$(tr -d '\r' < "$CMD")"
+assert_ok "it defaults to Git's bin\\bash.exe by path" grep -qxF 'if not defined BASH_EXE set "BASH_EXE=%ProgramFiles%\Git\bin\bash.exe"' <<<"$c"
+assert_ok "HARNESS_BASH_EXE overrides it" grep -qxF 'set "BASH_EXE=%HARNESS_BASH_EXE%"' <<<"$c"
+assert_ok "a missing bash.exe exits 2" grep -qxF 'if not exist "%BASH_EXE%" exit /b 2' <<<"$c"
+assert_ok "it defaults SMOKE_BACKEND to headless" grep -qxF 'if not defined SMOKE_BACKEND set "SMOKE_BACKEND=headless"' <<<"$c"
+assert_ok "it hands bash the script beside it with forward slashes (dirname reads no backslash)" \
+  bash -c 'grep -qxF "set \"SCRIPT=%~dp0fleet_smoke.sh\"" <<<"$1" && grep -qxF "set \"SCRIPT=%SCRIPT:\\=/%\"" <<<"$1"' _ "$c"
+assert_ok "it runs that script through \"%BASH_EXE%\", passing every argument, and exits with its status" \
+  bash -c 'grep -qxF "\"%BASH_EXE%\" -l \"%SCRIPT%\" %*" <<<"$1" && grep -qxF "exit /b %ERRORLEVEL%" <<<"$1"' _ "$c"
+assert_no "it never runs a bare bash (on the cmd PATH that is WSL's)" grep -qiE '^(bash|bash\.exe|call bash)( |$)' <<<"$c"
+
+echo "── native Windows: the runbook and the README"
+RB="$HERE/../docs/windows-smoke.md"
+assert_ok "docs/windows-smoke.md exists" test -f "$RB"
+for want in 'winget install --id Git.Git' 'winget install --id Python.Python.3' 'winget install --id GitHub.cli' \
+    'install.ps1' 'Developer Mode' '"C:\Program Files\Git\bin\bash.exe"' 'WSL' 'uname -s' 'gh auth login' \
+    'bash install.sh' 'bash test/smoke/fleet_smoke.sh claude' 'test\smoke\fleet_smoke.cmd claude' \
+    'claude-headless-windows-' 'test/smoke/logs/' '#358' 'SMOKE_EXTRA_CONFIG' 'HARNESS_BASH_EXE' 'Store stub'; do
+  assert_ok "the runbook covers: $want" grep -qF -- "$want" "$RB"
+done
+RM="$HERE/../README.md"
+inst="$(sed -n '/^## Install$/,/^## Quick start$/p' "$RM")"
+assert_ok "README Install states native Windows support" grep -qF 'native Windows' <<<"$inst"
+assert_ok "...on the headless backend only" grep -qF 'headless session backend only' <<<"$inst"
+assert_ok "...with claude lanes only" grep -qF '`claude` lanes only' <<<"$inst"
+assert_ok "...linking the runbook" grep -qF '](docs/windows-smoke.md)' <<<"$inst"
+assert_no "...and no longer sends Windows users to WSL2 only" grep -qF 'on Windows, run it inside WSL2' <<<"$inst"
+assert_ok "the reference's Native Windows section links the runbook" \
+  bash -c "sed -n '/^### Native Windows/,/^### /p' '$HERE/../docs/reference.md' | grep -qF '](windows-smoke.md)'"
+
 echo "── the recorded headless run (#354) is committed and shows its checkpoint and resume"
-REC="$(ls "$HERE"/smoke/logs/claude-headless-*.log 2>/dev/null | tail -1)"
+REC="$(ls "$HERE"/smoke/logs/claude-headless-2*.log 2>/dev/null | tail -1)"   # the Linux run: not a -windows- one (#357)
 assert_ok "a claude headless smoke log is committed under test/smoke/logs/" test -n "$REC"
 assert_ok "it is headed with the claude version and the date" grep -qE '== fleet smoke \| cli=claude \| [0-9.]+ \(Claude Code\) \| 20[0-9]{2}-' "${REC:-/dev/null}"
 assert_ok "it ran on the headless backend" grep -qF '== session backend headless | checkpoint+resume on' "${REC:-/dev/null}"

@@ -6,8 +6,13 @@
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+// On Windows, npx's `bash` is WSL's (C:\Windows\System32\bash.exe), which would install into WSL: point
+// at the native install, from Git Bash (docs/windows-smoke.md, #357), and at WSL2 as the alternative.
 if (process.platform === 'win32') {
-  console.error('Harness runs on Linux and macOS. On Windows, run it inside WSL2:\n' +
+  console.error('On native Windows, install Harness from Git Bash (headless claude lanes only, see\n' +
+    'https://github.com/VocanicZ/Harness/blob/main/docs/windows-smoke.md):\n' +
+    '  curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash\n' +
+    'or run it inside WSL2:\n' +
     '  wsl npx -y github:VocanicZ/Harness');
   process.exit(1);
 }
