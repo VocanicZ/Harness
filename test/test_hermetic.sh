@@ -222,4 +222,37 @@ assert_eq "$missing" "" "every HARNESS_* variable the engine exports is in HARNE
 assert_ok "the export scan sees the adapters' and snapshot_gate's exports" \
   bash -c '[[ $(tr "\n" " " <<<"$1") == *HARNESS_CLAUDE_BIN*HARNESS_SNAPSHOT_FILE* ]]' _ "$(exported_vars)"
 
+# #404: agy, hermes and openclaw read their usage windows by RUNNING their CLI (*_limit_usage), off
+# PATH by default. make_env pinned each CLI's home but not its binary, so every test that reached
+# usage_watch ran the HOST's real one on the operator's real account: a host near its agy weekly
+# limit opened a usage hold in the fixture, and test_ghrate.sh's agy cells failed on the quota, not
+# the commit. Put a canary for each first on PATH, BEFORE make_env, reporting a window at 99.8%: make_env
+# must shadow it, so no usage probe reaches it and no hold opens.
+CAN="$(mktemp -d)"; tmp_track "$CAN"
+canary(){ { printf '#!/usr/bin/env bash\necho "$0 $*" >> %q\ncat <<'"'"'J'"'"'\n' "$CAN/calls"; printf '%s\nJ\n' "$2"; } > "$CAN/$1"
+  chmod +x "$CAN/$1"; }
+canary agy '{"command":{"data":{"groups":[{"name":"G","buckets":[{"window":"weekly","remaining_fraction":0.002,"reset_time":"2030-01-01T00:00:00Z"}]}]}}}'
+canary hermes '{"provider":"P","windows":[{"label":"weekly","used_percent":99.8,"resets_at":"2030-01-01T00:00:00Z"}]}'
+canary openclaw '{"usage":{"providers":[{"provider":"P","windows":[{"label":"weekly","usedPercent":99.8,"resetAt":1893456000000}]}]}}'
+# usage_probe <cli> [VAR=value…] — one usage_watch for <cli> after make_env, the canaries first on
+# PATH; prints the number of usage holds it opened.
+usage_probe(){ ( export PATH="$CAN:$PATH"; source "$HERE/../scripts/lib.sh"; make_env
+  export HARNESS_CLI="$1"; shift; (( $# )) && export "$@"
+  usage_watch >/dev/null 2>&1; find "$(_usage_hold_dir)" -name '*.hold' 2>/dev/null | wc -l ); }
+for c in agy hermes openclaw; do
+  : > "$CAN/calls"
+  assert_eq "$(usage_probe "$c")" 0 "make_env: a host near its $c limit opens no usage hold in a test"
+  assert_eq "$(cat "$CAN/calls")" "" "make_env: $c's usage probe never runs the $c on the host's PATH"
+  # The control: the canary does report over the threshold, and a suite that drives a stub binary
+  # on purpose (HARNESS_<CLI>_BIN) still reaches it.
+  : > "$CAN/calls"; v="HARNESS_$(tr a-z A-Z <<<"$c")_BIN"
+  assert_eq "$(usage_probe "$c" "$v=$CAN/$c")" 1 "...while $v pointed at a stub still drives $c's usage"
+  assert_ok "...and runs that stub" grep -q "$CAN/$c" "$CAN/calls"
+done
+# test_ghrate.sh is the suite that failed the release gate on it (#404): green beside an agy at 99.8%.
+: > "$CAN/calls"
+assert_ok "test_ghrate.sh passes on a host whose agy is over the checkpoint threshold" \
+  env PATH="$CAN:$PATH" bash "$HERE/test_ghrate.sh" >/dev/null 2>&1
+assert_eq "$(cat "$CAN/calls")" "" "...and never runs that agy"
+
 finish

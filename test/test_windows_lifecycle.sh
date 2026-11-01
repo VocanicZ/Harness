@@ -268,7 +268,25 @@ assert_eq "$(sed -n 2p "$IH/bin/harness.cmd" | tr -d '\r')" '"C:\Program Files\G
 assert_eq "$(HARNESS_BASH_EXE= inst inst_bash_exe)" 'C:\Program Files\Git\bin\bash.exe' "inst_bash_exe defaults to Git's bin\\bash.exe (no cygpath to ask)"
 
 echo "=== .gitattributes keeps the engine LF ==="
-assert_eq "$(git -C "$R" check-attr eol -- bin/harness | sed 's/.*: //')" lf "bin/harness is checked out LF"
-assert_eq "$(git -C "$R" check-attr eol -- scripts/lib.sh | sed 's/.*: //')" lf "scripts/*.sh are checked out LF"
-assert_eq "$(git -C "$R" check-attr eol -- scripts/stats.py | sed 's/.*: //')" lf "scripts/*.py are checked out LF"
+# Read through gitattr_eol (#404), not `git -C "$R" check-attr`: the release gate runs this suite on a
+# `git archive` extract, which is no git repository.
+assert_eq "$(gitattr_eol "$R" bin/harness)" lf "bin/harness is checked out LF"
+assert_eq "$(gitattr_eol "$R" scripts/lib.sh)" lf "scripts/*.sh are checked out LF"
+assert_eq "$(gitattr_eol "$R" scripts/stats.py)" lf "scripts/*.py are checked out LF"
+
+echo "=== gitattr_eol reads a tree that is not a git repository (#404) ==="
+GA="$(mktemp -d)"; tmp_track "$GA"; mkdir -p "$GA/tree"
+ga_out(){ GIT_CEILING_DIRECTORIES="$GA" gitattr_eol "$GA/tree" "$@" 2>&1; }
+cp "$R/.gitattributes" "$GA/tree/"
+assert_eq "$(ga_out bin/harness scripts/lib.sh scripts/stats.py test/smoke/fleet_smoke.cmd | xargs)" "lf lf lf crlf" \
+  "a copy of the tree's .gitattributes outside any repo: LF engine, CRLF .cmd"
+assert_no "...with no 'not a git repository'" grep -q 'not a git repository' <<<"$(ga_out bin/harness)"
+# Each check still fails when its attribute regresses: nothing is skipped outside a repo.
+grep -v 'eol=crlf' "$R/.gitattributes" > "$GA/tree/.gitattributes"
+assert_no "a .gitattributes without the *.cmd line no longer checks .cmd out CRLF" \
+  test "$(ga_out test/smoke/fleet_smoke.cmd)" = crlf
+sed 's/^\* text=auto eol=lf$/* text=auto/' "$R/.gitattributes" > "$GA/tree/.gitattributes"
+assert_no "a .gitattributes without eol=lf no longer checks scripts out LF" test "$(ga_out scripts/lib.sh)" = lf
+rm -f "$GA/tree/.gitattributes"
+assert_no "a tree with no .gitattributes is a failure, not a pass" gitattr_eol "$GA/tree" bin/harness
 finish
