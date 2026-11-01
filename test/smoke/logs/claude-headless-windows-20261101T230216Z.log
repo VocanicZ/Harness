@@ -1,0 +1,119 @@
+23:02:18Z == fleet smoke | cli=claude | 2.1.316 (Claude Code) | 2026-11-01T23:02:18Z
+23:02:19Z == host windows | MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 3.13.5
+23:02:19Z == session backend headless | checkpoint+resume on, 30s into the lane
+23:02:20Z == engine harness v0.1.1-21-g95a30f2 (dev checkout) | repo VocanicZ/harness-smoke-claude | prefix smokeclaude
+23:02:24Z == harness init
+   wrote /c/hx-smoke/20261101T230148Z/tmp/harness-smoke-claude.VIF6pv/harness-smoke-claude/.harness/config
+   : "${HARNESS_CLI:=claude}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_TOPOLOGY:=single}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-claude}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokeclaude}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_CAP:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_LABEL_HITL:=hitl}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+   : "${HARNESS_TURN_MAX:=120}"
+   : "${HARNESS_PAUSE_GRACE:=900}"
+23:02:26Z == harness setup
+   ── Harness setup (mode=issue-only topology=single cli=claude) ──
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop
+     ok      claude plugin superpowers
+     ok      claude skill caveman (/c/Users/pc/.claude/skills/caveman)
+     ok      claude skill handoff (/c/Users/pc/.claude/skills/handoff)
+     ok      claude skill rtdd (/c/Users/pc/.claude/skills/rtdd)
+     ok      claude skill subagent-task-tree (/c/Users/pc/.claude/skills/subagent-task-tree)
+     ok      claude skill to-issues (/c/Users/pc/.claude/skills/to-issues)
+     ok      claude skill to-prd (/c/Users/pc/.claude/skills/to-prd)
+     ok      claude skill writing-plans (/c/Users/pc/.claude/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'main' (VocanicZ/harness-smoke-claude)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+23:02:44Z == harness doctor
+   ── harness doctor ── C:/hx-smoke/20261101T230148Z/tmp/harness-smoke-claude.VIF6pv/harness-smoke-claude/.harness
+   RUN_DIR: /c/hx-smoke/20261101T230148Z/tmp/harness-smoke-claude.VIF6pv/harness-smoke-claude/.harness/run
+   session backend: headless
+   windows:
+     session backend: headless ✓
+     shell: Git Bash (MINGW64_NT-10.0-19045) ✓
+     task bash: C:/Program Files/Git/bin/bash.exe ✓
+     python3: 3.13.5 (/c/Users/pc/.harness/bin/python3) ✓
+     symlinks: can create ✓
+     line endings: LF ✓
+     schtasks: ✓
+     powershell: ✓
+     taskkill: ✓
+   locks:
+     start.lock: absent (never created — fine)
+     pool.lock: absent (never created — fine)
+   pidfiles:
+   fleet registry:
+   ────────────────────────────────────────────
+   healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries.
+23:02:48Z doctor exit 0
+23:02:53Z filed PRD #23 and issue #24
+23:02:53Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (cap=1) + 1 priority bug lane:
+   Launching 1 pool worker(s) (cap=1 sessions/worker, poll=30s):
+     worker-1: started (pid 60239) — log C:/hx-smoke/20261101T230148Z/tmp/harness-smoke-claude.VIF6pv/harness-smoke-claude/.harness/run/worker-1.log
+   Launching the priority bug lane (cap=1, poll=60s):
+     priority: started (pid 60350) — log C:/hx-smoke/20261101T230148Z/tmp/harness-smoke-claude.VIF6pv/harness-smoke-claude/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+23:03:10Z issue=OPEN labels=ready-for-agent sessions=none prs=#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+23:04:17Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-main-i24 prs=#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+23:04:52Z == checkpoint: harness pause --force (lane smokeclaude-main-i24 up 34s)
+     checkpoint requested: smokeclaude-main-i24 (issue #24 on VocanicZ/harness-smoke-claude)
+     lane ended after its checkpoint: smokeclaude-main-i24
+     confirmed paused: VocanicZ/harness-smoke-claude#24
+   FLEET: PAUSED — all in-flight agents checkpointed to GitHub. Resume anywhere: harness/resume.sh
+23:08:13Z after checkpoint: labels=agent-paused,ready-for-agent sessions=none
+23:08:14Z handoff comment posted on #24
+23:08:14Z == resume: harness resume
+   RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll.
+23:08:53Z issue=OPEN labels=agent-paused,agent-working,ready-for-agent sessions=smokeclaude-main-i24 prs=#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+23:09:27Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-main-i24 prs=#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+23:14:39Z issue=CLOSED labels=agent-working,ready-for-agent sessions=smokeclaude-main-i24 prs=#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+23:15:12Z fleet sessions after close: none (ended by the fleet)
+23:15:13Z issue #24 CLOSED
+23:15:13Z merged PR: #25 feat: add smoke/20261101T230216Z.txt (closes #24) https://github.com/VocanicZ/harness-smoke-claude/pull/25 merged 2026-11-01T23:14:23Z
+23:15:16Z smoke/20261101T230216Z.txt on the default branch: hello from claude
+   issue #24: 1 session(s)
+     2026-11-01T23:04:03Z  launch  kind=impl effort=high
+     2026-11-01T23:07:15Z  turn_interrupted  kind=impl effort=high turn_s=181 queued_nudges=0
+     2026-11-01T23:08:10Z  paused  kind=impl effort=high
+     2026-11-01T23:08:14Z  session_end  kind=impl effort=high wall_s=239  claude-opus-5-5: out 3,243 in 24 cache_create 28,034 cache_read 332,114
+     2026-11-01T23:08:16Z  reap  kind=impl reason=session_gone
+     2026-11-01T23:08:54Z  launch  kind=impl effort=high
+     2026-11-01T23:14:49Z  session_end  kind=impl effort=high wall_s=344  claude-opus-5-5: out 6,313 in 54 cache_create 36,173 cache_read 977,474
+     rtdd  which 1  changed nodes 5  round1 1  round2 0  stale graph 0  selective 1/1  --version 1  1.5s
+   06:08:43 [main] session smokeclaude-main-i24 carries on agent session 0ea9edde-33a3-4850-bb48-8e1e8b626900
+23:15:17Z == teardown
+   Stopping pool workers:
+     killed priority (pid 60350)
+     killed worker-1 (pid 60239)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+23:15:27Z closed leftover issue #23
+23:15:29Z == result: PASS | log: /c/hx-smoke/20261101T230148Z/tmp/harness-smoke/claude-headless-windows-20261101T230216Z.log

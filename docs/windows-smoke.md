@@ -54,7 +54,15 @@ Every command below runs in Git Bash.
 ```sh
 gh auth login     # GitHub.com, HTTPS; the smoke creates a private sandbox repo with this login
 claude            # sign in once (/login), then /exit
+git config --global user.name  "<your name>"     # the lane commits as this identity
+git config --global user.email "<your GitHub noreply email>"
 ```
+
+A fresh Git for Windows install has no git identity, and nothing in setup or `harness doctor` checks
+for one. Without it the lane's first commit fails and the agent has to pick an author itself (#358's
+run saw it borrow one from the repo's history). To give a single run an identity without writing git
+config, export `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` before
+starting the smoke: the fleet inherits them.
 
 ## 4. Get Harness and install it
 
@@ -148,3 +156,6 @@ the `.sh` Stop hook on Windows. File each failure as its own issue.
 | `fleet_smoke: '<cli>' is tmux-only` | only `claude` has a headless lane runner: run `fleet_smoke.sh claude` |
 | `fleet_smoke.cmd: no Git bash.exe at …` | Git for Windows is elsewhere: set `HARNESS_BASH_EXE` to its `bin\bash.exe` |
 | the issue never gets claimed | read `harness doctor`'s `windows:` lines in the log, then `harness --state-dir <clone>/.harness status` while it runs |
+| `install.sh`: `could not resolve the latest release … the response is not JSON` | the releases lookup runs the Store-stub `python3` before the shim exists (#403): `HARNESS_REF=<tag> bash install.sh` (e.g. the latest from `gh release list -R VocanicZ/Harness`) |
+| worker log full of `Python was not found…` and the issue is never claimed | no `python3` shim: `harness start` does not refuse yet (#405). Fix the install (above), then check `~/.harness/bin/python3 --version` |
+| `checkpoint not confirmed: issue #N is not agent-paused`, the lane's screen is empty | Windows Python's cp1252 stdio breaks the headless lane's screen, so the stuck-turn interrupt never fires (#406): `export PYTHONUTF8=1` before the smoke |
