@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # fleet_smoke.sh <cli> — one REAL fleet session completing a trivial issue end to end (#306, PRD #189 AC5),
-# on the tmux session backend or (SMOKE_BACKEND=headless, #354) the headless one.
+# on the tmux session backend or (SMOKE_BACKEND=headless, #354) the headless one — and on native
+# Windows (#357), under Git for Windows' bash, where the backend is headless and the CLI claude.
 #
 # Not part of test/run.sh (it lives outside test/'s test_* glob): it talks to GitHub, spends the CLI's
 # quota and takes minutes. Run it by hand on the fleet host, once per CLI the README lists:
 #
 #   bash test/smoke/fleet_smoke.sh codex
 #   SMOKE_BACKEND=headless bash test/smoke/fleet_smoke.sh claude    # headless lanes + checkpoint/resume
+#   test\smoke\fleet_smoke.cmd claude          # native Windows, from cmd/PowerShell/ssh (docs/windows-smoke.md)
 #
 # What it does, every step through the fleet's own path — nothing here drives the agent:
 #   1. sandbox repo  SMOKE_REPO (default <gh login>/harness-smoke-<cli>), created private if absent and
@@ -24,15 +26,20 @@
 #   5. teardown      `harness stop --clean`, anything the run left open closed, its branches deleted,
 #                    the clone removed. The repo itself is kept for the next run (deleting it needs
 #                    the delete_repo scope); SMOKE_DELETE_REPO=1 deletes it instead.
-# Every step is logged to SMOKE_LOG (default $TMPDIR/harness-smoke/<cli>[-<backend>]-<utc stamp>.log,
-# the backend named unless tmux), headed with the CLI's version and the date. Recorded runs are
-# committed under test/smoke/logs/.
+# Every step is logged to SMOKE_LOG (default $TMPDIR/harness-smoke/<cli>[-<backend>][-windows]-<utc
+# stamp>.log, the backend named unless tmux, the platform when Windows), headed with the CLI's version
+# and the date, then the host (platform, uname, bash, python). Recorded runs are committed under
+# test/smoke/logs/.
 #
 # Exit: 0 the issue closed through a merged PR (after its checkpoint and resume, when asked for one) ·
 #       1 it did not (timeout, closed unmerged, or a checkpoint that never ran or never confirmed) · 2 usage.
 #
 # Env:
-#   SMOKE_BACKEND       the fleet's session backend: tmux (default) | headless (HARNESS_SESSION_BACKEND)
+#   SMOKE_BACKEND       the fleet's session backend: tmux (default) | headless (HARNESS_SESSION_BACKEND);
+#                       on Windows headless is the default and the only one (no tmux there, ADR 0001)
+#   SMOKE_PLATFORM      windows | posix — the host this run is for (default: from `uname -s`, MINGW*/
+#                       MSYS*/CYGWIN* = windows). Only the smoke's own choices read it: the backend
+#                       default, the CLI check, the log name and header, the doctor step
 #   SMOKE_CHECKPOINT    1 = checkpoint + resume mid-session (default 1 on headless, 0 on tmux)
 #   SMOKE_CHECKPOINT_AFTER  seconds the lane runs before the checkpoint (default 30)
 #   SMOKE_TASK_WAIT     with a checkpoint, the task's first step is `sleep <this>` (default 240): a
@@ -66,8 +73,20 @@ unset STATE_DIR ENGINE_DIR RUN_DIR HARNESS_DIR CLAUDECODE CLAUDE_CODE_ENTRYPOINT
       CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
 
 HARNESS="${SMOKE_HARNESS:-$HERE/../../bin/harness}"
-BACKEND="${SMOKE_BACKEND:-tmux}"
+# The platform: native Windows (Git Bash) runs headless claude lanes only (#349, #356, ADR 0001 §1).
+case "${SMOKE_PLATFORM:-$(uname -s 2>/dev/null)}" in
+  windows|MINGW*|MSYS*|CYGWIN*) PLATFORM=windows;;
+  posix) PLATFORM=posix;;
+  *) [[ -z "${SMOKE_PLATFORM:-}" ]] && PLATFORM=posix || { echo "fleet_smoke: SMOKE_PLATFORM must be windows or posix, not '$SMOKE_PLATFORM'" >&2; usage; };;
+esac
+BACKEND="${SMOKE_BACKEND:-$([[ "$PLATFORM" == windows ]] && echo headless || echo tmux)}"
 [[ -f "$HERE/../../scripts/session/$BACKEND.sh" && "$BACKEND" != dispatch ]] || { echo "fleet_smoke: no session backend '$BACKEND'" >&2; usage; }
+[[ "$PLATFORM" == windows && "$BACKEND" != headless ]] && { echo "fleet_smoke: native Windows has no tmux — only SMOKE_BACKEND=headless runs there" >&2; usage; }
+# A headless lane needs the CLI's headless runner; say so now, not after a sandbox and two issues.
+if [[ "$BACKEND" == headless ]]; then
+  HEADLESS_CLIS="$(source "$HERE/../../scripts/cli/dispatch.sh" 2>/dev/null; cli_headless_list | xargs)"
+  [[ " $HEADLESS_CLIS " == *" $CLI "* ]] || { echo "fleet_smoke: '$CLI' is tmux-only — the headless backend runs ${HEADLESS_CLIS:-no} lanes only" >&2; usage; }
+fi
 CHECKPOINT="${SMOKE_CHECKPOINT:-$([[ "$BACKEND" == headless ]] && echo 1 || echo 0)}"
 CP_AFTER="${SMOKE_CHECKPOINT_AFTER:-30}"
 TASK_WAIT="${SMOKE_TASK_WAIT:-240}"
@@ -77,6 +96,7 @@ LOGIN="$(gh api user --jq .login 2>/dev/null)" || { echo "fleet_smoke: gh is not
 REPO="${SMOKE_REPO:-$LOGIN/harness-smoke-$CLI}"
 OWNER="${REPO%%/*}"
 LOG_BASE="$CLI"; [[ "$BACKEND" == tmux ]] || LOG_BASE="$CLI-$BACKEND"   # tmux runs keep their old name
+[[ "$PLATFORM" == windows ]] && LOG_BASE+="-windows"
 LOG="${SMOKE_LOG:-${TMPDIR:-/tmp}/harness-smoke/$LOG_BASE-$STAMP.log}"
 mkdir -p "$(dirname "$LOG")"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/harness-smoke-$CLI.XXXXXX")"
@@ -132,7 +152,15 @@ teardown(){
 trap teardown EXIT
 trap 'exit 130' INT TERM
 
+# host_line — what this run ran on: platform, kernel/MSYS runtime, bash, and the python3 the engine gets:
+# bin/harness puts ~/.harness/bin first on PATH, where install.sh writes the Windows python3 shim (#356)
+# — without it, a stock Windows python3 is the Microsoft Store stub, which prints no version.
+host_line(){ local py
+  py="$(PATH="$HOME/.harness/bin:$PATH" timeout 10 python3 -c 'import sys; print(sys.version.split()[0])' 2>/dev/null)"
+  printf 'host %s | %s | bash %s | python3 %s' "$PLATFORM" "$(uname -srm 2>/dev/null)" "$BASH_VERSION" "${py:-none}"; }
+
 say "== fleet smoke | cli=$CLI | $(cli_version) | $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+say "== $(host_line)"
 [[ "$BACKEND" == tmux ]] || say "== session backend $BACKEND | checkpoint+resume $( ((CHECKPOINT)) && echo "on, ${CP_AFTER}s into the lane" || echo off)"
 say "== engine $(H --version 2>/dev/null | head -1) | repo $REPO | prefix $PREFIX"
 
@@ -168,6 +196,12 @@ printf ': "${HARNESS_SWARM:=off}"\n' >> "$PROJ/.harness/config"
 grep -v '^#' "$PROJ/.harness/config" | sed 's/^/   /'
 say "== harness setup"
 H setup 2>&1 | sed 's/^/   /'; (( PIPESTATUS[0] == 0 )) || { say "harness setup failed"; exit 1; }
+# On Windows the log carries the host's own checks (Git's bash, python3, symlinks, LF, schtasks…), so
+# a failed run names a host gap first. Logged, not gating: the run itself is the verdict.
+if [[ "$PLATFORM" == windows ]]; then
+  say "== harness doctor"
+  H doctor 2>&1 | sed 's/^/   /'; say "doctor exit ${PIPESTATUS[0]}"
+fi
 
 # 3. the work.
 WAIT_STEP=""; (( CHECKPOINT )) && WAIT_STEP="First run \`sleep $TASK_WAIT\` as a command of its own: this smoke run needs the lane to be mid-task for a while. Then:"$'\n'
