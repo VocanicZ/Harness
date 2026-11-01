@@ -110,6 +110,42 @@ doctor_fleets(){
   return "$problems"
 }
 
+# doctor_windows — native Windows prerequisites (#356, ADR 0001): the headless session backend, Git's
+# bash (not WSL's) for the entrypoints Windows starts, a Python 3 that runs (the `python3` on a stock
+# host's PATH is the Microsoft Store stub; the install's shim runs HARNESS_PYTHON), symlink creation
+# (the engine link; Developer Mode or an administrator), LF line endings in the engine, and the
+# Windows tools the lifecycle calls (schtasks for the supervise/web tasks, powershell for detached
+# launches, taskkill for lane trees). Only on Windows. Each failure names its fix; returns the count.
+doctor_windows(){ local problems=0 u bx py t d
+  is_windows || return 0
+  if sess_platform_check 2>/dev/null; then echo "  session backend: $(sess_backend) ✓"
+  else echo "  session backend: $(sess_backend) — NOT SUPPORTED on Windows (no tmux): set $SESS_CONFIG_VAR=headless in $CONFIG"; problems=$((problems+1)); fi
+  u="$("${HARNESS_UNAME:-uname}" -s 2>/dev/null)"
+  case "$u" in MINGW*|MSYS*) echo "  shell: Git Bash ($u) ✓" ;;
+    *) echo "  shell: '$u' — run harness from Git for Windows' bash (C:\\Program Files\\Git\\bin\\bash.exe), not WSL's bash.exe"; problems=$((problems+1)) ;; esac
+  bx="$(win_bash_exe)"
+  u="$("$bx" -c 'uname -s' 2>/dev/null)"
+  case "$u" in MINGW*|MSYS*) echo "  task bash: $bx ✓" ;;
+    *) echo "  task bash: $bx reports '${u:-nothing}' — not Git's bash; set HARNESS_BASH_EXE to Git's bin/bash.exe"; problems=$((problems+1)) ;; esac
+  if py="$(python3 -c 'import sys; print(sys.version.split()[0]) if sys.version_info[0] == 3 else sys.exit(1)' 2>/dev/null)" && [[ -n $py ]]; then
+    echo "  python3: $py ($(command -v python3)) ✓"
+  else
+    echo "  python3: does not run (the Microsoft Store stub?) — install Python 3, then re-run install.sh/harness update for the shim, or set HARNESS_PYTHON"; problems=$((problems+1))
+  fi
+  d="$(mktemp -d)"
+  if ( cd "$d" && mkdir t && MSYS=winsymlinks:nativestrict ln -s t l 2>/dev/null && [[ -L l ]] ); then echo "  symlinks: can create ✓"
+  else echo "  symlinks: cannot create one — enable Developer Mode (Settings → For developers) or run as an administrator"; problems=$((problems+1)); fi
+  rm -rf "$d"
+  if grep -q $'\r' "$ENGINE_DIR/bin/harness" "$ENGINE_DIR/scripts/lib.sh" 2>/dev/null; then
+    echo "  line endings: CRLF in the engine ($ENGINE_DIR) — bash cannot run it; reinstall it from a release, or clone with core.autocrlf=false"; problems=$((problems+1))
+  else echo "  line endings: LF ✓"; fi
+  for t in "${HARNESS_SCHTASKS:-schtasks}" "${HARNESS_POWERSHELL:-powershell}" "${HARNESS_TASKKILL:-taskkill}"; do
+    if command -v "$t" >/dev/null 2>&1; then echo "  $(basename "$t"): ✓"
+    else echo "  $(basename "$t"): MISSING — the Windows lifecycle needs it"; problems=$((problems+1)); fi
+  done
+  return "$problems"
+}
+
 doctor_main(){
   local a; for a in "$@"; do case "$a" in --fix) DOCTOR_FIX=1;; -h|--help) echo "usage: harness doctor [--fix]"; return 0;; esac; done
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
@@ -120,6 +156,8 @@ doctor_main(){
   else echo "session backend: $(sess_backend) — UNKNOWN (valid: $(sess_backend_list | xargs); set $SESS_CONFIG_VAR in $CONFIG)"; sp=1; fi
   # #349: the backend must be one the fleet's CLI can run on (headless: claude only).
   local why; why="$(cli_backend_check 2>&1)" || { echo "session backend: $why"; sp=1; }
+  local wp=0
+  if is_windows; then echo "windows:"; doctor_windows || wp=$?; fi
   echo "locks:"
   local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?
@@ -127,7 +165,7 @@ doctor_main(){
   doctor_pidfiles || pp=$?
   echo "fleet registry:"
   doctor_fleets   || fp=$?
-  local total=$((lp+pp+fp+sp))
+  local total=$((lp+pp+fp+sp+wp))
   echo "────────────────────────────────────────────"
   if (( total == 0 )); then
     echo "healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries."

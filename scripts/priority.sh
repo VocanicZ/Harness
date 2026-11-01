@@ -8,6 +8,7 @@ pidf="$RUN_DIR/priority.pid"
 if [[ -f "$pidf" ]] && kill -0 "$(cat "$pidf" 2>/dev/null)" 2>/dev/null; then
   echo "  priority: already running (pid $(cat "$pidf"))"
 else
-  nohup bash "$ENGINE_DIR/scripts/priority-worker.sh" P1 >"$RUN_DIR/priority.log" 2>&1 &
-  echo "$!" > "$pidf"; echo "  priority: started (pid $!) — log $RUN_DIR/priority.log"
+  if detach_launch "$pidf" "$RUN_DIR/priority.log" bash "$ENGINE_DIR/scripts/priority-worker.sh" P1; then
+    echo "  priority: started (pid $(cat "$pidf")) — log $RUN_DIR/priority.log"
+  else echo "  priority: FAILED to start — see above"; fi
 fi

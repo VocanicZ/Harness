@@ -8,6 +8,7 @@
 #                with this shell's HARNESS_WEB_BIND / HARNESS_WEB_PORT (#226); re-running is
 #                idempotent, and `harness update` re-runs it so the unit follows the engine
 #   --uninstall  stop, disable and remove that unit
+#   On Windows both act on a Task Scheduler task, Harness\harness-web, instead (#356)
 WEB_ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # The unit runs the STABLE engine path (#281) when it resolves to this engine; see supervise.sh.
 WEB_LINK="${HARNESS_ENGINE_LINK:-$WEB_ENGINE_DIR}"
@@ -20,6 +21,10 @@ WEB_LOGINCTL="${HARNESS_WEB_LOGINCTL:-loginctl}"
 # #346: the session backend's binaries (sess_bins) go on the unit's PATH. Only when the engine ships
 # the seam: `harness update` sources this file from whatever engine it is moving to.
 [[ -f "$WEB_ENGINE_DIR/scripts/session/dispatch.sh" ]] && source "$WEB_ENGINE_DIR/scripts/session/dispatch.sh"
+# #356: on Windows the unit is a Task Scheduler task (portable.sh win_task_*), its launcher script
+# under $HARNESS_HOME/tasks. An engine without portable.sh is Linux-only: no Windows branch.
+declare -F is_windows >/dev/null || is_windows(){ return 1; }
+is_windows && WEB_UNIT_DIR="${HARNESS_WEB_UNIT_DIR:-${HARNESS_HOME:-$HOME/.harness}/tasks}"
 
 # --- systemd user unit (modelled on supervise.sh's sup_install, #180) ---------------------------
 # web_unit_path — the unit's PATH: systemd hands a user unit a bare one, and the server shells out
@@ -35,6 +40,7 @@ web_unit_path(){ local b p out=()
 # redeploy (`harness update`, which runs with none of them set) never drops the claude host's
 # HARNESS_WEB_BIND=0.0.0.0 back to localhost.
 web_unit_env(){ local v="${!1:-}"
+  if is_windows; then [[ -n $v ]] || v=$(win_task_env "$WEB_UNIT_DIR" "${WEB_UNIT%.service}" "$1"); printf '%s' "$v"; return 0; fi
   [[ -n $v ]] || v=$(sed -n "s/^Environment=$1=//p" "$WEB_UNIT_DIR/$WEB_UNIT" 2>/dev/null | tail -1)
   printf '%s' "$v"
 }
@@ -43,6 +49,14 @@ web_install(){ local unit="$WEB_UNIT_DIR/$WEB_UNIT" bind port env=""
   bind=$(web_unit_env HARNESS_WEB_BIND); port=$(web_unit_env HARNESS_WEB_PORT)
   [[ -n $bind ]] && env+="Environment=HARNESS_WEB_BIND=$bind"$'\n'
   [[ -n $port ]] && env+="Environment=HARNESS_WEB_PORT=$port"$'\n'
+  if is_windows; then   # #356: a scheduled task, never systemctl
+    local wenv=("PATH=$(web_unit_path)" "HARNESS_HOME=${HARNESS_HOME:-$HOME/.harness}")
+    [[ -n $bind ]] && wenv+=("HARNESS_WEB_BIND=$bind")
+    [[ -n $port ]] && wenv+=("HARNESS_WEB_PORT=$port")
+    win_task_install "$WEB_UNIT_DIR" "${WEB_UNIT%.service}" 5 "${wenv[@]}" -- "$WEB_HARNESS" web || return 1
+    echo "  dashboard running on ${bind:-127.0.0.1}:${port:-4637}: schtasks /Query /TN $(win_task_name "${WEB_UNIT%.service}")"
+    return 0
+  fi
   mkdir -p "$WEB_UNIT_DIR" || { echo "ERROR: cannot create $WEB_UNIT_DIR" >&2; return 1; }
   cat >"$unit" <<EOF
 [Unit]
@@ -70,6 +84,11 @@ EOF
   echo "  dashboard running on ${bind:-127.0.0.1}:${port:-4637}: systemctl --user status $WEB_UNIT"
 }
 web_uninstall(){ local unit="$WEB_UNIT_DIR/$WEB_UNIT"
+  if is_windows; then
+    [[ -f $(win_task_file "$WEB_UNIT_DIR" "${WEB_UNIT%.service}") ]] || { echo "  $WEB_UNIT not installed"; return 0; }
+    win_task_uninstall "$WEB_UNIT_DIR" "${WEB_UNIT%.service}"
+    echo "  removed scheduled task $(win_task_name "${WEB_UNIT%.service}")"; return 0
+  fi
   [[ -f $unit ]] || { echo "  $WEB_UNIT not installed"; return 0; }
   "$WEB_SYSTEMCTL" --user disable --now "$WEB_UNIT" 2>/dev/null || true
   rm -f "$unit"; "$WEB_SYSTEMCTL" --user daemon-reload 2>/dev/null || true
@@ -77,7 +96,9 @@ web_uninstall(){ local unit="$WEB_UNIT_DIR/$WEB_UNIT"
 }
 # web_installed — the unit is installed AND runs THIS engine. update/uninstall act only then, so a
 # second engine checkout (a dev clone, a test sandbox) never rewrites or removes the host's unit.
-web_installed(){ grep -qxF "ExecStart=$WEB_HARNESS web" "$WEB_UNIT_DIR/$WEB_UNIT" 2>/dev/null; }
+web_installed(){
+  if is_windows; then grep -qxF "# ExecStart=$WEB_HARNESS web" "$(win_task_file "$WEB_UNIT_DIR" "${WEB_UNIT%.service}")" 2>/dev/null; return; fi
+  grep -qxF "ExecStart=$WEB_HARNESS web" "$WEB_UNIT_DIR/$WEB_UNIT" 2>/dev/null; }
 
 [[ ${BASH_SOURCE[0]} == "$0" ]] || return 0   # sourced (tests, update.sh): define functions only
 set -euo pipefail

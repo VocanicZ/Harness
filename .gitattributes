@@ -1,0 +1,3 @@
+# Every text file is checked out with LF, on every host (#356, ADR 0001): Git for Windows sets
+# core.autocrlf=true system-wide, and bash cannot run a CRLF script ($'\r': command not found).
+* text=auto eol=lf

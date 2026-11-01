@@ -36,7 +36,12 @@ assert_ok "ensure_poller does NOT leak the start-lock (fd 9) to the poller child
 pid="$(cat "$HARNESS_POLLER_DIR/poller.pid" 2>/dev/null || true)"; [[ -n "$pid" ]] && kill "$pid" 2>/dev/null; sleep 0.2
 
 # --- static guard: the production poller.sh spawn in lib.sh closes fd 9 (mirrors test_start_lock) -
-assert_ok "ensure_poller spawns poller.sh with fd 9 closed for the child (9>&-)" \
-  grep -Eq 'poller\.sh".*9>&-' "$HERE/../scripts/lib.sh"
+# Since #356 the spawn goes through detach_launch (portable.sh), whose POSIX branch is the old
+# `nohup … 9>&- &`: the poller.sh launch must use it, and every nohup in it must close fd 9.
+assert_ok "ensure_poller spawns poller.sh through detach_launch" \
+  grep -Eq 'detach_launch .*poller\.sh"' "$HERE/../scripts/lib.sh"
+dl="$(awk '/^detach_launch\(\)\{/{f=1} f&&/^$/{exit} f' "$HERE/../scripts/portable.sh")"
+assert_ok "detach_launch spawns with nohup" grep -q nohup <<<"$dl"
+assert_no "detach_launch closes fd 9 (9>&-) on every nohup spawn" grep -E 'nohup' <<<"$(grep nohup <<<"$dl" | grep -v '9>&-')"
 
 finish

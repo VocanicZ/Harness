@@ -38,7 +38,8 @@
 # usage: harness supervise [--once] [--dry-run] | --alarms | --install | --uninstall
 #   --alarms     list every arc alarm still firing, per fleet
 #   --install    write + enable a systemd user unit (Restart=always, linger) running this loop;
-#                `harness update` re-runs it so the unit follows the engine
+#                `harness update` re-runs it so the unit follows the engine. On Windows: a Task
+#                Scheduler task Harness\harness-supervise instead (#356; portable.sh win_task_install)
 #   --uninstall  stop, disable and remove that unit
 #   --once       one pass, actions echoed too        --dry-run  log what it would do, do nothing
 #
@@ -67,7 +68,9 @@ SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_LINK/bin/harness}"
 SUP_RULES="${HARNESS_SUPERVISE_RULES:-$SUP_ENGINE_DIR/scripts/supervise_rules.py}"
 # Fleets the registry does not know (an engine that predates it) are found by this glob too.
 SUP_FLEET_GLOB="${HARNESS_SUPERVISE_GLOB:-$HOME/*/.harness}"
-SUP_UNIT_DIR="${HARNESS_SUPERVISE_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
+# On Windows the "unit" is a Task Scheduler launcher script under $HARNESS_HOME/tasks (#356, portable.sh).
+if is_windows; then SUP_UNIT_DIR="${HARNESS_SUPERVISE_UNIT_DIR:-$HARNESS_HOME/tasks}"
+else SUP_UNIT_DIR="${HARNESS_SUPERVISE_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"; fi
 SUP_UNIT=harness-supervise.service
 SUP_SYSTEMCTL="${HARNESS_SUPERVISE_SYSTEMCTL:-systemctl}"
 SUP_LOGINCTL="${HARNESS_SUPERVISE_LOGINCTL:-loginctl}"
@@ -416,6 +419,12 @@ sup_install(){ local b unit="$SUP_UNIT_DIR/$SUP_UNIT"
     command -v "$b" >/dev/null 2>&1 && continue
     echo "WARNING: '$b' is not on PATH, so the supervisor's unit cannot find it$([[ $b == rtdd ]] && echo ' — relaunched lanes silently fall back to full test suites')" >&2
   done
+  if is_windows; then   # #356: a scheduled task, never systemctl; same PATH, same restart delay
+    win_task_install "$SUP_UNIT_DIR" "${SUP_UNIT%.service}" 60 "PATH=$(sup_unit_path)" "HARNESS_HOME=$HARNESS_HOME" \
+      -- "$SUP_HARNESS" supervise || return 1
+    echo "  supervisor running: schtasks /Query /TN $(win_task_name "${SUP_UNIT%.service}")   log: $SUP_LOG"
+    return 0
+  fi
   mkdir -p "$SUP_UNIT_DIR" || { echo "ERROR: cannot create $SUP_UNIT_DIR" >&2; return 1; }
   cat >"$unit" <<EOF
 [Unit]
@@ -445,6 +454,11 @@ EOF
   echo "  supervisor running: systemctl --user status $SUP_UNIT   log: $SUP_LOG"
 }
 sup_uninstall(){ local unit="$SUP_UNIT_DIR/$SUP_UNIT"
+  if is_windows; then
+    [[ -f $(win_task_file "$SUP_UNIT_DIR" "${SUP_UNIT%.service}") ]] || { echo "  $SUP_UNIT not installed"; return 0; }
+    win_task_uninstall "$SUP_UNIT_DIR" "${SUP_UNIT%.service}"
+    echo "  removed scheduled task $(win_task_name "${SUP_UNIT%.service}")"; return 0
+  fi
   [[ -f $unit ]] || { echo "  $SUP_UNIT not installed"; return 0; }
   "$SUP_SYSTEMCTL" --user disable --now "$SUP_UNIT" 2>/dev/null || true
   rm -f "$unit"; "$SUP_SYSTEMCTL" --user daemon-reload 2>/dev/null || true
@@ -452,7 +466,9 @@ sup_uninstall(){ local unit="$SUP_UNIT_DIR/$SUP_UNIT"
 }
 # sup_installed — the unit is installed AND runs THIS engine. update/uninstall act only then, so a
 # second engine checkout (a dev clone, a test sandbox) never rewrites or removes the host's unit.
-sup_installed(){ grep -qxF "ExecStart=$SUP_HARNESS supervise" "$SUP_UNIT_DIR/$SUP_UNIT" 2>/dev/null; }
+sup_installed(){
+  if is_windows; then grep -qxF "# ExecStart=$SUP_HARNESS supervise" "$(win_task_file "$SUP_UNIT_DIR" "${SUP_UNIT%.service}")" 2>/dev/null; return; fi
+  grep -qxF "ExecStart=$SUP_HARNESS supervise" "$SUP_UNIT_DIR/$SUP_UNIT" 2>/dev/null; }
 
 [[ ${BASH_SOURCE[0]} == "$0" ]] || return 0   # sourced (tests, update.sh): define functions only
 for a; do case $a in
