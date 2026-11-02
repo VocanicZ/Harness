@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats --by-role` (#378)
+
+- Tokens (input, output, cache) and list-price $ per role — Manager, Implementer, and `other` for a
+  session whose kind says neither — so the per-role model saving is measurable before and after.
+  Works on history from before roles (by session kind, or the tmux session name), and takes the usual
+  filters (`--since`, `--fleet`, `-R`, `--model`, `--prd`, `--issue`) and `--json`.
+
 ### A lane that parks itself `agent-paused` no longer holds its slot (#417)
 
 - On an autonomous fleet, an impl lane that swaps its issue to `agent-paused` without a

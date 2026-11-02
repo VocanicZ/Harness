@@ -13,7 +13,7 @@ the session id the lane's state.json names.
 
     stats.py emit <event> [--ctx F] [--write-ctx F] [-c k=v]... [k=v]...   append one event
     stats.py parent-prd <slug>        PRD number of the issue body on stdin (## Parent), or nothing
-    stats.py report [--prd N|--issue N] [-R owner/repo] [--since 7d] [--fleet P] [--model M] [--json]
+    stats.py report [--prd N|--issue N] [--by-role] [-R owner/repo] [--since 7d] [--fleet P] [--model M] [--json]
     stats.py backfill                 rebuild session_end for past sessions from their transcripts
     stats.py goal-env <goal> [prd]    KIND=/ISSUE=/PRD= lines for a lane's HARNESS_* session env (#186)
     stats.py transcripts <session>    a claude session's transcript paths, sub-agents included (#188)
@@ -468,7 +468,7 @@ def sessions(events):
         s = by.setdefault(sid, {"session": sid, "usage": {}, "watchdog_kills": 0, "nudges": 0,
                                 "turn_interrupts": 0})
         ev = e.get("event")
-        for k in ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "model", "effort"):
+        for k in ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "model", "effort", "tmux"):
             if e.get(k) is not None and (ev == "launch" or s.get(k) is None):
                 s[k] = e[k]
         if ev == "launch":
@@ -671,6 +671,66 @@ def issue_timeline(events, issue, rtdd=()):
             "sessions": [_sess_row(s, rtdd=rr) for s in sessions(tl)]}
 
 
+# --- per-role rollup (#378) -----------------------------------------------------
+# A session's role, from the kind its launch logged (goal_fields / classify_dir) — the Python side of
+# lib.sh sess_role: an issue lane (impl, also when it resumes) and a bug fix implement; orchestration
+# (PLAN / PRD / DECOMPOSE: orch), REVIEW and its gauntlet, bug triage and the injector manage.
+ROLES = ("manager", "implementer", "other")
+ROLE_BY_KIND = {"impl": "implementer", "bug-fix": "implementer",
+                "orch": "manager", "review": "manager", "bug-triage": "manager", "inject": "manager"}
+# A session with no kind (an event log from before kinds, a hand-written line): its tmux name, the
+# session-name grammar of lib.sh sess_impl / sess_orch / sess_bug / sess_inject.
+_ROLE_BY_NAME = ((re.compile(r"-bug-.+-\d+-fix$|-i\d+$"), "implementer"),
+                 (re.compile(r"-bug-.+-\d+-triage$|-p\d+$|-inject-"), "manager"))
+
+
+def session_role(s):
+    """'manager' / 'implementer' for a session record (sessions()), 'other' when neither its kind nor its
+    tmux session name says — never dropped."""
+    kind = s.get("kind")
+    if kind:
+        return ROLE_BY_KIND.get(kind, "other")
+    name = s.get("tmux") or ""
+    return next((role for rx, role in _ROLE_BY_NAME if rx.search(name)), "other")
+
+
+def _usage_cost(usage):
+    """List-price $ for a folded usage (forecast.py's PRICE table — one place for prices). Loaded on
+    first use: forecast.py loads this module itself."""
+    global _FORECAST
+    if _FORECAST is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "forecast", os.path.join(os.path.dirname(os.path.abspath(__file__)), "forecast.py"))
+        _FORECAST = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_FORECAST)
+    return _FORECAST.usage_cost(usage)
+
+
+_FORECAST = None
+
+
+def _role_row(sess, model=None):
+    tokens = {}
+    for s in sess:
+        add_usage(tokens, s["usage"], model)
+    totals = {k: sum(u[k] for u in tokens.values()) for _, k in USAGE_KEYS}
+    return {"sessions": len(sess), **totals, "usd": round(_usage_cost(tokens), 4), "tokens": tokens}
+
+
+def role_rollup(events, model=None, prd=None, issue=None):
+    """Tokens (input / output / cache) and list-price $ per role — manager, implementer, and `other` for
+    a session whose kind maps to neither (shown only when there is one) — plus their total. --prd /
+    --issue narrow to that PRD's / issue's sessions, like the other levels."""
+    sess = [s for s in sessions(events) if _sess_matches(s, model)
+            and (prd is None or s.get("prd") == prd) and (issue is None or s.get("issue") == issue)]
+    by = {r: [] for r in ROLES}
+    for s in sess:
+        by[session_role(s)].append(s)
+    roles = {r: _role_row(ss, model) for r, ss in by.items() if ss or r != "other"}
+    return {"roles": roles, "total": _role_row(sess, model)}
+
+
 def _tok(usage):
     parts = []
     for model, u in sorted(usage.items()):
@@ -730,6 +790,13 @@ def render_text(kind, data):
                 flag = f"  ⚠ MODEL MISMATCH: ran {mm['actual']}" if mm else ""
                 out.append(f"    {s['launched'] or '?'}  {s['kind'] or '?'}  {s['model'] or '?'}/{s['effort'] or '?'}  "
                            f"wall {_hms(s['wall_s'])}  {_tok(s['usage'])}{flag}")
+    elif kind == "role":
+        rows = list(data["roles"].items()) + [("total", data["total"])]
+        for role, r in rows:
+            out.append(f"{role:<12} sessions {r['sessions']}  in {r['input']:,}  out {r['output']:,}  "
+                       f"cache_create {r['cache_create']:,}  cache_read {r['cache_read']:,}  ${r['usd']:,.2f}")
+            if role != "total" and r["tokens"]:
+                out.append(f"  tokens  {_tok(r['tokens'])}")
     elif kind == "issue":
         out.append(f"issue #{data['issue']}: {len(data['sessions'])} session(s)")
         for e in data["events"]:
@@ -757,6 +824,8 @@ def cmd_report(argv):
     ap.add_argument("--since", help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")
     ap.add_argument("--fleet", help="session prefix")
     ap.add_argument("--model", help="substring of a model id")
+    ap.add_argument("--by-role", action="store_true",
+                    help="tokens and list-price $ per role (manager / implementer / other), #378")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--events", help=argparse.SUPPRESS)
     ap.add_argument("--rtdd-events", help=argparse.SUPPRESS)
@@ -774,7 +843,9 @@ def cmd_report(argv):
     evs = filter_events(every, since, a.fleet, a.repo)
     # joined against EVERY event: a --since that cuts a session's launch must not orphan its rtdd calls
     rtdd = filter_events(join_rtdd(load_events(a.rtdd_events or rtdd_events_path()), every), since, a.fleet, a.repo)
-    if a.prd is not None:
+    if a.by_role:
+        kind, data = "role", role_rollup(evs, a.model, a.prd, a.issue)
+    elif a.prd is not None:
         kind, data = "prd", prd_rollup(evs, a.prd, a.model, rtdd)
     elif a.issue is not None:
         kind, data = "issue", issue_timeline(evs, a.issue, rtdd)
