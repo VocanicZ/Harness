@@ -127,10 +127,10 @@ doctor_windows(){ local problems=0 u bx py t d
   u="$("$bx" -c 'uname -s' 2>/dev/null)"
   case "$u" in MINGW*|MSYS*) echo "  task bash: $bx ✓" ;;
     *) echo "  task bash: $bx reports '${u:-nothing}' — not Git's bash; set HARNESS_BASH_EXE to Git's bin/bash.exe"; problems=$((problems+1)) ;; esac
-  if py="$(python3 -c 'import sys; print(sys.version.split()[0]) if sys.version_info[0] == 3 else sys.exit(1)' 2>/dev/null)" && [[ -n $py ]]; then
+  if py="$(python3_version)"; then
     echo "  python3: $py ($(command -v python3)) ✓"
   else
-    echo "  python3: does not run (the Microsoft Store stub?) — install Python 3, then re-run install.sh/harness update for the shim, or set HARNESS_PYTHON"; problems=$((problems+1))
+    echo "  python3: does not run (the Microsoft Store stub?) — $PYTHON3_FIX"; problems=$((problems+1))
   fi
   d="$(mktemp -d)"
   if ( cd "$d" && mkdir t && MSYS=winsymlinks:nativestrict ln -s t l 2>/dev/null && [[ -L l ]] ); then echo "  symlinks: can create ✓"
