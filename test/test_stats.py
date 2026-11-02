@@ -496,6 +496,72 @@ def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
             os.environ.pop("HARNESS_HEADLESS_DIR")
 
 
+# --- #376: verify what ran -----------------------------------------------------------------------
+def _launch_end(d, model=None, issue=7):
+    """launch (model=<model>, or none) → session_end on the recorded fixture: claude-opus-5-5 dominant
+    by output (150), plus a small sub-agent side call on claude-sonnet-5-5 (10)."""
+    ctx = os.path.join(d, f"hz-main-i{issue}.stats")
+    argv = ["emit", "launch", "--write-ctx", ctx, "-c", "prefix=hz", "-c", "repo=acme/widget",
+            f"session={FIXTURE_SID}", f"goal=ISSUE:{issue}", "prd=5"] + ([f"model={model}"] if model else [])
+    assert st.main(argv) == 0
+    assert st.main(["emit", "session_end", "--ctx", ctx]) == 0
+    return events(d)
+
+def test_model_family_alias_vs_full_id():
+    for a, b in (("sonnet", "claude-sonnet-5-5"), ("opus", "claude-opus-5-5"), ("opus[1m]", "claude-opus-5-5"),
+                 ("claude-opus-5-5", "anthropic/claude-opus-5-5-20261001"), ("haiku", "claude-haiku-5-5"),
+                 ("fable", "claude-fable-5-1"), ("claude-3-5-sonnet-20241022", "sonnet"),
+                 ("gpt-5.6-luna", "openai/gpt-5.6-luna"), ("gpt-5.6", "gpt-5.6-codex")):
+        assert st.same_family(a, b) and st.same_family(b, a), (a, b)
+    for a, b in (("sonnet", "claude-opus-5-5"), ("opus", "claude-sonnet-5-5"), ("haiku", "claude-opus-5-5"),
+                 ("gpt-5.6", "gpt-5.60"), ("gpt-5.6", "claude-sonnet-5-5"), ("sonnet", "o3")):
+        assert not st.same_family(a, b), (a, b)
+    assert st.model_family("claude-sonnet-5-5") == "sonnet" and st.model_family("") == ""
+
+def test_dominant_model_is_by_output_tokens():
+    u = {"claude-opus-5-5": {"input": 900000, "output": 5}, "claude-sonnet-5-5": {"input": 1, "output": 400},
+         "claude-haiku-5-5": {"input": 3, "output": 20}}
+    assert st.dominant_model(u) == "claude-sonnet-5-5", "input/cache must not decide — only output"
+    assert st.dominant_model({}) is None and st.dominant_model(None) is None
+    assert st.dominant_model({"m": {"output": 0}}) is None
+
+def test_dominant_model_not_intended_emits_one_model_mismatch_event():
+    with host() as d:
+        evs = _launch_end(d, model="sonnet")
+        assert [e["event"] for e in evs] == ["launch", "session_end", "model_mismatch"], evs
+        mm = evs[2]
+        assert (mm["intended"], mm["actual"], mm["session"], mm["issue"]) == \
+            ("sonnet", "claude-opus-5-5", FIXTURE_SID, 7), mm
+        assert mm["prd"] == 5 and mm["repo"] == "acme/widget" and mm["prefix"] == "hz" and "usage" not in mm, mm
+        # flagged in `harness stats`: the fleet summary, the PRD rollup's session and the issue timeline
+        rc, out = run(["report", "--since", "2026-01-01"])
+        assert rc == 0 and f"MODEL MISMATCH acme/widget #7 session {FIXTURE_SID}: intended sonnet ran claude-opus-5-5" in out, out
+        rc, out = run(["report", "--since", "2026-01-01", "--json"])
+        assert [(m["intended"], m["actual"], m["issue"]) for m in json.loads(out)["hz"]["model_mismatches"]] == \
+            [("sonnet", "claude-opus-5-5", 7)], out
+        rc, out = run(["report", "--prd", "5"])
+        assert rc == 0 and "⚠ MODEL MISMATCH: ran claude-opus-5-5" in out, out
+        rc, out = run(["report", "--prd", "5", "--json"])
+        row = json.loads(out)["children"][0]["sessions"][0]
+        assert row["model_mismatch"] == {"intended": "sonnet", "actual": "claude-opus-5-5"}, row
+        rc, out = run(["report", "--issue", "7"])
+        assert rc == 0 and "model_mismatch  ⚠ kind=impl intended=sonnet actual=claude-opus-5-5" in out, out
+        # and in `harness status` (stats.py mismatches), scoped to its fleet
+        rc, out = run(["mismatches", "--fleet", "hz"])
+        assert rc == 0 and out.count("MODEL MISMATCH") == 1 and "intended sonnet ran claude-opus-5-5" in out, out
+        assert run(["mismatches", "--fleet", "bw"]) == (0, "")
+
+def test_matching_dominant_model_with_a_side_call_emits_nothing():
+    for model in ("opus", "claude-opus-5-5", "opus[1m]", None):   # alias, full id, context suffix, CLI default
+        with host() as d:
+            evs = _launch_end(d, model=model)
+            assert [e["event"] for e in evs] == ["launch", "session_end"], (model, evs)
+            assert "claude-sonnet-5-5" in evs[1]["usage"], "the fixture's side call is in the usage"
+            rc, out = run(["report", "--since", "2026-01-01"])
+            assert "MISMATCH" not in out and run(["mismatches"]) == (0, ""), out
+    assert st.model_mismatch({"model": "sonnet", "usage": {}}) is None, "no usage → no check"
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

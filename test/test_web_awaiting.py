@@ -111,5 +111,30 @@ def test_awaiting_region_is_pushed_live():
         assert list(regs)[:2] == ["header", "awaiting"], list(regs)
 
 
+def test_model_mismatch_flagged_on_node_prd_header_and_drawer():
+    """#376: a model_mismatch event flags its issue's DAG node, its PRD's header and the drawer timeline;
+    a log without one flags nothing."""
+    mm = [json.loads(l) for l in open(os.path.join(wf.FIX, "events-mismatch.jsonl")) if l.startswith("{")]
+    s11 = web_data.issue_stats(mm, "o/arc", 11)
+    assert s11 == {"tokens": 8700, "model": "claude-opus-5-5", "retries": 0, "sessions": 1,
+                   "mismatch": "claude-opus-5-5"}, s11
+    assert web_data.prd_stats(mm, "o/arc", 2)["mismatch"] == "claude-opus-5-5"
+    assert "mismatch" not in web_data.issue_stats(EVENTS, "o/arc", 11), "flagged without an event"
+    with wf.serving(now=wf.NOW, events="events-mismatch.jsonl") as (base, host):
+        _, page = wf.get(base + "/fleet/hz")
+        node = re.search(r'<a href="\?issue=11" data-issue="11".*?</a>', page, re.S).group(0)
+        assert 'data-model-mismatch="claude-opus-5-5"' in node and "⚠ ran opus-5-5" in node, node
+        assert re.search(r'data-prd-children="2"[^>]*>(?:(?!</h3>).)*data-model-mismatch="claude-opus-5-5"'
+                         r'(?:(?!</h3>).)*⚠ model mismatch: ran claude-opus-5-5', page, re.S), "PRD #2's header not flagged"
+        assert re.search(r'data-prd="2"[^>]*>(?:(?!</a>).)*data-model-mismatch="claude-opus-5-5"', page, re.S), \
+            "PRD #2's DAG node not flagged"
+        assert page.count("data-model-mismatch") == 3, "flag leaked to another node or header"
+        _, d = wf.get(base + "/fleet/hz?issue=11")
+        assert re.search(r'data-event="model_mismatch".*?⚠ intended sonnet, ran claude-opus-5-5', d, re.S), d
+    with wf.serving(now=wf.NOW) as (base, host):
+        _, page = wf.get(base + "/fleet/hz")
+        assert "data-model-mismatch" not in page and "⚠" not in page
+
+
 if __name__ == "__main__":
     sys.exit(wf.run_tests(globals()))

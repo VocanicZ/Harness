@@ -37,14 +37,24 @@ stats_sweep_ended
 assert_eq "$(nev)" 1 "a LIVE session gets no session_end"
 : > "$LIVE"   # the session exits
 UNIT=worker-1 stats_sweep_ended
-assert_eq "$(nev)" 2 "session_end written once the session is gone"
+# #376: launched sonnet (the worktree hook), but the fixture transcript is opus-dominant by output
+assert_eq "$(nev)" 3 "session_end written once the session is gone, then its model_mismatch"
 assert_eq "$(ev 2 "e['event'],e['issue'],e['unit']")" "('session_end', 7, 'main')" "session_end keeps the session's own attribution"
 assert_eq "$(ev 2 "sorted((m,u['input'],u['output'],u['cache_create'],u['cache_read']) for m,u in e['usage'].items())")" \
   "[('claude-opus-5-5', 15, 150, 1000, 30000), ('claude-sonnet-5-5', 3, 10, 300, 1000)]" \
   "session_end usage = main transcript + subagents, each streamed message counted once"
+assert_eq "$(ev 3 "e['event'],e['intended'],e['actual'],e['session'],e['issue']")" \
+  "('model_mismatch', 'sonnet', 'claude-opus-5-5', '$FIXTURE_SID', 7)" \
+  "#376: model_mismatch names intended vs the dominant-by-output model, session and issue"
 assert_no "the context file is consumed" test -e "$RUN_DIR/hz-main-i7.stats"
 stats_sweep_ended
-assert_eq "$(nev)" 2 "a second sweep never re-emits"
+assert_eq "$(nev)" 3 "a second sweep never re-emits"
+echo "=== #376: harness status flags the mismatch ==="
+mmr(){ ( source "$HERE/../scripts/status.sh"; model_mismatch_report ); }   # status.sh's own, in a throwaway shell
+assert_ok "status: the mismatch line" \
+  grep -qF "⚠ MODEL MISMATCH acme/widget #7 session $FIXTURE_SID: intended sonnet ran claude-opus-5-5" <<<"$(mmr)"
+assert_eq "$(HARNESS_SESS_PREFIX=other mmr)" "" "status: another fleet's mismatch is not this fleet's"
+assert_eq "$(HARNESS_EVENTS_FILE="$RUN_DIR/none.jsonl" mmr)" "" "status: no mismatch → nothing printed"
 
 echo "=== #186: every lane session gets the rtdd event env, for claude AND agy ==="
 NEWSESS="$RUN_DIR/new-session.args"

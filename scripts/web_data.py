@@ -432,6 +432,10 @@ def _overlay(rows, usage, retries):
     if models:
         out["model"] = ", ".join(models)
     out.update(retries=retries, sessions=len(rows))
+    ran = [r["model_mismatch"]["actual"] for r in sorted(rows, key=lambda r: r.get("launched") or "")
+           if r.get("model_mismatch")]
+    if ran:   # #376: a session ran another model family than it was launched with
+        out["mismatch"] = ", ".join(dict.fromkeys(ran))
     return out
 
 

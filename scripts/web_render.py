@@ -336,11 +336,15 @@ def _stat_parts(st, short):
         parts.append(st["model"].replace("claude-", "") if short else st["model"])
     r = st["retries"]
     parts.append(f'{r} {"retry" if r == 1 else "retries"}')
+    if st.get("mismatch"):   # #376: leads, so the DAG box's truncation never hides it
+        parts.insert(0, f'⚠ ran {st["mismatch"].replace("claude-", "")}' if short
+                     else f'⚠ model mismatch: ran {st["mismatch"]}')
     return parts
 
 
 def _stat_attrs(st):
-    return (f' data-tokens="{st["tokens"]}"' if "tokens" in st else "") + f' data-retries="{st["retries"]}"'
+    return ((f' data-tokens="{st["tokens"]}"' if "tokens" in st else "") + f' data-retries="{st["retries"]}"'
+            + (f' data-model-mismatch="{esc(st["mismatch"])}"' if st.get("mismatch") else ""))
 
 
 def prd_stats_line(st):
@@ -544,6 +548,8 @@ CI = {"success": "level--green", "failure": "level--red", "pending": "level--amb
 def _event_detail(e):
     """The few facts worth a glance on one timeline line: model, why, how long, how much output."""
     bits = []
+    if e.get("event") == "model_mismatch":   # #376
+        bits.append(f'⚠ intended {esc(e.get("intended"))}, ran {esc(e.get("actual"))}')
     if e.get("model"):
         bits.append(esc(e["model"]))
     if e.get("reason"):
