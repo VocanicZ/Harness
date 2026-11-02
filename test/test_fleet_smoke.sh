@@ -252,7 +252,8 @@ assert_ok "docs/windows-smoke.md exists" test -f "$RB"
 for want in 'winget install --id Git.Git' 'winget install --id Python.Python.3' 'winget install --id GitHub.cli' \
     'install.ps1' 'Developer Mode' '"C:\Program Files\Git\bin\bash.exe"' 'WSL' 'uname -s' 'gh auth login' \
     'bash install.sh' 'bash test/smoke/fleet_smoke.sh claude' 'test\smoke\fleet_smoke.cmd claude' \
-    'claude-headless-windows-' 'test/smoke/logs/' '#358' 'SMOKE_EXTRA_CONFIG' 'HARNESS_BASH_EXE' 'Store stub'; do
+    'claude-headless-windows-' 'test/smoke/logs/' '#358' 'SMOKE_EXTRA_CONFIG' 'HARNESS_BASH_EXE' 'Store stub' \
+    'git config --global user.email' 'GIT_AUTHOR_NAME'; do
   assert_ok "the runbook covers: $want" grep -qF -- "$want" "$RB"
 done
 RM="$HERE/../README.md"
@@ -274,6 +275,21 @@ assert_ok "it shows the checkpoint confirmed" grep -qE 'after checkpoint: labels
 assert_ok "it shows the resume" grep -qF '== resume: harness resume' "${REC:-/dev/null}"
 assert_ok "it shows the resumed lane carrying on its session" grep -qF 'carries on agent session' "${REC:-/dev/null}"
 assert_ok "it passed" grep -qE '== result: PASS' "${REC:-/dev/null}"
+
+echo "── the recorded native-Windows run (#358) is committed and shows one issue end to end"
+WREC="$(ls "$HERE"/smoke/logs/claude-headless-windows-2*.log 2>/dev/null | tail -1)"
+assert_ok "a claude headless Windows smoke log is committed under test/smoke/logs/" test -n "$WREC"
+assert_ok "it is headed with the claude version and the date" grep -qE '== fleet smoke \| cli=claude \| [0-9.]+ \(Claude Code\) \| 20[0-9]{2}-' "${WREC:-/dev/null}"
+assert_ok "it is headed with the Windows version and runtime (Git Bash, a real python3)" \
+  grep -qE '== host windows \| MINGW64_NT-10\.0-[0-9]+ .* \| bash [0-9.]+.* \| python3 3\.[0-9]+' "${WREC:-/dev/null}"
+assert_ok "it ran on the headless backend" grep -qF '== session backend headless | checkpoint+resume on' "${WREC:-/dev/null}"
+assert_ok "its doctor saw a working python3 on Windows" grep -qE '^ +python3: 3\.[0-9.]+ .* ✓' "${WREC:-/dev/null}"
+assert_ok "its doctor passed" grep -qF 'doctor exit 0' "${WREC:-/dev/null}"
+assert_ok "it shows the checkpoint confirmed" grep -qE 'after checkpoint: labels=[^ ]*agent-paused' "${WREC:-/dev/null}"
+assert_ok "it shows the resume" grep -qF '== resume: harness resume' "${WREC:-/dev/null}"
+assert_ok "it shows the resumed lane carrying on its session" grep -qF 'carries on agent session' "${WREC:-/dev/null}"
+assert_ok "it shows the issue closed through a merged PR" grep -qE 'merged PR: #[0-9]+ .*merged 20[0-9]{2}-' "${WREC:-/dev/null}"
+assert_ok "it passed" grep -qE '== result: PASS' "${WREC:-/dev/null}"
 
 echo "── test/run.sh never runs it"
 assert_ok "the smoke script exists under test/smoke/" test -f "$SMOKE"
