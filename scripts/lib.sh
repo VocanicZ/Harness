@@ -163,6 +163,29 @@ lane_setting(){ local f="$1/$HARNESS_LANE_FILE" k v out=
   git_exclude "$1" "$HARNESS_LANE_FILE"
   while IFS='=' read -r k v; do [[ "$k" == "$2" ]] && out="${v//[[:space:]]/}"; done < "$f"
   printf '%s' "$out"; }
+# --- per-role model + effort (#375) ---------------------------------------------------------------
+# sess_role <sess> — the role a lane plays, from its session kind (the name says it, sess_*): an issue
+# lane (`-i<n>`, also when it resumes from resume.md) and a bug FIX are `implementer`; every other —
+# orchestration `-p<n>` (PLAN, PRD, DECOMPOSE, REVIEW and its gauntlet auditor/critic), bug triage,
+# the injector — is `manager`.
+sess_role(){ local s="${1#"$HARNESS_SESS_PREFIX"-}"
+  if [[ $s =~ ^bug-.+-[0-9]+-fix$ || $s =~ -i[0-9]+$ ]]; then echo implementer; else echo manager; fi; }
+# role_setting <role> <model|effort> — HARNESS_<MODEL|EFFORT>_<ROLE> when the config sets it (set but
+# empty = the CLI's own default), else the CLI's shipped default for the role (cli_role_default:
+# claude opus/high manager, sonnet/high implementer; '' on every other CLI).
+role_setting(){ local k
+  case "$2:$1" in model:manager) k=HARNESS_MODEL_MANAGER;; model:implementer) k=HARNESS_MODEL_IMPLEMENTER;;
+    effort:manager) k=HARNESS_EFFORT_MANAGER;; effort:implementer) k=HARNESS_EFFORT_IMPLEMENTER;; *) return 0;; esac
+  if [[ -n "${!k+x}" ]]; then printf '%s' "${!k}"; else cli_role_default "$1" "$2"; fi; }
+# lane_model_effort <sess> <wd> — `<model>\t<effort>` the lane launches with, each in this order: the
+# worktree hook's own (.harness-lane; for the model also a pin the CLI keeps outside it, cli_pinned_model),
+# then its role's (role_setting), then '' — the --model/--effort in HARNESS_<CLI>_FLAGS, or the CLI's
+# default. Whatever it names, the adapter puts in place of the flags' own (_cli_flags).
+lane_model_effort(){ local model effort role; role="$(sess_role "$1")"
+  model="$(lane_setting "$2" model)"; [[ -n "$model" ]] || model="$(cli_pinned_model "$2")"
+  [[ -n "$model" ]] || model="$(role_setting "$role" model)"
+  effort="$(lane_setting "$2" effort)"; [[ -n "$effort" ]] || effort="$(role_setting "$role" effort)"
+  printf '%s\t%s\n' "$model" "$effort"; }
 # git_exclude <dir> <pattern> — add <pattern> to <dir>'s info/exclude (a worktree's own), once.
 git_exclude(){ local excl
   # --git-path is relative to <dir> in a plain repo; this shell's cwd is not <dir>.
@@ -1433,7 +1456,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
-  model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
+  model="$(lane_model_effort "$sess" "$wd")"; effort="${model#*$'\t'}"; model="${model%%$'\t'*}"
   line="$(cli_launch "$wd" "$uuid" "$model" "$effort")"
   sess_send_line "$sess" "$line"
   _launch_first_input "$sess" "$effort"
@@ -1453,7 +1476,7 @@ launch_claude(){ launch_agent "$@"; }
 # tmux (gc_orphan_goals). Sets launch_agent's model / effort / line for its launch event.
 _launch_headless(){ local sess="$1" wd="$2" uuid="$3" resume="${4:-}" argv
   ensure_trusted "$wd"; ensure_bypass "$wd"; ensure_usage_statusline "$wd"
-  model="$(lane_setting "$wd" model)"; effort="$(lane_setting "$wd" effort)"
+  model="$(lane_model_effort "$sess" "$wd")"; effort="${model#*$'\t'}"; model="${model%%$'\t'*}"
   argv="$(cli_headless "$wd" "$uuid" "$model" "$effort" $resume)" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
   local -a cmd; mapfile -t cmd <<<"$argv"
   sess_start "$sess" "$wd" "${SESSION_ENV[@]}" "${cmd[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }

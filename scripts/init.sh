@@ -66,6 +66,17 @@ default_prefix(){
 ask "$CLI_CONFIG_VAR"  "Agent CLI ($(cli_list | paste -sd'|'))" "$(cli_name)"   # #188: the adapters under scripts/cli/
 cli_load "${!CLI_CONFIG_VAR}" || exit 1   # #253: a CLI with no adapter would only fail at the first launch
 cli_backend_check || exit 1               # #349: a tmux-only CLI on the headless backend could never launch a lane
+# #375: the model and effort of each role — Manager (orchestration: plan, PRD, decompose, review; bug
+# triage; the injector) and Implementer (issue lanes, bug fixes). The defaults are the CLI's shipped
+# ones (claude: opus/high, sonnet/high); empty = the CLI's own default. A worktree hook's .harness-lane
+# beats them, and they beat a --model/--effort in HARNESS_<CLI>_FLAGS.
+role_ask(){ local var="$1" def; def="${!var-$(cli_role_default "$2" "$3")}"
+  if [[ "$ni" == 1 ]]; then printf -v "$var" '%s' "$def"; else ask "$var" "$4 (empty = the CLI's default)" "$def"; fi; }
+role_ask HARNESS_MODEL_MANAGER      manager     model  "Manager model (plan/PRD/decompose/review, bug triage, inject)"
+role_ask HARNESS_EFFORT_MANAGER     manager     effort "Manager effort"
+role_ask HARNESS_MODEL_IMPLEMENTER  implementer model  "Implementer model (issue lanes, bug fixes)"
+role_ask HARNESS_EFFORT_IMPLEMENTER implementer effort "Implementer effort"
+echo "roles ($(cli_name)): manager ${HARNESS_MODEL_MANAGER:-<CLI default>}/${HARNESS_EFFORT_MANAGER:-<CLI default>}, implementer ${HARNESS_MODEL_IMPLEMENTER:-<CLI default>}/${HARNESS_EFFORT_IMPLEMENTER:-<CLI default>}"
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
 ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
@@ -102,7 +113,8 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
            HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
            HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_AUTHOR_ALLOWLIST \
-           HARNESS_SECURITY_AUDIT; do
+           HARNESS_SECURITY_AUDIT HARNESS_MODEL_MANAGER HARNESS_EFFORT_MANAGER HARNESS_MODEL_IMPLEMENTER \
+           HARNESS_EFFORT_IMPLEMENTER; do
     printf ': "${%s:=%s}"\n' "$v" "${!v:-}"
   done
   # Host poller (PRD-B, #74; default ON since #182). 1 = this fleet reads the shared host snapshots;

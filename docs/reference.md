@@ -20,6 +20,7 @@ features on the [headless session backend](#headless-lanes) (`HARNESS_SESSION_BA
 | `launch-no-task-text` | The task text stays out of argv (#213) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `launch-model` | A lane's model, pinned by the worktree hook (`.harness-lane`), reaches the launch `launch_agent` types | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `launch-effort-once` | That lane's effort replaces the configured one in the typed launch, once | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `launch-role-model` | A lane with no `.harness-lane` launches with its role's model and effort (`HARNESS_MODEL_IMPLEMENTER`/`HARNESS_EFFORT_IMPLEMENTER` for an issue lane, `_MANAGER` for an orchestration lane), as its launch event reads them off the CLI's own line and lane config (#375) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `session-id` | The session id Harness resolves after a launch finds the transcript the CLI wrote (claude: set at launch by `--session-id`; agy: read from `cache/last_conversations.json`, counted only when that conversation started since the launch; codex: the `session_meta` id of the newest rollout started in the worktree since the launch; copilot: set at launch by `--session-id=`; opencode: the newest top-level session of the worktree in `opencode.db` since the launch; hermes: the session titled by `-c <uuid> --create-if-missing` in the lane profile's `state.db`, the first of its compression chain; openclaw: the launch's own id, naming the lane's `runs/<id>.jsonl` of `agent exec` envelopes) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `idle-is-prompt` | An idle pane is read as the input prompt | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `idle-is-not-busy` | An idle pane is not read as a running turn | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -143,10 +144,14 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
 | `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = each lane a detached headless runner process, no multiplexer — `claude` only ([Headless lanes](#headless-lanes)); any other CLI is refused as tmux-only. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
 | `HARNESS_CLI` | `claude` | Agent CLI to drive: any CLI in [Supported agent CLIs](#supported-agent-clis), one adapter per CLI under `scripts/cli/` |
+| `HARNESS_MODEL_MANAGER` | `opus` on `claude`; _(empty)_ elsewhere | Model of every **Manager** lane: orchestration (`-p*`: PLAN, PRD, DECOMPOSE, REVIEW and its gauntlet auditor/critic), bug triage, the injector. Empty = the CLI's own default. See [Roles](#roles-model-and-effort-per-lane) |
+| `HARNESS_EFFORT_MANAGER` | `high` on `claude`; _(empty)_ elsewhere | Effort of every Manager lane; empty = the CLI's own default |
+| `HARNESS_MODEL_IMPLEMENTER` | `sonnet` on `claude`; _(empty)_ elsewhere | Model of every **Implementer** lane: issue lanes (`-i*`, also resuming from `resume.md`) and bug fixes. Empty = the CLI's own default |
+| `HARNESS_EFFORT_IMPLEMENTER` | `high` on `claude`; _(empty)_ elsewhere | Effort of every Implementer lane; empty = the CLI's own default |
 | `HARNESS_CLAUDE_BIN` | `claude` | Command line that runs `claude` when `HARNESS_CLI=claude`: an executable name or path, or a command line such as `env CLAUDE_CONFIG_DIR=~/.claude-switch/accounts/main claude` (pins the account even when tmux drops `CLAUDE_CONFIG_DIR`). The launch runs it whole; only its executable (the first word that is not `env`, an `env` option or a `NAME=value`) is checked for on PATH. Words split on whitespace, so a value containing a space is not supported |
 | `HARNESS_AGY_BIN` | `agy` | Executable path for `agy` when `HARNESS_CLI=agy`; a command line like `HARNESS_CLAUDE_BIN`'s |
 | `HARNESS_AGY_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `agy` CLI on launch |
-| `HARNESS_CLAUDE_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `claude` on launch; a lane's own model and effort (`.harness-lane`) replace the ones they carry |
+| `HARNESS_CLAUDE_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `claude` on launch; a lane's own model and effort (`.harness-lane`), else its role's (`HARNESS_MODEL_*` / `HARNESS_EFFORT_*`), replace the ones they carry |
 | `HARNESS_AGY_HOME` | `~/.gemini/antigravity-cli` | agy's state dir: its `settings.json` (workspace trust), conversations and session map |
 | `HARNESS_AGY_USAGE_TTL` | `120` | Seconds one `agy -p /usage` answer is reused by every worker |
 | `HARNESS_AGY_USER_SKILLS` | `~/.gemini/config/skills` | Where agy loads user skills from: `harness setup --install` and `install.sh` put the lane prompts' skills there |
@@ -420,10 +425,40 @@ out of the lane's commits):
 printf 'model=sonnet\neffort=medium\n' > .harness-lane
 ```
 
-Pin a claude lane's model here, not in `.claude/settings.local.json`: in a linked worktree Claude Code
+Both beat the lane's [role](#roles-model-and-effort-per-lane) keys. Pin a claude lane's model here, not in `.claude/settings.local.json`: in a linked worktree Claude Code
 also reads the main checkout's `settings.local.json`, and that one wins (#374). A worktree's own
 `settings.local.json` model is still honoured — the claude adapter puts it on the launch line as
 `--model` when `.harness-lane` names none.
+
+### Roles: model and effort per lane
+
+Every lane plays one of two roles, read from its session kind (the session name says it):
+
+| role | session kinds |
+|---|---|
+| **Manager** | orchestration `<prefix>-<unit>-p<n>` (PLAN, PRD, DECOMPOSE, REVIEW and its gauntlet auditor/critic), bug triage `<prefix>-bug-…-triage`, the injector `<prefix>-inject-<unit>` |
+| **Implementer** | issue lanes `<prefix>-<unit>-i<n>` (also when they resume from `resume.md`), bug fixes `<prefix>-bug-…-fix` |
+
+A lane launches with its role's `HARNESS_MODEL_MANAGER` / `HARNESS_EFFORT_MANAGER` or
+`HARNESS_MODEL_IMPLEMENTER` / `HARNESS_EFFORT_IMPLEMENTER`. On `claude` they default to `opus`/`high`
+(Manager) and `sonnet`/`high` (Implementer) — aliases, never full model ids, so a new Opus or Sonnet
+arrives with the CLI update. On every other CLI they default to empty, which is the CLI's own default:
+set them to the ids that CLI takes (copilot and others need full ids; Harness never guesses one).
+`harness init` asks for both roles and shows them.
+
+Precedence, highest first, for the model and the effort separately:
+
+1. the worktree hook's `.harness-lane` (on `claude`, also a model the hook pinned in the worktree's
+   `.claude/settings.local.json`);
+2. the role keys;
+3. a `--model` / `--effort` in `HARNESS_<CLI>_FLAGS`, else the CLI's default.
+
+Whichever wins reaches the CLI's launch through its adapter (`cli_launch`, or the headless runner's
+flags), replacing the flags' own, and the `launch` event in `harness stats` logs it.
+
+A fleet that pinned `--model opus` in `HARNESS_CLAUDE_FLAGS` gets **Sonnet implementers** after this
+(#375): the Implementer role's `sonnet` now beats the flags. Set `HARNESS_MODEL_IMPLEMENTER=opus` in
+`.harness/config` to keep every lane on Opus.
 
 ### Parallel-lane merge safety
 
