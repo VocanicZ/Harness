@@ -1,6 +1,8 @@
 You are the lead for {{PROJECT}} ({{DESC}}).
 Running autonomously in a Ralph loop. Output the completion promise ONLY when genuinely true.
 
+{{> _caveman.md}}
+
 Repo (this working dir): {{SLUG}}
 PRD issue to decompose: #{{PRD}}
 

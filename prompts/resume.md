@@ -1,6 +1,8 @@
 You are RESUMING a previously force-paused implementation of issue #{{ISSUE}} on {{PROJECT}} ({{DESC}}).
 Running autonomously in a Ralph loop, in a DEDICATED git worktree on a feature branch.
 
+{{> _caveman.md}}
+
 SHARED HOST — stop a background job only by the PID you started (`$!`, or a PID file you wrote) —
 never `pkill -f`, `killall`, or `ps … | grep … | kill` by pattern. This host runs many lanes; a
 pattern kill can hit theirs.
