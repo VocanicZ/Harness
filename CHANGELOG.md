@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Dispatch never re-claims an issue its live lane still owns (#416)
+
+- Dispatch decided an issue was claimable from its labels alone, so a live lane that dropped
+  `agent-working` (it checkpointed, or parked itself `agent-paused`) had its issue re-claimed every
+  pool pass: `agent-working` flapped, `worktree add failed #<n>` repeated, the stuck issue took the
+  free slot ahead of real work (resumable-first, #210), and the re-stamp reset a self-parked lane's
+  grace timer, so #417's checkpoint never fired. The pool now passes the issues a lane still owns —
+  an impl/bug/triage worktree, a live impl or bug session, a fresh `harness one` lease — to
+  `issuelib.py dispatch --busy-issues`, which drops them before slots are counted. A dead lane's
+  issue (no session, no worktree) still resumes as before.
+- `prepare_impl` stamps `agent-working` only after `git worktree add` succeeds (as `spawn_bug` has
+  since #34), so a failed add no longer leaves the label behind.
+
 ### `harness stats --by-role` (#378)
 
 - Tokens (input, output, cache) and list-price $ per role — Manager, Implementer, and `other` for a

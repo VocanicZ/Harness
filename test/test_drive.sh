@@ -216,6 +216,30 @@ assert_eq "$(grep -c 'add-label' "$GH2" 2>/dev/null; true)" "0" \
   "spawn_bug does NOT stamp agent-working when worktree add fails (#34 no wedge)"
 unset -f git
 
+# ── #416: prepare_impl must NOT stamp agent-working when `worktree add` fails ──
+# A failure there can mean a live lane still owns the issue's worktree; the stamp used to go on
+# FIRST and stay, so the label flapped every pool pass. Mirror spawn_bug (#34): stamp after the add.
+make_env
+HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
+CHECKOUT="$RUN_DIR/co416"; mkdir -p "$CHECKOUT"
+WORKTREES_DIR="$RUN_DIR/wt416"; mkdir -p "$WORKTREES_DIR"
+GH416="$RUN_DIR/ghcalls416"; : > "$GH416"
+gh(){ case "$*" in *add-label*) echo "gh $* wt=$([[ -d "$WORKTREES_DIR/main-i5" ]] && echo yes || echo no)" >> "$GH416";;
+                   *) echo "gh $*" >> "$GH416";; esac; return 0; }
+render(){ :; }; launch_claude(){ :; }; tmux(){ :; }; run_worktree_hook(){ :; }; resume_handoff(){ :; }
+ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }
+git(){ case "$*" in *"worktree add"*) return 128;; *) return 0;; esac; }
+prepare_impl 5 "ISSUE 5 DONE" 2>/dev/null; assert_eq "$?" "1" "prepare_impl returns nonzero when worktree add fails"
+assert_eq "$(grep -c 'add-label' "$GH416" 2>/dev/null; true)" "0" \
+  "prepare_impl does NOT stamp agent-working when worktree add fails (#416)"
+git(){ case "$*" in *"worktree add"*) mkdir -p "$WORKTREES_DIR/main-i5";; esac; return 0; }
+: > "$GH416"
+prepare_impl 5 "ISSUE 5 DONE" 2>/dev/null; assert_eq "$?" "0" "prepare_impl succeeds when worktree add does"
+assert_eq "$(grep -c 'add-label agent-working' "$GH416")" "1" "agent-working stamped exactly once on success"
+assert_ok "... and only after the worktree exists" grep -q 'add-label agent-working wt=yes' "$GH416"
+unset -f git gh
+
 # ── #34: sweep_orphan_bug_worktrees removes a dead-session fix worktree, keeps a live one ──
 # start.sh recover() calls this on crash/new-machine boot: the lane never reaped its own worktree
 # (the host died), so a leftover blocks the next spawn unless recovery sweeps it.
