@@ -64,4 +64,26 @@ assert_eq "$rc" 0 "install.sh's main exits 0 on a clean HOME"
 assert_eq "$(readlink "$HARNESS_HOME/engine")" releases/v0.2.0 "main installs the latest release"
 assert_ok "main's closing message names the release" grep -qF 'Done. Harness v0.2.0 is installed' <<<"$out"
 assert_ok "the /harness skills come from the release" test -f "$T/home6/skills/harness/SKILL.md"
+
+# #403: native Windows, where the `python3` on PATH is the Microsoft Store stub (prints its message,
+# exits non-zero) and the real interpreter is `python`. A first install must still resolve
+# releases/latest — no shim exists yet when place_engine runs — install, and write the shim.
+fresh 7; STUB="$T/stub7"; mkdir -p "$STUB"; REALPY="$(command -v python3)"
+for t in claude; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$t"; chmod +x "$STUB/$t"; done
+printf '#!/bin/sh\ncase "$1" in auth) exit 0;; esac\nexit 0\n' > "$STUB/gh"; chmod +x "$STUB/gh"
+printf '#!/bin/sh\nexit 1\n' > "$STUB/git"; chmod +x "$STUB/git"
+printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 9009\n' > "$STUB/python3"
+chmod +x "$STUB/python3"; ln -s "$REALPY" "$STUB/python"
+out="$(env -u HARNESS_PYTHON -u MSYS PATH="$STUB:/usr/bin:/bin" HARNESS_PLATFORM=windows HARNESS_BASH_EXE='C:\Git\bin\bash.exe' \
+  HARNESS_SKIP_RTDD=1 HARNESS_CLAUDE_BIN="$STUB/claude" "${nope[@]}" \
+  CLAUDE_CONFIG_DIR="$T/home7/.claude" HARNESS_USER_SKILLS="$T/home7/skills" bash "$HERE/../install.sh" 2>&1)"; rc=$?
+assert_eq "$rc" 0 "Windows: install.sh's main exits 0 with only the Store-stub python3 on PATH"
+assert_no "… never saying the releases/latest response is not JSON" grep -qF 'is not JSON' <<<"$out"
+assert_eq "$(readlink "$HARNESS_HOME/engine")" releases/v0.2.0 "… and installs the latest release"
+assert_ok "… and writes the python3 shim" test -x "$HARNESS_HOME/bin/python3"
+assert_eq "$(PATH="$HARNESS_HOME/bin:$STUB:/usr/bin:/bin" python3 -c 'print(6*7)')" 42 "… which runs the real python, not the stub"
+assert_ok "… and finishes" grep -qF 'Done. Harness v0.2.0 is installed' <<<"$out"
+# rel_latest_tag on its own (as `harness update` reaches it) reads the JSON through a Python that runs.
+assert_eq "$(env -u HARNESS_PYTHON PATH="$STUB:/usr/bin:/bin" HARNESS_PLATFORM=windows HARNESS_INSTALL_NOMAIN=1 \
+  bash -c "source '$HERE/../install.sh'; rel_latest_tag" 2>&1)" v0.2.0 "Windows: rel_latest_tag skips the Store stub"
 finish
