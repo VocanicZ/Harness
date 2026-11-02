@@ -55,6 +55,9 @@ install_python_shim(){ local d="${HARNESS_HOME:-$HOME/.harness}/bin" py
 # python3 — Harness's shim (#356): on Windows the `python3` on PATH is the Microsoft Store stub, so
 # this runs HARNESS_PYTHON instead (default: the interpreter install.sh found). Written by install.sh
 # and `harness update`; bin/harness puts this directory first on PATH.
+# UTF-8 mode (#406): stdio and open() default to UTF-8, not the ANSI code page (cp1252), so every
+# engine Python reads and prints the lane files' and the TUI shapes' non-ASCII (✻ ❯ — …) intact.
+export PYTHONUTF8=1
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EOF
     printf 'p="${HARNESS_PYTHON:-%s}"\n' "$(printf '%q' "$py")"

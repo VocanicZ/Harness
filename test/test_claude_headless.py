@@ -432,6 +432,28 @@ def test_pane_draws_state_in_claude_shapes():
     assert "API Error" not in p and "429" not in p, "the reply text is never drawn"
 
 
+def test_pane_and_send_are_utf8_on_a_cp1252_stdio():
+    """#406: a piped stdio on native Windows is the ANSI code page (cp1252), which has no ✻ ❯ ─ —
+    `pane` crashed there, so every reader of a headless lane's screen saw nothing, and `send … -`
+    read the engine's UTF-8 as cp1252, mangling every non-ASCII character it delivered."""
+    lane = tempfile.mkdtemp()
+    ch.write_json_atomic(ch.paths(lane)["state"], {"turn": 1, "inbox_offset": 0, "state": "busy",
+                                                   "turn_started": time.time(), "last_reply": "done — ✻"})
+    ch.send(lane, "Please continue — queued")
+    env = dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONUTF8="0")
+    r = subprocess.run([sys.executable, RUNNER, "pane", "--lane", lane], env=env, capture_output=True)
+    out = r.stdout.decode("utf-8", "replace")
+    assert r.returncode == 0 and b"Traceback" not in r.stderr, r.stderr.decode("utf-8", "replace")
+    assert "✻ Working…" in out and "❯ Please continue — queued\n" in out and "─" * 60 in out, out
+    lane2 = tempfile.mkdtemp()
+    r = subprocess.run([sys.executable, RUNNER, "send", "--lane", lane2, "-"], env=env,
+                       input="checkpoint — now ✻\n".encode("utf-8"), capture_output=True)
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    assert ch.read_inbox(lane2, 0)[0][0]["text"] == "checkpoint — now ✻\n", ch.read_inbox(lane2, 0)
+    q = subprocess.run([sys.executable, RUNNER, "state", "--lane", lane], env=env, capture_output=True)
+    assert q.returncode == 0 and json.loads(q.stdout.decode("utf-8"))["last_reply"] == "done — ✻", q
+
+
 def test_watch_prints_turns_tools_and_replies():
     lane = Lane(["normal", "tool-use"])
     try:

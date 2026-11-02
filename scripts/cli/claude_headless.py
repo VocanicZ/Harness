@@ -564,7 +564,19 @@ def _loads(raw):
 
 
 # --- CLI ----------------------------------------------------------------------------------------
+def utf8_stdio():
+    """#406: stdin/stdout/stderr in UTF-8 whatever the console code page. A piped stdio on native
+    Windows is the ANSI code page (cp1252): `pane` could not print ✻ ❯ ─, and `send … -` read the
+    engine's UTF-8 as cp1252. The lane files are UTF-8 already; this makes the pipes match."""
+    for s in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):   # not a TextIOWrapper (a test's StringIO), or closed
+            pass
+
+
 def main(argv=None):
+    utf8_stdio()
     ap = argparse.ArgumentParser(prog="claude_headless.py", description="headless claude lane runner (#347)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     lane = {"default": os.environ.get("HARNESS_LANE_DIR"), "required": not os.environ.get("HARNESS_LANE_DIR")}
