@@ -135,6 +135,11 @@ w419_start(){ local script="$1" wid="$2" d="$3"
 w419_exit(){ local i; for (( i = 0; i < $2 * 10; i++ )); do
     kill -0 "$1" 2>/dev/null || { wait "$1"; W419_RC=$?; return; }; sleep 0.1; done
   kill "$1" 2>/dev/null; wait "$1" 2>/dev/null; W419_RC=alive; }
+# w419_held <dir> — wait until the worker's first tick has held on the (absent) snapshot and gone to
+# sleep, so the deletion lands between ticks — the leak's real shape (a dead test's home vanishes
+# while its worker sleeps) — not inside one.
+w419_held(){ local i; for (( i = 0; i < 100; i++ )); do
+    grep -q 'snapshot stale' "$1/worker.log" 2>/dev/null && { sleep 0.2; return 0; }; sleep 0.1; done; }
 for w419 in pool-worker.sh:1 priority-worker.sh:P1; do
   script="${w419%%:*}" wid="${w419##*:}"
   # roots intact: the worker keeps polling, as it does today
@@ -142,12 +147,12 @@ for w419 in pool-worker.sh:1 priority-worker.sh:P1; do
   sleep 3; assert_ok "#419 $script: roots intact -> still polling after 3 polls" kill -0 "$W419_PID"
   kill "$W419_PID" 2>/dev/null; wait "$W419_PID" 2>/dev/null
   # STATE_DIR removed
-  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; sleep 1.5
+  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; w419_held "$D"
   rm -rf "$D/proj/.harness"
   w419_exit "$W419_PID" 4; assert_eq "$W419_RC" "0" "#419 $script: STATE_DIR deleted -> exits rc 0 within ~1 poll"
   assert_ok "#419 $script: its log names the missing STATE_DIR" grep -qF "$D/proj/.harness" "$D/worker.log"
   # HARNESS_HOME removed, STATE_DIR kept
-  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; sleep 1.5
+  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; w419_held "$D"
   rm -rf "$D/host"
   w419_exit "$W419_PID" 4; assert_eq "$W419_RC" "0" "#419 $script: HARNESS_HOME deleted -> exits rc 0 within ~1 poll"
   assert_ok "#419 $script: its log names the missing HARNESS_HOME" grep -qF "$D/host" "$D/worker.log"

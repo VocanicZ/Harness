@@ -1760,6 +1760,7 @@ poller_running(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"; [[ 
 # caller sees a live pid and stands down. HARNESS_POLLER_CMD overrides the launched command (a test
 # seam); production launches scripts/poller.sh.
 ensure_poller(){
+  roots_check   # #419: a worker's HARNESS_HOME deleted mid-tick — exit here, never re-create it below
   mkdir -p "$HARNESS_POLLER_DIR"
   local lockfd
   lock_acquire "$POLLER_LOCK" lockfd
