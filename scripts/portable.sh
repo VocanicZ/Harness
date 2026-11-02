@@ -192,6 +192,22 @@ win_bash_exe(){ local r c
   r="$(cygpath -m / 2>/dev/null)" || r=""
   for c in "${r%/}/bin/bash.exe" "${r%/}/usr/bin/bash.exe"; do [[ -n $r && -f $c ]] && { printf '%s\n' "$c"; return 0; }; done
   native_path "${BASH:-/usr/bin/bash}"; }
+# python3_version — the version of the Python 3 that `python3` runs (e.g. 3.13.5); rc 1, printing
+# nothing, when it runs none: on a stock Windows host the `python3` on PATH is the Microsoft Store
+# stub, which prints "Python was not found…" and exits 9009.
+python3_version(){ local v
+  v="$(python3 -c 'import sys; print(sys.version.split()[0]) if sys.version_info[0] == 3 else sys.exit(1)' 2>/dev/null)" \
+    && [[ -n $v ]] && { printf '%s\n' "$v"; return 0; }
+  return 1; }
+# PYTHON3_FIX — what to do when python3 does not run a Python 3 (doctor's and start's shared text).
+PYTHON3_FIX="install Python 3, then re-run install.sh/harness update for the shim, or set HARNESS_PYTHON"
+# win_python3_check — true off Windows, or when python3 runs a Python 3 there; otherwise says so,
+# naming the fix, and is false. start.sh refuses to launch a fleet without one (#405): every lane
+# claim goes through python3, so a Store-stub host would launch workers that never claim.
+win_python3_check(){
+  is_windows || return 0
+  python3_version >/dev/null && return 0
+  echo "python3 does not run a Python 3 (the Microsoft Store stub?) — $PYTHON3_FIX" >&2; return 1; }
 # _ps_quote <s> — <s> as a PowerShell single-quoted string body (a ' is doubled).
 _ps_quote(){ printf '%s' "${1//\'/\'\'}"; }
 # _env_script — this shell's exported variables as `export NAME=value` lines a later bash can source.

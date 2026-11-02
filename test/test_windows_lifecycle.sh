@@ -129,6 +129,36 @@ assert_no "start.sh exits non-zero with the tmux backend on Windows" test "$rc" 
 assert_ok "… naming the fix"                                  grep -q "HARNESS_SESSION_BACKEND=headless" <<<"$out"
 assert_no "… before launching anything"                       test -e "$STATE_DIR/run/worker-1.pid.new"
 
+echo "=== start refuses a python3 that runs no Python 3 on Windows (#405) ==="
+mkdir -p "$T/storepy" "$T/startbin"
+printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 9009\n' >"$T/storepy/python3"
+chmod +x "$T/storepy/python3"
+# gh / claude stubs that record any call: start must stop before it reaches either. ENGINE_DIR is the
+# fake engine (no pool.sh) and the poller is off, so even a start that wrongly carries on launches nothing.
+for b in gh claude; do printf '#!/bin/sh\necho "%s $*" >> "%s/start.calls"\nexit 1\n' "$b" "$T" >"$T/startbin/$b"; done
+chmod +x "$T/startbin/"*
+: >"$T/start.calls"; rm -f "$STATE_DIR"/run/*.pid   # the pool.sh section's (killed) workers
+assert_no "win_python3_check: the Store stub is refused on Windows" \
+  env HARNESS_PLATFORM=windows PATH="$T/storepy:$PATH" bash -c "source '$R/scripts/portable.sh'; win_python3_check 2>/dev/null"
+assert_ok "win_python3_check: a working python3 passes on Windows" \
+  env HARNESS_PLATFORM=windows bash -c "source '$R/scripts/portable.sh'; win_python3_check"
+assert_ok "win_python3_check: never refuses off Windows" \
+  env HARNESS_PLATFORM=posix PATH="$T/storepy:$PATH" bash -c "source '$R/scripts/portable.sh'; win_python3_check"
+out="$(HARNESS_PLATFORM=windows HARNESS_SESSION_BACKEND=headless PATH="$T/storepy:$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 HARNESS_PREFIX_COLLISION=warn bash "$R/scripts/start.sh" 2>&1)"; rc=$?
+assert_no "start.sh exits non-zero on Windows when python3 is the Store stub" test "$rc" = 0
+assert_ok "… naming the fix"                                  grep -q "install Python 3.*HARNESS_PYTHON" <<<"$out"
+assert_eq "$(cat "$T/start.calls")" "" "… before calling gh or the CLI (no worker launched)"
+assert_no "… and no worker pidfile"                           test -e "$STATE_DIR/run/worker-1.pid"
+# Past the python3 preflight start carries on as before to its next check: a tmux-only CLI on the
+# headless backend stops it there, deterministically and before anything launches.
+out="$(HARNESS_PLATFORM=windows HARNESS_SESSION_BACKEND=headless HARNESS_CLI=codex PATH="$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 bash "$R/scripts/start.sh" 2>&1)"
+assert_ok "start.sh with a working python3 on Windows passes the python3 preflight" grep -q "is tmux-only" <<<"$out"
+assert_no "… without the python3 refusal"                     grep -q "install Python 3" <<<"$out"
+out="$(HARNESS_PLATFORM=posix HARNESS_SESSION_BACKEND=headless HARNESS_CLI=codex PATH="$T/storepy:$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 bash "$R/scripts/start.sh" 2>&1)"
+assert_ok "start.sh off Windows skips the python3 preflight (POSIX unchanged)" grep -q "is tmux-only" <<<"$out"
+assert_no "… even with the Store stub first on PATH"          grep -q "install Python 3" <<<"$out"
+assert_eq "$(cat "$T/start.calls")" "" "no gh / CLI call on any refused start"
+
 echo "=== harness supervise --install: a scheduled task, not a systemd unit ==="
 export HARNESS_SUPERVISE_CONF="$T/none.conf" HARNESS_SUPERVISE_STATE="$T/sup" HARNESS_SUPERVISE_LOG="$T/sup.log"
 export HARNESS_PLATFORM=windows
