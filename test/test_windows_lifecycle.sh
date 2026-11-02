@@ -275,6 +275,10 @@ S="$IH/home/bin/python3"
 assert_ok "install writes \$HARNESS_HOME/bin/python3"        test -x "$S"
 assert_eq "$(PATH="$IH/home/bin:$IH/py:/usr/bin:/bin" python3 a b)" "realpy a b" "python3 through the shim runs the probed interpreter"
 assert_eq "$(PATH="$IH/home/bin:$IH/py:/usr/bin:/bin" HARNESS_PYTHON=python python3 x)" "realpy x" "HARNESS_PYTHON wins at run time"
+printf '#!/bin/sh\necho "utf8=${PYTHONUTF8:-unset}"\n' >"$IH/envpy"; chmod +x "$IH/envpy"
+assert_eq "$(env -u PYTHONUTF8 PATH="$IH/home/bin:$IH/py:/usr/bin:/bin" HARNESS_PYTHON="$IH/envpy" python3)" "utf8=1" \
+  "the shim runs Python in UTF-8 mode (PYTHONUTF8=1): stdio and open() are not cp1252 (#406)"
+assert_eq "$(env -u PYTHONUTF8 PATH="$IH/home/bin:$IH:/usr/bin:/bin" HARNESS_PYTHON=envpy python3)" "utf8=1" "… a HARNESS_PYTHON found on PATH too"
 # A PATH with the usual tools but no Python on it (the CI host's own python3 would answer otherwise).
 NB="$T/nopy"; mkdir -p "$NB"
 for b in bash sh env dirname basename sed cat grep tr awk head mkdir chmod ls readlink realpath uname id cut sort; do
