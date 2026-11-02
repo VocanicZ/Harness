@@ -107,6 +107,9 @@ headless_sess_kill(){ local lane pid i
   for (( i = 0; i < HARNESS_HEADLESS_STOP_WAIT * 10; i++ )); do _hl_alive "$pid" || break; sleep 0.1; done
   if [[ "$(_hl_runner "$1")" == "$pid" ]]; then proc_kill_tree "$pid"; fi
   _hl_reap_turn "$lane"; return 0; }
+# Nothing to sweep: the runner ends its turn's whole process tree itself, and a resumed lane keeps its
+# agent session's uuid (sess_resume_id), so an environment sweep could reach its successor (#418).
+headless_sess_sweep(){ return 0; }
 # The turns it has started and how much it has logged: both move with every turn, even one that began
 # and ended between two looks (the drawn screen holds no reply text, so it is unchanged by one).
 headless_sess_activity(){ local lane; headless_sess_live "$1" || return 0; lane="$(headless_lane_dir "$1")"

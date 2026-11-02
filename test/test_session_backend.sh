@@ -101,7 +101,11 @@ want="$(printf '%s\n' \
   $'send-keys\t-t\thz-main-i1\texec agent\tEnter' $'send-keys\t-t\thz-main-i1\t-l\thi there' \
   $'send-keys\t-t\thz-main-i1\tEnter' $'send-keys\t-t\thz-main-i1\tC-u' $'send-keys\t-t\thz-main-i1\tEscape' \
   $'capture-pane\t-p\t-t\thz-main-i1' $'capture-pane\t-p\t-S\t-40\t-t\thz-main-i1' \
-  $'display-message\t-p\t-t\thz-main-i1\t#{pane_pid}' $'kill-session\t-t\t=hz-main-i1')"
+  $'display-message\t-p\t-t\thz-main-i1\t#{pane_pid}' \
+  $'show-environment\t-t\t=hz-main-i1\tHARNESS_SESSION' $'list-panes\t-s\t-t\t=hz-main-i1\t-F\t#{pane_pid}' \
+  $'ls\t-F\t#{pid}' $'kill-session\t-t\t=hz-main-i1')"
+# #418: sess_kill reads the session's HARNESS_SESSION, its panes and the server's pid BEFORE the kill
+# (test_sess_sweep.sh: the sweep that follows it).
 assert_eq "$(cat "$TL")" "$want" "each sess_* runs exactly today's tmux command"
 assert_eq "$(sess_bins)" tmux "the tmux backend needs tmux on PATH"
 assert_eq "$(sess_attach_hint hz-main-i1)" "tmux attach -t hz-main-i1" "attach hint"

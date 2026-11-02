@@ -4,6 +4,20 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A tmux lane's background jobs end with it (#418)
+
+- Killing a tmux lane (`sess_kill`: reapers, `harness supervise`, adapters) now also ends what it left
+  running. `tmux kill-session` only reached the pane's own process group, so a detached background job
+  the agent started (a test server, `tail -F`, a watcher) outlived the lane forever, holding ports and
+  RAM. The kill now reads the session's `HARNESS_SESSION` and its panes' process trees first, then
+  SIGTERMs every process whose environment carries that uuid exactly, plus the pane tree, and
+  SIGKILLs what is still up after `HARNESS_SWEEP_GRACE` seconds (default 3).
+- A lane that exits on its own (Ralph promise, inject loop end) is swept the same way by
+  `stats_sweep_ended` when it claims the session's stats context (new seam function `sess_sweep`;
+  a no-op on the headless backend, whose runner already ends a turn's tree).
+- By pid only, never by pattern: a near-miss uuid, an argv naming the uuid, the caller and its
+  ancestors, the tmux server and the fleet's tracked workers are never touched.
+
 ### Verify what ran: `model_mismatch` (#376)
 
 - At `session_end`, the model with the most output tokens in the session is compared with the model

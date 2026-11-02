@@ -109,7 +109,8 @@ assert_eq "$(cat "$TMUXLOG")" $'tmux send-keys -t sess-x -l Please continue — 
 : > "$TMUXLOG"
 cli_kill sess-x "$WD"
 assert_ok "kill stops the lane's gateway, which outlives the pane" grep -qxF "$H gateway stop -y" "$HERMES_CALLS"
-assert_eq "$(cat "$TMUXLOG")" "tmux kill-session -t sess-x" "…once the pane is gone (a live TUI starts a new gateway)"
+# #418: sess_kill reads the session's HARNESS_SESSION, panes and server pid before the kill.
+assert_eq "$(cat "$TMUXLOG")" $'tmux show-environment -t sess-x HARNESS_SESSION\ntmux list-panes -s -t sess-x -F #{pane_pid}\ntmux ls -F #{pid}\ntmux kill-session -t sess-x' "…once the pane is gone (a live TUI starts a new gateway)"
 : > "$HERMES_CALLS"; cli_kill sess-y "$RUN_DIR/no-such-wd"
 assert_eq "$(cat "$HERMES_CALLS")" "" "a session with no lane home stops no gateway"
 unset -f tmux sleep

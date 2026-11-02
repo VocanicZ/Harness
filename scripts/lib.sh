@@ -1417,16 +1417,21 @@ stats_sess_event(){ local sess="$1"; shift; harness_event "$1" --ctx "$RUN_DIR/$
 # stats_sweep_ended — emit session_end for every launched session whose tmux session is gone, then
 # drop its context. Called from every reaper BEFORE it removes worktrees (the ralph state file there
 # carries the iteration count). The rename claims the file atomically, so when two lanes sweep the
-# shared RUN_DIR at once exactly one emits.
-stats_sweep_ended(){ local f s claim
+# shared RUN_DIR at once exactly one emits. #418: the claimer then ends whatever the session left
+# running (sess_sweep on its HARNESS_SESSION uuid) — a lane that exited on its own (Ralph promise,
+# inject loop end, `exec claude` returning) had no sess_kill to do it.
+stats_sweep_ended(){ local f s claim uuid
   shopt -s nullglob
   for f in "$RUN_DIR"/*.stats; do
     s="$(basename "$f" .stats)"
     session_live "$s" && continue
     claim="$f.end.$$"; mv "$f" "$claim" 2>/dev/null || continue
+    uuid="$(python3 -c 'import json,sys
+print(json.load(open(sys.argv[1])).get("session", ""))' "$claim" 2>/dev/null)" || uuid=""
     harness_event session_end --ctx "$claim" usage_tsv="$(_stats_cli_usage "$claim")"; rm -f "$claim"
+    [[ -n $uuid ]] && ! session_live "$s" && sess_sweep "$uuid"
   done
-  shopt -u nullglob; }
+  shopt -u nullglob; return 0; }
 # _stats_cli_usage <ctx file> — the ended session's per-model usage lines, read by the CLI adapter
 # from the CLI's own transcripts (#188); empty when it has none. stats.py prefers a claude
 # transcript it finds itself (it also dates the session's last turn from it).
