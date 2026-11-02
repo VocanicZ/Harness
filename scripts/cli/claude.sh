@@ -22,6 +22,13 @@ _claude_main_local(){ local common own
 # the orchestration checkout's pin), so it goes on the launch line as --model, which beats every settings file.
 _claude_lane_model(){ [[ -n "$2" ]] && { echo "$2"; return 0; }
   _claude_settings_model "$1/.claude/settings.local.json"; }
+# claude_pinned_model <wd> — the worktree hook's settings.local.json pin: launch_agent ranks it with
+# .harness-lane, above the role's model (#375), so a hook's pin still wins over a role default.
+claude_pinned_model(){ _claude_settings_model "$1/.claude/settings.local.json"; }
+# claude_role_default <role> <model|effort> — #375: Opus manages (plan, PRD, decompose, review, triage,
+# inject), Sonnet implements, both at high effort. Aliases, never full ids: a new Opus or Sonnet arrives
+# with the CLI update.
+claude_role_default(){ case "$1:$2" in manager:model) echo opus;; implementer:model) echo sonnet;; *:effort) echo high;; esac; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model effort="$4"; model="$(_claude_lane_model "$wd" "$3")"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort") \"$HARNESS_BOOTSTRAP_PROMPT\""; }

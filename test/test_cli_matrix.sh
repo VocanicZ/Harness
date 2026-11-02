@@ -149,6 +149,26 @@ ev = [e for e in map(json.loads, open(sys.argv[1])) if e.get("event") == "launch
 sys.exit(0 if ev and ev[-1].get("model") == sys.argv[2] and ev[-1].get("effort") == sys.argv[3] else 1)
 PY
 ) }
+# role_launch_ok <model> <effort> — #375: a lane whose worktree hook pinned nothing launches with its
+# role's model and effort: an issue lane (-i) with HARNESS_MODEL/EFFORT_IMPLEMENTER, an orchestration
+# lane (-p) with _MANAGER, each read back off the launch event (cli_model_effort over the CLI's own line
+# and lane config). The other role's keys name another model, so a lane that took the wrong role FAILs.
+role_launch_ok(){ ( fake_tmux; local s wd role other ev="$RUN_DIR/role-ev-$HARNESS_CLI.jsonl"; GOAL=ISSUE:7
+  export HARNESS_EVENTS_FILE="$ev"; rm -f "$ev"
+  for s in hz-role-i7 hz-role-p7; do
+    wd="$RUN_DIR/role-$HARNESS_CLI-$s"; new_wd "$wd"
+    if [[ $s == *-i7 ]]; then role=IMPLEMENTER other=MANAGER; else role=MANAGER other=IMPLEMENTER; fi
+    printf -v "HARNESS_MODEL_$role" '%s' "$1"; printf -v "HARNESS_EFFORT_$role" '%s' "$2"
+    printf -v "HARNESS_MODEL_$other" '%s' "not-$1"; printf -v "HARNESS_EFFORT_$other" '%s' high
+    launch_agent "$s" "$wd" >/dev/null 2>&1
+  done
+  python3 - "$ev" "$1" "$2" <<'PY2'
+import json, sys
+ev = {e.get("tmux"): e for e in map(json.loads, open(sys.argv[1])) if e.get("event") == "launch"}
+ok = all((ev.get(s) or {}).get("model") == sys.argv[2] and (ev.get(s) or {}).get("effort") == sys.argv[3] for s in ("hz-role-i7", "hz-role-p7"))
+sys.exit(0 if ok else 1)
+PY2
+) }
 # done_signal_ok <wd> — the goal loop is running while its state file exists, ended once it is gone.
 done_signal_ok(){ local wd="$1"
   write_state "$wd" "ISSUE 1 DONE" 5 x
@@ -202,7 +222,7 @@ new_wd(){ mkdir -p "$1" && git -C "$1" init -q && printf 'GOAL: UNIQUE_TASK_MARK
 # once the line runs, the session id Harness resolves finds the transcript the CLI wrote.
 lane_ok(){ local line uuid sid model effort
   line="$(typed_line "$1")"; uuid="$(state_uuid "$2")"; [[ -n $line && -n $uuid ]] || return 1
-  model="$(lane_setting "$2" model)"; effort="$(lane_setting "$2" effort)"
+  model="$(lane_model_effort "$1" "$2")"; effort="${model#*$'\t'}"; model="${model%%$'\t'*}"
   same "$line" "$(cli_launch "$2" "$uuid" "$model" "$effort")" || return 1
   has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input "$effort")" && lacks "$3" "$line" || return 1
   grep -qF -- "$3" "$2/.harness-task.md" && grep -qF -- "$3" "$2/.claude/ralph-loop.local.md" || return 1
@@ -258,7 +278,8 @@ trust_noop(){ local wd="$RUN_DIR/untrusted-$HARNESS_CLI"; new_wd "$wd"; cli_trus
 # line typed, and the CLI's own capture of a sub-agent run under that bypass shows it ran (subagent_ok).
 bypass_ok(){ ( fake_tmux; local wd="$RUN_DIR/bypass-$HARNESS_CLI"; new_wd "$wd"; GOAL=ISSUE:5
   launch_agent hz-byp-i5 "$wd" >/dev/null 2>&1
-  cli_bypassed "$wd" && same "$(typed_line hz-byp-i5)" "$(cli_launch "$wd" "$(state_uuid "$wd")" "" "")" ) &&
+  local me; me="$(lane_model_effort hz-byp-i5 "$wd")"
+  cli_bypassed "$wd" && same "$(typed_line hz-byp-i5)" "$(cli_launch "$wd" "$(state_uuid "$wd")" "${me%%$'\t'*}" "${me#*$'\t'}")" ) &&
     subagent_ok "$HARNESS_CLI"; }
 # subagent_ok <cli> — #305: the real CLI, launched with the lane's bypass, had a sub-agent run a shell
 # command, and its own record (fixtures/cli/<cli>/bypass-subagent.*, see each README.md) shows that
@@ -838,6 +859,7 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"
     cell "$cli" launch-model               has "$MODEL" "$lane"
     cell "$cli" launch-effort-once         effort_once_ok "$lane" low
+    cell "$cli" launch-role-model          role_launch_ok "$MODEL" low
     cell "$cli" session-id                 session_id_ok
     cell "$cli" idle-is-prompt             cli_pane_prompt "$(pane "$cli" idle)"
     cell "$cli" idle-is-not-busy           not cli_pane_busy "$(pane "$cli" idle)"

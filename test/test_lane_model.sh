@@ -100,7 +100,8 @@ assert_eq "$(grep -oE -- '--model' <<<"$(sent_line)" | wc -l)" "1" "--model is g
 
 echo "=== 4: no pin in the worktree — the event names what the main checkout's pin runs ==="
 WT4="$(lane neuro-i851)"
-ran="$(run_lane hz-lm-none "$WT4")"
+# Nothing pins a model: no worktree pin, and the role keys (#375) set to empty — the CLI's own default.
+ran="$(HARNESS_MODEL_MANAGER="" HARNESS_EFFORT_MANAGER="" run_lane hz-lm-none "$WT4")"
 assert_eq "$ran" "opus" "fixture: an unpinned worktree runs the main checkout's local pin"
 assert_eq "$(event_model hz-lm-none)" "opus" "the launch event names it too"
 assert_no "no --model is added when nothing pins one" grep -qF -- '--model' <<<"$(sent_line)"
