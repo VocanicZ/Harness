@@ -147,6 +147,52 @@ proc_kill_tree(){ local w
     kill -KILL "$1" 2>/dev/null; return 0
   fi
   kill -KILL -- "-$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; return 0; }
+# proc_ppid <pid> — the parent's pid (empty when it is gone).
+proc_ppid(){ local k v
+  while read -r k v; do [[ $k == PPid: ]] && { printf '%s\n' "$v"; return 0; }; done \
+    2>/dev/null < "${HARNESS_PROC_ROOT:-/proc}/$1/status"
+  is_windows || ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; return 0; }
+# proc_descendants <pid>… — every descendant of each <pid> (children, theirs, …), one per line, the
+# <pid>s themselves not included. procps `ps -e -o pid=,ppid=` (POSIX only: a tmux pane's tree, #418).
+proc_descendants(){ (( $# )) && ! is_windows || return 0
+  ps -e -o pid=,ppid= 2>/dev/null | awk -v roots="$*" '
+    BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) want[r[i]] = 1 }
+    { kid[NR] = $1; par[NR] = $2 }
+    END { do { more = 0; for (i = 1; i <= NR; i++) if ((par[i] in want) && !(kid[i] in want)) { want[kid[i]] = 1; out[kid[i]] = 1; more = 1 } } while (more)
+          for (p in out) print p }'; return 0; }
+# proc_session_pids <uuid> — the pids whose exec-time environment has HARNESS_SESSION EXACTLY <uuid>
+# (one whole NUL-separated entry, fixed string: never a prefix, a suffix, or a pattern; never argv).
+# Nothing for an empty <uuid>, or without a /proc to read.
+proc_session_pids(){ local p="${HARNESS_PROC_ROOT:-/proc}" f
+  [[ -n ${1:-} && -d $p ]] || return 0
+  grep -lsxzF -- "HARNESS_SESSION=$1" "$p"/[0-9]*/environ 2>/dev/null | while IFS= read -r f; do
+    f="${f#"$p"/}"; printf '%s\n' "${f%%/*}"; done; return 0; }
+# proc_sweep_session <uuid> [pid…] — end what a session left running (#418): every process whose
+# environment carries HARNESS_SESSION=<uuid> exactly (proc_session_pids — a setsid'd background job
+# inherits it too) plus each <pid> (a pane's tree, collected before the session went). Never the caller
+# or any ancestor of it, pid 1, a pid in SWEEP_KEEP (space-separated), or one of this fleet's tracked
+# workers (tracked_worker_pid, when lib.sh is loaded). SIGTERM, then SIGKILL whatever is still up after
+# HARNESS_SWEEP_GRACE seconds (default 3). By pid only — never a name or command-line pattern. Always
+# true: a missing uuid, an empty environment or nothing left is not an error.
+proc_sweep_session(){ local u="${1:-}" p keep=" 1 " hit=() left i grace="${HARNESS_SWEEP_GRACE:-3}"
+  (( $# )) && shift
+  p="$BASHPID"
+  while [[ $p =~ ^[0-9]+$ ]] && (( p > 1 )) && [[ $keep != *" $p "* ]]; do keep+="$p "; p="$(proc_ppid "$p")"; done
+  keep+="${SWEEP_KEEP:-} "
+  for p in $( { proc_session_pids "$u"; printf '%s\n' "$@"; } | sort -un); do
+    [[ $p =~ ^[0-9]+$ && $keep != *" $p "* ]] || continue
+    declare -F tracked_worker_pid >/dev/null && tracked_worker_pid "$p" && continue
+    proc_alive "$p" && hit+=("$p")
+  done
+  (( ${#hit[@]} )) || return 0
+  kill -TERM "${hit[@]}" 2>/dev/null
+  [[ $grace =~ ^[0-9]+$ ]] || grace=3
+  for (( i = 0; i <= grace * 10; i++ )); do
+    left=(); for p in "${hit[@]}"; do proc_alive "$p" && left+=("$p"); done
+    (( ${#left[@]} )) || return 0
+    (( i < grace * 10 )) && sleep 0.1
+  done
+  kill -KILL "${left[@]}" 2>/dev/null; return 0; }
 # detach_prefix — the command that runs a program in its own session (`setsid`) where the host has it,
 # so the worker that started it can exit: prefix a command with it (empty when there is none). Git
 # Bash has no setsid (a native child is not in the MSYS session anyway; #356 owns detaching from the

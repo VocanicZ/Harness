@@ -163,7 +163,8 @@ assert_eq "$(cat "$TMUXLOG")" $'tmux send-keys -t sess-x -l HARNESS CHECKPOINT â
 : > "$TMUXLOG"; ( sleep 31 & sleep 30; wait ) & SL=$!; echo "$SL" > "$WD/.harness-openclaw/running"; sleep 0.3
 kids="$(ps -o pid= --ppid "$SL" | xargs)"
 cli_kill sess-x "$WD"
-assert_eq "$(cat "$TMUXLOG")" "tmux kill-session -t sess-x" "kill ends the pane"
+# #418: sess_kill reads the session's HARNESS_SESSION, panes and server pid before the kill.
+assert_eq "$(cat "$TMUXLOG")" $'tmux show-environment -t sess-x HARNESS_SESSION\ntmux list-panes -s -t sess-x -F #{pane_pid}\ntmux ls -F #{pid}\ntmux kill-session -t sess-x' "kill ends the pane"
 wait "$SL" 2>/dev/null; rc=$?
 assert_eq "$rc" 143 "â€¦and the turn it was running"
 gone(){ local p; for p in $kids; do kill -0 "$p" 2>/dev/null && return 1; done; return 0; }

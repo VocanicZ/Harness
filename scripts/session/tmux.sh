@@ -18,7 +18,24 @@ tmux_sess_clear_line(){ tmux send-keys -t "$1" C-u; }
 tmux_sess_interrupt(){ tmux send-keys -t "$1" Escape; }
 tmux_sess_capture(){ tmux capture-pane -p ${2:+-S "-$2"} -t "$1" 2>/dev/null; }
 tmux_sess_pane_pid(){ tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null; }
-tmux_sess_kill(){ tmux kill-session -t "$1"; }
+# kill-session SIGHUPs only the pane's own process group: a detached background job (setsid — a test
+# server, `tail -F`, a watcher) outlived the lane forever, re-parented to init (#418). So read the
+# session's HARNESS_SESSION and its panes' process trees FIRST (after the kill the tree is re-parented
+# and unreachable by ppid), kill the session, then sweep both (proc_sweep_session) — never the tmux
+# server. The result is kill-session's: false when there was none.
+tmux_sess_kill(){ local u pids rc srv
+  u="$(tmux show-environment -t "$1" HARNESS_SESSION 2>/dev/null)"
+  [[ $u == HARNESS_SESSION=?* ]] && u="${u#HARNESS_SESSION=}" || u=""
+  pids="$(tmux list-panes -s -t "$1" -F '#{pane_pid}' 2>/dev/null | grep -E '^[0-9]+$')"
+  [[ -n $pids ]] && pids="$pids $(proc_descendants $pids)"
+  srv="$(_tmux_server_pid)"
+  tmux kill-session -t "$1"; rc=$?
+  [[ -n $u || -n $pids ]] && SWEEP_KEEP="$srv" proc_sweep_session "$u" $pids
+  return $rc; }
+# A lane that ended on its own (no kill): what still carries its HARNESS_SESSION (stats_sweep_ended).
+tmux_sess_sweep(){ [[ -n ${1:-} ]] || return 0; SWEEP_KEEP="$(_tmux_server_pid)" proc_sweep_session "$1"; }
+# The server's own pid: started by a lane's descendant, it would carry that lane's HARNESS_SESSION.
+_tmux_server_pid(){ tmux ls -F '#{pid}' 2>/dev/null | head -n1; }
 # Everything a pane does is on its screen: no mark beyond what sess_capture shows.
 tmux_sess_activity(){ return 0; }
 tmux_sess_turns(){ return 0; }

@@ -79,6 +79,10 @@ sess_activity(){ _sess_call activity "$@"; }
 sess_state(){ _sess_call state "$@"; }
 # sess_kill <target> — end the session; false when there was none.
 sess_kill(){ _sess_call kill "$@"; }
+# sess_sweep <uuid> — end whatever a session that is already gone left running, found by the
+# HARNESS_SESSION=<uuid> its environment carried (#418: a lane that exited on its own, which no
+# sess_kill ever reached). Nothing where the backend's own kill already ends a lane's whole tree.
+sess_sweep(){ _sess_call sweep "$@"; }
 # sess_turns <target> — how many turns the session has started, a mark for sess_turn_ended; empty when
 # the backend cannot count them (a pane's turns are only screen text).
 sess_turns(){ _sess_call turns "$@"; }
