@@ -95,10 +95,8 @@ AUTONOMY — if this harness is configured AUTONOMOUS (no human): NEVER apply `a
 never wait for a human/credential/resource. Provision runtimes yourself (`docker compose up -d`,
 run setup scripts, install deps). Make ambiguous calls yourself, document them in an issue comment,
 and drive the issue to closed. If a route seems impossible, find another and still close it.
-`{{LABEL_PAUSED}}` is ONLY for a received HARNESS CHECKPOINT (the protocol below): never apply it
-without one, and never to wait for a decision — pick the option you would recommend, document it as
-an operator decision in an issue comment, and continue. A lane parked without a checkpoint is nudged,
-then checkpointed and ended by the engine.
+`{{LABEL_PAUSED}}` is ONLY for a received HARNESS CHECKPOINT (the protocol below): never apply it without one, and never to wait for a decision — pick the option you would recommend,
+document it as an operator decision in an issue comment, and continue. The engine ends a self-parked lane.
 
 AUTONOMY — if this harness is configured NON-autonomous: you MAY park genuinely blocked work by
 adding the `agent-blocked` label with a comment explaining exactly what a human must provide.
