@@ -122,6 +122,15 @@ make_env(){
   # …and `--install`'s fetch of a missing CLI binary (#316): a real npm/curl install off the host's
   # PATH. The matrix's prereqs-named cell turns it back on against its stub npm and curl.
   export HARNESS_INSTALL_CLI_BIN=0
+  # …and the CLIs whose usage windows are read by RUNNING them (#404): agy_limit_usage,
+  # hermes_limit_usage and openclaw_limit_usage run `agy` / `hermes` / `openclaw` off PATH, so every
+  # usage_watch ran the host's real binary on the operator's real account — a host near its agy weekly
+  # limit opened a usage hold in the fixture (test_ghrate.sh). A failing stub of each goes first on
+  # PATH; the launch lines still name the bare binary, and a suite that drives its own stub through
+  # HARNESS_<CLI>_BIN (or a PATH of its own) still reaches that one. See test_hermetic.sh.
+  local cli_stubs="$RUN_DIR/cli-stubs" c; mkdir -p "$cli_stubs"
+  for c in agy hermes openclaw; do printf '#!/usr/bin/env bash\nexit 1\n' > "$cli_stubs/$c"; chmod +x "$cli_stubs/$c"; done
+  export PATH="$cli_stubs:$PATH"
   unset CLAUDE_CONFIG_DIR
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.
@@ -134,6 +143,18 @@ make_env(){
   HARNESS_TOPOLOGY=multi   # tests that feed targets.tsv use multi; single-topology tests set it themselves
   unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }
 }
+# gitattr_eol <tree> <path>… — the eol attribute <tree>'s own .gitattributes gives each path, one per
+# line (#404). Asked of a throwaway repository holding only a copy of that file, so it answers for a
+# tree that is no git repository: release.sh gates on a `git archive` extract, where `git -C <tree>
+# check-attr` dies "not a git repository" and an assertion on it fails on the gate, not the file.
+# The host's own attribute files are left out, so only the tree's decides. No .gitattributes: rc 1.
+gitattr_eol(){ local tree="$1" t out rc=1; shift
+  [[ -f "$tree/.gitattributes" ]] || { echo "gitattr_eol: no $tree/.gitattributes" >&2; return 1; }
+  t="$(mktemp -d)" || return 1
+  if git init -q "$t" && cp "$tree/.gitattributes" "$t/"; then
+    out="$(GIT_ATTR_NOSYSTEM=1 git -C "$t" -c core.attributesFile=/dev/null check-attr eol -- "$@")" && rc=0
+  fi
+  rm -rf "$t"; (( rc == 0 )) && sed 's/.*: //' <<<"$out"; return $rc; }
 write_targets(){ cat > "$TARGETS_TSV"; }
 set_complete(){ printf '%s\n' "$@" > "$COMPLETE_SET"; [[ $# -eq 0 ]] && : > "$COMPLETE_SET"; }
 unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }
