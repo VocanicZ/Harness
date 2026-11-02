@@ -180,8 +180,10 @@ one_phase(){ local issue="${1:-}" phase="${2:-}" json="" skip="" a fc rd rc leas
   local UNIT REPO SLUG PROJECT DESC CHECKOUT
   _one_target ${targs[@]+"${targs[@]}"} || return 2
   lease="$(one_lease_file "$UNIT" "$issue")"
-  [[ -f "$lease" ]] || { echo "harness one: $SLUG#$issue was not claimed by harness one start" >&2; return 2; }
-  touch "$lease"   # the session is alive: hold the reapers off for another HARNESS_ONE_LEASE_MIN
+  # #392: a HARNESS_ONE_AUTO lane is an ordinary impl session of the fleet — no lease; its live session is the claim.
+  if [[ -f "$lease" ]]; then touch "$lease"   # the session is alive: hold the reapers off for another HARNESS_ONE_LEASE_MIN
+  elif ! session_live "$(sess_impl "$UNIT" "$issue")"; then
+    echo "harness one: $SLUG#$issue was not claimed by harness one start (nor is a lane working it)" >&2; return 2; fi
   fc="$(mktemp)"; rd="$(mktemp)"
   python3 "$ENGINE_DIR/scripts/forecast.py" "$issue" -R "$SLUG" --unit "$UNIT" ${fargs[@]+"${fargs[@]}"} --json > "$fc"; rc=$?
   if (( rc != 0 && rc != 1 )); then rm -f "$fc" "$rd"; return 2; fi
@@ -198,7 +200,8 @@ one_phase(){ local issue="${1:-}" phase="${2:-}" json="" skip="" a fc rd rc leas
   _checkpoint_msg "$issue" "$SLUG" "issue/$issue" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED" \
     "harness one: the forecast left from $phase no longer fits under HARNESS_ONE_STOP_PCT=$HARNESS_ONE_STOP_PCT%"
   echo
-  echo "Once checkpointed — instead of exiting — run: $(_one_cmd) release $issue --unit $UNIT"
+  if [[ -f "$lease" ]]; then echo "Once checkpointed — instead of exiting — run: $(_one_cmd) release $issue --unit $UNIT"
+  else echo "Once checkpointed, exit: this is a HARNESS_ONE_AUTO lane — the engine ends it and the pool resumes the issue after the reset."; fi
   return 1; }
 
 # _one_unpushed <wd> — work in <wd> that only this host has: uncommitted changes (the rendered task

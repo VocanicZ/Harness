@@ -264,6 +264,39 @@ def rate_state(now):
     return out
 
 
+ONE_AUTO_STALE = 900   # one_auto.sh _oa_stale's floor: a lane record nobody refreshed for this long is gone
+
+
+def one_auto(now):
+    """#392: the HARNESS_ONE_AUTO lanes and chain stops on this host, from $HARNESS_HOME/one-auto alone:
+    [{"account", "state": "running"|"stopped", "repo", "issue", "session", "since", "forecast",
+    "reason", "detail", "until"}]. A lane record older than ONE_AUTO_STALE and a stop whose window
+    has reset are left out."""
+    d = os.environ.get("HARNESS_ONE_AUTO_DIR") or os.path.join(_home(), "one-auto")
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        path = os.path.join(d, n)
+        acct, _, kind = n.rpartition(".")
+        try:
+            cols = open(path, encoding="utf-8").readline().rstrip("\n").split("\t")
+            mtime = os.stat(path).st_mtime
+        except OSError:
+            continue
+        if kind == "lane" and len(cols) >= 7 and now - mtime < ONE_AUTO_STALE:
+            out.append({"account": cols[5] or acct, "state": "running", "repo": cols[2], "issue": _int(cols[3]),
+                        "session": cols[4], "since": _int(cols[6]),
+                        "forecast": cols[7] if len(cols) > 7 else ""})
+        elif kind == "stopped" and len(cols) >= 3 and (_int(cols[0]) or 0) > now:
+            out.append({"account": acct, "state": "stopped", "reason": cols[1], "detail": cols[2],
+                        "until": _int(cols[0]), "repo": cols[3] if len(cols) > 3 else "",
+                        "issue": _int(cols[4]) if len(cols) > 4 else None})
+    return out
+
+
 def _names(prefix):
     return re.compile(r"(?<![\w.-])" + re.escape(prefix) + r"(?=-|\]|\)|\s|$)")
 
@@ -320,7 +353,7 @@ def host_view(now=None):
     fleets = [fleet_health(fleet_entry(rec), rec, now, sessions, models, conf, states) for rec in registry()]
     stamps = [f["asof"] for f in fleets if f["asof"] is not None]
     rate = rate_state(now)
-    return {"asof": min(stamps) if stamps else None, "fleets": fleets, "rate": rate,
+    return {"asof": min(stamps) if stamps else None, "fleets": fleets, "rate": rate, "one_auto": one_auto(now),
             "attention": [{"kind": "rate-hold", "what": r["key"], "until": r["hold_until"]}
                           for r in rate if r["hold_until"]]}
 
