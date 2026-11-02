@@ -201,6 +201,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_ONE_STALE_MIN` | `30` | A usage reading older than this many minutes, or of unknown age, is stale… |
 | `HARNESS_ONE_STALE_PAD_PCT` | `3` | …and the gate adds this many points to it |
 | `HARNESS_ONE_LEASE_MIN` | `240` | Minutes a `/harness-one` claim keeps the pool's reapers and lock sweeps off its issue after the last `harness one start`/`phase`; past it the session counts as dead and the pool reaps the issue like a dead lane |
+| `HARNESS_ONE_AUTO` | `0` | `1` = when a usage hold engages (`HARNESS_USAGE_CHECKPOINT_PCT`), the engine starts ONE harness-one lane per account by itself, gated against `HARNESS_ONE_STOP_PCT` like `/harness-one` but with no human prompt. `0` = a hold leaves the fleet idle until the window resets. See [Auto harness-one lane](#auto-harness-one-lane-harness_one_auto) |
 | `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
 | `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
@@ -741,6 +742,37 @@ the operator keep going one issue at a time in their own session, with a budget 
   ready, not `agent-working`, every `## Blocked by` closed; resumable — `agent-paused` or a pushed
   branch — first, then oldest) and runs a fresh forecast + gate for it (exit 0 APPROVE / 1 DENY / 3
   refused). The human decides again: approve / pick another / stop. None claimable is exit 5.
+
+### Auto harness-one lane (`HARNESS_ONE_AUTO`)
+
+With `HARNESS_ONE_AUTO=1`, a [usage hold](#usage-limit-checkpoints) no longer leaves the fleet idle:
+the engine runs `/harness-one` itself, one issue at a time, until the next issue will not fit.
+
+- **Trigger** — every poll of a usage-HELD unit (`drive_unit`) of a fleet with `HARNESS_ONE_AUTO=1`.
+  No operator step, no approval prompt. Default `0`: the hold behaves exactly as before.
+- **One lane per account, host-wide** — usage is per account, so at most one auto lane runs per
+  account across every fleet on the host: `$HARNESS_HOME/one-auto/<account>.lane`, taken under
+  `<account>.lock`. The fleet that owns it refreshes it every poll; a record nobody refreshed for
+  three polls (at least 15 minutes) is a dead fleet's and is free again. Fleets held on the same
+  account take turns: a free lane goes to the next opted-in fleet unit (with a claimable issue) after
+  the one served last.
+- **Gate** — the next claimable issue (`issuelib.py next`, as `harness one done` picks it) goes
+  through `harness one gate`: it starts only if `now% + p80% + HARNESS_ONE_RESERVE_PCT <=
+  HARNESS_ONE_STOP_PCT` in every window. A DENY starts nothing, logs the forecast and the reason, and
+  stops the account's chain until the held window resets.
+- **Execution** — the issue is claimed and rendered as dispatch does it (`impl.md`, `resume.md` for
+  an `agent-paused` issue) and runs as an ordinary impl lane of the fleet, its task ending with the
+  per-phase re-check (`harness one phase`). A phase that will not fit checkpoints exactly as
+  `pause --force` does: branch pushed, handoff comment, `agent-paused`; the engine then ends the
+  lane, and the pool resumes the issue after the reset.
+- **Chaining** — once the lane's issue is closed (the goal check), the next poll picks the next
+  claimable issue with a fresh forecast. An issue still open after its lane is gone (checkpointed or
+  failed) stops the chain.
+- **Hand-back** — when the hold clears no new issue is started; the running lane finishes or
+  checkpoints as a normal session (its issue stays `agent-working`, so the pool never races it).
+- **Visibility** — `harness status` and the web dashboard show the lane, its issue and forecast, or
+  why the chain stopped; every start and stop is a stats event (`one_auto_start`, `one_auto_stop`,
+  `one_auto_done`).
 
 ### GitHub rate limits
 

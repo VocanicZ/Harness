@@ -250,6 +250,20 @@ def fleet_card(f, now):
 </article>"""
 
 
+def one_auto_callout(a, now):
+    """#392: one HARNESS_ONE_AUTO lane — running on an issue with its forecast, or why its chain stopped."""
+    if a.get("state") == "running":
+        return (f'<div class="callout" data-one-auto="running"><div class="callout__body">'
+                f'<p class="callout__title">Auto harness-one lane <span class="mono">{esc(a["account"])}</span>: '
+                f'<span class="mono">{esc(a.get("repo") or "")}#{esc(str(a.get("issue") or ""))}</span></p>'
+                f'<p>The account is usage-held; this one lane works on it. Forecast: '
+                f'<span class="mono">{esc(a.get("forecast") or "n/a")}</span></p></div></div>')
+    return (f'<div class="callout callout--amber" data-one-auto="stopped"><div class="callout__body">'
+            f'<p class="callout__title">Auto harness-one lane <span class="mono">{esc(a["account"])}</span> stopped '
+            f'({esc(a.get("reason") or "")}) until {_until(a.get("until"), now)}</p>'
+            f'<p>{esc(a.get("detail") or "")}</p></div></div>')
+
+
 def overview_regions(view, now):
     """The host overview's regions: the header (fleet count, as-of), host-wide attention, the fleets."""
     fleets = view["fleets"]
@@ -267,6 +281,7 @@ def overview_regions(view, now):
         f'{_until(a["until"], now)}</p><p>No fleet on this host calls <code>gh</code> with it until then; '
         f'claims wait.</p></div></div>'
         for a in view.get("attention") or ())
+    host += "".join(one_auto_callout(a, now) for a in view.get("one_auto") or ())
     hidden = "" if host else " hidden"
     return {
         "header": f"""<section data-region="header" class="page-header">

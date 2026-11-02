@@ -429,7 +429,7 @@ drive_unit(){
   # #183: gh_rate_wait first — after a rate-limited read the loop sleeps until the reset before the
   # completion check (a gh read) runs again; the watchdog keeps tending live sessions meanwhile.
   while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
-    reap_done_sessions; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
+    reap_done_sessions; one_auto_tend; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
     reap_pool_bugs   # #214: bug sessions an idle slot took — end on goal, release the claim once gone
     release_tick     # #283: a throttled patch release for queued bug fixes (Harness repo only)
     retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
@@ -445,7 +445,8 @@ drive_unit(){
     if ! ci_gate_ok "$SLUG"; then harness_event hold reason=other cause=ci_red secs="$POLL"; sleep "$POLL"; continue; fi
     # #194: an account near its usage limit was checkpointed — hold NEW dispatch (never drain) until
     # the window resets, then the agent-paused issues re-dispatch through the resume path.
-    usage_watch; if usage_held; then harness_event hold reason=rate_limit cause=usage_limit secs="$POLL"; sleep "$POLL"; continue; fi
+    # #392: HARNESS_ONE_AUTO=1 — the hold starts one gated harness-one lane per account (one_auto_tick).
+    usage_watch; if usage_held; then one_auto_tick; harness_event hold reason=rate_limit cause=usage_limit secs="$POLL"; sleep "$POLL"; continue; fi
     # #183: the GitHub token is under its budget threshold — no new dispatch, half the poll rate, so
     # what is left goes to the live agents. The sweeps above still ran: they are what finishes work.
     if gh_budget_low; then harness_event hold reason=rate_limit cause=gh_budget secs="$(( POLL * 2 ))"; sleep "$(( POLL * 2 ))"; continue; fi

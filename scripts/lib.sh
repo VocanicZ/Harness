@@ -67,6 +67,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_ONE_STALE_MIN:=30}"         # #365: a usage reading older than this many minutes (or of unknown age) is stale…
 : "${HARNESS_ONE_STALE_PAD_PCT:=3}"      # #365: …and the gate pads it by this many points
 : "${HARNESS_ONE_LEASE_MIN:=240}"         # #366: minutes a /harness-one claim holds off the reapers after its last `harness one start|phase`
+: "${HARNESS_ONE_AUTO:=0}"               # #392: 1 = a usage hold (#194) starts ONE headless harness-one lane per account by itself, gated like #365
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
 : "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire each worktree to report its usage windows (cli_usage_setup); 0 = off
 : "${HARNESS_GH_RATE_GUARD:=1}"          # #183: 1 = sleep through a GitHub rate limit + hold claims on a low budget; 0 = off
@@ -1847,4 +1848,5 @@ _checkpoint_target(){  # <session>
 
 # #194 usage watch + checkpoint (needs the config above and the helpers in this file).
 source "$(dirname "${BASH_SOURCE[0]}")/usage.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/one_auto.sh"   # #392: HARNESS_ONE_AUTO — the auto harness-one lane
 source "$(dirname "${BASH_SOURCE[0]}")/ghrate.sh"
