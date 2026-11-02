@@ -36,6 +36,13 @@ python_probe(){ local c w path=":$PATH:" sd="${HARNESS_HOME:-$HOME/.harness}/bin
     return 0
   done
   return 1; }
+# inst_py <args…> — run Python as install.sh itself needs it (#403): python3 off Windows; on Windows
+# python_probe's interpreter, since the `python3` on PATH may be the Store stub and the shim may not
+# exist yet (a first install resolves releases/latest before it can write one).
+inst_py(){ local p w
+  inst_windows || { python3 "$@"; return; }
+  p="$(python_probe)" || { echo "MISSING: a Python 3 that runs (python3/python/py -3; the Microsoft Store stub is not one)" >&2; return 127; }
+  if [[ -f $p ]]; then "$p" "$@"; else read -r -a w <<<"$p"; "${w[@]}" "$@"; fi; }
 # install_python_shim — Windows only: $HARNESS_HOME/bin/python3, which bin/harness puts first on PATH,
 # runs HARNESS_PYTHON (default: python_probe's answer, baked in), so the engine's `python3` calls
 # reach a real interpreter. Re-run by `harness update`.
@@ -262,7 +269,7 @@ rel_latest_tag(){
   if ! body="$(curl -sSL "$HARNESS_API_URL" 2>&1)"; then
     echo "$REL_CMD: could not resolve the latest release from $HARNESS_API_URL: ${body:-curl failed}" >&2; return 3
   fi
-  if ! tag="$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print((d.get("tag_name") or "") if isinstance(d,dict) else "")' <<<"$body" 2>/dev/null)"; then
+  if ! tag="$(inst_py -c 'import json,sys; d=json.loads(sys.stdin.read()); print((d.get("tag_name") or "") if isinstance(d,dict) else "")' <<<"$body" 2>/dev/null)"; then
     echo "$REL_CMD: could not resolve the latest release from $HARNESS_API_URL: the response is not JSON" >&2; return 3
   fi
   [[ -n "$tag" ]] || return 2
@@ -594,6 +601,10 @@ link_path(){
 main(){
   offer_prereqs
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
+  # Windows (#356, #403): the shim first, and its directory first on PATH, so every later `python3` —
+  # here and in what main runs — reaches a real interpreter, never the Microsoft Store stub.
+  install_python_shim || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
+  inst_windows && export PATH="$HARNESS_HOME/bin:$PATH"
   place_engine || { echo "Engine install/update failed — see above; not finalizing." >&2; exit 1; }
   if ! declare -F cli_list >/dev/null; then     # a piped install: the adapters arrived with the engine
     _load_cli_seam && offer_prereqs && check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
@@ -601,7 +612,6 @@ main(){
   ensure_skills
   ensure_rtdd
   create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
-  install_python_shim || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }   # Windows only (#356)
   install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
   link_path
   cat <<EOF
