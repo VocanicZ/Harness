@@ -6,8 +6,24 @@
 export HARNESS_CLAUDE_BIN HARNESS_CLAUDE_FLAGS
 
 claude_bin(){ echo "${CLAUDE_BIN:-${HARNESS_CLAUDE_BIN:-claude}}"; }
+# _claude_settings_model <file> — the model a Claude Code settings file names (empty: none, or no file).
+_claude_settings_model(){ [[ -f "$1" ]] || return 0
+  F="$1" python3 -c 'import json, os; print((json.load(open(os.environ["F"])) or {}).get("model") or "")' 2>/dev/null; return 0; }
+# _claude_main_local <wd> — a linked git worktree's MAIN checkout's .claude/settings.local.json (empty when
+# <wd> is no linked worktree). Claude Code reads it for every worktree of that repository, and it wins
+# over the worktree's own settings.local.json (#374, claude 2.1.316) — the tracked settings.json does not.
+_claude_main_local(){ local common own
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  own="$(git -C "$1" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 0
+  [[ -n "$common" && "$common" != "$own" ]] && echo "${common%/.git}/.claude/settings.local.json"; return 0; }
+# _claude_lane_model <wd> <model> — the model a lane launches with: its own (.harness-lane), else the pin a
+# worktree hook wrote into <wd>/.claude/settings.local.json. That pin alone silently loses to the main
+# checkout's own settings.local.json in a linked worktree (#374: hg2's Sonnet implementer lanes ran Opus,
+# the orchestration checkout's pin), so it goes on the launch line as --model, which beats every settings file.
+_claude_lane_model(){ [[ -n "$2" ]] && { echo "$2"; return 0; }
+  _claude_settings_model "$1/.claude/settings.local.json"; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
-claude_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
+claude_launch(){ local wd="$1" uuid="$2" model effort="$4"; model="$(_claude_lane_model "$wd" "$3")"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort") \"$HARNESS_BOOTSTRAP_PROMPT\""; }
 # --- the headless lane (#349): claude is the one CLI with a headless lane runner -----------------
 # claude_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line: the
@@ -15,7 +31,7 @@ claude_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
 # `claude -p` with the configured flags (the lane's model/effort replacing theirs); the bootstrap is
 # the first turn; the session id is ours, as on a pane. A 5th argument (#350) says <uuid> is an existing
 # session the lane carries on: the first turn resumes it.
-claude_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
+claude_headless(){ local wd="$1" uuid="$2" model effort="$4"; model="$(_claude_lane_model "$wd" "$3")"
   printf '%s\n' python3 "$CLI_DIR/claude_headless.py" run --cwd "$wd" --bin "$(claude_bin)" --session-id "$uuid" \
     ${5:+--resume} "--flags=$(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
 # A pane's goal loop is ralph-loop's Stop hook. A headless lane is looped by Harness as well (the driven
@@ -45,14 +61,17 @@ claude_lane_settings(){ local f="$1/.claude/settings.local.json"
   [[ -f "$f" ]] && F="$f" python3 -c 'import json,os
 m = (json.load(open(os.environ["F"])) or {}).get("model")
 m and print(f"model={m}")' 2>/dev/null; return 0; }
-# A --model/--effort on the line wins; otherwise the model the worktree's .claude/settings.local.json
-# (a worktree hook's pin) or settings.json names.
+# A --model/--effort on the line wins; otherwise the model Claude Code takes from the settings files, in
+# its order: a linked worktree's main checkout's .claude/settings.local.json (#374), then the worktree's
+# own settings.local.json (a worktree hook's pin — claude_launch puts that on the line), then settings.json.
 claude_model_effort(){ local model effort f
   model="$(_cli_line_opt "$1" '--model[= ]')"; effort="$(_cli_line_opt "$1" '--effort[= ]')"
-  for f in settings.local.json settings.json; do
-    [[ -z "$model" && -n "${2:-}" && -f "$2/.claude/$f" ]] || continue
-    model="$(F="$2/.claude/$f" python3 -c 'import json, os; print((json.load(open(os.environ["F"])) or {}).get("model") or "")' 2>/dev/null)"
-  done
+  if [[ -z "$model" && -n "${2:-}" ]]; then
+    for f in "$(_claude_main_local "$2")" "$2/.claude/settings.local.json" "$2/.claude/settings.json"; do
+      [[ -n "$f" ]] && model="$(_claude_settings_model "$f")"
+      [[ -n "$model" ]] && break
+    done
+  fi
   printf '%s\t%s\n' "$model" "$effort"; }
 
 # --- panes (test/fixtures/cli/claude/*.txt) ---------------------------------------------------
