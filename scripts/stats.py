@@ -468,7 +468,7 @@ def sessions(events):
         s = by.setdefault(sid, {"session": sid, "usage": {}, "watchdog_kills": 0, "nudges": 0,
                                 "turn_interrupts": 0})
         ev = e.get("event")
-        for k in ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "model", "effort", "tmux"):
+        for k in ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "model", "effort", "worktree"):
             if e.get(k) is not None and (ev == "launch" or s.get(k) is None):
                 s[k] = e[k]
         if ev == "launch":
@@ -678,20 +678,21 @@ def issue_timeline(events, issue, rtdd=()):
 ROLES = ("manager", "implementer", "other")
 ROLE_BY_KIND = {"impl": "implementer", "bug-fix": "implementer",
                 "orch": "manager", "review": "manager", "bug-triage": "manager", "inject": "manager"}
-# A session with no kind (an event log from before kinds, a hand-written line): its tmux name, the
-# session-name grammar of lib.sh sess_impl / sess_orch / sess_bug / sess_inject.
-_ROLE_BY_NAME = ((re.compile(r"-bug-.+-\d+-fix$|-i\d+$"), "implementer"),
-                 (re.compile(r"-bug-.+-\d+-triage$|-p\d+$|-inject-"), "manager"))
+# A session with no kind (an event log from before kinds, a hand-written line): its worktree's name,
+# the naming lib.sh orch_worktree / triage_worktree / bug_worktree and an issue lane's <unit>-i<n> use
+# (classify_dir reads the same scheme off a transcript's project dir).
+_ROLE_BY_WORKTREE = ((re.compile(r"(?:orch-.+-p|triage-.+-i)\d+"), "manager"),
+                     (re.compile(r".+-i\d+"), "implementer"))   # an issue lane, or bug-<slug>-i<n>: a fix
 
 
 def session_role(s):
     """'manager' / 'implementer' for a session record (sessions()), 'other' when neither its kind nor its
-    tmux session name says — never dropped."""
+    worktree's name says — never dropped."""
     kind = s.get("kind")
     if kind:
         return ROLE_BY_KIND.get(kind, "other")
-    name = s.get("tmux") or ""
-    return next((role for rx, role in _ROLE_BY_NAME if rx.search(name)), "other")
+    name = os.path.basename((s.get("worktree") or "").rstrip("/"))
+    return next((role for rx, role in _ROLE_BY_WORKTREE if rx.fullmatch(name)), "other")
 
 
 def _usage_cost(usage):

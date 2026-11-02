@@ -569,18 +569,19 @@ def test_session_kind_to_role_for_every_kind():
     for kind, role in want.items():
         assert st.session_role({"kind": kind}) == role, kind
     assert st.session_role({"kind": "gauntlet-xyz"}) == "other", "unknown kind → other"
-    # no kind (an event log from before kinds): the tmux session name says
-    names = {"hz-main-i7": "implementer", "hz-bug-acme_widget-9-fix": "implementer",
-             "hz-main-p3": "manager", "hz-main-p0": "manager", "hz-bug-acme_widget-9-triage": "manager",
-             "hz-inject-main": "manager", "hz-something": "other", "": "other"}
-    for name, role in names.items():
-        assert st.session_role({"tmux": name}) == role, name
+    # no kind (an event log from before kinds): the worktree's name says
+    W = "/p/.harness/worktrees/"
+    names = {W + "main-i7": "implementer", W + "bug-acme_widget-i9": "implementer",
+             W + "orch-acme_widget-p3": "manager", W + "orch-acme_widget-p0/": "manager",
+             W + "triage-acme_widget-i9": "manager", "/p/checkout": "other", "": "other"}
+    for wt, role in names.items():
+        assert st.session_role({"worktree": wt}) == role, wt
     assert st.session_role({}) == "other"
 
 M = 1_000_000
 ROLE_EVENTS = [
     # implementers: an issue lane (sonnet) and a bug fix (sonnet)
-    _ev("launch", session="r1", issue=21, prd=9, kind="impl", model="sonnet", tmux="hz-main-i21"),
+    _ev("launch", session="r1", issue=21, prd=9, kind="impl", model="sonnet"),
     _ev("session_end", session="r1", issue=21, prd=9, kind="impl",
         usage={"claude-sonnet-5-5": {"input": M, "output": M, "cache_create": 0, "cache_read": 0}}),
     _ev("session_end", session="r2", issue=30, kind="bug-fix",
@@ -590,8 +591,8 @@ ROLE_EVENTS = [
     _ev("session_end", session="r4", prd=9, kind="review", usage=_u(M)),
     _ev("session_end", session="r5", issue=30, kind="bug-triage", usage=_u(M)),
     _ev("session_end", session="r6", kind="inject", usage=_u(M)),
-    # history from before kinds: the tmux name on its launch attributes it
-    _ev("launch", session="r7", tmux="hz-main-i22"),
+    # history from before kinds: the worktree on its launch attributes it
+    _ev("launch", session="r7", worktree="/p/.harness/worktrees/main-i22"),
     _ev("session_end", session="r7", usage={"claude-sonnet-5-5": {"input": 0, "output": M, "cache_create": 0, "cache_read": 0}}),
     # an unknown kind, and one nothing attributes: `other`, never dropped
     _ev("session_end", session="r8", kind="mystery", usage=_u(M)),

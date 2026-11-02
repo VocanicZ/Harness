@@ -479,7 +479,7 @@ table: Opus $5 / $25, Sonnet $3 / $15, Haiku $1 / $5 per Mtok in / out; cache wr
 rate, reads at a tenth of input), plus the total. A session's role is read from the `kind` its
 `launch` logged — `impl` and `bug-fix` are Implementer; `orch` (PLAN / PRD / DECOMPOSE), `review` (and
 its gauntlet), `bug-triage` and `inject` are Manager — or, for an event from before kinds, from its
-tmux session name (the table above). Anything else is `other`, shown, never dropped. It reads the
+worktree's name (`<unit>-i<n>` and `bug-…-i<n>` Implementer, `orch-…-p<n>` and `triage-…-i<n>` Manager). Anything else is `other`, shown, never dropped. It reads the
 whole event log, so history from before roles existed is priced the same way: compare a `--since`
 window before #375 with one after. The usual filters apply — `--since`, `--fleet`, `-R`, `--model`,
 `--prd N` / `--issue N` (that PRD's or issue's sessions only) — and `--json`.
