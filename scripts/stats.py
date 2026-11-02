@@ -8,8 +8,10 @@ transcripts (another CLI's adapter folds its own: usage_tsv, #188): every launch
 $CLAUDE_CONFIG_DIR/projects/<slugified cwd>/<uuid>.jsonl plus <uuid>/subagents/agent-*.jsonl, each
 assistant line carrying message.model + message.usage. A headless lane's claude (#352) may keep no
 transcript there: its session_end usage is then folded from the lane's events.jsonl (each turn's
-stream-json `result` modelUsage, or its assistant messages' usage when it ended without one), found by
-the session id the lane's state.json names.
+stream-json `result` usage — model_usage_since_last_result, never the session's running modelUsage
+summed — or its assistant messages' usage when it ended without one), found by the session id the
+lane's state.json names. A resumed session's session_end (#426: a headless relaunch carries on its
+claude session, whose transcript grows across runs) reports only that run, flagged `resumed: true`.
 
     stats.py emit <event> [--ctx F] [--write-ctx F] [-c k=v]... [k=v]...   append one event
     stats.py parent-prd <slug>        PRD number of the issue body on stdin (## Parent), or nothing
@@ -198,14 +200,35 @@ MODEL_USAGE_KEYS = (("inputTokens", "input"), ("outputTokens", "output"),
                     ("cacheCreationInputTokens", "cache_create"), ("cacheReadInputTokens", "cache_read"))
 
 
+def model_turn_usage(result, prev=None):
+    """What one stream-json `result` event's turn used, per model, in modelUsage's keys (#426). A
+    `--resume`d turn's modelUsage is the SESSION's running total, not the turn's (claude 2.1.316: cache
+    writes 25,024, then 46,383 = 25,024 + 21,359), so it is never summed over turns. The turn's own
+    figure is model_usage_since_last_result when claude prints it; else modelUsage less <prev> (the
+    previous result's modelUsage in the same stream) when that reads as a running total — no figure
+    below <prev>'s — and modelUsage as it stands when there is no <prev> or it does not."""
+    since = result.get("model_usage_since_last_result")
+    if isinstance(since, dict):
+        return since
+    mu = result.get("modelUsage") or {}
+    if not isinstance(prev, dict) or not prev:
+        return mu
+    def n(u, k):
+        return int((u or {}).get(k) or 0) if isinstance(u, dict) else 0
+    if any(n(mu.get(m), k) < n(u, k) for m, u in prev.items() for k, _ in MODEL_USAGE_KEYS):
+        return mu   # not a running total: a per-turn figure
+    return {m: {k: n(u, k) - n(prev.get(m), k) for k, _ in MODEL_USAGE_KEYS} for m, u in mu.items()}
+
+
 def _file_usage(path, acc, span):
     """Fold one transcript into acc {model: {input,output,cache_create,cache_read}}. A streamed
     message is written once per content block with the SAME message id and usage, so usage is
     taken once per id (the last line wins), never summed per line. A headless lane's events.jsonl
     (stream-json, its turns split by the runner's `turn_start` markers) is folded per turn: a turn's
-    `result` modelUsage when it has one (the turn's total), else — a turn interrupted, killed or cut off
-    before its result — the usage its assistant messages carry."""
-    segs = [({}, [])]   # (per_id, result modelUsages) per turn; a transcript is one segment
+    `result` usage when it has one (the turn's total, model_turn_usage), else — a turn interrupted, killed
+    or cut off before its result — the usage its assistant messages carry."""
+    segs = [({}, [])]   # (per_id, result usages) per turn; a transcript is one segment
+    prev_mu = None      # the last result's modelUsage: the session's running total so far (#426)
     try:
         with open(path) as fh:
             for line in fh:
@@ -221,7 +244,8 @@ def _file_usage(path, acc, span):
                     segs.append(({}, []))
                     continue
                 if r.get("type") == "result" and isinstance(r.get("modelUsage"), dict):
-                    segs[-1][1].append(r["modelUsage"])
+                    segs[-1][1].append(model_turn_usage(r, prev_mu))
+                    prev_mu = r["modelUsage"]
                     continue
                 if r.get("type") != "assistant":
                     continue
@@ -280,6 +304,51 @@ def session_usage(transcript):
     for f in transcript_files(transcript):
         _file_usage(f, acc, span)
     return acc, span[0], span[1]
+
+
+# --- a resumed session (#426) ---------------------------------------------------
+# A headless lane relaunched after a checkpoint, a crash or a usage park carries on its claude session
+# (`claude -p --resume <id>`), which appends to the SAME <id>.jsonl transcript. Its session_end then
+# reports only what this run added — the transcript's total less what the session's earlier
+# session_ends already reported — and says so with `resumed: true`; a session's usage is its first
+# session_end's plus every resumed one's. A session_end without the flag replaces what came before
+# it: one logged before #426 is the transcript's whole total, earlier runs included.
+def fold_session_end(into, end):
+    """Fold one session_end's usage into a session's running {model: usage} (sessions(), and what a
+    resumed run's session_end subtracts): added when it is `resumed`, else in place of it."""
+    usage = end.get("usage") or {}
+    return add_usage(into, usage) if end.get("resumed") else add_usage({}, usage)
+
+
+def logged_session_usage(session, path=None):
+    """What the event log's session_ends for claude session <session> already report, folded as
+    sessions() folds them; None when it has none."""
+    acc = None
+    try:
+        with open(path or events_path()) as fh:
+            for line in fh:
+                if session not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(e, dict) and e.get("event") == "session_end" and e.get("session") == session:
+                    acc = fold_session_end(acc or {}, e)
+    except OSError:
+        pass
+    return acc
+
+
+def usage_minus(usage, prior):
+    """{model: usage} less <prior>, per model and key, never below 0; a model left with nothing is dropped."""
+    out = {}
+    for model, u in (usage or {}).items():
+        p = (prior or {}).get(model) or {}
+        d = {k: max(0, int(u.get(k) or 0) - int(p.get(k) or 0)) for _, k in USAGE_KEYS}
+        if any(d.values()):
+            out[model] = d
+    return out
 
 
 # --- what ran (#376) -----------------------------------------------------------
@@ -368,12 +437,20 @@ def build_event(event, common, ctx, kv, now=None):
     if event == "session_end":
         launched = rec.get("launched")
         tr = find_transcript(rec["session"]) if rec.get("session") else None
+        whole = bool(tr)   # a claude transcript holds the whole session, every earlier run included
         if not tr and rec.get("session") and "usage" not in rec:
             tr = lane_events(rec["session"])   # #352: a headless lane whose claude kept no transcript
         last = None
         tsv = rec.pop("usage_tsv", None)   # #188: what the CLI adapter folded from its own transcripts
         if tr and "usage" not in rec:
             rec["usage"], _, last = session_usage(tr)
+            # #426: a resumed session reports only this run. A lane's events.jsonl is this run's alone
+            # (headless_sess_start starts every launch in a fresh lane dir); a transcript is not.
+            prior = logged_session_usage(rec["session"])
+            if prior is not None:
+                rec["resumed"] = True
+                if whole:
+                    rec["usage"] = usage_minus(rec["usage"], prior)
         elif tsv and "usage" not in rec:
             rec["usage"] = parse_usage_tsv(tsv) or None
         if "wall_s" not in rec and isinstance(launched, int):
@@ -473,9 +550,9 @@ def sessions(events):
                 s[k] = e[k]
         if ev == "launch":
             s["launched"] = e.get("ts")
-        elif ev == "session_end":
-            s["usage"] = e.get("usage") or {}
-            s["wall_s"] = e.get("wall_s")
+        elif ev == "session_end":   # #426: a resumed run's session_end adds to the session's
+            s["usage"] = fold_session_end(s["usage"], e)
+            s["wall_s"] = ((s.get("wall_s") or 0) + (e.get("wall_s") or 0)) if e.get("resumed") else e.get("wall_s")
             s["ended"] = e.get("ts")
         elif ev == "watchdog_kill":
             s["watchdog_kills"] += 1

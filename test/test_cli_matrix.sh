@@ -792,8 +792,9 @@ headless_usage_windows_ok(){ ( hl_env; local s=hz-main-i30; hl_lane usage tool-u
   hl_launch "$s" GOAL=ISSUE:30 && hl_wait 15 hl_turn "$s" 1 || exit 1
   same "$(cli_limit_usage | cut -f1-3 | sort)" "$(sort "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected")" ); }
 # headless_stats_ok — #352: once the lane's runner has exited, the stats sweep emits its session_end
-# once, its usage the sum of its turns' stream-json `result` modelUsage (no transcript), its session the
-# lane's own.
+# once, its usage the sum of its turns' own stream-json `result` usage (no transcript; #426: a `--resume`d
+# turn's modelUsage is the session's running total, its model_usage_since_last_result the turn's), its
+# session the lane's own.
 headless_stats_ok(){ ( hl_env; local s=hz-main-i31 uuid; hl_lane stats tool-use normal
   hl_launch "$s" GOAL=ISSUE:31 && hl_wait 15 hl_turn "$s" 1 || exit 1; uuid="$(state_uuid "$WD")"
   cli_send "$s" "$WD" "next" && hl_wait 15 hl_turn "$s" 2 || exit 1
@@ -804,7 +805,7 @@ import json, sys
 want = {}
 for f in sys.argv[3:]:
     for r in map(json.loads, open(f)):
-        for m, u in (r.get("modelUsage") or {}).items() if r.get("type") == "result" else ():
+        for m, u in (r.get("model_usage_since_last_result") or {}).items() if r.get("type") == "result" else ():
             t = want.setdefault(m, {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0})
             for k, d in (("inputTokens", "input"), ("outputTokens", "output"),
                          ("cacheReadInputTokens", "cache_read"), ("cacheCreationInputTokens", "cache_create")):

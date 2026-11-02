@@ -64,7 +64,7 @@ features on the [headless session backend](#headless-lanes) (`HARNESS_SESSION_BA
 | `headless-resume` | That checkpointed lane, re-dispatched as an `agent-paused` issue with its handoff, relaunches in its worktree on the resume prompt and carries on the same claude session: its first turn is `--resume <id>`, no new session (#350) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 | `headless-supervisor-frozen-session` | `harness supervise` nudges a quiet idle lane through its inbox (the nudge is its next turn) and leaves a limit-parked lane alone (#351) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 | `headless-usage-windows` | With no status line, the usage windows are read off the `rate_limit_event` a turn printed, kept in `state.json`: each window's utilization as a percent, under the lane's account (#352) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
-| `headless-stats-session-end-usage` | Once the lane's runner has exited the stats sweep emits its `session_end` once, its usage the sum of its turns' stream-json `result` `modelUsage` (#352) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-stats-session-end-usage` | Once the lane's runner has exited the stats sweep emits its `session_end` once, its usage the sum of its turns' own stream-json `result` usage, `model_usage_since_last_result` (#352, #426) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 | `headless-stop` | `harness stop` ends a lane mid-turn: the runner, the CLI's turn and that turn's own child are gone, nothing is listed, the lane's state reads `ended` | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 
 Per-CLI setup (`harness setup --install` handles what it can):
@@ -291,9 +291,14 @@ tmux; once the lane's checkpoint turn has ended with its issue `agent-paused`, t
 lane (`usage: lane parked after its checkpoint`) and the resume carries on its claude session. A lane
 frozen at the limit gets the mechanical checkpoint, as a pane does. `session_end` is emitted by the
 usual sweep once the lane's runner has exited; its tokens come from claude's transcript when there is one,
-else from the lane's `events.jsonl` — the sum of each turn's stream-json `result` `modelUsage` (a turn
+else from the lane's `events.jsonl` — the sum of each turn's own stream-json `result` usage (a turn
 cut off before its result counts its assistant messages' usage), found by the session id `state.json`
-names. `harness status` shows each lane's state beside its session row
+names. A `--resume`d turn's `modelUsage` is the session's running total, so a turn's own is its
+`model_usage_since_last_result`, or its `modelUsage` less the previous turn's when claude prints none
+(#426). A lane relaunched on its claude session (after a checkpoint, a crash or a usage park) appends to
+the same transcript: its `session_end` reports only what that run added — the transcript's total less
+what the session's earlier `session_end`s reported — flagged `resumed: true`, and `harness stats` adds
+it to the session's earlier runs. A tmux lane never resumes a session id, so it is unchanged. `harness status` shows each lane's state beside its session row
 (`headless: busy`); fleetview and `harness web` list every live lane on the host — tmux sessions and
 headless lanes alike, whichever backend the viewer runs on — with its model (off its runner's flags) and
 state.
