@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Verify what ran: `model_mismatch` (#376)
+
+- At `session_end`, the model with the most output tokens in the session is compared with the model
+  its launch logged, by family (`sonnet` = `claude-sonnet-5-5`). A different family emits a
+  `model_mismatch` event (intended, actual, session, issue), flagged in `harness status`,
+  `harness stats` and the web dashboard. Side calls on another model never trip it; a lane on the
+  CLI's default model is not checked.
+
 ### Caveman in every lane (#377)
 
 - Every session prompt — plan, prd, decompose, review, bug-triage, bug-fix, impl, resume, inject —

@@ -123,3 +123,5 @@
 /* The stats overlay (#229): tokens · model · retries, quieter than the node's own text. */
 .dag__stat { font-family: var(--font-sans); font-size: 11px; fill: var(--color-text-muted); }
 .prd__stats { font-size: var(--text-xs); }
+.dag__stat[data-model-mismatch] { fill: var(--color-red-text); }
+.prd__stats[data-model-mismatch] { color: var(--color-red-text); }

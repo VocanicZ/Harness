@@ -460,6 +460,18 @@ A fleet that pinned `--model opus` in `HARNESS_CLAUDE_FLAGS` gets **Sonnet imple
 (#375): the Implementer role's `sonnet` now beats the flags. Set `HARNESS_MODEL_IMPLEMENTER=opus` in
 `.harness/config` to keep every lane on Opus.
 
+**Verifying what ran (#376).** At `session_end` the stats sweep takes the model with the most
+**output** tokens in the session's usage (its transcripts, sub-agents included) and compares it with
+the model the `launch` event logged, **by family**: `sonnet` and `claude-sonnet-5-5` match, as do
+`opus[1m]` and `claude-opus-5-5`; a non-Claude id matches itself without a provider prefix or date
+stamp, or a `-`-suffixed variant of itself (`gpt-5.6` / `gpt-5.6-codex`). A different family appends a
+`model_mismatch` event (`intended`, `actual`, `session`, `issue`) to the event log, and it is flagged
+in `harness status` (this fleet's, last 7 days), `harness stats` (the fleet summary, the `--prd`
+session row, the `--issue` timeline) and the web dashboard (the issue's DAG node, its PRD's node and
+header, the drawer timeline). Only the dominant model counts, so a small side call (title generation,
+a sub-agent on another model) never trips it; a lane with no intended model (the CLI's own default)
+is not checked.
+
 ### Lane output style (caveman)
 
 Every session prompt (`prompts/*.md` other than the `_*.md` partials, which render inside one)
@@ -598,7 +610,7 @@ Run from inside any `harness init`'d project:
 | `start [--recover]` | Launch the worker pool. `--recover` sweeps stale pidfiles, claims, and orphaned `agent-working` labels before launch |
 | `stop [--clean]` | Stop the pool. `--clean` also removes worktrees |
 | `status [--watch [secs]] [--all]` | One-shot or live dashboard: pool state, per-unit progress, live sessions, gated units. Outside any project (or with `--all`) it shows **every fleet on the host** from `~/.harness/fleets`: state (RUNNING / PAUSED / STOPPED / COMPLETE / DEAD / missing), live sessions with issue, age and model, open / unblocked / agent-working counts with orphaned locks flagged, last log line, HOLD streaks, and the GitHub budget |
-| `stats [--prd N\|--issue N] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes. `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, retries) up to the PRD; `--issue` is a per-session timeline. Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
+| `stats [--prd N\|--issue N] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes, and any `model_mismatch` (a session whose dominant-by-output model is another family than it was launched with, #376). `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, retries) up to the PRD; `--issue` is a per-session timeline. Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
 | `forecast <issue> [-R owner/repo] [--unit U] [--json]` | Per-phase cost forecast for one issue — explore / test / impl / gate / ship at p50 / p80 / p95 $ and in total, scaled by the issue's size — from the past lanes in the same event log. Says which history it used and when it fell back. See [Cost forecast](#cost-forecast) |
 | `one check` · `one gate <issue> [-R owner/repo] [--unit U] [--json]` | The `/harness-one` budget gate. `check`: exit 0 when the fleet is PAUSED or usage-HELD, else refuses (exit 1). `gate`: the check, the issue's forecast, the arithmetic for every window and `RECOMMEND: APPROVE` (exit 0) or `DENY` (exit 1); exit 3 = refused. See [One issue at a time](#one-issue-at-a-time-harness-one) |
 | `one start <issue>` · `one phase <issue> <phase> [--json]` · `one release <issue> [--force]` | `/harness-one` execution, in the invoking session. `start`: the check again, then claim + worktree + `impl.md`/`resume.md` as dispatch does (exit 3 refused, 4 not claimable). `phase`: FITS (exit 0) or CHECKPOINT (exit 1, printing the `pause --force` checkpoint). `release`: drop the worktree, branch and lease (exit 4 = unpushed work) |

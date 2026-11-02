@@ -43,6 +43,14 @@ fleet_verdict(){
 session_row(){ local st; st="$(sess_state "$1" 2>/dev/null)"
   printf '        ⟳ %-18s ralph-iter=%s%s\n' "$1" "$(iter_of "$2")" "${st:+  $(sess_backend): $st}"; }
 
+# model_mismatch_report — #376: every session of THIS fleet (last 7d) whose dominant-by-output model is
+# another family than the model it was launched with (stats.py's model_mismatch events). Silent when
+# there are none, and never fails the dashboard.
+model_mismatch_report(){ local l
+  while IFS= read -r l; do [[ -n "$l" ]] && printf '  ⚠ %s\n' "$l"; done \
+    < <(timeout 10 python3 "$STATS_PY" mismatches --fleet "$HARNESS_SESS_PREFIX" 2>/dev/null)
+  return 0; }
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -64,6 +72,7 @@ render_once(){
   usage_report   # #194: each account's usage windows, and any checkpoint hold
   one_auto_report   # #392: the HARNESS_ONE_AUTO lane per account, its issue, forecast, or why it stopped
   gh_rate_report   # #183: each GitHub token's remaining budget, reset time, and any rate-limit hold
+  model_mismatch_report   # #376: a session that ran another model than the one it was launched with
   echo "───────────────────────────────────────────────────────────────────"
 
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes

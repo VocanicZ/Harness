@@ -18,6 +18,11 @@ the session id the lane's state.json names.
     stats.py goal-env <goal> [prd]    KIND=/ISSUE=/PRD= lines for a lane's HARNESS_* session env (#186)
     stats.py transcripts <session>    a claude session's transcript paths, sub-agents included (#188)
     stats.py usage <transcript>...    per-model `<model>\t<in>\t<out>\t<cache_read>\t<cache_write>` (#188)
+    stats.py mismatches [--fleet P] [-R owner/repo] [--since 7d]   model_mismatch lines for `harness status` (#376)
+
+A session_end whose dominant-by-OUTPUT model is another family than the launch's intended model (its
+logged `model`: .harness-lane, role key or FLAGS) is followed by a `model_mismatch` event (intended,
+actual, session, issue) — `sonnet` and `claude-sonnet-5-5` are one family; no intended model, no check.
 
 rtdd activity (#186) lives beside it in $HARNESS_HOME/rtdd-events.jsonl: every lane session is
 launched with RTDD_EVENT_LOG pointing there plus HARNESS_SESSION/ISSUE/KIND/PRD/PREFIX/REPO, and rtdd
@@ -277,6 +282,63 @@ def session_usage(transcript):
     return acc, span[0], span[1]
 
 
+# --- what ran (#376) -----------------------------------------------------------
+# Claude model families: an alias (`sonnet`, `opus[1m]`) and a full id (`claude-sonnet-5-5`,
+# `anthropic/claude-sonnet-5-5-20261001`) of one family are the same intended model.
+CLAUDE_FAMILIES = ("opus", "sonnet", "haiku", "fable")
+
+
+def model_family(model):
+    """The family a model name belongs to, for the intended-vs-ran check: a Claude family word when the
+    name carries one, else the name itself, lowercased, without a provider prefix (`openai/`), a
+    `[…]` context suffix or a trailing date stamp. Empty for no model."""
+    m = re.sub(r"\[[^\]]*\]$", "", str(model or "").strip().lower())
+    m = m.rsplit("/", 1)[-1]
+    for fam in CLAUDE_FAMILIES:
+        if re.search(rf"(?:^|[^a-z]){fam}(?:[^a-z]|$)", m):
+            return fam
+    return re.sub(r"[-@]\d{8}$", "", m)
+
+
+def same_family(a, b):
+    """True when two model names are one family: equal families, or — a non-Claude name — one a
+    `-`-bounded prefix of the other (`gpt-5.6` intended, `gpt-5.6-codex` ran)."""
+    fa, fb = model_family(a), model_family(b)
+    if fa == fb:
+        return True
+    if fa in CLAUDE_FAMILIES or fb in CLAUDE_FAMILIES:
+        return False
+    short, long_ = sorted((fa, fb), key=len)
+    return bool(short) and long_.startswith(short + "-")
+
+
+def dominant_model(usage):
+    """The model with the most OUTPUT tokens in a session's {model: usage}, or None when none produced
+    any. A side call (title generation, a sub-agent on another model) is small next to the session's
+    own turns, so it never wins."""
+    best = None
+    for model, u in sorted((usage or {}).items()):
+        out = int((u or {}).get("output") or 0) if isinstance(u, dict) else 0
+        if out > 0 and (best is None or out > best[1]):
+            best = (model, out)
+    return best[0] if best else None
+
+
+MISMATCH_KEYS = ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "session", "effort")
+
+
+def model_mismatch(end):
+    """The `model_mismatch` record for one session_end, or None: the intended model (the launch's
+    logged `model` — .harness-lane, role key or FLAGS) against the dominant-by-output model of its
+    usage, by family. No intended model (the CLI's own default) or no usage → no check."""
+    intended, actual = end.get("model"), dominant_model(end.get("usage"))
+    if not intended or not actual or same_family(intended, actual):
+        return None
+    rec = {k: end[k] for k in MISMATCH_KEYS if end.get(k) not in (None, "")}
+    rec.update(ts=end.get("ts") or now_iso(), event="model_mismatch", intended=intended, actual=actual)
+    return {"ts": rec.pop("ts"), "event": rec.pop("event"), **rec}
+
+
 # --- emit --------------------------------------------------------------------
 def read_ctx(path):
     try:
@@ -351,7 +413,10 @@ def cmd_emit(argv):
         ctx = {k: rec[k] for k in CTX_KEYS if k in rec}
         ctx.setdefault("launched", int(now))
         write_ctx(ctx_out, ctx)
-    return 0 if append_event(rec) else 1
+    if not append_event(rec):
+        return 1
+    mm = model_mismatch(rec) if event == "session_end" else None
+    return 0 if mm is None or append_event(mm) else 1
 
 
 # --- report ------------------------------------------------------------------
@@ -418,7 +483,22 @@ def sessions(events):
             s["nudges"] += 1
         elif ev == "turn_interrupted":
             s["turn_interrupts"] += 1
+        elif ev == "model_mismatch":
+            s["model_mismatch"] = {"intended": e.get("intended"), "actual": e.get("actual")}
     return list(by.values())
+
+
+def mismatches(events):
+    """Every `model_mismatch` event (#376), oldest first: a session that ran another model family than
+    the one it was launched with."""
+    return sorted((e for e in events if e.get("event") == "model_mismatch"), key=lambda e: e.get("ts") or "")
+
+
+def _mismatch_line(e):
+    who = f"#{e['issue']}" if e.get("issue") is not None else (f"PRD #{e['prd']}" if e.get("prd") is not None else "")
+    where = " ".join(x for x in (e.get("repo") or "", who) if x)
+    return (f"MODEL MISMATCH {where + ' ' if where else ''}session {e.get('session') or '?'}: "
+            f"intended {e.get('intended')} ran {e.get('actual')} ({e.get('ts') or '?'})")
 
 
 def _sess_matches(s, model):
@@ -475,6 +555,8 @@ def fleet_summary(events, model=None, rtdd=()):
             "retries": _retries(sess),
             "hold_minutes": round(sum(int(e.get("secs") or 0) for e in evs if e.get("event") == "hold") / 60, 1),
             "rtdd": rtdd_summary(f["rtdd"]),
+            "model_mismatches": [{k: e[k] for k in ("ts", "session", "repo", "issue", "prd", "kind",
+                                                    "intended", "actual") if k in e} for e in mismatches(evs)],
         }
         r = out[pfx]["rtdd"]
         if r.get("selective", 0) + r.get("full_suite", 0):
@@ -486,10 +568,13 @@ def fleet_summary(events, model=None, rtdd=()):
 
 
 def _sess_row(s, model=None, rtdd=()):
-    return {"session": s["session"], "kind": s.get("kind"), "model": s.get("model"),
-            "effort": s.get("effort"), "launched": s.get("launched"), "wall_s": s.get("wall_s"),
-            "usage": add_usage({}, s["usage"], model), "watchdog_kills": s["watchdog_kills"],
-            "rtdd": rtdd_summary([r for r in rtdd if r.get("session") == s["session"]])}
+    row = {"session": s["session"], "kind": s.get("kind"), "model": s.get("model"),
+           "effort": s.get("effort"), "launched": s.get("launched"), "wall_s": s.get("wall_s"),
+           "usage": add_usage({}, s["usage"], model), "watchdog_kills": s["watchdog_kills"],
+           "rtdd": rtdd_summary([r for r in rtdd if r.get("session") == s["session"]])}
+    if s.get("model_mismatch"):
+        row["model_mismatch"] = s["model_mismatch"]
+    return row
 
 
 # --- rtdd events (#186) --------------------------------------------------------
@@ -629,6 +714,8 @@ def render_text(kind, data):
                        f"PRDs closed {f['prds_closed']}  retries {f['retries']}  HOLD {f['hold_minutes']}m")
             out.append(f"  tokens  {_tok(f['tokens'])}")
             out.append(f"  rtdd    {_rtdd(f['rtdd'])}")
+            for e in f.get("model_mismatches") or ():
+                out.append(f"  ⚠ {_mismatch_line(e)}")
     elif kind == "prd":
         t = data["total"]
         out.append(f"PRD #{data['prd']}: sessions {t['sessions']}  wall {_hms(t['wall_s'])}  retries {t['retries']}")
@@ -639,14 +726,18 @@ def render_text(kind, data):
             out.append(f"  {label}: sessions {len(c['sessions'])}  wall {_hms(c['wall_s'])}  retries {c['retries']}"
                        f"  rtdd {_rtdd(c['rtdd'])}")
             for s in c["sessions"]:
+                mm = s.get("model_mismatch")
+                flag = f"  ⚠ MODEL MISMATCH: ran {mm['actual']}" if mm else ""
                 out.append(f"    {s['launched'] or '?'}  {s['kind'] or '?'}  {s['model'] or '?'}/{s['effort'] or '?'}  "
-                           f"wall {_hms(s['wall_s'])}  {_tok(s['usage'])}")
+                           f"wall {_hms(s['wall_s'])}  {_tok(s['usage'])}{flag}")
     elif kind == "issue":
         out.append(f"issue #{data['issue']}: {len(data['sessions'])} session(s)")
         for e in data["events"]:
-            extra = " ".join(f"{k}={e[k]}" for k in ("kind", "model", "effort", "reason", "pr", "wall_s", "reset",
-                                                         "turn_s", "queued_nudges")
+            extra = " ".join(f"{k}={e[k]}" for k in ("kind", "model", "effort", "intended", "actual", "reason", "pr",
+                                                         "wall_s", "reset", "turn_s", "queued_nudges")
                              if k in e)
+            if e.get("event") == "model_mismatch":
+                extra = f"⚠ {extra}"
             line = f"  {e.get('ts')}  {e.get('event')}  {extra}".rstrip()
             if e.get("usage"):
                 line += f"  {_tok(e['usage'])}"
@@ -690,6 +781,25 @@ def cmd_report(argv):
     else:
         kind, data = "fleet", fleet_summary(evs, a.model, rtdd)
     print(json.dumps(data, indent=2) if a.json else render_text(kind, data))
+    return 0
+
+
+def cmd_mismatches(argv):
+    """One `MODEL MISMATCH …` line per model_mismatch event in range (default the last 7d), for
+    `harness status`. Prints nothing when there are none; never fails the caller."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="stats.py mismatches")
+    ap.add_argument("--fleet")
+    ap.add_argument("-R", "--repo")
+    ap.add_argument("--since", default="7d")
+    ap.add_argument("--events", help=argparse.SUPPRESS)
+    try:
+        a = ap.parse_args(argv)
+        evs = filter_events(load_events(a.events), parse_since(a.since), a.fleet, a.repo)
+    except (SystemExit, ValueError):
+        return 2
+    for e in mismatches(evs):
+        print(_mismatch_line(e))
     return 0
 
 
@@ -875,6 +985,8 @@ def main(argv=None):
             _file_usage(f, acc, span)
         sys.stdout.write(usage_tsv(acc))
         return 0
+    if cmd == "mismatches":    # `harness status`' model-mismatch flags (#376)
+        return cmd_mismatches(rest)
     if cmd == "backfill":
         return cmd_report(["--backfill"] + rest)
     if cmd == "report":
