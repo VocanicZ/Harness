@@ -420,6 +420,11 @@ out of the lane's commits):
 printf 'model=sonnet\neffort=medium\n' > .harness-lane
 ```
 
+Pin a claude lane's model here, not in `.claude/settings.local.json`: in a linked worktree Claude Code
+also reads the main checkout's `settings.local.json`, and that one wins (#374). A worktree's own
+`settings.local.json` model is still honoured — the claude adapter puts it on the launch line as
+`--model` when `.harness-lane` names none.
+
 ### Parallel-lane merge safety
 
 Lanes branch and merge independently, so a lane's base has usually moved by merge time. The lane
