@@ -115,4 +115,44 @@ rm -f "$CLAIMS_DIR/inflight.claim"
 [[ -f "$POLLER_PID" ]] && kill "$(cat "$POLLER_PID")" 2>/dev/null
 rm -rf "$S3"
 
+# --- #419: a resident worker whose STATE_DIR or HARNESS_HOME is deleted exits by itself ----------
+# A test or dev run that dies before its own kill-trap leaves its workers polling a home that no
+# longer exists — for days, calling gh against a real repo, and (poller mode, the default) re-creating
+# $HARNESS_HOME/poller on every tick. Run the REAL worker scripts as processes, poller left ON, gh
+# stubbed to fail, a clean env (no live fleet's vars), then delete one root under them.
+W419_BIN="$(mktemp -d)"; tmp_track "$W419_BIN"
+printf '#!/bin/sh\nexit 1\n' > "$W419_BIN/gh"; chmod +x "$W419_BIN/gh"
+# w419_start <script> <wid> <dir> — the worker in <dir> (proj/.harness + host), its pid in W419_PID.
+w419_start(){ local script="$1" wid="$2" d="$3"
+  mkdir -p "$d/proj/.harness" "$d/host" "$d/home"
+  ( cd "$d/proj" && exec env -i PATH="$W419_BIN:$PATH" HOME="$d/home" LANG=C.UTF-8 \
+      STATE_DIR="$d/proj/.harness" HARNESS_HOME="$d/host" HARNESS_REPO=acme/widget \
+      HARNESS_POLL=1 HARNESS_PRIORITY_POLL=1 HARNESS_GH_RATE_GUARD=0 HARNESS_POLLER_CMD='exit 0' \
+      bash "$HERE/../scripts/$script" "$wid" ) > "$d/worker.log" 2>&1 &
+  W419_PID=$!; }
+# w419_exit <pid> <secs> — W419_RC: the worker's rc once it exits within <secs>, else "alive" (and it
+# is killed). Not in $(…): only this shell can reap its own background child.
+w419_exit(){ local i; for (( i = 0; i < $2 * 10; i++ )); do
+    kill -0 "$1" 2>/dev/null || { wait "$1"; W419_RC=$?; return; }; sleep 0.1; done
+  kill "$1" 2>/dev/null; wait "$1" 2>/dev/null; W419_RC=alive; }
+for w419 in pool-worker.sh:1 priority-worker.sh:P1; do
+  script="${w419%%:*}" wid="${w419##*:}"
+  # roots intact: the worker keeps polling, as it does today
+  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"
+  sleep 3; assert_ok "#419 $script: roots intact -> still polling after 3 polls" kill -0 "$W419_PID"
+  kill "$W419_PID" 2>/dev/null; wait "$W419_PID" 2>/dev/null
+  # STATE_DIR removed
+  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; sleep 1.5
+  rm -rf "$D/proj/.harness"
+  w419_exit "$W419_PID" 4; assert_eq "$W419_RC" "0" "#419 $script: STATE_DIR deleted -> exits rc 0 within ~1 poll"
+  assert_ok "#419 $script: its log names the missing STATE_DIR" grep -qF "$D/proj/.harness" "$D/worker.log"
+  # HARNESS_HOME removed, STATE_DIR kept
+  D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; sleep 1.5
+  rm -rf "$D/host"
+  w419_exit "$W419_PID" 4; assert_eq "$W419_RC" "0" "#419 $script: HARNESS_HOME deleted -> exits rc 0 within ~1 poll"
+  assert_ok "#419 $script: its log names the missing HARNESS_HOME" grep -qF "$D/host" "$D/worker.log"
+  sleep 1.2
+  assert_no "#419 $script: HARNESS_HOME/poller not recreated after the exit" test -e "$D/host/poller"
+done
+
 finish

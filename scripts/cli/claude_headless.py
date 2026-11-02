@@ -286,11 +286,29 @@ class Runner:
         self.state.update(kw)
         self.state["queued"] = len(self.queue)
         self.state["updated"] = time.time()
-        write_json_atomic(self.p["state"], self.state)
+        if self.lane_gone():
+            return
+        try:
+            write_json_atomic(self.p["state"], self.state)
+        except FileNotFoundError:
+            if not self.lane_gone():
+                raise
 
     def event(self, ev):
-        with open(self.p["events"], "a", encoding="utf-8") as f:
-            f.write(json.dumps(ev, separators=(",", ":"), ensure_ascii=False) + "\n")
+        if self.lane_gone():
+            return
+        try:
+            with open(self.p["events"], "a", encoding="utf-8") as f:
+                f.write(json.dumps(ev, separators=(",", ":"), ensure_ascii=False) + "\n")
+        except FileNotFoundError:
+            if not self.lane_gone():
+                raise
+
+    # #419: the lane dir is gone (a test's or a dev run's temp root deleted under a live runner). The
+    # stop file lives IN that dir, so no stop can ever reach the runner again: it stops itself, and
+    # writes nothing more — a write would raise, and recreating the dir would resurrect a dead lane.
+    def lane_gone(self):
+        return not os.path.isdir(self.lane)
 
     def poll_inbox(self):
         msgs, self.read_offset = read_inbox(self.lane, self.read_offset)
@@ -299,7 +317,7 @@ class Runner:
             self.save()
 
     def stop_requested(self):
-        return self.stopping or os.path.exists(self.p["stop"])
+        return self.stopping or os.path.exists(self.p["stop"]) or self.lane_gone()
 
     def take_interrupt(self, turn=None):
         """True once per interrupt request aimed at <turn> (the file names the turn it was written for;
@@ -324,6 +342,8 @@ class Runner:
         return a + self.flags
 
     def run_turn(self, msg):
+        if self.lane_gone():   # #419: nowhere to log the turn, and no lane left to run it for
+            return
         n = self.state["turn"] + 1
         started = time.time()
         self.event({"type": "harness", "subtype": "turn_start", "turn": n, "kind": msg.get("kind", "message"),

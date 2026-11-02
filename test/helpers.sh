@@ -55,7 +55,71 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 TMP_TRACKED=(); TMP_OWNER=""
 # A no-op in a subshell that tracked nothing itself: the list it inherited is the parent's to remove.
 tmp_cleanup(){ [[ "$TMP_OWNER" == "$BASHPID" ]] || return 0
-  (( ${#TMP_TRACKED[@]} )) && rm -rf "${TMP_TRACKED[@]}"; TMP_TRACKED=(); return 0; }
+  (( ${#TMP_TRACKED[@]} )) && { tmp_kill_rooted "${TMP_TRACKED[@]}"; rm -rf "${TMP_TRACKED[@]}"; }
+  TMP_TRACKED=(); return 0; }
+# tmp_kill_rooted <dir>… (#419) — stop this user's processes rooted in any <dir>: cwd inside one, or a
+# STATE_DIR / HARNESS_HOME / HARNESS_LANE_DIR in their environment inside one. A test that dies before
+# its own kill-trap (SIGKILL, a timeout, a branch starting what it should refuse) otherwise leaves the
+# workers and lanes it started polling a deleted home for days. By PATH only — never a command-line
+# pattern, this is a shared host — and never this shell or an ancestor of it. TERM, then KILL what is
+# still up after 2s. No /proc (macOS, Git Bash): nothing to read, so nothing is killed.
+tmp_kill_rooted(){ local proc="${HARNESS_PROC_ROOT:-/proc}"
+  [[ -d "$proc/self" ]] && command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$proc" "$BASHPID" "$@" <<'PY' 2>/dev/null || true
+import os, signal, sys, time
+proc, me, dirs = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
+roots = {r for d in dirs if d.strip("/") for r in (d.rstrip("/"), os.path.realpath(d))}
+inside = lambda p: any(p == r or p.startswith(r + "/") for r in roots)
+def status(pid, key):
+    try:
+        for line in open(f"{proc}/{pid}/status"):
+            if line.startswith(key + ":"):
+                return line.split()[1]
+    except (OSError, IndexError):
+        pass
+    return ""
+keep, chain, p = {os.getpid(), os.getppid()}, set(), me   # this script, its shell, and every ancestor
+while p > 1 and p not in chain:
+    chain.add(p); ppid = status(p, "PPid"); p = int(ppid) if ppid.isdigit() else 0
+keep |= chain
+uid, hits = os.getuid(), []
+for e in os.listdir(proc):
+    if not e.isdigit() or int(e) in keep:
+        continue
+    try:
+        if os.stat(f"{proc}/{e}").st_uid != uid:
+            continue
+        cwd = os.readlink(f"{proc}/{e}/cwd")
+    except OSError:
+        continue
+    hit = inside(cwd[:-len(" (deleted)")] if cwd.endswith(" (deleted)") else cwd)
+    if not hit:
+        try:
+            env = open(f"{proc}/{e}/environ", "rb").read().split(b"\0")
+        except OSError:
+            env = []
+        hit = any(k in (b"STATE_DIR", b"HARNESS_HOME", b"HARNESS_LANE_DIR") and v and inside(os.fsdecode(v))
+                  for k, _, v in (kv.partition(b"=") for kv in env))
+    if hit:
+        hits.append(int(e))
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return status(pid, "State") != "Z"
+for sig in (signal.SIGTERM, signal.SIGKILL):
+    for pid in hits:
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            pass
+    deadline = time.time() + 2
+    while sig == signal.SIGTERM and time.time() < deadline and any(alive(p) for p in hits):
+        time.sleep(0.05)
+    hits = [p for p in hits if alive(p)]
+PY
+}
 tmp_track(){
   if [[ "$TMP_OWNER" != "$BASHPID" ]]; then
     local prev=""

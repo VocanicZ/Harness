@@ -16,6 +16,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 See [docs/reference.md § Lane output style](docs/reference.md#lane-output-style-caveman).
 
+### Workers and headless lanes exit when their home is deleted (#419)
+
+- `pool-worker.sh` and `priority-worker.sh` exit 0 (logging the missing path) once the `STATE_DIR` or
+  `HARNESS_HOME` they serve is deleted or replaced. The check runs first in every poll, before any
+  `mkdir -p` could re-create the root, so a leaked worker no longer calls `gh` from a dead home or
+  re-creates `$HARNESS_HOME/poller` on every tick.
+- `claude_headless.py run` stops itself when its lane dir is deleted (whose `stop` file can then
+  never be written): idle, it exits 0; mid-turn, it kills the claude child's process tree first. It
+  writes nothing more and does not re-create the lane.
+- Tests: `tmp_cleanup` (`test/helpers.sh`) now stops this user's processes whose cwd, or
+  `STATE_DIR` / `HARNESS_HOME` / `HARNESS_LANE_DIR`, is inside a tracked dir before removing it — by
+  path, never by command-line pattern. A no-op without `/proc`.
+
 ### Roles: model and effort per lane (#375)
 
 - Every lane is a **Manager** (orchestration `-p*`: PLAN, PRD, DECOMPOSE, REVIEW/gauntlet; bug triage;

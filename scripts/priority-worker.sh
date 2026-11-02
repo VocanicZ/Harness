@@ -97,8 +97,10 @@ bug_tick(){ local wid="$1" ref
 
 # One poll cycle. Resident: idle (rc 1) logs a banner ONCE per idle streak (deduped via
 # _IDLE_LOGGED) and keeps polling; real work (rc 0) clears the dedup so a later idle streak
-# re-announces. The lane only ever terminates on stop (kill); pause keeps it drained (rc 3).
+# re-announces. The lane terminates on stop (kill) or once its roots are deleted (#419); pause keeps
+# it drained (rc 3).
 bug_step(){ local wid="$1"
+  roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (e.g. a bug session
                     # that self-exited before bug_goal_done flipped leaves its goal behind)
   # PRD-B slice 3 (#72): gate the WHOLE poll on a fresh host snapshot unless HARNESS_USE_POLLER is off.
@@ -121,5 +123,6 @@ bug_step(){ local wid="$1"
   return "$rc"; }
 main(){ local wid="${1:-P1}"; UNIT="priority-$wid"; _IDLE_LOGGED=0
   log "priority lane $wid up — cap 1 poll ${PRIORITY_POLL}s"
+  roots_watch   # #419: the resident loop ends by itself once the roots it serves are deleted
   while true; do bug_step "$wid"; done; }
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"

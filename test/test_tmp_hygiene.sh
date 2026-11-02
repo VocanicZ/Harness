@@ -74,4 +74,31 @@ assert_eq "$rc" 0 "the fixture suite passes"
 assert_ok "bash tests get a TMPDIR under the runner's root" grep -qx "bash TMPDIR under TMPROOT" <<<"$out"
 assert_ok "python tests get a TMPDIR under the runner's root" grep -qx "python TMPDIR under TMPROOT" <<<"$out"
 assert_eq "$(leftovers "$d")" "" "run.sh leaves nothing in the TMPDIR it was started with"
+echo "-- #419 tmp_cleanup kills this user's processes rooted in a tracked dir, and only those"
+# A test that dies before its own kill-trap left the workers / lanes it started polling a deleted home
+# for days. tmp_cleanup stops every process whose cwd, or STATE_DIR / HARNESS_HOME / HARNESS_LANE_DIR,
+# is inside a tracked dir — by path, never by command-line pattern (a shared host) — then removes it.
+# pids419 <proc-root> — run a child shell that tracks a dir, starts three sleeps (cwd inside, env
+# inside, unrelated) and exits; print "<cwd-pid> <env-pid> <other-pid> <tracked-dir>".
+pids419(){ TMPDIR="$T/leak" HARNESS_PROC_ROOT="$1" bash -c '
+  source "$1/helpers.sh"; D="$(mktemp -d)"; tmp_track "$D"
+  ( cd "$D" && exec sleep 300 ) >/dev/null 2>&1 & a=$!
+  ( cd "$2" && exec env HARNESS_HOME="$D/host" sleep 300 ) >/dev/null 2>&1 & b=$!
+  ( cd "$2" && exec sleep 300 ) >/dev/null 2>&1 & c=$!
+  sleep 0.5; echo "$a $b $c $D"' _ "$HERE" "$T/outside"; }
+dead419(){ ! kill -0 "$1" 2>/dev/null || grep -q '^State:.*Z' "/proc/$1/status" 2>/dev/null; }
+mkdir -p "$T/leak" "$T/outside"
+if [[ -d /proc/self ]]; then
+  read -r a b c D <<<"$(pids419 /proc)"; sleep 0.3
+  assert_ok "a process whose cwd is inside a tracked dir is dead after tmp_cleanup" dead419 "$a"
+  assert_ok "a process with HARNESS_HOME inside a tracked dir is dead after tmp_cleanup" dead419 "$b"
+  assert_ok "an unrelated process outside every tracked dir survives" kill -0 "$c"
+  assert_ok "…and the tracked dir is removed" test ! -e "$D"
+  kill "$a" "$b" "$c" 2>/dev/null
+fi
+read -r a b c D <<<"$(pids419 "$T/no-proc")"; sleep 0.3
+assert_ok "no /proc: tmp_cleanup still removes the tracked dir" test ! -e "$D"
+assert_ok "no /proc: …and kills nothing" kill -0 "$a"
+kill "$a" "$b" "$c" 2>/dev/null
+
 finish
