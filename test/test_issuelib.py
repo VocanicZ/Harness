@@ -2178,6 +2178,44 @@ def test_dispatch_claims_agent_paused_issue_first():
     board = [_issue(12, labels=["ready-for-agent", "agent-paused"])] + _NEWEST_FIRST[1:]
     assert _dispatch_board(board, free=2) == ["12", "10"]
 
+# ── #416: an issue whose live lane still owns it (session / worktree) is never re-claimed ────────
+# drive.sh passes those numbers as --busy-issues; the slot goes to the next claimable issue instead.
+def _dispatch_busy(issues, busy_issues, free=1, branches=()):
+    os.environ["HARNESS_MODE"] = "issue-only"
+    os.environ["HARNESS_AUTONOMOUS"] = "true"
+    _stub_repo(issues, branches)
+    try:
+        return [a[1] for a in il.dispatch("acme/widget", free, True, busy_issues=busy_issues) if a[0] == "IMPL"]
+    finally: _restore_repo()
+
+def test_dispatch_skips_busy_issue_and_gives_its_slot_to_the_next():
+    # #12 is agent-paused (resumable → sorts first) but its live lane still owns it
+    board = [_issue(12, labels=["ready-for-agent", "agent-paused"])] + _NEWEST_FIRST[1:]
+    assert _dispatch_busy(board, set()) == ["12"], "not busy: the resumable one goes first (#210)"
+    assert _dispatch_busy(board, {12}) == ["10"], "busy #12 never claimed; its slot goes to #10"
+    assert _dispatch_busy(board, {12}, free=3) == ["10", "11"], "remaining slots in impl_queue order"
+    assert _dispatch_busy(board, {10, 12}, free=3) == ["11"]
+
+def test_cli_dispatch_parses_busy_issues():
+    """--busy-issues "n,n" is optional and empty-tolerant, like --busy-prds."""
+    import io, contextlib
+    board = [_issue(12, labels=["ready-for-agent", "agent-paused"])] + _NEWEST_FIRST[1:]
+    os.environ["HARNESS_MODE"] = "issue-only"; os.environ["HARNESS_AUTONOMOUS"] = "true"
+    real_argv = sys.argv
+    _stub_repo(board)
+    try:
+        for extra, want in [([], "IMPL\t12\tISSUE 12 DONE"),
+                            (["--busy-issues", "12"], "IMPL\t10\tISSUE 10 DONE"),
+                            (["--busy-issues", ""], "IMPL\t12\tISSUE 12 DONE"),
+                            (["--busy-issues", "12,10"], "IMPL\t11\tISSUE 11 DONE")]:
+            sys.argv = ["issuelib.py", "dispatch", "acme/widget", "1", "--allow-orchestration", "1",
+                        "--busy-prds", ""] + extra
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf): il.main()
+            assert buf.getvalue().strip() == want, (extra, buf.getvalue())
+    finally:
+        sys.argv = real_argv; _restore_repo()
+
 def test_dispatch_orders_within_a_prd_bucket():
     kids = [_issue(n, labels=["ready-for-agent"], body="## Parent\n#5\n") for n in (13, 12, 11)]
     board = [_issue(5, labels=["prd"])] + kids

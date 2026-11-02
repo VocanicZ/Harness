@@ -1403,9 +1403,13 @@ def next_claimable(repo, exclude=()):
     return next((n for n in impl_queue(compute_state(repo)) if n not in skip), None)
 
 
-def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=None):
+def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=None, busy_issues=()):
     s = compute_state(repo); a = _allowed(MODE()); out = []
     prds = s["prds"]; busy = set(busy_prds); slots = max(0, free_slots)
+    # #416: issues a live lane still owns (a session or worktree, from drive.sh --busy-issues). Labels
+    # alone say claimable once that lane drops agent-working (it checkpointed or self-parked), so
+    # without this the pool re-claimed it, worktree add failed, and the slot went to waste.
+    owned = {int(n) for n in busy_issues}
     if allow_orchestration:
         # Fire a fresh PLAN only with no live PLAN.md AND (no completion marker OR the spec content
         # changed since that marker). A finished plan archives PLAN.md and writes a spec-keyed marker,
@@ -1428,7 +1432,8 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
             if p["open"] and (not p["children_exist"] or p.get("needs_task1")) and p["number"] not in busy:
                 return [("DECOMPOSE", str(p["number"]), "DECOMPOSE DONE")]
     # Slots: in impl_queue's order — unparented first, then eligible PRDs, resumable first (#210).
-    for num in impl_queue(s)[:slots]:
+    # Busy issues are dropped BEFORE the slice, so their slots go to the next claimable issue.
+    for num in [n for n in impl_queue(s) if n not in owned][:slots]:
         out.append(("IMPL", str(num), f"ISSUE {num} DONE"))
     # REVIEW/CLOSE_PRD gate on remaining CAPACITY, not on `not out` as the single-PRD version did:
     # with several PRDs, one PRD's impl work must not suppress another's review indefinitely.
@@ -1526,12 +1531,18 @@ def main():
             if "--busy-prds" in sys.argv:
                 raw = sys.argv[sys.argv.index("--busy-prds")+1]
                 busy = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
+            # --busy-issues "7,9" (#416): issues a live lane still owns (session or worktree) — never IMPL.
+            owned = ()
+            if "--busy-issues" in sys.argv:
+                raw = sys.argv[sys.argv.index("--busy-issues")+1]
+                owned = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
             # --priority-free N (#214): idle priority-lane slots. Given, the pool may spill into bugs.
             pfree = None
             if "--priority-free" in sys.argv:
                 raw = sys.argv[sys.argv.index("--priority-free")+1]
                 pfree = int(raw) if raw.strip().isdigit() else None
-            for action, payload, promise in dispatch(repo, free, allow, busy, pfree): print(f"{action}\t{payload}\t{promise}")
+            kw = {"busy_issues": owned} if owned else {}   # absent → the pre-#416 call shape
+            for action, payload, promise in dispatch(repo, free, allow, busy, pfree, **kw): print(f"{action}\t{payload}\t{promise}")
         elif cmd == "status":
             s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
             prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")

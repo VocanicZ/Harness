@@ -601,6 +601,25 @@ issue_worktree_present(){ local slug="$1" n="$2" u
   done
   return 1; }
 
+# busy_issues_for <unit> — #416: comma-separated issue numbers of <unit>'s repo that a lane still owns,
+# for dispatch's --busy-issues gate: an impl/bug/triage worktree (its session may be launching, or its
+# reaper owns it), a live impl or bug-lane session, or a fresh /harness-one lease — the same ownership
+# issue_session_live / issue_worktree_present test, for every number at once. Labels alone cannot say:
+# a lane that checkpointed or self-parked dropped agent-working but still owns the issue.
+busy_issues_for(){ local slug san u wd f n sessions
+  slug="$(unit_slug "$1")"; san="$(printf '%s' "$slug" | tr '/' '_')"; sessions="$(sess_list 2>/dev/null)"
+  { shopt -s nullglob
+    for wd in "$WORKTREES_DIR/bug-$san"-i* "$WORKTREES_DIR/triage-$san"-i*; do echo "${wd##*-i}"; done
+    for u in $(all_units); do
+      [[ "$(unit_slug "$u")" == "$slug" ]] || continue
+      for wd in "$WORKTREES_DIR/$u"-i*; do echo "${wd##*-i}"; done
+      for f in "$RUN_DIR/one/$u"-i*.lease; do n="${f##*-i}"; n="${n%.lease}"; one_lease_live "$u" "$n" && echo "$n"; done
+      sed -n "s/^$HARNESS_SESS_PREFIX-$u-i\([0-9][0-9]*\)\$/\1/p" <<<"$sessions"
+    done
+    shopt -u nullglob
+    sed -n "s/^$HARNESS_SESS_PREFIX-bug-$san-\([0-9][0-9]*\)-\(triage\|fix\)\$/\1/p" <<<"$sessions"
+  } | grep -E '^[0-9]+$' | sort -un | paste -sd, - ; }
+
 # unlock_issue <slug> <n> — strip agent-working from #n. On a gh failure, queue it in
 # $RUN_DIR/pending-unlock for retry_pending_unlocks. Returns gh's verdict.
 unlock_issue(){ local slug="$1" n="$2" f="$RUN_DIR/pending-unlock" lockfd
@@ -675,9 +694,11 @@ sweep_orphan_locks(){ local slug n upd since now age grace mark
   done < <(_working_locks "$slug"); }
 
 # --priority-free (#214) lets dispatch hand an idle pool slot a bug; leaving it off keeps bugs on the lane.
-dispatch_actions(){ local pfree=()
+# <5> (#416): busy_issues_for's list — issues a live lane still owns, never re-claimed.
+dispatch_actions(){ local pfree=() owned=()
   [[ "$HARNESS_POOL_TAKES_BUGS" == 1 ]] && pfree=(--priority-free "$(priority_free_slots)")
-  python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}" "${pfree[@]}"; }
+  [[ -n "${5:-}" ]] && owned=(--busy-issues "$5")
+  python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}" "${owned[@]}" "${pfree[@]}"; }
 
 # --- default-branch CI gate (#50) --------------------------------------------
 # ci_status_default_branch <slug> — `<verdict>\t<workflow>\t<url>`, verdict ∈ pass|fail|unknown.

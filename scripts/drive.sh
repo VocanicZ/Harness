@@ -289,13 +289,16 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   local issue="$1"; PROMISE="$2"
   local wd="$WORKTREES_DIR/$UNIT-i$issue" branch="issue/$issue" base; base="$(default_branch)"
   ensure_checkout || { log "checkout unavailable for #$issue"; return 1; }
-  gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null; then
     git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
   fi
   ensure_safe "$wd"
   run_worktree_hook "$wd"
+  # Stamp agent-working only AFTER the worktree is in place (#416, as spawn_bug since #34). A failed
+  # add returns above WITHOUT a stamp — and never removes one: it can mean a live lane still owns the
+  # issue's worktree, and that lane may have re-taken the lock.
+  gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   # Resume detection: a force-paused issue (agent-paused label) OR an existing remote branch
   # means a prior agent checkpointed WIP to GitHub — continue it instead of starting fresh.
   local tmpl="impl.md" labels handoff=""
@@ -498,10 +501,13 @@ drive_unit(){
       # `allow_orch` stays unit-wide and gates only PLAN/PRD (Task 5 took it off the per-PRD
       # actions); DECOMPOSE/REVIEW/CLOSE_PRD are gated by --busy-prds plus remaining capacity, so
       # PRD #2 can decompose while PRD #1's impl sessions are live.
-      local busy; busy="$(busy_prds_for "$UNIT")"
+      local busy owned; busy="$(busy_prds_for "$UNIT")"
+      # #416: issues a live lane still owns are dropped BEFORE slots are counted, so a self-parked
+      # or checkpointed lane's issue never takes the free slot (or re-stamps agent-working).
+      owned="$(busy_issues_for "$UNIT")"
       # stderr is captured (then replayed to the log) only to classify a HOLD tick for `stats` (#185).
       local actions rc errf="$RUN_DIR/$UNIT.dispatch.err"
-      actions="$(dispatch_actions "$REPO" "$free" "$allow_orch" "$busy" 2>"$errf")"; rc=$?
+      actions="$(dispatch_actions "$REPO" "$free" "$allow_orch" "$busy" "$owned" 2>"$errf")"; rc=$?
       [[ -s "$errf" ]] && cat "$errf" >&2
       (( rc == 3 )) && harness_event hold reason="$(hold_reason "$(cat "$errf" 2>/dev/null)")" secs="$POLL"
       # A unit that is not complete, has nothing in flight and nothing dispatchable used to be
