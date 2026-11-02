@@ -460,6 +460,23 @@ A fleet that pinned `--model opus` in `HARNESS_CLAUDE_FLAGS` gets **Sonnet imple
 (#375): the Implementer role's `sonnet` now beats the flags. Set `HARNESS_MODEL_IMPLEMENTER=opus` in
 `.harness/config` to keep every lane on Opus.
 
+### Lane output style (caveman)
+
+Every session prompt (`prompts/*.md` other than the `_*.md` partials, which render inside one)
+includes `prompts/_caveman.md`, so every lane invokes the `caveman` skill at session start (#377).
+Its scope:
+
+- **Caveman:** the session's own output and agent-to-agent comments — handoffs, review findings,
+  checkpoint notes. No human reads those live.
+- **Plain prose:** human-facing artifacts — PRD and issue bodies, PR titles and descriptions, docs,
+  README, CHANGELOG, commit messages.
+- **Never compressed:** exact strings — code, commands, errors, file paths, test names, label names,
+  issue and PR refs, `<!-- harness-… -->` marker lines, the completion promise.
+
+`harness setup`'s `prompt-skills-installed` check covers `caveman` for every CLI, like any skill a
+prompt names. `test/test_prompt_caveman.sh` enumerates the prompts, so a new one without the partial
+fails.
+
 ### Parallel-lane merge safety
 
 Lanes branch and merge independently, so a lane's base has usually moved by merge time. The lane

@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Caveman in every lane (#377)
+
+- Every session prompt — plan, prd, decompose, review, bug-triage, bug-fix, impl, resume, inject —
+  invokes the `caveman` skill at session start through one shared partial, `prompts/_caveman.md`.
+  Before, only impl and bug-fix did.
+- Scoped: caveman for the session's own output and agent-to-agent comments (handoffs, review
+  findings, checkpoint notes); human-facing artifacts (PRD and issue bodies, PR descriptions, docs,
+  README, commit messages) stay plain prose; exact strings (code, commands, errors, labels, issue
+  refs) are never compressed.
+
+See [docs/reference.md § Lane output style](docs/reference.md#lane-output-style-caveman).
+
 ### Roles: model and effort per lane (#375)
 
 - Every lane is a **Manager** (orchestration `-p*`: PLAN, PRD, DECOMPOSE, REVIEW/gauntlet; bug triage;
