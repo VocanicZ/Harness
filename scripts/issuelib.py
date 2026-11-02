@@ -1606,7 +1606,13 @@ def main():
                 # #271: an open issue its lane labelled agent-blocked is parked — that session is done
                 # too, so the reap frees its slot instead of letting it idle at its prompt.
                 n = int(goal.split(":",1)[1]); st = _issue_state(s["slug"], n)
-                done = st == "closed" or (st == "open" and L_BLOCKED() in _issue_labels(s["slug"], n))
+                labels = _issue_labels(s["slug"], n) if st == "open" else set()
+                done = st == "closed" or L_BLOCKED() in labels
+                # #417: agent-paused WITHOUT agent-working — the lane checkpointed, or parked itself.
+                # Not done (a checkpoint keeps its session); drive.sh's selfpark_tend tells the two
+                # apart. A resumed lane carries both labels until it re-claims, so it is not PAUSED.
+                if not done and L_PAUSED() in labels and L_WORKING() not in labels:
+                    print("PAUSED"); return
             print("DONE" if done else "PENDING")
         else: print(f"unknown command: {cmd}", file=sys.stderr); sys.exit(2)
     except GhError as e:

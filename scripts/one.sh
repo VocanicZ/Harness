@@ -196,6 +196,8 @@ one_phase(){ local issue="${1:-}" phase="${2:-}" json="" skip="" a fc rd rc leas
   harness_event one_checkpoint kind=impl issue="$issue" phase="$phase"
   [[ -n "$json" ]] && return 1
   # The instruction pause --force (and the #194 usage checkpoint) sends a live lane: same text, same labels.
+  # #417: marked like theirs, so the agent-paused it leads to is never taken for a self-park.
+  checkpoint_mark "$(sess_impl "$UNIT" "$issue")"
   echo
   _checkpoint_msg "$issue" "$SLUG" "issue/$issue" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED" \
     "harness one: the forecast left from $phase no longer fits under HARNESS_ONE_STOP_PCT=$HARNESS_ONE_STOP_PCT%"

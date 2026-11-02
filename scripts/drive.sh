@@ -50,18 +50,57 @@ EOF
 }
 
 reap_done_sessions(){
-  local s goal
+  local s goal res
   while read -r s; do
     [[ -z "$s" ]] && continue
     goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"; [[ -z "$goal" ]] && continue
-    if [[ "$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)" == DONE ]]; then
-      log "session $s goal '$goal' satisfied → advancing"
-      stats_sess_event "$s" goal_satisfied
-      cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
-      rm -f "$RUN_DIR/$s.goal"
-    fi
+    res="$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)"
+    case "$res" in
+      DONE)
+        log "session $s goal '$goal' satisfied → advancing"
+        stats_sess_event "$s" goal_satisfied
+        cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
+        rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.selfpark";;
+      PAUSED)  selfpark_tend "$s" "${goal#ISSUE:}";;
+      PENDING) rm -f "$RUN_DIR/$s.selfpark";;   # #417: back on agent-working — a later park starts afresh
+    esac   # no answer (a transient gh failure): keep whatever state there is
   done < <(team_sessions "$UNIT")
 }
+
+# --- #417: the self-parked impl lane -----------------------------------------------------------------
+# An impl lane on an autonomous fleet may swap its issue to agent-paused only when a HARNESS CHECKPOINT
+# told it to (checkpoint_mark records every one sent). One that does so on its own — to wait for a
+# human decision — would idle at its prompt and hold its slot forever: the reap never fires (paused is
+# not done), the stall watchdog sees a healthy idle prompt, and every nudge it answers resets the
+# supervisor's escalation. selfpark_tend <sess> <issue>, for a lane whose issue `check` reads PAUSED:
+#   first sight      → ONE targeted nudge; $RUN_DIR/<sess>.selfpark keeps its epoch.
+#   still PAUSED past HARNESS_SELFPARK_GRACE_MIN → mechanical checkpoint (push + harness-handoff) and
+#                       kill; reap_team then unlocks the issue and dispatch resumes it from resume.md.
+# Recovery (check reads PENDING) clears the state in reap_done_sessions. Work that cannot be pushed
+# is never killed: logged as an ERROR and retried next poll.
+SELFPARK_NUDGE='AUTONOMOUS fleet: you may not wait on a human. The `%s` label belongs to the HARNESS CHECKPOINT protocol only, and no checkpoint was sent to you. Pick the option you recommended, document it in an issue comment as an operator decision, remove `%s`, re-add `%s` (gh issue edit %s -R %s --remove-label %s --add-label %s), and continue the task.'
+selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
+  [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
+  [[ "$issue" =~ ^[0-9]+$ ]] || return 0
+  [[ -f "$RUN_DIR/$sess.checkpoint" ]] && return 0   # a checkpoint was requested: it is meant to sit there
+  wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; now="$(date +%s)"
+  t="$(cat "$f" 2>/dev/null)"
+  if ! [[ "$t" =~ ^[0-9]+$ ]]; then
+    log "self-park: $sess labelled #$issue $HARNESS_LABEL_PAUSED with no checkpoint sent — nudging it to decide and continue (#417)"
+    stats_sess_event "$sess" nudge reason=self_park
+    # shellcheck disable=SC2059
+    cli_send "$sess" "$wd" "$(printf "$SELFPARK_NUDGE" "$HARNESS_LABEL_PAUSED" "$HARNESS_LABEL_PAUSED" "$HARNESS_LABEL_WORKING" \
+      "$issue" "$SLUG" "$HARNESS_LABEL_PAUSED" "$HARNESS_LABEL_WORKING")"
+    echo "$now" > "$f"; return 0
+  fi
+  (( now - t >= ${HARNESS_SELFPARK_GRACE_MIN:-30} * 60 )) || return 0
+  mechanical_checkpoint "$sess" "$(sess_capture "$sess")" "self-park" \
+    "Session \`$sess\` labelled this issue \`$HARNESS_LABEL_PAUSED\` to wait for a decision although no HARNESS CHECKPOINT was sent to it, and was still parked ${HARNESS_SELFPARK_GRACE_MIN:-30} min after a nudge to decide and continue. The fleet is autonomous, so Harness checkpointed it and ended the session; the issue is resumed from this branch. The next lane decides any open question itself (taking the recommended option) and documents it as an operator decision." \
+    || { log "self-park: ERROR could not checkpoint $sess — not killing it, retrying next poll (#417)"; return 0; }
+  log "self-park: $sess still parked ${HARNESS_SELFPARK_GRACE_MIN:-30}m after its nudge — checkpointed, killing for reap → resume (#417)"
+  stats_sess_event "$sess" watchdog_kill reason=self_park
+  cli_kill "$sess" "$wd" || true
+  rm -f "$f"; }
 
 reap_team(){
   stats_sweep_ended   # #185: before any worktree goes — its ralph state carries the iteration count
@@ -69,6 +108,7 @@ reap_team(){
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     local issue="${wd##*-i}" sess; sess="$(sess_impl "$UNIT" "$issue")"
     session_live "$sess" && continue
+    rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
     one_lease_live "$UNIT" "$issue" && continue   # #366: a /harness-one session is working it
     rm -f "$(one_lease_file "$UNIT" "$issue")"
     log "reaping issue #$issue worktree"

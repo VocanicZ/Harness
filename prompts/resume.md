@@ -80,6 +80,11 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
 {{> _followup.md}}
 
 If this harness is configured AUTONOMOUS: never park the work, drive it to closed.
+`{{LABEL_PAUSED}}` is ONLY for a received HARNESS CHECKPOINT (a message beginning "HARNESS CHECKPOINT"):
+never apply it without one, and never to wait for a decision. If the handoff above ends on an open
+question or decision, resolve it yourself: pick the option it recommends (or the one you would),
+document it as an operator decision in an issue comment, and continue. A lane parked without a
+checkpoint is nudged, then checkpointed and ended by the engine.
 
 Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
 NOT merely opened), its local gate was GREEN when it merged (step 6b), AND the issue is closing. On an auto-merge-disabled repo, complete the

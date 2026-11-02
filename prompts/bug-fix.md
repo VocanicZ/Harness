@@ -89,6 +89,9 @@ Steps:
 AUTONOMY — this lane is autonomous. NEVER apply `agent-blocked`, never wait for a human or a
 credential. Provision runtimes yourself, make ambiguous calls yourself and document them in an
 issue comment, and drive the bug to closed. If a route seems impossible, find another.
+`{{LABEL_PAUSED}}` is ONLY for a received HARNESS CHECKPOINT (the protocol below): never apply it
+without one, and never to wait for a decision — pick the option you would recommend, document it as
+an operator decision in an issue comment, and continue.
 
 CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT": stop, commit ALL
 WIP and push your branch, run the {{skill:handoff}} skill and post the handoff as a GitHub issue

@@ -4,6 +4,20 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A lane that parks itself `agent-paused` no longer holds its slot (#417)
+
+- On an autonomous fleet, an impl lane that swaps its issue to `agent-paused` without a
+  `HARNESS CHECKPOINT` (to wait for a human decision) used to idle at its prompt forever: the reap,
+  the stall watchdog and the supervisor's nudges all let it be. The pool's poll now sees it
+  (`issuelib.py check ISSUE:<n>` reads `PAUSED`: open, `agent-paused`, no `agent-working`), sends it
+  one nudge to decide and continue, and, if it is still parked after `HARNESS_SELFPARK_GRACE_MIN`
+  minutes (new, default 30), checkpoints it mechanically (WIP pushed, `harness-handoff` comment) and
+  ends it; the issue then resumes from `resume.md`. Work that cannot be pushed is never killed.
+- Every checkpoint the engine sends (`pause --force`, the usage checkpoint, `harness one`) now records
+  `run/<session>.checkpoint`, so a requested pause is never mistaken for a self-park.
+- `impl.md`, `resume.md` and `bug-fix.md` reserve `agent-paused` for a received `HARNESS CHECKPOINT`;
+  `resume.md` tells an autonomous lane to settle a handoff's open decision itself and document it.
+
 ### A tmux lane's background jobs end with it (#418)
 
 - Killing a tmux lane (`sess_kill`: reapers, `harness supervise`, adapters) now also ends what it left
