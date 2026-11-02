@@ -133,6 +133,40 @@ export HARNESS_FLEETS_DIR
 export_native_paths
 
 log(){ printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${UNIT:-harness}" "$*"; }
+
+# --- #419: a resident worker outlives nothing it serves --------------------------------------------
+# pool-worker.sh / priority-worker.sh loop until killed. A test or dev run that dies before its own
+# kill-trap left them polling for days from a project and home that no longer existed — calling gh
+# against a real repo, and in poller mode re-creating $HARNESS_HOME/poller on every tick. So each
+# worker's main() arms roots_watch, and its step calls roots_check FIRST — before anything that could
+# `mkdir -p` under a root (ensure_poller, the snapshot dir, the run dir) and hide the deletion.
+# A root is watched from the first check that sees it (one absent at start-up, e.g. a HARNESS_HOME
+# ensure_poller makes later, joins once it exists). Its device:inode is recorded too, so a root
+# deleted mid-tick and re-created by a `mkdir -p` still counts as gone. Not on Windows, whose inode
+# numbers are not a stable identity. Only an armed process checks: a test sourcing the step is not.
+_dir_ident(){ is_windows && return 0
+  stat -L -c '%d:%i' "$1" 2>/dev/null || stat -L -f '%d:%i' "$1" 2>/dev/null || true; }
+declare -gA _ROOTS_SEEN=()
+_ROOTS_WATCH=0; _ROOT_GONE=""
+roots_watch(){ _ROOTS_WATCH=1; _ROOTS_SEEN=(); roots_gone; return 0; }
+# roots_gone — rc 0 with _ROOT_GONE set to the first watched root that is gone (deleted, or replaced);
+# else rc 1, after watching any root that has appeared since. Sets globals: never call it in $(…).
+roots_gone(){ local r id; _ROOT_GONE=""
+  for r in "$STATE_DIR" "$HARNESS_HOME"; do
+    [[ -n "$r" ]] || continue
+    if [[ -n "${_ROOTS_SEEN[$r]+x}" ]]; then
+      [[ -d "$r" ]] || { _ROOT_GONE="$r"; return 0; }
+      id="$(_dir_ident "$r")"
+      [[ -n "$id" && -n "${_ROOTS_SEEN[$r]}" && "$id" != "${_ROOTS_SEEN[$r]}" ]] && { _ROOT_GONE="$r"; return 0; }
+    elif [[ -d "$r" ]]; then
+      _ROOTS_SEEN[$r]="$(_dir_ident "$r")"
+    fi
+  done
+  return 1; }
+# roots_check — exit 0 (logging the path) when a watched root is gone; a no-op until roots_watch.
+roots_check(){ [[ "$_ROOTS_WATCH" == 1 ]] || return 0
+  roots_gone || return 0
+  log "root $_ROOT_GONE is gone — nothing left to serve, exiting"; exit 0; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
 # run_worktree_hook <dir> — run HARNESS_WORKTREE_HOOK inside a freshly added worktree.
@@ -1726,6 +1760,7 @@ poller_running(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"; [[ 
 # caller sees a live pid and stands down. HARNESS_POLLER_CMD overrides the launched command (a test
 # seam); production launches scripts/poller.sh.
 ensure_poller(){
+  roots_check   # #419: a worker's HARNESS_HOME deleted mid-tick — exit here, never re-create it below
   mkdir -p "$HARNESS_POLLER_DIR"
   local lockfd
   lock_acquire "$POLLER_LOCK" lockfd

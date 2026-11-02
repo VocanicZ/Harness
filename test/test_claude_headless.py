@@ -30,7 +30,7 @@ def wait_for(pred, what, timeout=15):
 class Lane:
     """A runner on a fresh lane dir, its claude the fake replaying <plan>."""
 
-    def __init__(self, plan, session_id=None, hold=False, resume=False):
+    def __init__(self, plan, session_id=None, hold=False, resume=False, log=None):
         self.tmp = tempfile.mkdtemp()
         self.lane, self.fake, self.wd = (os.path.join(self.tmp, p) for p in ("lane", "fake", "wd"))
         for p in (self.lane, self.fake, self.wd):
@@ -46,7 +46,7 @@ class Lane:
             cmd += ["--session-id", session_id]
         if resume:
             cmd += ["--resume"]
-        self.proc = subprocess.Popen(cmd, env=env)
+        self.proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=log)
         wait_for(lambda: self.state().get("runner_pid") == self.proc.pid or self.proc.poll() is not None,
                  "the runner's first state")
         assert self.proc.poll() is None, f"the runner exited {self.proc.returncode} at start"
@@ -476,6 +476,64 @@ def test_lane_dir_from_environment():
     assert r.returncode == 0 and ch.read_inbox(lane, 0)[0][0]["text"] == "from-env"
     env = {k: v for k, v in os.environ.items() if k != "HARNESS_LANE_DIR"}
     assert subprocess.run([sys.executable, RUNNER, "send", "x"], env=env, capture_output=True).returncode != 0
+
+
+# --- #419: a runner whose lane dir is deleted exits by itself --------------------------------------
+def _gone_run(lane_log):
+    lane_log.seek(0)
+    return lane_log.read().decode("utf-8", "replace")
+
+
+def _exits(proc, timeout):
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise AssertionError(f"the runner is still alive {timeout:g}s after its lane dir was deleted")
+
+
+def test_lane_dir_deleted_while_idle_ends_the_runner():
+    """The stop file lives in the lane dir, so once that dir is gone no `stop` can ever reach the runner:
+    it must notice the deletion itself, exit 0, print no traceback, and not recreate the lane."""
+    with tempfile.TemporaryFile() as log:
+        lane = Lane(["normal"], log=log)
+        try:
+            assert lane.state()["state"] == "idle"
+            import shutil
+            shutil.rmtree(lane.tmp)
+            rc = _exits(lane.proc, 5)
+            out = _gone_run(log)
+            assert rc == 0, (rc, out)
+            assert "Traceback" not in out, out
+            assert not os.path.exists(lane.lane), "the runner recreated its deleted lane dir"
+        finally:
+            if lane.proc.poll() is None:
+                lane.proc.kill()
+
+
+def test_lane_dir_deleted_mid_turn_kills_the_turn_and_ends_the_runner():
+    with tempfile.TemporaryFile() as log:
+        lane = Lane(["hang"], log=log)
+        claude = grandchild = None
+        try:
+            lane.send("long turn")
+            pids = wait_for(lambda: open(os.path.join(lane.fake, "pids")).read().split()
+                            if os.path.exists(os.path.join(lane.fake, "pids")) else None, "the hung turn's pids")
+            claude, grandchild = map(int, pids)
+            assert lane.state()["state"] == "busy" and lane.state()["claude_pid"] == claude
+            import shutil
+            shutil.rmtree(lane.lane)
+            rc = _exits(lane.proc, 10)
+            out = _gone_run(log)
+            assert rc == 0, (rc, out)
+            assert "Traceback" not in out, out
+            wait_for(lambda: gone(claude) and gone(grandchild), "the turn's whole tree to end", timeout=10)
+            assert not os.path.exists(lane.lane), "the runner recreated its deleted lane dir"
+        finally:
+            if lane.proc.poll() is None:
+                lane.proc.kill()
+            for p in (claude, grandchild):
+                if p and not gone(p):
+                    os.kill(p, signal.SIGKILL)
 
 
 if __name__ == "__main__":

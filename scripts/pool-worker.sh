@@ -13,8 +13,10 @@ worker_tick(){ local wid="$1" u
 # One poll cycle. Resident (#24): all_complete (rc 2) no longer retires the worker — it
 # logs an idle banner ONCE per idle streak (deduped via _IDLE_LOGGED) and keeps polling.
 # Real work (rc 0) clears the dedup so a later idle streak re-announces. Workers only ever
-# terminate on stop (kill); pause keeps them drained (rc 3). Returns worker_tick's rc.
+# terminate on stop (kill) or once their roots are deleted (#419); pause keeps them drained (rc 3).
+# Returns worker_tick's rc.
 worker_step(){ local wid="$1"
+  roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
   gh_rate_wait      # #183: rate-limited — sleep until the reset; claim_next's completion reads are gh calls
   reap_pool_bugs    # #214: tend bug sessions this pool took, even between units
@@ -38,5 +40,6 @@ worker_step(){ local wid="$1"
   return "$rc"; }
 main(){ local wid="${1:?usage: pool-worker.sh <worker-id>}"; UNIT="worker-$wid"; _IDLE_LOGGED=0
   log "pool worker $wid up — cap $CAP poll ${POLL}s"
+  roots_watch   # #419: the resident loop ends by itself once the roots it serves are deleted
   while true; do worker_step "$wid"; done; }
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
