@@ -150,20 +150,23 @@ stats_sweep_ended
 assert_eq "$(session_ends)" 1 "session_end is emitted once the runner has exited"
 stats_sweep_ended
 assert_eq "$(session_ends)" 1 "…exactly once"
-want="$(python3 - "$FIX/tool-use.jsonl" "$FIX/normal.jsonl" <<'PY'
+# Each turn's own usage (#426): a `--resume`d turn's modelUsage is the session's running total (tool-use.jsonl's
+# is), its model_usage_since_last_result the turn's — summing modelUsage over turns double-counts.
+turn_usage(){ python3 - "$@" <<'PY'
 import json, sys
 tot = {}
 for f in sys.argv[1:]:
     for l in open(f):
         r = json.loads(l)
-        for m, u in (r.get("modelUsage") or {}).items() if r.get("type") == "result" else ():
+        for m, u in (r.get("model_usage_since_last_result") or {}).items() if r.get("type") == "result" else ():
             t = tot.setdefault(m, {"input": 0, "output": 0, "cache_create": 0, "cache_read": 0})
             for s, d in (("inputTokens", "input"), ("outputTokens", "output"),
                          ("cacheCreationInputTokens", "cache_create"), ("cacheReadInputTokens", "cache_read")):
                 t[d] += u[s]
 print(json.dumps(tot, sort_keys=True))
 PY
-)"
+}
+want="$(turn_usage "$FIX/tool-use.jsonl" "$FIX/normal.jsonl")"
 got="$(python3 -c 'import json,sys
 for l in open(sys.argv[1]):
     e = json.loads(l)
@@ -174,6 +177,30 @@ rep="$(python3 "$ROOT/scripts/stats.py" report --issue 9 --json --events "$HARNE
 assert_eq "$(jq -r '.sessions[0].model' <<<"$rep")" haiku "harness stats shows the session's model"
 assert_eq "$(jq -c '.sessions[0].usage' <<<"$rep" | jq -S -c .)" "$(jq -S -c . <<<"$want")" "…and its token counts"
 assert_eq "$(jq -r '.sessions[0].session' <<<"$rep")" "$uuid" "…under its claude session id"
+
+echo "== #426: the parked lane relaunched on its claude session — the two session_ends never double-count =="
+rm -rf "$RUN_DIR/usage-holds"; unset HARNESS_USAGE_CMD
+GOAL="ISSUE:9" PROMISE="ISSUE 9 DONE" MAXITER=5 launch_claude "$S" "$WD" >/dev/null 2>&1
+assert_ok "the lane is live again" sess_live "$S"
+assert_ok "…carrying on the claude session" grep -qF "session $S carries on agent session $uuid" "$LOG"
+assert_ok "…its first turn resumes it" wait_until 15 turn_idle "$S" 1
+assert_ok "…as --resume $uuid" grep -qF "\"--resume\", \"$uuid\"" <<<"$(calls argv | sed -n 3p)"
+rpid="$(sess_pane_pid "$S")"; sess_kill "$S" >/dev/null 2>&1
+assert_ok "the relaunched lane ends" wait_until 10 bash -c "! kill -0 $rpid 2>/dev/null"
+stats_sweep_ended
+assert_eq "$(session_ends)" 2 "a second session_end for the resumed run"
+ends="$(python3 -c 'import json,sys
+for l in open(sys.argv[1]):
+    e = json.loads(l)
+    if e["event"] == "session_end": print(json.dumps({"usage": e.get("usage"), "resumed": e.get("resumed", False)}, sort_keys=True))' "$HARNESS_EVENTS_FILE")"
+run2="$(turn_usage "$FIX/normal.jsonl")"
+assert_eq "$(sed -n 2p <<<"$ends" | jq -S -c .usage)" "$(jq -S -c . <<<"$run2")" "…reporting only the turn this run added"
+assert_eq "$(sed -n 2p <<<"$ends" | jq -r .resumed)" true "…flagged resumed"
+assert_eq "$(sed -n 1p <<<"$ends" | jq -r .resumed)" false "…the first run's is not"
+total="$(turn_usage "$FIX/tool-use.jsonl" "$FIX/normal.jsonl" "$FIX/normal.jsonl")"
+rep="$(python3 "$ROOT/scripts/stats.py" report --issue 9 --json --events "$HARNESS_EVENTS_FILE")"
+assert_eq "$(jq -r '.sessions | length' <<<"$rep")" 1 "harness stats keeps one session"
+assert_eq "$(jq -c '.sessions[0].usage' <<<"$rep" | jq -S -c .)" "$(jq -S -c . <<<"$total")" "…whose tokens are both runs' turns, counted once"
 
 echo "== the claude adapter reads a headless lane's usage windows off its rate_limit_event readings =="
 unset HARNESS_USAGE_CMD; rm -rf "$RUN_DIR/usage-holds"

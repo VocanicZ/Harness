@@ -459,8 +459,9 @@ def test_emit_swallows_unexpected_errors_and_runs_as_a_script():
 
 def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
     """#352: a headless lane's claude may keep no transcript; its events.jsonl is found by the session id
-    its state.json names, and folded from each turn's stream-json `result` modelUsage (summed over turns,
-    the assistant events' partial usage ignored)."""
+    its state.json names, and folded from each turn's stream-json `result` usage (the turn's own: #426,
+    tool-use.jsonl's modelUsage is the session's running total — its model_usage_since_last_result is
+    the turn's), the assistant events' partial usage ignored."""
     fix = os.path.join(HERE, "fixtures", "cli", "claude", "stream-json")
     with host() as d:
         os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = os.path.join(d, "none")
@@ -475,7 +476,7 @@ def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
         assert st.lane_events("no-such-session") is None
         assert st.find_transcript(sid) is None, "a lane's events are no transcript (forecast reads its path)"
         usage, _, _ = st.session_usage(st.lane_events(sid))
-        assert usage == {"claude-haiku-5-5": {"input": 8, "output": 182, "cache_create": 66287, "cache_read": 74625}}, usage
+        assert usage == {"claude-haiku-5-5": {"input": 6, "output": 177, "cache_create": 43982, "cache_read": 63243}}, usage
         rec = st.build_event("session_end", {}, {"session": sid, "launched": 1}, {}, now=100)
         assert rec["usage"] == usage, rec
         # A turn cut off before its result (an interrupt, a kill) still counts what its messages carried;
@@ -488,12 +489,119 @@ def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
                 out.write(json.dumps(ev) + "\n")
         usage, _, _ = st.session_usage(st.lane_events(sid))
         assert usage["claude-opus-5-5"] == {"input": 3, "output": 40, "cache_create": 0, "cache_read": 7}, usage
-        assert usage["claude-haiku-5-5"]["output"] == 182, usage   # the turns with a result: their totals only
+        assert usage["claude-haiku-5-5"]["output"] == 177, usage   # the turns with a result: their totals only
         os.environ["HARNESS_HEADLESS_DIR"] = os.path.join(d, "elsewhere")
         try:
             assert st.lane_events(sid) is None   # the lanes root is HARNESS_HEADLESS_DIR when set
         finally:
             os.environ.pop("HARNESS_HEADLESS_DIR")
+
+
+# --- #426: no double count across --resume'd turns and resumed runs ----------------------------------
+STREAM_FIX = os.path.join(HERE, "fixtures", "cli", "claude", "stream-json")
+# normal.jsonl then tool-use.jsonl: two real turns of ONE claude session, the second `--resume`d. Its
+# result's modelUsage is the session's running total (2+4 input, 5+172 output, 22305+21677 cache
+# writes, 11382+51861 cache reads), so the two turns' real total is tool-use's modelUsage.
+RESUMED_TOTAL = {"claude-haiku-5-5": {"input": 6, "output": 177, "cache_create": 43982, "cache_read": 63243}}
+
+def _stream(path, strip_since=False):
+    """normal.jsonl and tool-use.jsonl as one headless lane's events.jsonl, each turn behind the runner's
+    turn_start marker; strip_since drops model_usage_since_last_result (a claude that prints none)."""
+    with open(path, "w") as out:
+        for n, f in enumerate(("normal.jsonl", "tool-use.jsonl"), 1):
+            out.write(json.dumps({"type": "harness", "subtype": "turn_start", "turn": n}) + "\n")
+            for l in open(os.path.join(STREAM_FIX, f)):
+                r = json.loads(l)
+                if strip_since:
+                    r.pop("model_usage_since_last_result", None)
+                out.write(json.dumps(r) + "\n")
+
+def test_file_usage_over_resumed_turns_with_cumulative_model_usage_is_the_real_total():
+    d = tempfile.mkdtemp()
+    try:
+        last = [json.loads(l) for l in open(os.path.join(STREAM_FIX, "tool-use.jsonl"))
+                if json.loads(l).get("type") == "result"][-1]
+        mu = last["modelUsage"]["claude-haiku-5-5"]
+        assert (mu["inputTokens"], mu["outputTokens"]) == (6, 177), "the fixture's modelUsage is cumulative"
+        for strip in (False, True):
+            ev = os.path.join(d, f"events-{strip}.jsonl"); _stream(ev, strip)
+            acc, span = {}, [None, None]
+            st._file_usage(ev, acc, span)
+            assert acc == RESUMED_TOTAL, (strip, acc)
+        # A stream whose modelUsage is per turn (it falls below the previous result's) is summed as is.
+        ev = os.path.join(d, "per-turn.jsonl")
+        with open(ev, "w") as out:
+            for o in (5, 3):
+                out.write(json.dumps({"type": "result", "modelUsage": {"m": {"inputTokens": 1, "outputTokens": o}}}) + "\n")
+        acc = {}; st._file_usage(ev, acc, [None, None])
+        assert acc == {"m": {"input": 2, "output": 8, "cache_create": 0, "cache_read": 0}}, acc
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+def _assistant(mid, out, ts):
+    return {"type": "assistant", "timestamp": ts, "message": {"id": mid, "model": "claude-opus-5-5",
+            "usage": {"input_tokens": 1, "output_tokens": out, "cache_read_input_tokens": 10 * out}}}
+
+def test_checkpointed_and_resumed_lane_session_ends_sum_to_the_transcript_total():
+    """A headless lane checkpointed, then relaunched on the same claude session: `claude -p --resume`
+    appends to the same transcript, so the resumed run's session_end reports only what it added, and
+    the two session_ends (and `harness stats`) sum to the transcript's total, never more."""
+    sid = "99999999-8888-7777-6666-555555555555"
+    with host() as d:
+        cfg = os.path.join(d, "claude"); proj = os.path.join(cfg, "projects", "-wt"); os.makedirs(proj)
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfg
+        tr = os.path.join(proj, f"{sid}.jsonl")
+        ctx = os.path.join(d, "hz-main-i9.stats")
+        launch = ["emit", "launch", "--write-ctx", ctx, "-c", "prefix=hz", "-c", "repo=acme/widget",
+                  f"session={sid}", "goal=ISSUE:9", "model=opus"]
+        def run_turns(*msgs):
+            with open(tr, "a") as fh:
+                for m in msgs:
+                    fh.write(json.dumps(m) + "\n")
+        assert st.main(launch) == 0                                   # the first run
+        run_turns(_assistant("a1", 100, "2026-10-01T00:00:00Z"), _assistant("a2", 50, "2026-10-01T00:01:00Z"))
+        assert st.main(["emit", "session_end", "--ctx", ctx]) == 0    # checkpointed: the lane ends
+        assert st.main(launch) == 0                                   # relaunched, resuming the session
+        run_turns(_assistant("b1", 30, "2026-10-01T01:00:00Z"))
+        assert st.main(["emit", "session_end", "--ctx", ctx]) == 0
+        ends = [e for e in events(d) if e["event"] == "session_end"]
+        assert len(ends) == 2, ends
+        assert ends[0]["usage"] == {"claude-opus-5-5": {"input": 2, "output": 150, "cache_create": 0, "cache_read": 1500}}, ends[0]
+        assert "resumed" not in ends[0], ends[0]
+        assert ends[1]["usage"] == {"claude-opus-5-5": {"input": 1, "output": 30, "cache_create": 0, "cache_read": 300}}, ends[1]
+        assert ends[1]["resumed"] is True, ends[1]
+        whole, _, _ = st.session_usage(tr)
+        assert st.add_usage(st.add_usage({}, ends[0]["usage"]), ends[1]["usage"]) == whole, whole
+        (s,) = st.sessions(st.load_events())
+        assert s["usage"] == whole, s
+        rc, out = run(["report", "--issue", "9", "--json"])
+        assert rc == 0 and json.loads(out)["sessions"][0]["usage"]["claude-opus-5-5"]["output"] == 180, out
+        # A third run that added nothing reports nothing new.
+        assert st.main(launch) == 0 and st.main(["emit", "session_end", "--ctx", ctx]) == 0
+        assert events(d)[-1]["usage"] == {} and events(d)[-1]["resumed"] is True, events(d)[-1]
+        assert st.sessions(st.load_events())[0]["usage"] == whole
+
+def test_session_end_without_resumed_replaces_and_a_tmux_lane_is_unchanged():
+    """A session_end logged before #426 (no `resumed`) held the transcript's whole total: it replaces
+    what came before, and a later resumed run subtracts it. One session_end per session (every tmux
+    lane: it never resumes a session id) reads as before."""
+    u = lambda o: {"m": {"input": 0, "output": o, "cache_create": 0, "cache_read": 0}}
+    legacy = [_ev("session_end", session="s1", usage=u(10)), _ev("session_end", session="s1", usage=u(25))]
+    (s,) = st.sessions(legacy)
+    assert s["usage"] == u(25), s
+    (s,) = st.sessions(legacy + [_ev("session_end", session="s1", usage=u(5), resumed=True, wall_s=7)])
+    assert s["usage"] == u(30), s
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        for e in legacy:
+            st.append_event(e, p)
+        assert st.logged_session_usage("s1", p) == u(25)
+        assert st.logged_session_usage("s2", p) is None
+        assert st.usage_minus(u(40), u(25)) == u(15) and st.usage_minus(u(20), u(25)) == {}
+    with host() as d:   # a fresh session (tmux, or a headless lane's first run): its whole transcript
+        _launch_end(d, model="opus")
+        end = [e for e in events(d) if e["event"] == "session_end"][0]
+        assert end["usage"] == WANT_USAGE and "resumed" not in end, end
 
 
 # --- #376: verify what ran -----------------------------------------------------------------------

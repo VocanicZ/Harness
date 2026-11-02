@@ -17,6 +17,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `prepare_impl` stamps `agent-working` only after `git worktree add` succeeds (as `spawn_bug` has
   since #34), so a failed add no longer leaves the label behind.
 
+### `harness stats` no longer double-counts a headless lane's tokens (#426)
+
+- A headless lane relaunched on its claude session (after a checkpoint, a crash or a usage park)
+  appends to the same transcript; its `session_end` re-counted the earlier run. It now reports only
+  what that run added, flagged `resumed: true`, and `harness stats` adds it to the session's earlier
+  runs — the two `session_end`s sum to the session's real usage. Earlier logs read as before.
+- A lane with no transcript summed every turn's stream-json `modelUsage`, which on a `--resume`d
+  turn is the session's running total. Each turn now counts its own usage
+  (`model_usage_since_last_result`, or `modelUsage` less the previous turn's).
+- tmux lanes are unchanged.
+
 ### `harness stats --by-role` (#378)
 
 - Tokens (input, output, cache) and list-price $ per role — Manager, Implementer, and `other` for a
