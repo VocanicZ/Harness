@@ -562,6 +562,93 @@ def test_matching_dominant_model_with_a_side_call_emits_nothing():
     assert st.model_mismatch({"model": "sonnet", "usage": {}}) is None, "no usage → no check"
 
 
+# --- --by-role (#378) ---------------------------------------------------------------
+def test_session_kind_to_role_for_every_kind():
+    want = {"impl": "implementer", "bug-fix": "implementer", "orch": "manager", "review": "manager",
+            "bug-triage": "manager", "inject": "manager"}
+    for kind, role in want.items():
+        assert st.session_role({"kind": kind}) == role, kind
+    assert st.session_role({"kind": "gauntlet-xyz"}) == "other", "unknown kind → other"
+    # no kind (an event log from before kinds): the worktree's name says
+    W = "/p/.harness/worktrees/"
+    names = {W + "main-i7": "implementer", W + "bug-acme_widget-i9": "implementer",
+             W + "orch-acme_widget-p3": "manager", W + "orch-acme_widget-p0/": "manager",
+             W + "triage-acme_widget-i9": "manager", "/p/checkout": "other", "": "other"}
+    for wt, role in names.items():
+        assert st.session_role({"worktree": wt}) == role, wt
+    assert st.session_role({}) == "other"
+
+M = 1_000_000
+ROLE_EVENTS = [
+    # implementers: an issue lane (sonnet) and a bug fix (sonnet)
+    _ev("launch", session="r1", issue=21, prd=9, kind="impl", model="sonnet"),
+    _ev("session_end", session="r1", issue=21, prd=9, kind="impl",
+        usage={"claude-sonnet-5-5": {"input": M, "output": M, "cache_create": 0, "cache_read": 0}}),
+    _ev("session_end", session="r2", issue=30, kind="bug-fix",
+        usage={"claude-sonnet-5-5": {"input": 0, "output": M, "cache_create": 0, "cache_read": M}}),
+    # managers: PRD orchestration, review, triage, injector (opus)
+    _ev("session_end", session="r3", prd=9, kind="orch", usage=_u(M)),
+    _ev("session_end", session="r4", prd=9, kind="review", usage=_u(M)),
+    _ev("session_end", session="r5", issue=30, kind="bug-triage", usage=_u(M)),
+    _ev("session_end", session="r6", kind="inject", usage=_u(M)),
+    # history from before kinds: the worktree on its launch attributes it
+    _ev("launch", session="r7", worktree="/p/.harness/worktrees/main-i22"),
+    _ev("session_end", session="r7", usage={"claude-sonnet-5-5": {"input": 0, "output": M, "cache_create": 0, "cache_read": 0}}),
+    # an unknown kind, and one nothing attributes: `other`, never dropped
+    _ev("session_end", session="r8", kind="mystery", usage=_u(M)),
+    _ev("session_end", session="r9", usage=_u(M)),
+]
+
+def test_role_rollup_tokens_and_list_price_per_role():
+    r = st.role_rollup(ROLE_EVENTS)
+    assert list(r["roles"]) == ["manager", "implementer", "other"], r["roles"]
+    mgr, imp, oth = r["roles"]["manager"], r["roles"]["implementer"], r["roles"]["other"]
+    assert (mgr["sessions"], imp["sessions"], oth["sessions"]) == (4, 3, 2), r
+    assert imp["input"] == M and imp["output"] == 3 * M and imp["cache_read"] == M, imp
+    assert mgr["input"] == 4 and mgr["output"] == 4 * M and mgr["cache_create"] == 40 and mgr["cache_read"] == 400, mgr
+    # list price: sonnet $3 in / $15 out / $0.30 cache read per Mtok; opus $5 / $25 / $6.25 write / $0.50 read
+    assert imp["usd"] == round(3 + 15 * 3 + 0.3, 4), imp["usd"]
+    opus_one = (1 * 5 + M * 25 + 10 * 6.25 + 100 * 0.5) / M
+    assert abs(mgr["usd"] - 4 * opus_one) < 1e-3 and abs(oth["usd"] - 2 * opus_one) < 1e-3, (mgr, oth)
+    t = r["total"]
+    assert t["sessions"] == 9 and t["output"] == 9 * M and abs(t["usd"] - (imp["usd"] + mgr["usd"] + oth["usd"])) < 1e-3, t
+    assert set(imp["tokens"]) == {"claude-sonnet-5-5"} and set(mgr["tokens"]) == {"claude-opus-5-5"}
+
+def test_role_rollup_respects_filters_and_omits_empty_other():
+    r = st.role_rollup(ROLE_EVENTS, prd=9)
+    assert "other" not in r["roles"], "no unattributed session → no other row"
+    assert r["roles"]["manager"]["sessions"] == 2 and r["roles"]["implementer"]["sessions"] == 1, r
+    r = st.role_rollup(ROLE_EVENTS, issue=30)
+    assert r["roles"]["manager"]["sessions"] == 1 and r["roles"]["implementer"]["sessions"] == 1, r
+    r = st.role_rollup(ROLE_EVENTS, model="sonnet")
+    assert r["roles"]["manager"]["sessions"] == 0 and r["roles"]["implementer"]["sessions"] == 3, r
+    assert r["roles"]["manager"]["usd"] == 0 and r["total"]["usd"] == r["roles"]["implementer"]["usd"]
+    other_fleet = [dict(e, prefix="bw") for e in ROLE_EVENTS[:2]]
+    assert st.role_rollup(st.filter_events(ROLE_EVENTS + other_fleet, fleet="bw"))["total"]["sessions"] == 1
+
+def test_report_cli_by_role_text_and_json():
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        for e in ROLE_EVENTS:
+            st.append_event(e, p)
+        rc, out = run(["report", "--by-role", "--since", "2026-01-01"])
+        assert rc == 0, out
+        lines = {l.split()[0]: l for l in out.splitlines() if l and not l.startswith(" ")}
+        assert set(lines) == {"manager", "implementer", "other", "total"}, out
+        assert "sessions 3  in 1,000,000  out 3,000,000" in lines["implementer"] and "$48.30" in lines["implementer"], out
+        assert "sessions 9" in lines["total"] and "claude-sonnet-5-5: out 3,000,000" in out, out
+        rc, out = run(["report", "--by-role", "--since", "2026-01-01", "--json"])
+        j = json.loads(out)
+        assert j["roles"]["implementer"]["usd"] == 48.3 and j["roles"]["other"]["sessions"] == 2, j
+        rc, out = run(["report", "--by-role", "--prd", "9", "--json"])
+        assert rc == 0 and json.loads(out)["total"]["sessions"] == 3, out
+        rc, out = run(["report", "--by-role", "--issue", "30", "--json"])
+        assert rc == 0 and json.loads(out)["total"]["sessions"] == 2, out
+        rc, out = run(["report", "--by-role", "--fleet", "nope", "--since", "2026-01-01", "--json"])
+        assert json.loads(out)["total"] == {"sessions": 0, "input": 0, "output": 0, "cache_create": 0,
+                                             "cache_read": 0, "usd": 0, "tokens": {}}, out
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
