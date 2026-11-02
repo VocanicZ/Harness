@@ -53,7 +53,10 @@ session_account(){ local wd; wd="$(cat "$RUN_DIR/$1.wd" 2>/dev/null)" || return 
 # last screen. The host prototype's checkpoint_and_kill, minus the kill — the session stays alive
 # for #120's nudge, so it keeps its agent-working label too (an agent-paused issue with a live
 # session would be re-dispatched on top of it). rc 1 = the work could not be pushed anywhere.
+# [why] [what] — the commit's reason and the handoff's explanation (default: the usage-limit freeze;
+# #417's self-park checkpoint passes its own).
 mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" stamp body
+  local why="${3:-usage limit}" what="${4:-Session \`$1\` is frozen at a usage limit and cannot run its own /handoff, so Harness checkpointed it mechanically. The session was left running and resumes when the limit resets.}"
   # An unresolved repo must stop here: `gh -R ""` would fall back to whatever repo the cwd is.
   _checkpoint_target "$sess" && [[ -n "$_CP_SLUG" && "$_CP_SLUG" == */?* ]] \
     || { log "usage: cannot resolve issue/repo for $sess — no checkpoint"; return 1; }
@@ -61,7 +64,7 @@ mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" stamp body
   if [[ -n "$_CP_BRANCH" && -n "$wd" ]] && git -C "$wd" rev-parse --git-dir >/dev/null 2>&1; then
     if [[ -n "$(git -C "$wd" status --porcelain -- . ':!.claude' ':!.harness-task.md')" ]]; then
       git -C "$wd" add -A -- . ':!.claude' ':!.harness-task.md'
-      git -C "$wd" commit -q --no-verify -m "wip: harness checkpoint of $sess at a usage limit (#$_CP_ISSUE)"
+      git -C "$wd" commit -q --no-verify -m "wip: harness checkpoint of $sess ($why) (#$_CP_ISSUE)"
     fi
     sha="$(git -C "$wd" rev-parse --short HEAD)"; stamp="$(date +%Y%m%d%H%M)"
     if git -C "$wd" push -q origin "HEAD:refs/heads/$_CP_BRANCH" 2>/dev/null; then pushed="$_CP_BRANCH"
@@ -72,8 +75,8 @@ mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" stamp body
     fi
   fi
   body="<!-- harness-handoff issue=$_CP_ISSUE${_CP_BRANCH:+ branch=$_CP_BRANCH} -->
-## Checkpoint by Harness (usage limit)
-Session \`$sess\` is frozen at a usage limit and cannot run its own /handoff, so Harness checkpointed it mechanically. The session was left running and resumes when the limit resets.
+## Checkpoint by Harness ($why)
+$what
 ${pushed:+All work in progress was committed and pushed to \`$pushed\` @ \`$sha\`. }This is not the agent's own handoff: rebuild context from the branch's commits and its diff against the base.
 
 Last screen:
@@ -82,7 +85,7 @@ $(tail -30 <<<"$pane" | cut -c1-200)
 \`\`\`"
   gh issue comment "$_CP_ISSUE" -R "$_CP_SLUG" --body "$body" >/dev/null 2>&1 \
     || log "usage: handoff comment for $_CP_SLUG#$_CP_ISSUE failed"
-  log "usage: mechanical checkpoint of $sess (${pushed:-no branch pushed}) — left running"; }
+  log "usage: mechanical checkpoint of $sess ($why; ${pushed:-no branch pushed})"; }
 
 # limit_checkpoint_once <sess> <pane> — mechanical checkpoint, once per limit episode (the marker
 # is cleared by watchdog_session the moment the session is off the limit).
@@ -104,6 +107,7 @@ usage_checkpoint_account(){ local acct="$1" reason="$2" sess sa pane msg mark
     _checkpoint_target "$sess" || continue
     msg="$(_checkpoint_msg "$_CP_ISSUE" "$_CP_SLUG" "$_CP_BRANCH" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED" "$reason")"
     mark="$(sess_turns "$sess")"   # a backend that counts turns (headless): park the lane after this one
+    checkpoint_mark "$sess"   # #417: the agent-paused it leads to is requested, not a self-park
     cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "$msg"
     [[ -n "$mark" ]] && printf '%s\t%s\t%s\n' "$_CP_ISSUE" "$_CP_SLUG" "$mark" > "$RUN_DIR/$sess.usagepark"
     log "usage: checkpoint requested: $sess ($_CP_SLUG#$_CP_ISSUE)"

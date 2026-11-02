@@ -60,6 +60,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_ORPHAN_LOCK_MIN:=20}"       # #179: minutes an agent-working issue may sit with no live session before the pool unlocks it
 : "${HARNESS_BLOCKED_BACKOFF_MIN:=0}"    # #271: minutes a parked agent-blocked issue is held before an autonomous fleet retries it unchanged; 0 = until it changes
+: "${HARNESS_SELFPARK_GRACE_MIN:=30}"    # #417: minutes a self-parked impl lane (agent-paused, no checkpoint sent) gets after its nudge before checkpoint + kill (autonomous fleets)
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
 : "${HARNESS_ONE_STOP_PCT:=98}"          # #365: /harness-one recommends APPROVE iff now% + p80% + reserve <= this % of every usage window
@@ -92,7 +93,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/session/dispatch.sh"
 # Each adapter defaults and exports its own config (HARNESS_<CLI>_BIN / _FLAGS) when it is sourced.
 source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
 
-export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS HARNESS_SELFPARK_GRACE_MIN \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL \
@@ -914,7 +915,7 @@ _goal_loop_step(){ local sess="$1" wd="$2" uuid sid out pid reply
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
-  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock"; return 0; }
+  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock" "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"; return 0; }
   pane="$(sess_capture "$sess")" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
@@ -1473,6 +1474,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   # write_state (don't clobber the running agent's state file), no new-session, and above all no
   # send-keys typing a second `exec claude …` into the live pane. This guard MUST be first.
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
+  rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: a new session has been sent no checkpoint
   [[ "$sess" =~ ^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$ ]] && uuid="$(sess_resume_id "$sess" "$wd")"
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
   else uuid="$(new_uuid)"; fi
@@ -1869,6 +1871,12 @@ _checkpoint_msg(){  # <issue> <slug> <branch> <working-label> <paused-label> [re
       "$why" "$skill" "$1" "$2" "$1" "$1" "$2" "$4" "$5"
   fi
 }
+
+# checkpoint_mark <sess> — record that a HARNESS CHECKPOINT was sent to <sess> (#417): its epoch in
+# $RUN_DIR/<sess>.checkpoint. An impl lane that labels its issue agent-paused WITHOUT one parked
+# itself (selfpark_tend, drive.sh). Every sender of _checkpoint_msg to a session calls this; the
+# marker lives as long as that session (launch_agent and reap_team drop it).
+checkpoint_mark(){ date +%s > "$RUN_DIR/$1.checkpoint"; }
 
 # Parse a live session name into "<issue> <slug> <branch>" for the checkpoint, setting the
 # globals _CP_ISSUE/_CP_SLUG/_CP_BRANCH. Two shapes (#36): impl sessions hz-<unit>-i<issue>

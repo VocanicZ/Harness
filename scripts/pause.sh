@@ -30,6 +30,7 @@ force_pause(){
     issue="$_CP_ISSUE"; slug="$_CP_SLUG"; branch="$_CP_BRANCH"
     msg="$(_checkpoint_msg "$issue" "$slug" "$branch" "$HARNESS_LABEL_WORKING" "$HARNESS_LABEL_PAUSED")"
     mark="$(sess_turns "$sess")"   # #350: a backend that counts turns (headless) is waited on for this one
+    checkpoint_mark "$sess"   # #417: an agent-paused issue after this is a requested pause, not a self-park
     cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "$msg"
     pending+=("$sess:$issue:$slug:$mark")
     echo "  checkpoint requested: $sess (issue #$issue on $slug)"

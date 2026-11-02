@@ -213,6 +213,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_GH_RATE_TTL` | `60` | Seconds one `gh api rate_limit` probe is reused by every worker on the host |
 | `HARNESS_ORPHAN_LOCK_MIN` | `20` | Minutes an open `agent-working` issue may sit with no live session (impl, orch, or bug lane) and no worktree before the pool worker unlocks it with a comment. A reap whose unlock `gh` refused (an outage) is queued instead and retried every poll until it lands |
 | `HARNESS_BLOCKED_BACKOFF_MIN` | `0` | An autonomous fleet ends a lane that labels its issue `agent-blocked` and parks the issue: it is not re-dispatched until someone comments on it or edits its labels. This many minutes after the park it is retried even unchanged; `0` = only on a change. A non-autonomous fleet never dispatches `agent-blocked` work |
+| `HARNESS_SELFPARK_GRACE_MIN` | `30` | An autonomous fleet's impl lane may label its issue `agent-paused` only when a `HARNESS CHECKPOINT` was sent to it (`pause --force`, the usage checkpoint, `harness one`; each records `run/<session>.checkpoint`). One that parks itself (`agent-paused`, no `agent-working`, no checkpoint sent) gets one nudge to decide and continue; still parked this many minutes later, it is checkpointed (branch pushed, `harness-handoff` comment) and ended, and the issue is resumed from `resume.md`. A non-autonomous fleet never checks |
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 | `HARNESS_LABEL_PAUSED` | `agent-paused` | Label on an issue checkpointed by `pause --force` or a usage-limit checkpoint |
 | `HARNESS_PAUSE_GRACE` | `300` | Seconds `pause --force` waits for agents to checkpoint |
@@ -382,7 +383,7 @@ waits for the pid, 30). `test/test_windows_lifecycle.sh` covers the lifecycle wi
 
 | Setting | Behaviour |
 |---------|-----------|
-| `HARNESS_AUTONOMOUS=true` (default) | Agents are instructed never to apply `agent-blocked`. Every obstacle is resolved by the agent. Stale `agent-working` labels are reaped automatically. If a lane applies `agent-blocked` anyway, its session is ended and the issue is parked: it is not re-dispatched until it changes (a comment or a label edit) or `HARNESS_BLOCKED_BACKOFF_MIN` passes. `harness status` lists it as `PARKED`. |
+| `HARNESS_AUTONOMOUS=true` (default) | Agents are instructed never to apply `agent-blocked`. Every obstacle is resolved by the agent. Stale `agent-working` labels are reaped automatically. If a lane applies `agent-blocked` anyway, its session is ended and the issue is parked: it is not re-dispatched until it changes (a comment or a label edit) or `HARNESS_BLOCKED_BACKOFF_MIN` passes. `harness status` lists it as `PARKED`. A lane that labels its issue `agent-paused` with no `HARNESS CHECKPOINT` sent to it is nudged, then checkpointed and ended after `HARNESS_SELFPARK_GRACE_MIN`. |
 | `HARNESS_AUTONOMOUS=false` | Agents may apply `agent-blocked` to park work that genuinely requires human input. Blocked issues are excluded from dispatch until the label is removed. |
 
 ### Issue-author allowlist
