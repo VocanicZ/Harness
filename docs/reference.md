@@ -518,6 +518,25 @@ lane-facing rules that use them are in the lane prompts):
   `gh` that runs the guard before `gh pr merge` and passes every other command through to the real `gh`. A
   repo without submodules gets no change to its lane environment.
 
+#### Submodule issues, end to end
+
+An issue for submodule code is filed in the **main** repo, never in the submodule's own repo (lanes do not
+claim issues there). The writers of the issue — `decompose.md`, `bug-triage.md` and the inject prompt —
+add a `## Code location` section naming the submodule path (for example `ORGE-ENGINE/src/...`). The lane
+prompts (`impl.md`, `bug-fix.md`, `resume.md`, via the shared `prompts/_submodule.md`; `_rtdd.md` points
+at it) then tell the lane to:
+
+1. work inside the submodule on `issue/<unit>-<n>` (`<unit>` is `HARNESS_UNIT`, so the name cannot clash
+   with a branch a former submodule fleet left) and run `rtdd which` there as well as in the main repo;
+2. rebase, test with Rounds 1+2, push, and merge it into the submodule's base branch;
+3. set the main repo's gitlink to the **merged** commit on `origin/<base>` (a squash merge changes the SHA);
+4. commit the bump in the main repo, run Rounds 1+2 on the rebased HEAD, and merge (the gitlink guard checks it).
+
+**Resume.** Dispatch decides between `impl.md` and `resume.md` by the `agent-paused` label or a pushed
+`issue/<n>` branch in the main repo, **or** a pushed `issue/<unit>-<n>` in any submodule
+(`submodule_branch_pushed <worktree> <branch>`, `scripts/submodule.sh`). A lane that died after pushing
+only the submodule branch is therefore resumed, not restarted. This applies to issues and to bug fixes.
+
 ### Roles: model and effort per lane
 
 Every lane plays one of two roles, read from its session kind (the session name says it):

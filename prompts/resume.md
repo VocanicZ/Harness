@@ -34,6 +34,9 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
    `untested` by WRITING the missing tests, never by discarding the WIP you were dispatched to finish.
    Never delete, skip, or weaken a test to go green, and never clear `untested` by
    deleting the code it points at.
+   Resuming submodule work: your predecessor's WIP may sit ONLY in a submodule, on its `issue/{{UNIT}}-{{ISSUE}}`
+   branch (nothing on {{BRANCH}}). Check `git -C <path> fetch origin && git -C <path> branch -r` for it first.
+{{> _submodule.md}}
 5. Commit, push, open/refresh the PR:
      git add -A && git commit -m "feat: <summary> (closes #{{ISSUE}})"
      git push -u origin {{BRANCH}}

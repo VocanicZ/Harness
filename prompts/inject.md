@@ -47,6 +47,9 @@ issues should now depend on it. Build the intended ordering edges before mutatin
     gh issue create -R {{SLUG}} --title "[AFK] <task>" --label {{LABEL_READY}} \
       --body "<what + acceptance criteria>
 
+      <if the code lives inside a git submodule of this repo, a `## Code location` section naming its
+       path, e.g. `ORGE-ENGINE/src/...` — file the issue HERE, never in the submodule's repo>
+
       ## Blocked by
       <same-repo #N prerequisites, or 'None'>
 

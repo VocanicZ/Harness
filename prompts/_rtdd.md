@@ -2,6 +2,7 @@
    Lanes test with rtdd Rounds 1 and 2 ONLY — never the full suite (it runs once, at PRD review).
      rtdd --version                              # NOT on PATH? install once: npx -y github:VocanicZ/rtdd
      rtdd which --base origin/<default-branch>   # re-run after every edit
+   - Code in a git submodule: run `rtdd which` inside the submodule too (SUBMODULE WORK below).
    - NO `.rtdd/config.yaml` → `rtdd init` once, only to create it; commit ONLY the files it reports
      creating — never `AGENTS.md`, `.claude/` or `.cursor/` changes rtdd made.
    - Run Round 1 with the project's OWN test command until green, then Round 2. `untested` names

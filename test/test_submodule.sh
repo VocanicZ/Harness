@@ -164,4 +164,79 @@ guard(){ bash "$GUARD" --repo "$1" --base "${2:-origin/main}" --head "${3:-HEAD}
   finish
 ) || rc=1
 
+# ── group 8: submodule issue end to end — submodule merges first, then the gitlink bump (#471) ──
+(
+  D="$TMP/g8"; mk_fixture "$D"
+  R="$D/main"; q -C "$R" submodule update --init
+  q -C "$R" checkout -b issue/7
+  # lane step 1: work in the submodule on issue/<unit>-<n> (never issue/<n>) and push it
+  BR="issue/main-7"; BRSHA="$(sub_commit "$D" "$BR" "lane work")"
+  # step 2: squash-merge into the submodule base — the SHA changes
+  BASE="$(submodule_base_branch "$R" engine)"
+  assert_eq "$BASE" "main" "the resolver names the submodule's base branch"
+  ( cd "$D/subwork" && q fetch origin && q checkout -B "$BASE" "origin/$BASE" && q merge --squash "origin/$BR" && q commit -m "squash lane" && q push origin "$BASE" )
+  MERGED="$(git -C "$D/subwork" rev-parse HEAD)"
+  assert_ok "precondition: a squash merge changed the SHA" test "$MERGED" != "$BRSHA"
+  # a bump to the pre-merge branch commit is refused by the guard …
+  bump "$D" "$BRSHA"
+  assert_no "gitlink at the pre-merge branch commit is refused" guard "$R"
+  # … step 3: point the gitlink at the MERGED commit on origin/<base>, step 4: the bump merges
+  q -C "$R" reset -q --hard origin/main
+  git -C "$R/engine" fetch -q origin; bump "$D" "$(git -C "$R/engine" rev-parse "origin/$BASE")"
+  assert_eq "$(git -C "$R" rev-parse HEAD:engine)" "$MERGED" "the bump pins the merged commit on origin/<base>"
+  assert_ok "the bump to the merged commit passes the guard" guard "$R"
+  finish
+) || rc=1
+
+# ── group 9: resume detection looks in every submodule (#471) ────────────────────────────────
+(
+  D="$TMP/g9"; mk_fixture "$D"
+  R="$D/main"; q -C "$R" submodule update --init
+  q -C "$R" worktree add -b issue/3 "$D/wt" HEAD; q -C "$D/wt" submodule update --init
+  assert_no "no branch anywhere: not pushed" submodule_branch_pushed "$D/wt" "issue/main-3"
+  sub_commit "$D" "issue/main-3" "wip" >/dev/null
+  assert_ok "branch only in the submodule: found" submodule_branch_pushed "$D/wt" "issue/main-3"
+  assert_no "another branch name does not match" submodule_branch_pushed "$D/wt" "issue/3"
+  assert_no "a repo without .gitmodules never matches" submodule_branch_pushed "$TMP" "issue/main-3"
+
+  # prepare_impl takes the resume path when issue/<unit>-<n> exists only in the submodule
+  source "$ROOT/scripts/drive.sh"
+  RENDERED="$D/rendered"; : > "$RENDERED"
+  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_WORKTREE_HOOK=""
+  UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""; CHECKOUT="$R"; WORKTREES_DIR="$D/wts"; mkdir -p "$WORKTREES_DIR"
+  PROJECT_ROOT="$R"; STATE_DIR="$D/state"
+  render(){ echo "$1" >> "$RENDERED"; }; ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }
+  resume_handoff(){ :; }; cli_subagent(){ :; }; swarm_suite_cmd(){ :; }
+  gh(){ case "$1 $2" in "issue view") echo '[]';; esac; return 0; }
+  sub_commit "$D" "issue/main-5" "wip" >/dev/null           # #5: the branch is ONLY in the submodule
+  prepare_impl 5 "ISSUE 5 DONE" >/dev/null 2>&1
+  assert_ok "submodule-only branch: resume.md is rendered" grep -q 'resume.md' "$RENDERED"
+  : > "$RENDERED"
+  prepare_impl 6 "ISSUE 6 DONE" >/dev/null 2>&1               # #6: no branch anywhere
+  assert_ok "no branch anywhere: impl.md is rendered" grep -q 'impl.md' "$RENDERED"
+  assert_no "no branch anywhere: not resume.md" grep -q 'resume.md' "$RENDERED"
+  finish
+) || rc=1
+
+# ── group 10: the prompts tell writers and lanes about submodule code (#471) ─────────────────
+(
+  P="$ROOT/prompts"
+  for f in decompose bug-triage inject; do
+    assert_ok "$f.md asks for a ## Code location section naming the submodule path" \
+      grep -q '## Code location' "$P/$f.md"
+  done
+  assert_ok "decompose.md: issues stay in the main repo" grep -q "never in the submodule's own repo" "$P/decompose.md"
+  for f in impl bug-fix resume; do
+    R="$(source "$ROOT/scripts/lib.sh"; render "$P/$f.md" ISSUE=42 UNIT=orge SLUG=acme/widget BRANCH=issue/42 LABEL_PAUSED=p)"
+    assert_ok "$f: submodule branch is issue/<unit>-<n>, rendered" grep -qF 'issue/orge-42' <<<"$R"
+    assert_ok "$f: rtdd which runs inside the submodule too" grep -qF 'run `rtdd which` inside the submodule as well as here' <<<"$R"
+    assert_ok "$f: merge into the submodule base branch first" grep -qF "BASE branch" <<<"$R"
+    assert_ok "$f: gitlink points at the MERGED commit on origin/<base>" grep -qF 'MERGED commit on the submodule' <<<"$R"
+    assert_ok "$f: lanes never claim issues from a submodule repo" grep -qF "lanes never claim issues from a submodule's own repo" <<<"$R"
+  done
+  assert_ok "_rtdd.md points at the submodule rule" grep -q 'inside the submodule too' "$P/_rtdd.md"
+  assert_ok "resume.md checks a submodule-only branch" grep -q 'ONLY in a submodule' "$P/resume.md"
+  finish
+) || rc=1
+
 exit $rc

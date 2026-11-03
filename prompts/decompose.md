@@ -35,6 +35,15 @@ Steps:
      #{{PRD}}
 
      Part of #{{PRD}}"
+   - CODE IN A SUBMODULE? If a task's code lives inside a git submodule of this repo (see `.gitmodules`),
+     file the issue HERE in {{SLUG}} — never in the submodule's own repo, lanes do not claim issues there —
+     and end its body, before `## Blocked by`, with a `## Code location` section naming the submodule
+     path, for example:
+
+     ## Code location
+     ORGE-ENGINE/src/...
+
+     A task with no submodule code gets no such section.
    - Create labels once if missing: {{LABEL_READY}}, {{LABEL_HITL}}, agent-working, agent-blocked, {{LABEL_REVIEWED}}.
    - HUMAN-IN-THE-LOOP slice (the {{skill:to-issues}} skill marks it HITL: a task no fleet lane can
      do — a human decision, a credential, a manual check)? File it with `{{LABEL_HITL}}`, NEVER

@@ -26,7 +26,7 @@ assert_eq "$(bug_phase 7)" "fix" "bug-triaged wins when both labels present (alr
 # ── bug-triage.md contract: refine + flip label IN PLACE, no code, no fan-out ─
 TRI="$RUN_DIR/triage.txt"
 render "$HERE/../prompts/bug-triage.md" \
-  ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
+  ISSUE=42 UNIT=main SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
   PROMISE='BUG 42 triage DONE' \
   LABEL_READY=ready-for-agent LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
   LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged HANDOFF_SKILL="$(cli_skill handoff)" > "$TRI"
@@ -67,7 +67,7 @@ assert_no "triage: no unrendered {{ token" \
 # parameterised label flip — custom labels must reach the gh command, defaults must not leak
 TRIC="$RUN_DIR/triage_custom.txt"
 render "$HERE/../prompts/bug-triage.md" \
-  ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
+  ISSUE=42 UNIT=main SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
   PROMISE=P LABEL_READY=go LABEL_WORKING=busy LABEL_PAUSED=zzz \
   LABEL_BUG=defect LABEL_BUG_TRIAGED=triaged > "$TRIC"
 assert_ok "triage: custom labels reach the flip command" \
@@ -82,7 +82,7 @@ assert_ok "triage: custom close path drops the custom working label before gh is
 # ── bug-fix.md contract: rtdd-guided fix -> PR -> auto-merge -> close the refined issue ──
 FIX="$RUN_DIR/fix.txt"
 render "$HERE/../prompts/bug-fix.md" \
-  ISSUE=42 SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
+  ISSUE=42 UNIT=main SLUG=acme/widget PROJECT=w DESC=d OWNER=acme SPEC= BRANCH=issue/42 \
   PROMISE='BUG 42 fix DONE' \
   LABEL_READY=ready-for-agent LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
   LABEL_BUG=bug LABEL_BUG_TRIAGED=bug-triaged SWARM=auto SWARM_SUITE="$(swarm_suite_cmd)" HANDOFF_SKILL="$(cli_skill handoff)" > "$FIX"
