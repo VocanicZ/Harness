@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+# test_fleet_migrate.sh — #467 (PRD #464 §4): scripts/fleet-migrate.sh moves every fleet to the
+# one-repo config (HARNESS_UNIT / HARNESS_CHECKOUT, POOL = max(POOL, CAP), no HARNESS_TOPOLOGY) and
+# rolls its workers onto the new engine: backs up the config, kills only that fleet's worker and
+# priority pids (never `harness stop`), then `harness start --state-dir <fleet>`.
+# The seven fixtures below are the host's own configs (both line forms), trimmed to what the
+# migration reads. `harness start` itself needs tmux/claude/gh, so the roll runs against a stub
+# bin/harness that records the call and launches stand-in workers.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/helpers.sh"
+unset_inherited_config
+ENGINE="$(cd "$HERE/.." && pwd)"
+ROOT="$(mktemp -d)"; tmp_track "$ROOT"
+export HARNESS_EVENTS_FILE="$ROOT/events.jsonl"
+
+# fleet <name> <config body> [targets.tsv body] [checkout dirs…] — a fixture project; prints its .harness dir
+fleet(){ local name="$1" cfg="$2" tsv="${3:-}" d="$ROOT/$1/.harness"; shift 3 2>/dev/null || shift $#
+  mkdir -p "$d/run" "$d/checkouts"
+  printf '%s\n' "$cfg" > "$d/config"
+  [[ -n "$tsv" ]] && printf '%b' "$tsv" > "$d/targets.tsv"
+  local c; for c in "$@"; do mkdir -p "$d/checkouts/$c/.git"; done
+  echo "$d"; }
+# read <state-dir> <expr> — evaluate <expr> in a shell that sourced lib.sh on that fleet's config
+read_cfg(){ ( unset_inherited_config; export STATE_DIR="$1" HARNESS_HOME="$ROOT/host" HARNESS_GH_RATE_GUARD=0
+    unset TARGETS_TSV RUN_DIR; source "$ENGINE/scripts/lib.sh" >/dev/null 2>&1; eval "$2" ); }
+migrate(){ bash "$ENGINE/scripts/fleet-migrate.sh" --no-start --state-dir "$1" 2>&1; }
+cfgval(){ sed -n "s/^.*$2[:=]\\{1,2\\}\\([^}\"]*\\).*$/\\1/p" "$1/config" | head -n1; }
+
+COMMON='HARNESS_MODE=prd'
+# ── the seven host fleets ─────────────────────────────────────────────────────────────────────────
+HD="$(fleet harness-dev ': "${HARNESS_MODE:=prd}"
+: "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_OWNER:=VocanicZ}"
+: "${HARNESS_REPO:=VocanicZ/Harness}"
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=1}"
+: "${HARNESS_SESS_PREFIX:=hzhn}"
+export CLAUDE_CONFIG_DIR="$HOME/.claude-switch/accounts/main"' \
+  'harness\tVocanicZ/Harness\t-\tHarness engine\nrtdd\tVocanicZ/rtdd\t-\trtdd — event log\n' Harness rtdd)"
+IP="$(fleet ImPrint ': "${HARNESS_MODE:=prd}"
+: "${HARNESS_TOPOLOGY:=multi}"            # multi + 1 row: checkout lives in .harness/checkouts, never the root
+: "${HARNESS_OWNER:=VocanicZ}"
+: "${HARNESS_REPO:=VocanicZ/ImPrint}"
+: "${HARNESS_POOL:=1}"                    # host already runs 7 fleets on one account
+: "${HARNESS_CAP:=2}"
+: "${HARNESS_SESS_PREFIX:=hzip}"          # unique prefix' \
+  '# id\trepo\tdeps(comma|-)\tdesc\nimprint\tVocanicZ/Imprinted\t-\tImPrint: invisible image codes\n' ImPrint Imprinted)"
+OR="$(fleet ORGE ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_OWNER:=RainBowCreation}"
+: "${HARNESS_REPO:=RainBowCreation/ORGE}"
+# One lane: every engine change also lands on the ORGE-ENGINE submodule.
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_CAP:=2}"
+: "${HARNESS_SESS_PREFIX:=hzor}"' \
+  '# id\trepo\tdeps(comma|-)\tdesc\norge\tRainBowCreation/ORGE\t-\tORGE\n' ORGE)"
+BC="$(fleet bangwa-client ': "${HARNESS_MODE:=prd}"
+: "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_OWNER:=RainBowCreation}"
+: "${HARNESS_REPO:=RainBowCreation/bangwa-client}"
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=3}"
+: "${HARNESS_SESS_PREFIX:=bw}"
+BANGWA_ACCT="/home/nathanielsong/.claude-switch/accounts/main"
+[[ -f "$BANGWA_ACCT/.claude.json" ]] || BANGWA_ACCT="$HOME/.claude-switch/accounts/main"
+: "${CLAUDE_CONFIG_DIR:=$BANGWA_ACCT}"' \
+  '# id\trepo\tdeps(comma|-)\tdesc\n# One unit, many PRDs\nui\tRainBowCreation/bangwa-client\t-\tBangwa client\n' bangwa-client)"
+HG="$(fleet hardcore-gacha-2 ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_OWNER:=VocanicZ}"
+: "${HARNESS_REPO:=VocanicZ/hardcore-gacha-2}"
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=2}"
+: "${HARNESS_SESS_PREFIX:=hzg2}"' \
+  'neuro\tVocanicZ/hardcore-gacha-2\t-\tNeuro trainable hero AI\n' hardcore-gacha-2)"
+SW="$(fleet swarm ': "${HARNESS_TOPOLOGY:=multi}"            # multi + 1 row
+: "${HARNESS_OWNER:=VocanicZ}"
+: "${HARNESS_REPO:=VocanicZ/swarm}"
+: "${HARNESS_POOL:=1}"                    # host already runs 6 fleets
+: "${HARNESS_CAP:=2}"
+: "${HARNESS_SESS_PREFIX:=hzsw}"' \
+  'swarm\tVocanicZ/swarm\t-\tswarm: HTCondor batch layer\n' swarm)"
+BW="$(fleet bangwa 'HARNESS_MODE=issue-only
+HARNESS_TOPOLOGY=single
+HARNESS_OWNER=RainBowCreation
+HARNESS_REPO=RainBowCreation/bangwa
+HARNESS_POOL=1
+HARNESS_CAP=4
+HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions --effort high --model opus"
+: "${HARNESS_SESS_PREFIX:=hzbw}"')"
+
+# table: fleet-dir  UNIT  REPO  checkout-dir-name|ROOT  POOL  CAP  session-name
+check(){ local d="$1" unit="$2" repo="$3" co="$4" pool="$5" cap="$6" sess="$7" out
+  out="$(migrate "$d")"
+  assert_eq "$(read_cfg "$d" 'echo $(fleet_unit)')" "$unit" "$(basename "$(dirname "$d")"): UNIT is $unit"
+  assert_eq "$(read_cfg "$d" 'echo $HARNESS_REPO')" "$repo" "$(basename "$(dirname "$d")"): REPO is $repo"
+  assert_eq "$(read_cfg "$d" 'echo $HARNESS_POOL')" "$pool" "$(basename "$(dirname "$d")"): POOL is $pool"
+  assert_eq "$(read_cfg "$d" 'echo $HARNESS_CAP')"  "$cap"  "$(basename "$(dirname "$d")"): CAP stays $cap"
+  local want="$d/checkouts/$co"; [[ "$co" == ROOT ]] && want="$(dirname "$d")"
+  assert_eq "$(read_cfg "$d" 'echo $(fleet_checkout)')" "$want" "$(basename "$(dirname "$d")"): CHECKOUT is $want"
+  assert_ok "$(basename "$(dirname "$d")"): that CHECKOUT exists" test -d "$want"
+  assert_no "$(basename "$(dirname "$d")"): HARNESS_TOPOLOGY is gone from the config" grep -q 'HARNESS_TOPOLOGY' "$d/config"
+  assert_eq "$(read_cfg "$d" 'echo $(sess_impl "$(fleet_unit)" 7)')" "$sess" "$(basename "$(dirname "$d")"): session name stays $sess"
+  assert_eq "$(read_cfg "$d" 'echo $(unit_slug "$(fleet_unit)")')" "$repo" "$(basename "$(dirname "$d")"): unit_slug is the repo"
+  assert_ok "$(basename "$(dirname "$d")"): the old config is kept as config.bak-<date>" test -n "$(ls "$d"/config.bak-* 2>/dev/null)"
+}
+check "$HD" harness VocanicZ/Harness            Harness          2 1 hzhn-harness-i7
+check "$IP" imprint VocanicZ/Imprinted          Imprinted        2 2 hzip-imprint-i7
+check "$OR" orge    RainBowCreation/ORGE        ORGE             2 2 hzor-orge-i7
+check "$BC" ui      RainBowCreation/bangwa-client bangwa-client  3 3 bw-ui-i7
+check "$HG" neuro   VocanicZ/hardcore-gacha-2   hardcore-gacha-2 2 2 hzg2-neuro-i7
+check "$SW" swarm   VocanicZ/swarm              swarm            2 2 hzsw-swarm-i7
+check "$BW" main    RainBowCreation/bangwa      ROOT             4 4 hzbw-main-i7
+
+# the config keeps everything else it had: comments, the account pin, quoted values
+assert_ok "inline comments on edited lines survive"   grep -q 'POOL:=2}"  *# host already runs 7 fleets' "$IP/config"
+assert_ok "the account pin line survives"              grep -q 'CLAUDE_CONFIG_DIR' "$HD/config"
+assert_ok "plain-form quoted values survive"           grep -q '^HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions' "$BW/config"
+assert_ok "a plain-form config gets plain-form keys"   grep -q '^HARNESS_UNIT=main$' "$BW/config"
+assert_ok "a := config gets := keys"                   grep -q '^: "${HARNESS_UNIT:=harness}"$' "$HD/config"
+assert_eq "$(grep -c 'HARNESS_REPO' "$IP/config")" "1" "ImPrint: the target's repo REPLACES the config's (still one HARNESS_REPO line)"
+assert_ok "ImPrint: the renamed repo is the target's"  grep -q 'HARNESS_REPO:=VocanicZ/Imprinted}' "$IP/config"
+assert_ok "the backup is the config as it was"         grep -q 'HARNESS_TOPOLOGY:=multi' "$HD"/config.bak-*
+
+# ── the two-row fleet: rtdd leaves targets.tsv, and a fleet_migrated event says so ──
+assert_ok "rtdd's row is in targets.tsv.migrated"      grep -q '^rtdd	VocanicZ/rtdd' "$HD/targets.tsv.migrated"
+assert_no "rtdd's row is out of targets.tsv"           grep -q '^rtdd' "$HD/targets.tsv"
+assert_ok "harness's row stays in targets.tsv"         grep -q '^harness	VocanicZ/Harness' "$HD/targets.tsv"
+assert_no "a one-row fleet writes no targets.tsv.migrated" test -e "$IP/targets.tsv.migrated"
+ev="$(grep '"fleet_migrated"' "$HARNESS_EVENTS_FILE" | grep '"unit": "harness"')"
+assert_ok "a fleet_migrated event for harness-dev"     test -n "$ev"
+assert_ok "...naming the dropped unit"                 grep -q '"dropped": "rtdd"' <<<"$ev"
+assert_eq "$(grep -c '"fleet_migrated"' "$HARNESS_EVENTS_FILE")" "7" "one fleet_migrated event per fleet"
+
+# ── running it twice changes nothing ──
+snap(){ ( cd "$1" && find . -type f -not -path './run/*' | sort | xargs md5sum; ls ) 2>&1; }
+before="$(for d in "$HD" "$IP" "$OR" "$BC" "$HG" "$SW" "$BW"; do snap "$d"; done)"; evs="$(wc -l < "$HARNESS_EVENTS_FILE")"
+for d in "$HD" "$IP" "$OR" "$BC" "$HG" "$SW" "$BW"; do migrate "$d" >/dev/null; done
+after="$(for d in "$HD" "$IP" "$OR" "$BC" "$HG" "$SW" "$BW"; do snap "$d"; done)"
+assert_eq "$after" "$before" "a second run leaves every config, backup and targets file byte-identical"
+assert_eq "$(wc -l < "$HARNESS_EVENTS_FILE")" "$evs" "...and logs no second event"
+assert_eq "$(ls "$HD"/config.bak-* | wc -l)" "1" "...and takes no second backup"
+
+# ── edge: no HARNESS_POOL line, an unreadable pool, a multi config whose targets.tsv is gone ──
+E1="$(fleet e-nopool ': "${HARNESS_TOPOLOGY:=single}"
+: "${HARNESS_REPO:=acme/w}"
+: "${HARNESS_CAP:=5}"')"
+migrate "$E1" >/dev/null
+assert_eq "$(read_cfg "$E1" 'echo $HARNESS_POOL')" "5" "no POOL line: POOL is written as max(default 3, CAP 5)"
+E2="$(fleet e-notsv ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_REPO:=acme/w}"' '' w)"
+assert_ok "a multi config with no targets.tsv still migrates" bash -c "bash '$ENGINE/scripts/fleet-migrate.sh' --no-start --state-dir '$E2' >/dev/null 2>&1"
+assert_eq "$(read_cfg "$E2" 'echo $(fleet_unit)')" "main" "...to unit main"
+assert_eq "$(read_cfg "$E2" 'echo $(fleet_checkout)')" "$E2/checkouts/w" "...and the clone that exists on disk"
+E3="$(fleet e-match ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_OWNER:=acme}"
+: "${HARNESS_REPO:=acme/two}"' 'one\tacme/one\t-\tfirst\ntwo\tacme/two\t-\tsecond\n' one two)"
+migrate "$E3" >/dev/null
+assert_eq "$(read_cfg "$E3" 'echo $(fleet_unit)')" "two" "the row whose repo matches HARNESS_REPO is kept, not the first"
+E4="$(fleet e-clone ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_REPO:=acme/renamed}"' 'main\tacme/renamed\t-\tx\n')"
+mkdir -p "$E4/checkouts/oldname/.git"; git -C "$E4/checkouts/oldname" init -q 2>/dev/null; git -C "$E4/checkouts/oldname" remote add origin https://github.com/acme/renamed.git
+migrate "$E4" >/dev/null
+assert_eq "$(read_cfg "$E4" 'echo $(fleet_checkout)')" "$E4/checkouts/oldname" "no clone named after the repo: the one whose origin is the repo"
+
+# ── harness update's roll: two registered fleets, live old-loop workers ───────────────────────────
+STUB="$ROOT/engine"; mkdir -p "$STUB/bin" "$STUB/scripts"
+cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh} "$STUB/scripts/"
+START_LOG="$ROOT/start.log"; : > "$START_LOG"
+cat > "$STUB/bin/harness" <<'STUBEOF'
+#!/usr/bin/env bash
+# stand-in for `harness start`: record the call and its environment, launch stand-in workers.
+[[ "$1" == start && "$2" == --state-dir ]] || exit 9
+d="$3"; pool="$(sed -n 's/^.*HARNESS_POOL[:=]*\([0-9]*\).*$/\1/p' "$d/config" | head -n1)"
+echo "start $d recover=$([[ " $* " == *" --recover "* ]] && echo yes || echo no) env_repo=${HARNESS_REPO:-} env_state=${STATE_DIR:-} pool=$pool" >> "$START_LOG"
+for ((i = 1; i <= pool; i++)); do nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$d/run/worker-$i.pid"; done
+nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$d/run/priority.pid"
+STUBEOF
+chmod +x "$STUB/bin/harness"; export START_LOG
+
+UA="$(fleet upd-a ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_REPO:=acme/a}"
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_CAP:=3}"
+: "${HARNESS_SESS_PREFIX:=ua}"' 'alpha\tacme/a\t-\tA\n' a)"
+UB="$(fleet upd-b 'HARNESS_TOPOLOGY=single
+HARNESS_REPO=acme/b
+HARNESS_POOL=2
+HARNESS_CAP=1
+HARNESS_SESS_PREFIX=ub')"
+UC="$(fleet upd-c ': "${HARNESS_TOPOLOGY:=single}"
+: "${HARNESS_REPO:=acme/c}"')"   # NOT registered: another folder's fleet
+UD="$(fleet upd-d ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/d}"
+: "${HARNESS_POOL:=1}"')"       # registered, already one repo
+mkdir -p "$ROOT/host/fleets"; export HARNESS_FLEETS_DIR="$ROOT/host/fleets"   # run.sh pins its own; the registry under test is this one
+for p in "$UA" "$UB" "$UD"; do
+  printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$p" "$p" > "$ROOT/host/fleets/$(basename "$(dirname "$p")").json"
+done
+# stand-in old-loop workers: one pid per file, each fleet its own; UC's must survive (unregistered), UD's too (nothing to roll)
+spawn(){ nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$1"; }
+for d in "$UA" "$UB" "$UC" "$UD"; do spawn "$d/run/worker-1.pid"; spawn "$d/run/priority.pid"; done
+spawn "$UB/run/worker-2.pid"
+pidsof(){ cat "$1"/run/worker-*.pid "$1"/run/priority.pid 2>/dev/null | tr '\n' ' '; }
+OLD_A="$(pidsof "$UA")"; OLD_B="$(pidsof "$UB")"; OLD_C="$(pidsof "$UC")"; OLD_D="$(pidsof "$UD")"
+# a lane session and a bystander on a private tmux server — neither may be touched
+TMUX_SOCK="lm$$"
+if command -v tmux >/dev/null 2>&1; then
+  tmux -L "$TMUX_SOCK" new-session -d -s ua-alpha-i5 'sleep 600'; tmux -L "$TMUX_SOCK" new-session -d -s other-session 'sleep 600'
+  trap 'tmux -L "$TMUX_SOCK" kill-server 2>/dev/null; tmp_cleanup' EXIT
+fi
+BYSTANDER=""; nohup sleep 600 >/dev/null 2>&1 9>&- & BYSTANDER=$!
+alive(){ local p; for p in $1; do kill -0 "$p" 2>/dev/null || return 1; done; }
+dead(){ local p; for p in $1; do kill -0 "$p" 2>/dev/null && return 1; done; return 0; }
+
+out="$( cd "$UC/.." && STATE_DIR="$UC" HARNESS_REPO=leaked/repo HARNESS_POOL=99 ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" \
+        bash "$STUB/scripts/fleet-migrate.sh" --all 2>&1)"
+assert_ok "update: fleet A (multi) is migrated"           grep -q 'HARNESS_UNIT:=alpha' "$UA/config"
+assert_ok "update: fleet B (plain KEY=val) is migrated"   grep -q '^HARNESS_UNIT=main$' "$UB/config"
+assert_eq "$(read_cfg "$UA" 'echo $HARNESS_POOL')" "3" "update: fleet A POOL is max(1,3)"
+assert_eq "$(read_cfg "$UB" 'echo $HARNESS_POOL')" "2" "update: fleet B POOL is max(2,1)"
+assert_ok "update: A's old worker + priority pids are dead" dead "$OLD_A"
+assert_ok "update: B's old worker + priority pids are dead" dead "$OLD_B"
+assert_ok "update: the already-migrated registered fleet's workers are left running" alive "$OLD_D"
+assert_ok "update: the bystander process is untouched"     kill -0 "$BYSTANDER"
+assert_eq "$(grep -c '^start ' "$START_LOG")" "3" "update: harness start ran for exactly the fleets that were migrated and live (A, B, and the unregistered current folder's C)"
+assert_ok "update: ...for fleet A, without --recover"      grep -q "^start $UA recover=no " "$START_LOG"
+assert_ok "update: ...for fleet B, without --recover"      grep -q "^start $UB recover=no " "$START_LOG"
+assert_no "update: the start inherits no other fleet's environment" grep -qE 'env_repo=leaked|env_state=[^ ]|pool=99' "$START_LOG"
+assert_ok "update: A's workers are running again (3 workers + priority)" alive "$(pidsof "$UA")"
+assert_eq "$(ls "$UA"/run/worker-*.pid | wc -l)" "3" "update: A relaunched POOL=3 workers"
+assert_ok "update: B's workers are running again"          alive "$(pidsof "$UB")"
+assert_ok "update: A's pids are new ones"                  test "$(pidsof "$UA")" != "$OLD_A"
+if command -v tmux >/dev/null 2>&1; then
+  assert_ok "update: the fleet's live lane session survives" tmux -L "$TMUX_SOCK" has-session -t ua-alpha-i5
+  assert_ok "update: another tmux session is untouched"      tmux -L "$TMUX_SOCK" has-session -t other-session
+fi
+assert_ok "update: the unregistered current-folder fleet is migrated too" grep -q 'HARNESS_UNIT:=main' "$UC/config"
+assert_ok "update: ...and rolled, since it had live workers" grep -q "^start $UC recover=no " "$START_LOG"
+assert_ok "update: ...onto new pids"                       dead "$OLD_C"
+# an unregistered fleet with NO live workers is migrated, not started
+UE="$(fleet upd-e ': "${HARNESS_TOPOLOGY:=single}"
+: "${HARNESS_REPO:=acme/e}"')"
+STATE_DIR="$UE" ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
+assert_ok "update: a stopped, unregistered fleet is migrated" grep -q 'HARNESS_UNIT:=main' "$UE/config"
+assert_no "update: ...and not started"                     grep -q "^start $UE" "$START_LOG"
+# second pass: nothing is migrated, nothing is killed or started
+n="$(grep -c '^start ' "$START_LOG")"; pa="$(pidsof "$UA")"
+ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
+assert_eq "$(grep -c '^start ' "$START_LOG")" "$n" "update twice: no second start"
+assert_ok "update twice: the workers are the same processes" test "$(pidsof "$UA")" = "$pa"
+# a paused fleet is migrated and its workers stopped, but not started (start would lift the pause)
+UP="$(fleet upd-p ': "${HARNESS_TOPOLOGY:=single}"
+: "${HARNESS_REPO:=acme/p}"')"; touch "$UP/run/PAUSED"; spawn "$UP/run/worker-1.pid"; OLD_P="$(pidsof "$UP")"
+printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$UP" "$UP/run" > "$ROOT/host/fleets/upd-p.json"
+out="$(ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all 2>&1)"
+assert_ok "paused fleet: migrated"                         grep -q 'HARNESS_UNIT:=main' "$UP/config"
+assert_ok "paused fleet: old workers stopped"              dead "$OLD_P"
+assert_no "paused fleet: not started"                      grep -q "^start $UP" "$START_LOG"
+assert_ok "paused fleet: the pause flag is still there"    test -e "$UP/run/PAUSED"
+
+# ── harness start migrates its own fleet before launching ──
+# start.sh needs tmux/claude/gh to get anywhere; pointed at a missing claude it dies at the first
+# prerequisite check — AFTER the migration, which is the order under test.
+SF="$(fleet start-own ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_REPO:=acme/s}"
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_CAP:=2}"
+: "${HARNESS_SESS_PREFIX:=hzst}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"' 's1\tacme/s\t-\tS\n' s)"
+spawn "$SF/run/worker-1.pid"; OLD_S="$(pidsof "$SF")"
+( unset_inherited_config; export HARNESS_HOME="$ROOT/host2" HARNESS_FLEETS_DIR="$ROOT/host2/fleets" HARNESS_POLLER_DIR="$ROOT/host2/poller" HARNESS_SNAPSHOTS_DIR="$ROOT/host2/snapshots"
+  STATE_DIR="$SF" ENGINE_DIR="$ENGINE" bash "$ENGINE/scripts/start.sh" >"$ROOT/start.out" 2>&1 )
+assert_ok "start: migrated its own fleet's config (UNIT)"  grep -q 'HARNESS_UNIT:=s1' "$SF/config"
+assert_eq "$(read_cfg "$SF" 'echo $HARNESS_POOL')" "2" "start: ...and POOL = max(1,2)"
+assert_ok "start: ...and stopped the old workers"          dead "$OLD_S"
+assert_no "start: HARNESS_TOPOLOGY gone"                   grep -q HARNESS_TOPOLOGY "$SF/config"
+mig_ln="$(grep -n 'fleet-migrate.sh' "$ENGINE/scripts/start.sh" | head -1 | cut -d: -f1)"
+lib_ln="$(grep -n 'lib.sh"' "$ENGINE/scripts/start.sh" | head -1 | cut -d: -f1)"
+assert_ok "start.sh migrates BEFORE it sources lib.sh (line $mig_ln < $lib_ln)" test "${mig_ln:-99}" -lt "${lib_ln:-0}"
+assert_ok "update.sh runs fleet-migrate.sh --all"          grep -q 'fleet-migrate.sh" --all' "$ENGINE/update.sh"
+assert_no "the roll never runs stop.sh or harness stop (it would kill every fleet's sessions)" \
+  bash -c "grep -vE '^[[:space:]]*#' '$ENGINE/scripts/fleet-migrate.sh' | grep -qE 'stop\.sh|harness\"? +stop'"
+
+kill $BYSTANDER 2>/dev/null
+for f in "$ROOT"/*/.harness/run/*.pid; do kill "$(cat "$f")" 2>/dev/null; done
+tmp_cleanup
+finish
