@@ -463,8 +463,19 @@ def overlay_stats(graph, events):
     return graph
 
 
+def unowned_mismatches(events, prefix, now):
+    """#462: the fleet's `model_mismatch` events of the last 7 days (as `harness status` lists them) on a
+    session that carries neither an issue nor a PRD — PLAN / PRD and injector sessions — which no DAG
+    node or PRD header rolls up. Oldest first: [{"ts", "session", "kind", "intended", "actual"}]."""
+    evs = stats.filter_events(events, stats.parse_since("7d", now), prefix)
+    return [{"ts": e.get("ts"), "session": e.get("session"), "kind": e.get("kind"),
+             "intended": e.get("intended"), "actual": e.get("actual")}
+            for e in stats.mismatches(evs) if e.get("issue") is None and e.get("prd") is None]
+
+
 def fleet_view(prefix, now=None):
-    """/fleet/<prefix>: {"prefix", "root", "state", "asof", "units": [web_dag.unit_graph | stub]}, or
+    """/fleet/<prefix>: {"prefix", "root", "state", "asof", "mismatches", "units": [web_dag.unit_graph |
+    stub]}, or
     None for a prefix no registry record carries. Every unit node carries its `stats` (#229). A unit
     whose board is missing or unreadable is {"slug", "asof": None, "prds": [], "edges": [],
     "unparented": [], "issues": {}, "awaiting": [], "missing": True}."""
@@ -476,6 +487,7 @@ def fleet_view(prefix, now=None):
         else fleetview.fleet_labels({})
     live = live_numbers(prefix)
     events = stats.load_events()
+    now = time.time() if now is None else now
     units = []
     for slug in fleetview.fleet_slugs(rec):
         snap = board(slug)
@@ -486,7 +498,8 @@ def fleet_view(prefix, now=None):
             units.append(overlay_stats(dict(web_dag.unit_graph(snap, labels, live), slug=slug), events))
     stamps = [u["asof"] for u in units if u["asof"] is not None]
     return {"prefix": entry["prefix"], "root": entry["root"], "state": entry["state"],
-            "asof": min(stamps) if stamps else None, "units": units}
+            "asof": min(stamps) if stamps else None, "units": units,
+            "mismatches": unowned_mismatches(events, prefix, now)}
 
 
 # --- the issue drawer (#228) ---------------------------------------------------------------------

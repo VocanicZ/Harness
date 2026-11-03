@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The web dashboard flags a `model_mismatch` on PLAN/PRD and injector sessions (#462)
+
+- The dashboard rolls up only sessions that carry an `issue` or a `prd`, so a `model_mismatch` on a
+  Manager session with neither (the PLAN or PRD session, an injector) showed in `harness status` and
+  `harness stats` but nowhere on the web dashboard.
+- The fleet page's header now carries a banner listing each such session, its kind, and the intended and
+  actual model, over the same 7-day window as `harness status`. A mismatch on an issue's session still
+  flags that issue's node and its PRD, and no banner shows without one.
+- test_web_awaiting.py: a fixture with a `model_mismatch` on a PLAN session and on an injector session is
+  flagged on the page, while an older one, another fleet's, and an issue's own are not (fails without the fix).
+
 ### `model_mismatch` decides on the lane's own transcript, not its sub-agents (#461)
 
 - The check (#376) took the dominant-by-output model of the session's merged usage, which folds in

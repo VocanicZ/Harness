@@ -136,5 +136,28 @@ def test_model_mismatch_flagged_on_node_prd_header_and_drawer():
         assert "data-model-mismatch" not in page and "⚠" not in page
 
 
+def test_model_mismatch_on_plan_and_injector_sessions_is_a_fleet_banner():
+    """#462: a model_mismatch on a session with no issue or PRD (PLAN, injector) is listed on the fleet
+    page, last 7 days and this fleet only; one on an issue's session is not (it flags its node), and a
+    log without any shows no banner."""
+    mm = [json.loads(l) for l in open(os.path.join(wf.FIX, "events-mismatch.jsonl")) if l.startswith("{")]
+    rows = web_data.unowned_mismatches(mm, "hz", wf.NOW)
+    assert [(r["session"], r["kind"], r["intended"], r["actual"]) for r in rows] == \
+        [("s-inj", "inject", "opus", "claude-sonnet-5-5"), ("s-plan", "plan", "opus", "claude-sonnet-5-5")], rows
+    assert web_data.unowned_mismatches(EVENTS, "hz", wf.NOW) == []
+    with wf.serving(now=wf.NOW, events="events-mismatch.jsonl") as (base, host):
+        _, page = wf.get(base + "/fleet/hz")
+        banner = re.search(r'<div class="page-header__mismatch".*?</div>', page, re.S).group(0)
+        assert 'data-mismatch-banner="2"' in banner, banner
+        for sid, kind in (("s-plan", "plan"), ("s-inj", "inject")):
+            assert re.search(rf'data-session="{sid}" data-kind="{kind}".*?intended opus, ran claude-sonnet-5-5',
+                             banner, re.S), (sid, banner)
+        assert "s-old" not in page and "s-other" not in page and "s-11" not in banner, banner
+        assert "ran claude-sonnet-5-5" not in page.replace(banner, ""), "banner text leaked outside the header"
+    with wf.serving(now=wf.NOW) as (base, host):
+        _, page = wf.get(base + "/fleet/hz")
+        assert "data-mismatch-banner" not in page
+
+
 if __name__ == "__main__":
     sys.exit(wf.run_tests(globals()))

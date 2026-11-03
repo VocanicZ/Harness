@@ -478,7 +478,9 @@ stamp, or a `-`-suffixed variant of itself (`gpt-5.6` / `gpt-5.6-codex`). A diff
 `model_mismatch` event (`intended`, `actual`, `session`, `issue`) to the event log, and it is flagged
 in `harness status` (this fleet's, last 7 days), `harness stats` (the fleet summary, the `--prd`
 session row, the `--issue` timeline) and the web dashboard (the issue's DAG node, its PRD's node and
-header, the drawer timeline). Only the lane's own dominant model counts, so a side call or a sub-agent
+header, the drawer timeline; a session with no issue or PRD — a PLAN / PRD or injector session — is
+listed in a banner in the fleet page's header with its kind, intended and actual model, same 7 days as
+`harness status`, #462). Only the lane's own dominant model counts, so a side call or a sub-agent
 on another model never trips it, however many tokens it writes — the `session_end` keeps the merged
 `usage` (sub-agents included) for token and cost totals and records the lane's own model as
 `main_model`; a `session_end` without one (logged before #461, or a lane with no transcript) falls back
