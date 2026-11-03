@@ -14,7 +14,7 @@ fi
 ALTITUDE="${1:?usage: inject.sh <plan|prd|issue> [--unit <id>] \"<brief>\"}"; shift
 case "$ALTITUDE" in plan|prd|issue) ;; *) die "bad altitude: $ALTITUDE (want plan|prd|issue)";; esac
 
-UNIT="main"
+UNIT="$(fleet_unit)"   # #466: --unit is optional, HARNESS_UNIT (default main)
 if [[ "${1:-}" == "--unit" ]]; then UNIT="${2:?--unit needs an id}"; shift 2; fi
 
 # --force: override the pause guard below. Strip it from the args so it never leaks into the brief.

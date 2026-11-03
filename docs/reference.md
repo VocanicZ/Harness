@@ -142,6 +142,8 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_TOPOLOGY` | `single` | `single` or `multi` |
 | `HARNESS_OWNER` | _(empty)_ | GitHub owner/org (used to expand bare repo names) |
 | `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
+| `HARNESS_UNIT` | _(empty)_ → `main` | The fleet's one unit: its name in session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`), the default `--unit` of `harness inject` and `harness one`, and the unit `forecast` and `stats` attribute lanes to. Empty = `main` on a `single` fleet, which is what runs today. Setting it makes the fleet read its one repo from `HARNESS_REPO` with no `targets.tsv`; an un-migrated `multi` config without it still resolves through `targets.tsv` (transitional) |
+| `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the unit checkout, and the bug lanes' checkout) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
 | `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = each lane a detached headless runner process, no multiplexer — `claude` only ([Headless lanes](#headless-lanes)); any other CLI is refused as tmux-only. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
