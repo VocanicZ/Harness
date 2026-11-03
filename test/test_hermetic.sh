@@ -106,8 +106,10 @@ done
 # curl tripwire first on PATH. Each must pass, leave the decoy byte-for-byte as it was, and never
 # reach github.com.
 # runs_update <file> — the test runs update.sh, or `harness update`, on a non-comment line.
+# The reader drains all input (>/dev/null, not -q): under pipefail an early-exiting `grep -q` SIGPIPEs
+# the writer and the pipeline reads false at random (#441).
 runs_update(){ grep -v '^[[:space:]]*#' "$1" |
-  grep -qE '(bash|exec)[^#|]*update\.sh|harness"?[[:space:]]+update([[:space:]]|$|")'; }
+  grep -E '(bash|exec)[^#|]*update\.sh|harness"?[[:space:]]+update([[:space:]]|$|")' >/dev/null; }
 update_tests=()
 for f in "$HERE"/test_*.sh; do runs_update "$f" && update_tests+=("$(basename "$f")"); done
 # The two that leaked (#434), and one that runs it as `harness update`, must be found — or the scan
@@ -115,6 +117,26 @@ for f in "$HERE"/test_*.sh; do runs_update "$f" && update_tests+=("$(basename "$
 for t in test_update.sh test_web_install.sh test_update_prerelease.sh; do
   assert_ok "the update.sh scan finds $t" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${update_tests[*]}" "$t"
 done
+# #441: the scan must not hang on the pipeline's exit status. Under pipefail, `grep -v … | grep -q`
+# was false whenever grep -q quit at its match while grep -v still had a write pending (SIGPIPE, 141)
+# — a race, so test_web_install.sh / test_supervise.sh dropped out of update_tests at random and lost
+# their decoy-home guard without a failure. A fixture whose match sits in the first 4 KiB of >8 KiB of
+# non-comment text, scanned repeatedly on one CPU where taskset exists, must be found every time.
+# The fixture's match line is built from parts: spelled out here, it would make THIS file match its own
+# scan, and the loop below would run test_hermetic.sh inside itself without end.
+RACE="$(mktemp -d)"; tmp_track "$RACE"; u=update
+{ printf '%s "$HERE/../scripts/%s.sh" --check\n' bash "$u"
+  for (( i = 0; i < 400; i++ )); do echo "assert_ok \"filler line $i of non-comment text\" true"; done
+} > "$RACE/test_race.sh"
+pin=(); command -v taskset >/dev/null 2>&1 && taskset -c 0 true 2>/dev/null && pin=(taskset -c 0)
+missed="$("${pin[@]}" bash -c 'set -uo pipefail; eval "$1"; m=0
+  for (( i = 0; i < 300; i++ )); do runs_update "$2" || m=$((m+1)); done; echo "$m"' _ \
+  "$(declare -f runs_update)" "$RACE/test_race.sh")"
+assert_eq "$missed" 0 "the update.sh scan finds a match early in >8 KiB of text 300/300 (no SIGPIPE race)"
+assert_no "the update.sh scan has no '| grep -q' under pipefail" \
+  grep -qE '\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' <<<"$(declare -f runs_update)"
+assert_no "the update.sh scan does not pick up test_hermetic.sh itself (it would run itself)" \
+  bash -c '[[ " $1 " == *" test_hermetic.sh "* ]]' _ "${update_tests[*]}"
 # decoy_host — a home whose .harness/engine is a release symlink, echoed on stdout (tracked by the
 # caller: a tmp_track inside the $(…) would delete it as that subshell exits). It carries a git
 # identity, as a real home does — test_supervise.sh's WIP checkpoints commit with the user's own.

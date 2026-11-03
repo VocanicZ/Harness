@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `test_hermetic.sh`'s update.sh scan no longer misses tests at random (#441)
+
+- `runs_update` piped `grep -v` into `grep -q` under `set -o pipefail`. `grep -q` quits at its first
+  match; when `grep -v` still had a write pending (non-comment text over one pipe write), that write
+  took SIGPIPE, `grep -v` exited 141, and the scan read false. On one CPU it missed
+  `test_web_install.sh` (8/300) and `test_supervise.sh` (5/300): the suite went red at random
+  (`FAIL: the update.sh scan finds test_web_install.sh`), and a missed test outside the must-find list
+  silently ran without its decoy home and curl tripwire (#434).
+- The reader now drains its input (`grep -E … >/dev/null`), so the pipeline's status is the match.
+  Both files are found 300/300 under `taskset -c 0`.
+- `test/test_hermetic.sh`: a fixture whose match sits in the first 4 KiB of >8 KiB of non-comment text
+  is found 300/300 (pinned to one CPU where `taskset` exists), and the scan has no `| grep -q`.
+
 ### The README names `git` for the `npx` install line (#440)
 
 - The README said `node` ≥ 18 was the only prerequisite for `npx -y github:VocanicZ/Harness`, and that
