@@ -235,6 +235,44 @@ out="$(HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/elsewhere" phase ship 2>&1)"; rc=$?
 assert_eq "$rc" "1" "a reset window whose spend since is uncountable: CHECKPOINT, never a silent 0%"
 assert_ok "saying why" grep -q 'usage stale — the reading is gone since its window reset' <<<"$out"
 "${ONE[@]}" release 7 --force >/dev/null 2>&1
+# ── #452: a window of the session's own account (CLAUDE_CONFIG_DIR's basename) that no reading holds ─
+# (a) Multi-account host: the only drop is account sub's, while this session runs on main and spends
+# $480 (96%) — sub spent nothing. Each of main's windows is checked from 0% at the start + that spend.
+after_start(){ local t0; t0="$(head -1 "$(one_start_file main 7)")"; until (( $(date +%s) > t0 )); do sleep 0.2; done; }
+SUBD="$RUN_DIR/accounts/sub"; mkdir -p "$SUBD/projects"; export HARNESS_CLAUDE_CONFIG_DIRS="$ACCT:$SUBD"
+rm -f "$DROP"
+python3 -c 'import json,sys,time; json.dump({"account": "sub", "at": int(time.time()), "rate_limits": {"seven_day": {"used_percentage": 10.0, "resets_at": int(sys.argv[1])}}}, open(sys.argv[2], "w"))' \
+  "$future" "$(_usage_dir)/sub.json"
+out="$(CLAUDE_CONFIG_DIR="$ACCT" "${ONE[@]}" start 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#452: start #7 with only account sub read"
+out="$(CLAUDE_CONFIG_DIR="$ACCT" phase explore 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#452: nothing spent yet: main's unread windows at 0% + 2% + 2%: FITS"
+assert_ok "main's windows are checked though no reading holds them" grep -q 'main seven_day: now 0% (read 0% at start (no reading of it) + 0% spent since' <<<"$out"
+after_start   # a message logged in start's own second is not "since" it
+spend 480   # 96% of main
+out="$(CLAUDE_CONFIG_DIR="$ACCT" phase test 2>&1)"; rc=$?
+assert_eq "$rc" "1" "#452: the session's account spent 96% + 1.6% + 2% = 99.6%: CHECKPOINT though sub is at 10%"
+assert_ok "naming the session's account" grep -q 'CHECKPOINT — main five_hour: 99.6% > 98%; main seven_day: 99.6% > 98%' <<<"$out"
+# no config dir is the session account's: no lower bound — listed as unchecked, with a warning
+out="$(CLAUDE_CONFIG_DIR="$RUN_DIR/accounts/ghost" phase test 2>&1)"; rc=$?
+assert_ok "an uncountable session account is listed unchecked, never left out" grep -q 'unchecked: ghost five_hour: WARNING' <<<"$out"
+"${ONE[@]}" release 7 --force >/dev/null 2>&1
+# (b) The fleet paused past a 5h reset: the drop's five_hour has reset, so claude_limit_usage drops it
+# and start's snapshot never holds it — only seven_day is read. The session's spend since the start
+# must still reach five_hour.
+rm -f "$(_usage_dir)/sub.json"; export HARNESS_CLAUDE_CONFIG_DIRS="$ACCT"
+python3 -c 'import json,sys,time; json.dump({"account": "main", "at": int(time.time()), "rate_limits": {"five_hour": {"used_percentage": 90.0, "resets_at": int(time.time()) - 60}, "seven_day": {"used_percentage": 1.0, "resets_at": int(sys.argv[1])}}}, open(sys.argv[2], "w"))' \
+  "$future" "$DROP"
+out="$(CLAUDE_CONFIG_DIR="$ACCT" "${ONE[@]}" start 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#452: start #7 after the 5h window reset"
+assert_no "start's snapshot does not hold the reset window" grep -qP '^main\tfive_hour\t' "$(one_start_file main 7)"
+after_start
+spend 480   # 96%
+out="$(CLAUDE_CONFIG_DIR="$ACCT" phase gate 2>&1)"; rc=$?
+assert_eq "$rc" "1" "#452: the reset 5h window: 0% + 96% spent since start + 0.8% + 2% = 98.8%: CHECKPOINT"
+assert_ok "the 5h window is checked from the start" grep -q 'main five_hour: now 96% (read 0% at start (no reading of it) + 96% spent since: \$480 in transcripts)' <<<"$out"
+assert_ok "and CHECKPOINTs on its own arithmetic" grep -qE '^CHECKPOINT — .*main five_hour: 98.8% > 98%' <<<"$out"
+"${ONE[@]}" release 7 --force >/dev/null 2>&1
 export HARNESS_USAGE_CMD="cat '$STUB'" HARNESS_CLAUDE_CONFIG_DIRS="$CCD_WAS"
 # ── #451: usage from a live query — HARNESS_USAGE_CMD, the codex adapter — and no claude drop ─────
 # Nothing dates these readings (no <usage-dir>/<account>.json, no usage cache), and no Claude config

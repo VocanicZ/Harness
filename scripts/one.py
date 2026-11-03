@@ -25,8 +25,11 @@ transcripts, priced and converted at the window's $ per 1% — on top of the rea
 status line reports for still sees its own spend; --start names `harness one start`'s snapshot (the
 start time, then the readings at start), so a window read at start and gone since (dropped after its
 reset) is still checked. A reading it cannot bring up to date that way is a CHECKPOINT, never FITS.
+--session (#452) names the session's own account (its CLAUDE_CONFIG_DIR basename): a window of it no
+reading holds — the readings cover another account, or it reset before the start — is checked from 0%
+at the start plus the account's spend since, or listed as unchecked with a warning.
 
-    one.py phase --phase P --forecast F.json --readings R.tsv --spend [--start S.tsv] […]
+    one.py phase --phase P --forecast F.json --readings R.tsv --spend [--start S.tsv] [--session A] […]
 
 R.tsv lines: `<account>\t<window>\t<pct>\t<resets_at>\t<age seconds, empty = unknown>\t<live>`, `live`
 marking a live query's reading (#451: HARNESS_USAGE_CMD, a non-claude adapter), empty otherwise.
@@ -216,6 +219,43 @@ def live_readings(fc, readings, spend, start=None, now=None):
     return out
 
 
+SESSION_WINDOWS = ("five_hour", "seven_day")   # the windows a Claude account has, as its status line names them
+
+
+def session_readings(fc, readings, account, spend, start=None, now=None, windows=SESSION_WINDOWS):
+    """(#452) The windows of the session's own account — `account`, its CLAUDE_CONFIG_DIR basename, the
+    name account_spend_since matches — that `readings` (live_readings', the start snapshot put back)
+    do not hold: on a multi-account host the readings may cover only another account, and a window
+    that reset before `harness one start` is in neither the readings nor the snapshot. Each comes back
+    as a reading of 0% at the start plus the account's spend since (`restored`: "unread") — a lower
+    bound, sound while the fleet is paused or held and only this session spends on the account. With
+    no start to count from, a spend that cannot be counted or no $ per 1%, no lower bound holds: it
+    comes back in the second list instead, as why that window stays unchecked."""
+    if not account:
+        return [], []
+    now = time.time() if now is None else now
+    acct, start_at = _norm(account), (start or {}).get("at")
+    have = {(_norm(r["account"]), r["window"]) for r in readings}
+    out, unchecked = [], []
+    for win in windows:
+        if (acct, win) in have:
+            continue
+        name = f"{account} {win}"
+        usd = spend(account, start_at) if start_at is not None else None
+        per = usd_per_pct(fc, account, win)
+        if usd is None or not per:
+            why = ("no harness one start snapshot to count from" if start_at is None else
+                   f"no Claude config dir for account {account}" if usd is None else "no $ per 1%")
+            unchecked.append(f"{name}: WARNING — this session's account has no reading of this window and"
+                             f" its spend cannot be counted ({why}); nothing checks it")
+            continue
+        spent = round(usd / per, 2)
+        out.append({"account": account, "window": win, "pct": spent, "resets_at": 0,
+                    "age": max(0.0, now - start_at), "live": False, "restored": "unread", "read": 0.0,
+                    "at": start_at, "spent_usd": round(usd, 2), "spent_pct": spent})
+    return out, unchecked
+
+
 def _stale(r, stale_min, start_at):
     """Why reading `r` (live_readings') is not current, or None: put back from the start snapshot,
     stale, or taken before the start. Of unknown age only counts with a start to measure from: a
@@ -240,7 +280,7 @@ def _stale(r, stale_min, start_at):
 
 
 def phase_check(fc, readings, phase, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0,
-                spend=None, start=None, now=None):
+                spend=None, start=None, now=None, session=None):
     """The per-phase re-check before `phase` (#366): the gate's arithmetic on the forecast LEFT
     (remaining) — now% + remaining p80% + reserve vs stop — for every window read. The verdict is
     CHECKPOINT iff some window's sum is over the stop %, else FITS. What the check cannot price
@@ -251,10 +291,16 @@ def phase_check(fc, readings, phase, stop=98.0, reserve=2.0, stale_min=30.0, sta
     With `spend` (#445: account_spend_since, or a stand-in) now% is the reading plus what its account
     spent since (live_readings), and `start` puts back a window read at start and dropped since. A
     window whose reading is not current and whose spend cannot be counted is a CHECKPOINT: a reading
-    frozen since the start never FITS silently."""
+    frozen since the start never FITS silently. `session` (#452) names the session's own account: a
+    window of it with no reading is checked from 0% at the start plus its spend since
+    (session_readings), or listed under unchecked with a warning — never a silent FITS."""
     rem = remaining(fc, phase)
+    extra = []
     if spend is not None:
         readings = live_readings(rem, readings, spend, start, now)
+        if session:
+            more, extra = session_readings(rem, readings, session, spend, start, now)
+            readings = readings + more
     g = gate(rem, readings, stop, reserve, stale_min, stale_pad)
     over, unchecked = [], []
     start_at = (start or {}).get("at")
@@ -276,7 +322,7 @@ def phase_check(fc, readings, phase, stop=98.0, reserve=2.0, stale_min=30.0, sta
         elif not w["ok"]:
             over.append(f"{name}: {w['need']:g}% > {stop:g}%")
     unchecked += [r for r in g["reasons"] if not r.startswith(tuple(
-        f"{w['account']} {w['window']}".strip() + ":" for w in g["windows"]))]
+        f"{w['account']} {w['window']}".strip() + ":" for w in g["windows"]))] + extra
     return dict(g, phase=phase, verdict="CHECKPOINT" if over else "FITS", reasons=over, unchecked=unchecked)
 
 
@@ -294,7 +340,8 @@ def render(g):
         name = f"{w['account']} {w['window']}".strip()
         now = f"{w['now']:g}%"
         if w.get("spent_pct") is not None:
-            now = (f"{now} (read {w['read']:g}%{' at reset' if w.get('restored') == 'reset' else ''}"
+            at = {"reset": " at reset", "unread": " at start (no reading of it)"}.get(w.get("restored"), "")
+            now = (f"{now} (read {w['read']:g}%{at}"
                    f" + {w['spent_pct']:g}% spent since: ${w['spent_usd']:g} in transcripts)")
         if w["pad"]:
             now += f" + {w['pad']:g} stale pad ({_age(w['age'])}, > {g['stale_min']:g}m)"
@@ -343,6 +390,7 @@ def main(argv=None):
     ap.add_argument("--spend", action="store_true",
                     help="phase: add each account's transcript spend since its reading (#445)")
     ap.add_argument("--start", help="phase: harness one start's snapshot — the start epoch, then readings TSV")
+    ap.add_argument("--session", help="phase: this session's own account (its CLAUDE_CONFIG_DIR basename, #452)")
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         with open(a.forecast) as fh:
@@ -365,7 +413,7 @@ def main(argv=None):
             except (OSError, ValueError):
                 start = None   # no snapshot: only the readings of now are checked
         g = phase_check(fc, readings, a.phase, a.stop, a.reserve, a.stale_min, a.stale_pad,
-                        spend=account_spend_since if a.spend else None, start=start)
+                        spend=account_spend_since if a.spend else None, start=start, session=a.session)
         print(json.dumps(g, indent=2) if a.json else render_phase(g))
         return 0 if g["verdict"] == "FITS" else 1
     g = gate(fc, readings, a.stop, a.reserve, a.stale_min, a.stale_pad)

@@ -283,6 +283,95 @@ def test_phase_check_pads_a_live_query_reading_of_unknown_age():
     assert c["verdict"] == "CHECKPOINT" and "of unknown age" in c["reasons"][0], c
 
 
+# ── #452: a window of the session's own account that no reading holds ─────────────────────────────
+def _two_accounts_fc():
+    """A forecast with % rows for both accounts' windows: 2 % per phase (8 % total), $5 per 1 %."""
+    f = fc_split(per_phase=2.0, total=8.0, account="sub", window="seven_day")
+    f["pct"] += [fc_split(per_phase=2.0, total=8.0, account=a, window=w)["pct"][0]
+                 for a, w in (("main", "five_hour"), ("main", "seven_day"), ("sub", "five_hour"))]
+    return f
+
+
+def test_phase_check_checks_the_session_account_no_reading_covers():
+    # The readings cover only `sub`; the session runs on `main`, which spent $200 (40 %) since the
+    # start. `sub` has spent nothing: without the session account the phase said FITS — the #452 bug.
+    f = _two_accounts_fc()
+    spend = lambda account, t0: {"main": 200.0, "sub": 0.0}[account]
+    start = {"at": NOW - 300, "readings": [rd(10.0, account="sub", age=60)]}
+    readings = [rd(10.0, account="sub", age=60)]
+    check = lambda session: one.phase_check(f, readings, "ship", stop=98, reserve=2, spend=spend,
+                                            start=start, now=NOW, session=session)
+    assert check(None)["verdict"] == "FITS" and check(None)["unchecked"] == [], "the #452 bug, unpatched"
+    c = check("main")   # 40 + 2 (ship) + 2 = 44: fits; both of main's windows are checked from the start
+    ws = {(w["account"], w["window"]): w for w in c["windows"]}
+    assert c["verdict"] == "FITS" and ws[("main", "five_hour")]["now"] == 40.0, c
+    assert ws[("main", "seven_day")]["restored"] == "unread" and ws[("main", "seven_day")]["need"] == 44.0, c
+    assert "read 0% at start (no reading of it) + 40% spent since: $200 in transcripts" in one.render_phase(c)
+    spend = lambda account, t0: {"main": 475.0, "sub": 0.0}[account]   # 95 % over the 98 % stop
+    c = one.phase_check(f, readings, "ship", stop=98, reserve=2, spend=spend, start=start, now=NOW, session="main")
+    assert c["verdict"] == "CHECKPOINT", c
+    assert c["reasons"] == ["main five_hour: 99% > 98%", "main seven_day: 99% > 98%"], c
+    # an account named after ~/.claude is "default", as the status line names it
+    c = one.phase_check(f, [rd(10.0, account="default", window=w, age=60) for w in ("five_hour", "seven_day")],
+                        "ship", spend=lambda a, t0: 0.0, start=start, now=NOW, session=".claude")
+    assert not [w for w in c["windows"] if w.get("restored") == "unread"], c
+    assert not [u for u in c["unchecked"] if "WARNING" in u], c
+
+
+def test_phase_check_checks_a_window_that_reset_before_the_start():
+    # A paused fleet overnight: the 5h window reset before `harness one start`, so claude_limit_usage
+    # dropped it and neither the snapshot nor the readings hold it — only seven_day is read. The
+    # session's spend since the start, over five_hour's $ per 1 %, must still push it to CHECKPOINT.
+    f = _two_accounts_fc()
+    f["pct"][1]["usd_per_pct"] = 2.0   # main five_hour: $2 per 1 %, seven_day $5
+    weekly = rd(20.0, account="main", window="seven_day", age=60)
+    start = {"at": NOW - 600, "readings": [weekly]}
+    asked = []
+    def spend(account, t0):
+        asked.append((account, t0)); return 190.0   # 95 % of five_hour, 38 % of seven_day
+    c = one.phase_check(f, [weekly], "ship", stop=98, reserve=2, spend=spend, start=start, now=NOW, session="main")
+    ws = {w["window"]: w for w in c["windows"]}
+    assert ws["five_hour"]["now"] == 95.0 and ws["five_hour"]["need"] == 99.0, c
+    assert ws["seven_day"]["now"] == 58.0, c
+    assert c["verdict"] == "CHECKPOINT" and c["reasons"] == ["main five_hour: 99% > 98%"], c
+    assert ("main", NOW - 600) in asked, "the unread window is counted from the start"
+    # without --session the 5h window is never checked: FITS — the #452 bug
+    assert one.phase_check(f, [weekly], "ship", stop=98, reserve=2, spend=spend, start=start,
+                           now=NOW)["verdict"] == "FITS"
+
+
+def test_phase_check_warns_when_no_lower_bound_holds():
+    # No start to count from, or the account's spend cannot be counted: no lower bound — the window is
+    # listed as unchecked with a warning, never left out silently.
+    f = _two_accounts_fc()
+    readings = [rd(10.0, account="sub", age=60)]
+    c = one.phase_check(f, readings, "ship", spend=lambda a, t0: 0.0, now=NOW, session="main")
+    assert c["verdict"] == "FITS" and len(c["unchecked"]) == 2, c
+    assert all("WARNING" in u and "no harness one start snapshot" in u for u in c["unchecked"]), c
+    start = {"at": NOW - 300, "readings": readings}
+    c = one.phase_check(f, readings, "ship", spend=lambda a, t0: None if a == "main" else 0.0,
+                        start=start, now=NOW, session="main")
+    assert [u.split(":")[0] for u in c["unchecked"]] == ["main five_hour", "main seven_day"], c
+    assert "no Claude config dir for account main" in c["unchecked"][0], c
+    assert "unchecked: main five_hour: WARNING" in one.render_phase(c), one.render_phase(c)
+
+
+def test_cli_phase_takes_the_session_account():
+    f = _two_accounts_fc()
+    with tempfile.TemporaryDirectory() as d:
+        paths = {k: os.path.join(d, k) for k in ("fc.json", "r.tsv", "start.tsv")}
+        open(paths["fc.json"], "w").write(json.dumps(f))
+        open(paths["r.tsv"], "w").write("sub\tseven_day\t10\t0\t60\t\n")
+        open(paths["start.tsv"], "w").write(f"{NOW}\nsub\tseven_day\t10\t0\t60\t\n")
+        env = dict(os.environ, HARNESS_CLAUDE_CONFIG_DIRS=d)   # no dir named main: spend uncountable
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "one.py"), "phase", "--phase", "ship",
+                              "--forecast", paths["fc.json"], "--readings", paths["r.tsv"], "--spend",
+                              "--start", paths["start.tsv"], "--session", "main", "--json"],
+                             capture_output=True, text=True, env=env)
+        g = json.loads(out.stdout)
+        assert [u.split(":")[0] for u in g["unchecked"]] == ["main five_hour", "main seven_day"], out
+
+
 def test_parse_readings_reads_the_live_mark():
     rs = one.parse_readings("codex\t5h\t10\t99\t\tlive\nmain\tseven_day\t20\t99\t60\t\nmain\t5h\t5\t99\t60\n")
     assert [r["live"] for r in rs] == [True, False, False], rs
