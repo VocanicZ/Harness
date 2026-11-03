@@ -442,6 +442,32 @@ also reads the main checkout's `settings.local.json`, and that one wins (#374). 
 `settings.local.json` model is still honoured — the claude adapter puts it on the launch line as
 `--model` when `.harness-lane` names none.
 
+### Submodules
+
+A repo with submodules works in a lane the same as one without. Issues for submodule code are filed in
+the main repo; the lane merges the submodule change on that submodule's own base branch first, then
+bumps the gitlink in the main repo. The engine provides three pieces of plumbing for this (the
+lane-facing rules that use them are in the lane prompts):
+
+- **Init.** After `git worktree add`, every fresh lane worktree (and every clone) runs
+  `git submodule update --init --recursive` **before** `HARNESS_WORKTREE_HOOK`, so the hook and the lane
+  find each submodule checked out at the gitlink. A hook that already runs `git submodule update` keeps
+  working (it is then a no-op). A failed init is logged and never stops the lane from launching. A repo
+  without a `.gitmodules` is untouched.
+- **Base branch.** A submodule's base branch is `submodule.<name>.branch` in `.gitmodules`. When that is
+  unset it is the `origin` branch of the submodule that contains the commit the main repo currently pins;
+  when several do, the submodule's default branch wins. It is never just the default branch, so a fleet
+  that works on `rebuild` with no `branch =` set resolves to `rebuild`. Scripts and lanes get it from
+  `submodule_base_branch <repo> <path> [ref]` (`scripts/submodule.sh`, sourced by `lib.sh`).
+- **Gitlink guard.** `scripts/gitlink-guard.sh [--repo DIR] [--base REF] [--head REF]` refuses a
+  main-repo merge unless every gitlink the change touches points at a commit that is reachable from the
+  submodule's `origin/<base branch>` **and** descends from the gitlink the base ref pins. Every offender
+  is printed; exit 1 = refused, 2 = could not decide (an uninitialised submodule, no base ref — it fails
+  closed), 0 = allowed. A change with no gitlink change, or a repo with no submodules, passes untouched.
+  Lanes cannot bypass it: a lane in a repo with submodules gets `scripts/lane-bin/gh` first on its `PATH`, a
+  `gh` that runs the guard before `gh pr merge` and passes every other command through to the real `gh`. A
+  repo without submodules gets no change to its lane environment.
+
 ### Roles: model and effort per lane
 
 Every lane plays one of two roles, read from its session kind (the session name says it):
