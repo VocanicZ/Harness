@@ -214,9 +214,20 @@ assert_ok "saying the usage is stale" grep -q 'main seven_day: usage stale — t
 assert_no "release drops the start snapshot" test -f "$(one_start_file main 7)"
 
 # a window read at start and reset since: claude_limit_usage drops it, the check puts it back at 0%
-drop 90 "$(( $(date +%s) + 2 ))" "$(( $(date +%s) - 60 ))"
-"${ONE[@]}" start 7 >/dev/null 2>&1
-sleep 3; spend 4   # 0.8% since the reset
+# (#454) No fixed timing: start must read the window before its reset — under load start can take
+# longer than any fixed lead, and an empty snapshot leaves phase nothing to check — so the lead
+# doubles until start's snapshot holds the window; then wait until the reset has passed, so the
+# spend is logged after it and phase sees it reset, however long either step took.
+for lead in 2 4 8 16 32 64 128; do
+  reset=$(( $(date +%s) + lead ))
+  drop 90 "$reset" "$(( $(date +%s) - 60 ))"
+  "${ONE[@]}" start 7 >/dev/null 2>&1
+  grep -qP "^main\tseven_day\t90(\.0)?\t$reset\t" "$(one_start_file main 7)" 2>/dev/null && break
+  "${ONE[@]}" release 7 --force >/dev/null 2>&1
+done
+assert_ok "start read the window before its reset" grep -qP "^main\tseven_day\t90(\.0)?\t$reset\t" "$(one_start_file main 7)"
+until (( $(date +%s) > reset )); do sleep 0.2; done
+spend 4   # 0.8% since the reset
 out="$(phase ship 2>&1)"; rc=$?
 assert_eq "$rc" "0" "after the reset: 0% + 0.8% spent + 0.4% + 2% = 3.2%: FITS"
 assert_ok "the reset window is checked, not dropped" grep -q 'main seven_day: now 0.8% (read 0% at reset + 0.8% spent since' <<<"$out"
