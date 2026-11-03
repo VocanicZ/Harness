@@ -173,6 +173,58 @@ reap_team
 assert_no "reap_team reaps a worktree whose lease went stale" test -d "$WD"
 assert_no "and drops the lease" test -f "$LEASE"
 assert_no "and the lock" has_label agent-working
+# ── #445: the interactive session's own spend, through the claude adapter's real sources ────────
+# No HARNESS_USAGE_CMD stub: claude_limit_usage reads the status-line drop a lane left before the fleet
+# paused — frozen from here on, nothing edits it — and the session's spend lands where Claude Code
+# writes it, its account's config dir (<account>/projects/<slug>/<session>.jsonl). Each phase must see
+# that spend on top of the frozen reading, at HARNESS_ONE_USD_PER_PCT=5 ($5 per 1%).
+unset HARNESS_USAGE_CMD
+ACCT="$RUN_DIR/accounts/main"; CCD_WAS="$HARNESS_CLAUDE_CONFIG_DIRS"; export HARNESS_CLAUDE_CONFIG_DIRS="$ACCT"
+TR="$ACCT/projects/-work-widget/s445.jsonl"; mkdir -p "$(dirname "$TR")"; : > "$TR"
+DROP="$(_usage_dir)/main.json"
+drop(){ # <pct> <resets_at> <taken at> — what usage-statusline.sh writes for account main
+  python3 -c 'import json,sys; json.dump({"account": "main", "at": int(sys.argv[3]), "rate_limits": {"seven_day": {"used_percentage": float(sys.argv[1]), "resets_at": int(sys.argv[2])}}}, open(sys.argv[4], "w"))' \
+    "$1" "$2" "$3" "$DROP"; touch -d "@$3" "$DROP"; }
+MSG=0
+spend(){ # <usd> — the session's next message, as Claude Code logs it: opus output at $25/Mtok
+  MSG=$(( MSG + 1 ))
+  python3 -c 'import json,sys,time; print(json.dumps({"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "message": {"id": "msg" + sys.argv[2], "model": "claude-opus-5-5", "usage": {"output_tokens": int(float(sys.argv[1]) * 40000)}}}))' \
+    "$1" "$MSG" >> "$TR"; }
+drop 90 "$future" "$(( $(date +%s) - 120 ))"; frozen="$(sha1sum < "$DROP")$(stat -c %Y "$DROP")"
+out="$("${ONE[@]}" start 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#445: start #7 with the fleet paused and only a frozen status-line reading"
+assert_ok "start keeps the readings it saw" grep -qP '^main\tseven_day\t90(\.0)?\t' "$(one_start_file main 7)"
+out="$(phase explore 2>&1)"; rc=$?
+assert_eq "$rc" "0" "before explore: 90% + nothing spent + 2% + 2% = 94%: FITS"
+spend 10   # 2%
+out="$(phase test 2>&1)"; rc=$?
+assert_eq "$rc" "0" "before test: 90% + 2% spent + 1.6% + 2% = 95.6%: FITS"
+assert_ok "the check names the spend since the reading" grep -q 'now 92% (read 90% + 2% spent since: \$10 in transcripts)' <<<"$out"
+spend 15   # 3% more
+out="$(phase impl 2>&1)"; rc=$?
+assert_eq "$rc" "1" "before impl: 90% + 5% spent + 1.2% + 2% = 98.2%: CHECKPOINT on the session's own spend"
+assert_ok "naming the window" grep -q 'CHECKPOINT — main seven_day: 98.2% > 98%' <<<"$out"
+assert_ok "with the checkpoint instruction" grep -q '^HARNESS CHECKPOINT' <<<"$out"
+assert_eq "$(sha1sum < "$DROP")$(stat -c %Y "$DROP")" "$frozen" "the reading stayed frozen throughout — nothing edited it"
+# the spend cannot be counted (no config dir is account main's): the frozen reading never FITS
+out="$(HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/elsewhere" phase ship 2>&1)"; rc=$?
+assert_eq "$rc" "1" "a reading from before the start whose spend is uncountable: CHECKPOINT"
+assert_ok "saying the usage is stale" grep -q 'main seven_day: usage stale — the reading is taken before this session started' <<<"$out"
+"${ONE[@]}" release 7 --force >/dev/null 2>&1
+assert_no "release drops the start snapshot" test -f "$(one_start_file main 7)"
+
+# a window read at start and reset since: claude_limit_usage drops it, the check puts it back at 0%
+drop 90 "$(( $(date +%s) + 2 ))" "$(( $(date +%s) - 60 ))"
+"${ONE[@]}" start 7 >/dev/null 2>&1
+sleep 3; spend 4   # 0.8% since the reset
+out="$(phase ship 2>&1)"; rc=$?
+assert_eq "$rc" "0" "after the reset: 0% + 0.8% spent + 0.4% + 2% = 3.2%: FITS"
+assert_ok "the reset window is checked, not dropped" grep -q 'main seven_day: now 0.8% (read 0% at reset + 0.8% spent since' <<<"$out"
+out="$(HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/elsewhere" phase ship 2>&1)"; rc=$?
+assert_eq "$rc" "1" "a reset window whose spend since is uncountable: CHECKPOINT, never a silent 0%"
+assert_ok "saying why" grep -q 'usage stale — the reading is gone since its window reset' <<<"$out"
+"${ONE[@]}" release 7 --force >/dev/null 2>&1
+export HARNESS_USAGE_CMD="cat '$STUB'" HARNESS_CLAUDE_CONFIG_DIRS="$CCD_WAS"
 # ── done (#367): the goal check reap_done_sessions runs, then the next claimable issue's fresh gate ─
 # The board comes from a snapshot (issuelib's read seam), so `check` and `next` never reach gh.
 SNAP="$RUN_DIR/board.json"

@@ -181,6 +181,114 @@ def test_cli_phase_prints_fits_or_checkpoint():
         assert r.returncode == 2, "phase without --phase is a usage error"
 
 
+# ── #445: the session's own spend since each reading, and a frozen or dropped reading ──────────────
+NOW = 1_800_000_000.0
+
+
+def frozen(pct=80.0, age=600.0, **kw):
+    return dict(rd(pct, age=age), **kw)
+
+
+def test_phase_check_counts_the_spend_since_a_frozen_reading():
+    # A reading frozen at 80% since before the start; per phase 2% left (capped at the 8% total).
+    # The re-check must rise with what the account spent since the reading was taken, at $5 per 1%.
+    f, spent = fc_split(per_phase=2.0, total=8.0), {"usd": 0.0}
+    asked = []
+    def spend(account, t0):
+        asked.append((account, t0)); return spent["usd"]
+    start = {"at": NOW - 300, "readings": [frozen()]}
+    check = lambda ph: one.phase_check(f, [frozen()], ph, stop=98, reserve=2, spend=spend, start=start, now=NOW)
+    c = check("explore")   # 80 + 0 spent + 8 + 2 = 90
+    assert c["verdict"] == "FITS" and c["windows"][0]["need"] == 90.0, c
+    assert asked[-1] == ("main", NOW - 600), "spend is counted from the reading's own time"
+    spent["usd"] = 30.0     # $30 = 6%: 80 + 6 + 8 (test on: 4 × 2, capped at 8) + 2 = 96
+    c = check("test")
+    assert c["verdict"] == "FITS" and c["windows"][0]["need"] == 96.0, c
+    assert c["windows"][0]["read"] == 80.0 and c["windows"][0]["spent_pct"] == 6.0, c
+    spent["usd"] = 55.0     # 11%: 80 + 11 + 4 (gate on) + 2 = 97 — still fits with less left
+    assert check("gate")["verdict"] == "FITS"
+    spent["usd"] = 72.5     # 14.5%: 80 + 14.5 + 2 (ship) + 2 = 98.5 > 98
+    c = check("ship")
+    assert c["verdict"] == "CHECKPOINT" and c["reasons"] == ["main seven_day: 98.5% > 98%"], c
+    assert "read 80% + 14.5% spent since: $72.5 in transcripts" in one.render_phase(c), one.render_phase(c)
+    # the frozen reading alone (no spend counting) would have said FITS — the #445 bug
+    assert one.phase_check(f, [frozen()], "ship", stop=98, reserve=2)["verdict"] == "FITS"
+
+
+def test_phase_check_puts_back_a_window_dropped_after_its_reset():
+    # Read at start (90%, resetting at NOW-100); gone from the readings since: it is 0% at its reset
+    # plus the spend since then — never an unchecked window.
+    f = fc_split(per_phase=2.0, total=8.0)
+    start = {"at": NOW - 3600, "readings": [rd(90.0, age=60) | {"resets_at": int(NOW - 100)}]}
+    asked = []
+    def spend(account, t0):
+        asked.append(t0); return 20.0   # 4%
+    c = one.phase_check(f, [], "ship", stop=98, reserve=2, spend=spend, start=start, now=NOW)
+    w = c["windows"][0]
+    assert c["verdict"] == "FITS" and w["restored"] == "reset" and w["now"] == 4.0 and w["need"] == 8.0, c
+    assert asked == [NOW - 100], "counted from the reset"
+    assert "read 0% at reset + 4% spent since" in one.render_phase(c), one.render_phase(c)
+    # a window read at start and gone without a reset is put back as it was read
+    start = {"at": NOW - 300, "readings": [rd(95.0, age=60) | {"resets_at": int(NOW + 9999)}]}
+    c = one.phase_check(f, [], "ship", stop=98, reserve=2, spend=lambda a, t0: 0.0, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and c["windows"][0]["now"] == 95.0, c
+    # without the snapshot the window is simply unchecked and FITS — what #445 forbids
+    assert one.phase_check(f, [], "ship", stop=98, reserve=2)["verdict"] == "FITS"
+
+
+def test_phase_check_fails_closed_when_spend_cannot_be_counted():
+    f = fc_split(per_phase=2.0, total=8.0)
+    no_spend = lambda account, t0: None   # no config dir for the account
+    start = {"at": NOW - 300, "readings": [frozen(10.0)]}
+    # a reading from before the start, its spend uncountable: CHECKPOINT however low it is
+    c = one.phase_check(f, [frozen(10.0)], "ship", spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and "usage stale" in c["reasons"][0], c
+    assert "taken before this session started" in c["reasons"][0], c
+    # stale, or of unknown age, likewise — with no snapshot too
+    for r in (frozen(10.0, age=31 * 60), frozen(10.0, age=None)):
+        c = one.phase_check(f, [r], "ship", spend=no_spend, now=NOW)
+        assert c["verdict"] == "CHECKPOINT" and "usage stale" in c["reasons"][0], c
+    # a window dropped after its reset whose spend since cannot be counted: CHECKPOINT, not 0%
+    start = {"at": NOW - 3600, "readings": [rd(90.0, age=60) | {"resets_at": int(NOW - 100)}]}
+    c = one.phase_check(f, [], "ship", spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and "gone since its window reset" in c["reasons"][0], c
+    # a fresh reading taken since the start stands on its own
+    c = one.phase_check(f, [frozen(10.0, age=60)], "ship", spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "FITS", c
+
+
+def _msg(mid, ts, output, model="claude-opus-5-5"):
+    return json.dumps({"type": "assistant", "timestamp": ts, "requestId": "r" + mid,
+                       "message": {"id": mid, "model": model, "usage": {"output_tokens": output}}}) + "\n"
+
+
+def test_account_spend_since_reads_the_accounts_transcripts():
+    import time as _t
+    with tempfile.TemporaryDirectory() as d:
+        main, other = os.path.join(d, "accounts", "main"), os.path.join(d, "accounts", "alt")
+        proj = os.path.join(main, "projects", "-work")
+        os.makedirs(os.path.join(proj, "s1", "subagents")); os.makedirs(os.path.join(other, "projects", "-w"))
+        t0 = _t.time() - 600
+        iso = lambda t: _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(t))
+        with open(os.path.join(proj, "s1.jsonl"), "w") as fh:
+            fh.write(_msg("old", iso(t0 - 60), 4_000_000))   # before t0: not counted
+            fh.write(_msg("m1", iso(t0 + 60), 400_000))      # $10 at opus output $25/Mtok
+            fh.write(_msg("m1", iso(t0 + 60), 400_000))      # the same message streamed again: once
+        with open(os.path.join(proj, "s1", "subagents", "agent-a.jsonl"), "w") as fh:
+            fh.write(_msg("m2", iso(t0 + 120), 200_000))     # a sub-agent's: $5
+        with open(os.path.join(other, "projects", "-w", "s2.jsonl"), "w") as fh:
+            fh.write(_msg("m3", iso(t0 + 60), 4_000_000))    # another account's
+        old = os.environ.get("HARNESS_CLAUDE_CONFIG_DIRS")
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = os.pathsep.join([main, other])
+        try:
+            assert round(one.account_spend_since("main", t0), 2) == 15.0
+            assert one.account_spend_since("nobody", t0) is None, "no config dir: not countable"
+            assert one.account_spend_since("main", _t.time() + 60) == 0.0
+        finally:
+            if old is None: os.environ.pop("HARNESS_CLAUDE_CONFIG_DIRS")
+            else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = old
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
