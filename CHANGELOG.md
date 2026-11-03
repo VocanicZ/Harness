@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Status, web dashboard and stats show workers and their issues instead of units (#472)
+
+- `harness status` prints one row per worker: `worker-N → #<issue> <session> <state>` for a worker running a
+  lane, or `idle`. The "units: x/y complete" line, the "driving unit" line and the unit frontier are gone;
+  the priority bug lane keeps its own row.
+- The web fleet page (`/fleet/<prefix>`) has a Workers section with the same rows, and `/api/fleet/<prefix>`
+  carries a `workers` list. A claim whose worker pid is gone is not shown as the worker's assignment.
+- `harness stats` adds `lanes` to each fleet: lane claims per repo with the workers behind them. The new
+  `lane_claim` events (`repo`, `worker`) and the older `claim` events (`unit`) both count; old events keep
+  their totals, and one with no `repo` is attributed by its `unit`.
+- `docs/reference.md` updated; new `test_web_workers.py`, plus cases in `test_status.sh` and `test_stats.py`.
+
 ### Remove CAP: `POOL` is the number of parallel issues; the migration drops the kept `HARNESS_CAP` line (#469)
 
 - With one lane per worker (#468) the per-unit `CAP` had no meaning left, so `HARNESS_CAP` is gone from

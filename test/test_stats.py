@@ -174,6 +174,32 @@ def test_fleet_summary():
     assert f["bw"]["sessions"] == 1
     assert st.fleet_summary(evs, model="sonnet")["hz"]["sessions"] == 2
 
+def test_fleet_summary_reads_old_unit_and_new_repo_worker_events():
+    """#472: old claim/release events carry `unit`, new lane_* events carry `repo` + `worker`. The old
+    totals do not move; the lanes block attributes a new claim by its repo and an old one by its repo
+    when it has one, else by its unit."""
+    old = [_ev("claim", unit="u1", worker="W1", repo=None), _ev("release", unit="u1", repo=None),
+           _ev("claim", unit="main", worker="W2"),
+           _ev("launch", session="o1", issue=11, prd=5, kind="impl"),
+           _ev("merged", issue=11, kind="impl"), _ev("hold", reason="other", secs=120)]
+    for e in old:
+        if e.get("repo") is None: e.pop("repo")
+    new = [_ev("lane_claim", repo="acme/other", worker="1", kind="impl", action="IMPL", payload="3"),
+           _ev("lane_claim", repo="acme/other", worker="2", kind="impl", action="IMPL", payload="4"),
+           _ev("lane_adopt", repo="acme/other", worker="1", lane="impl-3"),
+           _ev("lane_release", repo="acme/other", worker="1", lane="impl-3")]
+    before = st.fleet_summary(old)["hz"]
+    both = st.fleet_summary(old + new)["hz"]
+    for k in ("sessions", "tokens", "issues_closed", "prds_closed", "retries", "hold_minutes"):
+        assert both[k] == before[k], (k, both[k], before[k])
+    lanes = both["lanes"]
+    assert lanes["acme/other"] == {"claims": 2, "workers": ["1", "2"]}, lanes
+    assert lanes["u1"] == {"claims": 1, "workers": ["W1"]}, lanes          # old, no repo: by unit
+    assert lanes["acme/widget"] == {"claims": 1, "workers": ["W2"]}, lanes  # old, has a repo: by repo
+    assert "lanes" in before and "acme/other" not in before["lanes"], before["lanes"]
+    assert "acme/other" in st.render_text("fleet", st.fleet_summary(old + new))
+
+
 def test_filters():
     evs = [_ev("claim", ts="2026-09-01T00:00:00Z"), _ev("claim", ts="2026-10-02T00:00:00Z", prefix="bw")]
     assert len(st.filter_events(evs, since=st.parse_since("2026-10-01"))) == 1

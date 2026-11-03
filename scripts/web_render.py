@@ -504,6 +504,28 @@ def awaiting_region(units):
 </section>"""
 
 
+def workers_region(workers, prefix):
+    """#472: the fleet's workers, one row each — `worker-N → #<issue> <session> <state>` or idle. A worker
+    is the unit of parallelism now (one lane each), so this is the fleet page's whole run-time picture."""
+    if not workers:
+        return ""
+    items = []
+    for w in workers:
+        up = "up" if w["up"] else "down"
+        if w["lane"] is None:
+            what = '<span class="muted">idle</span>'
+        else:
+            ref = f'#{w["issue"]}' if w["issue"] is not None else esc(w["action"] or w["lane"])
+            what = (f'→ <span class="mono">{ref}</span> <span class="mono">{esc(w["session"] or "-")}</span> '
+                    f'<span class="level level--grey">{esc(w["state"])}</span>')
+        items.append(f'<li data-worker="{w["worker"]}" data-worker-state="{up}">'
+                     f'<span class="mono">worker-{w["worker"]}</span> {what}</li>')
+    return f"""<section data-region="workers" class="panel" aria-labelledby="workers-title">
+<header class="panel__header"><h2 class="panel__title" id="workers-title">Workers</h2></header>
+<div class="panel__body"><ul class="fleet__workers">{"".join(items)}</ul></div>
+</section>"""
+
+
 def _mismatch_banner(rows):
     """#462: a fleet-level banner for a model_mismatch on a session with no issue or PRD (PLAN / PRD and
     injector sessions), which no DAG node or PRD header carries. Nothing without one."""
@@ -529,7 +551,8 @@ def fleet_regions(view, now):
 <p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now, page=True)}</p>
 </div>
 {_mismatch_banner(view.get("mismatches"))}
-</section>""", "awaiting": awaiting_region(view["units"])}
+</section>""", "awaiting": awaiting_region(view["units"]),
+            "workers": workers_region(view.get("workers"), view["prefix"])}
     for u in view["units"]:
         regs.update(unit_regions(u, now))
     return regs
@@ -544,17 +567,18 @@ def fleet(view, now, issue=None):
     """/fleet/<prefix>: per unit (repo), the PRD → issue map as a layered DAG + the unparented list.
     <issue> (an issue_view) opens its drawer on first paint — outside every region, so no push closes it."""
     regs = fleet_regions(view, now)
-    header, awaiting = regs.pop("header"), regs.pop("awaiting")
+    header, awaiting, workers = regs.pop("header"), regs.pop("awaiting"), regs.pop("workers")
     units = "\n".join(regs.values())
     legend = "".join(f'<li data-state="{s}"><span class="dag-legend__swatch"></span>{esc(NODE_LABEL[s])}</li>'
                      for s in ("closed", "in-progress", "in-review", "blocked", "agent-blocked", "open"))
     body = f"""{header}
 {awaiting}
+{workers}
 <ul class="dag-legend" aria-label="Issue states">{legend}</ul>
 {units or '<p class="muted">This fleet serves no repos.</p>'}
 <div data-drawer-host>{drawer(issue, now) if issue else ""}</div>"""
     return page(f"Fleet {view['prefix']}", body, view["asof"], now, crumbs=[(f"Fleet {view['prefix']}", None)],
-                view=f"/fleet/{view['prefix']}", ver=version(dict(regs, header=header, awaiting=awaiting)))
+                view=f"/fleet/{view['prefix']}", ver=version(dict(regs, header=header, workers=workers, awaiting=awaiting)))
 
 
 # --- the issue drawer (#228) ---------------------------------------------------------------------
