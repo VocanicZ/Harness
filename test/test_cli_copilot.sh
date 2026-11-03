@@ -146,7 +146,7 @@ assert_eq "$?" 0 "a promise announced before the turn's last message does not en
   cli_done "$w" && [[ $(cat "$RUN_DIR/$sess.stall" 2>/dev/null || echo 0) == 0 ]] )
 assert_eq "$?" 0 "a promise given with the transient-error line still on screen ends the loop"
 # A paused pool keeps polling (no dispatch) while a driven goal loop is live: only its watchdog advances it.
-( source "$HERE/../scripts/drive.sh"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; CAP=2; POLL=0; touch "$PAUSE_FLAG"
+( source "$HERE/../scripts/drive.sh"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; POOL=2; POLL=0; touch "$PAUSE_FLAG"
   dispatched=""; polls="$RUN_DIR/polls"; : > "$polls"
   reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; reap_pool_bugs(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
   reap_finished_inject(){ :; }; gh_rate_wait(){ :; }; unit_complete(){ return 1; }; finalize_unit(){ :; }

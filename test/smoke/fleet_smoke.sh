@@ -184,7 +184,7 @@ fi
 # 2. the fleet's config, written by its own wizard.
 say "== harness init"
 ( cd "$PROJ" && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_SESSION_BACKEND="$BACKEND" HARNESS_CLI="$CLI" HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single \
-    HARNESS_OWNER="$OWNER" HARNESS_REPO="$REPO" HARNESS_SESS_PREFIX="$PREFIX" HARNESS_POOL=1 HARNESS_CAP=1 \
+    HARNESS_OWNER="$OWNER" HARNESS_REPO="$REPO" HARNESS_SESS_PREFIX="$PREFIX" HARNESS_POOL=1 \
     HARNESS_POLL=30 HARNESS_PRIORITY_POLL=60 HARNESS_USE_POLLER=0 HARNESS_AUTONOMOUS=true \
     "$HARNESS" init </dev/null ) 2>&1 | sed 's/^/   /'
 [[ -f "$PROJ/.harness/config" ]] || { say "harness init wrote no config"; exit 1; }

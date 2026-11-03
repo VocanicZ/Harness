@@ -87,8 +87,7 @@ ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
   ask HARNESS_SECURITY_AUDIT "Security-audit each PRD at review? (0|1)" "${HARNESS_SECURITY_AUDIT:-0}"
 ask HARNESS_AUTONOMOUS "Fully autonomous? (true|false)"   "${HARNESS_AUTONOMOUS:-true}"
 ask HARNESS_SESS_PREFIX "tmux session prefix (must be unique per fleet on this host)" "${HARNESS_SESS_PREFIX:-$(default_prefix)}"
-ask HARNESS_POOL       "Pool workers"                     "${HARNESS_POOL:-3}"
-ask HARNESS_CAP        "Sessions per unit"                "${HARNESS_CAP:-3}"
+ask HARNESS_POOL       "Parallel issues (pool workers, one lane each)" "${HARNESS_POOL:-3}"
 ask HARNESS_POLL          "Poll interval (s)"             "${HARNESS_POLL:-300}"
 ask HARNESS_PRIORITY_POLL "Priority-lane poll interval (s)" "${HARNESS_PRIORITY_POLL:-60}"
 ask HARNESS_LABEL_READY "Dispatchable label"              "${HARNESS_LABEL_READY:-ready-for-agent}"
@@ -110,7 +109,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
   echo "# Lines use := so a pre-set environment variable overrides this file."
   for v in "$CLI_CONFIG_VAR" HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_SESS_PREFIX \
-           HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
+           HARNESS_POOL HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
            HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_AUTHOR_ALLOWLIST \
            HARNESS_SECURITY_AUDIT HARNESS_MODEL_MANAGER HARNESS_EFFORT_MANAGER HARNESS_MODEL_IMPLEMENTER \

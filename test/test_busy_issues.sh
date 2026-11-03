@@ -32,7 +32,7 @@ EOF
 
 setup(){
   make_env
-  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; CAP=2; POLL=0
+  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; POOL=2; POLL=0
   export HARNESS_AUTONOMOUS=true HARNESS_MODE=issue-only HARNESS_POOL_TAKES_BUGS=0 HARNESS_CLI=claude
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
   SNAP="$RUN_DIR/snap.json"; export HARNESS_SNAPSHOT_FILE="$SNAP"
@@ -105,7 +105,7 @@ assert_no "... and launches nothing" grep -q 'launch hz-main-i5' "$CALLS"
 echo "=== a dead lane (no session, no worktree) on #5 {ready, agent-paused}: dispatched, resume.md ==="
 setup
 snapshot "ready-for-agent,agent-paused" "ready-for-agent"
-CAP=1
+POOL=1
 gh(){ echo "gh $*" >> "$CALLS"
       case "$1 $2" in "issue view") echo '["ready-for-agent","agent-paused"]';; esac; return 0; }
 drive_unit main

@@ -10,9 +10,12 @@
 #                  --no-start: start.sh launches the workers itself, right after.
 #   --no-start     migrate and kill the old workers, but leave the launch to the caller.
 #   --quiet        print nothing for a fleet that needs nothing.
+#   --warn-cap     change nothing: warn (stderr) when HARNESS_CAP is set in the environment or still in the
+#                  fleet's config. CAP is gone (#469); `harness start` runs this once, before migrating.
 #
 # Per fleet, in order — and only when its config still needs it (a config already on HARNESS_UNIT
-# with no HARNESS_TOPOLOGY is left alone, so running this twice changes nothing):
+# with no HARNESS_TOPOLOGY and no HARNESS_CAP is left alone, so running this twice changes nothing; one
+# that only still has a HARNESS_CAP line (CAP is gone, #469) loses that line and nothing else — no roll):
 #   1. back up the config as config.bak-<date>;      2. migrate the config (scripts/fleet_migrate.py);
 #   3. kill ONLY this fleet's run/worker-*.pid and run/priority.pid processes — never `harness stop`,
 #      which kills every fleet's sessions: lane sessions keep running;
@@ -27,11 +30,12 @@ HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}"
 FLEETS_DIR="${HARNESS_FLEETS_DIR:-$HARNESS_HOME/fleets}"
 source "$ENGINE_DIR/scripts/portable.sh"
 
-ALL=0; START=1; QUIET=0; TARGET=""
+ALL=0; START=1; QUIET=0; WARN_CAP=0; TARGET=""
 while (($#)); do
   case "$1" in
     --all) ALL=1;;
     --no-start) START=0;;
+    --warn-cap) WARN_CAP=1;;
     --quiet) QUIET=1;;     # say nothing for a fleet that needs nothing (harness start, every time)
     --state-dir) shift; TARGET="${1:-}";;
     --state-dir=*) TARGET="${1#--state-dir=}";;
@@ -41,6 +45,13 @@ while (($#)); do
   shift
 done
 [[ -n "$TARGET" ]] || TARGET="${STATE_DIR:-}"
+
+if (( WARN_CAP )); then
+  if [[ -n "${HARNESS_CAP:-}" ]] || grep -qE '^[[:space:]]*(:[[:space:]]+"\$\{|(export[[:space:]]+)?)HARNESS_CAP(:=|=)' "$TARGET/config" 2>/dev/null; then
+    echo "WARNING: HARNESS_CAP is set but ignored — CAP is gone; POOL is the number of parallel issues" >&2
+  fi
+  exit 0
+fi
 
 # a fleet's identity must come from ITS config: a worker's exported environment (this may run from
 # inside another fleet's session) would beat every `: "${KEY:=val}"` line of the fleet being started.
@@ -65,6 +76,9 @@ migrate_fleet(){ local state="$1" start="$2" out rc lockh="" pf
   lock_acquire "$state/run/fleet-migrate.lock" lockh || { echo "  could not take $state/run/fleet-migrate.lock" >&2; return 1; }
   out="$(python3 "$ENGINE_DIR/scripts/fleet_migrate.py" config "$state")"; rc=$?
   if (( rc == 10 )); then lock_release "$lockh"; (( QUIET )) || echo "fleet $state: already one repo — nothing to do"; return 0; fi
+  # #469: a config #467 already migrated only lost its leftover HARNESS_CAP line. The workers never read it
+  # (and run the new loop), so there is nothing to stop and relaunch.
+  if (( rc == 11 )); then lock_release "$lockh"; echo "fleet $state: $out"; return 0; fi
   if (( rc != 0 )); then lock_release "$lockh"; echo "fleet $state: config migration FAILED (rc $rc) — workers left as they are" >&2; return 1; fi
   echo "fleet $state: migrated to one repo: $out"
   # every worker of this fleet is an old-loop worker whatever release it runs from, so unlike the

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # start.sh [--recover] — launch the Harness worker-pool delivery fleet.
-# A fixed pool of HARNESS_POOL workers each claim, drive, and release units, plus a single
-# resident priority bug lane (cap 1, fast poll) that claims bug-lane issues one at a time.
+# A fixed pool of HARNESS_POOL workers each claim one lane (one issue), run it, and release it, plus a
+# single resident priority bug lane (fast poll) that claims bug-lane issues one at a time. POOL is the
+# number of parallel issues; the old per-unit CAP is gone (#469).
 # Re-runnable: pool.sh / priority.sh skip workers already alive.
 #
 #   --recover   crash / new-machine recovery sweep BEFORE launch:
@@ -12,10 +13,13 @@
 #                   crashed/migrated box leaves orphaned issues invisible to dispatch.
 set -uo pipefail
 # One fleet = one repo (#467): a fleet still on `multi` + targets.tsv is migrated BEFORE lib.sh reads
-# its config — HARNESS_UNIT / HARNESS_CHECKOUT in, HARNESS_TOPOLOGY out, POOL = max(POOL, CAP) — and
+# its config — HARNESS_UNIT / HARNESS_CHECKOUT in, HARNESS_TOPOLOGY and the old per-unit cap out, POOL = max(POOL, CAP) — and
 # its old-loop workers are stopped so the launch below replaces them. Already migrated: a no-op.
 # A failure only warns; the un-migrated config still resolves through targets.tsv. HARNESS_FLEET_MIGRATE=0 opts out.
 _start_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# CAP is gone (#469): a leftover cap setting in the environment or still in the config is ignored, and said so ONCE per
+# start — before the migration below, which drops the config's line.
+[[ -f "${STATE_DIR:-}/config" ]] && bash "$_start_dir/fleet-migrate.sh" --warn-cap --state-dir "$STATE_DIR"
 if [[ "${HARNESS_FLEET_MIGRATE:-1}" != 0 && -f "${STATE_DIR:-}/config" ]]; then
   bash "$_start_dir/fleet-migrate.sh" --no-start --quiet --state-dir "$STATE_DIR" \
     || echo "WARNING: could not migrate $STATE_DIR to the one-repo config — starting on the old one (#467)" >&2
@@ -150,7 +154,7 @@ if poller_enabled; then
   echo "  poller: $(poller_running && echo "RUNNING (pid $(cat "$POLLER_PID"))" || echo "not running")"
 fi
 
-echo "Starting Harness delivery fleet — pool of $POOL workers (cap=$CAP) + 1 priority bug lane:"
+echo "Starting Harness delivery fleet — pool of $POOL workers (one lane each) + 1 priority bug lane:"
 # Spawn the worker scripts with fd 9 CLOSED for the children (`9>&-`). The flock is fd-based, and
 # pool.sh/priority.sh fork long-lived worker processes (nohup …-worker.sh &) that would otherwise
 # INHERIT this open fd and hold the lock for the entire life of the fleet — so a later

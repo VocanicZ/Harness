@@ -10,7 +10,7 @@ assert_eq "$(sess_inject main)" "hz-inject-main" "sess_inject names hz-inject-<u
 
 # team_sessions greps tmux output; stub tmux to emit both an injector and an impl session.
 tmux(){ printf '%s\n' "hz-inject-main" "hz-main-i7"; }
-assert_eq "$(team_sessions main)" "hz-main-i7" "team_sessions excludes hz-inject-main (no CAP collision)"
+assert_eq "$(team_sessions main)" "hz-main-i7" "team_sessions excludes hz-inject-main (no POOL collision)"
 assert_no "injector session never matches team_sessions" \
   bash -c "printf '%s\n' hz-inject-main | grep -qE '^hz-main(\$|-i)'"
 unset -f tmux

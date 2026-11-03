@@ -129,7 +129,7 @@ The unit is COMPLETE only when every PRD is closed and no unparented issue is st
 | Topology | Description |
 |----------|-------------|
 | `single` | One target repo (`HARNESS_REPO`). Up to `HARNESS_POOL` lanes run at once, one per pool worker ([The pool worker](#the-pool-worker-step-loop)). Default. |
-| `multi` | Multiple repos in a dependency DAG described by `targets.tsv` (`id → repo → deps → desc`). A target unblocks its dependents when it reaches COMPLETE. Peak concurrency = `POOL × CAP`. A config that sets `HARNESS_UNIT` (every migrated fleet, [Fleet migration](#fleet-migration-one-fleet--one-repo-467)) is one repo and runs the pool worker below; only a config still on `targets.tsv` runs the old loop (a worker claims a whole unit and drives it). |
+| `multi` | Multiple repos in a dependency DAG described by `targets.tsv` (`id → repo → deps → desc`). A target unblocks its dependents when it reaches COMPLETE. Peak concurrency = `POOL`. A config that sets `HARNESS_UNIT` (every migrated fleet, [Fleet migration](#fleet-migration-one-fleet--one-repo-467)) is one repo and runs the pool worker below; only a config still on `targets.tsv` runs the old loop (a worker claims a whole unit and drives it). |
 
 ### The pool worker (step loop)
 
@@ -137,7 +137,9 @@ A pool worker claims **one lane** — one issue (`IMPL`), one bug, or one PRD ac
 `DECOMPOSE`, `REVIEW`) — runs it, reaps it, releases it and claims the next. **`HARNESS_POOL` is the most
 lanes that can run at once**: `POOL=3` with three ready issues runs three lanes, one per worker, not one
 worker driving the unit while two sit idle. The priority bug worker is on top of `POOL` and not counted in
-it. The loop no longer reads `HARNESS_CAP`.
+it. There is no per-unit `CAP` any more (#469): `POOL` is the only parallelism knob, and a `HARNESS_CAP` still
+set in the environment or a config is ignored, with one warning per `harness start`: "CAP is gone; POOL is the
+number of parallel issues".
 
 A worker never blocks inside a lane. It runs one **step** per tick (every `HARNESS_POLL`, and at once after
 a claim):
@@ -231,8 +233,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
 | `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on a single-topology `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
-| `HARNESS_POOL` | `3` | Number of pool workers, and the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once ([The pool worker](#the-pool-worker-step-loop)) |
-| `HARNESS_CAP` | `3` | Max concurrent agent sessions per unit — read only by the old unit loop of a config still on `targets.tsv`; the pool worker does not consult it |
+| `HARNESS_POOL` | `3` | The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob — `HARNESS_CAP` is gone (#469); a leftover one is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
 | `HARNESS_POOL_TAKES_BUGS` | `1` | `1` = a pool worker with no dispatchable impl work takes the oldest open `bug`/`bug-triaged` issue in its unit's repo while the priority lane is busy (or not running), through the lane's own triage→fix flow; the lane keeps first pick whenever it is free, and the shared bug claim means the two never take the same bug. `0` = bugs wait for the priority lane |
@@ -844,7 +845,11 @@ twice changes nothing (no second backup, no second event). Per fleet that needs 
      `dropped`). There is no refusal and no manual gate.
    - `single`: `HARNESS_UNIT=main`, `HARNESS_CHECKOUT=` the project root.
    - `HARNESS_TOPOLOGY` is removed. `HARNESS_POOL` becomes `max(POOL, CAP)` so no fleet loses
-     parallelism; `HARNESS_CAP` keeps its old value but is no longer read: the pool worker runs `POOL` lanes at once ([#468](#the-pool-worker-step-loop)).
+     parallelism, and the `HARNESS_CAP` line is dropped (#469; #467 kept it): the pool worker runs `POOL` lanes at once ([#468](#the-pool-worker-step-loop)).
+   - A config that #467 already migrated and that still has a `HARNESS_CAP` line only loses that line (backed
+     up first); its `POOL` is kept and its workers are not restarted. Running it twice changes nothing.
+   - A `HARNESS_CAP` still in the environment or the config when `harness start` runs is ignored, with one
+     warning: "CAP is gone; POOL is the number of parallel issues".
 3. Kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes. It never runs
    `harness stop`, which kills every fleet's sessions: live lane sessions keep running.
 4. `fleet_roll` (`scripts/roll.sh`, shared with the supervisor's auto-update, #477) runs

@@ -108,7 +108,7 @@ reap_pool_bugs >/dev/null 2>&1
 assert_eq "$REMOVED" "" "a lane-owned claim is never reaped by the pool"
 rm -f "$CLAIMS_DIR"/bug-*.claim
 
-echo "-- drive_unit routes BUG to spawn_pool_bug and counts pool bugs against CAP"
+echo "-- drive_unit routes BUG to spawn_pool_bug and counts pool bugs against POOL"
 write_targets <<'EOF'
 main	acme/widget	-	root
 EOF
@@ -121,10 +121,10 @@ ci_gate_ok(){ return 0; }; usage_watch(){ :; }; usage_held(){ return 1; }; gh_bu
 gh_rate_wait(){ :; }; team_sessions(){ :; }; count_team_sessions(){ echo 0; }; git(){ :; }
 count_pool_bugs(){ echo 1; }
 dispatch_actions(){ echo "$2" >> "$FREE"; printf 'BUG\t30\tBUG 30 DONE\n'; }
-CAP=2; POLL=0; _PASSES=0
+POOL=2; POLL=0; _PASSES=0
 unit_complete(){ _PASSES=$((_PASSES+1)); (( _PASSES > 1 )); }
 drive_unit main >/dev/null 2>&1
 assert_eq "$GOT" "BUG:30 " "BUG action spawned through spawn_pool_bug"
-assert_eq "$(cat "$FREE")" "1" "a live pool bug takes one of the unit's CAP slots"
+assert_eq "$(cat "$FREE")" "1" "a live pool bug takes one of the unit's POOL slots"
 
 finish

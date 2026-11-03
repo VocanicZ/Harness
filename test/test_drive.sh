@@ -3,7 +3,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; CAP=2; POLL=0
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"
 # Isolate WORKTREES_DIR to an empty temp dir: drive_unit now runs finalize_unit on completion,
 # whose glob/`rm -rf` would otherwise hit the LIVE $HARNESS_DIR/worktrees. With it empty, the
@@ -36,7 +36,7 @@ assert_ok "loop exited when unit_complete flipped" true
 # The dispatch loop must route a CLOSE_PRD action to close_prd() (a single `gh issue close`), NOT to
 # spawn_orch (which would launch a whole review session). This is the deterministic PRD-close fix.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; CAP=2; POLL=0
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
 ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
 spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }
@@ -63,7 +63,7 @@ assert_ok "close_prd issues gh issue close for the PRD" grep -q 'gh issue close 
 
 # --- LABEL_READY (#287): the engine labels a stray child ready — no session, no slot ---
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; CAP=2; POLL=0
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
 ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
 spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }

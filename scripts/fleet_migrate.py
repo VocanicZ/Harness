@@ -6,14 +6,18 @@
 
 `config` reads <state-dir>/config as TEXT, never sources it, and understands both line forms a
 Harness config has been written in: `: "${KEY:=val}"` and plain `KEY=val`. Exit codes: 0 migrated
-(one summary line on stdout), 10 already on the one-repo config (nothing touched), 2 unreadable.
+(one summary line on stdout), 10 already on the one-repo config (nothing touched), 11 only a leftover
+HARNESS_CAP line was dropped (#469: nothing else changed, so there is nothing to roll), 2 unreadable.
 
 A config still needs migrating when it has a HARNESS_TOPOLOGY line, or has no HARNESS_UNIT. Then:
   - multi: the targets.tsv row whose repo is HARNESS_REPO, else the only row, else the first row,
     gives HARNESS_REPO (its repo wins), HARNESS_UNIT (its id) and HARNESS_CHECKOUT (the clone that
     exists under .harness/checkouts). The other rows move to targets.tsv.migrated.
   - single: HARNESS_UNIT=main, HARNESS_CHECKOUT=the project root.
-  - HARNESS_POOL = max(POOL, CAP); HARNESS_CAP stays as it was; HARNESS_TOPOLOGY goes.
+  - HARNESS_POOL = max(POOL, CAP); HARNESS_CAP and HARNESS_TOPOLOGY go (CAP is gone, #469: POOL is the
+    number of parallel issues).
+A config already on HARNESS_UNIT (migrated by #467) that still has a HARNESS_CAP line only loses that line;
+POOL is kept as it is.
 The old config is saved as config.bak-<date> first, and a fleet_migrated event is logged.
 """
 import json
@@ -154,6 +158,31 @@ def _int(v, default, what):
         return default
 
 
+def cap_lines(lines):
+    """Indexes of every live HARNESS_CAP assignment, in either line form (comments are left alone)."""
+    return [i for i, l in enumerate(lines)
+            if not l.lstrip().startswith("#") and (
+                re.match(r'^\s*:\s+"\$\{HARNESS_CAP:=', l) or re.match(r'^\s*(?:export\s+)?HARNESS_CAP=', l))]
+
+
+def backup(state, cfg, date):
+    bak = os.path.join(state, "config.bak-" + date)
+    n = 1
+    while os.path.exists(bak):
+        n += 1
+        bak = os.path.join(state, "config.bak-%s.%d" % (date, n))
+    shutil.copy2(cfg, bak)
+    return bak
+
+
+def write_config(state, cfg, out):
+    fd, tmp = tempfile.mkstemp(dir=state, prefix=".config.")
+    with os.fdopen(fd, "w") as fh:
+        fh.write("\n".join(out))
+    shutil.copymode(cfg, tmp)
+    os.replace(tmp, cfg)
+
+
 def emit(state, ent, **kv):
     stats = os.path.join(HERE, "stats.py")
     args = ["python3", stats, "emit", "fleet_migrated",
@@ -179,8 +208,20 @@ def migrate(state, date):
     ent = parse(lines)
     topo_idx = [i for i, l in enumerate(lines) if not l.lstrip().startswith("#")
                 and re.match(r'^\s*(?::\s+"\$\{|(?:export\s+)?)HARNESS_TOPOLOGY(?::=|=)', l)]
+    cap_idx = cap_lines(lines)
     if not topo_idx and "HARNESS_UNIT" in ent:
-        return 10
+        if not cap_idx:
+            return 10
+        # #469: a config #467 migrated keeps its HARNESS_CAP line; it is read by nothing now. Drop it, nothing else.
+        old_pool = _int(_val(ent, "HARNESS_POOL"), DEFAULT_POOL, "POOL")
+        bak = backup(state, cfg, date)
+        write_config(state, cfg, [l for i, l in enumerate(lines) if i not in cap_idx])
+        emit(state, ent, unit=_val(ent, "HARNESS_UNIT"), repo=slug(_val(ent, "HARNESS_REPO"), _val(ent, "HARNESS_OWNER")),
+             checkout=_val(ent, "HARNESS_CHECKOUT"), pool=old_pool, old_pool=old_pool,
+             cap=_int(_val(ent, "HARNESS_CAP"), DEFAULT_CAP, "CAP"), cap_dropped=1, backup=os.path.basename(bak))
+        print("dropped HARNESS_CAP (CAP is gone; POOL=%d is the number of parallel issues) backup=%s" % (
+            old_pool, os.path.basename(bak)))
+        return 11
 
     owner = _val(ent, "HARNESS_OWNER")
     topology = _val(ent, "HARNESS_TOPOLOGY", "single")
@@ -240,18 +281,13 @@ def migrate(state, date):
         out = lines[:at] + block + lines[at:] if at is not None else (
             lines[:-1] + block + [""] if lines and lines[-1] == "" else lines + block)
 
+    # HARNESS_CAP goes (#469); its value already went into POOL above. Looked up by text, not by index:
+    # `out` has had its topology lines replaced and its new keys inserted.
+    out = [l for l in out if l.lstrip().startswith("#") or l not in {lines[i] for i in cap_idx}]
+
     # back up, then write (atomically) — nothing above touched disk
-    bak = os.path.join(state, "config.bak-" + date)
-    n = 1
-    while os.path.exists(bak):
-        n += 1
-        bak = os.path.join(state, "config.bak-%s.%d" % (date, n))
-    shutil.copy2(cfg, bak)
-    fd, tmp = tempfile.mkstemp(dir=state, prefix=".config.")
-    with os.fdopen(fd, "w") as fh:
-        fh.write("\n".join(out))
-    shutil.copymode(cfg, tmp)
-    os.replace(tmp, cfg)
+    bak = backup(state, cfg, date)
+    write_config(state, cfg, out)
 
     if dropped:
         mig = tsv + ".migrated"

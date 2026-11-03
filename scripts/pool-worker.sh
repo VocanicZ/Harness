@@ -304,7 +304,7 @@ worker_step(){ local wid="$1" rc
 
 main(){ local wid="${1:?usage: pool-worker.sh <worker-id>}"; UNIT="worker-$wid"; _IDLE_LOGGED=0
   if _one_repo; then log "pool worker $wid up — one lane at a time, at most $POOL at once, poll ${POLL}s"
-  else log "pool worker $wid up — cap $CAP poll ${POLL}s"; fi
+  else log "pool worker $wid up — pool $POOL poll ${POLL}s"; fi
   roots_watch   # #419: the resident loop ends by itself once the roots it serves are deleted
   _one_repo && seed_if_needed "$(fleet_unit)"   # once, at worker start
   while true; do worker_step "$wid"; done; }

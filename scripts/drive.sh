@@ -443,7 +443,7 @@ spawn_pool_bug(){ local n="$1" tok phase sess pid
   local f; f="$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
   printf '%s %s %s\n' "pool-$UNIT" "$pid" "$tok" > "$f.tmp" && mv -f "$f.tmp" "$f"; }
 
-# count_pool_bugs <unit> — live bug sessions the unit's pool worker took; they use its CAP slots.
+# count_pool_bugs <unit> — live bug sessions the unit's pool worker took; they use its POOL slots.
 count_pool_bugs(){ local f tok
   while IFS=$'\t' read -r f tok; do is_bug_claimed "$tok" && echo "$tok"; done < <(pool_bug_claims "$1") | grep -c . ; }
 
@@ -502,7 +502,7 @@ drive_unit(){
   local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT drained=0
   REPO="$(unit_repo "$UNIT")"; [[ -n "$REPO" ]] || { log "unknown unit: $UNIT"; return 1; }
   SLUG="$(unit_slug "$UNIT")"; PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"
-  log "drive $SLUG — mode $HARNESS_MODE cap $CAP poll ${POLL}s"
+  log "drive $SLUG — mode $HARNESS_MODE pool $POOL poll ${POLL}s"
   # #183: gh_rate_wait first — after a rate-limited read the loop sleeps until the reset before the
   # completion check (a gh read) runs again; the watchdog keeps tending live sessions meanwhile.
   while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
@@ -529,7 +529,7 @@ drive_unit(){
     if gh_budget_low; then harness_event hold reason=rate_limit cause=gh_budget secs="$(( POLL * 2 ))"; sleep "$(( POLL * 2 ))"; continue; fi
     local active free allow_orch action payload promise
     active=$(( $(count_team_sessions "$UNIT") + $(count_pool_bugs "$UNIT") ))   # #214: pool-taken bugs hold slots
-    free=$(( CAP - active ))
+    free=$(( POOL - active ))
     if (( free > 0 )); then
       allow_orch=0; (( active == 0 )) && allow_orch=1
       # `allow_orch` stays unit-wide and gates only PLAN/PRD (Task 5 took it off the per-PRD

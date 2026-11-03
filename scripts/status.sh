@@ -68,7 +68,7 @@ render_once(){
   # Print the fleet header FIRST — the test greps for "worker" in this block.
   echo "═══════════════════════  Harness fleet  ═══════════════════════════"
   echo "  FLEET: $verdict"
-  echo "  pool=$POOL  cap=$CAP/worker  poll=${POLL}s   units: $done_n/$all_n complete   $(date '+%H:%M:%S')"
+  echo "  pool=$POOL  poll=${POLL}s   units: $done_n/$all_n complete   $(date '+%H:%M:%S')"
   usage_report   # #194: each account's usage windows, and any checkpoint hold
   one_auto_report   # #392: the HARNESS_ONE_AUTO lane per account, its issue, forecast, or why it stopped
   gh_rate_report   # #183: each GitHub token's remaining budget, reset time, and any rate-limit hold

@@ -38,7 +38,6 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_SPEC:=}"
 : "${HARNESS_AUTONOMOUS:=true}"
 : "${HARNESS_POOL:=3}"
-: "${HARNESS_CAP:=3}"
 : "${HARNESS_POLL:=300}"               # resident pool: slow idle/steady-state poll
 : "${HARNESS_PRIORITY_POLL:=60}"       # fast cadence for the priority bug lane (#23)
 : "${HARNESS_IMPL_MAXITER:=30}"
@@ -107,7 +106,7 @@ export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HAR
   HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
 
 OWNER="$HARNESS_OWNER"
-CAP="$HARNESS_CAP"; POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
+POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
 IMPL_MAXITER="$HARNESS_IMPL_MAXITER"; ORCH_MAXITER="$HARNESS_ORCH_MAXITER"
 CLAIMS_DIR="${CLAIMS_DIR:-$RUN_DIR/claims}"
 POOL_LOCK="${POOL_LOCK:-$RUN_DIR/pool.lock}"
@@ -854,7 +853,7 @@ gc_orphan_goals(){
   shopt -u nullglob
 }
 # reap_finished_inject <unit> — kill the unit's inject session once its Ralph loop has ended.
-# inject sessions are excluded from team_sessions by design (no CAP slot, inject.sh:5), so NO
+# inject sessions are excluded from team_sessions by design (no POOL slot, inject.sh:5), so NO
 # goal-check reaper (reap_done_sessions / priority-worker) ever iterates them — a finished injector
 # parks at the idle ❯ prompt forever. Authoritative done-signal: the ralph-loop stop-hook removes
 # .claude/ralph-loop.local.md the instant the loop ends (promise, max-iter, OR error), leaving the
@@ -877,7 +876,7 @@ reap_finished_inject(){ local unit="$1" sess wd
 # driven turn ABNORMALLY: ralph-loop's Stop hook never fires, so the interactive `claude` TUI parks
 # at its idle `❯` prompt and the `iteration` counter is frozen — yet `tmux has-session` stays true.
 # Every reaper keys off liveness OR goal-satisfaction, so an alive-but-idle session matches NONE of
-# them and pins a HARNESS_CAP / lane slot forever. The watchdog below is the missing per-poll path:
+# them and pins a POOL lane slot forever. The watchdog below is the missing per-poll path:
 # it classifies that exact state and recovers it (nudge → kill after K polls) WITHOUT disturbing a
 # busy or a healthy-between-turns session.
 #
@@ -909,7 +908,7 @@ session_stalled(){ local pane="$1"
 #   (menu) the interactive `claude` TUI raises a blocking choice — "1. Stop and wait for limit to
 #          reset / 2. Add funds / 3. Switch to Team plan" — and BLOCKS ON A KEYPRESS. There is no
 #          idle `❯` (the menu owns the pane) and no spinner, so session_stalled never matches. The
-#          process stays alive, tmux has-session stays true, and the lane pins its CAP slot until a
+#          process stays alive, tmux has-session stays true, and the lane pins its POOL slot until a
 #          human presses Enter. Observed: 4 lanes idle 12h AFTER the quota had already reset.
 #   (idle) the turn aborts and the pane drops to `❯` with "You've hit your session limit · resets
 #          <t>". This DOES look like #115 (the stall regex even matches `rate.?limit`), but killing
@@ -1045,7 +1044,7 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     _watchdog_nudge "$sess"
   fi; }
 # watchdog_team — run the watchdog over every live session of the CURRENT unit ($UNIT). The pool's
-# per-poll hook (drive_unit), the cap-N analog of the lane's in-loop watchdog_session call.
+# per-poll hook (drive_unit), the per-lane analog of the lane's in-loop watchdog_session call.
 watchdog_team(){ local s
   while read -r s; do [[ -z "$s" ]] && continue
     session_owned "$s" && continue   # #468: a live worker holding the lane's claim tends it (worker_tend)

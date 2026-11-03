@@ -27,7 +27,7 @@ assert_eq "$claimed" "" "worker_tick did NOT claim while paused"
 rm -f "$PAUSE_FLAG"
 
 # --- drive_unit drains (breaks) when paused, without dispatching --------------
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; CAP=2; POLL=0
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 dispatched=""
 reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }
 dispatch_actions(){ dispatched=yes; printf 'IMPL\t5\tISSUE 5 DONE\n'; }
