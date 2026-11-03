@@ -50,3 +50,16 @@ submodule_base_branch(){ local repo="$1" path="$2" ref="${3:-HEAD}" name br sha 
 # does). A repo without .gitmodules is left alone. Returns git's status; callers treat it as non-fatal.
 submodule_init(){ [[ -f "$1/.gitmodules" ]] || return 0
   git -C "$1" submodule update --init --recursive; }
+
+# submodule_branch_pushed <worktree> <branch> — succeed when any submodule of <worktree> has <branch> on
+# its origin. A lane working submodule code pushes `issue/<unit>-<n>` in the submodule, so a lane that died
+# after pushing only that branch leaves nothing on the main repo's `issue/<n>`; resume detection asks this
+# as well, so such an issue is resumed, not restarted. Submodules must be initialised (run_worktree_hook
+# did it); an uninitialised one is skipped. A repo without .gitmodules never matches. (#471)
+submodule_branch_pushed(){ local wt="$1" br="$2" p
+  [[ -f "$wt/.gitmodules" ]] || return 1
+  while read -r _ p; do
+    [[ -e "$wt/$p/.git" ]] || continue
+    git -C "$wt/$p" ls-remote --heads origin "$br" 2>/dev/null | grep -q . && return 0
+  done < <(git config -f "$wt/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
+  return 1; }

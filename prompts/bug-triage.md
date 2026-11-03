@@ -25,6 +25,10 @@ Steps:
 3. Refine the issue IN PLACE so the fix session needs no extra context. Rewrite the body with:
    - a crisp problem statement + the reproduction you confirmed,
    - root-cause notes / suspected files,
+   - a `## Code location` section when the defect is in code inside a git submodule of this repo
+     (see `.gitmodules`): the submodule path, for example `ORGE-ENGINE/src/...`. The bug stays filed
+     in {{SLUG}} — lanes never claim issues from a submodule's own repo; the fix lane reads this section,
+     fixes in the submodule first, then bumps the gitlink here.
    - a sharp, testable `## Acceptance` section (what a passing fix must satisfy).
      gh issue edit {{ISSUE}} -R {{SLUG}} --body-file <refined-body.md>
 4. On success, FIRST drop your own working label, THEN flip to bug-triaged — this order matters:

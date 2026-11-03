@@ -326,13 +326,15 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   # means a prior agent checkpointed WIP to GitHub — continue it instead of starting fresh.
   local tmpl="impl.md" labels handoff=""
   labels="$(gh issue view "$issue" -R "$SLUG" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
-  if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "$branch" 2>/dev/null | grep -q .; then
+  # #471: the branch may sit ONLY in a submodule (issue/<unit>-<n>) — a lane that died after pushing just that.
+  if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "$branch" 2>/dev/null | grep -q . \
+       || submodule_branch_pushed "$wd" "issue/$(fleet_unit)-$issue"; then
     tmpl="resume.md"; handoff="$(resume_handoff "$issue")"; log "resuming paused issue #$issue from origin/$branch"
   fi
   IMPL_TMPL="$tmpl"
   mkdir -p "$STATE_DIR/subagent/$UNIT-i$issue"   # where an impl.md sub-agent's brief goes (cli_subagent)
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
-    SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" \
+    SPEC="$HARNESS_SPEC" PRD="" UNIT="$(fleet_unit)" ISSUE="$issue" BRANCH="$branch" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" LABEL_HITL="$HARNESS_LABEL_HITL" \
     LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" HANDOFF="$handoff" \
     SUBAGENT="$(cli_subagent "$wd" "$wd" "$STATE_DIR/subagent/$UNIT-i$issue/NAME.md")" \
@@ -385,7 +387,8 @@ spawn_bug(){
     # continue it from resume.md instead of restarting the fix cold from bug-fix.md.
     local labels
     labels="$(gh issue view "$issue" -R "$SLUG" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
-    if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "issue/$issue" 2>/dev/null | grep -q .; then
+    if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]] || git -C "$CHECKOUT" ls-remote --heads origin "issue/$issue" 2>/dev/null | grep -q . \
+         || submodule_branch_pushed "$wd" "issue/$(fleet_unit)-$issue"; then   # #471: submodule-only branch
       tmpl="resume.md"; handoff="$(resume_handoff "$issue")"; log "resuming paused bug #$issue from origin/issue/$issue"
     fi
   else
@@ -410,7 +413,7 @@ spawn_bug(){
   # launch, so the lane never re-dispatches the same bug while its session is in flight.
   gh issue edit "$issue" -R "$SLUG" --add-label "$HARNESS_LABEL_WORKING" 2>/dev/null || true
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
-    SPEC="$HARNESS_SPEC" PRD="" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
+    SPEC="$HARNESS_SPEC" PRD="" UNIT="$(fleet_unit)" ISSUE="$issue" BRANCH="issue/$issue" PROMISE="$PROMISE" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_WORKING="$HARNESS_LABEL_WORKING" LABEL_PAUSED="$HARNESS_LABEL_PAUSED" \
     LABEL_BUG="$HARNESS_LABEL_BUG" LABEL_BUG_TRIAGED="$HARNESS_LABEL_BUG_TRIAGED" HANDOFF="$handoff" \
     SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"

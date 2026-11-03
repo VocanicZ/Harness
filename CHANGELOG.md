@@ -4,6 +4,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Submodule issues end to end: `## Code location`, lane prompt rules, resume across submodules (#471)
+
+- An issue for code inside a submodule is filed in the main repo. `decompose.md`, `bug-triage.md` and the
+  inject prompt now tell their writer to add a `## Code location` section with the submodule path (for
+  example `ORGE-ENGINE/src/...`); lanes never claim issues from a submodule's own repo.
+- `impl.md`, `bug-fix.md` and `resume.md` share a new `prompts/_submodule.md` (and `_rtdd.md` points at
+  it): work in the submodule on `issue/<unit>-<n>` and run `rtdd which` there too, merge into the
+  submodule's base branch first, point the gitlink at the merged commit on `origin/<base>`, then commit
+  and merge the bump in the main repo. The prompts now take a `UNIT` key.
+- Resume detection checks the issue branch in the main repo and in every submodule
+  (`submodule_branch_pushed`), so a lane that died after pushing only `issue/<unit>-<n>` in a submodule is
+  resumed, not restarted. This covers `prepare_impl` and the bug fix lane.
+- `test_submodule.sh` covers the submodule-first merge then bump, the submodule-only resume, and the
+  prompt text; `docs/reference.md` Submodules section extended.
+
 ### Step-based pool worker: one worker claims one lane, capped by `POOL` fleet-wide (#468)
 
 - A pool worker used to claim the whole unit and drive it, so `POOL=3` with three ready issues ran three

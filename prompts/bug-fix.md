@@ -24,6 +24,7 @@ Steps:
    fail then. A regression test that passes without the fix proves nothing and guards nothing.
    Then all three of these are the bar: Rounds 1 and 2 pass; `untested` is clear for the code you
    changed (else your test does not reach the fix); and that regression test fails without the fix.
+{{> _submodule.md}}
 3. Never delete, skip, or weaken a test to go green, and never edit a test so `untested`
    clears. If a pre-existing failure genuinely blocks the fix, say so in an issue comment and route
    around it.

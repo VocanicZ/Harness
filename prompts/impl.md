@@ -28,6 +28,7 @@ Steps:
    treating this issue's subtasks as the tree's tasks. For small issues, a single implementer +
    review is fine — just do it. Stay in THIS repo.
    Every sub-agent those start, NAME a short name unique to it: {{SUBAGENT}}
+{{> _submodule.md}}
 3. Never delete, skip, or weaken a test to go green, and never edit a test so `untested`
    clears. If a pre-existing failure genuinely blocks your work, say so in an issue comment and
    route around it.
