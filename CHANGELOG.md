@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### test_one_run.sh's reset-window case no longer races the wall clock (#454)
+
+- The #445 reset-window block dropped a reading whose `resets_at` was 2s ahead, ran
+  `harness one start`, then `sleep 3`. On a loaded node start could take longer than the 2s, so the
+  window had already reset when start took its snapshot; the snapshot held no reading, `phase` had
+  nothing to check, FITS, and three asserts failed at random.
+- The lead now doubles (2s up to 128s) until start's snapshot holds the window — asserted — and the
+  test waits until the reset has passed instead of a fixed sleep, so the spend is logged after it.
+  Under a 3s-slow `git worktree add` the old block fails all three asserts and the new one passes;
+  50/50 runs pinned to one CPU, ten at a time. No assertion is weakened.
+
 ### `harness one phase` works on codex, copilot and `HARNESS_USAGE_CMD` usage (#451)
 
 - Since #445 a reading of unknown age whose spend could not be counted was a CHECKPOINT once
