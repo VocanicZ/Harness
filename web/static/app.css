@@ -125,3 +125,6 @@
 .prd__stats { font-size: var(--text-xs); }
 .dag__stat[data-model-mismatch] { fill: var(--color-red-text); }
 .prd__stats[data-model-mismatch] { color: var(--color-red-text); }
+.page-header__mismatch { color: var(--color-red-text); flex-basis: 100%; }
+.page-header__mismatch p { margin: 0; font-weight: 600; }
+.page-header__mismatch ul { margin: 0.25rem 0 0; padding-left: 1.25rem; }

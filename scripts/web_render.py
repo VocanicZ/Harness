@@ -504,6 +504,21 @@ def awaiting_region(units):
 </section>"""
 
 
+def _mismatch_banner(rows):
+    """#462: a fleet-level banner for a model_mismatch on a session with no issue or PRD (PLAN / PRD and
+    injector sessions), which no DAG node or PRD header carries. Nothing without one."""
+    if not rows:
+        return ""
+    items = "".join(
+        f'<li data-session="{esc(r.get("session") or "")}" data-kind="{esc(r.get("kind") or "")}">'
+        f'<span class="mono">{esc(r.get("session") or "?")}</span> '
+        f'<span class="muted">{esc(r.get("kind") or "?")}</span> '
+        f'intended {esc(r.get("intended"))}, ran {esc(r.get("actual"))}</li>' for r in rows)
+    return (f'<div class="page-header__mismatch" data-mismatch-banner="{len(rows)}" role="alert">'
+            f'<p>⚠ model mismatch on {len(rows)} session{"" if len(rows) == 1 else "s"} with no issue or PRD '
+            f'(last 7 days)</p><ul>{items}</ul></div>')
+
+
 def fleet_regions(view, now):
     """/fleet/<prefix>'s regions: the header (state, as-of), "Awaiting you" (#229) — answer first: the
     work only a human can do leads the page — then each unit's DAG and unparented list."""
@@ -513,6 +528,7 @@ def fleet_regions(view, now):
 <h1 class="page-header__title">Fleet {esc(view["prefix"])} <span class="level {cls}">{esc(label)}</span></h1>
 <p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now, page=True)}</p>
 </div>
+{_mismatch_banner(view.get("mismatches"))}
 </section>""", "awaiting": awaiting_region(view["units"])}
     for u in view["units"]:
         regs.update(unit_regions(u, now))

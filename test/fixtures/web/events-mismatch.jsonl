@@ -8,3 +8,7 @@
 {"prefix": "hz", "project": "@PROJECT_hz@", "repo": "o/arc", "unit": "arc", "kind": "impl", "ts": "2027-01-15T07:58:00Z", "event": "session_end", "issue": 11, "session": "s-11", "model": "claude-opus-5-5", "wall_s": 480, "usage": {"claude-opus-5-5": {"input": 70, "output": 8700, "cache_create": 75000, "cache_read": 2400000}}}
 not json — a torn line the reader skips
 {"prefix": "hz", "project": "@PROJECT_hz@", "repo": "o/arc", "unit": "arc", "kind": "impl", "ts": "2027-01-15T07:58:00Z", "event": "model_mismatch", "issue": 11, "prd": 2, "session": "s-11", "intended": "sonnet", "actual": "claude-opus-5-5"}
+{"prefix": "hz", "project": "@PROJECT_hz@", "repo": "o/arc", "unit": "arc", "kind": "plan", "ts": "2027-01-15T07:30:00Z", "event": "model_mismatch", "session": "s-plan", "intended": "opus", "actual": "claude-sonnet-5-5"}
+{"prefix": "hz", "project": "@PROJECT_hz@", "repo": "o/arc", "unit": "arc", "kind": "inject", "ts": "2027-01-14T07:30:00Z", "event": "model_mismatch", "session": "s-inj", "intended": "opus", "actual": "claude-sonnet-5-5"}
+{"prefix": "hz", "project": "@PROJECT_hz@", "repo": "o/arc", "unit": "arc", "kind": "inject", "ts": "2027-01-01T07:30:00Z", "event": "model_mismatch", "session": "s-old", "intended": "opus", "actual": "claude-sonnet-5-5"}
+{"prefix": "zz", "project": "@PROJECT_zz@", "repo": "o/other", "unit": "other", "kind": "plan", "ts": "2027-01-15T07:30:00Z", "event": "model_mismatch", "session": "s-other", "intended": "opus", "actual": "claude-sonnet-5-5"}
