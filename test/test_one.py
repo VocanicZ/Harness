@@ -275,13 +275,38 @@ def test_phase_check_pads_a_live_query_reading_of_unknown_age():
     assert c["verdict"] == "FITS" and c["windows"][0]["need"] == 23.0 and c["windows"][0]["pad"] == 3, c
     c = check(live(86.0))   # 86 + 3 + 8 + 2 = 99 > 98
     assert c["verdict"] == "CHECKPOINT" and c["reasons"] == ["codex 5h: 99% > 98%"], c
-    # a live window gone since the start is put back as read then, padded — not stopped on its own
+    # #457: a live window gone since the start — the query failed or came back empty — is put back as
+    # read then; that value is frozen, not current: with its spend uncountable it fails closed
     c = one.phase_check(f, [], "ship", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
-    assert c["verdict"] == "FITS" and c["windows"][0]["now"] == 10.0 and c["windows"][0]["pad"] == 3, c
+    assert c["verdict"] == "CHECKPOINT" and "gone since this session started" in c["reasons"][0], c
     # the same reading without the mark — a claude lane's, frozen since the fleet paused — still fails closed
     c = check(dict(live(10.0), live=False))
     assert c["verdict"] == "CHECKPOINT" and "of unknown age" in c["reasons"][0], c
 
+
+
+def test_stale_exempts_only_a_live_reading_that_was_not_put_back():
+    # #457: `live` makes a reading as current as the query — only when the query answered. Put back
+    # from the start snapshot (`restored`), it is as frozen as any other reading.
+    live = dict(rd(90.0, account="codex", window="5h", age=None), live=True)
+    assert one._stale(live, 30, NOW - 300) is None
+    assert one._stale(dict(live, restored="start"), 30, NOW - 300) == "gone since this session started"
+    assert one._stale(dict(live, restored="reset"), 30, NOW - 300) == "gone since its window reset"
+
+
+def test_phase_check_stops_a_live_reading_put_back_from_the_start():
+    # #457: start read codex 5h 80% live; the query now fails, so live_readings puts the start value
+    # back. Every phase used to FITS on it (80 + 3 pad + ≤ 8 + 2 ≤ 93%) whatever the session spent.
+    f = fc_split(per_phase=2.0, total=8.0, account="codex", window="5h")
+    no_spend = lambda account, t0: None
+    start = {"at": NOW - 300, "readings": [dict(rd(80.0, account="codex", window="5h", age=None), live=True)]}
+    for ph in ("explore", "test", "impl", "gate", "ship"):
+        c = one.phase_check(f, [], ph, stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
+        assert c["verdict"] == "CHECKPOINT" and "gone since this session started" in c["reasons"][0], (ph, c)
+    # its spend since counted ($5 per 1 % → $10 = 2 %), it stands on that arithmetic: 82 + 2 + 2 ≤ 98
+    c = one.phase_check(f, [], "ship", stop=98, reserve=2, stale_pad=3, spend=lambda a, t0: 10.0,
+                        start=start, now=NOW)
+    assert c["verdict"] == "FITS" and c["windows"][0]["now"] == 82.0, c
 
 # ── #452: a window of the session's own account that no reading holds ─────────────────────────────
 def _two_accounts_fc():

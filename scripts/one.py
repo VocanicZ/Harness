@@ -262,9 +262,11 @@ def _stale(r, stale_min, start_at):
     HARNESS_ONE_AUTO lane (#392) has no snapshot, and its readings — its own lane's rate-limit events,
     which carry no age here — are refreshed every turn; the stale pad covers them, as before. A live
     query's reading (#451: `live` — HARNESS_USAGE_CMD, codex, copilot, a cached fetcher) is as
-    current as the query, whatever its age says or whether it is put back: the stale pad covers it
-    too. #445's rule is for claude's readings, the status-line drops a paused fleet leaves frozen."""
-    if r.get("live"):
+    current as the query, whatever its age says: the stale pad covers it too. #445's rule is for
+    claude's readings, the status-line drops a paused fleet leaves frozen — and for a live reading put
+    back from the start snapshot (#457): the query failed or came back empty, so that value is as
+    frozen as theirs, whatever its source."""
+    if r.get("live") and not r.get("restored"):
         return None
     if r.get("restored") == "reset":
         return "gone since its window reset"

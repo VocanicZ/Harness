@@ -289,6 +289,14 @@ printf 'codex\t5h\t92\t%s\n' "$future" > "$STUB"
 out="$(phase explore 2>&1)"; rc=$?
 assert_eq "$rc" "1" "#451: before explore: codex 92% + 3 + 2% + 2% = 99%: CHECKPOINT"
 assert_ok "on the arithmetic" grep -q 'CHECKPOINT — codex 5h: 99% > 98%' <<<"$out"
+# #457: the query stops answering mid-issue — fails (auth expiry, an outage) or comes back empty (a
+# cached fetch that failed). The 10% read at start is put back, frozen: its spend since cannot be
+# counted, so the phase CHECKPOINTs — never FITS on the start value, whatever the session spends.
+for dark in "exit 1" "true"; do
+  out="$(HARNESS_USAGE_CMD="$dark" phase impl 2>&1)"; rc=$?
+  assert_eq "$rc" "1" "#457: the live query goes dark ($dark): CHECKPOINT, not FITS on the start 10%"
+  assert_ok "saying why ($dark)" grep -q 'codex 5h: usage stale — the reading is gone since this session started' <<<"$out"
+done
 # the codex adapter itself: the newest rollout's rate_limits, read live from its session files
 CX="$RUN_DIR/codex-home/sessions/2026/11/03"; mkdir -p "$CX"
 cx(){ printf '{"type": "event_msg", "payload": {"type": "token_count", "rate_limits": {"limit_id": "codex", "primary": {"used_percent": %s, "window_minutes": 300, "resets_at": %s}}}}\n' "$1" "$future" > "$CX/rollout-2026-11-03T00-00-00-s451.jsonl"; }
