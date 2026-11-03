@@ -143,7 +143,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_OWNER` | _(empty)_ | GitHub owner/org (used to expand bare repo names) |
 | `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
 | `HARNESS_UNIT` | _(empty)_ → `main` | The fleet's one unit: its name in session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`), the default `--unit` of `harness inject` and `harness one`, and the unit `forecast` and `stats` attribute lanes to. Empty = `main` on a `single` fleet, which is what runs today. Setting it makes the fleet read its one repo from `HARNESS_REPO` with no `targets.tsv`; an un-migrated `multi` config without it still resolves through `targets.tsv` (transitional) |
-| `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the unit checkout, and the bug lanes' checkout) |
+| `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the unit checkout, and the bug lanes' checkout); `harness update` / `harness start` write both keys when they migrate a fleet ([Fleet migration](#fleet-migration-one-fleet--one-repo-467)) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
 | `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = each lane a detached headless runner process, no multiplexer — `claude` only ([Headless lanes](#headless-lanes)); any other CLI is refused as tmux-only. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
@@ -718,9 +718,47 @@ Other failures leave the engine unchanged: exit `2` for a non-semver running ver
   `~/.harness/releases/<tag>/`, then repoints `~/.harness/engine` atomically. Keeps the current
   release and the previous 2.
 - Restarts installed `harness supervise` / `harness web` units from the new release.
-- Running workers keep their release until relaunched. A host running `harness supervise` rolls them
-  itself after installing a release ([Host supervisor](#host-supervisor), rule 7); otherwise
-  `harness pause` → drain → `harness stop` → `harness start --recover`.
+- Migrates every registered fleet to the one-repo config and rolls its workers (below). Other running
+  workers keep their release until relaunched. A host running `harness supervise` rolls them itself after
+  installing a release ([Host supervisor](#host-supervisor), rule 7); otherwise `harness pause` → drain →
+  `harness stop` → `harness start --recover`.
+
+### Fleet migration: one fleet = one repo (#467)
+
+`scripts/fleet-migrate.sh` moves a fleet from `multi` topology + `targets.tsv` (or a `single` fleet with
+no unit keys) to the one-repo config, and restarts its workers on the engine that runs it. No operator
+step:
+
+- `harness update` runs it for **every fleet registered in `$HARNESS_HOME/fleets/*.json`**, not only the
+  current folder's. A folder you update from that is not registered is migrated too, and rolled only if it
+  has worker pid files. It runs from the *new* release, so a git-checkout engine (whose `git pull` still runs
+  the old `update.sh`) leaves it to the next `harness start`.
+- `harness start` runs it for its own fleet, before it reads the config. `HARNESS_FLEET_MIGRATE=0` opts out.
+
+A fleet whose config has no `HARNESS_TOPOLOGY` line and has `HARNESS_UNIT` is left alone, so running it
+twice changes nothing (no second backup, no second event). Per fleet that needs it, in order:
+
+1. Back up the config as `config.bak-<YYYYMMDD>`.
+2. Migrate the config. Both line forms are read and written in place — `: "${KEY:=val}"` and plain
+   `KEY=val` — with comments and every other key kept.
+   - `multi`: keep the `targets.tsv` row whose repo is `HARNESS_REPO`, else the only row, else the first.
+     `HARNESS_REPO` becomes that row's repo (the target wins: ImPrint's `VocanicZ/ImPrint` becomes
+     `VocanicZ/Imprinted`), `HARNESS_UNIT` its id, and `HARNESS_CHECKOUT` the clone that exists under
+     `.harness/checkouts/` (the one named after the repo, else the one whose `origin` is the repo). The
+     other rows move to `targets.tsv.migrated` and a `fleet_migrated` event is logged (it names them in
+     `dropped`). There is no refusal and no manual gate.
+   - `single`: `HARNESS_UNIT=main`, `HARNESS_CHECKOUT=` the project root.
+   - `HARNESS_TOPOLOGY` is removed. `HARNESS_POOL` becomes `max(POOL, CAP)` so no fleet loses
+     parallelism; `HARNESS_CAP` keeps its old value while the pool is still the unit-claim loop.
+3. Kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes. It never runs
+   `harness stop`, which kills every fleet's sessions: live lane sessions keep running.
+4. `fleet_roll` (`scripts/roll.sh`, shared with the supervisor's auto-update, #477) runs
+   `harness start --state-dir <fleet>` (no `--recover`) to relaunch the workers on the new engine, from an
+   environment scrubbed of any other fleet's `HARNESS_*` keys. A **paused** fleet comes back paused; a
+   fleet with no worker pid files was stopped on purpose and is migrated but not started.
+
+The config migration and the worker roll go together on purpose: a migrated config under old workers
+would leave them reading a missing `targets.tsv` and idling as "all complete".
 
 **`harness update --rollback`** flips back to the previous installed release; a second
 `--rollback` goes forward again.

@@ -31,6 +31,29 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   offline, `--dry-run`, rollback with exactly one bug and no retry (a newer tag still installs), and a
   supervisor killed by the update's own restart (fails without the change).
 
+### `scripts/fleet-migrate.sh`: `harness update` migrates every registered fleet to one repo and rolls its workers (#467)
+
+- Second step of one fleet = one repo (#464). `harness update` runs the new `scripts/fleet-migrate.sh`
+  for **every fleet registered in `$HARNESS_HOME/fleets/*.json`**, not only the current folder's, and
+  `harness start` runs it for its own fleet before it reads the config. No operator step; session
+  names, unit names and parallelism are kept.
+- Per fleet that still needs it: back up the config as `config.bak-<date>`; write `HARNESS_REPO`
+  (the target's repo wins, so ImPrint becomes Imprinted), `HARNESS_UNIT` and `HARNESS_CHECKOUT` (the
+  clone that exists under `.harness/checkouts/`; `single`: `main` and the project root), move the other
+  `targets.tsv` rows to `targets.tsv.migrated` with a `fleet_migrated` event (harness-dev keeps `harness`
+  and drops `rtdd`), remove `HARNESS_TOPOLOGY`, set `HARNESS_POOL` to `max(POOL, CAP)` and keep
+  `HARNESS_CAP`; then kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes (never
+  `harness stop`) and relaunch the workers through `fleet_roll` (`scripts/roll.sh`, #477), which runs
+  `harness start --state-dir <fleet>`. Live lanes keep running.
+- Both config line forms (`: "${KEY:=val}"` and plain `KEY=val`) are read and written in place, comments
+  kept. Running it twice changes nothing. A paused fleet is migrated and comes back paused; a fleet
+  with no worker pid files was stopped on purpose and is migrated, not started.
+- The config migration and the worker roll ship together: a migrated config under old workers would
+  leave them reading a missing `targets.tsv` and idling as "all complete".
+- test_fleet_migrate.sh: fixtures of all seven host configs give the expected unit, repo, pool and an
+  existing checkout, a second run changes nothing, and a fixture update with two registered fleets and
+  live old-loop workers kills only their pids and relaunches them (fails without the change).
+
 ### `HARNESS_UNIT` and `HARNESS_CHECKOUT`: every reader takes the fleet's one repo from config (#466)
 
 - First step of one fleet = one repo (#464). Two new config keys: `HARNESS_UNIT`, the unit's name in

@@ -11,7 +11,16 @@
 #                   died with the host — reap_team only walks LOCAL worktrees, so a
 #                   crashed/migrated box leaves orphaned issues invisible to dispatch.
 set -uo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+# One fleet = one repo (#467): a fleet still on `multi` + targets.tsv is migrated BEFORE lib.sh reads
+# its config — HARNESS_UNIT / HARNESS_CHECKOUT in, HARNESS_TOPOLOGY out, POOL = max(POOL, CAP) — and
+# its old-loop workers are stopped so the launch below replaces them. Already migrated: a no-op.
+# A failure only warns; the un-migrated config still resolves through targets.tsv. HARNESS_FLEET_MIGRATE=0 opts out.
+_start_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${HARNESS_FLEET_MIGRATE:-1}" != 0 && -f "${STATE_DIR:-}/config" ]]; then
+  bash "$_start_dir/fleet-migrate.sh" --no-start --quiet --state-dir "$STATE_DIR" \
+    || echo "WARNING: could not migrate $STATE_DIR to the one-repo config — starting on the old one (#467)" >&2
+fi
+source "$_start_dir/lib.sh"
 # starting un-pauses this machine's pool — except a roll of a paused fleet (#477, scripts/roll.sh), whose
 # relaunched workers must come back paused.
 [[ -n "${HARNESS_START_KEEP_PAUSE:-}" ]] || rm -f "$PAUSE_FLAG"
