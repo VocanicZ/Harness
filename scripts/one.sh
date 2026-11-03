@@ -72,13 +72,20 @@ _one_reading_age(){ local f d newest=""
   fi
   [[ -n "$newest" ]] && echo $(( $2 - newest )) || echo ""; }
 
-# one_readings — the usage readings TSV one.py reads: `<account>\t<window>\t<pct>\t<resets_at>\t<age>`.
+# _one_live — `live` when cli_limit_usage is a live query (#451): HARNESS_USAGE_CMD, or any adapter but
+# claude's (codex, copilot read their own session files; the others a cached fetch) — its readings
+# are as current as the query. Empty for claude's, whose status-line drops and headless lane state
+# freeze once the fleet pauses: there #445's fail-closed rule stands.
+_one_live(){ [[ -n "${HARNESS_USAGE_CMD:-}" || "$(cli_name)" != claude ]] && echo live; }
+
+# one_readings — the usage readings TSV one.py reads:
+# `<account>\t<window>\t<pct>\t<resets_at>\t<age>\t<live>` (_one_live).
 # Prints nothing when usage is unavailable (the gate then DENIES: it cannot show the work fits).
-one_readings(){ local out acct win pct reset now; now="$(date +%s)"
+one_readings(){ local out acct win pct reset now live; now="$(date +%s)"; live="$(_one_live)"
   out="$(cli_limit_usage 2>/dev/null)" || return 0
   while IFS=$'\t' read -r acct win pct reset; do
     [[ -n "$acct" && -n "$pct" ]] || continue
-    printf '%s\t%s\t%s\t%s\t%s\n' "$acct" "$win" "$pct" "${reset:-0}" "$(_one_reading_age "$acct" "$now")"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$acct" "$win" "$pct" "${reset:-0}" "$(_one_reading_age "$acct" "$now")" "$live"
   done <<< "$out"; }
 
 # one_gate <issue> [forecast args…] [--json] — precondition, forecast, readings, recommendation.

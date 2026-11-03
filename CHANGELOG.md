@@ -4,6 +4,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness one phase` works on codex, copilot and `HARNESS_USAGE_CMD` usage (#451)
+
+- Since #445 a reading of unknown age whose spend could not be counted was a CHECKPOINT once
+  `harness one start` had taken its snapshot. Only the claude adapter's status-line drops give a
+  reading an age, and spend is counted only for a Claude config dir, so on a fleet whose usage came
+  from codex, copilot or an operator's `HARNESS_USAGE_CMD`, every `harness one phase` CHECKPOINTed
+  before the first phase ("usage stale — the reading is of unknown age").
+- `one_readings` now marks a live query's readings `live` (a sixth column): `HARNESS_USAGE_CMD`, or
+  any adapter but claude's. `one.py` pads those as before #445 (`HARNESS_ONE_STALE_PAD_PCT`), so they
+  FIT under the stop % and CHECKPOINT over it on the arithmetic. A claude reading frozen since the
+  fleet paused still CHECKPOINTs when its spend since cannot be counted.
+- test_one_run.sh: `harness one start` then `phase` with a codex reading from `HARNESS_USAGE_CMD`
+  and from the codex adapter, no claude drop — FITS at 10%, CHECKPOINT at 92% / 93% (fails without
+  the fix). test_one.py: a `live` reading of unknown age is padded, put back padded, and the same
+  reading without the mark still fails closed; `parse_readings` reads the mark.
 ### Lanes test with rtdd Rounds 1+2 only; the full suite runs once, at PRD review (#449)
 
 - The impl, bug-fix and resume prompts ran the full suite up to three times per issue — a `baseline`

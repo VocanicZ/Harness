@@ -225,6 +225,32 @@ assert_eq "$rc" "1" "a reset window whose spend since is uncountable: CHECKPOINT
 assert_ok "saying why" grep -q 'usage stale — the reading is gone since its window reset' <<<"$out"
 "${ONE[@]}" release 7 --force >/dev/null 2>&1
 export HARNESS_USAGE_CMD="cat '$STUB'" HARNESS_CLAUDE_CONFIG_DIRS="$CCD_WAS"
+# ── #451: usage from a live query — HARNESS_USAGE_CMD, the codex adapter — and no claude drop ─────
+# Nothing dates these readings (no <usage-dir>/<account>.json, no usage cache), and no Claude config
+# dir is account codex's, so its spend since cannot be counted: the reading is as current as the
+# query, padded as before #445 — FITS under the stop %, CHECKPOINT over it, never "usage stale".
+rm -f "$DROP"; printf 'codex\t5h\t10\t%s\n' "$future" > "$STUB"
+out="$("${ONE[@]}" start 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#451: start #7 with usage from HARNESS_USAGE_CMD and no claude status-line drop"
+out="$(phase explore 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#451: before explore: codex 10% + 3 stale pad + 2% + 2% = 17%: FITS"
+assert_ok "the live reading is padded" grep -q 'codex 5h: now 10% + 3 stale pad (age unknown' <<<"$out"
+assert_no "not stopped as stale" grep -q 'usage stale' <<<"$out"
+printf 'codex\t5h\t92\t%s\n' "$future" > "$STUB"
+out="$(phase explore 2>&1)"; rc=$?
+assert_eq "$rc" "1" "#451: before explore: codex 92% + 3 + 2% + 2% = 99%: CHECKPOINT"
+assert_ok "on the arithmetic" grep -q 'CHECKPOINT — codex 5h: 99% > 98%' <<<"$out"
+# the codex adapter itself: the newest rollout's rate_limits, read live from its session files
+CX="$RUN_DIR/codex-home/sessions/2026/11/03"; mkdir -p "$CX"
+cx(){ printf '{"type": "event_msg", "payload": {"type": "token_count", "rate_limits": {"limit_id": "codex", "primary": {"used_percent": %s, "window_minutes": 300, "resets_at": %s}}}}\n' "$1" "$future" > "$CX/rollout-2026-11-03T00-00-00-s451.jsonl"; }
+cx_phase(){ HARNESS_USAGE_CMD="" HARNESS_CLI=codex CODEX_HOME="$RUN_DIR/codex-home" phase "$@"; }
+cx 10; out="$(cx_phase test 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#451: the codex adapter's reading, 10% + 3 + 1.6% + 2%: FITS"
+assert_ok "read through codex_limit_usage" grep -q 'codex 5h: now 10% + 3 stale pad' <<<"$out"
+cx 93; out="$(cx_phase test 2>&1)"; rc=$?
+assert_eq "$rc" "1" "#451: the codex adapter's reading, 93% + 3 + 1.6% + 2% = 99.6%: CHECKPOINT"
+assert_ok "on the arithmetic, not as stale" grep -q 'CHECKPOINT — codex 5h: 99.6% > 98%' <<<"$out"
+"${ONE[@]}" release 7 --force >/dev/null 2>&1
 # ── done (#367): the goal check reap_done_sessions runs, then the next claimable issue's fresh gate ─
 # The board comes from a snapshot (issuelib's read seam), so `check` and `next` never reach gh.
 SNAP="$RUN_DIR/board.json"

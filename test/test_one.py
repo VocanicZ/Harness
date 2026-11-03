@@ -261,6 +261,34 @@ def test_phase_check_fails_closed_when_spend_cannot_be_counted():
     assert c["verdict"] == "FITS", c
 
 
+def test_phase_check_pads_a_live_query_reading_of_unknown_age():
+    # #451: a reading from a live query (`live`: HARNESS_USAGE_CMD, or codex / copilot / a cached
+    # fetcher's adapter) is as current as the query: of unknown age, its spend uncountable (no Claude
+    # config dir is account codex's), it is padded as before #445 — never a CHECKPOINT on that alone.
+    f = fc_split(per_phase=2.0, total=8.0, account="codex", window="5h")
+    no_spend = lambda account, t0: None
+    live = lambda pct, **kw: dict(rd(pct, account="codex", window="5h", age=None), live=True, **kw)
+    start = {"at": NOW - 300, "readings": [live(10.0)]}
+    check = lambda r, ph="explore": one.phase_check(f, [r], ph, stop=98, reserve=2, stale_pad=3,
+                                                    spend=no_spend, start=start, now=NOW)
+    c = check(live(10.0))   # 10 + 3 pad + 8 + 2 = 23
+    assert c["verdict"] == "FITS" and c["windows"][0]["need"] == 23.0 and c["windows"][0]["pad"] == 3, c
+    c = check(live(86.0))   # 86 + 3 + 8 + 2 = 99 > 98
+    assert c["verdict"] == "CHECKPOINT" and c["reasons"] == ["codex 5h: 99% > 98%"], c
+    # a live window gone since the start is put back as read then, padded — not stopped on its own
+    c = one.phase_check(f, [], "ship", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "FITS" and c["windows"][0]["now"] == 10.0 and c["windows"][0]["pad"] == 3, c
+    # the same reading without the mark — a claude lane's, frozen since the fleet paused — still fails closed
+    c = check(dict(live(10.0), live=False))
+    assert c["verdict"] == "CHECKPOINT" and "of unknown age" in c["reasons"][0], c
+
+
+def test_parse_readings_reads_the_live_mark():
+    rs = one.parse_readings("codex\t5h\t10\t99\t\tlive\nmain\tseven_day\t20\t99\t60\t\nmain\t5h\t5\t99\t60\n")
+    assert [r["live"] for r in rs] == [True, False, False], rs
+    assert rs[0]["age"] is None and rs[1]["age"] == 60, rs
+
+
 def _msg(mid, ts, output, model="claude-opus-5-5"):
     return json.dumps({"type": "assistant", "timestamp": ts, "requestId": "r" + mid,
                        "message": {"id": mid, "model": model, "usage": {"output_tokens": output}}}) + "\n"
