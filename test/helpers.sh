@@ -187,6 +187,9 @@ make_env(){
   # …and `--install`'s fetch of a missing CLI binary (#316): a real npm/curl install off the host's
   # PATH. The matrix's prereqs-named cell turns it back on against its stub npm and curl.
   export HARNESS_INSTALL_CLI_BIN=0
+  # …and the label seeding a non-interactive `harness init` does when gh is signed in (#432): a real
+  # `gh label create` on the fixture's acme/widget. test_init.sh turns it on against its stub gh.
+  export HARNESS_INIT_SEED=0
   # …and the CLIs whose usage windows are read by RUNNING them (#404): agy_limit_usage,
   # hermes_limit_usage and openclaw_limit_usage run `agy` / `hermes` / `openclaw` off PATH, so every
   # usage_watch ran the host's real binary on the operator's real account — a host near its agy weekly

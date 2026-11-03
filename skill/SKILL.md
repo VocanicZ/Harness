@@ -33,6 +33,11 @@ and wait for the user's yes before you act.
    (owner/repo, autonomous, pool size). The wizard asks interactively, so it needs a terminal: ask the
    user to run `! harness init` and pick `prd` at the mode question. Without one it takes its answers
    from the environment, e.g. `HARNESS_MODE=prd HARNESS_OWNER=<owner> HARNESS_REPO=<owner>/<repo> harness init`.
+   Either way init seeds the labels when `gh` is signed in (it prints `seeded the harness labels`).
+   **The `prd` label must exist before step 3 files the PRD** — on a fresh repo
+   `gh issue create --label prd` otherwise fails `could not add label: 'prd' not found`. If init
+   printed a NOTE instead (gh signed out), get the user through `gh auth login`, then run
+   `harness setup` (it seeds the labels) before step 3.
    An existing config in another mode: say so and ask before changing `HARNESS_MODE`.
 3. **Grill the idea** one question at a time until the goal, the scope (in and out) and testable
    acceptance criteria are all clear — don't file on a fuzzy idea. Then draft one `prd`-labelled issue

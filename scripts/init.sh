@@ -129,4 +129,17 @@ if [[ "$ni" != 1 ]]; then
   source "$ENGINE_DIR/scripts/lib.sh"
   if [[ "$HARNESS_TOPOLOGY" == single ]]; then seed_if_needed main
   else [[ -f "$TARGETS_TSV" ]] || printf '# id\trepo\tdeps(comma|-)\tdesc\n' > "$TARGETS_TSV"; echo "edit $TARGETS_TSV to list your repos + deps"; fi
+elif [[ "$HARNESS_TOPOLOGY" == single && "${HARNESS_INIT_SEED:-1}" != 0 ]]; then
+  # #432: a non-interactive init (an agent's shell — `/harness <idea>` step 2) seeds the labels too,
+  # when gh is signed in: the very next step files the PRD with `gh issue create --label prd`, which
+  # fails "could not add label: 'prd' not found" on a fresh repo. Labels only — disabling the repo's
+  # Actions stays with `harness setup`. HARNESS_INIT_SEED=0 skips it (the test suite pins that).
+  source "$ENGINE_DIR/scripts/lib.sh"
+  slug="$(unit_slug main)"
+  if [[ -z "$slug" ]]; then :
+  elif gh auth status >/dev/null 2>&1; then
+    bash "$ENGINE_DIR/scripts/seed.sh" --labels-only "$slug" && echo "seeded the harness labels on $slug"
+  else
+    echo "NOTE: gh is not signed in — labels not seeded on $slug; run 'harness setup' before filing issues (gh auth login first)"
+  fi
 fi
