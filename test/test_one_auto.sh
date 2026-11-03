@@ -58,13 +58,16 @@ issue 7; issue 8
 printf '[{"number": 1, "body": "%s"}, {"number": 7, "body": "%s"}, {"number": 8, "body": "%s"}]\n' \
   "$(printf 'x%.0s' {1..80})" "$(printf 'y%.0s' {1..80})" "$(printf 'z%.0s' {1..80})" > "$GH/bodies.json"
 
-# ── issuelib stub: `next` is whatever $RUN_DIR/next holds (dispatch order is issuelib's own test) ─
+# ── issuelib stub: `next` is the first of $RUN_DIR/next's numbers not in --exclude (dispatch order
+# is issuelib's own test) ─
 cat > "$RUN_DIR/issuelib.stub" <<'EOF'
 import os, sys
 if sys.argv[1] == "next":
     p = os.path.join(os.environ["RUN_DIR"], "next")
-    n = open(p).read().strip() if os.path.exists(p) else ""
-    if n: print(n)
+    ns = open(p).read().split() if os.path.exists(p) else []
+    skip = set(sys.argv[sys.argv.index("--exclude")+1].split(",")) if "--exclude" in sys.argv else set()
+    ns = [n for n in ns if n not in skip]
+    if ns: print(ns[0])
 EOF
 ISSUELIB="$RUN_DIR/issuelib.stub"
 next_is(){ echo "$1" > "$RUN_DIR/next"; }
@@ -192,6 +195,21 @@ assert_ok "then exit — no release: the engine ends the lane" grep -q '^Once ch
 assert_no "and never tells the lane to drop its own worktree" grep -q 'release 8' <<<"$out"
 out="$( source "$HERE/../scripts/one.sh"; session_live(){ false; }; one_phase 8 explore --unit main 2>&1 )"; rc=$?
 assert_eq "$rc" "2" "no lease and no lane: still a usage error"
+
+echo "-- #446: an issue a live lane still owns is skipped — the next claimable one starts"
+# A checkpointed lane keeps its worktree (agent-paused, agent-working dropped): busy_issues_for owns #7,
+# so the tick starts #8 instead of failing on #7's worktree every poll.
+reset_auto; hold 91; stub_usage 91; issue 7 "ready-for-agent,agent-paused"; issue 8; next_is "7 8"
+mkdir -p "$WORKTREES_DIR/main-i7"
+out="$(one_auto_tick 2>&1)"
+assert_eq "$(cat "$LAUNCHED")" "hz-main-i8" "the tick skips #7 (its worktree is present) and starts #8"
+assert_no "it never tries the owned #7" grep -q 'could not start' <<<"$out"
+assert_no "nor claims it" has_label 7 agent-working
+reset_auto; rm -rf "$WORKTREES_DIR/main-i7"; next_is "7"; mkdir -p "$WORKTREES_DIR/main-i7"
+out="$(one_auto_tick 2>&1)"
+assert_eq "$(launches)" "0" "the only claimable issue is owned: no lane starts"
+assert_ok "and it says none is claimable" grep -q 'no claimable issue on acme/widget' <<<"$out"
+rm -rf "$WORKTREES_DIR/main-i7"
 
 echo "-- turns: fleets on one account take turns at a free lane"
 reset_auto; mkdir -p "$OA/main.want"

@@ -133,7 +133,9 @@ one_auto_tick(){ local acct next want lockfd gj rc sum sess
   mkdir -p "$(_oa_file "$acct" want)" 2>/dev/null || return 0
   if one_auto_stopped "$acct"; then _oa_say "stopped:$acct" "$acct lane stopped until its window resets"; return 0; fi
   want="$(_oa_file "$acct" want)/$(_oa_me)"
-  next="$(python3 "$ISSUELIB" next "$REPO" 2>/dev/null)" || return 0
+  # #446: never the issue a live lane still owns (busy_issues_for, as dispatch skips it, #416): its
+  # worktree add fails, and the same busy issue came back every poll — the chain never moved on.
+  next="$(python3 "$ISSUELIB" next "$REPO" --exclude "$(busy_issues_for "$UNIT")" 2>/dev/null)" || return 0
   if [[ -z "$next" ]]; then
     rm -f "$want"; _oa_say "none:$acct" "no claimable issue on $SLUG for the $acct lane"; return 0; fi
   touch "$want"

@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness one done` and HARNESS_ONE_AUTO skip an issue a live lane still owns (#446)
+
+- `issuelib next` skipped only `--exclude`, while dispatch also skips the issues a live lane still owns
+  (`busy_issues_for`, #416). A checkpointed lane keeps its worktree after it drops `agent-working`, and
+  `next` puts `agent-paused` issues first, so under a hold it often offered that very issue:
+  `harness one start` then failed ("worktree add failed … claim released"), and `one_auto_tick` picked
+  it every poll, failed to spawn it and never moved on.
+- `harness one done` and `one_auto_tick` now pass `busy_issues_for` through `issuelib next --exclude`:
+  they offer / start the next claimable issue nobody owns, or none. test_one_run.sh, test_one_auto.sh.
+
 ### `harness one phase` sees the interactive session's own spend (#445)
 
 - On the claude adapter the per-phase re-check read only status-line drops and this fleet's headless

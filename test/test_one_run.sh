@@ -267,6 +267,18 @@ assert_eq "$rc:$(python3 -c 'import json,sys; g=json.load(open(sys.argv[1])); pr
 stub_usage 97
 done_ 7 >/dev/null 2>&1; rc=$?
 assert_eq "$rc" "1" "the next issue's gate DENIES: done exits 1"
+# #446: a lane that checkpointed keeps its worktree (agent-paused, not agent-working) — busy_issues_for
+# owns #11, so done offers the next claimable issue dispatch would take, never the one start would fail on.
+stub_usage 10; mkdir -p "$WORKTREES_DIR/main-i11"
+out="$(done_ 7 2>&1)"; rc=$?
+assert_eq "$rc" "0" "done with #11's worktree still present: the next issue fits — APPROVE"
+assert_ok "offers #8, skipping #11 that a live lane owns (busy_issues_for)" grep -q 'next claimable: acme/widget#8' <<<"$out"
+assert_no "never the owned #11" grep -q 'acme/widget#11' <<<"$out"
+mkdir -p "$WORKTREES_DIR/main-i8"
+out="$(done_ 7 2>&1)"; rc=$?
+assert_eq "$rc" "5" "every claimable issue owned by a live lane: none offered"
+assert_ok "says so" grep -q 'no claimable issue' <<<"$out"
+rmdir "$WORKTREES_DIR/main-i11" "$WORKTREES_DIR/main-i8"; stub_usage 97
 board 7:CLOSED:ready-for-agent 9:OPEN:ready-for-agent:10 10:OPEN:ready-for-agent,agent-working \
       12:OPEN:ready-for-agent,agent-blocked
 out="$(done_ 7 2>&1)"; rc=$?

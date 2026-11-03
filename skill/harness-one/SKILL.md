@@ -47,7 +47,8 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    `--unit`). It runs the goal check the pool's `reap_done_sessions` runs, and offers nothing until that
    reports DONE (exit 4: not done yet — the issue is not closed; finish it, or tell the user where it
    stands). On DONE it picks the next claimable issue the way dispatch would — open, `ready-for-agent`,
-   not `agent-working`, every `## Blocked by` closed, `agent-paused` ones first — and prints a **fresh**
+   not `agent-working`, not owned by a live lane (its worktree or session still present), every
+   `## Blocked by` closed, `agent-paused` ones first — and prints a **fresh**
    forecast + gate for it (exit 0 APPROVE / 1 DENY; exit 3 is the precondition refusal, as in step 1).
    Show that whole and go back to step 4 with that issue: the human decides, nothing is claimed until
    they approve. Exit 5: no claimable issue — say so and stop.
