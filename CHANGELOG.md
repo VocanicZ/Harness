@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The update tests no longer touch the host's real engine (#434)
+
+- `test/test_update.sh` and `test/test_web_install.sh` set no `HARNESS_HOME`, so `update.sh` read the
+  host's real `~/.harness/engine`. Every host installed since releases (#279) has a release symlink
+  there, so both tests failed on such a host and queried the real GitHub releases API. With a newer
+  release published, `test_web_install.sh` would have installed it over the live engine. Both tests
+  now set a throwaway `HOME` and `HARNESS_HOME` and a local releases URL, and pass with or without a
+  `~/.harness`.
+- `test/test_hermetic.sh` finds every suite test that runs `update.sh` or `harness update`. It runs
+  each one against a decoy home whose engine is a release symlink, with a curl tripwire on PATH.
+  Each test must pass, leave the decoy's `.harness` unchanged, and never reach github.com.
+
 ### The `/harness-*` skills run `harness` off PATH (#433)
 
 - `/harness-prd` (where `/harness <idea>` goes on a live fleet) and the other per-command skills
