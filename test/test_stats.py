@@ -670,6 +670,55 @@ def test_matching_dominant_model_with_a_side_call_emits_nothing():
     assert st.model_mismatch({"model": "sonnet", "usage": {}}) is None, "no usage → no check"
 
 
+def _msg(i, model, out, side=False):
+    return {"type": "assistant", **({"isSidechain": True} if side else {}), "timestamp": "2026-10-01T00:01:00.000Z",
+            "message": {"id": f"msg_{i}", "model": model, "content": [{"type": "text"}],
+                        "usage": {"input_tokens": 1, "output_tokens": out}}}
+
+def _orchestrator_cfg(d, main, sub):
+    """A Claude config dir holding one session: a main transcript of <main> [(model, output)] and one
+    sub-agent transcript of <sub> — the shape of a lane that mostly orchestrates (#461)."""
+    sid = "99999999-8888-7777-6666-555555555555"
+    tdir = os.path.join(d, "cfg", "projects", "-p")
+    os.makedirs(os.path.join(tdir, sid, "subagents"))
+    _write(os.path.join(tdir, sid + ".jsonl"), [_msg(i, m, o) for i, (m, o) in enumerate(main)])
+    _write(os.path.join(tdir, sid, "subagents", "agent-x.jsonl"), [_msg(f"s{i}", m, o, True) for i, (m, o) in enumerate(sub)])
+    return os.path.join(d, "cfg"), sid
+
+def test_subagents_on_another_family_never_trip_model_mismatch():   # #461
+    with host() as d:
+        cfg, sid = _orchestrator_cfg(d, [("claude-sonnet-5-5", 100)], [("claude-opus-5-5", 5000)])
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfg
+        ctx = os.path.join(d, "hz-main-i7.stats")
+        assert st.main(["emit", "launch", "--write-ctx", ctx, "-c", "prefix=hz", "-c", "repo=acme/widget",
+                        f"session={sid}", "goal=ISSUE:7", "prd=5", "model=sonnet"]) == 0
+        assert st.main(["emit", "session_end", "--ctx", ctx]) == 0
+        evs = events(d)
+        assert [e["event"] for e in evs] == ["launch", "session_end"], evs
+        end = evs[1]
+        assert end["main_model"] == "claude-sonnet-5-5", end
+        assert end["usage"]["claude-opus-5-5"]["output"] == 5000, "token and cost totals keep the sub-agents"
+        assert st.dominant_model(end["usage"]) == "claude-opus-5-5"
+        assert run(["mismatches"]) == (0, "")
+
+def test_main_transcript_on_another_family_still_trips_model_mismatch_despite_subagents():   # #461
+    with host() as d:
+        cfg, sid = _orchestrator_cfg(d, [("claude-opus-5-5", 100)], [("claude-sonnet-5-5", 5000)])
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfg
+        ctx = os.path.join(d, "hz-main-i7.stats")
+        assert st.main(["emit", "launch", "--write-ctx", ctx, "-c", "prefix=hz", f"session={sid}",
+                        "goal=ISSUE:7", "model=sonnet"]) == 0
+        assert st.main(["emit", "session_end", "--ctx", ctx]) == 0
+        evs = events(d)
+        assert [e["event"] for e in evs] == ["launch", "session_end", "model_mismatch"], evs
+        assert (evs[2]["intended"], evs[2]["actual"]) == ("sonnet", "claude-opus-5-5"), evs[2]
+
+def test_session_end_without_main_model_falls_back_to_merged_usage():   # #461: logged before the field existed
+    end = {"model": "sonnet", "usage": {"claude-opus-5-5": {"output": 9}}}
+    assert st.model_mismatch(end)["actual"] == "claude-opus-5-5"
+    assert st.model_mismatch({**end, "main_model": "claude-sonnet-5-5"}) is None
+
+
 # --- --by-role (#378) ---------------------------------------------------------------
 def test_session_kind_to_role_for_every_kind():
     want = {"impl": "implementer", "bug-fix": "implementer", "orch": "manager", "review": "manager",
