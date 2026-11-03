@@ -32,6 +32,8 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_TOPOLOGY:=single}"        # single | multi
 : "${HARNESS_OWNER:=}"
 : "${HARNESS_REPO:=}"
+: "${HARNESS_UNIT:=}"                  # #466: the fleet's one unit name, in session + worktree names (<prefix>-<unit>-i<N>); empty = `main` (single) or targets.tsv (un-migrated multi)
+: "${HARNESS_CHECKOUT:=}"              # #466: where the fleet's repo clone lives; empty = $PROJECT_ROOT
 : "${HARNESS_SPEC:=}"
 : "${HARNESS_AUTONOMOUS:=true}"
 : "${HARNESS_POOL:=3}"
@@ -93,7 +95,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/session/dispatch.sh"
 # Each adapter defaults and exports its own config (HARNESS_<CLI>_BIN / _FLAGS) when it is sourced.
 source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
 
-export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS HARNESS_SELFPARK_GRACE_MIN \
+export HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HARNESS_SPEC HARNESS_AUTONOMOUS HARNESS_SELFPARK_GRACE_MIN \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_MAIN_REPO \
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL \
@@ -249,19 +251,24 @@ is_paused(){ [[ -f "$PAUSE_FLAG" ]]; }
 _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && echo "$HARNESS_OWNER/$1" || echo "$1";; esac; }
 
 # --- registry / topology -----------------------------------------------------
-# multi: rows of `id <TAB> repo <TAB> deps(comma|-) <TAB> desc` in TARGETS_TSV.
-# single: one synthetic unit "main" whose repo is HARNESS_REPO, no deps.
+# one repo (#466, PRD #464): a `single` fleet, or any config that sets HARNESS_UNIT — one unit named
+# HARNESS_UNIT (default `main`) whose repo is HARNESS_REPO and whose clone is HARNESS_CHECKOUT
+# (default $PROJECT_ROOT), no deps. Transitional fallback: an un-migrated `multi` config (no
+# HARNESS_UNIT) still reads rows of `id <TAB> repo <TAB> deps(comma|-) <TAB> desc` from TARGETS_TSV.
+_one_repo(){ [[ "$HARNESS_TOPOLOGY" == single || -n "$HARNESS_UNIT" ]]; }
+fleet_unit(){ echo "${HARNESS_UNIT:-main}"; }
+fleet_checkout(){ echo "${HARNESS_CHECKOUT:-$PROJECT_ROOT}"; }
 _tgt_row(){ awk -F'\t' -v s="$1" '!/^#/ && $1==s {print; exit}' "$TARGETS_TSV"; }
 _tgt_field(){ _tgt_row "$1" | awk -F'\t' -v c="$2" '{print $c}'; }
 all_units(){
-  if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo main
+  if _one_repo; then fleet_unit
   else awk -F'\t' '!/^#/ && NF>=2 {print $1}' "$TARGETS_TSV"; fi
 }
-unit_repo(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"; else _tgt_field "$1" 2; fi; }
-unit_deps(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "-"; else local d; d="$(_tgt_field "$1" 3)"; echo "${d:--}"; fi; }
-unit_desc(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "${HARNESS_REPO##*/}"; else _tgt_field "$1" 4; fi; }
+unit_repo(){ if _one_repo; then echo "$HARNESS_REPO"; else _tgt_field "$1" 2; fi; }
+unit_deps(){ if _one_repo; then echo "-"; else local d; d="$(_tgt_field "$1" 3)"; echo "${d:--}"; fi; }
+unit_desc(){ if _one_repo; then echo "${HARNESS_REPO##*/}"; else _tgt_field "$1" 4; fi; }
 unit_slug(){ _with_owner "$(unit_repo "$1")"; }
-unit_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"; else echo "$CHECKOUTS_DIR/$(unit_repo "$1" | sed 's#.*/##')"; fi; }
+unit_checkout(){ if _one_repo; then fleet_checkout; else echo "$CHECKOUTS_DIR/$(unit_repo "$1" | sed 's#.*/##')"; fi; }
 
 # --- completeness (GitHub = source of truth; tests override unit_complete) ----
 unit_complete(){ [[ "$(python3 "$ISSUELIB" complete "$(unit_repo "$1")" 2>/dev/null)" == DONE ]]; }
@@ -302,7 +309,7 @@ worker_unit(){ local wid="$1" f; shopt -s nullglob
 # POOL_LOCK so a bug-claim never races a unit-claim on the single host. _repo_bugs (per-repo) and
 # _bug_numbers (all repos, globally sorted) are the seams tests override; claimable_bugs filters
 # out already-claimed tokens (mirrors claimable_units).
-_bug_repos(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"
+_bug_repos(){ if _one_repo; then echo "$HARNESS_REPO"
   else local u; for u in $(all_units); do unit_repo "$u"; done | sort -u; fi; }
 # per-repo bug candidates as "<num>\t<phase>" lines (phase: fix|triage), fix-pending-first.
 _repo_bugs(){ python3 "$ISSUELIB" bugs "$1" 2>/dev/null; }
@@ -424,12 +431,12 @@ bug_phase(){ case ",$(_bug_labels "$1")," in *",$HARNESS_LABEL_BUG_TRIAGED,"*) e
 # where colliding numbers made "first repo that lists #n" pick the wrong repo. Kept as a fallback
 # for a bare ref; matches the number field of _repo_bugs' "<num>\t<phase>" output.
 bug_repo(){ local n="$1" repo
-  if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$HARNESS_REPO"; return; fi
+  if _one_repo; then echo "$HARNESS_REPO"; return; fi
   for repo in $(_bug_repos); do
     [[ -n "$repo" ]] || continue
     _repo_bugs "$repo" | cut -f1 | grep -qx "$n" && { echo "$repo"; return; }
   done; }
-bug_checkout(){ if [[ "$HARNESS_TOPOLOGY" == single ]]; then echo "$PROJECT_ROOT"
+bug_checkout(){ if _one_repo; then fleet_checkout
   else echo "$CHECKOUTS_DIR/${1##*/}"; fi; }
 # bug_worktree <slug> <issue> — the fix-phase worktree path for a bug. Repo-qualified (#37): issue
 # numbers are per-repo, so two repos' same-numbered bugs need DISTINCT paths or the second fix
@@ -1833,7 +1840,7 @@ poller_enabled(){ case "${HARNESS_USE_POLLER:-1}" in 0|off|OFF|false|FALSE|no|NO
 # multi: every targets row). Exactly the set `harness start` registers with the poller and the set
 # the workers gate freshness on. Empty when single-topology HARNESS_REPO is blank (hermetic tests).
 snapshot_slugs(){
-  { if [[ "$HARNESS_TOPOLOGY" == single ]]; then _with_owner "$HARNESS_REPO"
+  { if _one_repo; then _with_owner "$HARNESS_REPO"
     else local u; for u in $(all_units); do unit_slug "$u"; done; fi; } | awk 'NF && !seen[$0]++'
 }
 

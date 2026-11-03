@@ -983,8 +983,41 @@ def _fleets():
     return out
 
 
+_CFG_KEYS = ("HARNESS_TOPOLOGY", "HARNESS_REPO", "HARNESS_OWNER", "HARNESS_UNIT", "HARNESS_CHECKOUT")
+
+
+def read_config(state_dir):
+    """{KEY: value} of the fleet's one-repo keys from <state_dir>/config (#466). Reads both the
+    `: "${KEY:=val}"` lines `harness init` writes and a plain `KEY=val` (optionally `export`ed,
+    optionally quoted) a hand-written config uses. The file only, never the environment: a lane
+    session exports its own HARNESS_REPO (#186). The last assignment wins, as when sourced."""
+    cfg = {}
+    try:
+        with open(os.path.join(state_dir, "config")) as fh:
+            text = fh.read()
+    except (OSError, TypeError):
+        return cfg
+    keys = "|".join(_CFG_KEYS)
+    pat = (r'^\s*:\s*"\$\{(' + keys + r'):=([^}"]*)\}"'
+           r'|^\s*(?:export\s+)?(' + keys + r')=(?:"([^"]*)"|\'([^\']*)\'|([^\s#]*))')
+    for m in re.finditer(pat, text, re.M):
+        if m.group(1):
+            cfg[m.group(1)] = m.group(2)
+        else:
+            cfg[m.group(3)] = next((g for g in m.group(4, 5, 6) if g is not None), "")
+    return cfg
+
+
 def _unit_repo(project_state, unit, slugs):
-    """The repo a unit drives: its targets.tsv row, else the fleet's only slug."""
+    """The repo a unit drives: HARNESS_UNIT's HARNESS_REPO when the config sets it (#466), else its
+    targets.tsv row (an un-migrated multi fleet), else the fleet's only slug."""
+    cfg = read_config(project_state)
+    if cfg.get("HARNESS_UNIT") and cfg.get("HARNESS_REPO") and cfg["HARNESS_UNIT"] == unit:
+        repo = cfg["HARNESS_REPO"]
+        if "/" not in repo and cfg.get("HARNESS_OWNER"):
+            repo = cfg["HARNESS_OWNER"] + "/" + repo
+        name = repo.split("/")[-1].lower()
+        return next((s for s in slugs if s.split("/")[-1].lower() == name), repo)
     try:
         with open(os.path.join(project_state, "targets.tsv")) as fh:
             for line in fh:

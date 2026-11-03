@@ -4,6 +4,24 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `HARNESS_UNIT` and `HARNESS_CHECKOUT`: every reader takes the fleet's one repo from config (#466)
+
+- First step of one fleet = one repo (#464). Two new config keys: `HARNESS_UNIT`, the unit's name in
+  session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`, default `main`), and `HARNESS_CHECKOUT`,
+  where the repo clone lives (default `$PROJECT_ROOT`). `HARNESS_REPO` is unchanged.
+- `unit_repo`, `unit_slug`, `unit_checkout`, `unit_desc`, `all_units`, `bug_checkout` and `_bug_repos`
+  in `scripts/lib.sh`, `stats.py`'s `_unit_repo` and `forecast.py` all read those keys, so a config with
+  `HARNESS_REPO`, `HARNESS_UNIT` and `HARNESS_CHECKOUT` and no `targets.tsv` resolves everywhere. A
+  single fleet with neither key behaves exactly as before (`hzbw-main-i<N>`, `$PROJECT_ROOT`).
+- `forecast.py` read only `: "${KEY:=val}"` config lines, so a plain `KEY=val` config (bangwa's) gave it
+  no project; it now parses both forms.
+- `--unit` on `harness inject` and `harness one` is optional and defaults to `HARNESS_UNIT`.
+- Transitional: a config with no `HARNESS_UNIT` that is `multi` still resolves through `targets.tsv`, so
+  this can ship before the migration; the dead-code step of #464 removes that fallback.
+- test_one_repo.sh: every reader on a config with no `targets.tsv`, the defaults, an un-migrated `multi`
+  config, `inject` / `one` without `--unit`, and `forecast.py` / `stats.py` on both config forms (fails
+  without the change).
+
 ### The web dashboard flags a `model_mismatch` on PLAN/PRD and injector sessions (#462)
 
 - The dashboard rolls up only sessions that carry an `issue` or a `prd`, so a `model_mismatch` on a
