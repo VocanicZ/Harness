@@ -54,7 +54,7 @@ or, without Node:
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash
 ```
 
-<sub>Agents: run the `npx` line above and relay any missing prerequisites to the user.</sub>
+<sub>Agents: run the `npx` line above, or the `curl` line when `git` is missing, and relay any missing prerequisites to the user.</sub>
 
 Linux and macOS, and native Windows: run the `curl` line from Git Bash. On Windows the fleet runs on
 the headless session backend only, with `claude` lanes only (the other CLIs need tmux): the
@@ -64,12 +64,13 @@ works, as Linux. Pin a release with `HARNESS_REF=v0.1.0`.
 | Prerequisite | |
 |---|---|
 | `node` ≥ 18 | runs the installer and adds [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop. Optional with the `curl` line, which needs `bash` and `curl` instead; lanes without rtdd run the full suite |
+| `git` | the `npx` line only: npm fetches a `github:` package with `git`, so without it `npx` fails before the installer runs. The `curl` line offers to install it |
 
-The installer offers to install the rest: `git`, `tmux`, `python3`, `curl`, `sha256sum`, `tar` and
-`gh` with your package manager (apt-get, dnf, pacman, zypper, apk or brew), `gh auth login`, and
-Claude Code when no [agent CLI](docs/reference.md#supported-agent-clis) is installed. It asks first;
-`HARNESS_INSTALL_PREREQS=1` answers yes, `0` no. With neither a terminal nor that setting, it prints
-the command to run and stops.
+The installer offers to install the rest: `git` (with the `curl` line), `tmux`, `python3`, `curl`,
+`sha256sum`, `tar` and `gh` with your package manager (apt-get, dnf, pacman, zypper, apk or brew),
+`gh auth login`, and Claude Code when no [agent CLI](docs/reference.md#supported-agent-clis) is
+installed. It asks first; `HARNESS_INSTALL_PREREQS=1` answers yes, `0` no. With neither a terminal
+nor that setting, it prints the command to run and stops.
 
 ## Quick start
 

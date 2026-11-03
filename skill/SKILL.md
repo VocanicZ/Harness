@@ -20,7 +20,8 @@ skipping a step whose state already holds. Each **Confirm** is a stop: say what 
 and wait for the user's yes before you act.
 
 1. **`harness` not on PATH?** (`command -v harness` fails.) Install it:
-   `npx -y github:VocanicZ/Harness` — or, without Node,
+   `npx -y github:VocanicZ/Harness` — or, without Node or without `git` (npm needs `git` to fetch
+   a `github:` package),
    `curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash`.
    **Confirm** first. Relay the installer's questions (missing prerequisites, `gh auth login`, agent
    CLI) to the user and pass their answers back; never answer one for them. If it needs a terminal,

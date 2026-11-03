@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_install_npx.sh — #342: `npx -y github:VocanicZ/Harness` runs install.sh exactly as the curl
 # install does. The package is install.sh + bin/harness-install.js only (so install.sh sees no
-# checkout beside it, as under `curl | bash`), needs Node >= 18 and nothing else, and refuses native
-# Windows with a pointer to WSL2. The entry runs against a STUB install.sh in a copy — never the real one.
+# checkout beside it, as under `curl | bash`), needs Node >= 18 and git (#440: npm fetches a github:
+# package with git, and the README says so), and refuses native Windows with a pointer to WSL2. The entry runs against a STUB install.sh in a copy — never the real one.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$HERE/.."
@@ -56,12 +56,37 @@ else
   echo "  skip: node not on PATH — the entry is not run"
 fi
 
-# ── README: npx first, node >= 18 the only prerequisite ──────────────────────────────────────────
+# ── #440: npm fetches a github: package with git, so the npx line needs git on PATH ──────────────
+# A PATH holding node, npm and a shell but no git, a throwaway HOME and npm cache, offline: npm dies
+# spawning git before it reaches the network, let alone install.sh. Nothing in the package can offer
+# git first — so the README must name it for the npx line (below).
+if command -v node >/dev/null && command -v npm >/dev/null; then
+  NG="$T/nogit"; mkdir -p "$NG/bin" "$NG/home"
+  for c in node npm bash sh env; do ln -s "$(readlink -f "$(command -v "$c")")" "$NG/bin/$c"; done
+  assert_ok "the git-less PATH has no git" test ! -e "$NG/bin/git"
+  out="$(cd "$NG" && env -i HOME="$NG/home" PATH="$NG/bin" npm_config_cache="$NG/cache" \
+    npm_config_offline=true npm_config_update_notifier=false \
+    npm pack --dry-run github:VocanicZ/Harness 2>&1)"; rc=$?
+  assert_ok "npm cannot fetch github:VocanicZ/Harness without git" test "$rc" -ne 0
+  assert_ok "...failing on spawning git" grep -qE 'spawn git|path git' <<<"$out"
+else
+  echo "  skip: node/npm not on PATH — the git-less fetch is not run"
+fi
+
+# ── README: npx first; node >= 18 and, for the npx line, git ─────────────────────────────────────
 sec="$(sed -n '/^## Install$/,/^## Quick start$/p' "$ROOT/README.md")"
 first="$(grep -m1 -E '^(npx|curl) ' <<<"$sec")"
 assert_ok "README Install lists the npx line first" test "$first" = 'npx -y github:VocanicZ/Harness'
 assert_ok "...and still the curl line" grep -qF 'install.sh | bash' <<<"$sec"
 prq="$(sed -n '/^| Prerequisite/,/^$/p' <<<"$sec")"
-assert_ok "README names node >= 18 as a prerequisite" grep -qF '`node` ≥ 18' <<<"$prq"
-assert_ok "...and it is the only one" test "$(grep -c '^| `' <<<"$prq")" = 1
+assert_ok "README names node >= 18 as a prerequisite" grep -qF '| `node` ≥ 18 |' <<<"$prq"
+gitrow="$(grep -F '| `git` |' <<<"$prq")"
+assert_ok "README names git as a prerequisite (#440)" test -n "$gitrow"
+assert_ok "...for the npx line" grep -qF '`npx` line' <<<"$gitrow"
+assert_ok "node and git are the only prerequisite rows" test "$(grep -c '^| `' <<<"$prq")" = 2
+note="$(grep -F 'Agents:' <<<"$sec")"
+assert_ok "the agent note sends a git-less host to the curl line" \
+  grep -qE '`curl` line when `git` is missing' <<<"$note"
+assert_ok "the /harness skill names git for the npx install" \
+  grep -qF 'without `git`' "$ROOT/skill/SKILL.md"
 finish
