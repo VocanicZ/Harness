@@ -39,7 +39,9 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    Its `now%` counts this session's own spend since the last reading (its account's transcripts, at the
    window's $ per 1%), so it rises as you work; a `usage stale` CHECKPOINT means that spend could not be
    counted for a claude reading that is not current — checkpoint all the same. Readings from
-   `HARNESS_USAGE_CMD` or a non-claude adapter are live queries: padded, never `usage stale` (#451).
+   `HARNESS_USAGE_CMD` or a non-claude adapter are live queries: padded, never `usage stale` (#451) —
+   unless the query stops answering mid-issue: then the start reading put back is frozen, and
+   `usage stale … gone since this session started` CHECKPOINTs (#457).
    A window of this session's own account that no reading holds is checked from 0% at start plus that
    spend; an `unchecked: … WARNING` line means nothing checks that window — tell the user (#452).
 7. **Release.** Once checkpointed, or merged and closed, run `harness one release <issue>`: it drops the

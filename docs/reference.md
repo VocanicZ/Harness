@@ -849,7 +849,9 @@ the operator keep going one issue at a time in their own session, with a budget 
   That rule is for the claude adapter's readings, which freeze once the fleet pauses. A live query's
   reading — `HARNESS_USAGE_CMD`, or the codex, copilot, hermes, agy or openclaw adapter — is as
   current as the query: of unknown age it gets `HARNESS_ONE_STALE_PAD_PCT` points, as at the gate
-  (#451).
+  (#451). Only while the query answers: when it fails or comes back empty mid-issue (auth expiry, an
+  outage, a cached fetch that failed), the reading put back from `start` is frozen like any other —
+  gone since `start`, so a CHECKPOINT unless its spend since can be counted (#457).
   A window of the session's own account (the basename of `CLAUDE_CONFIG_DIR`, `default` for none)
   that no reading holds — the readings cover only another account, or its 5h window reset before
   `start` — is checked from 0% at `start` plus that account's spend since; with no snapshot or no

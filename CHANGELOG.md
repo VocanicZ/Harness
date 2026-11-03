@@ -4,6 +4,20 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness one phase` stops on a live source's reading put back from the start snapshot (#457)
+
+- Since #451 a live query's reading (`HARNESS_USAGE_CMD`, codex, copilot, hermes, agy, openclaw) was
+  padded, never `usage stale` — even when the query had stopped answering and `live_readings` had put
+  the start snapshot's reading back. That value is frozen: a source that went dark mid-issue (auth
+  expiry, an outage, a cached fetch that failed) left every phase FITS on the start % whatever the
+  session spent, so the stop % was never reached.
+- `_stale` exempts only a live reading that was not put back. A `restored` one is "gone since this
+  session started" / "gone since its window reset" and CHECKPOINTs unless its spend since can be
+  counted. A live query that answers still pads and FITS at 10% (#451).
+- test_one_run.sh: start on a live `HARNESS_USAGE_CMD` codex 10%, then the query fails (`exit 1`) or
+  prints nothing → CHECKPOINT (fails without the fix); test_one.py covers `_stale` and `phase_check`
+  for a `live` + `restored` reading.
+
 ### `harness one phase` checks the session's own account when no reading holds it (#452)
 
 - After #445 each reading counted the session's transcript spend, but a window of the session's own
