@@ -4,6 +4,23 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness one phase` checks the session's own account when no reading holds it (#452)
+
+- After #445 each reading counted the session's transcript spend, but a window of the session's own
+  Claude account that no reading held was never checked. On a multi-account host the readings may
+  cover only `sub` while the `/harness-one` session runs on `main`: `phase` checked `sub` (zero spend)
+  and said FITS with nothing unchecked. And a 5h window that reset before `harness one start` (a fleet
+  paused overnight) is dropped by `claude_limit_usage`, so neither the readings nor start's snapshot
+  held it — only `seven_day` was checked, and the session could hit the 5h limit mid-phase.
+- `harness one phase` passes the session's account (`--session`, the basename of `CLAUDE_CONFIG_DIR`,
+  `default` for none — the status line's name for it). Each of its `five_hour` / `seven_day` windows
+  no reading holds is checked from 0% at `start` plus the account's spend since: a lower bound, sound
+  while the fleet is paused or held. With no snapshot, no config dir for the account or no $ per 1%,
+  the window is listed under `unchecked` with a WARNING — never left out silently.
+- test_one_run.sh: only account `sub` read, the session on `main` spends 96% → CHECKPOINT; a 5h
+  window reset before `start` reaches CHECKPOINT on the spend since (both fail without the fix).
+  test_one.py: `session_readings` / `phase_check(session=…)`, the warnings, and the `--session` CLI.
+
 ### test_one_run.sh's reset-window case no longer races the wall clock (#454)
 
 - The #445 reset-window block dropped a reading whose `resets_at` was 2s ahead, ran

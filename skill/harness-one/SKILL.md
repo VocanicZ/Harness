@@ -40,6 +40,8 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    window's $ per 1%), so it rises as you work; a `usage stale` CHECKPOINT means that spend could not be
    counted for a claude reading that is not current — checkpoint all the same. Readings from
    `HARNESS_USAGE_CMD` or a non-claude adapter are live queries: padded, never `usage stale` (#451).
+   A window of this session's own account that no reading holds is checked from 0% at start plus that
+   spend; an `unchecked: … WARNING` line means nothing checks that window — tell the user (#452).
 7. **Release.** Once checkpointed, or merged and closed, run `harness one release <issue>`: it drops the
    worktree, local branch and lease so the pool resumes a checkpointed issue after the reset. Exit 4 =
    work not pushed yet — push it; `--force` only if the human says to drop it. Tell the user where it

@@ -850,6 +850,10 @@ the operator keep going one issue at a time in their own session, with a budget 
   reading — `HARNESS_USAGE_CMD`, or the codex, copilot, hermes, agy or openclaw adapter — is as
   current as the query: of unknown age it gets `HARNESS_ONE_STALE_PAD_PCT` points, as at the gate
   (#451).
+  A window of the session's own account (the basename of `CLAUDE_CONFIG_DIR`, `default` for none)
+  that no reading holds — the readings cover only another account, or its 5h window reset before
+  `start` — is checked from 0% at `start` plus that account's spend since; with no snapshot or no
+  countable spend it is listed `unchecked` with a WARNING, never silently left out (#452).
 - **Release** — after the checkpoint, or once merged, `harness one release <issue>` drops the
   worktree, local branch and lease (it refuses while work is unpushed, short of `--force`) and clears
   an `agent-working` that was never checkpointed. Nothing of the session's is left, so the pool

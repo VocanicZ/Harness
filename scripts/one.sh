@@ -23,7 +23,9 @@
 #       #445: no status line reports this session's spend (it was started elsewhere, and a paused or
 #       held fleet renders none), so each reading counts the account's transcript spend since it was
 #       taken (one.py --spend), and start's snapshot (one_start_file) puts back a window dropped after
-#       its reset. A reading neither fresh nor brought up to date that way CHECKPOINTs.
+#       its reset. A reading neither fresh nor brought up to date that way CHECKPOINTs. #452: a window
+#       of the session's own account (basename of CLAUDE_CONFIG_DIR) that no reading holds is checked
+#       from 0% at start plus that spend (one.py --session), or listed as unchecked with a warning.
 #   harness one release <issue> [-R …] [--unit U] [--force]                                 (#366)
 #       after the checkpoint or the merge: drop the worktree, local branch and lease, so the pool
 #       resumes the issue as its own. Refuses to drop work that is not pushed, without --force.
@@ -197,7 +199,9 @@ one_phase(){ local issue="${1:-}" phase="${2:-}" json="" skip="" a fc rd rc leas
   if [[ -f "$lease" ]]; then touch "$lease"   # the session is alive: hold the reapers off for another HARNESS_ONE_LEASE_MIN
   elif ! session_live "$(sess_impl "$UNIT" "$issue")"; then
     echo "harness one: $SLUG#$issue was not claimed by harness one start (nor is a lane working it)" >&2; return 2; fi
-  local -a sargs=(--spend); [[ -f "$lease" && -s "$(one_start_file "$UNIT" "$issue")" ]] && sargs+=(--start "$(one_start_file "$UNIT" "$issue")")
+  # #452: the session's own account (the status line's name for it), so a window of it no reading holds is still checked.
+  local -a sargs=(--spend --session "$(basename "${CLAUDE_CONFIG_DIR:-default}")")
+  [[ -f "$lease" && -s "$(one_start_file "$UNIT" "$issue")" ]] && sargs+=(--start "$(one_start_file "$UNIT" "$issue")")
   fc="$(mktemp)"; rd="$(mktemp)"
   python3 "$ENGINE_DIR/scripts/forecast.py" "$issue" -R "$SLUG" --unit "$UNIT" ${fargs[@]+"${fargs[@]}"} --json > "$fc"; rc=$?
   if (( rc != 0 && rc != 1 )); then rm -f "$fc" "$rd"; return 2; fi
