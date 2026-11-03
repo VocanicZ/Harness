@@ -623,6 +623,21 @@ def _retries(sess):
     return redispatch + sum(s["watchdog_kills"] for s in sess)
 
 
+def lane_claims(events):
+    """Lane claims per repo (#472): {repo: {"claims": n, "workers": [worker, …]}}. Both event shapes
+    count — the older `claim` (carries `unit` + `worker`) and the new `lane_claim` (`repo` + `worker`).
+    An event is attributed to its `repo`, else to its `unit`."""
+    out = {}
+    for e in events:
+        if e.get("event") not in ("claim", "lane_claim"):
+            continue
+        row = out.setdefault(str(e.get("repo") or e.get("unit") or "?"), {"claims": 0, "workers": set()})
+        row["claims"] += 1
+        if e.get("worker") not in (None, ""):
+            row["workers"].add(str(e["worker"]))
+    return {k: {"claims": v["claims"], "workers": sorted(v["workers"])} for k, v in sorted(out.items())}
+
+
 def fleet_summary(events, model=None, rtdd=()):
     """Per fleet (session prefix): sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes,
     and rtdd: selective vs full-suite `which` calls, plus each `rtdd_missing` start (#186)."""
@@ -645,6 +660,7 @@ def fleet_summary(events, model=None, rtdd=()):
             "issues_closed": len({(e.get("repo"), e.get("issue")) for e in evs if e.get("event") == "merged"}),
             "prds_closed": len({(e.get("repo"), e.get("prd")) for e in evs if e.get("event") == "prd_closed"}),
             "retries": _retries(sess),
+            "lanes": lane_claims(evs),
             "hold_minutes": round(sum(int(e.get("secs") or 0) for e in evs if e.get("event") == "hold") / 60, 1),
             "rtdd": rtdd_summary(f["rtdd"]),
             "model_mismatches": [{k: e[k] for k in ("ts", "session", "repo", "issue", "prd", "kind",
@@ -867,6 +883,9 @@ def render_text(kind, data):
                        f"PRDs closed {f['prds_closed']}  retries {f['retries']}  HOLD {f['hold_minutes']}m")
             out.append(f"  tokens  {_tok(f['tokens'])}")
             out.append(f"  rtdd    {_rtdd(f['rtdd'])}")
+            if f.get("lanes"):
+                out.append("  lanes   " + "  ".join(
+                    f"{k} {v['claims']} claim(s) by {len(v['workers'])} worker(s)" for k, v in f["lanes"].items()))
             for e in f.get("model_mismatches") or ():
                 out.append(f"  ⚠ {_mismatch_line(e)}")
     elif kind == "prd":

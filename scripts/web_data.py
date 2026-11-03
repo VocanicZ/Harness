@@ -206,6 +206,47 @@ def live_sessions(prefix, now, sessions=None, models=None, run_dir=None, cfg=Non
     return out
 
 
+def _claim_issue(token):
+    """The issue (or PRD) number a lane claim's token names — IMPL:7, DECOMPOSE:41, acme/widget#6 — else None."""
+    m = re.search(r"[:#](\d+)$", token or "")
+    return int(m.group(1)) if m else None
+
+
+def fleet_workers(rec, cfg, sessions):
+    """[{"worker": N, "up", "lane", "issue", "action", "session", "state"}] — one row per pool worker
+    (#472): the lane it holds a LIVE claim on (lib.sh worker_claims: a claim is `<worker-id> <pid> <token>
+    <session> <pane-pid>`, a bug taken by the pool is `pool-<N>`), or all-None when it is idle. `state` is
+    the session's own (a headless lane's idle | busy | …), else running; a claim with no live session
+    reads starting (no session yet) or gone."""
+    run_dir = rec.get("run_dir") or os.path.join(rec["project"], "run")
+    pool = _int(cfg.get("HARNESS_POOL", "3")) or 0
+    ids = {int(m.group(1)) for p in glob.glob(os.path.join(run_dir, "worker-*.pid"))
+           for m in [re.match(r"worker-(\d+)\.pid$", os.path.basename(p))] if m}
+    held = {}
+    for path in sorted(glob.glob(os.path.join(run_dir, "claims", "*.claim"))):
+        key = os.path.basename(path)[:-len(".claim")]
+        fields = (_read(path) or "").split()
+        if not key.startswith(("impl-", "orch-", "bug-")) or len(fields) < 3 or not claim_alive(path):
+            continue
+        m = re.match(r"(?:pool-)?(\d+)$", fields[0])
+        if m:
+            held.setdefault(int(m.group(1)), (key, fields))
+    live = {x["name"]: x for x in sessions}
+    out = []
+    for n in sorted(set(range(1, pool + 1)) | ids | set(held)):
+        row = {"worker": n, "up": fleetview.pid_alive(os.path.join(run_dir, f"worker-{n}.pid")),
+               "lane": None, "issue": None, "action": None, "session": None, "state": None}
+        if n in held:
+            key, f = held[n]
+            sess = f[3] if len(f) > 3 and f[3] != "-" else None
+            row.update(lane=key, issue=_claim_issue(f[2]), action=f[2].split(":")[0] if ":" in f[2] else None,
+                       session=sess)
+            row["state"] = ("starting" if sess is None else (live[sess].get("state") or "running")
+                            if sess in live else "gone")
+        out.append(row)
+    return out
+
+
 def stale_locks(rec, boards, live, labels=None, state=None):
     """[{"kind": "label" | "pidfile" | "claim", "what"[, "repo"]}]: an open board issue carrying the
     working label with no live session (fleetview.render_fleet's orphan rule, on the board); a `*.pid`
@@ -497,8 +538,12 @@ def fleet_view(prefix, now=None):
         else:
             units.append(overlay_stats(dict(web_dag.unit_graph(snap, labels, live), slug=slug), events))
     stamps = [u["asof"] for u in units if u["asof"] is not None]
+    cfg = fleetview.read_config(rec["project"]) if entry["state"] != "missing" else {}
+    run_dir = rec.get("run_dir") or os.path.join(rec["project"], "run")
+    workers = [] if entry["state"] == "missing" else fleet_workers(
+        rec, cfg, live_sessions(prefix, now, run_dir=run_dir, cfg=cfg))
     return {"prefix": entry["prefix"], "root": entry["root"], "state": entry["state"],
-            "asof": min(stamps) if stamps else None, "units": units,
+            "asof": min(stamps) if stamps else None, "units": units, "workers": workers,
             "mismatches": unowned_mismatches(events, prefix, now)}
 
 

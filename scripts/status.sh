@@ -14,7 +14,7 @@ pid_up(){ [[ -f "$1" ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 # one-line at-a-glance state. Precedence: PAUSED (forced-drain) > DEGRADED (no pid alive but a
 # fleet tmux session outlived an unclean death — see below) > STOPPED (NOTHING live: no pool
 # worker AND no priority lane #35) > LANE-ONLY (pool down but the lane is alive #35) >
-# IDLE/WATCHING (resident #24: workers up but every unit complete, just polling) > RUNNING.
+# IDLE/WATCHING (resident #24: workers up but all work complete, just polling) > RUNNING.
 fleet_verdict(){
   local up="$1" total="$2" sess="$3" done_n="$4" all_n="$5" paused="$6" lane_up="${7:-0}"
   if [[ "$paused" == 1 ]]; then
@@ -31,7 +31,7 @@ fleet_verdict(){
   elif (( up == 0 )); then
     echo "RUNNING  (pool down; priority bug lane live)"
   elif (( all_n > 0 && done_n >= all_n )); then
-    echo "IDLE/WATCHING  ($up/$total workers resident; all $all_n units complete — polling for new work)"
+    echo "IDLE/WATCHING  ($up/$total workers resident; all work complete — polling for new work)"
   else
     echo "RUNNING  ($up/$total workers up, $sess $(cli_name) session(s) live)"
   fi
@@ -68,7 +68,7 @@ render_once(){
   # Print the fleet header FIRST — the test greps for "worker" in this block.
   echo "═══════════════════════  Harness fleet  ═══════════════════════════"
   echo "  FLEET: $verdict"
-  echo "  pool=$POOL  poll=${POLL}s   units: $done_n/$all_n complete   $(date '+%H:%M:%S')"
+  echo "  pool=$POOL  poll=${POLL}s   $(date '+%H:%M:%S')"
   usage_report   # #194: each account's usage windows, and any checkpoint hold
   one_auto_report   # #392: the HARNESS_ONE_AUTO lane per account, its issue, forecast, or why it stopped
   gh_rate_report   # #183: each GitHub token's remaining budget, reset time, and any rate-limit hold
@@ -89,48 +89,24 @@ render_once(){
   done < <(fleet_registry_entries "$STATE_DIR" | tr '\t' "$FLEET_ROW_SEP")
   (( sibs == 0 )) && echo "  (no other fleets registered on this host)"
 
+  # #472: one row per worker — `worker-N → #<issue> <session> <state>`, or `idle`. A worker holds one
+  # lane claim (#468): its token names the issue (IMPL:7, DECOMPOSE:41, <repo>#6); a PLAN/PRD action has
+  # none and shows the action. A claim with no session yet (a bug lane's `-`) shows `-` / starting.
   for ((i=1;i<=POOL;i++)); do
-    local mark wpid unit_id
-    if pid_up "$RUN_DIR/worker-$i.pid"; then
-      mark="● UP  "; wpid="pid $(cat "$RUN_DIR/worker-$i.pid")"
-    else
-      mark="○ DOWN"; wpid="(not running)"
-    fi
-    printf '%s worker-%-2s %s\n' "$mark" "$i" "$wpid"
-    if _one_repo; then
-      # #468: a worker holds lane claims (impl-<n>, orch-<prd>, bug-<repo>-<n>), not the unit.
-      local cf lane_n=0 lkey lsess
-      while read -r cf; do
-        [[ -n "$cf" ]] || continue
-        lane_n=$((lane_n+1)); lkey="$(basename "$cf" .claim)"; lsess="$(awk '{print $4; exit}' "$cf" 2>/dev/null)"
-        printf '        ▶ lane %s (%s)\n' "$lkey" "$(awk '{print $3; exit}' "$cf" 2>/dev/null)"
-        if [[ -n "$lsess" && "$lsess" != - ]]; then
-          if [[ "$lsess" == *-i* ]]; then wd="$WORKTREES_DIR/${lsess#${HARNESS_SESS_PREFIX}-}"; else wd="$(fleet_checkout)"; fi
-          session_row "$lsess" "$wd"
-        fi
-      done < <(worker_claims "$i")
-      (( lane_n )) || echo "        · idle (no lane claimed)"
-      continue
-    fi
-    unit_id="$(worker_unit "$i" 2>/dev/null || true)"
-    if [[ -n "$unit_id" ]]; then
-      local slug; slug="$(unit_slug "$unit_id")"
-      printf '        ▶ driving unit %s (%s)\n' "$unit_id" "$slug"
-      # Non-fatal: issuelib may not be configured (no gh auth, no labels) in test/offline envs.
-      python3 "$ISSUELIB" status "$(unit_repo "$unit_id")" 2>/dev/null | sed 's/^/        /' || true
-      local checkout; checkout="$(unit_checkout "$unit_id")"
-      mapfile -t ss < <(team_sessions "$unit_id")
-      for s in "${ss[@]:-}"; do
-        [[ -z "$s" ]] && continue
-        if [[ "$s" == *-i* ]]; then
-          wd="$WORKTREES_DIR/${s#${HARNESS_SESS_PREFIX}-}"
-        else
-          wd="$checkout"
-        fi
-        session_row "$s" "$wd"
-      done
-    else
-      echo "        · idle (no unit claimed)"
+    local mark cf ctok csess cissue cstate cwd
+    if pid_up "$RUN_DIR/worker-$i.pid"; then mark="● UP  "; else mark="○ DOWN"; fi
+    cf="$(worker_claims "$i" | head -n1)"
+    if [[ -z "$cf" ]]; then printf '%s worker-%-2s idle\n' "$mark" "$i"; continue; fi
+    ctok="$(awk '{print $3; exit}' "$cf" 2>/dev/null)"; csess="$(awk '{print $4; exit}' "$cf" 2>/dev/null)"
+    cissue="${ctok##*[:#]}"; [[ "$cissue" =~ ^[0-9]+$ ]] && cissue="#$cissue" || cissue="${ctok%%:*}"
+    cstate="starting"
+    if [[ -n "$csess" && "$csess" != - ]]; then
+      cstate="$(sess_state "$csess" 2>/dev/null)"; cstate="${cstate:-running}"
+    else csess=-; fi
+    printf '%s worker-%-2s → %s %s %s\n' "$mark" "$i" "$cissue" "$csess" "$cstate"
+    if [[ "$csess" != - ]]; then
+      if [[ "$csess" == *-i* ]]; then cwd="$WORKTREES_DIR/${csess#${HARNESS_SESS_PREFIX}-}"; else cwd="$(fleet_checkout)"; fi
+      session_row "$csess" "$cwd"
     fi
   done
 
@@ -157,22 +133,6 @@ render_once(){
     esac
   elif pid_up "$RUN_DIR/priority.pid"; then
     echo "        · watching (no bug claimed)"
-  fi
-
-  echo "────────────────────────  unit frontier  ──────────────────────────"
-  # Non-fatal: claimable_units calls unit_complete which may invoke gh/issuelib.
-  local claimable
-  claimable="$(claimable_units 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
-  printf '  ready/claimable now: %s\n' "${claimable:-(none or unavailable)}"
-  if [[ "${1:-}" != compact ]]; then
-    for u in $(all_units); do
-      unit_complete "$u" 2>/dev/null && continue || true
-      deps_complete "$u" 2>/dev/null && continue || true
-      local deps unmet=""; deps="$(unit_deps "$u")"
-      IFS=',' read -ra ds <<< "$deps"
-      for d in "${ds[@]}"; do unit_complete "$d" 2>/dev/null || unmet+="$d " || true; done
-      printf '  ⏳ %-10s waiting on: %s\n' "$u" "$unmet"
-    done
   fi
 
   # Per-unit open PRs — non-fatal when gh is not available/authed.

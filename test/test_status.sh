@@ -183,3 +183,27 @@ contains 'sibling fleet: pollsib +/p/pollsib \(acme/gadget\)' "$POUT" \
   && echo "  ok: status names a poller sibling's repo slugs" \
   || { echo "  FAIL: status names a poller sibling's repo slugs — got:"; echo "$POUT"; exit 1; }
 echo "── status prefix + siblings ok"
+
+# ── #472: one row per worker — `worker-N → #<issue> <session> <state>` or `idle`; no unit layer ──────
+# POOL=3: two workers hold a live lane (an issue and a PRD action), one is idle. The claim line is
+# `<worker> <pid> <token> <session> <pane-pid>` (lib.sh lane_claim_write).
+WRUN="$(mktemp -d)"; mkdir -p "$WRUN/claims"
+sleep 60 & W1=$!; sleep 60 & W2=$!; sleep 60 & W3=$!
+echo "$W1" > "$WRUN/worker-1.pid"; echo "$W2" > "$WRUN/worker-2.pid"; echo "$W3" > "$WRUN/worker-3.pid"
+printf '1 %s IMPL:7 hz-main-i7 -\n'      "$W1" > "$WRUN/claims/impl-7.claim"
+printf '2 %s DECOMPOSE:41 hz-main-p41 -\n' "$W2" > "$WRUN/claims/orch-41.claim"
+out_w="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget POOL=3 RUN_DIR="$WRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+kill "$W1" "$W2" "$W3" 2>/dev/null
+echo "$out_w" | grep -qE 'worker-1 +→ #7 hz-main-i7 \S+' \
+  && echo "  ok: worker-1 row shows its issue, session and state" || { echo "  FAIL: no 'worker-1 → #7 hz-main-i7 <state>' row"; echo "$out_w"; exit 1; }
+echo "$out_w" | grep -qE 'worker-2 +→ #41 hz-main-p41 \S+' \
+  && echo "  ok: worker-2 row shows its PRD action" || { echo "  FAIL: no 'worker-2 → #41 hz-main-p41 <state>' row"; echo "$out_w"; exit 1; }
+[[ "$(echo "$out_w" | grep -cE 'worker-[0-9]+ +→ #')" == 2 ]] \
+  && echo "  ok: exactly two claimed-worker rows" || { echo "  FAIL: want two '→ #' rows"; echo "$out_w"; exit 1; }
+echo "$out_w" | grep -E 'worker-3' | grep -qE 'idle' \
+  && echo "  ok: the unclaimed worker's row reads idle" || { echo "  FAIL: worker-3 not idle"; echo "$out_w"; exit 1; }
+[[ "$(echo "$out_w" | grep -cE '\bidle\b')" == 1 ]] \
+  && echo "  ok: one idle row" || { echo "  FAIL: want one idle row"; echo "$out_w"; exit 1; }
+echo "$out_w" | grep -qE 'units:|driving unit|unit frontier' \
+  && { echo "  FAIL: unit layer still in status"; echo "$out_w"; exit 1; } || echo "  ok: no units:/driving unit line"
+echo "── status worker rows (#472) ok"
