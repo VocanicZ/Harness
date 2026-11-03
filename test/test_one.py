@@ -244,10 +244,14 @@ def test_phase_check_fails_closed_when_spend_cannot_be_counted():
     c = one.phase_check(f, [frozen(10.0)], "ship", spend=no_spend, start=start, now=NOW)
     assert c["verdict"] == "CHECKPOINT" and "usage stale" in c["reasons"][0], c
     assert "taken before this session started" in c["reasons"][0], c
-    # stale, or of unknown age, likewise — with no snapshot too
-    for r in (frozen(10.0, age=31 * 60), frozen(10.0, age=None)):
-        c = one.phase_check(f, [r], "ship", spend=no_spend, now=NOW)
-        assert c["verdict"] == "CHECKPOINT" and "usage stale" in c["reasons"][0], c
+    # stale likewise, with no snapshot too; of unknown age when there is a start to measure from
+    c = one.phase_check(f, [frozen(10.0, age=31 * 60)], "ship", spend=no_spend, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and "usage stale" in c["reasons"][0], c
+    c = one.phase_check(f, [frozen(10.0, age=None)], "ship", spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and "of unknown age" in c["reasons"][0], c
+    # a HARNESS_ONE_AUTO lane (#392): no snapshot, its lane readings of unknown age — padded, not stopped
+    c = one.phase_check(f, [frozen(10.0, age=None)], "ship", spend=no_spend, now=NOW, stale_pad=3)
+    assert c["verdict"] == "FITS" and c["windows"][0]["pad"] == 3, c
     # a window dropped after its reset whose spend since cannot be counted: CHECKPOINT, not 0%
     start = {"at": NOW - 3600, "readings": [rd(90.0, age=60) | {"resets_at": int(NOW - 100)}]}
     c = one.phase_check(f, [], "ship", spend=no_spend, start=start, now=NOW)

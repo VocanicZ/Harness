@@ -216,13 +216,15 @@ def live_readings(fc, readings, spend, start=None, now=None):
 
 def _stale(r, stale_min, start_at):
     """Why reading `r` (live_readings') is not current, or None: put back from the start snapshot,
-    stale, or taken before the start."""
+    stale, or taken before the start. Of unknown age only counts with a start to measure from: a
+    HARNESS_ONE_AUTO lane (#392) has no snapshot, and its readings — its own lane's rate-limit events,
+    which carry no age here — are refreshed every turn; the stale pad covers them, as before."""
     if r.get("restored") == "reset":
         return "gone since its window reset"
     if r.get("restored"):
         return "gone since this session started"
     if r["age"] is None:
-        return "of unknown age"
+        return "of unknown age" if start_at is not None else None
     if r["age"] > stale_min * 60:
         return f"{_age(r['age'])}"
     if start_at is not None and r["at"] < start_at:
