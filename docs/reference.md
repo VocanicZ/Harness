@@ -851,7 +851,10 @@ the operator keep going one issue at a time in their own session, with a budget 
   current as the query: of unknown age it gets `HARNESS_ONE_STALE_PAD_PCT` points, as at the gate
   (#451). Only while the query answers: when it fails or comes back empty mid-issue (auth expiry, an
   outage, a cached fetch that failed), the reading put back from `start` is frozen like any other —
-  gone since `start`, so a CHECKPOINT unless its spend since can be counted (#457).
+  gone since `start`, so a CHECKPOINT unless its spend since can be counted (#457). A window the
+  adapter leaves out because its `resets_at` has passed (codex, copilot) while the same account's
+  query still answers other windows is not that: the query is current, so the window is 0% plus the
+  stale pad (#459).
   A window of the session's own account (the basename of `CLAUDE_CONFIG_DIR`, `default` for none)
   that no reading holds — the readings cover only another account, or its 5h window reset before
   `start` — is checked from 0% at `start` plus that account's spend since; with no snapshot or no

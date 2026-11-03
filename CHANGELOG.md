@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness one phase` no longer checkpoints when a live codex/copilot window resets mid-issue (#459)
+
+- Since #457 a live window that reset partway through an issue was put back from the start snapshot
+  at 0% as "gone since its window reset" and, with no Claude config dir to count the spend since,
+  CHECKPOINTed — although the query had answered. The codex and copilot adapters leave a window out
+  once its `resets_at` has passed, so every 5h reset forced a `/harness-one` session to checkpoint.
+- `live_readings` marks a reset window `answered` when its account's live query still answers; `_stale`
+  exempts it, so it is 0% plus the stale pad as before #457. A query that failed or came back empty
+  (nothing answered for the account) still CHECKPOINTs, and a window that did not reset is still frozen.
+- test_one_run.sh: codex 5h read at 91% at start, reset mid-issue while the query answers only 7d →
+  FITS; the query going dark → CHECKPOINT (the FITS case fails without the fix); test_one.py covers
+  `_stale` and `phase_check` for the answered, empty, claude and other-account cases.
+
 ### `harness one phase` stops on a live source's reading put back from the start snapshot (#457)
 
 - Since #451 a live query's reading (`HARNESS_USAGE_CMD`, codex, copilot, hermes, agy, openclaw) was
