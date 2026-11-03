@@ -63,7 +63,7 @@ works, as Linux. Pin a release with `HARNESS_REF=v0.1.0`.
 
 | Prerequisite | |
 |---|---|
-| `node` ≥ 18 | runs the installer and adds [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop. Optional with the `curl` line, which needs `bash` and `curl` instead; lanes without rtdd run the full suite |
+| `node` ≥ 18 | runs the installer and adds [rtdd](docs/reference.md#test-selection-rtdd), the lane test loop. Optional with the `curl` line, which needs `bash` and `curl` instead; lanes without rtdd run the closest test files by hand |
 | `git` | the `npx` line only: npm fetches a `github:` package with `git`, so without it `npx` fails before the installer runs. The `curl` line offers to install it |
 
 The installer offers to install the rest: `git` (with the `curl` line), `tmux`, `python3`, `curl`,

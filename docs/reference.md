@@ -200,7 +200,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
 | `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `0` | Off by default — Harness projects run [no GitHub CI](#no-github-ci--the-gate-is-local). `1` = hold new dispatch while the default branch's own GitHub CI is red (live sessions drain; the bug lane is never gated), for a project that opted back into Actions. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally |
-| `HARNESS_SWARM` | `auto` | `auto` = when [swarm](https://github.com/VocanicZ/swarm) is on `PATH`, lanes run their full-suite verification (the FULL-SUITE BAR baseline + final run, review's suite run) as a swarm job; `off` = always local. No swarm installed → exactly the local behaviour. See [Offloading tests to swarm](#offloading-tests-to-swarm) |
+| `HARNESS_SWARM` | `auto` | `auto` = when [swarm](https://github.com/VocanicZ/swarm) is on `PATH`, PRD review's full-suite run (the only one in the pipeline — lanes never run the full suite) goes out as a swarm job; `off` = always local. No swarm installed → exactly the local behaviour. See [Offloading tests to swarm](#offloading-tests-to-swarm) |
 | `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). `1` is an explicit opt-in to GitHub CI, so it also skips `HARNESS_DISABLE_CI` |
 | `HARNESS_DISABLE_CI` | `1` | When `harness init` / `harness setup` seed a repo, `gh workflow disable` its existing GitHub Actions and log each one. `1` = test-CI only — a workflow whose name or file says `release`, `deploy`, `publish`, `pages` or `cd` keeps running; `all` = release and deploy too; `0` = touch nothing (the opt-out). See [No GitHub CI](#no-github-ci--the-gate-is-local) |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
@@ -513,31 +513,34 @@ fails.
 ### Parallel-lane merge safety
 
 Lanes branch and merge independently, so a lane's base has usually moved by merge time. The lane
-prompts require a **rebase onto the current base plus a re-run** right before merging, repeated
-until the rebase is a no-op, and hold lanes to **no new failures against a baseline** taken before
-the first edit (not a globally green suite).
+prompts require a **rebase onto the current base plus a re-run** of rtdd Rounds 1 and 2 right
+before merging, repeated until the rebase is a no-op, and hold lanes to **no new failures** (not a
+globally green suite): a red test is re-run on the base, and red there too is pre-existing.
 
 ### Test selection (rtdd)
 
-Lanes use [rtdd](https://github.com/VocanicZ/rtdd) v0.3 to pick tests instead of running the full
-suite on every edit. rtdd names the tests a change needs in rounds; it runs none of them — every
+Lanes use [rtdd](https://github.com/VocanicZ/rtdd) v0.3 to pick tests and **test with Rounds 1 and
+2 only — never the full suite**. The full suite runs once, at PRD review, before the PRD closes
+(`prompts/review.md`). rtdd names the tests a change needs in rounds; it runs none of them — every
 round runs with the project's own test command. The steps (`prompts/_rtdd.md`, shared by the impl,
 bug-fix and resume prompts):
 
-1. **rtdd never blocks a lane.** Missing, older than v0.3 (no "Round 1" in its output), or erroring →
-   the full-suite bar: the suite before the first edit and at the end, no new failures.
-2. **`rtdd which --base origin/<default-branch>`** after every edit names Round 1, Round 2 and
+1. **`rtdd which --base origin/<default-branch>`** after every edit names Round 1, Round 2 and
    `untested`.
-3. With no `.rtdd/config.yaml` the lane runs `rtdd init` once and commits only `.rtdd/config.yaml`
+2. With no `.rtdd/config.yaml` the lane runs `rtdd init` once and commits only `.rtdd/config.yaml`
    and `.rtdd/.gitignore`.
-4. **Round 1** (tests of the changed code) until green, then **Round 2** (tests of its callers and
-   callees). Both empty → the full-suite bar. **`untested`** code gets new tests.
-5. **Round 3**: the full suite, once, at the end, before the PR (on [swarm](#offloading-tests-to-swarm)
-   when available), bar **no new failures**. A failure is re-run against the base first; red there
-   too is pre-existing and left alone.
+3. **Round 1** (tests of the changed code) until green, then **Round 2** (tests of its callers and
+   callees). **`untested`** code gets new tests.
+4. **rtdd never blocks a lane.** Missing, older than v0.3 (no "Round 1" in its output), erroring, or
+   both rounds empty → the lane runs the closest test files by hand (named after, or sourcing, the
+   changed files), notes it in an issue comment and files one rtdd bug if rtdd misbehaved — never
+   the full suite.
+5. **No new failures**: a failing test is re-run against the base first; red there too is
+   pre-existing and left alone.
 
 At least one new test must fail without the change. A lane never weakens or edits a test to pass.
-The merge gate still runs the full suite on the rebased head (or the repo's `scripts/ci-local.sh`).
+The merge gate is the repo's `scripts/ci-local.sh` when it ships one, otherwise rtdd Rounds 1 and 2
+re-selected on the rebased head plus the lane's own new tests — never the full suite.
 
 `harness stats` reports rtdd use per issue and PRD (which calls, round sizes, selective vs
 full-suite share). Lanes log to `~/.harness/rtdd-events.jsonl` (`HARNESS_RTDD_EVENTS_FILE`).
@@ -545,8 +548,9 @@ full-suite share). Lanes log to `~/.harness/rtdd-events.jsonl` (`HARNESS_RTDD_EV
 ### No GitHub CI — the gate is local
 
 Harness projects do not use GitHub Actions as a gate. The merge gate is `scripts/ci-local.sh`
-when the repo ships one, otherwise the **full suite run locally on the rebased head** — or
-[on swarm](#offloading-tests-to-swarm). `gh pr checks` and mergeable-state are never the gate.
+when the repo ships one, otherwise **rtdd Rounds 1+2 on the rebased head** plus the lane's own
+new tests ([Test selection](#test-selection-rtdd)) — never the full suite, which runs once, at PRD
+review. `gh pr checks` and mergeable-state are never the gate.
 A red gate is retried up to 3 times, then the PR is left open with the failing step commented.
 
 - `HARNESS_DISABLE_CI` (default `1`): `harness init` / `setup` run `gh workflow disable` on test-CI
@@ -602,16 +606,17 @@ Gauntlet and audit round markers only count when written by the fleet's own GitH
 ## Offloading tests to swarm
 
 With `HARNESS_SWARM=auto` (default) and [swarm](https://github.com/VocanicZ/swarm) on `PATH`,
-a lane's full-suite runs go out as a swarm job:
+PRD review's full-suite run — the only full-suite run in the pipeline; lanes never run it — goes
+out as a swarm job:
 
 ```bash
 scripts/swarm-suite.sh <worktree> <job-name> [test files...]
 ```
 
-| Exit | Meaning | The lane then… |
+| Exit | Meaning | Review then… |
 |---|---|---|
 | `0` | every test file passed | treats the run as green |
-| `1` | red — each failing file is printed with its shard's `output.log` dir | compares the failures against the baseline, as for a local run |
+| `1` | red — each failing file is printed with its shard's `output.log` dir | reads the failures, as for a local run |
 | `3` | not run on swarm: no `swarm` on `PATH`, `HARNESS_SWARM=off`, the job timed out (it is cancelled), or the job failed with no failing file listed | runs the suite locally, exactly as today |
 
 - One shard per test file (default: every tracked `test_*` / `*_test` `.sh`/`.py`). Each runs with

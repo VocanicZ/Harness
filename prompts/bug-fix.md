@@ -24,19 +24,7 @@ Steps:
    fail then. A regression test that passes without the fix proves nothing and guards nothing.
    Then all three of these are the bar: Rounds 1 and 2 pass; `untested` is clear for the code you
    changed (else your test does not reach the fix); and that regression test fails without the fix.
-3. THE FULL-SUITE BAR, referenced above: run the full suite BEFORE your first edit and save the
-   failure list — that is the baseline — then run it again when you are done. The bar is NO NEW
-   FAILURES vs that baseline, plus your regression test green. Never a globally green suite: real repos
-   carry pre-existing reds, and an agent told "all green required" will either chase them forever or
-   edit tests until they pass.
-   ON SWARM — this fleet runs HARNESS_SWARM=`{{SWARM}}`. When that is `auto`, run each of those
-   full-suite runs (the baseline and the final one) as a swarm job instead of locally:
-     {{SWARM_SUITE}} <worktree> {{SLUG}}-{{ISSUE}}-<baseline|final> [test files...]
-   (<worktree> is this one, "$PWD".) Exit `0` green · `1` red (the failing files are printed —
-   compare them against the baseline exactly as you would a local run) · `3` not run on swarm
-   (swarm absent, off, or timed out) → run that suite locally as above. The NO NEW FAILURES bar is
-   the same either way.
-   Never delete, skip, or weaken a test to go green, and never edit a test so `untested`
+3. Never delete, skip, or weaken a test to go green, and never edit a test so `untested`
    clears. If a pre-existing failure genuinely blocks the fix, say so in an issue comment and route
    around it.
 4. Commit, push, open a PR:
@@ -45,7 +33,7 @@ Steps:
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>
 5. RE-VERIFY AGAINST THE CURRENT BASE — immediately before merging, every time:
      git fetch origin && git rebase origin/<default-branch>
-   Other lanes merge while you work. A green suite on your branch only proves your fix against
+   Other lanes merge while you work. Green rounds on your branch only prove your fix against
    the base you STARTED from, and a conflict-free text merge can still be semantically broken:
    another lane edited the same function, moved a helper's contract, or rebuilt an artifact your
    tests load. If the rebase moved anything: re-run the build, re-run `rtdd which --base
@@ -60,14 +48,15 @@ Steps:
       run it to completion:
         scripts/ci-local.sh          # or the entrypoint this repo actually ships
       Its exit code is the verdict.
-   b. OTHERWISE THE FULL SUITE IS THE GATE — run it on this rebased HEAD (the FULL-SUITE BAR in
-      step 3, on swarm per ON SWARM; a Round 3 run on this rebased HEAD counts): NO NEW FAILURES vs
-      your baseline. Your rtdd rounds covered your diff; only the full suite covers what it broke elsewhere.
+   b. OTHERWISE the gate is rtdd Rounds 1+2 plus your own new tests — re-select with
+      `rtdd which --base origin/<default-branch>` on this rebased HEAD and run both rounds —
+      never the full suite (it runs once, at PRD review). A red there is NOT automatically yours:
+      the pre-existing-red check in step 2 applies.
    NEVER use `gh pr checks`, a GitHub Actions run, or mergeable-state as the gate or as permission
    to merge. GitHub CI is disabled on Harness repos by design, so whatever GitHub reports is stale
    or absent — neither a red that blocks you nor a green that clears you.
    Then:
-   - Green (exit 0 / no new failures) → go to step 7.
+   - Green (exit 0 / both rounds pass, no new failures) → go to step 7.
    - Red → DO NOT MERGE. Read the failing detail from the run's own output, fix the CAUSE on this
      branch, push, re-run the gate. Up to 3 attempts.
    - Still red after 3 → STOP. Leave the PR OPEN, comment on #{{ISSUE}} naming the failing step,
@@ -99,7 +88,7 @@ comment whose first line is
 
 Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
 NOT merely opened), the repo's CI GATE was GREEN when it merged (step 6 — the local entrypoint
-where the repo ships one, the full local suite otherwise), AND the issue is closing. On an
+where the repo ships one, rtdd Rounds 1+2 otherwise), AND the issue is closing. On an
 auto-merge-disabled repo, complete the direct squash merge (step 7b) BEFORE promising. A PR left
 open on a red gate is NOT a promise — report the failure instead. When it holds, output exactly:
 <promise>{{PROMISE}}</promise>

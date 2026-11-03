@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_swarm.sh — #202: scripts/swarm-suite.sh offloads a lane's full suite to swarm, and every path
+# test_swarm.sh — #202: scripts/swarm-suite.sh offloads PRD review's full suite (the only full-suite run, #449) to swarm, and every path
 # that is NOT a swarm verdict (no swarm, HARNESS_SWARM=off, timeout) exits 3 so the lane runs locally.
 #
 # The fake `swarm` on PATH does what the real coordinator does with a job, minus HTCondor: `submit`
@@ -168,16 +168,13 @@ assert_eq "$?" 0 "HARNESS_SWARM defaults to auto"
 assert_ok "HARNESS_SWARM is exported" grep -qE '^ +.*\bHARNESS_SWARM\b' "$HERE/../scripts/lib.sh"
 assert_ok "README Configuration row" grep -q '^| `HARNESS_SWARM` | `auto` |' "$HERE/../docs/reference.md"
 assert_ok "reference section" grep -q '^## Offloading tests to swarm' "$HERE/../docs/reference.md"
-for p in impl bug-fix resume review; do
-  P="$HERE/../prompts/$p.md"
-  assert_ok "$p.md runs the suite through {{SWARM_SUITE}}" grep -q '{{SWARM_SUITE}}' "$P"
-  assert_ok "$p.md: exit 3 → run the suite locally" grep -q '`3` not run on swarm' "$P"
+# #449: review's suite run is the ONLY full-suite run in the pipeline; lanes never offload one.
+P="$HERE/../prompts/review.md"
+assert_ok "review.md runs the suite through {{SWARM_SUITE}}" grep -q '{{SWARM_SUITE}}' "$P"
+assert_ok "review.md: exit 3 → run the suite locally" grep -q '`3` not run on swarm' "$P"
+for p in impl bug-fix resume; do
+  assert_no "$p.md runs no suite through {{SWARM_SUITE}}" grep -q '{{SWARM_SUITE}}' "$HERE/../prompts/$p.md"
 done
-for p in impl bug-fix; do
-  assert_ok "$p.md keeps the local FULL-SUITE BAR" grep -q 'THE FULL-SUITE BAR, referenced above: run the full suite BEFORE your first edit' "$HERE/../prompts/$p.md"
-  assert_ok "$p.md keeps NO NEW FAILURES vs baseline" grep -q 'NO NEW' "$HERE/../prompts/$p.md"
-done
-assert_ok "resume.md keeps the local baseline worktree" grep -q 'git worktree add /tmp/hz-baseline-{{ISSUE}}' "$HERE/../prompts/resume.md"
 
 echo "-- drive.sh renders the helper + mode into the lane prompts"
 (
@@ -190,16 +187,19 @@ echo "-- drive.sh renders the helper + mode into the lane prompts"
   spawn_impl 7 "ISSUE 7 DONE"
   F="$WORKTREES_DIR/main-i7/.harness-task.md"
   assert_no "impl prompt: no unrendered {{SWARM token" grep -q '{{SWARM' "$F"
-  assert_ok "impl prompt carries the fleet's mode" grep -q 'HARNESS_SWARM=`auto`' "$F"
+  assert_no "impl prompt runs no swarm suite (#449)" grep -q 'swarm-suite.sh' "$F"
+  spawn_bug 8 fix
+  assert_no "bug-fix prompt: no unrendered {{SWARM token" grep -q '{{SWARM' "$(bug_worktree acme/widget 8)/.harness-task.md"
+  assert_no "bug-fix prompt runs no swarm suite (#449)" grep -q 'swarm-suite.sh' "$(bug_worktree acme/widget 8)/.harness-task.md"
+  spawn_orch REVIEW 41 "REVIEW DONE"
+  F="$(orch_worktree acme/widget 41)/.harness-task.md"
+  assert_no "review prompt: no unrendered {{SWARM token" grep -q '{{SWARM' "$F"
+  assert_ok "review prompt carries the fleet's mode" grep -q 'HARNESS_SWARM (`auto`)' "$F"
   # The rendered command, run as written, must reach the helper with the fleet's RUN_DIR intact.
-  cmd="$(grep -m1 'swarm-suite.sh' "$F" | sed 's/^ *//; s/ <worktree>.*//')"
+  cmd="$(grep -m1 'swarm-suite.sh' "$F" | sed 's/^ *//; s/ "\$PWD".*//')"
   PATH="$FAKEBIN:$PATH" eval "$cmd \"\$WT\" rendered test/test_ok.sh" >/dev/null 2>&1
   assert_eq "$?" 0 "rendered {{SWARM_SUITE}} runs the helper"
   assert_ok "rendered command keeps the fleet's RUN_DIR (with a space)" test -f "$T/run dir/swarm/rendered/swarm.toml"
-  spawn_bug 8 fix
-  assert_no "bug-fix prompt: no unrendered {{SWARM token" grep -q '{{SWARM' "$(bug_worktree acme/widget 8)/.harness-task.md"
-  spawn_orch REVIEW 41 "REVIEW DONE"
-  assert_no "review prompt: no unrendered {{SWARM token" grep -q '{{SWARM' "$(orch_worktree acme/widget 41)/.harness-task.md"
   finish
 ) || TESTS_FAIL=$((TESTS_FAIL+1))
 finish

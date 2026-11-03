@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_rtdd.sh — the rtdd v0.3 contract in the lane prompts (#187). rtdd is OPTIONAL: every prompt
-# that uses it keeps the full-suite path, treats an empty selection as not green, and defers the
-# details to the user-level `rtdd` skill. The rtdd text lives in ONE partial, prompts/_rtdd.md.
+# that uses it falls back to the closest tests by hand (never the full suite, #449), treats an empty
+# selection as not green, and defers the details to the user-level `rtdd` skill. The rtdd text lives in ONE partial, prompts/_rtdd.md.
 # Prompts are rendered to files and grepped from files: their bodies contain backticks, which would
 # execute if interpolated into a `bash -c` herestring.
 set -uo pipefail
@@ -45,21 +45,26 @@ for p in impl bug-fix resume; do
   assert "$p: no unrendered {{ token"            "! grep -q '{{' '$R'"
   assert "$p: runs rtdd which against the base"  "grep -q 'rtdd which --base origin/<default-branch>' '$R'"
   assert "$p: Round 1 then Round 2"              "grep -q 'Round 1' '$R' && grep -q 'Round 2' '$R'"
-  assert "$p: full suite once at the end (Round 3)" "grep -q 'Round 3' '$R'"
+  # #449: lanes test with Rounds 1+2 only; the full suite runs once, at PRD review.
+  assert "$p: no Round 3 (no per-lane full suite)" "! grep -q 'Round 3' '$R'"
+  assert "$p: Rounds 1 and 2 only, never the full suite" "grep -q 'Rounds 1 and 2 ONLY — never the full suite' '$R'"
   assert "$p: rounds run under the project's own test command" "grep -q \"project's OWN test command\" '$R'"
   assert "$p: reads untested"                    "grep -q '\`untested\`' '$R'"
   assert "$p: never blocks on rtdd"              "grep -q 'Never block on' '$R'"
-  assert "$p: missing/erroring rtdd → full suite" "grep -qE 'Missing, older than v0.3 .*erroring → FULL-SUITE BAR' '$R'"
-  assert "$p: names the FULL-SUITE BAR it points at" "grep -q 'THE FULL-SUITE BAR, referenced above' '$R'"
-  assert "$p: empty selection is not green"      "grep -q 'Both EMPTY is NOT' '$R'"
+  assert "$p: missing/old/erroring rtdd → the fallback" "grep -qE 'FALLBACK — rtdd missing, older than v0.3 .*erroring' '$R'"
+  assert "$p: empty selection is not green"      "grep -q 'both rounds EMPTY (not green)' '$R'"
+  assert "$p: fallback runs the closest tests by hand" "grep -q 'closest test files by hand' '$R'"
+  assert "$p: fallback never runs the full suite" "grep -q 'Never block on it, and never the full suite' '$R'"
+  assert "$p: no FULL-SUITE BAR left"            "! grep -q 'FULL-SUITE BAR' '$R'"
   assert "$p: names the real install command"    "grep -q 'npx -y github:VocanicZ/rtdd' '$R'"
   assert "$p: init only to create .rtdd/config.yaml" "grep -q 'NO \`.rtdd/config.yaml\` → \`rtdd init\` once, only to create it' '$R'"
   assert "$p: never commits rtdd's agent files"  "grep -q 'never \`AGENTS.md\`, \`.claude/\` or \`.cursor/\`' '$R'"
   assert "$p: pre-existing reds re-run on the base" "grep -q 'not automatically YOURS' '$R'"
   # The loophole the audit found: a test that merely reaches the new code proves nothing.
   assert "$p: requires a test that fails without the change" "grep -qiE 'FAILS WITHOUT|FAILS ON THE UNFIXED' '$R'"
-  # #245: no GitHub CI — a repo without its own CI entrypoint is gated on the full local suite.
-  assert "$p: full suite is the gate when no local CI entrypoint" "grep -qi 'otherwise the FULL suite' '$R'"
+  # #245: no GitHub CI. #449: a repo without its own CI entrypoint is gated on rtdd Rounds 1+2.
+  assert "$p: rtdd Rounds 1+2 is the gate when no local CI entrypoint" "grep -qi 'otherwise the gate is rtdd Rounds 1+2' '$R'"
+  assert "$p: the gate is never the full suite"  "! grep -qi 'otherwise the FULL suite' '$R'"
   assert "$p: forbids weakening a test to go green" "grep -qi 'never delete, skip, or weaken' '$R'"
   assert "$p: rebase re-selects with rtdd which" "grep -q 'Rounds 1 and 2 (the rebase changed your diff' '$R'"
   # v0.3 removed all of these; a lane told to use them follows broken instructions.
@@ -136,7 +141,8 @@ assert "reference has a Test selection section" "grep -qE '^### Test selection \
 assert "README prereq: node row names rtdd the lane test loop, optional" "grep -E '^\| \`node\`' '$HERE/../README.md' | grep -i 'optional' | grep -qi 'lane test loop'"
 # The section only: swarm's own per-shard junit.xml is documented elsewhere in the README.
 awk '/^### Test selection \(rtdd\)/{f=1;next} /^### /{f=0} f' "$RM" > "$RUN_DIR/readme-rtdd.md"
-assert "README teaches the v0.3 rounds" "grep -q 'Round 3' '$RUN_DIR/readme-rtdd.md'"
+assert "README teaches the v0.3 rounds" "grep -q 'Round 1' '$RUN_DIR/readme-rtdd.md' && grep -q 'Round 2' '$RUN_DIR/readme-rtdd.md'"
+assert "README: lanes run no Round 3 (#449)" "! grep -q 'Round 3' '$RUN_DIR/readme-rtdd.md'"
 assert "README teaches no removed v0.2 workflow" "! grep -qE 'rtdd (run|seed)|map\.jsonl|junit\.xml|\.rtdd/adapters' '$RUN_DIR/readme-rtdd.md'"
 
 # ── this repo's own rtdd setup ────────────────────────────────────────────────────────────

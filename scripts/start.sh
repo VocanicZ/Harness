@@ -22,12 +22,12 @@ for b in $(sess_bins); do command -v "$b" >/dev/null || die "$b not found — in
 command -v "$(cli_exe)" >/dev/null || die "$(cli_exe) not found on PATH — install the $(cli_name) CLI first (harness setup lists what it needs)"
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI first"
 # rtdd is the lane test loop (prompts/_rtdd.md), not a hard prerequisite — a lane without it runs
-# the full suite instead of rtdd's rounds, which is correct but slow. WARN, never die. This check is also
+# the closest tests by hand instead of rtdd's rounds (#449: never the full suite). WARN, never die. This check is also
 # the backstop for the one upgrade `harness update` cannot fix itself: git replaces update.sh by
 # rename, so the update that BRINGS the rtdd install still runs the OLD update.sh, and a host stays
 # without rtdd until something says so. This is that something.
 command -v rtdd >/dev/null || {
-  echo "  ! rtdd not found — lanes will run the full suite instead of rtdd's rounds (slow but correct)."
+  echo "  ! rtdd not found — lanes will run the closest tests by hand instead of rtdd's rounds (#449: never the full suite)."
   echo "    Install it with:  npx -y github:VocanicZ/rtdd     (or: harness update)"
   harness_event rtdd_missing   # #186: the slowdown shows up in `harness stats`, not just this terminal
 }

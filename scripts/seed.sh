@@ -57,8 +57,8 @@ _seed_labels(){
 # ---------------------------------------------------------------------------
 # _seed_disable_ci — disable $_SEED_SLUG's GitHub Actions workflows (#245).
 #
-# Harness disables GitHub CI by default: the gate is local (scripts/ci-local.sh, else the full suite
-# on the rebased head), so a leftover ci.yml only burns Actions minutes and hands lanes a verdict
+# Harness disables GitHub CI by default: the gate is local (scripts/ci-local.sh, else rtdd Rounds
+# 1+2 on the rebased head, #449), so a leftover ci.yml only burns Actions minutes and hands lanes a verdict
 # they must not read. HARNESS_DISABLE_CI picks the reach:
 #   1   (default) — test-CI only; a workflow whose name or file says release/deploy/publish/pages/cd is
 #                   left alone, because that is how the project ships, not how it gates.
