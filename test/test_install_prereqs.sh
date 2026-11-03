@@ -15,7 +15,7 @@ source "$HERE/../install.sh"
 
 # SYS: the few real tools the functions under test use; nothing a prerequisite check looks for.
 SYS="$T/sys"; mkdir -p "$SYS"
-for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename; do
+for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename mkdir chmod ln; do
   p="$(command -v "$t")" && ln -s "$p" "$SYS/$t"; done
 LOG="$T/log"
 # stub <dir> <name> [<body>] — a logging stub: appends "<name> <args>" to $LOG, then runs <body>.
@@ -121,6 +121,49 @@ assert_ok "no agent CLI, accepted: runs the claude adapter's cli_prereqs --insta
   grep -qx 'ADAPTER claude cli_prereqs --install' "$LOG"
 : > "$LOG"; out="$(HARNESS_INSTALL_PREREQS=1 on "$F:$C" offer_prereqs 2>&1)"
 assert_no "an agent CLI present: Claude Code not offered" grep -q ADAPTER "$LOG"
+
+# ── #431: the vendor installer puts claude in ~/.local/bin, which this shell's PATH lacks ─────────
+# The real adapter path (cli_with → claude_prereqs → _cli_bin_ensure) with a stub `curl` that serves
+# a stub installer script: it writes $HOME/.local/bin/claude and nothing else. No real installer runs.
+eval "cli_with() $(declare -f real_cli_with | tail -n +2)"
+V="$T/vendor"; for t in git tmux python3 sha256sum tar; do stub "$V" "$t"; done; stub "$V" gh 'exit 0'
+printf '%s\n' 'mkdir -p "$HOME/.local/bin"' \
+  'printf "#!/bin/sh\nexit 0\n" > "$HOME/.local/bin/claude"; chmod +x "$HOME/.local/bin/claude"' > "$T/claude-install.sh"
+stub "$V" curl "cat '$T/claude-install.sh'"
+flow(){ offer_prereqs; check_prereqs; }
+H="$T/h431"; mkdir -p "$H"
+: > "$LOG"; out="$(HOME="$H" HARNESS_INSTALL_CLI_BIN=1 HARNESS_INSTALL_PREREQS=1 on "$V" flow 2>&1)"; rc=$?
+assert_ok "stub installer ran (curl fetched it)" grep -q '^curl -fsSL https://claude.ai/install.sh' "$LOG"
+assert_ok "...and wrote ~/.local/bin/claude" test -x "$H/.local/bin/claude"
+assert_no "claude in ~/.local/bin off PATH, accepted: no MISSING: an agent CLI" grep -qF 'MISSING: an agent CLI' <<<"$out"
+assert_ok "...and the prerequisite check passes" test "$rc" = 0
+assert_ok "...printing the PATH line to add" grep -qF "export PATH=\"$H/.local/bin:\$PATH\"" <<<"$out"
+assert_ok "...and to re-open the shell" grep -qi 're-open your shell' <<<"$out"
+assert_ok "...once (the adapter's NOTE and check_prereqs do not both print it)" \
+  test "$(grep -cF "export PATH=\"$H/.local/bin:" <<<"$out")" = 1
+
+# a second run: claude is already in ~/.local/bin (still off PATH) — nothing re-offered, check passes
+: > "$LOG"; out="$(HOME="$H" HARNESS_INSTALL_CLI_BIN=1 HARNESS_TTY="$YES" on "$V" flow 2>&1)"; rc=$?
+assert_no "re-run: Claude Code not offered again" grep -qF '[Y/n]' <<<"$out"
+assert_no "...the installer not fetched again" grep -q '^curl' "$LOG"
+assert_ok "...the prerequisite check passes" test "$rc" = 0
+assert_ok "...and the PATH line is printed" grep -qF "export PATH=\"$H/.local/bin:\$PATH\"" <<<"$out"
+
+# ~/.local/bin already on the user's own PATH: no PATH line
+out="$(HOME="$H" on "$V:$H/.local/bin" check_prereqs 2>&1)"
+assert_no "~/.local/bin on PATH: no PATH line" grep -qF 'export PATH=' <<<"$out"
+
+# link_path: `harness` lands in ~/.local/bin, which this install put on PATH itself — still told
+lp(){ inst_local_bin; link_path; }
+out="$(HOME="$H" HARNESS_HOME="$H/.harness" HARNESS_BIN_DIR="$H/.local/bin" on "$V" lp 2>&1)"
+assert_ok "link_path into an install-added ~/.local/bin prints the PATH line" \
+  grep -qF "export PATH=\"$H/.local/bin:\$PATH\"" <<<"$out"
+lp2(){ flow >/dev/null 2>&1; link_path; }
+out="$(HOME="$H" HARNESS_HOME="$H/.harness" HARNESS_BIN_DIR="$H/.local/bin" on "$V" lp2 2>&1)"
+assert_ok "...even after claude's own PATH line for the same directory" \
+  grep -qF "export PATH=\"$H/.local/bin:\$PATH\"" <<<"$out"
+out="$(HOME="$H" HARNESS_HOME="$H/.harness" HARNESS_BIN_DIR="$H/.local/bin" on "$V:$H/.local/bin" lp 2>&1)"
+assert_no "link_path into a ~/.local/bin already on PATH: no PATH line" grep -qF 'export PATH=' <<<"$out"
 
 # ── main offers before it checks, and again once a piped install's adapters arrive ───────────────
 body="$(declare -f main)"

@@ -25,6 +25,10 @@ and wait for the user's yes before you act.
    **Confirm** first. Relay the installer's questions (missing prerequisites, `gh auth login`, agent
    CLI) to the user and pass their answers back; never answer one for them. If it needs a terminal,
    ask the user to run the line themselves as `! npx -y github:VocanicZ/Harness`.
+   Installed, but `command -v harness` still fails? The link is usually in `~/.local/bin`, which a
+   fresh shell's PATH can lack: run `~/.local/bin/harness` by that path for the rest of this
+   conversation, and tell the user to add the line the installer printed —
+   `export PATH="$HOME/.local/bin:$PATH"` in `~/.bashrc` or `~/.zshrc` — then re-open their shell.
 2. **No `.harness/config`?** Run `harness init` in `prd` mode. **Confirm** the choices with the user
    (owner/repo, autonomous, pool size). The wizard asks interactively, so it needs a terminal: ask the
    user to run `! harness init` and pick `prd` at the mode question. Without one it takes its answers

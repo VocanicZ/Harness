@@ -95,8 +95,26 @@ _host_clis(){ local c; declare -F cli_list >/dev/null || return 0
 # _cli_exe_of <cli> — the CLI's executable (#272: HARNESS_<CLI>_BIN may be `env VAR=… claude`). An
 # older placed engine's seam has no cli_exe; its cli_bin is then the best there is.
 _cli_exe_of(){ if declare -F cli_exe >/dev/null; then cli_with "$1" cli_exe; else cli_with "$1" cli_bin; fi; }
+# ── ~/.local/bin, off PATH (#431) ─────────────────────────────────────────────────────────────────
+# Claude Code's native installer (and this one's `harness` link) write to ~/.local/bin, which a fresh
+# Linux session's PATH often lacks (~/.profile adds it only at login, only if it existed then).
+# inst_local_bin puts it on PATH for the rest of this install when it exists; _CLI_PATH_ADDED (shared
+# with scripts/cli/dispatch.sh) remembers that the user's own shell does not have it.
+inst_local_bin(){ local d="${HOME:-}/.local/bin"
+  [[ -n ${HOME:-} && -d $d ]] || return 0
+  case ":$PATH:" in *":$d:"*) return 0 ;; esac
+  export PATH="$d:$PATH"; hash -r
+  case ":${_CLI_PATH_ADDED:-}:" in *":$d:"*) ;; *) _CLI_PATH_ADDED="${_CLI_PATH_ADDED:+$_CLI_PATH_ADDED:}$d" ;; esac; }
+# inst_off_path <dir> — rc 0 when the user's own PATH lacks <dir>: this install added it, or nobody did.
+inst_off_path(){ case ":${_CLI_PATH_ADDED:-}:" in *":$1:"*) return 0 ;; esac
+  case ":$PATH:" in *":$1:"*) return 1 ;; esac; return 0; }
+# inst_path_note <what> <dir> — tell the user, once per <what> and <dir>, the PATH line their shell needs.
+inst_path_note(){ case ":${_CLI_PATH_NOTED:-}:" in *":$1@$2:"*) return 0 ;; esac
+  _CLI_PATH_NOTED="${_CLI_PATH_NOTED:+$_CLI_PATH_NOTED:}$1@$2"
+  echo "  NOTE: $1 is in $2, which is not on your PATH yet. Add it, then re-open your shell:"
+  echo "        export PATH=\"$2:\$PATH\"  # add to ~/.bashrc or ~/.zshrc"; }
 check_prereqs(){
-  local ok=1 c any=
+  local ok=1 c any= exe
   for b in $PREREQ_TOOLS; do [[ $b == gh ]] || need "$b" || { echo "MISSING: $b" >&2; ok=0; }; done
   # Windows (#356): no tmux (lanes are headless), and `python3` may be the Store stub — a Python 3
   # that RUNS is the prerequisite; the shim install_python_shim writes makes it `python3`.
@@ -106,9 +124,12 @@ check_prereqs(){
   if ! need gh; then echo "MISSING: gh (install: https://cli.github.com)" >&2; ok=0
   elif ! gh auth status >/dev/null 2>&1; then echo "gh not authenticated — run: gh auth login" >&2; ok=0; fi
   if declare -F cli_list >/dev/null; then       # no adapters yet (a piped install): main re-checks after place_engine
+    inst_local_bin
     for c in $(_host_clis); do
       any=1
       cli_with "$c" cli_runnable || { echo "$c present but not runnable ($(cli_with "$c" cli_bin))" >&2; ok=0; }
+      exe="$(command -v "$(_cli_exe_of "$c")")"
+      [[ $exe == */* ]] && inst_off_path "${exe%/*}" && inst_path_note "$c" "${exe%/*}"
     done
     [[ -n "$any" ]] || { echo "MISSING: an agent CLI — install one of: $(cli_list | xargs)" >&2; ok=0; }
   fi
@@ -185,6 +206,7 @@ offer_prereqs(){ local b miss=() m cmd
   if need gh && ! gh auth status >/dev/null 2>&1; then
     offer "gh is not signed in — run gh auth login now?" "gh auth login"
   fi
+  declare -F cli_list >/dev/null && inst_local_bin   # a Claude Code already in ~/.local/bin is not re-offered
   if declare -F cli_list >/dev/null && [[ -z "$(_host_clis)" ]] && cli_list | grep -qx claude; then
     cmd="$(cli_with claude cli_prereqs 2>/dev/null | sed -n 's/^MISSING claude binary ([^)]*): //p' | head -1)"
     offer "No agent CLI found — install Claude Code?" "${cmd:-cli_prereqs --install}" \
@@ -591,11 +613,7 @@ link_path(){
       printf '@echo off\r\n"%s" "%%~dp0harness" %%*\r\n' "$(inst_bash_exe)" >"$bindir/harness.cmd" \
         && echo "  wrote $bindir/harness.cmd (runs harness through Git's bash)"
     fi
-    case ":$PATH:" in
-      *":$bindir:"*) ;;
-      *) echo "  NOTE: $bindir is not on your PATH yet. Add it:"
-         echo "        export PATH=\"$bindir:\$PATH\"  # add to ~/.bashrc or ~/.zshrc" ;;
-    esac
+    inst_off_path "$bindir" && inst_path_note "'harness'" "$bindir"
   else
     print_path_instructions "$target"
   fi

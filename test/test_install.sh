@@ -23,9 +23,11 @@ assert "prereqs pass when all present" "check_prereqs"
 # remove claude -> fail. agy is absent too: HARNESS_AGY_BIN names a binary that does not exist, which
 # must read as "agy absent" (#240) rather than satisfying the claude-or-agy check.
 # Both run on a PATH of only the stubs + the system bin dirs (no host claude/agy) with a fresh hash
-# table — the deleted claude stub is still hashed from the run above.
+# table — the deleted claude stub is still hashed from the run above. HOME is an empty dir too: since
+# #431 check_prereqs also looks in ~/.local/bin, where the host's own claude usually is.
 rm -f "$PATHBIN/claude"
-noclaude(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin"; check_prereqs ); }
+NOCLAUDE_HOME="$(mktemp -d)"
+noclaude(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin"; HOME="$NOCLAUDE_HOME"; check_prereqs ); }
 assert "prereqs fail without claude"   "! HARNESS_AGY_BIN='$AGY_STUB_DIR/nope' noclaude 2>/dev/null"
 # ...while a present HARNESS_AGY_BIN satisfies it, and is the binary probed (not PATH's agy).
 : > "$AGY_LOG"

@@ -209,12 +209,28 @@ _cli_run(){ local -a ws; read -ra ws <<<"$1"; shift; "${ws[@]}" "$@"; }
 # non-interactive install, an npm package or a curl release script, when that tool (its first word)
 # is on PATH. Signing in stays the operator's. Still missing, it names <command> and fails.
 # HARNESS_INSTALL_CLI_BIN=0 skips the install (the suite pins it: a test never fetches a real CLI).
+# A vendor installer that lands the binary in ~/.local/bin (Claude Code's native one), a directory a
+# fresh session's PATH often lacks, has still installed it (#431): that directory goes on PATH for
+# the rest of this run, and a NOTE names the export line the user's own shell needs.
 _cli_bin_ensure(){ local exe run="${5:-$4}"; exe="$(_cli_exe "$2")"
   if ! command -v "$exe" >/dev/null && [[ $3 == --install && ${HARNESS_INSTALL_CLI_BIN:-1} != 0 ]] &&
     command -v "${run%% *}" >/dev/null; then
-    "${BASH:-bash}" -c "$run" >/dev/null 2>&1 </dev/null; hash -r; fi
+    "${BASH:-bash}" -c "$run" >/dev/null 2>&1 </dev/null; hash -r
+    command -v "$exe" >/dev/null || _cli_path_adopt "$1" "$exe"; fi
   command -v "$exe" >/dev/null && return 0
   echo "MISSING $1 binary ($2): $4"; return 1; }
+# _cli_path_adopt <cli> <exe> — <exe> sits in $HOME/.local/bin, off PATH: prepend that directory to
+# PATH (this process and what it runs) and print the PATH line to add. rc 1 when it is not there.
+# _CLI_PATH_ADDED / _CLI_PATH_NOTED (colon lists) are shared with install.sh: what it put on PATH
+# itself, and the <what>@<dir> pairs it has already told the user about.
+_cli_path_adopt(){ local d="${HOME:-}/.local/bin"
+  [[ -n ${HOME:-} && $2 != */* ]] && [[ -x $d/$2 || -x $d/$2.exe ]] || return 1
+  case ":$PATH:" in *":$d:"*) ;; *) export PATH="$d:$PATH"; hash -r ;; esac
+  case ":${_CLI_PATH_ADDED:-}:" in *":$d:"*) ;; *) _CLI_PATH_ADDED="${_CLI_PATH_ADDED:+$_CLI_PATH_ADDED:}$d" ;; esac
+  case ":${_CLI_PATH_NOTED:-}:" in *":$1@$d:"*) return 0 ;; esac
+  _CLI_PATH_NOTED="${_CLI_PATH_NOTED:+$_CLI_PATH_NOTED:}$1@$d"
+  echo "NOTE    $1 binary is in $d, which is not on your PATH — add it, then re-open your shell:"
+  echo "          export PATH=\"$d:\$PATH\"  # add to ~/.bashrc or ~/.zshrc"; }
 
 # --- pane helpers over the regexes (an empty regex matches nothing) ---------------------------
 # A here-string, not `printf | grep -q`: grep's early exit would SIGPIPE a big pane's writer (#339).

@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Claude Code installed by the prerequisite offer is found in `~/.local/bin` (#431)
+
+- Accepting install.sh's "install Claude Code?" offer on a fresh Linux host still ended in
+  `MISSING: an agent CLI`: Claude Code's native installer puts `claude` in `~/.local/bin`, which a
+  fresh session's PATH often lacks. install.sh now puts `~/.local/bin` on PATH for the rest of the
+  install when it exists (before it offers or checks an agent CLI), and `_cli_bin_ensure` does the
+  same after a vendor installer lands the binary there, so the check passes and a re-run does not
+  offer the install again.
+- When the agent CLI or the `harness` link sits only in a directory the user's own PATH lacks, the
+  installer prints the exact `export PATH=...` line and says to re-open the shell; it does not fail.
+- `/harness` step 1: after installing, a `harness` still off PATH is run as `~/.local/bin/harness`
+  and the user is told the PATH line.
+
 ### Ending a headless lane ends its detached background jobs (#427)
 
 - #418's guarantee did not hold on `HARNESS_SESSION_BACKEND=headless`: a turn that ended normally
