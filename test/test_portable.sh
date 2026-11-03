@@ -113,6 +113,15 @@ EOF
 chmod +x "$W/taskkill"
 HARNESS_PROC_ROOT="$FP" HARNESS_TASKKILL="$W/taskkill" proc_kill_tree 777
 assert_eq "$(cat "$W/taskkill.log" 2>/dev/null)" "//T //F //PID 31337" "[windows] proc_kill_tree runs taskkill /T /F on the winpid"
+# proc_sweep_session (#427): what outlives the SIGTERM grace is taskkill /F'd by its winpid, then KILLed
+# (MSYS signals do not reach a native process). A real TERM-ignoring process, its /proc entry faked.
+sh -c 'trap "" TERM; while :; do sleep 1; done' & sw=$!
+mkdir -p "$FP/$sw"; echo 4242 > "$FP/$sw/winpid"; printf 'HARNESS_SESSION=sweep-uuid\0' > "$FP/$sw/environ"
+: > "$W/taskkill.log"
+HARNESS_PROC_ROOT="$FP" HARNESS_TASKKILL="$W/taskkill" HARNESS_SWEEP_GRACE=0 proc_sweep_session sweep-uuid
+assert_eq "$(cat "$W/taskkill.log" 2>/dev/null)" "//F //PID 4242" "[windows] proc_sweep_session taskkills a stubborn process by its winpid"
+{ wait "$sw"; } 2>/dev/null
+assert_no "[windows] …and it is gone" kill -0 "$sw"
 assert_eq "$(detach_prefix)" "" "[windows] no setsid prefix"
 
 # new_uuid: Git Bash has neither uuidgen nor the kernel's uuid — python3 is the last fallback

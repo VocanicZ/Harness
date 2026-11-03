@@ -633,7 +633,7 @@ matrix_stub(){ local f; for f in ${HARNESS_MATRIX_STUB:-}; do eval "$(cli_name)_
 # runner (cli_headless), a real detached process, whose CLI is the fake replaying the stream-json the
 # real CLI printed (fixtures/cli/<cli>/stream-json/, see its README.md). A CLI with no runner
 # (cli_headless_list) is refused on that backend (cli_backend_check): its rows are n/a, tmux-only.
-HEADLESS_ROWS="launch send busy-idle limit-parks transient-stalls loop-mode interrupt checkpoint resume supervisor-frozen-session usage-windows stats-session-end-usage stop"
+HEADLESS_ROWS="launch send busy-idle limit-parks transient-stalls loop-mode interrupt checkpoint resume supervisor-frozen-session usage-windows stats-session-end-usage stop sweep-detached-jobs"
 # hl_env — this (sub)shell on the headless backend: lanes in a dir of its own, the CLI the fake (a copy
 # of the stream-json dir whose rate-limit windows reset an hour from now: a passed reset is skipped),
 # no status-line drop or usage command. Every process it starts is killed on exit, by pid — never a
@@ -822,6 +822,39 @@ headless_stop_ok(){ ( hl_env; local s=hz-main-i32 rpid fpid gpid out p; hl_lane 
   out="$(bash "$HERE/../scripts/stop.sh" 2>&1)"; has "killed headless $s" "$out" || exit 1
   for p in "$rpid" "$fpid" "$gpid"; do hl_wait 5 not hl_alive "$p" || exit 1; done
   same "$(sess_list)" "" && not sess_live "$s" && same "$(hl_field "$s" state)" ended ); }
+# hl_bg_hook — the lane's turn-hook: each turn leaves two background jobs behind and ends normally — a
+# plain `sleep &` (re-parented, in the turn's old process group) and a setsid'd one (a session of its
+# own); their pids land in $FAKE_CLAUDE_DIR/bg.pids.
+hl_bg_hook(){ cat > "$FAKE_CLAUDE_DIR/turn-hook" <<EOF
+#!/usr/bin/env bash
+sleep 777 </dev/null >/dev/null 2>&1 & echo \$! >> "$FAKE_CLAUDE_DIR/bg.pids"
+setsid sleep 778 </dev/null >/dev/null 2>&1 & echo \$! >> "$FAKE_CLAUDE_DIR/bg.pids"
+EOF
+  chmod +x "$FAKE_CLAUDE_DIR/turn-hook"; }
+# hl_session_left <uuid> — the processes still carrying HARNESS_SESSION=<uuid>.
+hl_session_left(){ local p; for p in $(proc_session_pids "$1"); do hl_alive "$p" && echo "$p"; done; return 0; }
+# headless_sweep_ok — #427: a lane whose turn ended normally with detached jobs behind it — idle, then
+# sess_kill; and a lane that exits on its own (its runner stopped), then the stats sweep — leaves no
+# process carrying its HARNESS_SESSION; a decoy carrying another uuid is never touched, and the live
+# lane's jobs are left alone until it ends.
+headless_sweep_ok(){ ( hl_env; export HARNESS_SWEEP_GRACE=1; local s=hz-main-i33 t=hz-main-i34 u v decoy p
+  command -v setsid >/dev/null && [[ -r /proc/self/environ ]] || exit 0   # no setsid / no /proc: nothing to run
+  HARNESS_SESSION="$(new_uuid)" setsid sleep 779 </dev/null >/dev/null 2>&1 & decoy=$!; echo "$decoy" > "$HL/decoy.pid"
+  trap '{ kill -KILL "$decoy"; wait "$decoy"; } 2>/dev/null; for p in $(cat "$HL"/fake-*/bg.pids 2>/dev/null); do kill -KILL "$p" 2>/dev/null; done; hl_cleanup' EXIT
+  hl_lane sweep-kill normal; hl_bg_hook
+  hl_launch "$s" GOAL=ISSUE:33 && hl_wait 15 hl_turn "$s" 1 || exit 1; u="$(state_uuid "$WD")"
+  [[ -n $u && "$(wc -l < "$FAKE_CLAUDE_DIR/bg.pids")" == 2 && -n "$(hl_session_left "$u")" ]] || exit 1
+  for p in $(cat "$FAKE_CLAUDE_DIR/bg.pids"); do hl_alive "$p" || exit 1; done
+  sess_sweep "$u"; for p in $(cat "$FAKE_CLAUDE_DIR/bg.pids"); do hl_alive "$p" || exit 1; done   # live: left alone
+  sess_kill "$s" >/dev/null || exit 1
+  [[ -z "$(hl_session_left "$u")" ]] || exit 1
+  for p in $(cat "$FAKE_CLAUDE_DIR/bg.pids"); do not hl_alive "$p" || exit 1; done
+  hl_lane sweep-self normal; hl_bg_hook
+  hl_launch "$t" GOAL=ISSUE:34 && hl_wait 15 hl_turn "$t" 1 || exit 1; v="$(state_uuid "$WD")"
+  python3 "$HERE/../scripts/cli/claude_headless.py" stop --lane "$(headless_lane_dir "$t")" >/dev/null 2>&1
+  hl_wait 10 not sess_live "$t" && [[ -n "$(hl_session_left "$v")" ]] || exit 1   # ended on its own: jobs outlive it
+  stats_sweep_ended
+  [[ -z "$(hl_session_left "$v")" ]] && hl_alive "$decoy" ); }
 # headless_rows <cli> — every headless-* cell for <cli>: run where it has a headless runner; n/a where
 # the headless backend refuses it as tmux-only (cli_backend_check); FAIL where it is neither.
 headless_rows(){ local cli="$1" r
@@ -843,7 +876,8 @@ headless_rows(){ local cli="$1" r
   cell "$cli" headless-supervisor-frozen-session headless_supervisor_ok
   cell "$cli" headless-usage-windows           headless_usage_windows_ok
   cell "$cli" headless-stats-session-end-usage headless_stats_ok
-  cell "$cli" headless-stop                    headless_stop_ok; }
+  cell "$cli" headless-stop                    headless_stop_ok
+  cell "$cli" headless-sweep-detached-jobs     headless_sweep_ok; }
 
 rc=0
 for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do

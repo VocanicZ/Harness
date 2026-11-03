@@ -112,10 +112,27 @@ assert_eq "$rc" 0 "stats_sweep_ended with a uuid-less ctx returns 0"
 assert_ok "a live session's detached job is left alone" up "$T/live.pid"
 assert_ok "a live session's ctx is kept" test -e "$RUN_DIR/s4.stats"
 
-echo "== the headless backend sweeps nothing on its own (its runner ends a turn's tree) =="
-HARNESS_SESSION="$U" setsid sleep 1110 & echo $! > "$T/hl.pid"
-HARNESS_SESSION_BACKEND=headless sess_sweep "$U"
-assert_ok "headless sess_sweep leaves a process alone" up "$T/hl.pid"
+echo "== the headless backend sweeps an ended lane's uuid, never a live lane's (#427) =="
+# A live headless lane started with U5 (a resumed lane keeps its predecessor's uuid): its runner is a
+# plain process this test owns, its lane files the ones headless.sh reads.
+U5="$(new_uuid)"; HL="$T/lanes"; LN="$HL/hlt-main-i5"; mkdir -p "$LN"
+HARNESS_SESSION="$U5" setsid sleep 1111 & echo $! > "$T/hl-runner.pid"
+HARNESS_SESSION="$U5" setsid sleep 1112 & echo $! > "$T/hl-job.pid"
+HARNESS_SESSION="$O" setsid sleep 1113 & echo $! > "$T/hl-decoy.pid"
+cp "$T/hl-runner.pid" "$LN/pid"; proc_ident "$(cat "$T/hl-runner.pid")" > "$LN/started"
+echo "$U5" > "$LN/session"; echo '{"state": "idle"}' > "$LN/state.json"
+export HARNESS_HEADLESS_DIR="$HL"
+assert_ok "fixture: the lane is live" env HARNESS_SESSION_BACKEND=headless bash -c "source '$ROOT/scripts/lib.sh'; sess_live hlt-main-i5"
+HARNESS_SESSION_BACKEND=headless sess_sweep "$U5"
+assert_ok "headless sess_sweep leaves a live lane's processes alone" up "$T/hl-job.pid"
+assert_ok "…and its runner" up "$T/hl-runner.pid"
+echo '{"state": "ended"}' > "$LN/state.json"
+HARNESS_SESSION_BACKEND=headless sess_sweep "$U5"
+assert_ok "once the lane has ended, its leftover job is gone" gone "$T/hl-job.pid"
+assert_ok "another uuid's process survives the headless sweep" up "$T/hl-decoy.pid"
+HARNESS_SESSION_BACKEND=headless sess_sweep ""; assert_eq "$?" 0 "an empty uuid sweeps nothing and is not an error"
+assert_ok "…the decoy is still up" up "$T/hl-decoy.pid"
+unset HARNESS_HEADLESS_DIR
 
 echo "== no pattern kill anywhere in the change =="
 for f in scripts/portable.sh scripts/session/tmux.sh scripts/session/headless.sh scripts/session/dispatch.sh; do

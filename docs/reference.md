@@ -66,6 +66,7 @@ features on the [headless session backend](#headless-lanes) (`HARNESS_SESSION_BA
 | `headless-usage-windows` | With no status line, the usage windows are read off the `rate_limit_event` a turn printed, kept in `state.json`: each window's utilization as a percent, under the lane's account (#352) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 | `headless-stats-session-end-usage` | Once the lane's runner has exited the stats sweep emits its `session_end` once, its usage the sum of its turns' own stream-json `result` usage, `model_usage_since_last_result` (#352, #426) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 | `headless-stop` | `harness stop` ends a lane mid-turn: the runner, the CLI's turn and that turn's own child are gone, nothing is listed, the lane's state reads `ended` | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
+| `headless-sweep-detached-jobs` | A lane whose turn ended normally with detached background jobs behind it (`cmd &`, `setsid`): `sess_kill`, and the stats sweep for a lane that ended on its own, leave no process carrying its `HARNESS_SESSION`; a live lane's jobs and another uuid's are left alone (#427) | ✓ | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only | n/a: tmux-only |
 
 Per-CLI setup (`harness setup --install` handles what it can):
 
