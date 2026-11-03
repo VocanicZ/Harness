@@ -4,6 +4,33 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness supervise` installs a published release and rolls every fleet's workers onto it (#477)
+
+- A release the fleet published never reached the fleets: nothing on the host installed it, and
+  `harness update` flips `~/.harness/engine` but every running worker keeps the release directory it
+  started on (on 2026-11-03 every worker on all 7 fleets was still on `releases/v0.2.0` after v0.4.0
+  through v0.4.4 had been installed). It took an operator running `harness update` and then a rolling
+  restart by hand.
+- Each `harness supervise` pass now checks the latest release at most once per
+  `HARNESS_AUTO_UPDATE_EVERY` (600 s) and, when it is newer, runs `harness update` and rolls the
+  workers of every registered fleet. Off with `HARNESS_AUTO_UPDATE=0`; never on a `HARNESS_REF` pin, a
+  git-checkout engine or a dev clone's supervisor; never a downgrade, a re-install, or an unparseable tag.
+- The roll (`fleet_roll`, new `scripts/roll.sh`, the one implementation `harness update` of #467 shares)
+  kills only the worker and priority processes not already on the new release, each under the fleet's
+  `pool.lock`, never one holding a `bug-*.claim` (rolled on a later pass) and never a lane session, then
+  runs `harness start` (no `--recover`). A paused fleet is rolled and stays paused (`start.sh` honours
+  `HARNESS_START_KEEP_PAUSE`).
+- `HARNESS_AUTO_UPDATE_HEALTH_S` (120 s) after the roll, a dead worker or priority pid runs
+  `harness update --rollback`, rolls the workers back, records the tag in `supervise/auto-update.skip`
+  and files one `bug` on `VocanicZ/Harness`. The update's phase is kept in `supervise/auto-update.json`,
+  so the supervisor the update restarts resumes the roll and the health check.
+- Events `engine_updated`, `workers_rolled` and `engine_rolled_back`; every action in `supervise.log`;
+  `--dry-run` only logs.
+- test_supervise_autoupdate.sh: install and roll of two fleets on a file:// release fixture with lane
+  sessions left alone, bug-claim deferral, a paused fleet, a stopped fleet, every opt-out, the throttle,
+  offline, `--dry-run`, rollback with exactly one bug and no retry (a newer tag still installs), and a
+  supervisor killed by the update's own restart (fails without the change).
+
 ### `HARNESS_UNIT` and `HARNESS_CHECKOUT`: every reader takes the fleet's one repo from config (#466)
 
 - First step of one fleet = one repo (#464). Two new config keys: `HARNESS_UNIT`, the unit's name in

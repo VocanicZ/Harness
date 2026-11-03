@@ -718,8 +718,9 @@ Other failures leave the engine unchanged: exit `2` for a non-semver running ver
   `~/.harness/releases/<tag>/`, then repoints `~/.harness/engine` atomically. Keeps the current
   release and the previous 2.
 - Restarts installed `harness supervise` / `harness web` units from the new release.
-- Running workers keep their release until relaunched: `harness pause` → drain → `harness stop` →
-  `harness start --recover`.
+- Running workers keep their release until relaunched. A host running `harness supervise` rolls them
+  itself after installing a release ([Host supervisor](#host-supervisor), rule 7); otherwise
+  `harness pause` → drain → `harness stop` → `harness start --recover`.
 
 **`harness update --rollback`** flips back to the previous installed release; a second
 `--rollback` goes forward again.
@@ -942,6 +943,22 @@ Each pass, every `INTERVAL` seconds:
    closed issues, live sessions missing `agent-working`. Alarm only: review loop, no frontier,
    decompose stalled, unfiled plan tasks, missing `## Parent`, wayfinder leak, deep context.
    `harness supervise --alarms` lists them.
+7. **Auto-update** (#477) — a published release is installed by the host and rolled onto the workers
+   without an operator. At most once per `HARNESS_AUTO_UPDATE_EVERY` it checks the latest release; if
+   it is newer than the installed one it runs `harness update`, then rolls the workers of every
+   registered fleet: only `worker-*.pid` / `priority.pid` processes whose `ENGINE_DIR` is not the new
+   release are killed, each under the fleet's `run/pool.lock`, and `harness start` relaunches them.
+   Lane sessions are never touched (the new worker adopts them), a worker holding a `bug-*.claim` is
+   left until the claim is released, and a paused fleet comes back paused. `HARNESS_AUTO_UPDATE_HEALTH_S`
+   after the roll, a dead worker or priority pid runs `harness update --rollback`, rolls the workers
+   back, records the tag in `~/.harness/supervise/auto-update.skip` (never retried; a newer tag still
+   installs) and files one `bug` on `VocanicZ/Harness`. The phase is kept in
+   `~/.harness/supervise/auto-update.json`, so the supervisor the update restarts resumes the roll and
+   the health check. Events: `engine_updated`, `workers_rolled`, `engine_rolled_back`. It never runs
+   with `HARNESS_AUTO_UPDATE=0`, under a `HARNESS_REF` pin, on a git-checkout engine, or from a
+   supervisor that is not a release of this host (a dev clone); an older or equal tag, or one that is
+   not `[v]MAJOR.MINOR.PATCH`, installs nothing. The roll is `fleet_roll` in `scripts/roll.sh`, the one
+   kill-and-relaunch implementation `harness update` shares.
 
 Log: `~/.harness/supervise.log`. Preview a pass with `harness supervise --once --dry-run`. Knobs go in
 `~/.harness/supervise.conf`:
@@ -955,6 +972,9 @@ Log: `~/.harness/supervise.log`. Preview a pass with `harness supervise --once -
 | `CPU_ACTIVE_S` | `10` | CPU seconds per pass that count as activity |
 | `EXTRA_RE` / `EXTRA_MIN` | empty / `60` | tmux session regex for non-Harness agent panes, e.g. `'^hg2(-loops)?$'` |
 | `ONLINE_URL` | `https://api.anthropic.com` | reachability probe for the offline hold |
+| `HARNESS_AUTO_UPDATE` | `1` | `0` turns the auto-update off (also settable in the environment) |
+| `HARNESS_AUTO_UPDATE_EVERY` | `600` | seconds between release checks |
+| `HARNESS_AUTO_UPDATE_HEALTH_S` | `120` | seconds after the roll before the health check that can roll back |
 | `UNPARENTED_OK` | empty | comma-separated issue numbers exempt from the missing-`## Parent` alarm |
 
 `harness supervise --install` installs and starts the `harness-supervise.service` systemd user unit

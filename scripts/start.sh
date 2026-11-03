@@ -12,7 +12,9 @@
 #                   crashed/migrated box leaves orphaned issues invisible to dispatch.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
-rm -f "$PAUSE_FLAG"   # starting un-pauses this machine's pool
+# starting un-pauses this machine's pool — except a roll of a paused fleet (#477, scripts/roll.sh), whose
+# relaunched workers must come back paused.
+[[ -n "${HARNESS_START_KEEP_PAUSE:-}" ]] || rm -f "$PAUSE_FLAG"
 
 sess_backend_check || die "set $SESS_CONFIG_VAR in $CONFIG to one of: $(sess_backend_list | xargs)"
 sess_platform_check || die "set $SESS_CONFIG_VAR=headless in $CONFIG (#356: native Windows runs headless lanes only)"
