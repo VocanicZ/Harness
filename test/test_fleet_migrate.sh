@@ -164,14 +164,14 @@ assert_eq "$(read_cfg "$E4" 'echo $(fleet_checkout)')" "$E4/checkouts/oldname" "
 
 # ── harness update's roll: two registered fleets, live old-loop workers ───────────────────────────
 STUB="$ROOT/engine"; mkdir -p "$STUB/bin" "$STUB/scripts"
-cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh} "$STUB/scripts/"
+cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh,roll.sh} "$STUB/scripts/"
 START_LOG="$ROOT/start.log"; : > "$START_LOG"
 cat > "$STUB/bin/harness" <<'STUBEOF'
 #!/usr/bin/env bash
 # stand-in for `harness start`: record the call and its environment, launch stand-in workers.
-[[ "$1" == start && "$2" == --state-dir ]] || exit 9
-d="$3"; pool="$(sed -n 's/^.*HARNESS_POOL[:=]*\([0-9]*\).*$/\1/p' "$d/config" | head -n1)"
-echo "start $d recover=$([[ " $* " == *" --recover "* ]] && echo yes || echo no) env_repo=${HARNESS_REPO:-} env_state=${STATE_DIR:-} pool=$pool" >> "$START_LOG"
+[[ "$1" == --state-dir && "$3" == start ]] || exit 9
+d="$2"; pool="$(sed -n 's/^.*HARNESS_POOL[:=]*\([0-9]*\).*$/\1/p' "$d/config" | head -n1)"
+echo "start $d recover=$([[ " $* " == *" --recover "* ]] && echo yes || echo no) keep_pause=${HARNESS_START_KEEP_PAUSE:-} env_repo=${HARNESS_REPO:-} env_state=${STATE_DIR:-} pool=$pool" >> "$START_LOG"
 for ((i = 1; i <= pool; i++)); do nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$d/run/worker-$i.pid"; done
 nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$d/run/priority.pid"
 STUBEOF
@@ -235,7 +235,7 @@ if command -v tmux >/dev/null 2>&1; then
   assert_ok "update: another tmux session is untouched"      tmux -L "$TMUX_SOCK" has-session -t other-session
 fi
 assert_ok "update: the unregistered current-folder fleet is migrated too" grep -q 'HARNESS_UNIT:=main' "$UC/config"
-assert_ok "update: ...and rolled, since it had live workers" grep -q "^start $UC recover=no " "$START_LOG"
+assert_ok "update: ...and rolled, since it had worker pid files" grep -q "^start $UC recover=no " "$START_LOG"
 assert_ok "update: ...onto new pids"                       dead "$OLD_C"
 # an unregistered fleet with NO live workers is migrated, not started
 UE="$(fleet upd-e ': "${HARNESS_TOPOLOGY:=single}"
@@ -248,14 +248,14 @@ n="$(grep -c '^start ' "$START_LOG")"; pa="$(pidsof "$UA")"
 ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
 assert_eq "$(grep -c '^start ' "$START_LOG")" "$n" "update twice: no second start"
 assert_ok "update twice: the workers are the same processes" test "$(pidsof "$UA")" = "$pa"
-# a paused fleet is migrated and its workers stopped, but not started (start would lift the pause)
+# a paused fleet is migrated and rolled (fleet_roll, #477) and comes back paused: start is told to keep PAUSED
 UP="$(fleet upd-p ': "${HARNESS_TOPOLOGY:=single}"
 : "${HARNESS_REPO:=acme/p}"')"; touch "$UP/run/PAUSED"; spawn "$UP/run/worker-1.pid"; OLD_P="$(pidsof "$UP")"
 printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$UP" "$UP/run" > "$ROOT/host/fleets/upd-p.json"
 out="$(ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all 2>&1)"
 assert_ok "paused fleet: migrated"                         grep -q 'HARNESS_UNIT:=main' "$UP/config"
 assert_ok "paused fleet: old workers stopped"              dead "$OLD_P"
-assert_no "paused fleet: not started"                      grep -q "^start $UP" "$START_LOG"
+assert_ok "paused fleet: relaunched with the pause kept"    grep -q "^start $UP recover=no keep_pause=1 " "$START_LOG"
 assert_ok "paused fleet: the pause flag is still there"    test -e "$UP/run/PAUSED"
 
 # ── harness start migrates its own fleet before launching ──
