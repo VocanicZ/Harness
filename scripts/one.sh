@@ -20,6 +20,10 @@
 #   harness one phase <issue> <explore|test|impl|gate|ship> [-R …] [--unit U] [--json]      (#366)
 #       before each phase: fresh usage vs the forecast LEFT (one.py phase). FITS → go on. CHECKPOINT
 #       → the very HARNESS CHECKPOINT `pause --force` sends a lane (_checkpoint_msg), for this session.
+#       #445: no status line reports this session's spend (it was started elsewhere, and a paused or
+#       held fleet renders none), so each reading counts the account's transcript spend since it was
+#       taken (one.py --spend), and start's snapshot (one_start_file) puts back a window dropped after
+#       its reset. A reading neither fresh nor brought up to date that way CHECKPOINTs.
 #   harness one release <issue> [-R …] [--unit U] [--force]                                 (#366)
 #       after the checkpoint or the merge: drop the worktree, local branch and lease, so the pool
 #       resumes the issue as its own. Refuses to drop work that is not pushed, without --force.
@@ -159,6 +163,8 @@ one_start(){ local issue="${1:-}" st wd lease; shift || true
     rm -f "$lease"; unlock_issue "$SLUG" "$issue"
     echo "harness one: could not set up $SLUG#$issue's worktree — claim released" >&2; return 5; fi
   _one_note "$issue" >> "$wd/.harness-task.md"
+  # #445: the start time and the readings at start, for every phase's re-check (one.py --start).
+  { date +%s; one_readings; } > "$(one_start_file "$UNIT" "$issue")"
   harness_event one_claim kind=impl issue="$issue" template="$IMPL_TMPL"
   echo "harness one: claimed $SLUG#$issue ($HARNESS_LABEL_WORKING) — rendered $IMPL_TMPL"
   echo "  worktree: $wd"
@@ -184,11 +190,12 @@ one_phase(){ local issue="${1:-}" phase="${2:-}" json="" skip="" a fc rd rc leas
   if [[ -f "$lease" ]]; then touch "$lease"   # the session is alive: hold the reapers off for another HARNESS_ONE_LEASE_MIN
   elif ! session_live "$(sess_impl "$UNIT" "$issue")"; then
     echo "harness one: $SLUG#$issue was not claimed by harness one start (nor is a lane working it)" >&2; return 2; fi
+  local -a sargs=(--spend); [[ -f "$lease" && -s "$(one_start_file "$UNIT" "$issue")" ]] && sargs+=(--start "$(one_start_file "$UNIT" "$issue")")
   fc="$(mktemp)"; rd="$(mktemp)"
   python3 "$ENGINE_DIR/scripts/forecast.py" "$issue" -R "$SLUG" --unit "$UNIT" ${fargs[@]+"${fargs[@]}"} --json > "$fc"; rc=$?
   if (( rc != 0 && rc != 1 )); then rm -f "$fc" "$rd"; return 2; fi
   one_readings > "$rd"
-  python3 "$ENGINE_DIR/scripts/one.py" phase --phase "$phase" --forecast "$fc" --readings "$rd" \
+  python3 "$ENGINE_DIR/scripts/one.py" phase --phase "$phase" --forecast "$fc" --readings "$rd" "${sargs[@]}" \
     --stop "$HARNESS_ONE_STOP_PCT" --reserve "$HARNESS_ONE_RESERVE_PCT" \
     --stale-min "$HARNESS_ONE_STALE_MIN" --stale-pad "$HARNESS_ONE_STALE_PAD_PCT" $json; rc=$?
   rm -f "$fc" "$rd"
@@ -224,7 +231,7 @@ one_release(){ local issue="${1:-}" force="" a st wd; shift || true
     echo "harness one: $wd has work that is not pushed — push it (the checkpoint does), or release --force to drop it" >&2
     return 4; fi
   remove_worktree "$CHECKOUT" "$wd" "issue/$issue"
-  rm -f "$(one_lease_file "$UNIT" "$issue")"
+  rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
   harness_event one_release kind=impl issue="$issue"
   if [[ "$st" == CLOSED* ]]; then echo "harness one: released $SLUG#$issue — closed"; return 0; fi
   if [[ -n "$st" ]] && _one_has "$st" "$HARNESS_LABEL_WORKING" && ! _one_has "$st" "$HARNESS_LABEL_PAUSED"; then

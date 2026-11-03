@@ -36,6 +36,9 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    `harness one phase <issue> <phase>`. FITS (exit 0) — go on. CHECKPOINT (exit 1) — do not start the
    phase; follow the `HARNESS CHECKPOINT` message it prints exactly (commit + push the branch, the
    handoff comment, `agent-working` → `agent-paused`) — the same one `pause --force` sends a lane.
+   Its `now%` counts this session's own spend since the last reading (its account's transcripts, at the
+   window's $ per 1%), so it rises as you work; a `usage stale` CHECKPOINT means that spend could not be
+   counted for a reading that is not current — checkpoint all the same.
 7. **Release.** Once checkpointed, or merged and closed, run `harness one release <issue>`: it drops the
    worktree, local branch and lease so the pool resumes a checkpointed issue after the reset. Exit 4 =
    work not pushed yet — push it; `--force` only if the human says to drop it. Tell the user where it

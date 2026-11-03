@@ -576,6 +576,7 @@ recover_orphan_working(){ local u slug n freed=0
 # keep off its agent-working. A lease nothing refreshes is a session that died; the pool then reaps
 # the issue like any dead lane. `harness one release` drops it.
 one_lease_file(){ echo "$RUN_DIR/one/$1-i$2.lease"; }   # <unit> <issue>
+one_start_file(){ echo "$RUN_DIR/one/$1-i$2.start"; }   # <unit> <issue> — #445: start epoch + readings at start
 one_lease_live(){ local f m; f="$(one_lease_file "$1" "$2")"
   m="$(stat -c %Y "$f" 2>/dev/null)" || return 1
   (( $(date +%s) - m < HARNESS_ONE_LEASE_MIN * 60 )); }

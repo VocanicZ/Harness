@@ -4,6 +4,26 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness one phase` sees the interactive session's own spend (#445)
+
+- On the claude adapter the per-phase re-check read only status-line drops and this fleet's headless
+  lanes. The interactive `/harness-one` session runs no Harness status line, and a paused or held fleet
+  renders none, so `now%` stayed frozen while the forecast left shrank: the checked value fell phase by
+  phase and the stop % was never reached mid-issue. A reading past its `resets_at` was dropped, leaving
+  the window unchecked.
+- `harness one phase` now adds what the reading's account spent since the reading was taken — its
+  Claude transcripts (main and sub-agents, each message once), priced at list price, over the window's
+  $ per 1% (the #364 bound, else `HARNESS_ONE_USD_PER_PCT`). `harness one start` keeps the readings it
+  saw (`run/one/<unit>-i<n>.start`, removed by `release` and the reaper), so a window that reset since
+  is checked from 0% at the reset plus the spend since, and one gone without a reset as it was read.
+- It fails closed: a reading that is not current (from before `start`, stale, of unknown age, or gone
+  since `start`) whose spend cannot be counted is a CHECKPOINT (`usage stale`), never a silent FITS.
+- `test/test_one_run.sh`: with no usage stub, a frozen status-line drop and the session's spend written
+  as Claude Code transcripts, `phase` goes FITS → FITS → CHECKPOINT without the drop being touched; a
+  window reset since `start` is checked from 0%; both CHECKPOINT when the spend is uncountable.
+  `test/test_one.py`: the spend arithmetic, the restored windows, the fail-closed cases, and
+  `account_spend_since` on a fixture config dir.
+
 ### `test_hermetic.sh`'s update.sh scan no longer misses tests at random (#441)
 
 - `runs_update` piped `grep -v` into `grep -q` under `set -o pipefail`. `grep -q` quits at its first

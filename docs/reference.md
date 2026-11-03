@@ -831,6 +831,16 @@ the operator keep going one issue at a time in their own session, with a budget 
   `HARNESS CHECKPOINT` message `pause --force` sends a lane — commit + push, handoff comment,
   `agent-working` → `agent-paused`. A window it cannot price (no reading, no p80%) does not stop the
   work on its own — the gate already said so — unless its `now% + reserve` alone is over the stop.
+  No status line reports the invoking session's own spend (it was started elsewhere, and a paused or
+  held fleet renders none), so `now%` is the reading **plus what its account spent since it was
+  taken**: every message of the Claude transcripts in the config dir named after the account
+  (`~/.claude` for `default`, `~/.claude-switch/accounts/<name>`, `$CLAUDE_CONFIG_DIR`), priced at
+  list price and divided by the window's $ per 1% (the #364 bound, else `HARNESS_ONE_USD_PER_PCT`).
+  `start` keeps the readings it saw (`run/one/<unit>-i<n>.start`), so a window that resets mid-issue —
+  `claude_limit_usage` drops a reading past its `resets_at` — is still checked, from 0% at the reset
+  plus the spend since. A reading that is not current (from before `start`, older than
+  `HARNESS_ONE_STALE_MIN`, of unknown age, or gone since `start`) and whose spend cannot be counted (no
+  config dir for its account, no $ per 1%) is a CHECKPOINT (`usage stale`), never a silent FITS (#445).
 - **Release** — after the checkpoint, or once merged, `harness one release <issue>` drops the
   worktree, local branch and lease (it refuses while work is unpushed, short of `--force`) and clears
   an `agent-working` that was never checkpointed. Nothing of the session's is left, so the pool

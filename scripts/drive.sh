@@ -110,7 +110,7 @@ reap_team(){
     session_live "$sess" && continue
     rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
     one_lease_live "$UNIT" "$issue" && continue   # #366: a /harness-one session is working it
-    rm -f "$(one_lease_file "$UNIT" "$issue")"
+    rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
     log "reaping issue #$issue worktree"
     harness_event reap kind=impl issue="$issue" reason=session_gone
     remove_worktree "$CHECKOUT" "$wd"

@@ -20,12 +20,19 @@ the work fits. The recommendation is only that — the human decides (skill/harn
 
 `phase` (#366) is the re-check before each phase of an approved issue: the same arithmetic on the
 forecast LEFT from that phase on (remaining), FITS (exit 0) or CHECKPOINT (exit 1) — see phase_check.
+With --spend (#445) it counts what the account spent since each reading was taken — its Claude
+transcripts, priced and converted at the window's $ per 1% — on top of the reading, so a session no
+status line reports for still sees its own spend; --start names `harness one start`'s snapshot (the
+start time, then the readings at start), so a window read at start and gone since (dropped after its
+reset) is still checked. A reading it cannot bring up to date that way is a CHECKPOINT, never FITS.
+
+    one.py phase --phase P --forecast F.json --readings R.tsv --spend [--start S.tsv] […]
 
 R.tsv lines: `<account>\t<window>\t<pct>\t<resets_at>\t<age seconds, empty = unknown>`.
 Text output is the forecast, then the arithmetic; --json is the gate dict with the forecast under
 "forecast". Exit status: 0 APPROVE, 1 DENY, 2 bad input.
 """
-import importlib.util, json, os, sys
+import importlib.util, json, os, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -63,16 +70,32 @@ def _norm(a):
     return "default" if a in ("", ".claude") else a
 
 
-def p80_pct(fc, account, window):
-    """(p80 % of this window, where it came from) from the forecast, or (None, why)."""
+def _pct_row(fc, account, window):
+    """The forecast's % row for this window: its account/window row, else the account's, else the
+    account-less one; None when it has none with a p80 %."""
     rows = fc.get("pct") or []
     acct = _norm(account)
     for want in ((acct, window), (acct, None), (None, None)):
         for r in rows:
             key = (None if r.get("account") is None else _norm(r["account"]), r.get("window"))
             if key == want and (r.get("total") or {}).get("p80") is not None:
-                src = "fit" if r.get("source") == "fit" else "fallback"
-                return float(r["total"]["p80"]), src
+                return r
+    return None
+
+
+def usd_per_pct(fc, account, window):
+    """The $ per 1% of this window the forecast priced it at (the row p80_pct reads), else the
+    HARNESS_ONE_USD_PER_PCT fallback; None when neither is known."""
+    r = _pct_row(fc, account, window)
+    usd = (r or {}).get("usd_per_pct") or (fc.get("calibration") or {}).get("fallback")
+    return float(usd) if usd else None
+
+
+def p80_pct(fc, account, window):
+    """(p80 % of this window, where it came from) from the forecast, or (None, why)."""
+    r = _pct_row(fc, account, window)
+    if r is not None:
+        return float(r["total"]["p80"]), "fit" if r.get("source") == "fit" else "fallback"
     usd = ((fc.get("calibration") or {}).get("fallback"))
     p80 = (fc.get("total") or {}).get("p80")
     if usd and p80 is not None:
@@ -128,17 +151,115 @@ def remaining(fc, phase):
     return out
 
 
-def phase_check(fc, readings, phase, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0):
+def account_spend_since(account, t0):
+    """$ the account spent after epoch `t0`: every message (each once, by its id) of the Claude
+    transcripts — main and sub-agents — in the config dirs named after the account (the name the
+    status line reports: the dir's basename, "default" for ~/.claude), priced as forecast.py prices
+    them. None when no config dir is that account's: its spend cannot be counted here."""
+    import glob
+    fm = _forecast()
+    acct = _norm(account)
+    dirs = [d for d in fm.st.config_dirs() if _norm(os.path.basename(os.path.normpath(d))) == acct]
+    if not dirs:
+        return None
+    seen, usd = set(), 0.0
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "projects", "*", "*.jsonl")) + \
+                glob.glob(os.path.join(d, "projects", "*", "*", "subagents", "*.jsonl")):
+            try:
+                if os.path.getmtime(f) <= t0:
+                    continue   # nothing in it is newer than t0
+            except OSError:
+                continue
+            for key, model, usage, _, ts in fm._messages(f):
+                t = fm.st.parse_ts(ts)
+                if t is None or t <= t0 or key in seen:
+                    continue
+                seen.add(key)
+                usd += fm.raw_cost(usage, model)
+    return usd
+
+
+def live_readings(fc, readings, spend, start=None, now=None):
+    """The readings brought up to `now` (#445): each one's pct plus what its account spent since it
+    was taken — `spend(account, t0)` $, over the window's $ per 1% (usd_per_pct). A reading's time is
+    now − age; of unknown age, the session's start. `start` = {"at": epoch, "readings": [...]} (the
+    snapshot `harness one start` took): a window read then and missing now is put back — from 0% at
+    its resets_at when that has passed (a reset window is dropped, not reported), else as it was read
+    at start (`restored`: "reset" / "start"). Each reading gains read (the % as read), at (its epoch),
+    spent_usd and spent_pct — None when its spend could not be counted (no time to count from, no
+    config dir for its account, no $ per 1%): then pct is the reading alone, and phase_check decides
+    whether it is current enough to stand (_stale)."""
+    now = time.time() if now is None else now
+    start_at = (start or {}).get("at")
+    rs = [dict(r) for r in readings]
+    have = {(_norm(r["account"]), r["window"]) for r in rs}
+    for r in (start or {}).get("readings") or []:
+        if (_norm(r["account"]), r["window"]) in have:
+            continue
+        reset = r.get("resets_at") or 0
+        if reset and reset <= now:
+            rs.append(dict(r, pct=0.0, resets_at=0, age=max(0.0, now - reset), restored="reset"))
+        else:
+            at = None if r.get("age") is None or start_at is None else start_at - r["age"]
+            rs.append(dict(r, age=None if at is None else max(0.0, now - at), restored="start"))
+    out = []
+    for r in rs:
+        at = now - r["age"] if r["age"] is not None else start_at
+        usd = spend(r["account"], at) if at is not None else None
+        per = usd_per_pct(fc, r["account"], r["window"])
+        spent = round(usd / per, 2) if usd is not None and per else None
+        out.append(dict(r, read=r["pct"], at=at, pct=round(r["pct"] + (spent or 0.0), 2),
+                        spent_usd=None if spent is None else round(usd, 2), spent_pct=spent))
+    return out
+
+
+def _stale(r, stale_min, start_at):
+    """Why reading `r` (live_readings') is not current, or None: put back from the start snapshot,
+    stale, or taken before the start. Of unknown age only counts with a start to measure from: a
+    HARNESS_ONE_AUTO lane (#392) has no snapshot, and its readings — its own lane's rate-limit events,
+    which carry no age here — are refreshed every turn; the stale pad covers them, as before."""
+    if r.get("restored") == "reset":
+        return "gone since its window reset"
+    if r.get("restored"):
+        return "gone since this session started"
+    if r["age"] is None:
+        return "of unknown age" if start_at is not None else None
+    if r["age"] > stale_min * 60:
+        return f"{_age(r['age'])}"
+    if start_at is not None and r["at"] < start_at:
+        return "taken before this session started"
+    return None
+
+
+def phase_check(fc, readings, phase, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0,
+                spend=None, start=None, now=None):
     """The per-phase re-check before `phase` (#366): the gate's arithmetic on the forecast LEFT
     (remaining) — now% + remaining p80% + reserve vs stop — for every window read. The verdict is
     CHECKPOINT iff some window's sum is over the stop %, else FITS. What the check cannot price
     (no reading, a window with no p80 %) does not stop the work on its own — the gate recommended
     DENY on that and the human approved anyway — but a window whose now% + reserve alone is over the
-    stop % is a CHECKPOINT whatever the work left would cost."""
-    g = gate(remaining(fc, phase), readings, stop, reserve, stale_min, stale_pad)
+    stop % is a CHECKPOINT whatever the work left would cost.
+
+    With `spend` (#445: account_spend_since, or a stand-in) now% is the reading plus what its account
+    spent since (live_readings), and `start` puts back a window read at start and dropped since. A
+    window whose reading is not current and whose spend cannot be counted is a CHECKPOINT: a reading
+    frozen since the start never FITS silently."""
+    rem = remaining(fc, phase)
+    if spend is not None:
+        readings = live_readings(rem, readings, spend, start, now)
+    g = gate(rem, readings, stop, reserve, stale_min, stale_pad)
     over, unchecked = [], []
-    for w in g["windows"]:
+    start_at = (start or {}).get("at")
+    for w, r in zip(g["windows"], readings):
         name = f"{w['account']} {w['window']}".strip()
+        if spend is not None:
+            w.update({k: r.get(k) for k in ("read", "spent_usd", "spent_pct", "restored")})
+            why = _stale(r, stale_min, start_at)
+            if r["spent_pct"] is None and why:
+                over.append(f"{name}: usage stale — the reading is {why} and no spend since it could be counted"
+                            f" (no Claude config dir for account {r['account']}, or no $ per 1%)")
+                continue
         if w["need"] is None:
             floor = round(w["now"] + w["pad"] + reserve, 2)
             if floor > stop:
@@ -165,6 +286,9 @@ def render(g):
     for w in g["windows"]:
         name = f"{w['account']} {w['window']}".strip()
         now = f"{w['now']:g}%"
+        if w.get("spent_pct") is not None:
+            now = (f"{now} (read {w['read']:g}%{' at reset' if w.get('restored') == 'reset' else ''}"
+                   f" + {w['spent_pct']:g}% spent since: ${w['spent_usd']:g} in transcripts)")
         if w["pad"]:
             now += f" + {w['pad']:g} stale pad ({_age(w['age'])}, > {g['stale_min']:g}m)"
         if w["need"] is None:
@@ -209,6 +333,9 @@ def main(argv=None):
     ap.add_argument("--stale-min", type=float, default=30.0)
     ap.add_argument("--stale-pad", type=float, default=3.0)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--spend", action="store_true",
+                    help="phase: add each account's transcript spend since its reading (#445)")
+    ap.add_argument("--start", help="phase: harness one start's snapshot — the start epoch, then readings TSV")
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         with open(a.forecast) as fh:
@@ -222,7 +349,16 @@ def main(argv=None):
         if not a.phase:
             print("harness one phase: --phase is required", file=sys.stderr)
             return 2
-        g = phase_check(fc, readings, a.phase, a.stop, a.reserve, a.stale_min, a.stale_pad)
+        start = None
+        if a.start:
+            try:
+                with open(a.start) as fh:
+                    first, _, rest = fh.read().partition("\n")
+                start = {"at": float(first.strip()), "readings": parse_readings(rest)}
+            except (OSError, ValueError):
+                start = None   # no snapshot: only the readings of now are checked
+        g = phase_check(fc, readings, a.phase, a.stop, a.reserve, a.stale_min, a.stale_pad,
+                        spend=account_spend_since if a.spend else None, start=start)
         print(json.dumps(g, indent=2) if a.json else render_phase(g))
         return 0 if g["verdict"] == "FITS" else 1
     g = gate(fc, readings, a.stop, a.reserve, a.stale_min, a.stale_pad)
