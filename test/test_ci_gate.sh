@@ -103,9 +103,11 @@ for p in impl bug-fix resume; do
   f="$HERE/../prompts/$p.md"
   assert_ok "$p.md refuses to merge red"         grep -qi 'DO NOT MERGE' "$f"
   assert_ok "$p.md never merges red to unblock"  grep -qi 'Never merge red to unblock' "$f"
-  # #190/#245: the repo's own CI entrypoint is the gate; without one, the full local suite is.
+  # #190/#245: the repo's own CI entrypoint is the gate; without one (#449) rtdd Rounds 1+2 on the
+  # rebased HEAD are — never the full suite, which runs once, at PRD review.
   assert_ok "$p.md names the local CI entrypoint" grep -q 'scripts/ci-local.sh' "$f"
-  assert_ok "$p.md falls back to the full local suite" grep -qi 'otherwise the FULL suite' "$f"
+  assert_ok "$p.md falls back to rtdd Rounds 1+2" grep -qi 'otherwise the gate is rtdd Rounds 1+2' "$f"
+  assert_no "$p.md never falls back to the full suite" grep -qi 'otherwise the FULL suite' "$f"
   assert_ok "$p.md says the gate is always local" grep -q 'the gate is ALWAYS local' "$f"
   # #245: GitHub CI is disabled on Harness repos, so its result must be neither blocker nor
   # permission — no step may RUN `gh pr checks`; the prompt may only name it to forbid it.

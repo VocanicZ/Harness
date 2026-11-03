@@ -4,6 +4,25 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Lanes test with rtdd Rounds 1+2 only; the full suite runs once, at PRD review (#449)
+
+- The impl, bug-fix and resume prompts ran the full suite up to three times per issue — a `baseline`
+  before the first edit, a `final` at the end (`THE FULL-SUITE BAR` + `ON SWARM`, #204), rtdd's
+  `Round 3` (#218) and step 6b's "the full suite IS the gate" (#246) — 15–22 min each on swarm, about
+  17h of 37.5h across the last 30 impl lanes. The rule #172 set is back: lanes never run it.
+- `prompts/_rtdd.md`: no Round 3 and no `→ FULL-SUITE BAR`. When rtdd is missing, older than v0.3,
+  erroring, or both rounds are empty, the lane runs the closest test files by hand, notes it in an
+  issue comment and files one rtdd bug if rtdd misbehaved — never the full suite. A failing test is
+  still re-run on `origin/<default-branch>` first; red there too is pre-existing.
+- `impl.md` / `bug-fix.md` / `resume.md`: the baseline/final suite runs (and resume's `hz-baseline`
+  worktree) are gone. Without a repo CI entrypoint (`scripts/ci-local.sh`, still the gate when
+  present) the step-6b gate is rtdd Rounds 1+2 re-selected on the rebased HEAD plus the lane's own
+  new tests.
+- `prompts/review.md` keeps its `{{SWARM_SUITE}} … -prd<N>-review` run and says it is the only
+  full-suite run in the pipeline. `docs/reference.md`, `README.md` and `CONTRIBUTING.md` describe the
+  new rule. `test/test_prompt_no_full_suite.sh` pins it on every lane prompt, raw and as `drive.sh`
+  renders it; `test_swarm.sh`, `test_rtdd.sh`, `test_ci_gate.sh` and `test_readme_docs.sh` follow.
+
 ### `harness one done` and HARNESS_ONE_AUTO skip an issue a live lane still owns (#446)
 
 - `issuelib next` skipped only `--exclude`, while dispatch also skips the issues a live lane still owns

@@ -55,8 +55,11 @@ assert "config table lists HARNESS_SEED_CI (CI workflow seeding is opt-in)" \
 # #245: Harness projects run no GitHub CI — the gate is local, the CI gate is off, seeding disables CI.
 assert "README documents the no-GitHub-CI default" \
   "grep -qE '^### No GitHub CI — the gate is local' '$README'"
-assert "README names ci-local.sh, else the full local suite, as the gate" \
-  "grep -q 'otherwise the \*\*full suite run locally on the rebased head\*\*' '$README'"
+# #449: without ci-local.sh the gate is rtdd Rounds 1+2 on the rebased head — never the full suite.
+assert "README names ci-local.sh, else rtdd Rounds 1+2, as the gate" \
+  "grep -q 'otherwise \*\*rtdd Rounds 1+2 on the rebased head\*\*' '$README'"
+assert "README: the no-CI gate is never the full suite" \
+  "awk '/^### No GitHub CI/{f=1;next} /^#/{f=0} f' '$README' | tr '\n' ' ' | grep -q 'never the full suite'"
 assert "config table: HARNESS_CI_GATE defaults to 0" \
   "grep -qE '^\| \`HARNESS_CI_GATE\` \| \`0\`' '$README'"
 assert "config table: HARNESS_DISABLE_CI defaults to 1 (the opt-out flag)" \
@@ -107,8 +110,8 @@ assert "README keeps the #test-selection-rtdd anchor target" "grep -qE '^### Tes
 assert "README still links #test-selection-rtdd" "grep -q '](#test-selection-rtdd)' '$README'"
 SECTION=$(awk '/^### Test selection \(rtdd\)$/{s=1} s&&/^### Never merging red/{s=0} s' "$README")
 CONTRIB=$(grep -E '^[0-9]+\. \*\*Run the tests\*\*' "$HERE/../CONTRIBUTING.md")
-# The README's steps and the lane prompt's steps, in the prompt's order: fallback, which, init,
-# Round 1, Round 2, untested, Round 3. Each pattern must match somewhere AFTER the previous one's
+# The README's steps and the lane prompt's steps, in the prompt's order: which, init, Round 1,
+# Round 2, untested, the fallback (#449: never the full suite — it runs once, at PRD review). Each pattern must match somewhere AFTER the previous one's
 # match, so an early aside ("no Round 1 in its output") cannot satisfy a later step.
 in_order(){ # text, then patterns
   local rest="$1" p
@@ -117,14 +120,19 @@ in_order(){ # text, then patterns
     [[ "$rest" =~ $p ]] || return 1
     rest="${rest#*"${BASH_REMATCH[0]}"}"
   done; }
-STEPS=('older than v0\.3' 'rtdd which --base' 'rtdd init|\.rtdd/config\.yaml' 'Round 1' 'Round 2' 'untested' 'Round 3')
+STEPS=('rtdd which --base' 'rtdd init|\.rtdd/config\.yaml' 'Round 1' 'Round 2' 'untested' 'older than v0\.3' 'never the full suite|once, at PRD review')
 assert "prompts/_rtdd.md lists the steps in order (the reference)" "in_order \"\$(cat '$PARTIAL')\" \"\${STEPS[@]}\""
 assert "README Test selection lists the same steps in the same order" "in_order \"\$SECTION\" \"\${STEPS[@]}\""
 assert "Contributing step 4 lists the same steps in the same order" "in_order \"\$CONTRIB\" \"\${STEPS[@]}\""
 assert "Test selection says rounds run with the project's own test command" \
   "grep -qi \"project's own test command\" <<<\"\$SECTION\""
 assert "Test selection says rtdd never runs tests" "grep -qiE 'runs none|never runs' <<<\"\$SECTION\""
-assert "Test selection says the full suite runs once before the PR" \
-  "grep -qiE 'full suite, once, at the end, before the PR|full suite once' <<<\"\$SECTION\""
+assert "Test selection says lanes never run the full suite" \
+  "grep -qi 'never the full suite' <<<\"\$SECTION\""
+assert "Test selection says the full suite runs once, at PRD review" \
+  "tr '\n' ' ' <<<\"\$SECTION\" | grep -qi 'full suite runs once, at PRD review'"
+for d in "$README" "$HERE/../README.md" "$HERE/../CONTRIBUTING.md"; do
+  assert "$(basename "$d") names no lane Round 3 / full-suite bar" "! grep -qE 'Round 3|full-suite bar|FULL-SUITE BAR' '$d'"
+done
 
 echo "── readme docs ok"

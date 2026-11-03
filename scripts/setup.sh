@@ -17,14 +17,14 @@ skills_heal   # #439: the engine's skills linked into every installed CLI's user
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI"
 gh auth status >/dev/null 2>&1 || die "gh not authenticated — run: gh auth login"
 # rtdd is the lane test loop (prompts/_rtdd.md), not a hard prerequisite — a lane without it runs
-# the full suite instead of rtdd's rounds, which is correct but slow. WARN, never die. This check is
+# the closest tests by hand instead of rtdd's rounds (#449: never the full suite). WARN, never die. This check is
 # also the backstop for the one upgrade `harness update` cannot fix itself: git replaces update.sh by
 # rename, so the update that BRINGS the rtdd install still runs the OLD update.sh, and a host stays
 # without rtdd until something says so. This is that something.
 if command -v rtdd >/dev/null; then
   rtdd_skill_install   # #187: the lane prompts defer the details to the user-level skill
 else
-  echo "  ! rtdd not found — lanes will run the full suite instead of rtdd's rounds (slow but correct)."
+  echo "  ! rtdd not found — lanes will run the closest tests by hand instead of rtdd's rounds (#449: never the full suite)."
   echo "    Install it with:  npx -y github:VocanicZ/rtdd     (or: harness update)"
 fi
 

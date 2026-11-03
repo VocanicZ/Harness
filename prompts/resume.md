@@ -32,18 +32,6 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
    wrote it); and at least one test FAILS WITHOUT the change it covers — a test that reaches
    the code and asserts nothing proves nothing. You are finishing someone else's work: clear
    `untested` by WRITING the missing tests, never by discarding the WIP you were dispatched to finish.
-   THE FULL-SUITE BAR, referenced above:
-     git worktree add /tmp/hz-baseline-{{ISSUE}} origin/<default-branch>
-     ( cd /tmp/hz-baseline-{{ISSUE}} && <build if any> && <full test suite> )   # save the failure list
-     git worktree remove --force /tmp/hz-baseline-{{ISSUE}}
-   Then run the suite on your branch. The bar is NO NEW FAILURES vs that baseline plus your own
-   tests green.
-   ON SWARM — this fleet runs HARNESS_SWARM=`{{SWARM}}`. When that is `auto`, run both suites (the
-   baseline in /tmp/hz-baseline-{{ISSUE}}, then your branch in "$PWD") as swarm jobs instead:
-     {{SWARM_SUITE}} <worktree> {{SLUG}}-{{ISSUE}}-<baseline|final> [test files...]
-   Exit `0` green · `1` red (the failing files are printed — compare them against the baseline
-   exactly as you would a local run) · `3` not run on swarm (swarm absent, off, or timed out) →
-   run that suite locally as above. The NO NEW FAILURES bar is the same either way.
    Never delete, skip, or weaken a test to go green, and never clear `untested` by
    deleting the code it points at.
 5. Commit, push, open/refresh the PR:
@@ -52,8 +40,8 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>   # or reuse the existing PR
 6. RE-VERIFY AGAINST THE CURRENT BASE — immediately before merging, every time:
      git fetch origin && git rebase origin/<default-branch>
-   You were paused, so the base has almost certainly moved — more so than for a fresh lane. A
-   green suite on your branch only proves your change against the base you started from, and a
+   You were paused, so the base has almost certainly moved — more so than for a fresh lane.
+   Green rounds on your branch only prove your change against the base you started from, and a
    conflict-free text merge can still be semantically broken: another lane edited the same
    function, moved a helper's contract, or rebuilt an artifact your tests load. If the rebase
    moved anything: re-run the build, re-run `rtdd which --base origin/<default-branch>` and its
@@ -61,8 +49,10 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
 6b. GATE LOCALLY — run the repo's gate on your rebased HEAD and read its RESULT before merging, every
    time. Harness projects run NO GitHub CI, so the gate is ALWAYS local: the repo's own CI entrypoint
    (`scripts/ci-local.sh`, `make ci`, or whatever CLAUDE.md / README names) when it ships one — its
-   exit code is the verdict — otherwise the FULL suite on this rebased HEAD, same no-new-failures
-   bar as step 4. NEVER use `gh pr checks`, a GitHub Actions run, or mergeable-state as the gate or
+   exit code is the verdict — otherwise the gate is rtdd Rounds 1+2 plus your own new tests:
+   re-select with `rtdd which --base origin/<default-branch>` on this rebased HEAD and run both
+   rounds, same no-new-failures check as step 4; never the full suite (it runs once, at PRD
+   review). NEVER use `gh pr checks`, a GitHub Actions run, or mergeable-state as the gate or
    as permission to merge: GitHub CI is disabled by design, so what it reports is stale or absent.
    - Green → go to step 7.
    - Red → DO NOT MERGE. Fix the cause on this branch, push, re-run the gate. Up to 3 attempts;

@@ -82,7 +82,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_CI_GATE:=0}"                # #50/#245: 1 = hold unit dispatch while the default branch's GitHub CI is red; 0 = off (default: no GitHub CI)
 : "${HARNESS_DISABLE_CI:=1}"             # #245: seeding disables a repo's GitHub Actions — 1 = test-CI only (release/deploy kept); all = every workflow; 0 = off
 : "${HARNESS_POOL_TAKES_BUGS:=1}"         # #214: 1 = an idle pool slot takes the oldest bug while the priority lane is busy; 0 = bugs stay on the lane
-: "${HARNESS_SWARM:=auto}"               # #202: auto = lanes run full-suite verification as a swarm job when `swarm` is on PATH; off = always local
+: "${HARNESS_SWARM:=auto}"               # #202: auto = PRD review's full-suite run (the only one, #449) goes out as a swarm job when `swarm` is on PATH; off = always local
 # #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
 # shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
 source "$(dirname "${BASH_SOURCE[0]}")/turn.sh"
@@ -1338,20 +1338,20 @@ fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
     [[ "$(dirname "$prj")" == "$dir" ]] && { printf '%s\n' "$slugs"; return 0; }
   done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
   printf '\n'; }
-# swarm_suite_cmd — the full-suite-on-swarm helper as one shell-quoted command, rendered into the lane
-# prompts as {{SWARM_SUITE}} (#202). It carries the fleet's mode and run dir explicitly: a Claude
+# swarm_suite_cmd — the full-suite-on-swarm helper as one shell-quoted command, rendered into the review
+# prompt as {{SWARM_SUITE}} (#202; #449: lanes never run the full suite). It carries the fleet's mode and run dir explicitly: a Claude
 # session does not inherit this process's environment, so it cannot be left to find them itself.
 swarm_suite_cmd(){ printf 'HARNESS_SWARM=%q RUN_DIR=%q bash %q' "$HARNESS_SWARM" "$RUN_DIR" "$ENGINE_DIR/scripts/swarm-suite.sh"; }
 # rtdd_skill_install — the user-level `rtdd` skill the lane prompts defer to (#187). rtdd v0.3 writes
 # no agent files into projects, so this skill is where a lane learns its rounds. Upstream's install
 # is idempotent and covers ~/.claude; agy reads its own user skill dir, so an agy fleet also gets the
 # skill there, extracted from `rtdd skill prompt`. WARN and return 1 on any failure, never die: a lane
-# without the skill still has the prompt's own pointer and the full-suite bar.
+# without the skill still has the prompt's own pointer and its hand-picked fallback.
 rtdd_skill_install(){ local d
   command -v rtdd >/dev/null || return 0   # the missing-binary warning is setup's own
   # --legacy-files is v0.3-only; an older rtdd's skill install merges into ~/.codex and ~/.gemini.
   rtdd --help 2>&1 | grep -q -- '--legacy-files' || {
-    echo "  ! rtdd predates v0.3 — lanes need its rounds and fall back to the full suite. Upgrade: rtdd update"
+    echo "  ! rtdd predates v0.3 — lanes need its rounds and fall back to hand-picked tests. Upgrade: rtdd update"
     return 1; }
   rtdd skill install >/dev/null 2>&1 || {
     echo "  ! rtdd skill install failed — lanes run without the rtdd skill. Retry: rtdd skill install"
