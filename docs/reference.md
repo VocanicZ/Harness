@@ -471,16 +471,19 @@ A fleet that pinned `--model opus` in `HARNESS_CLAUDE_FLAGS` gets **Sonnet imple
 `.harness/config` to keep every lane on Opus.
 
 **Verifying what ran (#376).** At `session_end` the stats sweep takes the model with the most
-**output** tokens in the session's usage (its transcripts, sub-agents included) and compares it with
-the model the `launch` event logged, **by family**: `sonnet` and `claude-sonnet-5-5` match, as do
+**output** tokens in the session's **own** transcript (`<session>.jsonl`; its sub-agents' transcripts are
+left out, #461) and compares it with the model the `launch` event logged, **by family**: `sonnet` and `claude-sonnet-5-5` match, as do
 `opus[1m]` and `claude-opus-5-5`; a non-Claude id matches itself without a provider prefix or date
 stamp, or a `-`-suffixed variant of itself (`gpt-5.6` / `gpt-5.6-codex`). A different family appends a
 `model_mismatch` event (`intended`, `actual`, `session`, `issue`) to the event log, and it is flagged
 in `harness status` (this fleet's, last 7 days), `harness stats` (the fleet summary, the `--prd`
 session row, the `--issue` timeline) and the web dashboard (the issue's DAG node, its PRD's node and
-header, the drawer timeline). Only the dominant model counts, so a small side call (title generation,
-a sub-agent on another model) never trips it; a lane with no intended model (the CLI's own default)
-is not checked.
+header, the drawer timeline). Only the lane's own dominant model counts, so a side call or a sub-agent
+on another model never trips it, however many tokens it writes — the `session_end` keeps the merged
+`usage` (sub-agents included) for token and cost totals and records the lane's own model as
+`main_model`; a `session_end` without one (logged before #461, or a lane with no transcript) falls back
+to the dominant model of its merged usage. A lane with no intended model (the CLI's own default) is not
+checked.
 
 **Measuring the saving (#378).** `harness stats --by-role` reports, per role, the sessions, input /
 output / cache-write / cache-read tokens (by model too) and their list-price $ (the `forecast.py` price

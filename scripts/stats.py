@@ -306,6 +306,15 @@ def session_usage(transcript):
     return acc, span[0], span[1]
 
 
+def main_dominant_model(transcript):
+    """The dominant-by-output model of the session's OWN transcript (#461), sub-agents left out: what
+    the lane itself ran. None when the main transcript holds no output (a headless lane's
+    events.jsonl, whose per-turn usage folds the sub-agents in, is one such)."""
+    acc = {}
+    _file_usage(transcript, acc, [None, None])
+    return dominant_model(acc)
+
+
 # --- a resumed session (#426) ---------------------------------------------------
 # A headless lane relaunched after a checkpoint, a crash or a usage park carries on its claude session
 # (`claude -p --resume <id>`), which appends to the SAME <id>.jsonl transcript. Its session_end then
@@ -382,9 +391,9 @@ def same_family(a, b):
 
 
 def dominant_model(usage):
-    """The model with the most OUTPUT tokens in a session's {model: usage}, or None when none produced
-    any. A side call (title generation, a sub-agent on another model) is small next to the session's
-    own turns, so it never wins."""
+    """The model with the most OUTPUT tokens in a {model: usage}, or None when none produced any. Fed
+    a session's merged usage, a side call is small next to the session's own turns and never wins; a
+    lane whose sub-agents out-write it is why model_mismatch decides on the main transcript (#461)."""
     best = None
     for model, u in sorted((usage or {}).items()):
         out = int((u or {}).get("output") or 0) if isinstance(u, dict) else 0
@@ -399,8 +408,12 @@ MISMATCH_KEYS = ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "s
 def model_mismatch(end):
     """The `model_mismatch` record for one session_end, or None: the intended model (the launch's
     logged `model` — .harness-lane, role key or FLAGS) against the dominant-by-output model of its
-    usage, by family. No intended model (the CLI's own default) or no usage → no check."""
-    intended, actual = end.get("model"), dominant_model(end.get("usage"))
+    usage, by family. No intended model (the CLI's own default) or no usage → no check. The model that
+    ran is the session_end's `main_model` — the dominant model of the lane's own transcript, so a
+    sub-agent on another family never trips the check (#461) — else, for a session_end that has none
+    (logged before #461, or a lane with no transcript), the dominant model of its merged usage."""
+    intended = end.get("model")
+    actual = end.get("main_model") or dominant_model(end.get("usage"))
     if not intended or not actual or same_family(intended, actual):
         return None
     rec = {k: end[k] for k in MISMATCH_KEYS if end.get(k) not in (None, "")}
@@ -444,6 +457,8 @@ def build_event(event, common, ctx, kv, now=None):
         tsv = rec.pop("usage_tsv", None)   # #188: what the CLI adapter folded from its own transcripts
         if tr and "usage" not in rec:
             rec["usage"], _, last = session_usage(tr)
+            if whole:
+                rec["main_model"] = main_dominant_model(tr)   # #461: what the lane itself ran, not its sub-agents
             # #426: a resumed session reports only this run. A lane's events.jsonl is this run's alone
             # (headless_sess_start starts every launch in a fresh lane dir); a transcript is not.
             prior = logged_session_usage(rec["session"])

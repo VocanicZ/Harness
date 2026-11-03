@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `model_mismatch` decides on the lane's own transcript, not its sub-agents (#461)
+
+- The check (#376) took the dominant-by-output model of the session's merged usage, which folds in
+  every `subagents/*.jsonl`. A lane on the intended model that mostly orchestrated while sub-agents on
+  another family (an explicit `model: opus`, a built-in agent on another model) wrote most of the
+  output was flagged as a launch-routing failure that never happened.
+- `session_end` now records `main_model`, the dominant model of the session's own `<id>.jsonl`, and
+  `model_mismatch` compares that with the launched model. The merged `usage` is unchanged, so token
+  and cost totals still count the sub-agents. A `session_end` without `main_model` (logged earlier, or a
+  lane with no transcript) falls back to the dominant model of its merged usage.
+- test_stats.py: a sonnet main transcript plus an opus sub-agent that out-writes it gives no
+  `model_mismatch`; an opus main transcript on a sonnet launch still gives one (fails without the fix).
+
 ### `harness one phase` no longer checkpoints when a live codex/copilot window resets mid-issue (#459)
 
 - Since #457 a live window that reset partway through an issue was put back from the start snapshot
