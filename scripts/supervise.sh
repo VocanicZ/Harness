@@ -33,6 +33,18 @@
 #      work (live session, no agent-working label) -> re-label. Alarm only (a human decides):
 #      review loop, no frontier, decompose stalled, unfiled plan tasks, missing ## Parent,
 #      wayfinder leak, deep context. Alarms go to the log; `--alarms` lists the ones still firing.
+#   7. auto-update (#477): a published release is installed by the host, not by an operator. Each pass
+#      checks the latest release at most once per HARNESS_AUTO_UPDATE_EVERY (600 s) and, when it is
+#      newer than the installed one, runs `harness update` from the stable engine link, then rolls the
+#      workers of EVERY fleet onto it (scripts/roll.sh: only worker/priority processes not already on
+#      the new release, each under the fleet's pool.lock, never one holding a bug claim, never a lane
+#      session; `harness start` relaunches them). HARNESS_AUTO_UPDATE_HEALTH_S (120 s) after the roll a
+#      dead worker or priority pid -> `harness update --rollback`, roll again onto the old release,
+#      the bad tag is never retried, and one `bug` is filed on the engine's own repo. The phase of an
+#      update lives in $HARNESS_HOME/supervise/auto-update.json, so the supervisor the update restarts
+#      (`supervise.sh --install` in update.sh) resumes the roll and the health check. Off with
+#      HARNESS_AUTO_UPDATE=0; never on a HARNESS_REF pin, a git-checkout engine, or an engine that is not
+#      a release of this host; never a downgrade or a re-install of the installed release.
 # Every action is logged to $HARNESS_HOME/supervise.log.
 #
 # usage: harness supervise [--once] [--dry-run] | --alarms | --install | --uninstall
@@ -54,11 +66,13 @@ SUP_CONF="${HARNESS_SUPERVISE_CONF:-$HARNESS_HOME/supervise.conf}"
 : "${INTERVAL:=300}" "${LOCK_GRACE:=1200}" "${NUDGE_MIN:=45}" "${KILL_MIN:=120}"
 : "${RENUDGE_S:=10800}" "${CPU_ACTIVE_S:=10}" "${EXTRA_RE:=}" "${EXTRA_MIN:=60}"
 : "${ONLINE_URL:=https://api.anthropic.com}" "${UNPARENTED_OK:=}"
+: "${HARNESS_AUTO_UPDATE:=1}" "${HARNESS_AUTO_UPDATE_EVERY:=600}" "${HARNESS_AUTO_UPDATE_HEALTH_S:=120}"
 SUP_STATE="${HARNESS_SUPERVISE_STATE:-$HARNESS_HOME/supervise}"
 SUP_LOG="${HARNESS_SUPERVISE_LOG:-$HARNESS_HOME/supervise.log}"
 source "$SUP_ENGINE_DIR/scripts/turn.sh"   # #207: stuck-turn detection + interrupt (after supervise.conf, which may set HARNESS_TURN_MAX)
 source "$SUP_ENGINE_DIR/scripts/session/dispatch.sh"   # #346: every pane it reads, types into or kills (sess_*)
 source "$SUP_ENGINE_DIR/scripts/cli/dispatch.sh"   # #188: each CLI's pane regexes (cli_with <cli> …)
+[[ -f "$SUP_ENGINE_DIR/scripts/roll.sh" ]] && source "$SUP_ENGINE_DIR/scripts/roll.sh"   # #477: fleet_roll, shared with `harness update`
 # The unit and every restart go through the STABLE engine path bin/harness exported (#281), so a
 # release flip takes effect on restart without rewriting the unit. Taken only when it resolves to
 # this engine: a link inherited from some other engine's environment never redirects the unit.
@@ -394,8 +408,161 @@ PY
 
 sup_pass(){ local sd
   sup_net_gate || return 0
+  sup_auto_update
   while read -r sd; do sup_check_fleet "$sd"; done < <(sup_fleets)
   sup_check_extra
+}
+
+# --- auto-update (#477) -----------------------------------------------------------------------------
+SUP_AU_STATE="$SUP_STATE/auto-update.json" SUP_AU_SKIP="$SUP_STATE/auto-update.skip"
+SUP_AU_CHECKED="$SUP_STATE/auto-update.checked" SUP_AU_BUGS="$SUP_STATE/auto-update.bugs"
+SUP_AU_TERM=0
+# sup_event <event> [k=v …] — a host event (events.jsonl); never fails the pass, never written by a dry run.
+sup_event(){ (( SUP_DRY )) && return 0
+  HARNESS_HOME="$HARNESS_HOME" timeout 10 python3 "$SUP_ENGINE_DIR/scripts/stats.py" emit "$@" -c "prefix=supervise" >/dev/null 2>&1 \
+    || sup_log "WARN auto-update: event $1 not written"; return 0; }
+# sup_au_get <key> / sup_au_put k=v … — the update's phase, kept on disk so the NEXT supervisor process
+# (the unit restarts this one in the middle of `harness update`) picks the roll and health check up.
+sup_au_get(){ python3 - "$SUP_AU_STATE" "$1" <<'PY' 2>/dev/null
+import json, sys
+try: v = json.load(open(sys.argv[1])).get(sys.argv[2], "")
+except (OSError, ValueError): v = ""
+print(v)
+PY
+}
+sup_au_put(){ (( SUP_DRY )) && return 0; mkdir -p "$SUP_STATE"
+  python3 - "$SUP_AU_STATE" "$@" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+try: d = json.load(open(p))
+except (OSError, ValueError): d = {}
+for kv in sys.argv[2:]:
+    k, _, v = kv.partition("=")
+    d[k] = int(v) if v.lstrip("-").isdigit() and k in ("roll_done", "flipped_at", "rolled_at") else v
+tmp = p + ".tmp"
+with open(tmp, "w") as f: json.dump(d, f)
+os.replace(tmp, p)
+PY
+}
+sup_au_clear(){ (( SUP_DRY )) || rm -f "$SUP_AU_STATE"; }
+# sup_rel <fn> [args] — install.sh's release functions (rel_latest_tag, semver_cmp, engine_current,
+# engine_version), in a subshell: the file defines far more than a supervisor wants in its namespace.
+sup_rel(){ ( export HARNESS_HOME; HARNESS_INSTALL_NOMAIN=1 source "$SUP_ENGINE_DIR/install.sh" || exit 3; "$@" ); }
+# sup_au_enabled — this supervisor is a release engine of THIS host and the operator left it on.
+sup_au_enabled(){ [[ ${HARNESS_AUTO_UPDATE:-1} != 0 && -z ${HARNESS_REF:-} && -L $HARNESS_HOME/engine ]] || return 1
+  [[ "$(realpath -m "$SUP_ENGINE_DIR" 2>/dev/null)" == "$(realpath -m "$HARNESS_HOME/releases" 2>/dev/null)"/* ]]; }
+# sup_au_harness <args> — `harness <args>` through the stable engine link, in the clean env bin/harness
+# expects. TERM is held while it runs: `harness update` restarts THIS unit, and the supervisor must
+# survive that long enough to start the roll (the state file covers a hard kill).
+sup_au_harness(){ local rc
+  trap 'SUP_AU_TERM=1' TERM
+  env -u STATE_DIR -u ENGINE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF HARNESS_HOME="$HARNESS_HOME" \
+    bash "$HARNESS_HOME/engine/bin/harness" "$@" >>"$SUP_LOG" 2>&1 </dev/null 8>&-; rc=$?
+  trap - TERM; return $rc; }
+
+# sup_au_roll — roll the workers of every registered fleet onto the engine the link names now. Sets
+# SUP_AU_DEFERRED (workers left for a later pass: a bug claim) and SUP_AU_DEAD.
+sup_au_roll(){ local sd want res k d x name
+  SUP_AU_DEFERRED=0 SUP_AU_DEAD=0
+  want="$(realpath -m "$HARNESS_HOME/engine")"
+  while read -r sd; do
+    res="$(mktemp)"
+    ( exec 8>&-                                   # the auto-update lock fd: a relaunched worker must never inherit it
+      sup_clean_env; export STATE_DIR="$sd"
+      ROLL_RESULT="$res" ROLL_LOG=sup_log fleet_roll "$sd" "$want" "$HARNESS_HOME/engine/bin/harness" "$SUP_DRY" )
+    read -r k d x <"$res"; rm -f "$res"
+    SUP_AU_DEFERRED=$((SUP_AU_DEFERRED + ${d:-0})); SUP_AU_DEAD=$((SUP_AU_DEAD + ${x:-0}))
+    name="$(basename "$(dirname "$sd")")"
+    (( ${k:-0} + ${d:-0} > 0 )) && sup_event workers_rolled fleet="$name" killed="${k:-0}" deferred="${d:-0}" -c "project=$(dirname "$sd")"
+  done < <(sup_fleets)
+}
+# sup_au_dead_pids — every worker / priority pid file whose process is gone, over every fleet.
+sup_au_dead_pids(){ local sd pf
+  shopt -s nullglob
+  while read -r sd; do
+    for pf in "$sd"/run/worker-*.pid "$sd"/run/priority.pid; do [[ -f $pf ]] && ! sup_alive "$pf" && echo "$pf"; done
+  done < <(sup_fleets)
+  shopt -u nullglob; }
+# sup_au_file_bug <bad tag> <good tag> <dead pid files> — one bug on the engine's own repo, never two for a tag.
+sup_au_file_bug(){ local bad=$1 good=$2 dead=$3 repo="${HARNESS_RELEASE_REPO:-VocanicZ/Harness}"
+  grep -qxF "$bad" "$SUP_AU_BUGS" 2>/dev/null && return 0
+  if sup_act gh issue create -R "$repo" --label bug \
+       --title "Release $bad: fleet workers died after the auto-update — rolled back to $good" \
+       --body "harness supervise installed release \`$bad\` and rolled every fleet's workers onto it, and $HARNESS_AUTO_UPDATE_HEALTH_S s later these worker pids were dead:
+
+$(sed 's/^/- /' <<<"$dead")
+
+It ran \`harness update --rollback\` (the engine is on \`$good\` again), rolled the workers back, and will never retry \`$bad\`; the next release is installed automatically. Fix forward. Supervise log: \`$SUP_LOG\`." >>"$SUP_LOG" 2>&1; then
+    (( SUP_DRY )) || echo "$bad" >>"$SUP_AU_BUGS"
+  else sup_log "ERROR auto-update: could not file the bug for $bad on $repo"; fi
+}
+# sup_au_rollback <bad tag> <previous tag> <dead pid files>
+sup_au_rollback(){ local bad=$1 prev=$2 dead=$3 cur
+  sup_log "ERROR auto-update: $bad is unhealthy — dead: $(tr '\n' ' ' <<<"$dead")— rolling back to $prev"
+  mkdir -p "$SUP_STATE"; grep -qxF "$bad" "$SUP_AU_SKIP" 2>/dev/null || echo "$bad" >>"$SUP_AU_SKIP"   # first: a crash below never retries it
+  sup_au_put phase=rollback
+  sup_au_harness update --rollback || sup_log "ERROR auto-update: harness update --rollback failed"
+  cur="$(sup_rel engine_current)"
+  sup_au_put tag="$cur" prev="$bad" phase=rolling roll_done=0 health=ok rolled_at="$(date +%s)"
+  sup_event engine_rolled_back from="$bad" to="${cur:-unknown}" reason="workers dead $HARNESS_AUTO_UPDATE_HEALTH_S s after the update: $(tr '\n' ' ' <<<"$dead")"
+  sup_au_roll
+  (( SUP_AU_DEFERRED )) || sup_au_put roll_done=1
+  sup_au_file_bug "$bad" "${cur:-$prev}" "$dead"
+}
+# sup_au_progress — an update that is under way (state on disk): finish the roll, then the health
+# check. rc 0: handled (the pass does no new release check); rc 1: nothing under way.
+sup_au_progress(){ local phase tag prev cur now rolled dead
+  phase="$(sup_au_get phase)"; [[ -n $phase && $phase != done ]] || return 1
+  tag="$(sup_au_get tag)"; prev="$(sup_au_get prev)"; cur="$(sup_rel engine_current)"; now=$(date +%s)
+  if [[ $phase == installing ]]; then
+    if [[ $cur != "$tag" ]]; then sup_log "WARN auto-update: the update to $tag did not complete (engine is $cur) — trying again next cycle"; sup_au_clear; return 0; fi
+    sup_au_put phase=rolling; sup_event engine_updated from="$prev" to="$tag"; phase=rolling
+  fi
+  if [[ $cur != "$tag" ]]; then sup_log "auto-update: the engine moved to $cur by hand — dropping the $tag roll"; sup_au_clear; return 1; fi
+  if [[ "$(sup_au_get roll_done)" != 1 ]]; then
+    sup_au_roll
+    rolled="$(sup_au_get rolled_at)"; [[ -n $rolled ]] || sup_au_put rolled_at="$now"
+    (( SUP_AU_DEFERRED )) || sup_au_put roll_done=1
+  fi
+  rolled="$(sup_au_get rolled_at)"
+  if [[ "$(sup_au_get health)" == pending && -n $rolled ]] && (( now - rolled >= HARNESS_AUTO_UPDATE_HEALTH_S )) && (( ! SUP_DRY )); then
+    dead="$(sup_au_dead_pids)"
+    if [[ -z $dead ]]; then sup_au_put health=ok; sup_log "auto-update: $tag is healthy on every fleet"
+    else sup_au_rollback "$tag" "$prev" "$dead"; return 0; fi
+  fi
+  [[ "$(sup_au_get roll_done)" == 1 && "$(sup_au_get health)" == ok ]] && sup_au_put phase=done
+  return 0
+}
+# sup_au_check — look for a newer release (at most every HARNESS_AUTO_UPDATE_EVERY s) and install it.
+sup_au_check(){ local now last tag rc cur order
+  now=$(date +%s); last=$(cat "$SUP_AU_CHECKED" 2>/dev/null); last=${last:-0}
+  (( now - last >= HARNESS_AUTO_UPDATE_EVERY )) || return 0
+  (( SUP_DRY )) || { mkdir -p "$SUP_STATE"; echo "$now" >"$SUP_AU_CHECKED"; }
+  tag="$(sup_rel rel_latest_tag 2>&1)"; rc=$?
+  if (( rc == 2 )); then sup_log "WARN auto-update: the release query named no release — trying again next cycle"; return 0
+  elif (( rc != 0 )); then sup_log "WARN auto-update: could not resolve the latest release (${tag:0:160}) — trying again next cycle"; return 0; fi
+  cur="$(sup_rel engine_version)"
+  if ! order="$(sup_rel semver_cmp "$tag" "$cur")"; then
+    sup_log "WARN auto-update: cannot tell whether release \"$tag\" is newer than $cur (not [v]MAJOR.MINOR.PATCH) — skipped"; return 0
+  fi
+  (( order > 0 )) || return 0
+  grep -qxF "$tag" "$SUP_AU_SKIP" 2>/dev/null && return 0              # rolled back once: never again
+  if (( SUP_DRY )); then
+    sup_log "DRY auto-update: would update $cur -> $tag (harness update), then roll the workers of every fleet"
+    return 0
+  fi
+  sup_log "ACT auto-update: $cur -> $tag"
+  sup_au_put tag="$tag" prev="$cur" phase=installing flipped_at="$now" rolled_at= roll_done=0 health=pending
+  sup_au_harness update || { sup_log "WARN auto-update: harness update to $tag failed — trying again next cycle"; }
+  sup_au_progress
+}
+# sup_auto_update — rule 7. One at a time (a manual --once beside the unit), on a fd the update's own
+# children never inherit.
+sup_auto_update(){ local lk
+  sup_au_enabled || return 0
+  mkdir -p "$SUP_STATE"; lock_try "$SUP_STATE/auto-update.lock" lk 8 || return 0
+  sup_au_progress || sup_au_check
+  lock_release "$lk"
 }
 
 # --- systemd user unit ------------------------------------------------------------------------
@@ -481,6 +648,7 @@ esac; done
 mkdir -p "$SUP_STATE/panes"
 while :; do
   sup_pass
+  (( SUP_AU_TERM )) && { sup_log "stopping: TERM arrived while an update restarted this unit"; exit 0; }
   (( SUP_ONCE )) && break
   sleep "$INTERVAL"
 done
