@@ -49,21 +49,30 @@ EOF
   # even with its row intact — the row can and must persist.
 }
 
+# check_session_goal <sess> — one live session's goal check: a satisfied goal ends the session, a
+# self-parked issue is nudged (#417), a recovered one clears its state. Split out of reap_done_sessions
+# (#468) so the worker that owns a lane runs it on that lane alone.
+check_session_goal(){ local s="$1" goal res
+  goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"; [[ -z "$goal" ]] && return 0
+  res="$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)"
+  case "$res" in
+    DONE)
+      log "session $s goal '$goal' satisfied → advancing"
+      stats_sess_event "$s" goal_satisfied
+      cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
+      rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.selfpark";;
+    PAUSED)  selfpark_tend "$s" "${goal#ISSUE:}";;
+    PENDING) rm -f "$RUN_DIR/$s.selfpark";;   # #417: back on agent-working — a later park starts afresh
+  esac   # no answer (a transient gh failure): keep whatever state there is
+}
+# reap_done_sessions — the goal check over every session of the unit no worker owns (#468: an owner runs
+# it on its own lane, so a lane is never checked twice).
 reap_done_sessions(){
-  local s goal res
+  local s
   while read -r s; do
     [[ -z "$s" ]] && continue
-    goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"; [[ -z "$goal" ]] && continue
-    res="$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)"
-    case "$res" in
-      DONE)
-        log "session $s goal '$goal' satisfied → advancing"
-        stats_sess_event "$s" goal_satisfied
-        cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
-        rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.selfpark";;
-      PAUSED)  selfpark_tend "$s" "${goal#ISSUE:}";;
-      PENDING) rm -f "$RUN_DIR/$s.selfpark";;   # #417: back on agent-working — a later park starts afresh
-    esac   # no answer (a transient gh failure): keep whatever state there is
+    session_owned "$s" && continue
+    check_session_goal "$s"
   done < <(team_sessions "$UNIT")
 }
 
@@ -102,36 +111,45 @@ selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
   cli_kill "$sess" "$wd" || true
   rm -f "$f"; }
 
+# reap_impl_lane <issue> — reap one impl lane whose session is gone: its worktree goes, and the issue is
+# freed (still open) or its local branch dropped (closed — the PR squash-merged). A live session, or a
+# fresh /harness-one lease, keeps the lane. rc 0 = reaped, 1 = the lane lives on.
+reap_impl_lane(){ local issue="$1" wd="$WORKTREES_DIR/$UNIT-i$1" sess; sess="$(sess_impl "$UNIT" "$issue")"
+  session_live "$sess" && return 1
+  rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
+  one_lease_live "$UNIT" "$issue" && return 1   # #366: a /harness-one session is working it
+  rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
+  log "reaping issue #$issue worktree"
+  harness_event reap kind=impl issue="$issue" reason=session_gone
+  remove_worktree "$CHECKOUT" "$wd"
+  local state
+  # #179: the worktree is gone, so this reap never comes round again — a gh failure here must not
+  # strand the lock. Unreadable state ⇒ queue the unlock (harmless on a closed issue).
+  state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || { unlock_issue "$SLUG" "$issue"; return 0; }
+  # fully autonomous: free a still-open issue's stale agent-working for retry, even if a
+  # prior session left it agent-blocked (no human will ever clear that label for us). An
+  # agent-blocked one is parked as well (#271), so it is retried only once something changes it.
+  if echo "$state" | grep -q '"state":"OPEN"'; then
+    unlock_issue "$SLUG" "$issue" || true
+    grep -qiF "\"name\":\"$HARNESS_LABEL_BLOCKED\"" <<<"$state" && park_issue "$SLUG" "$issue"
+  else
+    # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
+    # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
+    harness_event merged kind=impl issue="$issue"
+    # #283: a merged bug fix in the Harness repo is queued for the next throttled patch release.
+    grep -qiE "\"name\":\"($HARNESS_LABEL_BUG|$HARNESS_LABEL_BUG_TRIAGED)\"" <<<"$state" && release_on_bug_merge "$issue"
+    git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
+  fi
+  return 0
+}
+# reap_team — reap_impl_lane over every impl worktree of the unit no worker owns (#468).
 reap_team(){
   stats_sweep_ended   # #185: before any worktree goes — its ralph state carries the iteration count
   shopt -s nullglob
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
-    local issue="${wd##*-i}" sess; sess="$(sess_impl "$UNIT" "$issue")"
-    session_live "$sess" && continue
-    rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
-    one_lease_live "$UNIT" "$issue" && continue   # #366: a /harness-one session is working it
-    rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
-    log "reaping issue #$issue worktree"
-    harness_event reap kind=impl issue="$issue" reason=session_gone
-    remove_worktree "$CHECKOUT" "$wd"
-    local state
-    # #179: the worktree is gone, so this reap never comes round again — a gh failure here must not
-    # strand the lock. Unreadable state ⇒ queue the unlock (harmless on a closed issue).
-    state="$(gh issue view "$issue" -R "$SLUG" --json state,labels 2>/dev/null)" || { unlock_issue "$SLUG" "$issue"; continue; }
-    # fully autonomous: free a still-open issue's stale agent-working for retry, even if a
-    # prior session left it agent-blocked (no human will ever clear that label for us). An
-    # agent-blocked one is parked as well (#271), so it is retried only once something changes it.
-    if echo "$state" | grep -q '"state":"OPEN"'; then
-      unlock_issue "$SLUG" "$issue" || true
-      grep -qiF "\"name\":\"$HARNESS_LABEL_BLOCKED\"" <<<"$state" && park_issue "$SLUG" "$issue"
-    else
-      # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
-      # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
-      harness_event merged kind=impl issue="$issue"
-      # #283: a merged bug fix in the Harness repo is queued for the next throttled patch release.
-      grep -qiE "\"name\":\"($HARNESS_LABEL_BUG|$HARNESS_LABEL_BUG_TRIAGED)\"" <<<"$state" && release_on_bug_merge "$issue"
-      git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
-    fi
+    local issue="${wd##*-i}"
+    is_claimed "impl-$issue" && continue
+    reap_impl_lane "$issue"
   done
   shopt -u nullglob
 }
@@ -145,15 +163,20 @@ busy_prds_for(){
 # reap_orch — sibling of reap_team for the per-PRD DECOMPOSE/REVIEW worktrees. Orch sessions hold
 # no issue label and push no branch, so teardown is just: drop the worktree and its throwaway
 # branch once the session is gone.
+reap_orch_lane(){ local prd="$1" wd; wd="$(orch_worktree "$SLUG" "$prd")"
+  session_live "$(sess_orch "$UNIT" "$prd")" && return 1
+  log "reaping orch worktree for PRD #$prd"
+  harness_event reap kind=orch prd="$prd" reason=session_gone
+  remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
+  return 0
+}
 reap_orch(){
   shopt -s nullglob
   local wd prd san; san="$(printf '%s' "$SLUG" | tr '/' '_')"
   for wd in "$WORKTREES_DIR/orch-$san"-p*; do
     prd="${wd##*-p}"
-    session_live "$(sess_orch "$UNIT" "$prd")" && continue
-    log "reaping orch worktree for PRD #$prd"
-    harness_event reap kind=orch prd="$prd" reason=session_gone
-    remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
+    is_claimed "orch-$prd" && continue   # #468: its owner reaps it
+    reap_orch_lane "$prd"
   done
   shopt -u nullglob
 }
@@ -421,29 +444,37 @@ spawn_pool_bug(){ local n="$1" tok phase sess pid
 count_pool_bugs(){ local f tok
   while IFS=$'\t' read -r f tok; do is_bug_claimed "$tok" && echo "$tok"; done < <(pool_bug_claims "$1") | grep -c . ; }
 
+# bug_lane_tend <slug> <n> — one pool-taken bug's live sessions (#214): watchdogged, and ended once the
+# phase goal is met. Shared by reap_pool_bugs (the legacy unit loop) and the step-based worker (#468).
+bug_lane_tend(){ local slug="$1" n="$2" phase sess SLUG="$1"
+  for phase in triage fix; do
+    sess="$(sess_bug "$slug" "$n" "$phase")"
+    session_live "$sess" || continue
+    watchdog_session "$sess"
+    if bug_goal_done "$n" "$phase"; then
+      log "pool: bug #$n $phase goal met — ending $sess"
+      [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge
+      cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"
+    fi
+  done; }
+# bug_lane_reap_worktrees <slug> <n> — drop a pool-taken bug's fix and triage worktrees once its sessions are gone.
+bug_lane_reap_worktrees(){ local slug="$1" n="$2"
+  stats_sweep_ended   # #185: session_end before the worktree (and its ralph iteration count) goes
+  remove_worktree "$(bug_checkout "$slug")" "$(bug_worktree "$slug" "$n")" "issue/$n"
+  remove_worktree "$(bug_checkout "$slug")" "$(triage_worktree "$slug" "$n")" "agent/bug-triage-$n"; }
+
 # reap_pool_bugs — tend every bug session a pool worker took (#214): the pool's half of drive_bug's
 # hold loop. A live one is watchdogged and ended once its phase goal is met; once it is gone its
 # worktrees and claim are dropped. That teardown re-checks the claim under POOL_LOCK, so a claim the
 # lane has since taken over is never touched. A dead session's agent-working is reap_lane's to free.
-reap_pool_bugs(){ local f tok n phase sess SLUG lockfd
+reap_pool_bugs(){ local f tok n SLUG lockfd
   while IFS=$'\t' read -r f tok; do
     SLUG="$(_with_owner "$(_bug_ref_repo "$tok")")"; n="$(_bug_ref_num "$tok")"
-    for phase in triage fix; do
-      sess="$(sess_bug "$SLUG" "$n" "$phase")"
-      session_live "$sess" || continue
-      watchdog_session "$sess"
-      if bug_goal_done "$n" "$phase"; then
-        log "pool: bug #$n $phase goal met — ending $sess"
-        [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge
-        cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"
-      fi
-    done
+    bug_lane_tend "$SLUG" "$n"
     bug_session_live "$SLUG" "$n" && continue
-    stats_sweep_ended   # #185: session_end before the worktree (and its ralph iteration count) goes
     lock_acquire "$POOL_LOCK" lockfd
     if [[ "$(awk '{print $1; exit}' "$f" 2>/dev/null)" == pool-* ]] && ! is_bug_claimed "$tok"; then
-      remove_worktree "$(bug_checkout "$SLUG")" "$(bug_worktree "$SLUG" "$n")" "issue/$n"
-      remove_worktree "$(bug_checkout "$SLUG")" "$(triage_worktree "$SLUG" "$n")" "agent/bug-triage-$n"
+      bug_lane_reap_worktrees "$SLUG" "$n"
       rm -f "$f"; log "pool: reaped bug $tok session — worktrees + claim released"
     fi
     lock_release "$lockfd"

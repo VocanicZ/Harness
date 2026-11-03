@@ -2313,12 +2313,12 @@ def test_fetch_issue_branches_fails_open_on_non_transient_answers():
 
 
 # ── #214: an idle pool slot takes bugs the busy priority lane cannot reach ────────────────────
-def _bug_board(issues, priority_free, free=1):
+def _bug_board(issues, priority_free, free=1, busy_issues=()):
     os.environ["HARNESS_MODE"] = "issue-only"
     os.environ["HARNESS_AUTONOMOUS"] = "true"
     _stub_repo(issues)
     try:
-        return il.dispatch("acme/widget", free, True, (), priority_free)
+        return il.dispatch("acme/widget", free, True, (), priority_free, busy_issues)
     finally: _restore_repo()
 
 # gh order (newest first); #30 is the older bug
@@ -2347,6 +2347,12 @@ def test_pool_never_offered_a_bug_another_lane_holds():
     held = [_issue(31, labels=["bug", "agent-working"]), _issue(30, labels=["bug-triaged", "agent-working"])]
     assert _bug_board(held, priority_free=0) == []
     assert _bug_board(held + [_issue(33, labels=["bug"])], priority_free=0, free=3) == [("BUG", "33", "BUG 33 DONE")]
+
+def test_pool_never_offered_a_bug_a_claim_holds():
+    # #468: a claim written but whose lane has not stamped agent-working yet still owns the bug —
+    # a second worker must be offered the next one, not the same bug.
+    assert _bug_board(_TWO_BUGS, priority_free=0, busy_issues=(30,)) == [("BUG", "31", "BUG 31 DONE")]
+    assert _bug_board(_TWO_BUGS, priority_free=0, busy_issues=(30, 31)) == []
 
 def test_cli_dispatch_passes_priority_free():
     seen = []

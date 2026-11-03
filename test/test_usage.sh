@@ -127,7 +127,7 @@ assert_eq "$(grep -c 'HARNESS CHECKPOINT' "$CALLS")" "$sent" "a held account is 
 
 # no new claims while held — pool worker, lane, and an in-flight drive_unit
 CLAIMED="$RUN_DIR/claimed"; : > "$CLAIMED"   # claim_next runs in $(…): record to a file, not a var
-claim_next(){ echo pool >> "$CLAIMED"; echo main; }
+claim_lane(){ echo pool >> "$CLAIMED"; }   # #468: the step loop's claim (claim_next is the old unit loop's)
 worker_tick W1; rc=$?
 assert_eq "$rc" "3" "worker_tick idles while usage is held"
 assert_eq "$(cat "$CLAIMED")" "" "worker_tick claims nothing while usage is held"

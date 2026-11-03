@@ -1457,7 +1457,7 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     # next poll, and the pool takes the rest once it has. Oldest bug first, either phase. None means
     # the caller did not say (HARNESS_POOL_TAKES_BUGS=0, or a pre-#214 caller): never spill.
     if not out and slots and priority_free is not None and priority_free <= 0:
-        for num in sorted(n for n, _phase in bug_lane_candidates(repo))[:slots]:
+        for num in sorted(n for n, _phase in bug_lane_candidates(repo) if n not in owned)[:slots]:   # #468: not one a claim already holds
             out.append(("BUG", str(num), f"BUG {num} DONE"))
     # #287: an unlabelled open issue naming an open PRD is labelled ready by the engine (drive.sh
     # label_ready, one idempotent gh call), so it joins that PRD's children and is dispatched next

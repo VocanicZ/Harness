@@ -128,8 +128,58 @@ The unit is COMPLETE only when every PRD is closed and no unparented issue is st
 
 | Topology | Description |
 |----------|-------------|
-| `single` | One target repo (`HARNESS_REPO`). The pool drives that one unit; up to `HARNESS_CAP` concurrent impl sessions run inside it. Default. |
-| `multi` | Multiple repos in a dependency DAG described by `targets.tsv` (`id → repo → deps → desc`). A target unblocks its dependents when it reaches COMPLETE. Peak concurrency = `POOL × CAP`. |
+| `single` | One target repo (`HARNESS_REPO`). Up to `HARNESS_POOL` lanes run at once, one per pool worker ([The pool worker](#the-pool-worker-step-loop)). Default. |
+| `multi` | Multiple repos in a dependency DAG described by `targets.tsv` (`id → repo → deps → desc`). A target unblocks its dependents when it reaches COMPLETE. Peak concurrency = `POOL × CAP`. A config that sets `HARNESS_UNIT` (every migrated fleet, [Fleet migration](#fleet-migration-one-fleet--one-repo-467)) is one repo and runs the pool worker below; only a config still on `targets.tsv` runs the old loop (a worker claims a whole unit and drives it). |
+
+### The pool worker (step loop)
+
+A pool worker claims **one lane** — one issue (`IMPL`), one bug, or one PRD action (`PLAN`, `PRD`,
+`DECOMPOSE`, `REVIEW`) — runs it, reaps it, releases it and claims the next. **`HARNESS_POOL` is the most
+lanes that can run at once**: `POOL=3` with three ready issues runs three lanes, one per worker, not one
+worker driving the unit while two sit idle. The priority bug worker is on top of `POOL` and not counted in
+it. The loop no longer reads `HARNESS_CAP`.
+
+A worker never blocks inside a lane. It runs one **step** per tick (every `HARNESS_POLL`, and at once after
+a claim):
+
+1. **Preamble** — `roots_check`, `gc_orphan_goals`, `gh_rate_wait`, `snapshot_gate`, `usage_watch`.
+2. **Chores** — one worker per tick wins `run/chores.lock`; the others skip this step. The winner reaps
+   and watchdogs the *ownerless* lanes (a lane whose claim a live worker holds is its owner's to tend, so
+   nothing runs twice), runs the injector reaper, `one_auto_tend`, the release tick, the stale-lock sweeps,
+   **adopts** ownerless live lanes, and runs every *slotless* dispatch action this tick (`LABEL_READY`,
+   `CLOSE_PRD`). On a COMPLETE repo it archives `PLAN.md` once and does nothing else: it never kills a
+   lane, and a new PRD or ready issue makes the repo incomplete again. While usage is held it also ticks
+   the [auto harness-one lane](#auto-harness-one-lane-harness_one_auto).
+3. **Own lanes** — one tend step per lane this worker holds a claim on: the goal check, the stall
+   watchdog (which advances a driven goal loop) and the self-park check. A lane whose session has ended is
+   reaped and its claim released.
+4. **Claim** — only when the worker owns no lane, is not paused, usage is not held, the GitHub budget is
+   fine and the default branch is not red. Under `run/pool.lock`: when live lanes + live claims is below
+   `POOL`, it takes the first slot-taking item `dispatch` returns and writes its claim; the lane is spawned
+   after the lock is released (the claim covers the window).
+
+**No double claims.** The PRDs and issues dispatch is told are busy are those with a live session or
+worktree *plus* those held by a live claim; bugs are filtered the same way, and `PLAN` / `PRD` are offered
+only when no lane and no claim is live in the fleet. All of it is read inside `pool.lock`.
+
+**Claims.** `run/claims/<key>.claim` holds `<worker-id> <worker-pid> <token> <session> <pane-pid>`. The key
+is `impl-<n>`, `orch-<prd>` (`orch-0` for `PLAN` / `PRD`) or `bug-<repo>-<n>`; the token names the action
+(`IMPL:12`, `DECOMPOSE:41`). A bug a pool worker takes is claimed as `pool-<worker-id>`, so the priority
+lane never mistakes it for its own and never claims it too. A claim is live while its worker's pid is.
+
+**Adoption.** A live session of the fleet's unit (`<prefix>-<unit>-i<N>`, `-p<N>`, `-p0`) that no live worker
+holds a claim on is adopted by the chores winner, which writes the claim for itself and tends the lane from
+then on. It is read from sessions, not claim files, so it survives `harness start --recover` (which clears
+dead claims), picks up what a worker roll left running ([#467](#fleet-migration-one-fleet--one-repo-467)),
+and lets a killed worker's lane be reaped and merged once. A dead lane's worktree is still reaped by the
+chores, so an issue is never held "owned" by a lane that is gone. Adoption adds no lane, so it cannot push a
+fleet past `POOL`.
+
+**Pause.** No new claim. Running lanes keep running and keep being tended, a driven goal loop included.
+Workers stay alive and idle.
+
+New lane events (`lane_claim`, `lane_release`, `lane_adopt`) carry `repo` and `worker`; the older events keep
+`unit`.
 
 ## Configuration
 
@@ -181,8 +231,8 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
 | `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on a single-topology `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
-| `HARNESS_POOL` | `3` | Number of pool workers (unit-concurrency cap) |
-| `HARNESS_CAP` | `3` | Max concurrent agent sessions per unit |
+| `HARNESS_POOL` | `3` | Number of pool workers, and the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once ([The pool worker](#the-pool-worker-step-loop)) |
+| `HARNESS_CAP` | `3` | Max concurrent agent sessions per unit — read only by the old unit loop of a config still on `targets.tsv`; the pool worker does not consult it |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
 | `HARNESS_POOL_TAKES_BUGS` | `1` | `1` = a pool worker with no dispatchable impl work takes the oldest open `bug`/`bug-triaged` issue in its unit's repo while the priority lane is busy (or not running), through the lane's own triage→fix flow; the lane keeps first pick whenever it is free, and the shared bug claim means the two never take the same bug. `0` = bugs wait for the priority lane |
@@ -775,7 +825,7 @@ twice changes nothing (no second backup, no second event). Per fleet that needs 
      `dropped`). There is no refusal and no manual gate.
    - `single`: `HARNESS_UNIT=main`, `HARNESS_CHECKOUT=` the project root.
    - `HARNESS_TOPOLOGY` is removed. `HARNESS_POOL` becomes `max(POOL, CAP)` so no fleet loses
-     parallelism; `HARNESS_CAP` keeps its old value while the pool is still the unit-claim loop.
+     parallelism; `HARNESS_CAP` keeps its old value but is no longer read: the pool worker runs `POOL` lanes at once ([#468](#the-pool-worker-step-loop)).
 3. Kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes. It never runs
    `harness stop`, which kills every fleet's sessions: live lane sessions keep running.
 4. `fleet_roll` (`scripts/roll.sh`, shared with the supervisor's auto-update, #477) runs

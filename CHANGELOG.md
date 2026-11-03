@@ -4,6 +4,29 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Step-based pool worker: one worker claims one lane, capped by `POOL` fleet-wide (#468)
+
+- A pool worker used to claim the whole unit and drive it, so `POOL=3` with three ready issues ran three
+  sessions inside one worker while the other two sat idle. A worker now claims **one lane** (one issue, one
+  bug, or one PRD action), runs it, reaps it, releases it and claims the next. `HARNESS_POOL` is the most
+  lanes that run at once; the new loop no longer reads `HARNESS_CAP`.
+- The worker is step-based (`worker_step` per tick) and never blocks inside a lane: it runs the preamble,
+  the fleet-wide chores (one winner per tick under `run/chores.lock`: reapers and watchdog for ownerless
+  lanes, adoption, `LABEL_READY` / `CLOSE_PRD`, `PLAN.md` archival on completion), tends the lanes it
+  owns, and only then claims. Chores keep running while every worker is busy, and a pause stops claims
+  without stopping the tending of running lanes (driven goal loops included).
+- No double claims: a claim is written under `pool.lock` after dispatch is told the PRDs and issues held by
+  live sessions, worktrees and live claims; `PLAN` / `PRD` are offered only with no lane live. A bug a pool
+  worker takes is claimed as `pool-<worker-id>`, and `dispatch` no longer offers a bug a claim holds.
+- Lanes are adopted from their sessions, not from claim files, so a killed worker's lane, a lane left by a
+  worker roll (#467) and the lanes live across `harness start --recover` are picked up, tended and reaped
+  once.
+- Fix: `pool_bug_claims` read the claim's token as the rest of the line, which would have broken once a
+  claim carries the session and pane pid after it.
+- `test_pool_lanes.sh` covers all of it (one-repo fixture fleet, real `dispatch` over a snapshot);
+  `docs/reference.md` has a new [pool worker section](docs/reference.md#the-pool-worker-step-loop). A
+  config still on `targets.tsv` runs the old unit loop until `harness start` migrates it (#467).
+
 ### Submodule lane plumbing: init in every worktree, base-branch resolver, gitlink merge guard (#470)
 
 - A lane worktree made by `git worktree add` had every submodule as an empty directory unless the
