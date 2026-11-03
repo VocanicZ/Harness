@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The README names `git` for the `npx` install line (#440)
+
+- The README said `node` ≥ 18 was the only prerequisite for `npx -y github:VocanicZ/Harness`, and that
+  the installer offers `git`. But npm fetches a `github:` package by running `git`, so on a host
+  without it (a fresh Ubuntu/Debian with node from apt) `npx` failed with an npm error
+  (`spawn git`, "An unknown git error occurred") before `install.sh` ran, and nothing offered `git`.
+- The README's prerequisite table now lists `git` for the `npx` line, the agent note sends a host
+  without `git` to the `curl` line (which offers to install it), and `/harness <idea>` step 1 says the
+  same.
+- `test/test_install_npx.sh`: on a PATH with `node` and `npm` but no `git` (throwaway HOME and npm
+  cache, offline), npm cannot fetch `github:VocanicZ/Harness` and fails spawning `git`; the README
+  names `git` for the `npx` line, and the agent note and skill send a git-less host to `curl`.
+
 ### The `/harness` skills reach every installed CLI, Hermes included, as links (#439)
 
 - A host with Hermes got no `/harness*` skills in Hermes: `install.sh` copied them into
