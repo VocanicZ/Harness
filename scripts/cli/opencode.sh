@@ -120,6 +120,8 @@ sys.exit(0 if (json.load(sys.stdin).get("permission") or {}).get("question") == 
 
 # OpenCode loads a skill through its skill tool, by name.
 opencode_skill(){ echo "$1"; }
+# OpenCode reads ~/.claude/skills among its skill dirs (#439): Harness links its skills there.
+opencode_user_skills_dir(){ echo "${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"; }
 
 # --- transcripts + usage --------------------------------------------------------------------------
 # Every session lives in the one database: a transcript is `<db>#<session id>`, the session's own

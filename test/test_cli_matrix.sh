@@ -552,7 +552,7 @@ prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
 handoff_skill_ok(){ ( local d="$RUN_DIR/handoff-$HARNESS_CLI" bin out want src="$HERE/../skill/handoff/SKILL.md" wd
   export HOME="$d/home"; mkdir -p "$HOME" "$d/bin"
   unset CLAUDE_CONFIG_DIR COPILOT_HOME HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS \
-    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS
+    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS HARNESS_HERMES_HOME
   bin="$(cli_bin)"; want="$HOME/$(cat "$FIX/$HARNESS_CLI/skills-dir")/handoff"
   printf '#!/bin/sh\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
   chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
@@ -570,7 +570,7 @@ handoff_skill_ok(){ ( local d="$RUN_DIR/handoff-$HARNESS_CLI" bin out want src="
     openclaw) _openclaw_config "$wd" >/dev/null 2>&1; WANT="${want%/handoff}" python3 -c 'import json, os, sys
 sys.exit(0 if os.environ["WANT"] in json.load(open(sys.argv[1]))["skills"]["load"]["extraDirs"] else 1)' "$(_openclaw_cfg "$wd")" || exit 1 ;;
   esac
-  printf 'operator own\n' > "$want/SKILL.md"
+  rm -rf "$want"; mkdir -p "$want"; printf 'operator own\n' > "$want/SKILL.md"   # never through Harness's link (#439)
   cli_prereqs --install >/dev/null 2>&1
   ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
   [[ $(cat "$want/SKILL.md") == "operator own" ]] ); }
@@ -594,7 +594,7 @@ prompt_skills_ok(){ ( local d="$RUN_DIR/prompt-skills-$HARNESS_CLI" bin out name
   names="$(prompt_skills)" || exit 1; [[ -n $names ]] || exit 1
   export HOME="$d/home"; mkdir -p "$HOME" "$d/bin"
   unset CLAUDE_CONFIG_DIR COPILOT_HOME HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS \
-    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS
+    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS HARNESS_HERMES_HOME
   bin="$(cli_bin)"; dir="$HOME/$(cat "$FIX/$HARNESS_CLI/skills-dir")"
   printf '#!/bin/sh\n[ "$1" = --version ] && head -1 %q\nexit 0\n' "$FIX/$HARNESS_CLI/VERSION" > "$d/bin/$bin"
   chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
@@ -617,11 +617,27 @@ prompt_skills_ok(){ ( local d="$RUN_DIR/prompt-skills-$HARNESS_CLI" bin out name
       has " $(sed "s/handoff/$n/" "$FIX/$HARNESS_CLI/handoff-skill") skill" "$r" || exit 1
     done
   done
-  for n in $names; do [[ $n == rtdd ]] && continue; printf 'operator own\n' > "$dir/$n/SKILL.md"; done
+  for n in $names; do [[ $n == rtdd ]] && continue; rm -rf "$dir/$n"; mkdir -p "$dir/$n"; printf 'operator own\n' > "$dir/$n/SKILL.md"; done
   cli_prereqs --install >/dev/null 2>&1
   ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1
   for n in $names; do [[ $n == rtdd ]] || [[ $(cat "$dir/$n/SKILL.md") == "operator own" ]] || exit 1; done ); }
 
+# operator_skills_ok — #439: with the CLI installed (its binary on PATH), install.sh's
+# install_harness_skills links every engine skill — the umbrella as harness/SKILL.md, each skill/<name>
+# whole — into the dir the operator's own CLI reads user skills from (fixtures/cli/<cli>/skills-dir,
+# under HOME), each a symlink resolving into the engine's skill/; a link removed is back on the next run.
+operator_skills_ok(){ ( local d="$RUN_DIR/operator-skills-$HARNESS_CLI" bin dir n sk
+  export HOME="$d/home"; rm -rf "$HOME"; mkdir -p "$HOME" "$d/bin"
+  unset CLAUDE_CONFIG_DIR COPILOT_HOME HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS \
+    HARNESS_COPILOT_USER_SKILLS HARNESS_OPENCLAW_AGENTS_SKILLS HARNESS_HERMES_HOME
+  bin="$(cli_exe)"; dir="$HOME/$(cat "$FIX/$HARNESS_CLI/skills-dir")"; sk="$(cd "$HERE/../skill" && pwd -P)"
+  printf '#!/bin/sh\nexit 0\n' > "$d/bin/$bin"; chmod +x "$d/bin/$bin"; export PATH="$d/bin:$PATH"
+  links(){ [[ -L "$dir/harness/SKILL.md" && "$(realpath "$dir/harness/SKILL.md")" == "$sk/SKILL.md" ]] || return 1
+    for n in "$sk"/*/; do n="$(basename "$n")"
+      [[ -L "$dir/$n" && "$(realpath "$dir/$n")" == "$sk/$n" && -f "$dir/$n/SKILL.md" ]] || return 1; done; }
+  inst(){ ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh"; HARNESS_SKILL_SRC="$HERE/../skill" install_harness_skills ) >/dev/null 2>&1; }
+  inst; links || exit 1
+  rm "$dir/harness-start"; inst; links ); }
 # matrix_stub — the adapter functions HARNESS_MATRIX_STUB names, stubbed to `:` (test_cli_matrix_guard.sh);
 # again after sourcing a script that re-sources lib.sh, which reloads the adapter.
 matrix_stub(){ local f; for f in ${HARNESS_MATRIX_STUB:-}; do eval "$(cli_name)_$f(){ :; }"; done; }
@@ -923,6 +939,7 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     cell "$cli" checkpoint-skill           checkpoint_skill_ok
     cell "$cli" handoff-skill-installed    handoff_skill_ok
     cell "$cli" prompt-skills-installed    prompt_skills_ok
+    cell "$cli" operator-skills            operator_skills_ok
     cell "$cli" pause-force-resume-other-host pause_resume_ok
     cell "$cli" send-and-kill              send_and_kill_ok
     cell "$cli" inject-sessions            inject_ok

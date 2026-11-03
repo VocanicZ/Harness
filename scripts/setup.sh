@@ -13,6 +13,7 @@ prereqs="$(cli_prereqs 2>&1)" || prereqs="$(cli_prereqs --install 2>&1)" || {
   sed 's/^/  /' <<<"$prereqs" >&2
   die "$(cli_name) prerequisites still missing after install — fix the MISSING line(s) above and re-run harness setup"; }
 sed 's/^/  /' <<<"$prereqs"
+skills_heal   # #439: the engine's skills linked into every installed CLI's user-skills dir
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI"
 gh auth status >/dev/null 2>&1 || die "gh not authenticated — run: gh auth login"
 # rtdd is the lane test loop (prompts/_rtdd.md), not a hard prerequisite — a lane without it runs

@@ -114,7 +114,7 @@ cli_bypass(){ _cli_call bypass "$@"; }                 # <dir> → main session 
 cli_bypassed(){ _cli_call bypassed "$@"; }             # <dir> → 0 iff that holds
 cli_skill(){ _cli_call skill "$@"; }                   # <name> → how a prompt invokes a skill
 cli_subagent(){ _cli_call subagent "$@"; }             # <wd> <dir> <brief file> → how a prompt starts a fresh-context sub-agent in <dir> (#314)
-cli_user_skills_dir(){ _cli_call user_skills_dir; }    # where Harness must copy a user skill itself ('' = none)
+cli_user_skills_dir(){ _cli_call user_skills_dir; }    # where the CLI reads the operator's user skills (every adapter names it, #439)
 cli_transcripts(){ _cli_call transcripts "$@"; }       # <wd> <session id> → transcript paths ('' = unavailable)
 cli_usage(){ _cli_call usage "$@"; }                   # <transcript>… → <model>\t<in>\t<out>\t<cache_read>\t<cache_write>
 cli_usage_setup(){ _cli_call usage_setup "$@"; }       # <wd> → wire the worktree so cli_limit_usage can see it
@@ -158,32 +158,85 @@ cli_backend_check(){ local b; b="$(sess_backend)"
   return 1; }
 
 # --- the skills the prompts name (#303, #315) -------------------------------------------------------
-# cli_skills_dir — where this CLI loads user skills from: its own dir (cli_user_skills_dir), else
-# ~/.claude/skills (HARNESS_USER_SKILLS), which claude and opencode read and which a hermes or openclaw
-# lane gets as an external skill dir (_hermes_seed, _openclaw_config).
+# cli_skills_dir — where this CLI loads user skills from (cli_user_skills_dir; ~/.claude/skills,
+# HARNESS_USER_SKILLS, for claude and opencode). A hermes or openclaw lane reads it as an external
+# skill dir of its own config (_hermes_seed, _openclaw_config).
 cli_skills_dir(){ local d; d="$(cli_user_skills_dir)"; echo "${d:-${HARNESS_USER_SKILLS:-$HOME/.claude/skills}}"; }
 # A skill Harness ships carries this line (skill/handoff/SKILL.md). A same-named skill without it is
 # the operator's own: Harness never overwrites or removes it.
 CLI_SKILL_MARK='<!-- harness-skill:'
-# cli_skill_place <src dir> <dst dir> — copy one skill dir, unless <dst> holds the operator's own.
-cli_skill_place(){ [[ -f "$2/SKILL.md" ]] && ! grep -qF "$CLI_SKILL_MARK" "$2/SKILL.md" && return 0
-  mkdir -p "$2" && cp -R "$1/." "$2/"; }
+# cli_skill_place <src dir> <dst dir> — link one skill (cli_skill_link), unless <dst> holds the
+# operator's own.
+cli_skill_place(){ cli_skill_link "$1" "$2" >/dev/null; }
+
+# --- operator skills: links into the engine (#439) ----------------------------------------------------
+# Every engine skill reaches every installed CLI's user-skills dir (cli_user_skills_dir) as a SYMLINK
+# to its one canonical copy, the engine's skill/<name> named through the stable engine link
+# ($HARNESS_HOME/engine/skill/<name>), so an engine update refreshes every CLI at once. The umbrella
+# skill/SKILL.md becomes <dir>/harness/, a dir holding a SKILL.md link: a link to skill/ itself would
+# carry every other skill inside it. Every CLI follows a symlinked skill (docs/cli-capabilities.md), so
+# none gets a copy.
+# CLI_SKILLS_COPIED — the CLIs whose user-skills dir Harness COPIED the /harness skills into before
+# #439, besides ~/.claude/skills (HARNESS_USER_SKILLS): it overwrote a harness or harness-* there
+# unconditionally, so such a copy is its own.
+CLI_SKILLS_COPIED="agy codex copilot"
+# cli_skill_ours <dst> [engine skill/ root] — 0 iff <dst> is Harness's to (re)link or remove: absent; a
+# symlink (dangling too) into an engine's skill/<its name>; harness/ holding a SKILL.md link into an
+# engine's skill/SKILL.md; a copy carrying CLI_SKILL_MARK; or a /harness skill (harness, harness-*)
+# copy that is what Harness shipped — byte-equal to an installed release's ($HARNESS_HOME/releases/*)
+# or the root's, or in a dir CLI_SKILLS_COPIED names. Anything else is the operator's own.
+cli_skill_ours(){ local dst="${1%/}" root="${2:-}" n rel f c d
+  n="${dst##*/}"
+  if [[ -L $dst ]]; then f="$(readlink "$dst")"; [[ ${f%/} == */skill/"$n" ]]; return; fi
+  [[ -e $dst ]] || return 0
+  [[ -d $dst ]] || return 1
+  if [[ $n == harness && -L $dst/SKILL.md ]]; then [[ "$(readlink "$dst/SKILL.md")" == */skill/SKILL.md ]]; return; fi
+  [[ -f $dst/SKILL.md ]] || return 1
+  grep -qF "$CLI_SKILL_MARK" "$dst/SKILL.md" && return 0
+  [[ $n == harness || $n == harness-* ]] || return 1
+  rel="$n/SKILL.md"; [[ $n == harness ]] && rel=SKILL.md
+  for f in "${HARNESS_HOME:-$HOME/.harness}"/releases/*/skill/"$rel" ${root:+"$root/$rel"}; do
+    [[ -f $f ]] && cmp -s "$f" "$dst/SKILL.md" && return 0; done
+  d="${dst%/*}"
+  [[ $d == "${HARNESS_USER_SKILLS:-$HOME/.claude/skills}" ]] && return 0
+  for c in $CLI_SKILLS_COPIED; do [[ $d == "$(cli_with "$c" cli_user_skills_dir)" ]] && return 0; done
+  return 1; }
+# cli_skill_link <src> <dst> — make <dst> Harness's link to the engine skill <src>: a skill dir, or the
+# umbrella skill/SKILL.md (then <dst> is the harness/ dir holding the link). Prints what it did:
+# `linked` (new), `relinked` (a dangling, old-release or copied one replaced), `kept` (the operator's
+# own, left alone) or nothing (already linked). rc 1 = the link could not be made.
+cli_skill_link(){ local src="${1%/}" dst="${2%/}" was=linked
+  if [[ -f $src ]]; then
+    [[ ! -L $dst && -L $dst/SKILL.md && "$(readlink "$dst/SKILL.md")" == "$src" ]] && return 0
+  else
+    [[ -L $dst && "$(readlink "$dst")" == "$src" ]] && return 0
+  fi
+  cli_skill_ours "$dst" "${src%/*}" || { echo kept; return 0; }
+  [[ -e $dst || -L $dst ]] && was=relinked
+  rm -rf "$dst" && mkdir -p "${dst%/*}" || return 1
+  if [[ -f $src ]]; then mkdir -p "$dst" && ln -s "$src" "$dst/SKILL.md"; else ln -s "$src" "$dst"; fi || return 1
+  echo "$was"; }
+# cli_engine_skill_root — the engine's skill/ as links name it: through the stable engine link
+# ($HARNESS_HOME/engine) when that is this engine, never a release dir an update prunes; a dev clone
+# names itself.
+cli_engine_skill_root(){ local e l; e="$(cd "$CLI_DIR/../.." && pwd -P)"; l="${HARNESS_HOME:-$HOME/.harness}/engine"
+  [[ "$(realpath "$l" 2>/dev/null)" == "$e" ]] && e="$l"; echo "$e/skill"; }
 # cli_prompt_skills — the skills the engine's prompts name, one per line: each `{{skill:<name>}}`,
 # which render() turns into cli_skill <name>. A prompt names a skill no other way (test_cli_matrix.sh).
 cli_prompt_skills(){ grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$CLI_DIR/../../prompts"/*.md 2>/dev/null |
   sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u; }
-# _cli_skill_prereq <name> [--install] — the skill is where this CLI loads skills from; --install copies
-# the engine's own skill/<name> there (Harness's own, or one vendored from upstream with its LICENSE).
+# _cli_skill_prereq <name> [--install] — the skill is where this CLI loads skills from; --install links
+# the engine's own skill/<name> there (cli_skill_link): Harness's own, or one vendored from upstream with its LICENSE.
 # rtdd's skill is rtdd's own, versioned with its binary: rtdd writes it for every CLI (`rtdd skill
 # install`, run by install.sh's npx install and by harness setup's rtdd_skill_install), and a lane
 # without rtdd runs the full suite instead (#187), so a missing one warns and never fails.
-_cli_skill_prereq(){ local dst src; dst="$(cli_skills_dir)/$1"; src="$(cd "$CLI_DIR/../.." && pwd)/skill/$1"
+_cli_skill_prereq(){ local dst src; dst="$(cli_skills_dir)/$1"; src="$(cli_engine_skill_root)/$1"
   if [[ -f "$dst/SKILL.md" ]]; then echo "ok      $(cli_name) skill $1 ($dst)"
   elif [[ $1 == rtdd ]]; then
     echo "WARN    $(cli_name) skill rtdd ($dst): lanes run the full suite without it; harness setup installs it (rtdd skill install)"
   elif [[ "${2:-}" == --install && -f "$src/SKILL.md" ]] && cli_skill_place "$src" "$dst"; then
     echo "ok      $(cli_name) skill $1 ($dst, installed)"
-  else echo "MISSING $(cli_name) skill $1 ($dst): mkdir -p $dst && cp -R $src/. $dst/"; return 1; fi; }
+  else echo "MISSING $(cli_name) skill $1 ($dst): mkdir -p ${dst%/*} && ln -sfn $src $dst"; return 1; fi; }
 
 # --- the command line (#272) -------------------------------------------------------------------
 # HARNESS_<CLI>_BIN is a command line, not one executable: hosts pin the account with

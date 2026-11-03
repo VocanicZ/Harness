@@ -1356,6 +1356,7 @@ rtdd_skill_install(){ local d
     echo "  ! rtdd skill install failed — lanes run without the rtdd skill. Retry: rtdd skill install"
     return 1; }
   d="$(cli_user_skills_dir)"   # a CLI whose user skills `rtdd skill install` does not reach
+  [[ $d == "$HOME/.claude/skills" || $d == "${HARNESS_USER_SKILLS:-}" ]] && d=""   # ~/.claude is rtdd's own
   if [[ -n "$d" ]]; then
     d="$d/rtdd"
     mkdir -p "$d" && rtdd skill prompt 2>/dev/null | awk '/^````$/{f=0} f; /^````markdown$/{f=1}' > "$d/SKILL.md.tmp" \
@@ -1365,6 +1366,17 @@ rtdd_skill_install(){ local d
       return 1; }
   fi
   echo "  ✓ rtdd skill installed"; }
+# skills_heal — #439: re-link the engine's skills into every installed CLI's user-skills dir from THIS
+# engine (install.sh's install_harness_skills): `harness setup` and `start` add any link that is
+# missing, dangling or into an old release. Only for the host's own engine — run as
+# $HARNESS_HOME/engine (bin/harness's HARNESS_ENGINE_LINK) — never a dev clone or a test sandbox, so
+# neither repoints the operator's links. Says only what it changed; never fatal.
+skills_heal(){ local link="${HARNESS_ENGINE_LINK:-}"
+  [[ -n $link && $link == "${HARNESS_HOME:-$HOME/.harness}/engine" ]] || return 0
+  [[ "$(realpath "$link" 2>/dev/null)" == "$(realpath "$ENGINE_DIR" 2>/dev/null)" && -f "$ENGINE_DIR/install.sh" ]] || return 0
+  ( HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh" >/dev/null 2>&1 || exit 0
+    HARNESS_SKILLS_QUIET=1 HARNESS_SKILL_SRC="$link/skill" install_harness_skills ) 2>/dev/null
+  return 0; }
 # {{skill:<name>}} — a skill the prompt names, as the configured CLI invokes it (cli_skill, #315).
 # cli_prereqs derives the skills it checks from these same tokens, so a prompt names a skill no other way.
 render(){ local tmpl="$1" n; shift

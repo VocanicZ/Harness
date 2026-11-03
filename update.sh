@@ -4,6 +4,7 @@
 # entrypoint). One update moves every project at once — no per-project re-pull, no skew.
 #   --with-skills  also refresh the superpowers/ralph-loop plugins + matt-pocock skills (host-level).
 # rtdd is ensured on EVERY update, with or without that flag: the prompts this update brings call it.
+# So are the engine's own skills, linked into every installed CLI's user-skills dir (#439).
 # Touches NO project .harness/: config + state live in the project, separate from the engine.
 #
 # A release-based engine ($HARNESS_HOME/engine is a symlink into releases/, PRD #274) follows GitHub
@@ -74,10 +75,12 @@ elif [[ -n "$migrate_tag" ]]; then
   hand_off
 elif [[ -L "$_engine" ]]; then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
-  # already current / nothing to do: rtdd is still ensured (and --with-skills still honoured), and
-  # neither the engine link nor releases/ is touched.
+  # already current / nothing to do: rtdd is still ensured, every installed CLI's skill links are
+  # healed (#439; --with-skills still refreshes the plugins too), and neither the engine link nor
+  # releases/ is touched.
   done_current(){ echo "$1"; ensure_rtdd
-    if (( WITH_SKILLS )); then ensure_skills; install_harness_skills; fi
+    (( WITH_SKILLS )) && ensure_skills
+    HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-${HARNESS_ENGINE_LINK:-$HARNESS_HOME/engine}/skill}" install_harness_skills
     exit 0; }
   cur="$(engine_version)"
   if (( ROLLBACK )); then
@@ -146,13 +149,11 @@ if [[ -f "$ENGINE_DIR/scripts/web.sh" ]] && ( source "$ENGINE_DIR/scripts/web.sh
   bash "$ENGINE_DIR/scripts/web.sh" --install || echo "WARNING: redeploying harness web failed" >&2
 fi
 
-# optional host-level plugin/skill refresh (reuse install.sh's ensure_skills + the /harness skill
-# deploy). The engine was just ff-pulled, so redeploy its /harness skills to user scope from THIS
-# engine — otherwise an engine update leaves stale ~/.claude/skills copies behind.
-if (( WITH_SKILLS )); then
-  ensure_skills
-  HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-${HARNESS_ENGINE_LINK:-$ENGINE_DIR}/skill}" install_harness_skills
-fi
+# optional host-level plugin refresh (install.sh's ensure_skills). The engine's own skills are
+# re-linked on EVERY update (#439), from THIS engine — the new release after a flip: every installed
+# CLI gets a link for any skill it lacks, and a dangling or old-release one is repointed.
+(( WITH_SKILLS )) && ensure_skills
+HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-${HARNESS_ENGINE_LINK:-$ENGINE_DIR}/skill}" install_harness_skills
 
 # if a pool is running (in this project's state dir), new engine logic only applies after a relaunch.
 run_dir="${STATE_DIR:-$ENGINE_DIR}/run"

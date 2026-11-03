@@ -41,8 +41,9 @@ features on the [headless session backend](#headless-lanes) (`HARNESS_SESSION_BA
 | `stats-session-end-usage` | `harness stats` session_end events carry that usage (#185) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `usage-windows` | Usage windows are read for #194 checkpoints (claude: status line; agy: `agy -p /usage`; codex: the newest rollout's `rate_limits`; copilot: the newest session's `quotaSnapshots`; hermes: `hermes usage --json`; openclaw: `openclaw status --usage --json`) | ✓ | ✓ | ✓ | ✓ | n/a: OpenCode 1.x has no quota meter: a limit shows only as its error text at the prompt, which parks the lane (limit-parks) | ✓ | ✓ |
 | `checkpoint-skill` | `pause --force` types the checkpoint into a live lane, naming the handoff skill as the CLI invokes skills (`/handoff`; codex: `$handoff`; opencode, hermes and openclaw: `handoff`, loaded by the skill tool), and the lane's prompt (`{{skill:handoff}}`) names it the same way | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `handoff-skill-installed` | Harness ships that handoff skill (`skill/handoff`): `harness setup` reports it missing, and `--install` and `install.sh` put it where the CLI loads user skills from (claude, opencode, hermes, openclaw: `~/.claude/skills`, an external skill dir in a hermes or openclaw lane's config; codex: `~/.agents/skills`; agy: `~/.gemini/config/skills`; copilot: `~/.copilot/skills`), never over the operator's own | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `handoff-skill-installed` | Harness ships that handoff skill (`skill/handoff`): `harness setup` reports it missing, and `--install` and `install.sh` put it where the CLI loads user skills from (claude, opencode: `~/.claude/skills`; hermes: `~/.hermes/skills`, and openclaw: `~/.agents/skills`, each an external skill dir in that CLI's lane config; codex: `~/.agents/skills`; agy: `~/.gemini/config/skills`; copilot: `~/.copilot/skills`), never over the operator's own | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `prompt-skills-installed` | Every skill a lane prompt names — each `{{skill:<name>}}` in `prompts/*.md` (`to-prd`, `to-issues`, `writing-plans`, `caveman`, `subagent-task-tree`, `handoff`, `rtdd`), the only way a prompt names one — renders as the CLI invokes skills, and `harness setup` lists it for the CLI: missing until `--install` or `install.sh` puts Harness's `skill/<name>` (its own, or vendored from upstream with its `LICENSE`) where the CLI loads user skills from, never over the operator's own; rtdd's skill is rtdd's own (`rtdd skill install`), a warning when absent | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `operator-skills` | With the CLI installed (its binary on PATH), `install.sh` and every `harness update` (no flags, already current included), `harness setup` and `harness start` link every engine skill — `harness/SKILL.md` and each `skill/<name>` — into the dir the operator's own CLI reads user skills from (`cli_user_skills_dir`: claude, opencode: `~/.claude/skills`; hermes: `~/.hermes/skills`; openclaw, codex: `~/.agents/skills`; agy: `~/.gemini/config/skills`; copilot: `~/.copilot/skills`), each a symlink into the engine through `~/.harness/engine`, so an update refreshes every CLI; a removed link is back on the next run (#439) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pause-force-resume-other-host` | That checkpoint, then another host with none of the first one's local state resumes the issue from GitHub (label, pushed branch, handoff comment) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `inject-sessions` | `/harness-issue`, `/harness-prd` and `/harness-plan` (`inject.sh`) launch their injector through the CLI | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `bug-lane-triage-fix` | The bug lane launches its triage and then its fix session through the CLI | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -165,15 +166,16 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_OPENCODE_BIN` | `opencode` | Executable path for `opencode` (OpenCode 1.x) when `HARNESS_CLI=opencode`; a command line like `HARNESS_CLAUDE_BIN`'s |
 | `HARNESS_OPENCODE_FLAGS` | `--auto` | Flags passed to `opencode` on launch |
 | `HARNESS_HERMES_BIN` | `hermes` | Executable path for `hermes` when `HARNESS_CLI=hermes`; a command line like `HARNESS_CLAUDE_BIN`'s |
-| `HARNESS_HERMES_HOME` | `~/.hermes` | The operator's Hermes home (login, `config.yaml`, skills) each lane's own profile is seeded from |
+| `HARNESS_HERMES_HOME` | `~/.hermes` | The operator's Hermes home (login, `config.yaml`, skills) each lane's own profile is seeded from; Harness links its skills into its `skills/` |
 | `HARNESS_HERMES_USAGE_TTL` | `120` | Seconds one `hermes usage --json` answer is reused by every worker |
 | `HARNESS_OPENCLAW_BIN` | `openclaw` | Executable path for `openclaw` when `HARNESS_CLI=openclaw`; a command line like `HARNESS_CLAUDE_BIN`'s |
 | `HARNESS_OPENCLAW_CONFIG` | `$OPENCLAW_CONFIG_PATH`, else `${OPENCLAW_STATE_DIR:-~/.openclaw}/openclaw.json` | The operator's OpenClaw config (login, default model) each lane's own config includes |
 | `HARNESS_OPENCLAW_TIMEOUT` | `14400` | Seconds one `openclaw agent exec` turn of a lane may run |
 | `HARNESS_OPENCLAW_SUBAGENT_TIMEOUT` | `3600` | Seconds one review or gauntlet sub-agent run (a fresh `openclaw agent exec`) may take |
 | `HARNESS_OPENCLAW_USAGE_TTL` | `120` | Seconds one `openclaw status --usage --json` answer is reused by every worker |
-| `HARNESS_OPENCLAW_AGENTS_SKILLS` | `~/.agents/skills` | A user skill dir an openclaw lane's config adds as an extra skill dir, after `HARNESS_USER_SKILLS` |
-| `HARNESS_USER_SKILLS` | `~/.claude/skills` | Where Harness installs user skills for claude and opencode, and the skill dir a hermes or openclaw lane gets as an external one |
+| `HARNESS_OPENCLAW_AGENTS_SKILLS` | `~/.agents/skills` | The user skill dir the operator's own openclaw reads, where Harness links its skills; an openclaw lane's config adds it as an extra skill dir, after `HARNESS_USER_SKILLS` |
+| `HARNESS_HOME` | `~/.harness` | The host root: the shared engine (`engine`, a link into `releases/<tag>/`), whose `skill/` every CLI's skill links name (#439), and the host's poller, fleet and lane state |
+| `HARNESS_USER_SKILLS` | `~/.claude/skills` | Where Harness links user skills for claude and opencode, and a skill dir a hermes or openclaw lane gets as an external one. Set, it is a sandbox: no other CLI's dir under `HOME` is touched |
 | `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
 | `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on a single-topology `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
@@ -682,6 +684,15 @@ HARNESS_REF=v0.2.0 harness update  # install exactly this release, newer or olde
 harness update --with-skills       # also refresh the Claude plugins + skills
 ```
 
+Every update — already current included — also links the engine's skills (`/harness`,
+`/harness-*`, and the skills the lane prompts name) into the user-skills dir of every supported CLI
+installed on the host: `~/.claude/skills` (claude, opencode), `~/.hermes/skills`, `~/.agents/skills`
+(codex, openclaw), `~/.gemini/config/skills` (agy), `~/.copilot/skills`. Each is a symlink into
+`~/.harness/engine/skill/`, so the next update refreshes them all at once. A missing, dangling or
+old-release link, or an old Harness copy, is relinked; a same-named skill of your own is kept, and the
+update names it. `harness setup` and `harness start` do the same, quietly; `harness uninstall`
+removes only Harness's links (#439).
+
 | Outcome | Prints | Exit |
 |---------|--------|------|
 | Already current | `Harness v0.3.1 is the latest release.` (or, with `HARNESS_REF`, `Harness v0.2.0 is already installed.`) | `0` |
@@ -975,7 +986,7 @@ Config, `targets.tsv`, `run/`, worktrees, checkouts and `prompts/*.local.md` are
 
 ## The `/harness` skill
 
-Installed once to `~/.claude/skills/harness/`. Run `/harness` (or "start the fleet", "what's the
+Linked once per host into every installed CLI's user-skills dir (`~/.claude/skills/harness/`, `~/.hermes/skills/harness/`, …; see **Update**). Run `/harness` (or "start the fleet", "what's the
 harness doing") in any session to operate the fleet conversationally: start, stop, watch, and safe
 unstick moves. It never does a unit's work by hand.
 

@@ -104,6 +104,9 @@ sys.exit(0 if json.load(open(sys.argv[1]))["tools"]["exec"]["mode"] == "full" el
 # OpenClaw loads a skill through its skill tool, by name (skill.txt); the lane's skill dirs are in
 # its config (_openclaw_config).
 openclaw_skill(){ echo "$1"; }
+# The operator's own OpenClaw (default state dir) reads user skills from ~/.agents/skills (#439),
+# which a lane's config lists in skills.load.extraDirs (_openclaw_config).
+openclaw_user_skills_dir(){ echo "${HARNESS_OPENCLAW_AGENTS_SKILLS:-$HOME/.agents/skills}"; }
 
 # --- sub-agents: a fresh `agent exec` session (#314) ----------------------------------------------
 # sessions_spawn fails in an `agent exec` turn (bypass-subagent.txt), so a prompt's sub-agent is its

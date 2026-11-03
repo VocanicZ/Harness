@@ -126,32 +126,46 @@ remove_project_state(){
 # #303, and the vendored prompt skills, #315): their SKILL.md carries `<!-- harness-skill:`. A
 # same-named skill without it is the operator's.
 _marked_skills(){ grep -lF '<!-- harness-skill:' "$1"/*/SKILL.md 2>/dev/null | xargs -r -n1 dirname; }
-# remove the deployed /harness operator skills (umbrella `harness` + every `harness-*`) from user
-# scope, leaving unrelated skills untouched. Idempotent (nullglob → no-op when none present).
-remove_skills(){
-  shopt -s nullglob; local d n=0
-  for d in "$HARNESS_USER_SKILLS"/harness "$HARNESS_USER_SKILLS"/harness-* $(_marked_skills "$HARNESS_USER_SKILLS"); do
-    [[ -e "$d" ]] || continue
-    rm -rf "$d" && n=$((n+1))
-  done
-  shopt -u nullglob
-  echo "  removed $n /harness skill dir(s) from $HARNESS_USER_SKILLS"
-  # Every CLI's own copy (cli_user_skills_dir) and whatever Harness installed into the CLI itself
-  # (cli_uninstall: agy's harness-ralph plugin, #236). lib.sh is sourced best-effort above, so the
-  # adapter seam is sourced on its own; a pinned HARNESS_USER_SKILLS (a sandbox) never reaches into
-  # the real HOME's other CLI dirs. Best-effort: a missing or failing binary never fails this.
-  declare -F cli_list >/dev/null || source "$ENGINE_DIR/scripts/cli/dispatch.sh" 2>/dev/null || return 0
-  local c us
+# remove the deployed /harness operator skills (umbrella `harness` + every `harness-*`, and the marked
+# prompt skills) from user scope and every CLI's own user-skills dir (cli_user_skills_dir), leaving
+# unrelated skills untouched. #439: what goes is what Harness made — its links into an engine's
+# skill/ (dangling ones too, once the engine is gone) and its copies (cli_skill_ours); an operator's
+# same-named skill stays. Then whatever Harness installed into each CLI itself (cli_uninstall: agy's
+# harness-ralph plugin, #236). lib.sh is sourced best-effort above, so the adapter seam is sourced on
+# its own; a pinned HARNESS_USER_SKILLS (a sandbox) never reaches into the real HOME's other CLI dirs.
+# Idempotent; best-effort: a missing or failing binary never fails this.
+# _skill_dirs — HARNESS_USER_SKILLS, then each CLI's user-skills dir, one per line. Read ONCE, as this
+# file is sourced: main runs remove_engine before remove_skills, and the adapters that name the dirs
+# live in the engine.
+_skill_dirs(){ local c us
+  declare -F cli_skill_ours >/dev/null || source "$ENGINE_DIR/scripts/cli/dispatch.sh" 2>/dev/null
+  echo "$HARNESS_USER_SKILLS"
+  declare -F cli_skill_ours >/dev/null || return 0
   for c in $(cli_list); do
     us="$(cli_with "$c" cli_user_skills_dir)"
-    [[ -n "$us" ]] && ! [[ -n "$_SKILLS_PINNED" && "$us" == "$HOME"/* ]] || continue
+    [[ -n "$us" ]] && ! [[ -n "$_SKILLS_PINNED" && "$us" == "$HOME"/* ]] && echo "$us"
+  done | awk '!seen[$0]++'; }
+_SKILL_DIRS="$(_skill_dirs)"
+remove_skills(){
+  local d n=0 c dir
+  if ! declare -F cli_skill_ours >/dev/null; then     # no seam at all: the /harness names alone
     shopt -s nullglob
-    for d in "$us"/harness "$us"/harness-* $(_marked_skills "$us"); do
-      [[ -e "$d" ]] || continue
-      rm -rf "$d"
+    for d in "$HARNESS_USER_SKILLS"/harness "$HARNESS_USER_SKILLS"/harness-* $(_marked_skills "$HARNESS_USER_SKILLS"); do
+      rm -rf "$d" && n=$((n+1)); done
+    shopt -u nullglob
+    echo "  removed $n /harness skill dir(s) from $HARNESS_USER_SKILLS"; return 0
+  fi
+  while IFS= read -r dir; do
+    [[ -n $dir ]] || continue
+    shopt -s nullglob
+    for d in "$dir"/*; do
+      [[ -L $d || ${d##*/} == harness || ${d##*/} == harness-* ]] || grep -qF '<!-- harness-skill:' "$d/SKILL.md" 2>/dev/null || continue
+      cli_skill_ours "$d" || continue
+      rm -rf "$d" && [[ $dir == "$HARNESS_USER_SKILLS" ]] && n=$((n+1))
     done
     shopt -u nullglob
-  done
+  done <<<"$_SKILL_DIRS"
+  echo "  removed $n /harness skill dir(s) from $HARNESS_USER_SKILLS"
   for c in $(cli_list); do cli_with "$c" cli_uninstall >/dev/null 2>&1 || true; done
   return 0
 }

@@ -248,6 +248,10 @@ hermes_bypassed(){ grep -qE -- '(^| )--yolo( |$)' <<<"$(_hermes_line "$1" "")" &
 # own `/handoff` shadows the skill (handoff.txt). The lane's skills include HARNESS_USER_SKILLS
 # (_hermes_seed: skill.txt ran one from there by name).
 hermes_skill(){ echo "$1"; }
+# The operator's own Hermes reads user skills from its home's skills/ (#439): Harness links its skills
+# there, and a lane reads that dir as an external one (_hermes_seed). Hermes walks it following
+# symlinks (skills-symlink.txt).
+hermes_user_skills_dir(){ echo "$(_hermes_op_home)/skills"; }
 
 # --- transcripts + usage --------------------------------------------------------------------------
 # A transcript is `<state.db>#<session id>`: the session's own, then each delegate_task child's

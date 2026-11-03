@@ -536,48 +536,64 @@ create_host_root(){
   mkdir -p "$home/poller" "$home/snapshots"
 }
 
-# install_harness_skills — deploy the engine's OWN /harness operator skills to USER scope
-# (~/.claude/skills) ONCE per host, not vendored per project (#57, PRD #52). Source is the shared
-# engine's skill/ dir (place_engine runs first in main); the umbrella skill/SKILL.md → harness/, and
-# each skill/<name>/ → <name>/, whole (harness-arc ships REFERENCE.md + scripts/ beside its SKILL.md).
-# That includes every skill the lane prompts name (#303, #315): the handoff skill, and to-prd, to-issues,
-# writing-plans, caveman and subagent-task-tree vendored from upstream — never over the operator's own.
-# Best-effort: a missing source warns, never fails.
+# install_harness_skills — put the engine's OWN skills in USER scope, once per host, never vendored per
+# project (#57, PRD #52): the umbrella skill/SKILL.md as harness/, and each skill/<name>/ (harness-arc
+# ships REFERENCE.md + scripts/ beside its SKILL.md), including every skill the lane prompts name
+# (#303, #315: handoff, and to-prd, to-issues, writing-plans, caveman, subagent-task-tree vendored from
+# upstream). #439: into ~/.claude/skills (HARNESS_USER_SKILLS) AND the user-skills dir of every
+# supported CLI installed on the host — its binary on PATH or its config dir present — each the dir
+# that CLI reads (cli_user_skills_dir; hermes: ~/.hermes/skills), as SYMLINKS to the one canonical
+# copy, the engine's skill/<name> through the stable engine link (cli_skill_link), so an update
+# refreshes every CLI at once. A missing, dangling or old-release link, or an old Harness copy, is
+# (re)linked; an operator's same-named skill (cli_skill_ours) is kept and named. Re-run by every
+# `harness update`, `setup` and `start` (skills_heal), so a CLI support was added for later gets its
+# links without a reinstall. A pinned HARNESS_USER_SKILLS is a sandbox: it never reaches into the real
+# HOME's other CLI dirs. HARNESS_SKILLS_QUIET=1 prints only what changed. Best-effort: never fails.
 install_harness_skills(){
   local src="${HARNESS_SKILL_SRC:-${HARNESS_HOME:-$HOME/.harness}/engine/skill}"
-  local dst="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"
+  local dst="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}" quiet="${HARNESS_SKILLS_QUIET:-0}"
   if [[ ! -d "$src" ]]; then
     echo "  ! engine skill/ not found at $src — install /harness skills manually" >&2; return 0
   fi
-  mkdir -p "$dst"
-  local n=0 d
-  if [[ -f "$src/SKILL.md" ]]; then
-    mkdir -p "$dst/harness"; cp "$src/SKILL.md" "$dst/harness/SKILL.md" && n=$((n+1))
-  fi
-  for d in "$src"/*/; do
-    [[ -f "$d/SKILL.md" ]] || continue
-    _place_skill "$d" "$dst/$(basename "$d")" && n=$((n+1))
-  done
-  echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"
-  # A CLI that reads user skills somewhere else (cli_user_skills_dir) gets its own copy, when it is
-  # installed or its config dir exists. A pinned HARNESS_USER_SKILLS is a sandbox: it never reaches
-  # into the real HOME's other CLI dirs.
-  local c cdst
+  src="${src%/}"
+  # An older placed engine's adapter seam has no cli_skill_link: copy, as that release did.
+  declare -F cli_skill_link >/dev/null || { _install_skills_copy "$src" "$dst"; return 0; }
+  local -a dirs=("$dst") who=("user scope") ; local c cdst i
   for c in $(cli_list 2>/dev/null); do
     cdst="$(cli_with "$c" cli_user_skills_dir)"; [[ -n "$cdst" ]] || continue
-    [[ -n "${HARNESS_USER_SKILLS:-}" && "$cdst" == "$HOME"/* ]] && continue
+    [[ -n "${HARNESS_USER_SKILLS:-}" && "$cdst" != "$dst" && "$cdst" == "$HOME"/* ]] && continue
     need "$(_cli_exe_of "$c")" || [[ -d "$(dirname "$cdst")" ]] || continue
-    mkdir -p "$cdst"
-    if [[ -f "$src/SKILL.md" ]]; then
-      mkdir -p "$cdst/harness"; cp "$src/SKILL.md" "$cdst/harness/SKILL.md"
-    fi
-    for d in "$src"/*/; do
-      [[ -f "$d/SKILL.md" ]] || continue
-      _place_skill "$d" "$cdst/$(basename "$d")"
-    done
-    echo "  ✓ installed $n /harness skill(s) into $cdst ($c user scope)"
+    for i in "${!dirs[@]}"; do [[ ${dirs[$i]} == "$cdst" ]] && { who[$i]+=", $c"; continue 2; }; done
+    dirs+=("$cdst"); who+=("$c")
   done
+  local d n r out new old kept total
+  for i in "${!dirs[@]}"; do
+    d="${dirs[$i]}"; new=0; old=0; kept=""; total=0
+    mkdir -p "$d" 2>/dev/null || { echo "  ! cannot create $d — /harness skills not linked for ${who[$i]}" >&2; continue; }
+    for n in "$src/SKILL.md" "$src"/*/; do
+      n="${n%/}"
+      if [[ $n == "$src/SKILL.md" ]]; then [[ -f $n ]] || continue; r="$d/harness"
+      else [[ -f "$n/SKILL.md" ]] || continue; r="$d/${n##*/}"; fi
+      total=$((total+1))
+      out="$(cli_skill_link "$n" "$r")" || { echo "  ! could not link $r -> $n" >&2; continue; }
+      case "$out" in
+        linked) new=$((new+1)) ;; relinked) old=$((old+1)) ;; kept) kept+=" ${r##*/}" ;;
+      esac
+    done
+    if (( new + old )); then echo "  ✓ linked /harness skills into $d (${who[$i]}): $new new, $old relinked, $total in all"
+    elif (( ! quiet )); then echo "  ✓ /harness skills linked in $d (${who[$i]}): $total, all current"; fi
+    [[ -z $kept ]] || (( quiet )) || echo "  ! kept your own skill(s) in $d:$kept — not Harness's; remove one to get Harness's link"
+  done
+  return 0
 }
+
+# _install_skills_copy <src> <dst> — the pre-#439 deploy, for an engine whose seam cannot link: copy
+# each skill into <dst> (_place_skill).
+_install_skills_copy(){ local src="$1" dst="$2" n=0 d
+  mkdir -p "$dst"
+  if [[ -f "$src/SKILL.md" ]]; then mkdir -p "$dst/harness"; cp "$src/SKILL.md" "$dst/harness/SKILL.md" && n=$((n+1)); fi
+  for d in "$src"/*/; do [[ -f "$d/SKILL.md" ]] && _place_skill "$d" "$dst/$(basename "$d")" && n=$((n+1)); done
+  echo "  ✓ installed $n /harness skill(s) into $dst (user scope)"; }
 
 # _place_skill <src dir> <dst dir> — copy one engine skill dir whole. A skill the prompts name rather
 # than a /harness one (skill/handoff and the vendored ones, #303, #315) carries a `<!-- harness-skill:`
@@ -633,7 +649,7 @@ main(){
   ensure_skills
   ensure_rtdd
   create_host_root          # ~/.harness/{poller,snapshots}/ — host-poller dirs (PRD-B, #69)
-  install_harness_skills    # /harness operator skills → ~/.claude/skills (user scope, once)
+  install_harness_skills    # /harness skills → every installed CLI's user-skills dir, as links (#439)
   link_path
   cat <<EOF
 Done. Harness $INSTALLED_TAG is installed once at $HARNESS_HOME/engine and linked as 'harness'.
