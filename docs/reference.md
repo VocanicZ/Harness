@@ -849,7 +849,8 @@ the operator keep going one issue at a time in their own session, with a budget 
   runs (`issuelib.py check <repo> ISSUE:<n>`); until it reports DONE (exit 4) nothing is offered. Then
   it picks the next claimable issue exactly as a one-slot dispatch would (`issuelib.py next`: open,
   ready, not `agent-working`, every `## Blocked by` closed; resumable — `agent-paused` or a pushed
-  branch — first, then oldest) and runs a fresh forecast + gate for it (exit 0 APPROVE / 1 DENY / 3
+  branch — first, then oldest), skipping any issue a live lane still owns — its worktree or session
+  present, the set dispatch skips (`busy_issues_for`, #446) — and runs a fresh forecast + gate for it (exit 0 APPROVE / 1 DENY / 3
   refused). The human decides again: approve / pick another / stop. None claimable is exit 5.
 
 ### Auto harness-one lane (`HARNESS_ONE_AUTO`)

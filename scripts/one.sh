@@ -264,7 +264,10 @@ one_done(){ local issue="${1:-}" skip="" a goal next rc
     return 4; fi
   harness_event one_done kind=impl issue="$issue"
   echo "harness one: $SLUG#$issue DONE (goal check)" >&"$say"
-  next="$(python3 "$ISSUELIB" next "$REPO" --exclude "$issue" 2>/dev/null)"; rc=$?
+  # #446: skip the issues a live lane still owns, as dispatch does (busy_issues_for, #416) — a
+  # checkpointed lane's worktree outlives agent-working, so `next` alone offered an unstartable issue.
+  local owned; owned="$(busy_issues_for "$UNIT")"
+  next="$(python3 "$ISSUELIB" next "$REPO" --exclude "$issue${owned:+,$owned}" 2>/dev/null)"; rc=$?
   (( rc == 0 )) || { echo "harness one: cannot read $SLUG's issues to pick the next one — try again" >&2; return 2; }
   if [[ -z "$next" ]]; then
     echo "harness one: no claimable issue on $SLUG (open, $HARNESS_LABEL_READY, not $HARNESS_LABEL_WORKING, every blocker closed) — stop here" >&"$say"
