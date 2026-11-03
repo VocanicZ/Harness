@@ -5,7 +5,7 @@ description: Extend a LIVE Harness fleet's PRD scope and create the delta issues
 
 # /harness-prd — extend PRD scope + create delta issues
 
-Thin wrapper around `.harness/bin/harness prd "<brief>"`. The altitude here is **a scope /
+Thin wrapper around `harness prd "<brief>"`. The altitude here is **a scope /
 milestone**: reopen the PRD (clearing `reviewed` if set), append the new scope to its body, and
 create ONLY the **delta** child issues — never duplicating existing children. The mutation happens
 in a headless injector; your job here is to **grill the new scope, then gate it behind an explicit
@@ -28,8 +28,8 @@ and ask the user to **confirm** it verbatim. No confirmation, no run. The headle
 re-grill; this confirmation is the safety gate.
 
 ## 3. Run the injector
-- Default unit: `.harness/bin/harness prd "<confirmed brief>"`
-- Multi-topology — target one unit: `.harness/bin/harness prd --unit <id> "<confirmed brief>"`
+- Default unit: `harness prd "<confirmed brief>"`
+- Multi-topology — target one unit: `harness prd --unit <id> "<confirmed brief>"`
 
 This launches a headless session `hz-inject-<unit>` that reopens + grows the PRD and creates the
 delta issues additively, re-engaging the unit so dispatch re-includes it.
@@ -42,6 +42,6 @@ with `/harness-status`.
 ## Retired-fleet fallback
 "No restart" only holds while the fleet is live. If `/harness-status` shows the pool retired (all
 units complete, workers exited), relaunch to pick up the grown scope:
-`.harness/bin/harness start --recover` (or `/harness-start --recover`). The injector refuses to run
+`harness start --recover` (or `/harness-start --recover`). The injector refuses to run
 while a live `REVIEW` session exists for the unit (a REVIEW could close the PRD out from under the
 injection) — wait for it to finish, then retry.

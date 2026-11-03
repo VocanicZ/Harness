@@ -5,7 +5,7 @@ description: Inject a structural / topology change into a LIVE Harness fleet —
 
 # /harness-plan — inject a plan / topology change
 
-Thin wrapper around `.harness/bin/harness plan "<brief>"`. The altitude here is **structural**: edit
+Thin wrapper around `harness plan "<brief>"`. The altitude here is **structural**: edit
 the umbrella `PLAN.md` and/or the multi-target `targets.tsv` (add a unit, change a dependency edge),
 cascading down into the PRD body + delta issues, and — for a brand-new target unit — seed it
 (`seed.sh <unit>`: clone + labels, existing test CI disabled) so the pool can claim it once its deps complete. The
@@ -30,8 +30,8 @@ Replay a single crystallized brief — the structural change + new targets/edges
 not re-grill; this confirmation is the safety gate.
 
 ## 3. Run the injector
-- Default unit: `.harness/bin/harness plan "<confirmed brief>"`
-- Multi-topology — target one unit: `.harness/bin/harness plan --unit <id> "<confirmed brief>"`
+- Default unit: `harness plan "<confirmed brief>"`
+- Multi-topology — target one unit: `harness plan --unit <id> "<confirmed brief>"`
 
 This launches a headless session `hz-inject-<unit>` that edits `PLAN.md`/`targets.tsv` (commit +
 push), seeds any new target, and cascades into the PRD + delta issues additively.
@@ -44,5 +44,5 @@ new unit is seeded, so the live pool claims the new work within one poll — no 
 ## Retired-fleet fallback
 "No restart" only holds while the fleet is live. If `/harness-status` shows the pool retired (all
 units complete, workers exited), relaunch to pick up the changed topology:
-`.harness/bin/harness start --recover` (or `/harness-start --recover`). The injector refuses to run
+`harness start --recover` (or `/harness-start --recover`). The injector refuses to run
 while a live `REVIEW` session exists for the unit — wait for it to finish, then retry.

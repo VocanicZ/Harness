@@ -5,7 +5,7 @@ description: Inject a discrete implementation issue (or a few) into a LIVE Harne
 
 # /harness-issue — inject implementation issue(s) into a live fleet
 
-Thin wrapper around `.harness/bin/harness issue "<brief>"`. The altitude here is **one unit of
+Thin wrapper around `harness issue "<brief>"`. The altitude here is **one unit of
 work**: a discrete `[AFK]` implementation issue the running pool can claim on its next poll — no
 fleet restart. The actual mutation happens in a headless injector; your job here is to **grill the
 requirement, then gate it behind an explicit human confirmation**. Mutate NOTHING while grilling.
@@ -26,8 +26,8 @@ Replay a single crystallized brief — outcome + acceptance criteria + ordering 
 injector does not re-grill.
 
 ## 3. Run the injector
-- Default unit: `.harness/bin/harness issue "<confirmed brief>"`
-- Multi-topology — target one unit: `.harness/bin/harness issue --unit <id> "<confirmed brief>"`
+- Default unit: `harness issue "<confirmed brief>"`
+- Multi-topology — target one unit: `harness issue --unit <id> "<confirmed brief>"`
 
 This launches a headless session `hz-inject-<unit>`; it reconciles the brief against live GitHub
 state and creates the issue(s) additively, with correct `## Blocked by` ordering.
@@ -39,5 +39,5 @@ Tell the user the `hz-inject-<unit>` session launched and the live pool will cla
 ## Retired-fleet fallback
 "No restart" only holds while the fleet is live. If `/harness-status` shows the pool retired (all
 units complete, workers exited), the new issue won't be picked up until you relaunch:
-`.harness/bin/harness start --recover` (or `/harness-start --recover`). The injector refuses to run
+`harness start --recover` (or `/harness-start --recover`). The injector refuses to run
 while a live `REVIEW` session exists for the unit — wait for it to finish, then retry.

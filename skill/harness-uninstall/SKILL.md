@@ -5,7 +5,7 @@ description: Tear down a Harness install/project — remove the shared engine, t
 
 # /harness-uninstall — remove Harness
 
-Thin wrapper around `.harness/bin/harness uninstall`.
+Thin wrapper around `harness uninstall`.
 
 **This is destructive and irreversible.** It removes the shared host engine (`~/.harness/engine`) and
 its PATH symlink, this project's `.harness/` config + state (`run/`, `claims/`, `worktrees/`) and the
@@ -14,9 +14,9 @@ The default path **stops the fleet first** (`stop --clean`, which discards uncom
 worktrees), then prompts for confirmation. Always confirm with the user before running.
 
 1. Confirm with the user that they want to remove Harness entirely (engine + this project + skills).
-2. Run: `.harness/bin/harness uninstall`   (it stops the fleet, then prompts y/N before deleting).
+2. Run: `harness uninstall`   (it stops the fleet, then prompts y/N before deleting).
 3. For an unattended teardown — skip BOTH the stop guard and the prompt, removing immediately
-   regardless of any working agent — run: `.harness/bin/harness uninstall --force`.
+   regardless of any working agent — run: `harness uninstall --force`.
 4. Report what was removed.
 
 To just stop the fleet without removing anything, use `/harness-stop`. For operate guidance use `/harness`.

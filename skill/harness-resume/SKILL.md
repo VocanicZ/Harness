@@ -5,7 +5,7 @@ description: Resume a paused Harness fleet — clears the pause and continues he
 
 # /harness-resume — resume the fleet
 
-Thin wrapper around `.harness/bin/harness resume`.
+Thin wrapper around `harness resume`.
 
 **Confirm before running** (it may relaunch the pool and re-dispatch paused work).
 
@@ -14,5 +14,5 @@ machine: open `agent-paused` issues are re-dispatched and continued from their p
 So you can `pause --force` on a laptop and `resume` on a server — the work continues.
 
 1. Confirm with the user.
-2. Run: `.harness/bin/harness resume`
+2. Run: `harness resume`
 3. Report. Watch with `/harness-status`.
