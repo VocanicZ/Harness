@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Ending a headless lane ends its detached background jobs (#427)
+
+- #418's guarantee did not hold on `HARNESS_SESSION_BACKEND=headless`: a turn that ended normally
+  left its background jobs (`sleep 777 &`, a `setsid`'d server) running, re-parented, and neither
+  `sess_kill` on the idle lane nor the stats sweep of a lane that exited on its own reached them.
+  The lane now records the `HARNESS_SESSION` uuid it started with, and both end every process whose
+  environment carries it exactly (`proc_sweep_session`: SIGTERM, then SIGKILL after
+  `HARNESS_SWEEP_GRACE`; never the caller, its ancestors or a tracked worker; by pid only).
+- A lane relaunched on its claude session keeps its uuid: nothing is swept while a live lane carries it.
+- On Windows a process still up after the grace is also `taskkill /F`'d by its winpid.
+
 ### Dispatch never re-claims an issue its live lane still owns (#416)
 
 - Dispatch decided an issue was claimable from its labels alone, so a live lane that dropped

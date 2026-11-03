@@ -172,8 +172,9 @@ proc_session_pids(){ local p="${HARNESS_PROC_ROOT:-/proc}" f
 # inherits it too) plus each <pid> (a pane's tree, collected before the session went). Never the caller
 # or any ancestor of it, pid 1, a pid in SWEEP_KEEP (space-separated), or one of this fleet's tracked
 # workers (tracked_worker_pid, when lib.sh is loaded). SIGTERM, then SIGKILL whatever is still up after
-# HARNESS_SWEEP_GRACE seconds (default 3). By pid only — never a name or command-line pattern. Always
-# true: a missing uuid, an empty environment or nothing left is not an error.
+# HARNESS_SWEEP_GRACE seconds (default 3) — on Windows also `taskkill /F` on each one's winpid (MSYS
+# signals do not reach a native process; #427). By pid only — never a name or command-line pattern.
+# Always true: a missing uuid, an empty environment or nothing left is not an error.
 proc_sweep_session(){ local u="${1:-}" p keep=" 1 " hit=() left i grace="${HARNESS_SWEEP_GRACE:-3}"
   (( $# )) && shift
   p="$BASHPID"
@@ -192,6 +193,10 @@ proc_sweep_session(){ local u="${1:-}" p keep=" 1 " hit=() left i grace="${HARNE
     (( ${#left[@]} )) || return 0
     (( i < grace * 10 )) && sleep 0.1
   done
+  if is_windows; then local w
+    for p in "${left[@]}"; do w="$(proc_winpid "$p")"
+      [[ $w =~ ^[0-9]+$ ]] && "${HARNESS_TASKKILL:-taskkill}" //F //PID "$w" >/dev/null 2>&1; done
+  fi
   kill -KILL "${left[@]}" 2>/dev/null; return 0; }
 # detach_prefix — the command that runs a program in its own session (`setsid`) where the host has it,
 # so the worker that started it can exit: prefix a command with it (empty when there is none). Git

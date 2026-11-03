@@ -9,6 +9,8 @@
 #                 reused the number. The
 #                 runner leads its own process session.
 #   dir, created  the lane's start directory and start time (sess_list_paths)
+#   session       the HARNESS_SESSION uuid the lane was started with (its -e pair): what sess_kill and
+#                 sess_sweep end every process of, the lane's detached background jobs too (#427)
 #   runner.log    the runner's own stdout/stderr
 #   typed         text sess_type has typed and sess_enter has not yet submitted
 #   inbox.jsonl, events.jsonl, stderr.log, state.json, stop, interrupt — the runner's lane files: the
@@ -45,6 +47,20 @@ _hl_reap_turn(){ local lane="$1" cpid sid
   [[ $cpid =~ ^[0-9]+$ && -n $sid ]] && _hl_alive "$cpid" || return 0
   [[ "$(proc_args "$cpid")" == *"$sid"* ]] || return 0
   proc_kill_tree "$cpid"; return 0; }
+# _hl_session <lane dir> — the HARNESS_SESSION uuid the lane was started with (empty when none).
+_hl_session(){ local u; u="$(cat "$1/session" 2>/dev/null)"; [[ -n $u ]] && echo "$u"; return 0; }
+# _hl_uuid_live <uuid> — some live lane was started with <uuid>: a lane relaunched on its claude session
+# keeps its predecessor's (sess_resume_id), and its processes are not the ended run's leftovers.
+_hl_uuid_live(){ local n
+  while read -r n; do
+    [[ -n $n && "$(_hl_session "$(headless_lane_dir "$n")")" == "$1" ]] && headless_sess_live "$n" && return 0
+  done < <(_hl_names); return 1; }
+# _hl_sweep <uuid> — end what an ended lane left running (#427): every process whose environment carries
+# HARNESS_SESSION=<uuid> exactly (proc_sweep_session: SIGTERM, SIGKILL after HARNESS_SWEEP_GRACE; never
+# the caller, its ancestors or a tracked worker; by pid only). A turn that ends normally leaves its
+# detached jobs (`cmd &`, setsid) running, re-parented, in its old process group: nothing else ends
+# them. Nothing while a live lane carries <uuid> (a resumed successor), nor for an empty one.
+_hl_sweep(){ [[ -n ${1:-} ]] || return 0; _hl_uuid_live "$1" && return 0; proc_sweep_session "$1"; }
 _hl_state(){ python3 "$HEADLESS_LANE_PY" state --lane "$(headless_lane_dir "$1")" --field state 2>/dev/null; }
 _hl_names(){ local d; shopt -s nullglob; for d in "$(_hl_root)"/*/; do d="${d%/}"; echo "${d##*/}"; done; shopt -u nullglob; }
 # _hl_send <target> <text> — one message onto the lane's inbox.
@@ -71,6 +87,7 @@ headless_sess_start(){ local name="$1" dir="$2" lane pid i; shift 2; local -a en
   [[ -d $lane ]] && _hl_reap_turn "$lane"   # a dead runner's turn must not keep editing the worktree
   rm -rf "$lane"; mkdir -p "$lane" || return 1
   printf '%s\n' "$dir" > "$lane/dir"; date +%s > "$lane/created"
+  local kv; for kv in "${envs[@]}"; do [[ $kv == HARNESS_SESSION=?* ]] && printf '%s\n' "${kv#HARNESS_SESSION=}" > "$lane/session"; done
   local dp; dp="$(detach_prefix)"; [[ -n $dp ]] && set -- "$dp" "$@"
   ( cd "$dir" 2>/dev/null || exit 1
     exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" </dev/null >>"$lane/runner.log" 2>&1 ) &
@@ -98,18 +115,21 @@ headless_sess_capture(){ headless_sess_live "$1" || return 1
 headless_sess_pane_pid(){ headless_sess_live "$1" || return 1; _hl_runner "$1"; }
 # A stop request plus SIGTERM: the runner ends its turn's whole process tree and exits. One that has
 # not after HARNESS_HEADLESS_STOP_WAIT seconds is killed with its process group, and so is the claude
-# turn it may have left (its own process group) — that one even when the runner was already gone.
-headless_sess_kill(){ local lane pid i
-  lane="$(headless_lane_dir "$1")"
-  headless_sess_live "$1" || { [[ -d $lane ]] && _hl_reap_turn "$lane"; return 1; }
+# turn it may have left (its own process group) — that one even when the runner was already gone. Then
+# whatever still carries the lane's HARNESS_SESSION goes too (_hl_sweep, #427): the detached jobs of a
+# turn that ended normally, which no process-group kill reaches.
+headless_sess_kill(){ local lane pid i u
+  lane="$(headless_lane_dir "$1")"; u="$(_hl_session "$lane")"
+  headless_sess_live "$1" || { [[ -d $lane ]] && { _hl_reap_turn "$lane"; _hl_sweep "$u"; }; return 1; }
   pid="$(_hl_runner "$1")"
+  [[ -n $u ]] || u="$(proc_env "$pid" HARNESS_SESSION)"   # a lane started before #427 kept no session file
   : > "$lane/stop"; kill -TERM "$pid" 2>/dev/null
   for (( i = 0; i < HARNESS_HEADLESS_STOP_WAIT * 10; i++ )); do _hl_alive "$pid" || break; sleep 0.1; done
   if [[ "$(_hl_runner "$1")" == "$pid" ]]; then proc_kill_tree "$pid"; fi
-  _hl_reap_turn "$lane"; return 0; }
-# Nothing to sweep: the runner ends its turn's whole process tree itself, and a resumed lane keeps its
-# agent session's uuid (sess_resume_id), so an environment sweep could reach its successor (#418).
-headless_sess_sweep(){ return 0; }
+  _hl_reap_turn "$lane"; _hl_sweep "$u"; return 0; }
+# A lane that ended on its own (stats_sweep_ended): what still carries its HARNESS_SESSION (#427) —
+# never while a lane relaunched on the same agent session (sess_resume_id keeps its uuid) is live.
+headless_sess_sweep(){ _hl_sweep "${1:-}"; }
 # The turns it has started and how much it has logged: both move with every turn, even one that began
 # and ended between two looks (the drawn screen holds no reply text, so it is unchanged by one).
 headless_sess_activity(){ local lane; headless_sess_live "$1" || return 0; lane="$(headless_lane_dir "$1")"
