@@ -9,6 +9,13 @@ AGY_STUB_DIR="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' >"$AGY_STUB_
 export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 source "$HERE/helpers.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T" "$AGY_STUB_DIR"; tmp_cleanup' EXIT
+# The host's engine is host state too (#434): update.sh picks its path off
+# "${HARNESS_HOME:-$HOME/.harness}/engine", and a release symlink there (every host installed since
+# #279) sent `harness update` down the release path — the real GitHub releases API, and with a newer
+# release published, rel_install + engine_flip on the LIVE engine — instead of ff-pulling $ENG. Pin a
+# throwaway host root and home with no engine in them, and a releases API that answers nothing.
+mkdir -p "$T/home"
+export HOME="$T/home" HARNESS_HOME="$T/home/.harness" HARNESS_API_URL="file://$T/home/no-releases.json"
 printf '#!/bin/sh\necho "$@" >> %s/systemctl.calls\n' "$T" >"$T/systemctl"; chmod +x "$T/systemctl"
 printf '#!/bin/sh\necho "$@" >> %s/loginctl.calls\n' "$T" >"$T/loginctl"; chmod +x "$T/loginctl"
 export HARNESS_WEB_UNIT_DIR="$T/unit" HARNESS_WEB_SYSTEMCTL="$T/systemctl" HARNESS_WEB_LOGINCTL="$T/loginctl"

@@ -95,6 +95,53 @@ for t in test_install.sh test_update.sh test_supervise.sh test_uninstall.sh; do
     "$t: the host's agy is never called (PATH or inherited HARNESS_AGY_BIN)"
 done
 
+# ── the host's ENGINE is a FIFTH seam (#434) ───────────────────────────────────────────────────
+# update.sh picks its path off "${HARNESS_HOME:-$HOME/.harness}/engine": a release symlink (every host
+# installed since #279) takes the release path — it sources install.sh, asks the real GitHub releases
+# API for the latest tag, and with a newer one published would rel_install + engine_flip the LIVE
+# engine. A test that runs update.sh (or `harness update`) without its own HARNESS_HOME read the
+# host's link, ignored its own ENGINE_DIR fixture, and went red (test_update.sh, test_web_install.sh)
+# or worse. Run every such test against a decoy host root whose engine IS a release symlink — handed
+# down as both HOME and an inherited HARNESS_HOME, the two ways the real one reaches a test — with a
+# curl tripwire first on PATH. Each must pass, leave the decoy byte-for-byte as it was, and never
+# reach github.com.
+# runs_update <file> — the test runs update.sh, or `harness update`, on a non-comment line.
+runs_update(){ grep -v '^[[:space:]]*#' "$1" |
+  grep -qE '(bash|exec)[^#|]*update\.sh|harness"?[[:space:]]+update([[:space:]]|$|")'; }
+update_tests=()
+for f in "$HERE"/test_*.sh; do runs_update "$f" && update_tests+=("$(basename "$f")"); done
+# The two that leaked (#434), and one that runs it as `harness update`, must be found — or the scan
+# below guards nothing.
+for t in test_update.sh test_web_install.sh test_update_prerelease.sh; do
+  assert_ok "the update.sh scan finds $t" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${update_tests[*]}" "$t"
+done
+# decoy_host — a home whose .harness/engine is a release symlink, echoed on stdout (tracked by the
+# caller: a tmp_track inside the $(…) would delete it as that subshell exits). It carries a git
+# identity, as a real home does — test_supervise.sh's WIP checkpoints commit with the user's own.
+decoy_host(){ local d; d="$(mktemp -d)"; printf '[user]\n\tname = t\n\temail = t@t\n' > "$d/.gitconfig"
+  mkdir -p "$d/.harness/releases/v0.0.1/bin"; printf 'v0.0.1\n' > "$d/.harness/releases/v0.0.1/VERSION"
+  printf 'v0.0.1\n' > "$d/.harness/releases/.installed"; ln -s releases/v0.0.1 "$d/.harness/engine"
+  printf '%s' "$d"; }
+# tree_state <dir> — every path under <dir> with its type, link target, size and mtime.
+tree_state(){ find "$1" -printf '%P %y %l %s %T@\n' | sort; }
+for t in "${update_tests[@]}"; do
+  dh="$(decoy_host)"; tmp_track "$dh"; before="$(tree_state "$dh/.harness")"
+  TRIP="$(mktemp -d)"; tmp_track "$TRIP"; : > "$TRIP/curl.log"
+  # Logs every call; refuses github.com, passes anything else (file:// fixtures) to the real curl.
+  cat > "$TRIP/curl" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> $(printf %q "$TRIP/curl.log")
+[[ "\$*" == *github.com* ]] && exit 22
+PATH=$(printf %q "$PATH") exec curl "\$@"
+EOF
+  chmod +x "$TRIP/curl"
+  HOME="$dh" HARNESS_HOME="$dh/.harness" PATH="$TRIP:$PATH" bash "$HERE/$t" >"$TRIP/out" 2>&1; rc=$?
+  assert_eq "$rc" 0 "$t passes on a host whose ~/.harness/engine is a release symlink"
+  (( rc == 0 )) || grep -E 'FAIL|rror' "$TRIP/out" | head -5
+  assert_eq "$(tree_state "$dh/.harness")" "$before" "$t: the host's ~/.harness is left exactly as it was"
+  assert_no "$t: never queries github.com (the releases API)" grep -q 'github\.com' "$TRIP/curl.log"
+done
+
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
 # exported — make_env re-pins STATE_DIR and everything lib.sh derived from it.
 decoy="$(make_decoy)"

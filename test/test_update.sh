@@ -12,6 +12,15 @@ gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
 AGY_STUB_DIR="$(mktemp -d)"; AGY_LOG="$AGY_STUB_DIR/agy.log"; : > "$AGY_LOG"
 printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
 export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
+# The host's engine is host state too (#434): update.sh picks its path off
+# "${HARNESS_HOME:-$HOME/.harness}/engine", and a release symlink there (every host installed since
+# #279) sent this test's run down the release path — the host's real link, the real GitHub releases
+# API — instead of ff-pulling the $ENG fixture. Pin a throwaway host root and home with no engine in
+# them, and a releases API that answers nothing, so no run here ever reaches the real ones. rtdd is
+# skipped as everywhere else in the suite: on a host without it, ensure_rtdd would `npx` it off GitHub.
+SANDBOX_HOME="$(mktemp -d)"
+export HOME="$SANDBOX_HOME" HARNESS_HOME="$SANDBOX_HOME/.harness" HARNESS_API_URL="file://$SANDBOX_HOME/no-releases.json" \
+  HARNESS_SKIP_RTDD=1
 
 # 1) a real "engine remote" with one commit, then the shared install cloned from it.
 REMOTE="$(mktemp -d)/remote.git"; git init -q --bare -b main "$REMOTE"
