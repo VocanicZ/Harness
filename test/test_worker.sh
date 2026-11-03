@@ -94,7 +94,7 @@ snapshot_gate; assert_eq "$?" "1" "snapshot_gate: flag ON + stale -> 1 (hold)"
 # ── worker_step: stale HOLDS new dispatch (no claim, no gh), deduped banner; in-flight untouched ──
 POLL=0; _IDLE_LOGGED=0
 S3CLAIM="$S3/claim.log"; S3GH="$S3/gh.log"; : > "$S3CLAIM"; : > "$S3GH"
-claim_next(){ echo called >> "$S3CLAIM"; echo ""; }   # record any claim attempt; never returns a unit
+claim_lane(){ echo called >> "$S3CLAIM"; }   # record any claim attempt (#468: the step loop's claim); never returns an item
 gh(){ echo "$*" >> "$S3GH"; }                          # any gh read on a held tick is a failure
 echo "W9 99999" > "$CLAIMS_DIR/inflight.claim"         # an in-flight claim a hold must NOT disturb
 S3HOLD="$S3/hold.log"; : > "$S3HOLD"

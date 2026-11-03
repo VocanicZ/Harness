@@ -96,8 +96,23 @@ render_once(){
     else
       mark="○ DOWN"; wpid="(not running)"
     fi
-    unit_id="$(worker_unit "$i" 2>/dev/null || true)"
     printf '%s worker-%-2s %s\n' "$mark" "$i" "$wpid"
+    if _one_repo; then
+      # #468: a worker holds lane claims (impl-<n>, orch-<prd>, bug-<repo>-<n>), not the unit.
+      local cf lane_n=0 lkey lsess
+      while read -r cf; do
+        [[ -n "$cf" ]] || continue
+        lane_n=$((lane_n+1)); lkey="$(basename "$cf" .claim)"; lsess="$(awk '{print $4; exit}' "$cf" 2>/dev/null)"
+        printf '        ▶ lane %s (%s)\n' "$lkey" "$(awk '{print $3; exit}' "$cf" 2>/dev/null)"
+        if [[ -n "$lsess" && "$lsess" != - ]]; then
+          if [[ "$lsess" == *-i* ]]; then wd="$WORKTREES_DIR/${lsess#${HARNESS_SESS_PREFIX}-}"; else wd="$(fleet_checkout)"; fi
+          session_row "$lsess" "$wd"
+        fi
+      done < <(worker_claims "$i")
+      (( lane_n )) || echo "        · idle (no lane claimed)"
+      continue
+    fi
+    unit_id="$(worker_unit "$i" 2>/dev/null || true)"
     if [[ -n "$unit_id" ]]; then
       local slug; slug="$(unit_slug "$unit_id")"
       printf '        ▶ driving unit %s (%s)\n' "$unit_id" "$slug"

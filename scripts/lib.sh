@@ -372,10 +372,63 @@ claim_bug(){ local wid="$1" tok="$2" lockfd rc=1; lock_acquire "$POOL_LOCK" lock
 # or stale; with <unit>, only that unit's. A pool claim's worker id is `pool-<unit>`.
 pool_bug_claims(){ local f wid tok; shopt -s nullglob
   for f in "$CLAIMS_DIR"/bug-*.claim; do
-    read -r wid _ tok < "$f" 2>/dev/null || continue
+    read -r wid _ tok _ < "$f" 2>/dev/null || continue   # #468: a lane claim carries more fields after the token
     [[ "$wid" == pool-* && -n "$tok" ]] || continue
     [[ -z "${1:-}" || "$wid" == "pool-$1" ]] && printf '%s\t%s\n' "$f" "$tok"
   done; shopt -u nullglob; }
+# --- #468: lane claims (the step-based pool worker) ----------------------------------------------------
+# A pool worker claims ONE lane — one issue or one PRD action — runs it, reaps it, releases it. The claim
+# is claims/<key>.claim holding `<wid> <worker-pid> <token> <session> <pane-pid>`: the first three fields
+# are the ones is_claimed / pool_bug_claims / lane_bug read, the last two name the lane's session. <key>:
+#   impl-<n>   IMPL n (token IMPL:n)            orch-<prd>  DECOMPOSE/REVIEW prd (token DECOMPOSE:41)
+#   orch-0     PLAN / PRD (token PLAN:-)        bug-<repo>-<n>  a bug (_bug_claim_key; wid pool-<wid>)
+# A claim is live while its worker's pid is. A lane with a session or worktree and no live claim is
+# ownerless: the chores winner reaps and adopts it (worker_chores), so a killed worker loses nothing.
+lane_claim_key(){ case "$1" in
+  IMPL) echo "impl-$2";;
+  DECOMPOSE|REVIEW) echo "orch-$2";;
+  PLAN|PRD) echo "orch-0";;
+  BUG) _bug_claim_key "$SLUG#$2";;
+  esac; }
+# lane_claim_write <key> <wid> <token> <session> [<pane-pid>] — atomic, so a reader never sees half a claim.
+lane_claim_write(){ local f="$CLAIMS_DIR/$1.claim"
+  printf '%s %s %s %s %s\n' "$2" "$$" "$3" "${4:--}" "${5:--}" > "$f.tmp" && mv -f "$f.tmp" "$f"; }
+# worker_claims <wid> — the claim files this worker holds (its own lanes, bugs included).
+worker_claims(){ local f w; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/impl-*.claim "$CLAIMS_DIR"/orch-*.claim "$CLAIMS_DIR"/bug-*.claim; do
+    w="$(awk 'NF >= 3 {print $1; exit}' "$f" 2>/dev/null)"
+    [[ "$w" == "$1" || "$w" == "pool-$1" ]] && echo "$f"
+  done; shopt -u nullglob; }
+# session_lane_key <session> — the lane key of one of the fleet unit's sessions (empty for any other).
+session_lane_key(){ local k="${1#"$HARNESS_SESS_PREFIX-$(fleet_unit)-"}"
+  case "$k" in i[0-9]*) echo "impl-${k#i}";; p[0-9]*) echo "orch-${k#p}";; esac; }
+# session_owned <session> — a live worker holds the claim of this session's lane.
+session_owned(){ local k; k="$(session_lane_key "$1")"; [[ -n "$k" ]] && is_claimed "$k"; }
+# pool_lane_keys — one key per lane the pool is running: a live session of the unit, a live impl/orch
+# claim, or a pool-taken bug whose claim or session is live. The priority lane's bug is not the pool's.
+pool_lane_keys(){ local s k f tok
+  { while read -r s; do [[ -n "$s" ]] && session_lane_key "$s"; done < <(team_sessions "$(fleet_unit)")
+    shopt -s nullglob
+    for f in "$CLAIMS_DIR"/impl-*.claim "$CLAIMS_DIR"/orch-*.claim; do k="$(basename "$f" .claim)"; is_claimed "$k" && echo "$k"; done
+    while IFS=$'\t' read -r f tok; do
+      k="$(basename "$f" .claim)"
+      is_claimed "$k" || bug_session_live "$(_with_owner "$(_bug_ref_repo "$tok")")" "$(_bug_ref_num "$tok")" && echo "$k"
+    done < <(pool_bug_claims)
+    shopt -u nullglob; } | sort -u; }
+pool_lane_count(){ pool_lane_keys | grep -c .; }
+# claimed_prds / claimed_issues — PRDs and issues a LIVE claim holds (the priority lane's bug included),
+# comma-separated, for dispatch's --busy-prds / --busy-issues beside what busy_prds_for / busy_issues_for read.
+claimed_prds(){ local f k; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/orch-*.claim; do k="$(basename "$f" .claim)"; is_claimed "$k" && [[ "${k#orch-}" != 0 ]] && echo "${k#orch-}"; done
+  shopt -u nullglob; }
+claimed_issues(){ local f k tok; shopt -s nullglob
+  for f in "$CLAIMS_DIR"/impl-*.claim; do k="$(basename "$f" .claim)"; is_claimed "$k" && echo "${k#impl-}"; done
+  for f in "$CLAIMS_DIR"/bug-*.claim; do k="$(basename "$f" .claim)"; tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
+    [[ -n "$tok" ]] && is_claimed "$k" && _bug_ref_num "$tok"; done
+  shopt -u nullglob; }
+# _csv_union <a,b> <c,d> … — the distinct numbers of the comma lists, ascending, comma-separated.
+_csv_union(){ printf '%s\n' "$@" | tr ',' '\n' | grep -E '^[0-9]+$' | sort -un | paste -sd, -; }
+
 # priority_free_slots — idle priority-lane slots: 1 while the lane is up and holds no bug, else 0.
 # A dead lane has no free slot, so the pool picks its bugs up instead of leaving them to wait.
 priority_free_slots(){ local p="$RUN_DIR/priority.pid"
@@ -994,7 +1047,9 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
 # watchdog_team — run the watchdog over every live session of the CURRENT unit ($UNIT). The pool's
 # per-poll hook (drive_unit), the cap-N analog of the lane's in-loop watchdog_session call.
 watchdog_team(){ local s
-  while read -r s; do [[ -z "$s" ]] && continue; watchdog_session "$s"; done < <(team_sessions "$UNIT"); }
+  while read -r s; do [[ -z "$s" ]] && continue
+    session_owned "$s" && continue   # #468: a live worker holding the lane's claim tends it (worker_tend)
+    watchdog_session "$s"; done < <(team_sessions "$UNIT"); }
 
 # bug_session_live <slug> <n> — is EITHER phase's session for bug #n in <slug> live? The SINGLE
 # liveness predicate the lane's per-poll reap (#42, reap_lane) and start --recover's bug-aware skip

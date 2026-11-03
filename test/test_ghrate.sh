@@ -85,7 +85,7 @@ f, t = sys.argv[1], int(sys.argv[2]); d = json.load(open(f))
 for v in d["resources"].values(): v["reset"] = t
 json.dump(d, open(f, "w"))
 PY2
-  claim_next(){ date +%s >> "$SEEN"; echo ""; }; all_complete(){ return 1; }; snapshot_gate(){ return 0; }
+  claim_lane(){ date +%s >> "$SEEN"; }; all_complete(){ return 1; }; snapshot_gate(){ return 0; }
   worker_step W1 >/dev/null
   assert_ok "$cli: the pool worker's next claim waits for the reset" test "$(head -1 "$SEEN")" -ge "$T"
   source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; POLL=1; PRIORITY_POLL=1
@@ -94,7 +94,7 @@ PY2
   fresh; reset=$(( $(date +%s) + 3600 )); rate 900 4000 "$reset"   # core 18% < 20%
   assert_ok "$cli: core under 20% is a low budget" gh_budget_low
   CLAIMED="$RUN_DIR/claimed"; : > "$CLAIMED"
-  claim_next(){ echo pool >> "$CLAIMED"; echo main; }
+  claim_lane(){ echo pool >> "$CLAIMED"; }   # #468: the step loop's claim
   claim_next_bug(){ echo bug >> "$CLAIMED"; echo "acme/widget#9"; }
   worker_tick W1 >/dev/null; rc=$?
   assert_eq "$rc" "5" "$cli: worker_tick idles on a low budget"
