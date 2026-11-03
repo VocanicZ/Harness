@@ -221,6 +221,8 @@ sys.exit(0 if (d.get("permissions") or {}).get("defaultMode") == "bypassPermissi
 # --- transcripts + usage (#185) -----------------------------------------------------------------
 # $CLAUDE_CONFIG_DIR/projects/<slug>/<session>.jsonl plus its sub-agents' transcripts; stats.py owns
 # the search (every account's config dir) and the fold (dedupe a streamed message by its id).
+# Claude Code reads user skills from ~/.claude/skills (#439): Harness links its skills there.
+claude_user_skills_dir(){ echo "${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"; }
 claude_transcripts(){ [[ -n "$2" ]] && python3 "$CLI_DIR/../stats.py" transcripts "$2"; }
 claude_usage(){ (( $# )) && python3 "$CLI_DIR/../stats.py" usage "$@"; }
 # Usage windows (#194): Claude Code hands its status line the documented

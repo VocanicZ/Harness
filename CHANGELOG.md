@@ -4,6 +4,27 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The `/harness` skills reach every installed CLI, Hermes included, as links (#439)
+
+- A host with Hermes got no `/harness*` skills in Hermes: `install.sh` copied them into
+  `~/.claude/skills` and the agy, codex and copilot dirs only, and the operator's Hermes reads
+  `~/.hermes/skills`. Every adapter now names the dir its CLI reads user skills from
+  (`cli_user_skills_dir`; hermes: `~/.hermes/skills`, openclaw: `~/.agents/skills`), and every
+  supported CLI installed on the host (binary on PATH, or its config dir present) gets every engine
+  skill there.
+- Each skill is a symlink to the one copy in the engine, named through `~/.harness/engine/skill/`, so
+  an update refreshes every CLI at once; `harness/` is a dir holding a `SKILL.md` link. Hermes follows
+  them (`test/fixtures/cli/hermes/skills-symlink.txt`: listed and loaded by the real Hermes).
+- Every `harness update` — no flags, already current included, run from the new release after a
+  flip — and `harness setup` / `harness start` re-link: a missing, dangling or old-release link, or an
+  old Harness copy, is relinked. A same-named skill of the operator's own is kept, and the update
+  names it. `harness uninstall` removes only Harness's links, dangling ones too (it now reads the CLIs'
+  dirs before it removes the engine).
+- `test/test_operator_skills.sh`: a fake HOME with every CLI on PATH and an old install (copies in
+  `~/.claude/skills` only) gets links in every CLI's dir from a plain `harness update`; an operator's
+  own `~/.hermes/skills/harness` is untouched; a removed link comes back; setup/start heal; uninstall.
+  Matrix row `operator-skills`. `test/test_hermetic.sh`: no update test links into the inherited HOME.
+
 ### The update tests no longer touch the host's real engine (#434)
 
 - `test/test_update.sh` and `test/test_web_install.sh` set no `HARNESS_HOME`, so `update.sh` read the

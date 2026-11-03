@@ -140,6 +140,10 @@ EOF
   (( rc == 0 )) || grep -E 'FAIL|rror' "$TRIP/out" | head -5
   assert_eq "$(tree_state "$dh/.harness")" "$before" "$t: the host's ~/.harness is left exactly as it was"
   assert_no "$t: never queries github.com (the releases API)" grep -q 'github\.com' "$TRIP/curl.log"
+  # #439: every update links the engine's skills into each installed CLI's user-skills dir under HOME;
+  # a test's own engine must never be linked into the inherited (real) home's.
+  assert_eq "$(cd "$dh" && ls -d .claude .hermes .agents .gemini .copilot 2>/dev/null | xargs)" "" \
+    "$t: links no skills into the inherited HOME's CLI dirs"
 done
 
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR

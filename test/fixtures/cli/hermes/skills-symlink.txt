@@ -1,0 +1,27 @@
+# Hermes Agent v0.22.5 (2026.9.24), 2026-11-03 (#439): a Hermes home whose skills/ holds Harness's links
+# into an engine's skill/ — harness/ a dir with a SKILL.md symlink, harness-start and handoff dir symlinks.
+# $H is a throwaway HERMES_HOME; <engine> stands for the engine checkout the links name.
+# The security warnings are the throwaway home's: it is not ~/.hermes, which the check names literally.
+$ readlink $H/skills/{harness-start,handoff,harness/SKILL.md}
+harness-start -> <engine>/skill/harness-start
+handoff -> <engine>/skill/handoff
+harness/SKILL.md -> <engine>/skill/SKILL.md
+$ HERMES_HOME=$H hermes skills list
+                                Installed Skills                                
+┏━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Name          ┃ Category ┃ Source ┃ Trust ┃ Status                           ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ handoff       │          │ local  │ local │ enabled                          │
+│               │          │        │       │ slash command /handoff           │
+│               │          │        │       │ unavailable — name taken by      │
+│               │          │        │       │ built-in; use /skill handoff     │
+│ harness       │          │ local  │ local │ enabled                          │
+│ harness-start │          │ local  │ local │ enabled                          │
+└───────────────┴──────────┴────────┴───────┴──────────────────────────────────┘
+0 hub-installed, 0 builtin, 3 local — 3 enabled, 0 disabled
+
+$ cd ~/.hermes/hermes-agent && HERMES_HOME=$H <hermes venv>/python3 -c "from tools.skills_tool import skill_view; …"   # the skill tool a turn loads a skill with
+Skill security warning for 'harness': skill file is outside the trusted skills directory (~/.hermes/skills/): $H/skills/harness/SKILL.md
+Skill security warning for 'harness-start': skill file is outside the trusted skills directory (~/.hermes/skills/): $H/skills/harness-start/SKILL.md
+harness True harness harness/SKILL.md --- | name: harness | description: Operate the Harness agent fle
+harness-start True harness-start harness-start/SKILL.md --- | name: harness-start | description: Launch the Harness work
