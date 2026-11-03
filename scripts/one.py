@@ -28,7 +28,8 @@ reset) is still checked. A reading it cannot bring up to date that way is a CHEC
 
     one.py phase --phase P --forecast F.json --readings R.tsv --spend [--start S.tsv] […]
 
-R.tsv lines: `<account>\t<window>\t<pct>\t<resets_at>\t<age seconds, empty = unknown>`.
+R.tsv lines: `<account>\t<window>\t<pct>\t<resets_at>\t<age seconds, empty = unknown>\t<live>`, `live`
+marking a live query's reading (#451: HARNESS_USAGE_CMD, a non-claude adapter), empty otherwise.
 Text output is the forecast, then the arithmetic; --json is the gate dict with the forecast under
 "forecast". Exit status: 0 APPROVE, 1 DENY, 2 bad input.
 """
@@ -52,7 +53,7 @@ def _num(v):
 
 
 def parse_readings(text):
-    """[{account, window, pct, resets_at, age}] from the readings TSV; malformed lines are skipped."""
+    """[{account, window, pct, resets_at, age, live}] from the readings TSV; malformed lines are skipped."""
     out = []
     for line in (text or "").splitlines():
         cols = line.split("\t")
@@ -60,7 +61,8 @@ def parse_readings(text):
             continue
         age = _num(cols[4]) if len(cols) > 4 and cols[4] != "" else None
         out.append({"account": cols[0], "window": cols[1], "pct": _num(cols[2]),
-                    "resets_at": int(_num(cols[3]) or 0) if len(cols) > 3 else 0, "age": age})
+                    "resets_at": int(_num(cols[3]) or 0) if len(cols) > 3 else 0, "age": age,
+                    "live": len(cols) > 5 and cols[5].strip() == "live"})
     return out
 
 
@@ -218,7 +220,12 @@ def _stale(r, stale_min, start_at):
     """Why reading `r` (live_readings') is not current, or None: put back from the start snapshot,
     stale, or taken before the start. Of unknown age only counts with a start to measure from: a
     HARNESS_ONE_AUTO lane (#392) has no snapshot, and its readings — its own lane's rate-limit events,
-    which carry no age here — are refreshed every turn; the stale pad covers them, as before."""
+    which carry no age here — are refreshed every turn; the stale pad covers them, as before. A live
+    query's reading (#451: `live` — HARNESS_USAGE_CMD, codex, copilot, a cached fetcher) is as
+    current as the query, whatever its age says or whether it is put back: the stale pad covers it
+    too. #445's rule is for claude's readings, the status-line drops a paused fleet leaves frozen."""
+    if r.get("live"):
+        return None
     if r.get("restored") == "reset":
         return "gone since its window reset"
     if r.get("restored"):

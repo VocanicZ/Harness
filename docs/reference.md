@@ -846,6 +846,10 @@ the operator keep going one issue at a time in their own session, with a budget 
   plus the spend since. A reading that is not current (from before `start`, older than
   `HARNESS_ONE_STALE_MIN`, of unknown age, or gone since `start`) and whose spend cannot be counted (no
   config dir for its account, no $ per 1%) is a CHECKPOINT (`usage stale`), never a silent FITS (#445).
+  That rule is for the claude adapter's readings, which freeze once the fleet pauses. A live query's
+  reading — `HARNESS_USAGE_CMD`, or the codex, copilot, hermes, agy or openclaw adapter — is as
+  current as the query: of unknown age it gets `HARNESS_ONE_STALE_PAD_PCT` points, as at the gate
+  (#451).
 - **Release** — after the checkpoint, or once merged, `harness one release <issue>` drops the
   worktree, local branch and lease (it refuses while work is unpushed, short of `--force`) and clears
   an `agent-working` that was never checkpointed. Nothing of the session's is left, so the pool

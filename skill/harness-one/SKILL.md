@@ -38,7 +38,8 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    handoff comment, `agent-working` → `agent-paused`) — the same one `pause --force` sends a lane.
    Its `now%` counts this session's own spend since the last reading (its account's transcripts, at the
    window's $ per 1%), so it rises as you work; a `usage stale` CHECKPOINT means that spend could not be
-   counted for a reading that is not current — checkpoint all the same.
+   counted for a claude reading that is not current — checkpoint all the same. Readings from
+   `HARNESS_USAGE_CMD` or a non-claude adapter are live queries: padded, never `usage stale` (#451).
 7. **Release.** Once checkpointed, or merged and closed, run `harness one release <issue>`: it drops the
    worktree, local branch and lease so the pool resumes a checkpointed issue after the reset. Exit 4 =
    work not pushed yet — push it; `--force` only if the human says to drop it. Tell the user where it
