@@ -18,6 +18,7 @@ PROJECT_ROOT="$(cd "$STATE_DIR/.." && pwd)"
 # asset paths (read-only engine code/templates) — under ENGINE_DIR; sub-scripts live in scripts/ (#60)
 PROMPTS_DIR="$ENGINE_DIR/prompts"
 ISSUELIB="$ENGINE_DIR/scripts/issuelib.py"
+source "$ENGINE_DIR/scripts/submodule.sh"   # submodule_init / submodule_base_branch (#470)
 # state paths (per-project config + runtime, read+write) — under STATE_DIR
 CONFIG="$STATE_DIR/config"
 TARGETS_TSV="${TARGETS_TSV:-$STATE_DIR/targets.tsv}"
@@ -184,6 +185,9 @@ ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -
 # under agent-working with no session (the #34 failure mode).
 run_worktree_hook(){
   local wd="$1" hook="$HARNESS_WORKTREE_HOOK"
+  # #470: submodules first, so the hook (and the lane) find them checked out at the gitlink. A repo
+  # without .gitmodules is untouched; a failed init is logged, never fatal.
+  submodule_init "$wd" >/dev/null 2>&1 || log "submodule init FAILED in $wd — launching anyway"
   [[ -n "$hook" ]] || return 0
   [[ "$hook" == /* ]] || hook="$PROJECT_ROOT/$hook"   # relative paths resolve against the project root
   [[ -x "$hook" ]] || { log "worktree hook not executable, skipping: $hook"; return 0; }
@@ -1498,6 +1502,11 @@ session_env(){ local kv
   while read -r kv; do [[ -n "$kv" ]] && SESSION_ENV+=(-e "HARNESS_$kv"); done \
     < <(timeout 10 python3 "$STATS_PY" goal-env "${GOAL:-}" "${STAT_PRD:-}" 2>/dev/null)
   return 0; }
+# lane_guard_env <wd> — append to SESSION_ENV (#470) the PATH that puts scripts/lane-bin first, so a lane in a
+# repo WITH submodules runs `gh pr merge` through the gitlink guard. A repo without .gitmodules gets no
+# change at all: its lane env is exactly what session_env built.
+lane_guard_env(){ [[ -f "$1/.gitmodules" && -x "$ENGINE_DIR/scripts/lane-bin/gh" ]] || return 0
+  SESSION_ENV+=(-e "PATH=$ENGINE_DIR/scripts/lane-bin:$PATH"); return 0; }
 # issue_parent_prd <issue> — the PRD an issue's `## Parent` names (empty when unparented / gh fails).
 issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null || true; }
 # #213: the agent's prompt argument is this fixed bootstrap, NEVER the task text. Interpolating
@@ -1520,7 +1529,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
   else uuid="$(new_uuid)"; fi
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
-  session_env "$uuid"
+  session_env "$uuid"; lane_guard_env "$wd"
   local model effort line line_me
   if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || return 1
   else

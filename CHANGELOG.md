@@ -4,6 +4,23 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Submodule lane plumbing: init in every worktree, base-branch resolver, gitlink merge guard (#470)
+
+- A lane worktree made by `git worktree add` had every submodule as an empty directory unless the
+  project's `HARNESS_WORKTREE_HOOK` initialised them. `run_worktree_hook` now runs
+  `git submodule update --init --recursive` first, so the hook and the lane see each submodule checked
+  out at the gitlink. A repo without a `.gitmodules` is unaffected, and ORGE's existing hook stays
+  compatible.
+- `submodule_base_branch` (`scripts/submodule.sh`) resolves a submodule's base branch: `.gitmodules`
+  `branch =` when set, otherwise the remote branch that contains the main repo's current gitlink
+  (the default branch when several do), so a fleet on `rebuild` with no `branch =` resolves to `rebuild`.
+- `scripts/gitlink-guard.sh` refuses a main-repo merge whose changed gitlink is not reachable from the
+  submodule's `origin/<base>` or does not descend from the current gitlink. A lane in a repo with
+  submodules gets a `gh` first on its `PATH` (`scripts/lane-bin/gh`) that runs it before `gh pr merge`, so
+  it cannot be skipped; a repo without submodules sees no change.
+- `test_submodule.sh` covers all three on a real fixture repo with a submodule; `docs/reference.md` has a
+  new Submodules section.
+
 ### `harness supervise` installs a published release and rolls every fleet's workers onto it (#477)
 
 - A release the fleet published never reached the fleets: nothing on the host installed it, and

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# lane-bin/gh — the `gh` a lane gets first on PATH (session_env, #470). It is the real gh in every
+# respect but one: `gh pr merge` first runs scripts/gitlink-guard.sh on the lane's checkout, so a
+# merge that bumps a submodule gitlink to an unmerged or non-descendant commit is refused before the
+# real gh is reached. Everything else is passed through untouched.
+set -uo pipefail
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUARD="$SELF/../gitlink-guard.sh"
+# the real gh: first `gh` on PATH that is not this directory
+real=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  [[ -n "$d" && "$(cd "$d" 2>/dev/null && pwd)" == "$SELF" ]] && continue
+  [[ -x "$d/gh" ]] && { real="$d/gh"; break; }
+done
+[[ -n "$real" ]] || { echo "gh: command not found" >&2; exit 127; }
+
+if [[ "${1:-}" == pr && "${2:-}" == merge ]] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  top="$(git rev-parse --show-toplevel)"
+  if [[ -f "$top/.gitmodules" ]]; then
+    args=(--repo "$top"); [[ -n "${HARNESS_GUARD_BASE:-}" ]] && args+=(--base "$HARNESS_GUARD_BASE")
+    bash "$GUARD" "${args[@]}" || { echo "gh pr merge: refused by the gitlink guard (see above)" >&2; exit 1; }
+  fi
+fi
+exec "$real" "$@"
