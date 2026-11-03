@@ -5,18 +5,18 @@ description: Work ONE issue by hand while the Harness fleet is paused or usage-H
 
 # /harness-one — one issue at a time, with a budget gate
 
-Thin wrapper around `.harness/bin/harness one`. For when the fleet is PAUSED, or every claim is
+Thin wrapper around `harness one`. For when the fleet is PAUSED, or every claim is
 usage-HELD by the checkpoint (`HARNESS_USAGE_CHECKPOINT_PCT`), but budget remains in the window.
 Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run before the human approves.
 
-1. **Precondition.** Run `.harness/bin/harness one check`.
+1. **Precondition.** Run `harness one check`.
    - Exit 0: the fleet is PAUSED or usage-HELD — go on.
    - Exit 1: **stop and relay the refusal.** A RUNNING, un-held fleet would race this session for the
      claim. Offer `/harness-pause` (then run `/harness-one` again); never pause it yourself.
 2. **Pick the issue.** The number the user gave, else list the claimable ones and ask:
    `gh issue list -R <owner/repo> --label ready-for-agent --state open --json number,title,labels`
    (leave out any labelled `agent-working` or `agent-blocked`).
-3. **Forecast + gate.** Run `.harness/bin/harness one gate <issue>` (`-R owner/repo` or `--unit U` in a
+3. **Forecast + gate.** Run `harness one gate <issue>` (`-R owner/repo` or `--unit U` in a
    multi-unit project). Show the user its output whole: the per-phase forecast, the arithmetic for
    every usage window — `now% + p80% + reserve% <= HARNESS_ONE_STOP_PCT` — and the
    `RECOMMEND: APPROVE` (exit 0) or `RECOMMEND: DENY` (exit 1) line with its reason. Exit 3 is the
@@ -26,7 +26,7 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    - **pick another issue** — back to step 2, with a fresh forecast;
    - **stop** — end here; nothing was claimed.
    A DENY may still be approved by the human; say plainly that the forecast does not fit the stop %.
-5. **Claim + render.** Run `.harness/bin/harness one start <issue>` (same `-R` / `--unit`). It re-checks
+5. **Claim + render.** Run `harness one start <issue>` (same `-R` / `--unit`). It re-checks
    the precondition right before the claim (exit 3: relay the refusal, as in step 1; exit 4: the issue
    is closed or already `agent-working` — back to step 2), then claims it `agent-working` and sets it up
    the way dispatch does: its worktree on `issue/<n>` and `prompts/impl.md` — `resume.md` for an

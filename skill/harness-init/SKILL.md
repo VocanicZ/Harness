@@ -5,7 +5,7 @@ description: First-time Harness setup — run the wizard that writes .harness/co
 
 # /harness-init — run the Harness setup wizard
 
-Thin wrapper around `.harness/bin/harness init`. Don't hand-write config; let the wizard do it.
+Thin wrapper around `harness init`. Don't hand-write config; let the wizard do it.
 
 **This writes `.harness/config` and may create GitHub labels — confirm before running.**
 
@@ -13,9 +13,9 @@ The wizard is interactive (mode, topology, owner/repo, labels, pool size). The B
 TTY, so prefer one of:
 
 1. **Interactive (best):** tell the user to run it in their session:
-   `! .harness/bin/harness init`
+   `! harness init`
 2. **Non-interactive:** if the user already gave you the values, run with env vars set, e.g.
-   `HARNESS_MODE=prd HARNESS_OWNER=acme HARNESS_REPO=acme/widget .harness/bin/harness init`
+   `HARNESS_MODE=prd HARNESS_OWNER=acme HARNESS_REPO=acme/widget harness init`
    (unset vars take defaults; see `.harness/scripts/init.sh`).
 
 After it writes config, next step is `/harness-start`. For full setup+operate guidance use `/harness`.

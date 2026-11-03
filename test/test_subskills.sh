@@ -20,6 +20,12 @@ for name in "${!CMD[@]}"; do
   assert "$name runs harness ${CMD[$name]}" "grep -q 'harness ${CMD[$name]}' '$f'"
 done
 
+# #433: harness runs off PATH (install.sh link_path) — nothing creates .harness/bin/ any more,
+# so no skill may send the agent to the stale per-project .harness/bin/harness path (#343 fixed
+# only the umbrella skill/SKILL.md; /harness <idea> on a live fleet hands off to /harness-prd).
+stale="$(grep -rln --include=SKILL.md '\.harness/bin/harness' "$SK" 2>/dev/null | tr '\n' ' ')"
+assert "no skill/**/SKILL.md runs .harness/bin/harness (#433)${stale:+: $stale}" "[[ -z \"\$stale\" ]]"
+
 # The three injection skills additionally grill→confirm→run (the human safety gate) and
 # document the multi-topology --unit form plus the retired-fleet --recover fallback.
 for name in harness-plan harness-prd harness-issue; do

@@ -5,12 +5,12 @@ description: Show the Harness fleet dashboard — per-unit state, what's running
 
 # /harness-status — show the dashboard
 
-Thin wrapper around `.harness/bin/harness status`. Read-only — run it immediately, no confirm needed.
+Thin wrapper around `harness status`. Read-only — run it immediately, no confirm needed.
 
-Run: `.harness/bin/harness status`
+Run: `harness status`
 
 For a live view, the user should run it themselves (it blocks until Ctrl-C):
-`! .harness/bin/harness status --watch`
+`! harness status --watch`
 
 ## Reading it
 Per unit: `mode=… PRD#… plan=… children=… open=… unblocked=… waiting=… paused=… reviewed=… complete=… [held by: …]`.

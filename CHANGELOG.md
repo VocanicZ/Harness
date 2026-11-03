@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The `/harness-*` skills run `harness` off PATH (#433)
+
+- `/harness-prd` (where `/harness <idea>` goes on a live fleet) and the other per-command skills
+  (`/harness-init`, `-issue`, `-one`, `-pause`, `-plan`, `-resume`, `-start`, `-status`, `-stop`,
+  `-uninstall`) still ran `.harness/bin/harness`, which nothing creates any more, so the agent ran a
+  missing path and the idea never reached the fleet. They now run `harness <cmd>`, the command
+  `install.sh` puts on PATH, with the same arguments (#343 had fixed only `/harness`).
+
 ### `/harness <idea>` files its PRD on a fresh repo (#432)
 
 - A non-interactive `harness init` (the agent's shell, which has no terminal) wrote the config and
