@@ -551,8 +551,8 @@ def fleet_regions(view, now):
 <p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now, page=True)}</p>
 </div>
 {_mismatch_banner(view.get("mismatches"))}
-</section>""", "workers": workers_region(view.get("workers"), view["prefix"]),
-            "awaiting": awaiting_region(view["units"])}
+</section>""", "awaiting": awaiting_region(view["units"]),
+            "workers": workers_region(view.get("workers"), view["prefix"])}
     for u in view["units"]:
         regs.update(unit_regions(u, now))
     return regs
@@ -572,8 +572,8 @@ def fleet(view, now, issue=None):
     legend = "".join(f'<li data-state="{s}"><span class="dag-legend__swatch"></span>{esc(NODE_LABEL[s])}</li>'
                      for s in ("closed", "in-progress", "in-review", "blocked", "agent-blocked", "open"))
     body = f"""{header}
-{workers}
 {awaiting}
+{workers}
 <ul class="dag-legend" aria-label="Issue states">{legend}</ul>
 {units or '<p class="muted">This fleet serves no repos.</p>'}
 <div data-drawer-host>{drawer(issue, now) if issue else ""}</div>"""
