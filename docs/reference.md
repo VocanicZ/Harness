@@ -175,6 +175,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_OPENCLAW_AGENTS_SKILLS` | `~/.agents/skills` | A user skill dir an openclaw lane's config adds as an extra skill dir, after `HARNESS_USER_SKILLS` |
 | `HARNESS_USER_SKILLS` | `~/.claude/skills` | Where Harness installs user skills for claude and opencode, and the skill dir a hermes or openclaw lane gets as an external one |
 | `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
+| `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on a single-topology `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
 | `HARNESS_POOL` | `3` | Number of pool workers (unit-concurrency cap) |
 | `HARNESS_CAP` | `3` | Max concurrent agent sessions per unit |

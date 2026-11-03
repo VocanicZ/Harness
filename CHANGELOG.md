@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `/harness <idea>` files its PRD on a fresh repo (#432)
+
+- A non-interactive `harness init` (the agent's shell, which has no terminal) wrote the config and
+  seeded no labels, so `/harness <idea>` step 3's `gh issue create --label prd` failed
+  `could not add label: 'prd' not found`. Non-interactive init now seeds the harness labels on a
+  single-topology repo when `gh` is signed in (labels only; `harness setup` still disables the
+  repo's Actions); signed out, it prints a NOTE naming `harness setup`. `HARNESS_INIT_SEED=0` skips it.
+- `/harness` step 2: the `prd` label must exist before the PRD is filed — init seeds it, else
+  `harness setup` runs before step 3.
+
 ### Claude Code installed by the prerequisite offer is found in `~/.local/bin` (#431)
 
 - Accepting install.sh's "install Claude Code?" offer on a fresh Linux host still ended in

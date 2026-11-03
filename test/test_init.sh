@@ -19,7 +19,9 @@ export STATE_DIR="$TMP/.harness"
 # resolve the REAL ~/.harness/fleets, reading and potentially pruning a live fleet's entry. Keep both.
 export HARNESS_HOME="$TMP/host"
 export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
-# stub gh + seed so init does no network
+# stub gh + seed so init does no network. #432: a non-interactive init seeds labels when gh is
+# signed in — off for every block here except the #432 one below, which runs it against a stub gh.
+export HARNESS_INIT_SEED=0
 cat > "$TMP/.harness/scripts/seed.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -195,5 +197,53 @@ for eng_label in "$NODEF_ENGINE:lib.sh without PROJECT_ROOT" "$MISSING_ENGINE:mi
   assert "broken engine ($label): two projects get DIFFERENT prefixes (got '$P_A' vs '$P_B')" \
     "[[ '$P_A' != '$P_B' ]]"
 done
+
+# ── #432: on a fresh repo the documented non-interactive flow (`HARNESS_MODE=prd … harness init`,
+# then `gh issue create --label prd`) must find the prd label already there. A stub gh that, like
+# GitHub, REJECTS an unknown label: `gh label create` records it, `gh issue create --label X` fails
+# "could not add label: 'X' not found" unless X was created. Engine = this repo (real seed.sh).
+GHS="$(mktemp -d)"; mkdir -p "$GHS/bin"
+cat > "$GHS/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+L="$GH_STUB_DIR/labels"; touch "$L"; echo "gh $*" >> "$GH_STUB_DIR/calls"
+case "$1 ${2:-}" in
+  "auth status") [[ "${GH_STUB_AUTH:-1}" == 1 ]] && exit 0 || { echo "You are not logged into any GitHub hosts." >&2; exit 1; } ;;
+  "label create") grep -qxF "$3" "$L" || echo "$3" >> "$L"; exit 0 ;;
+  "issue create") shift 2
+    while (( $# )); do [[ "$1" == --label ]] && { grep -qxF "$2" "$L" || { echo "could not add label: '$2' not found" >&2; exit 1; }; }; shift; done
+    echo "https://github.com/acme/widget/issues/1"; exit 0 ;;
+esac
+exit 0
+EOF
+chmod +x "$GHS/bin/gh"
+fresh_flow(){   # <project-dir> [env…] -> runs init non-interactively, then files the prd issue
+  local pdir="$1"; shift; mkdir -p "$pdir"; rm -f "$GHS/labels" "$GHS/calls"
+  ( cd "$pdir" && unset HARNESS_DIR STATE_DIR HARNESS_INIT_SEED && export PATH="$GHS/bin:$PATH" GH_STUB_DIR="$GHS" "$@" &&
+    HARNESS_MODE=prd HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_TOPOLOGY=single \
+      bash "$HERE/../scripts/init.sh" </dev/null >"$pdir/init.out" 2>&1 &&
+    gh issue create -R acme/widget --label prd --title "PRD: idea" --body "x" >"$pdir/issue.out" 2>&1 ); }
+fresh_flow "$TMP/Fresh432"; rc=$?
+assert "#432: stub gh rejects an unknown label (fixture can fail)" \
+  "! GH_STUB_DIR='$GHS' '$GHS/bin/gh' issue create -R acme/widget --label nope --title t --body b 2>/dev/null"
+assert "#432: non-interactive init seeds the prd label, so filing the PRD succeeds" \
+  "(( rc == 0 ))"
+assert "#432: …the label was created by init, before the issue create" \
+  "grep -n 'label create prd' '$GHS/calls' | head -1 | cut -d: -f1 | { read a; b=\$(grep -n 'issue create' '$GHS/calls' | head -1 | cut -d: -f1); (( a < b )); }"
+assert "#432: …every harness label, not just prd" \
+  "grep -qxF ready-for-agent '$GHS/labels' && grep -qxF agent-working '$GHS/labels'"
+assert "#432: …labels only — init does not touch the repo's Actions (harness setup does)" \
+  "! grep -q 'gh api' '$GHS/calls'"
+assert "#432: init says it seeded them" "grep -qi 'seeded.*labels\|labels.*seeded' '$TMP/Fresh432/init.out'"
+# gh not signed in: init still writes the config and exits 0, seeds nothing, and says to run setup.
+fresh_flow "$TMP/NoAuth432" env GH_STUB_AUTH=0 >/dev/null 2>&1   # issue create fails: no label
+assert "#432: gh signed out — init still writes the config" "[[ -f '$TMP/NoAuth432/.harness/config' ]]"
+assert "#432: gh signed out — no label created" "[[ ! -s '$GHS/labels' ]]"
+assert "#432: gh signed out — init names harness setup as the next step" \
+  "grep -q 'harness setup' '$TMP/NoAuth432/init.out'"
+# HARNESS_INIT_SEED=0 opts out (the test harness pins it so no suite reaches real GitHub).
+( cd "$TMP" && mkdir -p Opt432 && cd Opt432 && unset HARNESS_DIR STATE_DIR && rm -f "$GHS/calls" &&
+  PATH="$GHS/bin:$PATH" GH_STUB_DIR="$GHS" HARNESS_INIT_SEED=0 HARNESS_MODE=prd HARNESS_OWNER=acme \
+  HARNESS_REPO=acme/widget HARNESS_TOPOLOGY=single bash "$HERE/../scripts/init.sh" </dev/null >/dev/null 2>&1 )
+assert "#432: HARNESS_INIT_SEED=0 — init calls no gh at all" "! grep -q 'label create' '$GHS/calls' 2>/dev/null"
 
 echo "── init ok"

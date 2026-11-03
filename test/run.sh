@@ -26,6 +26,7 @@ unset TMUX TMUX_PANE
 # multibyte pane regexes as bytes. The suite's expectations are UTF-8's; test_cli_locale.sh covers C.
 unset LC_ALL; export LANG=C.UTF-8 LC_CTYPE=C.UTF-8
 export HARNESS_GH_RATE_GUARD=0   # #183: no test probes the real GitHub budget; test_ghrate.sh opts in
+export HARNESS_INIT_SEED=0       # #432: no non-interactive init seeds real labels; test_init.sh opts in against a stub gh
 rc=0
 for t in test_*.sh test_*.py; do
   [[ -e "$t" ]] || continue

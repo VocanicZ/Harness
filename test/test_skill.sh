@@ -43,6 +43,15 @@ assert "idea flow: live fleet -> /harness-prd, not filed by hand (#343)" \
   "grep -qiE 'running.*\`/harness-prd\`' <<<\"\$IDEA\" && grep -qi 'by hand' <<<\"\$IDEA\""
 assert "idea flow: tells the user where to watch (#343)" \
   "grep -q 'harness status --watch' <<<\"\$IDEA\" && grep -q 'harness web' <<<\"\$IDEA\""
+# #432: the labels exist before the PRD is filed — `gh issue create --label prd` on a fresh repo
+# fails "could not add label: 'prd' not found". The skill seeds them (init does, or harness setup)
+# BEFORE the step that runs `gh issue create`.
+seed_ln="$(grep -nE 'seeds? (the )?labels|harness setup' <<<"$IDEA" | head -1 | cut -d: -f1)"
+file_ln="$(grep -n 'gh issue create' <<<"$IDEA" | head -1 | cut -d: -f1)"
+assert "idea flow: seeds the labels before filing the PRD (#432)" \
+  "[[ -n '$seed_ln' && -n '$file_ln' ]] && (( seed_ln < file_ln ))"
+assert "idea flow: names the prd label as what must exist first (#432)" \
+  "grep -qiE 'label.*prd.*not found|prd.*label.*(exist|before)' <<<\"\$IDEA\""
 # Every outward step is a confirmation point: install, init, filing the PRD, start.
 n_confirm="$(grep -c '\*\*Confirm' <<<"$IDEA")"
 assert "idea flow: marks its confirmation points (install, init, PRD, start) (#343)" "(( n_confirm >= 4 ))"
