@@ -308,6 +308,32 @@ cx 93; out="$(cx_phase test 2>&1)"; rc=$?
 assert_eq "$rc" "1" "#451: the codex adapter's reading, 93% + 3 + 1.6% + 2% = 99.6%: CHECKPOINT"
 assert_ok "on the arithmetic, not as stale" grep -q 'CHECKPOINT — codex 5h: 99.6% > 98%' <<<"$out"
 "${ONE[@]}" release 7 --force >/dev/null 2>&1
+# ── #459: a live window resets mid-issue while the query keeps answering ──────────────────────────
+# codex 5h read at 91% at start, resetting a few seconds later; the adapters leave a reset window out
+# (codex.sh / copilot.sh), so afterwards the query answers only `codex 7d 40`. That is not a failed
+# query: the reset window is 0% + the stale pad and FITS — #457 CHECKPOINTed it, as it would a dark
+# query. A query that answers nothing at all still CHECKPOINTs (#457 above). (#454: no fixed timing —
+# the lead doubles until start's snapshot holds the 5h window; then wait until the reset has passed.)
+for lead in 2 4 8 16 32 64 128; do
+  reset=$(( $(date +%s) + lead ))
+  printf 'codex\t5h\t91\t%s\ncodex\t7d\t40\t%s\n' "$reset" "$future" > "$STUB"
+  "${ONE[@]}" start 7 >/dev/null 2>&1
+  grep -qP "^codex\t5h\t91(\.0)?\t$reset\t" "$(one_start_file main 7)" 2>/dev/null && break
+  "${ONE[@]}" release 7 --force >/dev/null 2>&1
+done
+assert_ok "#459: start read the codex 5h window before its reset" grep -qP "^codex\t5h\t91(\.0)?\t$reset\t" "$(one_start_file main 7)"
+until (( $(date +%s) > reset )); do sleep 0.2; done
+printf 'codex\t7d\t40\t%s\n' "$future" > "$STUB"
+out="$(phase impl 2>&1)"; rc=$?
+assert_eq "$rc" "0" "#459: the 5h window reset, the query still answers 7d: 0% + 3 pad + 0.4% + 2%: FITS"
+assert_ok "the reset window is padded, at 0%" grep -q 'codex 5h: now 0% + 3 stale pad' <<<"$out"
+assert_no "not stopped as stale" grep -q 'usage stale' <<<"$out"
+for dark in "exit 1" "true"; do
+  out="$(HARNESS_USAGE_CMD="$dark" phase impl 2>&1)"; rc=$?
+  assert_eq "$rc" "1" "#459: the query goes dark ($dark) after the reset: still CHECKPOINT (#457)"
+  assert_ok "saying why ($dark)" grep -q 'codex 5h: usage stale — the reading is gone since its window reset' <<<"$out"
+done
+"${ONE[@]}" release 7 --force >/dev/null 2>&1
 # ── done (#367): the goal check reap_done_sessions runs, then the next claimable issue's fresh gate ─
 # The board comes from a snapshot (issuelib's read seam), so `check` and `next` never reach gh.
 SNAP="$RUN_DIR/board.json"

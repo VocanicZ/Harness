@@ -191,7 +191,9 @@ def live_readings(fc, readings, spend, start=None, now=None):
     now − age; of unknown age, the session's start. `start` = {"at": epoch, "readings": [...]} (the
     snapshot `harness one start` took): a window read then and missing now is put back — from 0% at
     its resets_at when that has passed (a reset window is dropped, not reported), else as it was read
-    at start (`restored`: "reset" / "start"). Each reading gains read (the % as read), at (its epoch),
+    at start (`restored`: "reset" / "start"); a live window put back for its reset while its account's
+    live query still answered gains `answered` (#459: the adapter leaves out a reset window, the query
+    did not fail). Each reading gains read (the % as read), at (its epoch),
     spent_usd and spent_pct — None when its spend could not be counted (no time to count from, no
     config dir for its account, no $ per 1%): then pct is the reading alone, and phase_check decides
     whether it is current enough to stand (_stale)."""
@@ -199,12 +201,16 @@ def live_readings(fc, readings, spend, start=None, now=None):
     start_at = (start or {}).get("at")
     rs = [dict(r) for r in readings]
     have = {(_norm(r["account"]), r["window"]) for r in rs}
+    answered = {_norm(r["account"]) for r in rs if r.get("live")}   # accounts whose live query answered now
     for r in (start or {}).get("readings") or []:
         if (_norm(r["account"]), r["window"]) in have:
             continue
         reset = r.get("resets_at") or 0
         if reset and reset <= now:
-            rs.append(dict(r, pct=0.0, resets_at=0, age=max(0.0, now - reset), restored="reset"))
+            ans = bool(r.get("live")) and _norm(r["account"]) in answered
+            # answered: the spend since the reset cannot be told from the query — age unknown, so padded
+            rs.append(dict(r, pct=0.0, resets_at=0, age=None if ans else max(0.0, now - reset),
+                           restored="reset", answered=ans))
         else:
             at = None if r.get("age") is None or start_at is None else start_at - r["age"]
             rs.append(dict(r, age=None if at is None else max(0.0, now - at), restored="start"))
@@ -265,8 +271,10 @@ def _stale(r, stale_min, start_at):
     current as the query, whatever its age says: the stale pad covers it too. #445's rule is for
     claude's readings, the status-line drops a paused fleet leaves frozen — and for a live reading put
     back from the start snapshot (#457): the query failed or came back empty, so that value is as
-    frozen as theirs, whatever its source."""
-    if r.get("live") and not r.get("restored"):
+    frozen as theirs, whatever its source. Except a live window put back only because its reset passed
+    while its account's query answered (#459: `answered` — the adapters leave a reset window out): the
+    query is current and the window is 0% since the reset, so the stale pad covers it."""
+    if r.get("live") and (not r.get("restored") or (r["restored"] == "reset" and r.get("answered"))):
         return None
     if r.get("restored") == "reset":
         return "gone since its window reset"

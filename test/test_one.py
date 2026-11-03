@@ -292,6 +292,10 @@ def test_stale_exempts_only_a_live_reading_that_was_not_put_back():
     assert one._stale(live, 30, NOW - 300) is None
     assert one._stale(dict(live, restored="start"), 30, NOW - 300) == "gone since this session started"
     assert one._stale(dict(live, restored="reset"), 30, NOW - 300) == "gone since its window reset"
+    # #459: put back for a reset while the query answered (`answered`) — current, padded
+    assert one._stale(dict(live, restored="reset", answered=True), 30, NOW - 300) is None
+    # a window the query left out that did not reset is frozen however the query answered
+    assert one._stale(dict(live, restored="start", answered=True), 30, NOW - 300) == "gone since this session started"
 
 
 def test_phase_check_stops_a_live_reading_put_back_from_the_start():
@@ -435,6 +439,30 @@ def test_account_spend_since_reads_the_accounts_transcripts():
             else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = old
 
 
+def test_phase_check_pads_a_live_window_that_reset_while_the_query_answered():
+    # #459: codex 5h read live at start (91%), its resets_at since passed — the adapter leaves it out —
+    # while the 7d window still answers. The query is current: the reset window is 0% + the stale pad.
+    f = fc_split(per_phase=2.0, total=8.0, account="codex", window="5h")
+    no_spend = lambda account, t0: None
+    five = dict(rd(91.0, account="codex", window="5h", age=None), live=True, resets_at=int(NOW - 6))
+    seven = dict(rd(40.0, account="codex", window="7d", age=None), live=True, resets_at=int(NOW + 9999))
+    start = {"at": NOW - 300, "readings": [five, seven]}
+    c = one.phase_check(f, [seven], "impl", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
+    w = [w for w in c["windows"] if w["window"] == "5h"][0]
+    assert c["verdict"] == "FITS" and w["restored"] == "reset" and w["now"] == 0.0 and w["pad"] == 3, c
+    # the query answered nothing for the account (failed / empty): fail closed, as #457
+    c = one.phase_check(f, [], "impl", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and "gone since its window reset" in c["reasons"][0], c
+    # a claude reading (not live) answering does not vouch for it: still fails closed
+    claude = dict(seven, live=False)
+    c = one.phase_check(f, [claude], "impl", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT", c
+    # another account's live answer does not vouch for it either
+    other = dict(rd(5.0, account="copilot", window="5h", age=None), live=True)
+    c = one.phase_check(f, [other], "impl", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
+    assert c["verdict"] == "CHECKPOINT" and "codex 5h" in c["reasons"][0], c
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
@@ -443,3 +471,4 @@ if __name__ == "__main__":
             except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
+

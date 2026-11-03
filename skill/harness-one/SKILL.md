@@ -41,7 +41,8 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    counted for a claude reading that is not current — checkpoint all the same. Readings from
    `HARNESS_USAGE_CMD` or a non-claude adapter are live queries: padded, never `usage stale` (#451) —
    unless the query stops answering mid-issue: then the start reading put back is frozen, and
-   `usage stale … gone since this session started` CHECKPOINTs (#457).
+   `usage stale … gone since this session started` CHECKPOINTs (#457). A live window that only reset
+   (the adapter leaves it out) while the account's query still answers is 0% plus the pad, not stale (#459).
    A window of this session's own account that no reading holds is checked from 0% at start plus that
    spend; an `unchecked: … WARNING` line means nothing checks that window — tell the user (#452).
 7. **Release.** Once checkpointed, or merged and closed, run `harness one release <issue>`: it drops the
