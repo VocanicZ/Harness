@@ -2,7 +2,7 @@
 # inject.sh <plan|prd|issue> [--unit <id>] "<brief>"
 #   Thin launcher for live work injection. Resolves the unit, refuses to run while a REVIEW
 #   session is live, renders prompts/inject.md, and launches a headless Ralph session named
-#   hz-inject-<unit> (never collides with team_sessions, so it consumes no CAP/orch slot).
+#   hz-inject-<unit> (never collides with team_sessions, so it consumes no POOL/orch slot).
 #   The live pool picks up the injected work on its next poll — no fleet restart.
 set -uo pipefail
 

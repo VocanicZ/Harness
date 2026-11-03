@@ -148,7 +148,7 @@ retry_pending_unlocks(){ :; }; bug_tick(){ return 0; }
 bug_step P1 >/dev/null 2>&1
 assert_eq "$(cat "$TICKED")" "acme/harness $RUN_DIR/co/harness" "bug_step ticks the Harness repo's release queue only"
 # drive_unit ticks once per poll, with the unit's own repo.
-: > "$TICKED"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/harness; CAP=1; POLL=0
+: > "$TICKED"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/harness; POOL=1; POLL=0
 reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }; team_sessions(){ :; }
 reap_pool_bugs(){ :; }; tmux(){ :; }; dispatch_actions(){ :; }; finalize_unit(){ :; }
 N=0; unit_complete(){ (( N++ >= 2 )); }

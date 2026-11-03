@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Remove CAP: `POOL` is the number of parallel issues; the migration drops the kept `HARNESS_CAP` line (#469)
+
+- With one lane per worker (#468) the per-unit `CAP` had no meaning left, so `HARNESS_CAP` is gone from
+  `drive.sh`, `pool.sh`, `pool-worker.sh`, `start.sh`, `inject.sh`, `status.sh`, `init.sh` and `lib.sh`.
+  `HARNESS_POOL` (default `3`) is the only parallelism knob; `harness init` no longer asks for sessions
+  per unit and `harness status` no longer prints `cap=`. The gauntlet and security-audit round caps in
+  `prompts/review.md` are a different thing and are unchanged.
+- `scripts/fleet-migrate.sh` now drops the `HARNESS_CAP=<old CAP>` line it used to keep. `HARNESS_POOL` was
+  already `max(old POOL, old CAP)`, so no fleet loses parallelism. A config #467 already migrated that still
+  carries the line loses just that line (backed up as `config.bak-<date>`, workers not restarted). Running
+  it twice changes nothing.
+- A `HARNESS_CAP` still set in the environment or the config is ignored, with one warning per
+  `harness start`: "CAP is gone; POOL is the number of parallel issues".
+- `docs/reference.md`: `CAP` removed from the config table, the `POOL` meaning updated; new
+  `test_cap_removed.sh`, and `test_fleet_migrate.sh` covers the dropped line, idempotence and the warning.
+
 ### Submodule issues end to end: `## Code location`, lane prompt rules, resume across submodules (#471)
 
 - An issue for code inside a submodule is filed in the main repo. `decompose.md`, `bug-triage.md` and the
@@ -97,7 +113,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   clone that exists under `.harness/checkouts/`; `single`: `main` and the project root), move the other
   `targets.tsv` rows to `targets.tsv.migrated` with a `fleet_migrated` event (harness-dev keeps `harness`
   and drops `rtdd`), remove `HARNESS_TOPOLOGY`, set `HARNESS_POOL` to `max(POOL, CAP)` and keep
-  `HARNESS_CAP`; then kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes (never
+  `HARNESS_CAP` (dropped since #469); then kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes (never
   `harness stop`) and relaunch the workers through `fleet_roll` (`scripts/roll.sh`, #477), which runs
   `harness start --state-dir <fleet>`. Live lanes keep running.
 - Both config line forms (`: "${KEY:=val}"` and plain `KEY=val`) are read and written in place, comments

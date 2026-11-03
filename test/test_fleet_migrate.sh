@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test_fleet_migrate.sh — #467 (PRD #464 §4): scripts/fleet-migrate.sh moves every fleet to the
-# one-repo config (HARNESS_UNIT / HARNESS_CHECKOUT, POOL = max(POOL, CAP), no HARNESS_TOPOLOGY) and
+# one-repo config (HARNESS_UNIT / HARNESS_CHECKOUT, POOL = max(POOL, CAP), no HARNESS_TOPOLOGY, no
+# HARNESS_CAP — CAP is gone, #469) and
 # rolls its workers onto the new engine: backs up the config, kills only that fleet's worker and
 # priority pids (never `harness stop`), then `harness start --state-dir <fleet>`.
 # The seven fixtures below are the host's own configs (both line forms), trimmed to what the
@@ -94,7 +95,7 @@ check(){ local d="$1" unit="$2" repo="$3" co="$4" pool="$5" cap="$6" sess="$7" o
   assert_eq "$(read_cfg "$d" 'echo $(fleet_unit)')" "$unit" "$(basename "$(dirname "$d")"): UNIT is $unit"
   assert_eq "$(read_cfg "$d" 'echo $HARNESS_REPO')" "$repo" "$(basename "$(dirname "$d")"): REPO is $repo"
   assert_eq "$(read_cfg "$d" 'echo $HARNESS_POOL')" "$pool" "$(basename "$(dirname "$d")"): POOL is $pool"
-  assert_eq "$(read_cfg "$d" 'echo $HARNESS_CAP')"  "$cap"  "$(basename "$(dirname "$d")"): CAP stays $cap"
+  assert_no "$(basename "$(dirname "$d")"): the HARNESS_CAP line is gone (CAP was $cap, #469)" grep -q 'HARNESS_CAP' "$d/config"
   local want="$d/checkouts/$co"; [[ "$co" == ROOT ]] && want="$(dirname "$d")"
   assert_eq "$(read_cfg "$d" 'echo $(fleet_checkout)')" "$want" "$(basename "$(dirname "$d")"): CHECKOUT is $want"
   assert_ok "$(basename "$(dirname "$d")"): that CHECKOUT exists" test -d "$want"
@@ -120,6 +121,8 @@ assert_ok "a := config gets := keys"                   grep -q '^: "${HARNESS_UN
 assert_eq "$(grep -c 'HARNESS_REPO' "$IP/config")" "1" "ImPrint: the target's repo REPLACES the config's (still one HARNESS_REPO line)"
 assert_ok "ImPrint: the renamed repo is the target's"  grep -q 'HARNESS_REPO:=VocanicZ/Imprinted}' "$IP/config"
 assert_ok "the backup is the config as it was"         grep -q 'HARNESS_TOPOLOGY:=multi' "$HD"/config.bak-*
+assert_ok "...CAP line included"                       grep -q 'HARNESS_CAP:=1' "$HD"/config.bak-*
+assert_ok "an inline comment next to the dropped CAP line does not eat the POOL line" grep -q 'POOL:=2}"  *# host already runs 7 fleets' "$IP/config"
 
 # ── the two-row fleet: rtdd leaves targets.tsv, and a fleet_migrated event says so ──
 assert_ok "rtdd's row is in targets.tsv.migrated"      grep -q '^rtdd	VocanicZ/rtdd' "$HD/targets.tsv.migrated"
@@ -139,6 +142,51 @@ after="$(for d in "$HD" "$IP" "$OR" "$BC" "$HG" "$SW" "$BW"; do snap "$d"; done)
 assert_eq "$after" "$before" "a second run leaves every config, backup and targets file byte-identical"
 assert_eq "$(wc -l < "$HARNESS_EVENTS_FILE")" "$evs" "...and logs no second event"
 assert_eq "$(ls "$HD"/config.bak-* | wc -l)" "1" "...and takes no second backup"
+
+# ── #469: a config #467 already migrated (it kept HARNESS_CAP) loses that line and keeps its POOL ──
+M1="$(fleet m-kept ': "${HARNESS_MODE:=prd}"
+: "${HARNESS_OWNER:=acme}"
+: "${HARNESS_REPO:=acme/k}"
+: "${HARNESS_UNIT:=kk}"
+: "${HARNESS_CHECKOUT:=/x/k}"
+: "${HARNESS_POOL:=3}"
+: "${HARNESS_CAP:=3}"        # kept by #467
+: "${HARNESS_SESS_PREFIX:=hzk}"')"
+M2="$(fleet m-kept-plain 'HARNESS_REPO=acme/p
+HARNESS_UNIT=main
+HARNESS_CHECKOUT=/x/p
+HARNESS_POOL=4
+HARNESS_CAP=4
+export HARNESS_SESS_PREFIX=hzp')"
+out="$(migrate "$M1")"
+assert_no "#467-migrated: HARNESS_CAP is gone"          grep -q 'HARNESS_CAP' "$M1/config"
+assert_eq "$(read_cfg "$M1" 'echo $HARNESS_POOL')" "3"  "#467-migrated: POOL is kept"
+assert_eq "$(read_cfg "$M1" 'echo $HARNESS_UNIT')" "kk" "#467-migrated: the unit is kept"
+assert_ok "#467-migrated: the sess prefix line survives" grep -q 'HARNESS_SESS_PREFIX:=hzk' "$M1/config"
+assert_ok "#467-migrated: the old config is backed up with its CAP line" grep -q 'HARNESS_CAP:=3' "$M1"/config.bak-*
+migrate "$M2" >/dev/null
+assert_no "#467-migrated (plain form): HARNESS_CAP is gone" grep -q 'HARNESS_CAP' "$M2/config"
+assert_eq "$(grep -c . "$M2/config")" "5" "...and only that line went"
+assert_eq "$(read_cfg "$M2" 'echo $HARNESS_POOL')" "4"  "#467-migrated (plain form): POOL is kept"
+# a fresh un-migrated config ends in the same place in one pass
+M3="$(fleet m-fresh ': "${HARNESS_TOPOLOGY:=single}"
+: "${HARNESS_REPO:=acme/k}"
+: "${HARNESS_POOL:=3}"
+: "${HARNESS_CAP:=3}"')"
+migrate "$M3" >/dev/null
+assert_no "un-migrated config: no HARNESS_CAP after ONE pass" grep -q 'HARNESS_CAP' "$M3/config"
+assert_eq "$(read_cfg "$M3" 'echo $HARNESS_POOL')" "3"  "...POOL is the table's max"
+b="$(snap "$M1"; snap "$M2"; snap "$M3")"; evs="$(wc -l < "$HARNESS_EVENTS_FILE")"
+migrate "$M1" >/dev/null; migrate "$M2" >/dev/null; migrate "$M3" >/dev/null
+assert_eq "$(snap "$M1"; snap "$M2"; snap "$M3")" "$b" "running it twice changes nothing (configs and backups byte-identical)"
+assert_eq "$(wc -l < "$HARNESS_EVENTS_FILE")" "$evs" "...and logs no second event"
+assert_eq "$(ls "$M1"/config.bak-* | wc -l)" "1"      "...and takes no second backup"
+# a config with no CAP line at all is left alone, as before
+M4="$(fleet m-nocap ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/n}"')"; b4="$(snap "$M4")"
+out4="$(migrate "$M4")"
+assert_eq "$(snap "$M4")" "$b4" "a one-repo config with no CAP line is untouched"
+assert_ok "...and reports nothing to do"                 grep -q 'nothing to do' <<<"$out4"
 
 # ── edge: no HARNESS_POOL line, an unreadable pool, a multi config whose targets.tsv is gone ──
 E1="$(fleet e-nopool ': "${HARNESS_TOPOLOGY:=single}"
@@ -237,6 +285,20 @@ fi
 assert_ok "update: the unregistered current-folder fleet is migrated too" grep -q 'HARNESS_UNIT:=main' "$UC/config"
 assert_ok "update: ...and rolled, since it had worker pid files" grep -q "^start $UC recover=no " "$START_LOG"
 assert_ok "update: ...onto new pids"                       dead "$OLD_C"
+# #469: a registered fleet #467 already migrated, still carrying HARNESS_CAP, only loses that line:
+# its workers are not killed or relaunched (they never read CAP).
+UF="$(fleet upd-f ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/f}"
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=2}"')"
+printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$UF" "$UF/run" > "$ROOT/host/fleets/upd-f.json"
+spawn "$UF/run/worker-1.pid"; OLD_F="$(pidsof "$UF")"; n="$(grep -c '^start ' "$START_LOG")"
+ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
+assert_no "update: a migrated fleet's kept HARNESS_CAP line is dropped" grep -q HARNESS_CAP "$UF/config"
+assert_eq "$(read_cfg "$UF" 'echo $HARNESS_POOL')" "2"  "update: ...and its POOL is kept"
+assert_ok "update: ...its workers are left running (nothing to roll)" alive "$OLD_F"
+assert_eq "$(grep -c '^start ' "$START_LOG")" "$n"      "update: ...and no harness start for it"
+assert_ok "update: ...the old config is backed up"      grep -q HARNESS_CAP "$UF"/config.bak-*
 # an unregistered fleet with NO live workers is migrated, not started
 UE="$(fleet upd-e ': "${HARNESS_TOPOLOGY:=single}"
 : "${HARNESS_REPO:=acme/e}"')"
@@ -274,6 +336,26 @@ assert_ok "start: migrated its own fleet's config (UNIT)"  grep -q 'HARNESS_UNIT
 assert_eq "$(read_cfg "$SF" 'echo $HARNESS_POOL')" "2" "start: ...and POOL = max(1,2)"
 assert_ok "start: ...and stopped the old workers"          dead "$OLD_S"
 assert_no "start: HARNESS_TOPOLOGY gone"                   grep -q HARNESS_TOPOLOGY "$SF/config"
+assert_no "start: HARNESS_CAP gone (#469)"                 grep -q HARNESS_CAP "$SF/config"
+assert_eq "$(grep -c 'CAP is gone; POOL is the number of parallel issues' "$ROOT/start.out")" "1" "start: a config's HARNESS_CAP is ignored with the warning printed exactly once"
+# HARNESS_CAP in the environment: ignored, one warning; none without it
+SG="$(fleet start-env ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/g}"
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_SESS_PREFIX:=hzsg}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
+start_env(){ ( unset_inherited_config; export HARNESS_HOME="$ROOT/host2" HARNESS_FLEETS_DIR="$ROOT/host2/fleets" HARNESS_POLLER_DIR="$ROOT/host2/poller" HARNESS_SNAPSHOTS_DIR="$ROOT/host2/snapshots"
+    [[ -n "${1:-}" ]] && export HARNESS_CAP="$1"
+    STATE_DIR="$SG" ENGINE_DIR="$ENGINE" bash "$ENGINE/scripts/start.sh" 2>&1 ) ; }
+assert_eq "$(start_env 5 | grep -c 'CAP is gone; POOL is the number of parallel issues')" "1" "start: HARNESS_CAP=5 in the environment: one warning"
+assert_eq "$(start_env | grep -c 'CAP is gone')" "0" "start: no HARNESS_CAP anywhere: no warning"
+# HARNESS_FLEET_MIGRATE=0 leaves the config's CAP line: still ignored, still one warning
+SH="$(fleet start-nomig ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/h}"
+: "${HARNESS_CAP:=5}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
+assert_eq "$( ( unset_inherited_config; export HARNESS_FLEET_MIGRATE=0 HARNESS_HOME="$ROOT/host2" HARNESS_FLEETS_DIR="$ROOT/host2/fleets" HARNESS_POLLER_DIR="$ROOT/host2/poller" HARNESS_SNAPSHOTS_DIR="$ROOT/host2/snapshots"
+    STATE_DIR="$SH" ENGINE_DIR="$ENGINE" bash "$ENGINE/scripts/start.sh" 2>&1 ) | grep -c 'CAP is gone')" "1" "start: a config's HARNESS_CAP the migration did not run on: one warning"
 mig_ln="$(grep -n 'fleet-migrate.sh' "$ENGINE/scripts/start.sh" | head -1 | cut -d: -f1)"
 lib_ln="$(grep -n 'lib.sh"' "$ENGINE/scripts/start.sh" | head -1 | cut -d: -f1)"
 assert_ok "start.sh migrates BEFORE it sources lib.sh (line $mig_ln < $lib_ln)" test "${mig_ln:-99}" -lt "${lib_ln:-0}"

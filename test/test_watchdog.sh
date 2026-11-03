@@ -99,7 +99,7 @@ assert_no "stall counter cleared once the session recovers (busy)" test -f "$RUN
 # ── D: both lanes invoke the watchdog over their live sessions ───────────────────────────────────
 # Pool: drive_unit must run the watchdog over the unit's team sessions every poll.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; CAP=2; POLL=0
+HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wtD"; mkdir -p "$WORKTREES_DIR"
 WD_SEEN="$RUN_DIR/wd_seen"; : > "$WD_SEEN"
 reap_done_sessions(){ :; }; reap_team(){ :; }

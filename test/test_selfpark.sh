@@ -29,7 +29,7 @@ EOF
 S=hz-main-i5
 setup(){
   make_env
-  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; CAP=1; POLL=0
+  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; POOL=1; POLL=0
   UNIT=main; REPO="acme/widget"; SLUG="acme/widget"; PROJECT=main; DESC=widget; CHECKOUT="$RUN_DIR/co"
   export HARNESS_AUTONOMOUS=true HARNESS_MODE=issue-only HARNESS_POOL_TAKES_BUGS=0
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
@@ -98,7 +98,7 @@ for cli in claude agy; do
   # Dispatch used to re-claim #5 from its labels alone: prepare_impl re-added agent-working, the next
   # tick's check read PENDING and dropped the .selfpark epoch, so the grace never ran out.
   setup
-  CAP=2
+  POOL=2
   snapshot "ready-for-agent,agent-paused"
   ( gh(){ echo "gh $*" >> "$CALLS"
           case "$*" in "issue edit 5 "*"--add-label agent-working"*) snapshot "ready-for-agent,agent-paused,agent-working";; esac

@@ -56,8 +56,8 @@ echo "harness $* | STATE_DIR=${STATE_DIR:-unset} HARNESS_REPO=${HARNESS_REPO:-un
 [[ "$*" == *" resume"* ]] && { touch "$S/resumed"; echo RESUMED; }
 [[ "$1" == --version ]] && { echo "harness test"; exit 0; }
 if [[ "$1" == init ]]; then mkdir -p .harness
-  printf ': "${HARNESS_CLI:=%s}"\n: "${HARNESS_REPO:=%s}"\n: "${HARNESS_SESS_PREFIX:=%s}"\n: "${HARNESS_POOL:=%s}"\n: "${HARNESS_CAP:=%s}"\n' \
-    "$HARNESS_CLI" "$HARNESS_REPO" "$HARNESS_SESS_PREFIX" "$HARNESS_POOL" "$HARNESS_CAP" > .harness/config; fi
+  printf ': "${HARNESS_CLI:=%s}"\n: "${HARNESS_REPO:=%s}"\n: "${HARNESS_SESS_PREFIX:=%s}"\n: "${HARNESS_POOL:=%s}"\n' \
+    "$HARNESS_CLI" "$HARNESS_REPO" "$HARNESS_SESS_PREFIX" "$HARNESS_POOL" > .harness/config; fi
 exit 0
 EOF
   printf '#!/usr/bin/env bash\nexit 0\n' > "$d/bin/tmux"
@@ -98,9 +98,10 @@ run_smoke STATE_DIR=/some/live/fleet/.harness HARNESS_REPO=evil/live HARNESS_SES
 assert_eq "$RC" 0 "issue closed through a merged PR exits 0"
 assert_eq "$(harness_verbs)" "init setup start stats stop --clean" "init → setup → start → stop --clean, each on the sandbox's own state dir"
 assert_no "no harness call inherits the live fleet's STATE_DIR / HARNESS_REPO" grep -qE 'STATE_DIR=/some|HARNESS_REPO=evil' "$CALLS"
-assert_ok "init is given the sandbox repo, the CLI under test, pool 1 and cap 1" \
+assert_ok "init is given the sandbox repo, the CLI under test, pool 1" \
   grep -qE '^harness init \| STATE_DIR=unset HARNESS_REPO=tester/harness-smoke-codex HARNESS_SESS_PREFIX=smokecodex CLI=codex' "$CALLS"
-assert_eq "$(grep -c ': "${HARNESS_\(POOL\|CAP\):=1}"' "$OUT")" 2 "the logged config has pool 1 and cap 1"
+assert_eq "$(grep -c ': "${HARNESS_POOL:=1}"' "$OUT")" 1 "the logged config has pool 1"
+assert_eq "$(grep -c 'HARNESS_CAP' "$OUT")" 0 "...and no cap (#469)"
 assert_ok "the sandbox verifies locally, not on swarm" grep -qF ': "${HARNESS_SWARM:=off}"' "$OUT"
 assert_ok "the PRD is filed with the prd label" grep -qE '^gh issue create .*-l prd ' "$CALLS"
 assert_ok "the task is filed ready-for-agent" grep -qE '^gh issue create .*-l ready-for-agent ' "$CALLS"
