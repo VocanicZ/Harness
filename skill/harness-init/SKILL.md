@@ -9,7 +9,7 @@ Thin wrapper around `harness init`. Don't hand-write config; let the wizard do i
 
 **This writes `.harness/config` and may create GitHub labels — confirm before running.**
 
-The wizard is interactive (mode, topology, owner/repo, labels, pool size). The Bash tool has no
+The wizard is interactive (mode, owner/repo, labels, pool size — the number of parallel issues). The Bash tool has no
 TTY, so prefer one of:
 
 1. **Interactive (best):** tell the user to run it in their session:

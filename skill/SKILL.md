@@ -55,11 +55,11 @@ and wait for the user's yes before you act.
 
 ## On plain `/harness`, first detect state, then act
 
-1. **No `.harness/config`?** Run the wizard: `harness init` (prompts for mode, topology,
+1. **No `.harness/config`?** Run the wizard: `harness init` (prompts for mode,
    owner/repo, labels, pool size). Confirm the choices with the user.
 2. **Config exists but not set up / not running?** Read `.harness/config`, then:
    - `harness setup` — verifies prereqs (gh auth, claude, tmux) and seeds the configured
-     labels on every unit (single = `HARNESS_REPO`; multi = each `targets.tsv` row).
+     labels on the repo (`HARNESS_REPO`).
    - Confirm with the user, then `harness start`.
 3. **Already running?** Just operate: show the dashboard, watch sessions, unstick.
 
@@ -107,7 +107,7 @@ Per unit it prints the `issuelib.py status` line: `mode=… PRD#… plan=… chi
 - Crash/migration: `harness start --recover`.
 
 ## Modes & config
-`.harness/config` sets `HARNESS_MODE` (issue-only|prd|planned), topology, labels, pool size. In
+`.harness/config` sets `HARNESS_MODE` (issue-only|prd|planned), labels, `HARNESS_POOL` (the number of parallel issues: one pool worker, one lane each). In
 `issue-only` just label an issue `ready-for-agent` (not `prd`) and a worker picks it up. In `prd`
 mode a human writes one `prd`-labelled issue; the agent decomposes + implements + reviews.
 
@@ -120,9 +120,9 @@ Use those when the user already knows the action; use `/harness` (this skill) to
 ## Inject work into a LIVE fleet (no restart)
 To add work to a running fleet without stopping it, three grill-first sibling skills inject at each altitude:
 `/harness-issue` (a discrete task), `/harness-prd` (grow PRD scope → delta issues), `/harness-plan`
-(structural / `targets.tsv` topology change). Each grills the requirement, confirms a crystallized brief
+(structural `PLAN.md` change). Each grills the requirement, confirms a crystallized brief
 (the human safety gate), then launches a headless `hz-inject-<unit>` session; the live pool picks the new
-`ready-for-agent` work up on its next poll. If the pool has retired (all units complete), relaunch with
+`ready-for-agent` work up on its next poll. If the pool has retired (all issues complete), relaunch with
 `start --recover` first.
 
 ## When NOT to touch

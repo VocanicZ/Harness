@@ -31,7 +31,7 @@ of an issue that already exists. When in doubt, add nothing and explain why in y
     gh issue list -R {{SLUG}} --label {{LABEL_PRD}} --state all
 - List every child issue with its state + labels (closed AND open):
     gh issue list -R {{SLUG}} --state all --json number,title,state,labels,body
-- Read `PLAN.md` and, if present, `targets.tsv` in this repo.
+- Read `PLAN.md` in this repo, if present.
 - Classify each child:
     • **done**      — closed (its work shipped).
     • **in-flight** — open and labelled `{{LABEL_WORKING}}`. These are owned by a running agent.
@@ -61,13 +61,9 @@ issues should now depend on it. Build the intended ordering edges before mutatin
     • Append the new scope (+ acceptance criteria) to the PRD body.
     • Create ONLY the **delta** child issues — the tasks not already represented by an existing
       child. Never re-create children that already exist (done OR open).
-- **plan** → structural / topology change:
+- **plan** → structural change:
     • Edit `PLAN.md` (and cascade the change into the PRD body + delta issues), then commit + push:
         git add PLAN.md && git commit -m "plan({{PROJECT}}): inject — <summary>" && git push
-    • For a topology change, edit `targets.tsv` (add a row / adjust a dependency edge). For a NEW
-      target unit, seed it so the pool can claim it once its deps are complete:
-        bash .harness/scripts/seed.sh <unit>
-      (clones the repo + creates labels + CI). Then cascade down to that unit's PRD + delta issues.
 
 ## 4. Ordering rules (safety invariants — do not violate)
 - **In-flight is read-only.** NEVER edit, relabel, reorder, or close an issue labelled

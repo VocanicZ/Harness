@@ -26,8 +26,7 @@ Replay a single crystallized brief — outcome + acceptance criteria + ordering 
 injector does not re-grill.
 
 ## 3. Run the injector
-- Default unit: `harness issue "<confirmed brief>"`
-- Multi-topology — target one unit: `harness issue --unit <id> "<confirmed brief>"`
+Run: `harness issue "<confirmed brief>"`
 
 This launches a headless session `hz-inject-<unit>`; it reconciles the brief against live GitHub
 state and creates the issue(s) additively, with correct `## Blocked by` ordering.

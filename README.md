@@ -13,6 +13,8 @@ run directory: no database, no daemon, resumable from any host.
 
 You grill the idea once into a PRD; the fleet does the rest.
 
+One fleet drives one repo. `HARNESS_POOL` is the number of parallel issues: each pool worker runs one issue at a time. A submodule is part of that repo: its issues are filed in the main repo with a `## Code location` section, not in a fleet of their own.
+
 <img alt="Timeline of the same 6 issues done two typical ways. A chat agent needs the human 20 times: prompting, waiting while it codes, reviewing, re-prompting when #42 fails, merging. A single-agent loop harness needs the human less, but one agent codes the issues in a row, grades its own work, re-runs the full test suite after every issue, and the human finds the bug its self-review missed only when reviewing one big PR at the end." src="docs/figures/typical-agent-loop.gif">
 
 <img alt="One Harness PRD from idea to done. The human answers grilling questions, wayfinder resolves 4 decisions, and PRD #40 is written; then the human leaves to grill projects B and C. Harness splits PRD #40 into 6 issues: #41 DB schema, #42 UI kit and #43 mail client are ready; #44 auth API is blocked by #41; #45 login page by #42 and #44; #46 password reset by #43 and #44. Three workers each run manager, implementer, auditor, rtdd and merge. The auditor fails #42 because buttons aren't keyboard-focusable, and it goes back to the implementer and passes on the second audit. #44 starts once #41 merges, and #45 and #46 run in parallel once #44 merges. The reviewer checks acceptance criteria 6 of 6, gauntlet round 1 loses to the reference, issue #47 is filed and fixed, round 2 wins, and PRD #40 is reviewed and COMPLETE. The human was needed for one grilling session." src="docs/figures/harness-loop.gif">
@@ -91,7 +93,7 @@ Plain `/harness` sets up and operates the fleet without filing work. Add more la
 <summary>Without an agent</summary>
 
 ```sh
-harness init              # wizard: writes .harness/config, seeds GitHub labels
+harness init              # wizard: repo + POOL (parallel issues) → .harness/config, seeds GitHub labels
 harness start             # launch the worker pool
 harness status --watch    # live dashboard
 harness pause [--force]   # stop claiming work (--force: checkpoint every agent to GitHub)
@@ -120,11 +122,11 @@ harness update            # install the latest release (--rollback to go back)
 | `/harness-init` | Setup wizard: writes `.harness/config`, seeds GitHub labels |
 | `/harness-start` · `/harness-stop` | Start or stop the worker pool |
 | `/harness-pause` · `/harness-resume` | Drain or checkpoint agents; resume here or on another host |
-| `/harness-status` | Per-unit state: running, complete, or stuck |
+| `/harness-status` | Workers and the issue each runs; complete, or stuck |
 | `/harness-one` | While the fleet is paused or usage-HELD: forecast one issue against live usage, APPROVE/DENY, you decide — then work it in your session, re-checked before each phase |
 | `/harness-issue` | Grill a task, then add it to a running fleet |
 | `/harness-prd` | Grill new scope, then grow a running fleet's PRD |
-| `/harness-plan` | Grill a topology change (new target repo, `PLAN.md`), then apply it |
+| `/harness-plan` | Grill a `PLAN.md` change, then apply it |
 | `/harness-arc` | Deploy a design too big for one PRD as a sequenced chain of PRDs |
 | `/harness-uninstall` | Remove the engine, a project's `.harness/`, and these skills |
 

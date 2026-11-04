@@ -128,9 +128,10 @@ The unit is COMPLETE only when every PRD is closed and no unparented issue is st
 
 A fleet drives exactly one repo, `HARNESS_REPO`, as one unit named `HARNESS_UNIT` (default `main`) cloned at
 `HARNESS_CHECKOUT` (default `$PROJECT_ROOT`). Up to `HARNESS_POOL` lanes run at once, one per pool worker
-([The pool worker](#the-pool-worker-step-loop)). There is no topology setting, no `targets.tsv` and no unit
-dependency graph (#473): a fleet that used to be `multi` is split into one fleet per repo by
-[Fleet migration](#fleet-migration-one-fleet--one-repo-467), the only place that still reads those files.
+([The pool worker](#the-pool-worker-step-loop)). There is no topology setting and no unit dependency graph (#473): a fleet
+that used to cover several repos is split into one fleet per repo by
+[Fleet migration](#fleet-migration-one-fleet--one-repo-467), the only place that still reads the old files.
+Submodules are part of the one repo ([Submodules](#submodules)).
 
 ### The pool worker (step loop)
 
@@ -138,9 +139,9 @@ A pool worker claims **one lane** — one issue (`IMPL`), one bug, or one PRD ac
 `DECOMPOSE`, `REVIEW`) — runs it, reaps it, releases it and claims the next. **`HARNESS_POOL` is the most
 lanes that can run at once**: `POOL=3` with three ready issues runs three lanes, one per worker, not one
 worker driving the unit while two sit idle. The priority bug worker is on top of `POOL` and not counted in
-it. There is no per-unit `CAP` any more (#469): `POOL` is the only parallelism knob, and a `HARNESS_CAP` still
-set in the environment or a config is ignored, with one warning per `harness start`: "CAP is gone; POOL is the
-number of parallel issues".
+it. `POOL` is the only parallelism knob (#469). A cap setting left over from an older release is ignored, with
+one warning per `harness start`: "CAP is gone; POOL is the number of parallel issues" (details in
+[Fleet migration](#fleet-migration-one-fleet--one-repo-467)).
 
 A worker never blocks inside a lane. It runs one **step** per tick (every `HARNESS_POLL`, and at once after
 a claim):
@@ -194,8 +195,8 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_MODE` | `issue-only` | Pipeline mode: `issue-only`, `prd`, or `planned` |
 | `HARNESS_OWNER` | _(empty)_ | GitHub owner/org (used to expand bare repo names) |
 | `HARNESS_REPO` | _(empty)_ | The fleet's target repo (`owner/repo`) |
-| `HARNESS_UNIT` | _(empty)_ → `main` | The fleet's one unit: its name in session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`), the default `--unit` of `harness inject` and `harness one`, and the unit `forecast` and `stats` attribute lanes to. Empty = `main`. The repo always comes from `HARNESS_REPO` |
-| `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the unit checkout, and the bug lanes' checkout); `harness update` / `harness start` write both keys when they migrate a fleet ([Fleet migration](#fleet-migration-one-fleet--one-repo-467)) |
+| `HARNESS_UNIT` | _(empty)_ → `main`; `harness init` writes the lowercased repo short name (`Acme/Widget` → `widget`) | The fleet's one unit: its name in session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`), the default `--unit` of `harness inject` and `harness one`, and the unit `forecast` and `stats` attribute lanes to. Empty = `main`. The repo always comes from `HARNESS_REPO` |
+| `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the lanes' and the bug lanes' checkout; a submodule lives inside it, [Submodules](#submodules)); `harness update` / `harness start` write both keys when they migrate a fleet ([Fleet migration](#fleet-migration-one-fleet--one-repo-467)) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
 | `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = each lane a detached headless runner process, no multiplexer — `claude` only ([Headless lanes](#headless-lanes)); any other CLI is refused as tmux-only. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
@@ -231,9 +232,9 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_HOME` | `~/.harness` | The host root: the shared engine (`engine`, a link into `releases/<tag>/`), whose `skill/` every CLI's skill links name (#439), and the host's poller, fleet and lane state |
 | `HARNESS_USER_SKILLS` | `~/.claude/skills` | Where Harness links user skills for claude and opencode, and a skill dir a hermes or openclaw lane gets as an external one. Set, it is a sandbox: no other CLI's dir under `HOME` is touched |
 | `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
-| `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on a single-topology `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
+| `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
-| `HARNESS_POOL` | `3` | The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob — `HARNESS_CAP` is gone (#469); a leftover one is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
+| `HARNESS_POOL` | `3` | The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob (#469): a cap setting left over from an older release is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
 | `HARNESS_POOL_TAKES_BUGS` | `1` | `1` = a pool worker with no dispatchable impl work takes the oldest open `bug`/`bug-triaged` issue in its unit's repo while the priority lane is busy (or not running), through the lane's own triage→fix flow; the lane keeps first pick whenever it is free, and the shared bug claim means the two never take the same bug. `0` = bugs wait for the priority lane |
@@ -495,6 +496,11 @@ also reads the main checkout's `settings.local.json`, and that one wins (#374). 
 
 ### Submodules
 
+**A submodule is not a fleet.** One fleet drives one repo, and a submodule is part of that repo. A
+submodule that has its own fleet folder (for example `~/ORGE/ORGE-ENGINE/.harness`, with no workers of
+its own) is no longer a supported setup: delete that folder and file its issues in the main repo with a
+`## Code location` section ([Submodule issues, end to end](#submodule-issues-end-to-end)).
+
 A repo with submodules works in a lane the same as one without. Issues for submodule code are filed in
 the main repo; the lane merges the submodule change on that submodule's own base branch first, then
 bumps the gitlink in the main repo. The engine provides three pieces of plumbing for this (the
@@ -749,7 +755,7 @@ Run from inside any `harness init`'d project:
 | `poll [--once\|--status]` | Host-level debug entry to the shared snapshot poller. `--once` refreshes every registered repo once; `--status` reports the poller pid + registered slugs/cadences. Normal operation needs no manual `poll` — workers self-heal it (see [Host poller](#host-poller)) |
 | `supervise [--once] [--dry-run]` | Host-level supervisor for **every fleet on the host**: restarts dead pool/priority workers, clears orphaned `agent-working` locks, nudges — then checkpoints to GitHub and kills — sessions frozen at their prompt, and runs the arc stall rules. `--alarms` lists the alarms still firing; `--install` / `--uninstall` manage its systemd user unit. See [Host supervisor](#host-supervisor) |
 | `web` | Read-only **dashboard** of every fleet on the host, served in the foreground on `http://127.0.0.1:4637/`: each registered fleet with its state and a link to its page, from local snapshots only. `--install` / `--uninstall` manage its systemd user unit. See [Dashboard](#dashboard) |
-| `plan "<brief>"` | Inject a plan/topology change (PLAN.md / `targets.tsv`, incl. seeding a new target repo) into a **live** fleet. Grill via [`/harness-plan`](#per-command-shortcuts) |
+| `plan "<brief>"` | Inject a plan change (`PLAN.md`, cascaded into the PRD and delta issues) into a **live** fleet. Grill via [`/harness-plan`](#per-command-shortcuts) |
 | `prd "<brief>"` | Extend a **live** fleet's PRD scope and create the delta issues. Grill via [`/harness-prd`](#per-command-shortcuts) |
 | `issue "<brief>"` | Inject a discrete implementation issue (or a few) into a **live** fleet. Grill via [`/harness-issue`](#per-command-shortcuts) |
 
@@ -946,8 +952,7 @@ one issue at a time while the fleet is paused or HELD (#362).
   readings at all, uses `HARNESS_ONE_USD_PER_PCT` and prints `FALLBACK`; without that setting it is
   `n/a`.
 
-The repo is `-R`, else the one the issue's own lanes ran in, else the current project's unit
-(`--unit` picks one in a multi-unit project). Issue bodies come from `gh`. `--json` prints the same
+The repo is `-R`, else the one the issue's own lanes ran in, else the current project's repo. Issue bodies come from `gh`. `--json` prints the same
 numbers (`phases`, `total`, `size`, `basis`, `spent`, `pct`, `calibration`) for scripts; the exit status is 1 when the host
 has no past lanes at all.
 
@@ -1176,7 +1181,7 @@ harness migrate          # strip the vendored engine clone + .git; keep config +
 harness start --recover  # relaunch off the shared engine
 ```
 
-Config, `targets.tsv`, `run/`, worktrees, checkouts and `prompts/*.local.md` are kept. Idempotent.
+Config, `run/`, worktrees, checkouts and `prompts/*.local.md` are kept. Idempotent.
 
 ## The `/harness` skill
 
@@ -1195,9 +1200,9 @@ unstick moves. It never does a unit's work by hand.
 | `/harness-resume` | `harness resume` | confirms first; works across machines |
 | `/harness-status` | `harness status` | read-only, runs immediately |
 | `/harness-one`    | `harness one`    | refuses unless the fleet is PAUSED or usage-HELD; shows the forecast and the APPROVE/DENY arithmetic, then the human picks approve / another issue / stop — never auto-approves. See [One issue at a time](#one-issue-at-a-time-harness-one) |
-| `/harness-plan`   | `harness plan`   | inject a topology/PLAN change into a live fleet; grills + replays a crystallized brief for confirmation (the human safety gate) before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
-| `/harness-prd`    | `harness prd`    | grow PRD scope → delta issues on a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
-| `/harness-issue`  | `harness issue`  | inject a discrete implementation issue into a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports `--unit <id>` (multi-topology) and the `--recover` retired-fleet fallback |
+| `/harness-plan`   | `harness plan`   | inject a `PLAN.md` change into a live fleet; grills + replays a crystallized brief for confirmation (the human safety gate) before mutating; supports the `--recover` retired-fleet fallback |
+| `/harness-prd`    | `harness prd`    | grow PRD scope → delta issues on a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports the `--recover` retired-fleet fallback |
+| `/harness-issue`  | `harness issue`  | inject a discrete implementation issue into a live fleet; grills + replays a crystallized brief for confirmation before mutating; supports the `--recover` retired-fleet fallback |
 
 `/harness-arc` deploys a design too big for one PRD as a chain of PRDs plus a wayfinder map of
 decisions the fleet cannot make. Its stall rules run in the [host supervisor](#host-supervisor).

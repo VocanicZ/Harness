@@ -28,8 +28,7 @@ and ask the user to **confirm** it verbatim. No confirmation, no run. The headle
 re-grill; this confirmation is the safety gate.
 
 ## 3. Run the injector
-- Default unit: `harness prd "<confirmed brief>"`
-- Multi-topology — target one unit: `harness prd --unit <id> "<confirmed brief>"`
+Run: `harness prd "<confirmed brief>"`
 
 This launches a headless session `hz-inject-<unit>` that reopens + grows the PRD and creates the
 delta issues additively, re-engaging the unit so dispatch re-includes it.

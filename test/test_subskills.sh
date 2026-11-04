@@ -27,12 +27,12 @@ stale="$(grep -rln --include=SKILL.md '\.harness/bin/harness' "$SK" 2>/dev/null 
 assert "no skill/**/SKILL.md runs .harness/bin/harness (#433)${stale:+: $stale}" "[[ -z \"\$stale\" ]]"
 
 # The three injection skills additionally grill→confirm→run (the human safety gate) and
-# document the multi-topology --unit form plus the retired-fleet --recover fallback.
+# document the retired-fleet --recover fallback (no --unit / topology text since #474).
 for name in harness-plan harness-prd harness-issue; do
   f="$SK/$name/SKILL.md"
   assert "$name grills before mutating"       "grep -qi 'grill' '$f'"
   assert "$name requires confirmation"        "grep -qi 'confirm' '$f'"
-  assert "$name documents the --unit form"    "grep -q -- '--unit' '$f'"
+  assert "$name has no --unit / topology text" "! grep -qiE -- '--unit|topology|targets.tsv' '$f'"
   assert "$name documents --recover fallback" "grep -q -- '--recover' '$f'"
 done
 
