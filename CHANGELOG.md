@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Benchmark runner core: `bench/run.py` (#381)
+
+- `bench/run.py <arm>` runs one benchmark arm through a pluggable arm interface (`bench/arms/<arm>.py`, with a `stub`
+  arm for plumbing checks): a fresh private GitHub repo per run, seeded with the brief only and deleted after the
+  results are recorded, also when the arm fails or hits a cap.
+- A guard refuses to start while any account is usage-HELD or when forecast-style headroom against the weekly window
+  is short; `--dry-run` prints the decision and spends nothing.
+- Each arm is capped at 6 h wall clock and $80 at list price; an arm that hits a cap is stopped and recorded as
+  `capped: wall|cost`.
+- One `bench/results/<run-id>/<arm>.json` per arm (schema in `bench/README.md`: wall, coding/testing, tokens, list-price
+  $, % of the weekly window, models that ran, hidden-test result, counts, cap status) with raw logs beside it.
+
 ### Pool chores: LABEL_READY and CLOSE_PRD no longer wait behind a DECOMPOSE (#527)
 
 - The pool's chores pass now asks `issuelib.py slotless` (`slotless_actions`) for its slotless actions instead of
