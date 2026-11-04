@@ -4,6 +4,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `HARNESS_WINDOWS_HOST` and the winsma helpers in `test/smoke/winsma/` (#479)
+
+- New config key `HARNESS_WINDOWS_HOST`: the ssh alias of a Windows check host. Read like every other key
+  (`.harness/config` or the environment), empty by default, documented in `docs/reference.md`. Empty means no
+  Windows host, and the helpers refuse to run.
+- `test/smoke/winsma/winsma.sh` and its helpers let a lane check Harness on a shared Windows desktop without leaving a
+  trace: the `C:\hx-lock` lock (atomic `mkdir`, owner, a detached 5-minute heartbeat loop; a live holder is waited
+  for, a stale one broken only when its heartbeat is over 30 minutes old **and** its lane is gone), the
+  `C:\hx-<issue>\` isolation (base, install and full-suite environments, a python venv, logon-only per-run tasks),
+  the before/after guard (machine-file checksums, the `Harness\*` task list, `~/.claude.json` outside the run's
+  folder), the `GH_TOKEN`-on-stdin credential rules with an end-of-run leak scan, and cleanup that never names
+  `C:\hx-smoke\`. `test/test_winsma.sh` covers them on Linux with a fake ssh and fake Windows paths.
+- `docs/windows-smoke.md` documents the helpers and the winsma rules; a recorded run is committed under
+  `test/smoke/logs/`.
+
 ### Windows parity matrix in `docs/reference.md`, with per-CLI non-interactive mode research (#478)
 
 - `docs/reference.md` gains a "Windows parity matrix": one row for every `harness` subcommand, every
