@@ -43,7 +43,7 @@ WD="$RUN_DIR/wd"; mkdir -p "$WD"; echo "the task" > "$WD/.harness-task.md"
 export FAKE_CLAUDE_DIR="$RUN_DIR/fake"; mkdir -p "$FAKE_CLAUDE_DIR"
 printf '%s\n' normal "normal answer to the typed line" normal > "$FAKE_CLAUDE_DIR/plan"
 touch "$FAKE_CLAUDE_DIR/hold"   # the bootstrap turn waits mid-turn until released
-launch_out="$(launch_agent "$S" "$WD" 2>&1)"; launch_rc=$?
+launch_out="$(PROMISE="ISSUE 1 DONE" MAXITER=10 GOAL=ISSUE:1 launch_agent "$S" "$WD" 2>&1)"; launch_rc=$?
 assert_eq "$launch_rc" 0 "launch_agent starts the lane${launch_out:+ ($launch_out)}"
 assert_ok "the lane is live" sess_live "$S"
 RUNNER="$(sess_pane_pid "$S")"
