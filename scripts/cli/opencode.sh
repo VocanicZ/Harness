@@ -10,6 +10,25 @@ export HARNESS_OPENCODE_BIN HARNESS_OPENCODE_FLAGS
 _opencode_db(){ echo "${XDG_DATA_HOME:-$HOME/.local/share}/opencode/opencode.db"; }
 
 opencode_bin(){ echo "${HARNESS_OPENCODE_BIN:-opencode}"; }
+# --- the headless lane (#482, PRD #475): opencode_headless.py runs the turns -----------------------
+# opencode_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line. Each
+# turn is one `opencode run --format json` with the configured flags (--auto: every permission ask answered, a
+# sub-agent's too) and the lane's model (-m) and effort (--variant, the model's reasoning variant); the
+# bootstrap is the first turn. OpenCode names its own session: <uuid> is only the lane's, and a 5th argument
+# (#350) says <uuid> is an existing opencode session (`ses_…`) the lane carries on: its first turn continues it.
+# The lane's question-deny config and the goal loop need nothing here: the adapter sets the first on every turn
+# (opencode_headless.py env), and the loop is Harness's (opencode_loop: driven), not the opencode-ralph.js plugin's.
+opencode_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4" flags="${HARNESS_OPENCODE_FLAGS:-}"
+  [[ -n $model ]] && flags="$(sed -E 's/(^| )(-m|--model)[= ][^ ]+//g' <<<" $flags " | tr -s ' ')"
+  printf '%s\n' python3 "$CLI_DIR/opencode_headless.py" run --cwd "$wd" --bin "$(opencode_bin)" --session-id "$uuid" \
+    ${5:+--resume} ${model:+--model "$model"} ${effort:+--effort "$effort"} "--flags=${flags# }" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+_opencode_headless(){ [[ "$(sess_backend)" == headless ]]; }
+# A pane's goal loop is the opencode-ralph.js plugin on session.idle. A headless lane is looped by Harness (the
+# driven loop, lib.sh goal_loop_tick): every `opencode run` turn that ends without the promise is re-prompted
+# from the lane's own last reply (the core's state.json, _cli_headless_last_reply).
+opencode_loop(){ _opencode_headless && echo driven || echo hook; }
+opencode_last_reply(){ _cli_headless_last_reply "$@"; }
+
 # _opencode_flags <flags> <model> — the configured flags with the model (-m/--model <provider>/<model>)
 # replaced by the lane's own when it names one, so the line never carries it twice.
 _opencode_flags(){ local f=" $1 "
@@ -28,9 +47,11 @@ _opencode_flags(){ local f=" $1 "
 opencode_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "OPENCODE_CONFIG_CONTENT=$(_opencode_sq "$(_opencode_config "$effort")") OPENCODE_HARNESS_LOOP=$(_opencode_sq "${GOAL_LOOP_PY:-}")" \
     "OPENCODE_DISABLE_AUTOUPDATE=1 exec $(opencode_bin) $(_opencode_flags "${HARNESS_OPENCODE_FLAGS:-}" "$model") --prompt \"$HARNESS_BOOTSTRAP_PROMPT\""; }
-# The model -m/--model names; the effort is the build agent's variant in the line's inline config.
+# The model -m/--model names; the effort is the build agent's variant in the line's inline config, or
+# (a headless lane, #482) the runner's --effort.
 opencode_model_effort(){ local effort
   effort="$(_opencode_line_config "$1" | python3 -c 'import json, sys; print(((json.load(sys.stdin).get("agent") or {}).get("build") or {}).get("variant") or "")' 2>/dev/null)"
+  [[ -n $effort ]] || effort="$(_cli_line_opt "$1" '--effort[= ]')"
   printf '%s\t%s\n' "$(_cli_line_opt "$1" '(-m|--model)[= ]')" "$effort"; }
 # _opencode_config <effort> — the lane's inline config, one line of JSON.
 _opencode_config(){ PLUGIN="$CLI_DIR/opencode-ralph.js" EFFORT="$1" python3 -c 'import json, os, pathlib
@@ -75,7 +96,7 @@ PY
 # runs to the end of the line, so cli_prompt_text reads nothing typed: text typed into the box sits
 # on the bar's lines above it, and a nudge typed while a turn runs is queued as its own message
 # (`QUEUED`, steer.txt), never left in the box.
-opencode_idle_re(){ echo '^ *┃  [A-Z][A-Za-z]*( auto)? · .*$'; }
+opencode_idle_re(){ _opencode_headless && echo '^❯' || echo '^ *┃  [A-Z][A-Za-z]*( auto)? · .*$'; }
 # A permission ask replaces the input box with its panel (busy-permission.txt: a session without
 # --auto): the turn waits on it, and nothing may be typed into it.
 opencode_dialog_re(){ echo '^ *┃  △ Permission required|^ *┃ +Allow once +Allow always +Reject'; }
@@ -87,20 +108,30 @@ opencode_dialog_re(){ echo '^ *┃  △ Permission required|^ *┃ +Allow once +
 # anchored where OpenCode draws it (the footer's spinner, the panel's bar), so the same words in a
 # tool's output or a prompt above are not a running turn; so are the limit and error lines below,
 # drawn behind the bar.
-opencode_busy_re(){ echo '^ +(■|⬝)+ +esc (again to )?interrupt|attempt #[0-9]+\]|^ *┃  △ Permission required'; }
+opencode_busy_re(){ _opencode_headless && echo 'esc to interrupt|… \(([0-9]+[dhms] ?)+ ·' ||
+  echo '^ +(■|⬝)+ +esc (again to )?interrupt|attempt #[0-9]+\]|^ *┃  △ Permission required'; }
 # OpenCode retries a limit 5 times, its own text in the retry status (`<limitName> usage limit
 # reached. It will reset in …`, `Free usage exceeded, subscribe to Go`: busy-limit-retrying.txt),
 # then draws the provider's message at the prompt (limit.txt: OpenAI's insufficient_quota). An
 # insufficient_quota stream error it words itself: `Quota exceeded. Check your plan and billing
 # details.` (strings of the 1.19.5 binary).
-opencode_limit_re(){ echo '^ *┃  (([A-Za-z0-9-]+ )?[Uu]sage limit reached|Free usage (exceeded|limit)|Quota exceeded|You exceeded your current quota)|FreeUsageLimitError|GoUsageLimitError'; }
+opencode_limit_re(){ _opencode_headless && { echo "^ +⎿  You've hit your usage limit"; return; }
+  echo '^ *┃  (([A-Za-z0-9-]+ )?[Uu]sage limit reached|Free usage (exceeded|limit)|Quota exceeded|You exceeded your current quota)|FreeUsageLimitError|GoUsageLimitError'; }
 # What reaches the prompt once OpenCode's own retries give up (transient.txt: a 503 after 5
 # retries); `Too Many Requests` and `Provider is overloaded` are its own wording of a 429 / 529.
-opencode_transient_re(){ echo '^ *┃  (Service Unavailable|Internal Server Error|Bad Gateway|Gateway Timeout|Too Many Requests|Provider is overloaded)'; }
+opencode_transient_re(){ _opencode_headless && { echo '^ +⎿  API Error'; return; }
+  echo '^ *┃  (Service Unavailable|Internal Server Error|Bad Gateway|Gateway Timeout|Too Many Requests|Provider is overloaded)'; }
 # No turn timer while a turn runs: the duration shows only once it has ended (`▣  Build · <model> ·
-# 1m 1s`, idle.txt). opencode_turn_secs keeps the dispatch default ('' = unavailable). Escape twice
+# 1m 1s`, idle.txt). opencode_turn_secs is unavailable ('') on a pane (the dispatch default). Escape twice
 # ends the turn with that line reading `· interrupted` (interrupted.txt).
-opencode_interrupted_re(){ echo '▣ .* · interrupted *$'; }
+opencode_interrupted_re(){ _opencode_headless && echo '^ +⎿  Interrupted' || echo '▣ .* · interrupted *$'; }
+# A headless lane's turn timer is the spinner's, as the core draws it: "✻ Working… (21m 3s · esc to interrupt)".
+opencode_turn_secs(){ _opencode_headless || return 0; local n
+  n=$(cli_pane_prompt_line "$1")
+  printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
+    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
+           s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
+         END { print s + 0 }'; }
 # The footer's context count (`19.3K (10%)`, busy.txt) grows while a turn streams.
 opencode_bg_re(){ echo "$(_cli_default_bg_re)|[0-9.]+K \\([0-9]+%"; }
 

@@ -93,6 +93,25 @@ _cli_default_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
       ${model:+--model "$model"} ${effort:+--effort "$effort"} --message "$HARNESS_BOOTSTRAP_PROMPT"; return 0; fi
   echo "agent CLI '$(cli_name)' is tmux-only: it has no headless lane runner (set $SESS_CONFIG_VAR=tmux)" >&2; return 1; }
 
+# _cli_headless_last_reply <wd> <session id> — the last turn of the headless lane running in <wd> (the core's
+# state.json, any CLI): `<session>:<turn>`, then its reply. rc 1 while a turn runs or a message waits for one,
+# before the first turn ends, and after a turn that did not end with a reply (a limit, a transient error, an
+# interrupt): those are the watchdog's. The driven goal loop's cli_last_reply on a headless lane (#259, #482).
+_cli_headless_last_reply(){ [[ "$(sess_backend)" == headless ]] || return 1
+  ROOT="$(_hl_root)" WD="$1" SID="$2" python3 -c '
+import glob, json, os, sys
+for f in glob.glob(os.path.join(os.environ["ROOT"], "*", "state.json")):
+    try:
+        st = json.load(open(f, encoding="utf-8"))
+    except (OSError, ValueError):
+        continue
+    if st.get("cwd") != os.environ["WD"] or (os.environ["SID"] and st.get("session_id") != os.environ["SID"]):
+        continue
+    if st.get("state") != "idle" or st.get("interrupted") or not st.get("turn") or st.get("queued"):
+        sys.exit(1)
+    print("%s:%s" % (st.get("session_id"), st["turn"])); print(st.get("last_reply") or ""); sys.exit(0)
+sys.exit(1)'; }
+
 # --- the interface ------------------------------------------------------------------------------
 cli_bin(){ _cli_call bin "$@"; }                       # the command line that runs the CLI (HARNESS_<CLI>_BIN)
 cli_exe(){ _cli_exe "$(cli_bin)"; }                    # its executable: what to look for on PATH, or match a pane against

@@ -36,7 +36,8 @@ core plus one small per-CLI adapter (`scripts/cli/<cli>_headless.py`, contract i
 An ADAPTER starts one turn and reads its stream; the core never names a CLI. It supplies (see ClaudeAdapter
 in claude_headless.py for the reference one): `name`, `default_bin`, `account()`, `argv(...)` (one turn's
 command, with that CLI's resume id), `new_turn()` (an object that `feed`s events and gives the turn's
-`outcome(rc, stderr_tail)`, usage `rate_limit`, `retry` and `no_conversation`), and `watch_line(ev)`.
+`outcome(rc, stderr_tail)`, usage `rate_limit`, `retry` and `no_conversation`), and `watch_line(ev)`. It may
+also supply `env()`: variables set on every turn's process.
 
 The headless session backend (scripts/session/headless.sh, #349) runs this program as a lane and reads
 the lane through it: `pane` renders state.json and the undelivered inbox as the screen the claude
@@ -148,6 +149,22 @@ def classify(adapter, events, rc=0):
     return t.outcome(rc)
 
 
+def harness_watch_line(ev):
+    """The runner's own markers (turn_start, turn_end, stdout) as `harness attach` prints them — the part of an
+    adapter's watch_line every CLI shares. None for any other event."""
+    if ev.get("type") != "harness":
+        return None
+    sub = ev.get("subtype")
+    if sub == "turn_start":
+        return f"── turn {ev.get('turn')} ({ev.get('kind', 'message')}) ── {ev.get('message', '')}"
+    if sub == "turn_end":
+        extra = " (interrupted)" if ev.get("interrupted") else " (stopped)" if ev.get("stopped") else ""
+        return f"── turn {ev.get('turn')} ended: {ev.get('state')}{extra}"
+    if sub == "stdout":
+        return ev.get("line")
+    return None
+
+
 # --- process trees ------------------------------------------------------------------------------
 def _descendants(root):
     """Every pid under <root> (POSIX `ps`; empty when ps cannot say)."""
@@ -205,8 +222,11 @@ def _alive(pid):
         return False
 
 
-def spawn(argv, cwd, stdout, stderr):
+def spawn(argv, cwd, stdout, stderr, env=None):
+    """Start one turn's process. <env> are variables set on top of this process's own (the adapter's `env()`)."""
     kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
+    if env:
+        kw["env"] = {**os.environ, **env}
     return subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, **kw)
 
 
@@ -302,6 +322,11 @@ class Runner:
         return self.adapter.argv(self.bin, self.state["session_id"], self.state["session_started"],
                                  self.model, self.effort, self.flags)
 
+    def adapter_env(self):
+        """The variables the adapter sets on a turn's process (an adapter without `env()` sets none)."""
+        env = getattr(self.adapter, "env", None)
+        return dict(env()) if callable(env) else {}
+
     def run_turn(self, msg):
         if self.lane_gone():   # #419: nowhere to log the turn, and no lane left to run it for
             return
@@ -312,7 +337,7 @@ class Runner:
         turn = self.adapter.new_turn()
         with open(self.p["stderr"], "ab") as err:
             try:
-                proc = spawn(self.argv(), self.cwd, subprocess.PIPE, err)
+                proc = spawn(self.argv(), self.cwd, subprocess.PIPE, err, self.adapter_env())
             except OSError as e:   # no CLI to run: the turn fails, the runner stays up
                 self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": "transient",
                             "exit": None, "at": time.time()})
