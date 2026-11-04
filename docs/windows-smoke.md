@@ -144,6 +144,61 @@ checks the items ADR 0001 leaves open: renaming over the engine's directory syml
 fleet's processes surviving the end of the ssh session that started them, and whether Claude Code runs
 the `.sh` Stop hook on Windows. File each failure as its own issue.
 
+## Checking on a shared Windows host (`test/smoke/winsma/`)
+
+The sections above set up a Windows machine you own. The helpers in `test/smoke/winsma/` (#479, PRD #475) are for the
+opposite case: a lane on the claude host checks Harness on **a Windows desktop that does other work** (the owner's
+`winsma`), over ssh, without leaving a trace. Set `HARNESS_WINDOWS_HOST` to the ssh alias (in `.harness/config` or the
+environment; see [`docs/reference.md`](reference.md)); unset means there is no Windows host and every helper refuses to run.
+
+The rules the helpers enforce, all from PRD #475's "Verification on winsma":
+
+- **One run at a time: the lock.** `C:\hx-lock` is taken with an atomic `mkdir`; `owner` holds the issue, the lane's
+  session name and its claude-host pid. A background heartbeat loop (started detached through PowerShell, its pid in
+  `pids`, so it survives the ssh session and keeps going while one of your own commands blocks for hours) refreshes
+  `heartbeat` every 5 minutes, and ends when the lock is gone. A held lock with a live heartbeat means **wait**: the
+  helper polls every 5 minutes and never labels the issue `agent-paused`. A lock is stale only when its heartbeat is
+  older than 30 minutes **and** the owner lane is no longer live on the claude host; the breaker then kills the
+  stale run's `pids`, anything whose command line is under `C:\hx-<n>\`, deletes its `tasks` and its
+  `~/.claude.json` project entries and `C:\hx-<n>\`, and takes the lock.
+- **Isolation.** Everything runs in `C:\hx-<issue>\`. `harness`'s own state (`HARNESS_HOME`, `HARNESS_BIN_DIR`,
+  `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache` and the clone live under it. Install, update and uninstall
+  runs also set `CLAUDE_CONFIG_DIR`; the full suite also sets `HOME` and `USERPROFILE` to `C:\hx-<issue>\home`.
+  Python packages go into a venv under the folder, never into the shared `python`. Tasks the run creates are
+  registered logon-only (never a boot trigger) and recorded in `tasks`; processes it starts are recorded in `pids`.
+- **The guard.** Before and after, it checksums `C:\Users\pc\.local\bin`, `~/.claude/settings.json`,
+  `~/.claude/skills/`, the two plugin registries, `~/.gitconfig`, gh's config and `C:\Users\pc\.harness`; lists the
+  `Harness\*` Task Scheduler tasks; and compares `~/.claude.json` only on its `projects` entries **outside**
+  `C:\hx-<issue>` (plus top-level keys named in `WS_CLAUDE_TOP_KEYS`; Harness itself writes none). Any change fails
+  the run.
+- **Credentials.** `GH_TOKEN` goes in on the ssh session's **stdin**, git auth goes through `GIT_CONFIG_COUNT` env
+  vars and the identity through `GIT_AUTHOR_*` / `GIT_COMMITTER_*`; nothing is written. At the end `scan` lists any
+  file under the run folder, `%TEMP%`, `~/.claude/projects`, `~/.harness`, gh's config, `.gitconfig` or the bash
+  history that holds the token and did not hold it before (paths only, never the token).
+- **Cleanup.** Kill the recorded pids, delete the recorded tasks and the run's `~/.claude.json` entries, delete
+  `C:\hx-<issue>\`, release the lock, then check winsma is clean. It only ever names the numbered folder, so
+  `C:\hx-smoke\` is out of reach.
+
+```sh
+test/smoke/winsma/winsma.sh run 479 base 'echo hello'   # lock → isolate → guard → command → guard → scan → cleanup
+test/smoke/winsma/winsma.sh lock 479 hz-main-i479 $PID   # or step by step: lock, isolate [--venv], guard before,
+test/smoke/winsma/winsma.sh exec 479 install 'bash install.sh'   #   exec <issue> <base|install|suite> <cmd>,
+test/smoke/winsma/winsma.sh guard 479 after              #   guard after, scan before|after, cleanup
+test/smoke/winsma/winsma.sh cleanup 479
+```
+
+`run` exits non-zero if the command, the guard, the scan or the cleanup failed, and always cleans up. Log what you do
+under `test/smoke/logs/` with a `-windows-` name (`WS_LOG=<file>` tees the helpers' own lines there).
+`test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
+process list: the host itself is only touched by a recorded run
+(`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after). **Developer Mode is off on winsma**: symlinks work
+there only because the ssh session is an elevated administrator, so the non-admin path is covered by the
+`HARNESS_PLATFORM=windows` fakes, not by a live run.
+
+Knobs: `WS_POLL` (wait between lock polls, default 300 s), `WS_STALE_SEC` (default 1800), `WS_LOCK_TIMEOUT` (default
+0 = wait as long as it takes), `WS_HB_INTERVAL` (default 300 s), `WS_LANE_SESSION` / `WS_LANE_PID` (what `lock` records
+as the owner; pid defaults to the caller's parent).
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |

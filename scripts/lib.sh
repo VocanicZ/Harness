@@ -81,6 +81,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_CI_GATE:=0}"                # #50/#245: 1 = hold unit dispatch while the default branch's GitHub CI is red; 0 = off (default: no GitHub CI)
 : "${HARNESS_DISABLE_CI:=1}"             # #245: seeding disables a repo's GitHub Actions — 1 = test-CI only (release/deploy kept); all = every workflow; 0 = off
 : "${HARNESS_POOL_TAKES_BUGS:=1}"         # #214: 1 = an idle pool slot takes the oldest bug while the priority lane is busy; 0 = bugs stay on the lane
+: "${HARNESS_WINDOWS_HOST:=}"           # #479: ssh alias of the Windows check host (winsma); empty = no Windows host
 : "${HARNESS_SWARM:=auto}"               # #202: auto = PRD review's full-suite run (the only one, #449) goes out as a swarm job when `swarm` is on PATH; off = always local
 # #207: HARNESS_TURN_MAX / HARNESS_INTERRUPT_WAIT and the stuck-turn helpers live beside this file,
 # shared with supervise.sh (which watches panes no fleet's lib.sh is loaded for).
@@ -99,7 +100,7 @@ export HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HAR
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
-  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM HARNESS_BLOCKED_BACKOFF_MIN \
+  HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM HARNESS_BLOCKED_BACKOFF_MIN HARNESS_WINDOWS_HOST \
   HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
 
 OWNER="$HARNESS_OWNER"

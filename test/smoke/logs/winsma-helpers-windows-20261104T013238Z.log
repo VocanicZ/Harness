@@ -1,0 +1,26 @@
+# winsma helpers: one real run (#479)
+# date: 2026-11-04T01:32:38Z
+# host: Microsoft Windows [Version 10.0.19045.6456] via ssh alias winsma (HARNESS_WINDOWS_HOST)
+# engine: d8b8016 + working tree (issue/479)
+# sequence: lock → isolate → guard before → scan before → trivial command → guard after → scan after → cleanup → winsma clean
+# claude token usage: none (no claude was started)
+
+[01:32:39] run: #479 on winsma, mode base: echo hello-from-winsma; uname -s; echo HARNESS_HOME=$HARNESS_HOME; echo TMPDIR=$TMPDIR; echo cwd=$PWD
+[01:32:42] lock: hx-lock taken by #479 (lane-479)
+[01:32:51] guard: before recorded
+[01:33:17] credentials: before scan recorded
+[01:33:17] exec: echo hello-from-winsma; uname -s; echo HARNESS_HOME=$HARNESS_HOME; echo TMPDIR=$TMPDIR; echo cwd=$PWD
+hello-from-winsma
+MINGW64_NT-10.0-19045
+HARNESS_HOME=C:/hx-479/harness-home
+TMPDIR=C:/hx-479/tmp
+cwd=/c/hx-479
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-479
+credentials: GH_TOKEN written nowhere new
+[01:33:58] cleanup: winsma clean (no hx-479, lock released, no run task or process)
+[01:33:58] run: OK
+
+# independent check afterwards: C:\ entries named hx-*, Task Scheduler hx-/Harness tasks, hx-479 processes
+/c/hx-smoke
+0
+0
