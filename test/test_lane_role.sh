@@ -133,7 +133,7 @@ unset -f tmux sleep
 echo "=== 7: harness init shows and writes the role keys ==="
 # init_cfg <dir> [VAR=val…] — run init non-interactively in a fresh project <dir>; prints its output.
 init_cfg(){ local d="$1"; shift; mkdir -p "$d"
-  ( cd "$d" && env -u HARNESS_CLI STATE_DIR="$d/.harness" HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=multi \
+  ( cd "$d" && env -u HARNESS_CLI STATE_DIR="$d/.harness" HARNESS_INIT_NONINTERACTIVE=1 \
       HARNESS_SESS_PREFIX=hzrole "$@" bash "$ROOT/scripts/init.sh" ) </dev/null 2>&1; }
 cfg_has(){ grep -qxF ": \"\${$2:=$3}\"" "$1/.harness/config"; }
 out="$(init_cfg "$RUN_DIR/init-claude")"

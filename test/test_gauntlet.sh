@@ -53,7 +53,6 @@ UNIT=main; PROJECT=main; DESC=widget
 STATE_DIR="$(mktemp -d)"
 CHECKOUT="$(mktemp -d)"
 CALLS="$RUN_DIR/calls"
-HARNESS_TOPOLOGY=single
 HARNESS_GAUNTLET_ROUNDS=3
 
 # Stub every side effect; `render` records its argv so we can inspect the keys.

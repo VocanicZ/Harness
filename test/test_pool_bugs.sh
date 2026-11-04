@@ -6,7 +6,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; UNIT=main
+HARNESS_REPO="acme/widget"; SLUG="acme/widget"; UNIT=main
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
 claim_of(){ cat "$CLAIMS_DIR/bug-acme_widget-$1.claim" 2>/dev/null; }
 

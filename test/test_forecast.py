@@ -271,25 +271,32 @@ def test_repo_resolution_from_the_project():
     with tmp() as d:
         sd = os.path.join(d, ".harness"); os.makedirs(sd)
         with open(os.path.join(sd, "config"), "w") as fh:
-            fh.write(': "${HARNESS_TOPOLOGY:=multi}"\n: "${HARNESS_OWNER:=acme}"\n')
+            fh.write(': "${HARNESS_OWNER:=acme}"\n: "${HARNESS_REPO:=widget}"\n')
+        # a leftover targets.tsv is not read any more (#473): the fleet is HARNESS_REPO's one unit
         with open(os.path.join(sd, "targets.tsv"), "w") as fh:
-            fh.write("# id\trepo\tdeps\tdesc\nmain\twidget\t-\tw\n")
+            fh.write("# id\trepo\tdeps\tdesc\nmain\twidget\t-\tw\ngadget\tacme/gadget\t-\tg\n")
+        assert fc.project_units(sd) == [("main", "acme/widget")], "targets.tsv rows are ignored"
         assert fc.resolve_repo(50, None, None, [], sd) == ("acme/widget", "main"), "the only unit"
         assert fc.resolve_repo(50, "acme/widget", None, [], sd) == ("acme/widget", "main")
-        with open(os.path.join(sd, "targets.tsv"), "a") as fh:
-            fh.write("gadget\tacme/gadget\t-\tg\n")
-        assert fc.resolve_repo(50, None, "gadget", [], sd) == ("acme/gadget", "gadget")
-        for bad in ((50, None, None), (50, None, "nope")):
-            try:
-                fc.resolve_repo(*bad, [], sd)
-                assert False, bad
-            except ValueError:
-                pass
+        assert fc.resolve_repo(50, None, "main", [], sd) == ("acme/widget", "main")
+        try:
+            fc.resolve_repo(50, None, "gadget", [], sd)
+            assert False, "gadget is not a unit of this fleet"
+        except ValueError:
+            pass
         mine = lane_events("acme/gadget", 50, "x")
-        assert fc.resolve_repo(50, None, None, mine, sd) == ("acme/gadget", "gadget"), "the issue's own lane"
+        assert fc.resolve_repo(50, None, None, mine, sd) == ("acme/gadget", None), "the issue's own lane"
         with open(os.path.join(sd, "config"), "w") as fh:
-            fh.write(': "${HARNESS_TOPOLOGY:=single}"\n: "${HARNESS_REPO:=acme/solo}"\n')
+            fh.write(': "${HARNESS_REPO:=acme/solo}"\n')
         assert fc.resolve_repo(50, None, None, [], sd) == ("acme/solo", "main")
+        with open(os.path.join(sd, "config"), "w") as fh:
+            fh.write(': "${HARNESS_OWNER:=acme}"\n')
+        assert fc.project_units(sd) == [], "no HARNESS_REPO: no unit"
+        try:
+            fc.resolve_repo(50, None, None, [], sd)
+            assert False, "nothing to resolve from"
+        except ValueError:
+            pass
 
 
 def test_harness_forecast_cli_dispatch():
@@ -418,7 +425,7 @@ def test_fallback_alone_and_the_setting_from_config():
     assert fc.window_pct([], {}, {}, None) == []
     with tmp() as d:
         with open(os.path.join(d, "config"), "w") as fh:
-            fh.write(': "${HARNESS_TOPOLOGY:=single}"\n: "${HARNESS_ONE_USD_PER_PCT:=43}"\n')
+            fh.write(': "${HARNESS_ONE_USD_PER_PCT:=43}"\n')
         saved = os.environ.pop(fc.FALLBACK_SETTING, None)
         try:
             assert fc.usd_per_pct_setting(d) == 43.0, "read from the project config"

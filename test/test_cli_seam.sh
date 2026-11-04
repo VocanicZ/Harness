@@ -119,7 +119,7 @@ exit 0
 EOF
 chmod +x "$S/bin/"*
 run_setup(){ ( export PATH="$S/bin:$PATH" STATE_DIR="$S/state" HARNESS_CLI=agy HARNESS_AGY_BIN="$S/bin/agy" \
-    HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_AGY_USER_SKILLS="$S/skills"
+    HARNESS_REPO=acme/widget HARNESS_AGY_USER_SKILLS="$S/skills"
   gh(){ return 0; }; export -f gh
   bash "$ROOT/scripts/setup.sh" ) >"$S/out" 2>&1; }
 : > "$S/agy.log"; rm -f "$S/installed"

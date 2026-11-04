@@ -13,7 +13,7 @@ ago(){ date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }   # ISO stam
 
 setup(){
   make_env
-  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_SESS_PREFIX=hz; POOL=2; POLL=0
+  HARNESS_REPO="acme/widget"; HARNESS_SESS_PREFIX=hz; POOL=2; POLL=0
   HARNESS_ORPHAN_LOCK_MIN=20
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
   GHLOG="$RUN_DIR/gh.log"; : > "$GHLOG"; GHDOWN="$RUN_DIR/gh.down"; rm -f "$GHDOWN"

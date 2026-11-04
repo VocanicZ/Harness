@@ -1,33 +1,27 @@
 #!/usr/bin/env bash
+# test_registry.sh — the fleet's unit registry is one repo (PRD #464, #473): one unit, named HARNESS_UNIT
+# (default `main`), on HARNESS_REPO. There is no targets.tsv and no HARNESS_TOPOLOGY any more.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
 make_env
 
-# multi topology: registry comes from targets.tsv
-HARNESS_TOPOLOGY=multi
-write_targets <<'EOF'
-# id	repo	deps	desc
-a	acme/a	-	root
-b	acme/b	a	needs a
-c	acme/c	a,b	needs a+b
-EOF
-assert_eq "$(all_units | tr '\n' ' ')" "a b c " "multi: all_units from targets.tsv"
-assert_eq "$(unit_repo b)" "acme/b" "multi: unit_repo"
-assert_eq "$(unit_deps c)" "a,b" "multi: unit_deps"
-assert_eq "$(unit_slug b)" "acme/b" "multi: slug = repo (already owner/repo)"
+HARNESS_REPO="acme/widget"; HARNESS_UNIT=""
+assert_eq "$(all_units | tr '\n' ' ')" "main " "one unit 'main' by default"
+assert_eq "$(unit_repo main)" "acme/widget" "unit_repo = HARNESS_REPO"
+assert_eq "$(unit_slug main)" "acme/widget" "slug = repo (already owner/repo)"
+assert_eq "$(unit_checkout main)" "$PROJECT_ROOT" "checkout defaults to PROJECT_ROOT"
+HARNESS_UNIT=core
+assert_eq "$(all_units | tr '\n' ' ')" "core " "HARNESS_UNIT names the one unit"
 
-# bare repo name gets owner prefix
-write_targets <<'EOF'
-a	a	-	root
-EOF
-HARNESS_OWNER=acme
-assert_eq "$(unit_slug a)" "acme/a" "multi: bare repo name -> owner/repo"
+# a bare repo name gets the owner prefix
+HARNESS_REPO="widget"; HARNESS_OWNER=acme
+assert_eq "$(unit_slug main)" "acme/widget" "bare repo name -> owner/repo"
 
-# single topology: one synthetic unit "main", repo from HARNESS_REPO, no deps
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"
-assert_eq "$(all_units | tr '\n' ' ')" "main " "single: one unit 'main'"
-assert_eq "$(unit_repo main)" "acme/widget" "single: unit_repo = HARNESS_REPO"
-assert_eq "$(unit_deps main)" "-" "single: no deps"
+# the multi-repo machinery is gone: a leftover targets.tsv / topology key is not read
+assert_no "unit_deps is gone"      declare -F unit_deps
+assert_no "deps_complete is gone"  declare -F deps_complete
+assert_no "_tgt_field is gone"     declare -F _tgt_field
+assert_no "ensure_checkout is gone" declare -F ensure_checkout
 finish

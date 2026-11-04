@@ -218,7 +218,7 @@ native_path(){ if is_windows && command -v cygpath >/dev/null 2>&1; then cygpath
 # arbitrary environment variables, so a path they read from the environment must already be in their
 # form. A variable that is not exported never reaches a native program's environment and is left as
 # bash has it, so nothing new is exported and bash's own path comparisons are unchanged.
-HARNESS_NATIVE_PATH_VARS="ENGINE_DIR STATE_DIR RUN_DIR HARNESS_HOME TARGETS_TSV HARNESS_EVENTS_FILE
+HARNESS_NATIVE_PATH_VARS="ENGINE_DIR STATE_DIR RUN_DIR HARNESS_HOME HARNESS_EVENTS_FILE
   HARNESS_RTDD_EVENTS_FILE HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR HARNESS_SNAPSHOTS_DIR
   HARNESS_FLEETS_DIR HARNESS_HEADLESS_DIR HARNESS_LANE_DIR HARNESS_PARKED_FILE HARNESS_GH_RATE_DIR
   HARNESS_SUPERVISE_CONF HARNESS_SUPERVISE_STATE HARNESS_SUPERVISE_LOG CLAUDE_CONFIG_DIR"

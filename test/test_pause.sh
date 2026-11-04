@@ -13,7 +13,6 @@ assert_eq "$HARNESS_LABEL_PAUSED" "agent-paused" "default paused label"
 # --- worker_tick idles (rc 3) when paused, without claiming -------------------
 source "$HERE/../scripts/drive.sh" 2>/dev/null || true
 source "$HERE/../scripts/pool-worker.sh" 2>/dev/null || true
-HARNESS_TOPOLOGY=multi
 write_targets <<'EOF'
 a	acme/a	-	root
 EOF
@@ -27,7 +26,7 @@ assert_eq "$claimed" "" "worker_tick did NOT claim while paused"
 rm -f "$PAUSE_FLAG"
 
 # --- drive_unit drains (breaks) when paused, without dispatching --------------
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; POOL=2; POLL=0
+HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 dispatched=""
 reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }
 dispatch_actions(){ dispatched=yes; printf 'IMPL\t5\tISSUE 5 DONE\n'; }
@@ -47,7 +46,7 @@ rm -rf "$RUN_DIR2"
 # --- pause --force: injects checkpoint, confirms via label, never kills -------
 RUN_DIR3="$(mktemp -d)"; CALLS="$RUN_DIR3/calls"; : > "$CALLS"
 export CALLS
-export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+export HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
 # one live impl session for unit "main", issue 5
 tmux(){ echo "tmux $*" >> "$CALLS"
   case "$1" in
@@ -76,7 +75,7 @@ rm -rf "$RUN_DIR3"
 # the repo-qualified shape is covered by the #44 multi case below.)
 RUN_DIR5="$(mktemp -d)"; CALLS5="$RUN_DIR5/calls"; : > "$CALLS5"
 export CALLS="$CALLS5"
-export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+export HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
 # two live lane sessions: a fix and a triage, for bugs #9 and #11
 tmux(){ echo "tmux $*" >> "$CALLS"
   case "$1" in
@@ -113,7 +112,7 @@ RUN_DIR6="$(mktemp -d)"; CALLS6="$RUN_DIR6/calls"; : > "$CALLS6"
 mkdir -p "$RUN_DIR6/claims"
 printf 'P1 12345 acme/b#6\n' > "$RUN_DIR6/claims/bug-acme_b-6.claim"
 export CALLS="$CALLS6"
-export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+export HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
 tmux(){ echo "tmux $*" >> "$CALLS"
   case "$1" in
     ls) printf 'hz-bug-acme_b-6-fix\n';;
@@ -148,14 +147,14 @@ rm -rf "$RUN_DIR6"
 RUN_DIR7="$(mktemp -d)"; CALLS7="$RUN_DIR7/calls"; : > "$CALLS7"
 # Write the claim via the REAL _bug_numbers/claim_next_bug for a bare repo (the path that regressed).
 ( export CLAIMS_DIR="$RUN_DIR7/claims" POOL_LOCK="$RUN_DIR7/pool.lock"
-  export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme
+  export HARNESS_OWNER=acme
   source "$HERE/../scripts/lib.sh"
   _bug_repos(){ echo widget; }; _repo_bugs(){ printf '9\tfix\n'; }
   claim_next_bug P1 >/dev/null )
 assert_eq "$(basename "$(ls "$RUN_DIR7/claims"/bug-*.claim)")" "bug-acme_widget-9.claim" \
   "lane wrote the owner-qualified claim file for a bare repo (token owner-qualified at construction)"
 export CALLS="$CALLS7"
-export HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
+export HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=2
 # the live session the lane named for that bare-repo bug (hz-bug-<owner-qualified-slug>-9-fix)
 tmux(){ echo "tmux $*" >> "$CALLS"
   case "$1" in

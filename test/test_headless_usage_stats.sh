@@ -15,7 +15,7 @@ source "$HERE/helpers.sh"; unset_inherited_config
 source "$ROOT/scripts/lib.sh"; source "$ROOT/scripts/drive.sh"
 make_env
 export RUN_DIR PAUSE_FLAG HARNESS_SESS_PREFIX=hus HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
-export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme
+export HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl" HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/no-claude-config"
 export HARNESS_USAGE_CHECKPOINT_PCT=90 HARNESS_USAGE_STATUSLINE=0
 FIX="$HERE/fixtures/cli/claude/stream-json"

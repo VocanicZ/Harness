@@ -26,7 +26,7 @@ cat > "$TMP/.harness/scripts/seed.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=prd HARNESS_TOPOLOGY=single \
+HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=prd \
   HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_AUTONOMOUS=false \
   bash "$TMP/.harness/scripts/init.sh"
 CFG="$TMP/.harness/config"
@@ -68,7 +68,7 @@ assert "use-poller key written" "grep -q 'HARNESS_USE_POLLER' '$CFG'"
 # its target to $PWD/.harness.
 PROJ="$(mktemp -d)"
 ( cd "$PROJ"; unset HARNESS_DIR STATE_DIR
-  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single \
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only \
     HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
     bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
 assert "init writes ./.harness/config in cwd"          "[[ -f '$PROJ/.harness/config' ]]"
@@ -105,14 +105,14 @@ PDIR="$TMP/Widget"; mkdir -p "$PDIR/.harness"
 # $PDIR/.harness/scripts would never be read — it was dead weight, and it made the fixture look as
 # if `harness init` still vendored engine code into a project, which #55 removed.)
 ( export STATE_DIR="$PDIR/.harness" HARNESS_DIR="$PDIR/.harness"
-  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
     bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
 assert "derived prefix written for project dir 'Widget'" "grep -q 'HARNESS_SESS_PREFIX:=widget' '$PDIR/.harness/config'"
 
 # A pre-set env var still wins (non-interactive `ask` honours ${!var}).
 PDIR2="$TMP/Widget2"; mkdir -p "$PDIR2/.harness"
 ( export STATE_DIR="$PDIR2/.harness" HARNESS_DIR="$PDIR2/.harness"
-  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_SESS_PREFIX=custom HARNESS_TOPOLOGY=single HARNESS_OWNER=acme \
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_SESS_PREFIX=custom HARNESS_OWNER=acme \
     HARNESS_REPO=acme/widget bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
 assert "explicit HARNESS_SESS_PREFIX overrides the derived default" \
   "grep -q 'HARNESS_SESS_PREFIX:=custom' '$PDIR2/.harness/config'"
@@ -135,7 +135,7 @@ json.dump({"prefix": "widget3", "project": "/elsewhere/.harness",
            "started_at": 0}, open(sys.argv[1], "w"))
 PY
 OUT="$( ( export STATE_DIR="$PDIR3/.harness" HARNESS_DIR="$PDIR3/.harness"
-  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
     bash "$HERE/../scripts/init.sh" ) 2>&1 )"
 kill "$SIB_PID" 2>/dev/null; wait "$SIB_PID" 2>/dev/null
 assert "init warns that the derived prefix is taken" "grep -qi 'in use\|taken\|collide' <<<\"\$OUT\""
@@ -159,7 +159,7 @@ PROJECT_ROOT="${STATE_DIR%/.harness}"
 EOF
 PDIR4="$TMP/Widget4"; mkdir -p "$PDIR4/.harness"
 ( export STATE_DIR="$PDIR4/.harness" HARNESS_DIR="$PDIR4/.harness" ENGINE_DIR="$BROKEN_ENGINE"
-  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+  HARNESS_INIT_NONINTERACTIVE=1 HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
     bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
 ( source "$PDIR4/.harness/config"; [[ -n "${HARNESS_SESS_PREFIX:-}" && "${HARNESS_SESS_PREFIX}" =~ ^[a-z0-9_]+$ ]] ) \
   && echo "  ok: a broken/stale engine still yields a non-empty, tmux-safe prefix" \
@@ -183,7 +183,7 @@ EOF
 init_prefix_under(){   # <engine-dir> <project-dir> -> the prefix init wrote for that project
   local eng="$1" pdir="$2"; mkdir -p "$pdir/.harness"
   ( export STATE_DIR="$pdir/.harness" HARNESS_DIR="$pdir/.harness" ENGINE_DIR="$eng"
-    HARNESS_INIT_NONINTERACTIVE=1 HARNESS_TOPOLOGY=single HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
+    HARNESS_INIT_NONINTERACTIVE=1 HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
       bash "$HERE/../scripts/init.sh" >/dev/null 2>&1 )
   ( source "$pdir/.harness/config"; printf '%s' "${HARNESS_SESS_PREFIX:-}" )
 }
@@ -219,7 +219,7 @@ chmod +x "$GHS/bin/gh"
 fresh_flow(){   # <project-dir> [env…] -> runs init non-interactively, then files the prd issue
   local pdir="$1"; shift; mkdir -p "$pdir"; rm -f "$GHS/labels" "$GHS/calls"
   ( cd "$pdir" && unset HARNESS_DIR STATE_DIR HARNESS_INIT_SEED && export PATH="$GHS/bin:$PATH" GH_STUB_DIR="$GHS" "$@" &&
-    HARNESS_MODE=prd HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_TOPOLOGY=single \
+    HARNESS_MODE=prd HARNESS_OWNER=acme HARNESS_REPO=acme/widget \
       bash "$HERE/../scripts/init.sh" </dev/null >"$pdir/init.out" 2>&1 &&
     gh issue create -R acme/widget --label prd --title "PRD: idea" --body "x" >"$pdir/issue.out" 2>&1 ); }
 fresh_flow "$TMP/Fresh432"; rc=$?
@@ -243,7 +243,7 @@ assert "#432: gh signed out — init names harness setup as the next step" \
 # HARNESS_INIT_SEED=0 opts out (the test harness pins it so no suite reaches real GitHub).
 ( cd "$TMP" && mkdir -p Opt432 && cd Opt432 && unset HARNESS_DIR STATE_DIR && rm -f "$GHS/calls" &&
   PATH="$GHS/bin:$PATH" GH_STUB_DIR="$GHS" HARNESS_INIT_SEED=0 HARNESS_MODE=prd HARNESS_OWNER=acme \
-  HARNESS_REPO=acme/widget HARNESS_TOPOLOGY=single bash "$HERE/../scripts/init.sh" </dev/null >/dev/null 2>&1 )
+  HARNESS_REPO=acme/widget bash "$HERE/../scripts/init.sh" </dev/null >/dev/null 2>&1 )
 assert "#432: HARNESS_INIT_SEED=0 — init calls no gh at all" "! grep -q 'label create' '$GHS/calls' 2>/dev/null"
 
 echo "── init ok"

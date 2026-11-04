@@ -235,12 +235,12 @@ def test_backfill_attributes_transcripts_and_is_idempotent():
         fleets = os.path.join(d, "fleets"); os.makedirs(fleets)
         proj = os.path.join(d, "projstate")
         os.makedirs(proj)
-        with open(os.path.join(proj, "targets.tsv"), "w") as fh:
-            fh.write("# unit\trepo\nmain\twidget\t-\tthe widget\n")
+        with open(os.path.join(proj, "config"), "w") as fh:
+            fh.write(': "${HARNESS_OWNER:=acme}"\n: "${HARNESS_REPO:=widget}"\n: "${HARNESS_UNIT:=main}"\n')
         json.dump({"prefix": "hz", "project": "/tmp/proj/.harness", "slugs": ["acme/widget", "acme/other"]},
                   open(os.path.join(fleets, "a.json"), "w"))
         os.environ["HARNESS_FLEETS_DIR"] = fleets
-        # the fleet's project is /tmp/proj; point its targets.tsv lookup at our temp copy
+        # the fleet's project is /tmp/proj; point its config lookup at our temp copy
         real = st._unit_repo
         st._unit_repo = lambda _p, unit, slugs: real(proj, unit, slugs)
         try:

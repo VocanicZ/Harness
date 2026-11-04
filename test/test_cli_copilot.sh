@@ -146,7 +146,7 @@ assert_eq "$?" 0 "a promise announced before the turn's last message does not en
   cli_done "$w" && [[ $(cat "$RUN_DIR/$sess.stall" 2>/dev/null || echo 0) == 0 ]] )
 assert_eq "$?" 0 "a promise given with the transient-error line still on screen ends the loop"
 # A paused pool keeps polling (no dispatch) while a driven goal loop is live: only its watchdog advances it.
-( source "$HERE/../scripts/drive.sh"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; POOL=2; POLL=0; touch "$PAUSE_FLAG"
+( source "$HERE/../scripts/drive.sh"; HARNESS_REPO=acme/widget; POOL=2; POLL=0; touch "$PAUSE_FLAG"
   dispatched=""; polls="$RUN_DIR/polls"; : > "$polls"
   reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; reap_pool_bugs(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
   reap_finished_inject(){ :; }; gh_rate_wait(){ :; }; unit_complete(){ return 1; }; finalize_unit(){ :; }
@@ -155,7 +155,7 @@ assert_eq "$?" 0 "a promise given with the transient-error line still on screen 
   [[ -z $dispatched && $(wc -l < "$polls") == 3 ]] )
 assert_eq "$?" 0 "a paused pool drains a driven goal loop by polling its watchdog until no session is left"
 # …and so does the bug lane, which holds its session in drive_bug.
-( source "$HERE/../scripts/priority-worker.sh"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; PRIORITY_POLL=0
+( source "$HERE/../scripts/priority-worker.sh"; HARNESS_REPO=acme/widget; PRIORITY_POLL=0
   polls="$RUN_DIR/lane-polls"; : > "$polls"
   _bug_ref_repo(){ echo acme/widget; }; _bug_ref_num(){ echo 5; }; bug_phase(){ echo fix; }; bug_checkout(){ echo "$RUN_DIR/co"; }
   spawn_bug(){ return 0; }; remove_worktree(){ :; }; bug_worktree(){ echo x; }; triage_worktree(){ echo y; }; stats_sweep_ended(){ :; }

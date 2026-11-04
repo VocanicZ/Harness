@@ -38,7 +38,7 @@ restore(){ source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh";
   source "$HERE/../scripts/priority-worker.sh"; }
 setup(){  # [pool]
   restore; make_env
-  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; HARNESS_UNIT=""
+  HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; HARNESS_UNIT=""
   POOL="${1:-3}"; POLL=0; HARNESS_USE_POLLER=0; HARNESS_CHECKOUT="$RUN_DIR/co"; mkdir -p "$HARNESS_CHECKOUT"
   export HARNESS_AUTONOMOUS=true HARNESS_MODE=issue-only HARNESS_POOL_TAKES_BUGS=0 HARNESS_CLI=claude HARNESS_CI_GATE=0
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
@@ -287,14 +287,5 @@ assert_ok "W1's running lane is still tended" grep -qx 'goal hz-main-i5' "$CALLS
 assert_ok "... through the watchdog (which drives a goal loop)" grep -qx 'watchdog hz-main-i5' "$CALLS"
 assert_eq "$(claim_wid impl-6)" "" "no claim for #6"
 rm -f "$PAUSE_FLAG"
-
-echo "=== 8. the old unit loop stays for a config that still uses targets.tsv ==="
-setup 3; HARNESS_TOPOLOGY=multi; write_targets <<'EOF'
-a	acme/a	-	root
-EOF
-COMPLETE=1
-claim_next(){ echo "claim_next" >> "$CALLS"; echo ""; }
-worker_tick W1; assert_eq "$?" "2" "multi + targets.tsv: worker_tick runs the unit loop (complete → rc 2)"
-assert_ok "... through claim_next" grep -qx claim_next "$CALLS"
 
 finish

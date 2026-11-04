@@ -13,7 +13,7 @@ source "$HERE/../scripts/priority-worker.sh"
 source "$HERE/helpers.sh"
 make_env
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl" HARNESS_GH_RATE_GUARD=1
-export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme
+export HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 unset GH_TOKEN GITHUB_TOKEN
 POLL=1; PRIORITY_POLL=1
 

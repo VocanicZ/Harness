@@ -11,8 +11,7 @@ source "$HERE/../scripts/lib.sh"
 source "$HERE/../scripts/drive.sh"
 source "$HERE/helpers.sh"
 make_env
-export RUN_DIR HARNESS_STATE_DIR_OK=1 HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme
-HARNESS_TOPOLOGY=single
+export RUN_DIR HARNESS_STATE_DIR_OK=1 HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 export GIT_CONFIG_GLOBAL="$RUN_DIR/gitconfig"; : > "$GIT_CONFIG_GLOBAL"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$STATE_DIR"; : > "$STATE_DIR/config"

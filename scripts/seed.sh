@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# seed.sh — create (if absent) and seed a GitHub repo for a harness unit:
+# seed.sh — seed a GitHub repo for a harness unit:
 #   labels (harness vocabulary), auto-merge enabled, and — only with HARNESS_SEED_CI=1 — a
 #   language-agnostic CI workflow plus branch protection requiring it. Unless HARNESS_DISABLE_CI=0,
 #   it also disables the repo's existing test-CI workflows (#245: Harness projects run no GitHub CI).
@@ -13,8 +13,7 @@
 # Generalisation notes (vs. original seed-repo.sh):
 #   - Label names come from $HARNESS_LABEL_* (no hardcoded names).
 #   - Repo description uses unit_desc() rather than a Bonsai-specific string.
-#   - Repo create only runs in multi topology (single topology assumes the project
-#     repo already exists in situ — the working tree IS the repo).
+#   - The repo is never created: the project repo already exists in situ — the working tree IS the repo.
 #   - Owner comes from $HARNESS_OWNER (was $OWNER from a bonsai-specific sp_repo fn).
 #   - The CI workflow content is unchanged (it was already language-agnostic).
 #   - Auto-merge and branch-protection calls are unchanged.
@@ -88,7 +87,7 @@ _seed_is_ship_workflow(){
   grep -qiE '(^|[^a-z])(releases?|deploys?|deployments?|publish|pages|cd)([^a-z]|$)' <<<"$1 ${2##*/}"; }
 
 # ---------------------------------------------------------------------------
-# --disable-ci <slug> fast path (harness init / setup on a single-topology repo)
+# --disable-ci <slug> fast path (harness init / setup)
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--disable-ci" ]]; then
   _SEED_SLUG="${2:?--disable-ci requires <owner/repo>}"
@@ -113,20 +112,6 @@ UNIT_ID="${1:?usage: seed.sh --labels-only <slug> | seed.sh <unit-id>}"
 _SEED_SLUG="$(unit_slug "$UNIT_ID")"
 [[ -n "$_SEED_SLUG" ]] || die "could not resolve slug for unit: $UNIT_ID"
 DESC="$(unit_desc "$UNIT_ID")"
-
-# Create repo only in multi topology (single = project repo already exists).
-if [[ "$HARNESS_TOPOLOGY" != single ]]; then
-  if gh repo view "$_SEED_SLUG" >/dev/null 2>&1; then
-    log "repo exists: $_SEED_SLUG"
-  else
-    log "creating repo: $_SEED_SLUG"
-    gh repo create "$_SEED_SLUG" --private \
-      --description "Harness unit ${UNIT_ID} — ${DESC}" \
-      --add-readme \
-      || die "gh repo create failed for $_SEED_SLUG"
-    sleep 2
-  fi
-fi
 
 # Labels.
 _seed_labels

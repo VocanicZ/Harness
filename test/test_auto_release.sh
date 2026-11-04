@@ -142,13 +142,13 @@ assert_eq "$(cat "$MERGED")" "acme/harness#61" "drive_bug queues a fixed bug, no
 # the priority lane ticks the Harness repo's queue (it outlives a completed unit), never another's.
 TICKED="$RUN_DIR/ticked"; : > "$TICKED"
 release_tick(){ echo "$SLUG $CHECKOUT" >> "$TICKED"; }
-HARNESS_TOPOLOGY=multi; CHECKOUTS_DIR="$RUN_DIR/co"; _bug_repos(){ printf 'acme/widget\nacme/harness\n'; }
+_bug_repos(){ printf 'acme/widget\nacme/harness\n'; }
 gc_orphan_goals(){ :; }; snapshot_gate(){ return 0; }; gh_rate_wait(){ :; }; reap_lane(){ :; }
 retry_pending_unlocks(){ :; }; bug_tick(){ return 0; }
 bug_step P1 >/dev/null 2>&1
-assert_eq "$(cat "$TICKED")" "acme/harness $RUN_DIR/co/harness" "bug_step ticks the Harness repo's release queue only"
+assert_eq "$(cat "$TICKED")" "acme/harness $(fleet_checkout)" "bug_step ticks the Harness repo's release queue only"
 # drive_unit ticks once per poll, with the unit's own repo.
-: > "$TICKED"; HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/harness; POOL=1; POLL=0
+: > "$TICKED"; HARNESS_REPO=acme/harness; POOL=1; POLL=0
 reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }; team_sessions(){ :; }
 reap_pool_bugs(){ :; }; tmux(){ :; }; dispatch_actions(){ :; }; finalize_unit(){ :; }
 N=0; unit_complete(){ (( N++ >= 2 )); }

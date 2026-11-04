@@ -12,10 +12,10 @@
 #                   died with the host — reap_team only walks LOCAL worktrees, so a
 #                   crashed/migrated box leaves orphaned issues invisible to dispatch.
 set -uo pipefail
-# One fleet = one repo (#467): a fleet still on `multi` + targets.tsv is migrated BEFORE lib.sh reads
-# its config — HARNESS_UNIT / HARNESS_CHECKOUT in, HARNESS_TOPOLOGY and the old per-unit cap out, POOL = max(POOL, CAP) — and
+# One fleet = one repo (#467): a fleet still on the old multi-repo layout is migrated BEFORE lib.sh reads
+# its config — HARNESS_UNIT / HARNESS_CHECKOUT in, the old topology and per-unit cap out, POOL = max(POOL, CAP) — and
 # its old-loop workers are stopped so the launch below replaces them. Already migrated: a no-op.
-# A failure only warns; the un-migrated config still resolves through targets.tsv. HARNESS_FLEET_MIGRATE=0 opts out.
+# A failure only warns. HARNESS_FLEET_MIGRATE=0 opts out.
 _start_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # CAP is gone (#469): a leftover cap setting in the environment or still in the config is ignored, and said so ONCE per
 # start — before the migration below, which drops the config's line.

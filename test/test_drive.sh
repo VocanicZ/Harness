@@ -3,7 +3,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; POOL=2; POLL=0
+HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"
 # Isolate WORKTREES_DIR to an empty temp dir: drive_unit now runs finalize_unit on completion,
 # whose glob/`rm -rf` would otherwise hit the LIVE $HARNESS_DIR/worktrees. With it empty, the
@@ -36,7 +36,7 @@ assert_ok "loop exited when unit_complete flipped" true
 # The dispatch loop must route a CLOSE_PRD action to close_prd() (a single `gh issue close`), NOT to
 # spawn_orch (which would launch a whole review session). This is the deterministic PRD-close fix.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
+HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
 ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
 spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }
@@ -55,7 +55,7 @@ assert_no "CLOSE_PRD did NOT spawn an orch/review session" grep -q '^ORCH' "$ROU
 # close_prd() runs a single idempotent `gh issue close` against the unit's repo
 source "$HERE/../scripts/drive.sh"   # restore the real close_prd (the routing section stubbed it)
 make_env
-HARNESS_TOPOLOGY=single; SLUG="acme/widget"
+SLUG="acme/widget"
 GHC="$RUN_DIR/ghclose"; : > "$GHC"
 gh(){ echo "gh $*" >> "$GHC"; return 0; }
 close_prd 7
@@ -63,7 +63,7 @@ assert_ok "close_prd issues gh issue close for the PRD" grep -q 'gh issue close 
 
 # --- LABEL_READY (#287): the engine labels a stray child ready — no session, no slot ---
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
+HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
 ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
 spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }
@@ -81,7 +81,7 @@ assert_no "LABEL_READY did NOT spawn an orch session" grep -q '^ORCH' "$ROUTED"
 
 source "$HERE/../scripts/drive.sh"   # restore the real label_ready
 make_env
-HARNESS_TOPOLOGY=single; SLUG="acme/widget"; HARNESS_LABEL_READY=go
+SLUG="acme/widget"; HARNESS_LABEL_READY=go
 GHL="$RUN_DIR/ghlabel"; : > "$GHL"
 gh(){ echo "gh $*" >> "$GHL"; return 0; }
 label_ready 18
@@ -90,7 +90,6 @@ assert_ok "label_ready adds the ready label to the stray" grep -q 'gh issue edit
 # --- finalize_unit: the on-completion sweep that fixes the leftover session/worktree ---
 # Run in fully isolated temp dirs with recording stubs, so nothing touches the real fleet.
 make_env
-HARNESS_TOPOLOGY=single
 UNIT=main; CHECKOUT="$RUN_DIR/co"; mkdir -p "$CHECKOUT"
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR/main-i7"   # a leftover impl worktree
 echo REVIEW > "$RUN_DIR/$(sess_orch main).goal"                 # a leftover session's goal file
@@ -110,7 +109,7 @@ assert_ok "finalize deleted the local feature branch" grep -q "branch -D issue/7
 # CHECKOUT is a plain dir (no git repo) so `git mv`/commit/push fall back / no-op; archival itself
 # must still happen via the plain-mv fallback. HARNESS_SPEC points at a real temp spec to hash.
 make_env
-HARNESS_TOPOLOGY=single; UNIT=main; CHECKOUT="$RUN_DIR/repo"; mkdir -p "$CHECKOUT"
+UNIT=main; CHECKOUT="$RUN_DIR/repo"; mkdir -p "$CHECKOUT"
 SPECFILE="$RUN_DIR/spec.md"; printf 'spec v1\n' > "$SPECFILE"; HARNESS_SPEC="$SPECFILE"
 printf '# the plan\n' > "$CHECKOUT/PLAN.md"
 git(){ return 1; }                 # not a git repo: git mv fails → plain-mv fallback; commit/push no-op
@@ -130,28 +129,13 @@ NARCH_BEFORE="$(ls "$CHECKOUT"/docs/harness/archive/ | wc -l)"
 assert_ok "archive_plan re-run is a no-op (exit 0)" archive_plan
 assert_eq "$(ls "$CHECKOUT"/docs/harness/archive/ | wc -l)" "$NARCH_BEFORE" "no duplicate archive on re-run"
 
-# --- multi-topology: completing a unit must NOT drop its targets.tsv row ---
-# Regression for the F1 row-drop bug: targets.tsv is the dependency registry. Here c depends on b;
-# if finalizing b deleted b's row, c's dep would become unresolvable and the DAG would freeze.
-# Completion is recomputed live each poll, so a finished unit is skipped without removing its row.
-make_env
-HARNESS_TOPOLOGY=multi; UNIT=b; CHECKOUT="$RUN_DIR/repo-b"; mkdir -p "$CHECKOUT"
-HARNESS_SPEC="$RUN_DIR/spec.md"; printf 'spec\n' > "$HARNESS_SPEC"
-printf '# id\trepo\tdeps\tdesc\na\tacme/a\t-\troot\nb\tacme/b\ta\tmid\nc\tacme/c\tb\tleaf\n' > "$TARGETS_TSV"
-git(){ return 1; }
-archive_plan
-assert_ok "completed unit b's row PERSISTS (dependents resolve it)" test -n "$(_tgt_row b)"
-assert_eq "$(unit_repo b)" "acme/b" "b's row still resolves its repo for dependents"
-assert_ok "targets.tsv keeps other units (a)" test -n "$(_tgt_row a)"
-assert_ok "targets.tsv keeps other units (c)" test -n "$(_tgt_row c)"
-
 # ── #34: the lane must reap bug-fix worktrees — a crashed fix must not wedge spawn_bug ──
 # REAL git here (not stubbed): the wedge is a genuine `git worktree add` rc-128 collision
 # ('issue/N' already used by worktree), so only real git reproduces it. Everything else
 # (gh/render/launch/tmux) is stubbed → hermetic, no network, no tmux.
 make_env
 unset -f git   # earlier sections stub git() as a function; restore the real binary for the worktree ops
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
 CHECKOUT="$RUN_DIR/co"; git init -q "$CHECKOUT"
 git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
@@ -202,7 +186,7 @@ assert_eq "$(git -C "$CHECKOUT" worktree list | wc -l)" "2" "only the checkout +
 # Else the open bug keeps agent-working with no live session → bug_lane_issues excludes it and the
 # lane never re-claims it. Force `worktree add` to fail; the stamp must come AFTER worktree setup.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
 CHECKOUT="$RUN_DIR/co2"; mkdir -p "$CHECKOUT"
 WORKTREES_DIR="$RUN_DIR/wt2"; mkdir -p "$WORKTREES_DIR"
@@ -220,7 +204,7 @@ unset -f git
 # A failure there can mean a live lane still owns the issue's worktree; the stamp used to go on
 # FIRST and stay, so the label flapped every pool pass. Mirror spawn_bug (#34): stamp after the add.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
 CHECKOUT="$RUN_DIR/co416"; mkdir -p "$CHECKOUT"
 WORKTREES_DIR="$RUN_DIR/wt416"; mkdir -p "$WORKTREES_DIR"
@@ -244,7 +228,7 @@ unset -f git gh
 # start.sh recover() calls this on crash/new-machine boot: the lane never reaped its own worktree
 # (the host died), so a leftover blocks the next spawn unless recovery sweeps it.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 SLUG=acme/widget
 CHECKOUT="$RUN_DIR/cosweep"; git init -q "$CHECKOUT"
 git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
@@ -266,7 +250,7 @@ assert_no "sweep deleted the dead bug's local branch (issue/5)" \
 # `worktree add` must return BEFORE stamping, exactly like the fix phase, or the open bug keeps
 # agent-working with no live session and the lane never re-claims it.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
 CHECKOUT="$RUN_DIR/co3"; mkdir -p "$CHECKOUT"
 WORKTREES_DIR="$RUN_DIR/wt3"; mkdir -p "$WORKTREES_DIR"
@@ -282,7 +266,7 @@ unset -f git
 
 # ── #5/#109: sweep_orphan_bug_worktrees also reaps orphan TRIAGE worktrees (dead session), keeps live ──
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; SLUG=acme/widget
+HARNESS_REPO=acme/widget; SLUG=acme/widget
 CHECKOUT="$RUN_DIR/cosweep2"; git init -q "$CHECKOUT"
 git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
 git -C "$CHECKOUT" commit -q --allow-empty -m init

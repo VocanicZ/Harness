@@ -312,7 +312,7 @@ sup_clean_env(){ local v
   for v in $(compgen -v HARNESS_); do
     case $v in *_DIR|*_DIRS|*_HOME|*_FILE|*CONFIG*|HARNESS_SUPERVISE_*) ;; *) unset "$v" ;; esac
   done
-  unset STATE_DIR RUN_DIR TARGETS_TSV CLAIMS_DIR POOL_LOCK PAUSE_FLAG; }
+  unset STATE_DIR RUN_DIR CLAIMS_DIR POOL_LOCK PAUSE_FLAG; }
 
 # sup_check_fleet <state dir> — rules 1-3 and 6 for one fleet, in a subshell with that fleet's lib.sh.
 sup_check_fleet(){ local sd=$1

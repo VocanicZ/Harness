@@ -99,7 +99,7 @@ assert_no "stall counter cleared once the session recovers (busy)" test -f "$RUN
 # ── D: both lanes invoke the watchdog over their live sessions ───────────────────────────────────
 # Pool: drive_unit must run the watchdog over the unit's team sessions every poll.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; POOL=2; POLL=0
+HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wtD"; mkdir -p "$WORKTREES_DIR"
 WD_SEEN="$RUN_DIR/wd_seen"; : > "$WD_SEEN"
 reap_done_sessions(){ :; }; reap_team(){ :; }
@@ -117,7 +117,7 @@ assert_ok "drive_unit (pool) runs the watchdog over its team sessions" grep -qx 
 # per-poll point during the wedge — bug_step's reap_lane never sees an in-flight wedged session).
 source "$HERE/../scripts/priority-worker.sh"   # bring in drive_bug
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"
+HARNESS_REPO="acme/widget"
 WD_SEEN2="$RUN_DIR/wd_seen2"; : > "$WD_SEEN2"
 _bug_ref_repo(){ echo "acme/widget"; }; _bug_ref_num(){ echo 5; }
 bug_phase(){ echo fix; }; bug_checkout(){ echo "$RUN_DIR/co"; }

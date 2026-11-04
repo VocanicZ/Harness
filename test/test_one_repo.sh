@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # test_one_repo.sh — #466 (PRD #464 §1, "one fleet = one repo"): HARNESS_UNIT and HARNESS_CHECKOUT.
-# Every reader takes the fleet's repo, unit name and checkout from config — no targets.tsv — and
-# session / worktree names come out as <prefix>-<HARNESS_UNIT>-i<N>. Defaults are today's `main` and
-# $PROJECT_ROOT. An un-migrated `multi` config (no HARNESS_UNIT) still resolves through targets.tsv.
+# Every reader takes the fleet's repo, unit name and checkout from config and
+# session / worktree names come out as <prefix>-<HARNESS_UNIT>-i<N>. Defaults are `main` and
+# $PROJECT_ROOT. #473: the transitional targets.tsv / HARNESS_TOPOLOGY=multi fallback is gone — a config
+# with no HARNESS_UNIT takes the defaults, whatever stale topology key or targets.tsv sits beside it.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 unset_inherited_config
 ROOT="$(mktemp -d)"; tmp_track "$ROOT"
 
-# probe <config-body> [targets.tsv body] — a fresh fleet dir; prints one `key=value` line per reader.
+# probe <config-body> [stray targets.tsv body] — a fresh fleet dir; prints one `key=value` line per reader.
 probe(){
   local d; d="$(mktemp -d -p "$ROOT")"; mkdir -p "$d/.harness"
   printf '%s\n' "$1" > "$d/.harness/config"
   [[ -n "${2:-}" ]] && printf '%b' "$2" > "$d/.harness/targets.tsv"
   ( unset_inherited_config; export STATE_DIR="$d/.harness" RUN_DIR="$d/run" HARNESS_HOME="$d/host" HARNESS_GH_RATE_GUARD=0
-    unset TARGETS_TSV
     source "$HERE/../scripts/lib.sh"
     u="$(all_units | head -n1)"
     echo "units=$(all_units | tr '\n' ,)"
@@ -27,9 +27,8 @@ probe(){
 }
 get(){ sed -n "s/^$1=//p" <<<"$2" | head -n1; }
 
-# ── a config with REPO + UNIT + CHECKOUT and no targets.tsv ──────────────────
-out="$(probe ': "${HARNESS_TOPOLOGY:=single}"
-: "${HARNESS_OWNER:=acme}"
+# ── a config with REPO + UNIT + CHECKOUT ─────────────────────────────────────
+out="$(probe ': "${HARNESS_OWNER:=acme}"
 : "${HARNESS_REPO:=widget}"
 : "${HARNESS_UNIT:=core}"
 : "${HARNESS_CHECKOUT:=/srv/clones/widget}"
@@ -46,16 +45,8 @@ assert_eq "$(get snap "$out")"     "acme/widget,"           "snapshot_slugs is t
 assert_eq "$(get bugrepo "$out")"  "widget"                 "bug_repo is the one repo"
 assert_eq "$(get impl "$out")"     "hzw-core-i7"            "session / worktree names are <prefix>-<HARNESS_UNIT>-i<N>"
 
-# ── the same, with HARNESS_TOPOLOGY=multi but HARNESS_UNIT set (a migrated config) ──
-out="$(probe ': "${HARNESS_TOPOLOGY:=multi}"
-: "${HARNESS_REPO:=acme/widget}"
-: "${HARNESS_UNIT:=core}"')"
-assert_eq "$(get units "$out")" "core," "HARNESS_UNIT wins over the topology: no targets.tsv needed"
-assert_eq "$(get slug "$out")"  "acme/widget" "...and its repo is HARNESS_REPO"
-
 # ── defaults: bangwa's plain KEY=val config, no UNIT / CHECKOUT ───────────────
-out="$(probe 'HARNESS_TOPOLOGY=single
-HARNESS_OWNER=VocanicZ
+out="$(probe 'HARNESS_OWNER=VocanicZ
 HARNESS_REPO=bangwa
 HARNESS_SESS_PREFIX=hzbw')"
 assert_eq "$(get units "$out")"    "main,"                  "no HARNESS_UNIT: the unit is main"
@@ -65,21 +56,21 @@ assert_eq "$(get bugco "$out")"    "$(get root "$out")"     "...and bug_checkout
 assert_eq "$(get impl "$out")"     "hzbw-main-i7"           "bangwa session names stay hzbw-main-i<N>"
 assert_eq "$(get slug "$out")"     "VocanicZ/bangwa"        "slug as today"
 
-# ── an un-migrated multi config + targets.tsv behaves exactly as before ──────
+# ── a leftover topology=multi config + targets.tsv (what a fleet looked like before the migration) is NOT read ──
 out="$(probe ': "${HARNESS_TOPOLOGY:=multi}"
 : "${HARNESS_OWNER:=acme}"
+: "${HARNESS_REPO:=widget}"
 : "${HARNESS_SESS_PREFIX:=hzm}"' '# id\trepo\tdeps\tdesc\napi\tacme/api\t-\tthe api\nweb\tweb\tapi\tthe web\n')"
-assert_eq "$(get units "$out")"    "api,web,"                       "multi: units come from targets.tsv"
-assert_eq "$(get repo "$out")"     "acme/api"                       "multi: unit_repo is the row's repo"
-assert_eq "$(get desc "$out")"     "the api"                        "multi: unit_desc is the row's desc"
-assert_ok "multi: unit_checkout is checkouts/<repo name>" bash -c "[[ '$(get checkout "$out")' == */.harness/checkouts/api ]]"
-assert_eq "$(get bugrepos "$out")" "acme/api,web,"                  "multi: _bug_repos spans the rows"
-assert_eq "$(get impl "$out")"     "hzm-api-i7"                     "multi: session names use the row id"
+assert_eq "$(get units "$out")"    "main,"                  "stray multi + targets.tsv: the one unit is main, not the rows"
+assert_eq "$(get repo "$out")"     "widget"                 "...on HARNESS_REPO"
+assert_eq "$(get desc "$out")"     "widget"                 "...described by the repo name"
+assert_eq "$(get checkout "$out")" "$(get root "$out")"     "...checked out at \$PROJECT_ROOT, not checkouts/<repo>"
+assert_eq "$(get bugrepos "$out")" "widget,"                "...and the bug lane serves the one repo"
+assert_eq "$(get impl "$out")"     "hzm-main-i7"            "...with session names from main"
 
 # ── harness inject / harness one: --unit is optional, HARNESS_UNIT is the default ──
 d="$(mktemp -d -p "$ROOT")"; mkdir -p "$d/.harness"
 cat > "$d/.harness/config" <<'CFG'
-: "${HARNESS_TOPOLOGY:=single}"
 : "${HARNESS_OWNER:=acme}"
 : "${HARNESS_REPO:=widget}"
 : "${HARNESS_UNIT:=core}"
@@ -125,18 +116,18 @@ def fleet(name, config, targets=None):
     open(os.path.join(d, "config"), "w").write(config)
     if targets: open(os.path.join(d, "targets.tsv"), "w").write(targets)
     return d
-colon = fleet("py-colon", ': "${HARNESS_TOPOLOGY:=single}"\n: "${HARNESS_OWNER:=acme}"\n: "${HARNESS_REPO:=widget}"\n: "${HARNESS_UNIT:=core}"\n')
-plain = fleet("py-plain", 'HARNESS_TOPOLOGY=single\nexport HARNESS_OWNER="acme"\nHARNESS_REPO=widget # the repo\nHARNESS_UNIT=core\n')
-bangwa = fleet("py-bangwa", 'HARNESS_TOPOLOGY=single\nHARNESS_OWNER=VocanicZ\nHARNESS_REPO=bangwa\n')
-multi = fleet("py-multi", ': "${HARNESS_TOPOLOGY:=multi}"\n: "${HARNESS_OWNER:=acme}"\n', "# id\trepo\tdeps\tdesc\napi\tacme/api\t-\tx\nweb\tweb\tapi\ty\n")
+colon = fleet("py-colon", ': "${HARNESS_OWNER:=acme}"\n: "${HARNESS_REPO:=widget}"\n: "${HARNESS_UNIT:=core}"\n')
+plain = fleet("py-plain", 'export HARNESS_OWNER="acme"\nHARNESS_REPO=widget # the repo\nHARNESS_UNIT=core\n')
+bangwa = fleet("py-bangwa", 'HARNESS_OWNER=VocanicZ\nHARNESS_REPO=bangwa\n')
+multi = fleet("py-multi", ': "${HARNESS_TOPOLOGY:=multi}"\n: "${HARNESS_OWNER:=acme}"\n: "${HARNESS_REPO:=widget}"\n', "# id\trepo\tdeps\tdesc\napi\tacme/api\t-\tx\nweb\tweb\tapi\ty\n")
 check(fc.project_units(colon), [("core", "acme/widget")], 'forecast: ": ${KEY:=val}" config, HARNESS_UNIT')
 check(fc.project_units(plain), [("core", "acme/widget")], "forecast: plain KEY=val config gives the same")
 check(fc.project_units(bangwa), [("main", "VocanicZ/bangwa")], "forecast: plain bangwa config, no HARNESS_UNIT -> main")
-check(fc.project_units(multi), [("api", "acme/api"), ("web", "acme/web")], "forecast: un-migrated multi still reads targets.tsv")
+check(fc.project_units(multi), [("main", "acme/widget")], "forecast: a stray multi config + targets.tsv is not read")
 slugs = ["acme/widget"]
 check(st._unit_repo(colon, "core", slugs), "acme/widget", "stats: _unit_repo from HARNESS_UNIT, no targets.tsv")
 check(st._unit_repo(plain, "core", slugs), "acme/widget", "stats: _unit_repo from a plain KEY=val config")
-check(st._unit_repo(multi, "web", ["acme/api", "acme/web"]), "acme/web", "stats: multi still reads targets.tsv")
+check(st._unit_repo(multi, "web", ["acme/api", "acme/web"]), None, "stats: a stray targets.tsv is not read (two slugs, no HARNESS_UNIT: unresolved)")
 check(fc.resolve_repo(5, None, None, [], plain), ("acme/widget", "core"), "forecast: resolve_repo needs no --unit")
 sys.exit(0 if ok else 1)
 PY

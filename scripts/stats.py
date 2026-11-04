@@ -1002,7 +1002,7 @@ def _fleets():
     return out
 
 
-_CFG_KEYS = ("HARNESS_TOPOLOGY", "HARNESS_REPO", "HARNESS_OWNER", "HARNESS_UNIT", "HARNESS_CHECKOUT")
+_CFG_KEYS = ("HARNESS_REPO", "HARNESS_OWNER", "HARNESS_UNIT", "HARNESS_CHECKOUT")
 
 
 def read_config(state_dir):
@@ -1028,8 +1028,7 @@ def read_config(state_dir):
 
 
 def _unit_repo(project_state, unit, slugs):
-    """The repo a unit drives: HARNESS_UNIT's HARNESS_REPO when the config sets it (#466), else its
-    targets.tsv row (an un-migrated multi fleet), else the fleet's only slug."""
+    """The repo a unit drives: HARNESS_UNIT's HARNESS_REPO when the config sets it (#466), else the fleet's only slug."""
     cfg = read_config(project_state)
     if cfg.get("HARNESS_UNIT") and cfg.get("HARNESS_REPO") and cfg["HARNESS_UNIT"] == unit:
         repo = cfg["HARNESS_REPO"]
@@ -1037,15 +1036,6 @@ def _unit_repo(project_state, unit, slugs):
             repo = cfg["HARNESS_OWNER"] + "/" + repo
         name = repo.split("/")[-1].lower()
         return next((s for s in slugs if s.split("/")[-1].lower() == name), repo)
-    try:
-        with open(os.path.join(project_state, "targets.tsv")) as fh:
-            for line in fh:
-                cols = line.rstrip("\n").split("\t")
-                if len(cols) >= 2 and not line.startswith("#") and cols[0] == unit:
-                    name = cols[1].split("/")[-1].lower()
-                    return next((s for s in slugs if s.split("/")[-1].lower() == name), cols[1])
-    except OSError:
-        pass
     return slugs[0] if len(slugs) == 1 else None
 
 

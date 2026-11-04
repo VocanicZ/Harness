@@ -96,7 +96,6 @@ assert_eq "$(_bug_ref_repo acme/b#5)" "acme/b" "_bug_ref_repo extracts the carri
 assert_eq "$(_bug_ref_num  acme/b#5)" "5"      "_bug_ref_num extracts the number"
 source "$HERE/../scripts/priority-worker.sh"      # restore the real drive_bug (was stubbed above)
 ROUTE="$RUN_DIR/route"; : > "$ROUTE"
-HARNESS_TOPOLOGY=multi
 bug_phase(){ echo triage; }                                   # avoid gh
 spawn_bug(){ echo "SLUG=$SLUG REPO=$REPO n=$1 phase=$2" >> "$ROUTE"; }
 session_live(){ return 1; }                                   # no live session -> returns at once
@@ -116,9 +115,6 @@ _repo_bugs(){ case "$1" in
 esac; }
 assert_eq "$(_bug_numbers | tr '\n' ' ')" "acme/b#7 acme/a#5 acme/b#8 " \
   "fix-pending (acme/b#7) drains before any fresh bug across repos; same-phase keeps input order"
-# bug_repo back-compat (bare ref): matches the number field of _repo_bugs' "<num>\t<phase>" output
-assert_eq "$(bug_repo 5)" "acme/a" "bug_repo(bare): resolves the repo listing #5"
-assert_eq "$(bug_repo 8)" "acme/b" "bug_repo(bare): resolves the repo listing #8 (number field, not the phase line)"
 
 # ── #49 bare-repo owner-qualification: token, claim, session, worktree, lane_phase ALL agree ─────
 # #44 owner-qualified the session/worktree (SLUG=_with_owner REPO) but left _bug_numbers' token —
@@ -127,7 +123,7 @@ assert_eq "$(bug_repo 8)" "acme/b" "bug_repo(bare): resolves the repo listing #8
 # session was hz-bug-acme_widget-9-fix: _checkpoint_target's lookup missed and lane_phase's grep
 # never matched. Owner-qualifying the token at construction makes every deriver share ONE slug.
 source "$HERE/../scripts/lib.sh"                                       # restore the real _bug_numbers
-HARNESS_TOPOLOGY=multi; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz
+HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz
 WORKTREES_DIR="$RUN_DIR/wt"                                    # hermetic worktree base for the path check
 _bug_repos(){ echo widget; }                                  # BARE repo (no owner) — the regression trigger
 _repo_bugs(){ printf '9\tfix\n'; }
@@ -154,13 +150,13 @@ assert_eq "$(_bug_numbers | tr '\n' ' ')" "acme/widget#9 " "_bug_numbers leaves 
 # ── priority.sh launches EXACTLY ONE resident lane; pid tracked under run/; idempotent ──
 # Hermetic: empty HARNESS_REPO means the lane finds no bug repos and just idles (no gh).
 LRUN="$(mktemp -d)"
-HARNESS_PRIORITY_POLL=3600 HARNESS_TOPOLOGY=single HARNESS_REPO="" RUN_DIR="$LRUN" \
+HARNESS_PRIORITY_POLL=3600 HARNESS_REPO="" RUN_DIR="$LRUN" \
   bash "$HERE/../scripts/priority.sh" >/dev/null 2>&1
 assert_ok "priority.sh wrote run/priority.pid" bash -c "[[ -f '$LRUN/priority.pid' ]]"
 lpid="$(cat "$LRUN/priority.pid")"
 assert_ok "lane process is alive" bash -c "kill -0 '$lpid' 2>/dev/null"
 # re-run: must NOT spawn a second lane — same pid, still exactly one pidfile
-HARNESS_PRIORITY_POLL=3600 HARNESS_TOPOLOGY=single HARNESS_REPO="" RUN_DIR="$LRUN" \
+HARNESS_PRIORITY_POLL=3600 HARNESS_REPO="" RUN_DIR="$LRUN" \
   bash "$HERE/../scripts/priority.sh" >/dev/null 2>&1
 assert_eq "$(cat "$LRUN/priority.pid")" "$lpid" "re-run kept the same lane (idempotent, no double-spawn)"
 assert_eq "$(ls "$LRUN"/priority*.pid | wc -l | tr -d ' ')" "1" "exactly one lane pidfile"
@@ -187,7 +183,7 @@ rm -rf "$SRUN"
 # LIVE session is never swept (no double-dispatch), gated by bug_session_live: the SAME liveness
 # predicate start --recover uses (#43), so the two reconciliation paths can never disagree.
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/../scripts/priority-worker.sh"
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"
+HARNESS_REPO="acme/widget"
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"   # isolate from the live fleet's worktrees
 
 # bug_session_live <slug> <n>: live when EITHER phase's sess_bug session is up; dead only when
@@ -249,7 +245,7 @@ HARNESS_HOME="$P3/host"; HARNESS_POLLER_DIR="$P3/host/poller"; HARNESS_SNAPSHOTS
 POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
 mkdir -p "$HARNESS_SNAPSHOTS_DIR" "$POLLER_REGISTRY_DIR"
 export HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR HARNESS_POLLER_CMD="sleep 30"
-HARNESS_USE_POLLER=1; HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
+HARNESS_USE_POLLER=1; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
 poller_register acme/widget 60 hz "$P3/proj"
 p3_snap(){ cat > "$HARNESS_SNAPSHOTS_DIR/acme__widget.json" <<JSON
 {"schema_version":1,"generated_at":$1,"slug":"acme/widget","issues":[],"has_plan":false,"plan_marker":null,"self_login":"me"}
@@ -287,15 +283,10 @@ assert_ok "start.sh gates the poller wiring on HARNESS_USE_POLLER" bash -c "grep
 # poller_register_project: registers every slug this project serves, keyed on STATE_DIR (the refcount)
 RP="$(mktemp -d)"
 HARNESS_POLLER_DIR="$RP/poller"; POLLER_REGISTRY_DIR="$RP/poller/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget; HARNESS_OWNER=acme; STATE_DIR="$RP/state"; HARNESS_PRIORITY_POLL=60; HARNESS_SESS_PREFIX=hz
+HARNESS_REPO=acme/widget; HARNESS_OWNER=acme; STATE_DIR="$RP/state"; HARNESS_PRIORITY_POLL=60; HARNESS_SESS_PREFIX=hz
 poller_register_project
 assert_eq "$(poller_registry_slugs)" "acme/widget" "poller_register_project (single) registers HARNESS_REPO"
 assert_ok "registry file is keyed on STATE_DIR" bash -c "ls '$POLLER_REGISTRY_DIR'/acme__widget__*.json >/dev/null 2>&1"
-HARNESS_TOPOLOGY=multi; TARGETS_TSV="$(mktemp)"
-printf 'a\tacme/a\t-\troot\nb\tacme/b\ta\tneeds a\n' > "$TARGETS_TSV"
-rm -f "$POLLER_REGISTRY_DIR"/*.json
-poller_register_project
-assert_eq "$(poller_registry_slugs | tr '\n' ' ')" "acme/a acme/b " "poller_register_project (multi) registers every targets row"
 rm -rf "$RP"
 
 # ── stop.sh deregisters ONLY this project (refcount); a shared slug stays; the poller is never killed ──
