@@ -202,7 +202,7 @@ guard(){ bash "$GUARD" --repo "$1" --base "${2:-origin/main}" --head "${3:-HEAD}
   # prepare_impl takes the resume path when issue/<unit>-<n> exists only in the submodule
   source "$ROOT/scripts/drive.sh"
   RENDERED="$D/rendered"; : > "$RENDERED"
-  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_WORKTREE_HOOK=""
+  HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_WORKTREE_HOOK=""
   UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""; CHECKOUT="$R"; WORKTREES_DIR="$D/wts"; mkdir -p "$WORKTREES_DIR"
   PROJECT_ROOT="$R"; STATE_DIR="$D/state"
   render(){ echo "$1" >> "$RENDERED"; }; ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }

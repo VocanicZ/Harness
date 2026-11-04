@@ -171,7 +171,7 @@ assert_ok "…naming the CLI as tmux-only" grep -qF "agent CLI 'codex' is tmux-o
 assert_ok "tmux takes any CLI" env HARNESS_SESSION_BACKEND=tmux HARNESS_CLI=codex bash -c "source '$ROOT/scripts/cli/dispatch.sh'; cli_backend_check"
 assert_eq "$(cli_headless_list | xargs)" claude "claude is the one CLI with a headless runner"
 proj="$RUN_DIR/proj"; mkdir -p "$proj"
-out="$( cd "$proj" && unset STATE_DIR && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single \
+out="$( cd "$proj" && unset STATE_DIR && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only \
   HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=hlx HARNESS_CLI=codex bash "$ROOT/scripts/init.sh" 2>&1 </dev/null)"; rc=$?
 assert_eq "$rc" 1 "harness init refuses headless + codex"
 assert_ok "…naming codex as tmux-only" grep -qF "agent CLI 'codex' is tmux-only" <<<"$out"

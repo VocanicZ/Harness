@@ -16,7 +16,7 @@ assert_no "injector session never matches team_sessions" \
 unset -f tmux
 
 # ── §2 inject.sh launcher: resolve unit, REVIEW-guard, render, launch ─────────
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER="acme"
+HARNESS_REPO="acme/widget"; HARNESS_OWNER="acme"
 HARNESS_SPEC="docs/spec.md"; PROMPTS_DIR="$HERE/../prompts"
 TMPCO="$(mktemp -d)"; unit_checkout(){ echo "$TMPCO"; }   # don't clobber the real repo
 LAUNCH="$RUN_DIR/launch.log"; : > "$LAUNCH"
@@ -128,7 +128,7 @@ unset -f session_live
 # must REFUSE and exit non-zero when PAUSE_FLAG exists, unless --force is passed.
 make_env
 HARNESS_SESS_PREFIX=hz
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER="acme"
+HARNESS_REPO="acme/widget"; HARNESS_OWNER="acme"
 HARNESS_SPEC="docs/spec.md"; PROMPTS_DIR="$HERE/../prompts"
 TMPCO="$(mktemp -d)"; unit_checkout(){ echo "$TMPCO"; }
 LAUNCH="$RUN_DIR/launch.log"; : > "$LAUNCH"

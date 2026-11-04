@@ -14,11 +14,11 @@ finish(){ echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"; [[ $TESTS_F
 # those to throwaways on purpose, so unsetting them here would undo the isolation. Every other
 # HARNESS_* the engine exports belongs here — snapshot_gate's HARNESS_SNAPSHOT_FILE/_DIR and each
 # adapter's _BIN too (#333); test_hermetic.sh fails on any export this list misses.
-HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HARNESS_SPEC
+HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HARNESS_SPEC
   HARNESS_AUTONOMOUS HARNESS_POOL HARNESS_CAP HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_SESS_PREFIX
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED HARNESS_LABEL_BUG
-  HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_MAIN_REPO HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER
+  HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER
   HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI
   HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE
   HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_BLOCKED_BACKOFF_MIN HARNESS_SELFPARK_GRACE_MIN
@@ -208,7 +208,17 @@ make_env(){
   POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
   mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$POLLER_REGISTRY_DIR" "$HARNESS_SNAPSHOTS_DIR"
   TARGETS_TSV="$RUN_DIR/targets.tsv"; COMPLETE_SET="$RUN_DIR/complete.set"; : > "$TARGETS_TSV"; : > "$COMPLETE_SET"; POLL=0
-  HARNESS_TOPOLOGY=multi   # tests that feed targets.tsv use multi; single-topology tests set it themselves
+  # TEST-ONLY unit registry (the engine has none since #473: one fleet = one repo = one unit). Engine tests
+  # whose subject is unit-agnostic (claims, the stall banner, supervise, usage…) still want several named
+  # units to tell their claims/sessions apart, so write_targets feeds them rows of
+  # `id <TAB> repo <TAB> deps <TAB> desc` and these overrides read them — a fixture seam like unit_complete
+  # below, never engine behavior. With no rows written the real one-repo functions answer.
+  _fx_row(){ awk -F'\t' -v s="$1" '!/^#/ && $1==s {print; exit}' "$TARGETS_TSV"; }
+  _fx_rows(){ [[ -s "$TARGETS_TSV" ]] && grep -qv '^#' "$TARGETS_TSV"; }
+  all_units(){ if _fx_rows; then awk -F'\t' '!/^#/ && NF>=2 {print $1}' "$TARGETS_TSV"; else fleet_unit; fi; }
+  unit_repo(){ if _fx_rows; then _fx_row "$1" | awk -F'\t' '{print $2}'; else echo "$HARNESS_REPO"; fi; }
+  unit_desc(){ if _fx_rows; then _fx_row "$1" | awk -F'\t' '{print $4}'; else echo "${HARNESS_REPO##*/}"; fi; }
+  unit_checkout(){ if _fx_rows; then echo "$CHECKOUTS_DIR/$(unit_repo "$1" | sed 's#.*/##')"; else fleet_checkout; fi; }
   unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }
 }
 # gitattr_eol <tree> <path>… — the eol attribute <tree>'s own .gitattributes gives each path, one per

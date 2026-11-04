@@ -2,13 +2,13 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RUN_DIR="$(mktemp -d)"
-out="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out="$(HARNESS_REPO=acme/widget bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out" | grep -qiE "worker" && echo "  ok: status mentions workers" || { echo "  FAIL"; exit 1; }
 echo "── status smoke ok"
 
 # paused state renders "PAUSED": create the flag in the SAME RUN_DIR the status run uses
 mkdir -p "$RUN_DIR"; touch "$RUN_DIR/PAUSED"
-out3="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out3="$(HARNESS_REPO=acme/widget RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out3" | grep -qi paused && echo "  ok: status shows PAUSED when flag set" || { echo "  FAIL: no PAUSED"; exit 1; }
 
 # --- IDLE/WATCHING verdict (#24): resident workers + all units complete -----------
@@ -70,8 +70,7 @@ echo "$v_deg_paused" | grep -qi 'PAUSED' && echo "  ok: paused wins over a stray
 DRUN="$(mktemp -d)"; echo 999999 > "$DRUN/worker-1.pid"
 tmux(){ case "${1:-}" in ls) printf 'hz-acme_widget-i5\n';; has-session) return 1;; *) return 0;; esac; }
 export -f tmux
-DTSV="$(mktemp)"   # empty targets.tsv -> hermetic
-out_deg="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget POOL=1 TARGETS_TSV="$DTSV" RUN_DIR="$DRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out_deg="$(HARNESS_REPO=acme/widget POOL=1 RUN_DIR="$DRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux
 fleet_deg="$(echo "$out_deg" | grep 'FLEET:')"
 echo "$fleet_deg" | grep -qi 'STOPPED' && { echo "  FAIL: e2e dead-pids+live-session reported STOPPED — got [$fleet_deg]"; exit 1; } || true
@@ -80,13 +79,13 @@ echo "── status DEGRADED (unclean-death sessions live) ok"
 
 # --- priority-lane row renders (#35) ----------------------------------------
 # A lane DOWN (no priority.pid) still prints its row.
-out_down="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$(mktemp -d)" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out_down="$(HARNESS_REPO=acme/widget RUN_DIR="$(mktemp -d)" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out_down" | grep -qiE 'priority lane' && echo "  ok: status renders a priority-lane row" || { echo "  FAIL: no priority-lane row"; exit 1; }
 
 # Lane alive with no bug claimed -> row shows UP + "watching"; lane-only fleet NOT STOPPED end-to-end.
 LRUN="$(mktemp -d)"; sleep 30 & LANE_PID=$!
 echo "$LANE_PID" > "$LRUN/priority.pid"
-out_watch="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out_watch="$(HARNESS_REPO=acme/widget RUN_DIR="$LRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out_watch" | grep -qi 'watching' && echo "  ok: live lane with no bug shows 'watching'" || { echo "  FAIL: expected 'watching' in lane row"; kill "$LANE_PID" 2>/dev/null; exit 1; }
 fleet_line="$(echo "$out_watch" | grep 'FLEET:')"
 echo "$fleet_line" | grep -qi 'STOPPED' && { echo "  FAIL: lane-only-alive fleet reported STOPPED — got [$fleet_line]"; kill "$LANE_PID" 2>/dev/null; exit 1; } || true
@@ -97,7 +96,7 @@ kill "$LANE_PID" 2>/dev/null
 LRUN2="$(mktemp -d)"; sleep 30 & LANE2=$!
 echo "$LANE2" > "$LRUN2/priority.pid"
 mkdir -p "$LRUN2/claims"; printf 'P1 %s\n' "$LANE2" > "$LRUN2/claims/bug-42.claim"
-out_bug="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget RUN_DIR="$LRUN2" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out_bug="$(HARNESS_REPO=acme/widget RUN_DIR="$LRUN2" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 echo "$out_bug" | grep -qi 'bug #42' && echo "  ok: lane row shows the claimed bug number" || { echo "  FAIL: lane row missing 'bug #42'"; kill "$LANE2" 2>/dev/null; exit 1; }
 kill "$LANE2" 2>/dev/null
 echo "── status priority-lane row ok"
@@ -132,8 +131,7 @@ echo "$EP" > "$ERUN/priority.pid"
 printf 'P1 %s acme/a#6\n' "$EP" > "$ERUN/claims/bug-acme_a-6.claim"
 tmux(){ case "$1" in ls) printf 'hz-bug-acme_a-6-fix\n';; has-session) return 1;; *) return 0;; esac; }
 export -f tmux
-ETSV="$(mktemp)"   # empty targets.tsv -> no unit loops, hermetic
-oute="$(HARNESS_TOPOLOGY=multi HARNESS_OWNER=acme TARGETS_TSV="$ETSV" RUN_DIR="$ERUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+oute="$(HARNESS_OWNER=acme RUN_DIR="$ERUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 kill "$EP" 2>/dev/null; unset -f tmux
 echo "$oute" | grep -qE 'bug acme/a#6 \(fix\)' && echo "  ok: multi lane row renders the repo-qualified bug + phase" || { echo "  FAIL: lane row not 'bug acme/a#6 (fix)' — got [$(echo "$oute" | grep -i 'bug ')]"; exit 1; }
 echo "$oute" | grep -q 'acme_a-6'  && { echo "  FAIL: sanitised claim key leaked into the render"; exit 1; } || echo "  ok: sanitised key not shown"
@@ -146,7 +144,7 @@ echo "== status names this fleet's prefix and any siblings on the host =="
 export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
 ( STATE_DIR=/p/sib/.harness RUN_DIR=/p/sib/.harness/run HARNESS_SESS_PREFIX=sibling fleet_register )
 tmux(){ return 1; }; export -f tmux
-OUT="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+OUT="$(HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux
 # IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would spawn a child that never had OUT
 # exported, matching against an empty string. See the note in test_prefix_guard.sh.
@@ -177,7 +175,7 @@ export HARNESS_POLLER_DIR="$HARNESS_HOME/poller"
 export POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
 poller_register acme/gadget 60 pollsib /p/pollsib/.harness
 tmux(){ return 1; }; export -f tmux
-POUT="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+POUT="$(HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux
 contains 'sibling fleet: pollsib +/p/pollsib \(acme/gadget\)' "$POUT" \
   && echo "  ok: status names a poller sibling's repo slugs" \
@@ -192,7 +190,7 @@ sleep 60 & W1=$!; sleep 60 & W2=$!; sleep 60 & W3=$!
 echo "$W1" > "$WRUN/worker-1.pid"; echo "$W2" > "$WRUN/worker-2.pid"; echo "$W3" > "$WRUN/worker-3.pid"
 printf '1 %s IMPL:7 hz-main-i7 -\n'      "$W1" > "$WRUN/claims/impl-7.claim"
 printf '2 %s DECOMPOSE:41 hz-main-p41 -\n' "$W2" > "$WRUN/claims/orch-41.claim"
-out_w="$(HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget POOL=3 RUN_DIR="$WRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
+out_w="$(HARNESS_REPO=acme/widget POOL=3 RUN_DIR="$WRUN" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 kill "$W1" "$W2" "$W3" 2>/dev/null
 echo "$out_w" | grep -qE 'worker-1 +→ #7 hz-main-i7 \S+' \
   && echo "  ok: worker-1 row shows its issue, session and state" || { echo "  FAIL: no 'worker-1 → #7 hz-main-i7 <state>' row"; echo "$out_w"; exit 1; }

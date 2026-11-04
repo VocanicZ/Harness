@@ -20,7 +20,7 @@ printf '#!/bin/sh\necho "$@" >> %q\nexit 127\n' "$T/tmux.calls" > "$T/bin/tmux";
 printf '#!/bin/sh\necho "$@" >> %q\n' "$T/gh.calls" > "$T/bin/gh"; chmod +x "$T/bin/gh"
 export PATH="$T/bin:$PATH"
 export RUN_DIR HARNESS_SESS_PREFIX=hst HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
-export HARNESS_TOPOLOGY=multi TARGETS_TSV="$T/targets.tsv"; printf 'u\towner/repo\t-\tdesc\n' > "$TARGETS_TSV"
+export HARNESS_UNIT=u HARNESS_REPO=owner/repo
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
 export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_SUPERVISE_CONF="$T/none.conf" HARNESS_SUPERVISE_STATE="$T/sup" HARNESS_SUPERVISE_LOG="$T/sup.log"

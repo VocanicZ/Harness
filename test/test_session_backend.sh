@@ -161,7 +161,7 @@ assert_eq "$argv" "$ROOT/scripts/cli/claude_headless.py pane --lane /lanes/hz-ma
 
 echo "== harness init writes the key; doctor reports it =="
 proj="$RUN_DIR/proj"; mkdir -p "$proj"
-init(){ ( cd "$proj" && unset STATE_DIR && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single \
+init(){ ( cd "$proj" && unset STATE_DIR && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only \
   HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=sbt "$@" bash "$ROOT/scripts/init.sh" ) </dev/null; }
 init env >/dev/null 2>&1
 assert_ok "init writes HARNESS_SESSION_BACKEND (tmux)" grep -qxF ': "${HARNESS_SESSION_BACKEND:=tmux}"' "$proj/.harness/config"

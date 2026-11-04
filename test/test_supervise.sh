@@ -137,8 +137,7 @@ echo base >"$T/wt/a.txt"; echo task0 >"$T/wt/.harness-task.md"; gc "$T/wt" add -
 gc "$T/wt" checkout -qb issue/7
 echo "work in progress" >"$T/wt/b.txt"; mkdir -p "$T/wt/.claude"; echo x >"$T/wt/.claude/ralph-loop.local.md"
 echo task >"$T/wt/.harness-task.md"; gc "$T/wt" add .harness-task.md        # staged by the agent, still never committed
-HARNESS_SESS_PREFIX=tp HARNESS_TOPOLOGY=multi
-TARGETS_TSV="$T/targets.tsv"; printf 'u\towner/repo\t-\tdesc\n' >"$TARGETS_TSV"
+HARNESS_SESS_PREFIX=tp HARNESS_UNIT=u HARNESS_REPO=owner/repo
 echo "$T/wt" >"$RUN_DIR/tp-u-i7.wd"
 mk tp-u-i7 "sleep 300"
 sup_checkpoint_and_kill tp-u-i7 130 "❯ frozen screen"

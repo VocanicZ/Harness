@@ -9,7 +9,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
+HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
 
 # session_live driven by a $LIVE listing — same rig as test_priority's reap_lane test.
 LIVE="$RUN_DIR/live_sessions"; : > "$LIVE"

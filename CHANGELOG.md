@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Delete the multi-topology code paths: `targets.tsv`, `HARNESS_TOPOLOGY`, unit deps, `HARNESS_MAIN_REPO` (#473)
+
+- With one fleet = one repo (#464), the engine no longer has a second mode. `unit_deps`, `deps_complete`,
+  `_tgt_field` / `_tgt_row`, `ensure_checkout`, the old whole-unit worker loop and every `HARNESS_TOPOLOGY`
+  branch are gone from `lib.sh`, `drive.sh`, `pool-worker.sh`, `init.sh`, `seed.sh`, `setup.sh`,
+  `forecast.py` and `stats.py`. `harness init` no longer asks for a topology and always asks for the repo.
+- A config with no `HARNESS_UNIT` now just takes the defaults: unit `main`, checkout `$PROJECT_ROOT`. A stray
+  `HARNESS_TOPOLOGY` line or `targets.tsv` beside it is ignored, not read. The migration (#467) has already
+  written `HARNESS_UNIT` / `HARNESS_CHECKOUT` for every registered fleet.
+- `HARNESS_MAIN_REPO` and the umbrella-repo code path that read it are removed.
+- `scripts/fleet-migrate.sh` and `fleet_migrate.py` are the only code that still reads `targets.tsv` /
+  `HARNESS_TOPOLOGY`, so a not-yet-migrated fleet is still converted by `harness start` / `harness update`.
+- `docs/reference.md` updated. Tests that fed a multi-unit registry through `targets.tsv` now use a
+  test-only fixture registry in `test/helpers.sh`; `test_registry.sh` and `test_one_repo.sh` pin the one-repo
+  behaviour and that a leftover `targets.tsv` / topology key is not read.
+
 ### Status, web dashboard and stats show workers and their issues instead of units (#472)
 
 - `harness status` prints one row per worker: `worker-N → #<issue> <session> <state>` for a worker running a

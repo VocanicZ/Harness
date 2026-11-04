@@ -5,43 +5,26 @@ source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
 _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
 source "$HERE/../scripts/pool-worker.sh"   # defines worker_tick; main() guarded out
 source "$HERE/helpers.sh"; make_env
-HARNESS_TOPOLOGY=multi
-write_targets <<'EOF'
-a	acme/a	-	root
-b	acme/b	a	needs a
-EOF
 seed_if_needed(){ :; }            # no real gh
-drive_unit(){ set_complete $(cat "$COMPLETE_SET") "$1"; }  # "driving" marks it complete
-set_complete
-worker_tick W1; assert_eq "$?" "0" "claimed a + drove -> rc 0"
-assert_ok "a now complete" unit_complete a
-worker_tick W1; assert_eq "$?" "0" "claimed b + drove -> rc 0"
-worker_tick W1; assert_eq "$?" "2" "all complete -> rc 2 (resident: idle, not retire)"
 
-# --- resident pool (#24): worker_step idles on all_complete instead of retiring ----
-# worker_step wraps worker_tick: rc 0 does work, rc 2 (all_complete) logs an idle banner
-# ONCE per idle streak (deduped across polls) and keeps polling — it must NOT exit.
-# This is the direct-gh loop: the host poller is ON by default since #182, so switch it off here
-# (the snapshot-gated loop is covered in the PRD-B section below).
-HARNESS_USE_POLLER=0
-POLL=0
-IDLELOG="$RUN_DIR/idle.log"; : > "$IDLELOG"
-worker_step W1 >>"$IDLELOG" 2>&1; assert_eq "$?" "2" "worker_step: all_complete -> rc 2 (no exit/retire)"
-worker_step W1 >>"$IDLELOG" 2>&1
-worker_step W1 >>"$IDLELOG" 2>&1; assert_eq "$?" "2" "worker_step: still resident after 3 polls"
-assert_eq "$(grep -c 'idle, watching' "$IDLELOG")" "1" "worker_step: idle banner logged exactly once (deduped)"
-
-# inject new claimable work -> claimed on the NEXT poll with no restart; dedup resets
-write_targets <<'EOF'
-a	acme/a	-	root
-b	acme/b	a	needs a
-c	acme/c	-	injected
-EOF
-worker_step W1 >>"$IDLELOG" 2>&1; assert_eq "$?" "0" "worker_step: injected unit claimed+driven -> rc 0 (no restart)"
-assert_ok "injected unit c now complete" unit_complete c
-: > "$IDLELOG"
-worker_step W1 >>"$IDLELOG" 2>&1; assert_eq "$?" "2" "worker_step: all complete again -> rc 2"
-assert_eq "$(grep -c 'idle, watching' "$IDLELOG")" "1" "worker_step: idle banner re-logged after work (dedup reset)"
+# --- resident pool (#24): worker_step idles on a COMPLETE repo instead of retiring ----
+# worker_step wraps worker_tick: rc 0 did work, rc 2 (the repo is COMPLETE) logs an idle banner ONCE per
+# idle streak (deduped across polls) and keeps polling — it must NOT exit; work (rc 0) resets the dedup.
+# Run in a subshell so its stubs leak nowhere. HARNESS_USE_POLLER=0: the direct-gh loop (the host poller is ON
+# by default since #182; the snapshot-gated loop is covered in the PRD-B section below).
+idle_streak(){ (
+  HARNESS_USE_POLLER=0; POLL=0; IDLELOG="$RUN_DIR/idle.log"; : > "$IDLELOG"
+  roots_check(){ :; }; gc_orphan_goals(){ :; }; gh_rate_wait(){ :; }; usage_watch(){ :; }; sleep(){ :; }
+  worker_chores(){ :; }; worker_tend(){ :; }
+  TICK_RC=2; worker_tick(){ return "$TICK_RC"; }
+  worker_step W1 >>"$IDLELOG" 2>&1; r1=$?
+  worker_step W1 >>"$IDLELOG" 2>&1
+  worker_step W1 >>"$IDLELOG" 2>&1; r3=$?
+  b1="$(grep -c 'idle, watching' "$IDLELOG")"
+  TICK_RC=0; worker_step W1 >>"$IDLELOG" 2>&1; rw=$?
+  : > "$IDLELOG"; TICK_RC=2; worker_step W1 >>"$IDLELOG" 2>&1; r5=$?
+  echo "$r1 $r3 $b1 $rw $r5 $(grep -c 'idle, watching' "$IDLELOG")" ); }
+assert_eq "$(idle_streak)" "2 2 1 0 2 1" "worker_step: COMPLETE -> rc 2 and resident, banner once, work resets the dedup"
 
 # ───────────────────── PRD-B slice 3 (#72): pool worker snapshot dispatch gate ─────────────────────
 # With HARNESS_USE_POLLER set the pool reads dispatch from the host snapshot instead of GitHub. A
@@ -55,7 +38,7 @@ POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_
 mkdir -p "$HARNESS_SNAPSHOTS_DIR" "$POLLER_REGISTRY_DIR"
 export HARNESS_HOME HARNESS_POLLER_DIR HARNESS_SNAPSHOTS_DIR
 export HARNESS_POLLER_CMD="sleep 30"            # stand-in poller: ensure_poller won't launch the real loop
-HARNESS_USE_POLLER=1; HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
+HARNESS_USE_POLLER=1; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme
 poller_register acme/widget 60 hz "$S3/proj"    # so poller_cadence_for acme/widget = 60 (the refresh interval)
 s3_snap(){ cat > "$HARNESS_SNAPSHOTS_DIR/acme__widget.json" <<JSON
 {"schema_version":1,"generated_at":$1,"slug":"acme/widget","issues":[{"number":8,"title":"free","state":"OPEN","body":"","labels":[{"name":"ready-for-agent"}],"author":{"login":"me"}}],"has_plan":false,"plan_marker":null,"self_login":"me"}

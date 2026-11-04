@@ -78,9 +78,8 @@ role_ask HARNESS_MODEL_IMPLEMENTER  implementer model  "Implementer model (issue
 role_ask HARNESS_EFFORT_IMPLEMENTER implementer effort "Implementer effort"
 echo "roles ($(cli_name)): manager ${HARNESS_MODEL_MANAGER:-<CLI default>}/${HARNESS_EFFORT_MANAGER:-<CLI default>}, implementer ${HARNESS_MODEL_IMPLEMENTER:-<CLI default>}/${HARNESS_EFFORT_IMPLEMENTER:-<CLI default>}"
 ask HARNESS_MODE       "Mode (issue-only|prd|planned)"   "${HARNESS_MODE:-issue-only}"
-ask HARNESS_TOPOLOGY   "Topology (single|multi)"          "${HARNESS_TOPOLOGY:-single}"
 ask HARNESS_OWNER      "GitHub owner/org"                 "${HARNESS_OWNER:-}"
-[[ "$HARNESS_TOPOLOGY" == single ]] && ask HARNESS_REPO "Target repo (owner/repo)" "${HARNESS_REPO:-}"
+ask HARNESS_REPO       "Target repo (owner/repo)"         "${HARNESS_REPO:-}"
 [[ "$HARNESS_MODE" == planned ]] && ask HARNESS_SPEC "Spec path (planned mode)" "${HARNESS_SPEC:-}"
 # Only prd/planned have a REVIEW stage, so only they can run the audit; issue-only keeps the default.
 [[ "$HARNESS_MODE" == prd || "$HARNESS_MODE" == planned ]] && \
@@ -107,7 +106,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
-  for v in "$CLI_CONFIG_VAR" HARNESS_MODE HARNESS_TOPOLOGY HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+  for v in "$CLI_CONFIG_VAR" HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
@@ -126,9 +125,8 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 echo "wrote $CONFIG"
 if [[ "$ni" != 1 ]]; then
   source "$ENGINE_DIR/scripts/lib.sh"
-  if [[ "$HARNESS_TOPOLOGY" == single ]]; then seed_if_needed main
-  else [[ -f "$TARGETS_TSV" ]] || printf '# id\trepo\tdeps(comma|-)\tdesc\n' > "$TARGETS_TSV"; echo "edit $TARGETS_TSV to list your repos + deps"; fi
-elif [[ "$HARNESS_TOPOLOGY" == single && "${HARNESS_INIT_SEED:-1}" != 0 ]]; then
+  seed_if_needed main
+elif [[ "${HARNESS_INIT_SEED:-1}" != 0 ]]; then
   # #432: a non-interactive init (an agent's shell — `/harness <idea>` step 2) seeds the labels too,
   # when gh is signed in: the very next step files the PRD with `gh issue create --label prd`, which
   # fails "could not add label: 'prd' not found" on a fresh repo. Labels only — disabling the repo's

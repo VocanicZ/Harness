@@ -23,7 +23,7 @@ echo "=== full bootstrap: the CI workflow is OPT-IN (HARNESS_SEED_CI, default 0)
 gh(){ echo "$*" >> "$CALLS"
   case "$*" in *"contents/.github/workflows/ci.yml"*"--method PUT"*|*"--method PUT"*"contents/.github/workflows/ci.yml"*) return 0;;
                *"contents/.github/workflows/ci.yml"*) return 1;; esac; return 0; }
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 : > "$CALLS"; ( unset HARNESS_SEED_CI; source "$HERE/../scripts/seed.sh" main ) >/dev/null 2>&1
 assert_no "default: no ci.yml committed to the target repo" grep -q -- "--method PUT repos/acme/widget/contents/.github/workflows/ci.yml" "$CALLS"
 assert_no "default: no branch protection requiring a CI check that will never report" grep -q "branches/main/protection" "$CALLS"

@@ -29,7 +29,7 @@ EOF
 S=hz-main-i5
 setup(){
   make_env
-  HARNESS_TOPOLOGY=single; HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; POOL=1; POLL=0
+  HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; POOL=1; POLL=0
   UNIT=main; REPO="acme/widget"; SLUG="acme/widget"; PROJECT=main; DESC=widget; CHECKOUT="$RUN_DIR/co"
   export HARNESS_AUTONOMOUS=true HARNESS_MODE=issue-only HARNESS_POOL_TAKES_BUGS=0
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"

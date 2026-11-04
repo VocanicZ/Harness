@@ -34,7 +34,7 @@ EOF
 assert_eq "$(security_audit_round 7)" "2" "one fleet audit marker -> round 2; outsider + gauntlet markers ignored"
 
 echo "=== spawn_orch REVIEW render vars ==="
-UNIT=main; PROJECT=main; DESC=widget; CHECKOUT="$(mktemp -d)"; HARNESS_TOPOLOGY=single
+UNIT=main; PROJECT=main; DESC=widget; CHECKOUT="$(mktemp -d)"; 
 CALLS="$RUN_DIR/calls"
 render(){ echo "render $*" >> "$CALLS"; }
 launch_claude(){ :; }; default_branch(){ echo main; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }; remove_worktree(){ :; }

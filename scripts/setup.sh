@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # setup.sh — config-driven bring-up: verify prerequisites, then seed the configured labels
-# on every unit (single = HARNESS_REPO; multi = each targets.tsv row). Idempotent. Does NOT start.
+# on the fleet's repo (HARNESS_REPO). Idempotent. Does NOT start.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-echo "── Harness setup (mode=$HARNESS_MODE topology=$HARNESS_TOPOLOGY cli=$(cli_name)) ──"
+echo "── Harness setup (mode=$HARNESS_MODE cli=$(cli_name)) ──"
 for b in $(sess_bins); do command -v "$b" >/dev/null || die "$b not found — install $b"; done
 # #188/#253: the agent CLI's binary and the plugins its lanes need — checked, and what is missing
 # installed (cli_prereqs --install). Anything still missing after that is fatal: a lane without its
@@ -28,7 +28,7 @@ else
   echo "    Install it with:  npx -y github:VocanicZ/rtdd     (or: harness update)"
 fi
 
-if [[ "$HARNESS_TOPOLOGY" == single && -z "$HARNESS_REPO" ]]; then
+if [[ -z "$HARNESS_REPO" ]]; then
   die "HARNESS_REPO is empty — run 'harness init' first"
 fi
 

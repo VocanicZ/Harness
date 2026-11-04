@@ -96,7 +96,7 @@ assert_eq "$rc" "0" "a failing event log never fails the poll"
 rm -rf "$RUN_DIR/usage-readings"
 
 # ── C: crossing the threshold checkpoints every live session and holds claims ──
-export HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_USAGE_CHECKPOINT_PCT=90
+export HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_USAGE_CHECKPOINT_PCT=90
 CALLS="$RUN_DIR/calls"; : > "$CALLS"
 PANE="$RUN_DIR/pane"; printf '%s\n' 'Working… (esc to interrupt)' > "$PANE"
 tmux(){ echo "tmux $*" >> "$CALLS"
@@ -241,7 +241,7 @@ _checkpoint_target hz-main-p0; rc=$?
 assert_eq "$rc" "1" "an orch session does not resolve to a checkpoint target"
 
 # an unresolvable repo never reaches gh (gh -R "" would hit the cwd's repo)
-HARNESS_TOPOLOGY=multi; : > "$TARGETS_TSV"; : > "$CALLS"
+HARNESS_REPO=""; HARNESS_OWNER=""; : > "$CALLS"
 mechanical_checkpoint hz-ghost-i120 "$(cat "$PANE")"; rc=$?
 assert_eq "$rc" "1" "unresolved repo: no checkpoint"
 assert_no "unresolved repo: gh never called" grep -q '^gh ' "$CALLS"

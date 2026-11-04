@@ -125,7 +125,7 @@ stub_bug(){ : > "$CALLS"
   default_branch(){ echo main; }; ensure_safe(){ :; }; ensure_checkout(){ :; }
   session_live(){ return 1; }   # stubbed launch -> no live session -> no blocking wait
 }
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 
 # triage phase
 stub_bug; _bug_labels(){ echo "bug"; }
@@ -251,7 +251,7 @@ assert_no "drive_bug does NOT reap the worktree branch when paused (drains)" \
 # (working-tree yank) therefore corrupted the in-flight triage. Fix = give triage its own worktree,
 # exactly like spawn_impl / the bug FIX phase. This is the real-git regression proving isolation.
 make_env
-HARNESS_TOPOLOGY=single; HARNESS_REPO=acme/widget
+HARNESS_REPO=acme/widget
 UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; HARNESS_SPEC=""
 unset -f git 2>/dev/null || true   # earlier tests stubbed git — the isolation proof needs REAL git
 ORIGIN="$RUN_DIR/origin.git"; git init -q --bare "$ORIGIN"

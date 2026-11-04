@@ -2,11 +2,11 @@
 # migrate.sh — convert a VENDORED .harness/ (the pre-#52 layout: engine code + its own .git living
 # inside the project's .harness/ next to the project state) into a STATE-ONLY .harness/ that runs off
 # the single shared host engine (~/.harness/engine, #54). Preserves every per-project STATE artifact
-# (config, targets.tsv, run/ incl. claims/, worktrees/, checkouts/, prompts/*.local.md) and removes
+# (config, run/ incl. claims/, worktrees/, checkouts/, prompts/*.local.md) and removes
 # the vendored engine clone + its .git. Idempotent. Refuses if the shared engine isn't installed.
 #
-# Worktree safety: single-topology worktrees are git worktrees of PROJECT_ROOT (the parent repo, not
-# .harness/); multi-topology worktrees register against checkouts/*/.git (preserved). So deleting the
+# Worktree safety: worktrees are git worktrees of the fleet's checkout (the parent repo, not
+# .harness/; any clone under checkouts/ is preserved). So deleting the
 # vendored .harness/.git never corrupts an in-flight worktree (#56, PRD #52).
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -26,7 +26,7 @@ die(){ echo "harness migrate: $*" >&2; exit 1; }
 
 # PRESERVE — the per-project STATE that must survive (kept for the idempotent-rerun no-op and as a
 # belt-and-braces guard so a known state entry is never matched as engine).
-preserve=(config targets.tsv run worktrees checkouts)
+preserve=(config run worktrees checkouts)
 in_preserve(){ local x; for x in "${preserve[@]}"; do [[ "$1" == "$x" ]] && return 0; done; return 1; }
 
 # is_engine_entry NAME — true when NAME is a KNOWN vendored-engine artifact that migrate strips.

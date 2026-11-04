@@ -17,7 +17,6 @@ default_branch(){ gh repo view "$SLUG" --json defaultBranchRef -q .defaultBranch
 # spec-keyed completion marker, so the auto-PLAN gate (issuelib.py) neither stays blocked by the
 # leftover doc nor silently re-fires against the same spec. Idempotent: a no-op once PLAN.md is
 # already archived. git mv/commit/push are best-effort (fall back to plain mv; never abort finalize).
-# (It deliberately does NOT touch targets.tsv — see the note at the end of the function.)
 archive_plan(){
   if [[ -f "$CHECKOUT/PLAN.md" ]]; then
     local ts archived spec_hash
@@ -40,13 +39,6 @@ EOF
     git -C "$CHECKOUT" push -q 2>/dev/null || true
     log "finalize: archived PLAN.md → $archived; wrote $PLAN_MARKER_PATH (spec_hash=${spec_hash:0:12})"
   fi
-  # NOTE: do NOT drop the completed unit's targets.tsv row in multi-topology. targets.tsv is the
-  # dependency registry: downstream units resolve their deps through it (deps_complete →
-  # unit_complete resolves the repo by unit id). Deleting a completed unit's row makes any dependent
-  # unit's deps unresolvable (unit_repo → "-"), so deps_complete fails forever and the whole
-  # downstream DAG freezes after that unit completes. Completion is already recomputed live each poll
-  # (claimable_units skips complete units via unit_complete), so a finished unit is never re-driven
-  # even with its row intact — the row can and must persist.
 }
 
 # check_session_goal <sess> — one live session's goal check: a satisfied goal ends the session, a
@@ -212,14 +204,6 @@ finalize_unit(){
   shopt -u nullglob
 }
 
-ensure_checkout(){  # clone unit repo into $CHECKOUT for multi topology if absent; no-op for single
-  [[ "$HARNESS_TOPOLOGY" == multi ]] || return 0
-  git -C "$CHECKOUT" rev-parse --git-dir >/dev/null 2>&1 && return 0
-  log "cloning $SLUG into $CHECKOUT"
-  git clone "https://github.com/$SLUG.git" "$CHECKOUT" || { log "clone failed for $SLUG"; return 1; }
-  ensure_safe "$CHECKOUT"
-}
-
 # close_prd <prd> — the engine's own PRD close (the CLOSE_PRD dispatch action). REVIEW only SIGNS
 # OFF (applies the reviewed label); the mechanical close lives here so it never depends on the
 # review agent's own `gh issue close` succeeding — a shared-token rate limit could drop that call
@@ -259,7 +243,6 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   # PRD-qualified goal so reap_done_sessions advances the right session when several PRDs are in
   # flight; the unit-level PLAN/PRD actions keep the bare goal.
   GOAL="$action"; (( prd > 0 )) && GOAL="$action:$prd"
-  ensure_checkout || return 1
   ensure_safe "$CHECKOUT"
   base="$(default_branch)"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
@@ -311,7 +294,6 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
 prepare_impl(){   # <ISSUE> <PROMISE>
   local issue="$1"; PROMISE="$2"
   local wd="$WORKTREES_DIR/$UNIT-i$issue" branch="issue/$issue" base; base="$(default_branch)"
-  ensure_checkout || { log "checkout unavailable for #$issue"; return 1; }
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null; then
     git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
@@ -362,7 +344,6 @@ spawn_impl(){   # <ISSUE> <PROMISE>
 spawn_bug(){
   local issue="$1" phase="$2" tmpl wd base handoff=""
   PROMISE="BUG $issue $phase DONE"; MAXITER="$IMPL_MAXITER"; GOAL="BUG:$issue:$phase"; STAT_PRD=""
-  ensure_checkout || { log "checkout unavailable for bug #$issue"; return 1; }
   if [[ "$phase" == fix ]]; then
     # Repo-qualify the worktree dir (#37): issue numbers are per-repo, so two repos can each have
     # a bug #N — a bare bug-i$issue path would collide and block the second fix. The branch lives
@@ -547,8 +528,7 @@ drive_unit(){
       # A unit that is not complete, has nothing in flight and nothing dispatchable used to be
       # unreachable — a closed PRD ended the loop. Completion now also requires open_children == 0,
       # so it IS reachable: one open ready child that no lane can claim (blocked by an unclosed
-      # dep, or agent-blocked under a non-autonomous fleet) holds the unit here indefinitely, and
-      # in multi topology holds every dependent unit behind deps_complete. That is the honest
+      # dep, or agent-blocked under a non-autonomous fleet) holds the unit here indefinitely. That is the honest
       # state, but it must never be a silent one.
       (( active == 0 )) && [[ -z "$actions" ]] && dispatch_stalled_banner "$REPO" "$UNIT"
       while IFS=$'\t' read -r action payload promise; do

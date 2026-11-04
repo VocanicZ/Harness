@@ -15,49 +15,10 @@
 #                lock is released (the claim covers the window)
 # Claims, adoption and the lane keys are described beside lane_claim_key in lib.sh.
 #
-# A config still on `multi` + targets.tsv (HARNESS_UNIT unset, #466) has more than one unit; its workers run
-# the old loop (worker_step_unit: claim a whole unit, drive_unit it) until `harness start` migrates it (#467).
 _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set -uo pipefail
 [[ -z "${_HARNESS_LIB_SOURCED:-}" ]]   && { source "$_PW_HERE/lib.sh";   _HARNESS_LIB_SOURCED=1; }
 [[ -z "${_HARNESS_DRIVE_SOURCED:-}" ]] && { source "$_PW_HERE/drive.sh"; _HARNESS_DRIVE_SOURCED=1; }
-
-# ── the old loop (un-migrated multi configs) ─────────────────────────────────────────────────────────────
-worker_tick_unit(){ local wid="$1" u
-  if is_paused; then return 3; fi
-  if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
-  if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — claim nothing, poll at half rate
-  u="$(claim_next "$wid")"
-  if [[ -z "$u" ]]; then all_complete && return 2; return 1; fi
-  log "worker $wid claimed $u"; seed_if_needed "$u"; drive_unit "$u"; release_claim "$u"; log "worker $wid released $u"; return 0; }
-# One poll cycle. Resident (#24): all_complete (rc 2) no longer retires the worker — it
-# logs an idle banner ONCE per idle streak (deduped via _IDLE_LOGGED) and keeps polling.
-# Real work (rc 0) clears the dedup so a later idle streak re-announces. Workers only ever
-# terminate on stop (kill) or once their roots are deleted (#419); pause keeps them drained (rc 3).
-# Returns worker_tick_unit's rc.
-worker_step_unit(){ local wid="$1"
-  roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
-  gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
-  gh_rate_wait      # #183: rate-limited — sleep until the reset; claim_next's completion reads are gh calls
-  reap_pool_bugs    # #214: tend bug sessions this pool took, even between units
-  # PRD-B slice 3 (#72): with the host poller on (the default since #182), gate dispatch on a fresh host snapshot. A
-  # stale/missing/unknown-schema snapshot HOLDS new dispatch (claim nothing, no gh fallback) — the
-  # gate relaunches the poller; we log a deduped banner and leave in-flight sessions running. Flag
-  # OFF: snapshot_gate returns 0 and this loop is byte-for-byte today's.
-  if ! snapshot_gate; then
-    [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
-    sleep "$POLL"; return 4
-  fi
-  usage_watch   # #194: read usage before claiming, so a crossing checkpoints + holds before this claim
-  worker_tick_unit "$wid"; local rc=$?
-  case "$rc" in
-    0) _IDLE_LOGGED=0 ;;
-    2) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "all COMPLETE — idle, watching"; _IDLE_LOGGED=1; }
-       sleep "$POLL" ;;
-    5) sleep "$(( POLL * 2 ))" ;;
-    *) sleep "$POLL" ;;
-  esac
-  return "$rc"; }
 
 # ── the step-based loop ──────────────────────────────────────────────────────────────────────────────────
 # fleet_ctx — the dynamic-scope variables drive.sh's helpers read, for the fleet's one unit. A caller
@@ -131,9 +92,8 @@ start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0
 
 # worker_tick [wid] — the claim step (4). rc 0 = claimed + spawned a lane, 1 = nothing to claim (or this
 # worker has a lane), 2 = the repo is COMPLETE, 3 = paused / usage held / default branch red, 5 = the GitHub
-# budget is low. A config still on targets.tsv runs the old unit loop.
+# budget is low.
 worker_tick(){ local wid="$1" act pl pr
-  _one_repo || { worker_tick_unit "$wid"; return $?; }
   local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
   if is_paused; then return 3; fi   # pause: no new claim — running lanes are still tended (worker_tend)
   if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
@@ -277,7 +237,6 @@ worker_hold_tick(){ local f sess lockfd
 # 3 paused / held, 4 the host snapshot is stale, 5 the GitHub budget is low. Workers only end on stop (kill)
 # or once their roots are deleted (#419).
 worker_step(){ local wid="$1" rc
-  _one_repo || { worker_step_unit "$wid"; return $?; }
   _WORKER_ID="$wid"
   roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
@@ -303,9 +262,8 @@ worker_step(){ local wid="$1" rc
   return "$rc"; }
 
 main(){ local wid="${1:?usage: pool-worker.sh <worker-id>}"; UNIT="worker-$wid"; _IDLE_LOGGED=0
-  if _one_repo; then log "pool worker $wid up — one lane at a time, at most $POOL at once, poll ${POLL}s"
-  else log "pool worker $wid up — pool $POOL poll ${POLL}s"; fi
+  log "pool worker $wid up — one lane at a time, at most $POOL at once, poll ${POLL}s"
   roots_watch   # #419: the resident loop ends by itself once the roots it serves are deleted
-  _one_repo && seed_if_needed "$(fleet_unit)"   # once, at worker start
+  seed_if_needed "$(fleet_unit)"   # once, at worker start
   while true; do worker_step "$wid"; done; }
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"

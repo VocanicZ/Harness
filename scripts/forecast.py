@@ -488,28 +488,15 @@ def usd_per_pct_setting(state_dir):
 
 # --- project / GitHub --------------------------------------------------------
 def project_units(state_dir):
-    """[(unit, repo)] of the project at state_dir: its one HARNESS_UNIT (`main` by default) on HARNESS_REPO, else targets.tsv rows."""
+    """[(unit, repo)] of the project at state_dir: its one HARNESS_UNIT (`main` by default) on HARNESS_REPO."""
     if not state_dir:
         return []
     # The config file only, never the environment: a lane session exports its own HARNESS_REPO (#186).
     cfg = st.read_config(state_dir)
     owner = cfg.get("HARNESS_OWNER")
     own = lambda r: r if "/" in r or not owner else f"{owner}/{r}"
-    # One repo (#466): HARNESS_UNIT names the unit; a single fleet without one is `main`. A config
-    # with neither (an un-migrated multi fleet) still reads targets.tsv below.
-    unit = cfg.get("HARNESS_UNIT")
-    if unit or cfg.get("HARNESS_TOPOLOGY", "single" if cfg.get("HARNESS_REPO") else "multi") == "single":
-        return [(unit or "main", own(cfg["HARNESS_REPO"]))] if cfg.get("HARNESS_REPO") else []
-    out = []
-    try:
-        with open(os.environ.get("TARGETS_TSV") or os.path.join(state_dir, "targets.tsv")) as fh:
-            for line in fh:
-                cols = line.rstrip("\n").split("\t")
-                if not line.startswith("#") and len(cols) >= 2 and cols[0]:
-                    out.append((cols[0], own(cols[1])))
-    except OSError:
-        pass
-    return out
+    # One repo (#466): HARNESS_UNIT names the unit; without one it is `main`.
+    return [(cfg.get("HARNESS_UNIT") or "main", own(cfg["HARNESS_REPO"]))] if cfg.get("HARNESS_REPO") else []
 
 
 def resolve_repo(issue, repo, unit, events, state_dir):

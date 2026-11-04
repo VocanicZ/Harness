@@ -4,7 +4,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-export HARNESS_MODE=issue-only HARNESS_TOPOLOGY=single HARNESS_REPO=acme/widget HARNESS_OWNER=acme
+export HARNESS_MODE=issue-only HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 
 # ── Phase 1: two open ready issues, no PLAN.md ────────────────────────────────
 STUB="$(mktemp -d)"; export PATH="$STUB:$PATH"

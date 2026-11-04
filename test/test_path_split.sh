@@ -34,7 +34,6 @@ rc=0
   export ENGINE_DIR="$ENG" STATE_DIR="$ST"
   source "$HERE/../scripts/lib.sh"
   assert_eq "$CONFIG"        "$ST/config"        "CONFIG resolves under STATE_DIR"
-  assert_eq "$TARGETS_TSV"   "$ST/targets.tsv"   "TARGETS_TSV resolves under STATE_DIR"
   assert_eq "$RUN_DIR"       "$ST/run"           "RUN_DIR resolves under STATE_DIR"
   assert_eq "$WORKTREES_DIR" "$ST/worktrees"     "WORKTREES_DIR resolves under STATE_DIR"
   assert_eq "$CHECKOUTS_DIR" "$ST/checkouts"     "CHECKOUTS_DIR resolves under STATE_DIR"

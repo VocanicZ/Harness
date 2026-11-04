@@ -97,7 +97,7 @@ Per-CLI setup (`harness setup --install` handles what it can):
 
 A closed PRD is not enough: any open `ready-for-agent` issue keeps the unit incomplete, even one no
 lane can claim (an unclosed `## Blocked by`, or `agent-blocked` on a non-autonomous fleet). The unit
-logs one banner naming what is outstanding. In `multi` topology it also holds every dependent unit.
+logs one banner naming what is outstanding. 
 
 In `issue-only` mode a unit with no `ready-for-agent` issue has nothing to dispatch and idles: label at
 least one.
@@ -124,12 +124,13 @@ into the next PRD when one runs dry. To sequence PRDs, declare in the later one:
 
 The unit is COMPLETE only when every PRD is closed and no unparented issue is still open.
 
-## Topologies
+## One fleet, one repo
 
-| Topology | Description |
-|----------|-------------|
-| `single` | One target repo (`HARNESS_REPO`). Up to `HARNESS_POOL` lanes run at once, one per pool worker ([The pool worker](#the-pool-worker-step-loop)). Default. |
-| `multi` | Multiple repos in a dependency DAG described by `targets.tsv` (`id → repo → deps → desc`). A target unblocks its dependents when it reaches COMPLETE. Peak concurrency = `POOL`. A config that sets `HARNESS_UNIT` (every migrated fleet, [Fleet migration](#fleet-migration-one-fleet--one-repo-467)) is one repo and runs the pool worker below; only a config still on `targets.tsv` runs the old loop (a worker claims a whole unit and drives it). |
+A fleet drives exactly one repo, `HARNESS_REPO`, as one unit named `HARNESS_UNIT` (default `main`) cloned at
+`HARNESS_CHECKOUT` (default `$PROJECT_ROOT`). Up to `HARNESS_POOL` lanes run at once, one per pool worker
+([The pool worker](#the-pool-worker-step-loop)). There is no topology setting, no `targets.tsv` and no unit
+dependency graph (#473): a fleet that used to be `multi` is split into one fleet per repo by
+[Fleet migration](#fleet-migration-one-fleet--one-repo-467), the only place that still reads those files.
 
 ### The pool worker (step loop)
 
@@ -191,10 +192,9 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `HARNESS_MODE` | `issue-only` | Pipeline mode: `issue-only`, `prd`, or `planned` |
-| `HARNESS_TOPOLOGY` | `single` | `single` or `multi` |
 | `HARNESS_OWNER` | _(empty)_ | GitHub owner/org (used to expand bare repo names) |
-| `HARNESS_REPO` | _(empty)_ | Target repo for single topology (`owner/repo`) |
-| `HARNESS_UNIT` | _(empty)_ → `main` | The fleet's one unit: its name in session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`), the default `--unit` of `harness inject` and `harness one`, and the unit `forecast` and `stats` attribute lanes to. Empty = `main` on a `single` fleet, which is what runs today. Setting it makes the fleet read its one repo from `HARNESS_REPO` with no `targets.tsv`; an un-migrated `multi` config without it still resolves through `targets.tsv` (transitional) |
+| `HARNESS_REPO` | _(empty)_ | The fleet's target repo (`owner/repo`) |
+| `HARNESS_UNIT` | _(empty)_ → `main` | The fleet's one unit: its name in session and worktree names (`<prefix>-<HARNESS_UNIT>-i<N>`), the default `--unit` of `harness inject` and `harness one`, and the unit `forecast` and `stats` attribute lanes to. Empty = `main`. The repo always comes from `HARNESS_REPO` |
 | `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the unit checkout, and the bug lanes' checkout); `harness update` / `harness start` write both keys when they migrate a fleet ([Fleet migration](#fleet-migration-one-fleet--one-repo-467)) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
@@ -248,13 +248,13 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
 | `HARNESS_USE_POLLER` | `1` | Host poller, **on by default** (#182): this fleet reads shared host snapshots instead of polling GitHub itself. Empty also means on (configs written before #182 carry an empty value); `0` = direct-`gh` polling. See [Host poller](#host-poller) |
-| `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree (and every multi-topology clone), with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
+| `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree, with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 | `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
 | `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
 | `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `0` | Off by default — Harness projects run [no GitHub CI](#no-github-ci--the-gate-is-local). `1` = hold new dispatch while the default branch's own GitHub CI is red (live sessions drain; the bug lane is never gated), for a project that opted back into Actions. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally |
 | `HARNESS_SWARM` | `auto` | `auto` = when [swarm](https://github.com/VocanicZ/swarm) is on `PATH`, PRD review's full-suite run (the only one in the pipeline — lanes never run the full suite) goes out as a swarm job; `off` = always local. No swarm installed → exactly the local behaviour. See [Offloading tests to swarm](#offloading-tests-to-swarm) |
-| `HARNESS_SEED_CI` | `0` | `1` = when seeding a `multi`-topology unit repo, commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). `1` is an explicit opt-in to GitHub CI, so it also skips `HARNESS_DISABLE_CI` |
+| `HARNESS_SEED_CI` | `0` | `1` = when fully seeding a unit repo (`seed.sh <unit>`), commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). `1` is an explicit opt-in to GitHub CI, so it also skips `HARNESS_DISABLE_CI` |
 | `HARNESS_DISABLE_CI` | `1` | When `harness init` / `harness setup` seed a repo, `gh workflow disable` its existing GitHub Actions and log each one. `1` = test-CI only — a workflow whose name or file says `release`, `deploy`, `publish`, `pages` or `cd` keeps running; `all` = release and deploy too; `0` = touch nothing (the opt-out). See [No GitHub CI](#no-github-ci--the-gate-is-local) |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
 | `HARNESS_ONE_USD_PER_PCT` | _(empty)_ | `harness forecast`'s fallback $ per 1% of a usage window, for an account/window with no calibration yet (no usable `usage_reading` pair). Read from the environment, else this config. Empty = `n/a`. See [Cost forecast](#cost-forecast) |

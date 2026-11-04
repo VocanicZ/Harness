@@ -234,7 +234,7 @@ lane_ok(){ local line uuid sid model effort
 # Call it AFTER sourcing drive.sh, whose own default_branch it replaces.
 lane_env(){ fake_tmux
   UNIT=main PROJECT=main DESC=widget SLUG=acme/widget
-  export HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_TOPOLOGY=single HARNESS_SESS_PREFIX=hz HARNESS_PAUSE_GRACE=2
+  export HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=hz HARNESS_PAUSE_GRACE=2
   CHECKOUT="$RUN_DIR/checkout-$HARNESS_CLI"; mkdir -p "$CHECKOUT" "$WORKTREES_DIR"; git -C "$CHECKOUT" init -q
   ensure_checkout(){ :; }; unit_checkout(){ echo "$CHECKOUT"; }; default_branch(){ echo main; }; pool_live(){ return 0; }
   ensure_safe(){ :; }; run_worktree_hook(){ :; }; remove_worktree(){ :; }; log(){ :; }
@@ -504,7 +504,7 @@ sys.exit(0 if d["rtdd"].get("which") == 1 and by.get(sys.argv[1], {}).get("which
 init_choice_ok(){ local cli="$HARNESS_CLI" d="$RUN_DIR/init-$HARNESS_CLI" out
   mkdir -p "$d"
   ( cd "$d" && env -u HARNESS_CLI STATE_DIR="$d/.harness" HARNESS_INIT_NONINTERACTIVE=1 "$CLI_CONFIG_VAR=$cli" \
-      HARNESS_TOPOLOGY=multi HARNESS_SESS_PREFIX=hzinit bash "$HERE/../scripts/init.sh" ) </dev/null >/dev/null 2>&1 || return 1
+      HARNESS_SESS_PREFIX=hzinit bash "$HERE/../scripts/init.sh" ) </dev/null >/dev/null 2>&1 || return 1
   out="$(cd "$d" && env -u HARNESS_CLI STATE_DIR="$d/.harness" bash -c 'source "$1"; cli_name; cli_launch /wd uuid "" ""' _ \
     "$HERE/../scripts/lib.sh" 2>/dev/null)"
   grep -qxF ": \"\${$CLI_CONFIG_VAR:=$cli}\"" "$d/.harness/config" &&

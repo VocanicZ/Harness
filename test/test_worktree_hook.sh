@@ -72,7 +72,6 @@ spawn_fires_hook(){   # <label> <spawn-invocation...>
     WORKTREES_DIR="$TMP/worktrees"; mkdir -p "$WORKTREES_DIR"
     printf "#!/usr/bin/env bash\ntouch \"\$1/HOOK_RAN\"\n" > "$TMP/hook.sh"; chmod +x "$TMP/hook.sh"
     HARNESS_WORKTREE_HOOK="$TMP/hook.sh"
-    HARNESS_TOPOLOGY=single
     UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; CHECKOUT="$TMP/co"
     # Stub all I/O. `git` is a no-op, so `worktree add` "succeeds" without creating the
     # dir — pre-create every path spawn_* may use so the hook has somewhere to land.
