@@ -138,19 +138,35 @@ worker_tick W1; assert_eq "$?" "0" "the freed slot is taken at once"
 assert_ok "... by the next issue" grep -qx "hz-main-i7" "$LIVE"
 
 echo "=== 3. chores run every tick while every worker is busy (POOL=1) ==="
-setup 1; snap "5:ready-for-agent" "9:"
+setup 1; export HARNESS_MODE=prd; snap "5:ready-for-agent"
 worker_tick W1
+# #527: now the board the chores see — PRD 41 still waits for DECOMPOSE, PRD 50 has an unlabelled child (#9), reviewed
+# PRD 60's only child is closed. The REAL issuelib runs over this snapshot: dispatch() would answer DECOMPOSE 41 alone.
+snap_board(){ python3 - "$SNAP" <<'EOF2'
+import json, sys, time
+def iss(n, labels="", body="x\n", state="OPEN"):
+    return {"number": n, "title": f"t{n}", "state": state, "body": body, "author": {"login": "bot"},
+            "labels": [{"name": l} for l in labels.split(",") if l], "updatedAt": "2026-11-02T02:50:00Z"}
+issues = [iss(5, "ready-for-agent"), iss(41, "prd", "## Problem\nx\n"), iss(50, "prd", "## Problem\nx\n"),
+          iss(9, "", "A follow-up.\n\nPart of #50\n"), iss(60, "prd,reviewed", "## Problem\nx\n"),
+          iss(61, "ready-for-agent", "## Parent\n#60\n", "CLOSED")]
+json.dump({"schema_version": 1, "generated_at": time.time(), "slug": "acme/widget", "issues": issues,
+           "has_plan": False, "plan_marker": None, "self_login": "bot", "ext_deps": {}, "issue_branches": []}, open(sys.argv[1], "w"))
+EOF2
+}
+snap_board
+assert_eq "$(python3 "$ISSUELIB" dispatch acme/widget 99 --allow-orchestration 0 --busy-prds "" | cut -f1,2 | tr '\t\n' ' ')" "DECOMPOSE 41 " "the claim path still answers DECOMPOSE 41 first"
 CHORES="$RUN_DIR/chores"; : > "$CHORES"
 label_ready(){ echo "label $1" >> "$CHORES"; }
 reap_finished_inject(){ echo "inject-loop $1" >> "$CHORES"; }
 reap_team(){ echo reap_team >> "$CHORES"; }; reap_orch(){ echo reap_orch >> "$CHORES"; }
 reap_done_sessions(){ echo reap_done >> "$CHORES"; }; watchdog_team(){ echo watchdog >> "$CHORES"; }
-dispatch_actions(){ [[ "$2" == 99 ]] && printf 'LABEL_READY\t9\t-\nCLOSE_PRD\t41\tPRD CLOSED\n'; return 0; }
 close_prd(){ echo "close $1" >> "$CHORES"; }
 worker_step W1; rc=$?
 assert_eq "$rc" "1" "the busy worker claims nothing more (rc 1)"
 assert_ok "LABEL_READY advanced" grep -qx "label 9" "$CHORES"
-assert_ok "CLOSE_PRD advanced" grep -qx "close 41" "$CHORES"
+assert_ok "CLOSE_PRD advanced" grep -qx "close 60" "$CHORES"
+assert_no "... the undecomposed PRD is not closed" grep -qx "close 41" "$CHORES"
 assert_ok "the inject goal loop was ticked" grep -qx "inject-loop main" "$CHORES"
 assert_ok "the reapers ran" grep -qx reap_team "$CHORES"
 assert_ok "the live lane was tended by its owner" grep -qx "goal hz-main-i5" "$CALLS"

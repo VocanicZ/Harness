@@ -184,7 +184,7 @@ sweep_stale_lane_claims(){ local f k lockfd; shopt -s nullglob
   done
   lock_release "$lockfd"; shopt -u nullglob; }
 
-# chores_slotless — every dispatch action that takes no slot (LABEL_READY, CLOSE_PRD), this tick. On a
+# chores_slotless — every slotless action that takes no slot (LABEL_READY, CLOSE_PRD), this tick. On a
 # COMPLETE repo: archive PLAN.md once (archive_plan is idempotent) and nothing else — never finalize_unit's
 # kill-all, and no lane holding a claim is touched. A new PRD or ready issue makes the repo incomplete again.
 chores_slotless(){ local live allow busy owned actions rc errf action payload promise
@@ -193,10 +193,13 @@ chores_slotless(){ local live allow busy owned actions rc errf action payload pr
   busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)")"
   owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)")"
   errf="$RUN_DIR/$UNIT.dispatch.err"
-  actions="$(dispatch_actions "$REPO" 99 "$allow" "$busy" "$owned" 2>"$errf")"; rc=$?
+  # #527: slotless_actions, not dispatch_actions — dispatch returns early on a DECOMPOSE and never reaches these.
+  actions="$(slotless_actions "$REPO" "$busy" 2>"$errf")"; rc=$?
   [[ -s "$errf" ]] && cat "$errf" >&2
   (( rc == 3 )) && harness_event hold reason="$(hold_reason "$(cat "$errf" 2>/dev/null)")" secs="$POLL"
-  (( live == 0 )) && [[ -z "$actions" ]] && dispatch_stalled_banner "$REPO" "$UNIT"
+  # the banner says "nothing dispatchable": only so when the claim path has nothing either (the chores' own set is slotless only)
+  (( live == 0 )) && (( rc == 0 )) && [[ -z "$actions" ]] \
+    && [[ -z "$(dispatch_actions "$REPO" 99 "$allow" "$busy" "$owned" 2>/dev/null)" ]] && dispatch_stalled_banner "$REPO" "$UNIT"
   while IFS=$'\t' read -r action payload promise; do
     case "$action" in
       CLOSE_PRD)   close_prd "$payload";;

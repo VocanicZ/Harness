@@ -2661,6 +2661,54 @@ def test_stray_child_holds_close_of_a_reviewed_prd():
         assert acts == [("LABEL_READY", "54", "-")], acts
     finally: _restore_repo()
 
+# #527: the pool's chores pass fires every slotless action (LABEL_READY, CLOSE_PRD) however many PRDs
+# still wait for DECOMPOSE. dispatch() returns the DECOMPOSE alone, so slotless_actions() is its own path.
+def _decompose_pending_board():
+    return [
+        _issue(41, labels=["prd"], body="## Problem\nno children yet\n"),             # waits for DECOMPOSE
+        _issue(50, labels=["prd"], body="## Problem\nhas an unlabelled child\n"),
+        _issue(51, body="A follow-up.\n\nPart of #50\n"),                             # no labels
+        _issue(60, labels=["prd", "reviewed"], body="## Problem\nsigned off\n"),
+        _issue(61, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#60\n"),
+    ]
+
+def test_slotless_actions_fire_while_a_prd_waits_for_decompose():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(_decompose_pending_board())
+    try:
+        # the claim path still answers DECOMPOSE alone, before anything else (as today)
+        assert il.dispatch("acme/widget", 99, False) == [("DECOMPOSE", "41", "DECOMPOSE DONE")]
+        acts = il.slotless_actions("acme/widget")
+        assert ("LABEL_READY", "51", "-") in acts, acts
+        assert ("CLOSE_PRD", "60", "PRD CLOSED") in acts, acts
+        assert all(a[0] in ("LABEL_READY", "CLOSE_PRD") for a in acts), acts
+    finally: _restore_repo()
+
+def test_slotless_actions_skip_a_busy_or_unreviewed_prd():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(_decompose_pending_board() + [
+        _issue(70, labels=["prd"]), _issue(71, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#70\n")])
+    try:
+        acts = il.slotless_actions("acme/widget", busy_prds=(60,))
+        assert ("CLOSE_PRD", "60", "PRD CLOSED") not in acts, acts      # a live orch session owns it
+        assert not any(a[1] == "70" for a in acts), acts                # all children closed, not reviewed: REVIEW's job
+    finally: _restore_repo()
+
+def test_cli_slotless_prints_close_prd_and_label_ready():
+    import io, contextlib
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(_decompose_pending_board())
+    real_argv = sys.argv
+    try:
+        for argv, want in [
+            (["issuelib.py", "slotless", "acme/widget"], ["LABEL_READY\t51\t-", "CLOSE_PRD\t60\tPRD CLOSED"]),
+            (["issuelib.py", "slotless", "acme/widget", "--busy-prds", "60"], ["LABEL_READY\t51\t-"]),
+        ]:
+            sys.argv = argv; buf = io.StringIO()
+            with contextlib.redirect_stdout(buf): il.main()
+            assert sorted(buf.getvalue().split("\n")[:-1]) == sorted(want), (argv, buf.getvalue())
+    finally: sys.argv = real_argv; _restore_repo()
+
 def test_labelled_stray_blocks_signoff_but_is_not_relabelled():
     # Any open issue naming the PRD holds sign-off whatever its labels; only an UNLABELLED one is
     # labelled. One carrying a non-lane label no agent can take is named STUCK instead.

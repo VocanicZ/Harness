@@ -740,6 +740,9 @@ dispatch_actions(){ local pfree=() owned=()
   [[ -n "${5:-}" ]] && owned=(--busy-issues "$5")
   python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}" "${owned[@]}" "${pfree[@]}"; }
 
+# slotless_actions <repo> <busy-prds> (#527) — CLOSE_PRD / LABEL_READY only, never masked by a pending DECOMPOSE.
+slotless_actions(){ python3 "$ISSUELIB" slotless "$1" --busy-prds "${2:-}"; }
+
 # --- default-branch CI gate (#50) --------------------------------------------
 # ci_status_default_branch <slug> — `<verdict>\t<workflow>\t<url>`, verdict ∈ pass|fail|unknown.
 # THIS IS THE SEAM tests override (mirrors _repo_bugs / unit_complete); everything below reads the

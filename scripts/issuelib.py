@@ -1463,10 +1463,25 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     # label_ready, one idempotent gh call), so it joins that PRD's children and is dispatched next
     # poll. Takes no slot: there is no session, and it must never wait behind one.
     if a["review"]:
-        for p in prds:
-            if p["open"]:
-                out += [("LABEL_READY", str(n), "-") for n in p.get("unlabelled", ())]
+        out += _label_ready_actions(prds)
     return out
+
+def _label_ready_actions(prds):
+    return [("LABEL_READY", str(n), "-") for p in prds if p["open"] for n in p.get("unlabelled", ())]
+
+def slotless_actions(repo, busy_prds=()):
+    """#527: every action that takes no slot — CLOSE_PRD and LABEL_READY — whatever slot-taking item
+    dispatch() would return first. dispatch() returns early on a DECOMPOSE (or PLAN/PRD), so a pool
+    chores pass built on it never reached these while any PRD waited to be decomposed. The claim path
+    keeps dispatch(); this one skips PLAN/PRD/DECOMPOSE/IMPL/REVIEW/BUG (each takes a session)."""
+    s = compute_state(repo); a = _allowed(MODE()); out = []
+    if not a["review"]: return out
+    busy = set(busy_prds)
+    for p in s["prds"]:
+        if (p["eligible"] and p["number"] not in busy and p["open"] and p["children_all_closed"]
+                and not p.get("stray") and p["reviewed"]):
+            out.append(("CLOSE_PRD", str(p["number"]), "PRD CLOSED"))
+    return out + _label_ready_actions(s["prds"])
 
 def is_complete(s):
     if MODE() == "issue-only":
@@ -1543,6 +1558,13 @@ def main():
                 pfree = int(raw) if raw.strip().isdigit() else None
             kw = {"busy_issues": owned} if owned else {}   # absent → the pre-#416 call shape
             for action, payload, promise in dispatch(repo, free, allow, busy, pfree, **kw): print(f"{action}\t{payload}\t{promise}")
+        elif cmd == "slotless":
+            # slotless <repo> [--busy-prds "41,42"] (#527): CLOSE_PRD / LABEL_READY only, whatever else is pending.
+            busy = ()
+            if "--busy-prds" in sys.argv:
+                raw = sys.argv[sys.argv.index("--busy-prds")+1]
+                busy = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
+            for action, payload, promise in slotless_actions(repo, busy): print(f"{action}\t{payload}\t{promise}")
         elif cmd == "status":
             s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
             prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
