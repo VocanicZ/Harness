@@ -10,8 +10,8 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   lane's inbox through `cli_send` and runs as the next turn, queued behind a turn that is still running.
 - Ctrl-C (or a TERM) detaches: the attach and its watch end, the lane keeps running with its state unchanged.
   Only the inbox / `cli_send` contract is used, so it keeps working on any runner that honours it.
-- `test/test_headless_attach.sh` covers both on Linux against a fake headless lane; `docs/reference.md` documents
-  the attach and its parity-matrix rows.
+- `test/test_headless_attach.sh` covers both against a fake headless lane, on Linux and on native Windows (winsma, in
+  `C:\hx-487\`: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`); `docs/reference.md` documents the attach and flips its parity-matrix rows to `✓`.
 
 ### Shared headless runner core, with `claude` as its first adapter (#480)
 

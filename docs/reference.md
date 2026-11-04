@@ -538,7 +538,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness status` | ✓ | ✓ target (#475 task 8) |
 | `harness one` | ✓ | ✓ target (#475 task 8) |
 | `harness doctor` | ✓ | ✓ |
-| `harness attach` | ✓ | ✓ (read-only watch of a headless lane) |
+| `harness attach` | ✓ | ✓ (headless lane: watch, typed lines, Ctrl-C detach) |
 | `harness pause` | ✓ | ✓ |
 | `harness setup` | ✓ | ✓ target (#475 task 8) |
 | `harness migrate` | ✓ | ✓ target (#475 task 8) |
@@ -573,7 +573,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness-one` | ✓ | ✓ target (#475 task 8) |
 | `inject` | ✓ | ✓ target (#475 task 8) |
 | `pause --force and resume` | ✓ | ✓ |
-| `headless attach: typed lines and Ctrl-C detach` | ✓ target (#475 task 3) | ✓ target (#475 task 3) |
+| `headless attach: typed lines and Ctrl-C detach` | ✓ | ✓ (`test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
 | `install via npx` | ✓ | ✓ target (#475 task 5) |
 | `install via curl` | ✓ | ✓ target (#475 task 5) |
 | `update --rollback` | ✓ | ✓ target (#475 task 5) |
