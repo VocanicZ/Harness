@@ -41,7 +41,8 @@ WD="$RUN_DIR/wd"; mkdir -p "$WD"; echo "the task" > "$WD/.harness-task.md"
 export FAKE_CLAUDE_DIR="$RUN_DIR/fake"; mkdir -p "$FAKE_CLAUDE_DIR"
 printf '%s\n' normal "normal answer to the typed line" normal > "$FAKE_CLAUDE_DIR/plan"
 touch "$FAKE_CLAUDE_DIR/hold"   # the bootstrap turn waits mid-turn until released
-launch_agent "$S" "$WD" >/dev/null 2>&1
+launch_out="$(launch_agent "$S" "$WD" 2>&1)"; launch_rc=$?
+assert_eq "$launch_rc" 0 "launch_agent starts the lane${launch_out:+ ($launch_out)}"
 assert_ok "the lane is live" sess_live "$S"
 RUNNER="$(sess_pane_pid "$S")"
 assert_ok "the bootstrap turn is running" wait_until 10 test "$(lane_state)" = busy
