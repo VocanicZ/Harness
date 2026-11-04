@@ -16,7 +16,7 @@ need(){ command -v "$1" >/dev/null 2>&1; }
 # `rtdd.exe`, looked up by that name first (#495). rc 1 when there is none.
 inst_rtdd(){ local p
   if inst_windows; then p="$(command -v rtdd.exe 2>/dev/null)" && [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }; fi
-  p="$(command -v rtdd 2>/dev/null)" && [[ -n $p ]] && printf '%s\n' "$p"; }
+  need rtdd && printf '%s\n' "$(command -v rtdd)"; }
 # ── native Windows (Git Bash, #356, docs/adr/0001-native-windows-runtime.md) ─────────────────────
 # install.sh runs before any engine exists (`curl | bash`), so it carries its own platform test:
 # portable.sh's is_windows, with the same HARNESS_PLATFORM=windows|posix override the suite forces.
