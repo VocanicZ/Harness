@@ -8,7 +8,7 @@
 #                with this shell's HARNESS_WEB_BIND / HARNESS_WEB_PORT (#226); re-running is
 #                idempotent, and `harness update` re-runs it so the unit follows the engine
 #   --uninstall  stop, disable and remove that unit
-#   On Windows both act on a Task Scheduler task, Harness\harness-web, instead (#356)
+#   On Windows both act on a per-home, logon-only Task Scheduler task, Harness\harness-web[-<hash>], instead (#356, #489)
 WEB_ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # The unit runs the STABLE engine path (#281) when it resolves to this engine; see supervise.sh.
 WEB_LINK="${HARNESS_ENGINE_LINK:-$WEB_ENGINE_DIR}"

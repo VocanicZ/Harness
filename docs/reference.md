@@ -552,12 +552,17 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
   so they keep running after the ssh session that started them ends. `harness stop` stops them by
   their pid files, as on Linux.
 - **Services:** `harness supervise --install` and `harness web --install` register Task Scheduler
-  tasks (`Harness\harness-supervise`, `Harness\harness-web`) in place of the systemd user units. The
-  task runs `$HARNESS_HOME/tasks/<name>.sh`, which reruns the command after each exit (60s for
-  supervise, 5s for web), at boot and at logon. It uses the S4U logon type, so it runs with nobody
-  logged in and stores no password, and it has no run-time limit. Registering the boot trigger needs
-  an administrator. Without one, the task runs at the next logon in your session, and the install says
-  so. `--uninstall`, `harness update` and `uninstall.sh` act on the task as they do on the unit.
+  tasks in place of the systemd user units. The task runs `$HARNESS_HOME/tasks/<name>.sh`, which reruns
+  the command after each exit (60s for supervise, 5s for web). It starts at logon only, in your
+  session, never at boot, so registering it needs no administrator and a reboot does not start a
+  test install's task. It has no run-time limit. The task names are unique per `HARNESS_HOME`: the
+  default `~/.harness` keeps `Harness\harness-supervise` and `Harness\harness-web`, and any other home
+  appends the first 8 hex digits of a SHA-256 of its path (`Harness\harness-supervise-1a2b3c4d`), so a
+  test install never collides with a real one. `--uninstall`, `harness update` and `uninstall.sh` act
+  on the current home's task as they do on the unit, and leave other homes' tasks alone. An install
+  made before this change registered the same names with a boot trigger; re-running
+  `harness supervise --install` / `harness web --install` (which `harness update` does) re-registers
+  them logon-only.
 - **`harness doctor`** adds a `windows:` section that checks the headless backend, that the shell and
   the tasks' `bash.exe` are Git's (`uname -s` MINGW/MSYS, not WSL), that a Python 3 runs, that a
   symlink can be made, that the engine is LF, and that `schtasks`, `powershell` and `taskkill` are
@@ -1349,7 +1354,8 @@ Log: `~/.harness/supervise.log`. Preview a pass with `harness supervise --once -
 
 `harness supervise --install` installs and starts the `harness-supervise.service` systemd user unit
 (with linger); `--uninstall` removes it. On native Windows it registers the Task Scheduler task
-`Harness\harness-supervise` instead ([Native Windows](#native-windows)).
+`Harness\harness-supervise` (with a hash of `HARNESS_HOME` appended for any home but `~/.harness`) instead
+([Native Windows](#native-windows)).
 
 ## Dashboard
 

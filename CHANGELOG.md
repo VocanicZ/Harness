@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Per-`HARNESS_HOME`, logon-only Task Scheduler tasks on Windows (#489)
+
+- The `supervise --install` and `web --install` tasks are named per `HARNESS_HOME`. The default `~/.harness` keeps
+  `Harness\harness-supervise` and `Harness\harness-web`, so existing installs are unchanged. Any other home appends
+  the first 8 hex digits of a hash of its path, e.g. `Harness\harness-supervise-1a2b3c4d`, so two homes on one
+  machine (a test install beside a real one) get distinct tasks, and uninstalling one leaves the other's alone.
+- The tasks are registered with a logon trigger only, never a boot trigger. They always use the interactive logon
+  type, so installing no longer needs an administrator and no longer prints the "could not register to start at
+  boot" warning. An existing install keeps its boot trigger until `harness supervise --install` /
+  `harness web --install` (or `harness update`) re-registers it.
+
 ### Headless turn adapter for `hermes` (#484)
 
 - `hermes` runs on the headless session backend: `scripts/cli/hermes_headless.py` is its adapter on the shared
