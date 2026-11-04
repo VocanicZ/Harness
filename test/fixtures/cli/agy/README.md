@@ -30,3 +30,32 @@ throwaway git repo, model `gemini-3.8-flash-low`, launched as Harness does:
 | `handoff-skill` | How a prompt invokes the handoff skill: agy expands skills as slash commands, `/<name>` (local: `agy --help`, `--disable-slash-commands  Disable slash command and skill expansion`). |
 | `usage-windows.json` | `agy -p "/usage" --output-format json`, run on the host the same day (runs no turn). |
 | `usage-windows.expected` | `<group>\t<window>\t<pct used>` it reports: `100 - remaining_fraction*100`. |
+
+## `stream-json/` — the headless turn (#486)
+
+What the headless lane runner (`scripts/cli/agy_headless.py`) reads: the stdout of
+`agy --dangerously-skip-permissions [--model <m>] [--conversation <id>] --input-format stream-json --output-format stream-json -p=`,
+the message on stdin as one `{"event":"user","message":{"content":"<text>"}}` line, one JSON object per line out.
+Captured 2026-11-04 (UTC) on the fleet host from Antigravity CLI `1.4.12` (Google AI Pro account), model
+`claude-sonnet-4-6` (the Gemini model group's quota was out for days, which is also how the limit capture came about),
+in a throwaway git repo; each capture is the run's stdout unchanged but for the `init` event's `cwd`
+(`/work/repo`).
+
+| file | how |
+|---|---|
+| `normal.jsonl` | The first turn of a new conversation, no `--conversation`: `Reply with exactly the word PONG and nothing else.` `init` (the conversation id agy generated, the tools, the model), `step_update`s (`user_input`; `agent_response` streaming `text_delta` `PONG`, then DONE with `usage`) and `result` `SUCCESS` (`response` `PONG\n`, `usage`). Exit 0. |
+| `tool-use.jsonl` | The next turn of that conversation, `--conversation <id>`: `Use your shell tool to run the command: echo hi > proof.txt — then reply with exactly DONE.` Same `conversation_id`: `--conversation` carries it. An `agent_response` (the tool call's model turn, no text), a `tool` step (`run_command`, ACTIVE then DONE with `tool_info.parameters.CommandLine` and `output`), a second `agent_response` (`DONE`) and the `result` (`num_turns` 2, `usage` summed over the turn's model calls). Exit 0; `proof.txt` was created. |
+| `limit.jsonl`, `limit.stderr` | The default Gemini model, whose weekly quota was out (`agy -p /usage` showed `remaining_fraction` 0): a `user_input` step, an `error_message` step and a `result` `ERROR` with `error` `Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 93h37m49s.`, `finished_reason` `error`, zero usage. Exit 3; stderr carries `error: …` and `AGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): …"}`. |
+| `no-conversation.jsonl`, `no-conversation.stderr` | `--conversation 00000000-0000-4000-8000-000000000000`, a conversation agy does not have: stderr `warning: conversation "…" not found`, and the message ran in a NEW conversation (its own `conversation_id` on every event), `SUCCESS`, exit 0. The runner adopts the new id. |
+| `transient.jsonl`, `transient.stderr` | NOT triggerable on demand: `limit.jsonl` with the `result`'s `error` replaced by `Agent execution terminated due to error.` (agy's give-up after its own retries, a string of the 1.4.8 binary, `agy_transient_re`) and a stderr in the shape of the limit capture, its `AGY_ERROR` a 503 `UNAVAILABLE`. Synthetic, as `../transient.txt` is. Exit 3. |
+| `fake-agy` | Stands in for `agy` in `test/test_agy_headless.py` and the matrix's `headless-*` rows (`test/test_cli_matrix.sh`, #486): each run replays the fixture `$FAKE_CLAUDE_DIR/plan` names next (text after the name replaces its reply), with every `conversation_id` set to the conversation its argv continues (`--conversation`) or a new one it also records as agy does (`conversations/<id>.db` from `../transcript.db`, the workspace in `cache/last_conversations.json`, a `brain/<id>` transcript), records its argv and the stdin prompt, can hold mid-turn, has a `hang` turn that starts a grandchild for the stop test, answers `-p /usage` with `../usage-windows.json`, and runs an executable `turn-hook` with each prompt (#350). Its header says how. |
+
+What the runner reads from them (`Turn.outcome`): a `result` `SUCCESS` and exit 0 → `idle` (the reply is `response`); an
+`ERROR` whose message is a quota (`Individual quota reached`, `exhausted your quota`, `Quota exhausted`,
+`AI credits balance is too low`) → `limit`, its reset the message's "Resets in 93h37m49s" from now; any other `ERROR`,
+or an exit with no `result`, → `transient`. agy has no quota meter in the stream, so no `rate_limit` window is read
+off a turn: `agy -p /usage` (`usage-windows.json`) is the usage-windows row's, as on a pane. The Stop hook of the
+`harness-ralph` plugin runs inside `agy -p` too (seen on the host with 1.4.12: with a `.claude/ralph-loop.local.md` naming a
+promise the agent never said, one turn ran a `system_message` step and answered a second time before the hook let it end,
+and `result.response` held both answers, `PONG\nPONG\n`), so the driven loop finds a looping lane's work already done, and
+the reply it reads is the last `agent_response` step's text, not `response`.

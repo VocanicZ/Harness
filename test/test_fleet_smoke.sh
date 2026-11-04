@@ -206,9 +206,11 @@ mkdir -p "$ROOT/nogh"; for b in gh claude codex tmux; do printf '#!/usr/bin/env 
 NOGH="$ROOT/nogh:$PATH"
 PATH="$NOGH" SMOKE_PLATFORM=windows SMOKE_BACKEND=tmux bash "$SMOKE" claude >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "Windows + SMOKE_BACKEND=tmux exits 2"
 assert_ok "...saying Windows has no tmux" grep -qF 'native Windows has no tmux — only SMOKE_BACKEND=headless runs there' "$ROOT/w.out"
-PATH="$NOGH" SMOKE_PLATFORM=windows bash "$SMOKE" agy >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "Windows + a tmux-only CLI exits 2"
-assert_ok "...naming the CLI tmux-only and the headless CLIs" grep -qF "'agy' is tmux-only — the headless backend runs claude codex copilot hermes openclaw opencode lanes only" "$ROOT/w.out"
-PATH="$NOGH" SMOKE_BACKEND=headless bash "$SMOKE" agy >/dev/null 2>&1; assert_eq "$?" 2 "headless + a tmux-only CLI exits 2 on Linux too"
+# every real CLI has a headless runner (#486 was the last): the tmux-only ones here are a made-up CLI's, in a copy of the tree
+TMUX_ONLY="$ROOT/tmux-only"; tmux_only_tree "$TMUX_ONLY"; SMOKE_TO="$TMUX_ONLY/test/smoke/fleet_smoke.sh"
+PATH="$NOGH" SMOKE_PLATFORM=windows bash "$SMOKE_TO" fakecli >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "Windows + a tmux-only CLI exits 2"
+assert_ok "...naming the CLI tmux-only and the headless CLIs" grep -qF "'fakecli' is tmux-only — the headless backend runs agy claude codex copilot hermes openclaw opencode lanes only" "$ROOT/w.out"
+PATH="$NOGH" SMOKE_BACKEND=headless bash "$SMOKE_TO" fakecli >/dev/null 2>&1; assert_eq "$?" 2 "headless + a tmux-only CLI exits 2 on Linux too"
 PATH="$NOGH" SMOKE_PLATFORM=dos bash "$SMOKE" claude >"$ROOT/w.out" 2>&1; assert_eq "$?" 2 "an unknown SMOKE_PLATFORM exits 2"
 assert_ok "...naming the two it takes" grep -qF "SMOKE_PLATFORM must be windows or posix, not 'dos'" "$ROOT/w.out"
 

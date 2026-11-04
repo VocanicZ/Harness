@@ -155,11 +155,13 @@ assert_ok "… naming the fix"                                  grep -q "install
 assert_eq "$(cat "$T/start.calls")" "" "… before calling gh or the CLI (no worker launched)"
 assert_no "… and no worker pidfile"                           test -e "$STATE_DIR/run/worker-1.pid"
 # Past the python3 preflight start carries on as before to its next check: a tmux-only CLI on the
-# headless backend stops it there, deterministically and before anything launches.
-out="$(HARNESS_PLATFORM=windows HARNESS_SESSION_BACKEND=headless HARNESS_CLI=agy PATH="$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 bash "$R/scripts/start.sh" 2>&1)"
+# headless backend stops it there, deterministically and before anything launches. (A made-up CLI with no headless
+# adapter: every real one has one.)
+TO="$T/tmux-only"; tmux_only_tree "$TO"
+out="$(HARNESS_PLATFORM=windows HARNESS_SESSION_BACKEND=headless HARNESS_CLI=fakecli PATH="$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 bash "$TO/scripts/start.sh" 2>&1)"
 assert_ok "start.sh with a working python3 on Windows passes the python3 preflight" grep -q "is tmux-only" <<<"$out"
 assert_no "… without the python3 refusal"                     grep -q "install Python 3" <<<"$out"
-out="$(HARNESS_PLATFORM=posix HARNESS_SESSION_BACKEND=headless HARNESS_CLI=agy PATH="$T/storepy:$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 bash "$R/scripts/start.sh" 2>&1)"
+out="$(HARNESS_PLATFORM=posix HARNESS_SESSION_BACKEND=headless HARNESS_CLI=fakecli PATH="$T/storepy:$T/startbin:$PATH" ENGINE_DIR="$FE" HARNESS_USE_POLLER=0 bash "$TO/scripts/start.sh" 2>&1)"
 assert_ok "start.sh off Windows skips the python3 preflight (POSIX unchanged)" grep -q "is tmux-only" <<<"$out"
 assert_no "… even with the Store stub first on PATH"          grep -q "install Python 3" <<<"$out"
 assert_eq "$(cat "$T/start.calls")" "" "no gh / CLI call on any refused start"

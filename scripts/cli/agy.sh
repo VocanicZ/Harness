@@ -15,6 +15,25 @@ _agy_flags(){ echo "${HARNESS_AGY_FLAGS:-${AGY_FLAGS:-}}"; }
 # session id either; agy_session_id discovers it after launch.
 agy_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4"
   echo "exec $(agy_bin) $(_cli_flags "$(_agy_flags)" "$model" "$effort") -i \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+# --- the headless lane (#486, PRD #475): agy_headless.py runs one `agy -p=` print-mode turn at a time ------
+# agy_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line: the headless
+# session backend starts it in place of the pane's shell + launch line. Each turn carries the configured flags (the
+# lane's model and effort replacing theirs) and the message on stdin as a stream-json user line. agy names its own
+# conversations: <uuid> is only the lane's, and a 5th argument (#350) says <uuid> is an existing agy conversation the
+# lane carries on: its first turn continues it with --conversation.
+agy_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
+  printf '%s\n' python3 "$CLI_DIR/agy_headless.py" run --cwd "$wd" --bin "$(agy_bin)" --session-id "$uuid" \
+    ${5:+--resume} "--flags=$(_cli_flags "$(_agy_flags)" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+# The headless backend draws a lane in the shapes headless_core.py pane documents, whatever the CLI, so on it the pane
+# regexes below are those (_cli_headless_pane_re) and not the TUI's.
+_agy_headless(){ declare -F sess_backend >/dev/null && [[ "$(sess_backend)" == headless ]]; }
+# A pane's goal loop is the harness-ralph Stop hook. A headless lane is looped by Harness as well (the driven loop,
+# lib.sh goal_loop_tick): every print-mode turn that ends without the promise is re-prompted from the lane's own last
+# reply (the core's state.json, _cli_headless_last_reply). Where the hook runs inside `agy -p` too it holds the turn
+# open until the promise and the driven loop finds the loop already over (cli_done), as claude's does.
+agy_loop(){ _agy_headless && echo driven || echo hook; }
+agy_last_reply(){ _cli_headless_last_reply "$@"; }
+
 # agy records the conversation it last ran in each workspace in cache/last_conversations.json. Right
 # after a relaunch in the same worktree that is still the previous session's, so the id counts only
 # when its conversation started at or after this launch: write_state's `started_at`, against the
@@ -52,21 +71,25 @@ PY
 # dialog's `> Yes, I trust this folder` is at column 0 too (trust.txt), so it is told apart by
 # agy_dialog_re, never by this regex. So is a tool-permission prompt's `> 1. Yes, run command`
 # (permission.txt: agy without --dangerously-skip-permissions).
-agy_idle_re(){ echo '^(│ *)?>( |$)'; }
-agy_dialog_re(){ echo 'I trust this folder|enter Confirm|Requesting permission for:'; }
+agy_idle_re(){ _agy_headless && { _cli_headless_pane_re idle; return; }; echo '^(│ *)?>( |$)'; }
+agy_dialog_re(){ _agy_headless && return 0; echo 'I trust this folder|enter Confirm|Requesting permission for:'; }
 # A turn shows a braille spinner with "Loading..." then "Generating..." (busy.txt,
 # busy-generating.txt); the binary also carries "Working..." and the "(%s · esc to cancel)" hint.
 # While agy retries an unavailable model the spinner says so instead (transient-retrying.txt).
-agy_busy_re(){ echo '(Loading|Generating|Working)\.\.\.|esc to cancel|, retrying in [0-9]+s'; }
+agy_busy_re(){ _agy_headless && { _cli_headless_pane_re busy; return; }; echo '(Loading|Generating|Working)\.\.\.|esc to cancel|, retrying in [0-9]+s'; }
 # Quota/credit strings from the agy 1.4.8 binary (README of the fixtures). agy retries 5xx and
 # per-minute 429 itself; what reaches the pane is its give-up line.
-agy_limit_re(){ echo 'exhausted your quota|Quota exhausted|AI credits balance is too low'; }
+agy_limit_re(){ _agy_headless && { _cli_headless_pane_re limit; return; }; echo 'exhausted your quota|Quota exhausted|AI credits balance is too low'; }
 # `Model unavailable (attempt N/10), retrying in Ns` is agy's in-progress status while it retries
 # (transient-retrying.txt), not a give-up: only the terminal error stalls a session.
-agy_transient_re(){ echo 'Agent execution terminated due to error'; }
-# No turn timer and no interrupt line in agy's panes (busy*.txt): agy_turn_secs and
+agy_transient_re(){ _agy_headless && { _cli_headless_pane_re transient; return; }; echo 'Agent execution terminated due to error'; }
+# No turn timer and no interrupt line in agy's panes (busy*.txt): on a pane agy_turn_secs and
 # agy_interrupted_re keep the dispatch defaults ('' = unavailable). turn.sh then reads a running
-# turn off agy_busy_re and an interrupt as the busy line going away.
+# turn off agy_busy_re and an interrupt as the busy line going away. A headless lane's drawn screen has both
+# (headless_core.py pane), which is what lets the stuck-turn interrupt (#207) and the supervisor's frozen-session
+# rule see how long a turn has run.
+agy_turn_secs(){ _agy_headless && _cli_headless_turn_secs "$@"; return 0; }
+agy_interrupted_re(){ _agy_headless && _cli_headless_pane_re interrupted; return 0; }
 # The footer opens with the context's token count ("10.2k ▁▁▁▆▆…", 10.1k idle → 10.2k busy): it moves
 # while a turn streams, so the supervisor reads it as activity.
 agy_bg_re(){ echo "$(_cli_default_bg_re)|^[0-9.]+k "; }

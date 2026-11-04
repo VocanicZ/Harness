@@ -37,7 +37,8 @@ An ADAPTER starts one turn and reads its stream; the core never names a CLI. It 
 in claude_headless.py for the reference one): `name`, `default_bin`, `account()`, `argv(...)` (one turn's
 command, with that CLI's resume id), `new_turn()` (an object that `feed`s events and gives the turn's
 `outcome(rc, stderr_tail)`, usage `rate_limit`, `retry` and `no_conversation`), and `watch_line(ev)`. It may
-also supply `env(cwd)`: variables set on every turn's process (<cwd> is the lane's worktree), and `abort_turn(bin, cwd)`: called after the runner kills a
+also supply `env(cwd)`: variables set on every turn's process (<cwd> is the lane's worktree), `stdin_payload(text)`: what a turn's
+process is sent on stdin for a message (default: the text itself), and `abort_turn(bin, cwd)`: called after the runner kills a
 turn's process tree on a stop or an interrupt, for a CLI whose turn outlives its client (hermes: its host
 gateway runs the turn's commands). An adapter whose CLI prints one JSON document per turn rather than one
 event per line (openclaw's pretty-printed envelope) sets `json_documents = True`: the core then reads stdout
@@ -371,6 +372,12 @@ class Runner:
         env = getattr(self.adapter, "env", None)
         return dict(env(self.cwd)) if callable(env) else {}
 
+    def stdin_payload(self, text):
+        """What a turn's process reads on stdin for the message <text>: the text itself, or what the adapter's optional
+        `stdin_payload(text)` makes of it (agy reads a turn's prompt as one JSON line, not as raw text)."""
+        hook = getattr(self.adapter, "stdin_payload", None)
+        return hook(text) if callable(hook) else text
+
     def abort_turn(self):
         """The adapter's cleanup once a turn's process tree was killed (an adapter without `abort_turn()` has none)."""
         hook = getattr(self.adapter, "abort_turn", None)
@@ -400,7 +407,7 @@ class Runner:
             self.save(state="busy", turn=n, turn_started=started, claude_pid=proc.pid, retry=None,
                       inbox_offset=msg.get("_end", self.state["inbox_offset"]))
             try:   # the message goes on stdin: no argv length limit, no quoting
-                proc.stdin.write(msg["text"].encode("utf-8")); proc.stdin.close()
+                proc.stdin.write(self.stdin_payload(msg["text"]).encode("utf-8")); proc.stdin.close()
             except OSError:
                 pass
             lock = threading.Lock()

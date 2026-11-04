@@ -1,0 +1,98 @@
+08:19:19Z == fleet smoke | cli=agy | 1.5.0 | 2026-11-04T08:19:19Z
+08:19:19Z == host posix | Linux 7.0.0-3-pve x86_64 | bash 5.2.37(1)-release | python3 3.13.5
+08:19:19Z == session backend headless | checkpoint+resume on, 30s into the lane
+08:19:19Z == engine harness v0.5.0-15-gf5dce23-dirty (dev checkout) | repo VocanicZ/harness-smoke-agy | prefix smokeagy
+08:19:22Z == harness init
+   roles (agy): manager <CLI default>/<CLI default>, implementer <CLI default>/<CLI default>
+   wrote /tmp/harness-smoke-agy.QJiMBG/harness-smoke-agy/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-agy
+   : "${HARNESS_CLI:=agy}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-agy}"
+   : "${HARNESS_UNIT:=harness-smoke-agy}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokeagy}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_LABEL_HITL:=hitl}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_MODEL_MANAGER:=}"
+   : "${HARNESS_EFFORT_MANAGER:=}"
+   : "${HARNESS_MODEL_IMPLEMENTER:=}"
+   : "${HARNESS_EFFORT_IMPLEMENTER:=}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+   : "${HARNESS_TURN_MAX:=120}"
+   : "${HARNESS_PAUSE_GRACE:=900}"
+   : "${HARNESS_USAGE_CHECKPOINT_PCT:=101}"
+   HARNESS_AGY_FLAGS="--dangerously-skip-permissions --model claude-sonnet-4-6"
+08:19:30Z == harness setup
+   ── Harness setup (mode=issue-only cli=agy) ──
+     ok      agy binary (agy)
+     ok      agy plugin harness-ralph
+     ok      agy skill caveman (/home/claude/.gemini/config/skills/caveman)
+     ok      agy skill handoff (/home/claude/.gemini/config/skills/handoff)
+     ok      agy skill rtdd (/home/claude/.gemini/config/skills/rtdd)
+     ok      agy skill subagent-task-tree (/home/claude/.gemini/config/skills/subagent-task-tree)
+     ok      agy skill to-issues (/home/claude/.gemini/config/skills/to-issues)
+     ok      agy skill to-prd (/home/claude/.gemini/config/skills/to-prd)
+     ok      agy skill writing-plans (/home/claude/.gemini/config/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'harness-smoke-agy' (VocanicZ/harness-smoke-agy)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+08:19:44Z filed PRD #7 and issue #8
+08:19:44Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=30s):
+     worker-1: started (pid 1451436) — log /tmp/harness-smoke-agy.QJiMBG/harness-smoke-agy/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=60s):
+     priority: started (pid 1451507) — log /tmp/harness-smoke-agy.QJiMBG/harness-smoke-agy/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+08:19:46Z issue=OPEN labels=ready-for-agent sessions=none prs=#6 MERGED,#3 MERGED
+08:20:18Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeagy-harness-smoke-agy-i8 prs=#6 MERGED,#3 MERGED
+08:20:50Z == checkpoint: harness pause --force (lane smokeagy-harness-smoke-agy-i8 up 32s)
+     checkpoint requested: smokeagy-harness-smoke-agy-i8 (issue #8 on VocanicZ/harness-smoke-agy)
+     lane ended after its checkpoint: smokeagy-harness-smoke-agy-i8
+     confirmed paused: VocanicZ/harness-smoke-agy#8
+   FLEET: PAUSED — all in-flight agents checkpointed to GitHub. Resume anywhere: harness/resume.sh
+08:25:12Z after checkpoint: labels=agent-paused,ready-for-agent sessions=none
+08:25:13Z handoff comment posted on #8
+08:25:13Z == resume: harness resume
+   RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll.
+08:25:45Z issue=OPEN labels=agent-paused,ready-for-agent sessions=none prs=#6 MERGED,#3 MERGED
+08:26:17Z issue=OPEN labels=agent-paused,agent-working,ready-for-agent sessions=smokeagy-harness-smoke-agy-i8 prs=#6 MERGED,#3 MERGED
+08:26:48Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeagy-harness-smoke-agy-i8 prs=#6 MERGED,#3 MERGED
+08:37:22Z == teardown
+08:37:22Z -- final pane of smokeagy-harness-smoke-agy-i8
+   |   ⎿  You've hit your usage limit · resets 08:01 (UTC)
+   | ────────────────────────────────────────────────────────────
+   | ❯ 
+   | ────────────────────────────────────────────────────────────
+   Stopping pool workers:
+     killed priority (pid 1451507)
+     killed worker-1 (pid 1451436)
+   Killing agent worker sessions:
+     killed headless smokeagy-harness-smoke-agy-i8
+   Removing worktrees:
+     removed /tmp/harness-smoke-agy.QJiMBG/harness-smoke-agy/.harness/worktrees/harness-smoke-agy-i8
+   Stopped.
+08:37:27Z closed leftover issue #8
+08:37:30Z closed leftover issue #7
+08:37:32Z deleted branch issue/8
+08:37:32Z == result: FAIL (rc 130) | log: /home/claude/harness-dev/.harness/worktrees/harness-i486/test/smoke/logs/agy-headless-20261104T081918Z.log

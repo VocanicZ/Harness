@@ -4,6 +4,35 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Headless turn adapter for `agy` (#486)
+
+- `agy` runs on the headless session backend: `scripts/cli/agy_headless.py` is its adapter on the shared core (#480),
+  and `agy` stops being refused as tmux-only. Each turn is one
+  `agy --input-format stream-json --output-format stream-json -p=` in the lane's worktree with the message on stdin as a
+  stream-json user line (so it never rides argv; the bare `-p=` only switches print mode on, because agy refuses a prompt
+  on the command line beside that input format). agy names its own conversations: the first turn passes none and every
+  later turn (or a relaunched lane's first) passes `--conversation <id>`, read off the stream. A `result` with `SUCCESS`
+  and exit 0 is `idle`; an error that is a quota (`Individual quota reached. … Resets in 93h41m3s`, and the strings
+  the tmux adapter already knew) is `limit` with the time it lifts; any other error, or an exit with no `result`, is
+  `transient`. A conversation agy no longer has is no error: agy runs the message in a new one and the lane adopts its id.
+- The core gained an optional adapter `stdin_payload(text)`, what a turn's process is sent on stdin for a message (agy
+  reads one JSON line, not raw text). A lane's reply is the last `agent_response` step's text: the `harness-ralph` Stop
+  hook runs inside `agy -p` too and its re-fed answers are joined in the stream's `response`.
+- `test/test_agy_headless.py` runs the adapter against captures of the real CLI (`test/fixtures/cli/agy/stream-json/`,
+  Antigravity CLI 1.4.12; the transient one is synthetic, as the pane fixture is), and the matrix's `headless-*` rows now
+  pass for `agy` from fixture replay on Linux. Under `HARNESS_PLATFORM=windows` on the Linux fleet host all of them pass
+  but `headless-checkpoint` and `headless-resume`, which fail the same way there for `claude` on `main`. The parity matrix
+  in `docs/reference.md` and the per-CLI facts in `docs/cli-capabilities.md` are updated.
+- A live headless smoke on the fleet host (Antigravity CLI 1.4.12, `claude-sonnet-4-6`) did NOT pass:
+  `test/smoke/logs/agy-headless-20261104T081918Z.log`. The lane ran on agy, `harness pause --force` checkpointed it
+  (`agent-paused`, handoff comment) and `harness resume` put the issue back, but the resumed lane then ran a single turn
+  for about 15 minutes polling a `sleep 240` and used up the account's Claude-and-GPT model group weekly quota (the Gemini
+  group's was already out: `agy -p /usage` reads 0 remaining for both). The lane parked as `limit` with agy's own reset
+  time, as designed, and the run was stopped by hand (result `rc 130`). The account's quota lifts about 2026-11-11; the
+  matrix's `headless-*` fixture rows are the proof until the smoke is re-run.
+- Caveat: `--effort` is refused for `claude-sonnet-4-6` (`--effort is not supported for model`), so an operator who
+  pins a Claude-group model in `HARNESS_AGY_FLAGS` drops the default `--effort high` there.
+
 ### A Windows lane's environment no longer carries a stray CR (#509)
 
 - `session_env` strips the carriage return from each line of the `goal-env` output it reads. A native Windows python
