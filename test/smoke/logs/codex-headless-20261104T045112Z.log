@@ -1,0 +1,14 @@
+04:51:12Z == codex headless smoke | codex-cli 0.154.0 | 2026-11-04T04:51:12Z
+04:51:12Z == host Linux 7.0.0-3-pve | bash 5.2.37 | Python 3.13.5
+04:51:12Z == A: one turn on the host's own codex account
+04:51:19Z    turn 1 ended: state=limit exit=1 thread=01a1a4e5-9f71-74c1-bd97-2136791e6098
+04:51:19Z    the account's usage limit: You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at Nov 18th, 2026 3:21 PM.
+04:51:19Z    parsed reset: 1795015260 (2026-11-18T15:21:00Z)
+04:51:19Z    pane the watchdog reads:   ⎿  You've hit your usage limit · resets 15:21 (UTC)
+04:51:20Z == B: the codex binary on a local stand-in endpoint (no quota)
+04:51:22Z    turn 1: state=idle reply=PONG thread=01a1a4e5-bafa-7fa3-8ff1-e250dae49dae
+04:51:24Z    turn 2: state=idle reply=DONE thread=01a1a4e5-bafa-7fa3-8ff1-e250dae49dae
+04:51:25Z    usage in state.json: {"status": "allowed", "usage": {"input_tokens": 243, "cached_input_tokens": 100, "cache_write_input_tokens": 0, "output_tokens": 18, "reasoning_output_tokens": 0}}
+04:51:25Z    the exec turns wrote their rollout: home/sessions/2026/11/04/rollout-2026-11-04T04-51-21-01a1a4e5-bafa-7fa3-8ff1-e250dae49dae.jsonl
+04:51:25Z    codex_limit_usage reads from it: codex 5h 7.0 codex 7d 51.0 
+04:51:25Z == ok

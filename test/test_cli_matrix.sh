@@ -663,11 +663,13 @@ hl_fixdir(){ [[ -d "$FIX/$HARNESS_CLI/run-json" ]] && echo run-json || echo stre
 # turn (or a relaunched lane's first) continues that session: claude --resume, opencode --session, hermes -c <title>,
 # copilot --session-id=<id> again.
 hl_first_turn_ok(){ case $HARNESS_CLI in
+  codex) has '"exec"' "$1" && lacks '"resume"' "$1" ;;   # codex (#481) names its own thread: handed none
   opencode) has '"run", "--format", "json"' "$1" && lacks '"--session"' "$1" ;;
   hermes) has "\"-c\", \"$2\", \"--create-if-missing\"" "$1" && has '"--format", "stream-json"' "$1" ;;
   copilot) has "\"--session-id=$2\"" "$1" ;;   # copilot names its session on every turn: it creates it, then resumes it (#483)
   *) has "\"--session-id\", \"$2\"" "$1" ;; esac; }
 hl_resumes(){ case $HARNESS_CLI in
+  codex) has '"exec", "resume"' "$1" && has "\"$2\"" "$1" ;;   # `codex exec resume … <thread id> -`
   opencode) has "\"--session\", \"$2\"" "$1" ;;
   hermes) has "\"-c\", \"$2\"" "$1" && lacks '"--session-id"' "$1" ;;
   copilot) has "\"--session-id=$2\"" "$1" ;;
@@ -690,6 +692,7 @@ hl_env(){ HL="$RUN_DIR/hl-$HARNESS_CLI-$BASHPID"; mkdir -p "$HL/lanes" "$HL/fake
   fi
   export XDG_DATA_HOME="$HL/xdg-data"   # where an opencode lane's sessions and usage are read from (#482)
   export HARNESS_HERMES_HOME="$HL/hermes-op"   # the operator home a hermes lane's profile is made from and read in (#484)
+  export CODEX_HOME="$HL/codex-home"    # where a codex lane's rollouts (usage windows, stats) are read from (#481)
   export COPILOT_HOME="$HL/copilot-home"   # what a copilot lane's turns leave (session-state/<id>/events.jsonl, #483)
   cp -r "$FIX/$HARNESS_CLI/$(hl_fixdir)/"* "$HL/fake/" || return 1
   [[ -f "$FIX/$HARNESS_CLI/transcript.db" ]] && cp "$FIX/$HARNESS_CLI/transcript.db" "$HL/fake/"
@@ -851,6 +854,7 @@ hl_usage_expected(){ [[ $HARNESS_CLI == hermes ]] && echo "$FIX/hermes/usage-win
 # its adapter folds the same way (stream-json/usage.expected: the two turns' disk/ records).
 hl_stats_want(){ case $HARNESS_CLI in
   opencode|hermes) echo "$FIX/$HARNESS_CLI/usage.expected" ;;
+  codex) echo "$FIX/codex/stream-json/stats.expected" ;;   # (#481) the two turns' rollout token_count lines, folded
   copilot) echo "$FIX/copilot/stream-json/usage.expected" ;;   # the usage_records the fake leaves in session-state (#483)
   *) echo "$HL/fake/tool-use.jsonl $HL/fake/normal.jsonl" ;; esac; }
 # headless_stats_ok — #352: once the lane's runner has exited, the stats sweep emits its session_end
@@ -867,7 +871,7 @@ headless_stats_ok(){ ( hl_env; local s=hz-main-i31 uuid; hl_lane stats tool-use 
 import json, sys
 want = {}
 for f in sys.argv[3:]:
-    if f.endswith(".expected"):   # opencode (#482), hermes (#484): the fold of its database, the model's usage.expected line
+    if f.endswith(".expected"):   # opencode (#482), hermes (#484): the fold of its database; codex (#481): of its rollouts; the model's usage.expected line
         for line in open(f):
             m, i, o, cr, cw = line.rstrip("\n").split("\t")
             want[m] = {"input": int(i), "output": int(o), "cache_read": int(cr), "cache_create": int(cw)}

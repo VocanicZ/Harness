@@ -28,7 +28,11 @@ codex_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '(-m|--model)[= ]'
 # first line, session_meta {id, cwd, timestamp} (transcript.jsonl). The id is that of the newest
 # rollout started in <wd> at or after this launch (write_state's started_at), so a relaunch in the
 # same worktree never reads the previous session's. Sub-agent threads (a parent_thread_id) are not it.
-codex_session_id(){ WD="$1" H="$(_codex_home)" python3 - 2>/dev/null <<'PY'
+codex_session_id(){
+  # A headless lane (#481) runs `codex exec`, which names its thread in its first event: the lane's
+  # state.json has it (headless_lane_session), whatever rollouts the host's other lanes wrote.
+  if [[ "$(sess_backend)" == headless ]]; then headless_lane_session "$1"; return 0; fi
+  WD="$1" H="$(_codex_home)" python3 - 2>/dev/null <<'PY'
 import glob, json, os, re
 from datetime import datetime
 wd, h = os.environ["WD"], os.environ["H"]
@@ -56,28 +60,56 @@ for f in sorted(glob.glob(os.path.join(h, "sessions", "*", "*", "*", "rollout-*.
 PY
   return 0; }
 
+# --- the headless lane (#481): codex exec --json, one process per turn --------------------------------
+# codex_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line: the
+# headless session backend starts it in place of the pane's shell + launch line. Each turn is one
+# `codex exec --json` (the adapter adds exec/resume, --json and the message on stdin) with the configured
+# flags — less --no-alt-screen, a TUI flag `exec` has no use for — and the lane's model and effort
+# replacing theirs. Codex names its own thread, so <uuid> is only a thread to carry on when a 5th
+# argument says so (#350); a new lane's first turn starts a thread and the runner keeps its id.
+codex_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4" flags
+  flags="$(sed -E 's/(^| )--no-alt-screen( |$)/ /g' <<<" ${HARNESS_CODEX_FLAGS:-}")"
+  printf '%s\n' python3 "$CLI_DIR/codex_headless.py" run --cwd "$wd" --bin "$(codex_bin)" --session-id "$uuid" \
+    ${5:+--resume} "--flags=$(_codex_flags "$flags" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+# The Stop hook (harness-ralph) is a pane's goal loop. A headless lane is looped by Harness itself: every
+# `codex exec` turn that ends without the promise is re-prompted from the lane's own last reply (lib.sh
+# goal_loop_tick); where the hook runs inside `exec` as well it holds the turn open until the promise and
+# the driven loop finds the loop already over (cli_done).
+_codex_headless(){ [[ "$(sess_backend)" == headless ]]; }
+codex_loop(){ _codex_headless && echo driven || echo hook; }
+codex_last_reply(){ _cli_headless_last_reply "$@"; }   # the core's state.json, any CLI's (dispatch.sh)
+
 # --- panes (test/fixtures/cli/codex/*.txt) ------------------------------------------------------
 # The composer is `› ` at column 0 (`»` at ultra effort). Codex echoes each submitted prompt the same
 # way into the scrollback above it, so cli_pane_prompt_line reads the LAST match. The trust dialog's
 # `› 1. Yes, continue` is at column 0 too (trust.txt): codex_dialog_re tells it apart.
-codex_idle_re(){ echo '^[›»]( |$)'; }
+# A headless lane (#481) is drawn by the core in claude's shapes (headless_core.py pane), so on that backend the
+# regexes below read those: the `❯` prompt, the spinner, the limit and error lines above it.
+codex_idle_re(){ _codex_headless && echo '^❯' || echo '^[›»]( |$)'; }
 codex_dialog_re(){ echo 'Do you trust the contents of this directory|Press enter to continue'; }
 # A turn shows the status row `• Working (12s • esc to interrupt)` above the composer (busy.txt,
 # busy-start.txt); its header varies, its suffix does not. Codex's own retries (`Reconnecting... 2/5`)
 # are that same row.
-codex_busy_re(){ echo ' to interrupt\)'; }
+codex_busy_re(){ _codex_headless && echo 'esc to interrupt|… \(([0-9]+[dhms] ?)+ ·' || echo ' to interrupt\)'; }
 codex_limit_re(){ echo "You've hit your usage limit|Usage limit reached"; }
 # What reaches the pane once Codex's own retries give up (transient.txt, from the 0.154.0 binary).
-codex_transient_re(){ echo 'stream disconnected before completion|exceeded retry limit|rate limit exceeded'; }
+codex_transient_re(){ _codex_headless && { echo '^ +⎿  API Error'; return; }
+  echo 'stream disconnected before completion|exceeded retry limit|rate limit exceeded'; }
 # The status row's timer: "(12s •", "(1m 05s •", "(1h 02m 03s •".
 codex_turn_secs(){ local n
+  if _codex_headless; then   # the spinner as the core draws it: "✻ Working… (21m 3s · esc to interrupt)"
+    n=$(cli_pane_prompt_line "$1")
+    printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
+      awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
+             s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
+           END { print s + 0 }'; return; fi
   n=$(cli_pane_prompt_line "$1")
   printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[hms] ?)+ • esc to interrupt' | tail -1 |
     awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[hms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
            s += v * (u == "h" ? 3600 : u == "m" ? 60 : 1) } }
          END { print s + 0 }'; }
 # Escape ends the turn with "■ Conversation interrupted - tell the model what to do differently."
-codex_interrupted_re(){ echo 'Conversation interrupted'; }
+codex_interrupted_re(){ _codex_headless && echo '^ +⎿  Interrupted' || echo 'Conversation interrupted'; }
 codex_bg_re(){ echo "$(_cli_default_bg_re)|\\([0-9]+s • esc"; }
 
 # --- workspace trust: [projects."<dir>"] trust_level = "trusted" in config.toml -----------------

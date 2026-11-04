@@ -39,7 +39,7 @@ fi
 assert_eq "$(res "$cells" codex supervisor-frozen-session)" FAIL "no limit.txt: codex supervisor-frozen-session FAILs"
 assert_eq "$(res "$cells" agy bypass-covers-subagents)" FAIL "agy's sub-agent pane shows the approval prompt: bypass-covers-subagents FAILs"
 # Every tmux-only CLI's headless-* rows are n/a — the headless backend refuses it — never ok.
-for cli in codex agy; do
+for cli in agy; do
   got="$(awk -F'\t' -v c="$cli" '$1 == c && $2 ~ /^headless-/ { print $3 }' <<<"$cells" | sort -u)"
   assert_eq "$got" "n/a:tmux-only" "$cli, which has no headless runner, is n/a on every headless-* row"
 done
@@ -66,4 +66,12 @@ cells="$(HARNESS_MATRIX_STUB="last_reply limit_usage" HARNESS_MATRIX_CLIS=copilo
 assert_eq "$(res "$cells" copilot headless-loop-mode)" FAIL "stubbed last reply: copilot headless-loop-mode FAILs"
 assert_eq "$(res "$cells" copilot headless-usage-windows)" FAIL "stubbed usage windows: copilot headless-usage-windows FAILs"
 assert_eq "$(res "$cells" copilot headless-launch)" ok "…while headless-launch, which reads neither, still passes"
+# codex's (#481): the same three — its runner command (codex_headless), last reply and window reader.
+cells="$(HARNESS_MATRIX_STUB=headless HARNESS_MATRIX_CLIS=codex HARNESS_MATRIX_ROWS='^(headless-|launch-bootstrap)' bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
+assert_ok "stubbed runner: codex has headless-* rows" test -n "$(headless_rows "$cells" codex)"
+assert_eq "$(headless_rows "$cells" codex | cut -f2 | sort -u)" FAIL "stubbed runner: every codex headless-* row FAILs"
+cells="$(HARNESS_MATRIX_STUB="last_reply limit_usage" HARNESS_MATRIX_CLIS=codex HARNESS_MATRIX_ROWS='^headless-(launch|loop-mode|usage-windows)$' bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
+assert_eq "$(res "$cells" codex headless-loop-mode)" FAIL "stubbed last reply: codex headless-loop-mode FAILs"
+assert_eq "$(res "$cells" codex headless-usage-windows)" FAIL "stubbed usage windows: codex headless-usage-windows FAILs"
+assert_eq "$(res "$cells" codex headless-launch)" ok "…while headless-launch, which reads neither, still passes"
 finish

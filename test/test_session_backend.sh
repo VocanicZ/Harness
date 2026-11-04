@@ -188,8 +188,8 @@ assert_ok "…with start's own refusal, naming the valid backends" \
   grep -qF "set HARNESS_SESSION_BACKEND in $RUN_DIR/nostate/config to one of: headless tmux" <<<"$out"
 
 echo "== launch_agent stops when the backend cannot start the session =="
-# A CLI with no headless lane runner (codex) cannot start a headless lane.
-( export HARNESS_SESSION_BACKEND=headless HARNESS_CLI=codex; wd="$RUN_DIR/lwd"; mkdir -p "$wd"
+# A CLI with no headless lane runner (agy) cannot start a headless lane.
+( export HARNESS_SESSION_BACKEND=headless HARNESS_CLI=agy; wd="$RUN_DIR/lwd"; mkdir -p "$wd"
   sess_send_line(){ echo TYPED >> "$RUN_DIR/typed"; }; log(){ echo "$*" >> "$RUN_DIR/launch.log"; }
   : > "$wd/.harness-task.md"; launch_agent hz-main-i9 "$wd" 2>/dev/null ); rc=$?
 assert_eq "$rc" 1 "launch_agent fails when sess_start does"

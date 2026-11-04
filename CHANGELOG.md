@@ -87,6 +87,23 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `test/test_headless_attach.sh` covers both against a fake headless lane, on Linux and on native Windows (winsma, in
   `C:\hx-487\`: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`); `docs/reference.md` documents the attach and flips its parity-matrix rows to `✓`.
 
+### Headless turn adapter for `codex` (#481)
+
+- `codex` now runs on the headless session backend: `scripts/cli/codex_headless.py` is its adapter on the shared
+  core, one `codex exec --json` per turn and `codex exec resume <thread id>` after the first (codex names its
+  own thread; the lane keeps the id the first turn reports). `cli_headless_list` includes it and `codex` is no
+  longer refused as tmux-only. Limits (`You've hit your usage limit … try again at <date>`) park the lane with
+  the parsed reset time, `Reconnecting… n/5` shows as a retry, and a thread codex lost is started afresh.
+- The goal loop on a headless codex lane is the driven one (as claude's), and the usage windows and the stats
+  sweep read the rollout `codex exec` writes, as they do for a pane. Headless lanes are drawn in claude's pane
+  shapes whichever CLI they run, so on that backend the pane-reading `cli_*` regexes resolve to claude's.
+- The `headless-*` rows of `test/test_cli_matrix.sh` now run for `codex` too, from fixture replay: captures of the
+  real `codex exec --json` in `test/fixtures/cli/codex/stream-json/` (the account's own usage-limit reply, and a
+  local stand-in endpoint for the rest) and a `fake-codex` replaying them. `test/test_codex_headless.py` shows
+  the adapter contract's behaviours on codex's stream. `test/smoke/codex_headless_smoke.sh` runs the real
+  binary behind the runner; its log is under `test/smoke/logs/`.
+- Parity matrix: `cli codex` is ✓ on Windows (the headless runner), and the `headless-*` rows are ✓ for codex.
+
 ### Shared headless runner core, with `claude` as its first adapter (#480)
 
 - `scripts/cli/claude_headless.py` is split into `scripts/cli/headless_core.py` (the inbox, `state.json`,
