@@ -123,3 +123,26 @@ that actually ran come from the transcript like every other arm's. `--arm-opt cl
   brief). Otherwise `keep going, decide for yourself` goes in, at most 20 times; at the cap the arm stops and
   the run is graded as it stands. A turn that errors (a usage limit, an API failure) fails the arm.
 - **Counts** in the results: `continue_replies` and `commits` (commits on `main` past the brief).
+
+## Figures and the README Benchmark section
+
+`bench/figures.py` writes the README **Benchmark** section (the table and a pointer to the figure) and the
+figure `bench/results/benchmark.svg` from `bench/results/`, and nothing else; the section sits between the
+`<!-- bench:begin … -->` and `<!-- bench:end -->` markers and is never edited by hand.
+
+```
+bench/figures.py                 # the latest run under bench/results/
+bench/figures.py --run-id ID     # a specific run
+bench/figures.py --check         # write nothing; exit 1 when the README section or figure is stale
+```
+
+Output is deterministic (no timestamps, fixed fonts, colours and rounding), so the same results give the same
+bytes and re-running reproduces the committed files exactly. The table has one row per `<arm>.json`: cap
+status, wall time with the coding and testing split, tokens (total and input / output / cache read / cache
+write), list-price $ and % of the weekly window, hidden tests passed, issues / PRs (`counts.issues_closed`,
+`counts.prs_merged`) or commits (`counts.commits`), continue replies (`counts.continue_replies`) and the
+models that ran. A **SonarQube** column appears only when some result carries a `sonarqube` object
+(`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`, `duplicated_lines_density`, `coverage`).
+Anything a result lacks renders as `n/a`. The optional arms (`harness-3`, `hx`) get a `skipped: <reason>` row
+when they have no results; the reason is read from `bench/results/<run-id>/skipped.json`,
+`{"<arm>": "<reason>"}`, else `not run`.
