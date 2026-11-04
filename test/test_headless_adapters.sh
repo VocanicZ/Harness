@@ -13,23 +13,23 @@ list(){ ( source "$CLID/dispatch.sh"; cli_headless_list | xargs ); }
 check(){ ( export HARNESS_SESSION_BACKEND=headless HARNESS_CLI="$1"; source "$CLID/dispatch.sh"; cli_backend_check 2>&1 ); }
 
 echo "== the adapters present are the headless CLIs =="
-assert_eq "$(list)" "claude codex copilot hermes openclaw opencode" "claude, codex, copilot (#483), hermes, openclaw and opencode are the CLIs with an adapter"
-assert_eq "$(ls "$CLID"/*_headless.py | xargs -n1 basename | xargs)" "claude_headless.py codex_headless.py copilot_headless.py hermes_headless.py openclaw_headless.py opencode_headless.py" "…and <cli>_headless.py is each one's adapter"
+assert_eq "$(list)" "agy claude codex copilot hermes openclaw opencode" "agy (#486), claude, codex, copilot (#483), hermes, openclaw and opencode are the CLIs with an adapter"
+assert_eq "$(ls "$CLID"/*_headless.py | xargs -n1 basename | xargs)" "agy_headless.py claude_headless.py codex_headless.py copilot_headless.py hermes_headless.py openclaw_headless.py opencode_headless.py" "…and <cli>_headless.py is each one's adapter"
 assert_ok "headless_core.py is no CLI's adapter" test -f "$CLID/headless_core.py"
 assert_no "…and not listed as a CLI" bash -c "source '$CLID/dispatch.sh'; cli_list | grep -q headless"
 
 echo "== a new adapter enables its CLI, with no edit to dispatch.sh =="
 printf '# fakecli — a made-up CLI for this test\nfakecli_bin(){ echo fakecli; }\n' > "$CLID/fakecli.sh"
-assert_eq "$(list)" "claude codex copilot hermes openclaw opencode" "a CLI with no adapter is still tmux-only"
+assert_eq "$(list)" "agy claude codex copilot hermes openclaw opencode" "a CLI with no adapter is still tmux-only"
 msg="$(check fakecli)"; rc=$?
 assert_ok "…refused on headless, naming it" grep -qF "agent CLI 'fakecli' is tmux-only" <<<"$msg"
-assert_ok "…and pointing at the headless CLIs" grep -qF "runs claude, codex, copilot, hermes, openclaw, opencode lanes only" <<<"$msg"
+assert_ok "…and pointing at the headless CLIs" grep -qF "runs agy, claude, codex, copilot, hermes, openclaw, opencode lanes only" <<<"$msg"
 : > "$CLID/fakecli_headless.py"
-assert_eq "$(list)" "claude codex copilot fakecli hermes openclaw opencode" "drop in fakecli_headless.py and it is listed"
+assert_eq "$(list)" "agy claude codex copilot fakecli hermes openclaw opencode" "drop in fakecli_headless.py and it is listed"
 out="$(check fakecli)"; rc=$?
 assert_eq "$rc" 0 "…and cli_backend_check accepts it on headless"
 assert_eq "$out" "" "…silently"
-assert_ok "…and the refusal for another CLI names both headless CLIs" grep -qF "runs claude, codex, copilot, fakecli, hermes, openclaw, opencode lanes only" <<<"$(check agy)"
+assert_ok "…and the refusal for another CLI names both headless CLIs" grep -qF "runs agy, claude, codex, copilot, fakecli, hermes, openclaw, opencode lanes only" <<<"$(check nosuchcli)"
 
 echo "== copilot's runner: its own command, the adapter's bin and the session as --session-id (#483) =="
 argv="$( export HARNESS_CLI=copilot HARNESS_BOOTSTRAP_PROMPT=go HARNESS_COPILOT_BIN=cop HARNESS_COPILOT_FLAGS="--yolo --no-ask-user --no-auto-update"; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 gpt-6-luna high resume | xargs -d '\n' printf '%s|' )"
@@ -43,10 +43,20 @@ argv="$( export HARNESS_CLI=codex HARNESS_BOOTSTRAP_PROMPT=go HARNESS_CODEX_FLAG
 assert_eq "$argv" "python3|$CLID/codex_headless.py|run|--cwd|/wd|--bin|codex|--session-id|uuid-1|--flags=--dangerously-bypass-approvals-and-sandbox -m mdl -c model_reasoning_effort=low|--message|go|" "cli_headless for codex: no --no-alt-screen, the lane's model and effort replacing the configured ones"
 assert_ok "…and a resume names the thread to carry on" grep -qxF -- "--resume" <<<"$( export HARNESS_CLI=codex HARNESS_BOOTSTRAP_PROMPT=go; source "$CLID/dispatch.sh"; cli_headless /wd tid m e resume )"
 
+echo "== agy's runner: its own command, the adapter's bin and the lane's model and effort in the flags (#486) =="
+argv="$( export HARNESS_CLI=agy HARNESS_BOOTSTRAP_PROMPT=go HARNESS_AGY_BIN=ag HARNESS_AGY_FLAGS="--dangerously-skip-permissions --effort low"; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 claude-sonnet-4-6 high resume | xargs -d '\n' printf '%s|' )"
+assert_eq "$argv" "python3|$CLID/agy_headless.py|run|--cwd|/wd|--bin|ag|--session-id|uuid-1|--resume|--flags=--dangerously-skip-permissions --model claude-sonnet-4-6 --effort high|--message|go|" "cli_headless for agy: the lane's model and effort replace the configured flags'"
+assert_eq "$( export HARNESS_CLI=agy HARNESS_BOOTSTRAP_PROMPT=go; source "$CLID/dispatch.sh"; cli_headless /wd u "" "" | xargs -d '\n' printf '%s|' | grep -o -- '--session-id|u|')" "--session-id|u|" "…and a first launch passes no --resume"
+assert_eq "$( export HARNESS_CLI=agy; HARNESS_SESSION_BACKEND=headless; source "$CLID/dispatch.sh"; cli_loop )" driven "agy on the headless backend is looped by Harness (driven)"
+assert_eq "$( export HARNESS_CLI=agy; HARNESS_SESSION_BACKEND=tmux; source "$CLID/dispatch.sh"; cli_loop )" hook "…and on tmux by its Stop hook"
+hl_pane=$'✻ Working… (1m 5s · esc to interrupt)\n────────────\n❯ \n────────────'
+assert_eq "$( export HARNESS_CLI=agy HARNESS_SESSION_BACKEND=headless; source "$CLID/dispatch.sh"; cli_turn_secs "$hl_pane" )" 65 "agy on the headless backend: the lane's turn timer is read"
+assert_eq "$( export HARNESS_CLI=agy HARNESS_SESSION_BACKEND=tmux; source "$CLID/dispatch.sh"; cli_turn_secs "$hl_pane" )" "" "…on tmux agy has no turn timer (unavailable)"
+
 echo "== the default runner command starts the adapter's runner =="
 argv="$( export HARNESS_CLI=fakecli HARNESS_BOOTSTRAP_PROMPT=go; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 mdl hi resume | xargs -d '\n' printf '%s|' )"
 assert_eq "$argv" "python3|$CLID/fakecli_headless.py|run|--cwd|/wd|--session-id|uuid-1|--resume|--model|mdl|--effort|hi|--message|go|" "cli_headless for an adapter-only CLI"
-out="$( export HARNESS_CLI=agy; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 m e 2>&1 )"; rc=$?
+out="$( export HARNESS_CLI=nosuchcli; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 m e 2>&1 )"; rc=$?
 assert_eq "$rc" 1 "a CLI with no adapter has no headless command"
-assert_ok "…it is tmux-only" grep -qF "agent CLI 'agy' is tmux-only" <<<"$out"
+assert_ok "…it is tmux-only" grep -qF "agent CLI 'nosuchcli' is tmux-only" <<<"$out"
 finish

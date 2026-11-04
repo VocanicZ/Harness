@@ -236,3 +236,10 @@ gitattr_eol(){ local tree="$1" t out rc=1; shift
 write_targets(){ cat > "$TARGETS_TSV"; }
 set_complete(){ printf '%s\n' "$@" > "$COMPLETE_SET"; [[ $# -eq 0 ]] && : > "$COMPLETE_SET"; }
 unit_complete(){ grep -qxF "$1" "$COMPLETE_SET" 2>/dev/null; }
+
+# tmux_only_tree <dest> — a copy of scripts/ and test/smoke/*.sh under <dest> with a made-up CLI, `fakecli`, that has no
+# headless adapter. Every real CLI has one (#486 was the last), so the tests of the tmux-only refusal ride on this one:
+# point HARNESS_CLI=fakecli at <dest>/scripts/... (a script, or `source <dest>/scripts/cli/dispatch.sh`).
+tmux_only_tree(){ local src; src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  mkdir -p "$1/test/smoke" && cp -r "$src/scripts" "$1/scripts" && cp "$src"/test/smoke/*.sh "$1/test/smoke/" &&
+    printf '# fakecli — a made-up CLI with no headless adapter (the tests of the tmux-only refusal)\nfakecli_bin(){ echo fakecli; }\n' > "$1/scripts/cli/fakecli.sh"; }

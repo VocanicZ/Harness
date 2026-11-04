@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""fake-agy — stands in for `agy --input-format stream-json --output-format stream-json -p=` (../README.md,
+"stream-json"): each run replays one captured turn from this directory, in the order $FAKE_CLAUDE_DIR/plan
+names them (one fixture name per line: normal, tool-use, limit, transient, no-conversation — or `hang`, a turn
+that never ends). The variable keeps claude's name because the matrix's headless-* rows are shared by every CLI.
+Text after the name on a plan line (`normal <promise>X</promise>`) replaces the turn's reply.
+
+Per run it appends {argv, prompt (the user line's message content on its stdin), pid} to
+$FAKE_CLAUDE_DIR/calls.jsonl, then prints the fixture's events with every conversation_id set to the conversation
+the argv continues (--conversation) or, with none, a new one, as agy names its own. A new conversation also
+leaves what agy leaves on disk under $HARNESS_AGY_HOME (the conversation database of ../../transcript.db,
+the workspace's entry in cache/last_conversations.json, the first step of brain/<id>'s transcript), which is
+where Harness reads an agy session's id and usage from. A conversation id the home does not hold is agy's
+`warning: conversation "<id>" not found` (no-conversation.stderr) and a run in a new conversation. `-p /usage`
+prints usage-windows.json and runs no turn. While $FAKE_CLAUDE_DIR/hold exists the run waits after the first
+event, so a test can act mid-turn. `hang` prints the first event, starts a grandchild (`sleep`), writes `<own pid>
+<grandchild pid>` to $FAKE_CLAUDE_DIR/pids and waits forever. It exits 3 after an ERROR result, as agy does. An
+executable $FAKE_CLAUDE_DIR/turn-hook runs first with the prompt on its stdin, in the working directory — the
+commands an agent would run in that turn (#350: a checkpoint's gh calls)."""
+import json, os, shutil, subprocess, sys, time, uuid
+from datetime import datetime, timezone
+
+here = os.path.dirname(os.path.abspath(__file__))
+argv = sys.argv[1:]
+if "/usage" in argv:   # `agy -p /usage --output-format json`: the windows, no turn
+    own = os.path.join(here, "usage-windows.json")   # the matrix copies it beside this file
+    with open(own if os.path.exists(own) else os.path.join(here, "..", "usage-windows.json")) as f:
+        sys.stdout.write(f.read())
+    sys.exit(0)
+d = os.environ["FAKE_CLAUDE_DIR"]
+home = os.environ["HARNESS_AGY_HOME"]
+want = None
+for i, a in enumerate(argv[:-1]):
+    if a == "--conversation":
+        want = argv[i + 1]
+raw = sys.stdin.readline()
+try:
+    msg = json.loads(raw)
+    prompt = msg["message"]["content"] if msg.get("event") == "user" else None
+except (ValueError, KeyError, TypeError, AttributeError):
+    prompt = None
+if not isinstance(prompt, str):   # agy's own refusal of a stream input line it cannot read
+    sys.stderr.write("error: failed to decode stream input\n")
+    sys.exit(3)
+with open(os.path.join(d, "calls.jsonl"), "a") as f:
+    f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
+n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
+hook = os.path.join(d, "turn-hook")
+if os.access(hook, os.X_OK):
+    subprocess.run([hook], input=prompt, text=True)
+plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
+name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
+
+
+def has_conversation(cid):
+    return os.path.exists(os.path.join(home, "conversations", cid + ".db"))
+
+
+def new_conversation():
+    """What agy leaves for a new conversation (../README.md `fake-agy`); returns its id."""
+    cid = str(uuid.uuid4())
+    os.makedirs(os.path.join(home, "cache"), exist_ok=True)
+    os.makedirs(os.path.join(home, "conversations"), exist_ok=True)
+    f = os.path.join(home, "cache", "last_conversations.json")
+    m = json.load(open(f)) if os.path.exists(f) else {}
+    m[os.getcwd()] = cid
+    json.dump(m, open(f, "w"))
+    for own in (os.path.join(here, "transcript.db"), os.path.join(here, "..", "transcript.db")):   # the matrix copies it beside this file
+        if os.path.exists(own):
+            shutil.copy(own, os.path.join(home, "conversations", cid + ".db"))
+            break
+    logs = os.path.join(home, "brain", cid, ".system_generated", "logs")
+    os.makedirs(logs, exist_ok=True)
+    with open(os.path.join(logs, "transcript.jsonl"), "w") as t:   # its first step is stamped with the conversation's start
+        t.write(json.dumps({"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "status": "DONE",
+                            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
+    return cid
+
+
+if want is not None and not has_conversation(want) and name != "no-conversation":
+    name = "no-conversation"
+cid = want if want is not None and has_conversation(want) else new_conversation()
+
+src = "normal" if name == "hang" else name
+events = [json.loads(l) for l in open(os.path.join(here, f"{src}.jsonl")) if l.strip()]
+last_text = None
+for i, e in enumerate(events):
+    if e.get("event") == "init":
+        e["conversation_id"] = cid
+    su = e.get("step_update")
+    if isinstance(su, dict):
+        su["conversation_id"] = cid
+        if su.get("step_type") == "agent_response" and su.get("state") == "ACTIVE" and su.get("text_delta"):
+            last_text = i
+    if isinstance(e.get("result"), dict):
+        e["result"]["conversation_id"] = cid
+if reply and last_text is not None:
+    events[last_text]["step_update"]["text_delta"] = reply
+    for e in events:
+        if isinstance(e.get("result"), dict) and e["result"].get("status") == "SUCCESS":
+            e["result"]["response"] = reply + "\n"
+if name == "hang":
+    events = events[:1]
+
+err = False
+for i, e in enumerate(events):
+    print(json.dumps(e, separators=(",", ":")), flush=True)
+    err = err or (isinstance(e.get("result"), dict) and e["result"].get("status") == "ERROR")
+    if i == 0:
+        while os.path.exists(os.path.join(d, "hold")):
+            time.sleep(0.05)
+if name == "hang":
+    child = subprocess.Popen(["sleep", "600"])
+    with open(os.path.join(d, "pids"), "w") as f:
+        f.write(f"{os.getpid()} {child.pid}\n")
+    while True:
+        time.sleep(1)
+if name in ("limit", "transient", "no-conversation"):
+    if os.path.exists(os.path.join(here, f"{name}.stderr")):
+        sys.stderr.write(open(os.path.join(here, f"{name}.stderr")).read())
+sys.exit(3 if err else 0)

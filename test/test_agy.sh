@@ -289,4 +289,22 @@ assert_eq "$(cli_with agy cli_session_id "$SID_WD" u1)" "" "agy session id: righ
 sid_conv new-conv "$(date -u -d '+5 seconds' +%Y-%m-%dT%H:%M:%SZ)"
 assert_eq "$(cli_with agy cli_session_id "$SID_WD" u1)" "new-conv" "agy session id: the conversation started since the launch is reported"
 
+# #486: agy has a headless lane runner (scripts/cli/agy_headless.py), so its headless-* rows run on the fixture replay
+# (fake-agy) like claude's: every agy headless-* row is ok, and there are all 14 of them. (The pane rows are test_cli_matrix.sh's
+# and test_cli_readme.sh's; the supervisor-frozen-session pair draws real tmux panes and is red on a host whose tmux a sandboxed
+# suite run cannot reach, for every CLI.)
+cells="$(HARNESS_MATRIX_ROWS='^headless-' HARNESS_MATRIX_CLIS=agy bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="agy"')"
+assert_eq "$(awk -F'\t' '$3!="ok"' <<<"$cells")" "" "every agy headless-* matrix cell is ok"
+assert_eq "$(awk -F'\t' '$2 ~ /^headless-/' <<<"$cells" | wc -l)" 14 "…and it has all 14 of them"
+assert_ok "agy is a headless CLI" grep -qx agy <<<"$(cli_headless_list)"
+assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_backend_check 2>&1; echo $?)" 0 "…and the headless backend does not refuse it as tmux-only"
+# …and on the Windows code paths (HARNESS_PLATFORM=windows forced on this host, an flock-backed msvcrt for portable.py): the
+# rows that start a lane, send to it, park it at a limit, read its windows and its usage. (headless-checkpoint and
+# -resume are red under that emulation for claude too: they are the winsma run's, #475 task 8.)
+win="$(HARNESS_MATRIX_HEADLESS_PLATFORM=windows HARNESS_MATRIX_CLIS=agy \
+  HARNESS_MATRIX_ROWS='^headless-(launch|send|busy-idle|limit-parks|transient-stalls|usage-windows|stats-session-end-usage|stop)$' \
+  bash "$HERE/test_cli_matrix.sh" --tsv)"
+assert_eq "$(awk -F'\t' '$3=="ok"' <<<"$win" | wc -l)" 8 "agy's lane rows pass under HARNESS_PLATFORM=windows (8 of them)"
+assert_eq "$(awk -F'\t' '$3!="ok"' <<<"$win")" "" "…and none is red"
+
 finish
