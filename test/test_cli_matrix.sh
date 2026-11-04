@@ -657,8 +657,10 @@ hl_fixdir(){ [[ -d "$FIX/$HARNESS_CLI/run-json" ]] && echo run-json || echo stre
 # (--session-id); opencode picks its own, so it is handed none. hl_resumes <argv json> <session> — a later
 # turn (or a relaunched lane's first) continues that session: claude --resume, opencode --session.
 hl_first_turn_ok(){ if [[ $HARNESS_CLI == opencode ]]; then has '"run", "--format", "json"' "$1" && lacks '"--session"' "$1"
+  elif [[ $HARNESS_CLI == hermes ]]; then has "\"-c\", \"$2\", \"--create-if-missing\"" "$1" && has '"--format", "stream-json"' "$1"
   else has "\"--session-id\", \"$2\"" "$1"; fi; }
 hl_resumes(){ if [[ $HARNESS_CLI == opencode ]]; then has "\"--session\", \"$2\"" "$1"
+  elif [[ $HARNESS_CLI == hermes ]]; then has "\"-c\", \"$2\"" "$1" && lacks '"--session-id"' "$1"
   else has "\"--resume\", \"$2\"" "$1" && lacks '"--session-id"' "$1"; fi; }
 hl_started(){ [[ "$(hl_field "$1" session_started)" == true ]]; }
 # hl_env — this (sub)shell on the headless backend: lanes in a dir of its own, the CLI the fake (a copy
@@ -672,8 +674,10 @@ hl_env(){ HL="$RUN_DIR/hl-$HARNESS_CLI-$BASHPID"; mkdir -p "$HL/lanes" "$HL/fake
   export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_EVENTS_FILE="$HL/events.jsonl" HARNESS_CLAUDE_CONFIG_DIRS="$HL/no-config"
   unset HARNESS_USAGE_CMD CLAUDE_CONFIG_DIR
   export XDG_DATA_HOME="$HL/xdg-data"   # where an opencode lane's sessions and usage are read from (#482)
+  export HARNESS_HERMES_HOME="$HL/hermes-op"   # the operator home a hermes lane's profile is made from and read in (#484)
   cp "$FIX/$HARNESS_CLI/$(hl_fixdir)/"* "$HL/fake/" || return 1
   [[ -f "$FIX/$HARNESS_CLI/transcript.db" ]] && cp "$FIX/$HARNESS_CLI/transcript.db" "$HL/fake/"
+  [[ $HARNESS_CLI == hermes ]] && cp "$FIX/hermes/usage-windows.json" "$HL/fake/"   # what the fake's `usage --json` prints
   python3 - "$HL/fake" <<'PY' || return 1
 import glob, json, sys, time
 for f in glob.glob(sys.argv[1] + "/*.jsonl"):
@@ -819,11 +823,14 @@ headless_supervisor_ok(){ ( hl_env; local idle=hz-main-i28 lim=hz-main-i29 iwd t
 # as a percent, under the lane's account (`default`: no CLAUDE_CONFIG_DIR).
 headless_usage_windows_ok(){ ( hl_env; local s=hz-main-i30; hl_lane usage tool-use
   hl_launch "$s" GOAL=ISSUE:30 && hl_wait 15 hl_turn "$s" 1 || exit 1
-  same "$(cli_limit_usage | cut -f1-3 | sort)" "$(sort "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected")" ); }
+  same "$(cli_limit_usage | cut -f1-3 | sort)" "$(sort "$(hl_usage_expected)")" ); }
+# hl_usage_expected — the usage windows the CLI's adapter reports for the lane: claude's own, folded from the
+# stream's rate_limit_event (stream-json/); hermes's, the provider's `hermes usage --json` (the tmux row's).
+hl_usage_expected(){ [[ $HARNESS_CLI == hermes ]] && echo "$FIX/hermes/usage-windows.expected" || echo "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected"; }
 # hl_stats_want — the files the stats row's expected usage is folded from: claude's two turns' own stream-json
 # `result` usage; opencode's session lives in its database (the fake wrote transcript.db there), which
 # its adapter folds (usage.expected).
-hl_stats_want(){ if [[ $HARNESS_CLI == opencode ]]; then echo "$FIX/opencode/usage.expected"
+hl_stats_want(){ if [[ $HARNESS_CLI == opencode || $HARNESS_CLI == hermes ]]; then echo "$FIX/$HARNESS_CLI/usage.expected"
   else echo "$HL/fake/tool-use.jsonl $HL/fake/normal.jsonl"; fi; }
 # headless_stats_ok — #352: once the lane's runner has exited, the stats sweep emits its session_end
 # once, its usage the sum of its turns' own stream-json `result` usage (no transcript; #426: a `--resume`d
@@ -838,7 +845,7 @@ headless_stats_ok(){ ( hl_env; local s=hz-main-i31 uuid; hl_lane stats tool-use 
 import json, sys
 want = {}
 for f in sys.argv[3:]:
-    if f.endswith(".expected"):   # opencode (#482): the fold of its database, the model's usage.expected line
+    if f.endswith(".expected"):   # opencode (#482), hermes (#484): the fold of its database, the model's usage.expected line
         for line in open(f):
             m, i, o, cr, cw = line.rstrip("\n").split("\t")
             want[m] = {"input": int(i), "output": int(o), "cache_read": int(cr), "cache_create": int(cw)}

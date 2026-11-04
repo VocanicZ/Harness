@@ -1,0 +1,4 @@
+{"type": "system", "subtype": "init", "model": "", "session_id": "", "timestamp": 1793771870384}
+{"type": "text", "text": "P", "timestamp": 1793771874712}
+{"type": "text", "text": "ONG", "timestamp": 1793771874714}
+{"type": "result", "session_id": "local-17747387300ef8f838a65bbb93d61008ef1fd0339361272b38fdc141491bef71", "exit_code": 0, "text": "PONG", "tokens": {"input": 9765, "output": 3, "total": 9768, "cache_read": 9600, "cache_write": 0}, "duration_ms": 5895, "timestamp": 1793771876280}

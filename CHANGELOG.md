@@ -4,6 +4,32 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Headless turn adapter for `hermes` (#484)
+
+- `hermes` runs on the headless session backend: `scripts/cli/hermes_headless.py` is its adapter on the shared
+  core (#480), and `hermes` stops being refused as tmux-only. Each turn is one
+  `hermes chat --format stream-json --yolo --accept-hooks -c <session> --create-if-missing --query-file -` (the
+  message on stdin) in the lane's own Hermes profile, seeded exactly as a tmux lane's is. `-c` titles the lane's
+  session on the first turn and finds it on every later one, so a lane is one Hermes session. A `result` with
+  `exit_code` 0 is `idle`; an error that is a quota (usage limit, exhausted credits, a Nous account's rate limit)
+  is `limit` with its reset time; any other error, or an exit with no `result`, is `transient`.
+- Hermes runs a turn's commands in its host gateway, so killing a turn's process left its command running. The core
+  gained an optional adapter `abort_turn(bin, cwd)`, called after a stop or an interrupt kills a turn; hermes stops
+  the lane's gateway there and lifts the park that leaves on the profile (a parked profile's next turn fails after
+  60 s). The core's optional adapter `env()` now receives the lane's worktree.
+- `test/test_hermes_headless.py` runs the adapter against captures of the real CLI
+  (`test/fixtures/cli/hermes/stream-json/`), and the matrix's `headless-*` rows now pass for `hermes` from fixture
+  replay on Linux. Under `HARNESS_PLATFORM=windows` on the Linux fleet host all of them pass but
+  `headless-checkpoint`, `headless-resume` and `headless-stats-session-end-usage`, which fail the same way there for
+  `claude` and `opencode` on `main`. The parity matrix and the per-CLI non-interactive table in `docs/reference.md`
+  are updated.
+- A live headless smoke on the fleet host (Hermes 0.22.5 on the Copilot provider, `gpt-4.1`) passes: the sandbox
+  issue was claimed, run by a `hermes` headless lane and merged, `test/smoke/logs/hermes-headless-20261104T065612Z.log`
+  (`SMOKE_CHECKPOINT=0`). The checkpoint-and-resume run did not confirm on this host: the lane ran the checkpoint
+  turn and pushed its branch, but the agent stopped before the handoff: the `caveman` skill it was told to load
+  exists in both `~/.hermes/skills` and `~/.claude/skills` on this host, and `skill_view` refused the ambiguous name,
+  so no `agent-paused` label followed. The matrix's `headless-checkpoint` and `headless-resume` rows cover the mechanics from fixtures.
+
 ### Headless turn adapter for `opencode` (#482)
 
 - `opencode` runs on the headless session backend: `scripts/cli/opencode_headless.py` is its adapter on the shared

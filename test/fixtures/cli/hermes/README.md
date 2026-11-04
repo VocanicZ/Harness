@@ -69,3 +69,41 @@ no `proof-after-kill.txt`), and the lane's gateway (`$HERMES_HOME/gateway.pid`) 
 gateway stop -y` with that `HERMES_HOME` stopped it (`✓ Stopped gateway for this profile`). Stopping the
 gateway BEFORE killing the pane let the still-running TUI start a new one; pane first, then gateway,
 left none.
+
+## `stream-json/` — the headless turn (#484)
+
+What the headless lane runner (`scripts/cli/hermes_headless.py`) reads: the stdout of
+`hermes chat --format stream-json --yolo --accept-hooks -c <session> --create-if-missing --query-file -`, the
+message on stdin, one JSON event per line. Captured 2026-11-04 (UTC) on the fleet host from Hermes Agent
+`v0.22.5`, in a throwaway git repo and a throwaway profile of the operator's home (`HERMES_HOME=<op>/profiles/<name>`,
+its `auth.json` and `config.yaml` copied: Copilot provider, `gpt-4.1`). Each capture is the run's stdout
+unchanged (stderr, `Session: <id>` and `session_id: <id>`, is not kept); the limit and transient ones come from a
+local stand-in endpoint (below), so their provider is `custom` and the URL `127.0.0.1`.
+
+| file | how |
+|---|---|
+| `normal.jsonl` | The first turn of a new session titled by `-c`: `Reply with exactly the word PONG and nothing else.` A `system`/`init` (its `session_id` and `model` empty), the reply as `text` deltas (`P`, `ONG`), and a `result`: `session_id` (`local-…`, Hermes's own id), `exit_code` 0, `text` `PONG`, `tokens` (`input`, `output`, `total`, `cache_read`, `cache_write`), `duration_ms`. Exit 0. |
+| `tool-use.jsonl` | The next turn of that session, the same `-c <title>`: `Use your terminal tool to run the shell command: echo hi > proof.txt — then reply with exactly DONE.` A `tool_use` (`name` `terminal`, `input.command`), its `tool_result` (`output`, `is_error`), a `text` delta (`\n\nDONE`) and a `result` with `text` `DONE` — the reply is the `result`'s text, which has no leading blank lines. Same `session_id`: `-c <title>` carried the session. `proof.txt` was created. Exit 0. |
+| `limit.jsonl` | NOT triggerable on demand (a live quota cannot be exhausted), so Hermes was pointed at a local stand-in endpoint: `--provider custom --base-url http://127.0.0.1:<port>/v1 --api-key x -m fake`, whose server answered every call `429` with `{"error": {"message": "You have reached your usage limit for this period.", "type": "usage_limit_reached", "resets_in_seconds": 7200}}`. Hermes retried three times, about 10 seconds, then printed one `result` with `exit_code` 1, `error` `HTTP 429: You have reached your usage limit for this period.` and a `text` that says when it lifts (`Limit resets at 07:54 (in 2h 00m).`). Exit 1. |
+| `transient.jsonl` | The same endpoint answering `503` `{"error": {"message": "Service Unavailable"}}`. Hermes retried in cycles for about 5 minutes (`duration_ms` 308311), then printed one `result` with `exit_code` 1, `error` `HTTP 503: Service Unavailable` and `text` `custom reported it was overloaded on all 3 attempts …`. Exit 1. |
+| `fake-hermes` | Stands in for `hermes` in `test/test_hermes_headless.py` and the matrix's `headless-*` rows (`test/test_cli_matrix.sh`, #484): each `chat` run replays the fixture `$FAKE_CLAUDE_DIR/plan` names next (text after the name replaces its reply), with the `result`'s `session_id` set to the session of the `state.db` it leaves in `$HERMES_HOME` (`../transcript.db`, titled as `-c` named it, so the session id and usage Harness reads from there are found), records its argv and stdin prompt, can hold mid-turn, has a `hang` turn that starts a grandchild for the stop test, and runs an executable `turn-hook` with each prompt (#350). It also answers `usage --json` (`../usage-windows.json`, resets moved an hour ahead) and `gateway stop -y` (recorded in `gateway-stops`). Its header says how. |
+
+What the runner reads from them (`Turn.outcome`): a `result` with `exit_code` 0 and no `error` → `idle` (the reply is
+its `text`); a `result` with `error` (or a non-zero `exit_code`) whose error or text is a quota — `usage limit`,
+`Limit resets at … (in 2h 00m)`, exhausted credits or billing, a Nous account's rate limit — → `limit`, its reset the
+text's `(in 2h 00m)` / `resets in ~2h`; any other failed `result` (a 503, a plain 429 with no reset) or a process
+that exits with no `result` → `transient`. Usage windows are not in the stream; `hermes usage --json`
+(`usage-windows.json`) is how they are read, as for a pane.
+
+Also seen, not kept as files, on a `chat --format stream-json` run in a profile with no lane gateway of its own: a
+prompt `sleep 40 && touch killed-proof.txt`, the `hermes` process killed 15 seconds in (SIGTERM), and
+`killed-proof.txt` was still written 40 seconds after the start. The turn's command belongs to the host gateway, so
+killing the client ends nothing. The same run with `HERMES_HOME=<profile> hermes gateway stop -y` after the kill left no
+`killed-proof.txt` (`⚠ --yes: stop proceeds: 1 live session(s) would be interrupted`), but it also parked the profile
+(`Profile '<name>' parked; … Start again with: hermes -p <name> gateway start`): the next `chat` in it failed after 60 s
+(`Gateway starting: deadline`, a `result` with `exit_code` 1) until its `gateway.parked` was removed, when it ran at
+once. So the runner stops the lane's gateway after it kills a turn's process tree on a stop or an interrupt, and
+removes `gateway.parked` (`abort_turn`). A session `-c` is given as Hermes's own id (`local-…`) is
+found as readily as one given as its title; `--resume nonexistent-id` is a `result` with an empty `session_id`,
+`exit_code` 1 and `error` `No session found matching 'nonexistent-id'. …`, which the runner never meets, since every
+turn is `-c … --create-if-missing`.
