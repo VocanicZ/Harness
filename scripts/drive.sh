@@ -244,6 +244,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   # flight; the unit-level PLAN/PRD actions keep the bare goal.
   GOAL="$action"; (( prd > 0 )) && GOAL="$action:$prd"
   ensure_safe "$CHECKOUT"
+  win_repo_config "$CHECKOUT"   # #488
   base="$(default_branch)"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   if (( prd > 0 )); then
@@ -257,6 +258,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
       git -C "$CHECKOUT" worktree add -B "agent/orch-$prd" "$wd" 2>/dev/null || { log "worktree add failed orch PRD #$prd"; return 1; }
     fi
     ensure_safe "$wd"
+    win_repo_config "$wd"   # #488: per-repo longpaths + LF on Windows (never --global)
     run_worktree_hook "$wd"
   else
     # PLAN/PRD: unit-level, gated on zero PRDs existing, so they cannot race each other or a
@@ -299,6 +301,7 @@ prepare_impl(){   # <ISSUE> <PROMISE>
     git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
   fi
   ensure_safe "$wd"
+  win_repo_config "$wd"   # #488
   run_worktree_hook "$wd"
   # Stamp agent-working only AFTER the worktree is in place (#416, as spawn_bug since #34). A failed
   # add returns above WITHOUT a stamp — and never removes one: it can mean a live lane still owns the
@@ -362,6 +365,7 @@ spawn_bug(){
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
     fi
     ensure_safe "$wd"
+    win_repo_config "$wd"   # #488: per-repo longpaths + LF on Windows (never --global)
     run_worktree_hook "$wd"
     # Resume detection (mirrors spawn_impl, #36): a force-paused fix flips to agent-paused and
     # pushes its issue/<n> branch. Either signal means a prior agent checkpointed WIP to GitHub —
@@ -385,6 +389,7 @@ spawn_bug(){
       git -C "$CHECKOUT" worktree add -B "agent/bug-triage-$issue" "$wd" 2>/dev/null || { log "worktree add failed triage #$issue"; return 1; }
     fi
     ensure_safe "$wd"
+    win_repo_config "$wd"   # #488: per-repo longpaths + LF on Windows (never --global)
     run_worktree_hook "$wd"
   fi
   # Stamp agent-working only AFTER the worktree is in place (#34): a failed `worktree add` returns

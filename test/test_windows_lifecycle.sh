@@ -78,7 +78,12 @@ assert_eq "$(sed -n 's/^pid:\([0-9]*\).*/\1/p' "$W/b.log")" "$(cat "$W/b.pid")" 
 assert_ok "[windows] -a appends to the log"                   grep -qx old "$W/b.log"
 assert_ok "[windows] the caller's environment is restored (WMI gives a default one)" grep -q "marker:a b'c " "$W/b.log"
 assert_ok "[windows] … and its working directory"             grep -q "cwd:$W/cwd$" "$W/b.log"
-assert_eq "$(stat -c %a "$W/b.pid.env")" 600 "[windows] the saved environment is private (mode 600)"
+assert_ok "[windows] the saved environment is deleted once the launcher has restored it (no token left on disk, #510)" wait_for "test ! -e '$W/b.pid.env'"
+printf '#!/bin/sh\nstat -c %%a "%s/d.pid.env" > "%s/d.mode"\nexit 1\n' "$W" "$W" >"$W/ps-mode"; chmod +x "$W/ps-mode"
+( export HARNESS_PLATFORM=windows HARNESS_DETACH_WAIT=1 HARNESS_POWERSHELL="$W/ps-mode"
+  detach_launch "$W/d.pid" "$W/d.log" true ) 2>/dev/null
+assert_eq "$(cat "$W/d.mode" 2>/dev/null)" 600 "[windows] while it waits to be restored, the saved environment is private (mode 600)"
+assert_no "[windows] a failed launch leaves no saved environment behind" test -e "$W/d.pid.env"
 # A relative pidfile/log (the winsma failure): WMI starts the launcher in another directory, so every
 # path the launch hands it — and every path the launcher reads or writes — must be absolute.
 mkdir -p "$W/run"

@@ -139,7 +139,7 @@ echo "# isolation"
   ws_isolate 479; hx="$WS_C/hx-479"
   assert_ok "isolate makes pids, tasks and the work dirs" bash -c "test -f $hx/pids && test -f $hx/tasks && test -d $hx/clone && test -d $hx/tmp"
   b="$(ws_env 479 base)"
-  for v in HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS TMPDIR npm_config_cache HX_CLONE; do
+  for v in HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS TMPDIR npm_config_cache HX_CLONE GIT_CONFIG_GLOBAL; do
     [[ "$b" == *"export $v=$hx/"* ]]; assert_eq "$?" "0" "base exports $v under C:\\hx-479\\"
   done
   [[ "$b" != *CLAUDE_CONFIG_DIR* && "$b" != *"export HOME="* && "$b" != *USERPROFILE* ]]; assert_eq "$?" "0" "base sets no CLAUDE_CONFIG_DIR, HOME or USERPROFILE"

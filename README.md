@@ -74,6 +74,14 @@ The installer offers to install the rest: `git` (with the `curl` line), `tmux`, 
 installed. It asks first; `HARNESS_INSTALL_PREREQS=1` answers yes, `0` no. With neither a terminal
 nor that setting, it prints the command to run and stops.
 
+On Windows the package manager is **winget**: from Git Bash, `install.sh` offers Git for Windows
+(`Git.Git`), a Python 3 that really runs (`Python.Python.3.13`; the Microsoft Store `python3` stub
+does not count), the GitHub CLI (`GitHub.cli`), Claude Code (`Anthropic.ClaudeCode`) and Node for
+rtdd (`OpenJS.NodeJS.LTS`), each only when missing and each as its own question. It also checks
+that Developer Mode is on (or the shell is an administrator) and that git has an identity, and prints
+the exact fix for either. Open a new Git Bash after winget installs something: winget changes PATH
+for new terminals only. WSL2 stays an optional alternative, as Linux.
+
 ## Quick start
 
 In your project repo, one step — tell your agent what to build:

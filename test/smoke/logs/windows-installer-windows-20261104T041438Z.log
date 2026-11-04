@@ -1,0 +1,203 @@
+# Windows installer on winsma: install.sh -> harness init -> harness start dispatches (#488, PRD #475)
+# date: 2026-11-04T04:14:38Z
+# host: Microsoft Windows [Version 10.0.19045.6456] via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-488\ under the winsma rules
+# engine: the issue/488 branch, served as a local release (HARNESS_REF=v0.0.0-i488 over file://) to install.sh
+# prerequisites: the host already has them, so the stub was offered nothing (winget stub calls: 0); the offers themselves are covered by
+#   test/test_windows_installer.sh. winget is a logging stub (HARNESS_WINGET) with HARNESS_INSTALL_PREREQS=1: no real winget install ran
+# claude: sandbox CLAUDE_CONFIG_DIR, no sign-in, no token usage; the sandbox repo is VocanicZ/harness-smoke-claude
+# what earlier runs of this sequence found, each fixed on the branch before this one:
+#   1. tar -xzf C:/hx-488/tmp/... : GNU tar read "C:" as a host -> install.sh now extracts from stdin
+#   2. guard: ~/.gitconfig changed -> the fleet's ensure_safe wrote safe.directory; winsma's isolation now sets GIT_CONFIG_GLOBAL
+#   3. credential scan: GH_TOKEN in .harness/run/*.pid.env -> the Windows launcher deletes the saved environment once restored (#510)
+
+[04:12:51] run: #488 on winsma, mode install: set -u
+# #488 on winsma, inside C:\hx-488 (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, CLAUDE_CONFIG_DIR, GH_TOKEN env are the isolation's).
+REPO=VocanicZ/harness-smoke-claude
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+say "== host: $(uname -srm) | bash $BASH_VERSION | python3 $(python3 --version 2>&1)"
+say "== 1. clone the branch under test"
+git clone -q --branch issue/488 https://github.com/VocanicZ/Harness.git src || { say "clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+
+say "== 2. a local release of THIS tree, served over file:// (install.sh installs a release)"
+tag=v0.0.0-i488; st="stage/harness-$tag"; mkdir -p "$st" "rel/download/$tag"
+( cd src && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$st"
+printf '%s\n%040d\n' "$tag" 0 > "$st/VERSION"
+printf '#!/usr/bin/env bash\necho %s\n' "$tag" > "$st/scripts/release-marker.sh"
+tar -C stage -czf "rel/download/$tag/harness-$tag.tar.gz" "harness-$tag"
+( cd "rel/download/$tag" && sha256sum "harness-$tag.tar.gz" > SHA256SUMS )
+
+say "== 3. winget is a logging stub: no real 'winget install' runs on winsma"
+mkdir -p stubs
+printf '#!/usr/bin/env bash\necho "winget $*" >> "%s/winget.log"\nexit 0\n' "$HX_DIR" > stubs/winget
+chmod +x stubs/winget
+: > winget.log
+
+say "== 4. bash install.sh (HARNESS_INSTALL_PREREQS=1, HARNESS_WINGET=stub, HARNESS_REF=$tag)"
+export HARNESS_BASE_URL="file:///$HX_DIR/rel/download" HARNESS_REF="$tag" HARNESS_WINGET="$HX_DIR/stubs/winget" HARNESS_INSTALL_PREREQS=1 HARNESS_INSTALL_NOPROMPT=1
+export HARNESS_SKIP_RTDD=1
+bash src/install.sh </dev/null 2>&1 | sed 's/^/   /'; irc=${PIPESTATUS[0]}
+say "install.sh exit $irc"
+say "winget stub calls: $(wc -l < winget.log) -> $(cat winget.log | tr '\n' ';')"
+[[ -x "$HARNESS_HOME/bin/python3" ]] && say "python3 shim present"
+ls "$HARNESS_BIN_DIR" | sed 's/^/   bin: /'
+(( irc == 0 )) || { say "INSTALL FAILED"; exit 1; }
+
+export PATH="$(cygpath -u "$HARNESS_BIN_DIR"):$PATH"   # a C:/… entry cannot sit in an MSYS PATH
+H=harness; say "harness resolves to: $(command -v harness)"
+say "== 5. harness --version: $($H --version 2>&1 | head -1)"
+
+say "== 6. harness init in a fresh clone of the sandbox"
+git clone -q "https://github.com/$REPO.git" clone || { say "sandbox clone failed"; exit 1; }
+cd clone || exit 1
+( HARNESS_INIT_NONINTERACTIVE=1 HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude HARNESS_MODE=issue-only \
+  HARNESS_OWNER=VocanicZ HARNESS_REPO="$REPO" HARNESS_SESS_PREFIX=hxi488 HARNESS_POOL=1 HARNESS_POLL=30 HARNESS_PRIORITY_POLL=60 \
+  HARNESS_USE_POLLER=0 HARNESS_AUTONOMOUS=true $H init </dev/null ) 2>&1 | sed 's/^/   /'
+[[ -f .harness/config ]] || { say "harness init wrote no config"; exit 1; }
+printf ': "${HARNESS_SWARM:=off}"\n' >> .harness/config
+
+say "== 7. issue + harness start (sandbox CLAUDE_CONFIG_DIR, no sign-in)"
+PRD="$(gh issue create -R "$REPO" -l prd -t "i488 winsma PRD" -b "Tracking issue for #488's winsma run. Closed by cleanup." | grep -oE '[0-9]+$')"
+ISS="$(gh issue create -R "$REPO" -l ready-for-agent -t "i488 winsma: dispatch check" -b "$(printf 'Dispatch check for Harness #488. The fleet only needs to claim this; the run has no Claude sign-in. Closed by cleanup.\n\n## Parent\n#%s\n' "$PRD")" | grep -oE '[0-9]+$')"
+say "filed PRD #$PRD and issue #$ISS"
+cleanup_issues(){ gh issue close "$ISS" -R "$REPO" -c "i488 winsma run over" >/dev/null 2>&1; gh issue close "$PRD" -R "$REPO" -c "i488 winsma run over" >/dev/null 2>&1
+  gh issue edit "$ISS" -R "$REPO" --remove-label agent-working >/dev/null 2>&1; }
+trap cleanup_issues EXIT
+$H start 2>&1 | sed 's/^/   /'
+dispatched=0
+for i in $(seq 1 20); do
+  sleep 15
+  labels="$(gh issue view "$ISS" -R "$REPO" --json labels --jq '[.labels[].name]|sort|join(",")' 2>/dev/null)"
+  say "poll $i: issue #$ISS labels=$labels"
+  [[ ",$labels," == *,agent-working,* ]] && { dispatched=1; break; }
+  gone="$(gh issue list -R "$REPO" -l agent-working --json number,title -q '.[]|select(.title|startswith("i488"))|.number' 2>/dev/null | head -1)"
+  [[ -n "$gone" ]] && { ISS="$gone"; say "claimed #$ISS (agent-working)"; dispatched=1; break; }
+done
+(( dispatched )) && say "DISPATCHED: #$ISS claimed (agent-working)" || say "NOT DISPATCHED within 5 minutes"
+sleep 20
+say "== 8. the lane's worktree got per-repo git settings"
+git -C . worktree list | sed 's/^/   /'
+for k in core.longpaths core.autocrlf core.eol; do say "$k = $(git -C . config --local --get $k)"; done
+wt="$(ls -d .harness/worktrees/* 2>/dev/null | head -1)"
+[[ -n "$wt" ]] && for k in core.longpaths core.autocrlf core.eol; do say "worktree $wt: $k = $(git -C "$wt" config --get $k)"; done
+say "global core.longpaths = '$(git config --global --get core.longpaths)' (must be empty)"
+
+say "== 9. harness doctor"
+$H doctor 2>&1 | sed 's/^/   /'; say "doctor exit ${PIPESTATUS[0]}"
+
+say "== 10. harness stop --clean"
+$H stop --clean 2>&1 | sed 's/^/   /'
+cleanup_issues; trap - EXIT
+(( dispatched )) || exit 1
+exit 0
+[04:12:53] lock: hx-lock taken by #488 (hz-main-i488)
+[04:13:02] guard: before recorded
+[04:13:27] credentials: before scan recorded
+[04:13:27] exec: set -u
+[04:13:29] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.
+[04:13:29] == 1. clone the branch under test
+[04:13:35] src at 978bb79
+[04:13:35] == 2. a local release of THIS tree, served over file:// (install.sh installs a release)
+[04:13:38] == 3. winget is a logging stub: no real 'winget install' runs on winsma
+[04:13:38] == 4. bash install.sh (HARNESS_INSTALL_PREREQS=1, HARNESS_WINGET=stub, HARNESS_REF=v0.0.0-i488)
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-488/harness-home/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.0.0-i488 to C:/hx-488/harness-home/releases/v0.0.0-i488 ...
+     installed Harness v0.0.0-i488 at C:/hx-488/harness-home/releases/v0.0.0-i488
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-488/skills/caveman, installed)
+     ok      claude skill handoff (C:/hx-488/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-488/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-488/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-488/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-488/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-488/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-488/skills (user scope, claude, opencode): 13 new, 6 relinked, 19 in all
+     linked C:/hx-488/bin/harness -> C:/hx-488/harness-home/engine/bin/harness
+     wrote C:/hx-488/bin/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-488/bin, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-488/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.0.0-i488 is installed once at C:/hx-488/harness-home/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[04:14:05] install.sh exit 0
+[04:14:06] winget stub calls: 0 -> 
+[04:14:06] python3 shim present
+   bin: harness
+   bin: harness.cmd
+[04:14:06] harness resolves to: /c/hx-488/bin/harness
+[04:14:07] == 5. harness --version: harness v0.0.0-i488 (0000000)
+[04:14:07] == 6. harness init in a fresh clone of the sandbox
+   roles (claude): manager opus/high, implementer sonnet/high
+   wrote /c/hx-488/clone/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-claude
+[04:14:20] == 7. issue + harness start (sandbox CLAUDE_CONFIG_DIR, no sign-in)
+[04:14:25] filed PRD #34 and issue #35
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=30s):
+     worker-1: started (pid 12766) — log C:/hx-488/clone/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=60s):
+     priority: started (pid 12898) — log C:/hx-488/clone/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+[04:14:51] poll 1: issue #35 labels=ready-for-agent
+[04:15:08] poll 2: issue #35 labels=agent-working,ready-for-agent
+[04:15:08] DISPATCHED: #35 claimed (agent-working)
+[04:15:28] == 8. the lane's worktree got per-repo git settings
+   C:/hx-488/clone                                             b7ba19c [main]
+   C:/hx-488/clone/.harness/worktrees/harness-smoke-claude-i35 b7ba19c [issue/35]
+[04:15:28] core.longpaths = true
+[04:15:29] core.autocrlf = false
+[04:15:29] core.eol = lf
+[04:15:29] worktree .harness/worktrees/harness-smoke-claude-i35: core.longpaths = true
+[04:15:29] worktree .harness/worktrees/harness-smoke-claude-i35: core.autocrlf = false
+[04:15:29] worktree .harness/worktrees/harness-smoke-claude-i35: core.eol = lf
+[04:15:30] global core.longpaths = '' (must be empty)
+[04:15:30] == 9. harness doctor
+   ── harness doctor ── C:/hx-488/clone/.harness
+   RUN_DIR: /c/hx-488/clone/.harness/run
+   session backend: headless
+   windows:
+     session backend: headless ✓
+     shell: Git Bash (MINGW64_NT-10.0-19045) ✓
+     task bash: C:/Program Files/Git/bin/bash.exe ✓
+     python3: 3.13.5 (/c/hx-488/harness-home/bin/python3) ✓
+     symlinks: can create ✓
+     line endings: LF ✓
+     schtasks: ✓
+     powershell: ✓
+     taskkill: ✓
+     gh: ✓
+     agent CLI: claude ✓
+     rtdd: ✓
+     developer mode: off, but symlinks can be made here (administrator) ✓
+     git identity: ✓
+     git settings (/c/hx-488/clone): longpaths + LF ✓
+   locks:
+     start.lock: absent (never created — fine)
+     pool.lock: absent (never created — fine)
+   pidfiles:
+     priority.pid: live (pid 12898) ✓
+     worker-1.pid: live (pid 12766) ✓
+   fleet registry:
+   ────────────────────────────────────────────
+   healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries.
+[04:15:36] doctor exit 0
+[04:15:36] == 10. harness stop --clean
+   Stopping pool workers:
+     killed priority (pid 12898)
+     killed worker-1 (pid 12766)
+   Killing agent worker sessions:
+     killed headless hxi488-harness-smoke-claude-i35
+   Removing worktrees:
+     removed /c/hx-488/clone/.harness/worktrees/harness-smoke-claude-i35
+   Stopped.
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-488
+credentials: GH_TOKEN written nowhere new
+[04:16:38] cleanup: winsma clean (no hx-488, lock released, no run task or process)
+[04:16:38] run: OK

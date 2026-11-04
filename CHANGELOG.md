@@ -26,6 +26,33 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - The adapter contract is documented in `docs/reference.md` ("Headless adapter contract") and proved by
   `test/test_headless_core.py` through a tiny fake CLI and adapter, independent of claude.
 
+### Windows installer: winget prerequisite offers, Developer Mode and git identity checks, per-repo git settings, doctor (#488)
+
+- On Git Bash, `install.sh` offers each missing prerequisite through **winget**, one question per package:
+  Git for Windows (`Git.Git`), Python 3 (`Python.Python.3.13`; the Microsoft Store `python3` stub counts as
+  missing), the GitHub CLI (`GitHub.cli`), Claude Code (`Anthropic.ClaudeCode`) and Node for rtdd
+  (`OpenJS.NodeJS.LTS`). `HARNESS_INSTALL_PREREQS=1` accepts without asking, `0` declines and prints the
+  commands, and `HARNESS_WINGET` names the winget binary (the tests point it at a stub; no test runs a real
+  `winget install`). Linux is unchanged.
+- `install.sh` checks Developer Mode (off in the registry is only a stop when the shell cannot make a
+  symlink either, as an administrator can) and the git identity, and prints the exact fix for each.
+- Harness sets `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` on its checkout and on every
+  lane worktree it adds, with `git -C <repo> config` (never `--global` or `--system`), on Windows only.
+- `harness doctor` on Windows adds `gh`, an agent CLI, rtdd/Node, Developer Mode, the git identity and the
+  per-repo settings, each failure naming its fix (`harness doctor --fix` writes the per-repo settings).
+- Fixed: `install.sh` could not extract a release when `TMPDIR` was a mixed-form Windows path (`C:/…`):
+  GNU tar read `C:` as a remote host. The archive is now read from stdin.
+- Fixed: on Windows `detach_launch` left every exported variable, `GH_TOKEN` included, in
+  `.harness/run/<name>.pid.env` for as long as the fleet ran. The launcher now deletes that file as soon as it
+  has restored the environment, and a failed launch removes it too (#510).
+- The winsma isolation (`test/smoke/winsma/`) also sets `GIT_CONFIG_GLOBAL` under `C:\hx-<issue>\`: a fleet's
+  `ensure_safe` writes `safe.directory` entries to the global git config, which the guard rightly flagged.
+- A recorded winsma run (`test/smoke/logs/windows-installer-windows-20261104T041438Z.log`): `install.sh` with a
+  stubbed winget, `harness init`, `harness start` claiming an issue, per-repo git settings on the lane's
+  worktree, `harness doctor` green, the guard and the credential scan clean, winsma clean after.
+- README, `docs/windows-smoke.md` and the `docs/reference.md` parity matrix describe the installer; WSL2 stays
+  documented as an optional alternative.
+
 ### `HARNESS_WINDOWS_HOST` and the winsma helpers in `test/smoke/winsma/` (#479)
 
 - New config key `HARNESS_WINDOWS_HOST`: the ssh alias of a Windows check host. Read like every other key

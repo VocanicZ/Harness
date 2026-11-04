@@ -13,7 +13,28 @@ and close the issue. It spends real `claude` quota and takes 10 to 30 minutes.
 
 ## 1. Install the prerequisites
 
-On Windows 10 (19045 or later) or Windows 11, x64. In PowerShell:
+On Windows 10 (19045 or later) or Windows 11, x64. **The short way:** install Git for Windows
+(`winget install --id Git.Git -e`), open Git Bash and run `bash install.sh` (step 4). On a Windows
+host `install.sh` offers every other prerequisite through **winget**, as it does with apt or brew on
+Linux, and asks before each one:
+
+| Missing | winget id |
+|---|---|
+| Git for Windows (git, curl, sha256sum, tar) | `Git.Git` |
+| a Python 3 that runs (the Store stub does not count) | `Python.Python.3.13` |
+| `gh` | `GitHub.cli` |
+| an agent CLI | `Anthropic.ClaudeCode` |
+| Node, for rtdd's installer | `OpenJS.NodeJS.LTS` |
+
+`HARNESS_INSTALL_PREREQS=1` accepts every offer without asking, `0` declines them all (the commands
+are printed instead); `HARNESS_WINGET` names the winget binary (the test suite points it at a stub). winget
+updates PATH for new terminals only, so open a new Git Bash if a prerequisite still reads `MISSING`.
+It then checks Developer Mode and the git identity (step 3) and prints the exact fix for each.
+Harness sets `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` in its own repo and
+worktrees (`git -C <worktree> config`, never `--global` or `--system`). WSL2 remains an optional
+alternative: run the Linux instructions inside it.
+
+To install by hand instead, in PowerShell:
 
 ```powershell
 winget install --id Git.Git -e                # Git for Windows: bash, git, curl, sha256sum, tar
@@ -58,8 +79,8 @@ git config --global user.name  "<your name>"     # the lane commits as this iden
 git config --global user.email "<your GitHub noreply email>"
 ```
 
-A fresh Git for Windows install has no git identity, and nothing in setup or `harness doctor` checks
-for one. Without it the lane's first commit fails and the agent has to pick an author itself (#358's
+A fresh Git for Windows install has no git identity. `install.sh` and `harness doctor` check for one
+and print these two commands when it is missing. Without it the lane's first commit fails and the agent has to pick an author itself (#358's
 run saw it borrow one from the repo's history). To give a single run an identity without writing git
 config, export `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` before
 starting the smoke: the fleet inherits them.
@@ -87,7 +108,9 @@ claude --version
 ```
 
 The smoke runs `harness doctor` too, after its sandbox is set up. The `windows:` section of that check
-(headless backend, Git's bash, python3, symlinks, LF engine, `schtasks`/`powershell`/`taskkill`) is
+(headless backend, Git's bash, python3, symlinks, LF engine, `schtasks`/`powershell`/`taskkill`, `gh`, an
+agent CLI, rtdd, Developer Mode, the git identity and the checkout's per-repo git settings; `harness doctor --fix` writes
+those settings) is
 written to the smoke's log, and every failure there names its fix.
 
 ## 5. Run the smoke
@@ -162,7 +185,7 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   stale run's `pids`, anything whose command line is under `C:\hx-<n>\`, deletes its `tasks` and its
   `~/.claude.json` project entries and `C:\hx-<n>\`, and takes the lock.
 - **Isolation.** Everything runs in `C:\hx-<issue>\`. `harness`'s own state (`HARNESS_HOME`, `HARNESS_BIN_DIR`,
-  `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache` and the clone live under it. Install, update and uninstall
+  `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache`, `GIT_CONFIG_GLOBAL` (a fleet's `ensure_safe` writes `safe.directory` entries to the global git config, which must not be `~/.gitconfig`) and the clone live under it. Install, update and uninstall
   runs also set `CLAUDE_CONFIG_DIR`; the full suite also sets `HOME` and `USERPROFILE` to `C:\hx-<issue>\home`.
   Python packages go into a venv under the folder, never into the shared `python`. Tasks the run creates are
   registered logon-only (never a boot trigger) and recorded in `tasks`; processes it starts are recorded in `pids`.
@@ -191,7 +214,8 @@ test/smoke/winsma/winsma.sh cleanup 479
 under `test/smoke/logs/` with a `-windows-` name (`WS_LOG=<file>` tees the helpers' own lines there).
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
-(`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after). **Developer Mode is off on winsma**: symlinks work
+(`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;
+`test/smoke/logs/windows-installer-windows-20261104T041438Z.log`, #488: `install.sh` with a `HARNESS_WINGET` stub, `harness init`, `harness start` dispatching an issue, doctor green, guard clean). **Developer Mode is off on winsma**: symlinks work
 there only because the ssh session is an elevated administrator, so the non-admin path is covered by the
 `HARNESS_PLATFORM=windows` fakes, not by a live run.
 
