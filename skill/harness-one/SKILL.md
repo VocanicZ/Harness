@@ -16,8 +16,7 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
 2. **Pick the issue.** The number the user gave, else list the claimable ones and ask:
    `gh issue list -R <owner/repo> --label ready-for-agent --state open --json number,title,labels`
    (leave out any labelled `agent-working` or `agent-blocked`).
-3. **Forecast + gate.** Run `harness one gate <issue>` (`-R owner/repo` or `--unit U` in a
-   multi-unit project). Show the user its output whole: the per-phase forecast, the arithmetic for
+3. **Forecast + gate.** Run `harness one gate <issue>` (`-R owner/repo` to name the repo). Show the user its output whole: the per-phase forecast, the arithmetic for
    every usage window — `now% + p80% + reserve% <= HARNESS_ONE_STOP_PCT` — and the
    `RECOMMEND: APPROVE` (exit 0) or `RECOMMEND: DENY` (exit 1) line with its reason. Exit 3 is the
    precondition refusal (step 1); exit 2 is a bad issue or repo — fix the arguments.
@@ -26,7 +25,7 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    - **pick another issue** — back to step 2, with a fresh forecast;
    - **stop** — end here; nothing was claimed.
    A DENY may still be approved by the human; say plainly that the forecast does not fit the stop %.
-5. **Claim + render.** Run `harness one start <issue>` (same `-R` / `--unit`). It re-checks
+5. **Claim + render.** Run `harness one start <issue>` (same `-R`). It re-checks
    the precondition right before the claim (exit 3: relay the refusal, as in step 1; exit 4: the issue
    is closed or already `agent-working` — back to step 2), then claims it `agent-working` and sets it up
    the way dispatch does: its worktree on `issue/<n>` and `prompts/impl.md` — `resume.md` for an
@@ -49,8 +48,7 @@ Read-only up to the decision (steps 1–4): nothing is claimed, labelled or run 
    worktree, local branch and lease so the pool resumes a checkpointed issue after the reset. Exit 4 =
    work not pushed yet — push it; `--force` only if the human says to drop it. Tell the user where it
    stands: done, or `agent-paused` and why (the window that would have passed the stop %).
-8. **Done → the next one.** Once it is merged and released, run `harness one done <issue>` (same `-R` /
-   `--unit`). It runs the goal check the pool's `reap_done_sessions` runs, and offers nothing until that
+8. **Done → the next one.** Once it is merged and released, run `harness one done <issue>` (same `-R`). It runs the goal check the pool's `reap_done_sessions` runs, and offers nothing until that
    reports DONE (exit 4: not done yet — the issue is not closed; finish it, or tell the user where it
    stands). On DONE it picks the next claimable issue the way dispatch would — open, `ready-for-agent`,
    not `agent-working`, not owned by a live lane (its worktree or session still present), every

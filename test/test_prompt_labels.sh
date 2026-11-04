@@ -136,9 +136,12 @@ assert "decompose.md: no unrendered {{LABEL_HITL}}" \
 assert "review.md: a HITL stray is never labelled ready" \
   "grep -qF 'One carrying \`human\`, or titled \`[HITL]\`' <<<\"\$out_review\" && ! grep -q '{{LABEL_HITL}}' <<<\"\$out_review\""
 
-# ── decompose.md cross-unit coordination (direct cross-repo deps) ─────────────
-assert "decompose.md: cross-unit fix issue filed directly in target unit's repo via targets.tsv" \
-  "grep -qi 'targets.tsv' <<<\"\$out_dec\" && grep -qiE \"target unit'?s? repo\" <<<\"\$out_dec\""
+# ── decompose.md cross-repo deps (one fleet = one repo, #474) ─────────────────
+assert "decompose.md: no targets.tsv / HARNESS_MAIN_REPO (one fleet = one repo)" \
+  "! grep -qE 'targets.tsv|HARNESS_MAIN_REPO' <<<\"\$out_dec\""
+
+assert "decompose.md: submodule work stays in this repo under ## Code location" \
+  "grep -q '## Code location' <<<\"\$out_dec\""
 
 assert "decompose.md: cross-repo fix issue gets a requester backlink" \
   "grep -qi 'backlink' <<<\"\$out_dec\""
@@ -245,8 +248,8 @@ assert "inject.md: cycle guard present" \
 assert "inject.md: additive / no-duplicate rule present" \
   "grep -qi 'additive' <<<\"\$out_inject\" && grep -qiE 'duplicat' <<<\"\$out_inject\""
 
-assert "inject.md: targets.tsv + seed.sh topology path present" \
-  "grep -q 'targets.tsv' <<<\"\$out_inject\" && grep -q 'seed.sh' <<<\"\$out_inject\""
+assert "inject.md: no targets.tsv / seed.sh topology path (one fleet = one repo, #474)" \
+  "! grep -qE 'targets.tsv|seed.sh|topology' <<<\"\$out_inject\""
 
 assert "inject.md: same-repo Blocked by ordering present" \
   "grep -q '## Blocked by' <<<\"\$out_inject\" && grep -qi 'same-repo' <<<\"\$out_inject\""

@@ -36,6 +36,15 @@ assert "config uses := form"      "grep -q ':= ' '$CFG' || grep -q ':=issue' '$C
 # round-trip: sourcing config yields the chosen values
 ( source "$CFG"; [[ "${HARNESS_MODE:-}" == prd && "${HARNESS_REPO:-}" == acme/widget && "${HARNESS_AUTONOMOUS:-}" == false ]] ) \
   && echo "  ok: config round-trips" || { echo "  FAIL: round-trip"; exit 1; }
+# #474: one repo, one unit — HARNESS_UNIT is the lowercased repo short name; no topology, CAP or targets.tsv
+assert "HARNESS_UNIT written from the repo short name" "grep -q 'HARNESS_UNIT:=widget}' '$CFG'"
+assert "HARNESS_POOL written"                          "grep -q 'HARNESS_POOL:=3' '$CFG'"
+assert "no HARNESS_TOPOLOGY / HARNESS_CAP written"     "! grep -qE 'HARNESS_(TOPOLOGY|CAP)' '$CFG'"
+assert "no targets.tsv written"                        "[[ ! -e '$TMP/.harness/targets.tsv' ]]"
+( source "$CFG"; [[ "${HARNESS_UNIT:-}" == widget ]] ) && echo "  ok: unit round-trips" || { echo "  FAIL: unit round-trip"; exit 1; }
+U2="$(mktemp -d)"; ( HARNESS_INIT_NONINTERACTIVE=1 STATE_DIR="$U2/.harness" HARNESS_REPO=Acme/MixedCase bash "$TMP/.harness/scripts/init.sh" >/dev/null \
+  && source "$U2/.harness/config" && [[ "$HARNESS_UNIT" == mixedcase ]] ) \
+  && echo "  ok: unit lowercased" || { echo "  FAIL: unit lowercased"; exit 1; }
 # env override: pre-set env beats file (because lines are := )
 ( HARNESS_MODE=planned; source "$CFG"; [[ "$HARNESS_MODE" == planned ]] ) \
   && echo "  ok: env overrides file" || { echo "  FAIL: env override"; exit 1; }

@@ -8,3 +8,5 @@
 To test a CLI end to end, `test/smoke/fleet_smoke.sh <cli>` runs a real fleet against a private sandbox repo (`<you>/harness-smoke-<cli>`) until one trivial issue merges, then tears it down. It uses GitHub and the CLI's quota, so `test/run.sh` never runs it; see the script header for knobs.
 
 Bugs and feature requests: [GitHub Issues](https://github.com/VocanicZ/Harness/issues).
+
+A fleet is one repo (`HARNESS_REPO`) with `HARNESS_POOL` workers, one issue each. There is no topology, `targets.tsv` or per-unit cap to design for; code in a submodule is reached through the main repo's issue (`## Code location`), never through a fleet folder of its own.

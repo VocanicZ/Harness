@@ -2,7 +2,7 @@
 # Pre-flight before filing an arc's PRDs.  usage: preflight.sh <owner/repo> [repo-dir]
 set -uo pipefail
 # NOTE: issuelib takes the FULL owner/repo SLUG. Not the bare repo name (gh rejects the
-#       format), and not the targets.tsv unit id (gh expands it to <owner>/<unit> and 404s).
+#       format), and not the fleet's unit name (gh expands it to <owner>/<unit> and 404s).
 REPO_NAME="${1:?usage: preflight.sh <owner/repo> [repo-dir]}"; REPO="${2:-$PWD}"
 ENGINE="${HARNESS_ENGINE:-$HOME/.harness/engine/scripts}"
 cd "$REPO" || exit 1

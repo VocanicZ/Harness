@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `init`, `/harness-plan`, skills and docs describe a one-repo fleet with one issue per worker (#474)
+
+- `harness init` writes `HARNESS_REPO`, `HARNESS_UNIT` (the lowercased repo short name, so `Acme/Widget`
+  gives `widget`; a `HARNESS_UNIT` you set wins) and `HARNESS_POOL`. It writes no `HARNESS_TOPOLOGY`,
+  `HARNESS_CAP` or `targets.tsv`.
+- `/harness-plan`, `prompts/inject.md` and `prompts/decompose.md` no longer edit or read `targets.tsv` or talk
+  about topology: `/harness-plan` changes `PLAN.md` and cascades it into the PRD and delta issues.
+  `/harness-prd`, `/harness-issue` and `/harness-one` lose their `--unit` text.
+- The `/harness*` skills, `README.md`, `CONTRIBUTING.md` and `docs/reference.md` say what `HARNESS_POOL` means
+  (the number of parallel issues), and `docs/reference.md` retires separate submodule fleets: a submodule with
+  its own fleet folder is no longer supported; its issues go in the main repo with a `## Code location`
+  section (#471).
+
 ### Delete the multi-topology code paths: `targets.tsv`, `HARNESS_TOPOLOGY`, unit deps, `HARNESS_MAIN_REPO` (#473)
 
 - With one fleet = one repo (#464), the engine no longer has a second mode. `unit_deps`, `deps_complete`,

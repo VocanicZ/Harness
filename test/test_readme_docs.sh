@@ -24,13 +24,13 @@ for alt in plan prd issue; do
 done
 
 # 3. The shortcut rows describe the human safety gate (grill + crystallized brief / confirm)
-#    and the documented flags: --unit (multi-topology) and --recover (retired-fleet fallback).
+#    and the documented flag --recover (retired-fleet fallback); no --unit since #474.
 #    Capture into a var first — piping `grep -q` under `pipefail` would SIGPIPE the upstream grep.
 #    (Unquoted RHS + single-quoted pattern keeps the literal backticks out of command substitution.)
 INJ_ROWS=$(grep -E '^\| `/harness-(plan|prd|issue)`' "$README")
 assert "shortcut rows mention the grill/confirm safety gate" \
   "grep -qiE 'grill|crystallized|confirm' <<<\"\$INJ_ROWS\""
-assert "shortcut rows document --unit"    "grep -q -- '--unit' <<<\"\$INJ_ROWS\""
+assert "shortcut rows have no --unit / topology" "! grep -qiE -- '--unit|topology' <<<\"\$INJ_ROWS\""
 assert "shortcut rows document --recover" "grep -q -- '--recover' <<<\"\$INJ_ROWS\""
 
 # 4. Gauntlet review — config row, its own section, and the honest blindness caveat.

@@ -87,6 +87,11 @@ ask HARNESS_REPO       "Target repo (owner/repo)"         "${HARNESS_REPO:-}"
 ask HARNESS_AUTONOMOUS "Fully autonomous? (true|false)"   "${HARNESS_AUTONOMOUS:-true}"
 ask HARNESS_SESS_PREFIX "tmux session prefix (must be unique per fleet on this host)" "${HARNESS_SESS_PREFIX:-$(default_prefix)}"
 ask HARNESS_POOL       "Parallel issues (pool workers, one lane each)" "${HARNESS_POOL:-3}"
+# #474: the fleet's one unit is named for its repo — the lowercased short name (owner/Foo -> foo) — in
+# session and worktree names. Not asked; a pre-set HARNESS_UNIT wins. No repo yet = empty = `main`.
+if [[ -z "${HARNESS_UNIT:-}" && -n "${HARNESS_REPO:-}" ]]; then
+  HARNESS_UNIT="$(printf '%s' "${HARNESS_REPO##*/}" | tr '[:upper:]' '[:lower:]')"
+fi
 ask HARNESS_POLL          "Poll interval (s)"             "${HARNESS_POLL:-300}"
 ask HARNESS_PRIORITY_POLL "Priority-lane poll interval (s)" "${HARNESS_PRIORITY_POLL:-60}"
 ask HARNESS_LABEL_READY "Dispatchable label"              "${HARNESS_LABEL_READY:-ready-for-agent}"
@@ -106,7 +111,7 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
 {
   echo "# Harness per-project config — written by 'harness init'."
   echo "# Lines use := so a pre-set environment variable overrides this file."
-  for v in "$CLI_CONFIG_VAR" HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_SPEC HARNESS_AUTONOMOUS \
+  for v in "$CLI_CONFIG_VAR" HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_SPEC HARNESS_AUTONOMOUS \
            HARNESS_SESS_PREFIX \
            HARNESS_POOL HARNESS_POLL HARNESS_PRIORITY_POLL HARNESS_LABEL_READY HARNESS_LABEL_PRD \
            HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD \
