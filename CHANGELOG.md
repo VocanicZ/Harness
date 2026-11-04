@@ -40,6 +40,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   does the same for real in `C:\hx-495` (sandbox `CLAUDE_CONFIG_DIR`), log
   `test/smoke/logs/tooling-windows-20261104T141533Z.log`. The parity rows for `rtdd` and the `/harness*` skills that were targets of this task are now `✓`.
 
+### Benchmark fixture: end-user brief, hidden tests, `bench/grade.py` (#380)
+
+- `bench/fixture/brief.md` is the one project brief every benchmark arm gets (PRD #345), written the way an end user
+  would: a small Python library + `pennywise` command for a plain-text money ledger, with examples of the expected
+  behaviour and no file layout or test hints.
+- `bench/fixture/hidden/` holds the hidden acceptance tests (black box: the command line and the library's documented
+  surface) and `bench/fixture/reference/` a reference solution that passes all of them. Neither is referenced by the
+  brief or copied by any run script; `test/test_bench_fixture.sh` checks that.
+- `bench/grade.py REPO_DIR` copies a checked-out final default branch into a throwaway directory, builds it with
+  `pip install --target` (falling back to the copy on `PYTHONPATH`), runs the hidden tests and prints
+  `{passed, failed, total, details}`. The reference scores 100%; an empty repo scores 0 without crashing the grader.
+
 ### Headless turn adapter for `agy` (#486)
 
 - `agy` runs on the headless session backend: `scripts/cli/agy_headless.py` is its adapter on the shared core (#480),
