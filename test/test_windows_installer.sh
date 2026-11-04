@@ -117,6 +117,14 @@ printf '[user]\n\tname = Test User\n\temail = test@example.com\n' >"$GIT_CONFIG_
 out="$(HARNESS_REG="$M1/reg" win "$M1" check_windows_host 2>&1)"
 assert_no "an identity set: nothing printed"              grep -q 'git has no' <<<"$out"
 
+echo "=== a release extracts when TMPDIR is in Windows mixed form (C:/…) ==="
+source "$HERE/release_fixture.sh"
+SRV="$T/srv"; rel_server "$SRV"; rel_publish "$SRV" v9.9.9; rel_latest "$SRV" v9.9.9
+mkdir -p "$T/cwd/C:/tmp"
+out="$( cd "$T/cwd" && export TMPDIR="C:/tmp" HARNESS_HOME="$T/hh" HARNESS_PLATFORM=windows PATH="$SYS:$PATH"; hash -r; source "$R/install.sh" 2>/dev/null; REL_CMD="harness install"; rel_install v9.9.9 2>&1 )"; rc=$?
+assert_eq "$rc" 0                                         "rel_install with TMPDIR=C:/tmp succeeds (tar is not told C: is a host)"
+assert_ok "… and the release is in place"                 test -f "$T/hh/releases/v9.9.9/VERSION"
+
 echo "=== install.sh and portable.sh print the same fixes ==="
 assert_eq "$(bash -c "source '$R/install.sh' 2>/dev/null; printf %s \"\$WIN_DEVMODE_FIX\"")" "$(bash -c "source '$R/scripts/portable.sh'; printf %s \"\$WIN_DEVMODE_FIX\"")" "Developer Mode fix text"
 assert_eq "$(bash -c "source '$R/install.sh' 2>/dev/null; printf %s \"\$WIN_IDENTITY_FIX\"")" "$(bash -c "source '$R/scripts/portable.sh'; printf %s \"\$WIN_IDENTITY_FIX\"")" "git identity fix text"

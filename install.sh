@@ -394,7 +394,8 @@ rel_install(){
 _rel_install_into(){
   local tag="$1" tmp="$2" stage="$3"
   rel_fetch "$tag" "$tmp" || return 3
-  tar -xzf "$tmp/harness-$tag.tar.gz" -C "$stage" --strip-components=1 \
+  # The archive goes in on stdin: GNU tar reads `C:/hx/tmp/…` (a mixed-form TMPDIR on Windows) as host:path.
+  tar -xzf - -C "$stage" --strip-components=1 <"$tmp/harness-$tag.tar.gz" \
     || { echo "$REL_CMD: could not extract harness-$tag.tar.gz" >&2; return 3; }
   [[ "$(sed -n 1p "$stage/VERSION" 2>/dev/null)" == "$tag" ]] \
     || { echo "$REL_CMD: harness-$tag.tar.gz does not carry VERSION $tag" >&2; return 3; }
