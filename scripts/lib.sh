@@ -1529,7 +1529,8 @@ session_env(){ local kv
   SESSION_ENV=(-e "RTDD_EVENT_LOG=${HARNESS_RTDD_EVENTS_FILE:-$HARNESS_HOME/rtdd-events.jsonl}"
     -e "HARNESS_SESSION=$1" -e "HARNESS_PREFIX=$HARNESS_SESS_PREFIX")
   [[ -n "${SLUG:-}" ]] && SESSION_ENV+=(-e "HARNESS_REPO=$SLUG")
-  while read -r kv; do [[ -n "$kv" ]] && SESSION_ENV+=(-e "HARNESS_$kv"); done \
+  while read -r kv; do kv="${kv%$'\r'}"   # #509: a native Windows python ends its lines CRLF; read -r keeps the CR
+    [[ -n "$kv" ]] && SESSION_ENV+=(-e "HARNESS_$kv"); done \
     < <(timeout 10 python3 "$STATS_PY" goal-env "${GOAL:-}" "${STAT_PRD:-}" 2>/dev/null)
   return 0; }
 # lane_guard_env <wd> — append to SESSION_ENV (#470) the PATH that puts scripts/lane-bin first, so a lane in a

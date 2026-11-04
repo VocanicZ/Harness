@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A Windows lane's environment no longer carries a stray CR (#509)
+
+- `session_env` strips the carriage return from each line of the `goal-env` output it reads. A native Windows python
+  ends its lines with CRLF, so an empty `GOAL` used to give the lane an `-e HARNESS_\r` pair (the headless backend then
+  failed with `env: 'HARNESS_\r': No such file or directory`) and a set goal gave values ending in a CR, such as
+  `HARNESS_KIND=issue\r`. No env pair a lane gets carries a CR now.
+
 ### Complete `harness uninstall` on Windows (#490)
 
 - `harness uninstall --force --force-engine` leaves nothing Harness put on a Windows host. Besides the engine, the
