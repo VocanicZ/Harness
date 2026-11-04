@@ -169,7 +169,7 @@ msg="$(HARNESS_CLI=agy cli_backend_check 2>&1)"; rc=$?
 assert_eq "$rc" 1 "agy on headless is refused"
 assert_ok "…naming the CLI as tmux-only" grep -qF "agent CLI 'agy' is tmux-only" <<<"$msg"
 assert_ok "tmux takes any CLI" env HARNESS_SESSION_BACKEND=tmux HARNESS_CLI=agy bash -c "source '$ROOT/scripts/cli/dispatch.sh'; cli_backend_check"
-assert_eq "$(cli_headless_list | xargs)" "claude codex copilot hermes opencode" "claude, codex, copilot (#483), hermes and opencode are the CLIs with a headless runner"
+assert_eq "$(cli_headless_list | xargs)" "claude codex copilot hermes openclaw opencode" "claude, codex, copilot (#483), hermes, openclaw and opencode are the CLIs with a headless runner"
 proj="$RUN_DIR/proj"; mkdir -p "$proj"
 out="$( cd "$proj" && unset STATE_DIR && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only \
   HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=hlx HARNESS_CLI=agy bash "$ROOT/scripts/init.sh" 2>&1 </dev/null)"; rc=$?

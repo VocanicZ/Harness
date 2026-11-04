@@ -1,0 +1,13 @@
+{
+  "ok": false,
+  "status": "error",
+  "final": "",
+  "payloads": [],
+  "model": null,
+  "provider": null,
+  "sessionId": "8fcc4e1d-7d43-4302-bea1-e5d473643a93",
+  "error": {
+    "message": "⚠️ You have reached your usage limit for this period.; Retry-After: 7200 seconds",
+    "kind": "exception"
+  }
+}

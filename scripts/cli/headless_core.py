@@ -39,7 +39,9 @@ command, with that CLI's resume id), `new_turn()` (an object that `feed`s events
 `outcome(rc, stderr_tail)`, usage `rate_limit`, `retry` and `no_conversation`), and `watch_line(ev)`. It may
 also supply `env(cwd)`: variables set on every turn's process (<cwd> is the lane's worktree), and `abort_turn(bin, cwd)`: called after the runner kills a
 turn's process tree on a stop or an interrupt, for a CLI whose turn outlives its client (hermes: its host
-gateway runs the turn's commands).
+gateway runs the turn's commands). An adapter whose CLI prints one JSON document per turn rather than one
+event per line (openclaw's pretty-printed envelope) sets `json_documents = True`: the core then reads stdout
+as whole documents (DocumentReader), each one an event.
 
 The headless session backend (scripts/session/headless.sh, #349) runs this program as a lane and reads
 the lane through it: `pane` renders state.json and the undelivered inbox as the screen the claude
@@ -143,6 +145,46 @@ def read_inbox(lane, offset):
 
 
 # --- reading a turn's events (the adapter's) ---------------------------------------------------
+class DocumentReader:
+    """Stdout read as JSON documents, not lines (an adapter with `json_documents = True`: openclaw prints one
+    pretty-printed envelope per turn). `feed(text)` takes the next piece of stdout and returns the events it
+    completed: each whole JSON document is one event, a line that cannot start one is a `stdout` marker, as
+    the line reader makes it. `flush()` at the end of stdout turns whatever is left (a document cut short)
+    into `stdout` markers."""
+
+    def __init__(self):
+        self.pending = ""
+        self.decoder = json.JSONDecoder()
+
+    @staticmethod
+    def _marker(line):
+        return {"type": "harness", "subtype": "stdout", "line": line.rstrip("\r\n")}
+
+    def feed(self, text):
+        self.pending += text
+        out = []
+        while self.pending.strip():
+            head = self.pending.lstrip()
+            if head[0] not in "{[":   # not a document: its first line is plain output
+                line, _, rest = head.partition("\n")
+                out.append(self._marker(line)); self.pending = rest
+                continue
+            try:
+                ev, end = self.decoder.raw_decode(head)
+            except ValueError:   # incomplete so far: wait for more
+                break
+            out.append(ev if isinstance(ev, dict) else self._marker(head[:end]))
+            self.pending = head[end:]
+        if not self.pending.strip():
+            self.pending = ""
+        return out
+
+    def flush(self):
+        out = [self._marker(l) for l in self.pending.splitlines() if l.strip()]
+        self.pending = ""
+        return out
+
+
 def classify(adapter, events, rc=0):
     """The outcome of a turn that printed <events> and exited <rc> — the adapter's turn fold over a list."""
     t = adapter.new_turn()
@@ -363,24 +405,36 @@ class Runner:
                 pass
             lock = threading.Lock()
 
+            def handle(ev):
+                with lock:
+                    self.event(ev)
+                    before = (turn.session_id, turn.retry, turn.rate_limit)
+                    turn.feed(ev)
+                    if turn.session_id and not self.state["session_started"]:
+                        self.save(session_id=turn.session_id, session_started=True)
+                    elif (turn.session_id, turn.retry, turn.rate_limit) != before:
+                        self.save(session_id=turn.session_id or self.state["session_id"],
+                                  retry=turn.retry, rate_limit=turn.rate_limit or self.state["rate_limit"])
+
             def reader():
+                docs = DocumentReader() if getattr(self.adapter, "json_documents", False) else None
                 for raw in proc.stdout:
-                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                    text = raw.decode("utf-8", errors="replace")
+                    if docs is not None:   # one JSON document, whatever its line breaks
+                        for ev in docs.feed(text):
+                            handle(ev)
+                        continue
+                    line = text.rstrip("\r\n")
                     if not line.strip():
                         continue
                     try:
                         ev = json.loads(line)
                     except ValueError:
                         ev = {"type": "harness", "subtype": "stdout", "line": line}
-                    with lock:
-                        self.event(ev)
-                        before = (turn.session_id, turn.retry, turn.rate_limit)
-                        turn.feed(ev)
-                        if turn.session_id and not self.state["session_started"]:
-                            self.save(session_id=turn.session_id, session_started=True)
-                        elif (turn.session_id, turn.retry, turn.rate_limit) != before:
-                            self.save(session_id=turn.session_id or self.state["session_id"],
-                                      retry=turn.retry, rate_limit=turn.rate_limit or self.state["rate_limit"])
+                    handle(ev)
+                if docs is not None:
+                    for ev in docs.flush():
+                        handle(ev)
             th = threading.Thread(target=reader, daemon=True); th.start()
             stopped = interrupted = False
             while proc.poll() is None:
