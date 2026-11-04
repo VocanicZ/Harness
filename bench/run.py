@@ -28,6 +28,8 @@ arm's stop event is set, the processes it started are terminated, and the run is
 ARMS are modules `bench/arms/<arm>.py` defining run(ctx); see bench/README.md for the interface and the
 results schema. Exit status: 0 recorded (ok or capped), 1 the arm failed (recorded), 2 bad arguments,
 3 guard refused, 4 recorded but the repo could not be deleted (it is named on stderr — delete it).
+Optional code quality (bench/quality.py, #387) runs on the graded clone and never fails a run: Docker
+absent or the scan failing is recorded as `quality: skipped (<reason>)`.
 Stdlib only; reuses scripts/forecast.py and scripts/stats.py.
 """
 import argparse, glob, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, threading, time
@@ -38,6 +40,7 @@ ROOT = os.path.dirname(HERE)
 SCRIPTS = os.path.join(ROOT, "scripts")
 BRIEF = os.path.join(ROOT, "bench/fixture/brief.md")
 GRADER = os.path.join(HERE, "grade.py")
+QUALITY = os.path.join(HERE, "quality.py")
 SCHEMA = 1
 WALL_CAP_S = 6 * 3600
 COST_CAP_USD = 80.0
@@ -304,9 +307,12 @@ def cost_now(fc, st, transcripts):
         return 0.0
 
 
+GRADED = "graded"
+
+
 def grade(repo, workdir, gh, log, grader):
     """The hidden-tests fragment for a fresh clone of the repo's final default branch, or an error stub."""
-    dest = os.path.join(workdir, "graded")
+    dest = os.path.join(workdir, GRADED)
     try:
         gh.clone(repo, dest)
         p = subprocess.run([sys.executable, grader, dest], capture_output=True, text=True, timeout=1500,
@@ -318,6 +324,32 @@ def grade(repo, workdir, gh, log, grader):
     except Exception as e:
         log(f"grade failed: {e}")
         return {"passed": 0, "failed": None, "total": None, "details": {"error": str(e)[:300]}}
+
+
+def quality(workdir, script, log, timeout=2700):
+    """The code-quality fragment ({"quality": ..., ["sonarqube": {...}]}) for the graded clone. Optional and
+    never blocking: whatever goes wrong is `quality: skipped (<reason>)` (bench/quality.py, #387)."""
+    def skipped(why):
+        log(f"quality skipped: {why}")
+        return {"quality": f"skipped ({' '.join(str(why).split())[:300]})"}
+    dest = os.path.join(workdir, GRADED)
+    if not os.path.isdir(dest):
+        return skipped("no clone of the final default branch to scan")
+    try:
+        p = subprocess.run([sys.executable, script, dest], capture_output=True, text=True, timeout=timeout,
+                           stdin=subprocess.DEVNULL)
+        why = f"exit {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}"
+        if p.returncode != 0:
+            raise ValueError(why)
+        frag = json.loads(p.stdout)
+        if not isinstance(frag, dict) or not isinstance(frag.get("quality"), str):
+            raise ValueError(why)
+        if frag["quality"] == "ok" and not isinstance(frag.get("sonarqube"), dict):
+            raise ValueError("ok without measures")
+        log(f"quality -> {frag['quality']}")
+        return {k: frag[k] for k in ("quality", "sonarqube") if k in frag}
+    except Exception as e:   # includes a timeout and an unreadable fragment
+        return skipped(f"quality scan failed: {e}")
 
 
 # --- results ---------------------------------------------------------------------------
@@ -351,6 +383,10 @@ def validate(d):
         bad.append("caps keys")
     if not all(k in d["hidden_tests"] for k in ("passed", "failed", "total")):
         bad.append("hidden_tests needs passed/failed/total")
+    q = d.get("quality")
+    if "quality" in d and not (q == "ok" and isinstance(d.get("sonarqube"), dict)
+                               or isinstance(q, str) and q.startswith("skipped (") and "sonarqube" not in d):
+        bad.append(f"quality {q!r} does not match sonarqube")
     return bad
 
 
@@ -379,6 +415,7 @@ def parse_args(argv):
     ap.add_argument("--arms-dir", default=os.path.join(HERE, "arms"), help=argparse.SUPPRESS)
     ap.add_argument("--events", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--grader", default=GRADER, help=argparse.SUPPRESS)
+    ap.add_argument("--quality", default=QUALITY, help=argparse.SUPPRESS)
     return ap.parse_args(argv)
 
 
@@ -428,7 +465,8 @@ def execute(a, arm, opts, g, fc, st):
            "testing_s": None, "test_calls": None, "tokens": dict.fromkeys(("input", "output", "cache_read", "cache_write"), 0),
            "cost_usd": 0.0, "usd_per_pct": g["usd_per_pct"], "usd_per_pct_source": g["usd_per_pct_source"],
            "weekly_window_pct": None, "models": {}, "hidden_tests": {"passed": 0, "failed": None, "total": None},
-           "counts": {}, "caps": caps, "repo_deleted": None, "logs": os.path.basename(logs)}
+           "counts": {}, "caps": caps, "repo_deleted": None, "logs": os.path.basename(logs),
+           "quality": "skipped (not run)"}
     ctx = None
     try:
         try:
@@ -460,6 +498,7 @@ def execute(a, arm, opts, g, fc, st):
             copy_transcripts(ctx, logs)
             res["hidden_tests"] = grade(repo, work, gh, log, a.grader)
             write_json(os.path.join(logs, "grade.json"), res["hidden_tests"])
+            res.update(quality(work, a.quality, log))
             res["weekly_window_pct"] = (round(m["cost_usd"] / g["usd_per_pct"], 2) if g["usd_per_pct"] else None)
         res["ended_at"] = now_iso()
         write_json(os.path.join(out_dir, f"{a.arm}.json"), res)

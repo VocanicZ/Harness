@@ -146,3 +146,34 @@ models that ran. A **SonarQube** column appears only when some result carries a 
 Anything a result lacks renders as `n/a`. The optional arms (`harness-3`, `hx`) get a `skipped: <reason>` row
 when they have no results; the reason is read from `bench/results/<run-id>/skipped.json`,
 `{"<arm>": "<reason>"}`, else `not run`.
+
+## Code quality (optional)
+
+`bench/quality.py <repo-dir>` (#387) scores an arm's final default branch with **SonarQube Community Edition in
+Docker, locally**: no account and no token of yours (the server is a throwaway `sonarqube:community` container
+and its admin token is generated inside it; `sonarsource/sonar-scanner-cli` scans the repo mounted read-only).
+`bench/run.py` runs it on the same fresh clone the hidden tests grade, after grading, and the container and
+network are removed afterwards. The first run pulls about 4 GB of images and SonarQube needs a couple of GB of
+RAM, so it takes minutes. `BENCH_SONAR_IMAGE` / `BENCH_SONAR_SCANNER_IMAGE` pick other images.
+
+It is **never blocking**. Docker not installed, its daemon down, an image that cannot be pulled, a server that
+does not come up, a scan that fails or times out: the arm's results say `quality: "skipped (<reason>)"`, the run's
+other results are untouched and the exit status is still 0.
+
+```
+bench/quality.py DIR                       # prints the fragment as JSON
+bench/quality.py DIR --arm-json X.json     # also merges it into an arm's results file
+```
+
+| field | type | meaning |
+|---|---|---|
+| `quality` | string | `ok`, or `skipped (<reason>)`. Absent in results written before #387 |
+| `sonarqube` | object | only with `quality: ok`: `bugs`, `vulnerabilities`, `code_smells` (counts), `maintainability_rating` (`A` to `E`), `duplicated_lines_density` (%), `coverage` (%, null when no test coverage was imported, as here) |
+
+`bench/figures.py` adds a **SonarQube** column when some result carries `sonarqube`, and shows `skipped (<reason>)`
+for an arm that has none. The tests drive the scan with a fake `docker` and a fake SonarQube API; a real scan on a
+small sample repo is opt-in (`BENCH_QUALITY_REAL=1 python3 test/test_bench_quality.py`) and says so when it is skipped.
+
+A standing audit of the **public Harness repo itself** (SonarQube Cloud, Codacy or DeepSource, free for public
+repos) is a separate, owner-side choice: see [docs/online-code-audit.md](../docs/online-code-audit.md). It is not a
+gate, and nothing in the fleet depends on it.

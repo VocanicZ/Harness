@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Benchmark: optional code quality, and an online-audit guide (#387)
+
+- `bench/quality.py` scans an arm's final default branch with SonarQube Community in local Docker (no account, no
+  token) and records bugs, vulnerabilities, code smells, maintainability rating, duplication and coverage in the
+  arm's results; `bench/run.py` runs it after grading. It never blocks: Docker absent or a failing scan is recorded
+  as `quality: skipped (<reason>)` and the run still exits 0. `bench/figures.py` shows the quality column.
+- [docs/online-code-audit.md](docs/online-code-audit.md): the one-time GitHub sign-in steps for a free online
+  audit of the public Harness repo (SonarQube Cloud, Codacy or DeepSource). Not a gate; nothing depends on it.
+
 ### Benchmark arm: plain Claude Code (#382)
 
 - `bench/run.py plain` runs one `claude` session in the fresh run repo, on the host's existing CLI login: never

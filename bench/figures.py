@@ -165,7 +165,8 @@ def models(doc):
 def sonar(doc):
     s = doc.get("sonarqube")
     if not isinstance(s, dict):
-        return NA
+        q = doc.get("quality")      # bench/quality.py, #387: "skipped (<reason>)" when the scan could not run
+        return q if isinstance(q, str) and q.startswith("skipped") else NA
     bits = []
     for key, label, fmt in (("bugs", "bugs", "{:g}"), ("vulnerabilities", "vulns", "{:g}"),
                             ("code_smells", "smells", "{:g}"), ("maintainability_rating", "maint.", "{}"),
