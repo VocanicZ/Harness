@@ -212,6 +212,11 @@ test/smoke/winsma/winsma.sh cleanup 479
 
 `run` exits non-zero if the command, the guard, the scan or the cleanup failed, and always cleans up. Log what you do
 under `test/smoke/logs/` with a `-windows-` name (`WS_LOG=<file>` tees the helpers' own lines there).
+Uninstall on a Windows host removes everything Harness put there (tasks, launchers, `harness.cmd`, the python3 shim, the
+poller and fleet registry, skill links), and only that; a run is `winsma.sh run <issue> install '<script>'` with the script
+installing, then `harness uninstall --force --force-engine`, then asserting `HARNESS_HOME`, `HARNESS_BIN_DIR` and
+`HARNESS_USER_SKILLS` are empty (`test/smoke/logs/uninstall-windows-*.log`, #490).
+
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;

@@ -568,13 +568,31 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
   symlink can be made, that the engine is LF, and that `schtasks`, `powershell` and `taskkill` are
   present; and the installer's own prerequisites: `gh`, an agent CLI, Developer Mode, the git identity
   and the checkout's per-repo git settings (`harness doctor --fix` writes those), with rtdd/Node as a
-  note. Each failure names its fix, with the winget command where there is one.
+  note. Each failure names its fix, with the winget command where there is one. When the engine is gone
+  but Harness left something on the host (a task of this home or its launcher, the python3 shim,
+  `harness.cmd`, the poller, the fleet registry), the section lists each and names the one command that
+  removes them: `bash <a Harness checkout>/scripts/uninstall.sh --force --force-engine`.
+- **`harness uninstall [--force] [--force-engine]`** removes everything Harness put on the host, not
+  just the engine and the `harness` link: this home's Task Scheduler tasks (one per launcher under
+  `$HARNESS_HOME/tasks`, by the per-home name above, so another home's tasks stay) with their launchers,
+  `harness.cmd` and the python3 shim, the `/harness*` skill links in every CLI's skills dir, the running
+  poller (by the pid in its pidfile, and only while that pid is still a `poller.sh`), the poller's
+  registry, the fleet registry, snapshots, event logs, supervisor state and log, and `HARNESS_HOME`
+  itself once that leaves it empty. It removes only what Harness wrote: `harness.cmd` and the shim only
+  when they carry Harness's own text, nothing else in the bin dir or `HARNESS_HOME` (a `supervise.conf`
+  you wrote stays). Because a running worker holds its scripts open on Windows, **`--force-engine` is
+  refused while another fleet still uses the engine** (a live worker of another project, or another
+  project registered active): nothing is removed, and the message says to stop that fleet first. On
+  Linux `--force-engine` still overrides that guard. `test/test_windows_uninstall.sh` records what an
+  install creates (with the real installer functions and `supervise` / `web --install`) and asserts
+  uninstall leaves none of it, leaves a user's file beside it, and leaves a second home's tasks alone.
 
 Knobs (the suite fakes each Windows tool with them): `HARNESS_PYTHON`, `HARNESS_BASH_EXE` (Git's
 `bash.exe`), `HARNESS_WINGET`, `HARNESS_REG` (`reg.exe`, for Developer Mode), `HARNESS_SCHTASKS`, `HARNESS_POWERSHELL`, `HARNESS_DETACH_WAIT` (seconds `detach_launch`
 waits for the pid, 30). `test/test_windows_lifecycle.sh` covers the lifecycle with
 `HARNESS_PLATFORM=windows` on Linux; `test/test_windows_installer.sh` covers the winget offers, the
-Developer Mode and git identity checks, the per-repo git settings and the doctor lines.
+Developer Mode and git identity checks, the per-repo git settings and the doctor lines;
+`test/test_windows_uninstall.sh` covers uninstall and the doctor's leftover check.
 
 ### Windows parity matrix
 
@@ -615,7 +633,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness pause` | ✓ | ✓ |
 | `harness setup` | ✓ | ✓ target (#475 task 8) |
 | `harness migrate` | ✓ | ✓ target (#475 task 8) |
-| `harness uninstall` | ✓ | ✓ target (#475 task 5) |
+| `harness uninstall` | ✓ | ✓ |
 | `harness plan` | ✓ | ✓ target (#475 task 8) |
 | `harness prd` | ✓ | ✓ target (#475 task 8) |
 | `harness issue` | ✓ | ✓ target (#475 task 8) |
@@ -632,7 +650,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `/harness-start` | ✓ | ✓ target (#475 task 7) |
 | `/harness-status` | ✓ | ✓ target (#475 task 8) |
 | `/harness-stop` | ✓ | ✓ target (#475 task 7) |
-| `/harness-uninstall` | ✓ | ✓ target (#475 task 5) |
+| `/harness-uninstall` | ✓ | ✓ |
 | `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`) |
 | `cli agy` | ✓ | ✓ target (#475 task 2) |
 | `cli codex` | ✓ | ✓ (headless runner `scripts/cli/codex_headless.py`, `codex exec --json`; its `headless-*` rows pass from fixture replay on Linux, a winsma run is still #475 task 8) |

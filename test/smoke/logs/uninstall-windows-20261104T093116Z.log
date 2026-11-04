@@ -1,0 +1,312 @@
+# Complete `harness uninstall` on winsma (#490, PRD #475)
+# host: Windows 10 via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-490\ under the winsma rules (lock, isolation, before/after guard, credential scan)
+# engine: the issue/490 branch, served as a local release (HARNESS_REF=v0.0.0-i490 over file://) to install.sh; winget is a logging stub
+# schtasks is real except /Run and /End, which a wrapper swallows so no supervisor or dashboard process is started
+# two rounds, each: install.sh, supervise --install, web --install, state a fleet leaves (poller/fleets/snapshots/events), then
+#   `harness uninstall --force --force-engine`. Round 1: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS must be empty and the per-home tasks gone.
+#   Round 2: a user's file in the bin dir, a user's file in HARNESS_HOME and a skill Harness did not install must survive, and nothing else.
+# an earlier run of this sequence failed one check: the "unrelated skill" it planted was named to-prd, which install.sh itself installs,
+#   so uninstall rightly removed it. The script now plants my-own-skill. The log below is the passing run.
+# claude: sandbox CLAUDE_CONFIG_DIR, no sign-in, no token usage
+#
+[09:28:04] run: #490 on winsma, mode install: # #490 on winsma, inside C:\hx-490 (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS, CLAUDE_CONFIG_DIR are the isolation's).
+set -u
+fail=0; say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
+st(){ MSYS2_ARG_CONV_EXCL='*' schtasks "$@"; }
+say "== host: $(uname -srm) | bash $BASH_VERSION | python3 $(python3 --version 2>&1)"
+say "== 1. clone the branch under test"
+git clone -q --branch issue/490 https://github.com/VocanicZ/Harness.git src || { say "clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+say "== 2. a local release of THIS tree, served over file://"
+tag=v0.0.0-i490; stg="stage/harness-$tag"; mkdir -p "$stg" "rel/download/$tag"
+( cd src && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$stg"
+printf '%s\n%040d\n' "$tag" 0 > "$stg/VERSION"
+printf '#!/usr/bin/env bash\necho %s\n' "$tag" > "$stg/scripts/release-marker.sh"
+tar -C stage -czf "rel/download/$tag/harness-$tag.tar.gz" "harness-$tag"
+( cd "rel/download/$tag" && sha256sum "harness-$tag.tar.gz" > SHA256SUMS )
+mkdir -p stubs
+printf '#!/usr/bin/env bash\necho "winget $*" >> "%s/winget.log"\nexit 0\n' "$HX_DIR" > stubs/winget; : > winget.log
+# schtasks is real except /Run and /End, so no supervisor or dashboard process is started
+cat > stubs/schtasks <<'WRAP'
+#!/usr/bin/env bash
+case "$1" in /Run|/End) exit 0;; esac
+MSYS2_ARG_CONV_EXCL='*' exec schtasks.exe "$@"
+WRAP
+chmod +x stubs/schtasks
+export HARNESS_BASE_URL="file:///$HX_DIR/rel/download" HARNESS_REF="$tag" HARNESS_WINGET="$HX_DIR/stubs/winget" \
+  HARNESS_INSTALL_PREREQS=1 HARNESS_INSTALL_NOPROMPT=1 HARNESS_SKIP_RTDD=1 HARNESS_SCHTASKS="$HX_DIR/stubs/schtasks" \
+  HARNESS_SUPERVISE_CONF="$HX_DIR/none.conf"
+tnames(){ ( source "$HX_DIR/src/scripts/portable.sh"; win_task_name harness-supervise; win_task_name harness-web ); }
+SUP=$(tnames | sed -n 1p); WEB=$(tnames | sed -n 2p)
+printf '%s\n%s\n' "$SUP" "$WEB" >> "$HX_DIR/tasks"       # recorded for cleanup before anything is registered
+say "per-home tasks: $SUP | $WEB"
+say "Harness tasks before: $(st /Query /FO CSV /NH 2>/dev/null | grep -i 'Harness\\\\harness-' | cut -d, -f1 | tr '\n' ' ')"
+count(){ find "$1" -mindepth 1 2>/dev/null | wc -l; }
+run_round(){ # $1 = label, $2 = 1 to put a user's own files beside Harness's
+  say "######## round $1"
+  say "== install.sh"
+  bash src/install.sh </dev/null 2>&1 | sed 's/^/   /'; irc=${PIPESTATUS[0]}
+  ok "install.sh exit 0" '(( irc == 0 ))'
+  export PATH="$(cygpath -u "$HARNESS_BIN_DIR"):$PATH"
+  H="$(command -v harness)"; say "harness resolves to: $H"
+  say "== supervise --install, web --install"
+  harness supervise --install 2>&1 | sed 's/^/   /'
+  harness web --install 2>&1 | sed 's/^/   /'
+  for n in "$SUP" "$WEB"; do ok "registered: $n" 'st /Query /TN "$n" >/dev/null 2>&1'; done
+  # what a few runs of a fleet leave beside the engine
+  mkdir -p "$HARNESS_HOME/poller/registry" "$HARNESS_HOME/fleets" "$HARNESS_HOME/snapshots" "$HARNESS_HOME/supervise"
+  echo '{}' > "$HARNESS_HOME/poller/registry/x.json"; echo '{}' > "$HARNESS_HOME/fleets/hz.json"
+  echo '{}' > "$HARNESS_HOME/snapshots/a.json"; echo '{}' > "$HARNESS_HOME/events.jsonl"; : > "$HARNESS_HOME/supervise.log"
+  if [[ "$2" == 1 ]]; then printf 'mine\n' > "$HARNESS_BIN_DIR/mytool.cmd"; printf 'mine\n' > "$HARNESS_HOME/notes.txt"; mkdir -p "$HARNESS_USER_SKILLS/my-own-skill"; : > "$HARNESS_USER_SKILLS/my-own-skill/SKILL.md"; fi
+  say "installed state: HARNESS_HOME=$(count "$HARNESS_HOME") entries, HARNESS_BIN_DIR: $(ls -A "$HARNESS_BIN_DIR" | tr '\n' ' '), HARNESS_USER_SKILLS: $(ls -A "$HARNESS_USER_SKILLS" | tr '\n' ' ')"
+  ok "python3 shim present" '[[ -x "$HARNESS_HOME/bin/python3" ]]'
+  ok "harness.cmd present" '[[ -f "$HARNESS_BIN_DIR/harness.cmd" ]]'
+  ok "task launchers present" 'ls "$HARNESS_HOME"/tasks/*.sh >/dev/null 2>&1'
+  say "== harness uninstall --force --force-engine"
+  harness uninstall --force --force-engine 2>&1 | sed 's/^/   /'; urc=${PIPESTATUS[0]}
+  ok "uninstall exit 0" '(( urc == 0 ))'
+  for n in "$SUP" "$WEB"; do ok "task gone: $n" '! st /Query /TN "$n" >/dev/null 2>&1'; done
+  say "after: HARNESS_HOME: $(ls -A "$HARNESS_HOME" 2>/dev/null | tr '\n' ' ')| HARNESS_BIN_DIR: $(ls -A "$HARNESS_BIN_DIR" 2>/dev/null | tr '\n' ' ')| HARNESS_USER_SKILLS: $(ls -A "$HARNESS_USER_SKILLS" 2>/dev/null | tr '\n' ' ')"
+  if [[ "$2" == 1 ]]; then
+    ok "user file in the bin dir survives"   '[[ "$(cat "$HARNESS_BIN_DIR/mytool.cmd" 2>/dev/null)" == mine ]]'
+    ok "user file in HARNESS_HOME survives"  '[[ "$(cat "$HARNESS_HOME/notes.txt" 2>/dev/null)" == mine ]]'
+    ok "a skill Harness did not install survives"            '[[ -f "$HARNESS_USER_SKILLS/my-own-skill/SKILL.md" ]]'
+    ok "bin dir holds only the user's file"  '[[ "$(ls -A "$HARNESS_BIN_DIR")" == mytool.cmd ]]'
+    ok "HARNESS_HOME holds only the user's file" '[[ "$(ls -A "$HARNESS_HOME")" == notes.txt ]]'
+    rm -rf "$HARNESS_BIN_DIR/mytool.cmd" "$HARNESS_HOME/notes.txt" "$HARNESS_USER_SKILLS/my-own-skill"
+  else
+    ok "HARNESS_HOME empty (or gone)"        '[[ -z "$(ls -A "$HARNESS_HOME" 2>/dev/null)" ]]'
+    ok "HARNESS_BIN_DIR empty"               '[[ -z "$(ls -A "$HARNESS_BIN_DIR" 2>/dev/null)" ]]'
+    ok "HARNESS_USER_SKILLS empty"           '[[ -z "$(ls -A "$HARNESS_USER_SKILLS" 2>/dev/null)" ]]'
+  fi
+}
+run_round 1 0
+run_round 2 1
+say "Harness tasks after: $(st /Query /FO CSV /NH 2>/dev/null | grep -i 'Harness\\\\harness-' | cut -d, -f1 | tr '\n' ' ')"
+say "result: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"; exit $fail
+[09:28:07] lock: hx-lock taken by #490 (lane-490)
+[09:28:15] guard: before recorded
+[09:28:39] credentials: before scan recorded
+[09:28:39] exec: # #490 on winsma, inside C:\hx-490 (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS, CLAUDE_CONFIG_DIR are the isolation's).
+set -u
+fail=0; say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
+st(){ MSYS2_ARG_CONV_EXCL='*' schtasks "$@"; }
+say "== host: $(uname -srm) | bash $BASH_VERSION | python3 $(python3 --version 2>&1)"
+say "== 1. clone the branch under test"
+git clone -q --branch issue/490 https://github.com/VocanicZ/Harness.git src || { say "clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+say "== 2. a local release of THIS tree, served over file://"
+tag=v0.0.0-i490; stg="stage/harness-$tag"; mkdir -p "$stg" "rel/download/$tag"
+( cd src && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$stg"
+printf '%s\n%040d\n' "$tag" 0 > "$stg/VERSION"
+printf '#!/usr/bin/env bash\necho %s\n' "$tag" > "$stg/scripts/release-marker.sh"
+tar -C stage -czf "rel/download/$tag/harness-$tag.tar.gz" "harness-$tag"
+( cd "rel/download/$tag" && sha256sum "harness-$tag.tar.gz" > SHA256SUMS )
+mkdir -p stubs
+printf '#!/usr/bin/env bash\necho "winget $*" >> "%s/winget.log"\nexit 0\n' "$HX_DIR" > stubs/winget; : > winget.log
+# schtasks is real except /Run and /End, so no supervisor or dashboard process is started
+cat > stubs/schtasks <<'WRAP'
+#!/usr/bin/env bash
+case "$1" in /Run|/End) exit 0;; esac
+MSYS2_ARG_CONV_EXCL='*' exec schtasks.exe "$@"
+WRAP
+chmod +x stubs/schtasks
+export HARNESS_BASE_URL="file:///$HX_DIR/rel/download" HARNESS_REF="$tag" HARNESS_WINGET="$HX_DIR/stubs/winget" \
+  HARNESS_INSTALL_PREREQS=1 HARNESS_INSTALL_NOPROMPT=1 HARNESS_SKIP_RTDD=1 HARNESS_SCHTASKS="$HX_DIR/stubs/schtasks" \
+  HARNESS_SUPERVISE_CONF="$HX_DIR/none.conf"
+tnames(){ ( source "$HX_DIR/src/scripts/portable.sh"; win_task_name harness-supervise; win_task_name harness-web ); }
+SUP=$(tnames | sed -n 1p); WEB=$(tnames | sed -n 2p)
+printf '%s\n%s\n' "$SUP" "$WEB" >> "$HX_DIR/tasks"       # recorded for cleanup before anything is registered
+say "per-home tasks: $SUP | $WEB"
+say "Harness tasks before: $(st /Query /FO CSV /NH 2>/dev/null | grep -i 'Harness\\\\harness-' | cut -d, -f1 | tr '\n' ' ')"
+count(){ find "$1" -mindepth 1 2>/dev/null | wc -l; }
+run_round(){ # $1 = label, $2 = 1 to put a user's own files beside Harness's
+  say "######## round $1"
+  say "== install.sh"
+  bash src/install.sh </dev/null 2>&1 | sed 's/^/   /'; irc=${PIPESTATUS[0]}
+  ok "install.sh exit 0" '(( irc == 0 ))'
+  export PATH="$(cygpath -u "$HARNESS_BIN_DIR"):$PATH"
+  H="$(command -v harness)"; say "harness resolves to: $H"
+  say "== supervise --install, web --install"
+  harness supervise --install 2>&1 | sed 's/^/   /'
+  harness web --install 2>&1 | sed 's/^/   /'
+  for n in "$SUP" "$WEB"; do ok "registered: $n" 'st /Query /TN "$n" >/dev/null 2>&1'; done
+  # what a few runs of a fleet leave beside the engine
+  mkdir -p "$HARNESS_HOME/poller/registry" "$HARNESS_HOME/fleets" "$HARNESS_HOME/snapshots" "$HARNESS_HOME/supervise"
+  echo '{}' > "$HARNESS_HOME/poller/registry/x.json"; echo '{}' > "$HARNESS_HOME/fleets/hz.json"
+  echo '{}' > "$HARNESS_HOME/snapshots/a.json"; echo '{}' > "$HARNESS_HOME/events.jsonl"; : > "$HARNESS_HOME/supervise.log"
+  if [[ "$2" == 1 ]]; then printf 'mine\n' > "$HARNESS_BIN_DIR/mytool.cmd"; printf 'mine\n' > "$HARNESS_HOME/notes.txt"; mkdir -p "$HARNESS_USER_SKILLS/my-own-skill"; : > "$HARNESS_USER_SKILLS/my-own-skill/SKILL.md"; fi
+  say "installed state: HARNESS_HOME=$(count "$HARNESS_HOME") entries, HARNESS_BIN_DIR: $(ls -A "$HARNESS_BIN_DIR" | tr '\n' ' '), HARNESS_USER_SKILLS: $(ls -A "$HARNESS_USER_SKILLS" | tr '\n' ' ')"
+  ok "python3 shim present" '[[ -x "$HARNESS_HOME/bin/python3" ]]'
+  ok "harness.cmd present" '[[ -f "$HARNESS_BIN_DIR/harness.cmd" ]]'
+  ok "task launchers present" 'ls "$HARNESS_HOME"/tasks/*.sh >/dev/null 2>&1'
+  say "== harness uninstall --force --force-engine"
+  harness uninstall --force --force-engine 2>&1 | sed 's/^/   /'; urc=${PIPESTATUS[0]}
+  ok "uninstall exit 0" '(( urc == 0 ))'
+  for n in "$SUP" "$WEB"; do ok "task gone: $n" '! st /Query /TN "$n" >/dev/null 2>&1'; done
+  say "after: HARNESS_HOME: $(ls -A "$HARNESS_HOME" 2>/dev/null | tr '\n' ' ')| HARNESS_BIN_DIR: $(ls -A "$HARNESS_BIN_DIR" 2>/dev/null | tr '\n' ' ')| HARNESS_USER_SKILLS: $(ls -A "$HARNESS_USER_SKILLS" 2>/dev/null | tr '\n' ' ')"
+  if [[ "$2" == 1 ]]; then
+    ok "user file in the bin dir survives"   '[[ "$(cat "$HARNESS_BIN_DIR/mytool.cmd" 2>/dev/null)" == mine ]]'
+    ok "user file in HARNESS_HOME survives"  '[[ "$(cat "$HARNESS_HOME/notes.txt" 2>/dev/null)" == mine ]]'
+    ok "a skill Harness did not install survives"            '[[ -f "$HARNESS_USER_SKILLS/my-own-skill/SKILL.md" ]]'
+    ok "bin dir holds only the user's file"  '[[ "$(ls -A "$HARNESS_BIN_DIR")" == mytool.cmd ]]'
+    ok "HARNESS_HOME holds only the user's file" '[[ "$(ls -A "$HARNESS_HOME")" == notes.txt ]]'
+    rm -rf "$HARNESS_BIN_DIR/mytool.cmd" "$HARNESS_HOME/notes.txt" "$HARNESS_USER_SKILLS/my-own-skill"
+  else
+    ok "HARNESS_HOME empty (or gone)"        '[[ -z "$(ls -A "$HARNESS_HOME" 2>/dev/null)" ]]'
+    ok "HARNESS_BIN_DIR empty"               '[[ -z "$(ls -A "$HARNESS_BIN_DIR" 2>/dev/null)" ]]'
+    ok "HARNESS_USER_SKILLS empty"           '[[ -z "$(ls -A "$HARNESS_USER_SKILLS" 2>/dev/null)" ]]'
+  fi
+}
+run_round 1 0
+run_round 2 1
+say "Harness tasks after: $(st /Query /FO CSV /NH 2>/dev/null | grep -i 'Harness\\\\harness-' | cut -d, -f1 | tr '\n' ' ')"
+say "result: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"; exit $fail
+[09:28:41] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.
+[09:28:41] == 1. clone the branch under test
+[09:28:48] src at 1788dd7
+[09:28:48] == 2. a local release of THIS tree, served over file://
+[09:28:52] per-home tasks: Harness\harness-supervise-765dc310 | Harness\harness-web-765dc310
+[09:28:53] Harness tasks before: 
+[09:28:53] ######## round 1
+[09:28:53] == install.sh
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-490/harness-home/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.0.0-i490 to C:/hx-490/harness-home/releases/v0.0.0-i490 ...
+     installed Harness v0.0.0-i490 at C:/hx-490/harness-home/releases/v0.0.0-i490
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-490/skills/caveman, installed)
+     ok      claude skill handoff (C:/hx-490/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-490/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-490/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-490/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-490/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-490/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-490/skills (user scope, claude, opencode): 13 new, 6 relinked, 19 in all
+     linked C:/hx-490/bin/harness -> C:/hx-490/harness-home/engine/bin/harness
+     wrote C:/hx-490/bin/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-490/bin, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-490/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.0.0-i490 is installed once at C:/hx-490/harness-home/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[09:29:29] PASS install.sh exit 0
+[09:29:29] harness resolves to: /c/hx-490/bin/harness
+[09:29:29] == supervise --install, web --install
+     wrote C:/hx-490/harness-home/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-765dc310)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-765dc310   log: C:/hx-490/harness-home/supervise.log
+     wrote C:/hx-490/harness-home/tasks/harness-web.sh (scheduled task Harness\harness-web-765dc310)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-765dc310
+[09:29:35] PASS registered: Harness\harness-supervise-765dc310
+[09:29:35] PASS registered: Harness\harness-web-765dc310
+[09:29:36] installed state: HARNESS_HOME=180 entries, HARNESS_BIN_DIR: harness harness.cmd , HARNESS_USER_SKILLS: caveman handoff harness harness-arc harness-init harness-issue harness-one harness-pause harness-plan harness-prd harness-resume harness-start harness-status harness-stop harness-uninstall subagent-task-tree to-issues to-prd writing-plans 
+[09:29:36] PASS python3 shim present
+[09:29:36] PASS harness.cmd present
+[09:29:36] PASS task launchers present
+[09:29:36] == harness uninstall --force --force-engine
+   Removing Harness:
+     removed scheduled task Harness\harness-supervise-765dc310
+     removed scheduled task Harness\harness-web-765dc310
+     removed shared engine link C:/hx-490/harness-home/engine
+     removed releases C:/hx-490/harness-home/releases
+     removed PATH entrypoint C:/hx-490/bin/harness
+     removed C:/hx-490/bin/harness.cmd
+     removed the python3 shim C:/hx-490/harness-home/bin/python3
+     refusing to remove project state C:/hx-490/harness-home/releases/v0.0.0-i490 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-490/skills
+     removed C:/hx-490/harness-home/poller
+     removed C:/hx-490/harness-home/fleets
+     removed C:/hx-490/harness-home/snapshots
+     removed C:/hx-490/harness-home/supervise
+     removed C:/hx-490/harness-home/events.jsonl
+     removed C:/hx-490/harness-home/supervise.log
+     removed C:/hx-490/harness-home/tasks
+     removed C:/hx-490/harness-home
+   Uninstalled.
+[09:29:44] PASS uninstall exit 0
+[09:29:44] PASS task gone: Harness\harness-supervise-765dc310
+[09:29:44] PASS task gone: Harness\harness-web-765dc310
+[09:29:45] after: HARNESS_HOME: | HARNESS_BIN_DIR: | HARNESS_USER_SKILLS: 
+[09:29:45] PASS HARNESS_HOME empty (or gone)
+[09:29:45] PASS HARNESS_BIN_DIR empty
+[09:29:45] PASS HARNESS_USER_SKILLS empty
+[09:29:45] ######## round 2
+[09:29:45] == install.sh
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-490/harness-home/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.0.0-i490 to C:/hx-490/harness-home/releases/v0.0.0-i490 ...
+     installed Harness v0.0.0-i490 at C:/hx-490/harness-home/releases/v0.0.0-i490
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-490/skills/caveman, installed)
+     ok      claude skill handoff (C:/hx-490/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-490/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-490/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-490/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-490/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-490/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-490/skills (user scope, claude, opencode): 13 new, 6 relinked, 19 in all
+     linked C:/hx-490/bin/harness -> C:/hx-490/harness-home/engine/bin/harness
+     wrote C:/hx-490/bin/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-490/bin, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-490/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.0.0-i490 is installed once at C:/hx-490/harness-home/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[09:30:08] PASS install.sh exit 0
+[09:30:08] harness resolves to: /c/hx-490/bin/harness
+[09:30:08] == supervise --install, web --install
+     wrote C:/hx-490/harness-home/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-765dc310)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-765dc310   log: C:/hx-490/harness-home/supervise.log
+     wrote C:/hx-490/harness-home/tasks/harness-web.sh (scheduled task Harness\harness-web-765dc310)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-765dc310
+[09:30:14] PASS registered: Harness\harness-supervise-765dc310
+[09:30:14] PASS registered: Harness\harness-web-765dc310
+[09:30:15] installed state: HARNESS_HOME=181 entries, HARNESS_BIN_DIR: harness harness.cmd mytool.cmd , HARNESS_USER_SKILLS: caveman handoff harness harness-arc harness-init harness-issue harness-one harness-pause harness-plan harness-prd harness-resume harness-start harness-status harness-stop harness-uninstall my-own-skill subagent-task-tree to-issues to-prd writing-plans 
+[09:30:15] PASS python3 shim present
+[09:30:15] PASS harness.cmd present
+[09:30:15] PASS task launchers present
+[09:30:15] == harness uninstall --force --force-engine
+   Removing Harness:
+     removed scheduled task Harness\harness-supervise-765dc310
+     removed scheduled task Harness\harness-web-765dc310
+     removed shared engine link C:/hx-490/harness-home/engine
+     removed releases C:/hx-490/harness-home/releases
+     removed PATH entrypoint C:/hx-490/bin/harness
+     removed C:/hx-490/bin/harness.cmd
+     removed the python3 shim C:/hx-490/harness-home/bin/python3
+     refusing to remove project state C:/hx-490/harness-home/releases/v0.0.0-i490 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-490/skills
+     removed C:/hx-490/harness-home/poller
+     removed C:/hx-490/harness-home/fleets
+     removed C:/hx-490/harness-home/snapshots
+     removed C:/hx-490/harness-home/supervise
+     removed C:/hx-490/harness-home/events.jsonl
+     removed C:/hx-490/harness-home/supervise.log
+     removed C:/hx-490/harness-home/tasks
+   Uninstalled.
+[09:30:23] PASS uninstall exit 0
+[09:30:23] PASS task gone: Harness\harness-supervise-765dc310
+[09:30:23] PASS task gone: Harness\harness-web-765dc310
+[09:30:23] after: HARNESS_HOME: notes.txt | HARNESS_BIN_DIR: mytool.cmd | HARNESS_USER_SKILLS: my-own-skill 
+[09:30:23] PASS user file in the bin dir survives
+[09:30:24] PASS user file in HARNESS_HOME survives
+[09:30:24] PASS a skill Harness did not install survives
+[09:30:24] PASS bin dir holds only the user's file
+[09:30:24] PASS HARNESS_HOME holds only the user's file
+[09:30:25] Harness tasks after: 
+[09:30:25] result: PASS
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-490
+credentials: GH_TOKEN written nowhere new
+[09:31:08] cleanup: winsma clean (no hx-490, lock released, no run task or process)
+[09:31:08] run: OK
+exit=0
