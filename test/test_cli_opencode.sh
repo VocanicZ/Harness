@@ -155,8 +155,9 @@ else
   echo "  skip: node not installed — the plugin was not driven (the matrix's loop-mode drives its step)"
 fi
 
-# #353: opencode has no headless lane runner, so its headless-* rows read n/a, tmux-only — and only those.
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only") { print $2, substr($3, 1, 4) }')"
-assert_eq "$col" "$(printf 'trust-dialog-is-not-prompt n/a:\ntrust-pre-accepted n/a:\nusage-windows n/a:\nsupervisor-skips-trust-dialog n/a:')" \
-  "every opencode matrix cell is ok, but the rows that cannot exist for it (n/a with a reason) and its headless-* rows (n/a, tmux-only)"
+# #482: opencode has a headless lane runner, so its headless-* rows run; only headless-usage-windows is n/a (no
+# quota meter), like usage-windows.
+col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" { print $2, substr($3, 1, 4) }')"
+assert_eq "$col" "$(printf 'trust-dialog-is-not-prompt n/a:\ntrust-pre-accepted n/a:\nusage-windows n/a:\nsupervisor-skips-trust-dialog n/a:\nheadless-usage-windows n/a:')" \
+  "every opencode matrix cell is ok, but the rows that cannot exist for it (n/a with a reason), headless-* rows included"
 finish

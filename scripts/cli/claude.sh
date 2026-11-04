@@ -46,23 +46,9 @@ claude_headless(){ local wd="$1" uuid="$2" model effort="$4"; model="$(_claude_l
 # the lane's own last reply. Where ralph-loop's hook runs inside `claude -p` too, it holds the turn open
 # until the promise and the driven loop finds the loop already over (cli_done).
 claude_loop(){ [[ "$(sess_backend)" == headless ]] && echo driven || echo hook; }
-# claude_last_reply <wd> <session id> — the headless lane's last turn: `<session>:<turn>`, then its reply.
-# rc 1 while a turn runs or a message waits for one, before the first turn ends, and after a turn that
-# did not end with a reply (a limit, a transient error, an interrupt): those are the watchdog's.
-claude_last_reply(){ [[ "$(sess_backend)" == headless ]] || return 1
-  ROOT="$(_hl_root)" WD="$1" SID="$2" python3 -c '
-import glob, json, os, sys
-for f in glob.glob(os.path.join(os.environ["ROOT"], "*", "state.json")):
-    try:
-        st = json.load(open(f, encoding="utf-8"))
-    except (OSError, ValueError):
-        continue
-    if st.get("cwd") != os.environ["WD"] or (os.environ["SID"] and st.get("session_id") != os.environ["SID"]):
-        continue
-    if st.get("state") != "idle" or st.get("interrupted") or not st.get("turn") or st.get("queued"):
-        sys.exit(1)
-    print("%s:%s" % (st.get("session_id"), st["turn"])); print(st.get("last_reply") or ""); sys.exit(0)
-sys.exit(1)'; }
+# claude_last_reply <wd> <session id> — the headless lane's last turn: `<session>:<turn>`, then its reply
+# (_cli_headless_last_reply in dispatch.sh: the core's state.json is every CLI's).
+claude_last_reply(){ _cli_headless_last_reply "$@"; }
 # A worktree hook may pin the lane's model in settings.local.json instead of the flags.
 claude_lane_settings(){ local f="$1/.claude/settings.local.json"
   [[ -f "$f" ]] && F="$f" python3 -c 'import json,os

@@ -42,7 +42,8 @@ for c in $green; do
   assert_eq "${bad# }" "" "README: every $c row is ✓ exactly where its matrix cell is ok, n/a with its reason"
 done
 # #353: the headless-* rows are the same features on the headless session backend. Each CLI with a
-# headless lane runner (cli_headless_list) has a ✓ on every one; every other CLI reads `n/a: tmux-only`.
+# headless lane runner (cli_headless_list) has a ✓ on every one, or `n/a: <reason>` where its matrix cell is n/a
+# (#482: opencode has no quota meter, so no usage windows); every other CLI reads `n/a: tmux-only`.
 headless_rows="$(grep -x 'headless-.*' <<<"$rows")"
 assert_ok "the matrix has headless-* rows" test -n "$headless_rows"
 headless_clis="$(source "$ROOT/scripts/cli/dispatch.sh"; cli_headless_list)"
@@ -51,9 +52,11 @@ for c in $green; do
   bad=""
   for row in $headless_rows; do
     cell="$(grep "^| \`$row\` |" <<<"$table" | cut -d'|' -f"$(col "$c")" | xargs)"
-    [[ $cell == "$want" ]] || bad+=" $row"
+    res="$(awk -F'\t' -v c="$c" -v r="$row" '$1 == c && $2 == r { print $3 }' <<<"$cells")"
+    if [[ $want == "✓" && $res == n/a:* ]]; then [[ $cell == "n/a: ${res#n/a:}" ]] || bad+=" $row"
+    else [[ $cell == "$want" ]] || bad+=" $row"; fi
   done
-  assert_eq "${bad# }" "" "README: every headless-* row of $c reads $want"
+  assert_eq "${bad# }" "" "README: every headless-* row of $c reads $want (or its matrix cell's n/a reason)"
 done
 # #316: the config table has a row for every setting the adapters read: each HARNESS_* in
 # scripts/cli/*.sh, but for the few Harness sets itself, never an operator.

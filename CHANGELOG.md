@@ -4,6 +4,26 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Headless turn adapter for `opencode` (#482)
+
+- `opencode` runs on the headless session backend: `scripts/cli/opencode_headless.py` is its adapter on the shared
+  core (#480). Each turn is one `opencode run --format json` (the message on stdin); OpenCode names its own
+  session, so the first turn passes none and every later turn (or a relaunched lane's first) passes
+  `--session <id>`, read off the stream. A quota error becomes the `limit` state with its reset time, any other
+  error or a missing final step `transient`, a session OpenCode lost is started afresh. `cli_headless_list` now
+  lists `opencode` and the tmux-only refusal no longer names it.
+- `opencode` has no quota meter, so its `headless-usage-windows` row is `n/a` with that reason; a limit parks the
+  lane from its error. Usage reaches the stats sweep through the same `opencode.db` fold a pane's session uses.
+- The goal loop on an `opencode` headless lane is Harness's driven one (`opencode_loop`, `opencode_last_reply`);
+  `claude`'s `last_reply` reader moved to `_cli_headless_last_reply` in `dispatch.sh`, shared by both. The core
+  gained an optional adapter `env()` for variables a turn's process needs.
+- `test/test_opencode_headless.py` runs the adapter against captures of the real CLI
+  (`test/fixtures/cli/opencode/run-json/`), and the matrix's `headless-*` rows now pass for `opencode` from fixture
+  replay, on Linux and under `HARNESS_PLATFORM=windows`. The parity matrix and the per-CLI non-interactive table in
+  `docs/reference.md` are updated.
+- A live headless smoke on the fleet host (OpenCode 1.19.5, the free `opencode/big-pickle` model, no account)
+  passes, checkpoint and resume included: `test/smoke/logs/opencode-headless-20261104T051434Z.log`.
+
 ### `harness attach` drives headless lanes (#487)
 
 - `harness attach <lane>` on a headless lane keeps the live watch and adds input: each line you type goes to the

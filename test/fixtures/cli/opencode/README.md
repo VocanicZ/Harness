@@ -46,3 +46,29 @@ file setting `question: allow` and `variant: high`, `opencode debug config` reso
 
 There is no `trust.txt`: OpenCode 1.x has no workspace-trust gate (it loaded the capture repos'
 `opencode.json` and plugins with no dialog).
+
+## `run-json/` — the headless turn (#482)
+
+What the headless lane runner (`scripts/cli/opencode_headless.py`) reads: the stdout of
+`opencode run --format json [--auto] [-m <model>] [--session <id>]`, the message on stdin, one JSON event per
+line. Captured 2026-11-04 (UTC) on the fleet host from OpenCode `1.19.5`, model `opencode/big-pickle` (the
+free Zen model, no account), `OPENCODE_DISABLE_AUTOUPDATE=1`, in a throwaway git repo. Each capture is the run's
+stdout unchanged; the limit and transient ones come from a local stand-in endpoint (below), so their URL is
+`127.0.0.1`.
+
+| file | how |
+|---|---|
+| `normal.jsonl` | The first turn of a new session, no `--session`: `Reply with exactly the word PONG and nothing else.` `step_start`, a `text` part (`PONG`), `step_finish` with `reason: "stop"` and `tokens`. Every event carries the `sessionID` OpenCode generated (`ses_…`). Exit 0. |
+| `tool-use.jsonl` | The next turn of that session, `--session <id>`: `Use your bash tool to run the shell command: echo hi > proof.txt — then reply with exactly DONE.` A `step_start`, a `tool_use` (the finished `bash` call, `state.input.command`, `state.output`), a `step_finish` with `reason: "tool-calls"`, then a second step: `text` (`DONE`) and a `step_finish` with `reason: "stop"`. Exit 0. Same `sessionID`: `--session` carries the session. `proof.txt` was created. |
+| `limit.jsonl` | NOT triggerable on demand (the free model has no quota to exhaust), so OpenCode was pointed at a local stand-in endpoint: an `@ai-sdk/openai-compatible` provider `fake` in `OPENCODE_CONFIG_CONTENT`, `-m fake/m1`, whose server answered every call `429` with OpenCode Zen's `GoUsageLimitError` body (`metadata.limitName` `5-hour`) and `retry-after: 60`. OpenCode retried five times, about five minutes, then printed ONE `error` event (`error.name` `APIError`, `data.message` `Go usage limit reached`, `statusCode` 429, `responseHeaders`, `responseBody`) and exited 1. No `step_finish`. |
+| `limit-quota.jsonl` | The same endpoint answering OpenAI's `insufficient_quota` body (`You exceeded your current quota, please check your plan and billing details.`, `retry-after: 1`). The same single `error` event, exit 1. |
+| `transient.jsonl` | The same endpoint answering `503` `{"error": {"message": "Service Unavailable"}}`, `retry-after: 1`: the `error` event is `APIError`, `statusCode` 503, `isRetryable: true`; exit 1. A bad model name (`-m nosuch/model`) is also an `error` event (`UnknownError`, `Unexpected server error`), exit 1: the runner reads both as transient. |
+| `no-conversation.jsonl`, `no-conversation.stderr` | `opencode run --format json --session ses_doesnotexist000`, a session OpenCode does not have: NO JSON on stdout (the empty file), `Error: Session not found` on stderr (ANSI-coloured, the `.stderr` file), exit 1. The runner then starts the session afresh. |
+| `fake-opencode` | Stands in for `opencode` in `test/test_opencode_headless.py` and the matrix's `headless-*` rows (`test/test_cli_matrix.sh`, #482): each run replays the fixture `$FAKE_CLAUDE_DIR/plan` names next (text after the name replaces its reply), with every `sessionID` set to the session its argv continues (`--session`) or a new `ses_…` it also writes into `$XDG_DATA_HOME/opencode/opencode.db` (the rows of `transcript.db`, so the session id and usage Harness reads from there are found), records its argv and stdin prompt, can hold mid-turn, has a `hang` turn that starts a grandchild for the stop test, and runs an executable `turn-hook` with each prompt (#350). Its header says how. |
+
+What the runner reads from them (`Turn.outcome`): a `step_finish` with `reason: "stop"` and exit 0 → `idle` (the
+reply is the text of the turn's last message); an `error` event whose name, message or body is a quota
+(`insufficient_quota`, `usage limit reached`, `Free usage exceeded`, `GoUsageLimitError`) → `limit`, its reset
+the message's "reset in N unit" or the `retry-after` header; any other `error` event, or an exit with no
+finished step → `transient`; `Session not found` on stderr → the session is gone (`no_conversation`).
+OpenCode has no quota meter, so no `rate_limit` is ever read (`usage-windows.na`).

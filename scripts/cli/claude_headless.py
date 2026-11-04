@@ -74,13 +74,8 @@ class Turn:
 def watch_line(ev):
     """One events.jsonl event as `harness attach` prints it; None for the ones it leaves out."""
     t, sub = ev.get("type"), ev.get("subtype")
-    if t == "harness" and sub == "turn_start":
-        return f"── turn {ev.get('turn')} ({ev.get('kind', 'message')}) ── {ev.get('message', '')}"
-    if t == "harness" and sub == "turn_end":
-        extra = " (interrupted)" if ev.get("interrupted") else " (stopped)" if ev.get("stopped") else ""
-        return f"── turn {ev.get('turn')} ended: {ev.get('state')}{extra}"
-    if t == "harness" and sub == "stdout":
-        return ev.get("line")
+    if t == "harness":
+        return core.harness_watch_line(ev)
     if t == "assistant":
         parts = []
         for c in (ev.get("message") or {}).get("content") or []:

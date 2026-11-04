@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""fake-opencode — stands in for `opencode run --format json` (../README.md, "run-json"): each run replays one
+captured turn from this directory, in the order $FAKE_CLAUDE_DIR/plan names them (one fixture name per line:
+normal, tool-use, limit, transient, no-conversation — or `hang`, a turn that never ends). The variable keeps
+claude's name because the matrix's headless-* rows are shared by both CLIs. Text after the name on a plan line
+(`normal <promise>X</promise>`) replaces the turn's reply (its `text` part).
+
+Per run it appends {argv, prompt (its stdin), pid} to $FAKE_CLAUDE_DIR/calls.jsonl, then prints the fixture's
+events with every sessionID set to the session the argv continues (--session) or, with none, a new `ses_…` id,
+as OpenCode names its own. A new session also leaves its rows in $XDG_DATA_HOME/opencode/opencode.db (the
+sessions and messages of ../transcript.db, the lane's directory this process's cwd), which is where Harness
+reads an opencode session's id and usage from. A session id the database does not hold is OpenCode's
+`Error: Session not found` (no-conversation.stderr, exit 1). While $FAKE_CLAUDE_DIR/hold exists it waits after
+the first event, so a test can act mid-turn. `hang` prints the first event, starts a grandchild (`sleep`),
+writes `<own pid> <grandchild pid>` to $FAKE_CLAUDE_DIR/pids and waits forever. It exits 1 after an `error`
+event, as opencode does. An executable $FAKE_CLAUDE_DIR/turn-hook runs first with the prompt on its stdin, in
+the working directory — the commands an agent would run in that turn (#350: a checkpoint's gh calls)."""
+import json, os, sqlite3, subprocess, sys, time
+
+here = os.path.dirname(os.path.abspath(__file__))
+d = os.environ["FAKE_CLAUDE_DIR"]
+argv = sys.argv[1:]
+want = None
+for i, a in enumerate(argv[:-1]):
+    if a == "--session":
+        want = argv[i + 1]
+prompt = sys.stdin.read()
+with open(os.path.join(d, "calls.jsonl"), "a") as f:
+    f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
+n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
+hook = os.path.join(d, "turn-hook")
+if os.access(hook, os.X_OK):
+    subprocess.run([hook], input=prompt, text=True)
+plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
+name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
+
+
+def lane_db():
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "opencode", "opencode.db")
+
+
+def has_session(sid):
+    try:
+        c = sqlite3.connect(f"file:{lane_db()}?mode=ro", uri=True)
+        return c.execute("SELECT 1 FROM session WHERE id = ?", (sid,)).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def new_session():
+    """A new session's rows (../transcript.db), the top-level one under a fresh id; returns that id."""
+    own = os.path.join(here, "transcript.db")   # the matrix copies it beside this file
+    src = sqlite3.connect(own if os.path.exists(own) else os.path.join(here, "..", "transcript.db"))
+    os.makedirs(os.path.dirname(lane_db()), exist_ok=True)
+    dst = sqlite3.connect(lane_db())
+    for (sql,) in src.execute("SELECT sql FROM sqlite_master WHERE type = 'table'"):
+        dst.execute(sql.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1))
+    tag = os.urandom(4).hex()
+    top = f"ses_{os.urandom(13).hex()}"
+    cols = [r[1] for r in src.execute("PRAGMA table_info(session)")]
+    ids = {}
+    for row in src.execute("SELECT * FROM session ORDER BY parent_id IS NOT NULL"):
+        r = dict(zip(cols, row))
+        ids[r["id"]] = top if r["parent_id"] is None else f"{r['id']}{tag}"
+        r.update(id=ids[r["id"]], parent_id=r["parent_id"] and ids[r["parent_id"]], directory=os.getcwd(),
+                 time_created=int(time.time() * 1000))
+        dst.execute(f"INSERT INTO session ({','.join(r)}) VALUES ({','.join('?' * len(r))})", list(r.values()))
+    for mid, sid, tc, tu, data in src.execute("SELECT id, session_id, time_created, time_updated, data FROM message"):
+        dst.execute("INSERT INTO message VALUES (?, ?, ?, ?, ?)", (f"{mid}{tag}", ids[sid], tc, tu, data))
+    dst.commit()
+    return top
+
+
+if want is not None and not has_session(want) and name != "no-conversation":
+    name = "no-conversation"
+sid = want or new_session()
+
+src = "normal" if name == "hang" else name
+events = [json.loads(l) for l in open(os.path.join(here, f"{src}.jsonl")) if l.strip()]
+for e in events:
+    e["sessionID"] = sid
+    p = e.get("part")
+    if isinstance(p, dict):
+        p["sessionID"] = sid
+        if reply and e.get("type") == "text":
+            p["text"] = reply
+if name == "hang":
+    events = events[:1]
+
+err = False
+for i, e in enumerate(events):
+    print(json.dumps(e, separators=(",", ":")), flush=True)
+    err = err or e.get("type") == "error"
+    if i == 0:
+        while os.path.exists(os.path.join(d, "hold")):
+            time.sleep(0.05)
+if name == "hang":
+    child = subprocess.Popen(["sleep", "600"])
+    with open(os.path.join(d, "pids"), "w") as f:
+        f.write(f"{os.getpid()} {child.pid}\n")
+    while True:
+        time.sleep(1)
+if name == "no-conversation":
+    sys.stderr.write(open(os.path.join(here, "no-conversation.stderr")).read())
+    err = True
+sys.exit(1 if err else 0)

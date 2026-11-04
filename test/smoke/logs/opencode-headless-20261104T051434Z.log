@@ -1,0 +1,106 @@
+05:14:36Z == fleet smoke | cli=opencode | 1.19.5 | 2026-11-04T05:14:36Z
+05:14:36Z == host posix | Linux 7.0.0-3-pve x86_64 | bash 5.2.37(1)-release | python3 3.13.5
+05:14:36Z == session backend headless | checkpoint+resume on, 30s into the lane
+05:14:36Z == engine harness v0.5.0-11-gc7825cc-dirty (dev checkout) | repo VocanicZ/harness-smoke-opencode | prefix smokeopencode
+05:14:38Z == harness init
+   roles (opencode): manager <CLI default>/<CLI default>, implementer <CLI default>/<CLI default>
+   wrote /tmp/harness-smoke-opencode.IFI10M/harness-smoke-opencode/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-opencode
+   : "${HARNESS_CLI:=opencode}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-opencode}"
+   : "${HARNESS_UNIT:=harness-smoke-opencode}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokeopencode}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_LABEL_HITL:=hitl}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_MODEL_MANAGER:=}"
+   : "${HARNESS_EFFORT_MANAGER:=}"
+   : "${HARNESS_MODEL_IMPLEMENTER:=}"
+   : "${HARNESS_EFFORT_IMPLEMENTER:=}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+   : "${HARNESS_TURN_MAX:=120}"
+   : "${HARNESS_PAUSE_GRACE:=900}"
+   : "${HARNESS_USAGE_CHECKPOINT_PCT:=99}"
+05:14:47Z == harness setup
+   ── Harness setup (mode=issue-only cli=opencode) ──
+     ok      opencode binary (opencode, 1.19.5)
+     ok      opencode skill caveman (/home/claude/.claude/skills/caveman)
+     ok      opencode skill handoff (/home/claude/.claude/skills/handoff)
+     ok      opencode skill rtdd (/home/claude/.claude/skills/rtdd)
+     ok      opencode skill subagent-task-tree (/home/claude/.claude/skills/subagent-task-tree)
+     ok      opencode skill to-issues (/home/claude/.claude/skills/to-issues)
+     ok      opencode skill to-prd (/home/claude/.claude/skills/to-prd)
+     ok      opencode skill writing-plans (/home/claude/.claude/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'harness-smoke-opencode' (VocanicZ/harness-smoke-opencode)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+05:15:02Z filed PRD #7 and issue #8
+05:15:02Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=30s):
+     worker-1: started (pid 2929097) — log /tmp/harness-smoke-opencode.IFI10M/harness-smoke-opencode/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=60s):
+     priority: started (pid 2929214) — log /tmp/harness-smoke-opencode.IFI10M/harness-smoke-opencode/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+05:15:04Z issue=OPEN labels=ready-for-agent sessions=none prs=#6 MERGED,#3 MERGED
+05:15:36Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeopencode-harness-smoke-opencode-i8 prs=#6 MERGED,#3 MERGED
+05:16:07Z == checkpoint: harness pause --force (lane smokeopencode-harness-smoke-opencode-i8 up 31s)
+     checkpoint requested: smokeopencode-harness-smoke-opencode-i8 (issue #8 on VocanicZ/harness-smoke-opencode)
+     lane ended after its checkpoint: smokeopencode-harness-smoke-opencode-i8
+     confirmed paused: VocanicZ/harness-smoke-opencode#8
+   FLEET: PAUSED — all in-flight agents checkpointed to GitHub. Resume anywhere: harness/resume.sh
+05:18:49Z after checkpoint: labels=agent-paused,ready-for-agent sessions=none
+05:18:51Z handoff comment posted on #8
+05:18:51Z == resume: harness resume
+   RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll.
+05:19:22Z issue=OPEN labels=agent-paused,ready-for-agent sessions=none prs=#6 MERGED,#3 MERGED
+05:19:54Z issue=OPEN labels=agent-paused,agent-working,ready-for-agent sessions=smokeopencode-harness-smoke-opencode-i8 prs=#6 MERGED,#3 MERGED
+05:20:26Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeopencode-harness-smoke-opencode-i8 prs=#6 MERGED,#3 MERGED
+05:24:42Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeopencode-harness-smoke-opencode-i8 prs=#9 OPEN,#6 MERGED,#3 MERGED
+05:25:14Z issue=CLOSED labels=ready-for-agent sessions=smokeopencode-harness-smoke-opencode-i8 prs=#9 MERGED,#6 MERGED,#3 MERGED
+05:25:44Z fleet sessions after close: none (ended by the fleet)
+05:25:45Z issue #8 CLOSED
+05:25:45Z merged PR: #9 feat: add smoke/20261104T051434Z.txt with gate assertion (closes #8) https://github.com/VocanicZ/harness-smoke-opencode/pull/9 merged 2026-11-04T05:24:46Z
+05:25:47Z smoke/20261104T051434Z.txt on the default branch: hello from opencode
+   issue #8: 2 session(s)
+     2026-11-04T05:15:28Z  launch  kind=impl
+     2026-11-04T05:17:54Z  turn_interrupted  kind=impl turn_s=145 queued_nudges=0
+     2026-11-04T05:18:49Z  paused  kind=impl
+     2026-11-04T05:19:09Z  session_end  kind=impl wall_s=221  opencode/big-pickle: out 3,674 in 28,935 cache_create 0 cache_read 290,304
+     2026-11-04T05:19:18Z  reap  kind=impl reason=session_gone
+     2026-11-04T05:19:35Z  launch  kind=impl
+     2026-11-04T05:25:15Z  goal_satisfied  kind=impl
+     2026-11-04T05:25:16Z  reap  kind=impl reason=session_gone
+     2026-11-04T05:25:17Z  merged  kind=impl
+     2026-11-04T05:25:46Z  session_end  kind=impl wall_s=371
+     rtdd  which 2  changed nodes 8  round1 0  round2 0  stale graph 0  selective 0/2  --version 1  0.3s
+   05:19:34 [harness-smoke-opencode] session smokeopencode-harness-smoke-opencode-i8 carries on agent session ses_e5b042b9cffeZ3wVCSC21oEG5k
+05:25:48Z == teardown
+   Stopping pool workers:
+     killed priority (pid 2929214)
+     killed worker-1 (pid 2929097)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+05:25:53Z closed leftover issue #7
+05:25:54Z == result: PASS | log: /home/claude/harness-dev/.harness/worktrees/harness-i482/test/smoke/logs/opencode-headless-20261104T051434Z.log
