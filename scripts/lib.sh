@@ -1388,20 +1388,20 @@ swarm_suite_cmd(){ printf 'HARNESS_SWARM=%q RUN_DIR=%q bash %q' "$HARNESS_SWARM"
 # is idempotent and covers ~/.claude; agy reads its own user skill dir, so an agy fleet also gets the
 # skill there, extracted from `rtdd skill prompt`. WARN and return 1 on any failure, never die: a lane
 # without the skill still has the prompt's own pointer and its hand-picked fallback.
-rtdd_skill_install(){ local d
-  command -v rtdd >/dev/null || return 0   # the missing-binary warning is setup's own
+rtdd_skill_install(){ local d r
+  r="$(rtdd_exe)" || return 0   # the missing-binary warning is setup's own
   # --legacy-files is v0.3-only; an older rtdd's skill install merges into ~/.codex and ~/.gemini.
-  rtdd --help 2>&1 | grep -q -- '--legacy-files' || {
+  "$r" --help 2>&1 | grep -q -- '--legacy-files' || {
     echo "  ! rtdd predates v0.3 — lanes need its rounds and fall back to hand-picked tests. Upgrade: rtdd update"
     return 1; }
-  rtdd skill install >/dev/null 2>&1 || {
+  "$r" skill install >/dev/null 2>&1 || {
     echo "  ! rtdd skill install failed — lanes run without the rtdd skill. Retry: rtdd skill install"
     return 1; }
   d="$(cli_user_skills_dir)"   # a CLI whose user skills `rtdd skill install` does not reach
   [[ $d == "$HOME/.claude/skills" || $d == "${HARNESS_USER_SKILLS:-}" ]] && d=""   # ~/.claude is rtdd's own
   if [[ -n "$d" ]]; then
     d="$d/rtdd"
-    mkdir -p "$d" && rtdd skill prompt 2>/dev/null | awk '/^````$/{f=0} f; /^````markdown$/{f=1}' > "$d/SKILL.md.tmp" \
+    mkdir -p "$d" && "$r" skill prompt 2>/dev/null | awk '/^````$/{f=0} f; /^````markdown$/{f=1}' > "$d/SKILL.md.tmp" \
       && [[ -s "$d/SKILL.md.tmp" ]] && mv "$d/SKILL.md.tmp" "$d/SKILL.md" || {
       rm -f "$d/SKILL.md.tmp"
       echo "  ! could not install the rtdd skill for $(cli_name) into $d — retry: harness setup"

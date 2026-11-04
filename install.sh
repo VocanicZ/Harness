@@ -12,6 +12,11 @@ VOCANICZ_TOOLS_URL="${VOCANICZ_TOOLS_URL:-https://github.com/VocanicZ/vocanicz-a
 RTDD_INSTALL_SPEC="${RTDD_INSTALL_SPEC:-github:VocanicZ/rtdd}"   # upstream's own installer, run via npx
 
 need(){ command -v "$1" >/dev/null 2>&1; }
+# inst_rtdd — the rtdd this host runs, as a path (portable.sh's rtdd_exe: install.sh runs before any engine exists). On Windows it is
+# `rtdd.exe`, looked up by that name first (#495). rc 1 when there is none.
+inst_rtdd(){ local p
+  if inst_windows; then p="$(command -v rtdd.exe 2>/dev/null)" && [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }; fi
+  p="$(command -v rtdd 2>/dev/null)" && [[ -n $p ]] && printf '%s\n' "$p"; }
 # ── native Windows (Git Bash, #356, docs/adr/0001-native-windows-runtime.md) ─────────────────────
 # install.sh runs before any engine exists (`curl | bash`), so it carries its own platform test:
 # portable.sh's is_windows, with the same HARNESS_PLATFORM=windows|posix override the suite forces.
@@ -66,7 +71,9 @@ install_python_shim(){ local d="${HARNESS_HOME:-$HOME/.harness}/bin" py
 export PYTHONUTF8=1
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EOF
-    printf 'p="${HARNESS_PYTHON:-%s}"\n' "$(printf '%q' "$py")"
+    # %q escapes a space as `\ `, which a double-quoted ${…:-…} keeps as a backslash (C:\Program Files\Python313 → 'not found'):
+    # the baked default is a separate, %q-quoted assignment instead (#495).
+    printf 'p="${HARNESS_PYTHON:-}"\n[[ -n $p ]] || p=%s\n' "$(printf '%q' "$py")"
     cat <<'EOF'
 [[ -f $p ]] && exec "$p" "$@"
 read -r -a argv <<<"$p"
@@ -223,7 +230,7 @@ offer_prereqs_windows(){ local b git_missing=0 _WINGET_RAN=0
   if declare -F cli_list >/dev/null && [[ -z "$(_host_clis)" ]] && cli_list | grep -qx claude; then
     winget_offer "No agent CLI found — install Claude Code with winget?" "$WINGET_CLAUDE"
   fi
-  if [[ "${HARNESS_SKIP_RTDD:-0}" != 1 && -z "${_NODE_OFFERED:-}" ]] && ! need rtdd && ! need npx; then
+  if [[ "${HARNESS_SKIP_RTDD:-0}" != 1 && -z "${_NODE_OFFERED:-}" ]] && ! inst_rtdd >/dev/null && ! need npx; then
     _NODE_OFFERED=1
     winget_offer "Node.js (npx) is missing — rtdd's installer needs it; install Node with winget?" "$WINGET_NODE"
   fi
@@ -288,8 +295,8 @@ offer_prereqs(){ local b miss=() m cmd
 # way back to the old full-suite bar, which is the cost this replaces.
 ensure_rtdd(){
   [[ "${HARNESS_SKIP_RTDD:-0}" == 1 ]] && return 0   # tests set this: ensure_rtdd must never network
-  if need rtdd; then
-    echo "  ✓ rtdd already installed ($(command -v rtdd))"
+  if inst_rtdd >/dev/null; then
+    echo "  ✓ rtdd already installed ($(inst_rtdd))"
     return 0
   fi
   # Upstream's documented install is `npx github:VocanicZ/rtdd` — a Node installer that resolves the
@@ -312,9 +319,9 @@ ensure_rtdd(){
   # signal from that installer worth reading, and discarding it was hiding it behind a generic line.
   local rtdd_log; rtdd_log="$(mktemp)"
   if timeout "${RTDD_INSTALL_TIMEOUT:-300}" env GIT_TERMINAL_PROMPT=0 npx -y "$RTDD_INSTALL_SPEC" \
-       >"$rtdd_log" 2>&1 && need rtdd; then
+       >"$rtdd_log" 2>&1 && inst_rtdd >/dev/null; then
     echo "  ✓ installed rtdd"
-  elif [[ -x "${HOME:-}/.local/bin/rtdd" || -x /usr/local/bin/rtdd ]]; then
+  elif [[ -x "${HOME:-}/.local/bin/rtdd" || -x "${HOME:-}/.local/bin/rtdd.exe" || -x /usr/local/bin/rtdd ]]; then
     # It installed; it just is not on THIS shell's PATH (nvm/volta prefixes, a non-login shell).
     # Saying "did not complete" here would also re-run the whole install on every future update.
     echo "  ✓ installed rtdd, but it is not on your PATH — add its directory to PATH"
@@ -516,12 +523,12 @@ ensure_skills(){
     HARNESS_ENGINE_PLUGINS="$plugins" cli_with "$c" cli_prereqs --install 2>&1 | sed 's/^/  /'
   done
   [[ -n "$any" ]] || echo "  ! no agent CLI found — install one, then re-run to provision its plugins"
-  local sk="$HOME/.claude/skills"
+  local sk="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}"   # a sandboxed host (a winsma lane, #495) pins this; its HOME is the real one
   if [[ -d "$sk/to-prd" && -d "$sk/to-issues" ]]; then
     echo "  ✓ matt-pocock skills (to-prd/to-issues) already present"
   else
     local tmp; tmp="$(mktemp -d)"
-    if git clone --depth 1 "$MATTPOCOCK_SKILLS_URL" "$tmp" >/dev/null 2>&1; then
+    if git clone --depth 1 -c core.autocrlf=false -c core.longpaths=true "$MATTPOCOCK_SKILLS_URL" "$tmp" >/dev/null 2>&1; then
       mkdir -p "$sk"; local want src
       # Copy ONLY the intended skills (the ones the guard above checks) — NOT every SKILL.md parent
       # dir in the clone. Copying everything would clobber a user's pre-existing same-named skill and
@@ -546,7 +553,7 @@ ensure_skills(){
     echo "  ✓ subagent-task-tree skill already present"
   else
     local vtmp; vtmp="$(mktemp -d)"
-    if git clone --depth 1 "$VOCANICZ_TOOLS_URL" "$vtmp" >/dev/null 2>&1; then
+    if git clone --depth 1 -c core.autocrlf=false -c core.longpaths=true "$VOCANICZ_TOOLS_URL" "$vtmp" >/dev/null 2>&1; then
       local vsrc
       vsrc="$(find "$vtmp" -type f -name SKILL.md -path "*/subagent-task-tree/SKILL.md" 2>/dev/null | head -n1)"
       if [[ -n "$vsrc" ]]; then

@@ -259,6 +259,11 @@ win_python3_check(){
   is_windows || return 0
   python3_version >/dev/null && return 0
   echo "python3 does not run a Python 3 (the Microsoft Store stub?) — $PYTHON3_FIX" >&2; return 1; }
+# rtdd_exe — the rtdd this host runs, as a path; rc 1 when there is none (#495). On Windows rtdd is `rtdd.exe`, and the
+# `.exe` name is looked up first: Git Bash finds `rtdd` for it, a forced-Windows test host (Linux) does not.
+rtdd_exe(){ local p
+  if is_windows; then p="$(command -v rtdd.exe 2>/dev/null)" && [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }; fi
+  p="$(command -v rtdd 2>/dev/null)" && [[ -n $p ]] && printf '%s\n' "$p"; }
 # ── Windows host checks (#488, PRD #475): the facts `harness doctor` and install.sh both report ─────
 # install.sh runs before any engine exists, so it carries its own copy of the fix texts and the registry
 # probe; test/test_windows_installer.sh fails when the two drift.

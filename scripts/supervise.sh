@@ -573,7 +573,8 @@ sup_auto_update(){ local lk
 # a host lacks (tmux, on a headless-only host) is simply left out — never required.
 sup_unit_path(){ local b p sb out=()
   for b in $(sup_agent_bins) gh rtdd $(for sb in $(sess_backend_list); do ( export "$SESS_CONFIG_VAR=$sb"; sess_bins ); done) git python3 curl; do
-    p=$(command -v "$b" 2>/dev/null) && [[ $p == /* ]] && out+=("$(dirname "$p")")
+    if [[ $b == rtdd ]]; then p=$(rtdd_exe 2>/dev/null) || continue; else p=$(command -v "$b" 2>/dev/null) || continue; fi   # rtdd.exe on Windows (#495)
+    [[ $p == /* ]] && out+=("$(dirname "$p")")
   done
   out+=("$HOME/.local/bin" /usr/local/bin /usr/bin /bin)
   printf '%s\n' "${out[@]}" | awk '!seen[$0]++' | paste -sd: -
@@ -583,7 +584,7 @@ sup_unit_path(){ local b p sb out=()
 # down with the supervisor on each restart — and `harness update` restarts it.
 sup_install(){ local b unit="$SUP_UNIT_DIR/$SUP_UNIT"
   for b in "$(cli_exe)" gh rtdd; do
-    command -v "$b" >/dev/null 2>&1 && continue
+    if [[ $b == rtdd ]]; then rtdd_exe >/dev/null 2>&1 && continue; else command -v "$b" >/dev/null 2>&1 && continue; fi
     echo "WARNING: '$b' is not on PATH, so the supervisor's unit cannot find it$([[ $b == rtdd ]] && echo ' — relaunched lanes silently fall back to full test suites')" >&2
   done
   if is_windows; then   # #356: a scheduled task, never systemctl; same PATH, same restart delay
