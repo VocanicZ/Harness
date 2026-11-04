@@ -145,16 +145,8 @@ assert_eq "$?" 0 "a promise announced before the turn's last message does not en
   watchdog_session "$sess"; "$F/turn-end" "$w" "$UUID" "<promise>ERR DONE</promise>"; watchdog_session "$sess"
   cli_done "$w" && [[ $(cat "$RUN_DIR/$sess.stall" 2>/dev/null || echo 0) == 0 ]] )
 assert_eq "$?" 0 "a promise given with the transient-error line still on screen ends the loop"
-# A paused pool keeps polling (no dispatch) while a driven goal loop is live: only its watchdog advances it.
-( source "$HERE/../scripts/drive.sh"; HARNESS_REPO=acme/widget; POOL=2; POLL=0; touch "$PAUSE_FLAG"
-  dispatched=""; polls="$RUN_DIR/polls"; : > "$polls"
-  reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; reap_pool_bugs(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
-  reap_finished_inject(){ :; }; gh_rate_wait(){ :; }; unit_complete(){ return 1; }; finalize_unit(){ :; }
-  watchdog_team(){ echo poll >> "$polls"; }; count_team_sessions(){ (( $(wc -l < "$polls") < 3 )) && echo 1 || echo 0; }
-  dispatch_actions(){ dispatched=yes; }; drive_unit main >/dev/null 2>&1
-  [[ -z $dispatched && $(wc -l < "$polls") == 3 ]] )
-assert_eq "$?" 0 "a paused pool drains a driven goal loop by polling its watchdog until no session is left"
-# …and so does the bug lane, which holds its session in drive_bug.
+# (a paused pool worker keeps tending a driven goal loop: test_pool_lanes.sh section 7)
+# A paused bug lane keeps polling the watchdog of a driven goal loop it holds in drive_bug.
 ( source "$HERE/../scripts/priority-worker.sh"; HARNESS_REPO=acme/widget; PRIORITY_POLL=0
   polls="$RUN_DIR/lane-polls"; : > "$polls"
   _bug_ref_repo(){ echo acme/widget; }; _bug_ref_num(){ echo 5; }; bug_phase(){ echo fix; }; bug_checkout(){ echo "$RUN_DIR/co"; }

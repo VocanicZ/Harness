@@ -6,7 +6,7 @@
 #     released like a PRD close: the first release, which no edge-triggered event may ever cut
 #   - a reviewed PRD the engine closes (close_prd)  → queued in `pending` as prd:<n>; release_tick
 #     releases it at once, and keeps it queued through a running job or an errored release (#326)
-#   - a merged bug fix (reap_team, drive_bug, reap_pool_bugs) → queued in `pending`; release_tick
+#   - a merged bug fix (reap_team, drive_bug, bug_lane_tend) → queued in `pending`; release_tick
 #     cuts one patch release once the oldest queued fix is $HARNESS_RELEASE_THROTTLE seconds old, so
 #     a burst of fixes is one release covering all of them and a late fix waits, never drops
 # A red release gate (`harness release` rc 4) files one `bug` issue for that commit and is never
@@ -80,7 +80,7 @@ release_tick(){ local d now oldest prds nums after; release_repo_is_engine "${SL
   release_kick "$prds${prds:+${nums:+ }}${nums:+bug:$nums}"; }
 
 # release_tick_lane — the priority lane's release_tick: the bug lane outlives a completed unit, so
-# the fixes it merges are released even when no drive_unit poll is running for the Harness repo.
+# the fixes it merges are released even when no pool worker tick is running for the Harness repo.
 release_tick_lane(){ local repo SLUG CHECKOUT
   for repo in $(_bug_repos); do
     [[ -n "$repo" ]] || continue

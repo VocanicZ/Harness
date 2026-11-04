@@ -7,7 +7,9 @@
 # under every claimed CLI (claude + agy) — the owner's feature x CLI rule.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
+source "$HERE/../scripts/pool-worker.sh"; source "$HERE/helpers.sh"
 
 ago(){ date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }   # ISO stamp <secs> ago
 
@@ -37,18 +39,17 @@ for cli in claude agy; do
   echo "=== [$cli] reap with gh failing, then gh recovering → cleared on the next poll ==="
   setup
   mkdir -p "$WORKTREES_DIR/main-i7"   # the watchdog just killed hz-main-i7; its worktree is left
-  # drive_unit, two polls. Poll 1 runs with gh DOWN: the reap removes the worktree but cannot reach
-  # GitHub. gh recovers during poll 1's dispatch; poll 2 must clear the label with no worktree left.
+  # worker_chores, two ticks. Tick 1 runs with gh DOWN: the reap removes the worktree but cannot reach
+  # GitHub. gh recovers after tick 1; tick 2 must clear the label with no worktree left.
   touch "$GHDOWN"
-  TICK="$RUN_DIR/tick"; echo 0 > "$TICK"
-  dispatch_actions(){ local n; n="$(cat "$TICK")"; echo $((n+1)) > "$TICK"; rm -f "$GHDOWN"; }
-  unit_complete(){ [[ "$(cat "$TICK")" -ge 2 ]]; }
   reap_done_sessions(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }; reap_finished_inject(){ :; }
-  ci_gate_ok(){ return 0; }; usage_watch(){ :; }; usage_held(){ return 1; }; gh_budget_low(){ return 1; }
-  gh_rate_wait(){ return 0; }; count_team_sessions(){ echo 0; }; team_sessions(){ :; }
-  finalize_unit(){ :; }; dispatch_stalled_banner(){ :; }; _working_locks(){ :; }
-  drive_unit main >/dev/null
-  assert_no "[$cli] worktree reaped on poll 1" test -d "$WORKTREES_DIR/main-i7"
+  one_auto_tend(){ :; }; reap_ownerless_pool_bugs(){ :; }; sweep_stale_lane_claims(){ :; }; adopt_lanes(){ :; }
+  chores_slotless(){ :; }; release_tick(){ :; }; usage_held(){ return 1; }
+  team_sessions(){ :; }; _working_locks(){ :; }
+  worker_chores W1 >/dev/null
+  rm -f "$GHDOWN"
+  worker_chores W1 >/dev/null
+  assert_no "[$cli] worktree reaped on tick 1" test -d "$WORKTREES_DIR/main-i7"
   assert_eq "$(unlocks 7)" "1" "[$cli] agent-working cleared on #7 once gh recovered"
   assert_eq "$(cat "$RUN_DIR/pending-unlock")" "" "[$cli] queue drained after the successful retry"
 

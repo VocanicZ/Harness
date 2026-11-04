@@ -63,7 +63,7 @@ recover(){
   done
   shopt -u nullglob
   echo "  clearing stale claims (dead-pid worker claims):"
-  # Acquire pool lock around clear_stale_claims to avoid racing a live claim_next.
+  # Acquire pool lock around clear_stale_claims to avoid racing a live worker claim.
   # --recover is normally run before workers start, but the lock is cheap insurance.
   local lockfd
   lock_acquire "$POOL_LOCK" lockfd

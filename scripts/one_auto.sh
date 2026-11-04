@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # one_auto.sh — #392 (PRD #362): HARNESS_ONE_AUTO=1 starts ONE headless harness-one lane by itself while
 # an account's #194 usage hold is on. Sourced by lib.sh (after usage.sh); defines functions only. The
-# spawn half (one_auto_spawn) needs drive.sh's prepare_impl, so only drive_unit calls one_auto_tick.
+# spawn half (one_auto_spawn) needs drive.sh's prepare_impl, so only the pool worker (worker_chores) calls one_auto_tick.
 #
-#   trigger   drive_unit's usage-HELD branch calls one_auto_tick every poll; it does nothing unless this
+#   trigger   the pool worker's chores call one_auto_tick every tick while usage is HELD; it does nothing unless this
 #             fleet set HARNESS_ONE_AUTO=1. No operator step, no human gate.
 #   one lane  per ACCOUNT, host-wide: usage is per account, so the lane record
 #             $HARNESS_HOME/one-auto/<account>.lane (taken under <account>.lock) is shared by every fleet
@@ -22,7 +22,7 @@
 #             agent-paused, its branch pushed, a handoff comment posted. one_auto_tend then ends the lane.
 #   chaining  #367: the lane's issue closed (the goal check) → the next poll picks the next claimable
 #             issue with a fresh forecast. An issue still OPEN once its lane is gone stops the chain.
-#   hand-back the hold clears → drive_unit stops calling one_auto_tick: no new issue starts. The live
+#   hand-back the hold clears → the pool worker stops calling one_auto_tick: no new issue starts. The live
 #             lane finishes (or checkpoints) as a normal session of the fleet — its issue stays
 #             agent-working, so the pool never races it for the claim.
 # Every start and stop is a stats event (one_auto_start / one_auto_stop / one_auto_done); `harness
@@ -124,7 +124,7 @@ one_auto_spawn(){ local issue="$1" wd; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$iss
   STAT_PRD="$(issue_parent_prd "$issue")"
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"; }
 
-# one_auto_tick — drive_unit's usage-HELD branch, every poll: start the account's lane on this fleet's
+# one_auto_tick — the pool worker's chores while usage is HELD, every tick: start the account's lane on this fleet's
 # next claimable issue when the lane is free, the chain is not stopped, it is this fleet's turn and the
 # gate APPROVEs. Never blocks the poll on failure.
 one_auto_tick(){ local acct next want lockfd gj rc sum sess

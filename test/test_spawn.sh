@@ -14,7 +14,7 @@ make_env
 FAKE_CHECKOUT="$(mktemp -d)"
 CALLS="$RUN_DIR/calls"
 
-# drive_unit sets these as locals; for direct spawn_* calls we set them in scope.
+# the pool worker sets these as locals; for direct spawn_* calls we set them in scope.
 UNIT=main
 SLUG=acme/widget
 PROJECT=main
@@ -59,7 +59,7 @@ assert_ok "spawn_impl: no unbound-var crash (C1)" bash -c '
   # HARNESS_SPEC intentionally empty (as in a fresh env); SPEC is never defined
   HARNESS_REPO=acme/widget
   HARNESS_SPEC=""
-  # drive_unit locals — set here for direct spawn_impl call
+  # pool worker locals — set here for direct spawn_impl call
   UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget
   CHECKOUT="$FAKE_CHECKOUT"
   PROMISE="ISSUE 5 DONE"; MAXITER=30; GOAL="ISSUE:5"

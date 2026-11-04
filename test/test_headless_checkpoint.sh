@@ -97,7 +97,7 @@ eval "$(grep -o 'gh issue edit [0-9]* -R [^ ]* --remove-label [^ ]* --add-label 
 rm -f "$f"
 EOF
   chmod +x "$FAKE_CLAUDE_DIR/turn-hook"; }
-# The dispatch context spawn_impl runs in (drive_unit's dynamic scope), its git and checkout stubbed: the
+# The dispatch context spawn_impl runs in (the pool worker's dynamic scope), its git and checkout stubbed: the
 # worktree is already there, as the reaper re-adds it at the same path.
 UNIT=main REPO=acme/widget SLUG=acme/widget PROJECT=main DESC=widget CHECKOUT="$PROJECT_ROOT"
 ensure_checkout(){ return 0; }; default_branch(){ echo main; }

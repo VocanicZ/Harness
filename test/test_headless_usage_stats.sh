@@ -93,7 +93,7 @@ EOF
 # its config dir's name, "default" with none (the status line's rule): this test's lanes run on "default".
 usage_stub(){ export HARNESS_USAGE_CMD="printf '$1\tfive_hour\t$2\t%s\n' $(( $(date +%s) + 3600 ))"; }
 session_ends(){ grep -c '"event": *"session_end"' "$HARNESS_EVENTS_FILE" 2>/dev/null || true; }
-# The dispatch context spawn_impl runs in (drive_unit's dynamic scope), its git and checkout stubbed.
+# The dispatch context spawn_impl runs in (the pool worker's dynamic scope), its git and checkout stubbed.
 UNIT=main REPO=acme/widget SLUG=acme/widget PROJECT=main DESC=widget CHECKOUT="$PROJECT_ROOT"
 ensure_checkout(){ return 0; }; default_branch(){ echo main; }
 git(){ return 0; }

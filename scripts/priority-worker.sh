@@ -12,7 +12,7 @@ _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # drive_bug <ref> — take one claimed bug through its current phase (#27). <ref> is a repo-qualified
 # "<repo>#<num>" token (#37): the repo is CARRIED from the claim, not re-scanned, so colliding
 # issue numbers across repos route to the right one. Pick the phase (triage|fix), spawn the matching
-# session, then HOLD until that session ends (mirrors the pool's drive_unit: the claim stays held for
+# session, then HOLD until that session ends (mirrors the pool worker's lane: the claim stays held for
 # the whole session so the cap-1 lane never moves on / double-dispatches). The two phases run as two
 # DISTINCT sessions across two claim cycles: triage flips bug → bug-triaged, a later cycle fixes the
 # bug-triaged issue. Sourced (overridable) so tests assert the lane lifecycle without touching GitHub.
@@ -43,7 +43,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
   done
   stats_sweep_ended   # #185: session_end before the worktree (and its ralph iteration count) goes
   # Reap the phase worktree + local branch once its session has ended (#34) — the pool gets this via
-  # reap_team/finalize_unit; the cap-1 lane had no equivalent, so it leaked a worktree + dead branch
+  # reap_team; the cap-1 lane had no equivalent, so it leaked a worktree + dead branch
   # on every phase and a crashed phase wedged the next attempt. BOTH phases now own a worktree (#109),
   # so both are reaped here. Skip while paused: a drained session is still live and owns its worktree.
   if ! is_paused; then
@@ -91,7 +91,7 @@ bug_tick(){ local wid="$1" ref
   if is_paused; then return 3; fi
   if usage_held; then return 3; fi   # #194: near a usage limit — no new bug claims until the window resets
   if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — no new bug claims, half-rate polls
-  ref="$(claim_next_bug "$wid")"
+  ref="$(claim_first_bug "$wid")"
   if [[ -z "$ref" ]]; then return 1; fi
   log "priority $wid claimed bug $ref"; drive_bug "$ref"; release_bug_claim "$ref"; log "priority $wid released bug $ref"; return 0; }
 

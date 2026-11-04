@@ -125,14 +125,14 @@ gh(){ [[ "$1 $2" == "issue view" ]] && cat "$RUN_DIR/state-$3"; return 0; }
 session_live(){ return 1; }; remove_worktree(){ rm -rf "$2"; }; stats_sweep_ended(){ :; }
 reap_team >/dev/null 2>&1
 assert_eq "$(cat "$MERGED")" "acme/harness#41" "reap_team queues a merged bug fix, not a merged feature"
-# reap_pool_bugs: a fix-phase goal met is a merge; a triage-phase close is a dismissal.
+# bug_lane_tend (the pool worker's tend of a pool-taken bug): a fix-phase goal met is a merge; a
+# triage-phase close is a dismissal.
 : > "$MERGED"; LIVE=""
-pool_bug_claims(){ printf 'f\tacme/harness#51\nf\tacme/harness#52\n'; }
 session_live(){ [[ " $LIVE " == *" $1 "* ]]; }
 LIVE="$(sess_bug acme/harness 51 fix) $(sess_bug acme/harness 52 triage)"
-watchdog_session(){ :; }; bug_goal_done(){ return 0; }; cli_kill(){ :; }; bug_session_live(){ return 0; }
-reap_pool_bugs >/dev/null 2>&1
-assert_eq "$(cat "$MERGED")" "acme/harness#51" "reap_pool_bugs queues a fixed bug, not a triaged-closed one"
+watchdog_session(){ :; }; bug_goal_done(){ return 0; }; cli_kill(){ :; }
+bug_lane_tend acme/harness 51 >/dev/null 2>&1; bug_lane_tend acme/harness 52 >/dev/null 2>&1
+assert_eq "$(cat "$MERGED")" "acme/harness#51" "bug_lane_tend queues a fixed bug, not a triaged-closed one"
 # drive_bug (the priority lane): the same rule.
 source "$HERE/../scripts/priority-worker.sh"
 : > "$MERGED"; spawn_bug(){ :; }; is_paused(){ return 1; }; usage_watch(){ :; }; session_live(){ return 0; }
@@ -147,14 +147,15 @@ gc_orphan_goals(){ :; }; snapshot_gate(){ return 0; }; gh_rate_wait(){ :; }; rea
 retry_pending_unlocks(){ :; }; bug_tick(){ return 0; }
 bug_step P1 >/dev/null 2>&1
 assert_eq "$(cat "$TICKED")" "acme/harness $(fleet_checkout)" "bug_step ticks the Harness repo's release queue only"
-# drive_unit ticks once per poll, with the unit's own repo.
+# the pool worker's chores tick once per pass, with the fleet's own repo.
 : > "$TICKED"; HARNESS_REPO=acme/harness; POOL=1; POLL=0
-reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }; team_sessions(){ :; }
-reap_pool_bugs(){ :; }; tmux(){ :; }; dispatch_actions(){ :; }; finalize_unit(){ :; }
-N=0; unit_complete(){ (( N++ >= 2 )); }
-drive_unit main >/dev/null 2>&1
-assert_eq "$(cut -d' ' -f1 "$TICKED" | sort -u)" "acme/harness" "drive_unit ticks the release queue with its repo"
-assert_eq "$(grep -c . "$TICKED")" 2 "once per poll"
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1; source "$HERE/../scripts/pool-worker.sh"
+reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }; reap_finished_inject(){ :; }
+one_auto_tend(){ :; }; reap_ownerless_pool_bugs(){ :; }; sweep_orphan_locks(){ :; }; sweep_stale_lane_claims(){ :; }
+adopt_lanes(){ :; }; chores_slotless(){ :; }; usage_held(){ return 1; }; tmux(){ :; }
+worker_chores W1 >/dev/null 2>&1; worker_chores W1 >/dev/null 2>&1
+assert_eq "$(cut -d' ' -f1 "$TICKED" | sort -u)" "acme/harness" "worker_chores ticks the release queue with its repo"
+assert_eq "$(grep -c . "$TICKED")" 2 "once per pass"
 
 # ── release_kick: one background job at a time, stopped only by its PID ──
 source "$HERE/../scripts/autorelease.sh"           # the real release_kick (the top stubbed it)

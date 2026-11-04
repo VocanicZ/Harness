@@ -18,24 +18,14 @@ a	acme/a	-	root
 EOF
 set_complete
 claimed=""
-claim_next(){ claimed=yes; echo a; }   # if called, we'd see claimed=yes
+claim_lane(){ claimed=yes; echo a; }   # if called, we'd see claimed=yes
 touch "$PAUSE_FLAG"
 worker_tick W1; rc=$?
 assert_eq "$rc" "3" "worker_tick returns 3 when paused"
 assert_eq "$claimed" "" "worker_tick did NOT claim while paused"
 rm -f "$PAUSE_FLAG"
 
-# --- drive_unit drains (breaks) when paused, without dispatching --------------
-HARNESS_REPO="acme/widget"; POOL=2; POLL=0
-dispatched=""
-reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }
-dispatch_actions(){ dispatched=yes; printf 'IMPL\t5\tISSUE 5 DONE\n'; }
-spawn_impl(){ dispatched=spawned; }
-unit_complete(){ return 1; }   # never complete on its own
-touch "$PAUSE_FLAG"
-drive_unit main
-assert_eq "$dispatched" "" "drive_unit did NOT dispatch while paused (drained immediately)"
-rm -f "$PAUSE_FLAG"
+# (a paused pool keeps tending its running lanes: test_pool_lanes.sh section 7)
 
 # --- pause.sh (soft) creates the flag -----------------------------------------
 RUN_DIR2="$(mktemp -d)"
@@ -145,12 +135,12 @@ rm -rf "$RUN_DIR6"
 # construction, the claim the lane writes and the lookup the checkpoint performs share ONE slug, so
 # --force confirms via the CARRIED repo acme/widget — no rescan.
 RUN_DIR7="$(mktemp -d)"; CALLS7="$RUN_DIR7/calls"; : > "$CALLS7"
-# Write the claim via the REAL _bug_numbers/claim_next_bug for a bare repo (the path that regressed).
+# Write the claim via the REAL _bug_numbers/claim_first_bug for a bare repo (the path that regressed).
 ( export CLAIMS_DIR="$RUN_DIR7/claims" POOL_LOCK="$RUN_DIR7/pool.lock"
   export HARNESS_OWNER=acme
   source "$HERE/../scripts/lib.sh"
   _bug_repos(){ echo widget; }; _repo_bugs(){ printf '9\tfix\n'; }
-  claim_next_bug P1 >/dev/null )
+  claim_first_bug P1 >/dev/null )
 assert_eq "$(basename "$(ls "$RUN_DIR7/claims"/bug-*.claim)")" "bug-acme_widget-9.claim" \
   "lane wrote the owner-qualified claim file for a bare repo (token owner-qualified at construction)"
 export CALLS="$CALLS7"

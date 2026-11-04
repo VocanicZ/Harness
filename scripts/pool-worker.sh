@@ -176,17 +176,20 @@ reap_ownerless_pool_bugs(){ local f tok n slug pid nf lockfd
     lock_release "$lockfd"
   done < <(pool_bug_claims); }
 
-# sweep_stale_lane_claims — an impl/orch claim whose worker is dead says nothing: adoption reads sessions.
+# sweep_stale_lane_claims — a claim whose worker is dead says nothing: adoption reads sessions. That covers an
+# impl-/orch- lane claim and a leftover <unit>.claim from the retired unit-claim loop (a rolled old worker
+# wrote it; nothing reads it now). bug-*.claim is NOT swept here: reap_ownerless_pool_bugs tears its worktrees down first.
 sweep_stale_lane_claims(){ local f k lockfd; shopt -s nullglob
   lock_acquire "$POOL_LOCK" lockfd
-  for f in "$CLAIMS_DIR"/impl-*.claim "$CLAIMS_DIR"/orch-*.claim; do
-    k="$(basename "$f" .claim)"; is_claimed "$k" || rm -f "$f"
+  for f in "$CLAIMS_DIR"/*.claim; do
+    k="$(basename "$f" .claim)"; [[ "$k" == bug-* ]] && continue
+    is_claimed "$k" || rm -f "$f"
   done
   lock_release "$lockfd"; shopt -u nullglob; }
 
 # chores_slotless — every slotless action that takes no slot (LABEL_READY, CLOSE_PRD), this tick. On a
-# COMPLETE repo: archive PLAN.md once (archive_plan is idempotent) and nothing else — never finalize_unit's
-# kill-all, and no lane holding a claim is touched. A new PRD or ready issue makes the repo incomplete again.
+# COMPLETE repo: archive PLAN.md once (archive_plan is idempotent) and nothing else — never a kill-all sweep,
+# and no lane holding a claim is touched. A new PRD or ready issue makes the repo incomplete again.
 chores_slotless(){ local live allow busy owned actions rc errf action payload promise
   if unit_complete "$UNIT"; then archive_plan; return 0; fi
   live="$(pool_lane_count)"; allow=0; (( live == 0 )) && allow=1

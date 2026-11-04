@@ -67,10 +67,12 @@ set_ci $'fail\tneuro\thttps://gh/run/43'
 ci_gate_ok acme/widget
 assert_ok "a new failing run re-announces" test "$(wc -l <<<"$LOG_LINES")" -gt "$before"
 
-echo "-- group 3: drive_unit consults the gate before dispatching"
-# The gate must sit in the dispatch path, not merely exist. Drive one poll of drive_unit with a red
-# branch and assert nothing was spawned; then green, and assert IMPL was.
+echo "-- group 3: the pool worker consults the gate before claiming"
+# The gate must sit in the claim path, not merely exist. Tick the worker's claim step with a red
+# branch and assert nothing was launched (rc 3: held); then green, and assert IMPL was.
 source "$HERE/../scripts/drive.sh"
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
+source "$HERE/../scripts/pool-worker.sh"
 write_targets <<'EOF'
 widget	acme/widget	-	root
 EOF
@@ -78,23 +80,22 @@ SPAWNED=""
 spawn_impl(){ SPAWNED+="IMPL:$1 "; }
 spawn_orch(){ SPAWNED+="ORCH:$1 "; }
 close_prd(){ :; }
-reap_done_sessions(){ :; }; reap_team(){ :; }; watchdog_team(){ :; }; reap_finished_inject(){ :; }
-count_team_sessions(){ echo 0; }
+usage_held(){ return 1; }; gh_budget_low(){ return 1; }; sess_pane_pid(){ :; }
 dispatch_actions(){ printf 'IMPL\t7\tISSUE 7 DONE\n'; }
-POLL=0
-# unit_complete is helpers.sh's file-backed stub; flip it after one pass so the loop terminates.
-_PASSES=0
-unit_complete(){ _PASSES=$((_PASSES+1)); (( _PASSES > 2 )); }
+POLL=0; POOL=2
+unit_complete(){ return 1; }
 
 set_ci $'fail\tci\thttps://gh/run/9'
-SPAWNED=""; _PASSES=0; _CI_GATE_LOGGED=""
-drive_unit widget >/dev/null 2>&1
-assert_eq "$SPAWNED" "" "red branch: drive_unit spawns nothing"
+SPAWNED=""; _CI_GATE_LOGGED=""
+worker_tick W1 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "3" "red branch: worker_tick holds (rc 3)"
+assert_eq "$SPAWNED" "" "red branch: the worker spawns nothing"
 
 set_ci $'pass\t\t'
-SPAWNED=""; _PASSES=0
-drive_unit widget >/dev/null 2>&1
-assert_ok "green branch: drive_unit spawns IMPL" grep -q "IMPL:7" <<<"$SPAWNED"
+SPAWNED=""
+worker_tick W1 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "0" "green branch: worker_tick claims a lane"
+assert_ok "green branch: the worker spawns IMPL" grep -q "IMPL:7" <<<"$SPAWNED"
 
 echo "-- group 4: the prompts gate locally and refuse to merge a red PR"
 # The engine cannot enforce this one — it lives in the agent's instructions — so pin the

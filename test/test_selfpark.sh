@@ -11,7 +11,9 @@
 # under every claimed CLI (claude + agy): session names and the send/kill seam are the same for each.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
+source "$HERE/../scripts/pool-worker.sh"; source "$HERE/helpers.sh"
 
 # snapshot <#5 labels csv> — the poller's view of #5.
 snapshot(){ python3 - "$SNAP" "$1" <<'EOF'
@@ -94,7 +96,7 @@ for cli in claude agy; do
     prepare_impl 5 "ISSUE 5 DONE" >/dev/null 2>&1 )
   assert_ok "[$cli] the next dispatch of #5 renders resume.md" grep -q 'render .*prompts/resume.md' "$CALLS"
 
-  echo "=== [$cli] #416: a self-parked lane stays PAUSED across two drive ticks with a free slot ==="
+  echo "=== [$cli] #416: a self-parked lane stays PAUSED across two worker ticks with a free slot ==="
   # Dispatch used to re-claim #5 from its labels alone: prepare_impl re-added agent-working, the next
   # tick's check read PENDING and dropped the .selfpark epoch, so the grace never ran out.
   setup
@@ -106,13 +108,15 @@ for cli in claude agy; do
     ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }; default_branch(){ echo main; }
     render(){ :; }; launch_claude(){ echo "launch $1" >> "$CALLS"; }; issue_parent_prd(){ :; }
     reap_team(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }; one_auto_tend(){ :; }; reap_finished_inject(){ :; }
-    reap_pool_bugs(){ :; }; release_tick(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
-    finalize_unit(){ :; }; gh_rate_wait(){ :; }; ci_gate_ok(){ :; }; usage_watch(){ :; }; usage_held(){ return 1; }
+    reap_ownerless_pool_bugs(){ :; }; release_tick(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
+    sweep_stale_lane_claims(){ :; }; adopt_lanes(){ :; }; chores_slotless(){ :; }
+    gh_rate_wait(){ :; }; ci_gate_ok(){ :; }; usage_watch(){ :; }; usage_held(){ return 1; }
     gh_budget_low(){ return 1; }; sleep(){ :; }
-    echo 0 > "$RUN_DIR/ticks"
-    unit_complete(){ local n; n=$(( $(cat "$RUN_DIR/ticks") + 1 )); echo "$n" > "$RUN_DIR/ticks"; (( n > 2 )); }
-    drive_unit main >/dev/null 2>&1 )
-  assert_eq "$(cat "$RUN_DIR/ticks")" "3" "[$cli] two drive ticks ran"
+    unit_complete(){ return 1; }; sess_pane_pid(){ :; }
+    ticks=0
+    for _ in 1 2; do worker_chores W1; worker_tend W1; worker_tick W1; ticks=$((ticks+1)); done
+    echo "$ticks" > "$RUN_DIR/ticks" ) >/dev/null 2>&1
+  assert_eq "$(cat "$RUN_DIR/ticks")" "2" "[$cli] two worker ticks ran"
   assert_eq "$(grep -c 'issue edit 5 -R acme/widget --add-label agent-working' "$CALLS")" "0" \
     "[$cli] dispatch never re-stamped agent-working on the live lane's issue"
   assert_ok "[$cli] the .selfpark epoch survives both ticks" test -f "$RUN_DIR/$S.selfpark"

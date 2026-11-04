@@ -1123,8 +1123,8 @@ def test_ci_status_holds_on_transient_gh_failure():
 def test_a_closed_prd_does_not_complete_a_unit_with_an_open_ready_child():
     # The #80 shape: review signs off, files a non-blocking follow-up, and closes the PRD itself in
     # the same pass. CLOSE_PRD is gated on children_all_closed; an agent-side `gh issue close` is
-    # not. If completion keyed on the close alone, claimable_units would drop the unit and
-    # drive_unit — the only caller of dispatch_actions — would never run again, stranding the child.
+    # not. If completion keyed on the close alone, the pool would drop the unit and
+    # the worker — the only caller of dispatch_actions — would never claim again, stranding the child.
     # Multi-PRD names the bucket the follow-up lands in: review files it with no `## Parent`, so it
     # sits in the UNPARENTED bucket and clause 3 of the completion rule is what holds the unit.
     os.environ["HARNESS_MODE"] = "prd"
@@ -1194,7 +1194,7 @@ def test_complete_when_every_prd_is_closed():
     assert il.is_complete(s) is True, s
 
 def test_not_complete_with_an_open_unparented_child():
-    """An issue injected after the PRD closed used to be stranded: drive_unit's loop had already
+    """An issue injected after the PRD closed used to be stranded: the pool worker had already
     exited on unit_complete, so the resident worker idled straight past it."""
     os.environ["HARNESS_MODE"] = "prd"
     s = mk(prd=10, prd_open=False, prd_reviewed=True,

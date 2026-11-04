@@ -137,12 +137,9 @@ assert_eq "$(ev 1 "e['event']")" "rate_limited" "the limit menu is a rate_limite
 assert_eq "$(limit_reset 'no reset named')" "" "limit_reset: empty when the pane names none"
 
 : > "$EVENTS"
-write_targets <<<$'u1\tacme/widget\t-\tw'
-claim_out="$(claim_next W1)"
-assert_eq "$claim_out" "u1" "claim_next still returns only the unit on stdout"
-release_claim u1
-assert_eq "$(ev 1 "e['event'],e['unit'],e['worker']")" "('claim', 'u1', 'W1')" "claim event"
-assert_eq "$(ev 2 "e['event'],e['unit']")" "('release', 'u1')" "release event"
+printf 'W1 %s acme/widget#9\n' "$$" > "$CLAIMS_DIR/bug-acme_widget-9.claim"
+release_bug_claim "acme/widget#9"
+assert_eq "$(ev 1 "e['event'],e['unit']")" "('release', 'bug-acme_widget-9')" "release event"
 
 : > "$EVENTS"
 UNIT=main; SLUG=acme/widget; REPO=acme/widget; CHECKOUT="$RUN_DIR/co"

@@ -27,6 +27,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - One `bench/results/<run-id>/<arm>.json` per arm (schema in `bench/README.md`: wall, coding/testing, tokens, list-price
   $, % of the weekly window, models that ran, hidden-test result, counts, cap status) with raw logs beside it.
 
+### The retired unit-claim loop is deleted (#529, PRD #464)
+
+- `drive_unit`, `finalize_unit`, `spawn_pool_bug`, `count_pool_bugs`, `reap_pool_bugs` (`scripts/drive.sh`) and
+  `claim_next`, `claimable_units`, `worker_unit` (`scripts/lib.sh`) are gone: the step-based pool worker replaced the
+  loop and nothing called them. The tests that only drove them went too; the ones that used `drive_unit` as a harness
+  for a live behaviour (usage hold, GitHub budget, CI gate, self-park, stall banner, release tick) now run through the
+  pool worker's `worker_tick` / `worker_chores`.
+- Stale comments and the `prompts/review.md` sentence that still described the old unit loop or a multi topology are
+  updated.
+- A leftover `claims/<unit>.claim` whose worker pid is dead (written by an old-loop worker before a roll) is now removed
+  by the pool chores' stale-claim sweep, without `start --recover`.
+
 ### Pool chores: LABEL_READY and CLOSE_PRD no longer wait behind a DECOMPOSE (#527)
 
 - The pool's chores pass now asks `issuelib.py slotless` (`slotless_actions`) for its slotless actions instead of

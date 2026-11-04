@@ -126,7 +126,7 @@ render_once(){
   if [[ -n "$lbug" ]]; then
     local lphase; lphase="$(lane_phase "$lbug" 2>/dev/null || true)"
     # A repo-qualified ref (<owner>/<repo>#N, #44) already carries its own '#'; a bare number
-    # (legacy single-topology claim) gets the '#' prefix. Avoids the ugly 'bug #acme/a#6'.
+    # (legacy bare claim) gets the '#' prefix. Avoids the ugly 'bug #acme/a#6'.
     case "$lbug" in
       *#*) printf '        ▶ bug %s (%s)\n'  "$lbug" "${lphase:-?}";;
       *)   printf '        ▶ bug #%s (%s)\n' "$lbug" "${lphase:-?}";;

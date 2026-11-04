@@ -97,21 +97,20 @@ watchdog_session "$SESS"
 assert_no "stall counter cleared once the session recovers (busy)" test -f "$RUN_DIR/$SESS.stall"
 
 # ── D: both lanes invoke the watchdog over their live sessions ───────────────────────────────────
-# Pool: drive_unit must run the watchdog over the unit's team sessions every poll.
+# Pool: the worker's chores must run the watchdog over the unit's team sessions every tick.
 make_env
 HARNESS_REPO="acme/widget"; POOL=2; POLL=0
 WORKTREES_DIR="$RUN_DIR/wtD"; mkdir -p "$WORKTREES_DIR"
 WD_SEEN="$RUN_DIR/wd_seen"; : > "$WD_SEEN"
-reap_done_sessions(){ :; }; reap_team(){ :; }
-count_team_sessions(){ echo 1; }
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1; source "$HERE/../scripts/drive.sh"; source "$HERE/../scripts/pool-worker.sh"
+reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; reap_finished_inject(){ :; }; one_auto_tend(){ :; }
+reap_ownerless_pool_bugs(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }; sweep_stale_lane_claims(){ :; }
+adopt_lanes(){ :; }; chores_slotless(){ :; }; release_tick(){ :; }; usage_held(){ return 1; }
 team_sessions(){ printf '%s\n' "hz-main-i7"; }
 tmux(){ :; }; git(){ :; }
 watchdog_session(){ echo "$1" >> "$WD_SEEN"; }
-dispatch_actions(){ :; }
-TICK="$RUN_DIR/tickD"; echo 0 > "$TICK"
-unit_complete(){ local n; n=$(( $(cat "$TICK")+1 )); echo "$n" > "$TICK"; [[ "$n" -ge 2 ]]; }
-drive_unit main
-assert_ok "drive_unit (pool) runs the watchdog over its team sessions" grep -qx "hz-main-i7" "$WD_SEEN"
+worker_chores W1 >/dev/null 2>&1
+assert_ok "worker_chores (pool) runs the watchdog over its team sessions" grep -qx "hz-main-i7" "$WD_SEEN"
 
 # Lane: drive_bug must run the watchdog while it HOLDS a live bug session (its inner loop is the only
 # per-poll point during the wedge — bug_step's reap_lane never sees an in-flight wedged session).

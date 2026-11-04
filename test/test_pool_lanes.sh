@@ -269,6 +269,16 @@ worker_tick W2; assert_eq "$?" "1" "no ready issue left: W2 idle (a lane's issue
 echo "-- a stale claim with no lane behind it is swept"
 printf 'W9 999999 IMPL:77 hz-main-i77 -\n' > "$CLAIMS_DIR/impl-77.claim"; worker_chores W1
 assert_no "stale impl-77 claim swept" test -f "$CLAIMS_DIR/impl-77.claim"
+# #529: a leftover <unit>.claim from the retired unit-claim loop (a rolled old worker wrote it) is swept
+# without `start --recover` once its pid is dead; a live one and a bug claim's own reaper are left alone.
+printf 'W9 999999\n' > "$CLAIMS_DIR/main.claim"
+command sleep 60 & OLDW=$!; printf 'W8 %s\n' "$OLDW" > "$CLAIMS_DIR/other.claim"
+printf 'P1 999999 acme/widget#4\n' > "$CLAIMS_DIR/bug-acme_widget-4.claim"
+worker_chores W1
+assert_no "a dead-pid unit claim (main.claim) is swept" test -f "$CLAIMS_DIR/main.claim"
+assert_ok "a live-pid unit claim is kept" test -f "$CLAIMS_DIR/other.claim"
+assert_ok "a bug claim is left to its own reaper" test -f "$CLAIMS_DIR/bug-acme_widget-4.claim"
+kill "$OLDW" 2>/dev/null; wait "$OLDW" 2>/dev/null; rm -f "$CLAIMS_DIR/other.claim" "$CLAIMS_DIR/bug-acme_widget-4.claim"
 
 echo "-- a dead lane's worktree is reaped, by the chores, once its session is gone"
 setup 3; snap "5:ready-for-agent,agent-working"
@@ -293,7 +303,7 @@ assert_no "no dispatch on a COMPLETE repo (the PRD action does not fire again)" 
 assert_no "no orch lane spawned" grep -q '^spawn_orch' "$CALLS"
 assert_eq "$(claim_wid impl-5)" "W1" "a lane holding a claim is untouched"
 assert_ok "... its session still live" grep -qx hz-main-i5 "$LIVE"
-assert_no "no kill-all (finalize_unit)" grep -q 'kill-session' "$CALLS"
+assert_no "no kill-all sweep" grep -q 'kill-session' "$CALLS"
 worker_tick W2; assert_eq "$?" "2" "the worker reports COMPLETE (rc 2), stays resident"
 
 echo "=== 6. the priority bug worker runs on top of POOL; a pool-taken bug is never also its claim ==="
@@ -327,6 +337,12 @@ assert_ok "live: watchdogged by the chores" grep -q 'watchdog hz-bug-acme_widget
 assert_ok "... and not reaped" test -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
 die_session hz-bug-acme_widget-9-fix; reap_ownerless_pool_bugs
 assert_no "gone: claim released by the chores" test -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
+# a claim the priority lane took over is not the pool's to reap
+printf 'P1 999999 acme/widget#9\n' > "$CLAIMS_DIR/bug-acme_widget-9.claim"; : > "$CALLS"
+reap_ownerless_pool_bugs
+assert_ok "a lane-owned claim is never reaped by the chores" test -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
+assert_no "... and no worktree of it was removed" grep -q 'remove_worktree' "$CALLS"
+rm -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
 
 echo "=== 7. pause: no new claim; a running lane (and a driven goal loop) keeps being tended ==="
 setup 3; snap "5:ready-for-agent" "6:ready-for-agent"

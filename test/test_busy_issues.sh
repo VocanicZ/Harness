@@ -9,11 +9,13 @@
 #   2. same + a second claimable #6, one free slot: IMPL 6.
 #   3. a worktree left without its session still owns the issue (its reaper does); the session alone too.
 #   4. a dead lane (no session, no worktree) on #5 {ready, agent-paused}: IMPL 5, resume.md rendered.
-# One real drive_unit tick over a snapshot with the real issuelib.py; gh, tmux, git worktree add and
-# the launch are stubbed.
+# One real worker_tick (the pool worker's claim step) over a snapshot with the real issuelib.py; gh, tmux,
+# git worktree add and the launch are stubbed.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
+source "$HERE/../scripts/pool-worker.sh"; source "$HERE/helpers.sh"
 
 # snapshot <#5 labels csv> [<#6 labels csv>] — the poller's view of the board.
 snapshot(){ python3 - "$SNAP" "$1" "${2:-}" <<'EOF'
@@ -56,13 +58,9 @@ setup(){
   launch_claude(){ echo "launch $1" >> "$CALLS"; echo "$1" >> "$LIVE"; }
   ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }; default_branch(){ echo main; }
   resume_handoff(){ :; }; issue_parent_prd(){ :; }; harness_event(){ :; }; stats_sweep_ended(){ :; }
-  reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }
-  one_auto_tend(){ :; }; reap_finished_inject(){ :; }; reap_pool_bugs(){ :; }; release_tick(){ :; }
-  retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }; finalize_unit(){ :; }
   gh_rate_wait(){ :; }; ci_gate_ok(){ :; }; usage_watch(){ :; }; usage_held(){ return 1; }; gh_budget_low(){ return 1; }
   sleep(){ :; }
-  TICKS="$RUN_DIR/ticks"; echo 0 > "$TICKS"
-  unit_complete(){ local n; n=$(( $(cat "$TICKS") + 1 )); echo "$n" > "$TICKS"; (( n > 1 )); }   # one tick
+  unit_complete(){ return 1; }
 }
 add_label_on(){ grep -c "gh issue edit $1 -R acme/widget --add-label agent-working" "$CALLS"; }
 
@@ -70,7 +68,7 @@ echo "=== a live lane still owns #5 (session + worktree), #5 is {ready, agent-pa
 setup
 snapshot "ready-for-agent,agent-paused"
 echo hz-main-i5 > "$LIVE"; mkdir -p "$WORKTREES_DIR/main-i5"
-drive_unit main
+worker_tick W1
 assert_eq "$(add_label_on 5)" "0" "no --add-label agent-working on #5"
 assert_no "no 'worktree add failed #5' logged" grep -q 'worktree add failed #5' "$LOGF"
 assert_no "no launch for #5" grep -q 'launch hz-main-i5' "$CALLS"
@@ -80,7 +78,7 @@ echo "=== the same + a second claimable #6, one free slot: the slot goes to #6 =
 setup
 snapshot "ready-for-agent,agent-paused" "ready-for-agent"
 echo hz-main-i5 > "$LIVE"; mkdir -p "$WORKTREES_DIR/main-i5"
-drive_unit main
+worker_tick W1
 assert_eq "$(add_label_on 5)" "0" "no --add-label agent-working on #5"
 assert_eq "$(add_label_on 6)" "1" "#6 claimed exactly once"
 assert_ok "#6 launched" grep -q 'launch hz-main-i6' "$CALLS"
@@ -108,7 +106,7 @@ snapshot "ready-for-agent,agent-paused" "ready-for-agent"
 POOL=1
 gh(){ echo "gh $*" >> "$CALLS"
       case "$1 $2" in "issue view") echo '["ready-for-agent","agent-paused"]';; esac; return 0; }
-drive_unit main
+worker_tick W1
 assert_eq "$(add_label_on 5)" "1" "#5 re-claimed (resumable first, #210)"
 assert_ok "#5 launched" grep -q 'launch hz-main-i5' "$CALLS"
 assert_ok "#5 renders resume.md" grep -q 'render .*prompts/resume.md' "$CALLS"

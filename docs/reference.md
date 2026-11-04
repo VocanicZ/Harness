@@ -169,7 +169,8 @@ only when no lane and no claim is live in the fleet. All of it is read inside `p
 **Claims.** `run/claims/<key>.claim` holds `<worker-id> <worker-pid> <token> <session> <pane-pid>`. The key
 is `impl-<n>`, `orch-<prd>` (`orch-0` for `PLAN` / `PRD`) or `bug-<repo>-<n>`; the token names the action
 (`IMPL:12`, `DECOMPOSE:41`). A bug a pool worker takes is claimed as `pool-<worker-id>`, so the priority
-lane never mistakes it for its own and never claims it too. A claim is live while its worker's pid is.
+lane never mistakes it for its own and never claims it too. A claim is live while its worker's pid is. The chores drop any non-bug claim whose pid is dead, which also clears a
+leftover `<unit>.claim` from the retired unit-claim loop.
 
 **Adoption.** A live session of the fleet's unit (`<prefix>-<unit>-i<N>`, `-p<N>`, `-p0`) that no live worker
 holds a claim on is adopted by the chores winner, which writes the claim for itself and tends the lane from
@@ -1337,7 +1338,7 @@ the operator keep going one issue at a time in their own session, with a budget 
 With `HARNESS_ONE_AUTO=1`, a [usage hold](#usage-limit-checkpoints) no longer leaves the fleet idle:
 the engine runs `/harness-one` itself, one issue at a time, until the next issue will not fit.
 
-- **Trigger** — every poll of a usage-HELD unit (`drive_unit`) of a fleet with `HARNESS_ONE_AUTO=1`.
+- **Trigger** — every chores pass (`worker_chores`) of a usage-HELD fleet with `HARNESS_ONE_AUTO=1`.
   No operator step, no approval prompt. Default `0`: the hold behaves exactly as before.
 - **One lane per account, host-wide** — usage is per account, so at most one auto lane runs per
   account across every fleet on the host: `$HARNESS_HOME/one-auto/<account>.lane`, taken under
