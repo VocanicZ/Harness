@@ -26,6 +26,10 @@ case "$1 $2" in
   *) echo "fake gh: unexpected $*" >&2; exit 9;;
 esac
 '''
+# No test may start a real SonarQube: the fake docker on PATH has no daemon, so bench/quality.py skips.
+FAKE_DOCKER = r'''#!/usr/bin/env bash
+echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2; exit 1
+'''
 FAKE_GRADER = r'''#!/usr/bin/env python3
 import json, os, sys
 files = sorted(os.listdir(sys.argv[1]))
@@ -40,6 +44,7 @@ class Env:
         self.h = os.path.join(self.d, "gh"); os.makedirs(os.path.join(self.h, "repos"))
         self.bin = os.path.join(self.d, "bin"); os.makedirs(self.bin)
         self.write_exe(os.path.join(self.bin, "gh"), FAKE_GH)
+        self.write_exe(os.path.join(self.bin, "docker"), FAKE_DOCKER)
         self.grader = os.path.join(self.d, "grader.py"); self.write_exe(self.grader, FAKE_GRADER)
         self.results = os.path.join(self.d, "results")
         self.rundir = os.path.join(self.d, "run"); os.makedirs(self.rundir)
@@ -116,6 +121,47 @@ def test_stub_run_records_a_valid_result_and_deletes_the_repo(e):
     for f in ("run.log", "grade.json"):
         assert os.path.isfile(os.path.join(logs, f)), f
     assert glob.glob(os.path.join(logs, "transcripts", "*.jsonl")), "transcripts kept as raw logs"
+
+
+@with_env()
+def test_without_docker_the_run_records_quality_skipped_and_exits_0(e):
+    p = e.run("stub")                                   # the fake docker has no daemon
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["quality"].startswith("skipped (docker daemon not reachable"), r["quality"]
+    assert "sonarqube" not in r and bench_run.validate(r) == [], bench_run.validate(r)
+    assert r["status"] == "ok" and r["repo_deleted"] is True
+
+
+QUALITY_OK = r'''#!/usr/bin/env python3
+import json, os, sys
+assert os.path.isfile(os.path.join(sys.argv[1], "brief.md")), "scans the graded clone"
+print(json.dumps({"quality": "ok", "sonarqube": {"bugs": 2, "vulnerabilities": 0, "code_smells": 7,
+      "maintainability_rating": "A", "duplicated_lines_density": 1.5, "coverage": None}}))
+'''
+
+
+@with_env()
+def test_a_quality_scan_is_recorded_beside_the_arm_results(e):
+    q = os.path.join(e.d, "quality_ok.py"); e.write_exe(q, QUALITY_OK)
+    p = e.run("stub", "--quality", q)
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["quality"] == "ok" and r["sonarqube"]["bugs"] == 2 and r["sonarqube"]["maintainability_rating"] == "A", r
+    assert bench_run.validate(r) == []
+
+
+@with_env()
+def test_a_quality_scan_that_fails_never_fails_the_run(e):
+    bad = os.path.join(e.d, "quality_bad.py"); e.write_exe(bad, "#!/usr/bin/env python3\nimport sys\nprint('boom', file=sys.stderr); sys.exit(7)\n")
+    p = e.run("stub", "--quality", bad)
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["quality"].startswith("skipped (quality scan failed") and "boom" in r["quality"], r["quality"]
+    assert r["status"] == "ok" and bench_run.validate(r) == [] and e.repos() == []
+    junk = os.path.join(e.d, "quality_junk.py"); e.write_exe(junk, "#!/usr/bin/env python3\nprint('not json')\n")
+    assert e.run("stub", "--quality", junk).returncode == 0
+    assert e.result()["quality"].startswith("skipped (quality scan failed")
 
 
 @with_env()
@@ -231,6 +277,10 @@ def test_validate_names_what_is_wrong():
     assert bench_run.validate({k: v for k, v in good.items() if k != "tokens"}) == ["missing tokens"]
     assert bench_run.validate(dict(good, wall_s="1")) != []
     assert bench_run.validate(dict(good, tokens={"input": 0})) != []
+    assert bench_run.validate(dict(good, quality="skipped (no docker)")) == []
+    assert bench_run.validate(dict(good, quality="ok", sonarqube={"bugs": 0})) == []
+    assert bench_run.validate(dict(good, quality="ok")) != []                     # ok without measures
+    assert bench_run.validate(dict(good, quality="skipped (x)", sonarqube={})) != []
 
 
 if __name__ == "__main__":
