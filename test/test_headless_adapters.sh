@@ -29,7 +29,7 @@ assert_eq "$(list)" "agy claude codex copilot fakecli hermes openclaw opencode" 
 out="$(check fakecli)"; rc=$?
 assert_eq "$rc" 0 "…and cli_backend_check accepts it on headless"
 assert_eq "$out" "" "…silently"
-assert_ok "…and the refusal for another CLI names both headless CLIs" grep -qF "runs agy, claude, codex, copilot, fakecli, hermes, openclaw, opencode lanes only" <<<"$(check nosuchcli)"
+assert_ok "…and the refusal for another CLI names both headless CLIs" grep -qF "runs agy, claude, codex, copilot, fakecli, hermes, openclaw, opencode lanes only" <<<"$(check tmuxonly)"
 
 echo "== copilot's runner: its own command, the adapter's bin and the session as --session-id (#483) =="
 argv="$( export HARNESS_CLI=copilot HARNESS_BOOTSTRAP_PROMPT=go HARNESS_COPILOT_BIN=cop HARNESS_COPILOT_FLAGS="--yolo --no-ask-user --no-auto-update"; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 gpt-6-luna high resume | xargs -d '\n' printf '%s|' )"
@@ -56,7 +56,8 @@ assert_eq "$( export HARNESS_CLI=agy HARNESS_SESSION_BACKEND=tmux; source "$CLID
 echo "== the default runner command starts the adapter's runner =="
 argv="$( export HARNESS_CLI=fakecli HARNESS_BOOTSTRAP_PROMPT=go; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 mdl hi resume | xargs -d '\n' printf '%s|' )"
 assert_eq "$argv" "python3|$CLID/fakecli_headless.py|run|--cwd|/wd|--session-id|uuid-1|--resume|--model|mdl|--effort|hi|--message|go|" "cli_headless for an adapter-only CLI"
-out="$( export HARNESS_CLI=nosuchcli; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 m e 2>&1 )"; rc=$?
+printf '# tmuxonly — a made-up CLI with no adapter\ntmuxonly_bin(){ echo tmuxonly; }\n' > "$CLID/tmuxonly.sh"
+out="$( export HARNESS_CLI=tmuxonly; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 m e 2>&1 )"; rc=$?
 assert_eq "$rc" 1 "a CLI with no adapter has no headless command"
-assert_ok "…it is tmux-only" grep -qF "agent CLI 'nosuchcli' is tmux-only" <<<"$out"
+assert_ok "…it is tmux-only" grep -qF "agent CLI 'tmuxonly' is tmux-only" <<<"$out"
 finish

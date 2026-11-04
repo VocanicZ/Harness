@@ -38,12 +38,8 @@ if [[ $frozen_here == ok ]]; then
 fi
 assert_eq "$(res "$cells" codex supervisor-frozen-session)" FAIL "no limit.txt: codex supervisor-frozen-session FAILs"
 assert_eq "$(res "$cells" agy bypass-covers-subagents)" FAIL "agy's sub-agent pane shows the approval prompt: bypass-covers-subagents FAILs"
-# Every tmux-only CLI's headless-* rows are n/a — the headless backend refuses it — never ok.
-tmux_only_cells="$(HARNESS_MATRIX_CLIS=openclaw HARNESS_MATRIX_ROWS='^headless-' bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
-for cli in openclaw; do   # (the CLIs left without a runner)
-  got="$(awk -F'\t' -v c="$cli" '$1 == c && $2 ~ /^headless-/ { print $3 }' <<<"$tmux_only_cells" | sort -u)"
-  assert_eq "$got" "n/a:tmux-only" "$cli, which has no headless runner, is n/a on every headless-* row"
-done
+# (A tmux-only CLI's headless-* rows read n/a, tmux-only — the headless backend refuses it. Every CLI has a runner since #486, so there is
+# none to check here; the refusal itself is test_headless_adapters.sh's, against a made-up CLI.)
 
 # #353 (and #483 for copilot, #486 for agy): claude's headless rows, with the adapter functions they lean on stubbed to `:`. With its
 # headless lane runner's command gone (claude_headless) no lane starts, and every headless-* row FAILs;
