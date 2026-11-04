@@ -1,0 +1,54 @@
+# harness attach drives a headless lane, on native Windows (#487, PRD #475 task 3)
+# date: 2026-11-04T03:33:25Z
+# host: winsma (Windows 10 19045, Git Bash) via ssh alias HARNESS_WINDOWS_HOST, isolated in C:\hx-487\ by test/smoke/winsma/winsma.sh run
+# engine: clone of issue/487 at the commit shown below (python3 = a shim to the shared python, inside C:\hx-487\bin)
+# sequence: test/test_headless_attach.sh: fake headless lane → attach → typed line queued behind a running turn → typed line on an idle lane → SIGINT detaches, lane untouched → no lane refused → stdin closed is the watch
+# claude token usage: none (the lane runs the fixtures' fake claude)
+
+[03:33:25] run: #487 on winsma, mode base: mkdir -p bin && printf "#!/bin/sh\nexec python \"\$@\"\n" > bin/python3 && chmod +x bin/python3 && export PATH="$PWD/bin:$PATH" && git clone -q --depth 1 --branch issue/487 https://github.com/VocanicZ/Harness clone && git -C clone log --oneline -1 && bash clone/test/test_headless_attach.sh 2>&1 | grep -v "no runner state\|No such file"; exit ${PIPESTATUS[0]}
+[03:33:27] lock: hx-lock taken by #487 (hz-main-i487)
+[03:33:36] guard: before recorded
+[03:34:01] credentials: before scan recorded
+[03:34:01] exec: mkdir -p bin && printf "#!/bin/sh\nexec python \"\$@\"\n" > bin/python3 && chmod +x bin/python3 && export PATH="$PWD/bin:$PATH" && git clone -q --depth 1 --branch issue/487 https://github.com/VocanicZ/Harness clone && git -C clone log --oneline -1 && bash clone/test/test_headless_attach.sh 2>&1 | grep -v "no runner state\|No such file"; exit ${PIPESTATUS[0]}
+6e94bb6 test: give the stdin-closed attach check time to start on Git Bash
+  ok: launch_agent starts the lane (10:34:14 [harness] launched session hat-main-i1 (cwd C:/hx-487/tmp/tmp.uTvvf8s0XS/wd))
+  ok: the lane is live
+  ok: the bootstrap turn is running
+== attach: typed lines reach the inbox, queued behind the running turn ==
+  ok: attach is watching the lane
+  ok: …and shows the running turn
+  ok: attach says the line is queued behind the running turn
+  ok: the line landed in the lane's inbox
+  ok: …as exactly one message (blank lines sent nothing)
+  ok: it has not run yet: the bootstrap turn still holds the lane
+  ok: both turns run, and the lane reads idle
+  ok: the typed line ran as the next turn
+  ok: …resumed on the lane's session
+  ok: attach shows that turn
+  ok: …and its reply
+== attach: an idle lane takes the line as sent, not queued ==
+  ok: attach says it sent it
+  ok: …and it runs as turn 3
+  ok: the third prompt is the typed line
+== attach: Ctrl-C detaches and leaves the lane running ==
+  ok: the attach process exits
+  ok: …cleanly
+  ok: it says it detached
+  ok: the lane's runner is still alive
+  ok: …the same runner, still the lane's
+  ok: the lane is still live
+  ok: its state is still idle
+  ok: …and state.json is byte for byte unchanged
+  ok: detaching sent nothing to the lane
+== attach: a lane that is not live is refused ==
+  ok: attach to no lane fails
+  ok: …naming it
+== attach: with stdin closed it is still the live watch ==
+  ok: it watches the lane
+  ok: …showing the typed line's turn
+  ok: …and typed nothing
+── 31/31 passed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-487
+credentials: GH_TOKEN written nowhere new
+[03:35:40] cleanup: winsma clean (no hx-487, lock released, no run task or process)
+[03:35:40] run: OK

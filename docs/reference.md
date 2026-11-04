@@ -366,11 +366,15 @@ it to the session's earlier runs. A tmux lane never resumes a session id, so it 
 headless lanes alike, whichever backend the viewer runs on — with its model (off its runner's flags) and
 state.
 
-**Watching a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
-read-only: each turn, its tool calls and its reply as they land in `events.jsonl` — Ctrl-C stops watching,
-not the lane. `python3 scripts/cli/headless_core.py state --lane <dir>` (or `claude_headless.py state`, the
+**Attaching to a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
+live — each turn, its tool calls and its reply as they land in `events.jsonl` — and drives it, on every OS:
+a line you type goes to the lane's inbox through `cli_send` and runs as the next turn, queued behind a turn
+that is still running (attach says `queued behind the running turn` or `sent`; blank lines send nothing).
+Ctrl-C **detaches**: it ends the attach and its watch, and never the lane — the runner is not signalled, its
+state is unchanged, and `harness attach` reattaches. With stdin closed or not a terminal it is the read-only
+watch. `python3 scripts/cli/headless_core.py state --lane <dir>` (or `claude_headless.py state`, the
 same command) prints its `state.json`;
-`tail -F <dir>/events.jsonl` is the raw stream.
+`tail -F <dir>/events.jsonl` is the raw stream. (A tmux lane attaches with tmux itself; detach with Ctrl-b d.)
 
 **Smoke run.** `SMOKE_BACKEND=headless bash test/smoke/fleet_smoke.sh claude` runs one real fleet on
 the headless backend through a trivial issue in a sandbox repo: claim → lane → PR → merge → close. Midway
@@ -534,7 +538,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness status` | ✓ | ✓ target (#475 task 8) |
 | `harness one` | ✓ | ✓ target (#475 task 8) |
 | `harness doctor` | ✓ | ✓ |
-| `harness attach` | ✓ | ✓ (read-only watch of a headless lane) |
+| `harness attach` | ✓ | ✓ (headless lane: watch, typed lines, Ctrl-C detach) |
 | `harness pause` | ✓ | ✓ |
 | `harness setup` | ✓ | ✓ target (#475 task 8) |
 | `harness migrate` | ✓ | ✓ target (#475 task 8) |
@@ -569,7 +573,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness-one` | ✓ | ✓ target (#475 task 8) |
 | `inject` | ✓ | ✓ target (#475 task 8) |
 | `pause --force and resume` | ✓ | ✓ |
-| `headless attach: typed lines and Ctrl-C detach` | ✓ target (#475 task 3) | ✓ target (#475 task 3) |
+| `headless attach: typed lines and Ctrl-C detach` | ✓ | ✓ (`test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
 | `install via npx` | ✓ | ✓ target (#475 task 5) |
 | `install via curl` | ✓ | ✓ target (#475 task 5) |
 | `update --rollback` | ✓ | ✓ target (#475 task 5) |
