@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats`: coding vs testing time per issue (#379)
+
+- `harness stats --prd N` and `--issue N` split each session's wall time into **testing** (the time inside test-command
+  Bash tool calls, from the call to its result) and **coding** (the rest), per session, per issue and in the PRD total;
+  `--json` carries `coding_s` / `testing_s`. The split is a reusable function (`stats.time_split(transcript)`, also
+  `scripts/stats.py time-split <transcript>`), so the benchmark can run it on any transcript.
+- Which commands count as tests is a documented default pattern, replaceable with `HARNESS_TEST_COMMAND_PATTERNS`
+  (environment or `.harness/config`); see [Coding vs testing time](docs/reference.md#coding-vs-testing-time-379).
+
 ### Headless turn adapter for `agy` (#486)
 
 - `agy` runs on the headless session backend: `scripts/cli/agy_headless.py` is its adapter on the shared core (#480),

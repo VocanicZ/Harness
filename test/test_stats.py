@@ -844,6 +844,124 @@ def test_report_cli_by_role_text_and_json():
                                              "cache_read": 0, "usd": 0, "tokens": {}}, out
 
 
+# --- coding vs testing time (#379) ---------------------------------------------------
+def _tx(path, *lines):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        for l in lines:
+            fh.write(json.dumps(l) + "\n")
+
+def _use(t, tid, cmd, name="Bash"):
+    return {"type": "assistant", "timestamp": f"2026-10-01T{t}.000Z",
+            "message": {"id": "m" + tid, "model": "claude-opus-5-5", "usage": {"input_tokens": 1, "output_tokens": 1},
+                        "content": [{"type": "tool_use", "id": tid, "name": name, "input": {"command": cmd}}]}}
+
+def _res(t, tid):
+    return {"type": "user", "timestamp": f"2026-10-01T{t}.000Z",
+            "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid, "content": "ok"}]}}
+
+def _timed_transcript(d, sid="aaaaaaaa-0000-0000-0000-000000000001"):
+    """600s of session: test calls cover 120s (t2) + 120s (t3/t4 overlap, union) in the main transcript,
+    and 60s more in a sub-agent's; everything else is coding."""
+    main = os.path.join(d, "projects", "-wt", sid + ".jsonl")
+    _tx(main,
+        {"type": "user", "timestamp": "2026-10-01T00:00:00.000Z", "message": {"role": "user", "content": "go"}},
+        _use("00:00:10", "t1", "git status"), _res("00:00:12", "t1"),                     # coding call
+        _use("00:01:00", "t2", "cd web && bash test/run.sh"), _use("00:01:01", "t2", "cd web && bash test/run.sh"),
+        _res("00:03:00", "t2"),                                                           # 120s test (streamed twice)
+        _use("00:04:00", "t3", "pytest -q test/"), _use("00:04:30", "t4", "go test ./..."),
+        _res("00:05:00", "t3"), _res("00:06:00", "t4"),                                   # overlap -> 120s union
+        _use("00:07:00", "t5", 'echo "run pytest later"'), _res("00:07:05", "t5"),         # mentions, does not run
+        _use("00:07:10", "t6", "pytest", name="Read"),                                    # not a Bash call
+        _use("00:09:00", "t7", "npm test"),                                               # never answered: 0s
+        {"type": "assistant", "timestamp": "2026-10-01T00:10:00.000Z",
+         "message": {"id": "mz", "model": "claude-opus-5-5", "content": [{"type": "text"}]}})
+    _tx(os.path.join(d, "projects", "-wt", sid, "subagents", "agent-a.jsonl"),
+        _use("00:08:00", "s1", "python3 -m pytest"), _res("00:09:00", "s1"))              # 60s test, in a sub-agent
+    return main
+
+def test_time_split_exact_on_a_fixture_transcript():
+    with host() as d:
+        tr = _timed_transcript(d)
+        r = st.time_split(tr)
+        assert r == {"total_s": 600, "testing_s": 300, "coding_s": 300, "test_calls": 4}, r
+
+def test_time_split_command_patterns():
+    rx = st.test_command_re()
+    for cmd in ("pytest", "python3 -m pytest -x", "bash test/run.sh", "./test/run.sh", "cd a && npm test",
+                "npm run test", "go test ./...", "cargo test --all", "bats test/x.bats", "rtdd which --base origin/main",
+                "FOO=1 pytest", "git add -A; pytest", "python3 test/test_stats.py", "bash test/test_stats.sh"):
+        assert rx.search(cmd), cmd
+    for cmd in ("git status", 'echo "run pytest"', "gh issue comment 1 -b 'npm test failed'", "cat test/run.sh",
+                "ls test/", "rtddx foo", "grep -n pytest README"):
+        assert not rx.search(cmd), cmd
+
+def test_time_split_pattern_is_overridable_by_env_and_config():
+    with host() as d:
+        tr = _timed_transcript(d)
+        os.environ["HARNESS_TEST_COMMAND_PATTERNS"] = r"git status"
+        try:
+            r = st.time_split(tr)
+            assert r["testing_s"] == 2 and r["test_calls"] == 1, r   # only the pattern's own call is testing
+        finally:
+            del os.environ["HARNESS_TEST_COMMAND_PATTERNS"]
+        cfg = os.path.join(d, "state"); os.makedirs(cfg)
+        with open(os.path.join(cfg, "config"), "w") as fh:
+            fh.write('HARNESS_TEST_COMMAND_PATTERNS="go test"\n')
+        os.environ["STATE_DIR"] = cfg
+        try:
+            r = st.time_split(tr)
+            assert r["testing_s"] == 90 and r["test_calls"] == 1, r
+        finally:
+            del os.environ["STATE_DIR"]
+        assert st.time_split(tr)["testing_s"] == 300   # defaults again
+
+def test_time_split_no_transcript_or_calls():
+    with host() as d:
+        assert st.time_split(os.path.join(d, "nope.jsonl")) is None
+        empty = os.path.join(d, "e.jsonl"); open(empty, "w").close()
+        assert st.time_split(empty) is None
+        one = os.path.join(d, "one.jsonl")
+        _tx(one, _use("00:00:00", "a", "ls"), _res("00:00:30", "a"))
+        assert st.time_split(one) == {"total_s": 30, "testing_s": 0, "coding_s": 30, "test_calls": 0}
+
+def test_time_split_reaches_prd_and_issue_reports():
+    with host() as d:
+        _timed_transcript(d)
+        sid = "aaaaaaaa-0000-0000-0000-000000000001"
+        p = os.path.join(d, "events.jsonl")
+        for e in (_ev("launch", session=sid, issue=21, prd=8, kind="impl", ts="2026-10-01T00:00:00Z"),
+                  _ev("session_end", session=sid, issue=21, prd=8, kind="impl", wall_s=600, usage=_u(5)),
+                  _ev("launch", session="gone", issue=21, prd=8, kind="impl", ts="2026-10-01T05:00:00Z"),
+                  _ev("session_end", session="gone", issue=21, prd=8, kind="impl", wall_s=60, usage=_u(1)),
+                  _ev("launch", session="s9", issue=22, prd=8, kind="impl"),
+                  _ev("session_end", session="s9", issue=22, prd=8, kind="impl", wall_s=10, usage=_u(1))):
+            st.append_event(e, p)
+        os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = d
+        rc, out = run(["report", "--prd", "8", "-R", "acme/widget", "--json"])
+        j = json.loads(out)
+        c21 = next(c for c in j["children"] if c["issue"] == 21)
+        assert (c21["coding_s"], c21["testing_s"]) == (300, 300), c21
+        assert [(s["coding_s"], s["testing_s"]) for s in c21["sessions"]] == [(300, 300), (None, None)], c21
+        c22 = next(c for c in j["children"] if c["issue"] == 22)
+        assert (c22["coding_s"], c22["testing_s"]) == (0, 0), c22
+        assert (j["total"]["coding_s"], j["total"]["testing_s"]) == (300, 300), j["total"]
+        rc, out = run(["report", "--prd", "8", "-R", "acme/widget"])
+        assert "#21:" in out and "coding 5m00s  testing 5m00s" in out, out
+        rc, out = run(["report", "--issue", "21", "-R", "acme/widget", "--json"])
+        j = json.loads(out)
+        assert (j["coding_s"], j["testing_s"]) == (300, 300), j
+        rc, out = run(["report", "--issue", "21", "-R", "acme/widget"])
+        assert "coding 5m00s  testing 5m00s" in out, out
+
+def test_time_split_cli_subcommand():
+    with host() as d:
+        tr = _timed_transcript(d)
+        rc, out = run(["time-split", tr])
+        assert rc == 0 and json.loads(out) == {"total_s": 600, "testing_s": 300, "coding_s": 300, "test_calls": 4}, out
+        assert run(["time-split", os.path.join(d, "none.jsonl")])[0] == 1
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
