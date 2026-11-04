@@ -103,14 +103,15 @@ r_iso_prepare(){ _ws_issue_ok "$1" || return 2
   mkdir -p "$hx"/{harness-home,bin,skills,tmp,npm-cache,clone,home,claude-config,guard,cred} && touch "$hx/pids" "$hx/tasks" || return 1
   if [[ "${2:-}" == --venv && ! -e "$hx/venv" ]]; then "$WS_PYTHON" -m venv ${WS_VENV_ARGS:-} "$(_ws_native "$hx/venv")" || return 1; fi; }
 # r_iso_env <issue> <base|install|suite> — print the `export` lines that confine a run to its folder.
-#   base     HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS TMPDIR npm_config_cache + HX_DIR HX_CLONE
+#   base     HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS TMPDIR npm_config_cache GIT_CONFIG_GLOBAL + HX_DIR HX_CLONE
+#            (GIT_CONFIG_GLOBAL: the fleet's ensure_safe writes safe.directory to the global git config; #488)
 #   install  base + CLAUDE_CONFIG_DIR (install/update/uninstall runs need no Claude sign-in)
 #   suite    base + HOME and USERPROFILE = the folder's home\ (the full suite's install/uninstall tests cannot reach the real home)
 r_iso_env(){ _ws_issue_ok "$1" || return 2
   local hx n mode="${2:-base}"; hx="$(_ws_hx "$1")"; n="$(_ws_native "$hx")"
   case "$mode" in base|install|suite) :;; *) echo "winsma: isolation mode must be base, install or suite" >&2; return 2;; esac
   printf 'export %s=%q\n' HX_ISSUE "$1" HX_DIR "$n" HX_CLONE "$n/clone" HARNESS_HOME "$n/harness-home" HARNESS_BIN_DIR "$n/bin" \
-    HARNESS_USER_SKILLS "$n/skills" TMPDIR "$n/tmp" npm_config_cache "$n/npm-cache"
+    HARNESS_USER_SKILLS "$n/skills" TMPDIR "$n/tmp" npm_config_cache "$n/npm-cache" GIT_CONFIG_GLOBAL "$n/gitconfig"
   if [[ -d "$hx/venv" ]]; then
     local vb="Scripts"; [[ -d "$hx/venv/Scripts" ]] || vb="bin"
     printf 'export VIRTUAL_ENV=%q\nexport PATH=%q:"$PATH"\n' "$n/venv" "$n/venv/$vb"

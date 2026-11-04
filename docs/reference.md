@@ -475,7 +475,14 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
 [The Windows runbook](windows-smoke.md) sets up a host step by step and runs the fleet smoke on it.
 
 - **Install:** run `install.sh` from Git Bash. It needs Git for Windows (git, curl, sha256sum, tar), a
-  Python 3 that runs, `gh` and `claude`; tmux is not needed. It makes every link it creates a real
+  Python 3 that runs, `gh` and `claude`; tmux is not needed. It offers each missing one through winget
+  (`Git.Git`, `Python.Python.3.13`, `GitHub.cli`, `Anthropic.ClaudeCode`, and `OpenJS.NodeJS.LTS` for
+  rtdd's installer), one question each; `HARNESS_INSTALL_PREREQS=1` accepts without asking, `0`
+  declines, and `HARNESS_WINGET` names the winget binary. The Microsoft Store `python3` stub counts as
+  missing. It checks Developer Mode (the registry; off is only a problem when this shell cannot make a
+  symlink either) and the git identity, and prints the exact fix for each. Harness sets
+  `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` per repo (`git -C <worktree> config`
+  on its checkout and every lane worktree), never `--global` or `--system`. It makes every link it creates a real
   symlink (`MSYS=winsymlinks:nativestrict`; enable Developer Mode or run as an administrator), writes
   a `python3` shim in `$HARNESS_HOME/bin` (the `python3` on a stock host's PATH is the Microsoft Store
   stub) that runs `HARNESS_PYTHON` (default: the first of `python3`, `python`, `py -3` that runs), and
@@ -496,12 +503,15 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
 - **`harness doctor`** adds a `windows:` section that checks the headless backend, that the shell and
   the tasks' `bash.exe` are Git's (`uname -s` MINGW/MSYS, not WSL), that a Python 3 runs, that a
   symlink can be made, that the engine is LF, and that `schtasks`, `powershell` and `taskkill` are
-  present. Each failure names its fix.
+  present; and the installer's own prerequisites: `gh`, an agent CLI, Developer Mode, the git identity
+  and the checkout's per-repo git settings (`harness doctor --fix` writes those), with rtdd/Node as a
+  note. Each failure names its fix, with the winget command where there is one.
 
 Knobs (the suite fakes each Windows tool with them): `HARNESS_PYTHON`, `HARNESS_BASH_EXE` (Git's
-`bash.exe`), `HARNESS_SCHTASKS`, `HARNESS_POWERSHELL`, `HARNESS_DETACH_WAIT` (seconds `detach_launch`
+`bash.exe`), `HARNESS_WINGET`, `HARNESS_REG` (`reg.exe`, for Developer Mode), `HARNESS_SCHTASKS`, `HARNESS_POWERSHELL`, `HARNESS_DETACH_WAIT` (seconds `detach_launch`
 waits for the pid, 30). `test/test_windows_lifecycle.sh` covers the lifecycle with
-`HARNESS_PLATFORM=windows` on Linux.
+`HARNESS_PLATFORM=windows` on Linux; `test/test_windows_installer.sh` covers the winget offers, the
+Developer Mode and git identity checks, the per-repo git settings and the doctor lines.
 
 ### Windows parity matrix
 
@@ -576,6 +586,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `headless attach: typed lines and Ctrl-C detach` | ✓ | ✓ (`test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
 | `install via npx` | ✓ | ✓ target (#475 task 5) |
 | `install via curl` | ✓ | ✓ target (#475 task 5) |
+| `install prerequisite offers` | ✓ (apt-get, dnf, pacman, zypper, apk or brew) | ✓ (winget: `Git.Git`, `Python.Python.3.13`, `GitHub.cli`, `Anthropic.ClaudeCode`, `OpenJS.NodeJS.LTS`) |
 | `update --rollback` | ✓ | ✓ target (#475 task 5) |
 | `swarm submission` | ✓ | n/a: swarm is a Linux-only HTCondor service ("Linux with systemd + cgroup v2", [VocanicZ/swarm README](https://github.com/VocanicZ/swarm#readme)); a Windows lane runs rtdd locally |
 
