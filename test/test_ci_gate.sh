@@ -81,6 +81,7 @@ spawn_impl(){ SPAWNED+="IMPL:$1 "; }
 spawn_orch(){ SPAWNED+="ORCH:$1 "; }
 close_prd(){ :; }
 usage_held(){ return 1; }; gh_budget_low(){ return 1; }; sess_pane_pid(){ :; }
+ensure_checkout(){ :; }   # #539: the claim step clones a missing checkout first; this group is about the CI gate
 dispatch_actions(){ printf 'IMPL\t7\tISSUE 7 DONE\n'; }
 POLL=0; POOL=2
 unit_complete(){ return 1; }

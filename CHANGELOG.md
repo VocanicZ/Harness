@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Pool worker: a failed spawn sleeps, and a missing checkout is cloned (#539)
+
+- A pool worker whose lane failed to spawn used to count it as a claim and re-claim the same item with no sleep,
+  burning GitHub API budget. `worker_tick` now returns rc 6 for a failed spawn and `worker_step` sleeps `POLL`.
+- `ensure_checkout` is back (deleted with the multi-topology code): before it claims, the worker clones
+  `HARNESS_REPO` into a missing `HARNESS_CHECKOUT`, or holds with one logged line per cause when it cannot.
+
 ### Benchmark: optional code quality, and an online-audit guide (#387)
 
 - `bench/quality.py` scans an arm's final default branch with SonarQube Community in local Docker (no account, no

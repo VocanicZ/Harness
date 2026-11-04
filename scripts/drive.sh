@@ -193,6 +193,23 @@ close_prd(){
   fi
 }
 
+# ensure_checkout — the fleet's clone must exist before a lane is claimed (#539). A fresh machine or a moved
+# folder leaves HARNESS_CHECKOUT missing, and every `git worktree add` then fails. Clone SLUG into CHECKOUT
+# when it is absent or an empty dir; a dir that is not a git repo and not empty is left alone. rc 1 = no
+# usable checkout — the error is logged ONCE per cause (_CHECKOUT_ERR), and the caller holds, never spins.
+ensure_checkout(){ local err
+  git -C "$CHECKOUT" rev-parse --git-dir >/dev/null 2>&1 && { _CHECKOUT_ERR=""; return 0; }
+  if [[ -e "$CHECKOUT" ]] && { [[ ! -d "$CHECKOUT" ]] || [[ -n "$(ls -A "$CHECKOUT" 2>/dev/null)" ]]; }; then
+    err="checkout $CHECKOUT exists but is not a git repo — not cloning $SLUG over it"
+  else
+    log "cloning $SLUG into $CHECKOUT"
+    if git clone -q "https://github.com/$SLUG.git" "$CHECKOUT" 2>/dev/null; then
+      ensure_safe "$CHECKOUT"; _CHECKOUT_ERR=""; return 0; fi
+    err="clone of $SLUG into $CHECKOUT failed"
+  fi
+  [[ "${_CHECKOUT_ERR:-}" == "$err" ]] || { log "$err — holding, will retry"; _CHECKOUT_ERR="$err"; }
+  return 1; }
+
 # label_ready <issue> — the LABEL_READY dispatch action (#287). An open issue that names an open PRD
 # as its parent but carries no label at all (a lane filed a follow-up bare) is in no lane's queue,
 # and used to let that PRD sign off and close over it. One idempotent gh call, re-emitted every poll
