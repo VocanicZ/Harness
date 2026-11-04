@@ -135,12 +135,12 @@ rm -rf "$RUN_DIR6"
 # construction, the claim the lane writes and the lookup the checkpoint performs share ONE slug, so
 # --force confirms via the CARRIED repo acme/widget — no rescan.
 RUN_DIR7="$(mktemp -d)"; CALLS7="$RUN_DIR7/calls"; : > "$CALLS7"
-# Write the claim via the REAL _bug_numbers/claim_next_bug for a bare repo (the path that regressed).
+# Write the claim via the REAL _bug_numbers/claim_first_bug for a bare repo (the path that regressed).
 ( export CLAIMS_DIR="$RUN_DIR7/claims" POOL_LOCK="$RUN_DIR7/pool.lock"
   export HARNESS_OWNER=acme
   source "$HERE/../scripts/lib.sh"
   _bug_repos(){ echo widget; }; _repo_bugs(){ printf '9\tfix\n'; }
-  claim_next_bug P1 >/dev/null )
+  claim_first_bug P1 >/dev/null )
 assert_eq "$(basename "$(ls "$RUN_DIR7/claims"/bug-*.claim)")" "bug-acme_widget-9.claim" \
   "lane wrote the owner-qualified claim file for a bare repo (token owner-qualified at construction)"
 export CALLS="$CALLS7"

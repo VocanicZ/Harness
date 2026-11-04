@@ -131,7 +131,7 @@ claim_lane(){ echo pool >> "$CLAIMED"; }   # #468: the step loop's claim
 worker_tick W1; rc=$?
 assert_eq "$rc" "3" "worker_tick idles while usage is held"
 assert_eq "$(cat "$CLAIMED")" "" "worker_tick claims nothing while usage is held"
-claim_next_bug(){ echo bug >> "$CLAIMED"; echo "acme/widget#9"; }
+claim_first_bug(){ echo bug >> "$CLAIMED"; echo "acme/widget#9"; }
 bug_tick P1; rc=$?
 assert_eq "$rc" "3" "bug_tick idles while usage is held"
 assert_eq "$(cat "$CLAIMED")" "" "the bug lane claims nothing while usage is held"

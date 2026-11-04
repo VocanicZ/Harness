@@ -10,7 +10,7 @@ source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"; make_env
 # tokens and claim files key on a sanitised repo+num, so everything below carries the repo.
 _bug_numbers(){ printf 'acme/widget#6\nacme/widget#7\n'; }
 assert_eq "$(claimable_bugs | tr '\n' ' ')" "acme/widget#6 acme/widget#7 " "both bugs claimable when unclaimed"
-got="$(claim_next_bug P1)"; assert_eq "$got" "acme/widget#6" "claim_next_bug returns first claimable bug token"
+got="$(claim_first_bug P1)"; assert_eq "$got" "acme/widget#6" "claim_first_bug returns first claimable bug token"
 assert_eq "$(awk '{print $1}' "$CLAIMS_DIR/bug-acme_widget-6.claim")" "P1" "claim records worker id (repo-qualified key)"
 assert_eq "$(awk '{print $3}' "$CLAIMS_DIR/bug-acme_widget-6.claim")" "acme/widget#6" "claim stores the full repo-qualified token (#44 — lane_bug/checkpoint read it)"
 assert_ok  "claimed bug is is_bug_claimed"          is_bug_claimed acme/widget#6
@@ -20,8 +20,8 @@ assert_ok "release removes the bug-claim file" bash -c "[[ ! -f '$CLAIMS_DIR/bug
 assert_eq "$(claimable_bugs | tr '\n' ' ')" "acme/widget#6 acme/widget#7 " "released bug is claimable again"
 
 # ── single-agent serialization: two simultaneous claimers get DIFFERENT bugs ──
-( claim_next_bug A > "$RUN_DIR/ba.out" ) &
-( claim_next_bug B > "$RUN_DIR/bb.out" ) &
+( claim_first_bug A > "$RUN_DIR/ba.out" ) &
+( claim_first_bug B > "$RUN_DIR/bb.out" ) &
 wait
 ra="$(cat "$RUN_DIR/ba.out")"; rb="$(cat "$RUN_DIR/bb.out")"
 assert_ok "both claimers got a bug"     bash -c "[[ -n '$ra' && -n '$rb' ]]"
@@ -83,11 +83,11 @@ assert_eq "$(grep -c 'idle' "$ILOG")" "1" "bug_step: idle banner re-logged after
 rm -f "$CLAIMS_DIR"/bug-*.claim
 _bug_numbers(){ printf 'acme/a#5\nacme/b#5\n'; }
 assert_eq "$(claimable_bugs | tr '\n' ' ')" "acme/a#5 acme/b#5 " "both repos' #5 are claimable (distinct identity)"
-ta="$(claim_next_bug P1)"; assert_eq "$ta" "acme/a#5" "claim picks repo A's #5"
+ta="$(claim_first_bug P1)"; assert_eq "$ta" "acme/a#5" "claim picks repo A's #5"
 assert_ok "repo A #5 claimed"                            is_bug_claimed acme/a#5
 assert_no "repo B #5 NOT claimed by claiming repo A's #5" is_bug_claimed acme/b#5
 assert_eq "$(claimable_bugs | tr '\n' ' ')" "acme/b#5 " "repo B's #5 still waits (not blocked by A's)"
-tb="$(claim_next_bug P2)"; assert_eq "$tb" "acme/b#5" "claim then picks repo B's #5 independently"
+tb="$(claim_first_bug P2)"; assert_eq "$tb" "acme/b#5" "claim then picks repo B's #5 independently"
 release_bug_claim acme/a#5; release_bug_claim acme/b#5
 rm -f "$CLAIMS_DIR"/bug-*.claim
 
@@ -136,7 +136,7 @@ assert_eq "$slug" "acme/widget" "drive_bug's SLUG (=_with_owner carried repo) is
 assert_eq "$(sess_bug "$slug" 9 fix)" "hz-bug-acme_widget-9-fix" "session embeds the owner-qualified slug"
 assert_eq "$(bug_worktree "$slug" 9)" "$RUN_DIR/wt/bug-acme_widget-i9" "worktree path uses the owner-qualified slug"
 # _checkpoint_target parses san+num from the session and looks up bug-<san>-<n>.claim: it must equal
-# the key claim_next_bug actually wrote (token-derived). Agreement = no fallback to the bug_repo rescan.
+# the key claim_first_bug actually wrote (token-derived). Agreement = no fallback to the bug_repo rescan.
 san="$(printf '%s' "$(sess_bug "$slug" 9 fix)" | sed -E "s/^hz-bug-(.+)-9-fix$/\1/")"
 assert_eq "bug-${san}-9" "$(_bug_claim_key "$tok")" "checkpoint's session-derived lookup == the written claim key"
 # lane_phase resolves the live session via the token's grep key (no permanent '?')
@@ -254,7 +254,7 @@ JSON
 NOW="$(date +%s)"
 P3REAP="$P3/reap.log"; P3CLAIM="$P3/claim.log"; P3GH="$P3/gh.log"
 reap_lane(){ echo called >> "$P3REAP"; }
-claim_next_bug(){ echo called >> "$P3CLAIM"; echo ""; }
+claim_first_bug(){ echo called >> "$P3CLAIM"; echo ""; }
 gh(){ echo "$*" >> "$P3GH"; }
 PRIORITY_POLL=0; _IDLE_LOGGED=0
 : > "$P3REAP"; : > "$P3CLAIM"; : > "$P3GH"

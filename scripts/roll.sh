@@ -15,7 +15,7 @@
 #                  ENGINE_DIR); harness bin: the stable $HARNESS_HOME/engine/bin/harness
 #     dry (1)      log what would be killed and started, change nothing
 #   Kills each run/worker-*.pid and run/priority.pid process whose ENGINE_DIR is not <engine dir>:
-#     - under the fleet's run/pool.lock (the lock claim_bug / claim_next_bug take), so the worker
+#     - under the fleet's run/pool.lock (the lock claim_bug / claim_first_bug take), so the worker
 #       cannot claim something between the check and the kill;
 #     - never one holding a BUG claim (run/claims/bug-*.claim naming its pid): it is mid-session. It
 #       is counted as deferred and rolled by a later call, once the claim is released. A worker

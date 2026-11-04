@@ -89,7 +89,7 @@ PY2
   assert_ok "$cli: core under 20% is a low budget" gh_budget_low
   CLAIMED="$RUN_DIR/claimed"; : > "$CLAIMED"
   claim_lane(){ echo pool >> "$CLAIMED"; }   # #468: the step loop's claim
-  claim_next_bug(){ echo bug >> "$CLAIMED"; echo "acme/widget#9"; }
+  claim_first_bug(){ echo bug >> "$CLAIMED"; echo "acme/widget#9"; }
   worker_tick W1 >/dev/null; rc=$?
   assert_eq "$rc" "5" "$cli: worker_tick idles on a low budget"
   bug_tick P1 >/dev/null; rc=$?

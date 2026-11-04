@@ -325,11 +325,11 @@ claimable_bugs(){ local tok; for tok in $(_bug_numbers); do is_bug_claimed "$tok
 # The claim file records "<wid> <pid> <token>": the third field carries the FULL repo-qualified
 # ref (#44) so lane_bug / _checkpoint_target recover the real owner/repo without reversing the
 # lossy sanitised claim key (owner_repo can't be split back into owner/repo unambiguously).
-claim_next_bug(){ local wid="$1" tok lockfd; lock_acquire "$POOL_LOCK" lockfd
+claim_first_bug(){ local wid="$1" tok lockfd; lock_acquire "$POOL_LOCK" lockfd
   tok="$(claimable_bugs | head -n1)"; [[ -n "$tok" ]] && printf '%s %s %s\n' "$wid" "$$" "$tok" > "$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
   lock_release "$lockfd"; echo "$tok"; }
 # claim_bug <wid> <ref> — claim ONE named bug, the pool's entry to the lane's claims (#214). Same
-# claim file and POOL_LOCK as claim_next_bug, so whichever lane gets there first holds it and the
+# claim file and POOL_LOCK as claim_first_bug, so whichever lane gets there first holds it and the
 # other is refused: a bug is never offered to both. rc 1 when it is already claimed.
 claim_bug(){ local wid="$1" tok="$2" lockfd rc=1; lock_acquire "$POOL_LOCK" lockfd
   if ! is_bug_claimed "$tok"; then
@@ -1470,7 +1470,7 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
 # watchdog_kill, session_end — carry it without re-deriving it. Logging NEVER blocks or fails the
 # caller: stats.py gives up on a held lock after 2s, `timeout` bounds the rest, every failure is
 # swallowed and only the FIRST one per process is logged (to stderr — several callers' stdout is a
-# captured return value, e.g. claim_next_bug).
+# captured return value, e.g. claim_first_bug).
 STATS_PY="$ENGINE_DIR/scripts/stats.py"
 harness_event(){
   timeout 10 python3 "$STATS_PY" emit "$@" -c "prefix=$HARNESS_SESS_PREFIX" -c "project=$PROJECT_ROOT" \

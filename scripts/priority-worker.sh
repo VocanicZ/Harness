@@ -91,7 +91,7 @@ bug_tick(){ local wid="$1" ref
   if is_paused; then return 3; fi
   if usage_held; then return 3; fi   # #194: near a usage limit — no new bug claims until the window resets
   if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — no new bug claims, half-rate polls
-  ref="$(claim_next_bug "$wid")"
+  ref="$(claim_first_bug "$wid")"
   if [[ -z "$ref" ]]; then return 1; fi
   log "priority $wid claimed bug $ref"; drive_bug "$ref"; release_bug_claim "$ref"; log "priority $wid released bug $ref"; return 0; }
 
