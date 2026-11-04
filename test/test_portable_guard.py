@@ -48,13 +48,13 @@ ALLOW = {
         "install.sh runs before any engine exists (`curl | bash`, npx), so it cannot source "
         "scripts/portable.sh; its rel_in_use scan reads ENGINE_DIR from /proc/<pid>/environ, which "
         "MSYS exposes for the bash workers it looks for (ADR inventory row, kept as is)",
-    ("scripts/cli/claude_headless.py", "os.kill"):
-        "the lane runner is a self-contained stdlib script by design (#347, ADR §4): os.kill/killpg "
+    ("scripts/cli/headless_core.py", "os.kill"):
+        "the shared lane runner core is a self-contained stdlib script by design (#347, ADR §4; split out of claude_headless.py in #480): os.kill/killpg "
         "sit in the POSIX branch of kill_tree and the `stop` command, both behind `if WINDOWS` whose "
         "other branch is `taskkill /T /F`",
-    ("scripts/cli/claude_headless.py", "os.setsid"):
+    ("scripts/cli/headless_core.py", "os.setsid"):
         "the runner's own new session on POSIX, guarded by `if not WINDOWS` (#347)",
-    ("scripts/cli/claude_headless.py", "ps -o"):
+    ("scripts/cli/headless_core.py", "ps -o"):
         "POSIX branch of kill_tree's descendant scan (`ps -e -o pid=,ppid=`), never reached on Windows",
     ("scripts/supervise.sh", "ps -o"):
         "sup_tree_cpu reads a tmux pane's process tree; headless lanes (the only Windows lanes) report "
