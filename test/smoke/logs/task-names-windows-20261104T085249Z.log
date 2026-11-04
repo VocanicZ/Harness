@@ -1,0 +1,153 @@
+# Per-HARNESS_HOME, logon-only Task Scheduler task names on winsma (#489, PRD #475)
+# date: 2026-11-04T08:52:49Z
+# host: winsma via ssh alias (HARNESS_WINDOWS_HOST), C:\hx-489\ under the winsma rules (lock, isolation, before/after guard, credential scan)
+# engine: the issue/489 branch cloned into C:\hx-489\src; two HARNESS_HOMEs, C:\hx-489\homeA and homeB, neither is ~/.harness
+# schtasks is real except /Run and /End, which a wrapper swallows so no supervisor or dashboard process is started; the task names are
+#   recorded in C:\hx-489\tasks before anything is registered, so cleanup deletes them by name
+# claude: not used, no token usage
+#
+[08:52:49] run: #489 on winsma, mode base: # #489 on winsma, inside C:\hx-489 (cwd = $HX_DIR; HARNESS_HOME etc. are the isolation's).
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+fail=0; ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
+st(){ MSYS2_ARG_CONV_EXCL='*' schtasks "$@"; }
+say "== host: $(uname -srm) | bash $BASH_VERSION"
+say "== 1. clone the branch under test"
+git clone -q --branch issue/489 https://github.com/VocanicZ/Harness.git src || { say "clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+H="$(pwd)/src/bin/harness"
+# schtasks wrapper: everything real except /Run and /End, so no supervisor or dashboard process is started
+mkdir -p stubs
+cat > stubs/schtasks <<'WRAP'
+#!/usr/bin/env bash
+case "$1" in /Run|/End) exit 0;; esac
+MSYS2_ARG_CONV_EXCL='*' exec schtasks.exe "$@"
+WRAP
+chmod +x stubs/schtasks
+export HARNESS_SCHTASKS="$HX_DIR/stubs/schtasks"
+export HARNESS_SUPERVISE_CONF="$HX_DIR/none.conf"
+HA="$HX_DIR/homeA"; HB="$HX_DIR/homeB"; mkdir -p "$HA" "$HB"
+tnames(){ ( export HARNESS_HOME="$1"; source "$HX_DIR/src/scripts/portable.sh"; win_task_name harness-supervise; win_task_name harness-web ); }
+SA=$(tnames "$HA" | sed -n 1p); WA=$(tnames "$HA" | sed -n 2p); SB=$(tnames "$HB" | sed -n 1p); WB=$(tnames "$HB" | sed -n 2p)
+say "== 2. expected task names: A: $SA $WA | B: $SB $WB"
+printf '%s\n' "$SA" "$WA" "$SB" "$WB" >> "$HX_DIR/tasks"      # recorded for cleanup before anything is registered
+ok "four distinct names" '[[ $(printf "%s\n" "$SA" "$WA" "$SB" "$WB" | sort -u | wc -l) == 4 ]]'
+say "== 3. install both homes side by side"
+for h in "$HA" "$HB"; do
+  say "-- HARNESS_HOME=$h"
+  HARNESS_HOME="$h" bash "$H" supervise --install 2>&1 | sed 's/^/   /'
+  HARNESS_HOME="$h" bash "$H" web --install 2>&1 | sed 's/^/   /'
+done
+for n in "$SA" "$WA" "$SB" "$WB"; do
+  ok "registered: $n" 'st /Query /TN "$n" >/dev/null 2>&1'
+  xml="$(st /Query /TN "$n" /XML 2>/dev/null | tr -d '\0\r')"
+  ok "  $n: logon trigger" 'grep -q "<LogonTrigger>" <<<"$xml"'
+  ok "  $n: no boot trigger" '! grep -q "<BootTrigger>" <<<"$xml"'
+done
+say "Harness tasks now: $(st /Query /FO CSV /NH 2>/dev/null | grep -i 'Harness\\\\harness-' | cut -d, -f1 | tr '\n' ' ')"
+say "== 4. uninstall home A only"
+HARNESS_HOME="$HA" bash "$H" supervise --uninstall 2>&1 | sed 's/^/   /'
+HARNESS_HOME="$HA" bash "$H" web --uninstall 2>&1 | sed 's/^/   /'
+for n in "$SA" "$WA"; do ok "gone: $n" '! st /Query /TN "$n" >/dev/null 2>&1'; done
+for n in "$SB" "$WB"; do ok "kept: $n" 'st /Query /TN "$n" >/dev/null 2>&1'; done
+say "== 5. uninstall home B"
+HARNESS_HOME="$HB" bash "$H" supervise --uninstall 2>&1 | sed 's/^/   /'
+HARNESS_HOME="$HB" bash "$H" web --uninstall 2>&1 | sed 's/^/   /'
+for n in "$SB" "$WB"; do ok "gone: $n" '! st /Query /TN "$n" >/dev/null 2>&1'; done
+say "result: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"; exit $fail
+[08:52:52] lock: hx-lock taken by #489 (harness-i489)
+[08:53:00] guard: before recorded
+[08:53:25] credentials: before scan recorded
+[08:53:25] exec: # #489 on winsma, inside C:\hx-489 (cwd = $HX_DIR; HARNESS_HOME etc. are the isolation's).
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+fail=0; ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
+st(){ MSYS2_ARG_CONV_EXCL='*' schtasks "$@"; }
+say "== host: $(uname -srm) | bash $BASH_VERSION"
+say "== 1. clone the branch under test"
+git clone -q --branch issue/489 https://github.com/VocanicZ/Harness.git src || { say "clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+H="$(pwd)/src/bin/harness"
+# schtasks wrapper: everything real except /Run and /End, so no supervisor or dashboard process is started
+mkdir -p stubs
+cat > stubs/schtasks <<'WRAP'
+#!/usr/bin/env bash
+case "$1" in /Run|/End) exit 0;; esac
+MSYS2_ARG_CONV_EXCL='*' exec schtasks.exe "$@"
+WRAP
+chmod +x stubs/schtasks
+export HARNESS_SCHTASKS="$HX_DIR/stubs/schtasks"
+export HARNESS_SUPERVISE_CONF="$HX_DIR/none.conf"
+HA="$HX_DIR/homeA"; HB="$HX_DIR/homeB"; mkdir -p "$HA" "$HB"
+tnames(){ ( export HARNESS_HOME="$1"; source "$HX_DIR/src/scripts/portable.sh"; win_task_name harness-supervise; win_task_name harness-web ); }
+SA=$(tnames "$HA" | sed -n 1p); WA=$(tnames "$HA" | sed -n 2p); SB=$(tnames "$HB" | sed -n 1p); WB=$(tnames "$HB" | sed -n 2p)
+say "== 2. expected task names: A: $SA $WA | B: $SB $WB"
+printf '%s\n' "$SA" "$WA" "$SB" "$WB" >> "$HX_DIR/tasks"      # recorded for cleanup before anything is registered
+ok "four distinct names" '[[ $(printf "%s\n" "$SA" "$WA" "$SB" "$WB" | sort -u | wc -l) == 4 ]]'
+say "== 3. install both homes side by side"
+for h in "$HA" "$HB"; do
+  say "-- HARNESS_HOME=$h"
+  HARNESS_HOME="$h" bash "$H" supervise --install 2>&1 | sed 's/^/   /'
+  HARNESS_HOME="$h" bash "$H" web --install 2>&1 | sed 's/^/   /'
+done
+for n in "$SA" "$WA" "$SB" "$WB"; do
+  ok "registered: $n" 'st /Query /TN "$n" >/dev/null 2>&1'
+  xml="$(st /Query /TN "$n" /XML 2>/dev/null | tr -d '\0\r')"
+  ok "  $n: logon trigger" 'grep -q "<LogonTrigger>" <<<"$xml"'
+  ok "  $n: no boot trigger" '! grep -q "<BootTrigger>" <<<"$xml"'
+done
+say "Harness tasks now: $(st /Query /FO CSV /NH 2>/dev/null | grep -i 'Harness\\\\harness-' | cut -d, -f1 | tr '\n' ' ')"
+say "== 4. uninstall home A only"
+HARNESS_HOME="$HA" bash "$H" supervise --uninstall 2>&1 | sed 's/^/   /'
+HARNESS_HOME="$HA" bash "$H" web --uninstall 2>&1 | sed 's/^/   /'
+for n in "$SA" "$WA"; do ok "gone: $n" '! st /Query /TN "$n" >/dev/null 2>&1'; done
+for n in "$SB" "$WB"; do ok "kept: $n" 'st /Query /TN "$n" >/dev/null 2>&1'; done
+say "== 5. uninstall home B"
+HARNESS_HOME="$HB" bash "$H" supervise --uninstall 2>&1 | sed 's/^/   /'
+HARNESS_HOME="$HB" bash "$H" web --uninstall 2>&1 | sed 's/^/   /'
+for n in "$SB" "$WB"; do ok "gone: $n" '! st /Query /TN "$n" >/dev/null 2>&1'; done
+say "result: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"; exit $fail
+[08:53:26] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release
+[08:53:26] == 1. clone the branch under test
+[08:53:32] src at c194b01
+[08:53:34] == 2. expected task names: A: Harness\harness-supervise-a91934bb Harness\harness-web-a91934bb | B: Harness\harness-supervise-9e4214c8 Harness\harness-web-9e4214c8
+[08:53:34] PASS four distinct names
+[08:53:34] == 3. install both homes side by side
+[08:53:34] -- HARNESS_HOME=C:/hx-489/homeA
+     wrote C:/hx-489/homeA/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-a91934bb)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-a91934bb   log: C:/hx-489/homeA/supervise.log
+     wrote C:/hx-489/homeA/tasks/harness-web.sh (scheduled task Harness\harness-web-a91934bb)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-a91934bb
+[08:53:40] -- HARNESS_HOME=C:/hx-489/homeB
+     wrote C:/hx-489/homeB/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-9e4214c8)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-9e4214c8   log: C:/hx-489/homeB/supervise.log
+     wrote C:/hx-489/homeB/tasks/harness-web.sh (scheduled task Harness\harness-web-9e4214c8)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-9e4214c8
+[08:53:46] PASS registered: Harness\harness-supervise-a91934bb
+[08:53:46] PASS   Harness\harness-supervise-a91934bb: logon trigger
+[08:53:46] PASS   Harness\harness-supervise-a91934bb: no boot trigger
+[08:53:46] PASS registered: Harness\harness-web-a91934bb
+[08:53:46] PASS   Harness\harness-web-a91934bb: logon trigger
+[08:53:46] PASS   Harness\harness-web-a91934bb: no boot trigger
+[08:53:46] PASS registered: Harness\harness-supervise-9e4214c8
+[08:53:47] PASS   Harness\harness-supervise-9e4214c8: logon trigger
+[08:53:47] PASS   Harness\harness-supervise-9e4214c8: no boot trigger
+[08:53:47] PASS registered: Harness\harness-web-9e4214c8
+[08:53:47] PASS   Harness\harness-web-9e4214c8: logon trigger
+[08:53:47] PASS   Harness\harness-web-9e4214c8: no boot trigger
+[08:53:49] Harness tasks now: 
+[08:53:49] == 4. uninstall home A only
+     removed scheduled task Harness\harness-supervise-a91934bb
+     removed scheduled task Harness\harness-web-a91934bb
+[08:53:52] PASS gone: Harness\harness-supervise-a91934bb
+[08:53:52] PASS gone: Harness\harness-web-a91934bb
+[08:53:52] PASS kept: Harness\harness-supervise-9e4214c8
+[08:53:52] PASS kept: Harness\harness-web-9e4214c8
+[08:53:52] == 5. uninstall home B
+     removed scheduled task Harness\harness-supervise-9e4214c8
+     removed scheduled task Harness\harness-web-9e4214c8
+[08:53:55] PASS gone: Harness\harness-supervise-9e4214c8
+[08:53:55] PASS gone: Harness\harness-web-9e4214c8
+[08:53:55] result: PASS
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-489
+credentials: GH_TOKEN written nowhere new
+[08:54:38] cleanup: winsma clean (no hx-489, lock released, no run task or process)
+[08:54:38] run: OK
