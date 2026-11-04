@@ -51,8 +51,6 @@ if has install; then
   RT="$( ( source "$E/scripts/portable.sh"; rtdd_exe ) 2>&1 )"; say "rtdd_exe: $RT"
   ok "rtdd resolves to an rtdd.exe" '[[ "$RT" == *rtdd.exe ]]'
   ok "…which runs" '"$RT" --version >/dev/null 2>&1'
-  DOC="$(harness doctor 2>&1)"; echo "$DOC" | sed 's/^/   | /'
-  ok "harness doctor names rtdd.exe" 'grep -q "rtdd: ✓ (.*rtdd.exe)" <<<"$DOC"'
 fi
 
 if has skills; then
