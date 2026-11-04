@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Benchmark arm: plain Claude Code (#382)
+
+- `bench/run.py plain` runs one `claude` session in the fresh run repo, on the host's existing CLI login: never
+  `--bare`, no API key, no copied credentials dir. It starts from `--disable-slash-commands --strict-mcp-config
+  --setting-sources project,local` with auto-memory off, and the account's default model and effort.
+- Isolation is proven from the session's init, kept in the run's logs: the arm fails, before any work, unless the init
+  lists 0 skills, 0 plugins and 0 MCP servers (plugins built into the claude binary do not count).
+- The brief is the first message. When the session stops before the work is delivered to `main`, the scripted reply
+  `keep going, decide for yourself` is sent, at most 20 times; the count and the commits on `main` are recorded in the
+  results JSON next to the core's tokens, models, $, coding/testing time and hidden-test result.
+
 ### Benchmark runner core: `bench/run.py` (#381)
 
 - `bench/run.py <arm>` runs one benchmark arm through a pluggable arm interface (`bench/arms/<arm>.py`, with a `stub`
