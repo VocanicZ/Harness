@@ -31,3 +31,4 @@ of it. (`gpt-5.5`, in the host's model catalog, was refused by the server for a 
 | `VERSION` | `codex --version`, then the capture date and host. |
 | `fake-cli` | Stands in for `codex` when the matrix runs a typed launch line: it writes `transcript.jsonl` as the rollout of `session` under `$CODEX_HOME/sessions/<today>/`, its `session_meta` stamped with the pane's cwd and the time now, as the capture did. |
 | `stop-hook` | One end of turn as Codex runs it: the harness-ralph Stop hook (`plugins/codex/harness-ralph/hooks/stop-hook.py`, which `codex_prereqs` installs) handed `hook-input.json` for the given worktree, session and reply. |
+| `stream-json/` | #481: what the headless lane runner (`scripts/cli/codex_headless.py`) reads, and the fake `codex` that replays it. Its own [README](stream-json/README.md). |

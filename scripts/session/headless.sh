@@ -172,6 +172,23 @@ except (OSError, ValueError):
 sid = st.get("session_id") if isinstance(st, dict) else None
 if isinstance(sid, str) and sid and st.get("session_started") and st.get("cwd") == os.environ["WD"]:
     print(sid)' 2>/dev/null; return 0; }
+# headless_lane_session <wd> — the agent session the newest lane in <wd> runs, once its CLI has reported
+# one (state.json's session_started): a CLI that names its own sessions (codex's thread id) has no id of
+# Harness's to put in the lane before its first turn. Nothing before that.
+headless_lane_session(){ ROOT="$(_hl_root)" WD="$1" python3 -c '
+import glob, json, os
+best = None
+for f in glob.glob(os.path.join(os.environ["ROOT"], "*", "state.json")):
+    try:
+        st = json.load(open(f, encoding="utf-8"))
+        at = os.path.getmtime(f)
+    except (OSError, ValueError):
+        continue
+    if isinstance(st, dict) and st.get("cwd") == os.environ["WD"] and st.get("session_started") and st.get("session_id"):
+        if best is None or at >= best[0]:
+            best = (at, st["session_id"])
+if best:
+    print(best[1])' 2>/dev/null; return 0; }
 # Attaching to a lane (#487, PRD #475): the live watch (claude_headless.py watch, a background job) plus
 # the lane's input. Each line typed here goes to the lane's inbox through cli_send — the next turn, queued
 # behind a running one — and Ctrl-C (or a TERM) detaches: it ends the watch and this attach, never the

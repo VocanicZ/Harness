@@ -519,6 +519,22 @@ def pane(lane, now=None):
     return "\n".join(out) + "\n"
 
 
+def harness_watch_line(ev):
+    """The lines of `watch` that are the core's own — a turn's start and end, and a CLI line that was not
+    JSON — as `harness attach` prints them. None for any other event: the adapter's to show."""
+    t, sub = ev.get("type"), ev.get("subtype")
+    if t != "harness":
+        return None
+    if sub == "turn_start":
+        return f"── turn {ev.get('turn')} ({ev.get('kind', 'message')}) ── {ev.get('message', '')}"
+    if sub == "turn_end":
+        extra = " (interrupted)" if ev.get("interrupted") else " (stopped)" if ev.get("stopped") else ""
+        return f"── turn {ev.get('turn')} ended: {ev.get('state')}{extra}"
+    if sub == "stdout":
+        return ev.get("line")
+    return None
+
+
 def load_adapter(name):
     """The adapter module scripts/cli/<name>_headless.py, by file path (it imports this core itself), and
     its ADAPTER object. A lane's state.json names its adapter."""

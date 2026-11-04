@@ -165,26 +165,26 @@ kill "$stranger" 2>/dev/null; wait "$stranger" 2>/dev/null
 
 echo "== a CLI with no headless runner is refused as tmux-only =="
 assert_ok "claude may run headless" cli_backend_check
-msg="$(HARNESS_CLI=codex cli_backend_check 2>&1)"; rc=$?
-assert_eq "$rc" 1 "codex on headless is refused"
-assert_ok "…naming the CLI as tmux-only" grep -qF "agent CLI 'codex' is tmux-only" <<<"$msg"
-assert_ok "tmux takes any CLI" env HARNESS_SESSION_BACKEND=tmux HARNESS_CLI=codex bash -c "source '$ROOT/scripts/cli/dispatch.sh'; cli_backend_check"
-assert_eq "$(cli_headless_list | xargs)" "claude copilot hermes opencode" "claude, copilot (#483), hermes and opencode are the CLIs with a headless runner"
+msg="$(HARNESS_CLI=agy cli_backend_check 2>&1)"; rc=$?
+assert_eq "$rc" 1 "agy on headless is refused"
+assert_ok "…naming the CLI as tmux-only" grep -qF "agent CLI 'agy' is tmux-only" <<<"$msg"
+assert_ok "tmux takes any CLI" env HARNESS_SESSION_BACKEND=tmux HARNESS_CLI=agy bash -c "source '$ROOT/scripts/cli/dispatch.sh'; cli_backend_check"
+assert_eq "$(cli_headless_list | xargs)" "claude codex copilot hermes opencode" "claude, codex, copilot (#483), hermes and opencode are the CLIs with a headless runner"
 proj="$RUN_DIR/proj"; mkdir -p "$proj"
 out="$( cd "$proj" && unset STATE_DIR && HARNESS_INIT_NONINTERACTIVE=1 HARNESS_MODE=issue-only \
-  HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=hlx HARNESS_CLI=codex bash "$ROOT/scripts/init.sh" 2>&1 </dev/null)"; rc=$?
-assert_eq "$rc" 1 "harness init refuses headless + codex"
-assert_ok "…naming codex as tmux-only" grep -qF "agent CLI 'codex' is tmux-only" <<<"$out"
+  HARNESS_OWNER=acme HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=hlx HARNESS_CLI=agy bash "$ROOT/scripts/init.sh" 2>&1 </dev/null)"; rc=$?
+assert_eq "$rc" 1 "harness init refuses headless + agy"
+assert_ok "…naming agy as tmux-only" grep -qF "agent CLI 'agy' is tmux-only" <<<"$out"
 assert_no "…and writes no config" test -f "$proj/.harness/config"
-out="$(HARNESS_CLI=codex DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
-assert_ok "harness doctor flags it" grep -qF "session backend: agent CLI 'codex' is tmux-only" <<<"$out"
+out="$(HARNESS_CLI=agy DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
+assert_ok "harness doctor flags it" grep -qF "session backend: agent CLI 'agy' is tmux-only" <<<"$out"
 assert_eq "$rc" 1 "…as a problem"
-out="$(cd "$proj" && STATE_DIR="$RUN_DIR/nostate" HARNESS_CLI=codex bash "$ROOT/scripts/start.sh" 2>&1)"; rc=$?
+out="$(cd "$proj" && STATE_DIR="$RUN_DIR/nostate" HARNESS_CLI=agy bash "$ROOT/scripts/start.sh" 2>&1)"; rc=$?
 assert_no "harness start refuses it" test "$rc" -eq 0
-assert_ok "…naming codex as tmux-only" grep -qF "agent CLI 'codex' is tmux-only" <<<"$out"
+assert_ok "…naming agy as tmux-only" grep -qF "agent CLI 'agy' is tmux-only" <<<"$out"
 : > "$LOG"; lane i11 normal
-( HARNESS_CLI=codex; launch_agent hlt-main-i11 "$WD" 2>/dev/null ); rc=$?
-assert_eq "$rc" 1 "launch_agent with codex on headless fails"
+( HARNESS_CLI=agy; launch_agent hlt-main-i11 "$WD" 2>/dev/null ); rc=$?
+assert_eq "$rc" 1 "launch_agent with agy on headless fails"
 assert_no "…starting no lane" sess_live hlt-main-i11
 assert_no "…and recording no goal" test -f "$RUN_DIR/hlt-main-i11.goal"
 
