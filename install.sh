@@ -25,8 +25,14 @@ py_runs(){ local o; o="$("$@" -c 'import sys; print(sys.version_info[0])' 2>/dev
 # python_probe — the interpreter the python3 shim runs: HARNESS_PYTHON, else the first of python3 /
 # python / `py -3` that runs, a single name resolved to its full path (so the shim never finds itself).
 # Looked up with the shim's own directory off PATH.
-python_probe(){ local c w path=":$PATH:" sd="${HARNESS_HOME:-$HOME/.harness}/bin"
-  path="${path//:$sd:/:}"; path="${path#:}"; path="${path%:}"
+# The shim is recognised by its own text, not by its path: HARNESS_HOME may be written C:/x or C:\x while PATH holds /c/x, and a
+# probe that finds the shim writes a shim that runs itself, forever (#491: found on the first `harness update` of such a home).
+python_probe(){ local c w path="" e IFS_=$IFS
+  local -a pe; IFS=: read -r -a pe <<<"$PATH"; IFS=$IFS_
+  for e in ${pe[@]+"${pe[@]}"}; do
+    [[ -n $e && -f $e/python3 ]] && grep -qF "python3 — Harness's shim" "$e/python3" 2>/dev/null && continue
+    path+="${path:+:}$e"
+  done
   if [[ -n ${HARNESS_PYTHON:-} ]]; then printf '%s\n' "$HARNESS_PYTHON"; return 0; fi
   for c in python3 python "py -3"; do
     read -r -a w <<<"$c"
@@ -446,7 +452,10 @@ engine_migrate_git(){
   rm -f "$tmp"
   ln -s "releases/$tag" "$tmp" || { echo "$REL_CMD: could not create $tmp" >&2; return 3; }
   if ! mv -T "$h/engine" "$h/releases/$name"; then
-    rm -f "$tmp"; echo "$REL_CMD: could not move $h/engine to $h/releases/$name" >&2; return 3
+    rm -f "$tmp"; echo "$REL_CMD: could not move $h/engine to $h/releases/$name" >&2
+    # Windows cannot rename a directory with a file open in it: a fleet's workers, a shell inside the engine.
+    inst_windows && echo "$REL_CMD: on Windows something still has a file open under $h/engine (a running fleet, a shell whose folder is inside it): run \`harness stop\` in each project, leave the folder, and try again" >&2
+    return 3
   fi
   if ! mv -T "$tmp" "$h/engine"; then
     mv -T "$h/releases/$name" "$h/engine" 2>/dev/null; rm -f "$tmp"

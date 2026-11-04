@@ -152,7 +152,7 @@ expect_fail na-no-source "n/a has no source link" "an n/a with no source"
 mutate na-not-allowed 's = s.replace("| `harness stop` | ✓ | ✓ |", "| `harness stop` | ✓ | n/a: not verified on winsma (https://example.com) |")'
 expect_fail na-not-allowed "Windows n/a is allowed only for" "n/a on a feature Windows can do"
 
-mutate target-no-issue 's = s.replace("| `harness update` | ✓ | ✓ target (#475 task 5) |", "| `harness update` | ✓ | ✓ target |")'
+mutate target-no-issue 's = s.replace("| `harness release` | ✓ | ✓ target (#475 task 8) |", "| `harness release` | ✓ | ✓ target |")'
 expect_fail target-no-issue "target names no issue" "a target with no issue"
 
 mutate missing-subcommand 's = s.replace("| `harness doctor` | ✓ | ✓ |\n", "")'

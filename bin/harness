@@ -16,7 +16,11 @@ export ENGINE_DIR
 # else ENGINE_DIR itself (a dev clone or test sandbox keeps naming itself). ENGINE_DIR stays the
 # concrete release, so a launched worker keeps reading its own release after the link flips.
 _link="${HARNESS_HOME:-$HOME/.harness}/engine"
-if [[ "$(realpath "$_link" 2>/dev/null)" == "$ENGINE_DIR" ]]; then HARNESS_ENGINE_LINK="$_link"; else HARNESS_ENGINE_LINK="$ENGINE_DIR"; fi
+# Compared in MSYS form (#491): on Windows `realpath` keeps the spelling it is given, so a HARNESS_HOME written C:/x (a Windows
+# environment variable, a test isolation) resolves to C:/x/releases/v while ENGINE_DIR is /c/x/releases/v, and the link was
+# never taken: the supervise and web tasks then pinned one release's path and an update never moved them.
+_pn(){ cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
+if [[ "$(_pn "$(realpath "$_link" 2>/dev/null)")" == "$(_pn "$ENGINE_DIR")" ]]; then HARNESS_ENGINE_LINK="$_link"; else HARNESS_ENGINE_LINK="$ENGINE_DIR"; fi
 export HARNESS_ENGINE_LINK
 # #355: on Windows, the path variables native programs read (python.exe for stats/fleetview/forecast,
 # exec'd straight from here) are exported in mixed form (C:/…); a no-op elsewhere.
