@@ -190,10 +190,71 @@ offer(){ local q="$1" show="$2" rc; shift 2
   (( rc == 1 )) && echo "  skipped — install it yourself with:  $show" >&2 \
                 || echo "  no terminal to ask (set HARNESS_INSTALL_PREREQS=1 to accept) — run:  $show" >&2
   return 1; }
+# ── native Windows: prerequisites through winget (#488, PRD #475) ────────────────────────────────
+# On Git Bash the package manager is winget, the way apt or brew is on Linux. HARNESS_WINGET names the
+# binary (the suite points it at a logging stub: no test ever runs a real `winget install`). Each missing
+# prerequisite is its own offer with its own winget id, so a "no" to one does not skip the rest.
+WINGET_GIT=Git.Git                 # git, bash, curl, sha256sum, tar
+WINGET_PYTHON=Python.Python.3.13   # a real Python 3, not the Microsoft Store stub
+WINGET_GH=GitHub.cli
+WINGET_CLAUDE=Anthropic.ClaudeCode
+WINGET_NODE=OpenJS.NodeJS.LTS      # npx, for rtdd's installer
+inst_winget(){ printf '%s\n' "${HARNESS_WINGET:-winget}"; }
+# winget_cmd <id> — the exact command that installs <id> (non-interactive: both agreements accepted).
+winget_cmd(){ printf '%q install --id %s -e --source winget --accept-package-agreements --accept-source-agreements' "$(inst_winget)" "$1"; }
+# winget_offer <question> <id> — offer one winget package; without winget, say what to run instead.
+winget_offer(){ local q="$1" id="$2"
+  if need "$(inst_winget)"; then offer "$q" "$(winget_cmd "$id")" && _WINGET_RAN=1
+  else echo "  ! $q — winget is not on PATH (install 'App Installer' from the Microsoft Store, or set HARNESS_WINGET); then run:  $(winget_cmd "$id")" >&2; fi; }
+# offer_prereqs_windows — Git for Windows, Python 3, gh, an agent CLI (Claude Code) and Node (for rtdd),
+# each only when missing. Then gh sign-in, as on Linux.
+offer_prereqs_windows(){ local b git_missing=0 _WINGET_RAN=0
+  for b in $PREREQ_TOOLS; do [[ $b == gh ]] || need "$b" || git_missing=1; done
+  (( git_missing )) && winget_offer "Git for Windows (git, curl, sha256sum, tar) is missing — install it with winget?" "$WINGET_GIT"
+  python_probe >/dev/null || winget_offer "No Python 3 that runs (the Microsoft Store python3 stub does not count) — install Python with winget?" "$WINGET_PYTHON"
+  need gh || winget_offer "gh (GitHub CLI) is missing — install it with winget?" "$WINGET_GH"
+  declare -F cli_list >/dev/null && inst_local_bin
+  if declare -F cli_list >/dev/null && [[ -z "$(_host_clis)" ]] && cli_list | grep -qx claude; then
+    winget_offer "No agent CLI found — install Claude Code with winget?" "$WINGET_CLAUDE"
+  fi
+  if [[ "${HARNESS_SKIP_RTDD:-0}" != 1 && -z "${_NODE_OFFERED:-}" ]] && ! need rtdd && ! need npx; then
+    _NODE_OFFERED=1
+    winget_offer "Node.js (npx) is missing — rtdd's installer needs it; install Node with winget?" "$WINGET_NODE"
+  fi
+  (( _WINGET_RAN )) && echo "  NOTE: winget updates PATH for NEW terminals only. If a prerequisite below still reads MISSING, open a new Git Bash and re-run install.sh." >&2
+  if need gh && ! gh auth status >/dev/null 2>&1; then
+    offer "gh is not signed in — run gh auth login now?" "gh auth login"
+  fi
+  return 0; }
+# check_windows_host — Developer Mode and the git identity, each with the exact fix. Developer Mode
+# matters because the engine link must be a real symlink: off in the registry is only a problem when
+# this shell cannot make one anyway (an administrator can). rc 1 only for that; a missing git identity
+# is a warning (GIT_AUTHOR_* in the environment is a fine alternative). Windows only.
+WIN_DEVMODE_FIX='turn on Developer Mode (Settings → System → For developers → Developer Mode), or run this shell as an administrator; in an administrator PowerShell: reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v AllowDevelopmentWithoutDevLicense /d 1'
+WIN_IDENTITY_FIX='git config --global user.name "Your Name"  &&  git config --global user.email "you@users.noreply.github.com"'
+inst_devmode(){ local reg="${HARNESS_REG:-reg}" o
+  need "$reg" || { echo unknown; return 0; }
+  o="$("$reg" query 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' //v AllowDevelopmentWithoutDevLicense 2>/dev/null)" || { echo off; return 0; }
+  if grep -q '0x1' <<<"$o"; then echo on; else echo off; fi; }
+inst_symlink_ok(){ local d rc=1; d="$(mktemp -d)" || return 1
+  ( cd "$d" && mkdir t && MSYS=winsymlinks:nativestrict ln -s t l 2>/dev/null && [[ -L l ]] ) && rc=0
+  rm -rf "$d"; return "$rc"; }
+check_windows_host(){ local ok=1 m
+  inst_windows || return 0
+  if [[ "$(inst_devmode)" == off ]]; then
+    if inst_symlink_ok; then echo "  Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it." >&2
+    else echo "MISSING: Developer Mode — this shell cannot make a real symlink, and the engine link must be one. Fix: $WIN_DEVMODE_FIX" >&2; ok=0; fi
+  fi
+  m=()
+  [[ -n "$(git config --get user.name 2>/dev/null)" || -n "${GIT_AUTHOR_NAME:-}" ]] || m+=(user.name)
+  [[ -n "$(git config --get user.email 2>/dev/null)" || -n "${GIT_AUTHOR_EMAIL:-}" ]] || m+=(user.email)
+  (( ${#m[@]} )) && echo "  ! git has no ${m[*]} — a lane's first commit would fail. Fix: $WIN_IDENTITY_FIX" >&2
+  [[ "$ok" == 1 ]]; }
 # offer_prereqs — the tools (one package-manager command), then gh sign-in, then an agent CLI (Claude
 # Code, through the claude adapter's own cli_prereqs --install) when adapters are loaded and no agent
 # CLI is on the host. Always rc 0: check_prereqs, which runs next, is the verdict.
 offer_prereqs(){ local b miss=() m cmd
+  if inst_windows; then offer_prereqs_windows; return 0; fi
   for b in $PREREQ_TOOLS; do need "$b" || miss+=("$b"); done
   if (( ${#miss[@]} )); then
     if m="$(pkg_manager)"; then
@@ -638,6 +699,7 @@ link_path(){
 main(){
   offer_prereqs
   check_prereqs || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
+  check_windows_host || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }
   # Windows (#356, #403): the shim first, and its directory first on PATH, so every later `python3` —
   # here and in what main runs — reaches a real interpreter, never the Microsoft Store stub.
   install_python_shim || { echo "Prerequisites unmet — fix the above and re-run." >&2; exit 1; }

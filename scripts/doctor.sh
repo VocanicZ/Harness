@@ -130,7 +130,7 @@ doctor_windows(){ local problems=0 u bx py t d
   if py="$(python3_version)"; then
     echo "  python3: $py ($(command -v python3)) ✓"
   else
-    echo "  python3: does not run (the Microsoft Store stub?) — $PYTHON3_FIX"; problems=$((problems+1))
+    echo "  python3: does not run (the Microsoft Store stub?) — $PYTHON3_FIX (${HARNESS_WINGET:-winget} install --id Python.Python.3.13 -e)"; problems=$((problems+1))
   fi
   d="$(mktemp -d)"
   if ( cd "$d" && mkdir t && MSYS=winsymlinks:nativestrict ln -s t l 2>/dev/null && [[ -L l ]] ); then echo "  symlinks: can create ✓"
@@ -146,6 +146,44 @@ doctor_windows(){ local problems=0 u bx py t d
   return "$problems"
 }
 
+# doctor_windows_prereqs — what install.sh offers through winget, and what it checks, as doctor findings
+# (#488): gh, an agent CLI, Node/rtdd, Developer Mode, the git identity and the per-repo git settings of
+# the fleet's checkout. Each failure names its fix (the winget command, or the setting). `--fix` writes
+# the per-repo settings (win_repo_config); the rest is the operator's. Only on Windows; returns the count.
+doctor_windows_prereqs(){ local problems=0 w="${HARNESS_WINGET:-winget}" c co m dm any= k v
+  is_windows || return 0
+  if command -v gh >/dev/null 2>&1; then echo "  gh: ✓"
+  else echo "  gh: MISSING — $w install --id GitHub.cli -e"; problems=$((problems+1)); fi
+  if declare -F cli_list >/dev/null; then
+    for c in $(cli_list); do command -v "$(cli_with "$c" cli_bin 2>/dev/null)" >/dev/null 2>&1 && any="$any $c"; done
+    if [[ -n $any ]]; then echo "  agent CLI:$any ✓"
+    else echo "  agent CLI: MISSING — $w install --id Anthropic.ClaudeCode -e"; problems=$((problems+1)); fi
+  fi
+  if command -v rtdd >/dev/null 2>&1; then echo "  rtdd: ✓"
+  elif command -v npx >/dev/null 2>&1; then echo "  rtdd: not installed (npx is here: re-run install.sh)"
+  else echo "  rtdd: not installed, and no Node — optional (lanes fall back to the closest tests); $w install --id OpenJS.NodeJS.LTS -e, then re-run install.sh"; fi
+  dm="$(win_devmode)"
+  case "$dm" in
+    on) echo "  developer mode: on ✓" ;;
+    *)  if win_symlink_ok; then echo "  developer mode: $dm, but symlinks can be made here (administrator) ✓"
+        else echo "  developer mode: $dm — $WIN_DEVMODE_FIX"; problems=$((problems+1)); fi ;;
+  esac
+  if m="$(win_git_identity_missing)"; then echo "  git identity: no $m — $WIN_IDENTITY_FIX"; problems=$((problems+1))
+  else echo "  git identity: ✓"; fi
+  co="$(fleet_checkout 2>/dev/null)"
+  if [[ -n $co ]] && git -C "$co" rev-parse --git-dir >/dev/null 2>&1; then
+    m=
+    for k in core.longpaths=true core.autocrlf=false core.eol=lf; do
+      v="$(git -C "$co" config --local --get "${k%%=*}" 2>/dev/null)"; [[ "$v" == "${k#*=}" ]] || m="$m ${k%%=*}"
+    done
+    if [[ -z $m ]]; then echo "  git settings ($co): longpaths + LF ✓"
+    elif (( DOCTOR_FIX )); then win_repo_config "$co"; echo "  git settings ($co):$m were not set → set (git -C ... config, this repo only)"
+    else echo "  git settings ($co):$m not set — harness doctor --fix, or: git -C \"$co\" config core.longpaths true && git -C \"$co\" config core.autocrlf false && git -C \"$co\" config core.eol lf"
+      problems=$((problems+1)); fi
+  fi
+  return "$problems"
+}
+
 doctor_main(){
   local a; for a in "$@"; do case "$a" in --fix) DOCTOR_FIX=1;; -h|--help) echo "usage: harness doctor [--fix]"; return 0;; esac; done
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
@@ -157,7 +195,7 @@ doctor_main(){
   # #349: the backend must be one the fleet's CLI can run on (headless: claude only).
   local why; why="$(cli_backend_check 2>&1)" || { echo "session backend: $why"; sp=1; }
   local wp=0
-  if is_windows; then echo "windows:"; doctor_windows || wp=$?; fi
+  if is_windows; then echo "windows:"; doctor_windows || wp=$?; doctor_windows_prereqs || wp=$((wp+$?)); fi
   echo "locks:"
   local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?

@@ -259,6 +259,37 @@ win_python3_check(){
   is_windows || return 0
   python3_version >/dev/null && return 0
   echo "python3 does not run a Python 3 (the Microsoft Store stub?) — $PYTHON3_FIX" >&2; return 1; }
+# ── Windows host checks (#488, PRD #475): the facts `harness doctor` and install.sh both report ─────
+# install.sh runs before any engine exists, so it carries its own copy of the fix texts and the registry
+# probe; test/test_windows_installer.sh fails when the two drift.
+# WIN_DEVMODE_FIX — what to do when real symlinks cannot be made.
+WIN_DEVMODE_FIX='turn on Developer Mode (Settings → System → For developers → Developer Mode), or run this shell as an administrator; in an administrator PowerShell: reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v AllowDevelopmentWithoutDevLicense /d 1'
+# win_devmode — on | off | unknown: Developer Mode, from the registry (HARNESS_REG names `reg`; a test points it at a stub).
+win_devmode(){ local reg="${HARNESS_REG:-reg}" o
+  command -v "$reg" >/dev/null 2>&1 || { echo unknown; return 0; }
+  o="$("$reg" query 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' //v AllowDevelopmentWithoutDevLicense 2>/dev/null)" || { echo off; return 0; }
+  if grep -q '0x1' <<<"$o"; then echo on; else echo off; fi; }
+# win_symlink_ok — a native symlink can be made here (Developer Mode, or an administrator).
+win_symlink_ok(){ local d rc=1; d="$(mktemp -d)" || return 1
+  ( cd "$d" && mkdir t && MSYS=winsymlinks:nativestrict ln -s t l 2>/dev/null && [[ -L l ]] ) && rc=0
+  rm -rf "$d"; return "$rc"; }
+# win_git_identity_missing — prints which of user.name / user.email git has no value for (env identity counts).
+win_git_identity_missing(){ local m=()
+  [[ -n "$(git config --get user.name 2>/dev/null)" || -n "${GIT_AUTHOR_NAME:-}" ]] || m+=(user.name)
+  [[ -n "$(git config --get user.email 2>/dev/null)" || -n "${GIT_AUTHOR_EMAIL:-}" ]] || m+=(user.email)
+  (( ${#m[@]} )) || return 1
+  echo "${m[*]}"; }
+# WIN_IDENTITY_FIX — the commands that give git an identity (the lane's commits need one).
+WIN_IDENTITY_FIX='git config --global user.name "Your Name"  &&  git config --global user.email "you@users.noreply.github.com"'
+# win_repo_config <dir> — Windows only: the settings a Harness repo needs there, written to THAT repo's
+# config (`git -C <dir> config`, never --global / --system): core.longpaths=true (a deep node_modules or
+# worktree path passes 260 characters), core.autocrlf=false and core.eol=lf (a lane's checkout stays LF,
+# which bash and the repo's scripts need). Quiet; rc 0 when <dir> is not a repo.
+win_repo_config(){ is_windows || return 0
+  git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git -C "$1" config --local core.longpaths true 2>/dev/null
+  git -C "$1" config --local core.autocrlf false 2>/dev/null
+  git -C "$1" config --local core.eol lf 2>/dev/null; return 0; }
 # _ps_quote <s> — <s> as a PowerShell single-quoted string body (a ' is doubled).
 _ps_quote(){ printf '%s' "${1//\'/\'\'}"; }
 # _env_script — this shell's exported variables as `export NAME=value` lines a later bash can source.
