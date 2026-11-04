@@ -633,7 +633,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness pause` | ✓ | ✓ |
 | `harness setup` | ✓ | ✓ target (#475 task 8) |
 | `harness migrate` | ✓ | ✓ target (#475 task 8) |
-| `harness uninstall` | ✓ | ✓ target (#475 task 5) |
+| `harness uninstall` | ✓ | ✓ |
 | `harness plan` | ✓ | ✓ target (#475 task 8) |
 | `harness prd` | ✓ | ✓ target (#475 task 8) |
 | `harness issue` | ✓ | ✓ target (#475 task 8) |
@@ -650,7 +650,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `/harness-start` | ✓ | ✓ target (#475 task 7) |
 | `/harness-status` | ✓ | ✓ target (#475 task 8) |
 | `/harness-stop` | ✓ | ✓ target (#475 task 7) |
-| `/harness-uninstall` | ✓ | ✓ target (#475 task 5) |
+| `/harness-uninstall` | ✓ | ✓ |
 | `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`) |
 | `cli agy` | ✓ | ✓ target (#475 task 2) |
 | `cli codex` | ✓ | ✓ (headless runner `scripts/cli/codex_headless.py`, `codex exec --json`; its `headless-*` rows pass from fixture replay on Linux, a winsma run is still #475 task 8) |
