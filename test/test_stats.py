@@ -516,6 +516,18 @@ def test_headless_lane_events_fold_result_model_usage_when_no_transcript():
         usage, _, _ = st.session_usage(st.lane_events(sid))
         assert usage["claude-opus-5-5"] == {"input": 3, "output": 40, "cache_create": 0, "cache_read": 7}, usage
         assert usage["claude-haiku-5-5"]["output"] == 177, usage   # the turns with a result: their totals only
+        # #485: a lane of another CLI whose id is its session (openclaw) is no claude lane: its events hold no
+        # stream-json result, and reading them as claude's would report empty usage over the adapter's own.
+        with open(os.path.join(lane, "state.json"), "w") as fh:
+            json.dump({"session_id": sid, "state": "ended", "adapter": "openclaw"}, fh)
+        assert st.lane_events(sid) is None
+        rec = st.build_event("session_end", {}, {"session": sid, "launched": 1},
+                             {"usage_tsv": "claude-cli/claude-haiku-5-5\t4\t10\t41826\t41933\n"}, now=100)
+        assert rec["usage"] == {"claude-cli/claude-haiku-5-5": {"input": 4, "output": 10, "cache_create": 41933,
+                                                                  "cache_read": 41826}}, rec
+        with open(os.path.join(lane, "state.json"), "w") as fh:
+            json.dump({"session_id": sid, "state": "ended", "adapter": "claude"}, fh)
+        assert st.lane_events(sid) == os.path.join(lane, "events.jsonl")
         os.environ["HARNESS_HEADLESS_DIR"] = os.path.join(d, "elsewhere")
         try:
             assert st.lane_events(sid) is None   # the lanes root is HARNESS_HEADLESS_DIR when set

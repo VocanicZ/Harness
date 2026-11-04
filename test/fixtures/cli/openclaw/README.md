@@ -43,3 +43,28 @@ Not captured: a pane killed by `tmux kill-session` mid-turn left `agent exec`, t
 `claude-cli` provider started and its `sleep 120` running until the loop learned to stop the turn's
 process tree on its hangup; after that change the same kill left no process in the worktree. Escape does
 nothing to a running turn (the loop is not a TUI), so there is no `interrupted.txt`.
+
+## `agent-json/` — the headless turn (#485)
+
+What the headless lane runner (`scripts/cli/openclaw_headless.py`) reads: the stdout of
+`openclaw agent exec --json --message-file - --config <lane config> --cwd <wt> --state-dir <state> --timeout <s>`, the
+message on stdin. Unlike the other CLIs' captures this is not a stream: `--json` prints ONE pretty-printed JSON document
+(the stable agent-exec envelope) when the turn ends, and nothing before it (the `[agent/cli-backend]` progress lines
+are on stderr), which the core reads whole (`json_documents`). Captured 2026-11-04 (UTC) on the fleet host from OpenClaw
+`2026.10.8` (`dc2523e`), in a throwaway git repo and a throwaway state dir, the host's operator config
+(`claude-cli/claude-haiku-5-5`); `normal.json` and `tool-use.json` are the runs' stdout unchanged.
+
+| file | how |
+|---|---|
+| `normal.json` | `Reply with exactly the word PONG and nothing else.` Exit 0, 48 s (the `claude-cli` backend starts a `claude` process): `ok` true, `status` `ok`, `final` `PONG`, `usage` `{input: 2, output: 5, cacheWrite: 41805}` (no `cacheRead` key when there were none), `toolSummary.calls` 0, `model` `claude-haiku-5-5`, `provider` `claude-cli`, `sessionId`. |
+| `tool-use.json` | The next turn in the same `--state-dir`: `Use your shell tool to run the command: echo hi > proof.txt -- then reply with exactly DONE.` `final` `DONE`, `toolSummary` `{calls: 1, tools: ["mcp__openclaw__exec"], failures: 0}`, `usage` `{input: 2, output: 5, cacheRead: 41826, cacheWrite: 128}`. A new `sessionId`: the second run did not continue the first (the stderr line read `useResume=false session=none`), so a turn is its own session. `proof.txt` was created. Exit 0. |
+| `limit.json` | NOT triggerable on demand (a live quota cannot be exhausted); the envelope of the stand-in-endpoint run in `limit-runs.jsonl` / `limit.txt` (a local OpenAI-compatible server answering `429` with `usage_limit_reached` and `retry-after: 7200`), minus the `harness` key the pane's loop added and re-serialised with `indent=2` as `--json` prints. `ok` false, `status` `error`, `final` empty, `error.message` `⚠️ You have reached your usage limit for this period.; Retry-After: 7200 seconds`. The process exited 1. |
+| `transient.json` | The same, from `transient-runs.jsonl` / `transient.txt`: the server answering `503`; after 7 calls (about 90 s) `error.message` `The AI service is temporarily overloaded. Please try again in a moment.` Exit 1. |
+| `usage.expected` | What `openclaw_usage` folds the lane's `runs/<id>.jsonl` to once the lane ran `tool-use.json` then `normal.json` (the matrix's `headless-stats-session-end-usage` row): `claude-cli/claude-haiku-5-5`, input 2+2, output 5+5, cacheRead 41826+0, cacheWrite 128+41805. |
+| `fake-openclaw` | Stands in for `openclaw` in `test/test_openclaw_headless.py` and the matrix's `headless-*` rows (`test/test_cli_matrix.sh`, #485): each `agent exec` run replays the fixture `$FAKE_CLAUDE_DIR/plan` names next (text after the name replaces its reply) as the pretty-printed document, under a new `sessionId`, records its argv, stdin prompt and cwd, can hold before printing, has a `hang` turn that starts a grandchild for the stop test, runs an executable `turn-hook` with each prompt (#350), and answers `status --usage --json` (`../usage-windows.json`, resets an hour ahead). Its header says how. |
+
+What the runner reads from them (`Turn.outcome`): `ok` true and `status` `ok` → `idle` (the reply is `final`); a failed
+envelope whose `error.message` is a quota or billing message (`usage limit`, `quota`, `The AI service needs a short
+break`, the billing copy) → `limit`, its reset the `Retry-After: 7200 seconds` when it has one; any other failed
+envelope, or a process that exits with no envelope → `transient`. Usage windows are not in the envelope;
+`openclaw status --usage --json` (`usage-windows.json`) is how they are read, as for a pane.

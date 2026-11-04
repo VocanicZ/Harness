@@ -67,8 +67,25 @@ _openclaw_line(){ local wd="$1" uuid="$2" model="$3" effort="$4" op; op="$(_open
     "$(dirname "$op")" "$CLI_DIR/openclaw-loop.sh" "$(openclaw_bin)" "$wd" "$uuid" "$(_openclaw_cfg "$wd")" \
     "${model:+ --model $model}" "${effort:+ --thinking $effort}" "${HARNESS_OPENCLAW_TIMEOUT:-14400}" "$HARNESS_BOOTSTRAP_PROMPT"; }
 
-# The loop's --model and --thinking (the effort).
-openclaw_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--thinking[= ]')"; }
+# --- the headless lane (#485, PRD #475): openclaw_headless.py runs the turns -----------------------
+# openclaw_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line. Each turn
+# is one `openclaw agent exec --json --message-file -` (the message on stdin) on the lane's own config (the one a
+# pane's loop runs on, written here: _openclaw_config), --cwd the worktree, --state-dir the lane's
+# <wd>/.harness-openclaw and --timeout the turn's: the runner's --flags, since the adapter is not told the worktree.
+# `agent exec` has no resume id, so <uuid> only names the lane (and its transcript, runs/<uuid>.jsonl) and a 5th
+# argument (#350) changes nothing a turn runs; the bootstrap is the first turn.
+openclaw_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4" flags
+  _openclaw_config "$wd" || { echo "openclaw: cannot write the lane's config $(_openclaw_cfg "$wd")" >&2; return 1; }
+  flags="$(printf '%q ' --config "$(_openclaw_cfg "$wd")" --cwd "$wd" --state-dir "$(_openclaw_dir "$wd")" \
+    --timeout "${HARNESS_OPENCLAW_TIMEOUT:-14400}")"
+  printf '%s\n' python3 "$CLI_DIR/openclaw_headless.py" run --cwd "$wd" --bin "$(openclaw_bin)" --session-id "$uuid" \
+    ${5:+--resume} ${model:+--model "$model"} ${effort:+--effort "$effort"} "--flags=${flags% }" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+_openclaw_headless(){ [[ "$(sess_backend)" == headless ]]; }
+
+# The loop's --model and --thinking (the effort); a headless lane's runner names the effort --effort.
+openclaw_model_effort(){ local effort; effort="$(_cli_line_opt "$1" '--thinking[= ]')"
+  [[ -n $effort ]] || effort="$(_cli_line_opt "$1" '--effort[= ]')"
+  printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$effort"; }
 
 # The session id is the launch's own (the loop's --run): each `agent exec` turn is its own OpenClaw
 # session, and the lane's transcript gathers them under this id. openclaw_session_id keeps the
@@ -77,17 +94,32 @@ openclaw_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')"
 # --- panes (test/fixtures/cli/openclaw/*.txt) ---------------------------------------------------
 # openclaw-loop.sh redraws the screen at each turn's start (the busy line) and end (the reply, its
 # error line, the prompt), so the two never share a pane. What is typed at the prompt follows it.
-openclaw_idle_re(){ echo '^harness-openclaw ❯ ?'; }
-openclaw_busy_re(){ echo '^harness-openclaw: busy · '; }
+openclaw_idle_re(){ _openclaw_headless && echo '^❯' || echo '^harness-openclaw ❯ ?'; }
+# A headless lane's screen is the core's, drawn in the claude TUI's shapes (headless_core.py pane): the spinner
+# line "✻ Working… (21m 3s · esc to interrupt)" is busy, "❯ " the idle prompt, "  ⎿  You've hit your usage
+# limit" and "  ⎿  API Error: …" the states above it.
+openclaw_busy_re(){ _openclaw_headless && { echo 'esc to interrupt|… \(([0-9]+[dhms] ?)+ ·'; return; }
+  echo '^harness-openclaw: busy · '; }
 # A failed turn's error is printed as `harness-openclaw: error: <envelope error.message>`. A provider's
 # 429 ends the turn with its own message when it names a usage limit (limit.txt: `⚠️ You have reached
 # your usage limit for this period.; Retry-After: 7200 seconds`), else with OpenClaw's copy once its
 # retries give up (limit-short-break.txt: `⚠️ The AI service needs a short break.`); a billing failure
 # with OpenClaw's billing copy (its assistant-request-failure-copy).
-openclaw_limit_re(){ echo '^harness-openclaw: error: ⚠️ (The AI service needs a short break|The AI service reported a billing problem|.*([Uu]sage limit|[Qq]uota))'; }
+openclaw_limit_re(){ _openclaw_headless && { echo "^ +⎿  You've hit your usage limit"; return; }
+  echo '^harness-openclaw: error: ⚠️ (The AI service needs a short break|The AI service reported a billing problem|.*([Uu]sage limit|[Qq]uota))'; }
 # A provider's 5xx once OpenClaw's retries give up (transient.txt: a 503, `The AI service is
 # temporarily overloaded.`), and OpenClaw's overloaded / server-error copy.
-openclaw_transient_re(){ echo '^harness-openclaw: error: (⚠️ )?(The AI service is (temporarily overloaded|busy|having trouble)|Selected model is at capacity|Rate-limit recovery stopped)'; }
+openclaw_transient_re(){ _openclaw_headless && { echo '^ +⎿  API Error'; return; }
+  echo '^harness-openclaw: error: (⚠️ )?(The AI service is (temporarily overloaded|busy|having trouble)|Selected model is at capacity|Rate-limit recovery stopped)'; }
+# The pane's loop is not a TUI: Escape does nothing to a turn, so a pane has no interrupted line. A headless
+# lane's interrupt is the core's (headless_core.py pane draws `⎿  Interrupted`), and its turn timer the spinner's.
+openclaw_interrupted_re(){ _openclaw_headless && echo '^ +⎿  Interrupted'; return 0; }
+openclaw_turn_secs(){ _openclaw_headless || return 0; local n
+  n=$(cli_pane_prompt_line "$1")
+  printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
+    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
+           s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
+         END { print s + 0 }'; }
 openclaw_loop(){ echo driven; }
 
 # --- workspace trust: none (agent exec has no trust gate; --cwd scopes its file tools) ----------
@@ -176,6 +208,7 @@ for p in (json.load(sys.stdin).get("usage") or {}).get("providers") or []:
 # turn a limit or a transient error ended: those are the watchdog's (session_limit_idle,
 # session_stalled), which nudge it on.
 openclaw_last_reply(){ local f run; [[ -n "${2:-}" ]] || return 1
+  _openclaw_headless && { _cli_headless_last_reply "$@"; return; }   # a headless lane's turns are the core's (state.json)
   f="$(_openclaw_runs "$1" "$2")"; [[ -s $f ]] || return 1
   run="$(cat "$(_openclaw_dir "$1")/running" 2>/dev/null)"
   [[ -n $run ]] && kill -0 "$run" 2>/dev/null && return 1

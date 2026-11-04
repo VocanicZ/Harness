@@ -31,6 +31,32 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   boot" warning. An existing install keeps its boot trigger until `harness supervise --install` /
   `harness web --install` (or `harness update`) re-registers it.
 
+### Headless turn adapter for `openclaw` (#485)
+
+- `openclaw` runs on the headless session backend: `scripts/cli/openclaw_headless.py` is its adapter on the shared
+  core (#480), and `openclaw` stops being refused as tmux-only. Each turn is one
+  `openclaw agent exec --json --message-file -` (the message on stdin) on the lane's own config, in the worktree, with
+  the lane's `.harness-openclaw` as its state dir: the config and state a tmux lane's loop runs on. `agent exec` has no
+  resume id (every turn is its own OpenClaw session), so the lane stays the Harness one: its id never changes, and each
+  turn's envelope is appended to `.harness-openclaw/runs/<lane id>.jsonl`, the transcript the stats sweep reads. An
+  envelope with `ok` true is `idle`; a failed one whose error is a quota or billing message (a provider's usage limit,
+  OpenClaw's `The AI service needs a short break`) is `limit`, with the `Retry-After` it names; any other error, or an
+  exit with no envelope, is `transient`.
+- `agent exec --json` prints one pretty-printed JSON document when the turn ends, not a stream, so the core can now read
+  stdout as whole documents: an adapter sets `json_documents = True` and each document is one event.
+- `scripts/stats.py` read any headless lane whose `state.json` named the session as a claude lane, and folded its
+  `events.jsonl` as claude's stream-json. It now does so only for a claude lane (`state.json`'s `adapter`); another
+  CLI's usage comes from its own adapter. Nothing changes for `claude`, `opencode` or `hermes`, whose lane sessions are
+  not the Harness lane id.
+- `test/test_openclaw_headless.py` runs the adapter against captures of the real CLI
+  (`test/fixtures/cli/openclaw/agent-json/`), and the matrix's `headless-*` rows now pass for `openclaw` from fixture
+  replay on Linux. Under `HARNESS_PLATFORM=windows` on the Linux fleet host all of them pass but
+  `headless-checkpoint`, `headless-resume` and `headless-stats-session-end-usage`, which fail the same way there for
+  `claude` on `main`. The parity matrix and the per-CLI non-interactive table in `docs/reference.md` are updated.
+- A live headless smoke on the fleet host (OpenClaw 2026.10.8 on its `claude-cli` provider, `claude-haiku-5-5`) passes:
+  the sandbox issue was claimed, run by an `openclaw` headless lane and merged,
+  `test/smoke/logs/openclaw-headless-20261104T081207Z.log` (`SMOKE_CHECKPOINT=0`).
+
 ### Headless turn adapter for `hermes` (#484)
 
 - `hermes` runs on the headless session backend: `scripts/cli/hermes_headless.py` is its adapter on the shared
