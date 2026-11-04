@@ -160,7 +160,11 @@ a claim):
 4. **Claim** — only when the worker owns no lane, is not paused, usage is not held, the GitHub budget is
    fine and the default branch is not red. Under `run/pool.lock`: when live lanes + live claims is below
    `POOL`, it takes the first slot-taking item `dispatch` returns and writes its claim; the lane is spawned
-   after the lock is released (the claim covers the window).
+   after the lock is released (the claim covers the window). Before claiming, the worker makes sure the fleet's
+   checkout exists: a missing (or empty) `HARNESS_CHECKOUT` is cloned from `HARNESS_REPO`; a checkout that
+   cannot be cloned, or a non-empty folder that is not a git repo, holds the claim step with one logged line per
+   cause (#539). A lane that fails to spawn drops its claim and the worker sleeps `POLL` before the next step, so
+   a persistent failure never re-claims the same item back to back.
 
 **No double claims.** The PRDs and issues dispatch is told are busy are those with a live session or
 worktree *plus* those held by a live claim; bugs are filtered the same way, and `PLAN` / `PRD` are offered

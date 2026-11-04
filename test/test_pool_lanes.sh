@@ -9,12 +9,15 @@
 #   5. planned mode: PLAN.md archived once on completion, no lane touched, nothing dispatched.
 #   6. the priority bug worker runs on top of POOL, and a pool-taken bug is never also its claim.
 #   7. pause: no new claim, a running lane (and a driven goal loop) still tended.
+#   8. a lane that fails to spawn sleeps POLL and drops its claim (#539); a missing HARNESS_CHECKOUT is cloned
+#      before the first claim, or held with one deduped log line — never a loop without sleeping.
 # Real issuelib.py dispatch over a snapshot; gh, tmux, git and the launch are stubbed.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
 _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
 source "$HERE/../scripts/pool-worker.sh"; source "$HERE/../scripts/priority-worker.sh"; source "$HERE/helpers.sh"
+REAL_ENSURE_CHECKOUT="$(declare -f ensure_checkout)"   # setup() stubs it; section 8 runs the real one
 
 # snap <num[:labels,csv]>… — the poller's view of the board; each issue is open, bot-authored.
 snap(){ python3 - "$SNAP" "$@" <<'EOF'
@@ -355,5 +358,46 @@ assert_ok "W1's running lane is still tended" grep -qx 'goal hz-main-i5' "$CALLS
 assert_ok "... through the watchdog (which drives a goal loop)" grep -qx 'watchdog hz-main-i5' "$CALLS"
 assert_eq "$(claim_wid impl-6)" "" "no claim for #6"
 rm -f "$PAUSE_FLAG"
+
+echo "=== 8a. a lane that fails to spawn: sleep after each failed spawn, claim dropped, no back-to-back re-claim (#539) ==="
+setup 3; snap "5:ready-for-agent"
+spawn_impl(){ echo "spawn $1" >> "$CALLS"; return 1; }
+sleep(){ echo "sleep $1" >> "$CALLS"; }
+for i in 1 2 3; do worker_step W1 >/dev/null 2>&1; rc=$?; assert_eq "$rc" "6" "failed spawn #$i: worker_tick rc 6"; done
+assert_eq "$(grep -c '^spawn 5$' "$CALLS")" "3" "one spawn attempt per step"
+assert_eq "$(grep -c '^sleep ' "$CALLS")" "3" "...and a sleep after each one"
+assert_no "the claim is released each time" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_ok "the failed spawn is logged" grep -q 'could not start IMPL 5' "$LOGF"
+
+echo "=== 8b. a missing HARNESS_CHECKOUT is cloned before the first lane spawns (#539) ==="
+setup 3; snap "5:ready-for-agent"; eval "$REAL_ENSURE_CHECKOUT"
+rm -rf "$HARNESS_CHECKOUT"
+git(){ case "$*" in
+         *"rev-parse --git-dir"*) [[ -d "$HARNESS_CHECKOUT/.git" ]]; return;;
+         *"clone"*) echo "git $*" >> "$CALLS"; mkdir -p "$HARNESS_CHECKOUT/.git"; return 0;;
+         *"worktree add"*) local wd; for wd in "$@"; do [[ "$wd" == "$WORKTREES_DIR"/* ]] && break; done
+                           mkdir -p "$wd"; return 0;;
+       esac; return 0; }
+ensure_safe(){ :; }
+worker_tick W1; assert_eq "$?" "0" "checkout cloned, then the lane was claimed + spawned"
+assert_ok "cloned HARNESS_REPO into HARNESS_CHECKOUT" grep -qx "git clone -q https://github.com/acme/widget.git $HARNESS_CHECKOUT" "$CALLS"
+assert_eq "$(launches)" "1" "the lane launched"
+
+echo "=== 8c. a checkout that cannot be cloned holds with ONE log line and sleeps — never spins (#539) ==="
+setup 3; snap "5:ready-for-agent"; eval "$REAL_ENSURE_CHECKOUT"
+rm -rf "$HARNESS_CHECKOUT"; sleep(){ echo "sleep $1" >> "$CALLS"; }
+git(){ case "$*" in *"rev-parse --git-dir"*|*clone*) echo "git $*" >> "$CALLS"; return 128;; esac; return 0; }
+for i in 1 2 3; do worker_step W1 >/dev/null 2>&1; rc=$?; assert_eq "$rc" "6" "no checkout, step #$i: rc 6"; done
+assert_eq "$(grep -c '^sleep ' "$CALLS")" "3" "slept after every step"
+assert_eq "$(launches)" "0" "no lane launched"
+assert_no "no claim written" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_eq "$(grep -c 'clone of acme/widget' "$LOGF")" "1" "the clone failure is logged once (deduped)"
+echo "-- a non-empty dir that is not a repo is left alone"
+setup 3; snap "5:ready-for-agent"; eval "$REAL_ENSURE_CHECKOUT"
+echo x > "$HARNESS_CHECKOUT/stray"
+git(){ case "$*" in *"rev-parse --git-dir"*) return 128;; *clone*) echo "git $*" >> "$CALLS";; esac; return 0; }
+worker_tick W1; assert_eq "$?" "6" "held"
+assert_no "never cloned over it" grep -q 'git clone' "$CALLS"
+assert_ok "logged" grep -q 'not a git repo' "$LOGF"
 
 finish

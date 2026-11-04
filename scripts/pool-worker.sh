@@ -92,18 +92,21 @@ start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0
 
 # worker_tick [wid] — the claim step (4). rc 0 = claimed + spawned a lane, 1 = nothing to claim (or this
 # worker has a lane), 2 = the repo is COMPLETE, 3 = paused / usage held / default branch red, 5 = the GitHub
-# budget is low.
+# budget is low, 6 = no usable checkout, or the lane failed to spawn (#539: the claim was dropped — worker_step
+# sleeps POLL, so a persistent failure never re-claims back to back).
 worker_tick(){ local wid="$1" act pl pr
   local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
   if is_paused; then return 3; fi   # pause: no new claim — running lanes are still tended (worker_tend)
   if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
   if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — claim nothing, poll at half rate
   [[ -z "$(worker_claims "$wid" | head -n1)" ]] || return 1   # one lane per worker (adoption can add more)
+  ensure_checkout || return 6   # #539: no clone → no worktree can be added; clone it or hold (deduped log), never spin
   # #50: a red default branch holds NEW dispatch; the next tick re-checks, so the fleet resumes by itself.
   if ! ci_gate_ok "$SLUG"; then harness_event hold reason=other cause=ci_red secs="$POLL"; return 3; fi
   IFS=$'\t' read -r act pl pr < <(claim_lane "$wid")
   if [[ -z "$act" ]]; then all_complete && return 2; return 1; fi
-  start_lane "$wid" "$act" "$pl" "$pr"; return 0; }
+  start_lane "$wid" "$act" "$pl" "$pr" || return 6   # #539: a failed spawn is not "a lane was claimed"
+  return 0; }
 
 # tend_lane_done <claim-file> — one tend step for the lane a claim names: the goal check and watchdog of a
 # live session (a driven goal loop advances from the watchdog, so it runs through a pause too), and the
@@ -240,7 +243,8 @@ worker_hold_tick(){ local f sess lockfd
 
 # One tick. rc is the claim step's (worker_tick): 0 a lane was claimed (the next tick comes at once), 1 idle,
 # 2 the repo is COMPLETE — logged ONCE per idle streak (_IDLE_LOGGED), the worker stays resident (#24),
-# 3 paused / held, 4 the host snapshot is stale, 5 the GitHub budget is low. Workers only end on stop (kill)
+# 3 paused / held, 4 the host snapshot is stale, 5 the GitHub budget is low, 6 no checkout / a lane failed to
+# spawn (#539 — sleeps POLL like idle, so the same item is not re-claimed at once). Workers only end on stop (kill)
 # or once their roots are deleted (#419).
 worker_step(){ local wid="$1" rc
   _WORKER_ID="$wid"
@@ -263,6 +267,7 @@ worker_step(){ local wid="$1" rc
     2) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "all COMPLETE — idle, watching"; _IDLE_LOGGED=1; }
        sleep "$POLL" ;;
     5) sleep "$(( POLL * 2 ))" ;;
+    6) sleep "$POLL" ;;
     *) sleep "$POLL" ;;
   esac
   return "$rc"; }
