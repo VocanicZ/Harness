@@ -37,7 +37,9 @@ An ADAPTER starts one turn and reads its stream; the core never names a CLI. It 
 in claude_headless.py for the reference one): `name`, `default_bin`, `account()`, `argv(...)` (one turn's
 command, with that CLI's resume id), `new_turn()` (an object that `feed`s events and gives the turn's
 `outcome(rc, stderr_tail)`, usage `rate_limit`, `retry` and `no_conversation`), and `watch_line(ev)`. It may
-also supply `env()`: variables set on every turn's process.
+also supply `env(cwd)`: variables set on every turn's process (<cwd> is the lane's worktree), and `abort_turn(bin, cwd)`: called after the runner kills a
+turn's process tree on a stop or an interrupt, for a CLI whose turn outlives its client (hermes: its host
+gateway runs the turn's commands).
 
 The headless session backend (scripts/session/headless.sh, #349) runs this program as a lane and reads
 the lane through it: `pane` renders state.json and the undelivered inbox as the screen the claude
@@ -325,7 +327,16 @@ class Runner:
     def adapter_env(self):
         """The variables the adapter sets on a turn's process (an adapter without `env()` sets none)."""
         env = getattr(self.adapter, "env", None)
-        return dict(env()) if callable(env) else {}
+        return dict(env(self.cwd)) if callable(env) else {}
+
+    def abort_turn(self):
+        """The adapter's cleanup once a turn's process tree was killed (an adapter without `abort_turn()` has none)."""
+        hook = getattr(self.adapter, "abort_turn", None)
+        if callable(hook):
+            try:
+                hook(self.bin, self.cwd)
+            except Exception:   # a failed cleanup never keeps the lane from ending the turn
+                pass
 
     def run_turn(self, msg):
         if self.lane_gone():   # #419: nowhere to log the turn, and no lane left to run it for
@@ -374,9 +385,9 @@ class Runner:
             stopped = interrupted = False
             while proc.poll() is None:
                 if self.stop_requested():
-                    kill_tree(proc); stopped = True; break
+                    kill_tree(proc); self.abort_turn(); stopped = True; break
                 if self.take_interrupt(n):
-                    kill_tree(proc); interrupted = True; break
+                    kill_tree(proc); self.abort_turn(); interrupted = True; break
                 with lock:
                     self.poll_inbox()
                 time.sleep(POLL_S)

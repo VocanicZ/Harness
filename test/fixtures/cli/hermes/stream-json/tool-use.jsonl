@@ -1,0 +1,5 @@
+{"type": "system", "subtype": "init", "model": "", "session_id": "", "timestamp": 1793771877961}
+{"type": "tool_use", "name": "terminal", "tool_call_id": "call_R79TRQkXRQtWiqRekLfqZ7Si", "input": {"command": "echo hi > proof.txt"}, "timestamp": 1793771882119}
+{"type": "tool_result", "name": "terminal", "tool_call_id": "call_R79TRQkXRQtWiqRekLfqZ7Si", "output": "{\"output\": \"\", \"exit_code\": 0, \"error\": null}", "duration_ms": 470, "is_error": false, "timestamp": 1793771882589}
+{"type": "text", "text": "\n\nDONE", "timestamp": 1793771885155}
+{"type": "result", "session_id": "local-17747387300ef8f838a65bbb93d61008ef1fd0339361272b38fdc141491bef71", "exit_code": 0, "text": "DONE", "tokens": {"input": 29400, "output": 23, "total": 29423, "cache_read": 19328, "cache_write": 0}, "duration_ms": 7508, "timestamp": 1793771885469}

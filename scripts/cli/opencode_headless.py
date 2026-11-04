@@ -161,7 +161,7 @@ class OpencodeAdapter:
             a += ["--variant", effort]
         return a + list(flags)
 
-    def env(self):
+    def env(self, cwd=None):
         """A lane must never stop on a question no one will answer (`permission.question: deny`, merged above
         the project's own config, as the pane launch's inline config does), and never swap the CLI under a
         running fleet."""

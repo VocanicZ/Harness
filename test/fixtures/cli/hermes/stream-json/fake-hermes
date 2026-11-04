@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""fake-hermes — stands in for `hermes` in `test/test_hermes_headless.py` and the matrix's `headless-*` rows
+(`test/test_cli_matrix.sh`, #484): `hermes chat --format stream-json` replays one captured turn from this
+directory (../README.md, "stream-json"), in the order $FAKE_CLAUDE_DIR/plan names them (one fixture name per
+line: normal, tool-use, limit, transient — or `hang`, a turn that never ends). The variable keeps claude's name
+because the matrix's headless-* rows are shared by every CLI. Text after the name on a plan line
+(`normal <promise>X</promise>`) replaces the turn's reply (its `text` deltas and the `result`'s `text`).
+
+Per `chat` run it appends {argv, prompt (its stdin), pid} to $FAKE_CLAUDE_DIR/calls.jsonl, then prints the
+fixture's events with the `result`'s session_id set to the session the run is in: the first run in a
+$HERMES_HOME leaves ../transcript.db there as its state.db (the session titled as `-c <title>` named it, its
+cwd this process's, started now), the lane's profile that Harness reads a hermes session's id and usage from,
+and every later one keeps it. `usage --json` prints ../usage-windows.json with its resets an hour ahead (a
+passed reset is skipped). `gateway stop -y` appends the profile to $FAKE_CLAUDE_DIR/gateway-stops, parks it
+(`gateway.parked`, as hermes does) and exits 0; a `chat` run in a parked profile fails as hermes's does.
+While $FAKE_CLAUDE_DIR/hold exists a chat run waits after its first event, so a test can act mid-turn. `hang`
+prints the first event, starts a grandchild (`sleep`), writes `<own pid> <grandchild pid>` to
+$FAKE_CLAUDE_DIR/pids and waits forever. It exits 1 after a `result` whose exit_code is 1, as hermes does. An
+executable $FAKE_CLAUDE_DIR/turn-hook runs first with the prompt on its stdin, in the working directory — the
+commands an agent would run in that turn (#350: a checkpoint's gh calls)."""
+import json, os, shutil, sqlite3, subprocess, sys, time
+from datetime import datetime, timezone
+
+here = os.path.dirname(os.path.abspath(__file__))
+argv = sys.argv[1:]
+
+
+def sibling(name):
+    """A file the matrix copies beside this one, or the fixtures dir above it."""
+    own = os.path.join(here, name)
+    return own if os.path.exists(own) else os.path.join(here, "..", name)
+
+
+if argv[:2] == ["usage", "--json"]:
+    d = json.load(open(sibling("usage-windows.json")))
+    for w in d.get("windows") or []:
+        w["resets_at"] = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
+    print(json.dumps(d))
+    sys.exit(0)
+d = os.environ["FAKE_CLAUDE_DIR"]
+if argv[:2] == ["gateway", "stop"]:
+    with open(os.path.join(d, "gateway-stops"), "a") as f:
+        f.write(os.environ.get("HERMES_HOME", "") + "\n")
+    open(os.path.join(os.environ["HERMES_HOME"], "gateway.parked"), "w").close()   # what the stop leaves on the profile
+    sys.exit(0)
+if argv[:1] != ["chat"]:
+    sys.stderr.write(f"fake-hermes: unsupported command {argv}\n")
+    sys.exit(2)
+
+title = None
+for i, a in enumerate(argv[:-1]):
+    if a in ("-c", "--continue"):
+        title = argv[i + 1]
+prompt = sys.stdin.read()
+with open(os.path.join(d, "calls.jsonl"), "a") as f:
+    f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
+n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
+hook = os.path.join(d, "turn-hook")
+if os.access(hook, os.X_OK):
+    subprocess.run([hook], input=prompt, text=True)
+plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
+name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
+
+home = os.environ["HERMES_HOME"]
+if os.path.exists(os.path.join(home, "gateway.parked")):   # hermes waits 60 s for a gateway it may not start
+    print(json.dumps({"type": "result", "session_id": "", "exit_code": 1, "text": "", "error": "Gateway starting: deadline"}))
+    sys.exit(1)
+db = os.path.join(home, "state.db")
+os.makedirs(home, exist_ok=True)
+if not os.path.exists(db):
+    shutil.copy(sibling("transcript.db"), db)
+    c = sqlite3.connect(db)
+    c.execute("UPDATE sessions SET title = ?, cwd = ?, started_at = ? WHERE parent_session_id IS NULL",
+              (title, os.getcwd(), time.time()))
+    c.commit()
+    c.close()
+sid = sqlite3.connect(f"file:{db}?mode=ro", uri=True).execute(
+    "SELECT id FROM sessions WHERE parent_session_id IS NULL").fetchone()[0]
+
+src = "normal" if name == "hang" else name
+events = [json.loads(l) for l in open(os.path.join(here, f"{src}.jsonl")) if l.strip()]
+for e in events:
+    if e.get("type") == "result":
+        e["session_id"] = sid
+    if reply and e.get("type") == "result":
+        e["text"] = reply
+    if reply and e.get("type") == "text":
+        e["text"] = reply
+if reply:   # one delta carries the whole replaced reply
+    seen = False
+    kept = []
+    for e in events:
+        if e.get("type") == "text":
+            if seen:
+                continue
+            seen = True
+        kept.append(e)
+    events = kept
+if name == "hang":
+    events = events[:1]
+
+failed = False
+for i, e in enumerate(events):
+    print(json.dumps(e), flush=True)
+    failed = failed or (e.get("type") == "result" and e.get("exit_code") not in (0, None))
+    if i == 0:
+        while os.path.exists(os.path.join(d, "hold")):
+            time.sleep(0.05)
+if name == "hang":
+    child = subprocess.Popen(["sleep", "600"])
+    with open(os.path.join(d, "pids"), "w") as f:
+        f.write(f"{os.getpid()} {child.pid}\n")
+    while True:
+        time.sleep(1)
+sys.exit(1 if failed else 0)

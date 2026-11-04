@@ -129,6 +129,19 @@ PY
 # the session stays open. Model and effort are in the lane's config (_hermes_seed).
 hermes_launch(){ _hermes_seed "$1" "$3" "$4"; _hermes_line "$1" "$2"; }
 _hermes_line(){ echo "exec env HERMES_HOME=$(printf '%q' "$(_hermes_home "$1")") $(hermes_bin) chat ${2:+-c $2 --create-if-missing }--yolo --accept-hooks -q \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+# --- the headless lane (#484, PRD #475): hermes_headless.py runs the turns -------------------------
+# hermes_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line. Each turn
+# is one `hermes chat --format stream-json -c <session> --create-if-missing` (--yolo, --accept-hooks) in the
+# lane's profile, the bootstrap the first turn. The profile is seeded here exactly as a pane's is
+# (_hermes_seed: the login, approvals off, the lane's model and effort, trusted dirs, the lane's variables),
+# since Hermes takes neither -m nor --reasoning beside -c. Hermes names its sessions itself (`local-…`): <uuid>
+# titles the lane's (hermes_session_id finds it by that title), and a 5th argument (#350) says <uuid> is an
+# existing session id the lane carries on.
+hermes_headless(){ local wd="$1" uuid="$2"
+  _hermes_seed "$wd" "$3" "$4" || { echo "hermes: cannot write the lane's profile $(_hermes_home "$wd")" >&2; return 1; }
+  printf '%s\n' python3 "$CLI_DIR/hermes_headless.py" run --cwd "$wd" --bin "$(hermes_bin)" --session-id "$uuid" \
+    ${5:+--resume} --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+_hermes_headless(){ [[ "$(sess_backend)" == headless ]]; }
 hermes_lane_settings(){ cat "$(_hermes_home "$1")/harness.settings" 2>/dev/null; return 0; }
 # The line names neither: model.default and agent.reasoning_effort in the lane profile's config.yaml
 # (_hermes_seed: the lane's own, else the operator's), a `model: <name>` scalar read as the model.
@@ -154,7 +167,7 @@ PY
 
 # An Enter that reaches the composer in the same burst as the text is read as a newline in it, not
 # a submit (the text stays in the box): the Enter waits half a second.
-hermes_send(){ sess_type "$1" "$3" 2>/dev/null || true; sleep 0.5; sess_enter "$1" 2>/dev/null || true; }
+hermes_send(){ sess_type "$1" "$3" 2>/dev/null || true; _hermes_headless || sleep 0.5; sess_enter "$1" 2>/dev/null || true; }
 # hermes_kill <sess> <wd> — the pane, then the lane's gateway. The TUI leaving interrupts its turn
 # (a pane killed mid-command: `Operation interrupted`), but the gateway daemon outlives it: `gateway
 # stop -y` ends it, interrupting anything it still runs. In the other order the TUI, still up, starts
@@ -198,21 +211,33 @@ PY
 # composer reads `☤ ❯ type to redirect this turn` instead. So the prompt is that title rule: no
 # echo matches it, and the match runs to its end, so cli_prompt_text reads nothing typed (a nudge
 # typed while a turn runs redirects it, steer.txt: nothing is ever queued in the box).
-hermes_idle_re(){ echo '^─{3,} [^─].* ─$'; }
+hermes_idle_re(){ _hermes_headless && echo '^❯' || echo '^─{3,} [^─].* ─$'; }
 # busy_input_mode interrupt / steer / queue each word the busy composer's placeholder their own way.
-hermes_busy_re(){ echo '^☤ ❯ |^── [^ ─]+ |type to (redirect|steer) this turn|type to queue a message for after this turn'; }
+# A headless lane's screen is the core's, drawn in the claude TUI's shapes (headless_core.py pane): the spinner
+# line "✻ Working… (21m 3s · esc to interrupt)" is busy, "❯ " the idle prompt.
+hermes_busy_re(){ _hermes_headless && { echo 'esc to interrupt|… \(([0-9]+[dhms] ?)+ ·'; return; }
+  echo '^☤ ❯ |^── [^ ─]+ |type to (redirect|steer) this turn|type to queue a message for after this turn'; }
 # Once its retries give up Hermes prints its verdict at column 0 (the pane wraps everything else):
 # limit.txt (a 429 that names its reset) and the credit and Nous-quota wordings of turn_recovery.py /
 # turn_api_call.py.
-hermes_limit_re(){ echo '^Limit resets at |^❌ Billing or credits exhausted|^❌ Provider reported usage/credit exhaustion|^Your Nous account has hit its rate limit'; }
+hermes_limit_re(){ _hermes_headless && { echo "^ +⎿  You've hit your usage limit"; return; }
+  echo '^Limit resets at |^❌ Billing or credits exhausted|^❌ Provider reported usage/credit exhaustion|^Your Nous account has hit its rate limit'; }
 # transient.txt: a 503 after every retry (`❌ API failed after 3 retries — HTTP 503 …`); a 429 with
 # no reset is the provider's per-minute throttle, as transient as a 503.
-hermes_transient_re(){ echo '^❌ API failed after [0-9]+ retries|^❌ Rate limited after [0-9]+ (attempt|retries)'; }
+hermes_transient_re(){ _hermes_headless && { echo '^ +⎿  API Error'; return; }
+  echo '^❌ API failed after [0-9]+ retries|^❌ Rate limited after [0-9]+ (attempt|retries)'; }
 hermes_loop(){ echo driven; }
 # hermes_turn_secs <pane> — the turn time on the busy top rule (busy.txt: `· 23s`; Hermes writes it
 # `Ns`, `Nm`, `Nh`, `Nh Mm`, `N.Nd`), or the status bar's `⏱` when a long activity truncated the
 # rule (busy-retrying.txt); 0 when no turn runs.
-hermes_turn_secs(){ printf '%s\n' "$1" | python3 -c 'import re, sys
+hermes_interrupted_re(){ _hermes_headless && echo '^ +⎿  Interrupted'; return 0; }
+hermes_turn_secs(){ if _hermes_headless; then local n   # the core draws the spinner's timer: "(21m 3s · esc to interrupt)"
+    n=$(cli_pane_prompt_line "$1")
+    printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
+      awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
+             s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
+           END { print s + 0 }'; return 0; fi
+  printf '%s\n' "$1" | python3 -c 'import re, sys
 pane = sys.stdin.read().splitlines()
 dur = r"(\d+(?:\.\d+)?d|\d+h(?: \d+m)?|\d+m(?: \d+s)?|\d+s)"
 def secs(t):
@@ -327,7 +352,8 @@ for w in d.get("windows") or []:
 # yet delivered (Hermes resumes the session with it), and for a turn
 # that failed (`failed_turn`: transient.txt, limit.txt) or was interrupted (an empty message):
 # those are the watchdog's.
-hermes_last_reply(){ [[ -n "${2:-}" ]] || return 1
+hermes_last_reply(){ _hermes_headless && { _cli_headless_last_reply "$@"; return; }
+  [[ -n "${2:-}" ]] || return 1
   SID="$2" DB="$(_hermes_db "$1")" python3 - 2>/dev/null <<'PY'
 import os, sqlite3, sys, time
 sid, db = os.environ["SID"], os.environ["DB"]
