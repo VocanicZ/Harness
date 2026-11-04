@@ -14,7 +14,7 @@ git(){ case "$*" in *"ls-remote"*) echo "abc123	refs/heads/issue/5";; *) : ;; es
 export -f gh git
 # spawn_impl writes the rendered task into $wd/.harness-task.md, so $wd must exist.
 WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR/main-i5" "$WORKTREES_DIR/main-i6"
-# drive_unit sets the dynamic-scope vars; call spawn_impl directly inside that scope:
+# the pool worker's fleet_ctx sets the dynamic-scope vars; call spawn_impl directly inside that scope:
 UNIT=main REPO=acme/widget SLUG=acme/widget PROJECT=main DESC=widget CHECKOUT="$PROJECT_ROOT"
 spawn_impl 5 "ISSUE 5 DONE"
 assert_ok "resume issue rendered resume.md" bash -c "grep -q 'resume.md' '$RENDERED'"

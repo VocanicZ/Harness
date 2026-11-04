@@ -67,14 +67,8 @@ for cli in claude agy; do
   assert_ok "$cli: the first call after the hold is at or after T" \
     awk -v n="$n" -v t="$T" 'NR==n+1 { exit !($1 >= t) }' "$GH_CALLS"
 
-  # drive_unit and the pool worker both sleep through a hold before their next gh read
-  fresh; T=$(( $(date +%s) + 30 )); rate 0 4000 "$T"
-  echo 'gh: API rate limit exceeded (HTTP 403)' > "$GH_ERR"; dispatch_actions acme/widget 1 1 "" 2>/dev/null
-  rm -f "$GH_ERR"; T=$(( $(date +%s) + 2 )); printf '{"reset": %s}' "$T" > "$RATE_DIR/gh-auth.hold"
-  SEEN="$RUN_DIR/seen"; : > "$SEEN"
-  unit_complete(){ date +%s >> "$SEEN"; return 0; }; finalize_unit(){ :; }; watchdog_team(){ :; }
-  drive_unit main >/dev/null
-  assert_ok "$cli: drive_unit's next completion read waits for the reset" test "$(head -1 "$SEEN")" -ge "$T"
+  # the pool worker sleeps through a hold before its next gh read
+  SEEN="$RUN_DIR/seen"
   fresh; T=$(( $(date +%s) + 30 )); rate 0 4000 "$T"
   echo 'gh: API rate limit exceeded (HTTP 403)' > "$GH_ERR"; dispatch_actions acme/widget 1 1 "" 2>/dev/null
   rm -f "$GH_ERR"; : > "$SEEN"; T=$(( $(date +%s) + 2 )); printf '{"reset": %s}' "$T" > "$RATE_DIR/gh-auth.hold"
@@ -107,14 +101,10 @@ PY2
   assert_eq "$(tr '\n' ' ' < "$SLEPT")" "14 14 " "$cli: the poll interval doubles on a low budget"
   : > "$SLEPT"; TMUXLOG="$RUN_DIR/tmux"; : > "$TMUXLOG"
   tmux(){ echo "tmux $*" >> "$TMUXLOG"; [[ "$1" == ls ]] && echo hz-main-i5; return 0; }
-  DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"; polls=0
-  reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }
-  reap_finished_inject(){ :; }; ci_gate_ok(){ return 0; }; count_team_sessions(){ echo 1; }; finalize_unit(){ :; }
-  dispatch_actions(){ echo yes >> "$DISPATCHED"; }
-  unit_complete(){ polls=$((polls+1)); (( polls > 2 )); }
-  drive_unit main >/dev/null
-  assert_eq "$(cat "$DISPATCHED")" "" "$cli: drive_unit dispatches nothing new on a low budget"
-  assert_eq "$(tr '\n' ' ' < "$SLEPT")" "14 14 " "$cli: drive_unit polls at half rate on a low budget"
+  ci_gate_ok(){ return 0; }; claim_lane(){ echo pool >> "$CLAIMED"; }
+  worker_step W1 >/dev/null
+  assert_eq "$(cat "$CLAIMED")" "" "$cli: the worker claims nothing new on a low budget"
+  assert_eq "$(tr '\n' ' ' < "$SLEPT")" "14 " "$cli: the worker polls at half rate on a low budget"
   assert_no "$cli: in-flight sessions are untouched" grep -qE 'kill-session|send-keys' "$TMUXLOG"
   unset -f sleep tmux
   source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"

@@ -101,7 +101,7 @@ The bar names one real artifact to beat and the dimensions to judge on:
     #{{PRD}} with the standing gap from the previous round and the fact that the cap was reached,
     then SIGN OFF (step 6). A bar can be honestly unbeatable and this fleet has no human to call
     it off; conceding is how the unit still reaches COMPLETE instead of looping on one PRD until
-    the budget dies — and, in multi topology, holding every dependent target hostage behind it.
+    the budget dies.
 5b. PROVISION. Fetch / clone / install / launch the reference under {{GAUNTLET_DIR}}/ref/. If it
     cannot be provisioned — paywall, no public build, a credential this fleet does not hold —
     comment on PRD #{{PRD}} saying exactly what failed, then SIGN OFF on the acceptance criteria

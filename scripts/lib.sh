@@ -273,27 +273,15 @@ clear_stale_claims(){ shopt -s nullglob; local f pid u
   for f in "$CLAIMS_DIR"/*.claim; do pid="$(awk '{print $2; exit}' "$f" 2>/dev/null)"
     if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then u="$(basename "$f" .claim)"; rm -f "$f"; echo "  cleared stale claim $u"; fi
   done; shopt -u nullglob; }
-claimable_units(){ local u; for u in $(all_units); do
-    unit_complete "$u" && continue; is_claimed "$u" && continue; echo "$u"; done; }
-claim_next(){ local wid="$1" u lockfd; lock_acquire "$POOL_LOCK" lockfd
-  u="$(claimable_units | head -n1)"; [[ -n "$u" ]] && printf '%s %s\n' "$wid" "$$" > "$CLAIMS_DIR/$u.claim"
-  lock_release "$lockfd"
-  [[ -n "$u" ]] && harness_event claim unit="$u" worker="$wid"
-  echo "$u"; }
-release_claim(){ rm -f "$CLAIMS_DIR/$1.claim"; harness_event release unit="$1"; }
-worker_unit(){ local wid="$1" f; shopt -s nullglob
-  for f in "$CLAIMS_DIR"/*.claim; do [[ "$(awk '{print $1; exit}' "$f")" == "$wid" ]] && { basename "$f" .claim; shopt -u nullglob; return; }; done
-  shopt -u nullglob; }
-
 # --- priority bug-lane claims (#26, #37) -------------------------------------
 # A bug-lane candidate is a repo-qualified token "<repo>#<num>" (#37): GitHub issue numbers are
-# per-repo, so in a `multi` topology two repos can each hold a bug #5 — the repo qualifier keeps
-# their claims and routing DISTINCT. Bug claims share CLAIMS_DIR with unit claims, keyed
+# per-repo, so a bug ref names its repo (a token from another repo's issue list can share a number) — the repo qualifier keeps
+# claims and routing DISTINCT. Bug claims share CLAIMS_DIR with the lane claims, keyed
 # `bug-<repo-sanitised>-<num>.claim`, so the existing clear_stale_claims sweep (dead-pid claim
 # files) covers them too — start --recover frees a stale bug-claim with no extra code. They reuse
-# POOL_LOCK so a bug-claim never races a unit-claim on the single host. _repo_bugs (per-repo) and
+# POOL_LOCK so a bug-claim never races a lane-claim on the single host. _repo_bugs (per-repo) and
 # _bug_numbers (all repos, globally sorted) are the seams tests override; claimable_bugs filters
-# out already-claimed tokens (mirrors claimable_units).
+# out already-claimed tokens.
 _bug_repos(){ echo "$HARNESS_REPO"; }
 # per-repo bug candidates as "<num>\t<phase>" lines (phase: fix|triage), fix-pending-first.
 _repo_bugs(){ python3 "$ISSUELIB" bugs "$1" 2>/dev/null; }
@@ -322,17 +310,17 @@ _bug_numbers(){ local repo qrepo num phase
 }
 # Claim-file stem for a bug ref. A qualified "<repo>#<num>" sanitises to "bug-<repo>-<num>"
 # (/ -> _, # -> -) so two repos' same-numbered bugs are DISTINCT claims; a bare "<num>"
-# (single-topology back-compat) -> "bug-<num>".
+# (legacy form) -> "bug-<num>".
 _bug_claim_key(){ case "$1" in
   *#*) printf 'bug-%s' "$(printf '%s' "$1" | tr '/#' '_-')";;
   *)   printf 'bug-%s' "$1";;
   esac; }
 # Repo + number from a bug ref. Qualified token splits directly; a bare number resolves its repo
-# via bug_repo (single-topology only — there are no cross-repo collisions there).
+# via bug_repo (a bare number is the legacy form).
 _bug_ref_repo(){ case "$1" in *#*) echo "${1%#*}";; *) bug_repo "$1";; esac; }
 _bug_ref_num(){  case "$1" in *#*) echo "${1##*#}";; *) echo "$1";; esac; }
 is_bug_claimed(){ is_claimed "$(_bug_claim_key "$1")"; }
-release_bug_claim(){ release_claim "$(_bug_claim_key "$1")"; }
+release_bug_claim(){ local k; k="$(_bug_claim_key "$1")"; rm -f "$CLAIMS_DIR/$k.claim"; harness_event release unit="$k"; }
 claimable_bugs(){ local tok; for tok in $(_bug_numbers); do is_bug_claimed "$tok" && continue; echo "$tok"; done; }
 # The claim file records "<wid> <pid> <token>": the third field carries the FULL repo-qualified
 # ref (#44) so lane_bug / _checkpoint_target recover the real owner/repo without reversing the
@@ -419,8 +407,7 @@ priority_free_slots(){ local p="$RUN_DIR/priority.pid"
 # bug-*.claim), or empty when watching. Returns the claim's stored token (third field) so it is
 # the SAME "<owner>/<repo>#N" ref the lane claimed (#44) — never the lossy sanitised claim key,
 # which can't be split back into owner/repo. Falls back to the stripped key for a legacy claim
-# with no stored token (single-topology bare bug-<n>.claim). Mirrors worker_unit for the pool;
-# status.sh #35 renders it. Skips stale (dead-pid) claims via is_bug_claimed so a crashed lane
+# with no stored token (bare bug-<n>.claim). status.sh #35 renders it. Skips stale (dead-pid) claims via is_bug_claimed so a crashed lane
 # never shows a phantom bug.
 lane_bug(){ local f tok n; shopt -s nullglob
   for f in "$CLAIMS_DIR"/bug-*.claim; do
@@ -434,7 +421,7 @@ lane_bug(){ local f tok n; shopt -s nullglob
 # hz-bug-<repo-sanitised>-<n>-<phase> tmux session (sess_bug). <ref> is the repo-qualified token
 # from lane_bug; it is sanitised the SAME way as the session/claim key (/ -> _, # -> -) so a
 # colliding issue number in another repo can't match the wrong session (#44). Empty when no
-# session is live. A bare ref (legacy single-topology) sanitises to itself.
+# session is live. A bare ref (legacy) sanitises to itself.
 lane_phase(){ local key s; key="$(printf '%s' "$1" | tr '/#' '_-')"
   s="$(sess_list | grep -m1 -E "^${HARNESS_SESS_PREFIX}-bug-${key}-" || true)"
   [[ -n "$s" ]] && echo "${s##*-}"; }
@@ -464,8 +451,8 @@ _bug_state(){  gh issue view "$1" -R "$SLUG" --json state  -q '.state' 2>/dev/nu
 bug_phase(){ case ",$(_bug_labels "$1")," in *",$HARNESS_LABEL_BUG_TRIAGED,"*) echo fix;; *) echo triage;; esac; }
 # Which repo holds bug #n + where its session runs. Single: the one repo, in PROJECT_ROOT.
 # Back-compat ONLY for a BARE number (#37): the lane now carries the repo in the claim token
-# (_bug_ref_repo splits it directly), so this rescan no longer drives multi-topology routing —
-# where colliding numbers made "first repo that lists #n" pick the wrong repo. Kept as a fallback
+# (_bug_ref_repo splits it directly), so this rescan no longer drives routing —
+# colliding numbers made "first repo that lists #n" pick the wrong repo. Kept as a fallback
 # for a bare ref; matches the number field of _repo_bugs' "<num>\t<phase>" output.
 bug_repo(){ local n="$1" repo
   echo "$HARNESS_REPO"; }
@@ -488,7 +475,7 @@ triage_worktree(){ echo "$WORKTREES_DIR/triage-$(printf '%s' "$1" | tr '/' '_')-
 # spawn_orch race ITSELF in the shared $CHECKOUT — a concurrent `render > .harness-task.md`
 # (prompt clobber) plus `git reset --hard origin/<base>` (working-tree yank) corrupts the other
 # session, exactly the failure #5/#109 fixed for bug-triage. Same remedy, same shape. The `orch-`
-# prefix sits at the WORKTREES_DIR root (like `triage-`), so reap_team / finalize_unit's
+# prefix sits at the WORKTREES_DIR root (like `triage-`), so reap_team's
 # "$WORKTREES_DIR/$UNIT"-i* glob can never catch it or mis-parse it via ${wd##*-i}.
 orch_worktree(){ echo "$WORKTREES_DIR/orch-$(printf '%s' "$1" | tr '/' '_')-p$2"; }
 # remove_session_worktrees <checkout> <wd> — the worktrees a session made for itself while it ran in
@@ -528,7 +515,7 @@ remove_worktree(){ local checkout="$1" wd="$2" branch="${3:-}"
 # mid-fix, orphaning a bug-<slug>-i<n> worktree on disk; the next spawn_bug fix would then collide
 # on `worktree add` (rc 128) and wedge the lane forever. So on recovery, remove every fix worktree
 # whose fix session is dead, plus its local issue/<n> branch. Each worktree's owning checkout is
-# derived from the worktree itself (--git-common-dir) so this works across single/multi topology.
+# derived from the worktree itself (--git-common-dir) so this works for any checkout.
 # Skips a worktree whose session is still LIVE — safe to run while the fleet is up. Walks BOTH the
 # fix worktrees (bug-<slug>-i<n>, branch issue/<n>) AND the triage worktrees (triage-<slug>-i<n>,
 # branch agent/bug-triage-<n>, #109) — a crashed triage leaks a worktree just like a crashed fix.
@@ -785,7 +772,7 @@ sess_orch(){ echo "$HARNESS_SESS_PREFIX-$1-p${2:-0}"; }
 sess_impl(){ echo "$HARNESS_SESS_PREFIX-$1-i$2"; }
 sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
 # Priority bug-lane session: <slug> <issue> <phase>. The slug (sanitised / -> _) is embedded so
-# the session name carries the REPO (#44): issue numbers are per-repo, so in `multi` two repos can
+# the session name carries the REPO (#44): issue numbers are per-repo, so two repos can
 # each hold a bug #N — a bare-number session collided, and every deriver that re-parsed it
 # (lane_phase, _checkpoint_target, sweep_orphan_bug_worktrees) lost the repo. The <phase> suffix
 # keeps triage and fix on DISTINCT sessions (separate session-ids / fresh context) for the same
@@ -816,7 +803,7 @@ tracked_worker_pid(){
 }
 # gc_orphan_goals — remove $RUN_DIR/<sess>.goal files whose tmux session is no longer live. A goal
 # file is written for EVERY launched session (launch_claude), but is only deleted when a reaper
-# actively KILLS a still-live session (reap_done_sessions / finalize_unit / drive_bug). Ralph
+# actively KILLS a still-live session (reap_done_sessions / drive_bug). Ralph
 # sessions self-exit on their completion promise BEFORE any reaper kills them, and inject sessions
 # have no reaper at all — so their goal files leak (confirmed: a stale hz*-inject-<unit>.goal with
 # no session). This per-poll sweep GCs every lane's orphaned goal files uniformly. A goal whose
@@ -1023,7 +1010,7 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     _watchdog_nudge "$sess"
   fi; }
 # watchdog_team — run the watchdog over every live session of the CURRENT unit ($UNIT). The pool's
-# per-poll hook (drive_unit), the per-lane analog of the lane's in-loop watchdog_session call.
+# per-tick hook (worker_chores / worker_hold_tick), the per-lane analog of the lane's in-loop watchdog_session call.
 watchdog_team(){ local s
   while read -r s; do [[ -z "$s" ]] && continue
     session_owned "$s" && continue   # #468: a live worker holding the lane's claim tends it (worker_tend)
@@ -1483,7 +1470,7 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
 # watchdog_kill, session_end — carry it without re-deriving it. Logging NEVER blocks or fails the
 # caller: stats.py gives up on a held lock after 2s, `timeout` bounds the rest, every failure is
 # swallowed and only the FIRST one per process is logged (to stderr — several callers' stdout is a
-# captured return value, e.g. claim_next).
+# captured return value, e.g. claim_next_bug).
 STATS_PY="$ENGINE_DIR/scripts/stats.py"
 harness_event(){
   timeout 10 python3 "$STATS_PY" emit "$@" -c "prefix=$HARNESS_SESS_PREFIX" -c "project=$PROJECT_ROOT" \

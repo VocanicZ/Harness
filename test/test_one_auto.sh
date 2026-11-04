@@ -4,7 +4,7 @@
 # agent CLI — the lane's launch is stubbed): default off; the trigger; the host-wide one-lane lock (a
 # second fleet's hold starts no second lane); the gate on both sides of HARNESS_ONE_STOP_PCT; a lane that
 # checkpoints mid-issue; chaining to the next issue once one closes; the hold clearing mid-chain; the
-# per-phase re-check for a lane with no lease; turns between fleets; drive_unit's wiring; status + web.
+# per-phase re-check for a lane with no lease; turns between fleets; the pool worker's wiring; status + web.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"
@@ -223,24 +223,21 @@ assert_ok "a want nobody refreshed does not hold the turn" _oa_my_turn main
 touch -d '-2 hours' "$OA/main.want/$me"; printf 'x\tmain\tacme/widget\t9\ts\tmain\t0\t\n' > "$LANE"; touch -d '-2 hours' "$LANE"
 assert_no "a lane record nobody refreshed (a dead fleet's) is free" one_auto_lane_live main
 
-echo "-- drive_unit: the auto lane is ticked only while the hold is on"
+echo "-- the pool worker's chores: the auto lane is ticked only while the hold is on"
 reset_auto
-TICKS=0; SPAWNED=""
+TICKS=0
 one_auto_tick(){ TICKS=$((TICKS+1)); }
-spawn_impl(){ SPAWNED+="IMPL:$1 "; }; spawn_orch(){ :; }; close_prd(){ :; }
-reap_done_sessions(){ :; }; reap_team(){ :; }; watchdog_team(){ :; }; reap_finished_inject(){ :; }
-reap_pool_bugs(){ :; }; release_tick(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
-count_team_sessions(){ echo 0; }; count_pool_bugs(){ echo 0; }; usage_watch(){ :; }; gh_budget_low(){ false; }
-dispatch_actions(){ printf 'IMPL\t7\tISSUE 7 DONE\n'; }
+_HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1; source "$HERE/../scripts/drive.sh"; source "$HERE/../scripts/pool-worker.sh"
+reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }; reap_finished_inject(){ :; }
+one_auto_tend(){ :; }; reap_ownerless_pool_bugs(){ :; }; release_tick(){ :; }; retry_pending_unlocks(){ :; }; sweep_orphan_locks(){ :; }
+sweep_stale_lane_claims(){ :; }; adopt_lanes(){ :; }; chores_slotless(){ :; }
 write_targets <<'EOF'
 main	acme/widget	-	root
 EOF
-POLL=0; _PASSES=0; unit_complete(){ _PASSES=$((_PASSES+1)); (( _PASSES > 2 )); }
-hold 91; drive_unit main >/dev/null 2>&1
-assert_eq "$TICKS" "2" "held: every poll ticks the auto lane"
-assert_eq "$SPAWNED" "" "and the pool dispatches nothing"
-unhold; TICKS=0; _PASSES=0; drive_unit main >/dev/null 2>&1
+POLL=0
+hold 91; worker_chores W1 >/dev/null 2>&1; worker_chores W1 >/dev/null 2>&1
+assert_eq "$TICKS" "2" "held: every chores pass ticks the auto lane"
+unhold; TICKS=0; worker_chores W1 >/dev/null 2>&1
 assert_eq "$TICKS" "0" "not held: the auto lane is never ticked"
-assert_ok "and the pool dispatches as usual" grep -q 'IMPL:7' <<<"$SPAWNED"
 
 finish

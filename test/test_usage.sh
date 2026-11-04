@@ -125,9 +125,9 @@ sent="$(grep -c 'HARNESS CHECKPOINT' "$CALLS")"
 usage_watch
 assert_eq "$(grep -c 'HARNESS CHECKPOINT' "$CALLS")" "$sent" "a held account is not re-checkpointed every poll"
 
-# no new claims while held — pool worker, lane, and an in-flight drive_unit
-CLAIMED="$RUN_DIR/claimed"; : > "$CLAIMED"   # claim_next runs in $(…): record to a file, not a var
-claim_lane(){ echo pool >> "$CLAIMED"; }   # #468: the step loop's claim (claim_next is the old unit loop's)
+# no new claims while held — pool worker and lane
+CLAIMED="$RUN_DIR/claimed"; : > "$CLAIMED"   # claim_lane runs in $(…): record to a file, not a var
+claim_lane(){ echo pool >> "$CLAIMED"; }   # #468: the step loop's claim
 worker_tick W1; rc=$?
 assert_eq "$rc" "3" "worker_tick idles while usage is held"
 assert_eq "$(cat "$CLAIMED")" "" "worker_tick claims nothing while usage is held"
@@ -135,13 +135,6 @@ claim_next_bug(){ echo bug >> "$CLAIMED"; echo "acme/widget#9"; }
 bug_tick P1; rc=$?
 assert_eq "$rc" "3" "bug_tick idles while usage is held"
 assert_eq "$(cat "$CLAIMED")" "" "the bug lane claims nothing while usage is held"
-DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"; polls=0
-reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; watchdog_team(){ :; }
-reap_finished_inject(){ :; }; ci_gate_ok(){ return 0; }; count_team_sessions(){ echo 0; }; finalize_unit(){ :; }
-dispatch_actions(){ echo yes >> "$DISPATCHED"; }
-unit_complete(){ polls=$((polls+1)); (( polls > 3 )); }
-drive_unit main >/dev/null
-assert_eq "$(cat "$DISPATCHED")" "" "drive_unit holds new dispatch while usage is held"
 usage_report > "$RUN_DIR/report"
 assert_ok "status shows the window and the hold" grep -q 'usage: acctA five_hour 91% (checkpoint at 90%.*HOLD' "$RUN_DIR/report"
 
@@ -149,13 +142,9 @@ assert_ok "status shows the window and the hold" grep -q 'usage: acctA five_hour
 stub_usage 3; usage_watch
 assert_no "after the reset: hold released" usage_held
 assert_ok "usage_resume event logged" grep -q '"event": "usage_resume".*"account": "acctA"' "$HARNESS_EVENTS_FILE"
-drive_unit(){ :; }; seed_if_needed(){ :; }; release_claim(){ :; }
+seed_if_needed(){ :; }
 worker_tick W1 >/dev/null
 assert_eq "$(cat "$CLAIMED")" "pool" "claims resume once the window resets"
-source "$HERE/../scripts/drive.sh"   # restore the real drive_unit, keep its sweeps stubbed
-reap_done_sessions(){ :; }; reap_team(){ :; }; reap_orch(){ :; }; finalize_unit(){ :; }
-polls=0; drive_unit main >/dev/null
-assert_ok "drive_unit dispatches again after the reset" grep -q yes "$DISPATCHED"
 
 # a hold whose window has passed is released even when usage turns unavailable
 stub_usage 95; usage_watch; assert_ok "re-held at 95%" usage_held

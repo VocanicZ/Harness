@@ -26,37 +26,10 @@ assert_ok "stale claim removed" bash -c "[[ ! -f '$CLAIMS_DIR/b.claim' ]]"
 assert_ok "live claim kept"     bash -c "[[ -f '$CLAIMS_DIR/a.claim' ]]"
 rm -f "$CLAIMS_DIR/a.claim"
 
-set_complete
-assert_eq "$(claimable_units | tr '\n' ' ')" "a b c " "no deps: every incomplete unit is claimable"
-set_complete a
-assert_eq "$(claimable_units | tr '\n' ' ')" "b c " "a done -> b and c claimable"
-printf 'W1 %s\n' "$$" > "$CLAIMS_DIR/b.claim"
-assert_eq "$(claimable_units | tr '\n' ' ')" "c " "b claimed -> only c claimable"
-rm -f "$CLAIMS_DIR/b.claim"
-set_complete a b
-assert_eq "$(claimable_units | tr '\n' ' ')" "c " "a+b done -> c claimable"
-
-set_complete a
-got="$(claim_next W1)"; assert_eq "$got" "b" "claim_next returns first claimable"
-assert_eq "$(awk '{print $1}' "$CLAIMS_DIR/b.claim")" "W1" "claim records worker id"
-assert_eq "$(claim_next W2)" "c" "the next worker takes the next unit"
-assert_eq "$(claim_next W3)" "" "no claimable left -> empty"
-rm -f "$CLAIMS_DIR/c.claim"
-assert_eq "$(worker_unit W1)" "b" "worker_unit finds the claim"
-release_claim b
-assert_ok "release removes claim file" bash -c "[[ ! -f '$CLAIMS_DIR/b.claim' ]]"
-
-# race: two siblings simultaneously claimable -> claimers get DIFFERENT units
-write_targets <<'EOF'
-a	acme/a	-	r1
-d	acme/d	-	r2
-EOF
-set_complete
-( claim_next A > "$RUN_DIR/a.out" ) &
-( claim_next B > "$RUN_DIR/b.out" ) &
-wait
-ra="$(cat "$RUN_DIR/a.out")"; rb="$(cat "$RUN_DIR/b.out")"
-assert_ok "both claimers got a unit"        bash -c "[[ -n '$ra' && -n '$rb' ]]"
-assert_ok "claimers got DIFFERENT units"    bash -c "[[ '$ra' != '$rb' ]]"
-rm -f "$CLAIMS_DIR"/*.claim
+# release_bug_claim drops the bug's claim file (the only claim a bug lane releases by name)
+printf 'P1 %s acme/a#6\n' "$$" > "$CLAIMS_DIR/bug-acme_a-6.claim"
+assert_ok "a live bug claim is claimed" is_bug_claimed "acme/a#6"
+release_bug_claim "acme/a#6"
+assert_ok "release_bug_claim removes the claim file" bash -c "[[ ! -f '$CLAIMS_DIR/bug-acme_a-6.claim' ]]"
+assert_no "the released bug is not claimed" is_bug_claimed "acme/a#6"
 finish

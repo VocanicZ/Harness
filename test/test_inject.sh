@@ -104,7 +104,7 @@ rm -f "$RUN_DIR"/worker-*.pid "$RUN_DIR"/priority.pid
 
 # ── §6 gc_orphan_goals: GC leaked .goal files (Ralph self-exit / inject has no reaper) ───────
 # A goal file is written for EVERY launched session (launch_claude) but is only removed when a
-# reaper KILLS a still-live session (reap_done_sessions / finalize_unit / drive_bug). Ralph sessions
+# reaper KILLS a still-live session (reap_done_sessions / drive_bug). Ralph sessions
 # self-exit on their completion promise BEFORE any reaper kills them, and inject sessions have no
 # reaper at all — so their goal files leak (a confirmed real orphan: an old hz-inject-main.goal with
 # no session). gc_orphan_goals removes a goal file iff its session is no longer live, and leaves a

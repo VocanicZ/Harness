@@ -85,7 +85,7 @@ assert "review.md: a lost round files exactly ONE issue" \
 # The reviewer must NOT close the PRD itself. The engine's CLOSE_PRD is gated on
 # children_all_closed; an agent-side `gh issue close` is not, so a review that signs off AND files
 # a follow-up in the same pass used to strand that follow-up forever — a closed PRD makes the unit
-# COMPLETE, and claimable_units drops a complete unit before drive_unit ever asks dispatch what is
+# COMPLETE, and the pool drops a complete unit before the worker ever asks dispatch what is
 # outstanding. Observed on hardcore-gacha-2: #80 filed 03:00:35, PRD closed 03:01:04, pool idle
 # from 03:06 with an open ready-for-agent issue and the unit reporting complete=Y.
 assert "review.md: does NOT close the PRD itself" \

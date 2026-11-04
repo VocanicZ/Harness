@@ -107,7 +107,7 @@ one_gate(){ local issue="${1:-}" json="" a fc rd rc; shift || true
   rm -f "$fc" "$rd"; return $rc; }
 
 # _one_target [-R owner/repo] [--unit U] [other args ignored] — set UNIT REPO SLUG PROJECT DESC
-# CHECKOUT, the dynamic-scope vars drive.sh's helpers read, as drive_unit sets them. The caller
+# CHECKOUT, the dynamic-scope vars drive.sh's helpers read, as the pool worker's fleet_ctx sets them. The caller
 # declares them local. No -R/--unit: HARNESS_UNIT, else the project's only unit. rc 2 when none or several match.
 _one_target(){ local want="" unit="" u
   while (( $# )); do

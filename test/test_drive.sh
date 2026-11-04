@@ -4,56 +4,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; source "$HERE/helpers.sh"
 make_env
 HARNESS_REPO="acme/widget"; POOL=2; POLL=0
-DISPATCHED="$RUN_DIR/dispatched"; : > "$DISPATCHED"
-# Isolate WORKTREES_DIR to an empty temp dir: drive_unit now runs finalize_unit on completion,
-# whose glob/`rm -rf` would otherwise hit the LIVE $HARNESS_DIR/worktrees. With it empty, the
-# sweep matches nothing — hermetic by construction, not by accident of the git stub's exit code.
-WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
-
-# stubs: no real tmux/gh. spawn_impl just records; sessions are never "live".
-# team_sessions/tmux/git are also stubbed so finalize_unit's session-kill + prune never reach the
-# real fleet (the live config's prefix is in this process); WORKTREES_DIR above is the real guard.
-spawn_impl(){ echo "IMPL $1" >> "$DISPATCHED"; }
-spawn_orch(){ echo "ORCH $1" >> "$DISPATCHED"; }
-reap_done_sessions(){ :; }
-reap_team(){ :; }
-count_team_sessions(){ echo 0; }
-team_sessions(){ :; }
-tmux(){ :; }
-git(){ :; }
-# dispatch returns two IMPL the first tick, then nothing; unit completes on tick 2.
-TICK="$RUN_DIR/tick"; echo 0 > "$TICK"
-dispatch_actions(){ local n; n="$(cat "$TICK")"; n=$((n+1)); echo "$n" > "$TICK"
-  if [[ "$n" == 1 ]]; then printf 'IMPL\t5\tISSUE 5 DONE\nIMPL\t6\tISSUE 6 DONE\n'; fi; }
-COMPLETE_AFTER=2
-unit_complete(){ [[ "$(cat "$TICK")" -ge "$COMPLETE_AFTER" ]]; }
-
-drive_unit main
-assert_eq "$(grep -c '^IMPL' "$DISPATCHED")" "2" "drove two IMPL actions on first tick"
-assert_ok "loop exited when unit_complete flipped" true
-
-# --- CLOSE_PRD: the engine closes a reviewed-but-open PRD directly (no Ralph session) ---
-# The dispatch loop must route a CLOSE_PRD action to close_prd() (a single `gh issue close`), NOT to
-# spawn_orch (which would launch a whole review session). This is the deterministic PRD-close fix.
-make_env
-HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
-WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
-ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
-spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }
-spawn_orch(){ echo "ORCH $1 $2" >> "$ROUTED"; }
-close_prd(){ echo "CLOSE_PRD $1" >> "$ROUTED"; }
-reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }
-team_sessions(){ :; }; tmux(){ :; }; git(){ :; }
-TICK="$RUN_DIR/tick2"; echo 0 > "$TICK"
-dispatch_actions(){ local n; n="$(cat "$TICK")"; n=$((n+1)); echo "$n" > "$TICK"
-  if [[ "$n" == 1 ]]; then printf 'CLOSE_PRD\t7\tPRD CLOSED\n'; fi; }
-unit_complete(){ [[ "$(cat "$TICK")" -ge 2 ]]; }
-drive_unit main
-assert_ok "CLOSE_PRD routed to close_prd() (engine closes the PRD)" grep -q '^CLOSE_PRD 7' "$ROUTED"
-assert_no "CLOSE_PRD did NOT spawn an orch/review session" grep -q '^ORCH' "$ROUTED"
-
+# --- close_prd: the engine closes a reviewed-but-open PRD directly (no Ralph session). The pool worker
+# routes the CLOSE_PRD action here (chores_slotless; test_pool_lanes). ---
 # close_prd() runs a single idempotent `gh issue close` against the unit's repo
-source "$HERE/../scripts/drive.sh"   # restore the real close_prd (the routing section stubbed it)
 make_env
 SLUG="acme/widget"
 GHC="$RUN_DIR/ghclose"; : > "$GHC"
@@ -61,49 +14,13 @@ gh(){ echo "gh $*" >> "$GHC"; return 0; }
 close_prd 7
 assert_ok "close_prd issues gh issue close for the PRD" grep -q 'gh issue close 7 -R acme/widget' "$GHC"
 
-# --- LABEL_READY (#287): the engine labels a stray child ready — no session, no slot ---
-make_env
-HARNESS_REPO="acme/widget"; SLUG="acme/widget"; POOL=2; POLL=0
-WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
-ROUTED="$RUN_DIR/routed"; : > "$ROUTED"
-spawn_impl(){ echo "IMPL $1" >> "$ROUTED"; }
-spawn_orch(){ echo "ORCH $1 $2" >> "$ROUTED"; }
-label_ready(){ echo "LABEL_READY $1" >> "$ROUTED"; }
-reap_done_sessions(){ :; }; reap_team(){ :; }; count_team_sessions(){ echo 0; }
-team_sessions(){ :; }; tmux(){ :; }; git(){ :; }
-TICK="$RUN_DIR/tick3"; echo 0 > "$TICK"
-dispatch_actions(){ local n; n="$(cat "$TICK")"; n=$((n+1)); echo "$n" > "$TICK"
-  if [[ "$n" == 1 ]]; then printf 'LABEL_READY\t18\t-\n'; fi; }
-unit_complete(){ [[ "$(cat "$TICK")" -ge 2 ]]; }
-drive_unit main
-assert_ok "LABEL_READY routed to label_ready()" grep -q '^LABEL_READY 18' "$ROUTED"
-assert_no "LABEL_READY did NOT spawn an orch session" grep -q '^ORCH' "$ROUTED"
-
-source "$HERE/../scripts/drive.sh"   # restore the real label_ready
+# --- label_ready (#287): the engine labels a stray child ready — no session, no slot ---
 make_env
 SLUG="acme/widget"; HARNESS_LABEL_READY=go
 GHL="$RUN_DIR/ghlabel"; : > "$GHL"
 gh(){ echo "gh $*" >> "$GHL"; return 0; }
 label_ready 18
 assert_ok "label_ready adds the ready label to the stray" grep -q 'gh issue edit 18 -R acme/widget --add-label go' "$GHL"
-
-# --- finalize_unit: the on-completion sweep that fixes the leftover session/worktree ---
-# Run in fully isolated temp dirs with recording stubs, so nothing touches the real fleet.
-make_env
-UNIT=main; CHECKOUT="$RUN_DIR/co"; mkdir -p "$CHECKOUT"
-WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR/main-i7"   # a leftover impl worktree
-echo REVIEW > "$RUN_DIR/$(sess_orch main).goal"                 # a leftover session's goal file
-team_sessions(){ printf '%s\n' "$(sess_orch main)"; }           # one session still up for the unit
-KILLED="$RUN_DIR/killed"; : > "$KILLED"
-tmux(){ [[ "$1" == kill-session ]] && echo "$3" >> "$KILLED"; return 0; }
-BR="$RUN_DIR/branches"; : > "$BR"
-git(){ [[ "$*" == *"branch -D"* ]] && echo "$*" >> "$BR"; return 1; }  # nonzero ⇒ worktree-remove falls back to rm -rf
-
-finalize_unit
-assert_eq "$(cat "$KILLED")" "$(sess_orch main)" "finalize killed the leftover team session"
-assert_no "finalize removed the session goal file"   test -f "$RUN_DIR/$(sess_orch main).goal"
-assert_no "finalize removed the impl worktree"       test -d "$WORKTREES_DIR/main-i7"
-assert_ok "finalize deleted the local feature branch" grep -q "branch -D issue/7" "$BR"
 
 # --- archive_plan: on completion, archive PLAN.md + write a spec-keyed marker (idempotent) ---
 # CHECKOUT is a plain dir (no git repo) so `git mv`/commit/push fall back / no-op; archival itself

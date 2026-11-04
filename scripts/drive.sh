@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# drive.sh — drive_unit(unit): take one unit from wherever it is to COMPLETE.
-# Sourced after lib.sh (by pool-worker.sh and tests).
-# Relies on bash dynamic scoping: drive_unit sets UNIT/REPO/SLUG/PROJECT/DESC/CHECKOUT as
-# locals, and the helpers below read them.
+# drive.sh — the lane helpers (spawn_*, reap_*, close_prd, label_ready, archive_plan) the step-based
+# pool worker (pool-worker.sh) and `harness one` call. Sourced after lib.sh (by them and tests).
+# Relies on bash dynamic scoping: the caller (pool-worker.sh fleet_ctx, one.sh) sets
+# UNIT/REPO/SLUG/PROJECT/DESC/CHECKOUT as locals, and the helpers below read them.
 _HARNESS_DRIVE_SOURCED=1
 source "$(dirname "${BASH_SOURCE[0]}")/autorelease.sh"   # #283: the fleet cuts its own Harness releases
 
@@ -16,7 +16,7 @@ default_branch(){ gh repo view "$SLUG" --json defaultBranchRef -q .defaultBranch
 # archive_plan — on unit completion, archive a live PLAN.md (never delete) and write a committed,
 # spec-keyed completion marker, so the auto-PLAN gate (issuelib.py) neither stays blocked by the
 # leftover doc nor silently re-fires against the same spec. Idempotent: a no-op once PLAN.md is
-# already archived. git mv/commit/push are best-effort (fall back to plain mv; never abort finalize).
+# already archived. git mv/commit/push are best-effort (fall back to plain mv; never abort the caller).
 archive_plan(){
   if [[ -f "$CHECKOUT/PLAN.md" ]]; then
     local ts archived spec_hash
@@ -174,37 +174,6 @@ reap_orch(){
     [[ -d "$wd" ]] || continue           # #528: ...and already did, between the glob and the claim check
     reap_orch_lane "$prd"
   done
-  shopt -u nullglob
-}
-
-# finalize_unit — the unit just reached COMPLETE. reap_done_sessions/reap_team only run at the
-# TOP of the poll loop, so the session AND worktree that DELIVER completion are never swept by
-# them — the loop exits first, orphaning the last tmux session + worktree (this is exactly how a
-# finished review session gets left behind). This final, unconditional sweep tears the whole team
-# down: kill every session still up for the unit, drop its goal file, remove each per-issue
-# worktree and its local branch, then prune. (Remote branches are auto-deleted on squash-merge.)
-finalize_unit(){
-  local s wd issue prd
-  archive_plan   # archive PLAN.md + write the spec-keyed completion marker (idempotent no-op if none)
-  while read -r s; do
-    [[ -z "$s" ]] && continue
-    cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" && log "finalize: reaped leftover session $s"
-    rm -f "$RUN_DIR/$s.goal"
-  done < <(team_sessions "$UNIT")
-  stats_sweep_ended
-  shopt -s nullglob
-  for wd in "$WORKTREES_DIR/$UNIT"-i*; do
-    issue="${wd##*-i}"
-    remove_worktree "$CHECKOUT" "$wd" "issue/$issue"
-    log "finalize: removed worktree + local branch for #$issue"
-  done
-  local san; san="$(printf '%s' "$SLUG" | tr '/' '_')"
-  for wd in "$WORKTREES_DIR/orch-$san"-p*; do
-    prd="${wd##*-p}"
-    remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
-    log "finalize: removed orch worktree + branch for PRD #$prd"
-  done
-  git -C "$CHECKOUT" worktree prune 2>/dev/null || true
   shopt -u nullglob
 }
 
@@ -412,33 +381,13 @@ spawn_bug(){
 
 # bug_goal_done <n> <phase> — has this phase's session delivered its outcome? triage: the issue
 # is closed (invalid/dup/wontfix) OR the label flipped to bug-triaged (now a fix). fix: the issue
-# is closed (its PR merged). Shared by the priority lane (drive_bug) and the pool (#214, reap_pool_bugs). Reads GitHub via the lib.sh seams (_bug_state/_bug_labels).
+# is closed (its PR merged). Shared by the priority lane (drive_bug) and the pool (#214, bug_lane_tend). Reads GitHub via the lib.sh seams (_bug_state/_bug_labels).
 bug_goal_done(){ local n="$1" phase="$2"
   [[ "$(_bug_state "$n")" == CLOSED ]] && return 0
   [[ "$phase" == triage && "$(bug_phase "$n")" == fix ]]; }
 
-# spawn_pool_bug <n> — an idle pool slot takes bug #n of this unit's repo (#214). It claims the bug
-# exactly as the lane would (claim_bug: same claim file, same lock, refused if either lane holds it)
-# and runs the lane's own spawn_bug, so the triage→fix prompts and the agent-working stamp are the
-# lane's. The claim then moves to the session's pane pid: it is held as long as the session lives
-# and goes stale with it, which is how the lane gets the bug back for its next phase.
-spawn_pool_bug(){ local n="$1" tok phase sess pid
-  tok="$SLUG#$n"
-  claim_bug "pool-$UNIT" "$tok" || { log "pool: bug $tok already claimed by another lane — skipping"; return 1; }
-  phase="$(bug_phase "$n")"; sess="$(sess_bug "$SLUG" "$n" "$phase")"
-  log "pool: idle slot takes bug #$n → $phase session ($sess)"
-  spawn_bug "$n" "$phase" || { log "pool: spawn failed for bug #$n"; release_bug_claim "$tok"; return 1; }
-  pid="$(sess_pane_pid "$sess")"
-  [[ -n "$pid" ]] || { log "pool: no live session for bug #$n"; release_bug_claim "$tok"; return 1; }
-  local f; f="$CLAIMS_DIR/$(_bug_claim_key "$tok").claim"
-  printf '%s %s %s\n' "pool-$UNIT" "$pid" "$tok" > "$f.tmp" && mv -f "$f.tmp" "$f"; }
-
-# count_pool_bugs <unit> — live bug sessions the unit's pool worker took; they use its POOL slots.
-count_pool_bugs(){ local f tok
-  while IFS=$'\t' read -r f tok; do is_bug_claimed "$tok" && echo "$tok"; done < <(pool_bug_claims "$1") | grep -c . ; }
-
 # bug_lane_tend <slug> <n> — one pool-taken bug's live sessions (#214): watchdogged, and ended once the
-# phase goal is met. Shared by reap_pool_bugs (the legacy unit loop) and the step-based worker (#468).
+# phase goal is met. Shared by the step-based worker (#468).
 bug_lane_tend(){ local slug="$1" n="$2" phase sess SLUG="$1"
   for phase in triage fix; do
     sess="$(sess_bug "$slug" "$n" "$phase")"
@@ -456,24 +405,6 @@ bug_lane_reap_worktrees(){ local slug="$1" n="$2"
   remove_worktree "$(bug_checkout "$slug")" "$(bug_worktree "$slug" "$n")" "issue/$n"
   remove_worktree "$(bug_checkout "$slug")" "$(triage_worktree "$slug" "$n")" "agent/bug-triage-$n"; }
 
-# reap_pool_bugs — tend every bug session a pool worker took (#214): the pool's half of drive_bug's
-# hold loop. A live one is watchdogged and ended once its phase goal is met; once it is gone its
-# worktrees and claim are dropped. That teardown re-checks the claim under POOL_LOCK, so a claim the
-# lane has since taken over is never touched. A dead session's agent-working is reap_lane's to free.
-reap_pool_bugs(){ local f tok n SLUG lockfd
-  while IFS=$'\t' read -r f tok; do
-    SLUG="$(_with_owner "$(_bug_ref_repo "$tok")")"; n="$(_bug_ref_num "$tok")"
-    bug_lane_tend "$SLUG" "$n"
-    bug_session_live "$SLUG" "$n" && continue
-    lock_acquire "$POOL_LOCK" lockfd
-    if [[ "$(awk '{print $1; exit}' "$f" 2>/dev/null)" == pool-* ]] && ! is_bug_claimed "$tok"; then
-      bug_lane_reap_worktrees "$SLUG" "$n"
-      rm -f "$f"; log "pool: reaped bug $tok session — worktrees + claim released"
-    fi
-    lock_release "$lockfd"
-  done < <(pool_bug_claims); }
-
-# drive_unit <unit> — poll loop; returns 0 when the unit reaches COMPLETE.
 # dispatch_stalled_banner <repo> <unit> — say WHY a unit is sitting still, once per distinct state.
 #
 # Deduped on the status line itself, so a genuinely stuck unit announces once and then stays quiet
@@ -487,77 +418,3 @@ dispatch_stalled_banner(){ local st
   _STALL_LOGGED="$st"
   log "$2: nothing dispatchable and nothing in flight — holding. $st"
   log "  a ready child that no lane can claim (unclosed dep, agent-blocked on a non-autonomous fleet, or parked agent-blocked and unchanged on an autonomous one) keeps the unit incomplete by design; close or unblock it to let the unit finish."; }
-
-drive_unit(){
-  local UNIT="$1" REPO SLUG PROJECT DESC CHECKOUT drained=0
-  REPO="$(unit_repo "$UNIT")"; [[ -n "$REPO" ]] || { log "unknown unit: $UNIT"; return 1; }
-  SLUG="$(unit_slug "$UNIT")"; PROJECT="$UNIT"; DESC="$(unit_desc "$UNIT")"; CHECKOUT="$(unit_checkout "$UNIT")"
-  log "drive $SLUG — mode $HARNESS_MODE pool $POOL poll ${POLL}s"
-  # #183: gh_rate_wait first — after a rate-limited read the loop sleeps until the reset before the
-  # completion check (a gh read) runs again; the watchdog keeps tending live sessions meanwhile.
-  while gh_rate_wait watchdog_team; ! unit_complete "$UNIT"; do
-    reap_done_sessions; one_auto_tend; reap_team; reap_orch; watchdog_team; reap_finished_inject "$UNIT"   # #115 watchdog + reap a finished injector parked at idle ❯
-    reap_pool_bugs   # #214: bug sessions an idle slot took — end on goal, release the claim once gone
-    release_tick     # #283: a throttled patch release for queued bug fixes (Harness repo only)
-    retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
-    if is_paused; then
-      # #259: a driven goal loop (cli_loop driven) advances only from this loop's watchdog, so its
-      # sessions are drained by polling on, without dispatch, until none is left.
-      if [[ "$(cli_loop)" == driven ]] && (( $(count_team_sessions "$UNIT") > 0 )); then
-        log "$UNIT paused — draining (no new dispatch); driving the live goal loops until they end"; sleep "$POLL"; continue; fi
-      log "$UNIT paused — draining (no new dispatch); live sessions keep running"; drained=1; break; fi
-    # #50: a red default branch holds NEW dispatch but does not drain the unit — live sessions run
-    # on, and the next poll re-checks, so the fleet resumes by itself the moment the branch is green
-    # again. Placed after the reap sweep so a red branch never also stalls session bookkeeping.
-    if ! ci_gate_ok "$SLUG"; then harness_event hold reason=other cause=ci_red secs="$POLL"; sleep "$POLL"; continue; fi
-    # #194: an account near its usage limit was checkpointed — hold NEW dispatch (never drain) until
-    # the window resets, then the agent-paused issues re-dispatch through the resume path.
-    # #392: HARNESS_ONE_AUTO=1 — the hold starts one gated harness-one lane per account (one_auto_tick).
-    usage_watch; if usage_held; then one_auto_tick; harness_event hold reason=rate_limit cause=usage_limit secs="$POLL"; sleep "$POLL"; continue; fi
-    # #183: the GitHub token is under its budget threshold — no new dispatch, half the poll rate, so
-    # what is left goes to the live agents. The sweeps above still ran: they are what finishes work.
-    if gh_budget_low; then harness_event hold reason=rate_limit cause=gh_budget secs="$(( POLL * 2 ))"; sleep "$(( POLL * 2 ))"; continue; fi
-    local active free allow_orch action payload promise
-    active=$(( $(count_team_sessions "$UNIT") + $(count_pool_bugs "$UNIT") ))   # #214: pool-taken bugs hold slots
-    free=$(( POOL - active ))
-    if (( free > 0 )); then
-      allow_orch=0; (( active == 0 )) && allow_orch=1
-      # `allow_orch` stays unit-wide and gates only PLAN/PRD (Task 5 took it off the per-PRD
-      # actions); DECOMPOSE/REVIEW/CLOSE_PRD are gated by --busy-prds plus remaining capacity, so
-      # PRD #2 can decompose while PRD #1's impl sessions are live.
-      local busy owned; busy="$(busy_prds_for "$UNIT")"
-      # #416: issues a live lane still owns are dropped BEFORE slots are counted, so a self-parked
-      # or checkpointed lane's issue never takes the free slot (or re-stamps agent-working).
-      owned="$(busy_issues_for "$UNIT")"
-      # stderr is captured (then replayed to the log) only to classify a HOLD tick for `stats` (#185).
-      local actions rc errf="$RUN_DIR/$UNIT.dispatch.err"
-      actions="$(dispatch_actions "$REPO" "$free" "$allow_orch" "$busy" "$owned" 2>"$errf")"; rc=$?
-      [[ -s "$errf" ]] && cat "$errf" >&2
-      (( rc == 3 )) && harness_event hold reason="$(hold_reason "$(cat "$errf" 2>/dev/null)")" secs="$POLL"
-      # A unit that is not complete, has nothing in flight and nothing dispatchable used to be
-      # unreachable — a closed PRD ended the loop. Completion now also requires open_children == 0,
-      # so it IS reachable: one open ready child that no lane can claim (blocked by an unclosed
-      # dep, or agent-blocked under a non-autonomous fleet) holds the unit here indefinitely. That is the honest
-      # state, but it must never be a silent one.
-      (( active == 0 )) && [[ -z "$actions" ]] && dispatch_stalled_banner "$REPO" "$UNIT"
-      while IFS=$'\t' read -r action payload promise; do
-        [[ -z "$action" ]] && continue
-        case "$action" in
-          IMPL)      spawn_impl "$payload" "$promise";;
-          CLOSE_PRD) close_prd "$payload";;        # engine-side close — no session, returns at once
-          LABEL_READY) label_ready "$payload";;    # #287: engine labels a stray child — no session
-          BUG)       spawn_pool_bug "$payload";;  # #214: nothing else to do and the bug lane is busy
-          *)         spawn_orch "$action" "$payload" "$promise";;
-        esac
-        sleep 2
-      done <<< "$actions"
-    fi
-    sleep "$POLL"
-  done
-  # The loop exits on genuine completion OR a pause-drain `break`; track which directly via
-  # `drained` rather than re-querying unit_complete here — that re-query is a GitHub round-trip,
-  # and a transient error would wrongly skip the sweep and re-orphan the very session this
-  # teardown exists to reap. Only tear the team down on real completion; a paused unit must keep
-  # its live sessions running to drain.
-  if (( drained )); then log "$UNIT drained (paused) — live sessions left running"; else finalize_unit; log "$UNIT COMPLETE"; fi
-}
