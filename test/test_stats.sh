@@ -73,6 +73,22 @@ done
 GOAL="REVIEW:5" STAT_PRD="" HARNESS_RTDD_EVENTS_FILE="$RUN_DIR/r.jsonl" session_env u-1
 assert_eq "${SESSION_ENV[*]}" "-e RTDD_EVENT_LOG=$RUN_DIR/r.jsonl -e HARNESS_SESSION=u-1 -e HARNESS_PREFIX=hz -e HARNESS_KIND=review -e HARNESS_PRD=5" \
   "session_env: a review session has no issue, its PRD from the GOAL; the log path honours its override"
+# #509: a native Windows python ends its lines with CRLF; `read -r` keeps the CR, so an empty goal yielded an
+# `-e HARNESS_\r` pair and a set goal values ending in a CR. No pair session_env builds may carry one.
+CRLF_PY="$RUN_DIR/crlf-bin"; mkdir -p "$CRLF_PY"
+cat > "$CRLF_PY/python3" <<'PYEOF'
+#!/usr/bin/env bash
+# fake native-Windows python: run the real one, end every output line with CRLF
+out="$(/usr/bin/env -i PATH="$ORIG_PATH" python3 "$@")" || exit $?
+while IFS= read -r l; do printf '%s\r\n' "$l"; done <<<"$out"
+PYEOF
+chmod +x "$CRLF_PY/python3"
+for g in "" "ISSUE:7"; do
+  ORIG_PATH="$PATH" PATH="$CRLF_PY:$PATH" GOAL="$g" STAT_PRD=5 session_env u-2
+  assert_eq "$(printf '%s' "${SESSION_ENV[*]}" | grep -c $'\r')" 0 "#509: session_env with goal '${g:-<empty>}' under CRLF python: no pair carries a CR"
+done
+crlf_env="${SESSION_ENV[*]}"
+assert_eq "${crlf_env: -56}" "-e HARNESS_KIND=impl -e HARNESS_ISSUE=7 -e HARNESS_PRD=5" "#509: a set goal's kind/issue/PRD pairs are clean under CRLF python"
 tmux(){ case "$1" in has-session) grep -qxF "$3" "$LIVE";; new-session) echo "$4" >> "$LIVE";; *) return 0;; esac; }
 
 echo "=== #186: start.sh records a missing rtdd as an rtdd_missing event ==="
