@@ -141,6 +141,9 @@ reap_team(){
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     local issue="${wd##*-i}"
     is_claimed "impl-$issue" && continue
+    # #528: the owner removes the worktree before it releases its claim. If it finished this lane after the
+    # glob listed it, the claim is gone AND so is the worktree: already reaped, once — not for us to redo.
+    [[ -d "$wd" ]] || continue
     reap_impl_lane "$issue"
   done
   shopt -u nullglob
@@ -168,6 +171,7 @@ reap_orch(){
   for wd in "$WORKTREES_DIR/orch-$san"-p*; do
     prd="${wd##*-p}"
     is_claimed "orch-$prd" && continue   # #468: its owner reaps it
+    [[ -d "$wd" ]] || continue           # #528: ...and already did, between the glob and the claim check
     reap_orch_lane "$prd"
   done
   shopt -u nullglob

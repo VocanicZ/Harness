@@ -23,6 +23,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   any PRD waited to be decomposed and every worker was busy, no unlabelled child was labelled ready and no reviewed PRD
   was closed. The claim path is unchanged: DECOMPOSE still comes before IMPL.
 
+### A finished lane is reaped once (#528)
+
+- `reap_team` and `reap_orch` skip a worktree that is gone once its claim check passes. Before, a lane the owning worker finished
+  between the chores' worktree listing and their claim check was reaped a second time: a duplicate `reap` event, a second
+  `gh issue view`, and a second `merged` event (and release queue entry for a bug fix) or a second unlock.
+
 ### `harness stats`: coding vs testing time per issue (#379)
 
 - `harness stats --prd N` and `--issue N` split each session's wall time into **testing** (the time inside test-command
