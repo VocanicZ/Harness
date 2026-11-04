@@ -42,6 +42,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   per-repo settings, each failure naming its fix (`harness doctor --fix` writes the per-repo settings).
 - Fixed: `install.sh` could not extract a release when `TMPDIR` was a mixed-form Windows path (`C:/…`):
   GNU tar read `C:` as a remote host. The archive is now read from stdin.
+- Fixed: on Windows `detach_launch` left every exported variable, `GH_TOKEN` included, in
+  `.harness/run/<name>.pid.env` for as long as the fleet ran. The launcher now deletes that file as soon as it
+  has restored the environment, and a failed launch removes it too (#510).
+- The winsma isolation (`test/smoke/winsma/`) also sets `GIT_CONFIG_GLOBAL` under `C:\hx-<issue>\`: a fleet's
+  `ensure_safe` writes `safe.directory` entries to the global git config, which the guard rightly flagged.
+- A recorded winsma run (`test/smoke/logs/windows-installer-windows-20261104T041438Z.log`): `install.sh` with a
+  stubbed winget, `harness init`, `harness start` claiming an issue, per-repo git settings on the lane's
+  worktree, `harness doctor` green, the guard and the credential scan clean, winsma clean after.
 - README, `docs/windows-smoke.md` and the `docs/reference.md` parity matrix describe the installer; WSL2 stays
   documented as an optional alternative.
 
