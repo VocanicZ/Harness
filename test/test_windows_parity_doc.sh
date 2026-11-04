@@ -158,7 +158,7 @@ expect_fail target-no-issue "target names no issue" "a target with no issue"
 mutate missing-subcommand 's = s.replace("| `harness doctor` | ✓ | ✓ |\n", "")'
 expect_fail missing-subcommand "no row for subcommand \`harness doctor\`" "a subcommand with no row"
 
-mutate missing-skill 's = s.replace("| `/harness-stop` | ✓ | ✓ target (#475 task 7) |\n", "")'
+mutate missing-skill 's = "\n".join(l for l in s.split("\n") if not l.startswith("| `/harness-stop` |"))'
 expect_fail missing-skill "no row for skill \`/harness-stop\`" "a skill with no row"
 
 mutate missing-cli-research 's = "\n".join(l for l in s.split("\n") if not l.startswith("| `hermes` | `hermes chat -q"))'

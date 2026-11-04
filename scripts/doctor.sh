@@ -159,7 +159,7 @@ doctor_windows_prereqs(){ local problems=0 w="${HARNESS_WINGET:-winget}" c co m 
     if [[ -n $any ]]; then echo "  agent CLI:$any ✓"
     else echo "  agent CLI: MISSING — $w install --id Anthropic.ClaudeCode -e"; problems=$((problems+1)); fi
   fi
-  if command -v rtdd >/dev/null 2>&1; then echo "  rtdd: ✓"
+  if rtdd_exe >/dev/null 2>&1; then echo "  rtdd: ✓ ($(rtdd_exe))"
   elif command -v npx >/dev/null 2>&1; then echo "  rtdd: not installed (npx is here: re-run install.sh)"
   else echo "  rtdd: not installed, and no Node — optional (lanes fall back to the closest tests); $w install --id OpenJS.NodeJS.LTS -e, then re-run install.sh"; fi
   dm="$(win_devmode)"

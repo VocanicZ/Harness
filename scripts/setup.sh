@@ -21,7 +21,7 @@ gh auth status >/dev/null 2>&1 || die "gh not authenticated — run: gh auth log
 # also the backstop for the one upgrade `harness update` cannot fix itself: git replaces update.sh by
 # rename, so the update that BRINGS the rtdd install still runs the OLD update.sh, and a host stays
 # without rtdd until something says so. This is that something.
-if command -v rtdd >/dev/null; then
+if rtdd_exe >/dev/null; then
   rtdd_skill_install   # #187: the lane prompts defer the details to the user-level skill
 else
   echo "  ! rtdd not found — lanes will run the closest tests by hand instead of rtdd's rounds (#449: never the full suite)."

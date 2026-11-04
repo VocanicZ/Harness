@@ -228,6 +228,14 @@ tasks registered), `v011` (a v0.1.1 git checkout rebuilt inside the folder, upda
 leave three; a corrupted archive is refused). `harness doctor` runs after each state. The log is
 `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`.
 
+Lane tooling and skills on a Windows host (#495): `test/smoke/winsma/tooling.sh` is the script a run sends
+(`winsma.sh run <issue> install "$(cat test/smoke/winsma/tooling.sh)"`), in three stages inside `C:\hx-<issue>\`: `install` (this branch as
+a local release; rtdd resolves to the host's own `rtdd.exe`, which is found and run but never installed — its installer writes skills
+machine-wide), `skills` (`harness update --with-skills` into the sandbox `CLAUDE_CONFIG_DIR` and `HARNESS_USER_SKILLS`: the plugins are
+registered there, `to-prd`, `to-issues`, `subagent-task-tree` and every skill a lane prompt names (`{{skill:…}}`) are in the skills dir)
+and `lane` (a shell with a lane's env, a short `TMPDIR` and a worktree path with a space, running git, gh, `rtdd.exe`, python3 through the
+shim, grep and sed). Log: `test/smoke/logs/tooling-windows-20261104T141533Z.log`.
+
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;

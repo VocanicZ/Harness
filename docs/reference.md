@@ -675,18 +675,18 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness prd` | ✓ | ✓ target (#475 task 8) |
 | `harness issue` | ✓ | ✓ target (#475 task 8) |
 | `harness resume` | ✓ | ✓ |
-| `/harness` | ✓ | ✓ target (#475 task 7) |
+| `/harness` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-arc` | ✓ | ✓ target (#475 task 8) |
-| `/harness-init` | ✓ | ✓ target (#475 task 7) |
+| `/harness-init` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-issue` | ✓ | ✓ target (#475 task 8) |
 | `/harness-one` | ✓ | ✓ target (#475 task 8) |
-| `/harness-pause` | ✓ | ✓ target (#475 task 7) |
+| `/harness-pause` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-plan` | ✓ | ✓ target (#475 task 8) |
 | `/harness-prd` | ✓ | ✓ target (#475 task 8) |
-| `/harness-resume` | ✓ | ✓ target (#475 task 7) |
-| `/harness-start` | ✓ | ✓ target (#475 task 7) |
+| `/harness-resume` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
+| `/harness-start` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-status` | ✓ | ✓ target (#475 task 8) |
-| `/harness-stop` | ✓ | ✓ target (#475 task 7) |
+| `/harness-stop` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-uninstall` | ✓ | ✓ |
 | `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`) |
 | `cli agy` | ✓ | ✓ (headless runner `scripts/cli/agy_headless.py`; its `headless-*` rows pass from fixture replay under `HARNESS_PLATFORM=windows` but `headless-checkpoint` and `headless-resume`, which are red there for `claude` too; a winsma run is still #475 task 8) |
@@ -695,7 +695,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `cli opencode` | ✓ | ✓ (headless runner `scripts/cli/opencode_headless.py`) |
 | `cli hermes` | ✓ | ✓ (headless runner `scripts/cli/hermes_headless.py`) |
 | `cli openclaw` | ✓ | ✓ target (#475 task 2) |
-| `rtdd` | ✓ | ✓ target (#475 task 7) |
+| `rtdd` | ✓ | ✓ (`rtdd.exe`, found by `rtdd_exe` in `scripts/portable.sh`; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `supervise --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
 | `web --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
 | `harness-one` | ✓ | ✓ target (#475 task 8) |

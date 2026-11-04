@@ -13,6 +13,26 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - Which commands count as tests is a documented default pattern, replaceable with `HARNESS_TEST_COMMAND_PATTERNS`
   (environment or `.harness/config`); see [Coding vs testing time](docs/reference.md#coding-vs-testing-time-379).
 
+### Lane tooling and skills on Windows (#495)
+
+- `rtdd` resolves to `rtdd.exe` on Windows: `rtdd_exe` (`scripts/portable.sh`, and `inst_rtdd` in `install.sh`, which runs before any
+  engine exists) looks for `rtdd.exe` by that name first, so `install.sh`/`harness update` count it as installed instead of running
+  `npx` again, `harness doctor` prints `rtdd: ✓ (<path>/rtdd.exe)`, `harness setup` installs the rtdd skill through it, and the
+  supervise task's `PATH` holds its directory.
+- Fixed: `install.sh --with-skills` / `harness update --with-skills` copied `to-prd`, `to-issues` and `subagent-task-tree` into
+  `$HOME/.claude/skills` even when `HARNESS_USER_SKILLS` pinned the skills dir, so a sandboxed host (a winsma lane: `HOME` is the real
+  one) wrote outside its sandbox. They now go where the engine's own skills go. The two upstream clones also run with
+  `core.autocrlf=false` and `core.longpaths=true`, so Git for Windows' default CRLF conversion no longer reaches a skill.
+- Fixed: the `python3` shim baked its interpreter as `p="${HARNESS_PYTHON:-C:\ Program\ Files\ …}"`; the backslashes survive in
+  double quotes, so an interpreter under a path with a space (`C:\Program Files\Python313\python.exe`, or a user name with a space)
+  was reported "not found". The default is now its own assignment.
+- `test/test_windows_lane_tooling.sh` (forced `HARNESS_PLATFORM=windows`, everything under a root whose name holds a space): the
+  `{{skill:…}}` check finds, installs and re-finds every prompt-named skill in the Windows skills dir; `--with-skills` installs the same
+  plugin calls and skills set as on Linux, into the pinned dir only; rtdd resolves to `rtdd.exe`; a lane-shaped shell in a worktree path
+  with spaces runs git, gh, `rtdd.exe`, python3 (the shim), grep and sed with a short `TMPDIR`. On winsma `test/smoke/winsma/tooling.sh`
+  does the same for real in `C:\hx-495` (sandbox `CLAUDE_CONFIG_DIR`), log
+  `test/smoke/logs/tooling-windows-20261104T141533Z.log`. The parity rows for `rtdd` and the `/harness*` skills that were targets of this task are now `✓`.
+
 ### Headless turn adapter for `agy` (#486)
 
 - `agy` runs on the headless session backend: `scripts/cli/agy_headless.py` is its adapter on the shared core (#480),
