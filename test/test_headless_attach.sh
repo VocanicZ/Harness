@@ -106,7 +106,8 @@ assert_eq "$rc" 1 "attach to no lane fails"
 assert_ok "…naming it" grep -qF "no live" <<<"$out"
 
 echo "== attach: with stdin closed it is still the live watch =="
-out="$(timeout 3 bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
+WAIT=3; is_windows && WAIT=20   # Git Bash takes seconds to start a script
+out="$(timeout "$WAIT" bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
 assert_ok "it watches the lane" grep -qF "watching headless lane $S" <<<"$out"
 assert_ok "…showing the typed line's turn" grep -qF "── turn 2 (message) ── please do the typed thing" <<<"$out"
 assert_eq "$(calls prompt | wc -l)" 3 "…and typed nothing"
