@@ -179,13 +179,16 @@ assert_ok "… in a restart loop (Restart=always, RestartSec=60)" bash -c "grep 
 assert_ok "its PATH holds the claude/gh/rtdd dir"             grep -q "^export PATH=$T/bin:" "$L"
 assert_ok "its HARNESS_HOME is this host's"                   grep -qx "export HARNESS_HOME=$HARNESS_HOME" "$L"
 assert_ok "the launcher is valid bash"                        bash -n "$L"
-assert_ok "registered as Harness\\harness-supervise from an XML definition" grep -q '^/Create /F /TN Harness\\harness-supervise /XML ' "$T/schtasks.calls"
+SUP_TN="$(win_task_name harness-supervise)"; WEB_TN="$(win_task_name harness-web)"
+assert_ok "this (non-default) home's task name carries a hash of the home" grep -qE '^Harness\\harness-supervise-[0-9a-f]{8}$' <<<"$SUP_TN"
+assert_ok "registered under that name from an XML definition" grep -qxF "/Create /F /TN $SUP_TN /XML $(native_path "$U/harness-supervise.xml")" "$T/schtasks.calls"
 assert_eq "$(cat "$T/last-task.bom")" fffe "the definition is UTF-16LE with its byte-order mark (what schtasks reads)"
-assert_ok "the task starts at boot and at logon"              bash -c "grep -q '<BootTrigger>' '$T/last-task.xml' && grep -q '<LogonTrigger>' '$T/last-task.xml'"
-assert_ok "… S4U: it runs with nobody logged in"              grep -q "<LogonType>S4U</LogonType>" "$T/last-task.xml"
+assert_ok "the task starts at logon"                          grep -q '<LogonTrigger>' "$T/last-task.xml"
+assert_no "… and never at boot"                               grep -q 'BootTrigger' "$T/last-task.xml"
+assert_ok "… in the user's interactive session"               grep -q "<LogonType>InteractiveToken</LogonType>" "$T/last-task.xml"
 assert_ok "… with no run-time limit (the default kills it after 72h)" grep -q "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>" "$T/last-task.xml"
 assert_ok "… running Git's bash on the launcher"              grep -q "<Command>bash</Command><Arguments>\"$L\"</Arguments>" "$T/last-task.xml"
-assert_ok "the task is (re)started"                           bash -c "grep -q '^/End /TN Harness.harness-supervise' '$T/schtasks.calls' && grep -q '^/Run /TN Harness.harness-supervise' '$T/schtasks.calls'"
+assert_ok "the task is (re)started"                           bash -c "grep -qxF '/End /TN $SUP_TN' '$T/schtasks.calls' && grep -qxF '/Run /TN $SUP_TN' '$T/schtasks.calls'"
 assert_ok "no systemctl / loginctl"                           no_systemd
 assert_ok "installed from this engine"                        sup_installed
 other_engine(){ local SUP_HARNESS=/other/bin/harness; sup_installed; }
@@ -193,11 +196,11 @@ assert_no "another engine's checkout does not own the task"   other_engine
 before="$(cat "$L")"; sup_install >/dev/null 2>&1
 assert_eq "$(cat "$L")" "$before" "re-install is idempotent"
 out="$(SCHTASKS_NO_BOOT=1 sup_install 2>&1)"
-assert_ok "no administrator: says the task runs at the next logon instead" grep -q "runs at your next logon" <<<"$out"
-assert_ok "… and registers the logon-only, interactive task"  bash -c "! grep -q BootTrigger '$T/last-task.xml' && grep -q InteractiveToken '$T/last-task.xml'"
+assert_no "registration never asks for a boot trigger (an admin-less schtasks that refuses one changes nothing)" grep -q "WARNING" <<<"$out"
+assert_ok "… the task is registered and logon-only"           bash -c "! grep -q BootTrigger '$T/last-task.xml' && grep -q '<LogonTrigger>' '$T/last-task.xml'"
 sup_uninstall >/dev/null
 assert_no "--uninstall removes the launcher"                  test -f "$L"
-assert_ok "--uninstall deletes the task"                      grep -q '^/Delete /F /TN Harness\\harness-supervise' "$T/schtasks.calls"
+assert_ok "--uninstall deletes the task"                      grep -qxF "/Delete /F /TN $SUP_TN" "$T/schtasks.calls"
 assert_ok "no systemctl / loginctl through uninstall either"  no_systemd
 ( export HARNESS_PLATFORM=posix; SUP_UNIT_DIR="$T/unit" SUP_SYSTEMCTL="$T/bin/systemctl" SUP_LOGINCTL="$T/bin/loginctl"; sup_install >/dev/null 2>&1 )
 assert_ok "Linux keeps the systemd unit"                      grep -qx "ExecStart=/eng/bin/harness supervise" "$T/unit/harness-supervise.service"
@@ -212,7 +215,7 @@ WL="$WU/harness-web.sh"
 assert_ok "--install writes the launcher"                     grep -qx "# ExecStart=/eng/bin/harness web" "$WL"
 assert_ok "… carrying the bind"                               grep -qx "export HARNESS_WEB_BIND=0.0.0.0" "$WL"
 assert_ok "… restarting 5s after an exit"                     grep -qx "  sleep 5" "$WL"
-assert_ok "registered as Harness\\harness-web"                grep -q '^/Create /F /TN Harness\\harness-web /XML ' "$T/schtasks.calls"
+assert_ok "registered as the per-home web task"               grep -qF "/Create /F /TN $WEB_TN /XML " "$T/schtasks.calls"
 kept="$( export HARNESS_WEB_UNIT_DIR="$WU" HARNESS_WEB_HARNESS=/eng/bin/harness HARNESS_WEB_BIND= HARNESS_WEB_PORT=
   source "$R/scripts/web.sh"; web_install >/dev/null 2>&1; web_installed && echo installed )"
 assert_eq "$kept" installed "a redeploy with no env is still this engine's"
@@ -220,8 +223,39 @@ assert_ok "… and keeps the LAN bind"                          grep -qx "export
 assert_ok "… and the port"                                    grep -qx "export HARNESS_WEB_PORT=4700" "$WL"
 ( export HARNESS_WEB_UNIT_DIR="$WU" HARNESS_WEB_HARNESS=/eng/bin/harness; source "$R/scripts/web.sh"; web_uninstall >/dev/null )
 assert_no "--uninstall removes it"                            test -f "$WL"
-assert_ok "--uninstall deletes the task"                      grep -q '^/Delete /F /TN Harness\\harness-web' "$T/schtasks.calls"
+assert_ok "--uninstall deletes the task"                      grep -qxF "/Delete /F /TN $WEB_TN" "$T/schtasks.calls"
 assert_ok "no systemctl / loginctl"                           no_systemd
+
+echo "=== task names: unique per HARNESS_HOME, default home unchanged (#489) ==="
+tn(){ ( HARNESS_HOME="$1" win_task_name "$2" ); }
+DEF="$(HOME=/h/u HARNESS_HOME=/h/u/.harness win_task_name harness-supervise)"
+assert_eq "$DEF" 'Harness\harness-supervise' "the default ~/.harness keeps Harness\\harness-supervise"
+assert_eq "$(HOME=/h/u HARNESS_HOME=/h/u/.harness/ win_task_name harness-web)" 'Harness\harness-web' "… and Harness\\harness-web, trailing slash or not"
+assert_eq "$(unset HARNESS_HOME; HOME=/h/u win_task_name harness-web)" 'Harness\harness-web' "… and with HARNESS_HOME unset"
+A="$(tn /c/hx-1/home harness-supervise)"; A2="$(tn /c/hx-1/home harness-supervise)"; B="$(tn /c/hx-2/home harness-supervise)"
+assert_ok "another home appends a short hash of its path"      grep -qE '^Harness\\harness-supervise-[0-9a-f]{8}$' <<<"$A"
+assert_eq "$A2" "$A" "the hashed name is stable for one home"
+assert_ok "two homes get distinct names"                       test "$A" != "$B"
+assert_ok "… and the supervise and web names differ within a home" test "$A" != "$(tn /c/hx-1/home harness-web)"
+assert_ok "… and never collide with the default's"            test "$A" != "$(tn /h/u/.harness harness-supervise)"
+
+echo "=== two homes side by side: uninstalling one leaves the other's tasks alone ==="
+H1="$T/homeA"; H2="$T/homeB"; : >"$T/schtasks.calls"
+for h in "$H1" "$H2"; do ( export HARNESS_HOME="$h" HARNESS_WEB_UNIT_DIR="$h/tasks" HARNESS_WEB_HARNESS=/eng/bin/harness HARNESS_WEB_BIND= HARNESS_WEB_PORT=
+  source "$R/scripts/web.sh"; web_install >/dev/null 2>&1
+  SUP_UNIT_DIR="$h/tasks" SUP_HARNESS=/eng/bin/harness sup_install >/dev/null 2>&1 ); done
+N1S="$(tn "$H1" harness-supervise)"; N1W="$(tn "$H1" harness-web)"; N2S="$(tn "$H2" harness-supervise)"; N2W="$(tn "$H2" harness-web)"
+for n in "$N1S" "$N1W" "$N2S" "$N2W"; do assert_ok "registered: $n" grep -qF "/Create /F /TN $n /XML " "$T/schtasks.calls"; done
+assert_eq "$(printf '%s\n' "$N1S" "$N1W" "$N2S" "$N2W" | sort -u | wc -l | tr -d ' ')" 4 "four distinct task names for two homes"
+assert_ok "each home's launcher is its own"                    bash -c "test -f '$H1/tasks/harness-supervise.sh' && test -f '$H2/tasks/harness-supervise.sh'"
+: >"$T/schtasks.calls"
+( export HARNESS_HOME="$H1" HARNESS_WEB_UNIT_DIR="$H1/tasks" HARNESS_WEB_HARNESS=/eng/bin/harness
+  source "$R/scripts/web.sh"; web_uninstall >/dev/null
+  SUP_UNIT_DIR="$H1/tasks" sup_uninstall >/dev/null )
+assert_ok "uninstalling home A deletes A's supervise task"     grep -qxF "/Delete /F /TN $N1S" "$T/schtasks.calls"
+assert_ok "… and A's web task"                                 grep -qxF "/Delete /F /TN $N1W" "$T/schtasks.calls"
+assert_no "… and touches nothing of home B's"                  grep -qF -e "$N2S" -e "$N2W" "$T/schtasks.calls"
+assert_ok "home B's launchers are still there"                 bash -c "test -f '$H2/tasks/harness-supervise.sh' && test -f '$H2/tasks/harness-web.sh'"
 unset HARNESS_PLATFORM
 
 echo "=== harness doctor on Windows ==="

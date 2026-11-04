@@ -215,7 +215,8 @@ under `test/smoke/logs/` with a `-windows-` name (`WS_LOG=<file>` tees the helpe
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;
-`test/smoke/logs/windows-installer-windows-20261104T041438Z.log`, #488: `install.sh` with a `HARNESS_WINGET` stub, `harness init`, `harness start` dispatching an issue, doctor green, guard clean). **Developer Mode is off on winsma**: symlinks work
+`test/smoke/logs/windows-installer-windows-20261104T041438Z.log`, #488: `install.sh` with a `HARNESS_WINGET` stub, `harness init`, `harness start` dispatching an issue, doctor green, guard clean;
+`test/smoke/logs/task-names-windows-20261104T085249Z.log`, #489: two `HARNESS_HOME`s installed side by side get distinct, logon-only supervise and web tasks, removing one leaves the other, guard clean). **Developer Mode is off on winsma**: symlinks work
 there only because the ssh session is an elevated administrator, so the non-admin path is covered by the
 `HARNESS_PLATFORM=windows` fakes, not by a live run.
 

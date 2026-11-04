@@ -73,6 +73,8 @@ each helper's Linux branch is the current implementation, moved behind a functio
    the task is registered from an XML definition (`schtasks /Create /XML`, UTF-16LE with a BOM) with
    the S4U logon type, which ran from an ssh-only session. It has boot and logon triggers and
    `ExecutionTimeLimit PT0S`. Without an administrator it falls back to the plain logon-only task.
+   *Superseded by #489:* the task is now always the logon-only, interactive task (no boot trigger, no
+   S4U), and its name carries a hash of `HARNESS_HOME` unless the home is `~/.harness`.
    The detached launch is `Win32_Process.Create` (`powershell Invoke-CimMethod`): the process is
    created by WMI, outside the ssh session, and a process launched this way was still alive in a
    later ssh session. It gets the user's default environment, so a launcher script restores the

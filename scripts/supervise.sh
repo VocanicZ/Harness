@@ -51,7 +51,7 @@
 #   --alarms     list every arc alarm still firing, per fleet
 #   --install    write + enable a systemd user unit (Restart=always, linger) running this loop;
 #                `harness update` re-runs it so the unit follows the engine. On Windows: a Task
-#                Scheduler task Harness\harness-supervise instead (#356; portable.sh win_task_install)
+#                Scheduler task Harness\harness-supervise[-<hash>] (per HARNESS_HOME, logon-only) instead (#356, #489)
 #   --uninstall  stop, disable and remove that unit
 #   --once       one pass, actions echoed too        --dry-run  log what it would do, do nothing
 #

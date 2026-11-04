@@ -349,21 +349,27 @@ detach_launch(){ local append=0
 
 # ---- services: Task Scheduler in place of a systemd user unit (#356) -------------------------------
 # A service is a launcher script <dir>/<name>.sh — the unit file's stand-in, with the same
-# `# ExecStart=<command>` line the engine checks to tell whose install it is — registered as the
-# scheduled task Harness\<name>. The task starts at logon and at boot (the boot trigger stands in for
-# linger, so the service runs with nobody logged in), with the S4U logon type (no stored password,
-# runs whether or not the user is logged on), no run-time limit (the default kills a task after 72h)
-# and one instance at a time. The launcher's own loop is Restart=always. Registering a boot trigger
-# needs an administrator; without one the task falls back to a logon-only, interactive-session task
-# and says so — the analogue of a failed enable-linger. HARNESS_SCHTASKS names schtasks (a test fakes it).
+# `# ExecStart=<command>` line the engine checks to tell whose install it is — registered as a
+# scheduled task. The task starts at logon only, never at boot (#489: a reboot must not start a test
+# install's task), in the user's interactive session, with no run-time limit (the default kills a task
+# after 72h) and one instance at a time. The launcher's own loop is Restart=always.
+# The task name is unique per HARNESS_HOME (#489): the default ~/.harness keeps Harness\<name>, any
+# other home appends a short hash of its path (Harness\<name>-<hash>), so two homes on one machine —
+# a test install beside a real one — never share, and never delete, each other's tasks.
+# HARNESS_SCHTASKS names schtasks (a test fakes it).
 _schtasks(){ MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${HARNESS_SCHTASKS:-schtasks}" "$@"; }
-win_task_name(){ printf 'Harness\\%s\n' "$1"; }
+# win_home_tag — "" for the default home, else the first 8 hex digits of a hash of the home's path.
+win_home_tag(){ local home="${HARNESS_HOME:-$HOME/.harness}" def="$HOME/.harness"
+  home="${home%/}"; def="${def%/}"
+  [[ $home == "$def" ]] && return 0
+  if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$home" | sha256sum | cut -c1-8
+  else printf '%08x\n' "$(printf '%s' "$home" | cksum | cut -d' ' -f1)"; fi; }
+win_task_name(){ local tag; tag="$(win_home_tag)"; printf 'Harness\\%s%s\n' "$1" "${tag:+-$tag}"; }
 win_task_file(){ printf '%s/%s.sh\n' "$1" "$2"; }
-# win_task_xml <launcher> <full:1|0> — the task definition. full: S4U + boot and logon triggers;
-# otherwise the interactive-token, logon-only task plain `schtasks /SC ONLOGON` makes.
-win_task_xml(){ local launch="$1" full="$2" user="${USERNAME:-$(id -un)}" trig logon=InteractiveToken
+# win_task_xml <launcher> — the task definition: the interactive-token, logon-only task plain
+# `schtasks /SC ONLOGON` makes. There is no boot trigger, so it needs no administrator.
+win_task_xml(){ local launch="$1" user="${USERNAME:-$(id -un)}" trig logon=InteractiveToken
   trig="<LogonTrigger><Enabled>true</Enabled><UserId>$user</UserId></LogonTrigger>"
-  (( full )) && { trig="<BootTrigger><Enabled>true</Enabled></BootTrigger>$trig"; logon=S4U; }
   cat <<XML
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -396,17 +402,14 @@ win_task_install(){ local dir="$1" name="$2" restart="$3"; shift 3
     for kv in ${envs[@]+"${envs[@]}"}; do printf 'export %s=%q\n' "${kv%%=*}" "${kv#*=}"; done
     printf 'while :; do\n  %s</dev/null >>%q 2>&1\n  sleep %s\ndone\n' "$(printf '%q ' "$@")" "$dir/$name.log" "$restart"
   } > "$launch" || return 1
-  _win_task_register "$launch" "$xml" "$tn" 1 2>/dev/null || {
-    echo "WARNING: could not register $tn to start at boot (that needs an administrator) — it runs at your next logon, in your session" >&2
-    _win_task_register "$launch" "$xml" "$tn" 0 || { echo "WARNING: could not register the scheduled task $tn" >&2; return 1; }
-  }
+  _win_task_register "$launch" "$xml" "$tn" || { echo "WARNING: could not register the scheduled task $tn" >&2; return 1; }
   echo "  wrote $launch (scheduled task $tn)"
   _schtasks /End /TN "$tn" >/dev/null 2>&1
   _schtasks /Run /TN "$tn" >/dev/null || echo "WARNING: could not (re)start $tn" >&2
   return 0; }
 # schtasks reads a task definition only as UTF-16 (little-endian, with its byte-order mark).
-_win_task_register(){ local launch="$1" xml="$2" tn="$3" full="$4"
-  { printf '\xff\xfe'; win_task_xml "$launch" "$full" | iconv -f UTF-8 -t UTF-16LE; } > "$xml" || return 1
+_win_task_register(){ local launch="$1" xml="$2" tn="$3"
+  { printf '\xff\xfe'; win_task_xml "$launch" | iconv -f UTF-8 -t UTF-16LE; } > "$xml" || return 1
   _schtasks /Create /F /TN "$tn" /XML "$(native_path "$xml")" >/dev/null; }
 # win_task_uninstall <dir> <name> — stop and delete Harness\<name> and its files.
 win_task_uninstall(){ local dir="$1" name="$2" tn; tn="$(win_task_name "$2")"
