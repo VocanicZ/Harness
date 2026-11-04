@@ -331,7 +331,7 @@ detach_launch(){ local append=0
   ( umask 077; _env_script > "$envf" ) || return 1
   {
     printf '#!/usr/bin/env bash\n# written by harness (detach_launch, #356): restores the launching shell, then runs the command.\n'
-    printf 'source %q\n' "$envf"
+    printf 'source %q && rm -f %q\n' "$envf" "$envf"   # #488/#510: the saved environment (GH_TOKEN among it) lives only until restored
     printf 'cd %q 2>/dev/null || cd\n' "$PWD"
     printf 'echo "$$" > %q && mv -f %q %q\n' "$pidf.new" "$pidf.new" "$pidf"
     printf 'exec %s </dev/null %s%q 2>&1\n' "$(printf '%q ' "$@")" "$redir" "$log"
@@ -340,12 +340,12 @@ detach_launch(){ local append=0
   cl="\"$(win_bash_exe)\" \"$(native_path "$launch")\""
   MSYS2_ARG_CONV_EXCL='*' "${HARNESS_POWERSHELL:-powershell}" -NoProfile -NonInteractive -Command \
     "\$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='$(_ps_quote "$cl")'}; exit \$r.ReturnValue" \
-    </dev/null >/dev/null 2>&1 || { echo "detach_launch: Win32_Process.Create failed for: $*" >&2; return 1; }
+    </dev/null >/dev/null 2>&1 || { rm -f "$envf"; echo "detach_launch: Win32_Process.Create failed for: $*" >&2; return 1; }
   for (( i = 0; i < ${HARNESS_DETACH_WAIT:-30} * 10; i++ )); do
     [[ -s $pidf ]] && return 0
     sleep 0.1
   done
-  echo "detach_launch: $* started but recorded no pid in $pidf" >&2; return 1; }
+  rm -f "$envf"; echo "detach_launch: $* started but recorded no pid in $pidf" >&2; return 1; }
 
 # ---- services: Task Scheduler in place of a systemd user unit (#356) -------------------------------
 # A service is a launcher script <dir>/<name>.sh — the unit file's stand-in, with the same
