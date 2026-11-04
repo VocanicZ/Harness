@@ -460,7 +460,7 @@ prints, so one set of pane regexes reads every CLI's lane) and `watch`. The usag
 core's `state.json` (`rate_limit`, `rate_limit_at`, `account`); the stats sweep (`scripts/stats.py`) folds the
 lane's `events.jsonl` when the lane is claude's (`state.json`'s `adapter`), whose per-turn usage it reads off claude's
 stream-json `result` events; another CLI's lane is folded by that CLI's own adapter: a CLI whose stream differs has the
-sweep read the CLI's own transcripts (`cli_transcripts`, `cli_usage`), as the codex and openclaw adapters do. **The adapter
+sweep read the CLI's own transcripts (`cli_transcripts`, `cli_usage`), as codex and openclaw do. **The adapter
 owns** what differs per CLI: starting one turn, reading its stream, and saying what usage and limits it
 reported.
 
