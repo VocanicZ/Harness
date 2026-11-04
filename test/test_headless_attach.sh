@@ -12,7 +12,9 @@ source "$ROOT/scripts/lib.sh"
 make_env
 export RUN_DIR HARNESS_SESS_PREFIX=hat HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+# The runner starts the fake with CreateProcess on Windows, which cannot run python3 there (an sh shim): `python`.
+PYBIN=python3; is_windows && PYBIN=python
+export HARNESS_CLAUDE_BIN="$PYBIN $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_INTERRUPT_WAIT=10
 HL="$ROOT/scripts/cli/claude_headless.py"
 
