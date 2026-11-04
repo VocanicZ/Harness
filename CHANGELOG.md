@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Pool chores: LABEL_READY and CLOSE_PRD no longer wait behind a DECOMPOSE (#527)
+
+- The pool's chores pass now asks `issuelib.py slotless` (`slotless_actions`) for its slotless actions instead of
+  reusing the claim-path `dispatch`, which returns a lone `DECOMPOSE` before it reaches LABEL_READY or CLOSE_PRD. While
+  any PRD waited to be decomposed and every worker was busy, no unlabelled child was labelled ready and no reviewed PRD
+  was closed. The claim path is unchanged: DECOMPOSE still comes before IMPL.
+
 ### `harness stats`: coding vs testing time per issue (#379)
 
 - `harness stats --prd N` and `--issue N` split each session's wall time into **testing** (the time inside test-command
