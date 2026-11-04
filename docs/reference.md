@@ -199,6 +199,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_CHECKOUT` | _(empty)_ → `$PROJECT_ROOT` | Where the fleet's repo clone lives (the lanes' and the bug lanes' checkout; a submodule lives inside it, [Submodules](#submodules)); `harness update` / `harness start` write both keys when they migrate a fleet ([Fleet migration](#fleet-migration-one-fleet--one-repo-467)) |
 | `HARNESS_SPEC` | _(empty)_ | Path to the umbrella spec; `planned` mode only |
 | `HARNESS_AUTONOMOUS` | `true` | `true` = agents never park; `false` = agents may apply `agent-blocked` for human help |
+| `HARNESS_TEST_COMMAND_PATTERNS` | _(empty)_ → the [default pattern](#coding-vs-testing-time-379) | A Python regex, searched in each Bash command, that says which tool calls are **testing** for the coding / testing split in `harness stats` (#379). Replaces the default outright; an invalid regex falls back to it. The `harness stats` process reads it from the environment, else from the `.harness/config` of the project you run it in |
 | `HARNESS_SESSION_BACKEND` | `tmux` | What each lane's agent session runs in: `tmux` = a detached tmux session per lane on the host's tmux server (attach with `harness attach`); `headless` = each lane a detached headless runner process, no multiplexer — for a CLI with a headless lane runner only (`cli_headless_list`, [Headless lanes](#headless-lanes)); any other CLI is refused as tmux-only. Any other value is refused by `harness init` and `harness start`, and `harness doctor` reports it. `harness init` writes it; one backend per file under `scripts/session/`, and every session operation the engine performs goes through that seam |
 | `HARNESS_CLI` | `claude` | Agent CLI to drive: any CLI in [Supported agent CLIs](#supported-agent-clis), one adapter per CLI under `scripts/cli/` |
 | `HARNESS_MODEL_MANAGER` | `opus` on `claude`; _(empty)_ elsewhere | Model of every **Manager** lane: orchestration (`-p*`: PLAN, PRD, DECOMPOSE, REVIEW and its gauntlet auditor/critic), bug triage, the injector. Empty = the CLI's own default. See [Roles](#roles-model-and-effort-per-lane) |
@@ -877,6 +878,29 @@ on another model never trips it, however many tokens it writes — the `session_
 to the dominant model of its merged usage. A lane with no intended model (the CLI's own default) is not
 checked.
 
+#### Coding vs testing time (#379)
+
+`harness stats --prd N` and `--issue N` split each session's wall time in two
+from its Claude transcript (sub-agents' included): **testing** is the time inside test-command tool calls — a Bash
+`tool_use`'s timestamp to its matching `tool_result`'s — and **coding** is everything else between the transcript's
+first and last line. Calls that overlap are counted once. Each session, issue and the PRD total report
+`coding` / `testing` in the text output and as `coding_s` / `testing_s` (seconds) under `--json`; a session whose
+transcript the host no longer has reports `null`, and counts for nothing in the sums. A call that never got a
+`tool_result` (the session was cut off) adds no testing time. The same split is a function,
+`stats.time_split(transcript, pattern=None)` in `scripts/stats.py` →
+`{"total_s", "testing_s", "coding_s", "test_calls"}` (or `None`), usable on any Claude-format transcript, a bench run's
+as well as a fleet session's; `python3 scripts/stats.py time-split <transcript>` prints it as JSON.
+
+What counts as a test command is a regex, matched at **command position** — the start of the command or just after
+`;` `&` `|` `(` or a backtick, behind any `NAME=value`, `env`, `time`, `sudo`, `bash`, `python3` style prefix — so a
+runner only mentioned in an `echo` or a `gh issue comment` does not count. The default recognizes `pytest`,
+`unittest`, `tox`, `nox`, `bats`, `rtdd`, `jest`, `vitest`, `mocha`, `ctest`, this repo's `test/run.sh` and
+`test/test_*.sh|py`, `npm|pnpm|yarn|bun [run] test`, `go test`, `cargo test|nextest`, `make test|check|ci`,
+`dotnet test`, `mvn … test` and `gradle … test`. Set `HARNESS_TEST_COMMAND_PATTERNS` (environment, else
+`.harness/config`) to **replace** it with your own regex, for example
+`HARNESS_TEST_COMMAND_PATTERNS='(^|[;&|(]\s*)(\./)?scripts/ci-local\.sh'`; the default's exact text is
+`stats.DEFAULT_TEST_PATTERN`.
+
 **Measuring the saving (#378).** `harness stats --by-role` reports, per role, the sessions, input /
 output / cache-write / cache-read tokens (by model too) and their list-price $ (the `forecast.py` price
 table: Opus $5 / $25, Sonnet $3 / $15, Haiku $1 / $5 per Mtok in / out; cache writes at the 5-minute
@@ -1031,7 +1055,7 @@ Run from inside any `harness init`'d project:
 | `start [--recover]` | Launch the worker pool. `--recover` sweeps stale pidfiles, claims, and orphaned `agent-working` labels before launch |
 | `stop [--clean]` | Stop the pool. `--clean` also removes worktrees |
 | `status [--watch [secs]] [--all]` | One-shot or live dashboard: pool state, then one row per worker — `worker-N → #<issue> <session> <state>` for a worker running a lane (`#<PRD>` for a PRD action), or `idle` — live sessions, and the priority bug lane. There is no unit line: a worker is one lane (#472). Outside any project (or with `--all`) it shows **every fleet on the host** from `~/.harness/fleets`: state (RUNNING / PAUSED / STOPPED / COMPLETE / DEAD / missing), live sessions with issue, age and model, open / unblocked / agent-working counts with orphaned locks flagged, last log line, HOLD streaks, and the GitHub budget |
-| `stats [--prd N\|--issue N] [--by-role] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes, lane claims per repo and the workers that made them (`lanes`: the new `lane_claim` events attribute by `repo`+`worker`, the older `claim` events by `repo` when they carry one, else by their `unit`; both shapes aggregate, #472), and any `model_mismatch` (a session whose dominant-by-output model is another family than it was launched with, #376). `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, retries) up to the PRD; `--issue` is a per-session timeline. Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--by-role` totals tokens and list-price $ per role (Manager / Implementer / `other`, see [Roles](#roles-model-and-effort-per-lane)), combinable with every filter and `--prd`/`--issue` (#378); `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
+| `stats [--prd N\|--issue N] [--by-role] [-R owner/repo]` | Host-wide event log report (`~/.harness/events.jsonl`, every project): per fleet over the last 7 days — sessions, tokens by model, issues/PRDs closed, retries, HOLD minutes, lane claims per repo and the workers that made them (`lanes`: the new `lane_claim` events attribute by `repo`+`worker`, the older `claim` events by `repo` when they carry one, else by their `unit`; both shapes aggregate, #472), and any `model_mismatch` (a session whose dominant-by-output model is another family than it was launched with, #376). `--prd` rolls each child issue's sessions (model/effort, tokens, wall time, coding vs testing time, retries) up to the PRD; `--issue` is a per-session timeline (with the issue's coding vs testing time, [Coding vs testing time](#coding-vs-testing-time-379), #379). Filters `--since 7d\|24h\|YYYY-MM-DD`, `--fleet <prefix>`, `--model <substr>`; `--by-role` totals tokens and list-price $ per role (Manager / Implementer / `other`, see [Roles](#roles-model-and-effort-per-lane)), combinable with every filter and `--prd`/`--issue` (#378); `--json` for machines; `--backfill` rebuilds `session_end` usage for past sessions from their Claude transcripts, and counts the `rtdd` calls of sessions that predate the rtdd event log. Every level also reports rtdd activity — see [Test selection (rtdd)](#test-selection-rtdd) |
 | `forecast <issue> [-R owner/repo] [--unit U] [--json]` | Per-phase cost forecast for one issue — explore / test / impl / gate / ship at p50 / p80 / p95 $ and in total, scaled by the issue's size — from the past lanes in the same event log. Says which history it used and when it fell back. See [Cost forecast](#cost-forecast) |
 | `one check` · `one gate <issue> [-R owner/repo] [--unit U] [--json]` | The `/harness-one` budget gate. `check`: exit 0 when the fleet is PAUSED or usage-HELD, else refuses (exit 1). `gate`: the check, the issue's forecast, the arithmetic for every window and `RECOMMEND: APPROVE` (exit 0) or `DENY` (exit 1); exit 3 = refused. See [One issue at a time](#one-issue-at-a-time-harness-one) |
 | `one start <issue>` · `one phase <issue> <phase> [--json]` · `one release <issue> [--force]` | `/harness-one` execution, in the invoking session. `start`: the check again, then claim + worktree + `impl.md`/`resume.md` as dispatch does (exit 3 refused, 4 not claimable). `phase`: FITS (exit 0) or CHECKPOINT (exit 1, printing the `pause --force` checkpoint). `release`: drop the worktree, branch and lease (exit 4 = unpushed work) |

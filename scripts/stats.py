@@ -18,6 +18,7 @@ claude session, whose transcript grows across runs) reports only that run, flagg
     stats.py report [--prd N|--issue N] [--by-role] [-R owner/repo] [--since 7d] [--fleet P] [--model M] [--json]
     stats.py backfill                 rebuild session_end for past sessions from their transcripts
     stats.py goal-env <goal> [prd]    KIND=/ISSUE=/PRD= lines for a lane's HARNESS_* session env (#186)
+    stats.py time-split <transcript>  coding vs testing seconds of a transcript, JSON (#379)
     stats.py transcripts <session>    a claude session's transcript paths, sub-agents included (#188)
     stats.py usage <transcript>...    per-model `<model>\t<in>\t<out>\t<cache_read>\t<cache_write>` (#188)
     stats.py mismatches [--fleet P] [-R owner/repo] [--since 7d]   model_mismatch lines for `harness status` (#376)
@@ -316,6 +317,129 @@ def main_dominant_model(transcript):
     acc = {}
     _file_usage(transcript, acc, [None, None])
     return dominant_model(acc)
+
+
+# --- coding vs testing time (#379) ---------------------------------------------------------
+# A session's wall time split in two from its transcript: TESTING is the time inside test-command
+# tool calls — a Bash tool_use whose command runs a test runner, from the tool_use's timestamp to the
+# matching tool_result's — and CODING is everything else between the transcript's first and last line.
+# Calls in a sub-agent's transcript count too; calls running at once (parallel tool calls, a
+# sub-agent's beside the lane's own) are counted once, as a union of spans.
+#
+# What counts as a test command is a regex, searched in the Bash command. The default matches a runner
+# at COMMAND position (the start of the command or after `;` `&` `|` `(` or a backtick, behind any
+# `NAME=value` / `env` / `time` / `sudo` / `bash` / `python3` style prefix), so a runner merely
+# mentioned in an `echo` or a `gh issue comment` is not one. HARNESS_TEST_COMMAND_PATTERNS (the
+# environment, else <state dir>/config) REPLACES it outright; docs/reference.md documents both.
+TEST_RUNNERS = (
+    r"pytest|py\.test|unittest|nosetests|tox|nox",
+    r"bats",
+    r"rtdd",
+    r"jest|vitest|mocha|ctest",
+    r"(?:[\w.-]+/)*test/(?:run|test_[\w.-]+)\.(?:sh|py)",   # this repo's test/run.sh, test/test_*.sh
+    r"(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?::\w+)?",
+    r"go\s+test",
+    r"cargo\s+(?:test|nextest)",
+    r"make\s+(?:test|check|ci)",
+    r"dotnet\s+test",
+    r"mvn\s+(?:\S+\s+)*test",
+    r"(?:\./)?gradlew?\s+(?:\S+\s+)*test",
+)
+TEST_PREFIX = r"(?:(?:[A-Za-z_]\w*=\S*|env|time|sudo|exec|nohup|command|bash|sh|python3?|uv\s+run)\s+(?:-m\s+)?)*"
+DEFAULT_TEST_PATTERN = (r"(?:^|[;&|(`]|\$\()\s*" + TEST_PREFIX + r"(?:\./)?(?:"
+                        + "|".join(TEST_RUNNERS) + r")(?![\w-])")
+
+
+def test_pattern_source():
+    """The configured HARNESS_TEST_COMMAND_PATTERNS (environment first, else the state dir's config),
+    or None for the default."""
+    v = os.environ.get("HARNESS_TEST_COMMAND_PATTERNS")
+    if v is None:
+        v = read_config(os.environ.get("STATE_DIR"), ("HARNESS_TEST_COMMAND_PATTERNS",)).get(
+            "HARNESS_TEST_COMMAND_PATTERNS")
+    return v if v else None
+
+
+def test_command_re(pattern=None):
+    """The compiled test-command regex: <pattern> (a regex string) if given, else the configured one,
+    else the default. A configured pattern that is not a valid regex falls back to the default."""
+    for cand in (pattern, test_pattern_source() if pattern is None else None):
+        if cand:
+            try:
+                return re.compile(cand)
+            except re.error:
+                pass
+    return re.compile(DEFAULT_TEST_PATTERN)
+
+
+def _call_spans(path, rx, uses, results):
+    """Fold one transcript into uses {tool_use id: (ts, is_test)} and results {tool_use id: ts}. A
+    streamed message repeats its blocks: the first sighting of an id wins."""
+    first_ts = last_ts = None
+    try:
+        fh = open(path, encoding="utf-8")
+    except OSError:
+        return None, None
+    with fh:
+        for line in fh:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(r, dict):
+                continue
+            t = parse_ts(r.get("timestamp"))
+            if t is None:
+                continue
+            first_ts = t if first_ts is None else min(first_ts, t)
+            last_ts = t if last_ts is None else max(last_ts, t)
+            content = (r.get("message") or {}).get("content") if isinstance(r.get("message"), dict) else None
+            for b in content if isinstance(content, list) else ():
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use" and b.get("id") and b["id"] not in uses:
+                    cmd = (b.get("input") or {}).get("command") if isinstance(b.get("input"), dict) else None
+                    uses[b["id"]] = (t, b.get("name") == "Bash" and isinstance(cmd, str) and bool(rx.search(cmd)))
+                elif b.get("type") == "tool_result" and b.get("tool_use_id") and b["tool_use_id"] not in results:
+                    results[b["tool_use_id"]] = t
+    return first_ts, last_ts
+
+
+def time_split(transcript, pattern=None):
+    """Coding vs testing time of the session whose main transcript is <transcript> (its sub-agents'
+    beside it included): {"total_s", "testing_s", "coding_s", "test_calls"}, seconds, or None when
+    there is no readable transcript with a timestamp. Usable on any Claude-format transcript — a
+    bench run's as well as a fleet session's (#345). <pattern> overrides the test-command regex."""
+    rx = test_command_re(pattern)
+    uses, results, lo, hi = {}, {}, None, None
+    for f in transcript_files(transcript):
+        a, b = _call_spans(f, rx, uses, results)
+        if a is not None:
+            lo = a if lo is None else min(lo, a)
+            hi = b if hi is None else max(hi, b)
+    if lo is None:
+        return None
+    spans = sorted((t0, results[i]) for i, (t0, is_test) in uses.items()
+                   if is_test and i in results and results[i] > t0)
+    testing, calls, end = 0.0, len(spans), None
+    for a, b in spans:
+        a, b = max(a, lo), min(b, hi)
+        if end is not None and a < end:
+            a = end
+        if b > a:
+            testing += b - a
+            end = b if end is None else max(end, b)
+    total = hi - lo
+    return {"total_s": round(total, 3) if total % 1 else int(total),
+            "testing_s": round(testing, 3) if testing % 1 else int(testing),
+            "coding_s": round(total - testing, 3) if (total - testing) % 1 else int(total - testing),
+            "test_calls": calls}
+
+
+def session_time_split(session):
+    """time_split of claude session <session>'s transcript, or None when the host no longer has it."""
+    tr = find_transcript(session)
+    return time_split(tr) if tr else None
 
 
 # --- a resumed session (#426) ---------------------------------------------------
@@ -686,11 +810,22 @@ def fleet_summary(events, model=None, rtdd=()):
     return out
 
 
-def _sess_row(s, model=None, rtdd=()):
+def _split_fields(split):
+    return {"coding_s": split["coding_s"] if split else None, "testing_s": split["testing_s"] if split else None}
+
+
+def _sum_split(rows):
+    """coding_s / testing_s summed over rows that have them; 0 when none does (the transcripts are gone)."""
+    return {k: sum(r[k] for r in rows if r.get(k) is not None) for k in ("coding_s", "testing_s")}
+
+
+def _sess_row(s, model=None, rtdd=(), timing=None):
     row = {"session": s["session"], "kind": s.get("kind"), "model": s.get("model"),
            "effort": s.get("effort"), "launched": s.get("launched"), "wall_s": s.get("wall_s"),
            "usage": add_usage({}, s["usage"], model), "watchdog_kills": s["watchdog_kills"],
            "rtdd": rtdd_summary([r for r in rtdd if r.get("session") == s["session"]])}
+    if timing:
+        row.update(_split_fields(timing(s["session"])))
     if s.get("model_mismatch"):
         row["model_mismatch"] = s["model_mismatch"]
     return row
@@ -754,10 +889,11 @@ def rtdd_summary(recs):
     return out
 
 
-def prd_rollup(events, prd, model=None, rtdd=()):
+def prd_rollup(events, prd, model=None, rtdd=(), timing=None):
     """PRD #prd and every child: each issue's sessions, model/effort, tokens, wall time and retries,
     rolled up to the PRD. A child is any session attributed to the PRD (`prd` field); the PRD's own
-    DECOMPOSE/REVIEW sessions carry no issue and roll up under `issue: null`."""
+    DECOMPOSE/REVIEW sessions carry no issue and roll up under `issue: null`. <timing>(session id) →
+    time_split or None, when given, adds each session's, issue's and the PRD's coding_s / testing_s (#379)."""
     sess = [s for s in sessions(events) if s.get("prd") == prd and _sess_matches(s, model)]
     kept = {s["session"] for s in sess}
     rtdd = [r for r in rtdd if r.get("prd") == prd and (not model or r.get("session") in kept)]
@@ -770,9 +906,11 @@ def prd_rollup(events, prd, model=None, rtdd=()):
     for issue in sorted(groups, key=lambda i: (i is not None, i or 0)):
         ss = sorted(groups[issue], key=lambda s: s.get("launched") or "")
         rr = [r for r in rtdd if r.get("issue") == issue]
-        row = {"issue": issue, "sessions": [_sess_row(s, model, rr) for s in ss], "tokens": {},
+        row = {"issue": issue, "sessions": [_sess_row(s, model, rr, timing) for s in ss], "tokens": {},
                "wall_s": sum(int(s.get("wall_s") or 0) for s in ss), "retries": _retries(ss),
                "rtdd": rtdd_summary(rr)}
+        if timing:
+            row.update(_sum_split(row["sessions"]))
         for s in ss:
             add_usage(row["tokens"], s["usage"], model)
         children.append(row)
@@ -780,14 +918,19 @@ def prd_rollup(events, prd, model=None, rtdd=()):
         add_usage(total["tokens"], row["tokens"])
         total["wall_s"] += row["wall_s"]
         total["retries"] += row["retries"]
+    if timing:
+        total.update(_sum_split(children))
     return {"prd": prd, "children": children, "total": total}
 
 
-def issue_timeline(events, issue, rtdd=()):
+def issue_timeline(events, issue, rtdd=(), timing=None):
     tl = sorted((e for e in events if e.get("issue") == issue), key=lambda e: e.get("ts") or "")
     rr = [r for r in rtdd if r.get("issue") == issue]
-    return {"issue": issue, "events": tl, "rtdd": rtdd_summary(rr),
-            "sessions": [_sess_row(s, rtdd=rr) for s in sessions(tl)]}
+    out = {"issue": issue, "events": tl, "rtdd": rtdd_summary(rr),
+           "sessions": [_sess_row(s, rtdd=rr, timing=timing) for s in sessions(tl)]}
+    if timing:
+        out.update(_sum_split(out["sessions"]))
+    return out
 
 
 # --- per-role rollup (#378) -----------------------------------------------------
@@ -884,6 +1027,13 @@ def _hms(s):
     return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
 
 
+def _coding_testing(r):
+    """`coding 5m00s  testing 1m00s` for a row carrying coding_s / testing_s (#379), else ''."""
+    if r.get("coding_s") is None and r.get("testing_s") is None:
+        return ""
+    return f"coding {_hms(r.get('coding_s'))}  testing {_hms(r.get('testing_s'))}"
+
+
 def render_text(kind, data):
     out = []
     if kind == "fleet":
@@ -904,15 +1054,18 @@ def render_text(kind, data):
         out.append(f"PRD #{data['prd']}: sessions {t['sessions']}  wall {_hms(t['wall_s'])}  retries {t['retries']}")
         out.append(f"  tokens  {_tok(t['tokens'])}")
         out.append(f"  rtdd    {_rtdd(t['rtdd'])}")
+        if _coding_testing(t):
+            out.append(f"  time    {_coding_testing(t)}")
         for c in data["children"]:
             label = f"#{c['issue']}" if c["issue"] is not None else "(PRD orchestration)"
             out.append(f"  {label}: sessions {len(c['sessions'])}  wall {_hms(c['wall_s'])}  retries {c['retries']}"
-                       f"  rtdd {_rtdd(c['rtdd'])}")
+                       f"  rtdd {_rtdd(c['rtdd'])}" + (f"  {_coding_testing(c)}" if _coding_testing(c) else ""))
             for s in c["sessions"]:
                 mm = s.get("model_mismatch")
                 flag = f"  ⚠ MODEL MISMATCH: ran {mm['actual']}" if mm else ""
+                ct = f"  {_coding_testing(s)}" if _coding_testing(s) else ""
                 out.append(f"    {s['launched'] or '?'}  {s['kind'] or '?'}  {s['model'] or '?'}/{s['effort'] or '?'}  "
-                           f"wall {_hms(s['wall_s'])}  {_tok(s['usage'])}{flag}")
+                           f"wall {_hms(s['wall_s'])}{ct}  {_tok(s['usage'])}{flag}")
     elif kind == "role":
         rows = list(data["roles"].items()) + [("total", data["total"])]
         for role, r in rows:
@@ -933,6 +1086,8 @@ def render_text(kind, data):
                 line += f"  {_tok(e['usage'])}"
             out.append(line)
         out.append(f"  rtdd  {_rtdd(data['rtdd'])}")
+        if _coding_testing(data):
+            out.append(f"  time  {_coding_testing(data)}")
     return "\n".join(out)
 
 
@@ -969,9 +1124,9 @@ def cmd_report(argv):
     if a.by_role:
         kind, data = "role", role_rollup(evs, a.model, a.prd, a.issue)
     elif a.prd is not None:
-        kind, data = "prd", prd_rollup(evs, a.prd, a.model, rtdd)
+        kind, data = "prd", prd_rollup(evs, a.prd, a.model, rtdd, session_time_split)
     elif a.issue is not None:
-        kind, data = "issue", issue_timeline(evs, a.issue, rtdd)
+        kind, data = "issue", issue_timeline(evs, a.issue, rtdd, session_time_split)
     else:
         kind, data = "fleet", fleet_summary(evs, a.model, rtdd)
     print(json.dumps(data, indent=2) if a.json else render_text(kind, data))
@@ -1016,7 +1171,7 @@ def _fleets():
 _CFG_KEYS = ("HARNESS_REPO", "HARNESS_OWNER", "HARNESS_UNIT", "HARNESS_CHECKOUT")
 
 
-def read_config(state_dir):
+def read_config(state_dir, keys=None):
     """{KEY: value} of the fleet's one-repo keys from <state_dir>/config (#466). Reads both the
     `: "${KEY:=val}"` lines `harness init` writes and a plain `KEY=val` (optionally `export`ed,
     optionally quoted) a hand-written config uses. The file only, never the environment: a lane
@@ -1027,7 +1182,7 @@ def read_config(state_dir):
             text = fh.read()
     except (OSError, TypeError):
         return cfg
-    keys = "|".join(_CFG_KEYS)
+    keys = "|".join(keys or _CFG_KEYS)
     pat = (r'^\s*:\s*"\$\{(' + keys + r'):=([^}"]*)\}"'
            r'|^\s*(?:export\s+)?(' + keys + r')=(?:"([^"]*)"|\'([^\']*)\'|([^\s#]*))')
     for m in re.finditer(pat, text, re.M):
@@ -1201,6 +1356,12 @@ def main(argv=None):
         for f in rest:
             _file_usage(f, acc, span)
         sys.stdout.write(usage_tsv(acc))
+        return 0
+    if cmd == "time-split":    # a transcript's coding vs testing time as JSON (#379); 1 when it has none
+        r = time_split(rest[0]) if rest else None
+        if r is None:
+            return 1
+        print(json.dumps(r))
         return 0
     if cmd == "mismatches":    # `harness status`' model-mismatch flags (#376)
         return cmd_mismatches(rest)

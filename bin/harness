@@ -197,8 +197,8 @@ case "$cmd" in
   # poll is HOST-level (the shared poller serves every project) — no project STATE_DIR needed.
   # Normal path is ensure_poller; this is the documented debug/test entry (#71).
   poll)   exec bash "$ENGINE_DIR/scripts/poller.sh" "$@";;
-  # stats is HOST-level like poll: the event log ($HARNESS_HOME/events.jsonl) covers every project (#185).
-  stats)  exec python3 "$ENGINE_DIR/scripts/stats.py" report "$@";;
+  # stats is HOST-level like poll: the event log ($HARNESS_HOME/events.jsonl) covers every project (#185); the project (best-effort) only supplies HARNESS_TEST_COMMAND_PATTERNS (#379).
+  stats)  try_state_dir; exec python3 "$ENGINE_DIR/scripts/stats.py" report "$@";;
   # forecast reads the same host event log; the project (best-effort) only names the issue's unit (#363).
   forecast) try_state_dir; exec python3 "$ENGINE_DIR/scripts/forecast.py" "$@";;
   # supervise is HOST-level too: one supervisor walks every fleet on the host (#180).
