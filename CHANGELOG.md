@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Complete `harness uninstall` on Windows (#490)
+
+- `harness uninstall --force --force-engine` leaves nothing Harness put on a Windows host. Besides the engine, the
+  `harness` link and the skill links it now removes this `HARNESS_HOME`'s Task Scheduler tasks (every launcher under
+  `$HARNESS_HOME/tasks`, by its per-home name, so another home's tasks are untouched) and the launchers, `harness.cmd`,
+  the python3 shim, the running poller (by its pidfile) and its registry, the fleet registry, snapshots, event logs,
+  the supervisor's state and log, and `HARNESS_HOME` itself when that leaves it empty. It removes only files carrying
+  Harness's own text and names it owns: a user's file in the bin dir or in `HARNESS_HOME` survives. The same host
+  cleanup now runs on Linux whenever uninstall removes the engine.
+- On Windows `--force-engine` is refused while another fleet still uses the shared engine: nothing is removed, and
+  the message says to stop that fleet. (A running worker holds its scripts open there.) Linux keeps `--force-engine`
+  as an override.
+- `harness doctor`'s `windows:` section checks the uninstalled state: with no engine under `HARNESS_HOME` it lists
+  what is left (a task or launcher, the shim, `harness.cmd`, the poller, the fleet registry) and names the fix,
+  `bash <a Harness checkout>/scripts/uninstall.sh --force --force-engine`.
+
 ### Per-`HARNESS_HOME`, logon-only Task Scheduler tasks on Windows (#489)
 
 - The `supervise --install` and `web --install` tasks are named per `HARNESS_HOME`. The default `~/.harness` keeps

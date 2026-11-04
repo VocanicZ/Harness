@@ -91,6 +91,72 @@ remove_path_link(){
   [[ -L "$PATH_LINK" || -e "$PATH_LINK" ]] && rm -f "$PATH_LINK" && echo "  removed PATH entrypoint $PATH_LINK"
   return 0
 }
+# remove_windows_tasks — every Task Scheduler task THIS home registered (#490): one per launcher in
+# $HARNESS_HOME/tasks (the supervise and web tasks, and any a former engine left whose launcher the
+# current one no longer recognises), named per home (#489) so another home's tasks are never touched.
+# Windows only; the launcher and its task definition go with the task.
+remove_windows_tasks(){
+  declare -F is_windows >/dev/null && is_windows || return 0
+  declare -F win_task_uninstall >/dev/null || return 0
+  local dir="$HARNESS_HOME/tasks" f n
+  [[ -d "$dir" ]] || return 0
+  shopt -s nullglob
+  for f in "$dir"/*.sh; do
+    n="$(basename "$f" .sh)"
+    win_task_uninstall "$dir" "$n" && echo "  removed scheduled task $(win_task_name "$n")"
+  done
+  shopt -u nullglob
+  return 0
+}
+# stop_poller — the host poller (poller.sh, #71), by the pid its pidfile names and only if that pid is
+# still a poller.sh (a recycled pid is someone else's). Never by pattern.
+stop_poller(){
+  local pf="$HARNESS_HOME/poller/poller.pid" pid
+  pid="$(cat "$pf" 2>/dev/null)"; [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+  declare -F proc_args >/dev/null && [[ "$(proc_args "$pid")" == *poller.sh* ]] || return 0
+  if declare -F proc_kill_tree >/dev/null; then proc_kill_tree "$pid"; else kill "$pid" 2>/dev/null; fi
+  echo "  stopped the poller (pid $pid)"
+  return 0
+}
+# remove_entrypoints — what install.sh wrote for Windows beside the `harness` link (#356): harness.cmd in
+# the bin dir and the python3 shim in $HARNESS_HOME/bin. Each only if it carries Harness's own text, so a
+# user's harness.cmd / python3 of the same name stays.
+remove_entrypoints(){
+  local cmd="$HARNESS_BIN_DIR/harness.cmd" shim="$HARNESS_HOME/bin/python3"
+  if [[ -f "$cmd" ]] && grep -qF '%~dp0harness' "$cmd" 2>/dev/null; then
+    rm -f "$cmd" && echo "  removed $cmd"
+  fi
+  if [[ -f "$shim" ]] && grep -qF "python3 — Harness's shim" "$shim" 2>/dev/null; then
+    rm -f "$shim" && echo "  removed the python3 shim $shim"
+    rmdir "$HARNESS_HOME/bin" 2>/dev/null
+  fi
+  return 0
+}
+# remove_host_state — the rest of what Harness keeps under $HARNESS_HOME once nothing runs from it
+# (#490): the poller and its registry, the fleet registry, snapshots, task launchers, event logs, the
+# supervisor's state and log, one-auto and ghrate state, headless lanes, an interrupted engine flip. Only
+# these names — a file the operator put there (supervise.conf, notes) stays, and $HARNESS_HOME goes only
+# when that leaves it empty.
+remove_host_state(){
+  local n p
+  stop_poller
+  shopt -s nullglob
+  for n in poller fleets snapshots one-auto ghrate lanes supervise events.jsonl rtdd-events.jsonl \
+           supervise.log supervise.log.* tasks tasks.* engine.flip.*; do
+    for p in "$HARNESS_HOME"/$n; do
+      [[ -e "$p" || -L "$p" ]] || continue
+      if [[ "$n" == tasks && -d "$p" ]]; then   # launchers and definitions only, never a stranger's file
+        rm -f "$p"/*.sh "$p"/*.xml; rmdir "$p" 2>/dev/null && echo "  removed $p"
+      else
+        rm -rf "$p" && echo "  removed $p"
+      fi
+    done
+  done
+  shopt -u nullglob
+  rmdir "$HARNESS_HOME" 2>/dev/null && echo "  removed $HARNESS_HOME"
+  return 0
+}
 # strip the project's '.harness/' .gitignore entry (added by setup), preserving every other line.
 # No-op when the file or the entry is absent. Idempotent.
 remove_gitignore_entry(){
@@ -195,6 +261,13 @@ main(){
       --force-engine) force_engine=1 ;;
     esac
   done
+  # #490: on Windows a running worker holds its scripts open, so removing the engine under another
+  # fleet fails half way (or yanks it). --force-engine is refused there while one runs; nothing is touched.
+  if (( force_engine )) && declare -F is_windows >/dev/null && is_windows && other_fleets_depend_on_engine; then
+    echo "harness uninstall: refusing --force-engine — another fleet still uses the shared engine ($SHARED_ENGINE)." >&2
+    echo "  Stop it (harness stop, in its project), or run harness uninstall without --force-engine to keep the engine." >&2
+    exit 1
+  fi
   if (( ! force )); then
     confirm || { echo "harness uninstall: aborted — nothing removed."; exit 1; }
     stop_fleet
@@ -217,11 +290,16 @@ main(){
     if [[ -f "$ENGINE_DIR/scripts/web.sh" ]] && ( source "$ENGINE_DIR/scripts/web.sh"; web_installed ); then
       bash "$ENGINE_DIR/scripts/web.sh" --uninstall
     fi
+    remove_windows_tasks
+    stop_poller
     remove_engine
     remove_path_link
+    remove_entrypoints
+    ENGINE_REMOVED=1
   fi
   remove_project_state
   remove_skills
+  (( ${ENGINE_REMOVED:-0} )) && remove_host_state
   echo "Uninstalled."
 }
 [[ "${HARNESS_UNINSTALL_NOMAIN:-0}" == 1 ]] || main "$@"

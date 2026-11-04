@@ -11,7 +11,9 @@ Thin wrapper around `harness uninstall`.
 its PATH symlink, this project's `.harness/` config + state (`run/`, `claims/`, `worktrees/`) and the
 `.gitignore` `'.harness/'` entry, and every deployed `/harness*` skill (`~/.claude/skills/harness*`).
 The default path **stops the fleet first** (`stop --clean`, which discards uncommitted work in
-worktrees), then prompts for confirmation. Always confirm with the user before running.
+worktrees), then prompts for confirmation. On Windows it also removes this home's Task Scheduler tasks and launchers,
+`harness.cmd`, the python3 shim, the poller and the fleet registry, and refuses `--force-engine` while another fleet
+still uses the engine. Always confirm with the user before running.
 
 1. Confirm with the user that they want to remove Harness entirely (engine + this project + skills).
 2. Run: `harness uninstall`   (it stops the fleet, then prompts y/N before deleting).

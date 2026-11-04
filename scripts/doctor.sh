@@ -184,6 +184,30 @@ doctor_windows_prereqs(){ local problems=0 w="${HARNESS_WINGET:-winget}" c co m 
   return "$problems"
 }
 
+# doctor_leftovers — the UNINSTALLED state on Windows (#490): no engine under $HARNESS_HOME, yet
+# something Harness put on the host is still there — a Task Scheduler task of this home, a task
+# launcher, the python3 shim, harness.cmd, a poller, the fleet registry. Each is named; the fix is one
+# command, run from a Harness checkout (the engine that would run `harness uninstall` is the thing
+# that is gone). An installed engine, or a host with no Harness on it, is silent. Returns the count.
+doctor_leftovers(){ local home="${HARNESS_HOME:-$HOME/.harness}" bin="${HARNESS_BIN_DIR:-$HOME/.local/bin}" problems=0 f n found=()
+  is_windows || return 0
+  [[ -e "$home/engine" || -L "$home/engine" || -d "$home/releases" ]] && return 0
+  if [[ -d "$home/tasks" ]]; then
+    for f in "$home"/tasks/*.sh; do [[ -f $f ]] || continue
+      n="$(basename "$f" .sh)"; found+=("task $(win_task_name "$n") (launcher $f)"); done
+  fi
+  [[ -f "$home/bin/python3" ]] && grep -qF "python3 — Harness's shim" "$home/bin/python3" 2>/dev/null && found+=("python3 shim $home/bin/python3")
+  [[ -f "$bin/harness.cmd" ]] && grep -qF '%~dp0harness' "$bin/harness.cmd" 2>/dev/null && found+=("harness.cmd $bin/harness.cmd")
+  [[ -L "$bin/harness" ]] && ! [[ -e "$bin/harness" ]] && found+=("dangling harness link $bin/harness")
+  [[ -d "$home/poller" ]] && found+=("poller state $home/poller")
+  [[ -d "$home/fleets" ]] && found+=("fleet registry $home/fleets")
+  (( ${#found[@]} )) || return 0
+  echo "  no engine under $home, but Harness left:"
+  for f in "${found[@]}"; do echo "    - $f"; problems=$((problems+1)); done
+  echo "    → remove them: bash <a Harness checkout>/scripts/uninstall.sh --force --force-engine   (HARNESS_HOME=$home)"
+  return "$problems"
+}
+
 doctor_main(){
   local a; for a in "$@"; do case "$a" in --fix) DOCTOR_FIX=1;; -h|--help) echo "usage: harness doctor [--fix]"; return 0;; esac; done
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
@@ -195,7 +219,7 @@ doctor_main(){
   # #349: the backend must be one the fleet's CLI can run on (headless: claude only).
   local why; why="$(cli_backend_check 2>&1)" || { echo "session backend: $why"; sp=1; }
   local wp=0
-  if is_windows; then echo "windows:"; doctor_windows || wp=$?; doctor_windows_prereqs || wp=$((wp+$?)); fi
+  if is_windows; then echo "windows:"; doctor_windows || wp=$?; doctor_windows_prereqs || wp=$((wp+$?)); doctor_leftovers || wp=$((wp+$?)); fi
   echo "locks:"
   local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?
