@@ -2,7 +2,7 @@
 
 `bench/run.py <arm>` runs one benchmark arm end to end and records one results file for it (PRD #345).
 The arms themselves (plain Claude Code, Harness with 1 worker, …) are separate tasks that plug in as
-modules; this is the core they all go through.
+modules; this is the core they all go through. [The plain arm](#plain-arm) is the first.
 
 ```
 bench/run.py stub                       # run an arm
@@ -98,3 +98,28 @@ the registered transcripts), and whatever the arm wrote to `ctx.logs`.
 | `logs` | string | the logs directory next to the file |
 
 `run.validate(doc)` in `bench/run.py` returns the problems with a results document (empty when valid).
+
+## Plain arm
+
+`bench/run.py plain` (`bench/arms/plain.py`, #382): what a new user gets. ONE `claude` session in the run
+repo's clone (no CLAUDE.md), on the CLI login already on the host: never `--bare` (API-key only), no API key
+(`ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed from its environment), no copied credentials dir.
+Each turn is `claude -p --output-format stream-json --verbose --disable-slash-commands --strict-mcp-config
+--setting-sources project,local --dangerously-skip-permissions`, `--resume <session>` after the first, with
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. No `--model`: the account's default model and effort run, and the models
+that actually ran come from the transcript like every other arm's. `--arm-opt claude=CMD` swaps the binary
+(tests use a fake). The exact command lines are in `<arm>.logs/launch.txt`.
+
+- **Isolation proof.** The first `system/init` event is kept in `plain.logs/init.json` with the counts it
+  was judged on. Every turn's init must list 0 skills, 0 plugins and 0 MCP servers, else the session is
+  killed before it does any work and the run is recorded as `status: error` ("isolation check failed: …").
+  Plugins that ship inside the claude binary (`path: "builtin"`, e.g. `cc-plugin-telemetry`) are not
+  installed plugins and are not counted; the proof lists how many there were.
+- **Input.** The brief (bench/fixture/brief.md) is the first message, followed by one fixed line saying the folder is a
+  clone of the run repo and the work belongs on `main` (the grader reads the repo's `main`, and the brief
+  itself says nothing about git).
+- **Continue replies.** `claude -p` ends a turn when the session stops. It is DONE when the final message
+  does not end in a question and the work is delivered (clean clone, HEAD on `origin/main`, a commit past the
+  brief). Otherwise `keep going, decide for yourself` goes in, at most 20 times; at the cap the arm stops and
+  the run is graded as it stands. A turn that errors (a usage limit, an API failure) fails the arm.
+- **Counts** in the results: `continue_replies` and `commits` (commits on `main` past the brief).
