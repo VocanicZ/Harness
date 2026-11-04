@@ -652,7 +652,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 |---|---|---|
 | `harness install` | ✓ | ✓ |
 | `harness version` | ✓ | ✓ |
-| `harness update` | ✓ | ✓ target (#475 task 5) |
+| `harness update` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
 | `harness release` | ✓ | ✓ target (#475 task 8) |
 | `harness poll` | ✓ | ✓ target (#475 task 8) |
 | `harness stats` | ✓ | ✓ target (#475 task 8) |
@@ -701,10 +701,10 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `inject` | ✓ | ✓ target (#475 task 8) |
 | `pause --force and resume` | ✓ | ✓ |
 | `headless attach: typed lines and Ctrl-C detach` | ✓ | ✓ (`test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
-| `install via npx` | ✓ | ✓ target (#475 task 5) |
-| `install via curl` | ✓ | ✓ target (#475 task 5) |
+| `install via npx` | ✓ | ✓ (`bin/harness-install.js` runs `install.sh` under Git's bash; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
+| `install via curl` | ✓ | ✓ (winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
 | `install prerequisite offers` | ✓ (apt-get, dnf, pacman, zypper, apk or brew) | ✓ (winget: `Git.Git`, `Python.Python.3.13`, `GitHub.cli`, `Anthropic.ClaudeCode`, `OpenJS.NodeJS.LTS`) |
-| `update --rollback` | ✓ | ✓ target (#475 task 5) |
+| `update --rollback` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
 | `swarm submission` | ✓ | n/a: swarm is a Linux-only HTCondor service ("Linux with systemd + cgroup v2", [VocanicZ/swarm README](https://github.com/VocanicZ/swarm#readme)); a Windows lane runs rtdd locally |
 
 #### Non-interactive mode per agent CLI

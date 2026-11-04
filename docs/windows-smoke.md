@@ -217,6 +217,17 @@ poller and fleet registry, skill links), and only that; a run is `winsma.sh run 
 installing, then `harness uninstall --force --force-engine`, then asserting `HARNESS_HOME`, `HARNESS_BIN_DIR` and
 `HARNESS_USER_SKILLS` are empty (`test/smoke/logs/uninstall-windows-*.log`, #490).
 
+Install, update and rollback on a Windows host (#491): `test/smoke/winsma/lifecycle.sh` is the script a run sends
+(`winsma.sh run <issue> install "$(cat test/smoke/winsma/lifecycle.sh)"`). In stages, all inside `C:\hx-<issue>\` with a
+logging winget stub and a `schtasks` wrapper that swallows `/Run` and `/End` (so a task is registered, logon-only and
+per-home, but never started): `entry` (both install lines from Git Bash, the real network, `HARNESS_REF` pinned to a real
+release, then again, then a different pin), `real` (the real previous release to this branch's tree, served over `file://`
+with a `SHA256SUMS`: update, update again, rollback, forward, pin, uninstall), `tasks` (the same with the supervise and web
+tasks registered), `v011` (a v0.1.1 git checkout rebuilt inside the folder, updated, migrated, rolled back and forward),
+`gitco` and `gitdef` (a git-checkout engine migrated, with an explicit and with the default home), and `prune` (five releases
+leave three; a corrupted archive is refused). `harness doctor` runs after each state. The log is
+`test/smoke/logs/lifecycle-windows-20261104T124219Z.log`.
+
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;
