@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Shared headless runner core, with `claude` as its first adapter (#480)
+
+- `scripts/cli/claude_headless.py` is split into `scripts/cli/headless_core.py` (the inbox, `state.json`,
+  the busy / idle / limit / transient / ended states, interrupt, stop, the pane the watchdog reads, `watch`)
+  and a per-CLI adapter that starts one turn with its resume id, parses its stream and reports usage and
+  limits. `claude_headless.py` stays the claude entry point and is now just that adapter; claude's lanes
+  behave exactly as before and every existing headless test passes unchanged.
+- `cli_headless_list` and the tmux-only refusal derive from the adapters present
+  (`scripts/cli/<cli>_headless.py`): a new adapter enables its CLI on the headless backend without editing
+  the refusal.
+- The adapter contract is documented in `docs/reference.md` ("Headless adapter contract") and proved by
+  `test/test_headless_core.py` through a tiny fake CLI and adapter, independent of claude.
+
 ### `HARNESS_WINDOWS_HOST` and the winsma helpers in `test/smoke/winsma/` (#479)
 
 - New config key `HARNESS_WINDOWS_HOST`: the ssh alias of a Windows check host. Read like every other key

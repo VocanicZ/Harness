@@ -83,8 +83,15 @@ _cli_default_interrupted_re(){ :; }
 _cli_default_bg_re(){ echo '[0-9]+h [0-9]+m [0-9]+s|[0-9]+m [0-9]+s'; }
 _cli_default_runnable(){ command -v "$(cli_exe)" >/dev/null 2>&1 && _cli_run "$(cli_bin)" --version >/dev/null 2>&1; }
 _cli_default_uninstall(){ :; }
-# #349: only a CLI with a headless lane runner can run on a backend other than tmux.
-_cli_default_headless(){ echo "agent CLI '$(cli_name)' is tmux-only: it has no headless lane runner (set $SESS_CONFIG_VAR=tmux)" >&2; return 1; }
+# #349: only a CLI with a headless lane runner can run on a backend other than tmux. #480: that is a CLI
+# with an adapter, scripts/cli/<cli>_headless.py (headless_core.py runs it). Such a CLI needs no
+# <cli>_headless function of its own: this default starts the adapter's runner, the CLI's binary and
+# flags being the adapter's to know (a CLI that wants more defines <cli>_headless, as claude does).
+_cli_default_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
+  if _cli_has_headless_adapter "$(cli_name)"; then
+    printf '%s\n' python3 "$CLI_DIR/$(cli_name)_headless.py" run --cwd "$wd" --session-id "$uuid" ${5:+--resume} \
+      ${model:+--model "$model"} ${effort:+--effort "$effort"} --message "$HARNESS_BOOTSTRAP_PROMPT"; return 0; fi
+  echo "agent CLI '$(cli_name)' is tmux-only: it has no headless lane runner (set $SESS_CONFIG_VAR=tmux)" >&2; return 1; }
 
 # --- the interface ------------------------------------------------------------------------------
 cli_bin(){ _cli_call bin "$@"; }                       # the command line that runs the CLI (HARNESS_<CLI>_BIN)
@@ -146,14 +153,17 @@ _cli_usage_cached(){ local c out now tmp; c="$(_usage_dir)/$1.tsv"; now="$(date 
   printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
   [[ -n "$out" ]] && echo "$out"; }
 
-# cli_headless_list — every CLI with a headless lane runner (#349), one per line.
-cli_headless_list(){ local c; for c in $(cli_list); do declare -F "${c}_headless" >/dev/null && echo "$c"; done; return 0; }
+# cli_headless_list — every CLI with a headless lane runner (#349), one per line: the CLIs whose adapter
+# scripts/cli/<cli>_headless.py is present (#480), so adding one enables that CLI on the headless backend
+# with no edit to the tmux-only refusal below.
+_cli_has_headless_adapter(){ [[ -f "$CLI_DIR/$1.sh" && -f "$CLI_DIR/$1_headless.py" ]]; }
+cli_headless_list(){ local c; for c in $(cli_list); do _cli_has_headless_adapter "$c" && echo "$c"; done; return 0; }
 # cli_backend_check — true when the fleet's CLI can run on the fleet's session backend: any CLI on
 # tmux, only a CLI with a headless lane runner on headless. Otherwise says so, naming the CLI as
 # tmux-only, and is false. `harness init`, `doctor` and `start` refuse the pair with it.
 cli_backend_check(){ local b; b="$(sess_backend)"
   [[ $b == tmux ]] && return 0
-  declare -F "$(cli_name)_headless" >/dev/null && return 0
+  _cli_has_headless_adapter "$(cli_name)" && return 0
   echo "agent CLI '$(cli_name)' is tmux-only: session backend '$b' runs $(cli_headless_list | xargs | sed 's/ /, /g') lanes only — set $SESS_CONFIG_VAR=tmux or $CLI_CONFIG_VAR=$(cli_headless_list | head -1)" >&2
   return 1; }
 

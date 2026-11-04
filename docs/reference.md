@@ -280,8 +280,12 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 ### Headless lanes
 
 With `HARNESS_SESSION_BACKEND=headless` a lane is not a tmux session but a detached background process: the
-CLI's headless lane runner. Only `claude` has one (`scripts/cli/claude_headless.py`); with any other CLI
-`harness init`, `harness doctor` and `harness start` refuse the pair, naming the CLI as tmux-only.
+CLI's headless lane runner: one shared core (`scripts/cli/headless_core.py`) plus a small per-CLI adapter
+(`scripts/cli/<cli>_headless.py`, [the adapter contract](#headless-adapter-contract)). Only `claude` has an
+adapter so far (`scripts/cli/claude_headless.py`, which is also its entry point); with any other CLI
+`harness init`, `harness doctor` and `harness start` refuse the pair, naming the CLI as tmux-only. The list
+of headless CLIs is the adapter files present: dropping a `<cli>_headless.py` beside `<cli>.sh` enables that CLI
+on the headless backend, with no edit to the refusal.
 
 **How a lane runs.** `launch_agent` prepares the worktree as it does for a pane (trust, bypass, the goal
 loop's state file), then starts the runner in the worktree (under `setsid`, so the worker that started it
@@ -364,7 +368,8 @@ state.
 
 **Watching a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
 read-only: each turn, its tool calls and its reply as they land in `events.jsonl` — Ctrl-C stops watching,
-not the lane. `python3 scripts/cli/claude_headless.py state --lane <dir>` prints its `state.json`;
+not the lane. `python3 scripts/cli/headless_core.py state --lane <dir>` (or `claude_headless.py state`, the
+same command) prints its `state.json`;
 `tail -F <dir>/events.jsonl` is the raw stream.
 
 **Smoke run.** `SMOKE_BACKEND=headless bash test/smoke/fleet_smoke.sh claude` runs one real fleet on
@@ -379,6 +384,57 @@ Windows (#357) the smoke defaults to the headless backend, refuses tmux and ever
 `harness doctor` after setup and names its log `claude-headless-windows-<stamp>.log`;
 `test\smoke\fleet_smoke.cmd claude` runs it from cmd, PowerShell or ssh through Git's `bash.exe`. See
 [the Windows runbook](windows-smoke.md).
+
+### Headless adapter contract
+
+`scripts/cli/headless_core.py` is the one runner every headless lane runs; a CLI adds
+`scripts/cli/<cli>_headless.py` and nothing else of the runner. **The core owns** the lane's files (the
+inbox, `events.jsonl`, `stderr.log`, `state.json`, the `stop` and `interrupt` requests), the `busy` /
+`idle` / `limit` / `transient` / `ended` states, delivery of one inbox message per turn, interrupt (ends
+the running turn's process tree, the lane stays up), stop (ends the turn and the lane), a runner restarted
+on the same lane directory, the `pane` the watchdog reads (the lane drawn in the shapes claude's TUI
+prints, so one set of pane regexes reads every CLI's lane) and `watch`. The usage watch reads the
+core's `state.json` (`rate_limit`, `rate_limit_at`, `account`); the stats sweep (`scripts/stats.py`) folds the
+lane's `events.jsonl`, whose per-turn usage it reads off claude's stream-json `result` events, so a CLI whose
+stream differs extends that fold in its own issue. **The adapter
+owns** what differs per CLI: starting one turn, reading its stream, and saying what usage and limits it
+reported.
+
+An adapter module defines `ADAPTER` (an object with the members below) and an entry point,
+`sys.exit(core.main(adapter=ADAPTER, prog="<cli>_headless.py"))` after `sys.path.insert`ing its own
+directory and `import headless_core as core` (see `claude_headless.py`). Every member is
+required:
+
+| member | contract |
+|---|---|
+| `name` | the CLI's name (`claude`); written to `state.json` as `adapter`, which is how `watch` finds the adapter again |
+| `default_bin` | the command that runs the CLI, used when `run` gets no `--bin` |
+| `account()` | the account the lane runs on (claude: the config dir's name), written as `account` for the usage watch |
+| `argv(bin, session_id, session_started, model, effort, flags)` | one turn's command as a list. `bin` and `flags` are lists already split. The message is **not** in it: the core writes it to the process's stdin and closes it. `session_started` is false until the CLI has reported its session: pass the id as the new session's id (or none, if the CLI picks its own), and when true, the CLI's resume option with it, so the lane is one session across turns |
+| `new_turn()` | a fresh per-turn reader, below |
+| `watch_line(ev)` | one `events.jsonl` event as `harness attach` prints it, or `None` to leave it out |
+
+A **turn reader** folds one turn's events. The core feeds it every stdout line that parsed as JSON
+(`{"type":"harness","subtype":"stdout","line":…}` is recorded for one that did not, and is fed too), in
+order, from a reader thread, then asks for the outcome once the process exited:
+
+| member | contract |
+|---|---|
+| `feed(ev)` | take one event (a dict). Never raise on an event it does not know |
+| `session_id` | the CLI's session id once an event shows it, else `None`. The core saves it and passes it as the resume id on every later turn |
+| `rate_limit` | the latest usage / limit info the CLI reported (any JSON-able dict), else `None`; saved as `rate_limit` and stamped `rate_limit_at` when it changes |
+| `retry` | the CLI's own in-turn retry (`{"attempt": …, "max_retries": …}`), else `None`; the `pane` draws a `busy` lane as `Retrying (attempt a/m)` |
+| `no_conversation` | true when the CLI had no session to resume. The core then starts that message again as a new session under the same id (#350) |
+| `outcome(rc, stderr_tail)` | `(state, reply, error, limit_resets_at)` once the process exited `rc`: `("idle", reply, None, None)` for a turn that ended well; `("limit", reply, error, resets_at)` when the account's quota is out (`resets_at` epoch seconds or `None`); `("transient", reply, error, None)` for any other failed turn, including an exit with no final event. State comes from events and the exit code, **never** from screen text. A `limit` lane waits for the reset (the watchdog, `usage.sh`), a `transient` one is nudged and retried |
+
+`cli_headless_list` is the adapter files present, so adding `<cli>_headless.py` beside `<cli>.sh` is all it takes
+for `cli_backend_check` to stop refusing that CLI. Its `<cli>_headless` function in `<cli>.sh` (the runner's
+argv, one word per line: see `claude_headless` in `claude.sh`) is optional: without one, `cli_headless`
+starts `python3 <cli>_headless.py run --cwd … --session-id … --message …` and the adapter's `default_bin`
+runs. `test/test_headless_core.py` runs the core through a fake CLI and a fake adapter
+(`test/fixtures/headless-core/`) and is the executable form of this section: a new adapter's own test
+should show the same seven behaviours against its CLI's captured output — turn start, resume id, event
+parse, usage, limit → `limit`, transient retry, interrupt and stop.
 
 ### Portable process and lock primitives
 
