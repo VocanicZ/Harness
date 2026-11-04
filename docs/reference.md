@@ -580,12 +580,31 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
   made before this change registered the same names with a boot trigger; re-running
   `harness supervise --install` / `harness web --install` (which `harness update` does) re-registers
   them logon-only.
+- **Install entry points:** both lines work from Git Bash, `npx -y github:VocanicZ/Harness` and
+  `curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | bash`. The npx entry runs
+  `install.sh` under Git's `bash.exe` by path (`HARNESS_BASH_EXE`, else Git for Windows' root from `EXEPATH` or
+  `git --exec-path`, else the usual install dirs; only a bash that answers MINGW/MSYS counts), never npx's plain
+  `bash`, which is WSL's. `HARNESS_REF=<tag>` pins the release as on Linux. Re-running either line over an install
+  changes nothing: same engine link, same `releases/`, same bin dir.
+- **Update and rollback:** `harness update` is the Linux lifecycle on Windows: it downloads the release, verifies
+  SHA256SUMS, flips the `engine` link (a real symlink) with one rename, prunes to the current release plus the previous 2,
+  hands off to the new release's `update.sh --post-flip`, which rewrites the python3 shim, ensures rtdd, re-registers the
+  supervise and web tasks (their launchers run the engine through its link, so they follow it) and re-links the skills
+  (`--with-skills` adds the plugins). `harness update --rollback` flips back and redeploys; a second one goes forward again.
+  Two Windows rules shape it. **A directory cannot be renamed while any file in it is open**, and a git-checkout engine's
+  own `update.sh` is such a file, so on Windows that update runs from a temp copy of itself before the checkout is moved
+  aside to `releases/git-<sha>` (#281); if something else still has a file open there (a running fleet, a shell whose
+  folder is inside the engine) the move fails with a message to `harness stop` and leave the folder. **A release older than
+  the Windows lifecycle (#356, v0.1.1 and every release before it) copies instead of linking**, so after a rollback onto
+  one `harness update --rollback` prints how to come forward again (`MSYS=winsymlinks:nativestrict harness update
+  --rollback`). Upgrading from a v0.1.1 git checkout: its own `harness update` fast-forwards the checkout to current code
+  (or fails if it is on a detached HEAD); the next `harness update`, or the install line, migrates it onto releases.
 - **`harness doctor`** adds a `windows:` section that checks the headless backend, that the shell and
   the tasks' `bash.exe` are Git's (`uname -s` MINGW/MSYS, not WSL), that a Python 3 runs, that a
   symlink can be made, that the engine is LF, and that `schtasks`, `powershell` and `taskkill` are
   present; and the installer's own prerequisites: `gh`, an agent CLI, Developer Mode, the git identity
   and the checkout's per-repo git settings (`harness doctor --fix` writes those), with rtdd/Node as a
-  note. Each failure names its fix, with the winget command where there is one. When the engine is gone
+  note. It also checks the engine: a real link into `releases/` (a plain folder means Git Bash copied instead of linking; a dangling link names the reinstall), no leftover `engine.flip.*` or `.staging-*`, `harness` on PATH a link, and each task's launcher running the engine through its link; a **rolled-back** engine (a newer release kept beside it) is reported with the command that goes forward. Each failure names its fix, with the winget command where there is one. When the engine is gone
   but Harness left something on the host (a task of this home or its launcher, the python3 shim,
   `harness.cmd`, the poller, the fleet registry), the section lists each and names the one command that
   removes them: `bash <a Harness checkout>/scripts/uninstall.sh --force --force-engine`.

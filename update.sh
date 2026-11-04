@@ -37,6 +37,12 @@ for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 
 # which would read it as a plain update and re-run all of this), return so the tail runs from here.
 hand_off(){
   new="$(realpath "$HARNESS_HOME/engine")"
+  # Windows (#491): the release we hand off to may be OLDER (--rollback), and an older install.sh looks for the python3 shim
+  # by path, finds its own on PATH when HARNESS_HOME is spelled C:/x, and writes a shim that runs itself forever. Name the
+  # interpreter from here (this install.sh knows better) so any release's post-flip redeploy takes it as given.
+  if _upd_win && [[ -z "${HARNESS_PYTHON:-}" ]] && declare -F python_probe >/dev/null; then
+    if _py="$(python_probe 2>/dev/null)" && [[ -n "$_py" ]]; then export HARNESS_PYTHON="$_py"; fi
+  fi
   if grep -q -- '--post-flip' "$new/update.sh" 2>/dev/null; then
     post=(--post-flip); (( WITH_SKILLS )) && post+=(--with-skills)
     exec env ENGINE_DIR="$new" HARNESS_ENGINE_LINK="$HARNESS_HOME/engine" bash "$new/update.sh" "${post[@]}"
@@ -44,11 +50,26 @@ hand_off(){
   ENGINE_DIR="$new"; HARNESS_ENGINE_LINK="$HARNESS_HOME/engine"; POST_FLIP=1
 }
 _engine="${HARNESS_HOME:-${HOME:-}/.harness}/engine"
+# _pn <path> — its realpath in MSYS form. On Windows `realpath` keeps the spelling it is given, so $_engine (/c/x, from $HOME) and
+# the ENGINE_DIR bin/harness exported (C:/x, the form native programs read) never compare equal as strings: compare these (#491).
+_pn(){ local p; p="$(realpath "$1" 2>/dev/null)" || p="$1"; cygpath -u "$p" 2>/dev/null || printf '%s' "$p"; }
+# Windows (#491): a directory cannot be renamed while any file in it is open, and this running update.sh IS an open file
+# of the git checkout it is about to move aside (bash reads a script through an open descriptor; Linux does not mind).
+# So a git-checkout engine's update runs from a temp COPY of itself: the copy deletes itself first thing (a Windows file
+# stays readable through its open descriptor), and the checkout, with nothing open in it, can be renamed.
+_upd_win(){ case "${HARNESS_PLATFORM:-$(uname -s 2>/dev/null)}" in windows|MINGW*|MSYS*|CYGWIN*) return 0 ;; esac; return 1; }
+if _upd_win && [[ -n "${HARNESS_UPDATE_COPY:-}" ]]; then rm -f "$0" 2>/dev/null; fi
+if _upd_win && [[ -z "${HARNESS_UPDATE_COPY:-}" ]] && (( ! POST_FLIP && ! ROLLBACK )) \
+   && [[ -d "$_engine" && ! -L "$_engine" && -e "$_engine/.git" ]] \
+   && [[ "$(_pn "$_engine")" == "$(_pn "$ENGINE_DIR")" ]]; then
+  _copy="$(mktemp "${TMPDIR:-/tmp}/harness-update.XXXXXX.sh")" && cp "$ENGINE_DIR/update.sh" "$_copy" \
+    && exec env HARNESS_UPDATE_COPY=1 ENGINE_DIR="$ENGINE_DIR" bash "$_copy" "$@"
+fi
 migrate_tag=""
 # Only the engine this update runs from migrates: a dev clone or a test sandbox updating itself
 # (ENGINE_DIR elsewhere) keeps its ff-pull and never touches, or queries for, the host's engine.
 if (( ! POST_FLIP && ! ROLLBACK )) && [[ -d "$_engine" && ! -L "$_engine" && -e "$_engine/.git" ]] \
-   && [[ "$(realpath "$_engine" 2>/dev/null)" == "$(realpath "$ENGINE_DIR" 2>/dev/null)" ]]; then
+   && [[ "$(_pn "$_engine")" == "$(_pn "$ENGINE_DIR")" ]]; then
   HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh"
   if [[ -n "${HARNESS_REF:-}" ]]; then
     migrate_tag="$HARNESS_REF"
@@ -91,6 +112,12 @@ elif [[ -L "$_engine" ]]; then
     fi
     engine_flip "$prev" || exit 3
     echo "rolled back Harness $cur -> $(engine_version)"
+    # Windows (#491): a release older than the Windows lifecycle (#356) has an update.sh that makes COPIES where this one makes
+    # links, so going forward again from it would fail. Say how, while we still know.
+    if _upd_win && ! grep -q 'winsymlinks:nativestrict' "$HARNESS_HOME/engine/update.sh" 2>/dev/null; then
+      echo "NOTE: $(engine_version) predates native Windows support, so its own update.sh cannot flip the engine link. To come forward again run:"
+      echo "      MSYS=winsymlinks:nativestrict harness update --rollback"
+    fi
   elif [[ -n "${HARNESS_REF:-}" ]]; then
     tag="$HARNESS_REF"
     [[ "$tag" == "$(engine_current)" ]] && done_current "Harness $tag is already installed."

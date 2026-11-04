@@ -46,11 +46,19 @@ EOF
   assert_ok "runs the package's install.sh with bash" grep -qF "ran $P/install.sh " "$STUB_LOG"
   assert_ok "...passing its arguments through" grep -qF '[a b c]' "$STUB_LOG"
   assert_ok "...and exits with install.sh's status" test "$rc" = 7
+  # Native Windows (#491): the entry runs install.sh under GIT's bash by path (npx's plain `bash` may be WSL's),
+  # a bash that is not MINGW/MSYS is refused, and no Git bash at all points at Git for Windows and WSL2.
   : > "$STUB_LOG"
-  out="$(node -e 'Object.defineProperty(process, "platform", { value: "win32" }); require(process.argv[1])' \
-    "$P/bin/harness-install.js" 2>&1)"; rc=$?
-  assert_ok "native Windows exits non-zero" test "$rc" -ne 0
-  assert_ok "...telling the user to run it inside WSL2" grep -qF 'WSL2' <<<"$out"
+  win_entry(){ node -e 'Object.defineProperty(process, "platform", { value: "win32" }); require(process.argv[1])' "$P/bin/harness-install.js" "$@"; }
+  GB="$T/gitbash"; printf '#!/bin/sh\n[ "$1" = -c ] && { echo MINGW64_NT-10.0-19045; exit 0; }\necho "git-bash ran $*" > "$STUB_LOG"; exit 5\n' > "$GB"; chmod +x "$GB"
+  out="$(HARNESS_BASH_EXE="$GB" win_entry --flag 2>&1)"; rc=$?
+  assert_ok "native Windows runs install.sh under Git's bash" grep -qF "git-bash ran $P/install.sh --flag" "$STUB_LOG"
+  assert_ok "...exiting with its status" test "$rc" = 5
+  WB="$T/wslbash"; printf '#!/bin/sh\n[ "$1" = -c ] && { echo Linux; exit 0; }\necho "wsl ran" > "$STUB_LOG"; exit 0\n' > "$WB"; chmod +x "$WB"
+  : > "$STUB_LOG"
+  out="$(env -i PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" HARNESS_BASH_EXE="$WB" node -e 'Object.defineProperty(process, "platform", { value: "win32" }); require(process.argv[1])' "$P/bin/harness-install.js" 2>&1)"; rc=$?
+  assert_ok "a bash that is not Git's (WSL's) is refused" test "$rc" -ne 0
+  assert_ok "...pointing at Git for Windows and WSL2" grep -qF 'WSL2' <<<"$out"
   assert_ok "...without running install.sh" test ! -s "$STUB_LOG"
 else
   echo "  skip: node not on PATH — the entry is not run"

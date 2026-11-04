@@ -416,6 +416,17 @@ win_task_uninstall(){ local dir="$1" name="$2" tn; tn="$(win_task_name "$2")"
   _schtasks /End /TN "$tn" >/dev/null 2>&1
   _schtasks /Delete /F /TN "$tn" >/dev/null 2>&1
   rm -f "$(win_task_file "$dir" "$name")" "$dir/$name.xml"; return 0; }
+# win_task_pinned <dir> <name> <subcommand> — rc 0 iff <name>'s launcher runs THIS home's engine by one release's path
+# (<home>/releases/<tag>/bin/harness <subcommand>) instead of through the engine link. An engine that installed it while
+# HARNESS_HOME was spelled C:/x and ENGINE_DIR /c/x did that (#491), and `harness update` must still recognise it as its own
+# so it can rewrite it to follow the link. Another home's launcher, or any other command, is not.
+win_task_pinned(){ local f line p r
+  f="$(win_task_file "$1" "$2")"; line="$(grep -m1 '^# ExecStart=' "$f" 2>/dev/null)" || return 1
+  p="${line#\# ExecStart=}"; p="${p% "$3"}"
+  [[ $p == */releases/*/bin/harness ]] || return 1
+  r="${p%/releases/*/bin/harness}"
+  [[ "$(_win_pn "$r")" == "$(_win_pn "${HARNESS_HOME:-$HOME/.harness}")" ]]; }
+_win_pn(){ local p; p="$(realpath -m "$1" 2>/dev/null)" || p="$1"; cygpath -u "$p" 2>/dev/null || printf '%s' "$p"; }
 # win_task_env <dir> <name> <VAR> — the value <name>'s launcher exports for <VAR> (empty when none).
 win_task_env(){ local f; f="$(win_task_file "$1" "$2")"; [[ -f $f ]] || return 0
   ( unset "$3"; eval "$(grep -E "^export $3=" "$f" | tail -1)"; printf '%s' "${!3:-}" ); }

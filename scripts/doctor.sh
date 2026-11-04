@@ -184,6 +184,51 @@ doctor_windows_prereqs(){ local problems=0 w="${HARNESS_WINGET:-winget}" c co m 
   return "$problems"
 }
 
+# doctor_engine_windows — the INSTALLED and ROLLED-BACK states on Windows (#491): the engine is a real link into
+# releases/, it points somewhere, no half-finished flip or staging dir is lying around, the `harness` on PATH is a
+# link to it, and the supervise/web tasks' launchers run the engine through that link (so a flip, a rollback and an
+# update all move them) rather than one release's path. A rolled-back engine (a newer release is kept beside it) is
+# reported with the command that goes forward again. Each problem names its fix. Only on Windows; returns the count.
+doctor_engine_windows(){ local home="${HARNESS_HOME:-$HOME/.harness}" bin="${HARNESS_BIN_DIR:-$HOME/.local/bin}" problems=0 e cur newest f n tgt
+  is_windows || return 0
+  e="$home/engine"
+  [[ -e $e || -L $e ]] || return 0   # no engine: doctor_leftovers' business
+  if [[ -L $e ]]; then
+    tgt="$(readlink "$e" 2>/dev/null)"
+    if [[ -d $e ]]; then
+      cur="$(basename "$tgt")"
+      echo "  engine: ${tgt:-?} ($(sed -n 1p "$e/VERSION" 2>/dev/null || echo 'no VERSION')) ✓"
+      # rolled back = a release the engine was moved to AFTER it first reached the current one is still installed
+      newest="$(awk -v c="$cur" '$0 == c { seen = 1; next } seen && NF { last = $0 } END { print last }' "$home/releases/.installed" 2>/dev/null)"
+      if [[ -n $newest && -d $home/releases/$newest ]]; then
+        echo "  rolled back: engine is on $cur, $newest is kept beside it — \`harness update --rollback\` goes forward again, \`harness update\` installs the latest"
+      fi
+    else
+      echo "  engine: link ${tgt:-?} is DANGLING (the release it names is gone) — re-run the install line, or: HARNESS_REF=<tag> bash <a Harness checkout>/install.sh"
+      problems=$((problems+1))
+    fi
+  elif [[ -d $e/.git ]]; then
+    echo "  engine: a git checkout (not on releases yet) — \`harness update\` moves it onto the latest release once one exists"
+  else
+    echo "  engine: $e is a plain folder, not a link — Git Bash copied instead of linking (symlinks off); enable Developer Mode or run as an administrator, then re-run the install line"
+    problems=$((problems+1))
+  fi
+  for f in "$home"/engine.flip.* ; do [[ -e $f || -L $f ]] || continue
+    echo "  engine: $f is left over from an interrupted update — remove it: rm -rf \"$f\""; problems=$((problems+1)); done
+  for f in "$home"/releases/.staging-*; do [[ -d $f ]] || continue
+    echo "  releases: $f is an interrupted download — remove it: rm -rf \"$f\""; problems=$((problems+1)); done
+  if [[ -e $bin/harness || -L $bin/harness ]]; then
+    if [[ -L $bin/harness ]]; then echo "  harness on PATH: link to $(readlink "$bin/harness") ✓"
+    else echo "  harness on PATH: $bin/harness is a copy, not a link — it will not follow updates; re-run the install line"; problems=$((problems+1)); fi
+  fi
+  for n in harness-supervise harness-web; do f="$home/tasks/$n.sh"; [[ -f $f ]] || continue
+    if grep -q "^# ExecStart=.*/releases/" "$f"; then
+      echo "  task $(win_task_name "$n"): its launcher runs one release's path, so it does not follow the engine — re-register it: harness ${n#harness-} --install"; problems=$((problems+1))
+    else echo "  task $(win_task_name "$n"): follows the engine link ✓"; fi
+  done
+  return "$problems"
+}
+
 # doctor_leftovers — the UNINSTALLED state on Windows (#490): no engine under $HARNESS_HOME, yet
 # something Harness put on the host is still there — a Task Scheduler task of this home, a task
 # launcher, the python3 shim, harness.cmd, a poller, the fleet registry. Each is named; the fix is one
@@ -219,7 +264,7 @@ doctor_main(){
   # #349: the backend must be one the fleet's CLI can run on (headless: claude only).
   local why; why="$(cli_backend_check 2>&1)" || { echo "session backend: $why"; sp=1; }
   local wp=0
-  if is_windows; then echo "windows:"; doctor_windows || wp=$?; doctor_windows_prereqs || wp=$((wp+$?)); doctor_leftovers || wp=$((wp+$?)); fi
+  if is_windows; then echo "windows:"; doctor_windows || wp=$?; doctor_windows_prereqs || wp=$((wp+$?)); doctor_engine_windows || wp=$((wp+$?)); doctor_leftovers || wp=$((wp+$?)); fi
   echo "locks:"
   local lp=0 pp=0 fp=0
   doctor_locks   || lp=$?

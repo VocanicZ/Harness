@@ -97,7 +97,9 @@ web_uninstall(){ local unit="$WEB_UNIT_DIR/$WEB_UNIT"
 # web_installed — the unit is installed AND runs THIS engine. update/uninstall act only then, so a
 # second engine checkout (a dev clone, a test sandbox) never rewrites or removes the host's unit.
 web_installed(){
-  if is_windows; then grep -qxF "# ExecStart=$WEB_HARNESS web" "$(win_task_file "$WEB_UNIT_DIR" "${WEB_UNIT%.service}")" 2>/dev/null; return; fi
+  if is_windows; then
+    grep -qxF "# ExecStart=$WEB_HARNESS web" "$(win_task_file "$WEB_UNIT_DIR" "${WEB_UNIT%.service}")" 2>/dev/null && return 0
+    win_task_pinned "$WEB_UNIT_DIR" "${WEB_UNIT%.service}" web; return; fi   # pinned to one release by an older install: ours, to re-point
   grep -qxF "ExecStart=$WEB_HARNESS web" "$WEB_UNIT_DIR/$WEB_UNIT" 2>/dev/null; }
 
 [[ ${BASH_SOURCE[0]} == "$0" ]] || return 0   # sourced (tests, update.sh): define functions only

@@ -40,6 +40,29 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   failed with `env: 'HARNESS_\r': No such file or directory`) and a set goal gave values ending in a CR, such as
   `HARNESS_KIND=issue\r`. No env pair a lane gets carries a CR now.
 
+### Install, update and rollback on Windows (#491)
+
+- The `npx -y github:VocanicZ/Harness` line now works from Git Bash. The npx entry used to refuse native Windows;
+  it now runs `install.sh` under Git for Windows' `bash.exe` by path (never npx's plain `bash`, which is WSL's) and
+  still refuses, pointing at Git for Windows and WSL2, when no Git bash is found. Both install lines, `HARNESS_REF=<tag>`
+  pinning and re-running the installer over an install are covered by `HARNESS_PLATFORM=windows` tests and a logged run
+  on a real Windows host.
+- `harness update` migrates a git-checkout engine on Windows. A directory cannot be renamed while a file in it is open,
+  and the running `update.sh` is a file of that checkout, so the update now runs from a temp copy of itself first; the
+  checkout (uncommitted edits and all) moves to `releases/git-<sha>` as on Linux. If something else still holds the
+  engine open, the failure says to `harness stop` and leave the folder.
+- After `harness update --rollback` onto a release that predates native Windows support (v0.1.1 and earlier), the
+  rollback prints the one command that comes forward again (`MSYS=winsymlinks:nativestrict harness update --rollback`),
+  because that release's own `update.sh` copies instead of linking.
+- Fixed: the python3 shim could be written pointing at itself, so the first `harness update` of a home whose
+  `HARNESS_HOME` is written `C:/x` (not `/c/x`) hung forever in the post-flip redeploy. The probe now recognises the shim
+  by its own text, not its path.
+- `harness doctor` checks the engine on Windows: a real link into `releases/`, no dangling link, no plain-folder copy,
+  no leftover `engine.flip.*` or `.staging-*`, `harness` on PATH a link, each task's launcher running the engine through
+  its link, and the rolled-back state (a newer release kept beside the engine) with the command that goes forward.
+- New `test/test_windows_update.sh`: task re-install after the flip, prune keeps 3, git-checkout migration under
+  Windows' open-file rule, rollback and forward again, idempotent re-install, the python3 shim, and the doctor states.
+
 ### Complete `harness uninstall` on Windows (#490)
 
 - `harness uninstall --force --force-engine` leaves nothing Harness put on a Windows host. Besides the engine, the
