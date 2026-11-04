@@ -39,8 +39,9 @@ fi
 assert_eq "$(res "$cells" codex supervisor-frozen-session)" FAIL "no limit.txt: codex supervisor-frozen-session FAILs"
 assert_eq "$(res "$cells" agy bypass-covers-subagents)" FAIL "agy's sub-agent pane shows the approval prompt: bypass-covers-subagents FAILs"
 # Every tmux-only CLI's headless-* rows are n/a — the headless backend refuses it — never ok.
+tmux_only_cells="$(HARNESS_MATRIX_CLIS=openclaw HARNESS_MATRIX_ROWS='^headless-' bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
 for cli in openclaw; do   # (the CLIs left without a runner)
-  got="$(awk -F'\t' -v c="$cli" '$1 == c && $2 ~ /^headless-/ { print $3 }' <<<"$cells" | sort -u)"
+  got="$(awk -F'\t' -v c="$cli" '$1 == c && $2 ~ /^headless-/ { print $3 }' <<<"$tmux_only_cells" | sort -u)"
   assert_eq "$got" "n/a:tmux-only" "$cli, which has no headless runner, is n/a on every headless-* row"
 done
 
