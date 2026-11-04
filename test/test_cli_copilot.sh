@@ -187,7 +187,26 @@ assert_ok "…beside the handoff skill, where copilot loads skills (#303)" \
   has "MISSING copilot skill handoff ($COPILOT_HOME/skills/handoff)" "$(cli_prereqs 2>&1)"
 assert_ok "init offers copilot" grep -qx copilot <<<"$(cli_list)"
 
-# #353: copilot has no headless lane runner, so its headless-* rows read n/a, tmux-only — and only those.
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only")')"
-assert_eq "$col" "" "every copilot matrix cell is ok, but its headless-* rows: n/a, tmux-only"
+# #483: copilot has a headless lane runner (scripts/cli/copilot_headless.py), so its headless-* rows run on
+# the fixture replay (fake-copilot) like claude's: every copilot matrix cell is ok, those rows included.
+cells="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot"')"
+assert_eq "$(awk -F'\t' '$3!="ok"' <<<"$cells")" "" "every copilot matrix cell is ok, its headless-* rows included"
+assert_eq "$(awk -F'\t' '$2 ~ /^headless-/' <<<"$cells" | wc -l)" 14 "…and it has all 14 of them"
+# …and on the Windows code paths (HARNESS_PLATFORM=windows forced on this host, an flock-backed msvcrt for
+# portable.py): the rows that start a lane, send to it, park it at a limit, read its windows and its usage.
+# (headless-checkpoint and -resume, which drive spawn_impl's long prompt through the same path, are red
+# under that emulation for claude too: they are the winsma run's, #475 task 8.)
+win="$(HARNESS_MATRIX_HEADLESS_PLATFORM=windows HARNESS_MATRIX_CLIS=copilot \
+  HARNESS_MATRIX_ROWS='^headless-(launch|send|busy-idle|limit-parks|transient-stalls|usage-windows|stats-session-end-usage|stop)$' \
+  bash "$HERE/test_cli_matrix.sh" --tsv)"
+assert_eq "$(awk -F'\t' '$3=="ok"' <<<"$win" | wc -l)" 8 "copilot's lane rows pass under HARNESS_PLATFORM=windows (8 of them)"
+assert_eq "$(awk -F'\t' '$3!="ok"' <<<"$win")" "" "…and none is red"
+# A headless lane's screen has a turn timer (headless_core.py pane); a pane's copilot draws none (#483: it is what
+# lets the stuck-turn interrupt reach a lane whose checkpoint waits behind a long turn).
+hl_pane=$'✻ Working… (1m 5s · esc to interrupt)\n────────────\n❯ \n────────────'
+assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_turn_secs "$hl_pane")" 65 "copilot on the headless backend: the lane's turn timer is read"
+assert_eq "$(HARNESS_SESSION_BACKEND=tmux cli_turn_secs "$hl_pane")" "" "…on tmux copilot has no turn timer (unavailable)"
+assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_turn_secs $'────\n❯ \n────')" 0 "…and an idle lane has no turn running"
+assert_ok "copilot is a headless CLI" grep -qx copilot <<<"$(cli_headless_list)"
+assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_backend_check 2>&1; echo $?)" 0 "…and the headless backend does not refuse it as tmux-only"
 finish

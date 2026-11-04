@@ -31,3 +31,8 @@ Copilot Free plan currently includes only Auto"), so `--model=<m>` is reported a
 | `VERSION` | `copilot --version`, then the capture date and host. |
 | `fake-cli` | Stands in for `copilot` when the matrix runs a typed launch line: it writes `transcript.jsonl` as `$COPILOT_HOME/session-state/<--session-id>/events.jsonl`, its `session.start` stamped with the pane's cwd and the time now. |
 | `turn-end` | One prompt's turn ending as Copilot records it: a `user.message`, a model turn whose `assistant.message` is the given reply, and its `assistant.turn_end`, appended in `transcript.jsonl`'s shapes. The pane is then idle (`idle.txt`), which is when the Harness-driven loop reads the reply. |
+
+## Headless turns (#483)
+
+`stream-json/` holds what the headless lane runner (`scripts/cli/copilot_headless.py`) reads and what the matrix's
+`headless-*` rows replay; its own `README.md` says how each file was captured.

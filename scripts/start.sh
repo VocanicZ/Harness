@@ -32,7 +32,7 @@ source "$_start_dir/lib.sh"
 sess_backend_check || die "set $SESS_CONFIG_VAR in $CONFIG to one of: $(sess_backend_list | xargs)"
 sess_platform_check || die "set $SESS_CONFIG_VAR=headless in $CONFIG (#356: native Windows runs headless lanes only)"
 win_python3_check || die "$PYTHON3_FIX (#405: without a working python3 the fleet can never claim an issue)"
-cli_backend_check || die "set $SESS_CONFIG_VAR or $CLI_CONFIG_VAR in $CONFIG (#349: the headless backend runs claude lanes only)"
+cli_backend_check || die "set $SESS_CONFIG_VAR or $CLI_CONFIG_VAR in $CONFIG (#349: the headless backend runs $(cli_headless_list | xargs | sed 's/ /, /g') lanes only)"
 for b in $(sess_bins); do command -v "$b" >/dev/null || die "$b not found — install $b first"; done
 command -v "$(cli_exe)" >/dev/null || die "$(cli_exe) not found on PATH — install the $(cli_name) CLI first (harness setup lists what it needs)"
 command -v gh     >/dev/null || die "gh not found — install the GitHub CLI first"

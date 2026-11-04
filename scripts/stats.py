@@ -466,6 +466,14 @@ def build_event(event, common, ctx, kv, now=None):
                 rec["resumed"] = True
                 if whole:
                     rec["usage"] = usage_minus(rec["usage"], prior)
+            if not rec["usage"] and tsv:
+                # #483: a headless lane of a CLI whose stream carries no usage the lane's events.jsonl fold
+                # reads (copilot: session.usage_record lives in its own session-state file) is folded by the
+                # CLI adapter from that file, as a pane's is. That file holds the whole session, every earlier
+                # run of it included, so a resumed run reports only what it added.
+                rec["usage"] = parse_usage_tsv(tsv) or None
+                if rec["usage"] and prior is not None:
+                    rec["usage"] = usage_minus(rec["usage"], prior)
         elif tsv and "usage" not in rec:
             rec["usage"] = parse_usage_tsv(tsv) or None
         if "wall_s" not in rec and isinstance(launched, int):

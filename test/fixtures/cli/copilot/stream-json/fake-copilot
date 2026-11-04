@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""fake-copilot — stands in for `copilot --output-format json` (README.md): each run replays one captured
+turn from this directory, in the order $FAKE_CLAUDE_DIR/plan names them (one fixture name per line: normal,
+tool-use, limit, transient — or `hang`, a turn that never ends; the variable is named for the fake it was
+first written for, test/fixtures/cli/claude/stream-json/fake-claude, so the matrix's helpers serve both).
+Text after the name on a plan line (`normal <promise>X</promise>`) replaces the turn's reply.
+
+Per run it appends {argv, prompt (its stdin), pid} to $FAKE_CLAUDE_DIR/calls.jsonl, then prints the fixture's
+events with every session id set to the one `--session-id=<id>` names, and leaves what the real CLI leaves on
+disk: the turn's events appended to $COPILOT_HOME/session-state/<id>/events.jsonl (disk/<name>.jsonl, its
+user.message carrying the prompt), which is where cli_transcripts, cli_usage and cli_limit_usage read. The
+tool-use turn also leaves the account's quotaSnapshots (quota.json: a model.model_call_success line cut from the
+pane capture's transcript.jsonl, its reset an hour away: a passed reset is no window). While
+$FAKE_CLAUDE_DIR/hold exists it waits after the first event, so a test can act mid-turn. `hang` prints the
+first event, starts a grandchild (`sleep`), writes `<own pid> <grandchild pid>` to $FAKE_CLAUDE_DIR/pids
+and waits forever. It exits 1 after an error result, as copilot does. An executable
+$FAKE_CLAUDE_DIR/turn-hook runs first with the prompt on its stdin, in copilot's working directory.
+A `--session-id` whose session is gone is no error here, as in the CLI: it starts the session."""
+import json, os, subprocess, sys, time
+
+here = os.path.dirname(os.path.abspath(__file__))
+d = os.environ["FAKE_CLAUDE_DIR"]
+argv = sys.argv[1:]
+sid = None
+for a in argv:
+    if a.startswith("--session-id="):
+        sid = a.split("=", 1)[1]
+prompt = sys.stdin.read()
+with open(os.path.join(d, "calls.jsonl"), "a") as f:
+    f.write(json.dumps({"argv": argv, "prompt": prompt, "pid": os.getpid()}) + "\n")
+n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
+hook = os.path.join(d, "turn-hook")
+if os.access(hook, os.X_OK):
+    subprocess.run([hook], input=prompt, text=True)
+plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
+name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
+
+src = "normal" if name == "hang" else name
+events = [json.loads(l) for l in open(os.path.join(here, f"{src}.jsonl")) if l.strip()]
+
+
+def rewrite(e):
+    if sid:
+        if "sessionId" in e:
+            e["sessionId"] = sid
+        if isinstance(e.get("data"), dict) and "sessionId" in e["data"]:
+            e["data"]["sessionId"] = sid
+    if reply and e.get("type") == "assistant.message" and e["data"].get("content"):
+        e["data"]["content"] = reply
+    if e.get("type") == "user.message":
+        e["data"]["content"] = prompt
+    return e
+
+
+events = [rewrite(e) for e in events]
+if name == "hang":
+    events = events[:1]
+
+# What copilot leaves on disk for this session.
+home = os.environ.get("COPILOT_HOME") or os.path.join(os.path.expanduser("~"), ".copilot")
+if sid:
+    ddir = os.path.join(home, "session-state", sid)
+    os.makedirs(ddir, exist_ok=True)
+    dpath = os.path.join(here, "disk", f"{src}.jsonl")
+    disk = [json.loads(l) for l in open(dpath) if l.strip()] if os.path.exists(dpath) else \
+        [e for e in events if e["type"] in ("user.message", "assistant.turn_start")]
+    disk = [rewrite(e) for e in disk]
+    if src == "tool-use":
+        e = json.load(open(os.path.join(here, "quota.json")))
+        for q in e["data"]["quotaSnapshots"].values():
+            if "resetDate" in q:
+                q["resetDate"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 3600))
+        disk.append(e)
+    with open(os.path.join(ddir, "events.jsonl"), "a") as f:
+        for e in disk:
+            f.write(json.dumps(e, separators=(",", ":")) + "\n")
+
+for i, e in enumerate(events):
+    print(json.dumps(e, separators=(",", ":")), flush=True)
+    if i == 0:
+        while os.path.exists(os.path.join(d, "hold")):
+            time.sleep(0.05)
+if name == "hang":
+    child = subprocess.Popen(["sleep", "600"])
+    with open(os.path.join(d, "pids"), "w") as f:
+        f.write(f"{os.getpid()} {child.pid}\n")
+    while True:
+        time.sleep(1)
+err = any(e.get("type") == "result" and e.get("exitCode") for e in events)
+if err:
+    sys.exit(1)

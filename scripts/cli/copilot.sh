@@ -26,29 +26,49 @@ copilot_launch(){ local wd="$1" uuid="$2" model="$3" effort="$4" home=""
 # --model, and --effort or its alias --reasoning-effort.
 copilot_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--(reasoning-)?effort[= ]')"; }
 
+# --- the headless lane (#483, PRD #475): copilot_headless.py runs one `copilot --output-format json` per turn
+# copilot_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line: the
+# headless session backend starts it in place of the pane's shell + launch line. Each turn carries the
+# configured flags (the lane's model/effort replacing theirs), the lane's session as `--session-id=<uuid>`
+# (copilot creates it when new and resumes it when it exists, so the 5th argument — <uuid> is an existing
+# session to carry on — needs no flag of its own) and the message on stdin; the bootstrap is the first turn.
+# Auto refuses a reasoning effort in this mode, so --effort rides only with a model named.
+copilot_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4" flags="${HARNESS_COPILOT_FLAGS:-}" m
+  m="${model:-$(_cli_line_opt "$flags" '--model[= ]')}"
+  [[ -z "$m" || "$m" == auto ]] && effort=""
+  printf '%s\n' python3 "$CLI_DIR/copilot_headless.py" run --cwd "$wd" --bin "$(copilot_bin)" --session-id "$uuid" \
+    ${5:+--resume} "--flags=$(_copilot_flags "$flags" "$model" "$effort")" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+# The headless backend draws a lane in the shapes headless_core.py pane documents, whatever the CLI, so on it
+# the pane regexes below are those (_cli_headless_pane_re) and not the TUI's.
+_copilot_headless(){ declare -F sess_backend >/dev/null && [[ "$(sess_backend)" == headless ]]; }
+
 # --- panes (test/fixtures/cli/copilot/*.txt) ----------------------------------------------------
 # The input box is `❯` at column 0 between two rules, drawn even while a turn runs (busy.txt). Copilot
 # echoes each submitted prompt one column in (` ❯ …`), so the echo never matches. The trust dialog's
 # and the model picker's `❯` are inside their boxes (trust.txt), and copilot_dialog_re names them.
 copilot_idle_re(){ echo '^❯( |$)'; }
-copilot_dialog_re(){ echo 'Do you trust the files in this folder\?|Rate limit hit\. Switch to the auto model\?|enter to select · esc to cancel'; }
+copilot_dialog_re(){ _copilot_headless && return 0; echo 'Do you trust the files in this folder\?|Rate limit hit\. Switch to the auto model\?|enter to select · esc to cancel'; }
 # A turn shows `<pulse> <label> · <bytes> esc esc interrupt` on the footer row (busy.txt, busy-start.txt;
 # the label is `Working`, the intent, or `Waiting for background shells`), and `esc again to interrupt`
 # after one Escape. The idle footer reads `← open sidebar · …` instead (idle.txt).
-copilot_busy_re(){ echo 'esc (esc|again to) interrupt'; }
+copilot_busy_re(){ _copilot_headless && { _cli_headless_pane_re busy; return; }; echo 'esc (esc|again to) interrupt'; }
 # The account's limits end the turn with an error cell (`✗ <message>`, the way the CLI draws a
 # session.error: model-error.txt). Strings from the 1.0.105 runtime (README.md, limit.txt).
-copilot_limit_re(){ echo "You've hit (your|the) (session )?rate limit|You've reached your weekly rate limit|You've run out of your included AI credits|You've reached the spending limit for this session|You've reached your additional usage limit"; }
+copilot_limit_re(){ _copilot_headless && { _cli_headless_pane_re limit; return; }; echo "You've hit (your|the) (session )?rate limit|You've reached your weekly rate limit|You've run out of your included AI credits|You've reached the spending limit for this session|You've reached your additional usage limit"; }
 # A rate limit on a chosen model raises a menu instead: switch to the auto model, or stay. Enter (the
 # watchdog's pick) takes its first choice, `Switch to auto for this request`: the turn goes on.
-copilot_limit_menu_re(){ echo 'Rate limit hit\. Switch to the auto model\?'; }
+copilot_limit_menu_re(){ _copilot_headless && return 0; echo 'Rate limit hit\. Switch to the auto model\?'; }
 # What reaches the pane once Copilot's own retries give up (transient.txt, from the 1.0.105 runtime).
-copilot_transient_re(){ echo 'Failed to get response from the AI model|No response was returned\. Send your message again to retry'; }
+copilot_transient_re(){ _copilot_headless && { _cli_headless_pane_re transient; return; }; echo 'Failed to get response from the AI model|No response was returned\. Send your message again to retry'; }
 copilot_loop(){ echo driven; }
+# A pane draws no turn timer (busy.txt) so cli_turn_secs is unavailable there; a headless lane's drawn screen has
+# one (headless_core.py pane), which is what lets the stuck-turn interrupt (#207) and the supervisor's
+# frozen-session rule see how long a turn has run — a checkpoint queued behind a long turn needs the first.
+copilot_turn_secs(){ _copilot_headless && _cli_headless_turn_secs "$@"; return 0; }
 # Two Escapes end a turn with `● Operation cancelled by user` (interrupted.txt). Text typed while a
 # turn runs is delivered into that turn, never queued in the input box (steer.txt), so #207's
 # interrupt never has a queued nudge to free.
-copilot_interrupted_re(){ echo 'Operation cancelled by user'; }
+copilot_interrupted_re(){ _copilot_headless && { _cli_headless_pane_re interrupted; return; }; echo 'Operation cancelled by user'; }
 
 # --- workspace trust: trustedFolders in config.json ---------------------------------------------
 # config.json is JSON behind `//` comment lines, rewritten by the CLI itself (trust dialog's "remember
@@ -172,6 +192,7 @@ PY
 }
 
 # --- the Harness-driven goal loop (lib.sh goal_loop_tick) -----------------------------------------
+# On the headless backend (#483) it is the lane's own last turn, off its state.json (_cli_headless_last_reply).
 # copilot_last_reply <wd> <session id> — the id of the last prompt the session was given, then the
 # text the agent answered it with: the last non-empty assistant.message since that user.message (a
 # promise the agent only announced mid-run is no answer). rc 1 while that
@@ -179,7 +200,8 @@ PY
 # turn_end (a turn is one model call; a prompt runs several, transcript.jsonl). A sub-agent writes its
 # own prompt, turns and replies into the same file, each event tagged with its agentId
 # (bypass-subagent.jsonl): those are not the session's.
-copilot_last_reply(){ local f; f="$(copilot_transcripts "$1" "$2")"; [[ -n "$f" ]] || return 1
+copilot_last_reply(){ local f; _copilot_headless && { _cli_headless_last_reply "$@"; return; }
+  f="$(copilot_transcripts "$1" "$2")"; [[ -n "$f" ]] || return 1
   python3 - "$f" <<'PY'
 import json, sys
 pid, reply, ended = None, [], False

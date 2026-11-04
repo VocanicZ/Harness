@@ -1,0 +1,26 @@
+# `copilot` headless fixtures
+
+What the headless lane runner (`scripts/cli/copilot_headless.py`, #483) reads: the stdout of
+`copilot --output-format json`, one JSON record per line. Captured 2026-11-04 (UTC) on the fleet host from GitHub
+Copilot CLI `1.0.105` (Copilot Free plan, signed in through the GitHub CLI's login), in a throwaway git repo, with
+`--allow-all-tools --no-ask-user --no-auto-update`, a fresh `--session-id=<uuid>` on the first turn and the same
+`--session-id=<uuid>` (or `--resume=<uuid>`) after. Each capture is trimmed to the non-ephemeral records: the MCP
+status, `*_delta` and background-task events are dropped, strings over 300 characters are cut to `(trimmed)` (the
+cache-break state in `session.usage_checkpoint`, the encrypted fields), the working directory is `@WD@`.
+
+| file | how |
+|---|---|
+| `normal.jsonl` | `copilot -p "Reply with exactly the word PONG and nothing else." … --session-id=<uuid>`, Auto picked `mai-code-1.1-flash`. `session.auto_mode_resolved`, `user.message`, one `assistant.turn_start`/`assistant.message` (`PONG`)/`assistant.turn_end`, `session.usage_checkpoint` (the session's running token totals) and the `result` record (`exitCode: 0`, `usage.premiumRequests: 1`). Exit 0. |
+| `tool-use.jsonl` | The next turn of the same session, `--resume=<uuid>`: `Use your shell tool to run: echo hi > proof.txt  then reply with exactly DONE.` Two model turns: an `assistant.message` carrying a `bash` tool request (its `content` empty), `tool.execution_start`/`complete`, then the final `assistant.message` (`DONE`, `phase: final_answer`) and the `result` (`premiumRequests: 2`). `proof.txt` was created. Exit 0. The session answered from its first turn's context (a later `--session-id=<uuid>` turn asked what it had been told to reply with answered `PING`, the word of the turn before it): that run is why every headless turn names `--session-id`. |
+| `limit.jsonl`, `transient.jsonl` | NOT triggerable on demand (a Free-plan quota is not ours to exhaust, nor a 5xx ours to cause), so built from `normal.jsonl`'s records: its `user.message` and `assistant.turn_start`, then a `session.error` whose `data.message` is the runtime's own text — `You've hit your rate limit. Please wait for your limit to reset. Learn More (https://docs.github.com/copilot/concepts/rate-limits).` and `Failed to get response from the AI model; retried 5 times (total retry wait time: 31 seconds) Last error: 503 Service Unavailable` (both strings read from the 1.0.105 package, as the pane captures `../limit.txt` and `../transient.txt`) — and a `result` with `exitCode: 1`. That a real print-mode limit arrives as a `session.error` is inferred from the CLI's bundle (`emit("session.error", {errorType, message})`, what the TUI draws as `✗ <message>`); an unknown shape would leave the turn `transient`, nudged and retried, never lost. |
+| `disk/normal.jsonl`, `disk/tool-use.jsonl` | The same two turns' records in `~/.copilot/session-state/<uuid>/events.jsonl`, cut to `user.message`, `assistant.turn_start`/`turn_end`, `assistant.message`, `session.usage_record` (one per model call: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`) and the tool records. That file is where `copilot_usage` and `copilot_last_reply` read, for a headless turn as for a pane. |
+| `quota.json` | One `model.model_call_success` record with `quotaSnapshots` (`chat` 99.2% remaining), cut from `../transcript.jsonl` (an interactive session). The 1.0.105 print mode wrote none to `events.jsonl` on this plan, so the fake leaves this one after the `tool-use` turn, its `resetDate` an hour ahead (a passed reset is no window); `cli_limit_usage` reads it. |
+| `usage.expected` | What `copilot_usage` folds the two turns' `disk/` records to (`<model>\t<input>\t<output>\t<cache read>\t<cache write>`, `inputTokens` less the cache reads and writes): what the matrix's `headless-stats-session-end-usage` expects the lane's `session_end` to report. |
+| `usage-windows.expected` | What `cli_limit_usage` reports for it: `<account>\t<window>\t<pct used>`, `copilot  chat  0.8`. |
+| `limit-reset.na` | Copilot's limit messages name no reset time, so the matrix's `headless-limit-parks` row does not ask the parked lane's screen for one (the way `../trust.na`-style files give a row's `n/a` reason). |
+| `fake-copilot` | Stands in for `copilot` in `test/test_copilot_headless.py` and the matrix's `headless-*` rows (`test/test_cli_matrix.sh`): each run replays the fixture `$FAKE_CLAUDE_DIR/plan` names next (the variable is named for `../../claude/stream-json/fake-claude`, so the matrix's helpers serve both), with every session id set to the one `--session-id=` names, leaves the turn's `disk/` records in `$COPILOT_HOME/session-state/<id>/events.jsonl`, records its argv and stdin prompt, can hold mid-turn and has a `hang` turn that starts a grandchild for the stop test. Its header says how. |
+
+What the runner reads from them (`Turn.outcome`): a `result` with `exitCode: 0` and a process that exited 0 → `idle`, the
+last non-empty `assistant.message` its reply; a failure whose `session.error` message (or stderr, with no `result`)
+is one of copilot's quota strings → `limit` (no reset time); any other failure, or a process that exits with no
+`result` → `transient`.

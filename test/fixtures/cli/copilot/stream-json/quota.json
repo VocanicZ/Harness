@@ -1,0 +1,39 @@
+{
+ "type": "model.model_call_success",
+ "data": {
+  "quotaSnapshots": {
+   "chat": {
+    "isUnlimitedEntitlement": false,
+    "entitlementRequests": 200,
+    "usedRequests": 2,
+    "usageAllowedWithExhaustedQuota": false,
+    "overage": 0,
+    "overageAllowedWithExhaustedQuota": false,
+    "remainingPercentage": 99.2,
+    "resetDate": "2026-11-01T00:00:00Z"
+   },
+   "completions": {
+    "isUnlimitedEntitlement": false,
+    "entitlementRequests": 2000,
+    "usedRequests": 0,
+    "usageAllowedWithExhaustedQuota": false,
+    "overage": 0,
+    "overageAllowedWithExhaustedQuota": false,
+    "remainingPercentage": 100,
+    "resetDate": "2026-11-01T00:00:00Z"
+   },
+   "premium_interactions": {
+    "isUnlimitedEntitlement": false,
+    "entitlementRequests": 0,
+    "usedRequests": 0,
+    "usageAllowedWithExhaustedQuota": false,
+    "overage": 0,
+    "overageAllowedWithExhaustedQuota": false,
+    "remainingPercentage": 0,
+    "resetDate": "2026-11-01T00:00:00Z"
+   }
+  }
+ },
+ "id": "5a88e7dd-e050-40aa-a050-f7ae716ece0e",
+ "timestamp": "2026-10-28T02:39:51.711Z"
+}
