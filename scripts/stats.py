@@ -173,7 +173,9 @@ def lanes_root():
 def lane_events(session):
     """A headless lane's events.jsonl (#352) for claude session <session>: the stream-json claude printed
     for every turn, whose `result` events carry each turn's usage per model. The lane whose state.json
-    names that session; None when there is none."""
+    names that session; None when there is none. Another CLI's lane (state.json's `adapter`) has none of
+    that in its events: its own adapter folds its usage (usage_tsv, #188), and a lane that keeps its id as
+    its session (openclaw, #485) must not be read as a claude one."""
     for f in sorted(glob.glob(os.path.join(lanes_root(), "*", "state.json"))):
         try:
             with open(f, encoding="utf-8") as fh:
@@ -181,7 +183,8 @@ def lane_events(session):
         except (OSError, ValueError):
             continue
         ev = os.path.join(os.path.dirname(f), "events.jsonl")
-        if isinstance(st, dict) and st.get("session_id") == session and os.path.isfile(ev):
+        if (isinstance(st, dict) and st.get("session_id") == session and os.path.isfile(ev)
+                and st.get("adapter") in (None, "claude")):
             return ev
     return None
 
