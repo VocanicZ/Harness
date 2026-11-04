@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "status": "ok",
+  "final": "PONG",
+  "payloads": [
+    {
+      "text": "PONG",
+      "mediaUrl": null
+    }
+  ],
+  "usage": {
+    "input": 2,
+    "output": 5,
+    "cacheWrite": 41805
+  },
+  "toolSummary": {
+    "calls": 0,
+    "tools": [],
+    "failures": 0
+  },
+  "model": "claude-haiku-5-5",
+  "provider": "claude-cli",
+  "sessionId": "945cf050-ea0a-4b73-be7b-e3d7de24ecb3"
+}

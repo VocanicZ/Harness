@@ -656,20 +656,22 @@ matrix_stub(){ local f; for f in ${HARNESS_MATRIX_STUB:-}; do eval "$(cli_name)_
 # (cli_headless_list) is refused on that backend (cli_backend_check): its rows are n/a, tmux-only.
 HEADLESS_ROWS="launch send busy-idle limit-parks transient-stalls loop-mode interrupt checkpoint resume supervisor-frozen-session usage-windows stats-session-end-usage stop sweep-detached-jobs"
 # hl_fixdir — the dir of the CLI's captured turns: claude's stream-json (stream-json/), opencode's
-# `run --format json` (run-json/, #482).
-hl_fixdir(){ [[ -d "$FIX/$HARNESS_CLI/run-json" ]] && echo run-json || echo stream-json; }
+# `run --format json` (run-json/, #482), openclaw's `agent exec --json` envelopes (agent-json/, #485).
+hl_fixdir(){ local d; for d in run-json agent-json; do [[ -d "$FIX/$HARNESS_CLI/$d" ]] && { echo "$d"; return; }; done; echo stream-json; }
 # hl_first_turn_ok <argv json> <uuid> — a new session's first turn: claude is handed the lane's id
 # (--session-id); opencode picks its own, so it is handed none. hl_resumes <argv json> <session> — a later
 # turn (or a relaunched lane's first) continues that session: claude --resume, opencode --session, hermes -c <title>,
-# copilot --session-id=<id> again.
+# copilot --session-id=<id> again, openclaw (no resume id) the lane's --state-dir again.
 hl_first_turn_ok(){ case $HARNESS_CLI in
   opencode) has '"run", "--format", "json"' "$1" && lacks '"--session"' "$1" ;;
   hermes) has "\"-c\", \"$2\", \"--create-if-missing\"" "$1" && has '"--format", "stream-json"' "$1" ;;
+  openclaw) has '"agent", "exec", "--json", "--message-file", "-"' "$1" && lacks '"--session-id"' "$1" ;;   # agent exec has no session id (#485)
   copilot) has "\"--session-id=$2\"" "$1" ;;   # copilot names its session on every turn: it creates it, then resumes it (#483)
   *) has "\"--session-id\", \"$2\"" "$1" ;; esac; }
 hl_resumes(){ case $HARNESS_CLI in
   opencode) has "\"--session\", \"$2\"" "$1" ;;
   hermes) has "\"-c\", \"$2\"" "$1" && lacks '"--session-id"' "$1" ;;
+  openclaw) has '"--state-dir", "' "$1" && has '/.harness-openclaw"' "$1" && lacks '"--session-id"' "$1" && lacks '"--resume"' "$1" ;;   # no resume id: a turn is the lane's state dir again (#485)
   copilot) has "\"--session-id=$2\"" "$1" ;;
   *) has "\"--resume\", \"$2\"" "$1" && lacks '"--session-id"' "$1" ;; esac; }
 hl_started(){ [[ "$(hl_field "$1" session_started)" == true ]]; }
@@ -694,6 +696,8 @@ hl_env(){ HL="$RUN_DIR/hl-$HARNESS_CLI-$BASHPID"; mkdir -p "$HL/lanes" "$HL/fake
   cp -r "$FIX/$HARNESS_CLI/$(hl_fixdir)/"* "$HL/fake/" || return 1
   [[ -f "$FIX/$HARNESS_CLI/transcript.db" ]] && cp "$FIX/$HARNESS_CLI/transcript.db" "$HL/fake/"
   [[ $HARNESS_CLI == hermes ]] && cp "$FIX/hermes/usage-windows.json" "$HL/fake/"   # what the fake's `usage --json` prints
+  export HARNESS_OPENCLAW_CONFIG="$HL/openclaw-op/openclaw.json"   # the operator config an openclaw lane's own includes (#485)
+  [[ $HARNESS_CLI == openclaw ]] && cp "$FIX/openclaw/usage-windows.json" "$HL/fake/"   # what the fake's `status --usage --json` prints
   python3 - "$HL/fake" <<'PY' || return 1
 import glob, json, sys, time
 for f in glob.glob(sys.argv[1] + "/*.jsonl"):
@@ -844,13 +848,15 @@ headless_usage_windows_ok(){ ( hl_env; local s=hz-main-i30; hl_lane usage tool-u
   same "$(cli_limit_usage | cut -f1-3 | sort)" "$(sort "$(hl_usage_expected)")" ); }
 # hl_usage_expected — the usage windows the CLI's adapter reports for the lane: claude's own, folded from the
 # stream's rate_limit_event (stream-json/); hermes's, the provider's `hermes usage --json` (the tmux row's).
-hl_usage_expected(){ [[ $HARNESS_CLI == hermes ]] && echo "$FIX/hermes/usage-windows.expected" || echo "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected"; }
+hl_usage_expected(){ [[ $HARNESS_CLI == hermes || $HARNESS_CLI == openclaw ]] && echo "$FIX/$HARNESS_CLI/usage-windows.expected" || echo "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected"; }
 # hl_stats_want — the files the stats row's expected usage is folded from: claude's two turns' own stream-json
 # `result` usage; opencode's session lives in its database (the fake wrote transcript.db there), which
 # its adapter folds (usage.expected); copilot's turns leave their usage_records in its session-state file, which
-# its adapter folds the same way (stream-json/usage.expected: the two turns' disk/ records).
+# its adapter folds the same way (stream-json/usage.expected: the two turns' disk/ records); openclaw's turns' envelopes
+# are recorded in the lane's runs/<id>.jsonl (agent-json/usage.expected: the two captured turns' usage, #485).
 hl_stats_want(){ case $HARNESS_CLI in
   opencode|hermes) echo "$FIX/$HARNESS_CLI/usage.expected" ;;
+  openclaw) echo "$FIX/openclaw/agent-json/usage.expected" ;;
   copilot) echo "$FIX/copilot/stream-json/usage.expected" ;;   # the usage_records the fake leaves in session-state (#483)
   *) echo "$HL/fake/tool-use.jsonl $HL/fake/normal.jsonl" ;; esac; }
 # headless_stats_ok — #352: once the lane's runner has exited, the stats sweep emits its session_end
@@ -867,7 +873,7 @@ headless_stats_ok(){ ( hl_env; local s=hz-main-i31 uuid; hl_lane stats tool-use 
 import json, sys
 want = {}
 for f in sys.argv[3:]:
-    if f.endswith(".expected"):   # opencode (#482), hermes (#484): the fold of its database, the model's usage.expected line
+    if f.endswith(".expected"):   # opencode (#482), hermes (#484), openclaw (#485): the fold of the CLI's own record, the model's usage.expected line
         for line in open(f):
             m, i, o, cr, cw = line.rstrip("\n").split("\t")
             want[m] = {"input": int(i), "output": int(o), "cache_read": int(cr), "cache_create": int(cw)}

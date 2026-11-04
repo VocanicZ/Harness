@@ -232,7 +232,7 @@ as the owner; pid defaults to the caller's parent).
 | `$'\r': command not found` | a CRLF engine: re-clone (the `.gitattributes` keeps it LF), or `git config --global core.autocrlf false` and re-clone |
 | `ln -s` made a copy, or doctor says `symlinks: cannot create one` | turn on Developer Mode, or run as an administrator |
 | `fleet_smoke: native Windows has no tmux` | unset `SMOKE_BACKEND`, or set it to `headless` |
-| `fleet_smoke: '<cli>' is tmux-only` | only a CLI with a headless lane runner (`claude`, `hermes`, `opencode`) runs on Windows: run `fleet_smoke.sh claude` |
+| `fleet_smoke: '<cli>' is tmux-only` | only a CLI with a headless lane runner (`claude`, `hermes`, `openclaw`, `opencode`) runs on Windows: run `fleet_smoke.sh claude` |
 | `fleet_smoke.cmd: no Git bash.exe at …` | Git for Windows is elsewhere: set `HARNESS_BASH_EXE` to its `bin\bash.exe` |
 | the issue never gets claimed | read `harness doctor`'s `windows:` lines in the log, then `harness --state-dir <clone>/.harness status` while it runs |
 | `install.sh`: `could not resolve the latest release … the response is not JSON` | an `install.sh` from before #403's fix ran the releases lookup with the Store-stub `python3` before the shim existed; a current one resolves it through the Python that runs and writes the shim first. On an older one: `HARNESS_REF=<tag> bash install.sh` (e.g. the latest from `gh release list -R VocanicZ/Harness`) |

@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "status": "ok",
+  "final": "DONE",
+  "payloads": [
+    {
+      "text": "DONE",
+      "mediaUrl": null
+    }
+  ],
+  "usage": {
+    "input": 2,
+    "output": 5,
+    "cacheRead": 41826,
+    "cacheWrite": 128
+  },
+  "toolSummary": {
+    "calls": 1,
+    "tools": [
+      "mcp__openclaw__exec"
+    ],
+    "failures": 0
+  },
+  "model": "claude-haiku-5-5",
+  "provider": "claude-cli",
+  "sessionId": "8192293f-a17e-4b34-9159-6f7506559029"
+}

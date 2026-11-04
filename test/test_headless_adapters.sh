@@ -13,23 +13,23 @@ list(){ ( source "$CLID/dispatch.sh"; cli_headless_list | xargs ); }
 check(){ ( export HARNESS_SESSION_BACKEND=headless HARNESS_CLI="$1"; source "$CLID/dispatch.sh"; cli_backend_check 2>&1 ); }
 
 echo "== the adapters present are the headless CLIs =="
-assert_eq "$(list)" "claude copilot hermes opencode" "claude, copilot (#483), hermes and opencode are the CLIs with an adapter"
-assert_eq "$(ls "$CLID"/*_headless.py | xargs -n1 basename | xargs)" "claude_headless.py copilot_headless.py hermes_headless.py opencode_headless.py" "…and <cli>_headless.py is each one's adapter"
+assert_eq "$(list)" "claude copilot hermes openclaw opencode" "claude, copilot (#483), hermes, openclaw and opencode are the CLIs with an adapter"
+assert_eq "$(ls "$CLID"/*_headless.py | xargs -n1 basename | xargs)" "claude_headless.py copilot_headless.py hermes_headless.py openclaw_headless.py opencode_headless.py" "…and <cli>_headless.py is each one's adapter"
 assert_ok "headless_core.py is no CLI's adapter" test -f "$CLID/headless_core.py"
 assert_no "…and not listed as a CLI" bash -c "source '$CLID/dispatch.sh'; cli_list | grep -q headless"
 
 echo "== a new adapter enables its CLI, with no edit to dispatch.sh =="
 printf '# fakecli — a made-up CLI for this test\nfakecli_bin(){ echo fakecli; }\n' > "$CLID/fakecli.sh"
-assert_eq "$(list)" "claude copilot hermes opencode" "a CLI with no adapter is still tmux-only"
+assert_eq "$(list)" "claude copilot hermes openclaw opencode" "a CLI with no adapter is still tmux-only"
 msg="$(check fakecli)"; rc=$?
 assert_ok "…refused on headless, naming it" grep -qF "agent CLI 'fakecli' is tmux-only" <<<"$msg"
-assert_ok "…and pointing at the headless CLIs" grep -qF "runs claude, copilot, hermes, opencode lanes only" <<<"$msg"
+assert_ok "…and pointing at the headless CLIs" grep -qF "runs claude, copilot, hermes, openclaw, opencode lanes only" <<<"$msg"
 : > "$CLID/fakecli_headless.py"
-assert_eq "$(list)" "claude copilot fakecli hermes opencode" "drop in fakecli_headless.py and it is listed"
+assert_eq "$(list)" "claude copilot fakecli hermes openclaw opencode" "drop in fakecli_headless.py and it is listed"
 out="$(check fakecli)"; rc=$?
 assert_eq "$rc" 0 "…and cli_backend_check accepts it on headless"
 assert_eq "$out" "" "…silently"
-assert_ok "…and the refusal for another CLI names both headless CLIs" grep -qF "runs claude, copilot, fakecli, hermes, opencode lanes only" <<<"$(check codex)"
+assert_ok "…and the refusal for another CLI names both headless CLIs" grep -qF "runs claude, copilot, fakecli, hermes, openclaw, opencode lanes only" <<<"$(check codex)"
 
 echo "== copilot's runner: its own command, the adapter's bin and the session as --session-id (#483) =="
 argv="$( export HARNESS_CLI=copilot HARNESS_BOOTSTRAP_PROMPT=go HARNESS_COPILOT_BIN=cop HARNESS_COPILOT_FLAGS="--yolo --no-ask-user --no-auto-update"; source "$CLID/dispatch.sh"; cli_headless /wd uuid-1 gpt-6-luna high resume | xargs -d '\n' printf '%s|' )"
