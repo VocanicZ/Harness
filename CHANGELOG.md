@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Windows parity matrix in `docs/reference.md`, with per-CLI non-interactive mode research (#478)
+
+- `docs/reference.md` gains a "Windows parity matrix": one row for every `harness` subcommand, every
+  `/harness*` skill, every agent CLI (claude, agy, codex, copilot, opencode, hermes, openclaw) and the
+  lifecycle features (rtdd, supervise, web, inject, pause/resume, install, update, rollback, uninstall,
+  swarm). Each row has a Linux and a Windows value: `✓`, `✓ target (#475 task N)` for a feature planned but
+  not yet shown working on Windows, or `n/a` with a source link. The only `n/a` today is swarm submission,
+  a Linux-only HTCondor service.
+- A second table records, for each agent CLI, the exact non-interactive command, its output format, how it
+  resumes a session, how it reports usage and rate limits, and the vendor's Windows install page. Every
+  supported CLI ships a Windows build and a non-interactive mode, so none is `n/a` on Windows. The per-CLI
+  headless runners of PRD #475 build on it.
+- `test/test_windows_parity_doc.sh` fails when a row has no Linux or Windows value, an `n/a` has no source,
+  a Windows `n/a` sits on a feature Windows can do, a subcommand, skill or CLI has no row, or a CLI has no
+  sourced research row. Fixture cases (the real doc with one defect each) prove each failure.
+
 ### `init`, `/harness-plan`, skills and docs describe a one-repo fleet with one issue per worker (#474)
 
 - `harness init` writes `HARNESS_REPO`, `HARNESS_UNIT` (the lowercased repo short name, so `Acme/Widget`

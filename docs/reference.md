@@ -442,6 +442,103 @@ Knobs (the suite fakes each Windows tool with them): `HARNESS_PYTHON`, `HARNESS_
 waits for the pid, 30). `test/test_windows_lifecycle.sh` covers the lifecycle with
 `HARNESS_PLATFORM=windows` on Linux.
 
+### Windows parity matrix
+
+What works on native Windows (Git Bash, headless session backend) next to Linux, one row per `harness`
+subcommand, `/harness*` skill, agent CLI and lifecycle feature (PRD #475). It is the contract the Windows
+work is built and tested against; `test/test_windows_parity_doc.sh` keeps it complete and honest.
+
+How to read a cell:
+
+- `✓` — works there today. On Windows that means it has run on a real host (the winsma smoke, #358) or is part of a path that did.
+- `✓ target (#475 task N)` — not yet shown working on Windows, and **still a target**, not a gap we accept. Task `N` of PRD #475 flips it to `✓`.
+  "Not verified on winsma" is never a reason to write `n/a`.
+- `n/a: <reason> ([source](https://…))` — Windows physically cannot do it. Allowed only for an external Linux-only service (HTCondor swarm submission)
+  or an agent CLI whose vendor ships no Windows build or no non-interactive mode, and always with a link to the vendor or project page.
+  No row is `n/a` on Windows today: every supported CLI ships a Windows build and a non-interactive mode (see the research below).
+
+The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn code · 3 `attach` send and detach · 4 Windows installer ·
+5 lifecycle (install, update, rollback, uninstall) · 6 test suite on Windows · 7 lane tooling and skills · 8 end-to-end verification on winsma.
+
+| feature | Linux | Windows |
+|---|---|---|
+| `harness install` | ✓ | ✓ |
+| `harness version` | ✓ | ✓ |
+| `harness update` | ✓ | ✓ target (#475 task 5) |
+| `harness release` | ✓ | ✓ target (#475 task 8) |
+| `harness poll` | ✓ | ✓ target (#475 task 8) |
+| `harness stats` | ✓ | ✓ target (#475 task 8) |
+| `harness forecast` | ✓ | ✓ target (#475 task 8) |
+| `harness supervise` | ✓ | ✓ target (#475 task 8) |
+| `harness web` | ✓ | ✓ target (#475 task 8) |
+| `harness init` | ✓ | ✓ |
+| `harness start` | ✓ | ✓ |
+| `harness stop` | ✓ | ✓ |
+| `harness status` | ✓ | ✓ target (#475 task 8) |
+| `harness one` | ✓ | ✓ target (#475 task 8) |
+| `harness doctor` | ✓ | ✓ |
+| `harness attach` | ✓ | ✓ (read-only watch of a headless lane) |
+| `harness pause` | ✓ | ✓ |
+| `harness setup` | ✓ | ✓ target (#475 task 8) |
+| `harness migrate` | ✓ | ✓ target (#475 task 8) |
+| `harness uninstall` | ✓ | ✓ target (#475 task 5) |
+| `harness plan` | ✓ | ✓ target (#475 task 8) |
+| `harness prd` | ✓ | ✓ target (#475 task 8) |
+| `harness issue` | ✓ | ✓ target (#475 task 8) |
+| `harness resume` | ✓ | ✓ |
+| `/harness` | ✓ | ✓ target (#475 task 7) |
+| `/harness-arc` | ✓ | ✓ target (#475 task 8) |
+| `/harness-init` | ✓ | ✓ target (#475 task 7) |
+| `/harness-issue` | ✓ | ✓ target (#475 task 8) |
+| `/harness-one` | ✓ | ✓ target (#475 task 8) |
+| `/harness-pause` | ✓ | ✓ target (#475 task 7) |
+| `/harness-plan` | ✓ | ✓ target (#475 task 8) |
+| `/harness-prd` | ✓ | ✓ target (#475 task 8) |
+| `/harness-resume` | ✓ | ✓ target (#475 task 7) |
+| `/harness-start` | ✓ | ✓ target (#475 task 7) |
+| `/harness-status` | ✓ | ✓ target (#475 task 8) |
+| `/harness-stop` | ✓ | ✓ target (#475 task 7) |
+| `/harness-uninstall` | ✓ | ✓ target (#475 task 5) |
+| `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`) |
+| `cli agy` | ✓ | ✓ target (#475 task 2) |
+| `cli codex` | ✓ | ✓ target (#475 task 2) |
+| `cli copilot` | ✓ | ✓ target (#475 task 2) |
+| `cli opencode` | ✓ | ✓ target (#475 task 2) |
+| `cli hermes` | ✓ | ✓ target (#475 task 2) |
+| `cli openclaw` | ✓ | ✓ target (#475 task 2) |
+| `rtdd` | ✓ | ✓ target (#475 task 7) |
+| `supervise --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
+| `web --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
+| `harness-one` | ✓ | ✓ target (#475 task 8) |
+| `inject` | ✓ | ✓ target (#475 task 8) |
+| `pause --force and resume` | ✓ | ✓ |
+| `headless attach: typed lines and Ctrl-C detach` | ✓ target (#475 task 3) | ✓ target (#475 task 3) |
+| `install via npx` | ✓ | ✓ target (#475 task 5) |
+| `install via curl` | ✓ | ✓ target (#475 task 5) |
+| `update --rollback` | ✓ | ✓ target (#475 task 5) |
+| `swarm submission` | ✓ | n/a: swarm is a Linux-only HTCondor service ("Linux with systemd + cgroup v2", [VocanicZ/swarm README](https://github.com/VocanicZ/swarm#readme)); a Windows lane runs rtdd locally |
+
+#### Non-interactive mode per agent CLI
+
+What the per-CLI turn code of PRD #475 task 2 builds on. Each row is the exact command a headless turn runs, what it prints,
+how the next turn resumes the session, how usage and rate limits come back, and the vendor's own Windows page.
+Facts marked *(fixture)* were captured from the real CLI on the fleet host and are in
+[cli-capabilities.md](cli-capabilities.md); the rest is cited. Researched 2026-11-04.
+
+| cli | non-interactive command | output | resume | usage and limits | Windows build | sources |
+|---|---|---|---|---|---|---|
+| `claude` | `claude -p "<prompt>" --output-format stream-json --verbose`, prompt on stdin | NDJSON events; the last line is a `result` message | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; `--continue` for the latest | the `result` carries `total_cost_usd` and `modelUsage.<model>` token counts; windows in `rate_limit_event`; a limit ends in an error `result` *(fixture)*; exit 0 on success | native: `irm https://claude.ai/install.ps1 \| iex` or `winget install Anthropic.ClaudeCode`; Git for Windows optional | [headless](https://code.claude.com/docs/en/headless), [setup](https://code.claude.com/docs/en/setup) |
+| `codex` | `codex exec --json "<task>"` (stdin when the prompt is omitted or `-`) | JSONL: `thread.started`, `turn.started`, `item.*`, `turn.completed`, `turn.failed`, `error` | `codex exec resume <SESSION_ID>` or `codex exec resume --last "<prompt>"` | `turn.completed.usage` has `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`; the docs do not say how a rate limit surfaces; the rollout's `token_count.rate_limits` carries windows *(fixture)* | native on Windows (PowerShell sandbox, no WSL needed); Windows 11 recommended, Windows 10 1809+ best effort | [exec](https://learn.chatgpt.com/docs/non-interactive-mode), [Windows](https://learn.chatgpt.com/docs/windows/windows-sandbox) |
+| `copilot` | `copilot -p "<prompt>" --allow-all-tools --output-format json` | JSONL, one record per line (`text` is the default) | `--session-id=<uuid>` creates, `--resume=<id>` continues *(fixture)* | `session.usage_record` events and `quotaSnapshots` on `model.model_call_success` *(fixture)*; limit strings start `You've hit your rate limit` *(fixture)* | `winget install GitHub.Copilot` (npm needs Node.js 22+) | [programmatic reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-programmatic-reference), [getting started](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started) |
+| `opencode` | `opencode run --format json "<message>"` | `--format json` prints raw JSON events (default: formatted text) | `--session <id>` continues one, `--continue` the last; ids are generated, found in the database *(fixture)* | tokens per message in its SQLite database; `opencode stats` summarises; no quota meter, limits are error text *(fixture)* | runs directly on Windows (`OPENCODE_GIT_BASH_PATH` names Git Bash); the vendor recommends WSL | [CLI](https://opencode.ai/docs/cli/), [Windows](https://opencode.ai/docs/windows-wsl/) |
+| `hermes` | `hermes chat -q "<prompt>"` or `hermes chat --query-file -` | plain text; runs quiet by default | `-c "<title>" --create-if-missing` (deterministic thread), `--resume <session_id>` | `hermes usage --json` gives account windows; a 429 prints `Rate limited after 3 retries` and `Limit resets at …` *(fixture)* | native: `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`; "CLI, gateway, TUI, and tools all work natively" | [README](https://github.com/NousResearch/hermes-agent), [CLI guide](https://hermes-agent.nousresearch.com/docs/user-guide/cli) |
+| `openclaw` | `openclaw agent exec --json --cwd <dir> --message-file -` | one JSON envelope on stdout: `ok`, `status`, `final`, `usage`, `costUsd`, `sessionId` | no caller-set id; `--state-dir <dir>` keeps sessions and each run's `sessionId` is in its envelope | `usage` and `costUsd` in the envelope; `openclaw status --usage --json` for windows; exit 0 ok, 1 error, 2 timeout, 130 SIGINT, 143 SIGTERM | PowerShell installer `iwr -useb https://openclaw.ai/install.ps1 \| iex`; native Windows CLI and Gateway supported, WSL2 "most Linux-compatible" | [agent exec](https://docs.openclaw.ai/cli/agent), [Windows](https://docs.openclaw.ai/platforms/windows) |
+| `agy` | `agy -p "<prompt>" --output-format json` (or `stream-json`) | `text`, `json` or `stream-json` *(fixture)* | `--conversation <id>`; the id is found after the first turn *(fixture)* | `agy -p "/usage" --output-format json` returns 5-hour and weekly buckets *(fixture)*; `/usage` shows credits and quota | PowerShell: `irm https://antigravity.google/cli/install.ps1 \| iex` (CMD script also); binary in `%LOCALAPPDATA%\agy\bin` | [getting started](https://antigravity.google/docs/getting-started?tab=cli), [cli-capabilities.md](cli-capabilities.md) |
+
+Every supported CLI has a Windows build and a non-interactive mode, so none of them is `n/a` on Windows and no ConPTY pane backend
+follow-up is needed (PRD #475, Solution 2). A per-CLI turn may encode only what a row here, or the matching
+[cli-capabilities.md](cli-capabilities.md) row, cites.
+
 ### Autonomy
 
 | Setting | Behaviour |
