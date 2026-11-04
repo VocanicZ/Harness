@@ -44,12 +44,12 @@ for cli in codex agy; do
   assert_eq "$got" "n/a:tmux-only" "$cli, which has no headless runner, is n/a on every headless-* row"
 done
 
-# #353: claude's headless rows, with the adapter functions they lean on stubbed to `:`. With its
+# #353 (and #483 for copilot): claude's headless rows, with the adapter functions they lean on stubbed to `:`. With its
 # headless lane runner's command gone (claude_headless) no lane starts, and every headless-* row FAILs;
 # with the lane's last reply gone (claude_last_reply) the driven goal loop never ends; with its
 # usage-window reader gone (claude_limit_usage) no window is read. The pane rows the stubs leave alone
 # stay ok.
-headless_rows(){ awk -F'\t' '$1 == "claude" && $2 ~ /^headless-/ { print $2 "\t" $3 }' <<<"$1"; }
+headless_rows(){ awk -F'\t' -v c="${2:-claude}" '$1 == c && $2 ~ /^headless-/ { print $2 "\t" $3 }' <<<"$1"; }
 cells="$(HARNESS_MATRIX_STUB=headless HARNESS_MATRIX_CLIS=claude bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
 assert_ok "stubbed runner: claude has headless-* rows" test -n "$(headless_rows "$cells")"
 assert_eq "$(headless_rows "$cells" | cut -f2 | sort -u)" FAIL "stubbed runner: every claude headless-* row FAILs"
@@ -58,4 +58,12 @@ cells="$(HARNESS_MATRIX_STUB="last_reply limit_usage" HARNESS_MATRIX_CLIS=claude
 assert_eq "$(res "$cells" claude headless-loop-mode)" FAIL "stubbed last reply: claude headless-loop-mode FAILs"
 assert_eq "$(res "$cells" claude headless-usage-windows)" FAIL "stubbed usage windows: claude headless-usage-windows FAILs"
 assert_eq "$(res "$cells" claude headless-launch)" ok "…while headless-launch, which reads neither, still passes"
+# copilot's: its runner command (copilot_headless), the lane's last reply and its window reader are what its rows lean on.
+cells="$(HARNESS_MATRIX_STUB=headless HARNESS_MATRIX_CLIS=copilot HARNESS_MATRIX_ROWS='^(headless-|launch-bootstrap)' bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
+assert_ok "stubbed runner: copilot has headless-* rows" test -n "$(headless_rows "$cells" copilot)"
+assert_eq "$(headless_rows "$cells" copilot | cut -f2 | sort -u)" FAIL "stubbed runner: every copilot headless-* row FAILs"
+cells="$(HARNESS_MATRIX_STUB="last_reply limit_usage" HARNESS_MATRIX_CLIS=copilot HARNESS_MATRIX_ROWS='^headless-(launch|loop-mode|usage-windows)$' bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
+assert_eq "$(res "$cells" copilot headless-loop-mode)" FAIL "stubbed last reply: copilot headless-loop-mode FAILs"
+assert_eq "$(res "$cells" copilot headless-usage-windows)" FAIL "stubbed usage windows: copilot headless-usage-windows FAILs"
+assert_eq "$(res "$cells" copilot headless-launch)" ok "…while headless-launch, which reads neither, still passes"
 finish

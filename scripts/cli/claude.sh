@@ -87,12 +87,7 @@ claude_bg_re(){ echo "$(_cli_default_bg_re)|↓ [0-9.]+k tokens"; }
 # --- the running turn (#207, turn.sh) ---------------------------------------------------------
 # The spinner's timer above the input box: "✻ Running… (21h 3m 12s · ↓ 4.2k tokens · esc to
 # interrupt)". The " ·" after the timer is what separates the spinner from a tool line's own "(32s)".
-claude_turn_secs(){ local n
-  n=$(cli_pane_prompt_line "$1")
-  printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
-    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
-           s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
-         END { print s + 0 }'; }
+claude_turn_secs(){ _cli_headless_turn_secs "$@"; }
 # Escape ends the turn with "⎿  Interrupted · What should Claude do instead?".
 claude_interrupted_re(){ echo 'Interrupted'; }
 

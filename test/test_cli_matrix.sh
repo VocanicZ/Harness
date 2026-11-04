@@ -19,12 +19,17 @@ FIX="${HARNESS_MATRIX_FIX:-$HERE/fixtures/cli}"
 # Every pane below runs the CLI's fake (fixtures/cli/<cli>/fake-cli) from PATH, under its plain name.
 unset CLAUDE_BIN AGY_BIN; export HARNESS_CLAUDE_BIN=claude HARNESS_AGY_BIN=agy HARNESS_CODEX_BIN=codex HARNESS_COPILOT_BIN=copilot HARNESS_OPENCODE_BIN=opencode HARNESS_HERMES_BIN=hermes HARNESS_OPENCLAW_BIN=openclaw FIX
 TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
+# HARNESS_MATRIX_ROWS=<ERE> runs only the rows it matches (a headless-only run: '^headless-'), for a slow or
+# platform-specific run; the headless-* rows alone take HARNESS_MATRIX_HEADLESS_PLATFORM=windows to run on
+# the Windows code paths (hl_env), on Linux or on a Windows host.
 cell(){ local cli="$1" row="$2"; shift 2
+  [[ -z "${HARNESS_MATRIX_ROWS:-}" || $row =~ $HARNESS_MATRIX_ROWS ]] || return 0
   if (( TSV )); then
     if "$@" >/dev/null 2>&1; then printf '%s\t%s\tok\n' "$cli" "$row"; else printf '%s\t%s\tFAIL\n' "$cli" "$row"; fi
   else assert_ok "$cli: $row" "$@"; fi; }
 # na <cli> <row> <reason> — a row that cannot exist for this CLI; the README cell shows the reason.
-na(){ if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi; }
+na(){ [[ -z "${HARNESS_MATRIX_ROWS:-}" || $2 =~ $HARNESS_MATRIX_ROWS ]] || return 0
+  if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi; }
 pane(){ cat "$FIX/$1/$2.txt"; }
 has(){ grep -qF -- "$1" <<<"$2"; }
 lacks(){ ! grep -qF -- "$1" <<<"$2"; }
@@ -655,13 +660,18 @@ HEADLESS_ROWS="launch send busy-idle limit-parks transient-stalls loop-mode inte
 hl_fixdir(){ [[ -d "$FIX/$HARNESS_CLI/run-json" ]] && echo run-json || echo stream-json; }
 # hl_first_turn_ok <argv json> <uuid> — a new session's first turn: claude is handed the lane's id
 # (--session-id); opencode picks its own, so it is handed none. hl_resumes <argv json> <session> — a later
-# turn (or a relaunched lane's first) continues that session: claude --resume, opencode --session.
-hl_first_turn_ok(){ if [[ $HARNESS_CLI == opencode ]]; then has '"run", "--format", "json"' "$1" && lacks '"--session"' "$1"
-  elif [[ $HARNESS_CLI == hermes ]]; then has "\"-c\", \"$2\", \"--create-if-missing\"" "$1" && has '"--format", "stream-json"' "$1"
-  else has "\"--session-id\", \"$2\"" "$1"; fi; }
-hl_resumes(){ if [[ $HARNESS_CLI == opencode ]]; then has "\"--session\", \"$2\"" "$1"
-  elif [[ $HARNESS_CLI == hermes ]]; then has "\"-c\", \"$2\"" "$1" && lacks '"--session-id"' "$1"
-  else has "\"--resume\", \"$2\"" "$1" && lacks '"--session-id"' "$1"; fi; }
+# turn (or a relaunched lane's first) continues that session: claude --resume, opencode --session, hermes -c <title>,
+# copilot --session-id=<id> again.
+hl_first_turn_ok(){ case $HARNESS_CLI in
+  opencode) has '"run", "--format", "json"' "$1" && lacks '"--session"' "$1" ;;
+  hermes) has "\"-c\", \"$2\", \"--create-if-missing\"" "$1" && has '"--format", "stream-json"' "$1" ;;
+  copilot) has "\"--session-id=$2\"" "$1" ;;   # copilot names its session on every turn: it creates it, then resumes it (#483)
+  *) has "\"--session-id\", \"$2\"" "$1" ;; esac; }
+hl_resumes(){ case $HARNESS_CLI in
+  opencode) has "\"--session\", \"$2\"" "$1" ;;
+  hermes) has "\"-c\", \"$2\"" "$1" && lacks '"--session-id"' "$1" ;;
+  copilot) has "\"--session-id=$2\"" "$1" ;;
+  *) has "\"--resume\", \"$2\"" "$1" && lacks '"--session-id"' "$1" ;; esac; }
 hl_started(){ [[ "$(hl_field "$1" session_started)" == true ]]; }
 # hl_env — this (sub)shell on the headless backend: lanes in a dir of its own, the CLI the fake (a copy
 # of the stream-json dir whose rate-limit windows reset an hour from now: a passed reset is skipped),
@@ -673,9 +683,15 @@ hl_env(){ HL="$RUN_DIR/hl-$HARNESS_CLI-$BASHPID"; mkdir -p "$HL/lanes" "$HL/fake
   export HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR="$HL/lanes" HARNESS_SESS_PREFIX=hz HARNESS_INTERRUPT_WAIT=10
   export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_EVENTS_FILE="$HL/events.jsonl" HARNESS_CLAUDE_CONFIG_DIRS="$HL/no-config"
   unset HARNESS_USAGE_CMD CLAUDE_CONFIG_DIR
+  if [[ -n "${HARNESS_MATRIX_HEADLESS_PLATFORM:-}" ]]; then export HARNESS_PLATFORM="$HARNESS_MATRIX_HEADLESS_PLATFORM"
+    # forced onto the Windows paths on a host that is not Windows, portable.py wants an msvcrt: a flock-backed one
+    [[ $HARNESS_PLATFORM == windows && "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]] &&
+      export PYTHONPATH="$HERE/fixtures/windows-on-linux${PYTHONPATH:+:$PYTHONPATH}"
+  fi
   export XDG_DATA_HOME="$HL/xdg-data"   # where an opencode lane's sessions and usage are read from (#482)
   export HARNESS_HERMES_HOME="$HL/hermes-op"   # the operator home a hermes lane's profile is made from and read in (#484)
-  cp "$FIX/$HARNESS_CLI/$(hl_fixdir)/"* "$HL/fake/" || return 1
+  export COPILOT_HOME="$HL/copilot-home"   # what a copilot lane's turns leave (session-state/<id>/events.jsonl, #483)
+  cp -r "$FIX/$HARNESS_CLI/$(hl_fixdir)/"* "$HL/fake/" || return 1
   [[ -f "$FIX/$HARNESS_CLI/transcript.db" ]] && cp "$FIX/$HARNESS_CLI/transcript.db" "$HL/fake/"
   [[ $HARNESS_CLI == hermes ]] && cp "$FIX/hermes/usage-windows.json" "$HL/fake/"   # what the fake's `usage --json` prints
   python3 - "$HL/fake" <<'PY' || return 1
@@ -708,7 +724,7 @@ hl_alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" 
 # hl_calls <field> — that field of each turn the fake ran (argv, prompt), one JSON value per line.
 hl_calls(){ python3 -c 'import json, sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
   "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }
-hl_field(){ python3 "$HERE/../scripts/cli/claude_headless.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
+hl_field(){ python3 "$HERE/../scripts/cli/headless_core.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
 hl_busy(){ cli_pane_busy "$(sess_capture "$1")"; }
 hl_idle(){ local p; p="$(sess_capture "$1")" && cli_pane_prompt "$p" && not cli_pane_busy "$p"; }
 # hl_turn <sess> <n> — the lane has ended its <n>th turn and sits at its prompt.
@@ -745,7 +761,7 @@ headless_busy_idle_ok(){ ( hl_env; local s=hz-main-i23 p; hl_lane busy normal; t
 headless_limit_ok(){ ( hl_env; local s=hz-main-i24 p; hl_lane limit limit normal
   hl_launch "$s" GOAL=ISSUE:24 && hl_wait 15 hl_turn "$s" 1 || exit 1
   p="$(sess_capture "$s")"; session_limit_idle "$p" && not session_stalled "$p" && same "$(sess_state "$s")" limit &&
-    [[ -n "$(limit_reset "$p")" ]] || exit 1
+    { [[ -s "$FIX/$HARNESS_CLI/stream-json/limit-reset.na" ]] || [[ -n "$(limit_reset "$p")" ]]; } || exit 1
   watchdog_session "$s"; grep -qF "watchdog: $s parked at its idle prompt by the usage limit" "$HL/harness.log" &&
     hl_wait 15 hl_turn "$s" 2 && has "the usage limit has reset" "$(hl_calls prompt | sed -n 2p)" ); }
 # headless_transient_ok — a turn a transient API error ends is the #115 wedge, not a limit; the
@@ -820,7 +836,9 @@ headless_supervisor_ok(){ ( hl_env; local idle=hz-main-i28 lim=hz-main-i29 iwd t
     not grep -qF "$lim" "$SUP_LOG" && same "$(hl_field "$lim" turn)" 1 ); }
 # headless_usage_windows_ok — #352: no status line runs headless; the CLI's usage windows are read off
 # the rate_limit_event its turn printed (the runner keeps it in state.json), each window's utilization
-# as a percent, under the lane's account (`default`: no CLAUDE_CONFIG_DIR).
+# as a percent, under the lane's account (`default`: no CLAUDE_CONFIG_DIR). A copilot lane's are the
+# quotaSnapshots its turn left in the session-state file (cli_limit_usage reads the newest), the same source
+# a pane's are read from (#483).
 headless_usage_windows_ok(){ ( hl_env; local s=hz-main-i30; hl_lane usage tool-use
   hl_launch "$s" GOAL=ISSUE:30 && hl_wait 15 hl_turn "$s" 1 || exit 1
   same "$(cli_limit_usage | cut -f1-3 | sort)" "$(sort "$(hl_usage_expected)")" ); }
@@ -829,13 +847,17 @@ headless_usage_windows_ok(){ ( hl_env; local s=hz-main-i30; hl_lane usage tool-u
 hl_usage_expected(){ [[ $HARNESS_CLI == hermes ]] && echo "$FIX/hermes/usage-windows.expected" || echo "$FIX/$HARNESS_CLI/stream-json/usage-windows.expected"; }
 # hl_stats_want — the files the stats row's expected usage is folded from: claude's two turns' own stream-json
 # `result` usage; opencode's session lives in its database (the fake wrote transcript.db there), which
-# its adapter folds (usage.expected).
-hl_stats_want(){ if [[ $HARNESS_CLI == opencode || $HARNESS_CLI == hermes ]]; then echo "$FIX/$HARNESS_CLI/usage.expected"
-  else echo "$HL/fake/tool-use.jsonl $HL/fake/normal.jsonl"; fi; }
+# its adapter folds (usage.expected); copilot's turns leave their usage_records in its session-state file, which
+# its adapter folds the same way (stream-json/usage.expected: the two turns' disk/ records).
+hl_stats_want(){ case $HARNESS_CLI in
+  opencode|hermes) echo "$FIX/$HARNESS_CLI/usage.expected" ;;
+  copilot) echo "$FIX/copilot/stream-json/usage.expected" ;;   # the usage_records the fake leaves in session-state (#483)
+  *) echo "$HL/fake/tool-use.jsonl $HL/fake/normal.jsonl" ;; esac; }
 # headless_stats_ok — #352: once the lane's runner has exited, the stats sweep emits its session_end
 # once, its usage the sum of its turns' own stream-json `result` usage (no transcript; #426: a `--resume`d
 # turn's modelUsage is the session's running total, its model_usage_since_last_result the turn's), its
-# session the lane's own.
+# session the lane's own. A copilot lane's usage is the sum of the usage_records its turns left in the
+# session-state file (#483), read through the adapter (cli_transcripts, cli_usage) as a pane's is.
 headless_stats_ok(){ ( hl_env; local s=hz-main-i31 uuid; hl_lane stats tool-use normal
   hl_launch "$s" GOAL=ISSUE:31 && hl_wait 15 hl_turn "$s" 1 || exit 1; uuid="$(state_uuid "$WD")"
   cli_send "$s" "$WD" "next" && hl_wait 15 hl_turn "$s" 2 || exit 1
@@ -897,7 +919,7 @@ headless_sweep_ok(){ ( hl_env; export HARNESS_SWEEP_GRACE=1; local s=hz-main-i33
   for p in $(cat "$FAKE_CLAUDE_DIR/bg.pids"); do not hl_alive "$p" || exit 1; done
   hl_lane sweep-self normal; hl_bg_hook
   hl_launch "$t" GOAL=ISSUE:34 && hl_wait 15 hl_turn "$t" 1 || exit 1; v="$(state_uuid "$WD")"
-  python3 "$HERE/../scripts/cli/claude_headless.py" stop --lane "$(headless_lane_dir "$t")" >/dev/null 2>&1
+  python3 "$HERE/../scripts/cli/headless_core.py" stop --lane "$(headless_lane_dir "$t")" >/dev/null 2>&1
   hl_wait 10 not sess_live "$t" && [[ -n "$(hl_session_left "$v")" ]] || exit 1   # ended on its own: jobs outlive it
   stats_sweep_ended
   [[ -z "$(hl_session_left "$v")" ]] && hl_alive "$decoy" ); }

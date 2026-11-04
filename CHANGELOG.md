@@ -50,6 +50,34 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A live headless smoke on the fleet host (OpenCode 1.19.5, the free `opencode/big-pickle` model, no account)
   passes, checkpoint and resume included: `test/smoke/logs/opencode-headless-20261104T051434Z.log`.
 
+### Headless lanes for `copilot` (#483)
+
+- `copilot` runs on the headless session backend: `scripts/cli/copilot_headless.py` is its adapter on the shared
+  runner core (#480). Each turn is one `copilot --output-format json --session-id=<id>` with the message on stdin;
+  copilot creates the session under that id when it is new and resumes it when it exists, so a lane is one copilot
+  session across turns and relaunches. The turn's JSONL is folded into the lane's states: exit 0 is `idle` with the last
+  `assistant.message` as the reply, a quota error (`You've hit your rate limit`, `You've reached your weekly rate
+  limit`, `You've run out of your included AI credits`, …) is `limit`, any other failure `transient`. `cli_headless_list`
+  now lists `copilot`, and the tmux-only refusal no longer names it on `HARNESS_SESSION_BACKEND=headless`.
+- Usage and limits feed the same places as for a pane: the stats sweep's `session_end` takes the lane's tokens from
+  copilot's `session-state/<id>/events.jsonl` (a headless lane whose events fold has no usage now falls back to the
+  CLI adapter's own, and a resumed run reports only what it added), `cli_limit_usage` reads the account's quota windows
+  from the same file, and the watchdog and supervisor read the lane's drawn screen with the shared headless pane
+  patterns on that backend. The lane's last reply for the driven goal loop is its own `state.json`, as claude's.
+  A headless copilot lane's drawn screen carries a turn timer (a pane's copilot draws none), so the stuck-turn interrupt
+  can free a checkpoint queued behind a long turn — the live smoke's first run showed a 7-minute turn holding it.
+- Fixtures captured on Linux from copilot 1.0.105 in `test/fixtures/cli/copilot/stream-json/` (a normal turn, a tool-use
+  turn resumed by id; the limit and transient turns are built from
+  the runtime's own strings, as the pane captures are) and a `fake-copilot` that replays them. All 14 `headless-*`
+  rows pass for `copilot` in `test/test_cli_matrix.sh` from fixture replay, with no network and no `copilot` binary;
+  `HARNESS_MATRIX_ROWS` / `HARNESS_MATRIX_HEADLESS_PLATFORM=windows` run the headless rows alone on the Windows code paths
+  (a flock-backed msvcrt stands in for the real one), where 12 of the 14 pass for `copilot` and `claude` alike — checkpoint and
+  resume wait for the winsma run; `test/test_copilot_headless.py` runs the adapter through the runner.
+  `docs/reference.md` (parity matrices, adapter and headless sections) and `docs/cli-capabilities.md` are updated.
+- Live: `SMOKE_BACKEND=headless bash test/smoke/fleet_smoke.sh copilot` on the fleet host (Copilot CLI 1.0.105, Free plan,
+  Auto) closed a sandbox issue through a merged PR, with the lane checkpointed mid-task and resumed on its session:
+  `test/smoke/logs/copilot-headless-20261104T054622Z.log`. The run on native Windows (winsma) is still #475 task 8.
+
 ### `harness attach` drives headless lanes (#487)
 
 - `harness attach <lane>` on a headless lane keeps the live watch and adds input: each line you type goes to the

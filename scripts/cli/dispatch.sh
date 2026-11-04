@@ -172,6 +172,25 @@ _cli_usage_cached(){ local c out now tmp; c="$(_usage_dir)/$1.tsv"; now="$(date 
   printf '%s' "${out:+$out$'\n'}" > "$tmp" && mv -f "$tmp" "$c" || rm -f "$tmp"
   [[ -n "$out" ]] && echo "$out"; }
 
+# _cli_headless_turn_secs <pane> — how long the turn a headless lane's drawn screen shows has run (headless_core.py
+# pane: `(<h m s> · esc to interrupt)`), in seconds; 0 with no turn. claude's own timer is drawn the same way.
+_cli_headless_turn_secs(){ local n
+  n=$(cli_pane_prompt_line "$1")
+  printf '%s\n' "$1" | awk -v n="$n" 'n == 0 || NR < n' | grep -oE '\(([0-9]+[dhms] ?)+ ·' | tail -1 |
+    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\(?[0-9]+[dhms]$/) { v = $i; gsub(/[^0-9]/, "", v); u = substr($i, length($i))
+           s += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1) } }
+         END { print s + 0 }'; }
+# _cli_headless_pane_re <idle|busy|limit|transient|interrupted> — the ERE for the screen a headless lane is
+# drawn as (headless_core.py pane): the shapes claude's TUI prints, whatever CLI the lane runs, so every
+# adapter on the headless backend reads its lane with these and not with its TUI's own strings.
+_cli_headless_pane_re(){ case "$1" in
+  idle) echo '^❯' ;;
+  busy) echo 'esc to interrupt' ;;
+  limit) echo "You've hit your usage limit" ;;
+  transient) echo 'API Error' ;;
+  interrupted) echo 'Interrupted' ;;
+esac; }
+
 # cli_headless_list — every CLI with a headless lane runner (#349), one per line: the CLIs whose adapter
 # scripts/cli/<cli>_headless.py is present (#480), so adding one enables that CLI on the headless backend
 # with no edit to the tmux-only refusal below.
