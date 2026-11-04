@@ -13,7 +13,8 @@ make_env
 export RUN_DIR HARNESS_SESS_PREFIX=hat HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
 # The runner starts the fake with CreateProcess on Windows, which cannot run python3 there (an sh shim): `python`.
-PYBIN=python3; is_windows && PYBIN=python
+# …and from a path it understands (C:/…), not Git Bash's /c/….
+PYBIN=python3; is_windows && { PYBIN=python; FAKE="$(cygpath -m "$FAKE")"; }
 export HARNESS_CLAUDE_BIN="$PYBIN $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_INTERRUPT_WAIT=10
 HL="$ROOT/scripts/cli/claude_headless.py"
@@ -54,10 +55,10 @@ BEFORE_INBOX="$(wc -l < "$INBOX")"
 echo "== attach: typed lines reach the inbox, queued behind the running turn =="
 OUT="$RUN_DIR/attach.out"; : > "$OUT"
 mkfifo "$RUN_DIR/attach.in"; exec 7<>"$RUN_DIR/attach.in"
-# A SIGINT left ignored by an async parent would make the Ctrl-C test meaningless: start the attach with
-# the default disposition, as a terminal's job gets it. exec keeps the pid.
-python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp("bash", ["bash"] + sys.argv[1:])' \
-  "$ROOT/scripts/attach.sh" "$S" <&7 >"$OUT" 2>&1 &
+# Job control (set -m) gives the background attach its own process group and the default SIGINT, as a
+# terminal's job has it: a SIGINT left ignored by an async parent would make the Ctrl-C test meaningless.
+set -m
+bash "$ROOT/scripts/attach.sh" "$S" <&7 >"$OUT" 2>&1 &
 APID=$!
 assert_ok "attach is watching the lane" wait_until 10 out_has "watching headless lane $S"
 assert_ok "…and shows the running turn" wait_until 10 out_has "── turn 1 (bootstrap)"
