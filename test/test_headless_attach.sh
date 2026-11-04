@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# test_headless_attach.sh — #487 / PRD #475 task 3: `harness attach <lane>` drives a headless lane. A line
+# typed into the attach lands in the lane's inbox through cli_send and runs as the next turn — queued
+# behind a turn that is still running — and Ctrl-C (SIGINT to the attach process) detaches: the attach
+# exits, the lane's runner stays alive and its state is unchanged. The fake claude of the runner's
+# fixtures stands in for the CLI (test/fixtures/cli/claude/stream-json/).
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+source "$HERE/helpers.sh"; unset_inherited_config
+source "$ROOT/scripts/lib.sh"
+make_env
+export RUN_DIR HARNESS_SESS_PREFIX=hat HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
+FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
+export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_INTERRUPT_WAIT=10
+HL="$ROOT/scripts/cli/claude_headless.py"
+
+# Only the processes this test started: the lane's runner (its pid file), each fake claude (calls.jsonl)
+# and the attach (its pid). Never a pattern kill: the host runs other lanes.
+cleanup(){ local d p; shopt -s nullglob
+  for d in "$HARNESS_HOME"/lanes/*/; do p="$(cat "$d/pid" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done
+  for d in "$RUN_DIR"/fake-*/; do
+    for p in $(python3 -c 'import json,sys; [print(json.loads(l)["pid"]) for l in open(sys.argv[1])]' "$d/calls.jsonl" 2>/dev/null); do
+      kill -KILL "$p" 2>/dev/null
+    done
+  done
+  [[ ${APID:-} =~ ^[0-9]+$ ]] && kill -KILL "$APID" 2>/dev/null
+  exec 7<&- 2>/dev/null; shopt -u nullglob; tmp_cleanup; }
+trap cleanup EXIT
+alive(){ proc_alive "$1"; }
+wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
+calls(){ python3 -c 'import json,sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
+  "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }
+lane_state(){ python3 "$HL" state --lane "$(headless_lane_dir "$S")" --field state; }
+turn_is(){ [[ "$(python3 "$HL" state --lane "$(headless_lane_dir "$S")" --field turn)" == "$1" && "$(lane_state)" == idle ]]; }
+out_has(){ grep -qF -- "$1" "$OUT" 2>/dev/null; }
+
+S=hat-main-i1
+WD="$RUN_DIR/wd"; mkdir -p "$WD"; echo "the task" > "$WD/.harness-task.md"
+export FAKE_CLAUDE_DIR="$RUN_DIR/fake"; mkdir -p "$FAKE_CLAUDE_DIR"
+printf '%s\n' normal "normal answer to the typed line" normal > "$FAKE_CLAUDE_DIR/plan"
+touch "$FAKE_CLAUDE_DIR/hold"   # the bootstrap turn waits mid-turn until released
+launch_agent "$S" "$WD" >/dev/null 2>&1
+assert_ok "the lane is live" sess_live "$S"
+RUNNER="$(sess_pane_pid "$S")"
+assert_ok "the bootstrap turn is running" wait_until 10 test "$(lane_state)" = busy
+INBOX="$(headless_lane_dir "$S")/inbox.jsonl"
+BEFORE_INBOX="$(wc -l < "$INBOX")"
+
+echo "== attach: typed lines reach the inbox, queued behind the running turn =="
+OUT="$RUN_DIR/attach.out"; : > "$OUT"
+mkfifo "$RUN_DIR/attach.in"; exec 7<>"$RUN_DIR/attach.in"
+# A SIGINT left ignored by an async parent would make the Ctrl-C test meaningless: start the attach with
+# the default disposition, as a terminal's job gets it. exec keeps the pid.
+python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp("bash", ["bash"] + sys.argv[1:])' \
+  "$ROOT/scripts/attach.sh" "$S" <&7 >"$OUT" 2>&1 &
+APID=$!
+assert_ok "attach is watching the lane" wait_until 10 out_has "watching headless lane $S"
+assert_ok "…and shows the running turn" wait_until 10 out_has "── turn 1 (bootstrap)"
+printf '\n   \n' >&7   # blank lines are not messages
+printf 'please do the typed thing\n' >&7
+assert_ok "attach says the line is queued behind the running turn" wait_until 10 out_has "· queued behind the running turn: please do the typed thing"
+assert_ok "the line landed in the lane's inbox" wait_until 10 grep -qF '"text": "please do the typed thing"' "$INBOX"
+assert_eq "$(( $(wc -l < "$INBOX") - BEFORE_INBOX ))" 1 "…as exactly one message (blank lines sent nothing)"
+assert_eq "$(calls prompt | wc -l)" 1 "it has not run yet: the bootstrap turn still holds the lane"
+rm -f "$FAKE_CLAUDE_DIR/hold"
+assert_ok "both turns run, and the lane reads idle" wait_until 15 turn_is 2
+assert_eq "$(calls prompt | sed -n 2p)" '"please do the typed thing"' "the typed line ran as the next turn"
+assert_ok "…resumed on the lane's session" grep -qF '"--resume"' <<<"$(calls argv | sed -n 2p)"
+assert_ok "attach shows that turn" wait_until 10 out_has "── turn 2 (message) ── please do the typed thing"
+assert_ok "…and its reply" wait_until 10 out_has "← answer to the typed line"
+
+echo "== attach: an idle lane takes the line as sent, not queued =="
+printf 'one more\n' >&7
+assert_ok "attach says it sent it" wait_until 10 out_has "· sent: one more"
+assert_ok "…and it runs as turn 3" wait_until 15 turn_is 3
+assert_eq "$(calls prompt | sed -n 3p)" '"one more"' "the third prompt is the typed line"
+
+echo "== attach: Ctrl-C detaches and leaves the lane running =="
+STATE_BEFORE="$(cat "$(headless_lane_dir "$S")/state.json")"
+kill -INT "$APID"
+gone(){ ! proc_alive "$1"; }
+assert_ok "the attach process exits" wait_until 10 gone "$APID"
+wait "$APID"; rc=$?
+assert_eq "$rc" 0 "…cleanly"
+assert_ok "it says it detached" grep -qF "detached; headless lane $S keeps running" "$OUT"
+assert_ok "the lane's runner is still alive" alive "$RUNNER"
+assert_eq "$(sess_pane_pid "$S")" "$RUNNER" "…the same runner, still the lane's"
+assert_ok "the lane is still live" sess_live "$S"
+assert_eq "$(lane_state)" idle "its state is still idle"
+assert_eq "$(cat "$(headless_lane_dir "$S")/state.json")" "$STATE_BEFORE" "…and state.json is byte for byte unchanged"
+assert_eq "$(calls prompt | wc -l)" 3 "detaching sent nothing to the lane"
+if command -v pgrep >/dev/null 2>&1; then
+  assert_no "the watch it started is gone" pgrep -f "claude_headless.py watch --lane $(headless_lane_dir "$S")"
+fi
+exec 7<&-
+
+echo "== attach: a lane that is not live is refused =="
+out="$(bash "$ROOT/scripts/attach.sh" hat-main-i99 2>&1 </dev/null)"; rc=$?
+assert_eq "$rc" 1 "attach to no lane fails"
+assert_ok "…naming it" grep -qF "no live" <<<"$out"
+
+echo "== attach: with stdin closed it is still the live watch =="
+out="$(timeout 3 bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
+assert_ok "it watches the lane" grep -qF "watching headless lane $S" <<<"$out"
+assert_ok "…showing the typed line's turn" grep -qF "── turn 2 (message) ── please do the typed thing" <<<"$out"
+assert_eq "$(calls prompt | wc -l)" 3 "…and typed nothing"
+finish

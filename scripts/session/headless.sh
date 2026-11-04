@@ -172,10 +172,26 @@ except (OSError, ValueError):
 sid = st.get("session_id") if isinstance(st, dict) else None
 if isinstance(sid, str) and sid and st.get("session_started") and st.get("cwd") == os.environ["WD"]:
     print(sid)' 2>/dev/null; return 0; }
-# Watching a lane is reading it: its events and replies as they land (claude_headless.py watch).
-headless_sess_attach(){ headless_sess_live "$1" || { echo "no live headless lane $1" >&2; return 1; }
-  echo "watching headless lane $1 (read-only; Ctrl-C to stop) — $(headless_lane_dir "$1")/events.jsonl"
-  exec python3 "$HEADLESS_LANE_PY" watch --lane "$(headless_lane_dir "$1")"; }
+# Attaching to a lane (#487, PRD #475): the live watch (claude_headless.py watch, a background job) plus
+# the lane's input. Each line typed here goes to the lane's inbox through cli_send — the next turn, queued
+# behind a running one — and Ctrl-C (or a TERM) detaches: it ends the watch and this attach, never the
+# lane, whose runner leads its own process session and is not signalled. Without a typed line
+# (stdin closed, or not a terminal) it is still the watch. Only the inbox / cli_send contract is used.
+_hl_attach_send(){ local name="$1" line="$2" st; st="$(_hl_state "$name")"
+  if [[ $st == busy ]]; then echo "· queued behind the running turn: $line"; else echo "· sent: $line"; fi
+  if declare -F cli_send >/dev/null; then cli_send "$name" "$(cat "$(headless_lane_dir "$name")/dir" 2>/dev/null)" "$line"
+  else headless_sess_send_line "$name" "$line"; fi; }
+headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name" || { echo "no live headless lane $name" >&2; return 1; }
+  lane="$(headless_lane_dir "$name")"
+  echo "watching headless lane $name — type a line to send it as the next turn; Ctrl-C detaches and leaves the lane running — $lane/events.jsonl"
+  python3 "$HEADLESS_LANE_PY" watch --lane "$lane" & wp=$!
+  trap 'kill "$wp" 2>/dev/null; echo; echo "detached; headless lane '"$name"' keeps running"; exit 0' INT TERM
+  while IFS= read -r line; do
+    [[ -n ${line//[[:space:]]/} ]] || continue
+    headless_sess_live "$name" || { echo "headless lane $name has ended" >&2; kill "$wp" 2>/dev/null; return 1; }
+    _hl_attach_send "$name" "$line"
+  done
+  wait "$wp"; }
 headless_sess_attach_hint(){ echo "harness attach $1"; }
 # headless_sess_describe <fn> <target> [args…] — what <fn> does to a lane (sess_describe).
 headless_sess_describe(){ local fn="$1" t="$2"; shift 2

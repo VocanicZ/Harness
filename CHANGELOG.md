@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness attach` drives headless lanes (#487)
+
+- `harness attach <lane>` on a headless lane keeps the live watch and adds input: each line you type goes to the
+  lane's inbox through `cli_send` and runs as the next turn, queued behind a turn that is still running.
+- Ctrl-C (or a TERM) detaches: the attach and its watch end, the lane keeps running with its state unchanged.
+  Only the inbox / `cli_send` contract is used, so it keeps working on any runner that honours it.
+- `test/test_headless_attach.sh` covers both on Linux against a fake headless lane; `docs/reference.md` documents
+  the attach and its parity-matrix rows.
+
 ### Shared headless runner core, with `claude` as its first adapter (#480)
 
 - `scripts/cli/claude_headless.py` is split into `scripts/cli/headless_core.py` (the inbox, `state.json`,
