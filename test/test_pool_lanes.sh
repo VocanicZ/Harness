@@ -193,6 +193,42 @@ worker_tend W1; assert_eq "$?" "0" "the owner reaps it"
 assert_ok "... removing the worktree" grep -q 'remove_worktree .*main-i5' "$CALLS"
 assert_no "... and releases the claim" test -f "$CLAIMS_DIR/impl-5.claim"
 
+echo "=== 3c. #528: a finished lane is reaped once — the owner's reap racing the chores' reap_team / reap_orch ==="
+# race <claim-key> — the chores listed the worktree and are about to check its claim; the owner finishes the
+# lane (worker_tend: reap + lane_release) in that window, so is_claimed then answers "no claim".
+eval "$(declare -f is_claimed | sed '1s/^is_claimed/real_is_claimed/')"
+race(){ RACE_KEY="$1"; is_claimed(){ if [[ "$1" == "$RACE_KEY" ]]; then
+          is_claimed(){ real_is_claimed "$@"; }; worker_tend W1 >/dev/null; fi; real_is_claimed "$@"; }; }
+count_events(){ grep -c "\"event\": \"$1\"" "$HARNESS_EVENTS_FILE" 2>/dev/null || true; }
+setup 3; snap "5:ready-for-agent,agent-working"
+mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
+: > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
+race impl-5; inctx reap_team
+assert_no "the claim is gone" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_eq "$(count_events reap)" "1" "impl, open issue: exactly one reap event"
+assert_eq "$(grep -c 'remove_worktree .*main-i5' "$CALLS")" "1" "... one worktree removal"
+assert_eq "$(grep -c 'issue view' "$CALLS")" "1" "... one gh issue view"
+assert_eq "$(grep -c '^unlock 5$' "$CALLS")" "1" "... one unlock"
+echo "-- closed issue: one merged event, one branch drop"
+setup 3; snap "5:ready-for-agent,agent-working"
+gh(){ echo "gh $*" >> "$CALLS"; case "$*" in *"issue view"*"state,labels"*) echo '{"state":"CLOSED","labels":[]}';; esac; return 0; }
+mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
+: > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
+race impl-5; inctx reap_team
+assert_eq "$(count_events reap)" "1" "impl, closed issue: exactly one reap event"
+assert_eq "$(count_events merged)" "1" "... exactly one merged event"
+assert_eq "$(grep -c 'branch -D issue/5' "$CALLS")" "1" "... one local branch drop"
+assert_eq "$(grep -c 'issue view' "$CALLS")" "1" "... one gh issue view"
+echo "-- orch lane"
+setup 3; snap "41:prd"
+OW="$WORKTREES_DIR/orch-acme_widget-p41"; mkdir -p "$OW"; printf 'W1 %s DECOMPOSE:41 hz-main-p41 -\n' "$$" > "$CLAIMS_DIR/orch-41.claim"
+: > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
+race orch-41; inctx reap_orch
+assert_no "the claim is gone" test -f "$CLAIMS_DIR/orch-41.claim"
+assert_eq "$(count_events reap)" "1" "orch: exactly one reap event"
+assert_eq "$(grep -c 'remove_worktree' "$CALLS")" "1" "... one worktree removal"
+restore
+
 echo "=== 4. a killed worker: its lane is adopted, reaped once, never dispatched twice ==="
 setup 2; snap "5:ready-for-agent,agent-working" "6:ready-for-agent"
 live hz-main-i5; mkdir -p "$WORKTREES_DIR/main-i5"
