@@ -158,9 +158,10 @@ out="$(HARNESS_PLATFORM=posix env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_L
 assert_eq "$rc" 0 "Linux: the same update exits 0"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "Linux: engine is a link too"
 echo "=== the Windows rule itself, so the test above can fail: a directory with an open file does not move ==="
-mkdir -p "$T/d1"; echo x > "$T/d1/f"; ( exec 7<"$T/d1/f"; sleep 3 ) & sl=$!
-sleep 0.3; assert_no "the fake mv refuses a directory with an open file" env HARNESS_PLATFORM=windows mv -T "$T/d1" "$T/d2"
-kill "$sl" 2>/dev/null; wait "$sl" 2>/dev/null
+mkdir -p "$T/d1"; echo x > "$T/d1/f"; exec 7<"$T/d1/f"     # held open by this very shell: no timing to race
+assert_no "the fake mv refuses a directory with an open file" env HARNESS_PLATFORM=windows mv -T "$T/d1" "$T/d2"
+exec 7<&-
+assert_ok "… and moves it once the file is closed" env HARNESS_PLATFORM=windows mv -T "$T/d1" "$T/d2"
 
 echo "=== re-running the installer over an install is idempotent ==="
 fresh
