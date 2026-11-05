@@ -67,9 +67,11 @@ unset $HARNESS_LANE_IDENTITY_VARS
 #
 # <VAR>:<subdir> — re-pinned to <home>/<subdir>.
 HARNESS_HOST_PIN_VARS="HARNESS_FLEETS_DIR:fleets HARNESS_POLLER_DIR:poller HARNESS_SNAPSHOTS_DIR:snapshots
-  HARNESS_WEB_UNIT_DIR:units HARNESS_SUPERVISE_UNIT_DIR:units TMUX_TMPDIR:tmux XDG_CONFIG_HOME:config"
+  TMUX_TMPDIR:tmux XDG_CONFIG_HOME:config"
 # Inherited path pins with a default derived from HARNESS_HOME: dropped, so the default lands in the sandbox.
-HARNESS_HOST_DROP_VARS="HARNESS_HEADLESS_DIR HARNESS_LANE_DIR HARNESS_PARKED_FILE HARNESS_GH_RATE_DIR
+# (The unit dirs are dropped, not pinned: web.sh / supervise.sh default them to $XDG_CONFIG_HOME/systemd/user —
+# pinned above — on Linux and to $HARNESS_HOME/tasks on Windows; a pin to one dir would break the Windows default.)
+HARNESS_HOST_DROP_VARS="HARNESS_WEB_UNIT_DIR HARNESS_SUPERVISE_UNIT_DIR HARNESS_HEADLESS_DIR HARNESS_LANE_DIR HARNESS_PARKED_FILE HARNESS_GH_RATE_DIR
   HARNESS_EVENTS_FILE HARNESS_RTDD_EVENTS_FILE HARNESS_SUPERVISE_CONF HARNESS_SUPERVISE_STATE HARNESS_SUPERVISE_LOG"
 # The user service manager is host state too: web.sh / supervise.sh `systemctl --user` / `loginctl` against
 # the live bus and write units into ~/.config/systemd/user (the live harness-web.service was stopped and

@@ -13,6 +13,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
+unset_inherited_config   # a direct run from inside a live lane (#541): its HARNESS_* config must not reach the probes below
 
 SENTINEL=': "${HARNESS_REPO:=sentinel/live}"'
 
@@ -348,7 +349,7 @@ assert_eq "$(cat "$CAN/calls")" "" "...and never runs that agy"
 # pin_host_home itself: from a lane's environment, every host path ends up under the new home.
 (
   export HARNESS_FLEETS_DIR=/real/fleets HARNESS_POLLER_DIR=/real/poller HARNESS_SNAPSHOTS_DIR=/real/snap \
-         HARNESS_WEB_UNIT_DIR=/real/units HARNESS_SUPERVISE_UNIT_DIR=/real/units HARNESS_EVENTS_FILE=/real/ev \
+         HARNESS_WEB_UNIT_DIR=/real/units HARNESS_SUPERVISE_UNIT_DIR=/real/units XDG_CONFIG_HOME=/real/cfg HARNESS_EVENTS_FILE=/real/ev \
          HARNESS_LANE_DIR=/real/lane HARNESS_SUPERVISE_STATE=/real/sup XDG_RUNTIME_DIR=/run/user/1 \
          DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1/bus HARNESS_WEB_SYSTEMCTL=systemctl
   pin_host_home /pinned/home
