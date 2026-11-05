@@ -49,9 +49,11 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # the tmux client's TMUX/TMUX_PANE to everything it runs. sess_sweep kills EVERY process whose environ carries
 # HARNESS_SESSION=<uuid>, and lane/stop paths act on the inherited prefix and tmux server — so a test that
 # reaches one with the lane's identity kills the lane that is running it (exit 137, ~20 sessions on #541).
+# ENGINE_DIR is the lane's engine: scripts default their engine to it, so a test that builds its own engine
+# under test would act on the lane's instead (test_web_install's uninstall left the unit behind).
 # Dropped when this file is sourced, so every test is a stranger to the fleet that launched it; a test that
 # wants a session sets its own after sourcing.
-HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX RTDD_EVENT_LOG TMUX TMUX_PANE"
+HARNESS_LANE_IDENTITY_VARS="ENGINE_DIR HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
 
 # ── the host seam: ONE list, ONE helper (#541) ─────────────────────────────────────────────────────
