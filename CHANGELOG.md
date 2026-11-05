@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A repo name with a dot no longer gives tmux-unsafe bug-lane session names (#557)
+
+- `sess_bug` built `<prefix>-bug-<repo>-<n>-<phase>` from the repo slug with only `/` mapped to `_`, so
+  `vercel/next.js` gave `hz-bug-vercel_next.js-7-fix`. tmux creates that session as `hz-bug-vercel_next_js-7-fix` but
+  `has-session -t` on the dotted name fails, so `bug_session_live` was always false and the fleet never saw its own bug
+  lanes. One helper, `slug_safe`, now maps every character outside `[A-Za-z0-9_-]` to `_`, and `sess_bug`, the bug
+  claim key (`_bug_claim_key`) and the bug-session prefix in `fleet_bug_numbers` all use it, so they keep agreeing.
+  A repo without such characters keeps its session and claim names. `test/test_bug_session_tmux_safe.sh` starts a bug
+  lane for a dotted repo on a private tmux server and checks `bug_session_live` sees it.
+
 ### A repo name with a dot no longer gives a tmux-unsafe `HARNESS_UNIT` (#554)
 
 - `harness init` wrote the lowercased repo short name as `HARNESS_UNIT` and nothing else, so `vercel/next.js` gave

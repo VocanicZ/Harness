@@ -263,6 +263,10 @@ _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && ech
 # one is never found live. unit_safe maps every character outside [A-Za-z0-9_-] to `_`; a unit that is already safe is
 # returned byte for byte, so current fleets keep their session names. fleet_unit applies it to a hand-set HARNESS_UNIT.
 unit_safe(){ printf '%s' "$1" | LC_ALL=C sed 's/[^A-Za-z0-9_-]/_/g'; }
+# #557: the repo slug goes into bug-lane session names (sess_bug) and the bug claim key (_bug_claim_key), which must agree.
+# slug_safe is that one rule: / and every other character outside [A-Za-z0-9_-] -> `_`. A slug with none of them (the
+# dotless, colonless repos of current fleets) maps to itself except `/` -> `_`, exactly what those names always were.
+slug_safe(){ printf '%s' "$1" | LC_ALL=C sed 's/[^A-Za-z0-9_-]/_/g'; }
 fleet_unit(){ local u; u="$(unit_safe "${HARNESS_UNIT:-main}")"; echo "${u:-main}"; }
 fleet_checkout(){ echo "${HARNESS_CHECKOUT:-$PROJECT_ROOT}"; }
 all_units(){ fleet_unit; }
@@ -318,10 +322,10 @@ _bug_numbers(){ local repo qrepo num phase
   done | sort -t$'\t' -s -k1,1n | cut -f2-
 }
 # Claim-file stem for a bug ref. A qualified "<repo>#<num>" sanitises to "bug-<repo>-<num>"
-# (/ -> _, # -> -) so two repos' same-numbered bugs are DISTINCT claims; a bare "<num>"
+# (slug_safe: / . : etc -> _, # -> -) so two repos' same-numbered bugs are DISTINCT claims; a bare "<num>"
 # (legacy form) -> "bug-<num>".
 _bug_claim_key(){ case "$1" in
-  *#*) printf 'bug-%s' "$(printf '%s' "$1" | tr '/#' '_-')";;
+  *#*) printf 'bug-%s-%s' "$(slug_safe "${1%#*}")" "${1##*#}";;
   *)   printf 'bug-%s' "$1";;
   esac; }
 # Repo + number from a bug ref. Qualified token splits directly; a bare number resolves its repo
@@ -384,7 +388,7 @@ session_owned(){ local k; k="$(session_lane_key "$1")"; [[ -n "$k" ]] && is_clai
 # fleet_bug_numbers — the issue numbers of the fleet repo's bugs that have a live triage or fix session
 # (sess_bug), one per line. Derived from the sessions, not the claim files, so it survives a cleared claim (#540).
 fleet_bug_numbers(){ local s pre rest n ph
-  pre="$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$(unit_slug "$(fleet_unit)")" | tr '/' '_')-"
+  pre="$HARNESS_SESS_PREFIX-bug-$(slug_safe "$(unit_slug "$(fleet_unit)")")-"
   while read -r s; do
     [[ "$s" == "$pre"* ]] || continue
     rest="${s#"$pre"}"; n="${rest%-*}"; ph="${rest##*-}"
@@ -801,7 +805,7 @@ sess_inject(){ echo "$HARNESS_SESS_PREFIX-inject-$1"; }
 # (lane_phase, _checkpoint_target, sweep_orphan_bug_worktrees) lost the repo. The <phase> suffix
 # keeps triage and fix on DISTINCT sessions (separate session-ids / fresh context) for the same
 # issue (#27). The sanitised-slug-and-number segment matches the bug claim key (_bug_claim_key).
-sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$1" | tr '/' '_')-$2-$3"; }
+sess_bug(){ echo "$HARNESS_SESS_PREFIX-bug-$(slug_safe "$1")-$2-$3"; }
 # The `$` alternative keeps matching the BARE legacy orch name, so an orch session already in
 # flight when the engine upgrades is still counted and reaped instead of orphaned.
 team_sessions(){ sess_list | grep -E "^$HARNESS_SESS_PREFIX-$1(\$|-i|-p)" || true; }
