@@ -27,6 +27,11 @@ unset TMUX TMUX_PANE
 unset LC_ALL; export LANG=C.UTF-8 LC_CTYPE=C.UTF-8
 export HARNESS_GH_RATE_GUARD=0   # #183: no test probes the real GitHub budget; test_ghrate.sh opts in
 export HARNESS_INIT_SEED=0       # #432: no non-interactive init seeds real labels; test_init.sh opts in against a stub gh
+# Default INT/HUP/QUIT for every test (#553): run from a background or nohup context (the auto-release
+# gate) this shell has them IGNORED, and an ignored-at-start signal is inherited by every test and cannot
+# be trapped by it — test_headless_attach.sh's Ctrl-C detach hung forever on exactly that. DEFSIG restores
+# the defaults a foreground run has; test_signal_defaults.sh covers it.
+default_signals_prefix
 rc=0
 for t in test_*.sh test_*.py; do
   [[ -e "$t" ]] || continue
@@ -50,7 +55,7 @@ for t in test_*.sh test_*.py; do
   # in the host's /tmp, and the whole per-test subtree goes as soon as the test ends — so a test that
   # forgets its own cleanup leaks into nothing, and peak use is one test's worth, not the suite's.
   export TMPDIR="$TMPROOT/$t/tmp"; mkdir -p "$TMPDIR"
-  case "$t" in *.py) python3 "$t" || rc=1;; *) bash "$t" || rc=1;; esac
+  case "$t" in *.py) "${DEFSIG[@]}" python3 "$t" || rc=1;; *) "${DEFSIG[@]}" bash "$t" || rc=1;; esac
   rm -rf "${TMPROOT:?}/$t"
 done
 exit $rc
