@@ -12,6 +12,7 @@ source "$HERE/../scripts/pool-worker.sh"
 source "$HERE/../scripts/priority-worker.sh"
 source "$HERE/helpers.sh"
 make_env
+ensure_checkout(){ :; }   # #558: worker_tick clones a missing checkout before claiming (#539); fixtures have none — never reach the network
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 
 STUB="$RUN_DIR/usage.stub"

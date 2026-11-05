@@ -45,6 +45,35 @@ assert_eq "$(cat "$T/b.env" 2>/dev/null)" "HARNESS_SESSION=u2
 SOME_GLOBAL=keep" "the pane sees the global env plus its -e pair, and not the client's STATE_DIR"
 assert_eq "$(tmux show-environment -g 2>/dev/null | grep -cE "$LEAK")" 0 "global env still clean"
 
+echo "== #558: tmux_sess_start leaves the caller's scope alone =="
+# A temporary (`VAR=x f`) or `local` value must not come back as an exported global; a `tmux` FUNCTION stub
+# still runs in this shell and keeps its side effects. Measured in a subshell, asserted out here.
+R="$T/scope.out"
+(
+  source "$ROOT/scripts/session/tmux.sh"
+  STUB_LOG="$T/stub.log"; : > "$STUB_LOG"
+  tmux(){ echo "$*" >> "$STUB_LOG"; STUB_RAN=yes; }
+  f(){ tmux_sess_start s558 /tmp; }
+  export HARNESS_CLI=claude
+  HARNESS_CLI=agy f
+  echo "temp=$HARNESS_CLI"
+  echo "child=$(bash -c 'echo "$HARNESS_CLI"')"
+  unset HARNESS_CLI
+  HARNESS_CLI=agy f
+  echo "unset=${HARNESS_CLI-unset}"
+  export STATE_DIR=/global/state
+  g(){ local STATE_DIR=/local/state; tmux_sess_start s558 /tmp; }
+  g
+  echo "local=$STATE_DIR"
+  echo "stub=${STUB_RAN-}"
+) > "$R"
+assert_eq "$(grep '^temp=' "$R")" "temp=claude" "a temporary HARNESS_CLI=agy does not outlive the call"
+assert_eq "$(grep '^child=' "$R")" "child=claude" "…and a child process sees the earlier value"
+assert_eq "$(grep '^unset=' "$R")" "unset=unset" "a HARNESS_* that was unset before stays unset"
+assert_eq "$(grep '^local=' "$R")" "local=/global/state" "a caller's local STATE_DIR does not change the global one"
+assert_eq "$(grep '^stub=' "$R")" "stub=yes" "a tmux function stub still runs in the current shell (side effects kept)"
+assert_eq "$(head -n1 "$T/stub.log")" "new-session -d -s s558 -c /tmp" "…and gets the new-session args"
+
 echo "== TMUX_TMPDIR is honoured =="
 assert_ok "the server socket is under the private TMUX_TMPDIR" bash -c 'ls "$1"/tmux-*/default >/dev/null 2>&1' _ "$T"
 
