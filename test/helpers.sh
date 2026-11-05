@@ -56,7 +56,7 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 #
 # <VAR>:<subdir> — re-pinned to <home>/<subdir>.
 HARNESS_HOST_PIN_VARS="HARNESS_FLEETS_DIR:fleets HARNESS_POLLER_DIR:poller HARNESS_SNAPSHOTS_DIR:snapshots
-  HARNESS_WEB_UNIT_DIR:units HARNESS_SUPERVISE_UNIT_DIR:units"
+  HARNESS_WEB_UNIT_DIR:units HARNESS_SUPERVISE_UNIT_DIR:units TMUX_TMPDIR:tmux XDG_CONFIG_HOME:config"
 # Inherited path pins with a default derived from HARNESS_HOME: dropped, so the default lands in the sandbox.
 HARNESS_HOST_DROP_VARS="HARNESS_HEADLESS_DIR HARNESS_LANE_DIR HARNESS_PARKED_FILE HARNESS_GH_RATE_DIR
   HARNESS_EVENTS_FILE HARNESS_RTDD_EVENTS_FILE HARNESS_SUPERVISE_CONF HARNESS_SUPERVISE_STATE HARNESS_SUPERVISE_LOG"
@@ -79,6 +79,7 @@ pin_host_home(){ local home="$1" e v
   [[ -n "$home" ]] || { echo "pin_host_home: no home given" >&2; return 1; }
   export HARNESS_HOME="$home"
   for e in $HARNESS_HOST_PIN_VARS; do export "${e%%:*}=$home/${e#*:}"; done
+  mkdir -p "$TMUX_TMPDIR"; unset TMUX TMUX_PANE   # ops 2026-11-05: a private tmux server; unset TMUX alone still reached /tmp/tmux-$UID/default (live lanes)
   unset $HARNESS_HOST_DROP_VARS $HARNESS_HOST_DROP_BUS
   for v in $HARNESS_HOST_FAIL_TOOLS; do export "$v=false"; done
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
