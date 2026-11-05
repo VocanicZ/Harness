@@ -49,12 +49,16 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # the tmux client's TMUX/TMUX_PANE to everything it runs. sess_sweep kills EVERY process whose environ carries
 # HARNESS_SESSION=<uuid>, and lane/stop paths act on the inherited prefix and tmux server — so a test that
 # reaches one with the lane's identity kills the lane that is running it (exit 137, ~20 sessions on #541).
-# ENGINE_DIR is the lane's engine: scripts default their engine to it, so a test that builds its own engine
-# under test would act on the lane's instead (test_web_install's uninstall left the unit behind).
+# ENGINE_DIR (handled below, not in this list) is the lane's engine: scripts default their engine to it, so a test
+# that builds its own engine would act on the lane's instead (test_web_install's uninstall left the unit behind).
 # Dropped when this file is sourced, so every test is a stranger to the fleet that launched it; a test that
 # wants a session sets its own after sourcing.
-HARNESS_LANE_IDENTITY_VARS="ENGINE_DIR HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX RTDD_EVENT_LOG TMUX TMUX_PANE"
+HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
+# ENGINE_DIR is re-pointed, not just dropped: most tests source lib.sh BEFORE this file, and lib.sh has already
+# exported ENGINE_DIR (the lane's, if it was inherited). Unsetting it left them with none ("ENGINE_DIR: unbound
+# variable" in cli/claude.sh). The repo under test is its own engine; a test that sources no lib.sh has none.
+if [[ -n "${HARNESS_DIR:-}" ]]; then export ENGINE_DIR="$HARNESS_DIR"; else unset ENGINE_DIR; fi
 
 # ── the host seam: ONE list, ONE helper (#541) ─────────────────────────────────────────────────────
 # Every fleet process exports HARNESS_FLEETS_DIR / HARNESS_POLLER_DIR / HARNESS_SNAPSHOTS_DIR (lib.sh)
