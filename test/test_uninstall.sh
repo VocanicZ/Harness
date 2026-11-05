@@ -6,6 +6,7 @@
 # (stop --clean) and is confirm-gated; --force skips BOTH the stop guard AND the prompt.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/helpers.sh"; HP="$(mktemp -d)"; tmp_track "$HP"; pin_host_home "$HP/host"   # a test that picks its own HARNESS_HOME pins the host paths first (#541)
 UNINSTALL="$HERE/../scripts/uninstall.sh"
 CLI="$HERE/../bin/harness"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }

@@ -42,9 +42,9 @@ for t in test_*.sh test_*.py; do
   # HARNESS_FLEETS_DIR is the same hazard one notch worse: the host fleet registry is not merely READ
   # by a co-resident fleet, its entries are DELETED by `doctor --fix` (test_doctor.sh runs exactly
   # that), so an unpinned suite can strip a live sibling fleet's prefix reservation off the real host.
-  export HARNESS_HOME="$TMPROOT/$t/host"
-  export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
-  export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
+  # One helper, one list (helpers.sh pin_host_home, #541): HARNESS_HOME, the fleet/poller/snapshot dirs,
+  # the user-service unit dirs and tools, and the user bus — also what each test's own HARNESS_HOME goes through.
+  pin_host_home "$TMPROOT/$t/host"
   mkdir -p "$HARNESS_POLLER_DIR/registry" "$HARNESS_SNAPSHOTS_DIR"
   # Temp root too (#294): every bare mktemp / tempfile.mkdtemp() a test makes lands here rather than
   # in the host's /tmp, and the whole per-test subtree goes as soon as the test ends — so a test that

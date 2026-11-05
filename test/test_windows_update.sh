@@ -54,6 +54,7 @@ export PATH="$T/bin:$PATH" HARNESS_PLATFORM=windows HARNESS_SCHTASKS="$T/bin/sch
   HARNESS_SUPERVISE_CONF="$T/none.conf" \
   HARNESS_SUPERVISE_SYSTEMCTL="$T/bin/systemctl" HARNESS_SUPERVISE_LOGINCTL="$T/bin/loginctl" \
   HARNESS_WEB_SYSTEMCTL="$T/bin/systemctl" HARNESS_WEB_LOGINCTL="$T/bin/loginctl"
+pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HARNESS_HOME="$T/host" HARNESS_BIN_DIR="$T/bin-host" HARNESS_USER_SKILLS="$T/skills"
 H="$HARNESS_HOME"; SRV="$T/srv"; rel_server "$SRV"
 for t in v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0; do rel_publish "$SRV" "$t"; done; rel_latest "$SRV" v0.2.0

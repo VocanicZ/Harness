@@ -13,7 +13,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 WORK="$(mktemp -d)"
 # host-root seams point at a temp dir (NOT real ~/.harness); set BEFORE sourcing lib.sh.
-export HARNESS_HOME="$WORK/host"
+source "$HERE/helpers.sh"   # pin_host_home before lib.sh reads the host paths (#541)
+pin_host_home "$WORK/host"
 export HARNESS_POLLER_DIR="$WORK/host/poller"
 export STATE_DIR="$WORK/state"; mkdir -p "$STATE_DIR"
 source "$HERE/../scripts/lib.sh"

@@ -11,6 +11,7 @@ export HARNESS_INSTALL_NOMAIN=1 HARNESS_SKIP_RTDD=0
 unset HARNESS_INSTALL_PREREQS HARNESS_WINGET HARNESS_REG GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL MSYS HARNESS_PYTHON
 for v in $(compgen -e | grep -E '^HARNESS_[A-Z]+_BIN$'); do unset "$v"; done
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+pin_host_home "$T/home/.harness"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HOME="$T/home" HARNESS_HOME="$T/home/.harness"; mkdir -p "$HOME"
 # git must not read the real user's or system config (the checks below read identity, the tests write repo config).
 export GIT_CONFIG_GLOBAL="$T/gitconfig-global" GIT_CONFIG_SYSTEM="$T/gitconfig-system"

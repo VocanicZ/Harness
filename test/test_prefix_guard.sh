@@ -6,7 +6,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Point the host-poller registry at a private temp root BEFORE sourcing lib.sh so the
 # derived POLLER_REGISTRY_DIR lands there and we never touch a real ~/.harness.
-export HARNESS_HOME="$(mktemp -d)"
+source "$HERE/helpers.sh"   # pin_host_home before lib.sh reads the host paths (#541)
+pin_host_home "$(mktemp -d)"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
 make_env

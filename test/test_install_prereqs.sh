@@ -10,6 +10,7 @@ export HARNESS_INSTALL_NOMAIN=1 HARNESS_INSTALL_CLI_BIN=0 HARNESS_SKIP_RTDD=1
 unset HARNESS_INSTALL_PREREQS CLAUDE_BIN
 for v in $(compgen -e | grep -E '^HARNESS_[A-Z]+_BIN$'); do unset "$v"; done
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+pin_host_home "$T/home/.harness"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HOME="$T/home" HARNESS_HOME="$T/home/.harness"; mkdir -p "$HOME"
 source "$HERE/../install.sh"
 

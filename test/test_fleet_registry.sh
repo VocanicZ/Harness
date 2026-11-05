@@ -12,7 +12,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # without this unset the derivation asserted below is never exercised. The mktemp'd HARNESS_HOME
 # below keeps this throwaway either way; only the derivation-under-test changes.
 unset HARNESS_FLEETS_DIR
-export HARNESS_HOME="$(mktemp -d)"
+source "$HERE/helpers.sh"   # pin_host_home before lib.sh reads the host paths (#541)
+pin_host_home "$(mktemp -d)"; unset HARNESS_FLEETS_DIR   # the unset is what the derivation assertion below needs
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
 

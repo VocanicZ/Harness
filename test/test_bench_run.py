@@ -50,6 +50,7 @@ class Env:
         self.rundir = os.path.join(self.d, "run"); os.makedirs(self.rundir)
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("HARNESS_") and k not in ("RUN_DIR", "STATE_DIR")}
         self.env.update(PATH=self.bin + os.pathsep + os.environ["PATH"], FAKE_GH_HOME=self.h, PYTHONDONTWRITEBYTECODE="1",
+                        HARNESS_FLEETS_DIR=os.path.join(self.d, "home", "fleets"),   # #541: the host pins move together
                         CLAUDE_CONFIG_DIR=os.path.join(self.d, "acct"), HARNESS_HOME=os.path.join(self.d, "home"))
         if usage_pct is not None:
             self.env["HARNESS_USAGE_CMD"] = USAGE % (usage_pct, "")

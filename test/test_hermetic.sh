@@ -13,6 +13,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
+unset_inherited_config   # a direct run from inside a live lane (#541): its HARNESS_* config must not reach the probes below
 
 SENTINEL=': "${HARNESS_REPO:=sentinel/live}"'
 
@@ -111,7 +112,9 @@ done
 runs_update(){ grep -v '^[[:space:]]*#' "$1" |
   grep -E '(bash|exec)[^#|]*update\.sh|harness"?[[:space:]]+update([[:space:]]|$|")' >/dev/null; }
 update_tests=()
-for f in "$HERE"/test_*.sh; do runs_update "$f" && update_tests+=("$(basename "$f")"); done
+# test_hermetic.sh is skipped: its lint fixtures below spell out `bash update.sh`, so the scan would match
+# THIS file and the loop re-run it with the inherited lane env — recursively, killing the lane (#541).
+for f in "$HERE"/test_*.sh; do [[ "${f##*/}" == test_hermetic.sh ]] && continue; runs_update "$f" && update_tests+=("$(basename "$f")"); done
 # The two that leaked (#434), and one that runs it as `harness update`, must be found — or the scan
 # below guards nothing.
 for t in test_update.sh test_web_install.sh test_update_prerelease.sh; do
@@ -157,11 +160,17 @@ echo "\$*" >> $(printf %q "$TRIP/curl.log")
 PATH=$(printf %q "$PATH") exec curl "\$@"
 EOF
   chmod +x "$TRIP/curl"
+  # #541: nor the user service manager — a test that reaches systemctl/loginctl off PATH, or writes a unit
+  # under HOME, would stop and unlink a live fleet host's harness-web.service. Tripwire both.
+  : > "$TRIP/bus.log"
+  for c in systemctl loginctl; do printf '#!/usr/bin/env bash\necho "%s $*" >> %q\nexit 1\n' "$c" "$TRIP/bus.log" > "$TRIP/$c"; chmod +x "$TRIP/$c"; done
   HOME="$dh" HARNESS_HOME="$dh/.harness" PATH="$TRIP:$PATH" bash "$HERE/$t" >"$TRIP/out" 2>&1; rc=$?
   assert_eq "$rc" 0 "$t passes on a host whose ~/.harness/engine is a release symlink"
   (( rc == 0 )) || grep -E 'FAIL|rror' "$TRIP/out" | head -5
   assert_eq "$(tree_state "$dh/.harness")" "$before" "$t: the host's ~/.harness is left exactly as it was"
   assert_no "$t: never queries github.com (the releases API)" grep -q 'github\.com' "$TRIP/curl.log"
+  assert_eq "$(cat "$TRIP/bus.log")" "" "$t: never calls systemctl / loginctl off PATH (the user service manager)"
+  assert_no "$t: writes no systemd unit under the inherited HOME" test -e "$dh/.config/systemd"
   # #439: every update links the engine's skills into each installed CLI's user-skills dir under HOME;
   # a test's own engine must never be linked into the inherited (real) home's.
   assert_eq "$(cd "$dh" && ls -d .claude .hermes .agents .gemini .copilot 2>/dev/null | xargs)" "" \
@@ -236,10 +245,12 @@ assert_ok "test_init.sh re-drops for a direct invocation" \
   grep -q 'unset_inherited_config' "$HERE/test_init.sh"
 # The fleet-registry pin must be in BOTH blanket guards, not just make_env: run.sh hands each test
 # its own host root, and a test that never calls make_env (test_init.sh) relies on run.sh's copy.
-assert_ok "run.sh pins HARNESS_FLEETS_DIR per test" \
-  grep -q 'export HARNESS_FLEETS_DIR=' "$HERE/run.sh"
-assert_ok "make_env pins HARNESS_FLEETS_DIR too" \
-  grep -q 'export HARNESS_FLEETS_DIR=' "$HERE/helpers.sh"
+# (#541: both go through pin_host_home, which is where the fleet-registry pin now lives.)
+assert_ok "run.sh pins the host root per test through pin_host_home" \
+  grep -qE '^[[:space:]]*pin_host_home ' "$HERE/run.sh"
+assert_ok "make_env pins the host root through pin_host_home too" \
+  grep -qE '^[[:space:]]*pin_host_home ' "$HERE/helpers.sh"
+assert_ok "pin_host_home pins HARNESS_FLEETS_DIR" bash -c '[[ " $1 " == *" HARNESS_FLEETS_DIR:fleets "* ]]' _ "$(echo $HARNESS_HOST_PIN_VARS)"
 
 # #333: the guard must RUN, not merely be named in run.sh. release.sh gates a release with
 # `cd <tree> && bash test/run.sh`; run.sh then cd'd into test/ and sourced helpers.sh by a path
@@ -327,5 +338,136 @@ done
 assert_ok "test_ghrate.sh passes on a host whose agy is over the checkpoint threshold" \
   env PATH="$CAN:$PATH" bash "$HERE/test_ghrate.sh" >/dev/null 2>&1
 assert_eq "$(cat "$CAN/calls")" "" "...and never runs that agy"
+
+# ══ #541: a test that picks its own HARNESS_HOME must not reach the REAL fleets ══════════════════════
+# Every fleet process exports HARNESS_FLEETS_DIR / HARNESS_POLLER_DIR / HARNESS_SNAPSHOTS_DIR and a lane
+# inherits them; every reader prefers the inherited value over the HARNESS_HOME a test sets. A test that
+# sets HARNESS_HOME without re-pinning them reads the real fleet registry — and `harness supervise`
+# (sup_au_roll → fleet_roll) / `harness update` (fleet-migrate --all) then KILL AND RELAUNCH every
+# registered fleet's workers from the test sandbox's engine. This block is that incident, as a guard.
+
+# pin_host_home itself: from a lane's environment, every host path ends up under the new home.
+(
+  export HARNESS_FLEETS_DIR=/real/fleets HARNESS_POLLER_DIR=/real/poller HARNESS_SNAPSHOTS_DIR=/real/snap \
+         HARNESS_WEB_UNIT_DIR=/real/units HARNESS_SUPERVISE_UNIT_DIR=/real/units XDG_CONFIG_HOME=/real/cfg HARNESS_EVENTS_FILE=/real/ev \
+         HARNESS_LANE_DIR=/real/lane HARNESS_SUPERVISE_STATE=/real/sup XDG_RUNTIME_DIR=/run/user/1 \
+         DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1/bus HARNESS_WEB_SYSTEMCTL=systemctl
+  pin_host_home /pinned/home
+  [[ "$HARNESS_HOME" == /pinned/home ]] || exit 1
+  for e in $HARNESS_HOST_PIN_VARS; do v="${e%%:*}"; [[ "${!v}" == "/pinned/home/${e#*:}" ]] || { echo "pin: $v=${!v}"; exit 1; }; done
+  for v in $HARNESS_HOST_DROP_VARS $HARNESS_HOST_DROP_BUS; do [[ -z "${!v+x}" ]] || { echo "drop: $v still set"; exit 1; }; done
+  for v in $HARNESS_HOST_FAIL_TOOLS; do [[ "${!v}" == false ]] || { echo "tool: $v=${!v}"; exit 1; }; done
+) && { echo "  ok: pin_host_home re-pins every host path under the new home and drops the user bus"; TESTS_RUN=$((TESTS_RUN+1)); } \
+  || { echo "  FAIL: pin_host_home left a host path / the user bus reachable"; TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1)); }
+
+# The lane's identity never reaches a test (#541): sourcing helpers.sh drops it, and pin_host_home does again.
+assert_eq "$(HARNESS_SESSION=u-1 HARNESS_ISSUE=541 TMUX=/s,1,0 TMUX_PANE=%1 HARNESS_PREFIX=hz bash -c 'source "$1"; echo "${HARNESS_SESSION-}|${HARNESS_ISSUE-}|${TMUX-}|${TMUX_PANE-}|${HARNESS_PREFIX-}"' _ "$HERE/helpers.sh")" "||||" \
+  "sourcing helpers.sh drops the lane's HARNESS_SESSION / HARNESS_ISSUE / TMUX / prefix (sess_sweep would kill the lane)"
+assert_eq "$(HARNESS_SESSION=u-1 bash -c 'source "$1"; export HARNESS_SESSION=u-2 TMUX=/s,1,0; pin_host_home /pinned/h; echo "${HARNESS_SESSION-}|${TMUX-}"' _ "$HERE/helpers.sh")" "|" \
+  "pin_host_home drops a lane identity set after sourcing"
+
+# One source of truth (Acceptance 4): every path var the engine rewrites for native Windows programs
+# (HARNESS_NATIVE_PATH_VARS) is pinned or dropped by pin_host_home, or exempted in helpers.sh WITH a reason.
+source "$HERE/../scripts/portable.sh" 2>/dev/null
+undecided=""
+for v in $HARNESS_NATIVE_PATH_VARS; do
+  [[ " $(echo $HARNESS_HOST_PIN_VARS | tr ' ' '\n' | sed 's/:.*//' | tr '\n' ' ')$(echo $HARNESS_HOST_DROP_VARS) $(echo $HARNESS_HOST_PATH_EXEMPT) " == *" $v "* ]] || undecided+=" $v"
+done
+assert_eq "$undecided" "" "every HARNESS_NATIVE_PATH_VARS member is pinned, dropped, or exempted with a reason"
+assert_ok "the exemptions are explained in helpers.sh (a '#   NAME … — reason' line each)" bash -c '
+  for v in $1; do grep -qE "^#   .*\b$v\b.* — " "$2" || { echo "no reason for $v"; exit 1; }; done' _ "$HARNESS_HOST_PATH_EXEMPT" "$HERE/helpers.sh"
+
+# ── static lint (Acceptance 3): no test assigns HARNESS_HOME before pinning the host fleet registry ────
+# host_pin_offenders <file…> — print each file that assigns HARNESS_HOME (export, plain, inline env prefix,
+# os.environ, a kwarg) on a line before — or without — a line that pins the host: pin_host_home, make_env,
+# or its own HARNESS_FLEETS_DIR. A pin on the SAME line as the assignment counts.
+host_pin_offenders(){ local f
+  for f in "$@"; do
+    awk '/^[[:space:]]*#/ { next }
+         { asg = ($0 ~ /(^|[^A-Za-z0-9_])HARNESS_HOME[[:space:]]*=/ || $0 ~ /environ\[[^]]*HARNESS_HOME[^]]*\][[:space:]]*=/)
+           pin = ($0 ~ /(^|[^A-Za-z0-9_])(pin_host_home|make_env)([^A-Za-z0-9_]|$)/ || $0 ~ /HARNESS_FLEETS_DIR[^A-Za-z0-9_]*[[:space:]]*=/ || $0 ~ /environ\[[^]]*HARNESS_FLEETS_DIR[^]]*\]/ )
+           if (pin) pinned = 1
+           if (asg && !pinned) bad = 1 }
+         END { exit bad ? 1 : 0 }' "$f" || echo "${f##*/}"
+  done; }
+LINT="$(mktemp -d)"; tmp_track "$LINT"
+printf 'source helpers.sh\nexport HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1\nbash update.sh\n' > "$LINT/test_bad_export.sh"
+printf 'HARNESS_HOME="$T/host" bash update.sh\n'                                                    > "$LINT/test_bad_inline.sh"
+printf 'import os\nos.environ["HARNESS_HOME"] = d\n'                                                > "$LINT/test_bad_environ.py"
+printf 'source helpers.sh\nexport HARNESS_HOME=/h\npin_host_home /h\n'                              > "$LINT/test_bad_late.sh"
+printf 'source helpers.sh\npin_host_home "$T/host"\nexport HARNESS_HOME="$T/host"\n'               > "$LINT/test_good_helper.sh"
+printf 'source helpers.sh\nmake_env\nHARNESS_HOME=/x cmd\n'                                          > "$LINT/test_good_make_env.sh"
+printf 'export HARNESS_HOME="$T/h" HARNESS_FLEETS_DIR="$T/h/fleets"\n'                              > "$LINT/test_good_same_line.sh"
+printf 'import os\nos.environ["HARNESS_FLEETS_DIR"] = d + "/f"\nos.environ["HARNESS_HOME"] = d\n'   > "$LINT/test_good_environ.py"
+printf '# export HARNESS_HOME=/commented\necho hi\n'                                                 > "$LINT/test_good_comment.sh"
+assert_eq "$(host_pin_offenders "$LINT"/test_bad_* | tr '\n' ' ')" \
+  "test_bad_environ.py test_bad_export.sh test_bad_inline.sh test_bad_late.sh " "the lint catches a planted offender of every shape"
+assert_eq "$(host_pin_offenders "$LINT"/test_good_*)" "" "...and passes a helper, make_env, a same-line pin, and a comment"
+offenders="$(host_pin_offenders "$HERE"/test_*.sh "$HERE"/test_*.py | tr '\n' ' ')"
+assert_eq "$offenders" "" "no test assigns HARNESS_HOME without pinning HARNESS_FLEETS_DIR (pin_host_home) first"
+
+# ── tmux lint (Acceptance 5): a test that kills tmux must have its own private server ─────────────────
+# A real `tmux kill-server` (or kill-session / kill-window on the default socket) in a test that has not
+# set a private TMUX_TMPDIR AND dropped the lane's TMUX reaches the server every co-resident fleet runs on.
+# Stub bodies, greps and printf'd probe text are not invocations. The scan's own pattern is built from
+# parts: spelled out, it would match this file.
+tm=tmux; kk=kill
+TMUX_KILL_RE="(^|[;&|({'\"[:space:]])(command[[:space:]]+)?${tm}[[:space:]]+${kk}-(server|session|window)([^A-Za-z0-9_-]|\$)"
+TMUX_REAL_SKIP='[[:space:]]-[LS][[:space:]]|grep|assert_|printf|echo|sess_describe'   # a private socket, a stub body, a probe string
+tmux_offenders(){ local f code
+  for f in "$@"; do
+    code="$(grep -v '^[[:space:]]*#' "$f")"
+    grep -E "$TMUX_KILL_RE" <<<"$code" | grep -vE "$TMUX_REAL_SKIP" >/dev/null || continue   # no real, default-socket kill
+    { grep -E '(^|[^A-Za-z0-9_])TMUX_TMPDIR=' <<<"$code" >/dev/null &&
+      grep -E '(unset[[:space:]]+([A-Z_]+[[:space:]]+)*TMUX([[:space:]]|$)|env[[:space:]]+-u[[:space:]]+TMUX([[:space:]]|$))' <<<"$code" >/dev/null; } \
+      || echo "${f##*/}"
+  done; }
+printf 'trap "%s %s-server" EXIT\n' "$tm" "$kk"                                                      > "$LINT/test_tmux_bad_server.sh"
+printf 'mk(){ %s %s-session -t "=$1"; }\n' "$tm" "$kk"                                              > "$LINT/test_tmux_bad_session.sh"
+printf 'export TMUX_TMPDIR="$T/tmux"\n%s %s-server\n' "$tm" "$kk"                                   > "$LINT/test_tmux_bad_no_unset.sh"
+printf 'export TMUX_TMPDIR="$T/tmux"; unset TMUX TMUX_PANE\ntrap "%s %s-server" EXIT\n' "$tm" "$kk" > "$LINT/test_tmux_good_private.sh"
+printf '%s -L sock %s-server\n' "$tm" "$kk"                                                         > "$LINT/test_tmux_good_L.sh"
+printf "grep -q '%s %s-session' \"\$CALLS\"\n" "$tm" "$kk"                                          > "$LINT/test_tmux_good_grep.sh"
+assert_eq "$(tmux_offenders "$LINT"/test_tmux_bad_* | tr '\n' ' ')" \
+  "test_tmux_bad_no_unset.sh test_tmux_bad_server.sh test_tmux_bad_session.sh " "the tmux lint catches a planted offender"
+assert_eq "$(tmux_offenders "$LINT"/test_tmux_good_*)" "" "...and passes a private TMUX_TMPDIR + unset TMUX, a -L socket, and a grep"
+assert_eq "$(tmux_offenders "$HERE"/test_*.sh | tr '\n' ' ')" "" "every test that kills tmux has a private TMUX_TMPDIR and drops TMUX"
+
+# ── the generalised decoy (Acceptance 2): a LIVE worker in a registered fleet must survive every test ──
+# that updates, supervises, or starts a fleet — handed ONLY the fleet/poller/snapshot pins, which is all a
+# lane inherits of the real host. The decoy is the incident in miniature: a registered fleet whose worker
+# runs a foreign ENGINE_DIR, which fleet_roll kills and relaunches from the sandbox engine.
+# runs_fleets <file> — the test runs update.sh / `harness update`, supervise.sh / `harness supervise`, or `harness start`.
+runs_fleets(){ grep -v '^[[:space:]]*#' "$1" |
+  grep -E '(bash|exec|"\$[A-Za-z_]+/?[a-z./]*)[^#|]*(update|supervise|start)\.sh|harness"?[[:space:]]+(update|supervise|start)([[:space:]]|$|")' >/dev/null; }
+fleet_tests=()
+for f in "$HERE"/test_*.sh; do [[ "${f##*/}" == test_hermetic.sh ]] && continue; runs_fleets "$f" && fleet_tests+=("$(basename "$f")"); done
+for t in test_supervise_autoupdate.sh test_update_release.sh test_migrate_release.sh test_update_prerelease.sh test_rollback.sh test_update.sh; do
+  assert_ok "the fleet-roller scan finds $t" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${fleet_tests[*]}" "$t"
+done
+DECOY_PID=""
+make_live_fleet(){   # LIVE_ROOT: a host root holding ONE registered fleet with a live worker (not in $(): a tmp_track there dies with it)
+  LIVE_ROOT="$(mktemp -d)"; tmp_track "$LIVE_ROOT"
+  local sd="$LIVE_ROOT/decoy/proj/.harness"; mkdir -p "$LIVE_ROOT/fleets" "$LIVE_ROOT/poller/registry" "$LIVE_ROOT/snapshots" "$sd/run"
+  printf ': "${HARNESS_MODE:=single}"\n: "${HARNESS_REPO:=o/decoy}"\n: "${HARNESS_SESS_PREFIX:=decoy}"\n: "${HARNESS_POOL:=1}"\n: "${HARNESS_USE_POLLER:=0}"\n' > "$sd/config"
+  (cd "$LIVE_ROOT/decoy/proj" && git init -q .)
+  ( cd "$LIVE_ROOT/decoy/proj" && exec env ENGINE_DIR=/old/engine sleep 3000 </dev/null >/dev/null 2>&1 ) & DECOY_PID=$!
+  echo "$DECOY_PID" > "$sd/run/worker-1.pid"
+  printf '{"prefix":"decoy","project":"%s","run_dir":"%s/run","slugs":[],"started_at":1}\n' "$sd" "$sd" > "$LIVE_ROOT/fleets/decoy.json"
+}
+for t in "${fleet_tests[@]}"; do
+  make_live_fleet
+  # Only the fleet/poller/snapshot pins reach the test — and a PRIVATE tmux server, never the lane's identity
+  # (STATE_DIR, HARNESS_SESSION, TMUX…): the decoy guards the registry, it must not hand a test the lane's own
+  # session to sweep (#541, the lane ran this block and died with 137).
+  env -u STATE_DIR -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX -u TMUX -u TMUX_PANE \
+      TMUX_TMPDIR="$(mktemp -d)" HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" HARNESS_POLLER_DIR="$LIVE_ROOT/poller" \
+      HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" bash "$HERE/$t" >/dev/null 2>&1
+  assert_ok "$t: the registered fleet's live worker is not killed" kill -0 "$DECOY_PID"
+  assert_eq "$(ls "$LIVE_ROOT/fleets")" "decoy.json" "$t: the fleet registry holds only its one original entry"
+  assert_eq "$(ls "$LIVE_ROOT/decoy/proj/.harness/run")" "worker-1.pid" "$t: no worker / priority pid file was relaunched into the live fleet"
+  assert_eq "$(find "$LIVE_ROOT/poller/registry" "$LIVE_ROOT/snapshots" -mindepth 1 | wc -l)" "0" "$t: nothing in the live poller registry or snapshots dir"
+  kill "$DECOY_PID" 2>/dev/null; wait "$DECOY_PID" 2>/dev/null
+done
 
 finish

@@ -13,6 +13,8 @@ source "$HERE/../scripts/lib.sh"
 source "$HERE/../scripts/drive.sh"
 source "$HERE/helpers.sh"
 make_env
+# Real tmux below: a private server, never the default socket the live fleets share (#541).
+export TMUX_TMPDIR="$(mktemp -d)"; tmp_track "$TMUX_TMPDIR"; unset TMUX TMUX_PANE
 
 # ── A: session_stalled — classify a real captured pane ───────────────────────
 # Uses REAL tmux: spin up three live panes whose content mimics the three states, capture each with
