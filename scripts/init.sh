@@ -90,7 +90,8 @@ ask HARNESS_POOL       "Parallel issues (pool workers, one lane each)" "${HARNES
 # #474: the fleet's one unit is named for its repo — the lowercased short name (owner/Foo -> foo) — in
 # session and worktree names. Not asked; a pre-set HARNESS_UNIT wins. No repo yet = empty = `main`.
 if [[ -z "${HARNESS_UNIT:-}" && -n "${HARNESS_REPO:-}" ]]; then
-  HARNESS_UNIT="$(printf '%s' "${HARNESS_REPO##*/}" | tr '[:upper:]' '[:lower:]')"
+  # #554: tmux-safe too — `.` and `:` in a session name break lookup (vercel/next.js -> next_js). Same rule as lib.sh unit_safe.
+  HARNESS_UNIT="$(printf '%s' "${HARNESS_REPO##*/}" | tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/[^A-Za-z0-9_-]/_/g')"
 fi
 ask HARNESS_POLL          "Poll interval (s)"             "${HARNESS_POLL:-300}"
 ask HARNESS_PRIORITY_POLL "Priority-lane poll interval (s)" "${HARNESS_PRIORITY_POLL:-60}"

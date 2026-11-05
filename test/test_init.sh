@@ -46,6 +46,13 @@ assert "no targets.tsv written"                        "[[ ! -e '$TMP/.harness/t
 U2="$(mktemp -d)"; ( HARNESS_INIT_NONINTERACTIVE=1 STATE_DIR="$U2/.harness" HARNESS_REPO=Acme/MixedCase bash "$TMP/.harness/scripts/init.sh" >/dev/null \
   && source "$U2/.harness/config" && [[ "$HARNESS_UNIT" == mixedcase ]] ) \
   && echo "  ok: unit lowercased" || { echo "  FAIL: unit lowercased"; exit 1; }
+# #554: a dotted repo name (vercel/next.js, owner/owner.github.io) must not give a unit tmux reads as a window/pane separator
+U3="$(mktemp -d)"; ( HARNESS_INIT_NONINTERACTIVE=1 STATE_DIR="$U3/.harness" HARNESS_REPO=vercel/next.js bash "$TMP/.harness/scripts/init.sh" >/dev/null \
+  && source "$U3/.harness/config" && [[ "$HARNESS_UNIT" == next_js ]] ) \
+  && echo "  ok: #554 dotted repo -> HARNESS_UNIT=next_js" || { echo "  FAIL: #554 dotted repo unit"; exit 1; }
+U4="$(mktemp -d)"; ( HARNESS_INIT_NONINTERACTIVE=1 STATE_DIR="$U4/.harness" HARNESS_REPO=Acme/Owner.GitHub.io bash "$TMP/.harness/scripts/init.sh" >/dev/null \
+  && source "$U4/.harness/config" && [[ "$HARNESS_UNIT" == owner_github_io ]] ) \
+  && echo "  ok: #554 several dots, mixed case -> owner_github_io" || { echo "  FAIL: #554 several dots"; exit 1; }
 # env override: pre-set env beats file (because lines are := )
 ( HARNESS_MODE=planned; source "$CFG"; [[ "$HARNESS_MODE" == planned ]] ) \
   && echo "  ok: env overrides file" || { echo "  FAIL: env override"; exit 1; }

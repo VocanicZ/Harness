@@ -208,6 +208,12 @@ E3="$(fleet e-match ': "${HARNESS_TOPOLOGY:=multi}"
 : "${HARNESS_REPO:=acme/two}"' 'one\tacme/one\t-\tfirst\ntwo\tacme/two\t-\tsecond\n' one two)"
 migrate "$E3" >/dev/null
 assert_eq "$(read_cfg "$E3" 'echo $(fleet_unit)')" "two" "the row whose repo matches HARNESS_REPO is kept, not the first"
+# #554: a targets.tsv id with a `.` would become a tmux-unsafe HARNESS_UNIT — written as `_` instead
+E5="$(fleet e-dotted ': "${HARNESS_TOPOLOGY:=multi}"
+: "${HARNESS_REPO:=vercel/next.js}"' 'next.js\tvercel/next.js\t-\tnext\n' next.js)"
+migrate "$E5" >/dev/null
+assert_eq "$(cfgval "$E5" HARNESS_UNIT)" "next_js" "#554: a dotted unit id is written tmux-safe (next_js)"
+assert_eq "$(read_cfg "$E5" 'echo $(sess_impl "$(fleet_unit)" 7)')" "$(read_cfg "$E5" 'echo $HARNESS_SESS_PREFIX')-next_js-i7" "#554: ...and the session name has no dot"
 E4="$(fleet e-clone ': "${HARNESS_TOPOLOGY:=multi}"
 : "${HARNESS_REPO:=acme/renamed}"' 'main\tacme/renamed\t-\tx\n')"
 mkdir -p "$E4/checkouts/oldname/.git"; git -C "$E4/checkouts/oldname" init -q 2>/dev/null; git -C "$E4/checkouts/oldname" remote add origin https://github.com/acme/renamed.git
