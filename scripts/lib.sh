@@ -59,6 +59,9 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_ORPHAN_LOCK_MIN:=20}"       # #179: minutes an agent-working issue may sit with no live session before the pool unlocks it
 : "${HARNESS_BLOCKED_BACKOFF_MIN:=0}"    # #271: minutes a parked agent-blocked issue is held before an autonomous fleet retries it unchanged; 0 = until it changes
+: "${HARNESS_CHURN_COUNT:=3}"             # #545: crash-loop guard — this many young session_ends on one issue + kind trip it (park + evidence comment); 0 = off
+: "${HARNESS_CHURN_MAX_WALL_S:=900}"     # #545: a session that ended in under this many seconds is "young"
+: "${HARNESS_CHURN_WINDOW_MIN:=180}"     # #545: ...and the counted sessions must all end within this many minutes of the newest
 : "${HARNESS_SELFPARK_GRACE_MIN:=30}"    # #417: minutes a self-parked impl lane (agent-paused, no checkpoint sent) gets after its nudge before checkpoint + kill (autonomous fleets)
 : "${HARNESS_LIMIT_NUDGE_EVERY:=5}"      # #120: re-nudge a quota-parked session every Nth poll (never killed — the quota returns on its own)
 : "${HARNESS_USAGE_CHECKPOINT_PCT:=90}"  # #194: checkpoint every live session + hold claims at this % of any usage window
@@ -101,6 +104,7 @@ export HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HAR
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
   HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM HARNESS_BLOCKED_BACKOFF_MIN HARNESS_WINDOWS_HOST \
+  HARNESS_CHURN_COUNT HARNESS_CHURN_MAX_WALL_S HARNESS_CHURN_WINDOW_MIN \
   HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
 
 OWNER="$HARNESS_OWNER"
@@ -1427,6 +1431,7 @@ def part(m):
     return body.rstrip('\n') + '\n' if m.group(0).endswith('\n') else body
 tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?', part, tmpl)
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
+kv.setdefault('CHURN', '')   # #545: optional — a caller that passes no crash-loop block renders none
 sys.stdout.write(re.sub(r'{{(\w+|skill:[\w.-]+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
 }
@@ -1459,6 +1464,47 @@ security_audit_round(){ _marker_round "$1" harness-security-audit; }
 resume_handoff(){ [[ -n "$(fleet_login)" ]] || return 0
   gh issue view "$1" -R "$SLUG" --json comments \
     -q "$(_fleet_comments_jq "<!-- harness-handoff issue=$1 ") | last // empty" 2>/dev/null || true; }
+# --- #545: the crash-loop guard -------------------------------------------------------------------
+# Every reap path unlocks an issue whose session died, and the next dispatch relaunches it. When every
+# session on an issue dies young (a suite that SIGKILLs the live tmux server, a lane that cannot start),
+# that loop never ends and nothing says so. churn.py counts the issue's young session_ends across ALL
+# lanes; this trips on HARNESS_CHURN_COUNT of them (0 = off) and parks the issue instead.
+CHURN_PY="$ENGINE_DIR/scripts/churn.py"
+# churn_check <slug> <n> <kind> <session uuid> — called by stats_sweep_ended right after the session's
+# session_end, before any reaper unlocks the issue. rc 0 = tripped (issue parked), 1 = nothing done.
+# The order is the contract: strip agent-working + add agent-blocked, comment, event, and park_issue
+# LAST — it records the issue's updatedAt, and any later edit of ours would lift the park (#271).
+churn_check(){ local slug="$1" n="$2" kind="$3" uuid="$4" out ids count win body st
+  [[ "${HARNESS_CHURN_COUNT:-3}" =~ ^[0-9]+$ ]] && (( ${HARNESS_CHURN_COUNT:-3} > 0 )) || return 1
+  [[ -n "$slug" && "$n" =~ ^[0-9]+$ && "$kind" =~ ^(impl|bug-triage|bug-fix)$ && -n "$uuid" ]] || return 1
+  out="$(timeout 20 python3 "$CHURN_PY" check --repo "$slug" --issue "$n" --kind "$kind" --session "$uuid" 2>/dev/null)" || return 1
+  is_parked "$slug" "$n" && return 1
+  # A goal that was met is not a crash: the issue closed, a triage flipped it to a fix, or a pause took it.
+  st="$(gh issue view "$n" -R "$slug" --json state,labels 2>/dev/null)" || return 1
+  grep -q '"state":"OPEN"' <<<"$st" || return 1
+  grep -qiF "\"name\":\"$HARNESS_LABEL_PAUSED\"" <<<"$st" && return 1
+  [[ "$kind" == bug-triage ]] && grep -qiF "\"name\":\"$HARNESS_LABEL_BUG_TRIAGED\"" <<<"$st" && return 1
+  IFS=$'\t' read -r count win ids < <(python3 -c 'import json,sys
+r = json.loads(sys.argv[1]); print(r["count"], r["window_min"], ",".join(r["sessions"]), sep="\t")' "$out" 2>/dev/null) || return 1
+  body="$(timeout 30 python3 "$CHURN_PY" evidence --repo "$slug" --issue "$n" --kind "$kind" --sessions "$ids" 2>/dev/null)" || body=""
+  [[ -n "$body" ]] || body="<!-- harness-churn issue=$n -->"$'\n'"harness: $count $kind sessions on this issue ended young; parked by the crash-loop guard."
+  log "churn: $slug#$n — $count $kind sessions ended under ${HARNESS_CHURN_MAX_WALL_S:-900}s within ${win}m — parking it instead of relaunching (#545)"
+  gh issue edit "$n" -R "$slug" --remove-label "$HARNESS_LABEL_WORKING" --add-label "$HARNESS_LABEL_BLOCKED" >/dev/null 2>&1 || {
+    unlock_issue "$slug" "$n" || true   # queued for retry; retry_pending_unlocks re-parks
+    gh issue edit "$n" -R "$slug" --add-label "$HARNESS_LABEL_BLOCKED" >/dev/null 2>&1 || true; }
+  gh issue comment "$n" -R "$slug" --body "$body" >/dev/null 2>&1 || true
+  harness_event churn repo="$slug" issue="$n" kind="$kind" count="$count" window_min="$win" sessions="$ids"
+  park_issue "$slug" "$n"
+  return 0; }
+# churn_prompt_block <issue> — what the next lane's prompt gets after a trip (the {{CHURN}} token of
+# impl / bug-triage / bug-fix / resume): the LATEST churn comment the fleet itself posted, behind an
+# instruction to find out what killed the earlier sessions. Empty when there is none, so a prompt with
+# no crash-loop history renders exactly as before.
+churn_prompt_block(){ local ev; [[ -n "$(fleet_login)" ]] || return 0
+  ev="$(gh issue view "$1" -R "$SLUG" --json comments \
+        -q "$(_fleet_comments_jq "<!-- harness-churn issue=$1 ") | last // empty" 2>/dev/null)" || return 0
+  [[ -n "$ev" ]] || return 0
+  printf '\n\nCRASH-LOOP WARNING: earlier sessions on this issue each ended within minutes of launch, so the engine parked it until a human looked. Before you repeat their steps, FIND OUT WHAT KILLED THEM: read the evidence below. A command that ended in `Exit code 137` was SIGKILLed from outside (often by a test or kill that reached live tmux or other lanes). Do not re-run the same suite command blindly; isolate it first (a private TMUX_TMPDIR, no kill by pattern) or run the narrowest test that proves the point.\n----- BEGIN CHURN EVIDENCE (posted by the engine) -----\n%s\n----- END CHURN EVIDENCE -----' "$ev"; }
 write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/.claude"
   { printf -- '---\nactive: true\niteration: 1\nsession_id: %s\nmax_iterations: %s\ncompletion_promise: "%s"\nstarted_at: "%s"\n---\n\n' \
       "$uuid" "$maxiter" "$promise" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; cat "$wd/.harness-task.md"
@@ -1486,16 +1532,18 @@ stats_sess_event(){ local sess="$1"; shift; harness_event "$1" --ctx "$RUN_DIR/$
 # shared RUN_DIR at once exactly one emits. #418: the claimer then ends whatever the session left
 # running (sess_sweep on its HARNESS_SESSION uuid) — a lane that exited on its own (Ralph promise,
 # inject loop end, `exec claude` returning) had no sess_kill to do it.
-stats_sweep_ended(){ local f s claim uuid
+stats_sweep_ended(){ local f s claim uuid repo issue kind cp
   shopt -s nullglob
   for f in "$RUN_DIR"/*.stats; do
     s="$(basename "$f" .stats)"
     session_live "$s" && continue
     claim="$f.end.$$"; mv "$f" "$claim" 2>/dev/null || continue
-    uuid="$(python3 -c 'import json,sys
-print(json.load(open(sys.argv[1])).get("session", ""))' "$claim" 2>/dev/null)" || uuid=""
-    harness_event session_end --ctx "$claim" usage_tsv="$(_stats_cli_usage "$claim")"; rm -f "$claim"
+    IFS='|' read -r uuid repo issue kind < <(python3 -c 'import json,sys
+c = json.load(open(sys.argv[1])); print(*[str(c.get(k, "")) for k in ("session", "repo", "issue", "kind")], sep="|")' "$claim" 2>/dev/null) || uuid=""
+    cp=(); [[ -f "$RUN_DIR/$s.checkpoint" ]] && cp=(checkpointed=1)   # #545: the engine ended it on purpose — not a crash
+    harness_event session_end --ctx "$claim" usage_tsv="$(_stats_cli_usage "$claim")" ${cp[@]+"${cp[@]}"}; rm -f "$claim"
     [[ -n $uuid ]] && ! session_live "$s" && sess_sweep "$uuid"
+    churn_check "$repo" "$issue" "$kind" "$uuid" || true   # #545: BEFORE the reaper unlocks the issue
   done
   shopt -u nullglob; return 0; }
 # _stats_cli_usage <ctx file> — the ended session's per-model usage lines, read by the CLI adapter

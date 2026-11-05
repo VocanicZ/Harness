@@ -12,7 +12,7 @@ before it reaches `kill` or `pgrep -P`. Never write `pgrep -P ${p:-0}`: a missin
 becomes PID 0, `pgrep -P 0` lists PID 1's children, and killing them takes down `systemd --user` and
 every fleet on the host. Never signal PID 0, PID 1 or a negative PID.
 
-Repo: {{SLUG}}   Issue: #{{ISSUE}}  (labelled `{{LABEL_WORKING}}` — it is yours)
+Repo: {{SLUG}}   Issue: #{{ISSUE}}  (labelled `{{LABEL_WORKING}}` — it is yours){{CHURN}}
 
 GOAL: reproduce/analyse bug #{{ISSUE}}, refine its body + acceptance criteria so a fresh
 fix session can implement it cold, and on success flip `{{LABEL_BUG}}` → `{{LABEL_BUG_TRIAGED}}`.

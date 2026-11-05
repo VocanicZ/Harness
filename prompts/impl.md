@@ -13,7 +13,7 @@ becomes PID 0, `pgrep -P 0` lists PID 1's children, and killing them takes down 
 every fleet on the host. Never signal PID 0, PID 1 or a negative PID.
 
 Repo: {{SLUG}}   Branch: {{BRANCH}} (already checked out)
-Your issue: #{{ISSUE}}  (already labelled `agent-working` — it is yours)
+Your issue: #{{ISSUE}}  (already labelled `agent-working` — it is yours){{CHURN}}
 
 GOAL: implement issue #{{ISSUE}} test-guided via rtdd, get it merged, and close the issue.
 

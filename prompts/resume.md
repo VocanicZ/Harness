@@ -12,7 +12,7 @@ becomes PID 0, `pgrep -P 0` lists PID 1's children, and killing them takes down 
 every fleet on the host. Never signal PID 0, PID 1 or a negative PID.
 
 Repo: {{SLUG}}   Branch: {{BRANCH}} (already checked out — your earlier WIP was pushed here)
-Your issue: #{{ISSUE}}
+Your issue: #{{ISSUE}}{{CHURN}}
 
 A previous agent checkpointed this work to GitHub before pausing. RECOVER first, then finish:
 1. Fetch + ensure you are on {{BRANCH}} with the pushed WIP:  git fetch origin && git checkout {{BRANCH}} && git reset --hard origin/{{BRANCH}}

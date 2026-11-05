@@ -33,6 +33,7 @@ import stats      # noqa: E402
 import portable   # noqa: E402  #355: pid_alive
 import supervise_rules  # noqa: E402
 import web_dag    # noqa: E402
+import churn      # noqa: E402  #545: the crash-loop guard's parked issues
 
 tally = fleetview.tally
 
@@ -514,6 +515,12 @@ def unowned_mismatches(events, prefix, now):
             for e in stats.mismatches(evs) if e.get("issue") is None and e.get("prd") is None]
 
 
+def churn_parked(events, prefix):
+    """#545: the issues of <prefix> the crash-loop guard parked and nothing has relaunched since, as
+    `harness status` lists them: [{"ts", "repo", "issue", "kind", "count", "window_min", "sessions"}]."""
+    return churn.parked_rows(events, prefix)
+
+
 def fleet_view(prefix, now=None):
     """/fleet/<prefix>: {"prefix", "root", "state", "asof", "mismatches", "units": [web_dag.unit_graph |
     stub]}, or
@@ -544,7 +551,8 @@ def fleet_view(prefix, now=None):
         rec, cfg, live_sessions(prefix, now, run_dir=run_dir, cfg=cfg))
     return {"prefix": entry["prefix"], "root": entry["root"], "state": entry["state"],
             "asof": min(stamps) if stamps else None, "units": units, "workers": workers,
-            "mismatches": unowned_mismatches(events, prefix, now)}
+            "mismatches": unowned_mismatches(events, prefix, now),
+            "churn": churn_parked(events, prefix)}
 
 
 # --- the issue drawer (#228) ---------------------------------------------------------------------

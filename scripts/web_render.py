@@ -541,6 +541,21 @@ def _mismatch_banner(rows):
             f'(last 7 days)</p><ul>{items}</ul></div>')
 
 
+def _churn_banner(rows):
+    """#545: a fleet-level banner for each issue the crash-loop guard parked because every session on it
+    died young (the same issues `harness status` lists). Nothing without one."""
+    if not rows:
+        return ""
+    items = "".join(
+        f'<li data-issue="{esc(r.get("issue"))}" data-kind="{esc(r.get("kind") or "")}">'
+        f'<span class="mono">{esc(r.get("repo") or "?")}#{esc(r.get("issue"))}</span> '
+        f'<span class="muted">{esc(r.get("kind") or "?")}</span> '
+        f'{esc(r.get("count"))} sessions ended young within {esc(r.get("window_min"))} min, parked since '
+        f'{esc(r.get("ts"))}; a comment or label edit releases it</li>' for r in rows)
+    return (f'<div class="page-header__churn" data-churn-banner="{len(rows)}" role="alert">'
+            f'<p>⚠ crash-loop guard parked {len(rows)} issue{"" if len(rows) == 1 else "s"}</p><ul>{items}</ul></div>')
+
+
 def fleet_regions(view, now):
     """/fleet/<prefix>'s regions: the header (state, as-of), "Awaiting you" (#229) — answer first: the
     work only a human can do leads the page — then each unit's DAG and unparented list."""
@@ -550,7 +565,7 @@ def fleet_regions(view, now):
 <h1 class="page-header__title">Fleet {esc(view["prefix"])} <span class="level {cls}">{esc(label)}</span></h1>
 <p class="page-header__meta"><span class="mono">{esc(view["root"])}</span>{asof_stamp(view["asof"], now, page=True)}</p>
 </div>
-{_mismatch_banner(view.get("mismatches"))}
+{_mismatch_banner(view.get("mismatches"))}{_churn_banner(view.get("churn"))}
 </section>""", "awaiting": awaiting_region(view["units"]),
             "workers": workers_region(view.get("workers"), view["prefix"])}
     for u in view["units"]:
