@@ -10,7 +10,14 @@ tmux_sess_live(){ tmux has-session -t "$1" 2>/dev/null; }
 # Typing and kill leave their stderr to the caller, as `tmux send-keys` / `kill-session` did before the
 # seam: an adapter silences it, supervise logs it.
 # <name> <dir> [-e K=V …] [command…] — the -e pairs are the session's environment (session_env).
-tmux_sess_start(){ tmux new-session -d -s "$1" -c "$2" "${@:3}"; }
+# #547: tmux copies the CREATING client's whole environment into the server's global environment, where every
+# later session — another fleet's lane, the operator's shell — inherits it. This call is the only one that can
+# create the server, and its client is a pool worker with one fleet's STATE_DIR / HARNESS_* / RTDD_EVENT_LOG
+# exported. So run tmux from a subshell without them (a subshell, not `env -u`: tests stub `tmux` as a function);
+# the lane gets its own values from the -e pairs. TMUX_TMPDIR, TMUX, PATH and HOME stay.
+tmux_sess_start(){ local v; ( unset STATE_DIR RTDD_EVENT_LOG
+  while IFS= read -r v; do unset "$v"; done < <(compgen -e HARNESS_)
+  tmux new-session -d -s "$1" -c "$2" "${@:3}" ); }
 tmux_sess_send_line(){ tmux send-keys -t "$1" "$2" Enter; }
 tmux_sess_type(){ tmux send-keys -t "$1" -l "$2"; }
 tmux_sess_enter(){ tmux send-keys -t "$1" Enter; }
