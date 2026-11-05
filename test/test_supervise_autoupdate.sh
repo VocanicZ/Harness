@@ -46,7 +46,10 @@ FIXTURE_ENGINE_SRC="$REAL_SRC"   # mk_src reads the checkout; rel_publish below 
 pub(){ FIXTURE_ENGINE_SRC="$T/src-$2"; rel_publish "$SRV" "$1"; FIXTURE_ENGINE_SRC="$REAL_SRC"; }
 
 hrn(){ env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK bash "$H/engine/bin/harness" "$@"; }
-sup(){ hrn supervise --once "$@" >>"$T/sup.out" 2>&1; }
+# (#537) update.sh now rolls every registered fleet itself (fleet-migrate --all), so a supervisor-installed release
+# would arrive with its workers already rolled and nothing left for the SUPERVISOR's roll — the thing under test here.
+# HARNESS_FLEET_MIGRATE=0 skips update.sh's roll; test_fleet_migrate.sh covers that one.
+sup(){ HARNESS_FLEET_MIGRATE=0 hrn supervise --once "$@" >>"$T/sup.out" 2>&1; }
 sup_n(){ local n; n="$(grep -c "$1" "$SLOG" 2>/dev/null)"; echo "${n:-0}"; }
 ev_n(){ local n; n="$(grep -c "\"event\": *\"$1\"" "$EV" 2>/dev/null)"; echo "${n:-0}"; }
 tag_of(){ readlink "$H/engine"; }
@@ -193,7 +196,7 @@ assert_ok "dry run: the would-be update is logged" grep -q 'DRY auto-update: wou
 assert_no "dry run: no state is written" test -e "$H/supervise/auto-update.json"
 # …and the roll half: really install, then dry-run the roll
 fresh_host v0.1.0; rel_latest "$SRV" v0.2.0; w=$(pidof_f "$(RUN fa)/worker-1.pid")
-hrn update >/dev/null 2>&1   # an operator updated by hand: every worker is still on v0.1.0
+HARNESS_FLEET_MIGRATE=0 hrn update >/dev/null 2>&1   # an operator updated by hand, roll skipped (#537: update rolls by default): every worker is still on v0.1.0
 mkdir -p "$H/supervise"; printf '{"tag":"v0.2.0","prev":"v0.1.0","phase":"rolling","roll_done":0,"health":"pending","flipped_at":%s,"rolled_at":""}\n' "$(date +%s)" >"$H/supervise/auto-update.json"
 : >"$SLOG"; sup --dry-run
 assert_ok "dry run: the worker is still alive" alive "$w"
@@ -234,7 +237,7 @@ fresh_host v0.1.0
 hrn supervise --install >/dev/null 2>&1                # the unit the update will find and "restart"
 assert_ok "the supervise unit is installed" test -f "$T/units/harness-supervise.service"
 old_a=$(pidof_f "$(RUN fa)/worker-1.pid"); lane_a=$(LANEPID fa)
-( exec env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK bash "$H/engine/bin/harness" supervise --once >>"$T/sup.out" 2>&1 ) &
+( exec env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK HARNESS_FLEET_MIGRATE=0 bash "$H/engine/bin/harness" supervise --once >>"$T/sup.out" 2>&1 ) &   # (#537) update.sh would roll the fleets itself; this models an update that died before it
 echo $! >"$T/kill-sup"        # the exec'd supervisor itself: the unit restart kills it, as systemd would
 for _ in $(seq 1 100); do grep -q 'Update complete' "$SLOG" 2>/dev/null && break; sleep 0.2; done
 sleep 0.5

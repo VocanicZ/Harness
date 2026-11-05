@@ -14,6 +14,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   not dispatch a bug whose session still lives. Any existing claim file is left alone, so a priority-lane bug
   claim is never taken over. `test/test_pool_lanes.sh` section 6b covers it.
 
+### `harness update` rolls fleets that were already migrated onto the new worker loop (#537)
+
+- `scripts/fleet-migrate.sh` returned before rolling anything when a fleet's config was already one repo (exit 10)
+  or only had its leftover `HARNESS_CAP` line dropped (exit 11), on the assumption that its workers already ran the
+  new loop. A fleet migrated by a release that has #467 but not the step loop (#468) has the new config under
+  workers still on the old unit-claim loop, and `harness update` left them there. It now calls `fleet_roll` for
+  every registered fleet whatever the config step did. `fleet_roll` kills only a worker whose `ENGINE_DIR` is not
+  the target engine, so a worker already current is left running and a second update kills nothing; lane sessions
+  survive and the relaunched worker adopts them. Only a freshly migrated config still kills all of the fleet's
+  workers. `HARNESS_FLEET_MIGRATE=0` now also skips the migration and roll in `harness update`.
+- `test/test_fleet_migrate.sh` unsets the inherited `STATE_DIR` (a lane's own fleet is the "folder update ran in"
+  fallback) and `test/test_hermetic.sh` runs it against a decoy fleet to prove it.
+
 ### The lane spawn that creates the tmux server no longer leaks its fleet's env into it (#547)
 
 - tmux copies the environment of the client that creates the server into the server's global environment, so a

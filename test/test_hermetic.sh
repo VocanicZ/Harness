@@ -470,4 +470,17 @@ for t in "${fleet_tests[@]}"; do
   kill "$DECOY_PID" 2>/dev/null; wait "$DECOY_PID" 2>/dev/null
 done
 
+# ── (#537) fleet-migrate --all falls back to $STATE_DIR (the folder `harness update` ran in), and it rolls an ──
+# already-migrated fleet's old-release workers. A lane inherits ITS fleet's STATE_DIR, so test_fleet_migrate.sh run
+# directly from a lane would roll the lane's own fleet. Hand it the decoy as STATE_DIR (and a registry that does not
+# list it): the decoy's worker must still be there afterwards.
+make_live_fleet
+printf ': "${HARNESS_UNIT:=main}"\n' >> "$LIVE_ROOT/decoy/proj/.harness/config"   # already one repo: the rc 10 path
+env -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX -u TMUX -u TMUX_PANE \
+    STATE_DIR="$LIVE_ROOT/decoy/proj/.harness" TMUX_TMPDIR="$(mktemp -d)" HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" \
+    HARNESS_POLLER_DIR="$LIVE_ROOT/poller" HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" bash "$HERE/test_fleet_migrate.sh" >/dev/null 2>&1
+assert_ok "test_fleet_migrate.sh run with a live fleet's STATE_DIR: that fleet's worker is not rolled" kill -0 "$DECOY_PID"
+assert_eq "$(ls "$LIVE_ROOT/decoy/proj/.harness/run")" "worker-1.pid" "...and no pid file was relaunched into it"
+kill "$DECOY_PID" 2>/dev/null; wait "$DECOY_PID" 2>/dev/null
+
 finish
