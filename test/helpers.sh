@@ -45,6 +45,45 @@ HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNES
 # every test gets a clean process; test_init.sh re-drops for a direct `bash test_init.sh`.
 unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 
+# ── the host seam: ONE list, ONE helper (#541) ─────────────────────────────────────────────────────
+# Every fleet process exports HARNESS_FLEETS_DIR / HARNESS_POLLER_DIR / HARNESS_SNAPSHOTS_DIR (lib.sh)
+# and a lane inherits them, and every reader PREFERS the inherited value over the HARNESS_HOME a test
+# sets for itself. A test that sets HARNESS_HOME alone therefore still reads — and, through
+# `harness supervise` / `harness update`, ROLLS — every real fleet on the host (#541: workers of every
+# fleet killed and relaunched from a test sandbox's engine). pin_host_home is the one place that
+# re-pins every host path under a throwaway home; run.sh, make_env and each test that picks its own
+# HARNESS_HOME go through it, and test_hermetic.sh fails on a test that does not.
+#
+# <VAR>:<subdir> — re-pinned to <home>/<subdir>.
+HARNESS_HOST_PIN_VARS="HARNESS_FLEETS_DIR:fleets HARNESS_POLLER_DIR:poller HARNESS_SNAPSHOTS_DIR:snapshots
+  HARNESS_WEB_UNIT_DIR:units HARNESS_SUPERVISE_UNIT_DIR:units"
+# Inherited path pins with a default derived from HARNESS_HOME: dropped, so the default lands in the sandbox.
+HARNESS_HOST_DROP_VARS="HARNESS_HEADLESS_DIR HARNESS_LANE_DIR HARNESS_PARKED_FILE HARNESS_GH_RATE_DIR
+  HARNESS_EVENTS_FILE HARNESS_RTDD_EVENTS_FILE HARNESS_SUPERVISE_CONF HARNESS_SUPERVISE_STATE HARNESS_SUPERVISE_LOG"
+# The user service manager is host state too: web.sh / supervise.sh `systemctl --user` / `loginctl` against
+# the live bus and write units into ~/.config/systemd/user (the live harness-web.service was stopped and
+# its unit file deleted by a test that did, #541). A tool that fails is what a host with no bus does.
+HARNESS_HOST_FAIL_TOOLS="HARNESS_WEB_SYSTEMCTL HARNESS_WEB_LOGINCTL HARNESS_SUPERVISE_SYSTEMCTL HARNESS_SUPERVISE_LOGINCTL"
+HARNESS_HOST_DROP_BUS="XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS"
+# HARNESS_NATIVE_PATH_VARS (scripts/portable.sh) members that need no pin here, and why. A name in that
+# list that is in neither list above nor here fails test_hermetic.sh: a new host path must be decided.
+#   ENGINE_DIR RUN_DIR — per-test engine / run dir, set by each test or make_env, never inherited from a host path
+#   STATE_DIR — project state; re-pinned by run.sh and make_env (not a host path)
+#   HARNESS_HOME — the root this helper is given
+#   HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR — per-project config, dropped by unset_inherited_config
+#   CLAUDE_CONFIG_DIR — Claude Code's config dir, dropped by make_env
+HARNESS_HOST_PATH_EXEMPT="ENGINE_DIR RUN_DIR STATE_DIR HARNESS_HOME HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR CLAUDE_CONFIG_DIR"
+# pin_host_home <dir> — export HARNESS_HOME=<dir> and everything that would otherwise point at the host.
+# Creates nothing: a test may assert on a host root that does not exist yet.
+pin_host_home(){ local home="$1" e v
+  [[ -n "$home" ]] || { echo "pin_host_home: no home given" >&2; return 1; }
+  export HARNESS_HOME="$home"
+  for e in $HARNESS_HOST_PIN_VARS; do export "${e%%:*}=$home/${e#*:}"; done
+  unset $HARNESS_HOST_DROP_VARS $HARNESS_HOST_DROP_BUS
+  for v in $HARNESS_HOST_FAIL_TOOLS; do export "$v=false"; done
+  POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
+}
+
 # Temp hygiene (#294). make_env's RUN_DIR holds stubs, claims, state and tmux sockets — thousands of
 # inodes — and a script calls make_env many times, so an unremoved one per call exhausted a shared
 # host's /tmp. tmp_track records a path; tmp_cleanup removes every recorded one. The first
@@ -152,7 +191,7 @@ make_env(){
   # STATE_DIR, so pinning STATE_DIR alone still let tests write the real host poller registry — which
   # is shared by every co-resident fleet, so fixture entries there make `harness start` abort a real
   # fleet on a bogus prefix collision. Same seam, different root.
-  export HARNESS_HOME="$RUN_DIR/host"
+  pin_host_home "$RUN_DIR/host"   # HARNESS_HOME and every host path under it (one list, above)
   # #183: the rate-limit guard probes `gh api rate_limit` from issuelib — a real network call from a
   # test with no stubbed gh binary. Off by default; test_ghrate.sh turns it on against its stub.
   export HARNESS_GH_RATE_GUARD=0
@@ -162,7 +201,6 @@ make_env(){
   # fleet block pins anything) — so an unpinned suite strips a live sibling fleet's prefix
   # reservation off the real host, not just litters it. Pin it beside HARNESS_HOME, before any test
   # can reach it. See test_hermetic.sh's fleet-decoy block.
-  export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
   # Claude Code's config too. ensure_trusted seeds EVERY config the launched pane could read —
   # ~/.claude.json, $CLAUDE_CONFIG_DIR/.claude.json, and each ~/.claude-switch/accounts/*/.claude.json
   # — so a test run inside a live agent session (which exports CLAUDE_CONFIG_DIR via .bashrc) wrote
@@ -204,7 +242,6 @@ make_env(){
   # …and the transcript search stats.py does for session_end usage (#185): read-only, but a test must
   # not pick up a real session's usage either.
   export HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/claude-config"
-  export HARNESS_POLLER_DIR="$HARNESS_HOME/poller" HARNESS_SNAPSHOTS_DIR="$HARNESS_HOME/snapshots"
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"
   POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
   mkdir -p "$WORKTREES_DIR" "$CHECKOUTS_DIR" "$POLLER_REGISTRY_DIR" "$HARNESS_SNAPSHOTS_DIR"
