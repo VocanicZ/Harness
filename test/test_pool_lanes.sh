@@ -400,4 +400,21 @@ worker_tick W1; assert_eq "$?" "6" "held"
 assert_no "never cloned over it" grep -q 'git clone' "$CALLS"
 assert_ok "logged" grep -q 'not a git repo' "$LOGF"
 
+echo "=== 9. #538: POOL=1, a slotless CLOSE_PRD ahead of a review-ready PRD must not hide the REVIEW ==="
+setup 1; export HARNESS_MODE=prd
+python3 - "$SNAP" <<'EOF9'
+import json, sys, time
+def iss(n, labels="", body="x\n", state="OPEN"):
+    return {"number": n, "title": f"t{n}", "state": state, "body": body, "author": {"login": "bot"},
+            "labels": [{"name": l} for l in labels.split(",") if l], "updatedAt": "2026-11-02T02:50:00Z"}
+issues = [iss(60, "prd,reviewed", "## Problem\nx\n"), iss(61, "ready-for-agent", "## Parent\n#60\n", "CLOSED"),
+          iss(70, "prd", "## Problem\nx\n"), iss(71, "ready-for-agent", "## Parent\n#70\n", "CLOSED")]
+json.dump({"schema_version": 1, "generated_at": time.time(), "slug": "acme/widget", "issues": issues,
+           "has_plan": False, "plan_marker": None, "self_login": "bot", "ext_deps": {}, "issue_branches": []}, open(sys.argv[1], "w"))
+EOF9
+worker_tick W1; assert_eq "$?" "0" "W1 claims on the first tick (not idle behind CLOSE_PRD 60)"
+assert_eq "$(launches)" "1" "one lane launched"
+assert_ok "... the REVIEW of the unreviewed PRD 70" grep -qx "hz-main-p70" "$LIVE"
+assert_eq "$(awk '{print $3}' "$CLAIMS_DIR/orch-70.claim")" "REVIEW:70" "the claim names REVIEW"
+
 finish
