@@ -376,9 +376,20 @@ session_lane_key(){ local k="${1#"$HARNESS_SESS_PREFIX-$(fleet_unit)-"}"
   case "$k" in i[0-9]*) echo "impl-${k#i}";; p[0-9]*) echo "orch-${k#p}";; esac; }
 # session_owned <session> — a live worker holds the claim of this session's lane.
 session_owned(){ local k; k="$(session_lane_key "$1")"; [[ -n "$k" ]] && is_claimed "$k"; }
+# fleet_bug_numbers — the issue numbers of the fleet repo's bugs that have a live triage or fix session
+# (sess_bug), one per line. Derived from the sessions, not the claim files, so it survives a cleared claim (#540).
+fleet_bug_numbers(){ local s pre rest n ph
+  pre="$HARNESS_SESS_PREFIX-bug-$(printf '%s' "$(unit_slug "$(fleet_unit)")" | tr '/' '_')-"
+  while read -r s; do
+    [[ "$s" == "$pre"* ]] || continue
+    rest="${s#"$pre"}"; n="${rest%-*}"; ph="${rest##*-}"
+    [[ "$n" =~ ^[0-9]+$ && ( "$ph" == triage || "$ph" == fix ) ]] && session_live "$s" && echo "$n"
+  done < <(sess_list) | sort -un; }
 # pool_lane_keys — one key per lane the pool is running: a live session of the unit, a live impl/orch
-# claim, or a pool-taken bug whose claim or session is live. The priority lane's bug is not the pool's.
-pool_lane_keys(){ local s k f tok
+# claim, a pool-taken bug whose claim or session is live, or a live bug session no claim names (#540: its
+# pool worker was killed and `start --recover` cleared the claim). A bug the priority lane holds — a claim
+# file of any other worker — is not the pool's.
+pool_lane_keys(){ local s k f tok n
   { while read -r s; do [[ -n "$s" ]] && session_lane_key "$s"; done < <(team_sessions "$(fleet_unit)")
     shopt -s nullglob
     for f in "$CLAIMS_DIR"/impl-*.claim "$CLAIMS_DIR"/orch-*.claim; do k="$(basename "$f" .claim)"; is_claimed "$k" && echo "$k"; done
@@ -386,6 +397,10 @@ pool_lane_keys(){ local s k f tok
       k="$(basename "$f" .claim)"
       is_claimed "$k" || bug_session_live "$(_with_owner "$(_bug_ref_repo "$tok")")" "$(_bug_ref_num "$tok")" && echo "$k"
     done < <(pool_bug_claims)
+    while read -r n; do
+      [[ -n "$n" ]] || continue
+      k="$(_bug_claim_key "$(unit_slug "$(fleet_unit)")#$n")"; [[ -f "$CLAIMS_DIR/$k.claim" ]] || echo "$k"
+    done < <(fleet_bug_numbers)
     shopt -u nullglob; } | sort -u; }
 pool_lane_count(){ pool_lane_keys | grep -c .; }
 # claimed_prds / claimed_issues — PRDs and issues a LIVE claim holds (the priority lane's bug included),

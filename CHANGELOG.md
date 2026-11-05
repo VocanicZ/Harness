@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `start --recover` no longer orphans a live pool-taken bug lane (#540)
+
+- `clear_stale_claims` drops the `bug-*.claim` of a killed pool worker, and nothing adopted the bug session
+  afterwards: it got no watchdog, was never torn down or reaped, and did not count toward POOL. The chores winner
+  now adopts every live `<prefix>-bug-<repo>-<n>-triage|fix` session of the fleet repo that has no claim file
+  (`adopt_bug_sessions`), writing a `pool-<wid>` bug claim so the owner tends it and reaps its worktrees and
+  claim once it ends. A claimless live bug session counts toward POOL (`pool_lane_keys`), and `claim_lane` will
+  not dispatch a bug whose session still lives. Any existing claim file is left alone, so a priority-lane bug
+  claim is never taken over. `test/test_pool_lanes.sh` section 6b covers it.
+
 ### The lane spawn that creates the tmux server no longer leaks its fleet's env into it (#547)
 
 - tmux copies the environment of the client that creates the server into the server's global environment, so a
