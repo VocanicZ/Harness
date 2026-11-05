@@ -51,6 +51,13 @@ model_mismatch_report(){ local l
     < <(timeout 10 python3 "$STATS_PY" mismatches --fleet "$HARNESS_SESS_PREFIX" 2>/dev/null)
   return 0; }
 
+# churn_report — #545: every issue of THIS fleet the crash-loop guard parked (churn.py: a `churn` event not
+# yet followed by a relaunch of the issue). Silent when there are none, and never fails the dashboard.
+churn_report(){ local l
+  while IFS= read -r l; do [[ -n "$l" ]] && printf '  ⚠ %s\n' "$l"; done \
+    < <(timeout 10 python3 "$ENGINE_DIR/scripts/churn.py" status --fleet "$HARNESS_SESS_PREFIX" 2>/dev/null)
+  return 0; }
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -73,6 +80,7 @@ render_once(){
   one_auto_report   # #392: the HARNESS_ONE_AUTO lane per account, its issue, forecast, or why it stopped
   gh_rate_report   # #183: each GitHub token's remaining budget, reset time, and any rate-limit hold
   model_mismatch_report   # #376: a session that ran another model than the one it was launched with
+  churn_report            # #545: an issue parked because every session on it died young
   echo "───────────────────────────────────────────────────────────────────"
 
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes

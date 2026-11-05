@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Crash-loop guard: an issue whose every session dies young is parked, not relaunched forever (#545)
+
+- When every session on an issue died a few minutes after launch (the #541 / #543 incident: a test run SIGKILLed
+  the live tmux server, over and over, for about 6 hours), the reaper freed the issue and the next dispatch
+  relaunched it with no limit and no signal. Now `HARNESS_CHURN_COUNT` (3) sessions of one kind on one issue that
+  each ended in under `HARNESS_CHURN_MAX_WALL_S` (900) seconds within `HARNESS_CHURN_WINDOW_MIN` (180) minutes,
+  across the pool and the priority lane together, make the engine strip `agent-working`, add `agent-blocked`,
+  post an evidence comment (end time, wall time and lane of each session, its last tool calls, `Exit code 137`
+  called out as SIGKILL, secrets redacted) and park the issue with the #271 mechanism. `scripts/churn.py` holds
+  the detection; `lib.sh` `churn_check` runs from every reaper's `stats_sweep_ended`, before the issue is unlocked.
+- Checkpointed, paused, watchdog-killed and goal-met sessions never count; after a park lifts only sessions
+  launched afterwards do. `HARNESS_CHURN_COUNT=0` turns the guard off.
+- The next lane's prompt (`{{CHURN}}` in `impl.md`, `bug-fix.md`, `bug-triage.md`, `resume.md`) carries the
+  evidence and an instruction to find out what killed the earlier sessions before repeating their steps. A trip
+  logs one `churn` event; `harness status` and `harness web` list each churn-parked issue.
+
 ### A lane cleanup can no longer kill the user manager, and `supervise --install` says how to revive it (#543)
 
 - A lane's `pgrep -P ${p:-0}` with a missing pidfile listed PID 1's children and killed `systemd --user`, taking
