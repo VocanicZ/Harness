@@ -185,10 +185,12 @@ HARNESS_SKILL_SRC="${HARNESS_SKILL_SRC:-${HARNESS_ENGINE_LINK:-$ENGINE_DIR}/skil
 # one fleet = one repo (#467, PRD #464 §4): every fleet REGISTERED on this host — not only the one in
 # this folder — has its config moved to HARNESS_UNIT / HARNESS_CHECKOUT and its workers rolled onto
 # THIS engine (kill that fleet's worker + priority pids, `harness start --state-dir`; lane sessions
-# keep running). A config already migrated is left alone, so a plain update changes nothing. From the
+# keep running). A config already migrated is left alone, and a worker already on this engine is too (#537: an
+# already-migrated fleet's OLD-release workers are rolled), so a second update changes nothing. From the
 # new release after a flip; a git-checkout engine's ff-pull runs the OLD update.sh to the end, so
 # there the next `harness start` migrates its own fleet instead.
-if [[ -f "$ENGINE_DIR/scripts/fleet-migrate.sh" ]]; then
+# HARNESS_FLEET_MIGRATE=0 opts out (as for `harness start`): the tests of the supervisor's own roll need an update that rolled nothing.
+if [[ "${HARNESS_FLEET_MIGRATE:-1}" != 0 && -f "$ENGINE_DIR/scripts/fleet-migrate.sh" ]]; then
   HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness}" bash "$ENGINE_DIR/scripts/fleet-migrate.sh" --all \
     || echo "WARNING: migrating the registered fleets to one repo failed (see above); 'harness start' retries it per fleet" >&2
 fi

@@ -1153,7 +1153,8 @@ step:
   current folder's. A folder you update from that is not registered is migrated too, and rolled only if it
   has worker pid files. It runs from the *new* release, so a git-checkout engine (whose `git pull` still runs
   the old `update.sh`) leaves it to the next `harness start`.
-- `harness start` runs it for its own fleet, before it reads the config. `HARNESS_FLEET_MIGRATE=0` opts out.
+- `harness start` runs it for its own fleet, before it reads the config. `HARNESS_FLEET_MIGRATE=0` opts out
+  (of both this and the migration `harness update` runs).
 
 A fleet whose config has no `HARNESS_TOPOLOGY` line and has `HARNESS_UNIT` is left alone, so running it
 twice changes nothing (no second backup, no second event). Per fleet that needs it, in order:
@@ -1171,15 +1172,21 @@ twice changes nothing (no second backup, no second event). Per fleet that needs 
    - `HARNESS_TOPOLOGY` is removed. `HARNESS_POOL` becomes `max(POOL, CAP)` so no fleet loses
      parallelism, and the `HARNESS_CAP` line is dropped (#469; #467 kept it): the pool worker runs `POOL` lanes at once ([#468](#the-pool-worker-step-loop)).
    - A config that #467 already migrated and that still has a `HARNESS_CAP` line only loses that line (backed
-     up first); its `POOL` is kept and its workers are not restarted. Running it twice changes nothing.
+     up first); its `POOL` is kept. Its workers are still rolled by step 4 (#537): a worker started on a
+     release that has #467 but not #468 runs the old unit-claim loop, so the config being current says
+     nothing about the worker. Running it twice changes nothing.
    - A `HARNESS_CAP` still in the environment or the config when `harness start` runs is ignored, with one
      warning: "CAP is gone; POOL is the number of parallel issues".
-3. Kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes. It never runs
-   `harness stop`, which kills every fleet's sessions: live lane sessions keep running.
+3. Kill only that fleet's `run/worker-*.pid` and `run/priority.pid` processes — **only for a config this
+   run migrated** (every worker is then an old-loop worker). It never runs `harness stop`, which kills
+   every fleet's sessions: live lane sessions keep running and the relaunched worker adopts them.
 4. `fleet_roll` (`scripts/roll.sh`, shared with the supervisor's auto-update, #477) runs
    `harness start --state-dir <fleet>` (no `--recover`) to relaunch the workers on the new engine, from an
    environment scrubbed of any other fleet's `HARNESS_*` keys. A **paused** fleet comes back paused; a
-   fleet with no worker pid files was stopped on purpose and is migrated but not started.
+   fleet with no worker pid files was stopped on purpose and is migrated but not started. This step runs
+   for **every** registered fleet, whatever the config step did (migrated, only lost its CAP line, or
+   nothing to do): `fleet_roll` kills a worker only when its `ENGINE_DIR` is not this engine, so a worker
+   already current is left running and a second `harness update` kills nothing.
 
 The config migration and the worker roll go together on purpose: a migrated config under old workers
 would leave them reading a missing `targets.tsv` and idling as "all complete".

@@ -11,6 +11,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 unset_inherited_config
+# (#537) STATE_DIR is the LIVE fleet's when a lane runs this directly: `fleet-migrate.sh --all` falls back to it
+# as "the folder update ran in", and it now rolls an already-migrated fleet — the lane's own workers.
+unset STATE_DIR
 ENGINE="$(cd "$HERE/.." && pwd)"
 ROOT="$(mktemp -d)"; tmp_track "$ROOT"
 pin_host_home "$ROOT/host"   # (#541) the host root every fixture below shares
@@ -240,21 +243,31 @@ UC="$(fleet upd-c ': "${HARNESS_TOPOLOGY:=single}"
 : "${HARNESS_REPO:=acme/c}"')"   # NOT registered: another folder's fleet
 UD="$(fleet upd-d ': "${HARNESS_UNIT:=main}"
 : "${HARNESS_REPO:=acme/d}"
-: "${HARNESS_POOL:=1}"')"       # registered, already one repo
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_SESS_PREFIX:=ud}"')"       # registered, already one repo (rc 10), workers on an OLD release (#537)
+UG="$(fleet upd-g ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/g}"
+: "${HARNESS_POOL:=1}"')"       # registered, already one repo (rc 10), workers already on the CURRENT engine
 mkdir -p "$ROOT/host/fleets"; export HARNESS_FLEETS_DIR="$ROOT/host/fleets"   # run.sh pins its own; the registry under test is this one
-for p in "$UA" "$UB" "$UD"; do
+for p in "$UA" "$UB" "$UD" "$UG"; do
   printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$p" "$p" > "$ROOT/host/fleets/$(basename "$(dirname "$p")").json"
 done
-# stand-in old-loop workers: one pid per file, each fleet its own; UC's must survive (unregistered), UD's too (nothing to roll)
+# stand-in old-loop workers: one pid per file, each fleet its own. fleet_roll reads a worker's ENGINE_DIR from its
+# environment (#477): spawn_eng gives a stand-in one, like a real worker's (the realpath of the release it started on).
 spawn(){ nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$1"; }
-for d in "$UA" "$UB" "$UC" "$UD"; do spawn "$d/run/worker-1.pid"; spawn "$d/run/priority.pid"; done
+OLDENG="$ROOT/engine-old"; mkdir -p "$OLDENG"      # an older release dir: any dir that is not the engine under test
+spawn_eng(){ ENGINE_DIR="$2" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$1"; }
+for d in "$UA" "$UB" "$UC"; do spawn "$d/run/worker-1.pid"; spawn "$d/run/priority.pid"; done
 spawn "$UB/run/worker-2.pid"
+for d in "$UD"; do spawn_eng "$d/run/worker-1.pid" "$OLDENG"; spawn_eng "$d/run/priority.pid" "$OLDENG"; done   # rc 10, old release
+for d in "$UG"; do spawn_eng "$d/run/worker-1.pid" "$STUB"; spawn_eng "$d/run/priority.pid" "$STUB"; done      # rc 10, current
+eng_of(){ ( source "$ENGINE/scripts/portable.sh"; proc_env "$1" ENGINE_DIR ); }   # a process's ENGINE_DIR
 pidsof(){ cat "$1"/run/worker-*.pid "$1"/run/priority.pid 2>/dev/null | tr '\n' ' '; }
-OLD_A="$(pidsof "$UA")"; OLD_B="$(pidsof "$UB")"; OLD_C="$(pidsof "$UC")"; OLD_D="$(pidsof "$UD")"
+OLD_A="$(pidsof "$UA")"; OLD_B="$(pidsof "$UB")"; OLD_C="$(pidsof "$UC")"; OLD_D="$(pidsof "$UD")"; CUR_G="$(pidsof "$UG")"
 # a lane session and a bystander on a private tmux server — neither may be touched
 TMUX_SOCK="lm$$"
 if command -v tmux >/dev/null 2>&1; then
-  tmux -L "$TMUX_SOCK" new-session -d -s ua-alpha-i5 'sleep 600'; tmux -L "$TMUX_SOCK" new-session -d -s other-session 'sleep 600'
+  tmux -L "$TMUX_SOCK" new-session -d -s ua-alpha-i5 'sleep 600'; tmux -L "$TMUX_SOCK" new-session -d -s ud-main-i3 'sleep 600'; tmux -L "$TMUX_SOCK" new-session -d -s other-session 'sleep 600'
   trap 'tmux -L "$TMUX_SOCK" kill-server 2>/dev/null; tmp_cleanup' EXIT
 fi
 BYSTANDER=""; nohup sleep 600 >/dev/null 2>&1 9>&- & BYSTANDER=$!
@@ -269,9 +282,16 @@ assert_eq "$(read_cfg "$UA" 'echo $HARNESS_POOL')" "3" "update: fleet A POOL is 
 assert_eq "$(read_cfg "$UB" 'echo $HARNESS_POOL')" "2" "update: fleet B POOL is max(2,1)"
 assert_ok "update: A's old worker + priority pids are dead" dead "$OLD_A"
 assert_ok "update: B's old worker + priority pids are dead" dead "$OLD_B"
-assert_ok "update: the already-migrated registered fleet's workers are left running" alive "$OLD_D"
 assert_ok "update: the bystander process is untouched"     kill -0 "$BYSTANDER"
-assert_eq "$(grep -c '^start ' "$START_LOG")" "3" "update: harness start ran for exactly the fleets that were migrated and live (A, B, and the unregistered current folder's C)"
+# #537: a fleet #467 already migrated (rc 10) still has its OLD-release workers rolled
+assert_ok "update: an already-migrated fleet's workers on an older release are killed (#537)" dead "$OLD_D"
+assert_ok "update: ...and relaunched, without --recover"   grep -q "^start $UD recover=no " "$START_LOG"
+assert_ok "update: ...onto new pids that are running"      alive "$(pidsof "$UD")"
+assert_ok "update: ...started from the current engine"     test "$(eng_of "$(cat "$UD/run/worker-1.pid")")" = "$STUB"
+assert_ok "update: an already-migrated fleet's workers on the current engine are left running" alive "$CUR_G"
+assert_ok "update: ...and not restarted"                   test "$(pidsof "$UG")" = "$CUR_G"
+assert_no "update: ...no harness start for it"             grep -q "^start $UG" "$START_LOG"
+assert_eq "$(grep -c '^start ' "$START_LOG")" "4" "update: harness start ran for exactly the fleets with a worker to roll (A, B, D and the unregistered current folder's C — not G, already current)"
 assert_ok "update: ...for fleet A, without --recover"      grep -q "^start $UA recover=no " "$START_LOG"
 assert_ok "update: ...for fleet B, without --recover"      grep -q "^start $UB recover=no " "$START_LOG"
 assert_no "update: the start inherits no other fleet's environment" grep -qE 'env_repo=leaked|env_state=[^ ]|pool=99' "$START_LOG"
@@ -282,24 +302,45 @@ assert_ok "update: A's pids are new ones"                  test "$(pidsof "$UA")
 if command -v tmux >/dev/null 2>&1; then
   assert_ok "update: the fleet's live lane session survives" tmux -L "$TMUX_SOCK" has-session -t ua-alpha-i5
   assert_ok "update: another tmux session is untouched"      tmux -L "$TMUX_SOCK" has-session -t other-session
+  assert_ok "update: an rc-10 fleet's live lane session survives its roll (#537)" tmux -L "$TMUX_SOCK" has-session -t ud-main-i3
+  # ...and the relaunched worker adopts it: the REAL adopt_lanes, run as that fleet's worker, writes the claim.
+  adopted="$( unset_inherited_config; export STATE_DIR="$UD" HARNESS_GH_RATE_GUARD=0 HARNESS_SESS_BACKEND=tmux HARNESS_UNIT=main HARNESS_SESS_PREFIX=ud
+    unset TARGETS_TSV RUN_DIR; source "$ENGINE/scripts/lib.sh" >/dev/null 2>&1; source "$ENGINE/scripts/drive.sh" >/dev/null 2>&1
+    _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1; source "$ENGINE/scripts/pool-worker.sh" >/dev/null 2>&1
+    tmux(){ command tmux -L "$TMUX_SOCK" "$@"; }; mkdir -p "$CLAIMS_DIR"
+    as_worker(){ local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx; adopt_lanes W7; }; as_worker >/dev/null 2>&1; cat "$CLAIMS_DIR/impl-3.claim" 2>/dev/null )"
+  assert_ok "update: ...the relaunched worker adopts the rolled fleet's lane (adopt_lanes writes impl-3.claim, #537)" grep -q '^W7 [0-9]* IMPL:3 ud-main-i3 ' <<<"$adopted"
 fi
 assert_ok "update: the unregistered current-folder fleet is migrated too" grep -q 'HARNESS_UNIT:=main' "$UC/config"
 assert_ok "update: ...and rolled, since it had worker pid files" grep -q "^start $UC recover=no " "$START_LOG"
 assert_ok "update: ...onto new pids"                       dead "$OLD_C"
-# #469: a registered fleet #467 already migrated, still carrying HARNESS_CAP, only loses that line:
-# its workers are not killed or relaunched (they never read CAP).
+# #469 + #537: a registered fleet #467 already migrated, still carrying HARNESS_CAP (rc 11), loses that line AND
+# has its old-release workers rolled — they run the old unit-claim loop whatever its config says.
 UF="$(fleet upd-f ': "${HARNESS_UNIT:=main}"
 : "${HARNESS_REPO:=acme/f}"
 : "${HARNESS_POOL:=2}"
 : "${HARNESS_CAP:=2}"')"
 printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$UF" "$UF/run" > "$ROOT/host/fleets/upd-f.json"
-spawn "$UF/run/worker-1.pid"; OLD_F="$(pidsof "$UF")"; n="$(grep -c '^start ' "$START_LOG")"
+spawn_eng "$UF/run/worker-1.pid" "$OLDENG"; spawn_eng "$UF/run/priority.pid" "$OLDENG"; OLD_F="$(pidsof "$UF")"; n="$(grep -c '^start ' "$START_LOG")"
 ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
 assert_no "update: a migrated fleet's kept HARNESS_CAP line is dropped" grep -q HARNESS_CAP "$UF/config"
 assert_eq "$(read_cfg "$UF" 'echo $HARNESS_POOL')" "2"  "update: ...and its POOL is kept"
-assert_ok "update: ...its workers are left running (nothing to roll)" alive "$OLD_F"
-assert_eq "$(grep -c '^start ' "$START_LOG")" "$n"      "update: ...and no harness start for it"
+assert_ok "update: ...its old-release workers are killed (#537)" dead "$OLD_F"
+assert_ok "update: ...and relaunched without --recover"  grep -q "^start $UF recover=no " "$START_LOG"
+assert_eq "$(grep -c '^start ' "$START_LOG")" "$((n + 1))" "update: ...by exactly one harness start (the other registered fleets are current)"
+assert_ok "update: ...the new workers run"               alive "$(pidsof "$UF")"
 assert_ok "update: ...the old config is backed up"      grep -q HARNESS_CAP "$UF"/config.bak-*
+# the same rc-11 shape, but its workers already run the current engine: the CAP line goes, nothing is restarted
+UH="$(fleet upd-h ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/h}"
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_CAP:=1}"')"
+printf '{"prefix": "x", "project": "%s", "run_dir": "%s/run", "slugs": [], "started_at": 1}' "$UH" "$UH/run" > "$ROOT/host/fleets/upd-h.json"
+spawn_eng "$UH/run/worker-1.pid" "$STUB"; CUR_H="$(pidsof "$UH")"; n="$(grep -c '^start ' "$START_LOG")"
+ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
+assert_no "update: a CAP-line fleet on the current engine: the line is dropped" grep -q HARNESS_CAP "$UH/config"
+assert_ok "update: ...its workers are left running"      alive "$CUR_H"
+assert_eq "$(grep -c '^start ' "$START_LOG")" "$n"      "update: ...and no harness start for it"
 # an unregistered fleet with NO live workers is migrated, not started
 UE="$(fleet upd-e ': "${HARNESS_TOPOLOGY:=single}"
 : "${HARNESS_REPO:=acme/e}"')"
@@ -307,10 +348,14 @@ STATE_DIR="$UE" ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts
 assert_ok "update: a stopped, unregistered fleet is migrated" grep -q 'HARNESS_UNIT:=main' "$UE/config"
 assert_no "update: ...and not started"                     grep -q "^start $UE" "$START_LOG"
 # second pass: nothing is migrated, nothing is killed or started
-n="$(grep -c '^start ' "$START_LOG")"; pa="$(pidsof "$UA")"
+n="$(grep -c '^start ' "$START_LOG")"; pa="$(pidsof "$UA")"; pd="$(pidsof "$UD")"; pf="$(pidsof "$UF")"; pg="$(pidsof "$UG")"; ph="$(pidsof "$UH")"
 ENGINE_DIR="$STUB" HARNESS_HOME="$ROOT/host" bash "$STUB/scripts/fleet-migrate.sh" --all >/dev/null 2>&1
 assert_eq "$(grep -c '^start ' "$START_LOG")" "$n" "update twice: no second start"
 assert_ok "update twice: the workers are the same processes" test "$(pidsof "$UA")" = "$pa"
+assert_ok "update twice: ...an already-migrated (rc 10) fleet's rolled workers too (#537)" test "$(pidsof "$UD")" = "$pd"
+assert_ok "update twice: ...an rc 11 fleet's"               test "$(pidsof "$UF")" = "$pf"
+assert_ok "update twice: ...and the fleets that were current all along" test "$(pidsof "$UG") $(pidsof "$UH")" = "$pg $ph"
+assert_ok "update twice: nothing was killed"               alive "$pa $pd $pf $pg $ph"
 # a paused fleet is migrated and rolled (fleet_roll, #477) and comes back paused: start is told to keep PAUSED
 UP="$(fleet upd-p ': "${HARNESS_TOPOLOGY:=single}"
 : "${HARNESS_REPO:=acme/p}"')"; touch "$UP/run/PAUSED"; spawn "$UP/run/worker-1.pid"; OLD_P="$(pidsof "$UP")"

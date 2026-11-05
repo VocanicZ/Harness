@@ -15,12 +15,15 @@
 #
 # Per fleet, in order — and only when its config still needs it (a config already on HARNESS_UNIT
 # with no HARNESS_TOPOLOGY and no HARNESS_CAP is left alone, so running this twice changes nothing; one
-# that only still has a HARNESS_CAP line (CAP is gone, #469) loses that line and nothing else — no roll):
+# that only still has a HARNESS_CAP line (CAP is gone, #469) loses that line and nothing else):
 #   1. back up the config as config.bak-<date>;      2. migrate the config (scripts/fleet_migrate.py);
 #   3. kill ONLY this fleet's run/worker-*.pid and run/priority.pid processes — never `harness stop`,
 #      which kills every fleet's sessions: lane sessions keep running;
 #   4. fleet_roll (scripts/roll.sh, #477) runs `harness start --state-dir <fleet>` (no --recover) and
 #      relaunches the workers on this engine.
+# A fleet whose config needs nothing (rc 10) or only lost its CAP line (rc 11) skips steps 1-3 but still goes
+# through step 4 (#537): its workers may have started on a release that has #467 but not the step loop (#468),
+# and fleet_roll leaves a worker already on this engine alone — so it is safe on every update.
 # A migrated config under old, un-rolled workers would leave them reading a missing targets.tsv and
 # idling as "all complete", so the config and the roll always go together. A PAUSED fleet comes back
 # paused, and a fleet with no worker pid files (stopped on purpose) is migrated but not started.
@@ -75,17 +78,21 @@ migrate_fleet(){ local state="$1" start="$2" out rc lockh="" pf
   # one migrator per fleet: a second `harness start` / update landing meanwhile would back the config up twice.
   lock_acquire "$state/run/fleet-migrate.lock" lockh || { echo "  could not take $state/run/fleet-migrate.lock" >&2; return 1; }
   out="$(python3 "$ENGINE_DIR/scripts/fleet_migrate.py" config "$state")"; rc=$?
-  if (( rc == 10 )); then lock_release "$lockh"; (( QUIET )) || echo "fleet $state: already one repo — nothing to do"; return 0; fi
-  # #469: a config #467 already migrated only lost its leftover HARNESS_CAP line. The workers never read it
-  # (and run the new loop), so there is nothing to stop and relaunch.
-  if (( rc == 11 )); then lock_release "$lockh"; echo "fleet $state: $out"; return 0; fi
-  if (( rc != 0 )); then lock_release "$lockh"; echo "fleet $state: config migration FAILED (rc $rc) — workers left as they are" >&2; return 1; fi
-  echo "fleet $state: migrated to one repo: $out"
-  # every worker of this fleet is an old-loop worker whatever release it runs from, so unlike the
-  # supervisor's auto-update roll (which skips workers already on the new release) all of them go.
-  shopt -s nullglob
-  for pf in "$state"/run/worker-*.pid "$state"/run/priority.pid; do stop_pidfile "$pf"; done
-  shopt -u nullglob
+  # #537: rc 10 (already one repo) and rc 11 (only the leftover HARNESS_CAP line was dropped) are configs
+  # a release with #467 but not #468 already migrated — their workers may still run the OLD unit-claim
+  # loop, so they are rolled too. Nothing is killed here for them: fleet_roll below compares each worker's
+  # ENGINE_DIR with this engine and leaves the current ones alone, so a second run kills nothing.
+  if (( rc == 10 )); then (( QUIET )) || echo "fleet $state: already one repo — nothing to do"
+  elif (( rc == 11 )); then echo "fleet $state: $out"
+  elif (( rc != 0 )); then lock_release "$lockh"; echo "fleet $state: config migration FAILED (rc $rc) — workers left as they are" >&2; return 1
+  else
+    echo "fleet $state: migrated to one repo: $out"
+    # a fresh multi→one migration: every worker of this fleet is an old-loop worker whatever release it
+    # runs from, so unlike fleet_roll (which skips workers already on this release) all of them go.
+    shopt -s nullglob
+    for pf in "$state"/run/worker-*.pid "$state"/run/priority.pid; do stop_pidfile "$pf"; done
+    shopt -u nullglob
+  fi
   lock_release "$lockh"
   (( start )) || return 0
   # the relaunch is #477's fleet_roll (scripts/roll.sh): `harness start --state-dir` without --recover, a
