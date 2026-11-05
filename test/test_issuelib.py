@@ -2709,6 +2709,49 @@ def test_cli_slotless_prints_close_prd_and_label_ready():
             assert sorted(buf.getvalue().split("\n")[:-1]) == sorted(want), (argv, buf.getvalue())
     finally: sys.argv = real_argv; _restore_repo()
 
+# #538: CLOSE_PRD takes no slot, so it must not use up dispatch's only slot and hide a slot-taking item.
+def _close_prd_ahead_board(extra=()):
+    return [
+        _issue(60, labels=["prd", "reviewed"], body="## Problem\nsigned off, still open\n"),   # CLOSE_PRD due
+        _issue(61, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#60\n"),
+        _issue(70, labels=["prd"], body="## Problem\nall children closed, unreviewed\n"),      # REVIEW due
+        _issue(71, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#70\n"),
+    ] + list(extra)
+
+def test_slotless_close_prd_does_not_hide_a_review_with_one_free_slot():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(_close_prd_ahead_board())
+    try:
+        acts = il.dispatch("acme/widget", 1, True)
+        assert ("REVIEW", "70", "REVIEW DONE") in acts, acts
+        assert ("CLOSE_PRD", "60", "PRD CLOSED") in acts, acts          # still emitted, just no slot used
+        # the slot count is for slot-taking items only: one slot, one REVIEW
+        assert sum(a[0] == "REVIEW" for a in acts) == 1, acts
+        assert il.dispatch("acme/widget", 99, True) == acts
+    finally: _restore_repo()
+
+def test_slotless_close_prd_does_not_suppress_the_pool_bug_spill():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo([
+        _issue(60, labels=["prd", "reviewed"], body="## Problem\nsigned off, still open\n"),
+        _issue(61, "CLOSED", labels=["ready-for-agent"], body="## Parent\n#60\n"),
+        _issue(30, labels=["bug"]),
+    ])
+    try:
+        acts = il.dispatch("acme/widget", 1, True, (), 0)
+        assert ("BUG", "30", "BUG 30 DONE") in acts, acts
+        assert ("CLOSE_PRD", "60", "PRD CLOSED") in acts, acts
+        # priority lane still has a free slot: no spill, CLOSE_PRD alone
+        assert il.dispatch("acme/widget", 1, True, (), 1) == [("CLOSE_PRD", "60", "PRD CLOSED")]
+    finally: _restore_repo()
+
+def test_slots_zero_still_emits_no_review_or_close_prd():
+    os.environ["HARNESS_MODE"] = "prd"
+    _stub_repo(_close_prd_ahead_board())
+    try:
+        assert il.dispatch("acme/widget", 0, True) == []
+    finally: _restore_repo()
+
 def test_labelled_stray_blocks_signoff_but_is_not_relabelled():
     # Any open issue naming the PRD holds sign-off whatever its labels; only an UNLABELLED one is
     # labelled. One carrying a non-lane label no agent can take is named STUCK instead.

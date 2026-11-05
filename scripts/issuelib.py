@@ -1443,9 +1443,11 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     #   • CLOSE_PRD is the mechanical close, done by the ENGINE (drive.sh) via a single idempotent
     #     `gh issue close`, retried every poll — so a signed-off PRD always closes even if the
     #     review agent's own gh call was dropped by a rate limit.
+    #   • #538: CLOSE_PRD takes no slot, so it does not count against `slots` — with one free slot a
+    #     reviewed-but-open PRD ahead of an unreviewed one must not hide that PRD's REVIEW.
     if a["review"]:
         for p in eligible:
-            if len(out) >= slots: break
+            if sum(act[0] != "CLOSE_PRD" for act in out) >= slots: break
             if p["number"] in busy or not p["open"] or not p["children_all_closed"] or p.get("stray"):
                 continue
             if not p["reviewed"]:
@@ -1456,7 +1458,7 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     # pool spills only while EVERY priority slot is busy — a free one claims the queue head on its
     # next poll, and the pool takes the rest once it has. Oldest bug first, either phase. None means
     # the caller did not say (HARNESS_POOL_TAKES_BUGS=0, or a pre-#214 caller): never spill.
-    if not out and slots and priority_free is not None and priority_free <= 0:
+    if not any(act[0] != "CLOSE_PRD" for act in out) and slots and priority_free is not None and priority_free <= 0:
         for num in sorted(n for n, _phase in bug_lane_candidates(repo) if n not in owned)[:slots]:   # #468: not one a claim already holds
             out.append(("BUG", str(num), f"BUG {num} DONE"))
     # #287: an unlabelled open issue naming an open PRD is labelled ready by the engine (drive.sh
