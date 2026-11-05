@@ -8,6 +8,29 @@ assert_ok(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then ec
 assert_no(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then echo "  FAIL: $msg — expected failure from: $*"; TESTS_FAIL=$((TESTS_FAIL+1)); else echo "  ok: $msg"; fi; }
 finish(){ echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"; [[ $TESTS_FAIL -eq 0 ]]; }
 
+# default_signals_prefix — set DEFSIG, a command prefix that starts what follows with SIGINT, SIGHUP and
+# SIGQUIT back at their default disposition (#553). A non-interactive bash cannot trap, or reset, a
+# signal that was ignored when it STARTED, and the disposition is inherited: the suite run from a
+# background or nohup context (the auto-release gate) hands every test, and every child a test starts,
+# SIGINT as SIG_IGN, so a `trap … INT` in the code under test silently does nothing. `env --default-signal`
+# (coreutils >= 9.0) restores them; else a python3 trampoline does, resetting SIGPIPE and SIGXFSZ too —
+# python ignores both itself and the exec'd child would inherit that. Use as: "${DEFSIG[@]}" cmd args…
+default_signals_prefix(){
+  if env --default-signal=INT true >/dev/null 2>&1; then DEFSIG=(env --default-signal=INT,HUP,QUIT)
+  else
+    DEFSIG=(python3 -c 'import os,signal,sys
+for n in ("SIGINT","SIGHUP","SIGQUIT","SIGPIPE","SIGXFSZ"):
+    if hasattr(signal,n): signal.signal(getattr(signal,n),signal.SIG_DFL)
+os.execvp(sys.argv[1],sys.argv[1:])')
+  fi
+}
+# sigint_restorable — can a child started through DEFSIG take a SIGINT even when this shell ignores it?
+# Probes it for real (a Git Bash or an old coreutils might not manage it): the child traps INT and exits 0.
+sigint_restorable(){
+  [[ ${#DEFSIG[@]} -gt 0 ]] || default_signals_prefix
+  ( trap '' INT; exec "${DEFSIG[@]}" bash -c 'trap "exit 0" INT; kill -INT $$; sleep 2; exit 1' ) >/dev/null 2>&1
+}
+
 # The per-project CONFIG vars lib.sh exports (scripts/lib.sh) — every one of which a pool worker
 # hands down to the agent session that may be running this suite. Deliberately EXCLUDES the four
 # host PATH pins (HARNESS_HOME / _POLLER_DIR / _SNAPSHOTS_DIR / _FLEETS_DIR): run.sh and make_env set

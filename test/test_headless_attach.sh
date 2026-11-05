@@ -55,10 +55,16 @@ BEFORE_INBOX="$(wc -l < "$INBOX")"
 echo "== attach: typed lines reach the inbox, queued behind the running turn =="
 OUT="$RUN_DIR/attach.out"; : > "$OUT"
 mkfifo "$RUN_DIR/attach.in"; exec 7<>"$RUN_DIR/attach.in"
-# Job control (set -m) gives the background attach its own process group and the default SIGINT, as a
-# terminal's job has it: a SIGINT left ignored by an async parent would make the Ctrl-C test meaningless.
+# The attach must start with SIGINT at its default (#553). Job control (set -m) gives the background attach
+# its own process group, but a SIGINT that was ignored when this test started stays ignored in it and
+# in every child (bash cannot trap what it inherited ignored) — and the suite runs that way from the
+# auto-release gate, a background job. So restore the default through DEFSIG instead.
+# HAT_ATTACH_IGNORE_INT=1 simulates an attach that really cannot take a SIGINT (test_signal_defaults.sh).
+default_signals_prefix
+SIGINT_OK=1; sigint_restorable || SIGINT_OK=0
+ATTACH_WRAP=(); [[ -n "${HAT_ATTACH_IGNORE_INT:-}" ]] && ATTACH_WRAP=(env --ignore-signal=INT)
 set -m
-bash "$ROOT/scripts/attach.sh" "$S" <&7 >"$OUT" 2>&1 &
+"${DEFSIG[@]}" ${ATTACH_WRAP[@]+"${ATTACH_WRAP[@]}"} bash "$ROOT/scripts/attach.sh" "$S" <&7 >"$OUT" 2>&1 &
 APID=$!
 assert_ok "attach is watching the lane" wait_until 10 out_has "watching headless lane $S"
 assert_ok "…and shows the running turn" wait_until 10 out_has "── turn 1 (bootstrap)"
@@ -83,9 +89,21 @@ assert_eq "$(calls prompt | sed -n 3p)" '"one more"' "the third prompt is the ty
 
 echo "== attach: Ctrl-C detaches and leaves the lane running =="
 STATE_BEFORE="$(cat "$(headless_lane_dir "$S")/state.json")"
-kill -INT "$APID"
 gone(){ ! proc_alive "$1"; }
-assert_ok "the attach process exits" wait_until 10 gone "$APID"
+if (( SIGINT_OK )); then
+  kill -INT "$APID"
+  assert_ok "the attach process exits" wait_until 10 gone "$APID"
+else
+  echo "  SKIP: Ctrl-C itself — this host cannot restore SIGINT for a child of a shell that ignores it; detaching with SIGTERM, which the attach traps the same way"
+  kill -TERM "$APID"
+  assert_ok "the attach process exits" wait_until 10 gone "$APID"
+fi
+# Never an unbounded wait on a process that may still be alive: a failed detach must end this test, not hang it.
+# Only the attach this test started ($APID), TERM first, then KILL.
+if ! gone "$APID"; then
+  kill -TERM "$APID" 2>/dev/null; wait_until 5 gone "$APID" || { kill -KILL "$APID" 2>/dev/null; wait_until 5 gone "$APID"; }
+fi
+assert_ok "…and no attach is left alive" gone "$APID"
 wait "$APID"; rc=$?
 assert_eq "$rc" 0 "…cleanly"
 assert_ok "it says it detached" grep -qF "detached; headless lane $S keeps running" "$OUT"
