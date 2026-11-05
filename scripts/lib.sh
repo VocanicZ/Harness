@@ -258,7 +258,12 @@ _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && ech
 # --- the fleet's one repo ----------------------------------------------------
 # One fleet = one repo (PRD #464): one unit named HARNESS_UNIT (default `main`) whose repo is HARNESS_REPO
 # and whose clone is HARNESS_CHECKOUT (default $PROJECT_ROOT). A config that sets neither takes the defaults.
-fleet_unit(){ echo "${HARNESS_UNIT:-main}"; }
+# #554: the unit goes into tmux session names (<prefix>-<unit>-i<N>), and tmux reads `.` and `:` there as window/pane
+# separators (has-session -t hz-next.js-i5 -> "can't find pane"; new-session quietly makes hz-next_js-i5), so a unit with
+# one is never found live. unit_safe maps every character outside [A-Za-z0-9_-] to `_`; a unit that is already safe is
+# returned byte for byte, so current fleets keep their session names. fleet_unit applies it to a hand-set HARNESS_UNIT.
+unit_safe(){ printf '%s' "$1" | LC_ALL=C sed 's/[^A-Za-z0-9_-]/_/g'; }
+fleet_unit(){ local u; u="$(unit_safe "${HARNESS_UNIT:-main}")"; echo "${u:-main}"; }
 fleet_checkout(){ echo "${HARNESS_CHECKOUT:-$PROJECT_ROOT}"; }
 all_units(){ fleet_unit; }
 unit_repo(){ echo "$HARNESS_REPO"; }

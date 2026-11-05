@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A repo name with a dot no longer gives a tmux-unsafe `HARNESS_UNIT` (#554)
+
+- `harness init` wrote the lowercased repo short name as `HARNESS_UNIT` and nothing else, so `vercel/next.js` gave
+  `next.js`. tmux reads `.` and `:` in a session name as a window/pane separator (it creates `hz-next_js-i5` but
+  `has-session -t hz-next.js-i5` says "can't find pane"), so `session_live` was always false for that fleet's lanes:
+  every lane looked dead right after it spawned. `init.sh` and `fleet_migrate.py` now map every character outside
+  `[A-Za-z0-9_-]` to `_` (`next_js`), and `fleet_unit` applies the same rule (`unit_safe`) to a `HARNESS_UNIT` set
+  by hand, so no reader uses a raw unsafe unit. A unit that is already safe is returned unchanged, so the session
+  names of existing fleets do not move. `test/test_unit_tmux_safe.sh` spawns a dotted-repo lane on a private tmux
+  server and checks `session_live` sees it.
+
 ### `start --recover` no longer orphans a live pool-taken bug lane (#540)
 
 - `clear_stale_claims` drops the `bug-*.claim` of a killed pool worker, and nothing adopted the bug session

@@ -113,6 +113,12 @@ def read_targets(path):
     return rows, comments
 
 
+def unit_safe(unit):
+    """#554: a unit goes into tmux session names, where `.` and `:` break lookup. Same rule as lib.sh unit_safe:
+    every character outside [A-Za-z0-9_-] becomes `_`; an already safe unit is returned unchanged."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", unit)
+
+
 def slug(repo, owner):
     return repo if "/" in repo or not owner else "%s/%s" % (owner, repo)
 
@@ -242,7 +248,7 @@ def migrate(state, date):
         checkout = checkout or find_checkout(state, slug(new_repo, owner))
     else:
         checkout = checkout or os.path.dirname(state)
-    unit = unit or "main"
+    unit = unit_safe(unit) or "main"
 
     old_pool = _int(_val(ent, "HARNESS_POOL"), DEFAULT_POOL, "POOL")
     cap = _int(_val(ent, "HARNESS_CAP"), DEFAULT_CAP, "CAP")
