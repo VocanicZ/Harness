@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The lane spawn that creates the tmux server no longer leaks its fleet's env into it (#547)
+
+- tmux copies the environment of the client that creates the server into the server's global environment, so a
+  pool worker's `STATE_DIR`, `HARNESS_REPO`, `HARNESS_SESS_PREFIX`, `RTDD_EVENT_LOG` and every other exported
+  `HARNESS_*` reached every later session on that server: other fleets' lanes and the operator's own shells.
+  Observed 2026-11-05, when a re-created operator session failed `harness status` in 5 of 6 fleets with
+  "STATE_DIR is set to … (inherited from the environment)". `tmux_sess_start` now runs `tmux new-session` from a
+  subshell that unsets those variables, so a server it creates starts clean; the lane still gets its own values
+  from the `-e` pairs, and `TMUX_TMPDIR`, `PATH` and `HOME` are untouched. `test/test_tmux_env_leak.sh` covers it
+  on a real tmux with a private socket.
+
 ### Crash-loop guard: an issue whose every session dies young is parked, not relaunched forever (#545)
 
 - When every session on an issue died a few minutes after launch (the #541 / #543 incident: a test run SIGKILLed
