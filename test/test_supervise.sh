@@ -331,7 +331,8 @@ export PATH=$OPATH
 echo "=== systemd user unit ==="
 U="$T/unit"; mkdir -p "$T/tools"
 for b in claude gh rtdd; do printf '#!/bin/sh\n' >"$T/tools/$b"; chmod +x "$T/tools/$b"; done
-printf '#!/bin/sh\necho "$@" >> %s/systemctl.calls\n' "$T" >"$T/systemctl"; chmod +x "$T/systemctl"
+# `is-enabled` answers from $T/revive.enabled (#543); everything else just logs the call.
+printf '#!/bin/sh\necho "$@" >> %s/systemctl.calls\ncase "$*" in *is-enabled*) test -f %s/revive.enabled;; esac\n' "$T" "$T" >"$T/systemctl"; chmod +x "$T/systemctl"
 printf '#!/bin/sh\necho "$@" >> %s/loginctl.calls\n' "$T" >"$T/loginctl"; chmod +x "$T/loginctl"
 SUP_UNIT_DIR=$U SUP_SYSTEMCTL=$T/systemctl SUP_LOGINCTL=$T/loginctl SUP_HARNESS=/eng/bin/harness
 out="$(PATH="$T/tools:$PATH" sup_install 2>&1)"
@@ -342,6 +343,20 @@ assert_ok "unit runs this engine's supervise"               grep -qx "ExecStart=
 assert_ok "unit PATH holds the claude/gh/rtdd dir"          grep -q "^Environment=PATH=$T/tools:" "$U/harness-supervise.service"
 assert_ok "systemd reloaded + enabled + (re)started"        bash -c "grep -q daemon-reload '$T/systemctl.calls' && grep -q 'enable harness-supervise' '$T/systemctl.calls' && grep -q 'restart harness-supervise' '$T/systemctl.calls'"
 assert_ok "linger enabled"                                  grep -q enable-linger "$T/loginctl.calls"
+# #543: a user unit dies with its user manager, and linger does not restart that — install prints how
+# to revive user@UID from a system timer, unless that timer is already enabled.
+assert_ok "install NOTEs the user manager gap"              grep -q "^NOTE: .*cannot survive.*user manager" <<<"$out"
+assert_ok "the NOTE carries the system timer unit"          grep -q "harness-user-revive.timer" <<<"$out"
+assert_ok "the NOTE starts user@<uid> when inactive"        grep -q "systemctl start user@$(id -u).service" <<<"$out"
+assert_ok "the revive timer is checked as a system unit"    grep -qx "is-enabled harness-user-revive.timer" "$T/systemctl.calls"
+assert_no "…and never with --user"                          grep -q -- "--user is-enabled" "$T/systemctl.calls"
+touch "$T/revive.enabled"
+out="$(PATH="$T/tools:$PATH" sup_install 2>&1)"; rc=$?
+assert_no "no NOTE once the revive timer is enabled"        grep -q "cannot survive" <<<"$out"
+assert_eq "$rc" 0                                           "install succeeds with the revive timer enabled"
+rm -f "$T/revive.enabled"
+out="$(PATH="$T/tools:$PATH" sup_install 2>&1)"; rc=$?
+assert_eq "$rc" 0                                           "a missing revive timer never fails the install"
 assert_ok "installed from this engine"                      sup_installed
 other_engine(){ local SUP_HARNESS=/other/bin/harness; sup_installed; }
 assert_no "another engine's checkout does not own the unit" other_engine

@@ -136,11 +136,15 @@ proc_ident(){
 # proc_args <pid> — the command line (procps `ps -o args=` on POSIX, /proc cmdline on Windows).
 proc_args(){ if is_windows; then local c; c="$(proc_cmdline "$1")"; printf '%s\n' "${c% }"; return 0; fi
   ps -o args= -p "$1" 2>/dev/null; }
-# proc_kill_tree <pid> — SIGKILL <pid> and everything it started.
+# proc_kill_tree <pid> — SIGKILL <pid> and everything it started. Returns 1, signalling nothing, for a <pid>
+#   that is not a number greater than 1.
 #   POSIX: its process group (a lane runner is its own group leader) and then the pid itself.
 #   Windows: MSYS signals do not reach native children, so `taskkill /T /F` on the winpid ends the
 #            whole Windows tree; the MSYS kill follows for an MSYS process taskkill could not name.
 proc_kill_tree(){ local w
+  # Refuse what would signal more than one process tree (#543): empty and non-numeric values, 0 (the
+  # caller's own process group) and 1 (`kill -- -1` is every process the user owns).
+  [[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 > 1 )) || return 1
   if is_windows; then
     w="$(proc_winpid "$1")"
     [[ -n $w ]] && "${HARNESS_TASKKILL:-taskkill}" //T //F //PID "$w" >/dev/null 2>&1

@@ -582,6 +582,33 @@ sup_unit_path(){ local b p sb out=()
 # KillMode=process: the workers a pass restarts (`harness start`), and a tmux server it may bring
 # up, are children of this unit. systemd's default control-group kill would take every one of them
 # down with the supervisor on each restart — and `harness update` restarts it.
+# The system timer that revives the user manager (#543). A user unit dies with `user@UID.service`, and
+# linger only keeps that running — it does not restart a manager that exited. Root installs this once.
+SUP_REVIVE_TIMER="harness-user-revive.timer"
+sup_revive_text(){ local uid="${1:-$(id -u)}"
+  cat <<EOF
+sudo tee /etc/systemd/system/harness-user-revive.service >/dev/null <<'UNIT'
+[Unit]
+Description=Start user@$uid.service when it is inactive (Harness)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'systemctl is-active --quiet user@$uid.service || systemctl start user@$uid.service'
+UNIT
+sudo tee /etc/systemd/system/$SUP_REVIVE_TIMER >/dev/null <<'UNIT'
+[Unit]
+Description=Revive user@$uid.service every 2 minutes (Harness)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
+UNIT
+sudo systemctl daemon-reload && sudo systemctl enable --now $SUP_REVIVE_TIMER
+EOF
+}
 sup_install(){ local b unit="$SUP_UNIT_DIR/$SUP_UNIT"
   for b in "$(cli_exe)" gh rtdd; do
     if [[ $b == rtdd ]]; then rtdd_exe >/dev/null 2>&1 && continue; else command -v "$b" >/dev/null 2>&1 && continue; fi
@@ -619,6 +646,12 @@ EOF
   "$SUP_LOGINCTL" enable-linger "$(id -un)" 2>/dev/null \
     || echo "WARNING: loginctl enable-linger failed — the supervisor stops when you log out" >&2
   [[ -f $SUP_UNIT_DIR/harness-manager.service ]] && echo "NOTE: the prototype harness-manager.service is installed too; both would act. Retire it: systemctl --user disable --now harness-manager.service"
+  # A system-level check (no --user): is the root revive timer there? Never needs root, never fails the install.
+  if ! "$SUP_SYSTEMCTL" is-enabled "$SUP_REVIVE_TIMER" >/dev/null 2>&1; then
+    echo "NOTE: this user unit (and every worker, tmux server and 'harness web' unit) cannot survive its own user manager"
+    echo "      exiting — linger keeps user@$(id -u).service running but does not restart it. To revive it, run as root:"
+    sup_revive_text "$(id -u)"
+  fi
   echo "  supervisor running: systemctl --user status $SUP_UNIT   log: $SUP_LOG"
 }
 sup_uninstall(){ local unit="$SUP_UNIT_DIR/$SUP_UNIT"

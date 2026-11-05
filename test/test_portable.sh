@@ -113,6 +113,19 @@ EOF
 chmod +x "$W/taskkill"
 HARNESS_PROC_ROOT="$FP" HARNESS_TASKKILL="$W/taskkill" proc_kill_tree 777
 assert_eq "$(cat "$W/taskkill.log" 2>/dev/null)" "//T //F //PID 31337" "[windows] proc_kill_tree runs taskkill /T /F on the winpid"
+# proc_kill_tree refuses a pid that would signal more than one process tree (#543): an empty value,
+# a non-number, 0 (the caller's own group) and 1 (`kill -- -1` = every process the user owns).
+# `kill` is shadowed by a recorder, so nothing real is ever signalled.
+for plat in posix windows; do
+  export HARNESS_PLATFORM=$plat
+  for bad in "" abc 0 1 -1 "1 2" 12x; do
+    : > "$W/kill.log"
+    ( kill(){ echo "kill $*" >> "$W/kill.log"; return 0; }; HARNESS_TASKKILL=/nonexistent proc_kill_tree "$bad" ); rc=$?
+    assert_ok "[$plat] proc_kill_tree '$bad' is refused" test "$rc" -ne 0
+    assert_eq "$(cat "$W/kill.log")" "" "[$plat] proc_kill_tree '$bad' signals nothing"
+  done
+done
+export HARNESS_PLATFORM=windows
 # proc_sweep_session (#427): what outlives the SIGTERM grace is taskkill /F'd by its winpid, then KILLed
 # (MSYS signals do not reach a native process). A real TERM-ignoring process, its /proc entry faked.
 sh -c 'trap "" TERM; while :; do sleep 1; done' & sw=$!
