@@ -52,7 +52,8 @@ claim_lane(){ local wid="$1" lockfd live allow busy owned actions rc errf action
         IMPL)              sess="$(sess_impl "$UNIT" "$payload")";;
         PLAN|PRD)          sess="$(sess_orch "$UNIT" 0)";;
         BUG)               tok="$SLUG#$payload"; sess="-"
-                           is_bug_claimed "$tok" && { action=""; continue; };;   # the priority lane holds it
+                           is_bug_claimed "$tok" && { action=""; continue; }   # the priority lane holds it
+                           bug_session_live "$SLUG" "$payload" && { action=""; continue; };;   # #540: in flight, not yet adopted
         *)                 sess="$(sess_orch "$UNIT" "$payload")";;
       esac
       [[ "$action" == BUG ]] && wid_claim="pool-$wid" || wid_claim="$wid"
@@ -161,6 +162,28 @@ adopt_lanes(){ local wid="$1" s key goal tok lockfd
     lock_release "$lockfd"
   done < <(team_sessions "$UNIT"); }
 
+# adopt_bug_sessions <wid> — #540: the bug twin of adopt_lanes. A live triage/fix session of the fleet repo
+# with NO claim file (its pool worker was killed and `start --recover`'s clear_stale_claims dropped the claim) is
+# adopted: this worker writes a `pool-<wid>` bug claim, so worker_tend watchdogs it and reaps its worktrees and
+# claim once it ends, and it counts toward POOL. A claim file of any kind is left alone: a live priority-lane
+# claim is never taken over, and a pool claim whose worker died is reap_ownerless_pool_bugs's.
+adopt_bug_sessions(){ local wid="$1" n key sess ph lockfd
+  while read -r n; do
+    [[ -n "$n" ]] || continue
+    key="$(_bug_claim_key "$SLUG#$n")"
+    [[ -f "$CLAIMS_DIR/$key.claim" ]] && continue
+    lock_acquire "$POOL_LOCK" lockfd
+    if [[ ! -f "$CLAIMS_DIR/$key.claim" ]]; then
+      sess=""; for ph in fix triage; do session_live "$(sess_bug "$SLUG" "$n" "$ph")" && { sess="$(sess_bug "$SLUG" "$n" "$ph")"; break; }; done
+      if [[ -n "$sess" ]]; then
+        lane_claim_write "$key" "pool-$wid" "$SLUG#$n" "$sess" "$(sess_pane_pid "$sess")"
+        log "worker $wid adopted bug lane $key ($sess) — no claim held it"
+        harness_event lane_adopt lane="$key" worker="$wid" repo="$SLUG"
+      fi
+    fi
+    lock_release "$lockfd"
+  done < <(fleet_bug_numbers); }
+
 # reap_ownerless_pool_bugs — tend the pool-taken bugs whose worker is gone (or whose claim predates the
 # step loop): the owner's half of tend_lane_done, run by the chores winner. The teardown re-checks the
 # claim under pool.lock, so a claim the priority lane has since taken over is never touched.
@@ -222,7 +245,7 @@ worker_chores(){ local wid="$1" lockfd
   one_auto_tend; reap_ownerless_pool_bugs
   retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
   sweep_stale_lane_claims
-  adopt_lanes "$wid"
+  adopt_lanes "$wid"; adopt_bug_sessions "$wid"
   chores_slotless
   lock_release "$lockfd"
   # After the lock, both: each can start a job that outlives the tick (a release run, a harness-one lane)

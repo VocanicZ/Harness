@@ -347,6 +347,49 @@ assert_ok "a lane-owned claim is never reaped by the chores" test -f "$CLAIMS_DI
 assert_no "... and no worktree of it was removed" grep -q 'remove_worktree' "$CALLS"
 rm -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
 
+echo "=== 6b. #540: start --recover orphans a live pool-taken bug lane — it is adopted, not dispatched twice, reaped once ==="
+setup 3; export HARNESS_POOL_TAKES_BUGS=1; snap "9:bug"
+spawn_bug(){ echo "spawn_bug $*" >> "$CALLS"; live "hz-bug-acme_widget-$1-$2"; }
+_bug_numbers(){ echo "acme/widget#9"; }; bug_phase(){ echo fix; }; bug_goal_done(){ return 1; }
+worker_tick W1; assert_eq "$?" "0" "W1's pool slot took bug #9"
+mkdir -p "$WORKTREES_DIR/bug-acme_widget-i9"
+# W1 is killed, then `start --recover` clears every claim whose pid is dead (the claim's pid is a dead one)
+printf 'pool-W1 999999 acme/widget#9 hz-bug-acme_widget-9-fix -\n' > "$CLAIMS_DIR/bug-acme_widget-9.claim"
+clear_stale_claims >/dev/null
+assert_no "recover dropped the bug claim" test -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
+assert_eq "$(pool_lane_count)" "1" "the claimless live bug session still counts toward POOL"
+assert_eq "$(fleet_bug_numbers | tr '\n' ' ')" "9 " "...and is found from its session"
+spawn_before="$(grep -c '^spawn_bug' "$CALLS")"
+worker_tick W2; assert_eq "$?" "1" "another worker does not dispatch the live bug a second time"
+assert_eq "$(grep -c '^spawn_bug' "$CALLS")" "$spawn_before" "no second spawn"
+worker_chores W3
+assert_eq "$(claim_wid bug-acme_widget-9)" "pool-W3" "the chores winner adopted the bug as a pool claim"
+assert_eq "$(awk '{print $3, $4}' "$CLAIMS_DIR/bug-acme_widget-9.claim")" "acme/widget#9 hz-bug-acme_widget-9-fix" "...naming its ref and live session"
+assert_eq "$(pool_lane_count)" "1" "one lane, not counted twice once claimed"
+assert_eq "$(lane_bug)" "" "lane_bug does not mistake the adopted bug for the priority lane's"
+worker_chores W4; assert_eq "$(claim_wid bug-acme_widget-9)" "pool-W3" "a second chores tick does not re-adopt"
+: > "$CALLS"; worker_tend W3; assert_eq "$?" "1" "the new owner tends the live session..."
+assert_ok "... watchdogged" grep -q 'watchdog hz-bug-acme_widget-9-fix' "$CALLS"
+die_session hz-bug-acme_widget-9-fix
+worker_tend W3; assert_eq "$?" "0" "the session ended: reaped"; worker_tend W3; worker_chores W4
+assert_eq "$(grep -c 'remove_worktree .*bug-acme_widget-i9' "$CALLS")" "1" "its worktree was removed exactly once"
+assert_no "...and the claim released" test -f "$CLAIMS_DIR/bug-acme_widget-9.claim"
+assert_eq "$(pool_lane_count)" "0" "no lane left"
+echo "-- a priority-lane bug claim is never taken over by a pool worker"
+live hz-bug-acme_widget-8-fix; PRIO="$RUN_DIR/prio.pid"; command sleep 60 & PIDP=$!
+printf 'P1 %s acme/widget#8 hz-bug-acme_widget-8-fix -\n' "$PIDP" > "$CLAIMS_DIR/bug-acme_widget-8.claim"
+worker_chores W1
+assert_eq "$(claim_wid bug-acme_widget-8)" "P1" "the live priority claim is untouched"
+assert_eq "$(pool_lane_count)" "0" "the priority lane's bug session is not one of POOL's lanes"
+kill "$PIDP" 2>/dev/null; wait "$PIDP" 2>/dev/null
+worker_chores W1
+assert_eq "$(claim_wid bug-acme_widget-8)" "P1" "even a dead priority claim is not taken over by adoption"
+die_session hz-bug-acme_widget-8-fix; rm -f "$CLAIMS_DIR/bug-acme_widget-8.claim"
+echo "-- another repo's bug session is not this fleet's"
+live hz-bug-other_repo-4-fix; worker_chores W1
+assert_no "no claim for a foreign repo's bug" test -f "$CLAIMS_DIR/bug-acme_widget-4.claim"
+assert_eq "$(fleet_bug_numbers)" "" "fleet_bug_numbers ignores it"
+
 echo "=== 7. pause: no new claim; a running lane (and a driven goal loop) keeps being tended ==="
 setup 3; snap "5:ready-for-agent" "6:ready-for-agent"
 worker_tick W1; : > "$CALLS"
