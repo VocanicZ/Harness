@@ -15,6 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$(cd "$HERE/.." && pwd)"
 source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 T="$(mktemp -d)"; tmp_track "$T"
+pin_host_home "$T/pinned-host"   # (#541)
 SYS=/usr/bin:/bin   # system tools only: the host's own rtdd, claude and gh are not on a test host's PATH
 W="$T/Win Home"; mkdir -p "$W"
 

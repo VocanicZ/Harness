@@ -5,6 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
+pin_host_home "$T/pinned-host"   # (#541)
 SRV="$T/srv"; rel_server "$SRV"; rel_publish "$SRV" v0.1.0; rel_publish "$SRV" v0.2.0; rel_latest "$SRV" v0.2.0
 fresh(){ export HOME="$T/home$1" HARNESS_HOME="$T/home$1/.harness" HARNESS_BIN_DIR="$T/home$1/.local/bin"; mkdir -p "$HOME"; }
 inst(){ ( HARNESS_INSTALL_NOMAIN=1 source "$HERE/../install.sh" && place_engine && link_path ); }

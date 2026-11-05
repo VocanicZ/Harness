@@ -7,6 +7,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/portable.sh"; source "$HERE/helpers.sh"
+HP="$(mktemp -d)"; tmp_track "$HP"; pin_host_home "$HP/host"   # a test that picks its own HARNESS_HOME pins the host paths first (#541)
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 export HARNESS_LOCK_POLL=0.05
 

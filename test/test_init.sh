@@ -17,6 +17,7 @@ export STATE_DIR="$TMP/.harness"
 # suite, but this file never calls make_env — so on a direct `bash test_init.sh` (no env -u, no
 # run.sh) nothing else would, and init.sh's default_prefix (which calls check_prefix_collision) would
 # resolve the REAL ~/.harness/fleets, reading and potentially pruning a live fleet's entry. Keep both.
+pin_host_home "$TMP/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HARNESS_HOME="$TMP/host"
 export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
 # stub gh + seed so init does no network. #432: a non-interactive init seeds labels when gh is

@@ -9,6 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 unset_inherited_config
 ROOT="$(mktemp -d)"; tmp_track "$ROOT"
+pin_host_home "$ROOT/pinned-host"   # (#541)
 
 # probe <config-body> [stray targets.tsv body] — a fresh fleet dir; prints one `key=value` line per reader.
 probe(){

@@ -17,9 +17,11 @@ def host():
     """A throwaway HARNESS_HOME with the fixture as the only Claude config dir."""
     d = tempfile.mkdtemp()
     saved = {k: os.environ.get(k) for k in ("HARNESS_HOME", "HARNESS_CLAUDE_CONFIG_DIRS", "HARNESS_FLEETS_DIR")}
+    # Pin the fleet registry under the throwaway home BEFORE moving HARNESS_HOME: an inherited one (every
+    # fleet process exports it) would beat the HARNESS_HOME below and point stats at the real host (#541).
+    os.environ["HARNESS_FLEETS_DIR"] = os.path.join(d, "fleets")
     os.environ["HARNESS_HOME"] = d
     os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = FIXTURE_CFG
-    os.environ.pop("HARNESS_FLEETS_DIR", None)
     try:
         yield d
     finally:

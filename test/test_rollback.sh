@@ -7,6 +7,7 @@ source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
 # #439: every `harness update` links the engine's skills into the dirs under HOME the CLIs read — a throwaway HOME.
 export HOME="$T/home"; mkdir -p "$HOME"
+pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$T/units" HARNESS_WEB_UNIT_DIR="$T/units"
 H="$HARNESS_HOME"; SRV="$T/srv"; rel_server "$SRV"
 rel_publish "$SRV" v0.1.0; rel_publish "$SRV" v0.2.0; rel_install_at "$SRV" v0.1.0

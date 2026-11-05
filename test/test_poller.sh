@@ -10,7 +10,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="$(mktemp -d)"
 # host-root seams point at a temp dir (NOT the real ~/.harness). Set BEFORE sourcing lib.sh so its
 # `${VAR:-default}` resolution picks them up; exported so the nohup'd poller child inherits them.
-export HARNESS_HOME="$WORK/host"
+source "$HERE/helpers.sh"   # pin_host_home before lib.sh reads the host paths (#541)
+pin_host_home "$WORK/host"
 export HARNESS_POLLER_DIR="$WORK/host/poller"
 export HARNESS_SNAPSHOTS_DIR="$WORK/host/snapshots"
 export STATE_DIR="$WORK/state"; mkdir -p "$STATE_DIR"   # keeps RUN_DIR/worktrees out of the engine tree

@@ -9,6 +9,7 @@ unset_inherited_config
 RELEASE="$HERE/../scripts/release.sh"
 gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
+pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HARNESS_HOME="$T/host" HARNESS_RELEASE_REPO=acme/harness
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # Stub gh: `release view` succeeds only for a tag it has published; `release create` records its

@@ -4,6 +4,7 @@
 # in the project now, not in the engine), and never run a destructive git op.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/helpers.sh"; HP="$(mktemp -d)"; tmp_track "$HP"; pin_host_home "$HP/host"   # a test that picks its own HARNESS_HOME pins the host paths first (#541)
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
 # The host's agy is host state (#240): update.sh sources install.sh, whose check_prereqs /

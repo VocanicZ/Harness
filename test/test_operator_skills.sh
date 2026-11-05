@@ -9,6 +9,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
+pin_host_home "$T/home/.harness"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HOME="$T/home" HARNESS_HOME="$T/home/.harness" HARNESS_SKIP_RTDD=1 \
   HARNESS_SUPERVISE_UNIT_DIR="$T/units" HARNESS_WEB_UNIT_DIR="$T/units" \
   HARNESS_SUPERVISE_SYSTEMCTL=true HARNESS_SUPERVISE_LOGINCTL=true HARNESS_WEB_SYSTEMCTL=true HARNESS_WEB_LOGINCTL=true

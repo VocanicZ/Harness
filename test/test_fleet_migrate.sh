@@ -13,6 +13,7 @@ source "$HERE/helpers.sh"
 unset_inherited_config
 ENGINE="$(cd "$HERE/.." && pwd)"
 ROOT="$(mktemp -d)"; tmp_track "$ROOT"
+pin_host_home "$ROOT/host"   # (#541) the host root every fixture below shares
 export HARNESS_EVENTS_FILE="$ROOT/events.jsonl"
 
 # fleet <name> <config body> [targets.tsv body] [checkout dirs…] — a fixture project; prints its .harness dir

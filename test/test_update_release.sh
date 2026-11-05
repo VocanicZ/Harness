@@ -9,6 +9,7 @@ T="$(mktemp -d)"; LIVE=""
 trap '[[ -n "$LIVE" ]] && kill "$LIVE" 2>/dev/null; rm -rf "$T"' EXIT; cd "$T"
 # #439: every `harness update` links the engine's skills into the dirs under HOME the CLIs read — a throwaway HOME.
 export HOME="$T/home"; mkdir -p "$HOME"
+pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$T/units" HARNESS_WEB_UNIT_DIR="$T/units"
 export HARNESS_SUPERVISE_SYSTEMCTL=true HARNESS_SUPERVISE_LOGINCTL=true HARNESS_WEB_SYSTEMCTL=true HARNESS_WEB_LOGINCTL=true
 H="$HARNESS_HOME"; SRV="$T/srv"; rel_server "$SRV"

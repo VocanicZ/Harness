@@ -9,7 +9,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 WORK="$(mktemp -d)"
-export HARNESS_HOME="$WORK/host"
+source "$HERE/helpers.sh"   # pin_host_home before lib.sh reads the host paths (#541)
+pin_host_home "$WORK/host"
 export HARNESS_POLLER_DIR="$WORK/host/poller"
 export HARNESS_SNAPSHOTS_DIR="$WORK/host/snapshots"
 export STATE_DIR="$WORK/state"; mkdir -p "$STATE_DIR"
