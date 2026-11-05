@@ -69,6 +69,9 @@ kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
 echo "=== prompts carry the PID-only kill rule ==="
 for p in impl bug-fix resume bug-triage review inject; do
   assert_ok "prompts/$p.md forbids pattern kills" grep -F -q 'never `pkill -f`' "$HERE/../prompts/$p.md"
+  assert_ok "prompts/$p.md names the empty-pidfile footgun" grep -F -q 'pgrep -P ${p:-0}' "$HERE/../prompts/$p.md"   # #543
+  assert_ok "prompts/$p.md demands a validated PID (non-empty, digits, > 1)" grep -F -q 'non-empty, all digits and greater than 1' "$HERE/../prompts/$p.md"
+  assert_ok "prompts/$p.md forbids signalling PID 0, PID 1 or a negative PID" grep -F -q 'Never signal PID 0, PID 1 or a negative PID' "$HERE/../prompts/$p.md"
 done
 
 finish

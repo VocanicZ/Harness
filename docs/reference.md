@@ -1440,6 +1440,45 @@ Log: `~/.harness/supervise.log`. Preview a pass with `harness supervise --once -
 `Harness\harness-supervise` (with a hash of `HARNESS_HOME` appended for any home but `~/.harness`) instead
 ([Native Windows](#native-windows)).
 
+### Surviving the user manager
+
+Every Harness service is a systemd **user** unit: `harness-supervise.service`, the `harness web --install`
+unit, and through them the pool workers and the tmux server. They all live under `user@<uid>.service`. If that
+manager exits (a stray `kill` of PID 1's children reaches `systemd --user`, #543), every one of them goes down
+with it. Linger (`loginctl enable-linger`, which `--install` turns on) keeps the manager running with no login
+session, but it does not restart a manager that already exited, so the fleets stay dead until the next login.
+
+Only a system-level unit can bring the manager back. `harness supervise --install` prints a `NOTE` with these
+commands unless `systemctl is-enabled harness-user-revive.timer` already succeeds; run them once as root
+after replacing `<uid>` with the uid of the user running Harness (`id -u`; the `NOTE` fills it in). The `harness web --install` units are covered by the
+same timer.
+
+```bash
+sudo tee /etc/systemd/system/harness-user-revive.service >/dev/null <<'UNIT'
+[Unit]
+Description=Start user@<uid>.service when it is inactive (Harness)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'systemctl is-active --quiet user@<uid>.service || systemctl start user@<uid>.service'
+UNIT
+sudo tee /etc/systemd/system/harness-user-revive.timer >/dev/null <<'UNIT'
+[Unit]
+Description=Revive user@<uid>.service every 2 minutes (Harness)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
+UNIT
+sudo systemctl daemon-reload && sudo systemctl enable --now harness-user-revive.timer
+```
+
+Lanes are told never to hand `kill` or `pgrep -P` an empty or unchecked PID (`pgrep -P ${p:-0}` lists PID 1's
+children), and `proc_kill_tree` refuses an empty, non-numeric, `0` or `1` pid.
+
 ## Dashboard
 
 `harness web` serves a read-only dashboard at `http://127.0.0.1:4637/`: every fleet on the host, a

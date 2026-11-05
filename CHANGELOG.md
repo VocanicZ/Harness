@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A lane cleanup can no longer kill the user manager, and `supervise --install` says how to revive it (#543)
+
+- A lane's `pgrep -P ${p:-0}` with a missing pidfile listed PID 1's children and killed `systemd --user`, taking
+  every fleet down for 10.5 h. All six lane prompts now require a PID to be non-empty, all digits and greater than
+  1 before `kill` / `pgrep -P`, and name that anti-pattern. `proc_kill_tree` refuses an empty, non-numeric, `0` or `1` pid.
+- `harness supervise --install` (Linux) prints a `NOTE` with root commands for a system `harness-user-revive.timer`
+  that starts `user@<uid>.service` when inactive (linger does not restart an exited manager); it is skipped when
+  that timer is already enabled. See "Surviving the user manager" in `docs/reference.md`.
+
 ### Pool worker: a failed spawn sleeps, and a missing checkout is cloned (#539)
 
 - A pool worker whose lane failed to spawn used to count it as a claim and re-claim the same item with no sleep,
