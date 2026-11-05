@@ -451,7 +451,7 @@ make_live_fleet(){   # LIVE_ROOT: a host root holding ONE registered fleet with 
   local sd="$LIVE_ROOT/decoy/proj/.harness"; mkdir -p "$LIVE_ROOT/fleets" "$LIVE_ROOT/poller/registry" "$LIVE_ROOT/snapshots" "$sd/run"
   printf ': "${HARNESS_MODE:=single}"\n: "${HARNESS_REPO:=o/decoy}"\n: "${HARNESS_SESS_PREFIX:=decoy}"\n: "${HARNESS_POOL:=1}"\n: "${HARNESS_USE_POLLER:=0}"\n' > "$sd/config"
   (cd "$LIVE_ROOT/decoy/proj" && git init -q .)
-  ( cd "$LIVE_ROOT/decoy/proj" && exec env ENGINE_DIR=/old/engine sleep 240 </dev/null >/dev/null 2>&1 ) & DECOY_PID=$!
+  ( cd "$LIVE_ROOT/decoy/proj" && exec env ENGINE_DIR=/old/engine sleep 3000 </dev/null >/dev/null 2>&1 ) & DECOY_PID=$!
   echo "$DECOY_PID" > "$sd/run/worker-1.pid"
   printf '{"prefix":"decoy","project":"%s","run_dir":"%s/run","slugs":[],"started_at":1}\n' "$sd" "$sd" > "$LIVE_ROOT/fleets/decoy.json"
 }
