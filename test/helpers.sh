@@ -45,6 +45,15 @@ HARNESS_CONFIG_VARS="HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNES
 # every test gets a clean process; test_init.sh re-drops for a direct `bash test_init.sh`.
 unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 
+# The lane's own identity (#541). A lane exports HARNESS_SESSION (a uuid), HARNESS_ISSUE/PRD/KIND/PREFIX and
+# the tmux client's TMUX/TMUX_PANE to everything it runs. sess_sweep kills EVERY process whose environ carries
+# HARNESS_SESSION=<uuid>, and lane/stop paths act on the inherited prefix and tmux server — so a test that
+# reaches one with the lane's identity kills the lane that is running it (exit 137, ~20 sessions on #541).
+# Dropped when this file is sourced, so every test is a stranger to the fleet that launched it; a test that
+# wants a session sets its own after sourcing.
+HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX RTDD_EVENT_LOG TMUX TMUX_PANE"
+unset $HARNESS_LANE_IDENTITY_VARS
+
 # ── the host seam: ONE list, ONE helper (#541) ─────────────────────────────────────────────────────
 # Every fleet process exports HARNESS_FLEETS_DIR / HARNESS_POLLER_DIR / HARNESS_SNAPSHOTS_DIR (lib.sh)
 # and a lane inherits them, and every reader PREFERS the inherited value over the HARNESS_HOME a test
@@ -79,7 +88,7 @@ pin_host_home(){ local home="$1" e v
   [[ -n "$home" ]] || { echo "pin_host_home: no home given" >&2; return 1; }
   export HARNESS_HOME="$home"
   for e in $HARNESS_HOST_PIN_VARS; do export "${e%%:*}=$home/${e#*:}"; done
-  mkdir -p "$TMUX_TMPDIR"; unset TMUX TMUX_PANE   # ops 2026-11-05: a private tmux server; unset TMUX alone still reached /tmp/tmux-$UID/default (live lanes)
+  mkdir -p "$TMUX_TMPDIR"; unset $HARNESS_LANE_IDENTITY_VARS   # ops 2026-11-05: a private tmux server; unset TMUX alone still reached /tmp/tmux-$UID/default (live lanes)
   unset $HARNESS_HOST_DROP_VARS $HARNESS_HOST_DROP_BUS
   for v in $HARNESS_HOST_FAIL_TOOLS; do export "$v=false"; done
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"

@@ -111,7 +111,9 @@ done
 runs_update(){ grep -v '^[[:space:]]*#' "$1" |
   grep -E '(bash|exec)[^#|]*update\.sh|harness"?[[:space:]]+update([[:space:]]|$|")' >/dev/null; }
 update_tests=()
-for f in "$HERE"/test_*.sh; do runs_update "$f" && update_tests+=("$(basename "$f")"); done
+# test_hermetic.sh is skipped: its lint fixtures below spell out `bash update.sh`, so the scan would match
+# THIS file and the loop re-run it with the inherited lane env — recursively, killing the lane (#541).
+for f in "$HERE"/test_*.sh; do [[ "${f##*/}" == test_hermetic.sh ]] && continue; runs_update "$f" && update_tests+=("$(basename "$f")"); done
 # The two that leaked (#434), and one that runs it as `harness update`, must be found — or the scan
 # below guards nothing.
 for t in test_update.sh test_web_install.sh test_update_prerelease.sh; do
@@ -357,6 +359,12 @@ assert_eq "$(cat "$CAN/calls")" "" "...and never runs that agy"
 ) && { echo "  ok: pin_host_home re-pins every host path under the new home and drops the user bus"; TESTS_RUN=$((TESTS_RUN+1)); } \
   || { echo "  FAIL: pin_host_home left a host path / the user bus reachable"; TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1)); }
 
+# The lane's identity never reaches a test (#541): sourcing helpers.sh drops it, and pin_host_home does again.
+assert_eq "$(HARNESS_SESSION=u-1 HARNESS_ISSUE=541 TMUX=/s,1,0 TMUX_PANE=%1 HARNESS_PREFIX=hz bash -c 'source "$1"; echo "${HARNESS_SESSION-}|${HARNESS_ISSUE-}|${TMUX-}|${TMUX_PANE-}|${HARNESS_PREFIX-}"' _ "$HERE/helpers.sh")" "||||" \
+  "sourcing helpers.sh drops the lane's HARNESS_SESSION / HARNESS_ISSUE / TMUX / prefix (sess_sweep would kill the lane)"
+assert_eq "$(HARNESS_SESSION=u-1 bash -c 'source "$1"; export HARNESS_SESSION=u-2 TMUX=/s,1,0; pin_host_home /pinned/h; echo "${HARNESS_SESSION-}|${TMUX-}"' _ "$HERE/helpers.sh")" "|" \
+  "pin_host_home drops a lane identity set after sourcing"
+
 # One source of truth (Acceptance 4): every path var the engine rewrites for native Windows programs
 # (HARNESS_NATIVE_PATH_VARS) is pinned or dropped by pin_host_home, or exempted in helpers.sh WITH a reason.
 source "$HERE/../scripts/portable.sh" 2>/dev/null
@@ -448,7 +456,11 @@ make_live_fleet(){   # LIVE_ROOT: a host root holding ONE registered fleet with 
 }
 for t in "${fleet_tests[@]}"; do
   make_live_fleet
-  env -u TMUX -u TMUX_PANE HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" HARNESS_POLLER_DIR="$LIVE_ROOT/poller" \
+  # Only the fleet/poller/snapshot pins reach the test — and a PRIVATE tmux server, never the lane's identity
+  # (STATE_DIR, HARNESS_SESSION, TMUX…): the decoy guards the registry, it must not hand a test the lane's own
+  # session to sweep (#541, the lane ran this block and died with 137).
+  env -u STATE_DIR -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX -u TMUX -u TMUX_PANE \
+      TMUX_TMPDIR="$(mktemp -d)" HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" HARNESS_POLLER_DIR="$LIVE_ROOT/poller" \
       HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" bash "$HERE/$t" >/dev/null 2>&1
   assert_ok "$t: the registered fleet's live worker is not killed" kill -0 "$DECOY_PID"
   assert_eq "$(ls "$LIVE_ROOT/fleets")" "decoy.json" "$t: the fleet registry holds only its one original entry"
