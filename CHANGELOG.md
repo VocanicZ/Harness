@@ -19,6 +19,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `run-20261106` is backfilled: both arms scan `ok` (0 bugs, 0 vulnerabilities, 0 code smells, rating A), and own-test
   coverage is 94% for plain and 98.6% for Harness.
 
+### The fleet cleans up after its lanes: test temp dirs, `run/*.wd`, and closed PRDs' gauntlet dirs (#610)
+
+- Every lane session now runs with its own `TMPDIR` (`<tmp root>/hzt-<n>`), removed together with the lane's worktree
+  by the same reap, so the `mktemp -d` dirs a test in the lane never deleted (about 3,800 of them, 1.5 GB of tmpfs
+  on one host) are gone even after a crash. `test_hermetic.sh` and `test_vocanicz_skill.sh` also put their own temp
+  dirs in one private dir, so a run from a plain shell leaves `/tmp` as it found it.
+- The goal check that ends a session removes `run/<sess>.wd` along with `.goal`, and `gc_orphan_goals` sweeps any
+  `.wd` / `.loop` left without a `.goal` once its session is not live (it never touches a live session's).
+- `CLOSE_PRD` removes `gauntlet/<unit>/p<prd>`, and `harness start --recover` removes the gauntlet dirs of PRDs that
+  are already closed (open PRDs' dirs and any it cannot read are kept).
+
 ### Bench: `--runs N` per arm, median and range, `n=1` labelled (#591)
 
 - Every number in the benchmark was one run, and agent wall time and cost vary 20–40% between runs. `bench/run.py

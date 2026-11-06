@@ -13,6 +13,9 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
+# #610: every bare mktemp below lands in one private dir that goes with the test, so a run from a plain
+# shell (not run.sh, which gives each test its own TMPDIR) leaves /tmp as it found it.
+PRIVATE_TMP="$(mktemp -d)"; tmp_track "$PRIVATE_TMP"; export TMPDIR="$PRIVATE_TMP"
 unset_inherited_config   # a direct run from inside a live lane (#541): its HARNESS_* config must not reach the probes below
 
 SENTINEL=': "${HARNESS_REPO:=sentinel/live}"'

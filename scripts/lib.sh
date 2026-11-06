@@ -516,6 +516,11 @@ triage_worktree(){ echo "$WORKTREES_DIR/triage-$(printf '%s' "$1" | tr '/' '_')-
 # prefix sits at the WORKTREES_DIR root (like `triage-`), so reap_team's
 # "$WORKTREES_DIR/$UNIT"-i* glob can never catch it or mis-parse it via ${wd##*-i}.
 orch_worktree(){ echo "$WORKTREES_DIR/orch-$(printf '%s' "$1" | tr '/' '_')-p$2"; }
+# lane_tmpdir <wd> (#610) — the TMPDIR a lane session running in <wd> gets: <tmp root>/hzt-<cksum of wd>.
+# Short on purpose: a test puts a tmux socket (108-byte path limit) under a mktemp dir below it, so the
+# sanitised-wd name Claude Code's own scratch uses would overflow. Anything Claude Code derives from
+# TMPDIR (its /tmp/claude-<uid>/… scratch follows os.tmpdir()) lands under it too, so one rm covers both.
+lane_tmpdir(){ printf '%s/hzt-%s' "${HARNESS_TMP_ROOT:-/tmp}" "$(printf '%s' "$1" | cksum | cut -d' ' -f1)"; }
 # remove_session_worktrees <checkout> <wd> — the worktrees a session made for itself while it ran in
 # <wd>: Claude Code's agent isolation nests them under <wd>/.claude/worktrees/, and agents check out
 # base refs under their scratchpad, /tmp/claude-<uid>/<wd with every non-alnum as '-'>/…. Each is a
@@ -525,6 +530,8 @@ orch_worktree(){ echo "$WORKTREES_DIR/orch-$(printf '%s' "$1" | tr '/' '_')-p$2"
 # checkouts the lane prompts make for issue <n> (resume.md). /tmp is a tmpfs on fleet hosts, so what
 # is left there is RAM — 17 finished sessions' dirs plus a 2.4 GB go-build cache on one host.
 # HARNESS_TMP_ROOT is the test seam for /tmp.
+# The lane's own TMPDIR (#610, lane_tmpdir) goes with it: every `mktemp -d` a test in the lane made and
+# never removed — ~1.5 GB of tmpfs on one host — is under that one dir, so it is gone even after a crash.
 remove_session_worktrees(){ local checkout="$1" wd="$2" san p b n tmp="${HARNESS_TMP_ROOT:-/tmp}"
   [[ -n "$wd" ]] || return 0
   san="$(printf '%s' "$wd" | sed 's/[^A-Za-z0-9]/-/g')"
@@ -536,7 +543,7 @@ remove_session_worktrees(){ local checkout="$1" wd="$2" san p b n tmp="${HARNESS
   done < <(git -C "$checkout" worktree list --porcelain 2>/dev/null | awk '
     /^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)}
     /^$/{if(p!="")print p"\t"b; p=b=""} END{if(p!="")print p"\t"b}')
-  rm -rf "$tmp/claude-$(id -u)/$san"
+  rm -rf "$tmp/claude-$(id -u)/$san" "$(lane_tmpdir "$wd")"
   return 0; }
 # remove_worktree <checkout> <wd> [branch] — best-effort teardown of one worktree (+ optional local
 # branch), then prune the registration. Tolerates a missing worktree/branch (idempotent). Falls
@@ -592,6 +599,22 @@ sweep_orphan_orch_worktrees(){ shopt -s nullglob; local wd prd u san co
       session_live "$(sess_orch "$u" "$prd")" && continue
       log "recover: sweeping orphaned orch worktree for PRD #$prd ($u)"
       if [[ -n "$co" ]]; then remove_worktree "$co" "$wd" "agent/orch-$prd"; else rm -rf "$wd"; fi
+    done
+  done
+  shopt -u nullglob; }
+
+# gauntlet_dir <unit> <prd> — where a PRD's review rounds keep their evidence (drive.sh creates it for REVIEW).
+gauntlet_dir(){ echo "$STATE_DIR/gauntlet/$1/p$2"; }
+# sweep_closed_gauntlet — crash/new-machine recovery (#610): remove the gauntlet dir of every PRD that is
+# already CLOSED. close_prd removes its own, but a PRD closed by hand or before this fix left 328 MB behind.
+# An open PRD's dir is kept (its next round reads it), and so is any dir whose state cannot be read.
+sweep_closed_gauntlet(){ shopt -s nullglob; local d u prd st
+  for u in $(all_units); do
+    for d in "$STATE_DIR/gauntlet/$u"/p*; do
+      prd="${d##*/p}"; [[ "$prd" =~ ^[0-9]+$ ]] || continue
+      st="$(gh issue view "$prd" -R "$(unit_slug "$u")" --json state -q .state 2>/dev/null)" || continue
+      [[ "$st" == CLOSED ]] || continue
+      rm -rf "$d"; echo "  removed gauntlet dir of closed PRD #$prd ($u)"
     done
   done
   shopt -u nullglob; }
@@ -853,6 +876,13 @@ gc_orphan_goals(){
   for f in "$RUN_DIR"/*.goal; do
     sess="$(basename "$f" .goal)"
     session_live "$sess" || rm -f "$f" "$RUN_DIR/$sess.wd" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock"
+  done
+  # #610: the .wd / .loop files whose .goal is already gone. Both reapers that kill a session on its goal
+  # used to remove only the .goal, and this loop found .wd only THROUGH a .goal — so each was orphaned for
+  # good (271 of them in one run dir). A live session's .wd is its worktree record; it is never touched.
+  for f in "$RUN_DIR"/*.wd "$RUN_DIR"/*.loop "$RUN_DIR"/*.loop.lock; do
+    sess="$(basename "$f")"; sess="${sess%.lock}"; sess="${sess%.wd}"; sess="${sess%.loop}"
+    session_live "$sess" || rm -f "$f"
   done
   shopt -u nullglob
 }
@@ -1608,6 +1638,10 @@ session_env(){ local kv
 # lane_guard_env <wd> — append to SESSION_ENV (#470) the PATH that puts scripts/lane-bin first, so a lane in a
 # repo WITH submodules runs `gh pr merge` through the gitlink guard. A repo without .gitmodules gets no
 # change at all: its lane env is exactly what session_env built.
+# lane_tmp_env <wd> (#610) — append to SESSION_ENV a TMPDIR private to this lane, made here. The reap
+# (remove_session_worktrees) removes it with the worktree, so a test the lane runs cannot leak into /tmp.
+lane_tmp_env(){ local d; d="$(lane_tmpdir "$1")"; mkdir -p "$d" 2>/dev/null || return 0
+  SESSION_ENV+=(-e "TMPDIR=$d"); return 0; }
 lane_guard_env(){ [[ -f "$1/.gitmodules" && -x "$ENGINE_DIR/scripts/lane-bin/gh" ]] || return 0
   SESSION_ENV+=(-e "PATH=$ENGINE_DIR/scripts/lane-bin:$PATH"); return 0; }
 # issue_parent_prd <issue> — the PRD an issue's `## Parent` names (empty when unparented / gh fails).
@@ -1632,7 +1666,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
   else uuid="$(new_uuid)"; fi
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
-  session_env "$uuid"; lane_guard_env "$wd"
+  session_env "$uuid"; lane_guard_env "$wd"; lane_tmp_env "$wd"
   local model effort line line_me
   if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || return 1
   else

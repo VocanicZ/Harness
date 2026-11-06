@@ -35,7 +35,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     watchdog_session "$sess"
     usage_watch   # #194: the lane holds here for the whole session — the crossing must reach it too
     if bug_goal_done "$n" "$phase"; then
-      cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"
+      cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"
       [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge
       break
     fi
