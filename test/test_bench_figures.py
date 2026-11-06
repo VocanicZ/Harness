@@ -80,12 +80,12 @@ try:
     check("table header columns", all(c in text for c in ("Wall time", "Coding", "Testing", "List price", "% of weekly window",
                                                           "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
                                                           "Cap status", "Models", "in / out / cache read / cache write")))
-    check("plain row", "| Plain Claude Code | within caps | 1h 02m | 50m 00s | 10m 00s | 13.1M | 1.2k / 250.0k / 12.0M / 800.0k | $41.50 | 2.1% | 17 / 20 | n/a | 12 commits | 3 | claude-opus-4-1 |" in text, text)
+    check("plain row", "| Plain Claude Code | n=1 | within caps | 1h 02m | 50m 00s | 10m 00s | 13.1M | 1.2k / 250.0k / 12.0M / 800.0k | $41.50 | 2.1% | 17 / 20 | n/a | 12 commits | 3 | claude-opus-4-1 |" in text, text)
     check("harness row: capped, issues/PRs, models",
-          "| Harness (1 worker) | capped: cost | 2h 00m | 1h 23m | 31m 40s |" in text and "6 issues, 6 PRs" in text and "claude-opus-4-1, claude-sonnet-4-5" in text, text)
+          "| Harness (1 worker) | n=1 | capped: cost | 2h 00m | 1h 23m | 31m 40s |" in text and "6 issues, 6 PRs" in text and "claude-opus-4-1, claude-sonnet-4-5" in text, text)
     check("harness row has n/a continue replies", "| n/a | 6 issues, 6 PRs | n/a |" in text, text)
-    check("skipped optional arm with reason", "| Hx | skipped: Hx needs a second account | n/a |" in text, text)
-    check("optional arm without a reason is skipped: not run", "| Harness (3 workers) | skipped: not run |" in text, text)
+    check("skipped optional arm with reason", "| Hx | n/a | skipped: Hx needs a second account | n/a |" in text, text)
+    check("optional arm without a reason is skipped: not run", "| Harness (3 workers) | n/a | skipped: not run |" in text, text)
     check("no SonarQube column without data", "SonarQube" not in text)
     check("no fuzz note while no arm has fuzz results", "**Fuzz divergences:**" not in text)
     # a `status: skipped` <arm>.json (bench/run.py --optional, #386) is a skipped row, and is not a measured arm
@@ -93,13 +93,13 @@ try:
                                                     "reason": "budget", "skipped_at": "t", "guard": {}})
     run(d)
     text2 = slurp(readme, "r")
-    check("a skipped <arm>.json renders as skipped: budget", "| Harness (3 workers) | skipped: budget | n/a |" in text2, text2)
+    check("a skipped <arm>.json renders as skipped: budget", "| Harness (3 workers) | n/a | skipped: budget | n/a |" in text2, text2)
     check("a skipped record is not a plotted arm", "Harness (3 workers)" not in slurp(svg_path, "r"))
     # #577: the cell shows the guard's real cause(s), whatever they are
     put(d, "results", "r1", "harness-3.json", data={"schema": 1, "run_id": "r1", "arm": "harness-3", "status": "skipped",
                                                     "reason": "disk,budget", "skipped_at": "t", "guard": {}})
     run(d)
-    check("a skipped <arm>.json shows every cause", "| Harness (3 workers) | skipped: disk,budget | n/a |" in slurp(readme, "r"))
+    check("a skipped <arm>.json shows every cause", "| Harness (3 workers) | n/a | skipped: disk,budget | n/a |" in slurp(readme, "r"))
     os.remove(os.path.join(d, "results", "r1", "harness-3.json")); run(d)
     check("no undeleted-repos note while every repo was deleted", "Repos not deleted" not in slurp(readme, "r"))
     # #578: a run that left its repo behind says so in the README
@@ -154,8 +154,8 @@ try:
     r = run(d3)
     t3 = slurp(readme3, "r")
     check("sparse results do not error", r.returncode == 0, r.stderr)
-    check("null split, window and models render n/a", "| Plain Claude Code | error | 1h 02m | n/a | n/a | 13.1M |" in t3 and "| n/a | n/a | n/a (not graded) | n/a | n/a | n/a |" in t3, t3)
-    check("a result with only an arm name renders a row", "| odd | n/a | n/a | n/a | n/a | n/a | n/a / n/a / n/a / n/a | n/a |" in t3, t3)
+    check("null split, window and models render n/a", "| Plain Claude Code | n=1 | error | 1h 02m | n/a | n/a | 13.1M |" in t3 and "| n/a | n/a | n/a (not graded) | n/a | n/a | n/a |" in t3, t3)
+    check("a result with only an arm name renders a row", "| odd | n=1 | n/a | n/a | n/a | n/a | n/a | n/a / n/a / n/a / n/a | n/a |" in t3, t3)
     sv = slurp(os.path.join(d3, "results", "benchmark.svg"), "r")
     check("figure draws a not-split wall bar when the split is null", "#9aa0a6" in sv and "</svg>" in sv)
 
@@ -284,7 +284,7 @@ try:
         isolation={"config": "isolated", "engine_skills": ["harness"] * 19, "engine_plugins": ["ralph-loop", "superpowers"]}))
     run(d10)
     t10 = slurp(readme10, "r")
-    check("the matched arm has a table row of its own, not a skipped one", "| Harness (all Opus, plain's effort) | within caps" in t10, t10)
+    check("the matched arm has a table row of its own, not a skipped one", "| Harness (all Opus, plain's effort) | n=1 | within caps" in t10, t10)
     check("each arm's models, effort, asked-for settings and provenance are stated under the table",
           "**Run settings, Plain Claude Code:** models claude-opus-4-1; effort by message medium (42); asked for model default, "
           "effort default; engine commit `0123456789ab-dirty`; `/harness` skill n/a; Claude Code CLI `2.1.319 (Claude Code)`." in t10
@@ -302,7 +302,7 @@ try:
     run(d11)
     t11 = slurp(readme11, "r")
     check("an arm without settings records adds no Run settings line, and the matched arm shows as not run",
-          "Run settings" not in t11 and "| Harness (all Opus, plain's effort) | skipped: not run" in t11, t11)
+          "Run settings" not in t11 and "| Harness (all Opus, plain's effort) | n/a | skipped: not run" in t11, t11)
 
     # --- #589: the Fuzz divergences column and its note ------------------------------------
     d9 = os.path.join(tmp, "fuzz"); os.makedirs(d9)
@@ -320,6 +320,76 @@ try:
     check("the fuzz note names what is counted, the seed and the hash",
           "**Fuzz divergences:**" in t9 and "seed 589" in t9 and "`0123456789ab…`" in t9 and "`fuzz_examples`" in t9, t9)
     check("--check passes with fuzz results", run(d9, "--check").returncode == 0)
+
+    # --- #591: --runs N — median and range in the table, whiskers in the figure, n for every arm ----------
+    sys.path.insert(0, os.path.join(ROOT, "bench"))
+    import aggregate as agglib                                                  # noqa: E402
+    d12 = os.path.join(tmp, "batch"); os.makedirs(d12)
+
+    def batch_docs(arm, specs, requested, stopped=None):
+        """Write <arm>.runs/run-NN.json for each (status, cost, wall, passed, div) and the aggregate <arm>.json."""
+        docs, runs = [], []
+        for i, (status, cost, wall, passed, div) in enumerate(specs, 1):
+            f = f"{arm}.runs/run-{i:02d}.json"
+            r = doc(arm, run=i, status=status, cost_usd=cost, wall_s=wall, coding_s=wall * 0.6, testing_s=wall * 0.1,
+                    hidden_tests={"passed": passed, "failed": 80 - passed, "total": 80}, fuzz_cases=1000,
+                    fuzz_divergences=div, logs=f"run-{i:02d}.logs", counts={"commits": i + 2})
+            put(d12, "results", "r1", f, data=r)
+            docs.append(r)
+            runs.append({"run": i, "file": f, "status": status, "capped": None})
+        a = agglib.aggregate(docs)
+        put(d12, "results", "r1", arm + ".json", data={
+            "schema": 1, "run_id": "r1", "arm": arm, "status": "aggregate", "runs_requested": requested,
+            "runs_completed": a["n"], "stopped": stopped, "runs": runs, "aggregate": a})
+    batch_docs("plain", [("ok", 10.0, 600, 70, 5), ("ok", 30.0, 1200, 80, 9), ("ok", 20.0, 900, 75, 7)], 3)
+    batch_docs("harness", [("ok", 40.0, 3000, 80, 1), ("ok", 50.0, 3600, 80, 2)], 5,
+               {"reason": "guard", "causes": ["budget"], "detail": "acct seven_day: 70% now + 10% expected > 98%"})
+    put(d12, "results", "r1", "hx.json", data=doc("hx"))        # a legacy single-run result beside the batches
+    readme12 = readme_with_markers(d12)
+    r12 = run(d12)
+    t12 = slurp(readme12, "r")
+    svg12 = slurp(os.path.join(d12, "results", "benchmark.svg"), "r")
+    check("a batch renders without error", r12.returncode == 0, r12.stderr)
+    check("the table has an n column: n=3, n=2 of 5 for a stopped batch, n=1 for a single run",
+          "| Arm | n |" in t12 and "| Plain Claude Code | n=3 |" in t12 and "| Harness (1 worker) | n=2 of 5 |" in t12
+          and "| Hx | n=1 |" in t12, t12)
+    check("time and cost cells show the median and the min–max range",
+          "| 15m 00s (10m 00s–20m 00s) |" in t12 and "$20.00 ($10.00–$30.00)" in t12, t12)
+    check("hidden tests and fuzz cells show the median and range over the cases", "75 (70–80) / 80" in t12 and "7 (5–9) / 1000" in t12, t12)
+    check("work counts show a range too", "4 (3–5) commits" in t12, t12)
+    check("a single run's cells are plain values, as before", "| Hx | n=1 | within caps | 1h 02m | 50m 00s | 10m 00s |" in t12, t12)
+    check("the figure labels every arm with n and draws whiskers only where there are several runs",
+          "Plain Claude Code <tspan" in svg12 and ">n=3</tspan>" in svg12 and ">n=2 of 5</tspan>" in svg12 and ">n=1</tspan>" in svg12
+          and svg12.count('stroke-width="1.5"') == 4 and "whiskers: min–max" in svg12, svg12)
+    check("the median is the bar: plain's wall-time label is the median 15m", ">15m 00s</text>" in svg12 and ">$20.00</text>" in svg12, svg12)
+    check("an early stop is told under the table with its reason",
+          "**Stopped early, Harness (1 worker):** 2 of 5 runs completed (2 started); stopped because guard: acct seven_day" in t12, t12)
+    check("the README says what n and the range mean", "**Runs:** `n` is the number of runs" in t12 and "`n=1` is a single run" in t12, t12)
+    check("a batch is byte-for-byte reproducible", (slurp(readme12), slurp(os.path.join(d12, "results", "benchmark.svg"))) ==
+          (lambda: (run(d12), (slurp(readme12), slurp(os.path.join(d12, "results", "benchmark.svg"))))[1])())
+    check("--check passes on a batch", run(d12, "--check").returncode == 0, run(d12, "--check").stderr)
+    # an aggregate that no longer matches its runs, or a run file that went missing, fails --check
+    stored = json.load(open(os.path.join(d12, "results", "r1", "plain.json")))
+    stored["aggregate"]["metrics"]["cost_usd"]["median"] = 99.0
+    put(d12, "results", "r1", "plain.json", data=stored)
+    bad12 = run(d12, "--check")
+    check("--check fails when the aggregate differs from its runs", bad12.returncode == 1 and "aggregate does not match its runs: plain: " in bad12.stderr, bad12.stderr)
+    batch_docs("plain", [("ok", 10.0, 600, 70, 5), ("ok", 30.0, 1200, 80, 9), ("ok", 20.0, 900, 75, 7)], 3)
+    os.remove(os.path.join(d12, "results", "r1", "plain.runs", "run-02.json"))
+    gone = run(d12, "--check")
+    check("--check fails when a run file is missing", gone.returncode == 1 and "run file plain.runs/run-02.json cannot be read" in gone.stderr, gone.stderr)
+    # an errored run is listed but not counted; a batch with no finished run still renders
+    batch_docs("plain", [("error", 1.0, 5, 0, 0), ("ok", 12.0, 600, 70, 5)], 3,
+               {"reason": "arm-error", "detail": "the arm failed"})
+    run(d12)
+    t13 = slurp(readme12, "r")
+    check("an errored run is not in the medians but shows in the cap status",
+          "| Plain Claude Code | n=1 of 3 | 1 error, 1 within caps | 10m 00s |" in t13 and "$12.00 |" in t13, t13)
+    batch_docs("plain", [("error", 1.0, 5, 0, 0)], 3, {"reason": "arm-error", "detail": "the arm failed"})
+    r14 = run(d12)
+    t14 = slurp(readme12, "r")
+    check("a batch with no finished run renders n=0 and n/a, not an error",
+          r14.returncode == 0 and "| Plain Claude Code | n=0 of 3 | error | n/a | n/a | n/a | n/a |" in t14, t14 + r14.stderr)
 
     # --- the committed README and figure are current with the committed results -------------
     r = subprocess.run([sys.executable, "-I", FIG, "--check"], capture_output=True, text=True)

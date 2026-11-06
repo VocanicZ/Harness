@@ -1,6 +1,7 @@
 """stub arm — exercises the runner core without an agent (#381). Options (--arm-opt K=V):
 
-    cost=USD     write a transcript whose list price is about USD (default 0.01)
+    cost=USD     write a transcript whose list price is about USD (default 0.01); a comma list, `1,3,2`, gives
+                 run 1, 2, 3 of a `--runs N` batch their own price (it repeats from the start when N is longer) (#591)
     sleep=SECS   keep "working" this long, or until the runner stops it (default 0)
     subagents=1  also write a sub-agent transcript beside the session's (priced at `cost` again)
     effort=E     record effort E on the session's messages (default: none), as Claude Code does (#590)
@@ -26,15 +27,20 @@ def write_transcript(path, usd, mid="m1", effort=None):
         fh.write("".join(json.dumps(r) + "\n" for r in lines))
 
 
+def run_cost(ctx):
+    costs = [float(c) for c in ctx.opts.get("cost", "0.01").split(",")]
+    return costs[((ctx.run or 1) - 1) % len(costs)]
+
+
 def run(ctx):
     if ctx.opts.get("fail"):
         raise RuntimeError("stub arm told to fail")
     tr = os.path.join(ctx.logs, "stub-session.jsonl")
-    write_transcript(tr, float(ctx.opts.get("cost", "0.01")), effort=ctx.opts.get("effort"))
+    write_transcript(tr, run_cost(ctx), effort=ctx.opts.get("effort"))
     if ctx.opts.get("subagents"):
         sdir = os.path.join(ctx.logs, "stub-session", "subagents")
         os.makedirs(sdir)
-        write_transcript(os.path.join(sdir, "agent-a1.jsonl"), float(ctx.opts.get("cost", "0.01")), mid="sub1")
+        write_transcript(os.path.join(sdir, "agent-a1.jsonl"), run_cost(ctx), mid="sub1")
     ctx.add_transcripts(tr)
     ctx.count("commits", 1)
     ctx.stop.wait(float(ctx.opts.get("sleep", "0")))

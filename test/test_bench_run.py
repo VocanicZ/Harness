@@ -75,6 +75,8 @@ class Env:
         argv = [sys.executable, RUN, "--results-dir", self.results, "--run-dir", self.rundir,
                 "--events", os.path.join(self.d, "no-events.jsonl"), "--poll-secs", "0.05", "--grace-secs", "2",
                 "--run-id", "t1"] + (["--grader", self.grader] if grader else []) + list(args)
+        if "--runs" not in args:
+            argv += ["--runs", "1"]   # most tests are about one run; the default of 5 has its own (#591)
         return subprocess.run(argv, env=dict(self.env, **(extra_env or {})), capture_output=True, text=True, timeout=300)
 
     def calls(self):
@@ -566,3 +568,165 @@ if __name__ == "__main__":
             except AssertionError as ex: print(f"  FAIL: {name} — {ex}"); fails += 1
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
+
+
+# --- --runs N: median and range over repeated runs (#591) ---------------------------------------------
+def counter_usage(step, start=10):
+    """A HARNESS_USAGE_CMD whose weekly reading climbs `step` points at every call: each guard sees what the earlier runs used."""
+    return ("f=\"$STATE_FILE\"; n=$(cat \"$f\" 2>/dev/null || echo 0); echo $((n+1)) > \"$f\"; "
+            f"printf 'acct\\tseven_day\\t%s\\t0\\n' $(({start} + n * {step}))")
+
+
+def batch(e, arm="stub"):
+    d = os.path.join(e.results, "t1")
+    agg = json.load(open(os.path.join(d, arm + ".json")))
+    runs = [json.load(open(os.path.join(d, r["file"]))) for r in agg["runs"]]
+    return agg, runs
+
+
+def creates(e):
+    return [c for c in e.calls() if c.startswith("gh repo create")]
+
+
+def test_runs_defaults_to_five_and_must_be_positive():
+    assert bench_run.parse_args(["stub"]).runs == 5
+    assert bench_run.parse_args(["stub", "--runs", "3"]).runs == 3
+
+
+@with_env()
+def test_runs_below_one_is_a_usage_error(e):
+    p = e.run("stub", "--runs", "0")
+    assert p.returncode == 2 and "--runs must be at least 1" in p.stderr and e.calls() == []
+
+
+@with_env()
+def test_runs_n_records_n_results_per_arm_plus_an_aggregate(e):
+    p = e.run("stub", "--runs", "3", "--arm-opt", "cost=1,3,2", "--expected-usd", "5")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    agg, runs = batch(e)
+    assert bench_run.validate(agg) == [], bench_run.validate(agg)
+    assert (agg["status"], agg["runs_requested"], agg["runs_completed"], agg["stopped"]) == ("aggregate", 3, 3, None)
+    assert [r["file"] for r in agg["runs"]] == [f"stub.runs/run-0{i}.json" for i in (1, 2, 3)]
+    assert [r["run"] for r in runs] == [1, 2, 3] and all(bench_run.validate(r) == [] for r in runs)
+    assert [round(r["cost_usd"]) for r in runs] == [1, 3, 2]
+    c = agg["aggregate"]["metrics"]["cost_usd"]
+    assert (c["n"], round(c["median"]), round(c["min"]), round(c["max"])) == (3, 2, 1, 3), c
+    assert {"wall_s", "tokens", "hidden_passed", "coding_s"} <= set(agg["aggregate"]["metrics"])
+    # each run had its own private repo, all deleted; its own logs sit beside its result
+    names = sorted(c.split()[3].split("/")[1] for c in creates(e))
+    assert names == [f"bench-t1-stub-r0{i}" for i in (1, 2, 3)], names
+    assert all(r["repo_deleted"] is True for r in runs) and e.repos() == []
+    for i in (1, 2, 3):
+        assert os.path.isfile(os.path.join(e.results, "t1", "stub.runs", f"run-0{i}.logs", "run.log"))
+    assert not os.path.exists(os.path.join(e.results, "t1", "stub.logs")), "no single-run files in a batch"
+    assert "3 of 3 runs completed" in p.stdout, p.stdout
+
+
+@with_env()
+def test_runs_1_keeps_the_single_run_files(e):
+    assert e.run("stub").returncode == 0
+    assert e.result()["status"] == "ok" and "run" not in e.result()
+    assert os.path.isdir(os.path.join(e.results, "t1", "stub.logs"))
+    assert [c.split()[3].split("/")[1] for c in creates(e)] == ["bench-t1-stub"]
+
+
+@with_env(usage_pct=None)
+def test_a_batch_stops_early_when_the_budget_runs_out_and_records_why(e):
+    e.env["HARNESS_USAGE_CMD"] = counter_usage(30)
+    e.env["STATE_FILE"] = os.path.join(e.d, "usage-calls")
+    p = e.run("stub", "--runs", "5", "--expected-usd", "10", "--optional")   # 10 -> 40 -> 70 -> 100%: the 4th run does not fit
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    agg, runs = batch(e)
+    assert bench_run.validate(agg) == []
+    assert (agg["runs_requested"], agg["runs_completed"], len(runs)) == (5, 3, 3), agg
+    st = agg["stopped"]
+    assert st["reason"] == "guard" and st["causes"] == ["budget"] and "acct seven_day" in st["detail"], st
+    assert len(creates(e)) == 3 and e.repos() == [], "the refused run created nothing"
+    assert "stopped early: guard" in p.stdout and "REFUSED" in p.stderr, (p.stdout, p.stderr)
+
+
+@with_env(usage_pct=None)
+def test_a_refusal_before_the_first_run_is_still_exit_3_and_records_nothing(e):
+    e.env["HARNESS_USAGE_CMD"] = counter_usage(0, start=96)
+    e.env["STATE_FILE"] = os.path.join(e.d, "usage-calls")
+    p = e.run("stub", "--runs", "3", "--expected-usd", "10")
+    assert p.returncode == 3 and e.calls() == [] and not os.path.exists(e.results), (p.returncode, p.stderr)
+
+
+@with_env()
+def test_a_failing_arm_stops_the_batch_and_is_recorded(e):
+    p = e.run("stub", "--runs", "3", "--arm-opt", "fail=1", "--expected-usd", "5")
+    assert p.returncode == 1, (p.stdout, p.stderr)
+    agg, runs = batch(e)
+    assert bench_run.validate(agg) == [] and [r["status"] for r in runs] == ["error"]
+    assert (agg["runs_completed"], agg["stopped"]["reason"]) == (0, "arm-error") and "told to fail" in agg["stopped"]["detail"]
+    assert agg["aggregate"] == {"n": 0, "metrics": {}} and len(creates(e)) == 1
+
+
+@with_env()
+def test_a_repo_that_cannot_be_deleted_stops_the_batch(e):
+    p = e.run("stub", "--runs", "3", "--expected-usd", "5", extra_env={"FAKE_GH_DELETE_FAIL": "1"})
+    assert p.returncode == 4 and "COULD NOT DELETE bencher/bench-t1-stub-r01" in p.stderr, (p.returncode, p.stderr)
+    agg, runs = batch(e)
+    assert bench_run.validate(agg) == [] and agg["stopped"]["reason"] == "repo-not-deleted"
+    assert (agg["runs_completed"], len(creates(e))) == (1, 1) and runs[0]["repo_deleted"] is False
+
+
+@with_env()
+def test_capped_runs_are_kept_in_the_batch_with_their_cap(e):
+    p = e.run("stub", "--runs", "2", "--arm-opt", "sleep=60", "--wall-cap-secs", "0.4", "--expected-usd", "5")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    agg, runs = batch(e)
+    assert bench_run.validate(agg) == [] and agg["stopped"] is None
+    assert [(r["status"], r["capped"]) for r in runs] == [("capped", "wall")] * 2 and agg["runs_completed"] == 2
+
+
+def test_summarize_and_aggregate_count_only_finished_runs():
+    agg = bench_run.agglib()
+    assert agg.summarize([]) is None and agg.summarize([None, True]) is None
+    assert agg.summarize([3, 1, 2, None]) == {"n": 3, "median": 2, "min": 1, "max": 3}
+    assert agg.summarize([1, 2, 3, 10])["median"] == 2.5
+    doc = lambda status, cost, passed: {"status": status, "cost_usd": cost, "wall_s": 9,
+                                        "tokens": {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4},
+                                        "hidden_tests": {"passed": passed, "failed": 0, "total": 80},
+                                        "sonarqube": {"coverage": 50 + passed}}
+    got = agg.aggregate([doc("ok", 4, 70), doc("error", 99, 0), doc("capped", 6, 80)])
+    m = got["metrics"]
+    assert got["n"] == 2 and m["cost_usd"] == {"n": 2, "median": 5, "min": 4, "max": 6}, got
+    assert m["tokens"]["median"] == 10 and m["hidden_passed"]["max"] == 80 and m["coverage"]["min"] == 120
+    assert "fuzz_divergences" not in m, "a metric no run has is left out"
+    ungraded = dict(doc("ok", 1, 0), hidden_tests={"passed": 0, "failed": None, "total": None})
+    assert "hidden_passed" not in agg.aggregate([ungraded])["metrics"], "an ungraded run has no pass count"
+
+
+def test_validate_aggregate_names_what_is_wrong():
+    agg = bench_run.agglib()
+    good = {"schema": 1, "run_id": "r", "arm": "stub", "status": "aggregate", "runs_requested": 2, "runs_completed": 1,
+            "stopped": {"reason": "guard", "detail": "budget"},
+            "runs": [{"run": 1, "file": "stub.runs/run-01.json", "status": "ok"}],
+            "aggregate": {"n": 1, "metrics": {"cost_usd": {"n": 1, "median": 1, "min": 1, "max": 1}}}}
+    assert agg.validate_aggregate(good) == []
+    assert agg.validate_aggregate(dict(good, stopped=None))[0].startswith("stopped is null but fewer runs completed")
+    assert "stopped: want" in agg.validate_aggregate(dict(good, stopped={"reason": "tired", "detail": ""}))[0]
+    assert agg.validate_aggregate(dict(good, runs_completed=2)) != []
+    bad = dict(good, aggregate={"n": 1, "metrics": {"cost_usd": {"n": 1, "median": 5, "min": 1, "max": 2}}})
+    assert "aggregate.metrics.cost_usd" in agg.validate_aggregate(bad)[0]
+    assert agg.validate_aggregate({k: v for k, v in good.items() if k != "runs"}) == ["missing runs"]
+    assert bench_run.validate(good) == [], "run.validate dispatches an aggregate record"
+
+
+@with_env()
+def test_figures_check_re_measures_every_runs_logs_in_a_batch(e):
+    assert e.run("stub", "--runs", "2", "--arm-opt", "cost=2,3", "--arm-opt", "subagents=1", "--expected-usd", "5").returncode == 0
+    readme = os.path.join(e.d, "README.md")
+    with open(readme, "w") as fh:
+        fh.write("# T\n\n<!-- bench:begin — x -->\nOLD\n<!-- bench:end -->\n")
+    fig = [sys.executable, os.path.join(ROOT, "bench", "figures.py"), "--results-dir", e.results, "--readme", readme]
+    assert subprocess.run(fig, capture_output=True, text=True).returncode == 0
+    ok = subprocess.run(fig + ["--check"], capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr
+    text = open(readme).read()
+    assert "| stub | n=2 |" in text and "$5.00 ($4.00–$6.00)" in text, text   # sub-agents double each run's price
+    shutil.rmtree(os.path.join(e.results, "t1", "stub.runs", "run-02.logs", "transcripts", "0-stub-session"))
+    bad = subprocess.run(fig + ["--check"], capture_output=True, text=True)
+    assert bad.returncode == 1 and "logs do not reproduce results: stub run 2: tokens.output" in bad.stderr, bad.stderr
