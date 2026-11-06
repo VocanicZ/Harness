@@ -156,8 +156,10 @@ whatever the arm wrote to `ctx.logs`.
 | `hidden_tests` | object | `bench/grade.py`'s fragment: `passed`, `failed`, `total`, `details` (`failed` and `total` are null, `details.error` set, when grading failed) |
 | `fuzz_cases`, `fuzz_divergences` | int | [differential fuzz](#differential-fuzz) (#589): cases run, and cases where the arm and the reference disagree. Absent in results written before #589 and backfilled for `run-20261106` |
 | `fuzz_examples` | list | up to 10 of those divergences: `case`, `argv`, `ledger`, `ledger_from`, `closed_stdout`, `reference` and `arm` (`exit`, `stdout`, `stderr_empty`, `file`), `arm_stderr` |
+| `fuzz_classes`, `fuzz_class_counts` | int, object | optional (#620): the divergences grouped into root-cause [classes](#fuzz-root-cause-classes): their number, and `{"<feature> x <difference>": raw divergences}` per class (the counts add up to `fuzz_divergences`). Absent in results graded before #620 |
 | `fuzz_seed`, `fuzz_hash` | int, string | the frozen generator's seed and the SHA-256 of its 1000 planned cases |
 | `fuzz_error` | string | only when the fuzz could not run; it never fails a run |
+| `review_score`, `review` | number, object | optional (#620): the arm's [scripted blind review](#scripted-blind-review) score out of 10 (mean of the verdicts) and its detail: `rubric`, `rubric_sha`, `brief_sha`, `model`, `seed`, `judges`, `verdicts`, `failed`, per-`criteria` means, the verdict totals in `scores`, `versus` (the other arm) and `mean_gap`. Written by `bench/review.py --write`, never by a run |
 | `effort` | object | optional (#590): messages per effort level as the transcripts record it (each entry's `effort` field, sub-agents included), e.g. `{"medium": 42}`; `bench/figures.py --check` re-reads it from the kept transcripts |
 | `configured` | object | optional (#590): `{model, effort}` the arm asked for, `null` meaning the out-of-the-box default (plain and `harness`: both null; `harness-opus`: `opus` / `medium`). What actually ran is `models` and `effort` |
 | `provenance` | object | optional (#590): `engine_commit` (the checkout's git commit, `-dirty` with uncommitted changes), `skill_version` (`sha256:` of the engine's `skill/` files, the `/harness` skill the Harness arms install), `cli_version` (`claude --version`); each a string or null when it could not be read |
@@ -178,39 +180,116 @@ whatever the arm wrote to `ctx.logs`.
 
 ## Differential fuzz
 
-The 80 hidden tests are the same for every arm and both arms scored 80 / 80, so they cannot tell the arms apart:
-a blind review found five user-facing bugs in the Harness arm that no hidden test exercises (`add … -5 -refund`
-exits 2; `add … -abc` exits 2 where the brief says 1; `list | head -1` gives a BrokenPipe traceback; a UTF-8
-byte order mark is rejected; a form feed or U+2028 in a note gives the wrong error line). Adding exactly those
-cases would tune the tests to one arm, so `bench/fuzz.py` (#589) grades the same way for every arm instead:
+The 80 hidden tests are the same for every arm and both arms scored 80 / 80, so they cannot tell the arms apart.
+`bench/fuzz.py` (#589) grades the same way for every arm instead: the same random command lines and ledger files go
+through the arm and through the reference implementation and the disagreements are counted.
 
 ```
 bench/fuzz.py --self                  # the reference against itself: 0 divergences
 bench/fuzz.py --cmd '["pennywise"]'   # an arm's command line as a JSON argv (default: $PENNYWISE_CMD)
+bench/fuzz.py --fixture large --self  # the other fixture's fuzz (#592)
 bench/grade.py REPO_DIR --fuzz-only --arm-json bench/results/<run-id>/<arm>.json   # backfill a graded run
 ```
 
-- **What runs.** 1000 cases (`--cases`, capped at 300 s, `--cap`) of random argv and ledger files go through the
-  arm's `pennywise` and through the reference implementation (the benchmark's reference solution, which the hidden tests
-  prove against the brief), each in its own empty directory. The generator covers the commands and their options,
-  dash-led arguments and `--`, a byte order mark and invalid UTF-8, LF / CRLF / lone CR / mixed line endings, a
-  form feed, vertical tab, NEL, U+2028 or U+2029 inside a note, a ledger from a file or from `-` (stdin), a missing
-  file or a directory, bad options, and a closed standard-output pipe (`pennywise list | head -1`).
+- **What runs.** 1000 cases (`--cases`, capped at 300 s, `--cap`) go through the arm's `pennywise` and through the
+  reference implementation (the benchmark's reference solution, which the hidden tests prove against the brief), each in
+  its own empty directory. The cases come from `bench/fixture/fuzzgen.py` (below): every command and option the brief
+  describes with good and bad dates, amounts, categories, notes and separators; the exit statuses; `add` refusing and
+  creating; ledgers with LF / CRLF / lone CR line endings, no final newline, empty, non-ASCII, a byte order mark or invalid
+  UTF-8; a ledger from a file or from `-` (stdin), a missing file or a directory, and a closed standard-output pipe
+  (`pennywise list | head -1`).
 - **A divergence** is a case where the two differ in standard output, in whether standard error is empty, in the
   exit status, or in the ledger `add` leaves behind (as lines). Where the brief leaves room it is not a difference:
-  how many spaces `summary` puts between the name and the total, and JSON formatting (compared as data). With a closed
-  output pipe only "standard error stays empty" and the ledger are compared: the brief gives no status for it.
-- **Frozen.** The generator has its own PRNG (no `random` module), seed `589`, and the SHA-256 of its case list is
+  how many spaces `summary` puts between the name and the total, JSON formatting (compared as data) and whether `export`
+  ends its CSV lines in LF or CRLF. With a closed output pipe only "standard error stays empty" and the ledger are
+  compared: the brief gives no status for it.
+- **Frozen.** The generator has its own PRNG (no `random` module), seed `620`, and the SHA-256 of its case list is
   pinned (`FROZEN_HASH`, and in `test/test_bench_fuzz.py`): `bench/fuzz.py` refuses to run when they disagree. A
   changed generator is a different measurement: update the seed and hash on purpose and re-grade the runs you compare.
   The hash is recorded in every result (`fuzz_hash`). A prefix of the cases is the same cases (`--cases 200`).
-- **The reference** is held to the brief on exactly these shapes (`test/test_bench_reference.py`): `add` takes
+- **The reference** is held to the brief on the shapes the brief pins (`test/test_bench_reference.py`): `add` takes
   every argument as typed (a dash-led amount or note is not an option; `-abc` is a bad amount, exit 1), a UTF-8 byte
   order mark is dropped, a line ends at LF, CRLF or a lone CR and nowhere else, and a reader that went away ends the
   output quietly (no traceback, status 0).
 - **Where it runs.** `bench/grade.py` runs it after the hidden tests on the same build and adds a `fuzz` object to its
   fragment; `bench/run.py` lifts that into the `fuzz_*` fields. A fuzz that cannot run is `fuzz_error`; the grade and the
   run are unaffected. `BENCH_FUZZ_CASES` / `BENCH_FUZZ_CAP_S` shorten it for tests.
+
+### Blind generators (#620)
+
+A fuzz that was written after seeing an arm's bugs measures that arm's bugs: a fleet tuned to the checklist would score
+well without being better. The first generator (#589) was exactly that (its cases were chosen after a review found five bugs
+in the Harness arm), so it is gone. **Every fixture's fuzz generator is blind**: it is written from the fixture's brief and
+reference implementation only, before any arm's output on that fixture is seen, and says so where it lives:
+
+| fixture | generator | provenance |
+|---|---|---|
+| `pennywise` | `bench/fixture/fuzzgen.py`, driven by `bench/fuzz.py` | rewritten for #620 by an author given only the brief and the reference, with no access to the old generator, the results or any arm's repo; the file's docstring says so and lists what it deliberately leaves out because the brief does not pin it (form feed or U+2028 as a line end, leading whitespace, `.5` or `1e3` as amounts, `add --`, …) |
+| `large` | `bench/fixture-large/fuzz.py` | written for #592 from the brief and the reference, committed before any arm had run on the fixture; `PROVENANCE` in the file |
+
+`test/test_bench_fuzz.py` holds the pennywise generator to this: it imports nothing but `datetime`, reads no file, results or
+earlier generator, and states how it was written. **A new fixture's generator must be written the same way**, and its note
+committed with it; never add a case because an arm got something wrong, add it because the brief says something the
+generator does not yet reach (that is a new frozen hash, so re-grade the runs you compare).
+
+The price of blindness is that a bug the brief does not pin is not found: with the brief alone, a form feed in a note is
+not a line end the generator tries. That is the point of the measurement, not a gap in it.
+
+### Fuzz root-cause classes (#620)
+
+Raw divergences mislead: one root cause (a lone CR in the ledger) can make a hundred cases diverge and swamp another that
+diverges once. `bench/rootcause.py` groups every divergence into a *class*: one per distinct pair of
+**input feature** (what is odd about the case: a lone CR, a byte order mark, a dash-led argument, a closed output pipe,
+non-ASCII text, stdin, …) and **observed difference** (the first of exit status, standard output, standard error, the ledger
+file, that differed), labelled `"<feature> x <difference>"`. The grouping is a greedy set cover: the pair that explains the most
+unexplained divergences becomes a class and takes them, then the next, so a feature that merely co-occurs with the real cause
+(a byte order mark that sits in half the lone-CR cases) does not open a second class. A case with no odd feature is labelled by its
+command (`command:balance x stdout`). The large fixture's features are the case kind and the command or HTTP route of the step that
+differed, plus the same odd bytes in its files and standard input.
+
+The result carries `fuzz_classes` and `fuzz_class_counts` next to the raw count, and the README table shows the class count per
+arm. `test/test_bench_rootcause.py` plants two bugs in a copy of the reference, makes 100 cases diverge, and expects 2 classes
+(and 100 raw divergences).
+
+## Scripted blind review (#620)
+
+A review by hand cannot be reproduced, so it is not evidence; the blind review is a script, `bench/review.py`.
+
+```
+bench/review.py --repo harness=DIR --repo plain=DIR                      # JSON on stdout
+bench/review.py --repo harness=DIR --repo plain=DIR --write bench/results/run-ID   # also merge into run-ID/<arm>.json
+```
+
+- **Inputs.** A fixed rubric (`bench/review/rubric.json`: conformance to the brief, edge cases and error handling, design and code
+  quality, tests, delivery; each 0, 1 or 2, so a score is out of 10), the fixture's brief, and the two final repos. The repos are
+  copied without git history and without the files that name the tool that made them (`.git`, `.harness*`, `.claude`, `AGENTS.md`,
+  `CLAUDE.md`, build output) and labelled `A` and `B`. Stylistic tells (a long README, many small tests) stay; the judges are told to
+  judge what is there, not how much.
+- **Judges.** `N = 3` fresh `claude -p` sessions on Opus (`claude-opus-5-5`), on a throwaway isolated config with no skills, plugins
+  or MCP servers and only the Read, Glob and Grep tools. Each judge reviews the pair twice, once as A / B and once swapped (the
+  order swap cancels a preference for whichever it reads first): 6 verdicts. A verdict that cannot be read is asked for again once;
+  fewer than N readable verdicts fails the review and writes nothing.
+- **Score.** A repo's score is the mean over its verdicts of the criteria's sum (one decimal), with per-criterion means. It goes into
+  the arm's results JSON as `review_score` and `review`, and into the README table. A review that is not in the results JSON is not
+  quoted in the README.
+- **Seeded.** `--seed` (default 620) fixes which repo is A first and the order of the six passes, so a re-run on the same repos builds
+  byte-identical review folders and prompts (`test/test_bench_review.py`). The model's own sampling is not seeded, so the claim is a
+  tolerance: re-running the review on the same repos gives scores within ±0.5. `--judge-cmd` (or `$BENCH_REVIEW_CMD`) swaps the
+  judge command; the tests use a stub.
+
+## Ship rule (#620)
+
+Cost and time cuts are only wins if quality holds. A fleet change (a prompt, a model mix, a pipeline stage cut) **ships only if,
+over at least 5 runs of it against at least 5 runs of the baseline fleet:**
+
+1. the median `fuzz_classes` is **no higher** than the baseline's;
+2. **no new class** appears: no label in the change's `fuzz_class_counts` that no baseline run showed;
+3. the mean `review_score` has **not dropped by more than 0.5**.
+
+`bench/shiprule.py --baseline DIR... --candidate DIR... [--arm harness]` applies it to the runs' results JSON and exits 0 only when
+the change may ship. Fewer than 5 runs on either side, or runs with no fuzz classes or no review, cannot ship: the rule cannot be
+applied without them. The root-cause class count, not the raw divergence count, is what is compared, because raw counts swing with
+whichever bug the generator reaches most often.
 
 ## Isolated Claude config (#590)
 
@@ -425,7 +504,7 @@ skips it. How it reaches an arm is how a user would tell it:
 | the change | `change` | `{fired, trigger: progress|arm-done, at_s, progress_pct, delivered, delivered_s}` |
 | milestones | `milestones`, `<arm>.logs/milestones.json` | `[{t_s, phase, passed, total}]`; the log has every test's outcome |
 
-**Fuzz for the large fixture.** `bench/fixture-large/fuzz.py` (`bench/fuzz.py --fixture large`) runs 1000 frozen cases (seed 592, the case list's
+**Fuzz for the large fixture.** `bench/fixture-large/fuzz.py` (`bench/fuzz.py --fixture large`; blind, see [Blind generators](#blind-generators-620)) runs 1000 frozen cases (seed 592, the case list's
 SHA-256 pinned, the same discipline as pennywise's) through the arm and the reference, each in its own directory: 650 offline
 `tallybook calc ...` command lines (money, dates, schedules, queries, journals, reports, budgets, rules, bank CSV), 200 scripts of commands
 on a fresh book (about 1,700 steps; includes a period lock and a refused operation) and 150 HTTP sessions (about 1,600 requests, good and
@@ -458,7 +537,7 @@ bytes and re-running reproduces the committed files exactly. The table has one r
 number of runs behind the row (`n=1` for a single run and for every result written before `--runs`; `n=3 of 5`
 for a batch that [stopped early](#repeated-runs---runs-n), told under the table with its reason), cap
 status, wall time with the coding and testing split, tokens (total and input / output / cache read / cache
-write), list-price $ and % of the weekly window, hidden tests passed, fuzz divergences (`fuzz_divergences` / `fuzz_cases`, #589), issues / PRs (`counts.issues_closed`,
+write), list-price $ and % of the weekly window, hidden tests passed, fuzz divergences (`fuzz_divergences` / `fuzz_cases`, #589), fuzz root-cause classes (`fuzz_classes`, #620), the scripted blind review (`review_score`, out of 10, #620), issues / PRs (`counts.issues_closed`,
 `counts.prs_merged`) or commits (`counts.commits`), continue replies (`counts.continue_replies`) and the
 models that ran. Under the table, a **Run settings** line per arm that recorded them (#590) gives the models that ran, the effort by message,
 what the arm asked for, the engine commit, the `/harness` skill version and the Claude Code CLI version. The **SonarQube** column (`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`,

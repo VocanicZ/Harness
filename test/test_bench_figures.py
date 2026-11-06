@@ -78,9 +78,9 @@ try:
     svg = slurp(svg_path, "r") if os.path.isfile(svg_path) else ""
     check("figure is an svg with both arms", svg.startswith("<svg") and "Plain Claude Code" in svg and "Harness (1 worker)" in svg)
     check("table header columns", all(c in text for c in ("Wall time", "Coding", "Testing", "List price", "% of weekly window",
-                                                          "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
+                                                          "Hidden tests passed", "Fuzz divergences", "Fuzz classes", "Blind review (of 10)", "Issues / PRs / commits", "Continue replies",
                                                           "Cap status", "Models", "in / out / cache read / cache write")))
-    check("plain row", "| Plain Claude Code | n=1 | within caps | 1h 02m | 50m 00s | 10m 00s | 13.1M | 1.2k / 250.0k / 12.0M / 800.0k | $41.50 | 2.1% | 17 / 20 | n/a | 12 commits | 3 | claude-opus-4-1 | n/a (not measured) | n/a (not measured) |" in text, text)
+    check("plain row", "| Plain Claude Code | n=1 | within caps | 1h 02m | 50m 00s | 10m 00s | 13.1M | 1.2k / 250.0k / 12.0M / 800.0k | $41.50 | 2.1% | 17 / 20 | n/a | n/a | n/a | 12 commits | 3 | claude-opus-4-1 | n/a (not measured) | n/a (not measured) |" in text, text)
     check("harness row: capped, issues/PRs, models",
           "| Harness (1 worker) | n=1 | capped: cost | 2h 00m | 1h 23m | 31m 40s |" in text and "6 issues, 6 PRs" in text and "claude-opus-4-1, claude-sonnet-4-5" in text, text)
     check("harness row has n/a continue replies", "| n/a | 6 issues, 6 PRs | n/a |" in text, text)
@@ -345,11 +345,37 @@ try:
     readme9 = readme_with_markers(d9)
     run(d9)
     t9 = slurp(readme9, "r")
-    check("fuzz divergences per arm in the table", "| 17 / 20 | 250 / 1000 | 12 commits |" in t9 and "| 17 / 20 | 0 / 1000 |" in t9, t9)
-    check("an arm whose fuzz could not run says so", "| 17 / 20 | n/a (fuzz error) |" in t9, t9)
+    check("fuzz divergences per arm in the table", "| 17 / 20 | 250 / 1000 | n/a | n/a | 12 commits |" in t9 and "| 17 / 20 | 0 / 1000 |" in t9, t9)
+    check("an arm whose fuzz could not run says so", "| 17 / 20 | n/a (fuzz error) | n/a | n/a |" in t9, t9)
     check("the fuzz note names what is counted, the seed and the hash",
           "**Fuzz divergences:**" in t9 and "seed 589" in t9 and "`0123456789ab…`" in t9 and "`fuzz_examples`" in t9, t9)
     check("--check passes with fuzz results", run(d9, "--check").returncode == 0)
+    check("old fuzz results say the classes and the review are n/a, and the ship rule is always stated",
+          "**Fuzz classes:** `n/a`" in t9 and "**Blind review:** `n/a`" in t9 and "**Ship rule:**" in t9
+          and "no higher than the baseline's" in t9 and "dropped by more than 0.5" in t9 and "at least 5 runs" in t9, t9)
+
+    # --- #620: the Fuzz classes and Blind review columns -----------------------------------
+    d20 = os.path.join(tmp, "classes"); os.makedirs(d20)
+    rev = {"rubric": 1, "rubric_sha": "a" * 64, "brief_sha": "b" * 64, "model": "claude-opus-5-5", "seed": 620, "judges": 3,
+           "verdicts": 6, "failed": 0, "criteria": {}, "scores": [7] * 6, "versus": "harness", "mean_gap": -1.0}
+    put(d20, "results", "r1", "plain.json", data=doc("plain", fuzz_cases=1000, fuzz_divergences=130, fuzz_examples=[],
+                                                     fuzz_seed=620, fuzz_hash="0123456789abcdef" * 4, fuzz_classes=2,
+                                                     fuzz_class_counts={"ledger:lone-cr x stdout": 100, "argv:dash-led-argument x exit": 30},
+                                                     review_score=6.2, review=rev))
+    put(d20, "results", "r1", "harness.json", data=doc("harness", fuzz_cases=1000, fuzz_divergences=9, fuzz_examples=[],
+                                                       fuzz_seed=620, fuzz_hash="0123456789abcdef" * 4, fuzz_classes=1,
+                                                       fuzz_class_counts={"ledger:lone-cr x stdout": 9}, review_score=7.5,
+                                                       review=dict(rev, versus="plain", mean_gap=1.3)))
+    readme20 = readme_with_markers(d20)
+    run(d20)
+    t20 = slurp(readme20, "r")
+    check("classes and review per arm in the table",
+          "| 130 / 1000 | 2 | 6.2 | " in t20 and "| 9 / 1000 | 1 | 7.5 | " in t20, t20)
+    check("the notes name the classes, the scripted review and the ship rule",
+          "**Fuzz classes:** the fuzz divergences grouped into distinct root causes" in t20
+          and "**Blind review:** `bench/review.py`: 3 Opus judges" in t20 and "mean of 6 verdicts" in t20
+          and "**Ship rule:**" in t20, t20)
+    check("--check passes with classes and review", run(d20, "--check").returncode == 0)
 
     # --- #591: --runs N — median and range in the table, whiskers in the figure, n for every arm ----------
     sys.path.insert(0, os.path.join(ROOT, "bench"))

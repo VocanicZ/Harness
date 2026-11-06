@@ -35,6 +35,12 @@ budgets, text that a command stores and prints back with a byte-order mark or CR
 of a longer account path where the brief does not say, non-ASCII digits in ids, and a closing date that is both before an
 opening and before a posting.
 
+PROVENANCE (#620): this is a BLIND generator. It was written for #592 from this fixture's brief
+(bench/fixture-large/brief.md) and its reference implementation only, and committed before any arm had run on this fixture
+(bench/results held no large-fixture run: the only run then was the pennywise one), so no arm's output, bug or divergence
+shaped it. A change to it is a different measurement (see FROZEN_HASH) and must keep that property: write it from the brief
+and the reference, never from what an arm got wrong.
+
 The generator is FROZEN: bench/fuzz.py's PRNG (splitmix64), SEED and the SHA-256 of the case list (FROZEN_HASH). Change it
 and this refuses to run until SEED / FROZEN_HASH are updated on purpose; that is a different measurement, so re-grade the
 runs you compare. Stdlib only.
@@ -71,6 +77,8 @@ def _base():
 _B = _base()
 Rng, case_hash, show, pick_examples, MAX_EXAMPLES = _B.Rng, _B.case_hash, _B.show, _B.pick_examples, _B.MAX_EXAMPLES
 
+PROVENANCE = ("blind: written from the brief and the reference implementation only, committed (#592) before any arm "
+              "had run on this fixture; no arm output informed it")
 SEED = 592
 CASES = 1000
 CAP_S = 600
@@ -2581,6 +2589,56 @@ def signature(case, at, ref, arm):
     return (case["kind"], tuple(words), keys, str(mine.get("status", mine.get("exit"))), str(theirs.get("status", theirs.get("exit"))))
 
 
+def _rootcause():
+    """bench/rootcause.py, loaded by path."""
+    spec = importlib.util.spec_from_file_location("bench_rootcause", os.path.join(os.path.dirname(HERE), "rootcause.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def step_command(what):
+    """The command of a step, without its values: `tallybook --db b.db tx add 5` -> `tx add`; `GET /accounts/12/close`
+    -> `GET accounts/close`."""
+    words = what.split(" ")
+    if len(words) > 1 and words[0] in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+        return words[0] + " " + "/".join(p for p in words[1].split("?")[0].split("/") if p and not p[:1].isdigit())
+    return " ".join([w for w in command_of(words[1:]) if not w.startswith("-") and not re.match(r"^\d|.*\.", w)][:2])
+
+
+def features(case, at, ref, arm):
+    """The input features of a divergent case (bench/rootcause.py): the kind of case, the command of the step that
+    differed, and the odd bytes in what the case hands the tool (non-ASCII text, a byte order mark, CR line ends,
+    standard input, a closed output pipe)."""
+    step = (ref[at] if at < len(ref) else arm[at])["what"]
+    found = {"%s:%s" % (case["kind"], step_command(step) or "?")}
+    blobs = [bytes.fromhex(h) for h in case.get("files", {}).values()]
+    if case.get("stdin_hex") is not None:
+        found.add("input:stdin")
+        blobs.append(bytes.fromhex(case["stdin_hex"]))
+    blobs += [bytes.fromhex(s["stdin_hex"]) for s in case.get("steps", []) if "stdin_hex" in s]
+    text = b"\n".join(blobs).decode("utf-8", "replace")
+    if any(b.startswith(b"\xef\xbb\xbf") for b in blobs):
+        found.add("input:byte-order-mark")
+    if "\r" in text.replace("\r\n", ""):
+        found.add("input:lone-cr")
+    if "\r\n" in text:
+        found.add("input:crlf")
+    if any(ord(c) > 127 for c in text + " ".join(case.get("argv", []))):
+        found.add("input:non-ascii")
+    if "\ufffd" in text:
+        found.add("input:invalid-utf8")
+    if case.get("closed_stdout"):
+        found.add("output:closed-pipe")
+    return found
+
+
+def difference(ref, arm, at):
+    mine = ref[at]["res"] if at < len(ref) else None
+    theirs = arm[at]["res"] if at < len(arm) else None
+    return _rootcause().diff_kind(mine, theirs)
+
+
 def run(cmd, env=None, cases=CASES, cap_s=CAP_S, reference=None):
     """The fragment for `cmd` (an argv list) against the reference. `reference` is (argv, env) of the oracle."""
     planned = generate(CASES)
@@ -2618,8 +2676,11 @@ def run(cmd, env=None, cases=CASES, cap_s=CAP_S, reference=None):
                 ran += 1
                 i = first_difference(ref, arm)
                 if i is not None:
-                    found.append((signature(case, i, ref, arm), example(case, i, ref, arm)))
-    return {"fuzz_cases": ran, "fuzz_divergences": len(found), "fuzz_examples": pick_examples(found),
+                    found.append((signature(case, i, ref, arm), example(case, i, ref, arm),
+                                  (features(case, i, ref, arm), difference(ref, arm, i))))
+    classes = _rootcause().classify([items for _, _, items in found])
+    return {"fuzz_cases": ran, "fuzz_divergences": len(found), "fuzz_classes": classes["classes"],
+            "fuzz_class_counts": classes["class_counts"], "fuzz_examples": pick_examples([(s, e) for s, e, _ in found]),
             "fuzz_seed": SEED, "fuzz_hash": digest}
 
 

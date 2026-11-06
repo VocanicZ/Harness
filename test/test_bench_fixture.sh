@@ -33,7 +33,7 @@ assert_eq "$rc" "0" "grader exits 0"
 assert_eq "$(python3 -c 'import json,sys; print(sorted(json.loads(sys.argv[1])))' "$REF")" \
           "['details', 'failed', 'fuzz', 'passed', 'total']" "fragment is {passed, failed, total, details, fuzz}"
 assert_eq "$(python3 -c 'import json,sys; f=json.loads(sys.argv[1])["fuzz"]; print(f["fuzz_cases"], f["fuzz_divergences"], f["fuzz_examples"], f["fuzz_seed"])' "$REF")" \
-          "48 0 [] 589" "reference: the fuzz ran its cases and found 0 divergences against itself"
+          "48 0 [] 620" "reference: the fuzz ran its cases and found 0 divergences against itself"
 assert_ok "hidden tests exist (total > 0)"   test "$(frag total "$REF")" -gt 0
 assert_eq "$(frag failed "$REF")" "0" "reference: nothing failed"
 assert_eq "$(frag passed "$REF")" "$(frag total "$REF")" "reference: passed == total"
@@ -74,7 +74,7 @@ mkdir -p "$W/res/x.logs"; echo '{"arm": "x", "logs": "x.logs", "fuzz_cases": 1}'
 OUT="$(python3 "$GRADE" "$FIX/reference" --fuzz-only --arm-json "$W/res/x.json")"; rc=$?
 assert_eq "$rc" "0" "--fuzz-only exits 0"
 assert_eq "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["fuzz_cases"], d["fuzz_divergences"], d["fuzz_seed"], len(d["fuzz_hash"]), d["arm"])' "$W/res/x.json")" \
-          "48 0 589 64 x" "results JSON: fuzz_* replaced, the rest kept"
+          "48 0 620 64 x" "results JSON: fuzz_* replaced, the rest kept"
 assert_eq "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["passed"], d["fuzz"]["fuzz_cases"])' "$W/res/x.logs/grade.json")" \
           "1 48" "logs/grade.json carries the fuzz fragment too"
 python3 "$GRADE" "$FIX/reference" --arm-json "$W/res/x.json" >/dev/null 2>&1; assert_eq "$?" "2" "--arm-json without --fuzz-only → exit 2"
