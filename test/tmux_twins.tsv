@@ -1,0 +1,18 @@
+# tmux_twins.tsv — #493 / PRD #475 task 6: the headless twin of every test that needs a real tmux.
+# A test needs tmux when test/helpers.sh `tmux_needing_tests` finds it (it starts a pane or gates on the binary); on Windows
+# there is no tmux, so each of them is paired here with a test on the headless session backend that asserts the same
+# behaviour and runs there. test/test_tmux_twins.sh fails on a tmux test with no line, a stale line, and a twin that is
+# missing, needs tmux itself, skips instead of asserting, or is not on the headless backend.
+# Format: <tmux test, in test/> TAB <twin>
+#   <twin> = a test file in test/ (headless backend, no tmux) | self:<row> (a headless-<row> cell of the same test_cli_matrix.sh,
+#   which also stands in for its tmux cells on a host without tmux) | na:<matrix row> (the test skips through windows_skip on a
+#   row that is n/a on Windows; none today — only swarm submission is n/a, and test_swarm.sh is no tmux test).
+test_bug_session_tmux_safe.sh	test_session_names_headless.sh
+test_cli_matrix.sh	self:headless-supervisor-frozen-session
+test_fleet_migrate.sh	test_fleet_migrate_headless.sh
+test_sess_sweep.sh	test_sess_sweep_headless.sh
+test_supervise.sh	test_supervise_headless.sh
+test_supervise_autoupdate.sh	test_supervise_autoupdate_headless.sh
+test_tmux_env_leak.sh	test_env_leak_headless.sh
+test_unit_tmux_safe.sh	test_session_names_headless.sh
+test_watchdog.sh	test_watchdog_headless.sh

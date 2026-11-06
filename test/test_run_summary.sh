@@ -35,6 +35,19 @@ assert_no "… and no cap by default (no TIMEOUT)" grep -q "TIMEOUT" <<<"$out"
 out="$(HARNESS_TEST_TIMEOUT=abc bash "$T/suite/run.sh" 2>&1)"; rc=$?
 assert_eq "$rc" "0" "a non-numeric HARNESS_TEST_TIMEOUT is ignored, not an error"
 
+# Named files (#493: the winsma run of the headless twins): `run.sh <test>…` runs just those, under the same summary; a name
+# that is no file is a failure of its own, never a silent skip.
+printf '#!/usr/bin/env bash\necho in-b\nexit 1\n' >"$T/suite/test_b_fail.sh"
+out="$(bash "$T/suite/run.sh" test_a_pass.sh test_d_pass.py 2>&1)"; rc=$?
+assert_eq "$rc" "0" "run.sh with two named passing tests exits 0"
+assert_ok "… and runs exactly those: 2/2" grep -qxF "== run.sh: 2/2 test files passed ==" <<<"$out"
+assert_no "… without the other tests" grep -qF "== test_b_fail.sh ==" <<<"$out"
+out="$(bash "$T/suite/run.sh" test_a_pass.sh test_b_fail.sh test_missing.sh 2>&1)"; rc=$?
+assert_ok "a named failing test and a named missing one both fail the run" test "$rc" -ne 0
+assert_ok "… the missing one is named" grep -qxF "FAILED: test_missing.sh" <<<"$out"
+assert_ok "… with the reason" grep -qF "FAIL: test_missing.sh: no such test file" <<<"$out"
+assert_ok "… and the count is 1/3" grep -qxF "== run.sh: 1/3 test files passed ==" <<<"$out"
+
 # Windows side-effect stubs: on a Windows host (forced here) run.sh points schtasks and winget at recording stubs, so no
 # test reaches the real Task Scheduler or winget; on Linux it leaves both unset.
 mkdir -p "$T/stubs-suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/stubs-suite/"

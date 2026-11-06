@@ -737,7 +737,18 @@ today is `test/test_swarm.sh` (`swarm submission`). `test/test_windows_skip.sh` 
 
 Every row that is `✓` on Windows has a line in `test/windows_coverage.tsv` naming at least one test that actually runs there.
 `test/test_windows_parity_doc.sh` fails on a `✓` row with no line, on a line whose test file is missing or skips itself for want of
-tmux (the tests of PRD #475 task 6's second part, #493, give those a headless twin), and on a line for a row that is `n/a` or absent.
+tmux (a test that needs tmux is covered by its headless twin, below), and on a line for a row that is `n/a` or absent.
+
+#### Headless twins of the tmux tests (#493)
+
+Windows has no tmux, so a test that draws tmux panes has a **twin** on the headless session backend that asserts the same
+behaviour and runs there, or it skips through `windows_skip` on a row that is `n/a` on Windows (only `swarm submission`, and
+no tmux test is that). `tmux_needing_tests` in `test/helpers.sh` finds the tests that need a real tmux (a line outside a
+comment that runs `tmux [-L sock] new-session`, or `command -v tmux` in command position); `test/tmux_twins.tsv` names the
+twin of each (`<tmux test><TAB><twin>`, where the twin is a test file, `self:<headless-row>` for a cell of the same
+`test_cli_matrix.sh`, or `na:<matrix row>`); `test/test_tmux_twins.sh` fails on any test left without one. On a host with no
+tmux the matrix's frozen-pane cells run the CLI's headless supervisor cell. `bash test/run.sh <test>…` runs just the named
+files, and `HX_TESTS="<test>…"` does the same through `test/smoke/winsma/suite.sh`.
 
 `test/run.sh` runs in Git Bash. `HARNESS_TEST_TIMEOUT=<seconds>` caps each test file (a hang ends as `TIMEOUT`, rc 124), and the
 run ends with `== run.sh: N/M test files passed ==` and one `FAILED: <file>` line per red file. On a Windows host it also points

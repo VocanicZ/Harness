@@ -164,6 +164,26 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `harness stop --state-dir <its own>`, however the arm ends. Results carry `issues_closed`, `prs_merged`, the models
   that ran, and the fleet's own event log. `test/test_bench_harness.py` drives it with a fake front door, engine and gh.
 
+### Every test that draws tmux panes has a headless twin that runs on Windows (#493)
+
+- Windows has no tmux, so the nine shell tests that start a tmux pane or gate on the binary (`test_supervise.sh`,
+  `test_watchdog.sh`, `test_sess_sweep.sh`, `test_tmux_env_leak.sh`, `test_unit_tmux_safe.sh`,
+  `test_bug_session_tmux_safe.sh`, `test_supervise_autoupdate.sh`, `test_fleet_migrate.sh` and the frozen-pane cells of
+  `test_cli_matrix.sh`) were silent gaps there. Each now has a twin on the headless session backend that asserts the same
+  behaviour on real headless lanes with the fake CLI: `test_supervise_headless.sh` (existing), and the new
+  `test_watchdog_headless.sh`, `test_sess_sweep_headless.sh`, `test_env_leak_headless.sh`,
+  `test_session_names_headless.sh`, `test_supervise_autoupdate_headless.sh` and `test_fleet_migrate_headless.sh`.
+- `test/tmux_twins.tsv` pairs every tmux test with its twin, and `test/test_tmux_twins.sh` is the grep check that lists
+  what is left over: a tmux test with no twin, a stale line, and a twin that is missing, needs tmux itself, skips instead
+  of asserting, or is not on the headless backend all fail. The detector is `tmux_needing_tests` in `test/helpers.sh`.
+  A twin may also be a skip through `windows_skip` on a matrix row that is `n/a` on Windows; no tmux test needs that today,
+  because only `swarm submission` is `n/a`.
+- On a host with no tmux the `supervisor-frozen-session` and `supervisor-skips-trust-dialog` cells of `test_cli_matrix.sh`
+  run the CLI's headless supervisor cell instead of failing; with tmux they draw panes as before.
+- `test/run.sh` accepts test file names (`bash test/run.sh test_a.sh test_b.sh`), and the winsma suite stage takes
+  `HX_TESTS` to run just those files in the full-suite isolation. The twins' run on winsma is committed as
+  `test/smoke/logs/suite-windows-*.log`.
+
 ### The test suite runs in Git Bash on Windows, and a Windows skip must name an `n/a` matrix row (#492)
 
 - `test/helpers.sh` gains `windows_skip <matrix row> <why>` (and `windows_skip_file`, which ends the file): the one way a test

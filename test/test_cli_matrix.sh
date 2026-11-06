@@ -477,7 +477,12 @@ pause_resume_ok(){ ( host_a; checkpoint_ok || exit 1
 # frozen_ok <kind> — #180: the CLI's idle pane and its <kind> pane (trust dialog, limit), drawn in
 # real tmux panes (a private server) and gone quiet. supervise.sh nudges the idle prompt and never
 # types into the other. A missing fixture fails the cell: no half of it is skipped (#305).
-frozen_ok(){ ( command -v tmux >/dev/null || exit 1
+# On a host with no tmux (Windows, #493) the cell is its headless twin: the same supervisor rules on the CLI's headless
+# lanes (headless_supervisor_ok — an idle lane is nudged, a limit-parked one is never typed into); a lane's CLI is
+# trusted at launch (headless_launch_ok), so the trust dialog the pane would show never appears there.
+frozen_ok(){ ( if ! command -v tmux >/dev/null; then
+    [[ -f $FIX/$HARNESS_CLI/idle.txt && -f $FIX/$HARNESS_CLI/$1.txt ]] || exit 1   # the same fixture check: no half skipped
+    headless_supervisor_ok && { [[ $1 != trust ]] || headless_launch_ok; }; exit; fi
   local cli="$HARNESS_CLI" other="$1" k i
   export TMUX_TMPDIR="$RUN_DIR/tmux-$cli"; mkdir -p "$TMUX_TMPDIR"; unset TMUX
   export HARNESS_SUPERVISE_CONF=/dev/null HARNESS_SUPERVISE_STATE="$RUN_DIR/sup-$cli" HARNESS_SUPERVISE_LOG="$RUN_DIR/sup-$cli.log"
