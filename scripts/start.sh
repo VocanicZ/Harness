@@ -83,6 +83,11 @@ recover(){
   echo "  sweeping orphaned orch worktrees:"
   sweep_orphan_orch_worktrees
 
+  # Gauntlet evidence of PRDs that are already closed (#610): close_prd removes its own, but one closed
+  # by hand, or before that fix, left up to 328 MB behind. Open PRDs' dirs are kept.
+  echo "  sweeping gauntlet dirs of closed PRDs:"
+  sweep_closed_gauntlet
+
   # Free issues stuck under HARNESS_LABEL_WORKING whose owning session died with the host. Skips any
   # issue with a live impl OR bug-lane session, so --recover is safe to run even while the fleet is up
   # — it won't double-dispatch live pool work, nor strip a live bug's label and let the lane rip out

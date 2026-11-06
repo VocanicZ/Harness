@@ -52,7 +52,7 @@ check_session_goal(){ local s="$1" goal res
       log "session $s goal '$goal' satisfied → advancing"
       stats_sess_event "$s" goal_satisfied
       cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
-      rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.selfpark";;
+      rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.wd" "$RUN_DIR/$s.selfpark";;
     PAUSED)  selfpark_tend "$s" "${goal#ISSUE:}";;
     PENDING) rm -f "$RUN_DIR/$s.selfpark";;   # #417: back on agent-working — a later park starts afresh
   esac   # no answer (a transient gh failure): keep whatever state there is
@@ -187,6 +187,7 @@ close_prd(){
   log "engine closing reviewed PRD #$prd"
   if gh issue close "$prd" -R "$SLUG" --comment "All acceptance criteria met and reviewed — closing." 2>/dev/null; then
     harness_event prd_closed kind=orch prd="$prd"
+    rm -rf "$(gauntlet_dir "$UNIT" "$prd")"   # #610: its review evidence is of no further use
     release_on_prd_close "$prd"   # #283: once per reviewed PRD close, and only in the Harness repo
   else
     log "close of PRD #$prd failed (will retry next poll)"
@@ -259,7 +260,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   fi
   # Round is computed HERE, not in the prompt: a Claude session cannot call a lib.sh function,
   # and letting it count its own comments makes the cap something it can miscount past.
-  local saround="" gdir="$STATE_DIR/gauntlet/$UNIT/p$prd" rsub="" csub=""
+  local saround="" gdir="$(gauntlet_dir "$UNIT" "$prd")" rsub="" csub=""
   if [[ "$action" == REVIEW ]]; then ground="$(gauntlet_round "$payload")"; saround="$(security_audit_round "$payload")"
     # How this CLI starts each sub-agent review.md asks for (#314): the critic works in the round's
     # evidence dir, its brief a sibling of that dir so the critic never sees it among A/ and B/.
@@ -413,7 +414,7 @@ bug_lane_tend(){ local slug="$1" n="$2" phase sess SLUG="$1"
     if bug_goal_done "$n" "$phase"; then
       log "pool: bug #$n $phase goal met — ending $sess"
       [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge
-      cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal"
+      cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"
     fi
   done; }
 # bug_lane_reap_worktrees <slug> <n> — drop a pool-taken bug's fix and triage worktrees once its sessions are gone.

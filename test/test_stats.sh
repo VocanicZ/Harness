@@ -59,14 +59,15 @@ assert_eq "$(HARNESS_EVENTS_FILE="$RUN_DIR/none.jsonl" mmr)" "" "status: no mism
 echo "=== #186: every lane session gets the rtdd event env, for claude AND agy ==="
 NEWSESS="$RUN_DIR/new-session.args"
 tmux(){ case "$1" in has-session) return 1;; new-session) printf '%s\n' "$@" > "$NEWSESS";; *) return 0;; esac; }
+export HARNESS_TMP_ROOT="$RUN_DIR/tmproot"   # #610: the lane's own TMPDIR is made under here, not the host's /tmp
 for cli in claude agy; do
   : > "$EVENTS"
   HARNESS_CLI=$cli UNIT=main SLUG=acme/widget GOAL="ISSUE:7" STAT_PRD=5 launch_agent "hz-$cli-i7" "$WT" >/dev/null
   for kv in "RTDD_EVENT_LOG=$HARNESS_HOME/rtdd-events.jsonl" "HARNESS_SESSION=$FIXTURE_SID" HARNESS_PREFIX=hz \
-            HARNESS_REPO=acme/widget HARNESS_KIND=impl HARNESS_ISSUE=7 HARNESS_PRD=5; do
+            HARNESS_REPO=acme/widget HARNESS_KIND=impl HARNESS_ISSUE=7 HARNESS_PRD=5 "TMPDIR=$(lane_tmpdir "$WT")"; do
     assert_ok "$cli: tmux new-session sets -e $kv" grep -qxF -- "$kv" "$NEWSESS"
   done
-  assert_eq "$(grep -cx -- -e "$NEWSESS")" 7 "$cli: exactly the rtdd env, nothing else"
+  assert_eq "$(grep -cx -- -e "$NEWSESS")" 8 "$cli: exactly the rtdd env and the lane's TMPDIR (#610), nothing else"
   assert_eq "$(ev 1 "e['session']")" "$FIXTURE_SID" "$cli: the launch event's session is the HARNESS_SESSION rtdd joins on"
   rm -f "$RUN_DIR/hz-$cli-i7.stats"
 done

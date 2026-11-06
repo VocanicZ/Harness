@@ -257,6 +257,8 @@ tmp_track(){
 }
 make_env(){
   RUN_DIR="$(mktemp -d)"; tmp_track "$RUN_DIR"; CLAIMS_DIR="$RUN_DIR/claims"; POOL_LOCK="$RUN_DIR/pool.lock"; PAUSE_FLAG="$RUN_DIR/PAUSED"; mkdir -p "$CLAIMS_DIR"
+  # #610: a lane launch makes its own TMPDIR under the tmp root (lane_tmpdir); in a test that is RUN_DIR, never the host's /tmp.
+  export HARNESS_TMP_ROOT="$RUN_DIR/tmproot"; mkdir -p "$HARNESS_TMP_ROOT"
   # Hermetic state. lib.sh honours an inherited STATE_DIR (scripts/lib.sh:15) and every pool worker
   # exports its project's own to every child, so a test run inside a live agent session resolved
   # CONFIG / WORKTREES_DIR / CHECKOUTS_DIR at that fleet's REAL .harness/ and wrote to it. Re-pin

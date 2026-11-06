@@ -72,6 +72,7 @@ for t in test_*.sh test_*.py; do
   # in the host's /tmp, and the whole per-test subtree goes as soon as the test ends — so a test that
   # forgets its own cleanup leaks into nothing, and peak use is one test's worth, not the suite's.
   export TMPDIR="$TMPROOT/$t/tmp"; mkdir -p "$TMPDIR"
+  export HARNESS_TMP_ROOT="$TMPDIR"   # #610: the lane TMPDIR a launch makes (lane_tmpdir) goes with the test too
   ran=$((ran+1))
   case "$t" in *.py) "${TCAP[@]}" "${DEFSIG[@]}" python3 "$t";; *) "${TCAP[@]}" "${DEFSIG[@]}" bash "$t";; esac
   trc=$?
