@@ -28,6 +28,7 @@ A previous agent checkpointed this work to GitHub before pausing. RECOVER first,
 3. Re-claim the work: gh issue edit {{ISSUE}} -R {{SLUG}} --remove-label {{LABEL_PAUSED}} --add-label {{LABEL_WORKING}}
 4. Continue until done, test-guided:
 {{> _rtdd.md}}
+{{WINDOWS_RTDD}}
    The `--base` matters more here than in a fresh lane: your branch already carries a predecessor's
    WIP, so its own failures are not a free pass and its greens are not proof. `--base` makes the
    changed set the WHOLE diff from the base, predecessor edits included, so the selection covers

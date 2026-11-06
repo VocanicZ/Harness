@@ -1477,6 +1477,13 @@ skills_heal(){ local link="${HARNESS_ENGINE_LINK:-}"
   ( HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh" >/dev/null 2>&1 || exit 0
     HARNESS_SKILLS_QUIET=1 HARNESS_SKILL_SRC="$link/skill" install_harness_skills ) 2>/dev/null
   return 0; }
+# windows_block <partial> <key=value>... — #494 (PRD #475): the Windows-host paragraph of a prompt, rendered from
+# prompts/<partial>, or empty when HARNESS_WINDOWS_HOST is unset. Rendered here rather than left to the agent, so an
+# unset key leaves a prompt with no Windows step at all (render drops the empty token's line).
+windows_block(){ local part="$1"; shift
+  [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 0
+  render "${PROMPTS_DIR:-$ENGINE_DIR/prompts}/$part" WINDOWS_HOST="$HARNESS_WINDOWS_HOST" \
+    WINDOWS_RELEVANT="$(printf %q "$ENGINE_DIR/scripts/windows-relevant.sh")" WINSMA_DIR="$(printf %q "$ENGINE_DIR/test/smoke/winsma")" "$@"; }
 # {{skill:<name>}} — a skill the prompt names, as the configured CLI invokes it (cli_skill, #315).
 # cli_prereqs derives the skills it checks from these same tokens, so a prompt names a skill no other way.
 render(){ local tmpl="$1" n; shift
@@ -1496,6 +1503,8 @@ def part(m):
 tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?', part, tmpl)
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
 kv.setdefault('CHURN', '')   # #545: optional — a caller that passes no crash-loop block renders none
+# #494: a {{WINDOWS_*}} token alone on its line, with nothing to render (HARNESS_WINDOWS_HOST unset), takes its line with it.
+tmpl = re.sub(r'^[ \t]*{{(WINDOWS_\w+)}}[ \t]*\n', lambda m: m.group(0) if kv.get(m.group(1)) else '', tmpl, flags=re.M)
 sys.stdout.write(re.sub(r'{{(\w+|skill:[\w.-]+)}}', lambda m: kv.get(m.group(1), m.group(0)), tmpl))
 PY
 }

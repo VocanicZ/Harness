@@ -990,6 +990,27 @@ re-selected on the rebased head plus the lane's own new tests — never the full
 `harness stats` reports rtdd use per issue and PRD (which calls, round sizes, selective vs
 full-suite share). Lanes log to `~/.harness/rtdd-events.jsonl` (`HARNESS_RTDD_EVENTS_FILE`).
 
+### Windows host checks (`HARNESS_WINDOWS_HOST`)
+
+With [`HARNESS_WINDOWS_HOST`](#configuration) set (#494, PRD #475), the prompts reach for the Windows check host in two places, both
+through the [winsma helpers](windows-smoke.md#checking-on-a-shared-windows-host-testsmokewinsma) (the `C:\hx-lock` lock, the
+`C:\hx-<n>\` isolation, the before/after guard) and never raw ssh. **Unset, the rendered prompts carry no Windows text at all.**
+
+- **Lanes** (`impl.md`, `bug-fix.md`, `resume.md`): when the lane's diff touches Windows-relevant code, it runs its rtdd Rounds 1 and
+  2 (never the full suite) on that host as well. The lane asks `scripts/windows-relevant.sh` with
+  `git diff --name-only origin/<default-branch>...HEAD`; exit 0 means relevant. The list: `scripts/portable.*`, `install.sh`,
+  `update.sh`, `scripts/uninstall.sh`, `scripts/doctor.sh`, `scripts/session/headless.sh`, everything under `scripts/cli/` (the
+  `*headless*` runners and the per-CLI scripts), `scripts/supervise.sh`, `scripts/web.sh`, `scripts/attach.sh` and
+  `test/smoke/winsma/*`. A diff outside the list skips the step. A Windows failure Linux's rounds do not also have is the lane's; a
+  Windows skip must name an `n/a` row of the [parity matrix](#windows-parity-matrix) (`windows_skip` in `test/helpers.sh`).
+- **PRD review** (`review.md`): the single full suite also runs on the Windows host, in the `suite` isolation
+  (`test/smoke/winsma/suite.sh`), at the same commit as the Linux run. The bar is "no Windows failure Linux doesn't also have at the same
+  commit", and every Windows skip names an `n/a` row; a Windows-only failure is filed as a gap issue.
+
+Both follow the "Verification on winsma" rules of PRD #475: a held lock is waited for (never `agent-paused`), no credential is written,
+no machine-wide change is made, and the run's log is committed under `test/smoke/logs/` with a `-windows-` name. A host that is
+down is noted in an issue or PRD comment and the Linux work carries on. Tests: `test/test_windows_prompts.sh`.
+
 ### No GitHub CI — the gate is local
 
 Harness projects do not use GitHub Actions as a gate. The merge gate is `scripts/ci-local.sh`
