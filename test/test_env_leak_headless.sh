@@ -109,7 +109,9 @@ done
 assert_ok "…its own HARNESS_SESSION is there" env_has EB "HARNESS_SESSION=$UB"
 assert_ok "…its own HARNESS_PREFIX" env_has EB "HARNESS_PREFIX=fleetb"
 assert_ok "…its own HARNESS_REPO, not A's" env_has EB "HARNESS_REPO=acme/b"
-assert_ok "…its own RTDD_EVENT_LOG, not A's" env_has EB "RTDD_EVENT_LOG=$RUN_DIR/fleetB-rtdd-events.jsonl"
+# (a path value reaches a native turn in Windows form, C:\x\y for /c/x/y: compared as the same file)
+got="$(sed -n 's/^RTDD_EVENT_LOG=//p' <<<"$EB" | head -1)"; command -v cygpath >/dev/null 2>&1 && got="$(cygpath -u "$got" 2>/dev/null || printf '%s' "$got")"
+assert_eq "$got" "$RUN_DIR/fleetB-rtdd-events.jsonl" "…its own RTDD_EVENT_LOG, not A's"
 if have_proc; then
   assert_eq "$(env_leak "$RB")" "" "the runner's environ holds no value of fleet A's"
   assert_eq "$(env_key "$RB" STATE_DIR)" 0 "…no STATE_DIR"
