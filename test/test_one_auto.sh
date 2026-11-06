@@ -210,6 +210,42 @@ assert_eq "$(launches)" "0" "the only claimable issue is owned: no lane starts"
 assert_ok "and it says none is claimable" grep -q 'no claimable issue on acme/widget' <<<"$out"
 rm -rf "$WORKTREES_DIR/main-i7"
 
+echo "-- #561: another worker's chores (reap_team) between the worktree add and the launch must not reap the lane"
+# prepare_impl has made the worktree and the session is not up yet: the window the lane's spawn is exposed in.
+reset_auto; hold 91; stub_usage 91; issue 9; next_is 9; rm -f "$CLAIMS_DIR"/impl-*.claim
+SPAWN_LOG="$RUN_DIR/spawn.log"; : > "$SPAWN_LOG"
+_real_launch="$(declare -f launch_claude)"
+stats_sweep_ended(){ :; }
+launch_claude(){
+  echo "claim=$(is_claimed impl-9 && echo held || echo none)" >> "$SPAWN_LOG"
+  echo "lane=$(pool_lane_keys | tr '\n' ' ')" >> "$SPAWN_LOG"
+  reap_team 2>/dev/null
+  echo "worktree=$([[ -d "$WORKTREES_DIR/main-i9" ]] && echo alive || echo reaped)" >> "$SPAWN_LOG"
+  touch "$LIVE/$1"; echo "$2" > "$RUN_DIR/$1.wd"; echo "$1" >> "$LAUNCHED"; }
+one_auto_tick >/dev/null 2>&1
+assert_ok "the lane holds an impl-9 claim while it spawns" grep -q '^claim=held' "$SPAWN_LOG"
+assert_ok "the pool cap counts the spawning lane" grep -q '^lane=.*impl-9' "$SPAWN_LOG"
+assert_ok "reap_team in that window leaves the worktree alone" grep -q '^worktree=alive' "$SPAWN_LOG"
+assert_eq "$(launches)" "1" "and the lane still launches"
+assert_ok "the issue stays claimed agent-working" has_label 9 agent-working
+assert_no "the claim is released once the session is up (adoption takes over)" test -e "$CLAIMS_DIR/impl-9.claim"
+echo "-- #561: a claim a pool worker already holds means the issue is not the auto lane's to start"
+reset_auto; issue 9; next_is 9; : > "$SPAWN_LOG"
+lane_claim_write impl-9 W1 IMPL:9 hz-main-i9
+one_auto_tick >/dev/null 2>&1
+assert_eq "$(launches)" "0" "no lane starts on a claimed issue"
+assert_no "and no auto-lane record is left" test -e "$LANE"
+assert_ok "the pool worker's claim is untouched" is_claimed impl-9
+rm -f "$CLAIMS_DIR/impl-9.claim"
+echo "-- #561: a spawn that fails drops the claim, so the reapers clean up"
+reset_auto; issue 9; next_is 9
+launch_claude(){ return 1; }
+one_auto_tick >/dev/null 2>&1
+assert_no "a failed launch leaves no claim behind" test -e "$CLAIMS_DIR/impl-9.claim"
+assert_no "and no auto-lane record" test -e "$LANE"
+eval "$_real_launch"
+rm -rf "$WORKTREES_DIR/main-i9"
+
 echo "-- turns: fleets on one account take turns at a free lane"
 reset_auto; mkdir -p "$OA/main.want"
 me="$(_oa_me)"; other="$(_usage_key "$RUN_DIR/fleet-b:other")"
