@@ -215,6 +215,61 @@ try:
     check("an overrunning split clamps the outside segment at 0 (no outside rect)",
           'height="18" fill="#b8a2d6"' not in sv7, sv7)
 
+    # --- #584: the Harness arm's loaded Claude config and its manual repair are disclosed under the table ---
+    d7 = tempfile.mkdtemp(dir=tmp)
+    readme7 = readme_with_markers(d7)
+    put(d7, "results", "r1", "plain.json", data=doc("plain"))
+    run(d7)
+    check("no config sentence or note when no arm recorded one",
+          "Claude config" not in slurp(readme7, "r") and "**Note" not in slurp(readme7, "r"))
+    put(d7, "results", "r1", "harness.json", data=doc(
+        "harness", claude_config={"source": "front-door init", "skills": 186, "plugins": 6, "mcp_servers": 4},
+        note="Fixed the tmux dir by hand\nand restarted once."))
+    put(d7, "results", "r1", "plain.json", data=doc(
+        "plain", claude_config={"source": "front-door init", "skills": 0, "plugins": 0, "mcp_servers": 0}))
+    run(d7)
+    t7 = slurp(readme7, "r")
+    check("the loaded config is stated under the table, with its counts",
+          "**Claude config:** the Harness (1 worker) arm's sessions ran on the operator's own Claude setup, not an isolated "
+          "one: its front-door init loaded 186 skills, 6 user plugins and 4 MCP servers" in t7, t7)
+    check("an arm that loaded nothing is said to have run isolated",
+          "**Claude config:** the Plain Claude Code arm's sessions ran isolated; its front-door init loaded no skills, "
+          "plugins or MCP servers." in t7, t7)
+    check("the arm's note is shown verbatim on one line", "**Note, Harness (1 worker):** Fixed the tmux dir by hand and restarted once." in t7, t7)
+    check("the config and note sit after the table and before the end marker",
+          t7.index("| Harness (1 worker)") < t7.index("**Claude config:**") < t7.index("**Note, ") < t7.index("<!-- bench:end -->"))
+    check("--check passes with the config and note", run(d7, "--check").returncode == 0)
+    put(d7, "results", "r1", "harness.json", data=doc("harness", claude_config={"skills": "many"}, note="  "))
+    run(d7)
+    check("a malformed claude_config and a blank note render nothing for that arm",
+          "Harness (1 worker)'s" not in slurp(readme7, "r") and "**Note, Harness" not in slurp(readme7, "r"))
+
+    # --check re-reads the config and the restarts from the committed logs (the front door's stream, run.log)
+    d8 = tempfile.mkdtemp(dir=tmp)
+    src = os.path.join(ROOT, "bench", "results", "run-20261106")
+    rd8 = os.path.join(d8, "results", "r1")
+    os.makedirs(os.path.join(rd8, "harness.logs"))
+    for name in ("transcripts", "front-01.stream.jsonl", "run.log"):
+        os.symlink(os.path.join(src, "harness.logs", name), os.path.join(rd8, "harness.logs", name))
+    committed = json.load(open(os.path.join(src, "harness.json")))
+    readme8 = readme_with_markers(d8)
+    put(d8, "results", "r1", "harness.json", data=committed)
+    run(d8)
+    r8 = run(d8, "--check")
+    check("the committed Harness results reproduce from their logs, config and restarts included", r8.returncode == 0, r8.stderr)
+    bad = dict(committed, claude_config=dict(committed["claude_config"], skills=0))
+    put(d8, "results", "r1", "harness.json", data=bad)
+    run(d8)
+    r8 = run(d8, "--check")
+    check("--check fails when the recorded skills count differs from the front-door init",
+          r8.returncode == 1 and "claude_config" in r8.stderr, r8.stderr)
+    bad = dict(committed, counts=dict(committed["counts"], fleet_restarts=0))
+    put(d8, "results", "r1", "harness.json", data=bad)
+    run(d8)
+    r8 = run(d8, "--check")
+    check("--check fails when fleet_restarts hides the restart the front door made",
+          r8.returncode == 1 and "fleet_restarts" in r8.stderr, r8.stderr)
+
     # --- the committed README and figure are current with the committed results -------------
     r = subprocess.run([sys.executable, "-I", FIG, "--check"], capture_output=True, text=True)
     check("committed README/figure are current (run bench/figures.py)", r.returncode == 0, r.stderr)

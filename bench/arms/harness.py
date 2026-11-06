@@ -31,8 +31,15 @@ error or a cap.
 
 DONE = every PRD issue of the run repo is closed. Counts: issues_closed (closed issues that are not PRDs),
 prs_merged, workers, continue_replies, fleet_restarts.
+
+CONFIG AND RESTARTS DISCLOSED (#584). The front door and the fleet's sessions run on the host user's Claude
+config (the only isolation is HARNESS_HOME and the state dir), so the arm records what the front door's init
+event says was loaded: results `claude_config` = {source, skills, plugins (user plugins, built-ins left out),
+mcp_servers}. `counts.fleet_restarts` is the restarts the arm made itself plus the ones the front-door session
+made by hand: every `harness start` its Bash calls ran after the first (the engine logs no start/stop events,
+so the front door's own transcript in the stream is the record). `bench/figures.py` renders both under the table.
 """
-import hashlib, importlib.util, json, os, shlex, shutil, subprocess
+import glob, hashlib, importlib.util, json, os, re, shlex, shutil, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -120,6 +127,70 @@ class Fleet:
             self.ctx.log(f"harness stop failed: {e!r}")
 
 
+def _n(v):
+    return len(v) if isinstance(v, (list, tuple, dict)) else v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def _events(stream):
+    try:
+        with open(stream, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(ev, dict):
+                    yield ev
+    except OSError:
+        return
+
+
+def front_streams(logs):
+    return sorted(glob.glob(os.path.join(logs, "front-*.stream.jsonl")))
+
+
+def claude_config(logs):
+    """What the front door's first init event says was loaded, as {source, skills, plugins, mcp_servers}, or
+    None when no stream has an init (the arm never started a front door)."""
+    for stream in front_streams(logs):
+        for ev in _events(stream):
+            if ev.get("type") == "system" and ev.get("subtype") == "init":
+                plugins = ev.get("plugins")
+                if isinstance(plugins, list):   # built-ins ship with the CLI; the rest are the host user's
+                    plugins = [p for p in plugins if not (isinstance(p, dict) and p.get("path") == "builtin")]
+                cfg = {"source": "front-door init", "skills": _n(ev.get("skills")), "plugins": _n(plugins),
+                       "mcp_servers": _n(ev.get("mcp_servers"))}
+                return cfg if all(cfg[k] is not None for k in ("skills", "plugins", "mcp_servers")) else None
+    return None
+
+
+START_RE = re.compile(r"(?:^|[\s;&|(/])harness\s+start\b")
+
+
+def front_restarts(logs):
+    """Fleet restarts the front-door session made itself: `harness start` runs in its Bash calls after the first."""
+    starts = 0
+    for stream in front_streams(logs):
+        for ev in _events(stream):
+            content = (ev.get("message") or {}).get("content") if ev.get("type") == "assistant" else None
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash":
+                    starts += len(START_RE.findall(str((b.get("input") or {}).get("command") or "")))
+    return max(0, starts - 1)
+
+
+def logged_restarts(logs):
+    """Every restart the committed logs show: the front door's by-hand ones plus the arm's own `start --recover`
+    lines in run.log."""
+    own = 0
+    try:
+        with open(os.path.join(logs, "run.log"), encoding="utf-8") as fh:
+            own = sum(1 for line in fh if re.search(r"harness\S*\s+start\s+--recover\b", line))
+    except OSError:
+        pass
+    return front_restarts(logs) + own
+
+
 def gh_json(args):
     p = subprocess.run(["gh"] + args, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     if p.returncode != 0:
@@ -192,6 +263,13 @@ def finish(ctx, fleet, st, seen, front_registered):
                       ("fleet.config", os.path.join(fleet.state, "config"))):
         if os.path.isfile(src):
             shutil.copyfile(src, os.path.join(ctx.logs, name))
+    try:   # what the sessions loaded, and the restarts the front door made by hand (#584)
+        cfg = claude_config(ctx.logs)
+        if cfg:
+            ctx.extra["claude_config"] = cfg
+        ctx.count("fleet_restarts", front_restarts(ctx.logs))
+    except Exception as e:
+        ctx.log(f"front-door config/restarts: {e!r}")
     try:
         p = fleet.cmd("stats", "--json", timeout=120)
         if p.returncode == 0 and p.stdout.strip():

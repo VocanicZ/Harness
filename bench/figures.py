@@ -307,6 +307,31 @@ def undeleted(arms):
             f"{names}. `gh repo delete` failed (usually the gh token lacks the `delete_repo` scope: `gh auth refresh -s delete_repo`); delete them by hand.")
 
 
+def config_notes(arms):
+    """One sentence per arm that recorded `claude_config` (#584): what Claude setup its sessions loaded."""
+    out = []
+    for a in sorted(arms, key=arm_key):
+        c = arms[a].get("claude_config")
+        vals = [num(c.get(k)) if isinstance(c, dict) else None for k in ("skills", "plugins", "mcp_servers")]
+        if None in vals:
+            continue
+        sk, pl, mcp = vals
+        if sk == pl == mcp == 0:
+            out.append(f"**Claude config:** the {title(a)} arm's sessions ran isolated; its front-door init loaded no "
+                       "skills, plugins or MCP servers.")
+        else:
+            out.append(f"**Claude config:** the {title(a)} arm's sessions ran on the operator's own Claude setup, not an "
+                       f"isolated one: its front-door init loaded {sk} skills, {pl} user plugins and {mcp} MCP servers "
+                       "(a new Harness user would not have them).")
+    return out
+
+
+def arm_notes(arms):
+    """The `note` an arm's results JSON carries, shown verbatim (one line) under the table."""
+    return [f"**Note, {title(a)}:** {' '.join(str(arms[a]['note']).split())}" for a in sorted(arms, key=arm_key)
+            if isinstance(arms[a].get("note"), str) and arms[a]["note"].strip()]
+
+
 TIME_NOTE = ("Coding and Testing count time inside agent sessions; the rest of Wall time is time outside them "
              "(orchestration, waiting), drawn as its own segment in the figure.")
 
@@ -322,6 +347,7 @@ def section(run_id, arms, skipped, fig_ref):
         parts.append(f"![Benchmark: wall time and list-price cost per arm]({fig_ref})")
     parts.append(table(arms, skipped))
     parts.append(TIME_NOTE)
+    parts += config_notes(arms) + arm_notes(arms)
     if undeleted(arms):
         parts.append(undeleted(arms))
     return "\n\n".join(parts)
