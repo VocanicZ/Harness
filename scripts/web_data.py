@@ -215,7 +215,7 @@ def _claim_issue(token):
 
 def fleet_workers(rec, cfg, sessions):
     """[{"worker": N, "up", "lane", "issue", "action", "session", "state"}] — one row per pool worker
-    (#472): the lane it holds a LIVE claim on (lib.sh worker_claims: a claim is `<worker-id> <pid> <token>
+    (#472): the lane it holds a LIVE claim on (lib.sh worker_claims_of: a claim is `<worker-id> <pid> <token>
     <session> <pane-pid>`, a bug taken by the pool is `pool-<N>`), or all-None when it is idle. `state` is
     the session's own (a headless lane's idle | busy | …), else running; a claim with no live session
     reads starting (no session yet) or gone."""
