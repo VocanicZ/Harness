@@ -8,6 +8,8 @@ modules; this is the core they all go through. [The plain arm](#plain-arm) is th
 ```
 bench/run.py stub                       # run an arm
 bench/run.py stub --dry-run             # print the guard decision; create and spend nothing
+bench/run.py plain --runs 5             # --runs N (default 5): N runs per arm, each in its own repo, plus an aggregate
+bench/run.py plain --runs 1             # one run, shown as n=1: it supports no claim
 bench/run.py plain --arm-opt K=V        # options passed to the arm
 bench/run.py harness --workers 3        # --workers N: the fleet's pool size, for an arm that runs one
 bench/run.py hx --optional              # an optional arm: a guard refusal is recorded as `skipped: budget`, exit 0
@@ -32,6 +34,49 @@ bench/run.py harness-opus --optional    # the matched arm: Harness with every ro
 
 Exit status: 0 recorded (`ok` or `capped`), 1 the arm failed (recorded as `error`), 2 bad arguments or
 unknown arm, 3 guard refused, 4 recorded but the repo could not be deleted.
+
+## Repeated runs: `--runs N`
+
+Every published number used to be one run (n=1), and agent wall time and cost typically vary 20–40% between
+runs, so one run cannot support a claim. With 3 runs against 3 a Mann-Whitney test cannot get below p≈0.1; with
+4 against 4 it can reach p≈0.029. `--runs N` (default **5**) runs the arm N times, one after the other, each as
+a [run above](#one-run): its own private repo (`bench-<run-id>-<arm>-r01`, `-r02`, …), the same caps, and the
+[guard](#guard) **again before each run**, on the usage the earlier runs left behind.
+
+```
+bench/results/<run-id>/
+  <arm>.json              the aggregate (status "aggregate")
+  <arm>.runs/run-01.json  run 1's results, the schema below plus "run": 1
+  <arm>.runs/run-01.logs/ run 1's raw logs
+  <arm>.runs/run-02.json  …
+```
+
+The aggregate is rewritten after every run, so a batch that is killed keeps what it had. It holds
+`runs_requested`, `runs_completed` (runs that finished `ok` or `capped`; a capped run counts at what it spent
+before its cap), `runs` (`run`, `file`, `status`, `capped` of each run started) and
+`aggregate: {n, metrics}`: per metric `{n, median, min, max}` for `wall_s`, `coding_s`, `testing_s`,
+`test_calls`, `cost_usd`, `weekly_window_pct`, `tokens` (and `tokens_input`, `tokens_output`,
+`tokens_cache_read`, `tokens_cache_write`), `hidden_passed`, `hidden_total`, `fuzz_divergences`, `fuzz_cases`,
+`coverage` (SonarQube), `sonar_bugs`, `sonar_vulnerabilities`, `sonar_code_smells`,
+`sonar_duplicated_lines_density` and the `counts` `issues_closed`, `prs_merged`, `commits`,
+`continue_replies`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
+run is listed in `runs` but not counted. The code is `bench/aggregate.py`.
+
+**A batch that stops early says so.** `stopped` is `null` when all N runs completed; otherwise
+`{reason, detail}`, and `runs_completed` is how many finished:
+
+| `reason` | when |
+|---|---|
+| `guard` | the guard refused a later run (the budget ran out, an account got usage-HELD, the disk filled): `causes` are the guard's (`budget`, `held`, …) and `detail` its numbers. Nothing is created or spent for the refused run |
+| `arm-error` | a run's arm failed (it is recorded as `status: error`); more runs would most likely fail the same way |
+| `repo-not-deleted` | a run's repo could not be deleted (exit 4, named on stderr); no further repo is created |
+
+A refusal before the **first** run is unchanged: exit 3 (or `skipped: <cause>` with `--optional`), nothing recorded.
+Exit status of a batch: 0 when the aggregate is recorded (also when it stopped early on the guard), 1 when it
+stopped on an arm failure, 4 when it stopped on a repo that could not be deleted.
+
+`--runs 1` writes the single-run layout (`<arm>.json` is the run's own results, `<arm>.logs/`), which
+`bench/figures.py` labels `n=1`, as it does every result written before `--runs` existed.
 
 ## Guard
 
@@ -84,7 +129,8 @@ An exception from `run` is recorded as `status: "error"` and the run continues t
 ## Results
 
 `bench/results/<run-id>/<arm>.json` (`--results-dir` moves the tree), with the raw logs beside it in
-`<arm>.logs/`: `run.log` (what the runner did, with the gh calls), `grade.json`, `transcripts/` (copies of
+`<arm>.logs/` (with `--runs N` above 1, `<arm>.json` is the [aggregate](#repeated-runs---runs-n) and each run's
+results and logs are in `<arm>.runs/`, same contents): `run.log` (what the runner did, with the gh calls), `grade.json`, `transcripts/` (copies of
 the registered transcripts: `<i>-<name>.jsonl`, with its sub-agent transcripts in `<i>-<name>/subagents/*.jsonl`,
 where `scripts/stats.py` reads them, so re-measuring the copies gives the numbers in the results JSON), and
 whatever the arm wrote to `ctx.logs`.
@@ -119,6 +165,7 @@ whatever the arm wrote to `ctx.logs`.
 | `caps` | object | `wall_s`, `cost_usd` in force |
 | `repo_deleted` | bool or null | whether the run repo was deleted afterwards |
 | `logs` | string | the logs directory next to the file |
+| `run` | int | optional (#591): the 1-based index of this run in a `--runs N` batch; absent for `--runs 1` |
 
 `run.validate(doc)` in `bench/run.py` returns the problems with a results document (empty when valid).
 
@@ -331,14 +378,19 @@ bench/figures.py --check         # write nothing; exit 1 when the README section
 ```
 
 Output is deterministic (no timestamps, fixed fonts, colours and rounding), so the same results give the same
-bytes and re-running reproduces the committed files exactly. The table has one row per `<arm>.json`: cap
+bytes and re-running reproduces the committed files exactly. The table has one row per `<arm>.json`: `n`, the
+number of runs behind the row (`n=1` for a single run and for every result written before `--runs`; `n=3 of 5`
+for a batch that [stopped early](#repeated-runs---runs-n), told under the table with its reason), cap
 status, wall time with the coding and testing split, tokens (total and input / output / cache read / cache
 write), list-price $ and % of the weekly window, hidden tests passed, fuzz divergences (`fuzz_divergences` / `fuzz_cases`, #589), issues / PRs (`counts.issues_closed`,
 `counts.prs_merged`) or commits (`counts.commits`), continue replies (`counts.continue_replies`) and the
 models that ran. Under the table, a **Run settings** line per arm that recorded them (#590) gives the models that ran, the effort by message,
 what the arm asked for, the engine commit, the `/harness` skill version and the Claude Code CLI version. A **SonarQube** column appears only when some result carries a `sonarqube` object
 (`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`, `duplicated_lines_density`, `coverage`).
-Anything a result lacks renders as `n/a`. The optional arms (`harness-opus`, `harness-3`, `hx`) get a `skipped: <reason>` row
+For an arm with several runs every number is the **median**, with the **range** after it (`$20.00 ($10.00–$30.00)`),
+and the figure draws the median as the bar with min–max whiskers; a **Runs** line under the table says so. `--check`
+also fails when an aggregate differs from the aggregate of its runs' results JSON or names a run file that cannot be
+read, and re-measures each run's logs. Anything a result lacks renders as `n/a`. The optional arms (`harness-opus`, `harness-3`, `hx`) get a `skipped: <reason>` row
 when they have no results; the reason is read from `bench/results/<run-id>/skipped.json`,
 `{"<arm>": "<reason>"}`, or a `status: skipped` `<arm>.json` (above), else `not run`.
 

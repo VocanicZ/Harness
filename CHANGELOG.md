@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench: `--runs N` per arm, median and range, `n=1` labelled (#591)
+
+- Every number in the benchmark was one run, and agent wall time and cost vary 20–40% between runs. `bench/run.py
+  --runs N` (default 5) now runs an arm N times, each in its own private repo, under the same caps and with the
+  held-usage and headroom guard checked again before every run. Each run's results and logs are kept in
+  `<arm>.runs/` and `<arm>.json` is the aggregate: median and min–max of wall time, cost, tokens, hidden tests,
+  fuzz divergences and coverage. A batch that cannot finish (the budget ran out, a run failed, a repo could not be
+  deleted) stops early and records how many runs completed and why. `--runs 1` keeps the old single-run files.
+- `bench/figures.py` adds an `n` column, shows median and range in the table and median bars with range whiskers
+  in the figure, labels every single run `n=1` (including the committed `run-20261106`), and `--check` also fails
+  when an aggregate does not match its runs.
+
 ### Bench arm parity: one isolated Claude config, a matched Opus arm, and the provenance of every run (#590)
 
 - In `run-20261106` the arms differed in more than "plain vs Harness": the Harness arm ran on the operator's own Claude

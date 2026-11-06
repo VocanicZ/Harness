@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """run.py — the benchmark runner core (#381, PRD #345). Every arm runs through it.
 
-    bench/run.py <arm> [--dry-run] [--run-id ID] [--results-dir DIR] [--arm-opt k=v]... [--workers N]
+    bench/run.py <arm> [--runs N] [--dry-run] [--run-id ID] [--results-dir DIR] [--arm-opt k=v]... [--workers N]
                        [--wall-cap-secs 21600] [--cost-cap-usd 80] [--expected-usd N]
 
 One run = one arm, one fresh PRIVATE GitHub repo:
@@ -29,6 +29,12 @@ arm's stop event is set, the processes it started are terminated, and the run is
 ARMS are modules `bench/arms/<arm>.py` defining run(ctx); see bench/README.md for the interface and the
 results schema. Exit status: 0 recorded (ok or capped), 1 the arm failed (recorded), 2 bad arguments,
 3 guard refused, 4 recorded but the repo could not be deleted (it is named on stderr — delete it).
+RUNS (#591): `--runs N` (default 5) repeats the run N times, each in its own repo, because one run cannot support a
+claim (agent wall time and cost vary 20-40% between runs). Every run goes through the guard and the caps again.
+Run i is `<results>/<run-id>/<arm>.runs/run-NN.json` (+ `run-NN.logs/`) and `<arm>.json` is the aggregate over the
+runs so far (bench/aggregate.py: median and min-max per metric). The batch stops early, recording how many runs
+completed and why, when the guard refuses a later run (the budget ran out, a hold, the disk), a run's arm fails, or a
+repo could not be deleted. `--runs 1` writes the single-run layout `<arm>.json` + `<arm>.logs/`, shown as `n=1`.
 Optional code quality (bench/quality.py, #387) runs on the graded clone and never fails a run: Docker
 absent or the scan failing is recorded as `quality: skipped (<reason>)`.
 Stdlib only; reuses scripts/forecast.py and scripts/stats.py.
@@ -43,6 +49,7 @@ BRIEF = os.path.join(ROOT, "bench/fixture/brief.md")
 GRADER = os.path.join(HERE, "grade.py")
 QUALITY = os.path.join(HERE, "quality.py")
 SCHEMA = 1
+RUNS_DEFAULT = 5
 WALL_CAP_S = 6 * 3600
 COST_CAP_USD = 80.0
 WEEKLY = re.compile(r"seven|week|7d", re.I)
@@ -59,6 +66,14 @@ def _load(name):
 def armlib():
     """bench/armlib.py: what the arms share (isolated config, provenance, effort), loaded by path."""
     spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(HERE, "armlib.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def agglib():
+    """bench/aggregate.py: median and range over an arm's runs, loaded by path."""
+    spec = importlib.util.spec_from_file_location("bench_aggregate", os.path.join(HERE, "aggregate.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -286,6 +301,7 @@ class Ctx:
         self.arm, self.repo, self.clone, self.logs, self.stop = arm, repo, clone, logs, stop
         self.opts, self.caps, self.log = opts, caps, log
         self.brief = os.path.join(clone, "brief.md")
+        self.run = None   # 1-based index of this run in a `--runs N` batch (#591); None for `--runs 1`
         self.transcripts, self.counts = [], {}
         self.extra = {}   # more top-level fields for the results JSON (never one the runner owns)
         self._procs, self._lock = [], threading.Lock()
@@ -470,6 +486,8 @@ def validate(d):
     """[problem] — empty when `d` matches the documented results schema (bench/README.md)."""
     if d.get("status") == "skipped":
         return validate_skipped(d)
+    if d.get("status") == "aggregate":
+        return agglib().validate_aggregate(d)
     bad = [f"missing {k}" if k not in d else f"{k}: {type(d[k]).__name__}"
            for k, t in REQUIRED.items() if k not in d or not isinstance(d[k], t) or
            (isinstance(d[k], bool) and bool not in (t if isinstance(t, tuple) else (t,)))]
@@ -487,6 +505,8 @@ def validate(d):
         bad.append("caps keys")
     if not all(k in d["hidden_tests"] for k in ("passed", "failed", "total")):
         bad.append("hidden_tests needs passed/failed/total")
+    if "run" in d and (not isinstance(d["run"], int) or isinstance(d["run"], bool) or d["run"] < 1):
+        bad.append(f"run: {d['run']!r}")
     for k, t in FUZZ_FIELDS.items():
         if k in d and (not isinstance(d[k], t) or isinstance(d[k], bool)):
             bad.append(f"{k}: {type(d[k]).__name__}")
@@ -525,6 +545,9 @@ def write_json(path, data):
 def parse_args(argv):
     ap = argparse.ArgumentParser(prog="bench/run.py", description="run one benchmark arm (#381)")
     ap.add_argument("arm")
+    ap.add_argument("--runs", type=int, default=RUNS_DEFAULT, metavar="N",
+                    help=f"runs per arm, each in its own repo (default {RUNS_DEFAULT}); the batch records an aggregate "
+                         "(median, min-max) and stops early, recording why, when the budget runs out. --runs 1 is n=1")
     ap.add_argument("--dry-run", action="store_true", help="print the guard decision; spend and create nothing")
     ap.add_argument("--run-id", default=None, help="default: a UTC timestamp")
     ap.add_argument("--results-dir", default=os.path.join(HERE, "results"))
@@ -562,6 +585,9 @@ def main(argv=None):
             print("bench: --workers must be at least 1", file=sys.stderr)
             return EXIT_USAGE
         opts["workers"] = str(a.workers)
+    if a.runs < 1:
+        print("bench: --runs must be at least 1", file=sys.stderr)
+        return EXIT_USAGE
     if a.wall_cap_secs <= 0 or a.cost_cap_usd <= 0:
         print("bench: the caps must be positive", file=sys.stderr)
         return EXIT_USAGE
@@ -579,6 +605,8 @@ def main(argv=None):
             return record_skipped(a, g)
         return EXIT_REFUSED
     if a.dry_run:
+        if a.runs > 1:
+            print(f"bench: would run {a.runs} runs of {a.arm}, each guarded again before it starts")
         return EXIT_OK
     return execute(a, arm, opts, g, fc, st)
 
@@ -600,10 +628,73 @@ def record_skipped(a, g):
     return EXIT_OK
 
 
+def new_run_id(a):
+    return a.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def run_slot(a, run_id, index=None):
+    """Where one run's files go. `index` None is the single-run layout (`--runs 1`): <arm>.json and <arm>.logs/
+    in the run dir. Otherwise run `index` of a batch: <arm>.runs/run-NN.json and run-NN.logs/, repo ...-rNN."""
+    base = os.path.join(a.results_dir, run_id)
+    if index is None:
+        return {"run_id": run_id, "out_dir": base, "json": f"{a.arm}.json", "logs": f"{a.arm}.logs",
+                "repo": f"bench-{run_id.lower()}-{a.arm}", "index": None, "file": f"{a.arm}.json"}
+    name = f"run-{index:02d}"
+    return {"run_id": run_id, "out_dir": os.path.join(base, f"{a.arm}.runs"), "json": f"{name}.json",
+            "logs": f"{name}.logs", "repo": f"bench-{run_id.lower()}-{a.arm}-r{index:02d}", "index": index,
+            "file": f"{a.arm}.runs/{name}.json"}
+
+
 def execute(a, arm, opts, g, fc, st):
-    run_id = a.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_dir = os.path.join(a.results_dir, run_id)
-    logs = os.path.join(out_dir, f"{a.arm}.logs")
+    """The runs of `--runs N`, each guarded, run and recorded on its own; `g` is the guard decision for the first.
+    Returns the exit status (see the module docstring): 4 beats 1 beats 0."""
+    run_id = new_run_id(a)
+    if a.runs == 1:
+        return execute_one(a, arm, opts, g, fc, st, run_slot(a, run_id))[0]
+    agg_path = os.path.join(a.results_dir, run_id, f"{a.arm}.json")
+    runs, docs, stopped, exit_code = [], [], None, EXIT_OK
+    for i in range(1, a.runs + 1):
+        if i > 1:   # the first run was guarded by main(); every later one is guarded again, on the usage the earlier ones left
+            g = guard(a, fc, st)
+            if not g["ok"]:
+                print(render_guard(g), file=sys.stderr)
+                stopped = {"reason": "guard", "causes": g["causes"], "detail": "; ".join(g["reasons"])}
+                break
+        slot = run_slot(a, run_id, i)
+        code, res = execute_one(a, arm, opts, g, fc, st, slot)
+        runs.append({"run": i, "file": slot["file"], "status": res["status"], "capped": res["capped"]})
+        docs.append(res)
+        write_aggregate(a, run_id, agg_path, runs, docs, stopped)   # also after each run: a killed batch keeps its record
+        if code == EXIT_LEAKED:
+            stopped = {"reason": "repo-not-deleted", "detail": f"{res['repo']} could not be deleted; no further repo is created"}
+            exit_code = code
+            break
+        if res["status"] == "error":
+            stopped = {"reason": "arm-error", "detail": res["error"] or "the arm failed"}
+            exit_code = code
+            break
+    doc = write_aggregate(a, run_id, agg_path, runs, docs, stopped)
+    why = f"; stopped early: {stopped['reason']}: {stopped['detail']}" if stopped else ""
+    print(f"bench: {a.arm}: {doc['runs_completed']} of {a.runs} runs completed{why}: {agg_path}")
+    return exit_code
+
+
+def write_aggregate(a, run_id, path, runs, docs, stopped):
+    """<arm>.json for a batch: the runs so far, how many completed of how many were asked for, why it stopped
+    (null when it did not), and the median and range of every metric (bench/aggregate.py)."""
+    lib = agglib()
+    agg = lib.aggregate(docs)
+    doc = {"schema": SCHEMA, "run_id": run_id, "arm": a.arm, "status": "aggregate", "runs_requested": a.runs,
+           "runs_completed": agg["n"], "stopped": stopped, "runs": runs, "aggregate": agg}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json(path, doc)
+    return doc
+
+
+def execute_one(a, arm, opts, g, fc, st, slot):
+    """One run, in its own repo, recorded under `slot` (see run_slot). Returns (exit status, results doc)."""
+    run_id, out_dir = slot["run_id"], slot["out_dir"]
+    logs = os.path.join(out_dir, slot["logs"])
     os.makedirs(logs, exist_ok=True)
     runlog = open(os.path.join(logs, "run.log"), "a", encoding="utf-8")
 
@@ -620,10 +711,12 @@ def execute(a, arm, opts, g, fc, st):
            "weekly_window_pct": None, "models": {}, "hidden_tests": {"passed": 0, "failed": None, "total": None},
            "counts": {}, "caps": caps, "repo_deleted": None, "logs": os.path.basename(logs),
            "quality": "skipped (not run)"}
+    if slot["index"] is not None:
+        res["run"] = slot["index"]
     ctx = None
     try:
         try:
-            repo = f"{gh.owner(a.owner)}/bench-{run_id.lower()}-{a.arm}"
+            repo = f"{gh.owner(a.owner)}/{slot['repo']}"
             res["repo"] = repo
             log(f"run {run_id} arm {a.arm} repo {repo}")
             gh.create(repo)
@@ -632,6 +725,7 @@ def execute(a, arm, opts, g, fc, st):
             gh.clone(repo, clone)
             gh.seed(repo, clone)
             ctx = Ctx(a.arm, repo, clone, logs, threading.Event(), opts, caps, log)
+            ctx.run = slot["index"]
             t0 = time.time()
             res["capped"] = run_arm(a, arm, ctx, fc, st, t0, log)
             res["wall_s"] = round(time.time() - t0, 3)
@@ -663,22 +757,22 @@ def execute(a, arm, opts, g, fc, st):
             res.update(quality(work, a.quality, log))
             res["weekly_window_pct"] = (round(m["cost_usd"] / g["usd_per_pct"], 2) if g["usd_per_pct"] else None)
         res["ended_at"] = now_iso()
-        write_json(os.path.join(out_dir, f"{a.arm}.json"), res)
+        write_json(os.path.join(out_dir, slot["json"]), res)
     finally:
         if repo and res["repo"]:
             res["repo_deleted"] = gh.delete(repo)
             leaked = not res["repo_deleted"]
             log(f"repo deleted: {res['repo_deleted']}")
-            if os.path.isfile(os.path.join(out_dir, f"{a.arm}.json")):
-                write_json(os.path.join(out_dir, f"{a.arm}.json"), res)
+            if os.path.isfile(os.path.join(out_dir, slot["json"])):
+                write_json(os.path.join(out_dir, slot["json"]), res)
         shutil.rmtree(work, ignore_errors=True)
         runlog.close()
     if leaked:
         print(f"bench: COULD NOT DELETE {repo} — delete it by hand (gh repo delete {repo})", file=sys.stderr)
-        return EXIT_LEAKED
-    print(f"bench: {a.arm} {res['status']}{' (' + res['capped'] + ')' if res['capped'] else ''}: "
-          f"{os.path.join(out_dir, a.arm + '.json')}")
-    return EXIT_ARM_FAILED if res["status"] == "error" else EXIT_OK
+        return EXIT_LEAKED, res
+    print(f"bench: {a.arm}{' run ' + str(slot['index']) if slot['index'] else ''} {res['status']}"
+          f"{' (' + res['capped'] + ')' if res['capped'] else ''}: {os.path.join(out_dir, slot['json'])}")
+    return (EXIT_ARM_FAILED if res["status"] == "error" else EXIT_OK), res
 
 
 def run_arm(a, arm, ctx, fc, st, t0, log):

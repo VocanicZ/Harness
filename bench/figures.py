@@ -8,7 +8,9 @@ re-running reproduces the committed files exactly (`--check` fails when they are
     bench/figures.py --check            # write nothing; exit 1 when the figure or README are not current, or an
                                         # arm's committed logs, re-measured, do not reproduce its results JSON
 
-Input: `<results-dir>/<run-id>/<arm>.json` (schema: bench/README.md, written by bench/run.py) and an
+Input: `<results-dir>/<run-id>/<arm>.json` (schema: bench/README.md, written by bench/run.py) — one run's
+results (shown as `n=1`), or the aggregate of `bench/run.py --runs N` (its runs are in `<arm>.runs/`; cells show
+the median and the min-max range, the figure the median with range whiskers, #591) — and an
 optional `<results-dir>/<run-id>/skipped.json`, {"<arm>": "<reason>"}, for arms that were not run; an
 `<arm>.json` with `"status": "skipped"` (written by `bench/run.py --optional`) counts the same.
 Anything missing renders as "n/a" or a "skipped: <reason>" row, never as an error.
@@ -26,20 +28,39 @@ OPTIONAL_ARMS = ["harness-opus", "harness-3", "hx"]        # shown as a "skipped
 ARM_TITLES = {"plain": "Plain Claude Code", "harness": "Harness (1 worker)", "harness-1": "Harness (1 worker)",
               "harness-3": "Harness (3 workers)", "harness-opus": "Harness (all Opus, plain's effort)", "hx": "Hx"}
 NA = "n/a"
+DASH = "–"
 
 
 # --- logs reproduce the results (#579) --------------------------------------------------
 def verify_logs(results_dir, run_id, arms):
-    """[message] for every arm whose committed raw logs, re-measured, do not reproduce its results JSON."""
+    """[message] for every run whose committed raw logs, re-measured, do not reproduce its results JSON."""
     spec = importlib.util.spec_from_file_location("bench_run", os.path.join(HERE, "run.py"))
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     fc, st = runner._load("forecast"), runner._load("stats")
     bad = []
-    for arm, doc in sorted(arms.items()):
-        logs = os.path.join(results_dir, run_id, str(doc.get("logs") or arm + ".logs"))
-        if os.path.isdir(logs):
-            bad += [f"{arm}: {m}" for m in runner.verify_logs(fc, st, doc, logs)]
+    for arm, group in sorted(arms.items()):
+        for doc in runs_of(group):
+            logs = os.path.join(doc.get("_dir") or os.path.join(results_dir, run_id),
+                                str(doc.get("logs") or arm + ".logs"))
+            who = arm + (f" run {doc['run']}" if isinstance(doc.get("run"), int) else "")
+            if os.path.isdir(logs):
+                bad += [f"{who}: {m}" for m in runner.verify_logs(fc, st, doc, logs)]
+    return bad
+
+
+def verify_aggregates(arms):
+    """[message] for every aggregate (`bench/run.py --runs N`) that is malformed, names a run file that cannot be
+    read, or does not equal the aggregate of its runs' results JSON (#591)."""
+    bad = []
+    for arm, g in sorted(arms.items()):
+        stored = g.get("_stored")
+        if not isinstance(stored, dict):
+            continue
+        bad += [f"{arm}: {m}" for m in AGG.validate_aggregate(stored)]
+        bad += [f"{arm}: run file {f} cannot be read" for f in g["_missing"]]
+        if stored.get("aggregate") != AGG.aggregate(g["_runs"]):
+            bad.append(f"{arm}: aggregate differs from the aggregate of its runs' results JSON")
     return bad
 
 
@@ -65,6 +86,40 @@ def run_dirs(results_dir):
     return [n for n in names if any(f.endswith(".json") for f in os.listdir(os.path.join(results_dir, n)))]
 
 
+def _agg_module():
+    spec = importlib.util.spec_from_file_location("bench_aggregate", os.path.join(HERE, "aggregate.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+AGG = _agg_module()
+
+
+def group(d, doc):
+    """The arm's entry for an aggregate record (`bench/run.py --runs N`): its first completed run's results with the
+    runs behind it (`_runs`), their aggregate (`_agg`, recomputed from the runs), how many were asked for and why
+    it stopped. Everything that reads a single run still works on it; cells that vary use the aggregate."""
+    runs, missing = [], []
+    for r in doc.get("runs") if isinstance(doc.get("runs"), list) else []:
+        f = r.get("file") if isinstance(r, dict) else None
+        rd = _load(os.path.join(d, f)) if isinstance(f, str) else None
+        if rd is None:
+            missing.append(str(f))
+        else:
+            runs.append(dict(rd, _dir=os.path.dirname(os.path.join(d, f))))
+    done = AGG.completed(runs)
+    base = dict((done or runs or [{"arm": doc.get("arm")}])[0])
+    base.update(_runs=runs, _agg=AGG.aggregate(runs)["metrics"], _n=len(done), _missing=missing, _stored=doc,
+                _requested=doc.get("runs_requested"), _stopped=doc.get("stopped"))
+    return base
+
+
+def runs_of(doc):
+    """The runs behind an arm's entry: its own results for a single run, else the aggregate's runs."""
+    return doc["_runs"] if "_runs" in doc else [doc]
+
+
 def load_run(results_dir, run_id):
     """({arm: results doc}, {arm: skip reason}) for one run."""
     d = os.path.join(results_dir, run_id)
@@ -79,8 +134,10 @@ def load_run(results_dir, run_id):
             skipped = {str(k): " ".join(str(v).split()) for k, v in doc.items()}
         elif doc.get("status") == "skipped":   # bench/run.py --optional: the guard refused the arm (#386)
             recorded[str(doc.get("arm") or f[:-5])] = " ".join(str(doc.get("reason") or "not run").split())
+        elif doc.get("status") == "aggregate":   # bench/run.py --runs N (#591)
+            arms[str(doc.get("arm") or f[:-5])] = group(d, doc)
         else:
-            arms[str(doc.get("arm") or f[:-5])] = doc
+            arms[str(doc.get("arm") or f[:-5])] = dict(doc, _dir=d)
     return arms, {**skipped, **recorded}
 
 
@@ -130,70 +187,130 @@ def title(arm):
 
 
 def tokens_total(doc):
-    t = doc.get("tokens")
-    if not isinstance(t, dict):
+    return AGG.tokens_total(doc)
+
+
+def metric(doc, key):
+    """{"n", "median", "min", "max"} of one metric for an arm: over its runs for an aggregate, else its single
+    run's value (n=1). None when no run has it."""
+    if "_runs" in doc:
+        return doc["_agg"].get(key)
+    v = AGG.extract(doc).get(key)
+    return None if v is None else {"n": 1, "median": v, "min": v, "max": v}
+
+
+def val(doc, key):
+    """The median of a metric (the value itself for a single run), or None."""
+    s = metric(doc, key)
+    return None if s is None else s["median"]
+
+
+def stat(doc, key, fmt):
+    """`fmt(median)`, and for an aggregate of several runs `fmt(median) (fmt(min)–fmt(max))`; None when absent."""
+    s = metric(doc, key)
+    if s is None:
         return None
-    vals = [num(t.get(k)) for k in ("input", "output", "cache_read", "cache_write")]
-    return None if all(v is None for v in vals) else sum(v or 0 for v in vals)
+    if s["n"] > 1:
+        return f"{fmt(s['median'])} ({fmt(s['min'])}{DASH}{fmt(s['max'])})"
+    return fmt(s["median"])
+
+
+def cstat(doc, key, fmt):
+    return NA if metric(doc, key) is None else stat(doc, key, fmt)
+
+
+def gfmt(v):
+    return f"{v:g}"
+
+
+def cnt(v):
+    return str(int(v)) if v == int(v) else f"{v:.1f}"
+
+
+def n_of(doc):
+    """The number of runs behind an arm's numbers: 1 for a single run, else the aggregate's completed runs."""
+    return doc["_n"] if "_runs" in doc else 1
+
+
+def n_label(doc):
+    """`n=1`, `n=5`, or `n=3 of 5` when a batch stopped early."""
+    n = n_of(doc)
+    asked = doc.get("_requested") if "_runs" in doc else None
+    return f"n={n}" + (f" of {asked}" if isinstance(asked, int) and asked > n else "")
 
 
 def tokens_split(doc):
-    t = doc.get("tokens") if isinstance(doc.get("tokens"), dict) else {}
-    return " / ".join(tok(t.get(k)) for k in ("input", "output", "cache_read", "cache_write"))
+    return " / ".join(tok(val(doc, f"tokens_{k}")) for k in ("input", "output", "cache_read", "cache_write"))
 
 
 def hidden(doc):
-    h = doc.get("hidden_tests") if isinstance(doc.get("hidden_tests"), dict) else {}
-    p, total = num(h.get("passed")), num(h.get("total"))
+    p, total = stat(doc, "hidden_passed", cnt), val(doc, "hidden_total")
     if p is None or total is None:
         return f"{NA} (not graded)"
-    return f"{int(p)} / {int(total)}"
+    return f"{p} / {cnt(total)}"
 
 
 def fuzz(doc):
     """Divergences from the reference implementation over the fuzz cases run (bench/fuzz.py, #589)."""
-    n, c = num(doc.get("fuzz_divergences")), num(doc.get("fuzz_cases"))
+    n, c = stat(doc, "fuzz_divergences", cnt), val(doc, "fuzz_cases")
     if n is None or c is None:
-        return f"{NA} (fuzz error)" if doc.get("fuzz_error") else NA
-    return f"{int(n)} / {int(c)}"
+        return f"{NA} (fuzz error)" if any(r.get("fuzz_error") for r in runs_of(doc)) else NA
+    return f"{n} / {cnt(c)}"
 
 
 def work(doc):
-    c = doc.get("counts") if isinstance(doc.get("counts"), dict) else {}
     parts = []
     for key, label in (("issues_closed", "issues"), ("prs_merged", "PRs"), ("commits", "commits")):
-        if num(c.get(key)) is not None:
-            parts.append(f"{int(c[key])} {label}")
+        if metric(doc, key) is not None:
+            parts.append(f"{stat(doc, key, cnt)} {label}")
     return ", ".join(parts) or NA
 
 
 def continues(doc):
-    c = doc.get("counts") if isinstance(doc.get("counts"), dict) else {}
-    v = num(c.get("continue_replies"))
-    return NA if v is None else str(int(v))
+    return cstat(doc, "continue_replies", cnt)
 
 
 def cap_status(doc):
-    st = doc.get("status")
-    if st == "capped":
-        return f"capped: {doc.get('capped') or NA}"
-    if st == "ok":
-        return "within caps"
-    if st == "error":
-        return "error"
-    return NA
+    """One run: `within caps`, `capped: wall|cost` or `error`. Several: the same when they all agree, else a count of each."""
+    def one(d):
+        st = d.get("status")
+        if st == "capped":
+            return f"capped: {d.get('capped') or NA}"
+        return {"ok": "within caps", "error": "error"}.get(st, NA)
+    kinds = [one(r) for r in runs_of(doc)]
+    if "_runs" not in doc:
+        return kinds[0]
+    if not kinds:
+        return NA
+    if len(set(kinds)) == 1:
+        return kinds[0]
+    return ", ".join(f"{kinds.count(k)} {k}" for k in dict.fromkeys(kinds))
 
 
 def models(doc):
-    m = doc.get("models")
-    return ", ".join(sorted(str(k) for k in m)) if isinstance(m, dict) and m else NA
+    names = sorted({str(k) for r in runs_of(doc) if isinstance(r.get("models"), dict) for k in r["models"]})
+    return ", ".join(names) if names else NA
 
 
 def sonar(doc):
-    s = doc.get("sonarqube")
-    if not isinstance(s, dict):
+    runs = runs_of(doc)
+    if not any(isinstance(r.get("sonarqube"), dict) for r in runs):
         q = doc.get("quality")      # bench/quality.py, #387: "skipped (<reason>)" when the scan could not run
         return q if isinstance(q, str) and q.startswith("skipped") else NA
+    if "_runs" in doc:
+        bits = []
+        for key, label in (("sonar_bugs", "bugs"), ("sonar_vulnerabilities", "vulns"), ("sonar_code_smells", "smells")):
+            if metric(doc, key) is not None:
+                bits.append(f"{label} {stat(doc, key, gfmt)}")
+        ratings = sorted({str(r["sonarqube"]["maintainability_rating"]) for r in runs
+                          if isinstance(r.get("sonarqube"), dict) and r["sonarqube"].get("maintainability_rating") is not None})
+        if ratings:
+            bits.append("maint. " + (ratings[0] if len(ratings) == 1 else f"{ratings[0]}{DASH}{ratings[-1]}"))
+        for key, label in (("sonar_duplicated_lines_density", "dup"), ("coverage", "cov")):
+            if metric(doc, key) is not None:
+                bits.append(f"{label} {stat(doc, key, gfmt)}%")
+        return ", ".join(bits) or NA
+    s = doc["sonarqube"]
     bits = []
     for key, label, fmt in (("bugs", "bugs", "{:g}"), ("vulnerabilities", "vulns", "{:g}"),
                             ("code_smells", "smells", "{:g}"), ("maintainability_rating", "maint.", "{}"),
@@ -206,21 +323,21 @@ def sonar(doc):
 
 # --- table -----------------------------------------------------------------------------
 def table(arms, skipped):
-    has_sonar = any(isinstance(d.get("sonarqube"), dict) for d in arms.values())
-    head = ["Arm", "Cap status", "Wall time", "Coding", "Testing", "Tokens", "in / out / cache read / cache write",
+    has_sonar = any(isinstance(r.get("sonarqube"), dict) for d in arms.values() for r in runs_of(d))
+    head = ["Arm", "n", "Cap status", "Wall time", "Coding", "Testing", "Tokens", "in / out / cache read / cache write (median)",
             "List price", "% of weekly window", "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
             "Models"] + (["SonarQube"] if has_sonar else [])
     rows = []
     for arm in sorted(arms, key=arm_key):
         d = arms[arm]
-        rows.append([title(arm), cap_status(d), dur(d.get("wall_s")), dur(d.get("coding_s")), dur(d.get("testing_s")),
-                     tok(tokens_total(d)), tokens_split(d), usd(d.get("cost_usd")), pct(d.get("weekly_window_pct")),
-                     hidden(d), fuzz(d), work(d), continues(d), models(d)] + ([sonar(d)] if has_sonar else []))
+        rows.append([title(arm), n_label(d), cap_status(d), cstat(d, "wall_s", dur), cstat(d, "coding_s", dur),
+                     cstat(d, "testing_s", dur), cstat(d, "tokens", tok), tokens_split(d), cstat(d, "cost_usd", usd),
+                     cstat(d, "weekly_window_pct", pct), hidden(d), fuzz(d), work(d), continues(d), models(d)] + ([sonar(d)] if has_sonar else []))
     ncol = len(head)
     for arm in sorted(set(skipped) | (set(OPTIONAL_ARMS) - set(arms)), key=arm_key):
         if arm in arms:
             continue
-        rows.append([title(arm), f"skipped: {skipped.get(arm, 'not run')}"] + [NA] * (ncol - 2))
+        rows.append([title(arm), NA, f"skipped: {skipped.get(arm, 'not run')}"] + [NA] * (ncol - 3))
     lines = ["| " + " | ".join(head) + " |", "|" + "|".join(["---"] * ncol) + "|"]
     lines += ["| " + " | ".join(cell(c) for c in r) + " |" for r in rows]
     return "\n".join(lines)
@@ -234,12 +351,13 @@ FONT = "DejaVu Sans, Verdana, Arial, sans-serif"
 
 def time_segments(d):
     """(coding, testing, outside, total) seconds for one arm's time bar, or None when it has no time at all.
+    For an arm with several runs these are the medians of its runs (#591).
 
     The bar is `wall_s` long (#583): coding and testing are time inside agent sessions, `outside` is the
     rest of the wall time (`wall_s - coding_s - testing_s`, clamped at 0). Without a coding/testing split
     the bar is one unsplit segment: coding = testing = None. A split that overruns `wall_s` (it cannot, in
     a measured run) makes the bar as long as the split, so the segments always sum to the bar."""
-    c, t, w = num(d.get("coding_s")), num(d.get("testing_s")), num(d.get("wall_s"))
+    c, t, w = val(d, "coding_s"), val(d, "testing_s"), val(d, "wall_s")
     if c is None and t is None:
         return None if w is None else (None, None, None, w)
     inside = (c or 0) + (t or 0)
@@ -247,18 +365,27 @@ def time_segments(d):
     return (c or 0, t or 0, max(total - inside, 0), total)
 
 
+def whisker(x_lo, x_hi, y, color="#222222"):
+    """A range whisker: a line from x_lo to x_hi at height y with a short cap at each end."""
+    return (f'<path d="M{x_lo} {y}H{x_hi}M{x_lo} {y - 5}V{y + 5}M{x_hi} {y - 5}V{y + 5}" stroke="{color}" '
+            'stroke-width="1.5" fill="none"/>')
+
+
 def figure(arms):
-    """The time and $ per arm as one SVG string, or None with no arm to draw."""
+    """The time and $ per arm as one SVG string, or None with no arm to draw. An arm's bars are its median; an
+    arm with several runs also gets whiskers over the min-max range of its wall time and cost (#591)."""
     names = sorted(arms, key=arm_key)
     if not names:
         return None
-    label_w, panel_w, gap, row_h, top = 170, 250, 90, 34, 62
+    label_w, panel_w, gap, row_h, top = 270, 250, 90, 34, 62
     width = label_w + panel_w + gap + panel_w + 70
     height = top + row_h * len(names) + 24
     x_time, x_cost = label_w, label_w + panel_w + gap
     t_vals = [time_segments(arms[n]) for n in names]
-    t_max = max([v[3] for v in t_vals if v] + [1])
-    c_max = max([num(arms[n].get("cost_usd")) or 0 for n in names] + [0.01])
+    ranges = [metric(arms[n], "wall_s") for n in names]
+    t_max = max([v[3] for v in t_vals if v] + [r["max"] for r in ranges if r and r["n"] > 1] + [1])
+    c_max = max([val(arms[n], "cost_usd") or 0 for n in names]
+                + [r["max"] for r in (metric(arms[n], "cost_usd") for n in names) if r and r["n"] > 1] + [0.01])
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
            f'font-family="{FONT}" font-size="12">',
            "<title>Benchmark: time and list-price cost per arm</title>",
@@ -271,11 +398,14 @@ def figure(arms):
                    f'<text x="{lx + 14}" y="41" fill="#444444">{text}</text>')
     out.append(f'<rect x="{x_cost}" y="32" width="10" height="10" fill="{C_COST}"/>'
                f'<text x="{x_cost + 14}" y="41" fill="#444444">USD at list price</text>')
+    if any(n_of(arms[n]) > 1 for n in names):
+        out.append(f'<text x="{x_time}" y="56" font-size="11" fill="#666666">bars: median over the runs; '
+                   f'whiskers: min{DASH}max</text>')
     for i, n in enumerate(names):
         d = arms[n]
         y = top + i * row_h
         out.append(f'<text x="{label_w - 10}" y="{y + 17}" text-anchor="end" fill="#222222">'
-                   f'{html.escape(title(n), quote=True)}</text>')
+                   f'{html.escape(title(n), quote=True)} <tspan fill="#666666">{n_label(d)}</tspan></text>')
         seg = t_vals[i]
         end = x_time
         if seg is not None:
@@ -292,14 +422,25 @@ def figure(arms):
                 if x1 > x0:
                     out.append(f'<rect x="{x0}" y="{y + 4}" width="{round(x1 - x0, 1)}" height="18" fill="{color}"/>')
                 end = x1
-        out.append(f'<text x="{round(end + 6, 1)}" y="{y + 17}" fill="#222222">{dur(d.get("wall_s"))}</text>')
-        cost = num(d.get("cost_usd"))
+        r = ranges[i]
+        if r and r["n"] > 1:
+            lo, hi = (round(x_time + r[k] / t_max * panel_w, 1) for k in ("min", "max"))
+            out.append(whisker(lo, hi, y + 13))
+            end = max(end, hi)
+        out.append(f'<text x="{round(end + 6, 1)}" y="{y + 17}" fill="#222222">{dur(val(d, "wall_s"))}</text>')
+        cost = val(d, "cost_usd")
         if cost is None:
             out.append(f'<text x="{x_cost}" y="{y + 17}" fill="#666666">{NA}</text>')
         else:
             bw = round(cost / c_max * panel_w, 1)
-            out.append(f'<rect x="{x_cost}" y="{y + 4}" width="{bw}" height="18" fill="{C_COST}"/>'
-                       f'<text x="{round(x_cost + bw + 6, 1)}" y="{y + 17}" fill="#222222">{usd(cost)}</text>')
+            end = round(x_cost + bw, 1)
+            out.append(f'<rect x="{x_cost}" y="{y + 4}" width="{bw}" height="18" fill="{C_COST}"/>')
+            r = metric(d, "cost_usd")
+            if r["n"] > 1:
+                lo, hi = (round(x_cost + r[k] / c_max * panel_w, 1) for k in ("min", "max"))
+                out.append(whisker(lo, hi, y + 13))
+                end = max(end, hi)
+            out.append(f'<text x="{round(end + 6, 1)}" y="{y + 17}" fill="#222222">{usd(cost)}</text>')
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -307,7 +448,8 @@ def figure(arms):
 # --- README section --------------------------------------------------------------------
 def undeleted(arms):
     """The note for runs whose repo was left behind (`repo_deleted: false`), or None when none was (#578)."""
-    left = [(a, arms[a].get("repo")) for a in sorted(arms, key=arm_key) if arms[a].get("repo_deleted") is False]
+    left = [(a, r.get("repo")) for a in sorted(arms, key=arm_key) for r in runs_of(arms[a])
+            if r.get("repo_deleted") is False]
     if not left:
         return None
     names = ", ".join(f"`{r}`" if isinstance(r, str) and r else f"the {title(a)} repo" for a, r in left)
@@ -376,6 +518,25 @@ TIME_NOTE = ("Coding and Testing count time inside agent sessions; the rest of W
              "(orchestration, waiting), drawn as its own segment in the figure.")
 
 
+RUNS_NOTE = ("**Runs:** `n` is the number of runs behind an arm's row (`bench/run.py --runs N`). With `n` above 1 a cell "
+             "shows the median and, in brackets, the range (min–max) over those runs, and the figure draws the median "
+             "with range whiskers. `n=1` is a single run: agent wall time and cost vary 20–40% between runs, so one run "
+             "supports no claim.")
+
+
+def stopped_notes(arms):
+    """One line per arm whose batch of runs stopped early (#591): how many completed, and why."""
+    out = []
+    for a in sorted(arms, key=arm_key):
+        d = arms[a]
+        st = d.get("_stopped")
+        if "_runs" not in d or not isinstance(st, dict):
+            continue
+        out.append(f"**Stopped early, {title(a)}:** {n_of(d)} of {d.get('_requested')} runs completed "
+                   f"({len(d['_runs'])} started); stopped because {st.get('reason')}: {' '.join(str(st.get('detail')).split())}")
+    return out
+
+
 def fuzz_note(arms):
     """What the Fuzz divergences column counts (#589), once some arm carries it."""
     docs = [arms[a] for a in sorted(arms, key=arm_key) if num(arms[a].get("fuzz_cases")) is not None]
@@ -401,6 +562,8 @@ def section(run_id, arms, skipped, fig_ref):
         parts.append(f"![Benchmark: wall time and list-price cost per arm]({fig_ref})")
     parts.append(table(arms, skipped))
     parts.append(TIME_NOTE)
+    parts.append(RUNS_NOTE)
+    parts += stopped_notes(arms)
     parts += fuzz_note(arms) + config_notes(arms) + settings_notes(arms) + arm_notes(arms)
     if undeleted(arms):
         parts.append(undeleted(arms))
@@ -467,7 +630,10 @@ def main(argv=None):
         unreproduced = verify_logs(a.results_dir, run_id, arms) if run_id else []
         for m in unreproduced:
             print(f"figures.py: logs do not reproduce results: {m}", file=sys.stderr)
-        return 1 if stale or unreproduced else 0
+        inconsistent = verify_aggregates(arms) if run_id else []
+        for m in inconsistent:
+            print(f"figures.py: aggregate does not match its runs: {m}", file=sys.stderr)
+        return 1 if stale or unreproduced or inconsistent else 0
     if svg is not None and fig_path in stale:
         write(fig_path, svg)
     if a.readme in stale:
