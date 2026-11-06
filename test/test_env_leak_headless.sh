@@ -49,7 +49,7 @@ have_proc(){ [[ -r /proc/self/environ ]]; }
 runner_env(){ local pid; pid="$(sess_pane_pid "$1")"; [[ -n $pid ]] && have_proc && tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null; return 0; }
 # turn_env <name> — the environment the lane's CLI turn ran in, as the fake recorded it.
 turn_env(){ cat "$RUN_DIR/fake-$1/turn.env" 2>/dev/null; }
-env_has(){ grep -qxF -- "$2" <<<"$1"; }          # env_has <dump> <NAME=value>
+env_has(){ grep -qxF -- "$2" <<<"${!1}"; }   # env_has <name of a dump variable> <NAME=value> (by name: a failure never prints the whole environment)
 env_key(){ grep -c -- "^$2=" <<<"$1"; }          # env_key <dump> <NAME> — how many NAME= lines
 # env_leak <dump> — every line of <dump> holding a value only fleet A set.
 assert_ne(){ [[ "$1" != "$2" ]]; }
@@ -73,15 +73,15 @@ assert_ok "its turn runs" wait_until 20 turn_ended "$SA" 1
 UA="$(cat "$(headless_lane_dir "$SA")/session")"
 EA="$(turn_env ia)"; RA="$(runner_env "$SA")"
 assert_ok "the turn recorded its environment" test -n "$EA"
-assert_ok "the turn has its own HARNESS_SESSION (-e)" env_has "$EA" "HARNESS_SESSION=$UA"
-assert_ok "…its HARNESS_PREFIX (-e)" env_has "$EA" "HARNESS_PREFIX=fleeta"
-assert_ok "…its HARNESS_REPO (-e)" env_has "$EA" "HARNESS_REPO=acme/a"
-assert_ok "…its RTDD_EVENT_LOG (-e)" env_has "$EA" "RTDD_EVENT_LOG=$A_RTDD"
-assert_ok "…and the STATE_DIR of the client that started it" env_has "$EA" "STATE_DIR=$A_STATE"
+assert_ok "the turn has its own HARNESS_SESSION (-e)" env_has EA "HARNESS_SESSION=$UA"
+assert_ok "…its HARNESS_PREFIX (-e)" env_has EA "HARNESS_PREFIX=fleeta"
+assert_ok "…its HARNESS_REPO (-e)" env_has EA "HARNESS_REPO=acme/a"
+assert_ok "…its RTDD_EVENT_LOG (-e)" env_has EA "RTDD_EVENT_LOG=$A_RTDD"
+assert_ok "…and the STATE_DIR of the client that started it" env_has EA "STATE_DIR=$A_STATE"
 if have_proc; then
-  assert_ok "the runner's environ has HARNESS_SESSION" env_has "$RA" "HARNESS_SESSION=$UA"
-  assert_ok "…its RTDD_EVENT_LOG" env_has "$RA" "RTDD_EVENT_LOG=$A_RTDD"
-  assert_ok "…its STATE_DIR" env_has "$RA" "STATE_DIR=$A_STATE"
+  assert_ok "the runner's environ has HARNESS_SESSION" env_has RA "HARNESS_SESSION=$UA"
+  assert_ok "…its RTDD_EVENT_LOG" env_has RA "RTDD_EVENT_LOG=$A_RTDD"
+  assert_ok "…its STATE_DIR" env_has RA "STATE_DIR=$A_STATE"
 else echo "  n/a: no /proc: the runner's environ is not read (the turn's recorded environment stands in)"; fi
 
 echo "== a lane launched later from fleet B's env, while A's runner is still up, sees none of A's =="
@@ -106,16 +106,16 @@ for k in "${LEAK_KEYS[@]}"; do
   [[ $k == HARNESS_REPO ]] && continue   # B has its own (below)
   assert_eq "$(env_key "$EB" "$k")" 0 "…and no $k at all"
 done
-assert_ok "…its own HARNESS_SESSION is there" env_has "$EB" "HARNESS_SESSION=$UB"
-assert_ok "…its own HARNESS_PREFIX" env_has "$EB" "HARNESS_PREFIX=fleetb"
-assert_ok "…its own HARNESS_REPO, not A's" env_has "$EB" "HARNESS_REPO=acme/b"
-assert_ok "…its own RTDD_EVENT_LOG, not A's" env_has "$EB" "RTDD_EVENT_LOG=$RUN_DIR/fleetB-rtdd-events.jsonl"
+assert_ok "…its own HARNESS_SESSION is there" env_has EB "HARNESS_SESSION=$UB"
+assert_ok "…its own HARNESS_PREFIX" env_has EB "HARNESS_PREFIX=fleetb"
+assert_ok "…its own HARNESS_REPO, not A's" env_has EB "HARNESS_REPO=acme/b"
+assert_ok "…its own RTDD_EVENT_LOG, not A's" env_has EB "RTDD_EVENT_LOG=$RUN_DIR/fleetB-rtdd-events.jsonl"
 if have_proc; then
   assert_eq "$(env_leak "$RB")" "" "the runner's environ holds no value of fleet A's"
   assert_eq "$(env_key "$RB" STATE_DIR)" 0 "…no STATE_DIR"
   assert_eq "$(env_key "$RB" HARNESS_CHECKOUT)" 0 "…no HARNESS_CHECKOUT"
-  assert_ok "…its own HARNESS_SESSION" env_has "$RB" "HARNESS_SESSION=$UB"
-  assert_ok "…its own HARNESS_REPO" env_has "$RB" "HARNESS_REPO=acme/b"
+  assert_ok "…its own HARNESS_SESSION" env_has RB "HARNESS_SESSION=$UB"
+  assert_ok "…its own HARNESS_REPO" env_has RB "HARNESS_REPO=acme/b"
 fi
 
 echo "== fleet A's lane is untouched by B's launch =="
