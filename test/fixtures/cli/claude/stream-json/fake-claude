@@ -27,7 +27,9 @@ with open(os.path.join(d, "calls.jsonl"), "a") as f:
 n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
 hook = os.path.join(d, "turn-hook")
 if os.access(hook, os.X_OK):
-    subprocess.run([hook], input=prompt, text=True)
+    # A shebang script is not something CreateProcess can run (WinError 193): on Windows the hook goes through bash (#493).
+    import shutil
+    subprocess.run([shutil.which("bash") or "bash", hook] if os.name == "nt" else [hook], input=prompt, text=True)
 plan = [l.strip() for l in open(os.path.join(d, "plan")) if l.strip()]
 name, _, reply = (plan[n - 1] if n <= len(plan) else "normal").partition(" ")
 
