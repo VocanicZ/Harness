@@ -77,6 +77,7 @@ _cli_default_transcripts(){ :; }
 _cli_default_usage(){ :; }
 _cli_default_limit_usage(){ return 1; }
 _cli_default_usage_setup(){ :; }
+_cli_default_lean_setup(){ :; }
 _cli_default_turn_secs(){ :; }
 _cli_default_interrupted_re(){ :; }
 # Elapsed-time shapes ("1h 2m 3s", "4m 5s") in the footer: a background job's running timer.
@@ -138,6 +139,7 @@ cli_trust(){ _cli_call trust "$@"; }                   # <dir> → pre-accept th
 cli_trusted(){ _cli_call trusted "$@"; }               # <dir> → 0 iff pre-accepted
 cli_bypass(){ _cli_call bypass "$@"; }                 # <dir> → main session AND sub-agents skip approvals
 cli_bypassed(){ _cli_call bypassed "$@"; }             # <dir> → 0 iff that holds
+cli_lean_setup(){ _cli_call lean_setup "$@"; }         # <wd> → put the prompts' skills where a lean lane (#595) finds them
 cli_skill(){ _cli_call skill "$@"; }                   # <name> → how a prompt invokes a skill
 cli_subagent(){ _cli_call subagent "$@"; }             # <wd> <dir> <brief file> → how a prompt starts a fresh-context sub-agent in <dir> (#314)
 cli_user_skills_dir(){ _cli_call user_skills_dir; }    # where the CLI reads the operator's user skills (every adapter names it, #439)

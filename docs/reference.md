@@ -222,6 +222,8 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_AGY_BIN` | `agy` | Executable path for `agy` when `HARNESS_CLI=agy`; a command line like `HARNESS_CLAUDE_BIN`'s |
 | `HARNESS_AGY_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `agy` CLI on launch |
 | `HARNESS_CLAUDE_FLAGS` | `--dangerously-skip-permissions --effort high` | Flags passed to `claude` on launch; a lane's own model and effort (`.harness-lane`), else its role's (`HARNESS_MODEL_*` / `HARNESS_EFFORT_*`), replace the ones they carry |
+| `HARNESS_CLAUDE_LEAN` | `1` | `0` launches `claude` lanes with the operator's full user-scope config (skills, plugins, MCP servers, hooks). By default a lane starts lean: `--setting-sources project,local`, the engine's skills linked into its worktree, the `ralph-loop` plugin via `--plugin-dir` (#595; `docs/cli-capabilities.md` § Lean lane) |
+| `HARNESS_CLAUDE_CONFIG_DIRS` | _(unset)_ | Extra Claude Code config dirs, `:`-separated, searched for transcripts and for the installed `ralph-loop` plugin a lean lane loads (after `CLAUDE_CONFIG_DIR`, before `~/.claude`) |
 | `HARNESS_AGY_HOME` | `~/.gemini/antigravity-cli` | agy's state dir: its `settings.json` (workspace trust), conversations and session map |
 | `HARNESS_AGY_USAGE_TTL` | `120` | Seconds one `agy -p /usage` answer is reused by every worker |
 | `HARNESS_AGY_USER_SKILLS` | `~/.gemini/config/skills` | Where agy loads user skills from: `harness setup --install` and `install.sh` put the lane prompts' skills there |

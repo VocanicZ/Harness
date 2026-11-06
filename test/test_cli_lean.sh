@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# test_cli_lean.sh — #595 (PRD #587): fleet lanes start lean — without the operator's user-scope skills,
+# plugins, MCP servers and hooks — and every skill a lane prompt names still resolves in one.
+# Facts (measured, 12 local `claude -p` runs): docs/cli-capabilities.md § Lean lane.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/../scripts/lib.sh"
+source "$HERE/helpers.sh"
+make_env
+cli_load claude || exit 1
+unset CLAUDE_FLAGS HARNESS_CLAUDE_LEAN HARNESS_CLAUDE_CONFIG_DIRS
+HARNESS_BOOTSTRAP_PROMPT="Read .harness-task.md"
+UUID=11111111-2222-3333-4444-555555555555
+has(){ grep -qF -- "$1" <<<"$2"; }
+
+# A user-scope config dir that has the ralph-loop plugin installed, and a HOME with nothing in it.
+export HOME="$RUN_DIR/home"; mkdir -p "$HOME"
+CFG="$RUN_DIR/cfg"; RL="$CFG/plugins/cache/mk/ralph-loop/1.0.1"; mkdir -p "$RL/hooks" "$CFG/plugins"
+cat > "$CFG/plugins/installed_plugins.json" <<E
+{"version": 2, "plugins": {"ralph-loop@mk": [
+  {"scope": "project", "projectPath": "/x", "installPath": "$RUN_DIR/gone"},
+  {"scope": "user", "installPath": "$RL"}]}}
+E
+export CLAUDE_CONFIG_DIR="$CFG"
+WD="$RUN_DIR/wd"; git init -q "$WD"; printf 'GOAL: x\n' > "$WD/.harness-task.md"
+HARNESS_AUTONOMOUS=true
+
+# --- the launch flags -----------------------------------------------------------------------------
+line="$(cli_launch "$WD" "$UUID" sonnet high)"
+assert_ok "only the project and local setting sources" has ' --setting-sources project,local ' "$line"
+assert_ok "no user MCP servers" has ' --strict-mcp-config ' "$line"
+assert_ok "the goal loop's Stop hook (ralph-loop) is loaded from where it is installed" has " --plugin-dir=$RL " "$line"
+assert_ok "tools no lane used are off, AskUserQuestion with them (no human answers)" \
+  has ' --disallowedTools=Workflow,ScheduleWakeup,ReportFindings,ListAgents,AskUserQuestion ' "$line"
+assert_no "the Skill tool stays: --disable-slash-commands would remove it" has 'disable-slash-commands' "$line"
+assert_no "no custom --tools set: it misses the shared prompt cache" has ' --tools' "$line"
+assert_ok "the list flags use the = form, so the positional prompt is not swallowed" \
+  grep -qE -- ' --plugin-dir=[^ ]+ --disallowedTools=[^ ]+ "Read \.harness-task\.md"$' <<<"$line"
+assert_ok "the lane's own model and effort are still on the line" has '--model sonnet --effort high' "$line"
+assert_eq "$(HARNESS_AUTONOMOUS=false cli_launch "$WD" "$UUID" "" "" | grep -c AskUserQuestion)" 0 \
+  "a fleet with a human keeps AskUserQuestion"
+
+argv="$(cli_headless "$WD" "$UUID" sonnet high)"
+assert_ok "a headless lane runs the same lean flags" \
+  has "--flags=--dangerously-skip-permissions --model sonnet --effort high --setting-sources project,local --strict-mcp-config --plugin-dir=$RL --disallowedTools=" "$argv"
+
+# --- when a lane launches with the full config instead -----------------------------------------------
+assert_no "HARNESS_CLAUDE_LEAN=0 turns it off" has ' --setting-sources' "$(HARNESS_CLAUDE_LEAN=0 cli_launch "$WD" "$UUID" "" "")"
+assert_eq "$(CLAUDE_FLAGS='--dangerously-skip-permissions --setting-sources user' cli_launch "$WD" "$UUID" "" "" | grep -o -- '--setting-sources [a-z,]*')" \
+  "--setting-sources user" "an operator's own --setting-sources is not doubled"
+assert_no "no ralph-loop plugin to find: the full config (which has its hook) is the safe launch" \
+  has ' --setting-sources' "$(CLAUDE_CONFIG_DIR="$RUN_DIR/empty" cli_launch "$WD" "$UUID" "" "")"
+assert_ok "…a plugin dir found under HARNESS_CLAUDE_CONFIG_DIRS counts" \
+  has " --plugin-dir=$RL " "$(CLAUDE_CONFIG_DIR="$RUN_DIR/empty" HARNESS_CLAUDE_CONFIG_DIRS="x:$CFG" cli_launch "$WD" "$UUID" "" "")"
+assert_ok "…and one under \$HOME/.claude" has " --plugin-dir=$RL " \
+  "$(mkdir -p "$HOME/.claude" && cp -r "$CFG/plugins" "$HOME/.claude/" && CLAUDE_CONFIG_DIR="$RUN_DIR/empty" cli_launch "$WD" "$UUID" "" "" | sed "s#$HOME/.claude#$CFG#")"
+SP="$RUN_DIR/with space/cfg"; mkdir -p "$SP/plugins/r"
+echo "{\"plugins\": {\"ralph-loop@mk\": [{\"scope\": \"user\", \"installPath\": \"$SP/plugins/r\"}]}}" > "$SP/plugins/installed_plugins.json"
+assert_no "a plugin path with a space cannot ride a launch line: the full config" has ' --setting-sources' \
+  "$(CLAUDE_CONFIG_DIR="$SP" HOME="$RUN_DIR/nohome" cli_launch "$WD" "$UUID" "" "")"
+
+# --- the skills a lean lane finds in its worktree ----------------------------------------------------
+USK="$RUN_DIR/user-skills"; export HARNESS_USER_SKILLS="$USK"; mkdir -p "$USK/rtdd"; echo rtdd > "$USK/rtdd/SKILL.md"
+wanted="$(cli_prompt_skills)"
+assert_ok "the prompts name skills" test -n "$wanted"
+cli_lean_setup "$WD"
+for n in $wanted; do
+  assert_ok "skill $n resolves in the worktree's .claude/skills" test -f "$WD/.claude/skills/$n/SKILL.md"
+done
+assert_eq "$(readlink "$WD/.claude/skills/caveman" | sed 's#.*/skill/#skill/#')" "skill/caveman" "an engine skill is a link into the engine's skill/"
+assert_eq "$(readlink "$WD/.claude/skills/rtdd")" "$USK/rtdd" "rtdd's own skill is linked from the user skills dir"
+assert_eq "$(git -C "$WD" status --porcelain | grep -v harness-task)" "" "git add -A would commit none of them (excluded)"
+cli_lean_setup "$WD"
+assert_eq "$(ls "$WD/.claude/skills" | wc -l)" "$(wc -l <<<"$wanted")" "setting up again changes nothing"
+
+WP="$RUN_DIR/wp"; git init -q "$WP"; mkdir -p "$WP/.claude/skills/caveman"; echo mine > "$WP/.claude/skills/caveman/SKILL.md"
+cli_lean_setup "$WP"
+assert_eq "$(cat "$WP/.claude/skills/caveman/SKILL.md")" mine "a skill the project ships itself is left alone"
+
+WF="$RUN_DIR/wf"; git init -q "$WF"; HARNESS_CLAUDE_LEAN=0 cli_lean_setup "$WF"
+assert_no "nothing is linked for a lane that launches with the full config" test -e "$WF/.claude/skills"
+
+# --- every skill a prompt names is supplied by the engine ----------------------------------------------
+# The engine supplies skill/<name>, or the skill is rtdd's own (`rtdd skill install`, linked from the user
+# skills dir above). A prompt naming any other skill leaves a lean lane without it.
+for n in $wanted; do
+  [[ $n == rtdd ]] && continue
+  assert_ok "prompt skill $n is shipped as skill/$n" test -f "$HERE/../skill/$n/SKILL.md"
+done
+assert_ok "this check sees a skill the engine lacks" bash -c '! test -f "$1/../skill/no-such-skill/SKILL.md"' _ "$HERE"
+
+# --- the other backends: listed with the reason in the docs ----------------------------------------------
+DOC="$HERE/../docs/cli-capabilities.md"
+sect="$(awk '/^## Lean lane/{on=1;next} /^## /{on=0} on' "$DOC")"
+assert_ok "docs/cli-capabilities.md has a Lean lane section" test -n "$sect"
+for c in $(cli_list); do
+  [[ $c == claude ]] && continue
+  assert_ok "$c: listed in the Lean lane section with a reason" grep -qE "^\| \`$c\` \| [^|]{20,}" <<<"$sect"
+  assert_no "$c: its launch line carries no claude lean flag" has '--setting-sources' "$(cli_with "$c" cli_launch "$WD" "$UUID" "" "" 2>/dev/null)"
+done
+finish

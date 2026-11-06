@@ -253,6 +253,9 @@ ensure_trusted(){
 ensure_bypass(){
   [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
   cli_bypass "$1"; }
+# ensure_lean <dir> — #595: a lean lane (cli_lean_setup; claude) finds the skills the prompts name in the
+# worktree, not in the operator's user config it no longer reads.
+ensure_lean(){ cli_lean_setup "$1"; return 0; }
 is_paused(){ [[ -f "$PAUSE_FLAG" ]]; }
 
 _with_owner(){ case "$1" in */*) echo "$1";; *) [[ -n "$HARNESS_OWNER" ]] && echo "$HARNESS_OWNER/$1" || echo "$1";; esac; }
@@ -1693,6 +1696,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   echo "${GOAL:-?}" > "$RUN_DIR/$sess.goal"
   echo "$wd" > "$RUN_DIR/$sess.wd"   # record worktree so reap_finished_inject can find the ralph state file
   ensure_trusted "$wd"   # #67: pre-accept the workspace-trust dialog so a fresh tree doesn't stall here
+  ensure_lean "$wd"      # #595: the lane's skills, linked in from the engine
   ensure_bypass  "$wd"   # default sub-agents to bypassPermissions: the flag only covers the main session
   ensure_usage_statusline "$wd"   # #194: the session's status line reports its usage windows
   model="$(lane_model_effort "$sess" "$wd")"; effort="${model#*$'\t'}"; model="${model%%$'\t'*}"
@@ -1714,7 +1718,7 @@ launch_claude(){ launch_agent "$@"; }
 # (the runner's first turn begins at once); the .goal / .wd still land after the lane is live, as on
 # tmux (gc_orphan_goals). Sets launch_agent's model / effort / line for its launch event.
 _launch_headless(){ local sess="$1" wd="$2" uuid="$3" resume="${4:-}" argv
-  ensure_trusted "$wd"; ensure_bypass "$wd"; ensure_usage_statusline "$wd"
+  ensure_trusted "$wd"; ensure_lean "$wd"; ensure_bypass "$wd"; ensure_usage_statusline "$wd"
   model="$(lane_model_effort "$sess" "$wd")"; effort="${model#*$'\t'}"; model="${model%%$'\t'*}"
   argv="$(cli_headless "$wd" "$uuid" "$model" "$effort" $resume)" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
   local -a cmd; mapfile -t cmd <<<"$argv"

@@ -27,7 +27,8 @@ PROMISE="X DONE"; MAXITER=3; GOAL="BUG 213"
 echo "=== claude launch ==="
 : > "$SENT_KEYS"
 # Role keys empty (#375): the line is CLAUDE_FLAGS alone, with no role --model/--effort added.
-( export HARNESS_CLI=claude CLAUDE_BIN=mock-claude CLAUDE_FLAGS="--fa --fb" HARNESS_MODEL_MANAGER= HARNESS_EFFORT_MANAGER=
+# HARNESS_CLAUDE_LEAN=0 (#595): the exact line is under test here; the lean flags are test_cli_lean.sh's.
+( export HARNESS_CLI=claude CLAUDE_BIN=mock-claude CLAUDE_FLAGS="--fa --fb" HARNESS_MODEL_MANAGER= HARNESS_EFFORT_MANAGER= HARNESS_CLAUDE_LEAN=0
   launch_agent "sess-claude" "$WD" )
 line="$(cat "$SENT_KEYS")"
 assert_no "claude launch line carries no task text" grep -F -q UNIQUE_MARKER_123 <<<"$line"
