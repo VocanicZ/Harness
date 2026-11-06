@@ -5,7 +5,7 @@ gives identical bytes; missing optional data (null splits, no SonarQube, an ungr
 arms) renders as n/a or "skipped: <reason>", never an error; SonarQube columns appear only when present;
 the README is rewritten only between its markers; --check flags stale files; the committed README and
 figure are current with the committed results."""
-import json, os, shutil, subprocess, sys, tempfile
+import json, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -181,6 +181,39 @@ try:
     check("latest run is shown", "$2.00" in slurp(readme5, "r") and "results/2026-11-02/" in slurp(readme5, "r"))
     run(d5, "--run-id", "2026-11-01")
     check("--run-id selects an older run", "$1.00" in slurp(readme5, "r") and "$2.00" not in slurp(readme5, "r"))
+
+    # --- #583: bars are wall_s long; time outside sessions is its own segment ----------------
+    d6 = os.path.join(tmp, "geom"); os.makedirs(d6)
+    put(d6, "results", "r1", "plain.json", data=doc("plain", wall_s=600, coding_s=300.0, testing_s=100.0))
+    put(d6, "results", "r1", "harness.json", data=doc("harness", wall_s=6000, coding_s=1000.0, testing_s=500.0))
+    put(d6, "results", "r1", "hx.json", data=doc("hx", wall_s=3000, coding_s=None, testing_s=None))
+    readme6 = readme_with_markers(d6)
+    run(d6)
+    sv6 = slurp(os.path.join(d6, "results", "benchmark.svg"), "r")
+    rows = {}
+    for x, y, wd, fill in re.findall(r'<rect x="([\d.]+)" y="(\d+)" width="([\d.]+)" height="18" fill="(#\w+)"/>', sv6):
+        rows.setdefault(int(y), []).append((float(x), float(wd), fill))
+    # time bars start at x=170 (the cost bars are in the other panel); rows are 34px apart from y=66
+    bars = {i: [r for r in rows.get(66 + 34 * i, []) if r[0] < 420] for i in range(3)}
+    width = {i: round(sum(r[1] for r in b), 1) for i, b in bars.items()}
+    check("bar length is proportional to wall_s (600 : 6000 : 3000)",
+          width[1] == 250 and abs(width[0] - 25) <= 0.2 and abs(width[2] - 125) <= 0.2, str(width))
+    check("segments tile the bar: coding, testing, outside sessions",
+          [r[2] for r in bars[1]] == ["#4c78a8", "#f58518", "#b8a2d6"]
+          and all(abs(a[0] + a[1] - b[0]) <= 0.11 for a, b in zip(bars[1], bars[1][1:])), str(bars[1]))
+    check("outside-sessions segment is wall_s - coding_s - testing_s",
+          abs(bars[1][2][1] - 4500 / 6000 * 250) <= 0.2 and abs(bars[0][2][1] - 200 / 6000 * 250) <= 0.2, str(bars))
+    check("an arm without a split is one unsplit wall bar", [r[2] for r in bars[2]] == ["#9aa0a6"], str(bars[2]))
+    check("the legend names the outside-sessions segment", "outside sessions" in sv6 and "#b8a2d6" in sv6)
+    t6 = slurp(readme6, "r")
+    check("README says what Coding/Testing measure and what the rest of Wall time is",
+          "Coding and Testing count time inside agent sessions" in t6 and "rest of Wall time is time outside them" in t6, t6)
+    # a split that overruns wall_s (not a measured outcome) still tiles the bar, with no negative segment
+    put(d6, "results", "r2", "plain.json", data=doc("plain", wall_s=100, coding_s=90.0, testing_s=60.0))
+    run(d6, "--run-id", "r2")
+    sv7 = slurp(os.path.join(d6, "results", "benchmark.svg"), "r")
+    check("an overrunning split clamps the outside segment at 0 (no outside rect)",
+          'height="18" fill="#b8a2d6"' not in sv7, sv7)
 
     # --- the committed README and figure are current with the committed results -------------
     r = subprocess.run([sys.executable, "-I", FIG, "--check"], capture_output=True, text=True)

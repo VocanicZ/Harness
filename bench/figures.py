@@ -220,7 +220,23 @@ def table(arms, skipped):
 
 # --- figure ----------------------------------------------------------------------------
 C_CODING, C_TESTING, C_WALL, C_COST = "#4c78a8", "#f58518", "#9aa0a6", "#54a24b"
+C_OUTSIDE = "#b8a2d6"       # wall time outside any agent session: orchestration, waiting (#583)
 FONT = "DejaVu Sans, Verdana, Arial, sans-serif"
+
+
+def time_segments(d):
+    """(coding, testing, outside, total) seconds for one arm's time bar, or None when it has no time at all.
+
+    The bar is `wall_s` long (#583): coding and testing are time inside agent sessions, `outside` is the
+    rest of the wall time (`wall_s - coding_s - testing_s`, clamped at 0). Without a coding/testing split
+    the bar is one unsplit segment: coding = testing = None. A split that overruns `wall_s` (it cannot, in
+    a measured run) makes the bar as long as the split, so the segments always sum to the bar."""
+    c, t, w = num(d.get("coding_s")), num(d.get("testing_s")), num(d.get("wall_s"))
+    if c is None and t is None:
+        return None if w is None else (None, None, None, w)
+    inside = (c or 0) + (t or 0)
+    total = inside if w is None else max(w, inside)
+    return (c or 0, t or 0, max(total - inside, 0), total)
 
 
 def figure(arms):
@@ -232,12 +248,8 @@ def figure(arms):
     width = label_w + panel_w + gap + panel_w + 70
     height = top + row_h * len(names) + 24
     x_time, x_cost = label_w, label_w + panel_w + gap
-    t_vals = []
-    for n in names:
-        d = arms[n]
-        c, t = num(d.get("coding_s")), num(d.get("testing_s"))
-        t_vals.append((c, t, num(d.get("wall_s"))))
-    t_max = max([(c or 0) + (t or 0) if (c is not None or t is not None) else (w or 0) for c, t, w in t_vals] + [1])
+    t_vals = [time_segments(arms[n]) for n in names]
+    t_max = max([v[3] for v in t_vals if v] + [1])
     c_max = max([num(arms[n].get("cost_usd")) or 0 for n in names] + [0.01])
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
            f'font-family="{FONT}" font-size="12">',
@@ -245,8 +257,8 @@ def figure(arms):
            f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
            f'<text x="{x_time}" y="22" font-size="13" font-weight="bold" fill="#222222">Wall time</text>',
            f'<text x="{x_cost}" y="22" font-size="13" font-weight="bold" fill="#222222">List-price cost</text>']
-    for i, (color, text) in enumerate(((C_CODING, "coding"), (C_TESTING, "testing"), (C_WALL, "not split"))):
-        lx = x_time + i * 84
+    for lx, color, text in ((x_time, C_CODING, "coding"), (x_time + 62, C_TESTING, "testing"),
+                            (x_time + 130, C_OUTSIDE, "outside sessions"), (x_time + 250, C_WALL, "not split")):
         out.append(f'<rect x="{lx}" y="32" width="10" height="10" fill="{color}"/>'
                    f'<text x="{lx + 14}" y="41" fill="#444444">{text}</text>')
     out.append(f'<rect x="{x_cost}" y="32" width="10" height="10" fill="{C_COST}"/>'
@@ -256,17 +268,22 @@ def figure(arms):
         y = top + i * row_h
         out.append(f'<text x="{label_w - 10}" y="{y + 17}" text-anchor="end" fill="#222222">'
                    f'{html.escape(title(n), quote=True)}</text>')
-        c, t, w = t_vals[i]
-        if c is not None or t is not None:
-            cw = round((c or 0) / t_max * panel_w, 1)
-            tw = round((t or 0) / t_max * panel_w, 1)
-            out.append(f'<rect x="{x_time}" y="{y + 4}" width="{cw}" height="18" fill="{C_CODING}"/>'
-                       f'<rect x="{round(x_time + cw, 1)}" y="{y + 4}" width="{tw}" height="18" fill="{C_TESTING}"/>')
-            end = x_time + cw + tw
-        else:
-            ww = round((w or 0) / t_max * panel_w, 1)
-            out.append(f'<rect x="{x_time}" y="{y + 4}" width="{ww}" height="18" fill="{C_WALL}"/>')
-            end = x_time + ww
+        seg = t_vals[i]
+        end = x_time
+        if seg is not None:
+            c, t, o, total = seg
+            if c is None:
+                parts = [(total, C_WALL)]
+            else:
+                parts = [(c, C_CODING), (t, C_TESTING), (o, C_OUTSIDE)]
+            done = 0.0
+            for secs, color in parts:      # cumulative rounding: the segments tile the bar exactly
+                x0 = round(x_time + done / t_max * panel_w, 1)
+                done += secs
+                x1 = round(x_time + done / t_max * panel_w, 1)
+                if x1 > x0:
+                    out.append(f'<rect x="{x0}" y="{y + 4}" width="{round(x1 - x0, 1)}" height="18" fill="{color}"/>')
+                end = x1
         out.append(f'<text x="{round(end + 6, 1)}" y="{y + 17}" fill="#222222">{dur(d.get("wall_s"))}</text>')
         cost = num(d.get("cost_usd"))
         if cost is None:
@@ -290,6 +307,10 @@ def undeleted(arms):
             f"{names}. `gh repo delete` failed (usually the gh token lacks the `delete_repo` scope: `gh auth refresh -s delete_repo`); delete them by hand.")
 
 
+TIME_NOTE = ("Coding and Testing count time inside agent sessions; the rest of Wall time is time outside them "
+             "(orchestration, waiting), drawn as its own segment in the figure.")
+
+
 def section(run_id, arms, skipped, fig_ref):
     if not arms:
         return ("No benchmark results are committed yet. The table and figure appear here once a run is "
@@ -300,6 +321,7 @@ def section(run_id, arms, skipped, fig_ref):
     if fig_ref:
         parts.append(f"![Benchmark: wall time and list-price cost per arm]({fig_ref})")
     parts.append(table(arms, skipped))
+    parts.append(TIME_NOTE)
     if undeleted(arms):
         parts.append(undeleted(arms))
     return "\n\n".join(parts)
