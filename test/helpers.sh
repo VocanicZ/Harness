@@ -58,8 +58,10 @@ windows_skip_file(){ if windows_skip "$@"; then finish; exit 0; fi; return 0; }
 tmux_needing_tests(){ local dir="${1:-$(dirname "${BASH_SOURCE[0]}")}" f
   local cp='(^|[;&|({]|[[:space:]](then|do|if)|![[:space:]])[[:space:]]*((if|then|do|while|until)[[:space:]]+)?(![[:space:]]+)?'
   local re="${cp}(command -v tmux[[:space:]]*(>|\|\||&&|\)|;|\$)|(env( -u [A-Za-z_]+)* )?(command )?tmux( -[LS] [^[:space:]]+)* (new-session|new)([[:space:]]|\$))"
+  local code   # held in a variable, not piped: `grep -q` quits at its first hit and the upstream grep would die of SIGPIPE under pipefail
   for f in "$dir"/test_*.sh; do [[ -f $f ]] || continue
-    grep -vE '^[[:space:]]*#' "$f" | grep -qE "$re" && basename "$f"; done; return 0; }
+    code="$(grep -vE '^[[:space:]]*#' "$f")"
+    grep -qE "$re" <<<"$code" && basename "$f"; done; return 0; }
 
 # default_signals_prefix — set DEFSIG, a command prefix that starts what follows with SIGINT, SIGHUP and
 # SIGQUIT back at their default disposition (#553), and SIGPIPE and SIGXFSZ too (#574: an ignored SIGPIPE turns a
