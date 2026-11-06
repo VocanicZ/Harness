@@ -244,6 +244,15 @@ with `PYTHONUTF8=1` (what the engine's python3 shim sets, #406) and `HARNESS_TES
 (`FAILED: <file>` lines) and `SUITE-RESULT <n> failed`; the failures Linux does not also have at the same commit are the Windows ones.
 It exits 0 once run.sh has completed (`HX_STRICT=1` passes run.sh's status through), so the guard, the credential scan and the cleanup
 of `winsma.sh run` still decide the run.
+After run.sh it ends every process left under the run folder that is not the script's own or an ancestor of it (`reap.ps1`): tests leak
+watchers that hold the ssh session's stdout open, and without this the run never returns to the claude host.
+
+Result of the first complete runs (#492): `test/smoke/logs/suite-windows-20261106T061737Z.log` (109 of 168 files red, and the guard failed:
+tests had registered five real `Harness\harness-*` Task Scheduler tasks, which led to the `schtasks` and `winget` stubs in `run.sh`), and
+`test/smoke/logs/suite-windows-20261106T120731Z.log` (300 s per-file cap, `PYTHONUTF8=1`: **72 of 168 files pass, 96 red, guard clean,
+no credential written, winsma clean**). The failures Linux does not have are filed as #605 (mixed `C:/` and `/c/` path spellings),
+#606 (headless runner tests never reach the runner's first state), #607 (tests asserting POSIX-only mechanisms), #608 (install and
+update fixtures) and #609 (gh-stub, prompt and bench tests).
 
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run

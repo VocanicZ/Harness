@@ -95,7 +95,9 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `HARNESS_SCHTASKS` and `HARNESS_WINGET` at recording stubs: the first full run on winsma registered five real
   `Harness\harness-*` Task Scheduler tasks from tests and tripped the before/after guard.
 - `test/smoke/winsma/suite.sh` runs the whole suite on the Windows check host in the full-suite isolation (`HOME` and
-  `USERPROFILE` under `C:\hx-<issue>\home`), see `docs/windows-smoke.md`. The run's log is committed under `test/smoke/logs/`.
+  `USERPROFILE` under `C:\hx-<issue>\home`), see `docs/windows-smoke.md`. It ends the processes tests leak (they held the ssh
+  session open) and the logs are committed under `test/smoke/logs/`: the first complete run on winsma passes 72 of 168 test
+  files with the guard clean; the Windows-only failures are filed as #605 to #609.
 
 ### `harness start` replaces a fleet's old-engine workers instead of leaving them on the default cap (#566)
 
