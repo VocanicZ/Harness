@@ -374,12 +374,22 @@ lane_claim_key(){ case "$1" in
 # lane_claim_write <key> <wid> <token> <session> [<pane-pid>] — atomic, so a reader never sees half a claim.
 lane_claim_write(){ local f="$CLAIMS_DIR/$1.claim"
   printf '%s %s %s %s %s\n' "$2" "$$" "$3" "${4:--}" "${5:--}" > "$f.tmp" && mv -f "$f.tmp" "$f"; }
-# worker_claims <wid> — the claim files this worker holds (its own lanes, bugs included).
-worker_claims(){ local f w; shopt -s nullglob
+# worker_claims_of <wid> — every claim file written under this worker id, whichever process wrote it: for a
+# reader that is not the worker (status.sh). The worker itself uses worker_claims.
+worker_claims_of(){ local f w; shopt -s nullglob
   for f in "$CLAIMS_DIR"/impl-*.claim "$CLAIMS_DIR"/orch-*.claim "$CLAIMS_DIR"/bug-*.claim; do
     w="$(awk 'NF >= 3 {print $1; exit}' "$f" 2>/dev/null)"
     [[ "$w" == "$1" || "$w" == "pool-$1" ]] && echo "$f"
   done; shopt -u nullglob; }
+# worker_claims <wid> — the claim files THIS process holds (its own lanes, bugs included): the wid matches AND
+# the claim's worker pid (field 2) is $$ (#562). A worker id outlives its process — after `harness start` or a
+# fleet_roll the new process is worker-N again — so a predecessor's claim on disk carries the same wid but a
+# dead pid. It is not this worker's to tend or release: the chores' sweep and adoption (worker_chores) own it.
+worker_claims(){ local f p
+  while read -r f; do
+    p="$(awk '{print $2; exit}' "$f" 2>/dev/null)"
+    [[ "$p" == "$$" ]] && echo "$f"
+  done < <(worker_claims_of "$1"); }
 # session_lane_key <session> — the lane key of one of the fleet unit's sessions (empty for any other).
 session_lane_key(){ local k="${1#"$HARNESS_SESS_PREFIX-$(fleet_unit)-"}"
   case "$k" in i[0-9]*) echo "impl-${k#i}";; p[0-9]*) echo "orch-${k#p}";; esac; }

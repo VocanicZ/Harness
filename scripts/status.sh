@@ -103,7 +103,7 @@ render_once(){
   for ((i=1;i<=POOL;i++)); do
     local mark cf ctok csess cissue cstate cwd
     if pid_up "$RUN_DIR/worker-$i.pid"; then mark="● UP  "; else mark="○ DOWN"; fi
-    cf="$(worker_claims "$i" | head -n1)"
+    cf="$(worker_claims_of "$i" | head -n1)"
     if [[ -z "$cf" ]]; then printf '%s worker-%-2s idle\n' "$mark" "$i"; continue; fi
     ctok="$(awk '{print $3; exit}' "$cf" 2>/dev/null)"; csess="$(awk '{print $4; exit}' "$cf" 2>/dev/null)"
     cissue="${ctok##*[:#]}"; [[ "$cissue" =~ ^[0-9]+$ ]] && cissue="#$cissue" || cissue="${ctok%%:*}"

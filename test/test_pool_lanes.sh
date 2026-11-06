@@ -230,6 +230,29 @@ race orch-41; inctx reap_orch
 assert_no "the claim is gone" test -f "$CLAIMS_DIR/orch-41.claim"
 assert_eq "$(count_events reap)" "1" "orch: exactly one reap event"
 assert_eq "$(grep -c 'remove_worktree' "$CALLS")" "1" "... one worktree removal"
+
+echo "=== 3d. #562: a restarted worker reuses its id — it never tends or releases its dead predecessor's claims ==="
+# worker-N is worker-N again after `harness start` / a fleet_roll: the claim's wid matches, its pid does not.
+setup 3; snap "5:ready-for-agent,agent-working"
+mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"   # old W1: pid gone, session ended
+: > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
+assert_eq "$(worker_claims W1)" "" "worker_claims names no claim a dead pid wrote, though the wid matches"
+worker_tend W1; assert_eq "$?" "1" "the restarted W1 tends nothing"
+assert_ok "... the dead predecessor's claim is still on disk" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_no "... and its worktree is not reaped by W1" grep -q 'remove_worktree .*main-i5' "$CALLS"
+echo "-- the chores winner reaps the lane exactly once"
+setup 3; snap "5:ready-for-agent,agent-working"
+mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"
+: > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
+worker_tend W1; worker_chores W2; worker_tend W1; worker_tend W2
+assert_eq "$(grep -c 'remove_worktree .*main-i5' "$CALLS")" "1" "the worktree was reaped exactly once"
+assert_eq "$(grep -c '^unlock 5$' "$CALLS")" "1" "the issue was freed exactly once"
+assert_no "the claim is gone" test -f "$CLAIMS_DIR/impl-5.claim"
+echo "-- an adopted lane's fresh claim survives the restarted worker's tend"
+setup 3; snap "5:ready-for-agent,agent-working"
+live hz-main-i5; mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"
+worker_chores W2; worker_tend W1
+assert_eq "$(claim_wid impl-5)" "W2" "W2's adopted claim is still W2's after W1 tended"
 restore
 
 echo "=== 4. a killed worker: its lane is adopted, reaped once, never dispatched twice ==="
