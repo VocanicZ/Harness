@@ -8,6 +8,10 @@ ONE `claude` session in the fresh run repo (no CLAUDE.md), on the CLI login alre
 hooks or MCP servers load, and CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 so no auto-memory does. Model and effort
 are the account's out-of-the-box defaults (nothing is passed); the models that ran come from the transcript.
 
+ISOLATED CONFIG (#590). The session runs on a throwaway CLAUDE_CONFIG_DIR (bench/armlib.py), the same one the
+Harness arms start from, not the host user's: the login linked in, nothing else. Results `claude_config` records
+what the init listed.
+
 ISOLATION PROOF. Every turn's `system/init` event is written to `init.json` (the first) and checked: it must
 list 0 skills, 0 plugins and 0 MCP servers, else the session is killed before it does any work and the arm
 fails (`status: error`, no continue-reply recorded). Plugins that ship inside the claude binary
@@ -25,6 +29,9 @@ import importlib.util, json, os, shlex, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+_spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(os.path.dirname(HERE), "armlib.py"))
+armlib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(armlib)
 CONTINUE_REPLY = "keep going, decide for yourself"
 MAX_REPLIES = 20
 DELIVERY_NOTE = ("\n\n(This folder is a git clone of my private GitHub repo. Commit your work to the main "
@@ -34,8 +41,7 @@ FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--disable-slash-c
 SECRET_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
 
-class IsolationError(RuntimeError):
-    pass
+IsolationError = armlib.IsolationError
 
 
 def launch_argv(claude, session=None):
@@ -43,11 +49,14 @@ def launch_argv(claude, session=None):
     return shlex.split(claude) + FLAGS + (["--resume", session] if session else [])
 
 
-def child_env(base=None):
+def child_env(base=None, config_dir=None):
+    """The session's environment: no API key, no auto-memory, and (#590) the isolated config dir when given."""
     env = dict(os.environ if base is None else base)
     for k in SECRET_ENV:
         env.pop(k, None)
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+    if config_dir:
+        env["CLAUDE_CONFIG_DIR"] = config_dir
     return env
 
 
@@ -100,7 +109,7 @@ def is_done(clone, text):
     return not last[0].rstrip().endswith("?") and delivered(clone)
 
 
-def turn(ctx, claude, prompt, session, n, st, registered):
+def turn(ctx, claude, prompt, session, n, st, registered, config_dir=None):
     """One claude -p turn. Returns {"session", "result", "text"}; raises IsolationError on a bad init."""
     argv = launch_argv(claude, session)
     with open(os.path.join(ctx.logs, "launch.txt"), "a", encoding="utf-8") as fh:
@@ -108,7 +117,7 @@ def turn(ctx, claude, prompt, session, n, st, registered):
     out = {"session": session, "result": None, "text": ""}
     with open(os.path.join(ctx.logs, f"turn-{n:02d}.stream.jsonl"), "w", encoding="utf-8") as stream, \
             open(os.path.join(ctx.logs, f"turn-{n:02d}.stderr"), "w", encoding="utf-8") as err:
-        p = ctx.spawn(argv, cwd=ctx.clone, env=child_env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        p = ctx.spawn(argv, cwd=ctx.clone, env=child_env(config_dir=config_dir), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                       stderr=err, text=True)
         p.stdin.write(prompt)
         p.stdin.close()
@@ -124,14 +133,16 @@ def turn(ctx, claude, prompt, session, n, st, registered):
                 proof = os.path.join(ctx.logs, "init.json")
                 if not os.path.exists(proof):
                     with open(proof, "w", encoding="utf-8") as fh:
-                        json.dump({"isolation": counts, "init": ev}, fh, indent=2)
+                        json.dump({"isolation": counts, "view": armlib.init_view(ev), "init": ev}, fh, indent=2)
                         fh.write("\n")
+                ctx.extra.setdefault("claude_config", {"source": "isolated config dir, session init", "skills": counts["skills"],
+                                                       "plugins": counts["plugins"], "mcp_servers": counts["mcp_servers"]})
                 if bad:
                     p.terminate()
                     raise IsolationError("isolation check failed: the session's init lists " + ", ".join(bad))
                 out["session"] = ev.get("session_id") or out["session"]
             if out["session"] and not registered:
-                tr = st.find_transcript(out["session"])
+                tr = st.find_transcript(out["session"], [config_dir] + st.config_dirs() if config_dir else None)
                 if tr:
                     ctx.add_transcripts(tr)
                     registered.append(tr)
@@ -147,11 +158,15 @@ def run(ctx):
     with open(ctx.brief, encoding="utf-8") as fh:
         prompt = fh.read().rstrip("\n") + DELIVERY_NOTE
     session, registered, replies, n = None, [], 0, 0
+    # #590: the isolated config both arms run on (a Harness arm adds only what the engine installs)
+    cfg = armlib.isolated_config(os.path.join(os.path.dirname(os.path.abspath(ctx.clone)), "claude-config"))
+    ctx.log(f"isolated claude config {cfg['path']} (login: {cfg['login'] or 'none found; the environment must carry it'})")
+    ctx.extra["configured"] = {"model": None, "effort": None}   # the account's out-of-the-box model and effort
     ctx.count("continue_replies", 0)
     try:
         while True:
             n += 1
-            t = turn(ctx, claude, prompt, session, n, st, registered)
+            t = turn(ctx, claude, prompt, session, n, st, registered, cfg["path"])
             session = t["session"]
             if ctx.stop.is_set():
                 break

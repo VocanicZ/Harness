@@ -4,6 +4,23 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench arm parity: one isolated Claude config, a matched Opus arm, and the provenance of every run (#590)
+
+- In `run-20261106` the arms differed in more than "plain vs Harness": the Harness arm ran on the operator's own Claude
+  setup (186 skills, user plugins, 4 MCP servers and hooks), Harness lanes ran at effort `high` against plain's
+  `medium`, Harness implementers ran on Sonnet against plain's Opus, and neither the engine commit nor the `/harness`
+  skill version was recorded. Now both arms run on a throwaway `CLAUDE_CONFIG_DIR` (`bench/armlib.py`) that holds only
+  the login (symlinked) and, for the Harness arms, only what the engine itself installs: its own skills (`skill/`) and
+  the ralph-loop and superpowers plugins. The Harness front door's init is checked and the arm stops before doing any
+  work if it lists an MCP server or a plugin that is not the engine's; the plain arm's existing check is unchanged.
+- A matched arm, `bench/run.py harness-opus [--optional]`: Harness with the front door and every manager and
+  implementer lane on Opus at effort `medium`, the plain arm's. `harness` stays the headline arm at Harness's
+  out-of-the-box defaults. `harness-opus` is optional and records `skipped: <cause>` when the guard refuses.
+- Every arm's results JSON now records `effort` (messages per effort, from the transcripts, re-checked by
+  `bench/figures.py --check`), `configured` (the model and effort the arm asked for; null is the default),
+  `provenance` (`engine_commit`, `skill_version`, `cli_version`) and, for Harness arms, `isolation`. The README
+  Benchmark section prints a **Run settings** line per arm with them.
+
 ### Bench grading: a differential fuzz of every arm against the reference implementation (#589)
 
 - The 80 hidden tests cannot tell the arms apart (both scored 80 / 80, while a blind review found five bugs they never

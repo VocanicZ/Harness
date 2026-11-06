@@ -8,7 +8,7 @@ prefix, the host's HARNESS_*/STATE_DIR scrubbed, no API key) and is stopped only
 <its own>` — a decoy "host fleet" in another state dir survives, on done, on a cap and on an error; the
 scripted continue reply; a fleet that dies is restarted with --recover; results carry issues_closed,
 prs_merged and the models that ran (front door and lanes)."""
-import json, os, signal, subprocess, sys, time, types
+import json, os, re, signal, subprocess, sys, time, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.dont_write_bytecode = True
@@ -19,6 +19,7 @@ import test_bench_run as tb                                    # noqa: E402  (En
 spec = importlib.util.spec_from_file_location("harness_arm", os.path.join(tb.ROOT, "bench", "arms", "harness.py"))
 harness_arm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(harness_arm)
+armlib = harness_arm.armlib
 
 # gh: the runner's fake plus the two reads the arm makes of the board.
 FAKE_GH = tb.FAKE_GH.replace('  "api -X") :;;', '''  "issue list") if [[ " $* " == *" --label prd "* ]]; then cat "$H/prds.json" 2>/dev/null || echo '[]'; else cat "$H/closed.json" 2>/dev/null || echo '[]'; fi;;
@@ -28,7 +29,7 @@ FAKE_GH = tb.FAKE_GH.replace('  "api -X") :;;', '''  "issue list") if [[ " $* " 
 # The engine: init writes the config, start launches a detached resident worker with a pidfile, stop kills the
 # pids of the state dir it is given and nothing else. Every call is logged with the environment it saw.
 FAKE_HARNESS = r'''#!/usr/bin/env python3
-import json, os, signal, subprocess, sys, time, types
+import json, os, re, signal, subprocess, sys, time, types
 d = os.environ["FAKE_HARNESS_DIR"]
 argv = sys.argv[1:]
 state = None
@@ -72,6 +73,7 @@ elif cmd == "_worker":
     os.makedirs(os.path.join(cfg, "projects", "p"), exist_ok=True)
     with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "w") as t:
         t.write(json.dumps({"type": "assistant", "timestamp": "2026-11-04T10:00:00Z",
+                            "effort": os.environ.get("HARNESS_EFFORT_IMPLEMENTER", "high"),
                             "message": {"id": "lane%d" % n, "model": "claude-sonnet-5-5",
                                         "usage": {"input_tokens": 50, "output_tokens": 500}, "content": []}}) + "\n")
     os.makedirs(home, exist_ok=True)
@@ -92,21 +94,41 @@ FAKE_CLAUDE = r'''#!/usr/bin/env python3
 import json, os, subprocess, sys
 d = os.environ["FAKE_CLAUDE_DIR"]
 argv = sys.argv[1:]
+cfg = os.environ["CLAUDE_CONFIG_DIR"]
+if argv[:1] == ["--version"]:
+    print("9.9.9 (Claude Code)"); sys.exit(0)
+if argv[:1] == ["plugin"]:   # `claude plugin install <p>@<m> --scope user` into the config dir it is given
+    with open(os.path.join(d, "plugin_calls.jsonl"), "a") as f:
+        f.write(json.dumps({"argv": argv, "config": cfg}) + "\n")
+    if argv[1:2] == ["install"]:
+        reg = os.path.join(cfg, "plugins", "installed_plugins.json")
+        os.makedirs(os.path.dirname(reg), exist_ok=True)
+        cur = json.load(open(reg)) if os.path.exists(reg) else {"plugins": {}}
+        cur["plugins"][argv[2]] = [{"scope": "user"}]
+        json.dump(cur, open(reg, "w"))
+    sys.exit(0)
 prompt = sys.stdin.read()
-env = {k: v for k, v in os.environ.items() if k.startswith("HARNESS_") or k in ("STATE_DIR", "RUN_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+env = {k: v for k, v in os.environ.items() if k.startswith("HARNESS_") or k in ("STATE_DIR", "RUN_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CONFIG_DIR")}
 with open(os.path.join(d, "calls.jsonl"), "a") as f:
     f.write(json.dumps({"argv": argv, "prompt": prompt, "cwd": os.getcwd(), "env": env, "path0": os.environ["PATH"].split(os.pathsep)[0]}) + "\n")
 n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
 plan = [l.rstrip("\n") for l in open(os.path.join(d, "plan")) if l.strip()]
 action, _, text = (plan[n - 1] if n <= len(plan) else "none|still going").partition("|")
 sid = argv[argv.index("--resume") + 1] if "--resume" in argv else open(os.path.join(d, "sid")).read().strip()
-print(json.dumps({"type": "system", "subtype": "init", "session_id": sid, "model": "claude-opus-5-5", "skills": 7,
-                  "plugins": [{"name": "a", "path": "/p/a"}, {"name": "b", "path": "/p/b"}, {"name": "c", "path": "builtin"}],
-                  "mcp_servers": [{"name": "m1"}, {"name": "m2"}, {"name": "m3"}]}), flush=True)
-cfg = os.environ["CLAUDE_CONFIG_DIR"]
+# the init lists what the config dir holds, like the real CLI: skills (plus two the CLI bundles), installed plugins
+# (plus a built-in), and an MCP server only when $FAKE_MCP says the config leaked one
+sk = os.path.join(cfg, "skills")
+reg = os.path.join(cfg, "plugins", "installed_plugins.json")
+plugins = [{"name": k.split("@")[0], "path": "/p/" + k, "source": k} for k in sorted(json.load(open(reg))["plugins"])] if os.path.exists(reg) else []
+extra_skills = [x for x in os.environ.get("FAKE_HOST_SKILLS", "").split(",") if x]   # a host skill that leaked in
+print(json.dumps({"type": "system", "subtype": "init", "session_id": sid, "model": "claude-opus-5-5",
+                  "skills": ["init", "review"] + (sorted(os.listdir(sk)) if os.path.isdir(sk) else []) + extra_skills,
+                  "plugins": plugins + [{"name": "cc-plugin-telemetry", "path": "builtin", "source": "cc-plugin-telemetry@builtin"}],
+                  "mcp_servers": [{"name": x} for x in os.environ.get("FAKE_MCP", "").split(",") if x]}), flush=True)
 os.makedirs(os.path.join(cfg, "projects", "p"), exist_ok=True)
 with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "a") as t:
     t.write(json.dumps({"type": "assistant", "timestamp": "2026-11-04T10:00:0%dZ" % (n % 10),
+                        "effort": argv[argv.index("--effort") + 1] if "--effort" in argv else "medium",
                         "message": {"id": "front%d" % n, "model": "claude-opus-5-5",
                                     "usage": {"input_tokens": 100, "output_tokens": 1000}, "content": []}}) + "\n")
 if action.startswith("start"):   # start, start-error, start-restart
@@ -261,6 +283,154 @@ def test_the_run_fleet_is_isolated_from_the_hosts(a):
     assert a.decoy_alive() and os.path.exists(os.path.join(a.host_state, "run", "pool-1.pid")), "the host fleet is untouched"
 
 
+# --- the isolated Claude config, the matched arm and the provenance (#590) ----------------------------------
+def _host_config(a):
+    """A host user's config with a login, a skill, a plugin and an MCP server of its own: none may reach the run."""
+    cfg = a.e.env["CLAUDE_CONFIG_DIR"]
+    os.makedirs(os.path.join(cfg, "skills", "host-only-skill"))
+    os.makedirs(os.path.join(cfg, "plugins"))
+    with open(os.path.join(cfg, ".credentials.json"), "w") as fh:
+        fh.write('{"login": true}')
+    with open(os.path.join(cfg, "plugins", "installed_plugins.json"), "w") as fh:
+        json.dump({"plugins": {"host-plugin@elsewhere": [{}]}}, fh)
+    with open(os.path.join(cfg, ".claude.json"), "w") as fh:
+        json.dump({"mcpServers": {"host-mcp": {}}}, fh)
+    return cfg
+
+
+def _plugin_calls(a):
+    p = os.path.join(a.fd, "plugin_calls.jsonl")
+    return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+
+
+@with_arm(["start|The fleet is running."])
+def test_the_front_door_and_the_fleet_run_on_an_isolated_config_with_only_the_engines_skills_and_plugins(a):
+    host = _host_config(a)
+    p = a.run("harness")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = a.result()
+    assert tb.bench_run.validate(r) == [] and r["status"] == "ok", r
+    iso = {c["env"]["CLAUDE_CONFIG_DIR"] for c in a.front_calls()} | {c["config"] for c in _plugin_calls(a)}
+    assert len(iso) == 1 and iso != {host} and list(iso)[0].endswith("/claude-config"), (iso, host)
+    iso = iso.pop()
+    for c in a.front_calls():   # the user-skills dir the engine links into is the isolated one's too
+        assert c["env"]["HARNESS_USER_SKILLS"] == iso + "/skills", c["env"]
+    start = calls_of(a, "start")[0]["env"]
+    assert start["HARNESS_USER_SKILLS"] == iso + "/skills" and start["HARNESS_CLAUDE_CONFIG_DIRS"].split(os.pathsep)[0] == iso
+    # the host's skill / plugin / MCP server are not in what the front door loaded
+    logs = os.path.join(a.e.results, "t1", "harness.logs")
+    init = json.load(open(os.path.join(logs, "init.json")))
+    view = init["view"]
+    engine = sorted(armlib.engine_skills())
+    assert view["skills"] == ["init", "review"] + engine, view          # two the CLI bundles, then the engine's own
+    assert view["plugins"] == ["ralph-loop", "superpowers"] and view["mcp_servers"] == [], view
+    assert "host-only-skill" not in view["skills"] and "host-plugin" not in view["plugins"]
+    assert r["isolation"] == {"config": "isolated", "engine_skills": engine, "engine_plugins": ["ralph-loop", "superpowers"]}, r["isolation"]
+    # the plugins went in through claude itself, into the isolated dir, at user scope
+    installs = [c["argv"] for c in _plugin_calls(a) if c["argv"][1:2] == ["install"]]
+    assert installs == [["plugin", "install", "ralph-loop@claude-plugins-official", "--scope", "user"],
+                        ["plugin", "install", "superpowers@claude-plugins-official", "--scope", "user"]], installs
+    assert os.listdir(os.path.join(host, "skills")) == ["host-only-skill"], "the host's own config is untouched"
+
+
+@with_arm(["start|ok"], extra_env={"FAKE_MCP": "claude-artifacts"})
+def test_a_front_door_init_listing_an_mcp_server_stops_the_arm_before_any_work(a):
+    p = a.run("harness")
+    assert p.returncode == 1, (p.stdout, p.stderr)
+    r = a.result()
+    assert r["status"] == "error" and "isolation check failed" in r["error"] and "1 mcp servers" in r["error"], r["error"]
+    assert calls_of(a, "init") == [] and calls_of(a, "start") == [], "no fleet was set up"
+
+
+def test_the_isolated_config_links_only_the_login_and_installs_the_engines_skills():
+    import tempfile, shutil
+    d = tempfile.mkdtemp()
+    try:
+        host = os.path.join(d, "host"); os.makedirs(os.path.join(host, "skills", "mine"))
+        open(os.path.join(host, ".credentials.json"), "w").write("{}")
+        open(os.path.join(host, "settings.json"), "w").write('{"hooks": {}}')
+        cfg = armlib.isolated_config(os.path.join(d, "iso"), {"CLAUDE_CONFIG_DIR": host})
+        assert cfg["login"] == os.path.join(host, ".credentials.json")
+        assert sorted(os.listdir(cfg["path"])) == [".claude.json", ".credentials.json"], "the login and nothing else of the host's"
+        assert os.path.islink(os.path.join(cfg["path"], ".credentials.json"))
+        names = armlib.install_engine_skills(cfg["path"])
+        assert names == sorted(armlib.engine_skills()) and "harness" in names and "mine" not in names
+        assert os.path.isfile(os.path.join(cfg["path"], "skills", "harness", "SKILL.md")), "the /harness front door resolves"
+        assert os.path.isfile(os.path.join(cfg["path"], "skills", "harness-arc", "SKILL.md"))
+        none = armlib.isolated_config(os.path.join(d, "iso2"), {"CLAUDE_CONFIG_DIR": os.path.join(d, "nothing")})
+        assert none["login"] is None and os.listdir(none["path"]) == [".claude.json"]
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_isolation_problems_name_foreign_plugins_and_mcp_servers_and_leave_builtins_and_skills_alone():
+    ok = {"skills": ["a", "b"], "plugins": [{"name": "ralph-loop", "path": "/p"}, {"name": "t", "path": "builtin"}], "mcp_servers": []}
+    assert armlib.isolation_problems(ok, armlib.ENGINE_PLUGINS) == []
+    bad = dict(ok, plugins=ok["plugins"] + [{"name": "caveman", "source": "caveman@m", "path": "/x"}],
+               mcp_servers=[{"name": "m1"}])
+    got = armlib.isolation_problems(bad, armlib.ENGINE_PLUGINS)
+    assert len(got) == 2 and "1 mcp servers" in got[0] and "1 plugins" in got[1] and "caveman" in got[1], got
+    assert armlib.isolation_problems({"skills": 7, "plugins": 2, "mcp_servers": 0}, armlib.ENGINE_PLUGINS) == [], "bare counts have no names"
+
+
+@with_arm(["start|The fleet is running."])
+def test_the_headline_harness_arm_keeps_the_engines_defaults(a):
+    assert a.run("harness").returncode == 0
+    front = a.front_calls()[0]
+    assert "--model" not in front["argv"] and "--effort" not in front["argv"] and "--strict-mcp-config" in front["argv"]
+    for c in (front, calls_of(a, "init")[0], calls_of(a, "start")[0]):
+        assert not [k for k in c["env"] if k.startswith(("HARNESS_MODEL_", "HARNESS_EFFORT_"))], c["env"]
+    r = a.result()
+    assert r["configured"] == {"model": None, "effort": None} and tb.bench_run.validate(r) == [], r
+
+
+@with_arm(["start|The fleet is running."], extra_env=dict(HOST))
+def test_the_matched_arm_runs_every_role_on_opus_at_plains_effort(a):
+    p = a.run("harness-opus", "--optional")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = a.result("harness-opus")
+    assert tb.bench_run.validate(r) == [] and r["status"] == "ok" and r["arm"] == "harness-opus", r
+    front = a.front_calls()[0]
+    assert front["argv"][front["argv"].index("--model") + 1] == "opus" and front["argv"][front["argv"].index("--effort") + 1] == "medium"
+    for c in (front, calls_of(a, "init")[0], calls_of(a, "start")[0]):
+        env = c["env"]
+        assert (env["HARNESS_MODEL_MANAGER"], env["HARNESS_MODEL_IMPLEMENTER"]) == ("opus", "opus"), env
+        assert (env["HARNESS_EFFORT_MANAGER"], env["HARNESS_EFFORT_IMPLEMENTER"]) == ("medium", "medium"), env
+    assert r["configured"] == {"model": "opus", "effort": "medium"}, r["configured"]
+    assert r["counts"]["workers"] == 1
+
+
+@with_arm(["start|ok"])
+def test_the_matched_arm_takes_model_and_effort_overrides(a):
+    assert a.run("harness-opus", "--arm-opt", "effort=low", "--arm-opt", "model=sonnet").returncode == 0
+    assert a.result("harness-opus")["configured"] == {"model": "sonnet", "effort": "low"}
+
+
+@with_arm([])
+def test_the_matched_arm_records_a_real_skip_reason_when_the_guard_refuses(a):
+    held = os.path.join(a.e.rundir, "usage-holds")
+    os.makedirs(held)
+    open(os.path.join(held, "acct.hold"), "w").write("held")
+    p = a.run("harness-opus", "--optional")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = a.result("harness-opus")
+    assert (r["status"], r["reason"]) == ("skipped", "held") and tb.bench_run.validate(r) == [], r
+    assert a.front_calls() == [] and a.e.repos() == [], "nothing was created or run"
+
+
+@with_arm(["start|ok"])
+def test_results_record_the_effort_the_transcripts_show_and_the_provenance(a):
+    assert a.run("harness").returncode == 0
+    r = a.result()
+    assert r["effort"] == {"high": 1, "medium": 1}, r["effort"]            # the front door's turn and the lane's
+    head = subprocess.run(["git", "-C", tb.ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    prov = r["provenance"]
+    assert prov["engine_commit"].startswith(head), (prov, head)
+    assert re.fullmatch(r"sha256:[0-9a-f]{16}", prov["skill_version"]) and prov["cli_version"] == "9.9.9 (Claude Code)", prov
+    assert prov["skill_version"] == armlib.skill_version(), "the skill the arm installed is the checkout's"
+    assert tb.bench_run.validate(r) == []
+
+
 # --- stopping -----------------------------------------------------------------------------------------
 def _stopped_only_its_own(a):
     stops = calls_of(a, "stop")
@@ -337,7 +507,8 @@ def test_restarts_the_front_door_made_by_hand_are_counted_and_the_loaded_config_
     r = a.result()
     assert tb.bench_run.validate(r) == [] and r["status"] == "ok", r
     assert r["counts"]["fleet_restarts"] == 1, r["counts"]          # init+start, then stop+start --recover by hand
-    assert r["claude_config"] == {"source": "front-door init", "skills": 7, "plugins": 2, "mcp_servers": 3}, r.get("claude_config")
+    n = len(armlib.engine_skills())
+    assert r["claude_config"] == {"source": "front-door init", "skills": 2 + n, "plugins": 2, "mcp_servers": 0}, r.get("claude_config")
     logs = os.path.join(a.e.results, "t1", "harness.logs")
     assert harness_arm.front_restarts(logs) == 1 and harness_arm.logged_restarts(logs) == 1
 

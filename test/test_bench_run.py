@@ -416,6 +416,11 @@ def test_validate_names_what_is_wrong():
     assert bench_run.validate(fz) == [] and bench_run.validate(dict(good, fuzz_error="x")) == []   # optional (#589)
     assert bench_run.validate(dict(fz, fuzz_cases="10")) != [] and bench_run.validate(dict(fz, fuzz_divergences=11)) != []
     assert bench_run.validate(dict(fz, fuzz_examples=[{}] * 11)) != [] and bench_run.validate(dict(fz, fuzz_seed=True)) != []
+    prov = {"engine_commit": "abc", "skill_version": "sha256:1", "cli_version": None}
+    assert bench_run.validate(dict(good, provenance=prov, effort={"medium": 3}, configured={"model": "opus", "effort": None})) == []
+    for bad in (dict(provenance={"engine_commit": "abc"}), dict(provenance=dict(prov, cli_version=3)), dict(effort={"medium": "3"}),
+                dict(effort=["medium"]), dict(configured={"model": "opus"}), dict(configured={"model": 1, "effort": None})):
+        assert bench_run.validate(dict(good, **bad)) != [], bad
     skipped = {"schema": 1, "run_id": "x", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "t", "guard": {}}
     assert bench_run.validate(skipped) == []
     assert bench_run.validate(dict(skipped, reason="tired")) != []
@@ -482,6 +487,31 @@ def test_subagent_transcripts_are_kept_in_a_layout_measure_reads_back(e):
     m = bench_run.remeasure(fc, st, logs)
     assert m["tokens"] == r["tokens"] and abs(m["cost_usd"] - r["cost_usd"]) < 1e-4, (m, r)
     assert bench_run.verify_logs(fc, st, r, logs) == []
+
+
+@with_env()
+def test_every_arms_results_record_the_effort_the_transcripts_show_and_the_provenance(e):
+    e.write_exe(os.path.join(e.bin, "claude"), "#!/usr/bin/env bash\necho '9.9.9 (Claude Code)'\n")
+    p = e.run("stub", "--arm-opt", "effort=high")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["effort"] == {"high": 1}, r.get("effort")
+    head = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    assert r["provenance"]["engine_commit"].startswith(head) and r["provenance"]["cli_version"] == "9.9.9 (Claude Code)", r["provenance"]
+    assert r["provenance"]["skill_version"].startswith("sha256:") and bench_run.validate(r) == []
+    logs = os.path.join(e.results, "t1", "stub.logs")
+    fc, st = bench_run._load("forecast"), bench_run._load("stats")
+    assert bench_run.verify_logs(fc, st, r, logs) == [], "the kept transcripts reproduce the recorded effort"
+    bad = bench_run.verify_logs(fc, st, dict(r, effort={"medium": 1}), logs)
+    assert len(bad) == 1 and bad[0].startswith("effort: results JSON {'medium': 1}, logs {'high': 1}"), bad
+
+
+@with_env()
+def test_a_missing_claude_binary_leaves_the_cli_version_null_and_never_fails_the_run(e):
+    p = e.run("stub", "--arm-opt", "claude=/nonexistent/claude")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["provenance"]["cli_version"] is None and r["effort"] == {} and bench_run.validate(r) == [], r
 
 
 @with_env()

@@ -271,6 +271,39 @@ try:
     check("--check fails when fleet_restarts hides the restart the front door made",
           r8.returncode == 1 and "fleet_restarts" in r8.stderr, r8.stderr)
 
+    # --- #590: models, effort and provenance per arm; the isolated Harness config; the matched arm's row ---
+    d10 = tempfile.mkdtemp(dir=tmp)
+    readme10 = readme_with_markers(d10)
+    prov = {"engine_commit": "0123456789abcdef0123456789abcdef01234567-dirty", "skill_version": "sha256:aaaabbbbccccdddd",
+            "cli_version": "2.1.319 (Claude Code)"}
+    put(d10, "results", "r1", "plain.json", data=doc(
+        "plain", effort={"medium": 42}, configured={"model": None, "effort": None}, provenance=dict(prov, skill_version=None)))
+    put(d10, "results", "r1", "harness-opus.json", data=doc(
+        "harness-opus", effort={"medium": 90}, configured={"model": "opus", "effort": "medium"}, provenance=prov,
+        claude_config={"source": "front-door init", "skills": 21, "plugins": 2, "mcp_servers": 0},
+        isolation={"config": "isolated", "engine_skills": ["harness"] * 19, "engine_plugins": ["ralph-loop", "superpowers"]}))
+    run(d10)
+    t10 = slurp(readme10, "r")
+    check("the matched arm has a table row of its own, not a skipped one", "| Harness (all Opus, plain's effort) | within caps" in t10, t10)
+    check("each arm's models, effort, asked-for settings and provenance are stated under the table",
+          "**Run settings, Plain Claude Code:** models claude-opus-4-1; effort by message medium (42); asked for model default, "
+          "effort default; engine commit `0123456789ab-dirty`; `/harness` skill n/a; Claude Code CLI `2.1.319 (Claude Code)`." in t10
+          and "**Run settings, Harness (all Opus, plain's effort):** models claude-opus-4-1; effort by message medium (90); asked for "
+              "model opus, effort medium; engine commit `0123456789ab-dirty`; `/harness` skill `sha256:aaaabbbbccccdddd`; Claude Code CLI "
+              "`2.1.319 (Claude Code)`." in t10, t10)
+    check("an isolated Harness config is described as plain's plus the engine's own, not as the operator's",
+          "the Harness (all Opus, plain's effort) arm's sessions ran on the same isolated Claude config as the plain arm, plus only what "
+          "the Harness engine installs (19 skills, 2 plugins); its front-door init loaded 21 skills (the CLI's bundled ones included), "
+          "2 plugins and 0 MCP servers." in t10 and "operator's own" not in t10, t10)
+    check("--check passes with the settings notes", run(d10, "--check").returncode == 0)
+    d11 = tempfile.mkdtemp(dir=tmp)
+    readme11 = readme_with_markers(d11)
+    put(d11, "results", "r1", "plain.json", data=doc("plain"))
+    run(d11)
+    t11 = slurp(readme11, "r")
+    check("an arm without settings records adds no Run settings line, and the matched arm shows as not run",
+          "Run settings" not in t11 and "| Harness (all Opus, plain's effort) | skipped: not run" in t11, t11)
+
     # --- #589: the Fuzz divergences column and its note ------------------------------------
     d9 = os.path.join(tmp, "fuzz"); os.makedirs(d9)
     ex = [{"case": 1, "argv": ["add", "f", "d", "c", "-5", "-refund"]}]

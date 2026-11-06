@@ -7,6 +7,9 @@ Options (--arm-opt K=V):
                  one the benchmark ships with); split like a shell line, for tests
     claude=CMD   the claude command for the front door (default `claude`), for tests
     poll=SECS    how often the arm looks at the fleet (default 30)
+    model=M      every role (the front door and the manager and implementer lanes) on model M, and
+    effort=E     every role at effort E (#590): the matched `harness-opus` arm sets opus / medium. Unset (the
+                 default): the engine's role defaults, which is the headline arm
 
 WHAT RUNS. ONE `claude -p` session in the run repo's clone is handed `/harness <brief>` (the brief file,
 the whole input) plus one fixed line saying nobody is there to answer, so every
@@ -17,6 +20,14 @@ the fleet runs its role defaults (#373/#375). The models that actually ran come 
 every arm's: the front door's, and every session the fleet logs in its events.jsonl.
 A front door that stops before a fleet is up gets the scripted reply `keep going, decide for yourself` (at
 most 5; counts.continue_replies).
+
+ISOLATED CLAUDE CONFIG (#590). Every session here runs on a throwaway CLAUDE_CONFIG_DIR (bench/armlib.py), the
+config the plain arm runs on: the login linked in, no user skills, plugins, MCP servers, hooks or settings of the
+host user's. The arm installs into it only what the Harness engine installs for any user: its own skills (the
+`/harness` front door among them, linked from this checkout's skill/) and the plugins its lanes need (ralph-loop,
+superpowers, through `claude plugin install`). The front door's init is checked against that: an MCP server, a
+plugin that is not the engine's stops the arm before it
+does any work (`init.json` in the logs keeps the init). Results `isolation` names what was installed.
 
 ISOLATION. The run fleet shares nothing with the host's fleets: its own HARNESS_HOME (event log, fleet
 registry, snapshots), its own state dir inside the run clone (<clone>/.harness), a session prefix made from
@@ -32,10 +43,8 @@ error or a cap.
 DONE = every PRD issue of the run repo is closed. Counts: issues_closed (closed issues that are not PRDs),
 prs_merged, workers, continue_replies, fleet_restarts.
 
-CONFIG AND RESTARTS DISCLOSED (#584). The front door and the fleet's sessions run on the host user's Claude
-config (the only isolation is HARNESS_HOME and the state dir), so the arm records what the front door's init
-event says was loaded: results `claude_config` = {source, skills, plugins (user plugins, built-ins left out),
-mcp_servers}. `counts.fleet_restarts` is the restarts the arm made itself plus the ones the front-door session
+CONFIG AND RESTARTS DISCLOSED (#584). The arm records what the front door's init event says was loaded: results
+`claude_config` = {source, skills, plugins (user plugins, built-ins left out), mcp_servers}. `counts.fleet_restarts` is the restarts the arm made itself plus the ones the front-door session
 made by hand: every `harness start` its Bash calls ran after the first (the engine logs no start/stop events,
 so the front door's own transcript in the stream is the record). `bench/figures.py` renders both under the table.
 """
@@ -43,6 +52,9 @@ import glob, hashlib, importlib.util, json, os, re, shlex, shutil, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+_spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(os.path.dirname(HERE), "armlib.py"))
+armlib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(armlib)
 CONTINUE_REPLY = "keep going, decide for yourself"
 MAX_REPLIES = 5
 MAX_RESTARTS = 3
@@ -50,7 +62,7 @@ AUTONOMY_NOTE = ("\n\n(Unattended run: nobody is here to answer. Treat every Con
                  "a yes, answer your own grilling questions from the brief above, decide anything ambiguous "
                  "yourself and do not stop to ask. The fleet's settings are already in the environment: "
                  "keep them.)\n")
-FRONT_FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"]
+FRONT_FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--dangerously-skip-permissions"]
 SECRET_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # The only HARNESS_* that cross into the run fleet: where usage is read and where transcripts are searched.
 PASS_ENV = ("HARNESS_USAGE_CMD", "HARNESS_CLAUDE_CONFIG_DIRS")
@@ -72,9 +84,11 @@ def session_prefix(repo):
 class Fleet:
     """Where the run fleet lives and how it is driven: everything the arm starts or stops is named here."""
 
-    def __init__(self, ctx, workers, harness):
+    def __init__(self, ctx, workers, harness, model=None, effort=None):
         self.ctx, self.workers, self.harness = ctx, workers, harness
+        self.model, self.effort = model, effort
         work = os.path.dirname(os.path.abspath(ctx.clone))
+        self.config = os.path.join(work, "claude-config")   # #590: the isolated Claude config, plain's plus the engine's own
         self.home = os.path.join(work, "harness-home")
         self.state = os.path.join(os.path.abspath(ctx.clone), ".harness")
         self.prefix = session_prefix(ctx.repo)
@@ -86,6 +100,14 @@ class Fleet:
         env = {k: v for k, v in src.items()
                if not (k.startswith("HARNESS_") and k not in PASS_ENV) and k not in WIPE_ENV + SECRET_ENV}
         os.makedirs(self.home, exist_ok=True)
+        extra = [d for d in (src.get("HARNESS_CLAUDE_CONFIG_DIRS") or "").split(os.pathsep) if d]
+        env.update(CLAUDE_CONFIG_DIR=self.config, HARNESS_USER_SKILLS=os.path.join(self.config, "skills"),
+                   CLAUDE_CODE_DISABLE_AUTO_MEMORY="1",
+                   HARNESS_CLAUDE_CONFIG_DIRS=os.pathsep.join([self.config] + [d for d in extra if d != self.config]))
+        if self.model:   # a matched arm: every role on one model; the role defaults stay in force otherwise
+            env.update(HARNESS_MODEL_MANAGER=self.model, HARNESS_MODEL_IMPLEMENTER=self.model)
+        if self.effort:
+            env.update(HARNESS_EFFORT_MANAGER=self.effort, HARNESS_EFFORT_IMPLEMENTER=self.effort)
         env.update(HARNESS_HOME=self.home, HARNESS_MODE="prd", HARNESS_OWNER=self.owner,
                    HARNESS_REPO=self.ctx.repo, HARNESS_AUTONOMOUS="true", HARNESS_POOL=str(self.workers),
                    HARNESS_SESS_PREFIX=self.prefix, HARNESS_USE_POLLER="0")
@@ -208,6 +230,11 @@ def board(repo):
     return len(prds), sum(1 for p in prds if str(p.get("state", "")).upper() == "OPEN"), n_closed, len(prs)
 
 
+def transcript_dirs(fleet, st):
+    """Where this run's sessions write transcripts: its isolated config dir first, then the usual search list."""
+    return [fleet.config] + [d for d in st.config_dirs() if d != fleet.config]
+
+
 def register_lane_transcripts(ctx, fleet, st, seen):
     """Every session the fleet logged (its own events.jsonl) whose transcript exists: for the $ cap and the
     model, token and time figures."""
@@ -215,7 +242,7 @@ def register_lane_transcripts(ctx, fleet, st, seen):
         sid = e.get("session")
         if not sid or sid in seen:
             continue
-        tr = st.find_transcript(sid)
+        tr = st.find_transcript(sid, transcript_dirs(fleet, st))
         if tr:
             seen.add(sid)
             ctx.add_transcripts(tr)
@@ -223,7 +250,8 @@ def register_lane_transcripts(ctx, fleet, st, seen):
 
 def front_turn(ctx, fleet, claude, prompt, session, n, st, registered):
     """One `claude -p` turn of the front door. Returns {"session", "result"}."""
-    argv = shlex.split(claude) + FRONT_FLAGS + (["--resume", session] if session else [])
+    argv = (shlex.split(claude) + FRONT_FLAGS + (["--model", fleet.model] if fleet.model else [])
+            + (["--effort", fleet.effort] if fleet.effort else []) + (["--resume", session] if session else []))
     with open(os.path.join(ctx.logs, "launch.txt"), "a", encoding="utf-8") as fh:
         fh.write(shlex.join(argv) + "\n")
     out = {"session": session, "result": None}
@@ -239,10 +267,16 @@ def front_turn(ctx, fleet, claude, prompt, session, n, st, registered):
                 ev = json.loads(line)
             except ValueError:
                 continue
+            if ev.get("type") == "system" and ev.get("subtype") == "init":
+                armlib.write_init_proof(ctx.logs, ev)
+                bad = armlib.isolation_problems(ev, armlib.ENGINE_PLUGINS)
+                if bad:
+                    p.terminate()
+                    raise armlib.IsolationError("isolation check failed: the front door's init lists " + ", ".join(bad))
             if ev.get("session_id"):
                 out["session"] = ev["session_id"]
             if out["session"] and not registered:
-                tr = st.find_transcript(out["session"])
+                tr = st.find_transcript(out["session"], transcript_dirs(fleet, st))
                 if tr:
                     ctx.add_transcripts(tr)
                     registered.append(tr)
@@ -293,7 +327,15 @@ def run(ctx):
     poll = float(ctx.opts.get("poll", "30"))
     if workers < 1:
         raise ValueError("workers must be at least 1")
-    fleet = Fleet(ctx, workers, harness)
+    model, effort = ctx.opts.get("model") or None, ctx.opts.get("effort") or None
+    fleet = Fleet(ctx, workers, harness, model, effort)
+    cfg = armlib.isolated_config(fleet.config)
+    skills = armlib.install_engine_skills(fleet.config)
+    ctx.log(f"isolated claude config {cfg['path']} (login: {cfg['login'] or 'none found; the environment must carry it'}); "
+            f"engine skills {len(skills)}")
+    plugins = armlib.install_engine_plugins(fleet.config, claude, fleet.env(), ctx.log)
+    ctx.extra["isolation"] = {"config": "isolated", "engine_skills": skills, "engine_plugins": plugins}
+    ctx.extra["configured"] = {"model": model, "effort": effort}   # None: the engine's role defaults (#373, #375)
     with open(os.path.join(ctx.logs, "fleet.json"), "w", encoding="utf-8") as fh:   # how to stop it by hand
         json.dump({"state_dir": fleet.state, "harness_home": fleet.home, "prefix": fleet.prefix,
                    "workers": workers, "repo": ctx.repo, "stop": f"harness stop --state-dir {fleet.state}"}, fh, indent=2)
