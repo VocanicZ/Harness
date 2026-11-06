@@ -121,3 +121,7 @@ exit 0
 FAILED: test_sess_sweep_headless.sh
 FAILED: test_env_leak_headless.sh
 SUITE-RESULT 2 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-493
+credentials: GH_TOKEN written nowhere new
+[23:15:05] cleanup: winsma clean (no hx-493, lock released, no run task or process)
+[23:15:05] run: OK

@@ -181,8 +181,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - On a host with no tmux the `supervisor-frozen-session` and `supervisor-skips-trust-dialog` cells of `test_cli_matrix.sh`
   run the CLI's headless supervisor cell instead of failing; with tmux they draw panes as before.
 - `test/run.sh` accepts test file names (`bash test/run.sh test_a.sh test_b.sh`), and the winsma suite stage takes
-  `HX_TESTS` to run just those files in the full-suite isolation. The twins' run on winsma is committed as
-  `test/smoke/logs/suite-windows-*.log`.
+  `HX_TESTS` to run just those files in the full-suite isolation.
+- Running the twins on winsma found why headless lanes with a fake agent never ran a turn there (the cause behind most of
+  #606): the native Python lane runner was handed `python3 /c/.../fake-claude` and read it as `C:\c\...`, and the fake
+  claude's `turn-hook` is a shebang script CreateProcess cannot run. `native_path` in `test/helpers.sh` passes the fake's
+  path in native form, and the fake runs its hook through bash on Windows. With those, on winsma
+  (`test/smoke/logs/suite-windows-20261106T225957Z.log`, guard clean, no credential written, winsma clean)
+  `test_watchdog_headless.sh` (57/57), `test_env_leak_headless.sh` (46/46) and `test_session_names_headless.sh` (76/76) pass;
+  `test_sess_sweep_headless.sh` has one red assertion. The earlier runs are `suite-windows-20261106T193904Z.log` (before the
+  fixes: 1 of 8 twins), `T211737Z`, `T222737Z` and `T224844Z`. The twins still red on Windows (`test_fleet_migrate_headless.sh`,
+  `test_supervise_headless.sh`, `test_supervise_autoupdate_headless.sh`, and the sweep assertion) fail on Windows behaviour of the
+  code under test that their tmux counterparts share; they are tracked in #627.
 
 ### The test suite runs in Git Bash on Windows, and a Windows skip must name an `n/a` matrix row (#492)
 
