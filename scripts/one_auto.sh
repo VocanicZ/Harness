@@ -127,7 +127,7 @@ one_auto_spawn(){ local issue="$1" wd; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$iss
 # one_auto_tick — the pool worker's chores while usage is HELD, every tick: start the account's lane on this fleet's
 # next claimable issue when the lane is free, the chain is not stopped, it is this fleet's turn and the
 # gate APPROVEs. Never blocks the poll on failure.
-one_auto_tick(){ local acct next want lockfd gj rc sum sess
+one_auto_tick(){ local acct next want lockfd claimfd gj rc sum sess
   [[ "${HARNESS_ONE_AUTO:-0}" == 1 ]] || return 0
   acct="$(one_auto_account)" || return 0
   mkdir -p "$(_oa_file "$acct" want)" 2>/dev/null || return 0
@@ -149,12 +149,21 @@ one_auto_tick(){ local acct next want lockfd gj rc sum sess
     _oa_stop "$acct" deny "$SLUG#$next does not fit under HARNESS_ONE_STOP_PCT=$HARNESS_ONE_STOP_PCT% ($sum)" "$next"
     lock_release "$lockfd"; return 0; fi
   sess="$(sess_impl "$UNIT" "$next")"
+  # #561: the pool's impl-<n> lane claim, written before the worktree exists and held until the session is up, so
+  # reap_team (is_claimed) keeps off the spawn window and the pool cap counts the lane. A claim a pool worker
+  # holds already means the issue is not ours to start.
+  mkdir -p "$CLAIMS_DIR"; lock_acquire "$POOL_LOCK" claimfd
+  if is_claimed "impl-$next"; then lock_release "$claimfd"; lock_release "$lockfd"; return 0; fi
+  lane_claim_write "impl-$next" one-auto "IMPL:$next" "$sess"
+  lock_release "$claimfd"
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$STATE_DIR" "$UNIT" "$SLUG" "$next" "$sess" "$acct" "$(date +%s)" "$sum" \
     > "$(_oa_file "$acct" lane)"
   _oa_me > "$(_oa_file "$acct" last)"
   lock_release "$lockfd"
   _OA_SAID=""
-  if ! one_auto_spawn "$next"; then
+  one_auto_spawn "$next"; rc=$?
+  rm -f "$CLAIMS_DIR/impl-$next.claim"   # #561: the session is up (adopt_lanes takes it over) or the spawn failed (the reapers clean up)
+  if (( rc != 0 )); then
     rm -f "$(_oa_file "$acct" lane)"
     log "one-auto: could not start $SLUG#$next — the reapers release its claim"; return 0; fi
   log "one-auto: $acct lane started on $SLUG#$next ($sum)"
