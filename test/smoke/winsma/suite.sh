@@ -4,7 +4,7 @@
 # CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
 # install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
 #   HX_BRANCH            the branch under test (default issue/492); it must be pushed, the host clones it
-#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 900)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
 #   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
 #                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
 # Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
@@ -26,11 +26,14 @@ say "== venv"
 python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
 VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
 export PATH="$(cygpath -u "$VB"):$PATH"
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
 say "python3 = $(command -v python3): $(python3 --version 2>&1)"
 # The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
 export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
 export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
-export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-900}"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
 say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
 start=$SECONDS
 ( cd src && bash test/run.sh ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?

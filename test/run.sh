@@ -32,6 +32,18 @@ export HARNESS_INIT_SEED=0       # #432: no non-interactive init seeds real labe
 # be trapped by it — test_headless_attach.sh's Ctrl-C detach hung forever on exactly that. DEFSIG restores
 # the defaults a foreground run has; test_signal_defaults.sh covers it.
 default_signals_prefix
+# Real-Windows side effects (#492): on a Windows host a test that registers a supervise/web unit reaches the REAL Task
+# Scheduler (schtasks.exe), and an install test the real winget — the first full-suite run on winsma left five
+# `Harness\harness-*-<hash>` tasks behind and tripped the before/after guard. Point both at recording stubs for the whole run;
+# a test that fakes either itself sets its own, as before. Not on Linux, where neither tool exists and the doctor tests
+# rely on an unset HARNESS_SCHTASKS to see a missing one. host_is_windows honours HARNESS_PLATFORM=windows|posix.
+if host_is_windows; then
+  mkdir -p "$TMPROOT/stubs"
+  printf '#!/usr/bin/env bash\necho "schtasks $*" >> "%s/stubs/schtasks.log"\ncase "$1" in /Query|//Query) exit 1;; esac\nexit 0\n' "$TMPROOT" > "$TMPROOT/stubs/schtasks"
+  printf '#!/usr/bin/env bash\necho "winget $*" >> "%s/stubs/winget.log"\nexit 0\n' "$TMPROOT" > "$TMPROOT/stubs/winget"
+  chmod +x "$TMPROOT/stubs/schtasks" "$TMPROOT/stubs/winget"
+  export HARNESS_SCHTASKS="$TMPROOT/stubs/schtasks" HARNESS_WINGET="$TMPROOT/stubs/winget"
+fi
 # Per-test wall-clock cap (#492): HARNESS_TEST_TIMEOUT=<seconds> ends a test that hangs (rc 124, reported as TIMEOUT)
 # instead of blocking the whole run — on a Windows host a hung child can otherwise stall the suite for hours. Unset or 0:
 # no cap, as before. The run ends with one summary line per failing test and a count, so a long Windows run reads in

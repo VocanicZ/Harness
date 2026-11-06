@@ -729,7 +729,9 @@ Every row that is `✓` on Windows has a line in `test/windows_coverage.tsv` nam
 tmux (the tests of PRD #475 task 6's second part, #493, give those a headless twin), and on a line for a row that is `n/a` or absent.
 
 `test/run.sh` runs in Git Bash. `HARNESS_TEST_TIMEOUT=<seconds>` caps each test file (a hang ends as `TIMEOUT`, rc 124), and the
-run ends with `== run.sh: N/M test files passed ==` and one `FAILED: <file>` line per red file.
+run ends with `== run.sh: N/M test files passed ==` and one `FAILED: <file>` line per red file. On a Windows host it also points
+`HARNESS_SCHTASKS` and `HARNESS_WINGET` at recording stubs, so no test can register a task in the real Task Scheduler or run winget
+(the first full run on winsma left five `Harness\harness-*` tasks behind); a test that fakes either sets its own.
 `test/smoke/winsma/suite.sh` runs it on the Windows check host in the full-suite isolation ([windows-smoke.md](windows-smoke.md)).
 
 #### Non-interactive mode per agent CLI

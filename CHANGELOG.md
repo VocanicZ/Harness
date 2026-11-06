@@ -91,7 +91,9 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `test/test_windows_parity_doc.sh` now fails on a `✓` row with no running test (no line, a missing file, or a test that skips
   itself without tmux) and on a line for a row that is `n/a` or not in the matrix.
 - `test/run.sh` takes `HARNESS_TEST_TIMEOUT=<seconds>` (a hung test ends as `TIMEOUT` instead of stalling the run) and ends with
-  `== run.sh: N/M test files passed ==` plus one `FAILED: <file>` line per red file; `test/test_run_summary.sh` covers both.
+  `== run.sh: N/M test files passed ==` plus one `FAILED: <file>` line per red file; `test/test_run_summary.sh` covers both. On a Windows host `run.sh` also points
+  `HARNESS_SCHTASKS` and `HARNESS_WINGET` at recording stubs: the first full run on winsma registered five real
+  `Harness\harness-*` Task Scheduler tasks from tests and tripped the before/after guard.
 - `test/smoke/winsma/suite.sh` runs the whole suite on the Windows check host in the full-suite isolation (`HOME` and
   `USERPROFILE` under `C:\hx-<issue>\home`), see `docs/windows-smoke.md`. The run's log is committed under `test/smoke/logs/`.
 

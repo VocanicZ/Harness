@@ -240,7 +240,7 @@ The full suite on a Windows host (#492): `test/smoke/winsma/suite.sh` is the scr
 (`winsma.sh run <issue> suite "$(cat test/smoke/winsma/suite.sh)"`; the branch must be pushed). It runs in the `suite` isolation, where
 `HOME` and `USERPROFILE` are `C:\hx-<issue>\home`, so no install or uninstall test can reach `C:\Users\pc`. It clones the branch, makes a
 venv under the run folder whose `python.exe` is also `python3.exe` (the host's `python3` is the Store stub), and runs `bash test/run.sh`
-with `HARNESS_TEST_TIMEOUT` (default 900 s) per test file. It prints every red assertion with its file, run.sh's own summary
+with `PYTHONUTF8=1` (what the engine's python3 shim sets, #406) and `HARNESS_TEST_TIMEOUT` (default 600 s) per test file. It prints every red assertion with its file, run.sh's own summary
 (`FAILED: <file>` lines) and `SUITE-RESULT <n> failed`; the failures Linux does not also have at the same commit are the Windows ones.
 It exits 0 once run.sh has completed (`HX_STRICT=1` passes run.sh's status through), so the guard, the credential scan and the cleanup
 of `winsma.sh run` still decide the run.

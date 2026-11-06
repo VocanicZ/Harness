@@ -34,4 +34,20 @@ assert_no "… with no FAILED line" grep -q "^FAILED:" <<<"$out"
 assert_no "… and no cap by default (no TIMEOUT)" grep -q "TIMEOUT" <<<"$out"
 out="$(HARNESS_TEST_TIMEOUT=abc bash "$T/suite/run.sh" 2>&1)"; rc=$?
 assert_eq "$rc" "0" "a non-numeric HARNESS_TEST_TIMEOUT is ignored, not an error"
+
+# Windows side-effect stubs: on a Windows host (forced here) run.sh points schtasks and winget at recording stubs, so no
+# test reaches the real Task Scheduler or winget; on Linux it leaves both unset.
+mkdir -p "$T/stubs-suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/stubs-suite/"
+cat >"$T/stubs-suite/test_env.sh" <<'S'
+echo "SCHTASKS=${HARNESS_SCHTASKS:-unset}"; echo "WINGET=${HARNESS_WINGET:-unset}"
+[[ -x ${HARNESS_SCHTASKS:-/nonexistent} ]] && { "$HARNESS_SCHTASKS" //Create //TN x; echo "create_rc=$?"; "$HARNESS_SCHTASKS" //Query //TN x; echo "query_rc=$?"; }
+S
+out="$(HARNESS_PLATFORM=windows bash "$T/stubs-suite/run.sh" 2>&1)"
+assert_ok "on Windows run.sh stubs schtasks (an executable under the run's temp root)" grep -qE '^SCHTASKS=/.*/stubs/schtasks$' <<<"$out"
+assert_ok "… and winget" grep -qE '^WINGET=/.*/stubs/winget$' <<<"$out"
+assert_ok "… the stub accepts a create" grep -qx "create_rc=0" <<<"$out"
+assert_ok "… and reports a task absent on query (rc 1)" grep -qx "query_rc=1" <<<"$out"
+out="$(HARNESS_PLATFORM=posix bash "$T/stubs-suite/run.sh" 2>&1)"
+assert_ok "off Windows run.sh leaves HARNESS_SCHTASKS unset" grep -qx "SCHTASKS=unset" <<<"$out"
+assert_ok "… and HARNESS_WINGET" grep -qx "WINGET=unset" <<<"$out"
 finish
