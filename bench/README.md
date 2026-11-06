@@ -159,14 +159,21 @@ fleet, default 30); the last two are for tests.
   dir inside the clone (`<clone>/.harness`), a session prefix made from the run repo's name (`bn` + 5 hex) and a
   scrubbed environment: every `HARNESS_*` and `STATE_DIR` / `RUN_DIR` of the host's fleets is dropped (only
   `HARNESS_USAGE_CMD` and `HARNESS_CLAUDE_CONFIG_DIRS` pass through) and no API key reaches it.
+  The Claude config is NOT isolated (#584): the front door and the fleet's sessions load the host user's own
+  skills, plugins and MCP servers, unlike the plain arm. The arm therefore records what the front door's init
+  event listed, `claude_config` = `{source, skills, plugins, mcp_servers}` (`plugins` leaves out the CLI's
+  built-ins), and `bench/figures.py` states it under the README table.
 - **Stopping.** Never by pattern. The arm runs `harness stop --state-dir <clone>/.harness`, the engine's own
   stop for exactly that state dir, and the front door it spawned is terminated through `ctx.spawn`. This
   happens however the arm ends: done, error or a cap. `<arm>.logs/fleet.json` names the state dir and the
   stop command, for a run whose runner was killed.
 - **Done** = every PRD issue of the run repo is closed. A fleet whose workers are all gone before that is
   restarted with `harness start --recover`, at most 3 times (`counts.fleet_restarts`), then the arm fails.
+  `counts.fleet_restarts` also counts the restarts the front-door session made by hand: each `harness start`
+  its Bash calls ran after the first (the engine logs no start/stop events; the stream is the record).
 - **Results.** `counts`: `issues_closed` (closed issues that are not PRDs), `prs_merged`, `workers`,
-  `continue_replies`, `fleet_restarts`. Beside them in `<arm>.logs/`: `events.jsonl` (the fleet's event log),
+  `continue_replies`, `fleet_restarts`; top level: `claude_config`, and an optional free-text `note` that
+  `bench/figures.py` prints under the table (use it for anything done by hand during a run). Beside them in `<arm>.logs/`: `events.jsonl` (the fleet's event log),
   `stats.json` (`harness stats --json` on it), `fleet.config` (the config the fleet ran with), the front-door
   stream per turn and `launch.txt`. Tokens, $ and the coding / testing split are measured on the transcripts
   like every arm's; the $ cap counts the lanes' transcripts as they appear.

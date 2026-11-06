@@ -100,17 +100,26 @@ n = sum(1 for _ in open(os.path.join(d, "calls.jsonl")))
 plan = [l.rstrip("\n") for l in open(os.path.join(d, "plan")) if l.strip()]
 action, _, text = (plan[n - 1] if n <= len(plan) else "none|still going").partition("|")
 sid = argv[argv.index("--resume") + 1] if "--resume" in argv else open(os.path.join(d, "sid")).read().strip()
-print(json.dumps({"type": "system", "subtype": "init", "session_id": sid, "model": "claude-opus-5-5"}), flush=True)
+print(json.dumps({"type": "system", "subtype": "init", "session_id": sid, "model": "claude-opus-5-5", "skills": 7,
+                  "plugins": [{"name": "a", "path": "/p/a"}, {"name": "b", "path": "/p/b"}, {"name": "c", "path": "builtin"}],
+                  "mcp_servers": [{"name": "m1"}, {"name": "m2"}, {"name": "m3"}]}), flush=True)
 cfg = os.environ["CLAUDE_CONFIG_DIR"]
 os.makedirs(os.path.join(cfg, "projects", "p"), exist_ok=True)
 with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "a") as t:
     t.write(json.dumps({"type": "assistant", "timestamp": "2026-11-04T10:00:0%dZ" % (n % 10),
                         "message": {"id": "front%d" % n, "model": "claude-opus-5-5",
                                     "usage": {"input_tokens": 100, "output_tokens": 1000}, "content": []}}) + "\n")
-if action.startswith("start"):
+if action.startswith("start"):   # start, start-error, start-restart
     with open(os.path.join(os.environ["FAKE_GH_HOME"], "prds.json"), "w") as f: json.dump([{"number": 1, "state": "OPEN"}], f)
-    subprocess.run(["harness", "init"], check=True)
-    subprocess.run(["harness", "start"], check=True)
+    def sh(*args):   # a Bash call of the front-door session: in the stream as a tool_use, then run for real
+        print(json.dumps({"type": "assistant", "session_id": sid, "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": "harness " + " ".join(args) + " 2>&1 | tail -5"}}]}}), flush=True)
+        subprocess.run(["harness", *args], check=True, stdout=subprocess.DEVNULL)
+    sh("init")
+    sh("start")
+    if action == "start-restart":   # the front door repairs the fleet by hand and starts it again
+        sh("stop")
+        sh("start", "--recover")
 print(json.dumps({"type": "result", "subtype": "success", "is_error": action == "start-error", "session_id": sid, "result": text}), flush=True)
 '''
 
@@ -319,6 +328,43 @@ def test_a_fleet_that_died_is_restarted_with_recover(a):
     starts = calls_of(a, "start")
     assert [s["args"] for s in starts] == [["start"], ["start", "--recover"]], starts
     assert starts[1]["state_dir"].endswith("/clone/.harness")
+
+
+@with_arm(["start-restart|ok"])
+def test_restarts_the_front_door_made_by_hand_are_counted_and_the_loaded_config_recorded(a):
+    p = a.run("harness")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = a.result()
+    assert tb.bench_run.validate(r) == [] and r["status"] == "ok", r
+    assert r["counts"]["fleet_restarts"] == 1, r["counts"]          # init+start, then stop+start --recover by hand
+    assert r["claude_config"] == {"source": "front-door init", "skills": 7, "plugins": 2, "mcp_servers": 3}, r.get("claude_config")
+    logs = os.path.join(a.e.results, "t1", "harness.logs")
+    assert harness_arm.front_restarts(logs) == 1 and harness_arm.logged_restarts(logs) == 1
+
+
+@with_arm(["start|ok"], extra_env=dict(FAKE_DIE_ONCE="1"))
+def test_the_arms_own_restart_and_the_front_doors_add_up_and_a_plain_start_adds_none(a):
+    assert a.run("harness").returncode == 0
+    r = a.result()
+    logs = os.path.join(a.e.results, "t1", "harness.logs")
+    assert harness_arm.front_restarts(logs) == 0, "one `harness start` is the launch, not a restart"
+    assert r["counts"]["fleet_restarts"] == 1 and harness_arm.logged_restarts(logs) == 1, r["counts"]
+
+
+def test_claude_config_and_front_restarts_read_the_stream_defensively(tmp_path=None):
+    import tempfile
+    d = tempfile.mkdtemp()
+    try:
+        assert harness_arm.claude_config(d) is None and harness_arm.front_restarts(d) == 0
+        with open(os.path.join(d, "front-01.stream.jsonl"), "w") as f:
+            f.write("not json\n")
+            f.write(json.dumps({"type": "system", "subtype": "init", "skills": 186, "plugins": 10, "mcp_servers": 4}) + "\n")
+        assert harness_arm.claude_config(d) == {"source": "front-door init", "skills": 186, "plugins": 10, "mcp_servers": 4}
+        with open(os.path.join(d, "front-01.stream.jsonl"), "w") as f:
+            f.write(json.dumps({"type": "system", "subtype": "init", "skills": 1}) + "\n")
+        assert harness_arm.claude_config(d) is None, "an init without the three figures is not a record"
+    finally:
+        import shutil; shutil.rmtree(d, ignore_errors=True)
 
 
 def test_session_prefix_is_per_run_and_the_env_scrub_units():

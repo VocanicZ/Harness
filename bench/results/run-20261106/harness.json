@@ -453,7 +453,7 @@
   "counts": {
     "workers": 1,
     "continue_replies": 0,
-    "fleet_restarts": 0,
+    "fleet_restarts": 1,
     "issues_closed": 6,
     "prs_merged": 6
   },
@@ -463,5 +463,12 @@
   },
   "repo_deleted": false,
   "logs": "harness.logs",
-  "quality": "skipped (the SonarQube container exited: ace and restart SonarQube. 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] SonarQube is stopped 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] Waiting for Elasticsearch to be up and running)"
+  "quality": "skipped (the SonarQube container exited: ace and restart SonarQube. 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] SonarQube is stopped 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] Waiting for Elasticsearch to be up and running)",
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 186,
+    "plugins": 6,
+    "mcp_servers": 4
+  },
+  "note": "The Harness arm's front door and fleet sessions ran with the operator's personal Claude config (186 skills, 6 user plugins and 4 claude.ai MCP servers in the front-door init), not an isolated one like the plain arm's. The orchestrator session crash-looped 13 times (05:56 to 05:59) because the tmux socket directory was missing; the front-door session repaired it by hand (it created /home/claude/.harness/tmux-hzhn/tmux-1000 on the host, outside the run's isolated home) and restarted the fleet with `harness start --recover`, which is the 1 fleet restart counted."
 }

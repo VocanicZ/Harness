@@ -279,6 +279,7 @@ class Ctx:
         self.opts, self.caps, self.log = opts, caps, log
         self.brief = os.path.join(clone, "brief.md")
         self.transcripts, self.counts = [], {}
+        self.extra = {}   # more top-level fields for the results JSON (never one the runner owns)
         self._procs, self._lock = [], threading.Lock()
 
     def add_transcripts(self, *paths):
@@ -596,6 +597,7 @@ def execute(a, arm, opts, g, fc, st):
                 ctx.terminate(a.grace_secs)
         if ctx is not None:
             res["counts"] = dict(ctx.counts)
+            res.update({k: v for k, v in ctx.extra.items() if k not in res})
             m = measure(fc, st, ctx.transcripts)
             res.update(tokens=m["tokens"], models=m["models"], cost_usd=m["cost_usd"])
             if m["split"]:
@@ -717,6 +719,15 @@ def verify_logs(fc, st, doc, logs):
         got = doc.get(k)
         if (got is None) != (want is None) or (got is not None and abs(got - want) > 1e-3):
             bad.append(f"{k}: results JSON {got}, logs {want}")
+    if isinstance(doc.get("claude_config"), dict):   # a Harness arm: the disclosed config and restarts (#584)
+        spec = importlib.util.spec_from_file_location("bench_arm_harness", os.path.join(HERE, "arms", "harness.py"))
+        arm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(arm)
+        if arm.claude_config(logs) != doc["claude_config"]:
+            bad.append(f"claude_config: results JSON {doc['claude_config']}, logs {arm.claude_config(logs)}")
+        want = arm.logged_restarts(logs)
+        if (doc.get("counts") or {}).get("fleet_restarts") != want:
+            bad.append(f"counts.fleet_restarts: results JSON {(doc.get('counts') or {}).get('fleet_restarts')}, logs {want}")
     return bad
 
 
