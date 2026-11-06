@@ -4,6 +4,23 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench: a large fixture, `tallybook`, with a mid-run requirement change (#592)
+
+- The only fixture, `pennywise` (a 4.7 KB brief, about 400 lines), fits one session in under 3 minutes: the case where
+  Harness cannot win, and nothing it is for is tested. `bench/fixture-large/` is a second fixture, picked with
+  `bench/run.py <arm> --fixture large`: a long brief for a double-entry bookkeeping library, SQLite storage with four
+  schema versions and migrations, a command line and a small HTTP API; a stdlib-only reference implementation; about a
+  thousand black-box hidden tests in 16 modules; a frozen differential fuzz against the reference (`bench/fuzz.py
+  --fixture large`); and `shape.json`, the 36-issue decomposition a planner reaches (never given to an arm).
+- **A change halfway.** `bench/progress.py` grades the repo every few minutes while an arm works (milestones) and, when half
+  of the pre-change hidden tests pass, hands every arm the same written change (`change.md`: round half to even, a lock
+  date, a new API error body). A plain session is interrupted and resumed with it, Harness gets `/harness-prd <change>`,
+  Hx a second PRD; an arm that finishes first gets it then. The hidden tests exist in pre- and post-change variants.
+- **New measures** in the results JSON and a table of their own in the README: wall time to the first full pass,
+  $ per passed hidden test, regressions (a test that passed at one milestone and fails later), context compactions,
+  continue replies (the plain arm's cap is 50 here), the 1 to 3 worker speed-up, how often an arm hits a cap, and the
+  hidden tests per module.
+
 ### Bench: SonarQube on a tmpfs, a skipped scan invalidates the run, branch coverage (#588)
 
 - `bench/quality.py` mounts SonarQube's data directory as a tmpfs, so a host with under 10% free disk no longer

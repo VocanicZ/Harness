@@ -1,0 +1,410 @@
+{
+ "about": "The decomposition a planner would naturally arrive at for bench/fixture-large/brief.md: one issue per row, `needs` the issues that must land first, `modules` the hidden-test modules it is judged on. It is NOT given to any arm; test/test_bench_large.py checks that its size (30-40), shape (acyclic, at least 4 independent issues at one depth) and coverage (every module) stay what the fixture claims.",
+ "issues": [
+  {
+   "id": "I01",
+   "title": "Project skeleton: packaging, error hierarchy, data records",
+   "modules": [],
+   "needs": []
+  },
+  {
+   "id": "I02",
+   "title": "Currency table and lookup",
+   "modules": [
+    "02"
+   ],
+   "needs": [
+    "I01"
+   ]
+  },
+  {
+   "id": "I03",
+   "title": "Money type: parsing, formatting, arithmetic, comparison",
+   "modules": [
+    "01"
+   ],
+   "needs": [
+    "I01",
+    "I02"
+   ]
+  },
+  {
+   "id": "I04",
+   "title": "Money allocation and ratio scaling (the rounding rules)",
+   "modules": [
+    "01"
+   ],
+   "needs": [
+    "I03"
+   ]
+  },
+  {
+   "id": "I05",
+   "title": "Exchange-rate table and currency conversion",
+   "modules": [
+    "02"
+   ],
+   "needs": [
+    "I02",
+    "I03"
+   ]
+  },
+  {
+   "id": "I06",
+   "title": "Date parsing and month arithmetic",
+   "modules": [
+    "03"
+   ],
+   "needs": [
+    "I01"
+   ]
+  },
+  {
+   "id": "I07",
+   "title": "Periods: months, quarters, years, ranges",
+   "modules": [
+    "03"
+   ],
+   "needs": [
+    "I06"
+   ]
+  },
+  {
+   "id": "I08",
+   "title": "Chart of accounts: paths, types, open and close",
+   "modules": [
+    "04"
+   ],
+   "needs": [
+    "I01"
+   ]
+  },
+  {
+   "id": "I09",
+   "title": "Account patterns and roll-up queries on the chart",
+   "modules": [
+    "04"
+   ],
+   "needs": [
+    "I08"
+   ]
+  },
+  {
+   "id": "I10",
+   "title": "Ledger: transaction validation and balancing",
+   "modules": [
+    "05"
+   ],
+   "needs": [
+    "I03",
+    "I08"
+   ]
+  },
+  {
+   "id": "I11",
+   "title": "Ledger: balances, roll-ups, as-of dates",
+   "modules": [
+    "05"
+   ],
+   "needs": [
+    "I10",
+    "I06"
+   ]
+  },
+  {
+   "id": "I12",
+   "title": "Journal text format: parser with line-numbered errors",
+   "modules": [
+    "06"
+   ],
+   "needs": [
+    "I03",
+    "I06",
+    "I08"
+   ]
+  },
+  {
+   "id": "I13",
+   "title": "Journal text format: canonical formatter and round trip",
+   "modules": [
+    "06"
+   ],
+   "needs": [
+    "I12"
+   ]
+  },
+  {
+   "id": "I14",
+   "title": "Query language: tokenizer and parser",
+   "modules": [
+    "07"
+   ],
+   "needs": [
+    "I03",
+    "I06"
+   ]
+  },
+  {
+   "id": "I15",
+   "title": "Query language: evaluation over transactions and postings",
+   "modules": [
+    "07"
+   ],
+   "needs": [
+    "I14",
+    "I09",
+    "I10"
+   ]
+  },
+  {
+   "id": "I16",
+   "title": "Categorisation rules: parser and engine",
+   "modules": [
+    "08"
+   ],
+   "needs": [
+    "I03"
+   ]
+  },
+  {
+   "id": "I17",
+   "title": "CSV import profiles",
+   "modules": [
+    "09"
+   ],
+   "needs": [
+    "I03",
+    "I06"
+   ]
+  },
+  {
+   "id": "I18",
+   "title": "CSV import: rows to transactions, duplicates, row errors",
+   "modules": [
+    "09"
+   ],
+   "needs": [
+    "I17",
+    "I16",
+    "I10"
+   ]
+  },
+  {
+   "id": "I19",
+   "title": "Budgets and budget status",
+   "modules": [
+    "10"
+   ],
+   "needs": [
+    "I07",
+    "I11",
+    "I09"
+   ]
+  },
+  {
+   "id": "I20",
+   "title": "Recurring entries: schedule grammar",
+   "modules": [
+    "11"
+   ],
+   "needs": [
+    "I06"
+   ]
+  },
+  {
+   "id": "I21",
+   "title": "Recurring entries: occurrences and expansion",
+   "modules": [
+    "11"
+   ],
+   "needs": [
+    "I20",
+    "I10"
+   ]
+  },
+  {
+   "id": "I22",
+   "title": "Reports: trial balance and balance sheet",
+   "modules": [
+    "12"
+   ],
+   "needs": [
+    "I11",
+    "I05"
+   ]
+  },
+  {
+   "id": "I23",
+   "title": "Reports: income statement, cash flow and register",
+   "modules": [
+    "12"
+   ],
+   "needs": [
+    "I11",
+    "I07"
+   ]
+  },
+  {
+   "id": "I24",
+   "title": "Export (CSV, JSON) and fixed-width tables",
+   "modules": [
+    "13"
+   ],
+   "needs": [
+    "I03"
+   ]
+  },
+  {
+   "id": "I25",
+   "title": "Storage: connection, versioning and the four migrations",
+   "modules": [
+    "14"
+   ],
+   "needs": [
+    "I01"
+   ]
+  },
+  {
+   "id": "I26",
+   "title": "Storage: accounts and transactions",
+   "modules": [
+    "14"
+   ],
+   "needs": [
+    "I25",
+    "I10",
+    "I08"
+   ]
+  },
+  {
+   "id": "I27",
+   "title": "Storage: rates, budgets, recurring, rules and settings",
+   "modules": [
+    "14"
+   ],
+   "needs": [
+    "I26",
+    "I05",
+    "I19",
+    "I21",
+    "I16"
+   ]
+  },
+  {
+   "id": "I28",
+   "title": "Storage: materialising recurring entries and persistent CSV import",
+   "modules": [
+    "14"
+   ],
+   "needs": [
+    "I27",
+    "I18"
+   ]
+  },
+  {
+   "id": "I29",
+   "title": "Command line: skeleton, global options, init and db commands, errors",
+   "modules": [
+    "15"
+   ],
+   "needs": [
+    "I25"
+   ]
+  },
+  {
+   "id": "I30",
+   "title": "Command line: accounts, transactions and the journal",
+   "modules": [
+    "15"
+   ],
+   "needs": [
+    "I29",
+    "I26",
+    "I12",
+    "I13"
+   ]
+  },
+  {
+   "id": "I31",
+   "title": "Command line: the offline calc helpers",
+   "modules": [
+    "15"
+   ],
+   "needs": [
+    "I29",
+    "I04",
+    "I05",
+    "I07",
+    "I21",
+    "I15"
+   ]
+  },
+  {
+   "id": "I32",
+   "title": "Command line: reports, queries, export, budgets, recurring, rates, import",
+   "modules": [
+    "15"
+   ],
+   "needs": [
+    "I29",
+    "I27",
+    "I22",
+    "I23",
+    "I24",
+    "I15",
+    "I28"
+   ]
+  },
+  {
+   "id": "I33",
+   "title": "HTTP API: server, router, JSON framing, error mapping, health",
+   "modules": [
+    "16"
+   ],
+   "needs": [
+    "I25"
+   ]
+  },
+  {
+   "id": "I34",
+   "title": "HTTP API: accounts and transactions",
+   "modules": [
+    "16"
+   ],
+   "needs": [
+    "I33",
+    "I26"
+   ]
+  },
+  {
+   "id": "I35",
+   "title": "HTTP API: reports, budgets, recurring, rates, rules, import, export",
+   "modules": [
+    "16"
+   ],
+   "needs": [
+    "I33",
+    "I27",
+    "I22",
+    "I23",
+    "I24",
+    "I28"
+   ]
+  },
+  {
+   "id": "I36",
+   "title": "Acceptance pass: usage text, error messages and end-to-end stories",
+   "modules": [
+    "15",
+    "16"
+   ],
+   "needs": [
+    "I30",
+    "I31",
+    "I32",
+    "I34",
+    "I35"
+   ]
+  }
+ ]
+}

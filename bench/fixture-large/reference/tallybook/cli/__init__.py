@@ -1,0 +1,1 @@
+"""The `tallybook` command line."""

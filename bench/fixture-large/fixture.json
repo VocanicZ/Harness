@@ -1,0 +1,17 @@
+{
+  "name": "large",
+  "title": "tallybook",
+  "package": "tallybook",
+  "cmd_env": "TALLYBOOK_CMD",
+  "fuzz": "fuzz.py",
+  "phases": true,
+  "change": "change.md",
+  "change_at": 0.5,
+  "milestones": true,
+  "plain_max_replies": 50,
+  "modules": {
+    "01": "money", "02": "currency", "03": "dates", "04": "accounts", "05": "ledger", "06": "journal",
+    "07": "query", "08": "rules", "09": "csvimport", "10": "budgets", "11": "recurring", "12": "reports",
+    "13": "export", "14": "storage", "15": "cli", "16": "api"
+  }
+}

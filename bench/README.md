@@ -14,6 +14,7 @@ bench/run.py plain --arm-opt K=V        # options passed to the arm
 bench/run.py harness --workers 3        # --workers N: the fleet's pool size, for an arm that runs one
 bench/run.py hx --optional              # an optional arm: a guard refusal is recorded as `skipped: budget`, exit 0
 bench/run.py harness-opus --optional    # the matched arm: Harness with every role on Opus at plain's effort
+bench/run.py plain --fixture large      # the large fixture (below): a 20-page brief and a mid-run requirement change
 ```
 
 ## One run
@@ -59,8 +60,9 @@ before its cap), `runs` (`run`, `file`, `status`, `capped` of each run started) 
 `tokens_cache_read`, `tokens_cache_write`), `hidden_passed`, `hidden_total`, `fuzz_divergences`, `fuzz_cases`,
 `coverage` (SonarQube), `sonar_bugs`, `sonar_vulnerabilities`, `sonar_code_smells`,
 `sonar_duplicated_lines_density`, the arm's own-test coverage `cov_line_pct`, `cov_branch_pct`, `cov_total_pct` (#588) and the `counts` `issues_closed`, `prs_merged`, `commits`,
-`continue_replies`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
-run is listed in `runs` but not counted. The code is `bench/aggregate.py`.
+`continue_replies`, and for the [large fixture](#large-fixture-592) `regressions`, `first_full_pass_s`, `usd_per_passed_test` and
+`compactions`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
+run is listed in `runs` but not counted. `aggregate.cap_hits` is how often the runs hit a cap: `{runs, of, wall, cost}` (#592). The code is `bench/aggregate.py`.
 
 **A batch that stops early says so.** `stopped` is `null` when all N runs completed; otherwise
 `{reason, detail}`, and `runs_completed` is how many finished:
@@ -166,6 +168,11 @@ whatever the arm wrote to `ctx.logs`.
 | `repo_deleted` | bool or null | whether the run repo was deleted afterwards |
 | `logs` | string | the logs directory next to the file |
 | `run` | int | optional (#591): the 1-based index of this run in a `--runs N` batch; absent for `--runs 1` |
+| `fixture` | string | `pennywise` or `large` (#592); absent in results written before it, which are `pennywise` |
+| `usd_per_passed_test` | number | optional (#592): `cost_usd` over the hidden tests that passed; absent when none passed |
+| `compactions` | int | optional (#592): how many times a session's context was compacted, from the transcripts (an `isCompactSummary` entry or a `compact_boundary` event); work that outgrew one context window |
+| `change`, `milestones`, `regressions`, `regressed_tests`, `first_full_pass_s` | | the [large fixture's](#large-fixture-592) measures, only for a fixture with milestones |
+| `speedup_1_to_3` | object | only `harness-3.json`, and only when the run also holds `harness.json` (#592): `{x, wall_1_s, wall_3_s, capped}`, x = wall time of one worker over three; `capped` when a side hit a cap, so x is not a clean ratio |
 
 `run.validate(doc)` in `bench/run.py` returns the problems with a results document (empty when valid).
 
@@ -363,6 +370,75 @@ several apply (`guard.causes` holds the same list; `guard.reasons` keeps the hum
 A disk-only refusal on a host whose usage fits is `disk`, a usage refusal is `budget`, and both is
 `disk,budget`. `bench/figures.py` renders a `status: skipped` record as a `skipped: <reason>` row (a
 `skipped.json` map still works for a reason that is not the guard's). `--dry-run` never records.
+
+## Large fixture (#592)
+
+The first fixture, `pennywise` (a 4.7 KB brief, about 400 lines of code), fits one session in under 3 minutes. That is exactly the
+case where Harness cannot win: its per-issue overhead dominates, and nothing it is for (work bigger than one context window,
+recovery, parallel workers) is tested. `bench/fixture-large/` is the case Harness is built for:
+
+```
+bench/run.py plain --fixture large                  # every arm takes --fixture; the default is pennywise
+bench/run.py harness --fixture large --runs 3
+bench/run.py harness-3 --fixture large --optional
+bench/grade.py REPO_DIR --fixture large [--phase pre|post] [--tests-only]
+bench/fuzz.py --fixture large --self                # the reference against itself: 0 divergences
+```
+
+| | |
+|---|---|
+| **The product** | `tallybook`: double-entry household bookkeeping. A library (money, currencies and rates, dates and periods, a chart of accounts, a ledger of balanced transactions, a plain-text journal format, a query language, categorisation rules, bank-CSV import, budgets, recurring entries, five reports, export), SQLite storage with four schema versions and migrations, a command line, and a small HTTP API. |
+| **The brief** | `bench/fixture-large/brief.md`: about 26,000 words (the issue sketched about 20 pages; precise enough to grade exact behaviour, it is longer, around 50 pages) in the voice of a user, a preamble of shared conventions and 16 sections, one per module; it names every class, function, format and error a hidden test relies on. The only thing an arm is given besides the mid-run change below. |
+| **The reference** | `bench/fixture-large/reference/`: 6,500 lines (library, storage, command line and API) of stdlib-only Python 3.9. It scores 100% of the hidden tests and 0 fuzz divergences against itself (`test/test_bench_fixture.sh`, `test/test_bench_large_fuzz.py`). |
+| **Hidden tests** | `bench/fixture-large/hidden/`: 981 black-box tests (952 before the change request) in 16 modules (`M01` money … `M16` api; the class name starts with the module number). Per-module scores are in `hidden_tests.modules`. |
+| **Shape** | `bench/fixture-large/shape.json` (never given to an arm) is the decomposition a planner reaches: 36 issues, 10 deep, up to 8 independent at one depth, so 3 workers can all be busy. `test/test_bench_large.py` keeps it at 30-40 issues, acyclic, at least 4 wide in at least two places, and covering every module. |
+| **Fuzz** | `bench/fixture-large/fuzz.py`: 1,000 random cases (see below), frozen like pennywise's: its own PRNG, seed and the SHA-256 of its case list. |
+
+**The mid-run change.** `bench/fixture-large/change.md` is a written change request with three parts: round half to even instead of
+half up; a lock date that freezes a period; and a new error body (and status) for the HTTP API. Each touches code that already exists
+(a rounding function used by four modules, every mutating path, every error response), which is the point: it costs more
+to absorb in a half-built system. The hidden tests exist in two phases: untagged tests hold before and after, `@phase("pre")` tests
+only before the change, `@phase("post")` only after. The reference answers both (`TALLYBOOK_PHASE=pre` gives the original behaviour) and is
+tested against both. The final grade is post-change: `bench/grade.py --phase post`, the default.
+
+**Milestones and injection (`bench/progress.py`).** While an arm works, every `--progress-poll-secs` (default 300) the runner clones the run
+repo's default branch and runs the hidden tests on it (no fuzz): a *milestone*. The change is injected once, when the pre-change tests pass at
+50% or more, with the same text for every arm; an arm that is about to stop before that gets it then (`change.trigger: "arm-done"`), so no arm
+skips it. How it reaches an arm is how a user would tell it:
+
+- **plain**: typed into the running session. The turn is interrupted when the change is due and the session is resumed with
+  `I have changed my mind about some of what I asked for. Here is the change, in writing: …`. Not counted as a continue reply.
+- **harness / harness-3**: the front door's session is resumed with `/harness-prd <change>`, the fleet's own door for extending a live PRD.
+- **hx**: filed as a second PRD, `hx prd change.md --title "PRD: change request"`, the way the brief was.
+
+**Measures** (in the results JSON, the aggregate and the README table):
+
+| measure | field | how |
+|---|---|---|
+| wall time to the first full pass | `first_full_pass_s` | the first post-change milestone at which every hidden test passes; the poll interval is its resolution; absent when none did |
+| $ per passed hidden test | `usd_per_passed_test` | `cost_usd` over `hidden_tests.passed` |
+| regressions | `regressions`, `regressed_tests` | tests that passed at one milestone (the end-of-run grade counts as one) and fail at a later one; counted once each |
+| compactions | `compactions` | context compactions in the transcripts (`isCompactSummary` / `compact_boundary`), sub-agents included |
+| continue replies | `counts.continue_replies` | the plain arm's reply cap is **50** for this fixture (20 for pennywise); `--arm-opt max_replies=N` overrides |
+| 1 to 3 worker speed-up | `speedup_1_to_3` in `harness-3.json` | wall time of `harness` over `harness-3` of the same run id, medians for an aggregate |
+| how often an arm hits a cap | `capped`, `aggregate.cap_hits` | the 6 h / $80 caps are unchanged |
+| the change | `change` | `{fired, trigger: progress|arm-done, at_s, progress_pct, delivered, delivered_s}` |
+| milestones | `milestones`, `<arm>.logs/milestones.json` | `[{t_s, phase, passed, total}]`; the log has every test's outcome |
+
+**Fuzz for the large fixture.** `bench/fixture-large/fuzz.py` (`bench/fuzz.py --fixture large`) runs 1000 frozen cases (seed 592, the case list's
+SHA-256 pinned, the same discipline as pennywise's) through the arm and the reference, each in its own directory: 650 offline
+`tallybook calc ...` command lines (money, dates, schedules, queries, journals, reports, budgets, rules, bank CSV), 200 scripts of commands
+on a fresh book (about 1,700 steps; includes a period lock and a refused operation) and 150 HTTP sessions (about 1,600 requests, good and
+bad). Compared: exit status, standard output, whether standard error is empty; for HTTP the status, Content-Type, Allow and the body as
+data. Not compared, because the brief leaves it open: the wording of error messages, the text `lock set` / `lock clear` print, the body of
+`PUT /lock`. The results carry the same `fuzz_*` fields as pennywise's. Running the reference against itself takes about 5 minutes
+(`BENCH_FUZZ_CASES` / `BENCH_FUZZ_CAP_S` shorten it), and the 600 s cap stops it starting new cases after that. `test/test_bench_large_fuzz.py` injects
+four realistic bugs into a copy of the reference (half-up rounding, a month-end off by one, 400 for 422, a lock that excludes its own day) and
+checks that each is found.
+
+A large run's results live in their own run directory: the default run id is `<UTC timestamp>-large`, so its `plain.json` never overwrites a
+pennywise run's. `bench/figures.py` writes a **Large fixture (tallybook)** table of its own under the pennywise one (the latest run of each
+fixture; `--run-id` picks one for its fixture) with columns for the measures above and a line for the 1 to 3 worker speed-up.
 
 ## Figures and the README Benchmark section
 

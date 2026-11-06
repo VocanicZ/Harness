@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tallybook"
+version = "1.0.0"
+description = "A double-entry household bookkeeping library, command line tool and small HTTP API."
+requires-python = ">=3.9"
+
+[project.scripts]
+tallybook = "tallybook.cli.main:main"
+
+[tool.setuptools]
+packages = ["tallybook", "tallybook.storage", "tallybook.cli", "tallybook.api"]

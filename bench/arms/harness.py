@@ -56,6 +56,8 @@ _spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(os.p
 armlib = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(armlib)
 CONTINUE_REPLY = "keep going, decide for yourself"
+CHANGE_INTRO = ("I have changed my mind about some of what I asked for. Extend the PRD with this change, in writing, and "
+                "create the issues it needs:\n\n")
 MAX_REPLIES = 5
 MAX_RESTARTS = 3
 AUTONOMY_NOTE = ("\n\n(Unattended run: nobody is here to answer. Treat every Confirm in the /harness steps as "
@@ -369,6 +371,16 @@ def run(ctx):
         while not ctx.stop.is_set():                     # the fleet works; GitHub says when it is done
             register_lane_transcripts(ctx, fleet, st, seen)
             total, open_prds, _, _ = board(ctx.repo)
+            change = ctx.next_change(done=bool(total and not open_prds))
+            if change:                                   # the mid-run requirement change (#592), through the live fleet's own door
+                n += 1
+                ctx.log("the change request is handed to the front door (/harness-prd)")
+                t = front_turn(ctx, fleet, claude, "/harness-prd " + CHANGE_INTRO + change.rstrip("\n") + AUTONOMY_NOTE,
+                               session, n, st, front_registered)
+                session = t["session"] or session
+                if t["result"] is None or t["result"].get("is_error"):
+                    raise RuntimeError("front-door change turn failed: " + str((t["result"] or {}).get("result") or "no result")[:300])
+                continue
             if total and not open_prds:
                 ctx.log("every PRD is closed: done")
                 break

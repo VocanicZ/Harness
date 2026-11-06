@@ -216,6 +216,16 @@ def run(ctx):
         while not ctx.stop.is_set():
             register(ctx, hx, st, seen)
             total, open_prds, _, _ = board(ctx.repo)
+            change = ctx.next_change(done=bool(total and not open_prds))
+            if change:   # the mid-run requirement change (#592): filed as a PRD of its own, the way the brief was
+                path = os.path.join(work, "change.md")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(change)
+                p = hx.cmd("prd", path, "--title", "PRD: change request")
+                if p.returncode != 0 or not re.search(r"/issues/\d+", p.stdout):
+                    raise RuntimeError(f"hx prd (the change request) failed: {(p.stderr or p.stdout).strip()[:300]}")
+                ctx.log("filed the change request " + re.search(r"\S*/issues/\d+", p.stdout).group(0))
+                continue
             if total and not open_prds:
                 ctx.log("the PRD is closed: done")
                 break

@@ -88,6 +88,23 @@ def run_dirs(results_dir):
     return [n for n in names if any(f.endswith(".json") for f in os.listdir(os.path.join(results_dir, n)))]
 
 
+def run_fixture(results_dir, run_id):
+    """The fixture a run directory holds the results of: `large` when any of its results says so, else the original
+    `pennywise` (results written before #592 have no `fixture` field)."""
+    d = os.path.join(results_dir, run_id)
+    for f in sorted(os.listdir(d)):
+        if f.endswith(".json") and f != "skipped.json":
+            doc = _load(os.path.join(d, f))
+            if isinstance(doc, dict) and isinstance(doc.get("fixture"), str):
+                return doc["fixture"]
+            if isinstance(doc, dict) and doc.get("status") == "aggregate":
+                for r in doc.get("runs") or []:
+                    rd = _load(os.path.join(d, r.get("file"))) if isinstance(r, dict) and isinstance(r.get("file"), str) else None
+                    if isinstance(rd, dict) and isinstance(rd.get("fixture"), str):
+                        return rd["fixture"]
+    return "pennywise"
+
+
 def _agg_module():
     spec = importlib.util.spec_from_file_location("bench_aggregate", os.path.join(HERE, "aggregate.py"))
     mod = importlib.util.module_from_spec(spec)
@@ -385,6 +402,113 @@ def table(arms, skipped):
     return "\n".join(lines)
 
 
+# --- the large fixture's own table (#592) ----------------------------------------------
+LARGE_HEAD = ["Arm", "n", "Cap status", "Caps hit", "Wall time", "Wall time to first full pass", "Hidden tests passed (post-change)",
+              "List price", "$ per passed test", "Regressions", "Compactions", "Continue replies", "Change request",
+              "Fuzz divergences", "Issues / PRs / commits", "SonarQube", "Coverage (own tests)"]
+
+
+def caps_hit(doc):
+    """How often the arm's runs hit a cap: `none`, or `2 of 5 runs (wall 2, cost 0)` (#592)."""
+    c = AGG.cap_hits(runs_of(doc))
+    if not c["of"]:
+        return NA
+    if not c["runs"]:
+        return f"none of {c['of']}"
+    return f"{c['runs']} of {c['of']} (wall {c['wall']}, cost {c['cost']})"
+
+
+def change_cell(doc):
+    """When the mid-run change request went out: the trigger (progress, with the % of the hidden tests passing when it
+    fired, or arm-done) of each run."""
+    kinds = []
+    for r in runs_of(doc):
+        c = r.get("change")
+        if not isinstance(c, dict) or not c.get("fired"):
+            kinds.append("not fired")
+        elif c.get("trigger") == "progress":
+            kinds.append("at %s%%" % gfmt(c.get("progress_pct")) if isinstance(c.get("progress_pct"), (int, float)) else "at progress")
+        else:
+            kinds.append(str(c.get("trigger") or NA))
+    if not kinds:
+        return NA
+    if len(kinds) == 1:
+        return kinds[0]
+    return ", ".join(f"{kinds.count(k)} {k}" for k in dict.fromkeys(kinds))
+
+
+def large_table(arms, skipped):
+    rows = []
+    for arm in sorted(arms, key=arm_key):
+        d = arms[arm]
+        rows.append([title(arm), n_label(d), cap_status(d), caps_hit(d), cstat(d, "wall_s", dur), cstat(d, "first_full_pass_s", dur),
+                     hidden(d), cstat(d, "cost_usd", usd), cstat(d, "usd_per_passed_test", lambda v: "$%.3f" % v),
+                     cstat(d, "regressions", cnt), cstat(d, "compactions", cnt), continues(d), change_cell(d), fuzz(d), work(d),
+                     sonar(d), coverage(d)])
+    ncol = len(LARGE_HEAD)
+    for arm in sorted(set(skipped) | (set(OPTIONAL_ARMS) - set(arms)), key=arm_key):
+        if arm not in arms:
+            rows.append([title(arm), NA, f"skipped: {skipped.get(arm, 'not run')}"] + [NA] * (ncol - 3))
+    lines = ["| " + " | ".join(LARGE_HEAD) + " |", "|" + "|".join(["---"] * ncol) + "|"]
+    lines += ["| " + " | ".join(cell(c) for c in r) + " |" for r in rows]
+    return "\n".join(lines)
+
+
+def record_of(doc):
+    """The record `aggregate.speedup` reads for an arm: its aggregate record, or its single run."""
+    return doc.get("_stored") if "_runs" in doc else doc
+
+
+def speedup_note(arms):
+    if "harness" not in arms or "harness-3" not in arms:
+        return "**1 to 3 workers:** n/a (needs both the `harness` and the `harness-3` arm)."
+    sp = AGG.speedup(record_of(arms["harness"]), record_of(arms["harness-3"]))
+    if sp is None:
+        return "**1 to 3 workers:** n/a (an arm has no wall time)."
+    return (f"**1 to 3 workers:** the 3-worker fleet took {dur(sp['wall_3_s'])} against {dur(sp['wall_1_s'])} for one worker, a "
+            f"speed-up of {sp['x']:.2f}x" + (" (an arm hit a cap, so its wall time is a lower bound)." if sp["capped"] else "."))
+
+
+def verify_speedup(arms):
+    """[message] when a stored `speedup_1_to_3` is not the one the two arms' records give."""
+    d = arms.get("harness-3")
+    if not d or "harness" not in arms:
+        return []
+    stored = d.get("speedup_1_to_3")
+    if stored is None:
+        return []
+    want = AGG.speedup(record_of(arms["harness"]), record_of(d))
+    return [] if stored == want else [f"harness-3: speedup_1_to_3 is {stored}, the arms' results give {want}"]
+
+
+def large_notes(arms):
+    out = [speedup_note(arms)]
+    out.append("**Change request:** at about 50% of the pre-change hidden tests passing, the runner hands every arm the same written "
+               "change (`bench/fixture-large/change.md`); an arm that finishes first is handed it when it would stop "
+               "(`arm-done`). Milestones are graded every few minutes, so *first full pass* and *regressions* (a hidden test that "
+               "passed at a milestone and failed at a later one) have that resolution. Per-module scores are in each results "
+               "JSON (`hidden_tests.modules`).")
+    return out
+
+
+def large_section(run_id, arms, skipped):
+    parts = ["### Large fixture (tallybook)",
+             f"Generated from `bench/results/{run_id}/`: a 20-page brief, a 6-10k line reference implementation, hidden tests per "
+             "module, a differential fuzz against the reference and a mid-run requirement change (`bench/fixture-large/`). "
+             "The columns are the original table's, plus the large fixture's own measures."]
+    bad = invalid_reasons(arms)
+    if bad:
+        parts.append("**INVALID RUN: rerun.** An arm's quality scan did not run: " + "; ".join(bad) + ".")
+    parts.append(large_table(arms, skipped))
+    parts += large_notes(arms)
+    parts.append(RUNS_NOTE)
+    parts += stopped_notes(arms)
+    parts += fuzz_note(arms) + arm_notes(arms)
+    if undeleted(arms):
+        parts.append(undeleted(arms))
+    return "\n\n".join(parts)
+
+
 # --- figure ----------------------------------------------------------------------------
 C_CODING, C_TESTING, C_WALL, C_COST = "#4c78a8", "#f58518", "#9aa0a6", "#54a24b"
 C_OUTSIDE = "#b8a2d6"       # wall time outside any agent session: orchestration, waiting (#583)
@@ -655,14 +779,25 @@ def main(argv=None):
     fig_path = a.figure or os.path.join(a.results_dir, "benchmark.svg")
 
     runs = run_dirs(a.results_dir)
-    run_id = a.run_id or (runs[-1] if runs else None)
     if a.run_id and a.run_id not in runs:
         print(f"figures.py: no results for run {a.run_id!r} in {a.results_dir}", file=sys.stderr)
         return 2
+    by_fixture = {}
+    for r in runs:   # the latest run of each fixture; --run-id picks that run for its own fixture (#592)
+        by_fixture[run_fixture(a.results_dir, r)] = r
+    if a.run_id:
+        by_fixture[run_fixture(a.results_dir, a.run_id)] = a.run_id
+    run_id, large_id = by_fixture.get("pennywise"), by_fixture.get("large")
+    if run_id is None and large_id is None and runs:
+        run_id = runs[-1]
     arms, skipped = load_run(a.results_dir, run_id) if run_id else ({}, {})
+    large, large_skipped = load_run(a.results_dir, large_id) if large_id else ({}, {})
     svg = figure(arms)
     fig_ref = os.path.relpath(fig_path, os.path.dirname(os.path.abspath(a.readme))).replace(os.sep, "/") if svg else None
-    new_readme = splice(read(a.readme) or "", section(run_id, arms, skipped, fig_ref))
+    body = section(run_id, arms, skipped, fig_ref)
+    if large_id:
+        body += "\n\n" + large_section(large_id, large, large_skipped)
+    new_readme = splice(read(a.readme) or "", body)
     if new_readme is None:
         print(f"figures.py: {a.readme} has no '<!-- bench:begin ... -->' ... {END!r} markers", file=sys.stderr)
         return 2
@@ -675,10 +810,12 @@ def main(argv=None):
     if a.check:
         for p in stale:
             print(f"figures.py: stale: {p}", file=sys.stderr)
-        unreproduced = verify_logs(a.results_dir, run_id, arms) if run_id else []
+        unreproduced = (verify_logs(a.results_dir, run_id, arms) if run_id else []) + \
+            (verify_logs(a.results_dir, large_id, large) if large_id else [])
         for m in unreproduced:
             print(f"figures.py: logs do not reproduce results: {m}", file=sys.stderr)
-        inconsistent = verify_aggregates(arms) if run_id else []
+        inconsistent = (verify_aggregates(arms) if run_id else []) + (verify_aggregates(large) + verify_speedup(large)
+                                                                         if large_id else [])
         for m in inconsistent:
             print(f"figures.py: aggregate does not match its runs: {m}", file=sys.stderr)
         return 1 if stale or unreproduced or inconsistent else 0

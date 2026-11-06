@@ -99,16 +99,60 @@ assert_no "brief names no source/file layout" \
 assert_no "brief names no hidden test" grep -qE 'test_[a-z]|Tests\b' "$FIX/brief.md"
 
 echo "=== nothing hidden or reference is reachable from the brief or any run script ==="
-# a run script may use bench/fixture/brief.md and nothing else of the fixture dir.
-# bench/results/ is recorded output (raw agent transcripts), not a run script: it is scanned below for
-# the hidden/reference paths specifically, not for the word "fixture" the agents use for their own test fixtures.
-BAD="$(cd "$ROOT" && grep -rnoE 'fixture[^[:space:]"'"'"')]*' bench --include='*' --exclude-dir=fixture --exclude-dir=results --exclude=grade.py --exclude=fuzz.py 2>/dev/null | grep -vE 'fixture/brief\.md$' || true)"
-assert_eq "$BAD" "" "bench/ scripts (bar the graders grade.py and fuzz.py) reference only fixture/brief.md"
-BAD="$(cd "$ROOT" && grep -rlE 'fixture/(hidden|reference)|run_hidden|bench/fixture|test_hidden' bench/results 2>/dev/null || true)"
+# What an arm can reach is whatever a run script puts in front of it: bench/run.py seeds the run repo with the fixture's
+# brief (bench/fixtures.py names it) and hands the arm the written change request; nothing else of a fixture dir. So the
+# scripts that start or run an arm never name a fixture's hidden tests, reference, fuzz or hint file. The graders
+# (grade.py, fuzz.py, progress.py's milestone grading) and the registry (fixtures.py) are the only code that does, and
+# they run on the host, outside the arm's checkout. bench/results/ is recorded output (raw agent transcripts), scanned below.
+BAD="$(cd "$ROOT" && grep -rnE 'fixture(-large)?/(hidden|reference|shape|notes)|run_hidden|test_hidden|shape\.json' bench/run.py bench/armlib.py bench/arms bench/aggregate.py bench/quality.py bench/testcov.py 2>/dev/null || true)"
+assert_eq "$BAD" "" "run.py, armlib.py and the arms never name a fixture's hidden tests, reference or shape file"
+BAD="$(cd "$ROOT" && grep -rlE 'fixture(-large)?/(hidden|reference)|run_hidden|bench/fixture|test_hidden' bench/results 2>/dev/null || true)"
 assert_eq "$BAD" "" "recorded bench results (raw transcripts, logs) never touched the hidden tests or the reference"
-BAD="$(cd "$ROOT" && grep -rnE 'bench/fixture|fixture/(hidden|reference)|run_hidden' bin scripts skill prompts plugins docs install.sh update.sh 2>/dev/null | grep -vE 'bench/fixture/brief\.md' || true)"
+BAD="$(cd "$ROOT" && grep -rnE 'bench/fixture|fixture(-large)?/(hidden|reference)|run_hidden' bin scripts skill prompts plugins docs install.sh update.sh 2>/dev/null | grep -vE 'bench/fixture/brief\.md' || true)"
 assert_eq "$BAD" "" "engine, skills, prompts, docs: no reference to the hidden tests or reference"
 assert_no "reference solution does not embed the hidden tests" grep -rqE 'test_hidden|run_hidden|unittest' "$FIX/reference"
 assert_ok "hidden tests do not sit in the reference tree" test ! -e "$FIX/reference/hidden"
+
+echo "=== the large fixture ships its parts (#592) ==="
+LG="$ROOT/bench/fixture-large"
+for f in brief.md change.md shape.json fixture.json fuzz.py hidden/run_hidden.py hidden/support.py reference/pyproject.toml reference/tallybook/__init__.py; do
+  assert_ok "large: $f" test -s "$LG/$f"
+done
+assert_ok "large: hidden tests of all 16 modules" test "$(ls "$LG"/hidden/test_[0-9][0-9]_*.py | wc -l)" -eq 16
+assert_no "large brief does not mention hidden tests, the reference or grading" \
+  grep -qiE 'hidden test|reference solution|grad(e|er|ing)|bench(mark)?\b|unit test|test suite|acceptance test' "$LG/brief.md"
+assert_no "large change request does not either" grep -qiE 'hidden test|reference solution|grad(e|er|ing)|bench(mark)?\b|unit test|test suite' "$LG/change.md"
+assert_no "large brief names no source/file layout" grep -qE 'pyproject|setup\.py|src/|__init__\.py|tests?/' "$LG/brief.md"
+assert_no "the brief describes the original behaviour only: no lock date, no half-to-even" grep -qiE 'lock date|LockedPeriod|half to even|half-to-even|banker' "$LG/brief.md"
+assert_ok "the change request carries all three changes" bash -c "grep -q 'half to even' '$LG/change.md' && grep -q 'lock date' '$LG/change.md' && grep -q '\"code\"' '$LG/change.md'"
+assert_no "the reference does not embed the hidden tests" grep -rqE 'run_hidden|hidden/' "$LG/reference"
+
+echo "=== the large reference scores 100% in both phases, a broken one does not, an empty repo scores 0 ==="
+LARGE_FUZZ=40
+( BENCH_FUZZ_CASES=$LARGE_FUZZ python3 "$GRADE" "$LG/reference" --fixture large > "$W/lg-post.json" ) &
+( TALLYBOOK_PHASE=pre python3 "$GRADE" "$LG/reference" --fixture large --phase pre --tests-only > "$W/lg-pre.json" ) &
+( python3 "$GRADE" "$LG/reference" --fixture large --phase pre --tests-only > "$W/lg-pre-on-post.json" ) &
+mkdir "$W/lg-empty"
+( python3 "$GRADE" "$W/lg-empty" --fixture large --tests-only > "$W/lg-empty.json" ) &
+cp -r "$LG/reference" "$W/lg-broken"
+sed -i 's|^def round_div(n, d):|def round_div(n, d):\n    return n // d|' "$W/lg-broken/tallybook/money.py"
+( BENCH_FUZZ_CASES=120 python3 "$GRADE" "$W/lg-broken" --fixture large > "$W/lg-broken.json" ) &
+wait
+# 981 results are too big for an argument list: read the graders' JSON from files
+fragf(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[2]))[sys.argv[1]])' "$1" "$2"; }
+LGP="$W/lg-post.json"
+assert_eq "$(fragf failed "$LGP")" "0" "large reference, post-change: nothing failed"
+assert_ok "large reference: about a thousand hidden tests" test "$(fragf total "$LGP")" -ge 900
+assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["details"]["install"])' "$LGP")" "pip" "large reference is built and installed with pip"
+assert_eq "$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["modules"]; print(sorted(m)==["%02d"%i for i in range(1,17)], all(v["passed"]==v["total"]>0 for v in m.values()))' "$LGP")" "True True" "every one of the 16 modules is scored, all passed"
+assert_eq "$(python3 -c 'import json,sys; f=json.load(open(sys.argv[1]))["fuzz"]; print(f["fuzz_cases"], f["fuzz_divergences"], f["fuzz_seed"])' "$LGP")" "$LARGE_FUZZ 0 592" "large reference: the fuzz ran its cases and found 0 divergences against itself"
+assert_eq "$(fragf failed "$W/lg-pre.json")" "0" "large reference with TALLYBOOK_PHASE=pre: every pre-change test passes"
+assert_ok "the post-change test set is not the pre-change one" test "$(fragf total "$W/lg-pre.json")" -ne "$(fragf total "$LGP")"
+assert_ok "the post-change reference fails some pre-change tests: the change request changes behaviour" test "$(fragf failed "$W/lg-pre-on-post.json")" -gt 0
+assert_eq "$(fragf passed "$W/lg-empty.json")" "0" "large: an empty repo scores 0"
+assert_eq "$(fragf total "$W/lg-empty.json")" "$(fragf total "$LGP")" "large: an empty repo has the reference's total"
+assert_ok "large broken rounding: some hidden test fails" test "$(fragf failed "$W/lg-broken.json")" -gt 0
+assert_ok "large broken rounding: the rest pass" test "$(fragf passed "$W/lg-broken.json")" -gt 0
+assert_eq "$(python3 -c 'import json,sys; f=json.load(open(sys.argv[1]))["fuzz"]; print(f["fuzz_divergences"] > 0)' "$W/lg-broken.json")" "True" "large broken rounding: the fuzz sees it too"
 
 finish
