@@ -36,7 +36,9 @@ runs so far (bench/aggregate.py: median and min-max per metric). The batch stops
 completed and why, when the guard refuses a later run (the budget ran out, a hold, the disk), a run's arm fails, or a
 repo could not be deleted. `--runs 1` writes the single-run layout `<arm>.json` + `<arm>.logs/`, shown as `n=1`.
 Optional code quality (bench/quality.py, #387) runs on the graded clone and never fails a run: Docker
-absent or the scan failing is recorded as `quality: skipped (<reason>)`.
+absent or the scan failing is recorded as `quality: skipped (<reason>)`, and a run with any arm so skipped is
+INVALID: bench/figures.py marks it "invalid: rerun" and run.py says so on stderr (#588). The arm's own tests'
+line and branch coverage, subprocesses counted (bench/testcov.py), is recorded as `coverage`.
 Stdlib only; reuses scripts/forecast.py and scripts/stats.py.
 """
 import argparse, glob, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, threading, time
@@ -48,6 +50,7 @@ SCRIPTS = os.path.join(ROOT, "scripts")
 BRIEF = os.path.join(ROOT, "bench/fixture/brief.md")
 GRADER = os.path.join(HERE, "grade.py")
 QUALITY = os.path.join(HERE, "quality.py")
+TESTCOV = os.path.join(HERE, "testcov.py")
 SCHEMA = 1
 RUNS_DEFAULT = 5
 WALL_CAP_S = 6 * 3600
@@ -446,6 +449,38 @@ def quality(workdir, script, log, timeout=2700):
         return skipped(f"quality scan failed: {e}")
 
 
+def coverage(workdir, script, log, timeout=1800):
+    """The coverage fragment ({"coverage": {"line_pct", "branch_pct", "total_pct", "tests"} | "skipped (<reason>)"})
+    for the graded clone's own tests, subprocesses counted (bench/testcov.py, #588). Never blocking."""
+    def skipped(why):
+        log(f"coverage skipped: {why}")
+        return {"coverage": f"skipped ({' '.join(str(why).split())[:300]})"}
+    dest = os.path.join(workdir, GRADED)
+    if not os.path.isdir(dest):
+        return skipped("no clone of the final default branch to measure")
+    try:
+        p = subprocess.run([sys.executable, script, dest], capture_output=True, text=True, timeout=timeout,
+                           stdin=subprocess.DEVNULL)
+        why = f"exit {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}"
+        if p.returncode != 0:
+            raise ValueError(why)
+        c = json.loads(p.stdout).get("coverage")
+        if not valid_coverage(c):
+            raise ValueError(why)
+        log(f"coverage -> {c}")
+        return {"coverage": c}
+    except Exception as e:   # includes a timeout and an unreadable fragment
+        return skipped(f"coverage run failed: {e}")
+
+
+def valid_coverage(c):
+    """A `coverage` value: {line_pct, branch_pct} numbers, or `skipped (<reason>)`."""
+    if isinstance(c, str):
+        return c.startswith("skipped (") and c.endswith(")")
+    return isinstance(c, dict) and all(isinstance(c.get(k), (int, float)) and not isinstance(c.get(k), bool)
+                                       for k in ("line_pct", "branch_pct"))
+
+
 # --- results ---------------------------------------------------------------------------
 REQUIRED = {
     "schema": int, "run_id": str, "arm": str, "repo": str, "status": str, "capped": (str, type(None)),
@@ -531,6 +566,8 @@ def validate(d):
     if "quality" in d and not (q == "ok" and isinstance(d.get("sonarqube"), dict)
                                or isinstance(q, str) and q.startswith("skipped (") and "sonarqube" not in d):
         bad.append(f"quality {q!r} does not match sonarqube")
+    if "coverage" in d and not valid_coverage(d["coverage"]):
+        bad.append(f"coverage {d['coverage']!r} is neither line_pct / branch_pct nor skipped (<reason>)")
     return bad
 
 
@@ -568,6 +605,7 @@ def parse_args(argv):
     ap.add_argument("--events", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--grader", default=GRADER, help=argparse.SUPPRESS)
     ap.add_argument("--quality", default=QUALITY, help=argparse.SUPPRESS)
+    ap.add_argument("--testcov", default=TESTCOV, help=argparse.SUPPRESS)
     return ap.parse_args(argv)
 
 
@@ -710,7 +748,7 @@ def execute_one(a, arm, opts, g, fc, st, slot):
            "cost_usd": 0.0, "usd_per_pct": g["usd_per_pct"], "usd_per_pct_source": g["usd_per_pct_source"],
            "weekly_window_pct": None, "models": {}, "hidden_tests": {"passed": 0, "failed": None, "total": None},
            "counts": {}, "caps": caps, "repo_deleted": None, "logs": os.path.basename(logs),
-           "quality": "skipped (not run)"}
+           "quality": "skipped (not run)", "coverage": "skipped (not run)"}
     if slot["index"] is not None:
         res["run"] = slot["index"]
     ctx = None
@@ -755,6 +793,10 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             res["hidden_tests"] = {k: v for k, v in graded.items() if k != "fuzz"}
             res.update(fuzz_fields(graded.get("fuzz")))
             res.update(quality(work, a.quality, log))
+            res.update(coverage(work, a.testcov, log))
+            if not str(res.get("quality")).startswith("ok"):
+                print(f"bench: INVALID RUN: the {a.arm} arm's quality scan was skipped ({res['quality']}); a host "
+                      "problem must not count against an arm: fix it and rerun the whole run", file=sys.stderr)
             res["weekly_window_pct"] = (round(m["cost_usd"] / g["usd_per_pct"], 2) if g["usd_per_pct"] else None)
         res["ended_at"] = now_iso()
         write_json(os.path.join(out_dir, slot["json"]), res)

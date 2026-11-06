@@ -385,8 +385,13 @@ status, wall time with the coding and testing split, tokens (total and input / o
 write), list-price $ and % of the weekly window, hidden tests passed, fuzz divergences (`fuzz_divergences` / `fuzz_cases`, #589), issues / PRs (`counts.issues_closed`,
 `counts.prs_merged`) or commits (`counts.commits`), continue replies (`counts.continue_replies`) and the
 models that ran. Under the table, a **Run settings** line per arm that recorded them (#590) gives the models that ran, the effort by message,
-what the arm asked for, the engine commit, the `/harness` skill version and the Claude Code CLI version. A **SonarQube** column appears only when some result carries a `sonarqube` object
-(`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`, `duplicated_lines_density`, `coverage`).
+what the arm asked for, the engine commit, the `/harness` skill version and the Claude Code CLI version. The **SonarQube** column (`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`,
+`duplicated_lines_density` from the result's `sonarqube` object) and the **Coverage (own tests)** column (total,
+line and branch %, from its `coverage` object) are **always** there: a scan or coverage run that did not produce
+numbers renders as `n/a (<reason>)`, and a result that never tried as `n/a (not measured)`.  **A run in which any arm's quality scan did not run is invalid**: the section opens
+with `INVALID RUN: rerun.` and names the arm and the reason, because a host problem must not count against an
+arm (`bench/run.py` says so on stderr too). Rerun the whole run; `--check` still passes on an invalid run once
+its README is written, since the README then says it is invalid.
 For an arm with several runs every number is the **median**, with the **range** after it (`$20.00 ($10.00–$30.00)`),
 and the figure draws the median as the bar with min–max whiskers; a **Runs** line under the table says so. `--check`
 also fails when an aggregate differs from the aggregate of its runs' results JSON or names a run file that cannot be
@@ -403,6 +408,11 @@ and its admin token is generated inside it; `sonarsource/sonar-scanner-cli` scan
 network are removed afterwards. The first run pulls about 4 GB of images and SonarQube needs a couple of GB of
 RAM, so it takes minutes. `BENCH_SONAR_IMAGE` / `BENCH_SONAR_SCANNER_IMAGE` pick other images.
 
+SonarQube's data directory (`/opt/sonarqube/data`) is mounted as a **tmpfs** (`BENCH_SONAR_DATA_SIZE`, default
+`6g`, RAM-backed). Without it, Elasticsearch refuses to start when that filesystem has under 10% free
+(`Not enough free disk space for Elasticsearch data directory`), and the bench host's disk is often fuller than
+that. When the server does exit, the skip reason is the log's first `ERROR` / `MessageException` line, not its tail.
+
 It is **never blocking**. Docker not installed, its daemon down, an image that cannot be pulled, a server that
 does not come up, a scan that fails or times out: the arm's results say `quality: "skipped (<reason>)"`, the run's
 other results are untouched and the exit status is still 0.
@@ -414,11 +424,32 @@ bench/quality.py DIR --arm-json X.json     # also merges it into an arm's result
 
 | field | type | meaning |
 |---|---|---|
-| `quality` | string | `ok`, or `skipped (<reason>)`. Absent in results written before #387 |
+| `quality` | string | `ok`, or `skipped (<reason>)`, which makes the run **invalid: rerun** (see above). Absent in results written before #387 |
 | `sonarqube` | object | only with `quality: ok`: `bugs`, `vulnerabilities`, `code_smells` (counts), `maintainability_rating` (`A` to `E`), `duplicated_lines_density` (%), `coverage` (%, null when no test coverage was imported, as here) |
 
-`bench/figures.py` adds a **SonarQube** column when some result carries `sonarqube`, and shows `skipped (<reason>)`
-for an arm that has none. The tests drive the scan with a fake `docker` and a fake SonarQube API; a real scan on a
+The SonarQube `coverage` is null here (no coverage report is imported); the arm's coverage is measured separately:
+
+### Test coverage
+
+`bench/testcov.py <repo-dir>` (#588) runs the arm's **own** test suite (`python -m unittest discover -s tests`, or
+pytest for a suite that does not use unittest) on a throwaway copy of the graded clone, under coverage.py with
+branch measurement, and `bench/run.py` records the result as `coverage` beside `quality`. **Subprocesses count**:
+the CLI tests run `python -m <pkg>` in child processes, so the run sets `parallel = True` and
+`COVERAGE_PROCESS_START` and puts a `sitecustomize` calling `coverage.process_startup()` on `PYTHONPATH`; the
+children's data files are combined before reporting. The measured source is the repo's `src/` (else the repo
+root minus `tests/`). Like quality it never blocks: coverage.py missing (`pip install coverage`), no `tests/`
+directory or tests that wrote no data are `coverage: "skipped (<reason>)"`.
+
+| field | type | meaning |
+|---|---|---|
+| `coverage` | object or string | `{"line_pct", "branch_pct", "total_pct", "tests"}` (%, `tests` is `unittest` or `pytest`; `total_pct` is coverage.py's branch-aware total, what `coverage report` prints), or `skipped (<reason>)`. Absent in results written before #588 |
+
+```
+bench/testcov.py DIR                       # prints the fragment as JSON
+bench/testcov.py DIR --arm-json X.json     # also merges it into an arm's results file
+```
+
+The tests drive the scan with a fake `docker` and a fake SonarQube API; a real scan on a
 small sample repo is opt-in (`BENCH_QUALITY_REAL=1 python3 test/test_bench_quality.py`) and says so when it is skipped.
 
 A standing audit of the **public Harness repo itself** (SonarQube Cloud, Codacy or DeepSource, free for public

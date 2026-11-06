@@ -463,14 +463,14 @@
   },
   "repo_deleted": false,
   "logs": "harness.logs",
-  "quality": "skipped (the SonarQube container exited: ace and restart SonarQube. 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] SonarQube is stopped 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] Waiting for Elasticsearch to be up and running)",
+  "quality": "ok",
   "claude_config": {
     "source": "front-door init",
     "skills": 186,
     "plugins": 6,
     "mcp_servers": 4
   },
-  "note": "The Harness arm's front door and fleet sessions ran with the operator's personal Claude config (186 skills, 6 user plugins and 4 claude.ai MCP servers in the front-door init), not an isolated one like the plain arm's. The orchestrator session crash-looped 13 times (05:56 to 05:59) because the tmux socket directory was missing; the front-door session repaired it by hand (it created /home/claude/.harness/tmux-hzhn/tmux-1000 on the host, outside the run's isolated home) and restarted the fleet with `harness start --recover`, which is the 1 fleet restart counted.",
+  "note": "The Harness arm's front door and fleet sessions ran with the operator's personal Claude config (186 skills, 6 user plugins and 4 claude.ai MCP servers in the front-door init), not an isolated one like the plain arm's. The orchestrator session crash-looped 13 times (05:56 to 05:59) because the tmux socket directory was missing; the front-door session repaired it by hand (it created /home/claude/.harness/tmux-hzhn/tmux-1000 on the host, outside the run's isolated home) and restarted the fleet with `harness start --recover`, which is the 1 fleet restart counted. Quality and own-test coverage were backfilled after #588: the first run's SonarQube scan was skipped because the host disk had under 10% free (Elasticsearch refuses to start), so both arms' final repos were rescanned with the data directory on a tmpfs and their own tests re-run under coverage with subprocesses counted.",
   "fuzz_cases": 1000,
   "fuzz_divergences": 387,
   "fuzz_examples": [
@@ -482,7 +482,7 @@
         "month",
         "ledger.txt"
       ],
-      "ledger": "\\t\\r\\n2024-05-12 \\t Caf\\xe9\\t0.00 \\r\\n 2023-08-08 Caf\\xe9\\t-0  March pay\\r\\n\\t2025-10-26 SALARY   -42.50\\ttab\\tinside\\r\\n\\r\\n  2024-07-06\\t\\tgas\\t+992 -refund\\r\\n# household, March\\r\\n\\r\\n  2024-02-09…",
+      "ledger": "\\t\\r\\n2024-05-12 \\t Caf\\xe9\\t0.00 \\r\\n 2023-08-08 Caf\\xe9\\t-0  March pay\\r\\n\\t2025-10-26 SALARY   -42.50\\ttab\\tinside\\r\\n\\r\\n  2024-07-06\\t\\tgas\\t+992 -refund\\r\\n# household, March\\r\\n\\r\\n  2024-02-09\u2026",
       "ledger_from": "file",
       "closed_stdout": true,
       "reference": {
@@ -491,8 +491,8 @@
         "stderr_empty": true,
         "file": [
           "\t",
-          "2024-05-12 \t Café\t0.00 ",
-          " 2023-08-08 Café\t-0  March pay",
+          "2024-05-12 \t Caf\u00e9\t0.00 ",
+          " 2023-08-08 Caf\u00e9\t-0  March pay",
           "\t2025-10-26 SALARY   -42.50\ttab\tinside",
           "  2024-07-06\t\tgas\t+992 -refund",
           "# household, March",
@@ -505,8 +505,8 @@
         "stderr_empty": false,
         "file": [
           "\t",
-          "2024-05-12 \t Café\t0.00 ",
-          " 2023-08-08 Café\t-0  March pay",
+          "2024-05-12 \t Caf\u00e9\t0.00 ",
+          " 2023-08-08 Caf\u00e9\t-0  March pay",
           "\t2025-10-26 SALARY   -42.50\ttab\tinside",
           "  2024-07-06\t\tgas\t+992 -refund",
           "# household, March",
@@ -581,21 +581,21 @@
         "csv",
         "ledger.txt"
       ],
-      "ledger": "  # indented\\r\\n2023-04-04\\t\\tCaf\\xe9 \\t -3746   para\\u2029sep\\r\\n\\r\\n 2023-03-06\\t\\tx1 \\t 2500.00 \\t unicode \\u2603 \\xe9\\r\\n# household, March\\r\\n 2023-06-10 a_b\\t\\t100000000.99   -5\\r\\n2023-10-17 Re…",
+      "ledger": "  # indented\\r\\n2023-04-04\\t\\tCaf\\xe9 \\t -3746   para\\u2029sep\\r\\n\\r\\n 2023-03-06\\t\\tx1 \\t 2500.00 \\t unicode \\u2603 \\xe9\\r\\n# household, March\\r\\n 2023-06-10 a_b\\t\\t100000000.99   -5\\r\\n2023-10-17 Re\u2026",
       "ledger_from": "file",
       "closed_stdout": false,
       "reference": {
         "exit": 0,
-        "stdout": "date,category,amount,note\\n2023-03-06,x1,2500.00,unicode \\u2603 \\xe9\\n2023-04-04,caf\\xe9,-3746.00,para\\u2029sep\\n2023-06-10,a_b,100000000.99,-5\\n2023-10-17,rent,-1527.00,-refund\\n2024-08-09,caf\\xe9,0.…",
+        "stdout": "date,category,amount,note\\n2023-03-06,x1,2500.00,unicode \\u2603 \\xe9\\n2023-04-04,caf\\xe9,-3746.00,para\\u2029sep\\n2023-06-10,a_b,100000000.99,-5\\n2023-10-17,rent,-1527.00,-refund\\n2024-08-09,caf\\xe9,0.\u2026",
         "stderr_empty": true,
         "file": [
           "  # indented",
-          "2023-04-04\t\tCafé \t -3746   para sep",
-          " 2023-03-06\t\tx1 \t 2500.00 \t unicode ☃ é",
+          "2023-04-04\t\tCaf\u00e9 \t -3746   para\u2029sep",
+          " 2023-03-06\t\tx1 \t 2500.00 \t unicode \u2603 \u00e9",
           "# household, March",
           " 2023-06-10 a_b\t\t100000000.99   -5",
           "2023-10-17 Rent\t-1527.0\t\t-refund",
-          "2024-08-09 Café\t\t-0 \t (note)",
+          "2024-08-09 Caf\u00e9\t\t-0 \t (note)",
           "#2024-01-01 a 5"
         ]
       },
@@ -605,12 +605,12 @@
         "stderr_empty": false,
         "file": [
           "  # indented",
-          "2023-04-04\t\tCafé \t -3746   para sep",
-          " 2023-03-06\t\tx1 \t 2500.00 \t unicode ☃ é",
+          "2023-04-04\t\tCaf\u00e9 \t -3746   para\u2029sep",
+          " 2023-03-06\t\tx1 \t 2500.00 \t unicode \u2603 \u00e9",
           "# household, March",
           " 2023-06-10 a_b\t\t100000000.99   -5",
           "2023-10-17 Rent\t-1527.0\t\t-refund",
-          "2024-08-09 Café\t\t-0 \t (note)",
+          "2024-08-09 Caf\u00e9\t\t-0 \t (note)",
           "#2024-01-01 a 5"
         ]
       },
@@ -669,8 +669,8 @@
         "stderr_empty": true,
         "file": [
           "2024-10-03   food\t-2611 \t (note)",
-          "2025-09-22\tRent -3265.17   nelx",
-          " 2023-06-14 \t Café  -2420  --flag",
+          "2025-09-22\tRent -3265.17   nel\u0085x",
+          " 2023-06-14 \t Caf\u00e9  -2420  --flag",
           "# household, March"
         ]
       },
@@ -680,8 +680,8 @@
         "stderr_empty": false,
         "file": [
           "2024-10-03   food\t-2611 \t (note)",
-          "2025-09-22\tRent -3265.17   nelx",
-          " 2023-06-14 \t Café  -2420  --flag",
+          "2025-09-22\tRent -3265.17   nel\u0085x",
+          " 2023-06-14 \t Caf\u00e9  -2420  --flag",
           "# household, March"
         ]
       },
@@ -695,9 +695,9 @@
         "2025-12-27",
         "fun",
         "-944",
-        "nelx"
+        "nel\u0085x"
       ],
-      "ledger": " \\t \\r 2024-10-10 \\t fun \\t +1746.4  vt\\x0bx\\r\\t2025-04-13\\tk-n  -3763 \\t vt\\x0bx\\r 2023-12-18 fun   0  \\r\\t2024-01-11 \\t gas\\t\\t-1669.9 \\t -refund\\r2024-03-13 \\t a_b   -2969.51\\t\\tline\\u2028sep\\r2024…",
+      "ledger": " \\t \\r 2024-10-10 \\t fun \\t +1746.4  vt\\x0bx\\r\\t2025-04-13\\tk-n  -3763 \\t vt\\x0bx\\r 2023-12-18 fun   0  \\r\\t2024-01-11 \\t gas\\t\\t-1669.9 \\t -refund\\r2024-03-13 \\t a_b   -2969.51\\t\\tline\\u2028sep\\r2024\u2026",
       "ledger_from": "file",
       "closed_stdout": false,
       "reference": {
@@ -710,9 +710,9 @@
           "\t2025-04-13\tk-n  -3763 \t vt\u000bx",
           " 2023-12-18 fun   0  ",
           "\t2024-01-11 \t gas\t\t-1669.9 \t -refund",
-          "2024-03-13 \t a_b   -2969.51\t\tline sep",
+          "2024-03-13 \t a_b   -2969.51\t\tline\u2028sep",
           "2024-09-27   gas   -2733.48 ",
-          "2025-12-27 fun -944.00 nelx"
+          "2025-12-27 fun -944.00 nel\u0085x"
         ]
       },
       "arm": {
@@ -725,7 +725,7 @@
           "\t2025-04-13\tk-n  -3763 \t vt\u000bx",
           " 2023-12-18 fun   0  ",
           "\t2024-01-11 \t gas\t\t-1669.9 \t -refund",
-          "2024-03-13 \t a_b   -2969.51\t\tline sep",
+          "2024-03-13 \t a_b   -2969.51\t\tline\u2028sep",
           "2024-09-27   gas   -2733.48 "
         ]
       },
@@ -803,7 +803,7 @@
         "2024-11-18",
         "gas",
         "-0",
-        "line sep"
+        "line\u2028sep"
       ],
       "ledger": "#2024-01-01 a 5\\r 2023-03-04\\t\\tFood  -631.3 \\t March pay\\r2025-07-20\\tgas\\t\\t-2286 \\t -refund\\r 2024-06-24   SALARY\\t100000000.99   --flag",
       "ledger_from": "file",
@@ -817,7 +817,7 @@
           " 2023-03-04\t\tFood  -631.3 \t March pay",
           "2025-07-20\tgas\t\t-2286 \t -refund",
           " 2024-06-24   SALARY\t100000000.99   --flag",
-          "2024-11-18 gas 0.00 line sep"
+          "2024-11-18 gas 0.00 line\u2028sep"
         ]
       },
       "arm": {
@@ -835,5 +835,19 @@
     }
   ],
   "fuzz_seed": 589,
-  "fuzz_hash": "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478"
+  "fuzz_hash": "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478",
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  },
+  "coverage": {
+    "line_pct": 98.7,
+    "branch_pct": 97.8,
+    "total_pct": 98.6,
+    "tests": "unittest"
+  }
 }

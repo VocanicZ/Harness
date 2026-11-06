@@ -423,6 +423,10 @@ def test_validate_names_what_is_wrong():
     for bad in (dict(provenance={"engine_commit": "abc"}), dict(provenance=dict(prov, cli_version=3)), dict(effort={"medium": "3"}),
                 dict(effort=["medium"]), dict(configured={"model": "opus"}), dict(configured={"model": 1, "effort": None})):
         assert bench_run.validate(dict(good, **bad)) != [], bad
+    assert bench_run.validate(dict(good, coverage={"line_pct": 97, "branch_pct": 94.5})) == []
+    assert bench_run.validate(dict(good, coverage="skipped (coverage.py is not installed)")) == []
+    assert bench_run.validate(dict(good, coverage={"line_pct": 97})) != []        # no branch %
+    assert bench_run.validate(dict(good, coverage="ok")) != []
     skipped = {"schema": 1, "run_id": "x", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "t", "guard": {}}
     assert bench_run.validate(skipped) == []
     assert bench_run.validate(dict(skipped, reason="tired")) != []
