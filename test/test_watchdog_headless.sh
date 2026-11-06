@@ -21,7 +21,7 @@ source "$ROOT/scripts/lib.sh"
 make_env
 export RUN_DIR HARNESS_SESS_PREFIX=hlt HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_INTERRUPT_WAIT=10
 K=$HARNESS_STALL_RETRIES
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }

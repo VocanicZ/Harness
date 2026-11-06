@@ -20,7 +20,7 @@ make_env
 source "$ROOT/scripts/lib.sh" >/dev/null 2>&1
 export RUN_DIR HARNESS_SESS_PREFIX=hz HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }
 
 # Only the processes this test started: each lane's runner (its pid file) and each fake claude (calls.jsonl / pids).

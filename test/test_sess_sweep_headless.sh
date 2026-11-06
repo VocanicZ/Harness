@@ -19,7 +19,7 @@ make_env
 unset HARNESS_SESSION
 export RUN_DIR HARNESS_SESS_PREFIX=hsw HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude HARNESS_SWEEP_GRACE=1
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_INTERRUPT_WAIT=10 HARNESS_HEADLESS_STOP_WAIT=10
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }

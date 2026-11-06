@@ -27,6 +27,13 @@ windows_row_value(){ local row="$1" doc="${2:-${HARNESS_PARITY_DOC:-$(dirname "$
 host_is_windows(){ case "${HARNESS_PLATFORM:-}" in windows) return 0;; posix) return 1;; esac
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
 
+# native_path <path> — <path> in the form a NATIVE Windows program reads (`C:/x/y`, cygpath -m) when this host is Windows,
+# unchanged elsewhere (#493). Git Bash converts an MSYS path (`/c/x/y`) handed to a native exe, but not one inside a
+# command line a native Python lane runner builds itself: `HARNESS_CLAUDE_BIN="python3 /c/x/fake-claude"` made the runner
+# open `C:\c\x\fake-claude`, so no headless lane with a fake agent ever ran a turn on winsma (#606). Put the fake's path
+# through this: HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")".
+native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+
 # windows_skip <matrix row> <why> — the ONE way a test skips itself on Windows. A skip is allowed only when the row it
 # names is `n/a` on Windows in the parity matrix (docs/reference.md): Windows physically cannot do that feature.
 #   row n/a on Windows : on Windows prints "SKIP (Windows n/a: row '<row>'): <why>" and returns 0; elsewhere returns 1.

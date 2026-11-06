@@ -85,7 +85,7 @@ wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" &
 mklane(){ local f="$1" kind="$2" st="$T/fleets/$1/proj/.harness" wd="$T/fleets/$1/proj/.harness/worktrees/main-i1" fk="$T/fake-$1"
   mkdir -p "$wd" "$fk"; echo "the task" > "$wd/.harness-task.md"; rm -f "$fk/calls.jsonl" "$fk/pids"
   if [[ $kind == busy ]]; then echo hang > "$fk/plan"; else echo normal > "$fk/plan"; fi
-  ( export STATE_DIR="$st" FAKE_CLAUDE_DIR="$fk" HARNESS_CLI=claude HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+  ( export STATE_DIR="$st" FAKE_CLAUDE_DIR="$fk" HARNESS_CLI=claude HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
     source "$ENGINE_UNDER_TEST/scripts/lib.sh" >/dev/null 2>&1
     GOAL=ISSUE:1 PROMISE="ISSUE 1 DONE" MAXITER=10 launch_agent "$f-main-i1" "$wd" >"$T/lane-$f.out" 2>&1 ); }
 lane_settled(){ local f="$1" s="$f-main-i1"

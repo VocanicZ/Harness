@@ -88,7 +88,7 @@ nohup sleep 600 >/dev/null 2>&1 9>&- & BYSTANDER=$!; disown "$BYSTANDER" 2>/dev/
 mklane(){ local s="$1" wd="$2" fk="$ROOT/fake-$1" prefix="${1%%-*}"
   mkdir -p "$wd" "$fk" "$ROOT/lane-state/.harness"; echo "the task" > "$wd/.harness-task.md"; echo normal > "$fk/plan"
   ( export STATE_DIR="$ROOT/lane-state/.harness" HARNESS_SESS_PREFIX="$prefix" FAKE_CLAUDE_DIR="$fk" HARNESS_CLI=claude \
-           HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+           HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
     source "$ENGINE/scripts/lib.sh" >/dev/null 2>&1
     GOAL=ISSUE:1 PROMISE="ISSUE 1 DONE" MAXITER=10 launch_agent "$s" "$wd" >"$ROOT/lane-$s.out" 2>&1 )
   wait_until 20 bash -c "[[ \"\$(python3 '$ENGINE/scripts/cli/claude_headless.py' state --lane '$ROOT/host/lanes/$s' --field state 2>/dev/null)\" == idle ]]"; }
