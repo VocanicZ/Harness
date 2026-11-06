@@ -13,6 +13,9 @@
 #   4 claim      worker_tick — when it owns no lane, is not paused or held and live lanes + claims < POOL,
 #                claim_lane takes the first slot-taking item under pool.lock; the lane is spawned AFTER the
 #                lock is released (the claim covers the window)
+# A worker that owns a live lane ticks every HARNESS_TEND_TICK (15s) instead (#594): the SHORT tick runs only
+# step 3, with the goal check gated on an idle pane, and a reap hands straight to a full step so the next
+# claim happens at once. Steps 1, 2 and 4 stay on POLL.
 # Claims, adoption and the lane keys are described beside lane_claim_key in lib.sh.
 #
 _PW_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -116,17 +119,49 @@ tend_lane_done(){ local f="$1" key tok sess n prd slug
   key="$(basename "$f" .claim)"; tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
   case "$key" in
     impl-*) n="${key#impl-}"; sess="$(sess_impl "$UNIT" "$n")"
-            if session_live "$sess"; then check_session_goal "$sess"; watchdog_session "$sess"; fi
+            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; fi
             reap_impl_lane "$n";;
     orch-*) prd="${key#orch-}"; sess="$(sess_orch "$UNIT" "$prd")"
-            if session_live "$sess"; then check_session_goal "$sess"; watchdog_session "$sess"; fi
+            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; fi
             if (( prd == 0 )); then ! session_live "$sess"; else reap_orch_lane "$prd"; fi;;
-    bug-*)  slug="$(_with_owner "$(_bug_ref_repo "$tok")")"; n="$(_bug_ref_num "$tok")"
+    bug-*)  (( ${TEND_FAST:-0} )) && return 1   # #594: a bug lane has no goal; the full step tends it
+            slug="$(_with_owner "$(_bug_ref_repo "$tok")")"; n="$(_bug_ref_num "$tok")"
             bug_lane_tend "$slug" "$n"
             bug_session_live "$slug" "$n" && return 1
             bug_lane_reap_worktrees "$slug" "$n"; log "pool: reaped bug $tok session — worktrees released";;
     *)      return 1;;
   esac; }
+
+# --- #594: the short tick ---------------------------------------------------------------------------------
+# lane_pane_active <sess> — the lane is working: a turn is running (cli_pane_busy), or a sub-agent it started
+# still runs (the status line shows `← 1 agent`). A review lane sits at its prompt while its sub-agent works.
+LANE_AGENT_RE='← [0-9]+ agents?'
+lane_pane_active(){ local pane; pane="$(sess_capture "$1" 2>/dev/null)" || return 1
+  cli_pane_busy "$pane" || grep -qE -- "$LANE_AGENT_RE" <<<"$pane"; }
+# lane_has_gh <sess> — a `gh` process runs under the lane's pane (it is mid-filing: issue create, edit…).
+lane_has_gh(){ local pid; pid="$(sess_pane_pid "$1" 2>/dev/null)"; [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  ps -eo pid=,ppid=,comm= 2>/dev/null | awk -v root="$pid" '
+    { ppid[$1]=$2; comm[$1]=$3 }
+    END { for (p in comm) { if (comm[p] != "gh") continue; q=p
+            while (q != "" && q != 0 && q != 1) { if (q == root) exit 0; q=ppid[q] } }
+          exit 1 }'; }
+# lane_goal_gate <sess> — may the short tick check this lane's goal? Only while its pane is idle, so gh is not
+# hit every 15s while the agent works. A DECOMPOSE lane counts as done once the PRD has ANY child
+# (issuelib `check`), so an idle pane between two `gh issue create` calls must not end it: it waits for its
+# completion promise (cli_done), or HARNESS_TEND_IDLE_TICKS consecutive idle ticks with no gh running.
+lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n
+  if lane_pane_active "$s"; then rm -f "$idlef"; return 1; fi
+  n=$(( $(cat "$idlef" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$idlef"
+  goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"
+  if [[ "${goal%%:*}" == DECOMPOSE ]]; then
+    cli_done "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" && return 0
+    (( n >= HARNESS_TEND_IDLE_TICKS )) && ! lane_has_gh "$s"; return
+  fi
+  return 0; }
+# tend_goal / tend_watchdog <sess> — the goal check and watchdog of tend_lane_done. On the short tick
+# (TEND_FAST=1) the goal check is gated and the watchdog is skipped: its stall counter counts POLLs.
+tend_goal(){ if (( ${TEND_FAST:-0} )); then lane_goal_gate "$1" && check_session_goal "$1"; else check_session_goal "$1"; fi; }
+tend_watchdog(){ (( ${TEND_FAST:-0} )) || watchdog_session "$1"; }
 
 # worker_tend <wid> — step 3: one tend step for every lane this worker holds a claim on. An ended lane is
 # reaped and its claim released. rc 0 = at least one lane ended.
@@ -264,6 +299,21 @@ worker_hold_tick(){ local f sess lockfd
   lock_try "$RUN_DIR/chores.lock" lockfd || return 0
   watchdog_team; lock_release "$lockfd"; }
 
+# worker_owns_lane <wid> — this worker holds a claim (a lane it tends).
+worker_owns_lane(){ [[ -n "$(worker_claims "$1" | head -n1)" ]]; }
+# worker_short_due <wid> — #594: tick short while this worker owns a lane and the last FULL step is under POLL
+# old. _LAST_FULL starts unset and a reap clears it, so the first step and the step after a reap are full.
+worker_short_due(){ local now; (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) || return 1
+  [[ "${_LAST_FULL:-0}" =~ ^[0-9]+$ ]] && (( ${_LAST_FULL:-0} > 0 )) || return 1
+  now="$(date +%s)"; (( now - _LAST_FULL < POLL )) || return 1
+  worker_owns_lane "$1"; }
+# worker_short_step <wid> — the short tick: only the lane's tend step. A reap ends the short run: the next step is
+# full and at once (no sleep), so the next claim — or a slotless CLOSE_PRD — happens immediately. rc 0 = reaped.
+worker_short_step(){ local wid="$1" UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
+  roots_check
+  if TEND_FAST=1 worker_tend "$wid"; then _LAST_FULL=0; return 0; fi
+  sleep "$HARNESS_TEND_TICK"; return 1; }
+
 # One tick. rc is the claim step's (worker_tick): 0 a lane was claimed (the next tick comes at once), 1 idle,
 # 2 the repo is COMPLETE — logged ONCE per idle streak (_IDLE_LOGGED), the worker stays resident (#24),
 # 3 paused / held, 4 the host snapshot is stale, 5 the GitHub budget is low, 6 no checkout / a lane failed to
@@ -271,6 +321,7 @@ worker_hold_tick(){ local f sess lockfd
 # or once their roots are deleted (#419).
 worker_step(){ local wid="$1" rc
   _WORKER_ID="$wid"
+  worker_short_due "$wid" && { worker_short_step "$wid"; return $?; }   # #594: own a live lane → tend it on the short tick
   roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
   gh_rate_wait worker_hold_tick   # #183: rate-limited — sleep until the reset, tending lanes (gh-free) meanwhile
@@ -282,6 +333,7 @@ worker_step(){ local wid="$1" rc
     sleep "$POLL"; return 4
   fi
   usage_watch   # #194: read usage before claiming, so a crossing checkpoints + holds before this claim
+  _LAST_FULL="$(date +%s)"
   worker_chores "$wid"
   worker_tend "$wid"
   worker_tick "$wid"; rc=$?
@@ -291,7 +343,7 @@ worker_step(){ local wid="$1" rc
        sleep "$POLL" ;;
     5) sleep "$(( POLL * 2 ))" ;;
     6) sleep "$POLL" ;;
-    *) sleep "$POLL" ;;
+    *) worker_owns_lane "$wid" && (( HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL" ;;   # #594
   esac
   return "$rc"; }
 
