@@ -1188,6 +1188,12 @@ twice changes nothing (no second backup, no second event). Per fleet that needs 
    nothing to do): `fleet_roll` kills a worker only when its `ENGINE_DIR` is not this engine, so a worker
    already current is left running and a second `harness update` kills nothing.
 
+`harness start` runs the config step with `--no-start` and launches the workers itself, so it skips step 4's
+relaunch. For an already-migrated fleet (nothing to do, or only the CAP line dropped) it still stops every
+worker and priority process whose `ENGINE_DIR` is not this engine (`fleet_roll`'s comparison in stop-only mode,
+#566), so `pool.sh` replaces them rather than skipping a live pid; workers already on this engine stay up, and a
+worker holding a bug claim is left for a later pass.
+
 The config migration and the worker roll go together on purpose: a migrated config under old workers
 would leave them reading a missing `targets.tsv` and idling as "all complete".
 

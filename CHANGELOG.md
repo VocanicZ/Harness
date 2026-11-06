@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness start` replaces a fleet's old-engine workers instead of leaving them on the default cap (#566)
+
+- `harness start` migrates the fleet's config with `--no-start`, which for an already-migrated fleet only dropped a
+  leftover `HARNESS_CAP` line and killed nothing; `pool.sh` then saw each old worker pid alive and skipped it. Those
+  workers, on a release with #467 but not the step loop (#468), kept the unit-claim loop and fell back to that
+  release's default `HARNESS_CAP=3`, running more lanes than the fleet ever had until a manual stop and start. The
+  migration now also stops every worker and priority pid whose `ENGINE_DIR` is not the current engine (the same
+  comparison `fleet_roll` makes, through a new stop-only mode, so there is no nested `harness start`), and
+  `pool.sh` relaunches them. Workers already on this engine are left alone, so a second `harness start` kills
+  nothing; a worker holding a bug claim waits for a later pass; lane sessions keep running and the new workers
+  adopt them. `test/test_fleet_migrate.sh` covers old, current and bug-claim workers through `start.sh`.
+
 ### A repo name with a dot no longer gives tmux-unsafe bug-lane session names (#557)
 
 - `sess_bug` built `<prefix>-bug-<repo>-<n>-<phase>` from the repo slug with only `/` mapped to `_`, so

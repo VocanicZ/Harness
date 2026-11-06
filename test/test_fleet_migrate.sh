@@ -408,6 +408,60 @@ SH="$(fleet start-nomig ': "${HARNESS_UNIT:=main}"
 : "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
 assert_eq "$( ( unset_inherited_config; export HARNESS_FLEET_MIGRATE=0 HARNESS_HOME="$ROOT/host2" HARNESS_FLEETS_DIR="$ROOT/host2/fleets" HARNESS_POLLER_DIR="$ROOT/host2/poller" HARNESS_SNAPSHOTS_DIR="$ROOT/host2/snapshots"
     STATE_DIR="$SH" ENGINE_DIR="$ENGINE" bash "$ENGINE/scripts/start.sh" 2>&1 ) | grep -c 'CAP is gone')" "1" "start: a config's HARNESS_CAP the migration did not run on: one warning"
+# #566: `harness start` on an already-migrated fleet (rc 10/11) whose live workers run an OLDER engine release stops
+# them before pool.sh runs (pool.sh skips a live pid), so the new engine relaunches them; workers already on this
+# engine are left alone. Lane sessions are never touched.
+SA="$(fleet start-oldw ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/o}"
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=1}"
+: "${HARNESS_SESS_PREFIX:=hzso}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
+SB="$(fleet start-curw ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/c}"
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=1}"
+: "${HARNESS_SESS_PREFIX:=hzsc}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
+SC="$(fleet start-cleanold ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/n}"
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_SESS_PREFIX:=hzsn}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
+for d in "$SA" "$SC"; do spawn_eng "$d/run/worker-1.pid" "$OLDENG"; spawn_eng "$d/run/priority.pid" "$OLDENG"; done
+spawn_eng "$SA/run/worker-2.pid" "$OLDENG"
+for d in "$SB"; do spawn_eng "$d/run/worker-1.pid" "$ENGINE"; spawn_eng "$d/run/worker-2.pid" "$ENGINE"; spawn_eng "$d/run/priority.pid" "$ENGINE"; done
+OLD_SA="$(pidsof "$SA")"; CUR_SB="$(pidsof "$SB")"; OLD_SC="$(pidsof "$SC")"
+command -v tmux >/dev/null 2>&1 && tmux -L "$TMUX_SOCK" new-session -d -s hzso-main-i9 'sleep 600'
+start_fleet(){ ( unset_inherited_config; export HARNESS_HOME="$ROOT/host2" HARNESS_FLEETS_DIR="$ROOT/host2/fleets" HARNESS_POLLER_DIR="$ROOT/host2/poller" HARNESS_SNAPSHOTS_DIR="$ROOT/host2/snapshots"
+    STATE_DIR="$1" ENGINE_DIR="$ENGINE" bash "$ENGINE/scripts/start.sh" 2>&1 ); }
+start_fleet "$SA" >"$ROOT/start-sa.out"
+assert_no "start #566: the leftover HARNESS_CAP line is gone"        grep -q HARNESS_CAP "$SA/config"
+assert_ok "start #566: ...the old-engine workers and priority lane are stopped" dead "$OLD_SA"
+assert_ok "start #566: ...with the fleet's lane session still up"   bash -c "! command -v tmux >/dev/null || tmux -L '$TMUX_SOCK' has-session -t hzso-main-i9"
+start_fleet "$SB" >/dev/null
+assert_ok "start #566: workers already on this engine are left running" alive "$CUR_SB"
+assert_ok "start #566: ...and keep their pids"                      test "$(pidsof "$SB")" = "$CUR_SB"
+start_fleet "$SC" >/dev/null
+assert_ok "start #566: a config with no CAP line (rc 10) also stops its old-engine workers" dead "$OLD_SC"
+# a worker mid bug-claim is never killed (fleet_roll's rule), the old-engine one without a claim is
+SD="$(fleet start-bugclaim ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/b}"
+: "${HARNESS_POOL:=1}"
+: "${HARNESS_CLAUDE_BIN:=/nonexistent/claude}"')"
+spawn_eng "$SD/run/worker-1.pid" "$OLDENG"; spawn_eng "$SD/run/priority.pid" "$OLDENG"; mkdir -p "$SD/run/claims"
+echo "bug-7 $(cat "$SD/run/priority.pid")" > "$SD/run/claims/bug-7.claim"; PRI_SD="$(cat "$SD/run/priority.pid")"; WRK_SD="$(cat "$SD/run/worker-1.pid")"
+start_fleet "$SD" >/dev/null
+assert_ok "start #566: a priority lane holding a bug claim is left for a later pass" kill -0 "$PRI_SD"
+assert_ok "start #566: ...its claim-free sibling worker is stopped" dead "$WRK_SD"
+# fleet-migrate.sh --no-start alone: same
+SE="$(fleet start-nostart ': "${HARNESS_UNIT:=main}"
+: "${HARNESS_REPO:=acme/e}"
+: "${HARNESS_POOL:=1}"')"
+spawn_eng "$SE/run/worker-1.pid" "$OLDENG"; OLD_SE="$(pidsof "$SE")"
+ENGINE_DIR="$ENGINE" bash "$ENGINE/scripts/fleet-migrate.sh" --no-start --quiet --state-dir "$SE" >/dev/null 2>&1
+assert_ok "migrate --no-start #566: an rc-10 fleet's old-engine workers are stopped, none relaunched" dead "$OLD_SE"
+assert_no "migrate --no-start #566: ...and no harness start is run for it"  grep -q "^start $SE" "$START_LOG"
 mig_ln="$(grep -n 'fleet-migrate.sh' "$ENGINE/scripts/start.sh" | head -1 | cut -d: -f1)"
 lib_ln="$(grep -n 'lib.sh"' "$ENGINE/scripts/start.sh" | head -1 | cut -d: -f1)"
 assert_ok "start.sh migrates BEFORE it sources lib.sh (line $mig_ln < $lib_ln)" test "${mig_ln:-99}" -lt "${lib_ln:-0}"

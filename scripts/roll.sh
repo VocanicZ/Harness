@@ -10,10 +10,12 @@
 # it holds no bug claim; the lane sessions it drove keep running and the relaunched worker adopts them
 # (count_team_sessions / watchdog_team).
 #
-#   fleet_roll <state dir> <engine dir> <harness bin> [dry]
+#   fleet_roll <state dir> <engine dir> <harness bin> [dry] [stop-only]
 #     engine dir   the release the workers must run from (its realpath is compared with each worker's
 #                  ENGINE_DIR); harness bin: the stable $HARNESS_HOME/engine/bin/harness
 #     dry (1)      log what would be killed and started, change nothing
+#     stop-only (1) kill the old-engine workers but relaunch nothing: `harness start` (start.sh) is
+#                  already launching the workers itself and must not recurse into another start (#566)
 #   Kills each run/worker-*.pid and run/priority.pid process whose ENGINE_DIR is not <engine dir>:
 #     - under the fleet's run/pool.lock (the lock claim_bug / claim_first_bug take), so the worker
 #       cannot claim something between the check and the kill;
@@ -38,7 +40,7 @@ _roll_bug_claimed(){ local f; for f in "$1"/claims/bug-*.claim; do
     [[ -f $f && "$(awk '{print $2; exit}' "$f" 2>/dev/null)" == "$2" ]] && return 0; done; return 1; }
 
 fleet_roll(){
-  local sd="$1" want hb="$3" dry="${4:-0}" run pf pid ed lockfd killed=0 deferred=0 dead=0 victims=() keep=() line w
+  local sd="$1" want hb="$3" dry="${4:-0}" stop_only="${5:-0}" run pf pid ed lockfd killed=0 deferred=0 dead=0 victims=() keep=() line w
   want="$(realpath -m "$2")"; run="$sd/run"
   [[ -n ${ROLL_RESULT:-} ]] && echo "0 0 0" >"$ROLL_RESULT"
   shopt -s nullglob; local pids=("$run"/worker-*.pid); shopt -u nullglob
@@ -69,6 +71,8 @@ fleet_roll(){
     for w in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
     kill -0 "$pid" 2>/dev/null && { kill -9 "$pid" 2>/dev/null; sleep 0.2; }
   done
+  # stop-only: the caller (start.sh's own launch, #566) relaunches the dead pid files — never a nested start
+  if (( stop_only )); then [[ -n ${ROLL_RESULT:-} ]] && echo "$killed $deferred 0" >"$ROLL_RESULT"; return 0; fi
   # a dead pid file (a worker that did not come back, or one the roll just killed) -> relaunch
   for pf in "${pids[@]}"; do
     pid="$(cat "$pf" 2>/dev/null)"; [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || dead=$((dead+1))
