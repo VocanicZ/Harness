@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A worker tends its own lane on a ~15s tick (#594)
+
+- In bench run-20261106 every lane sat idle about 5.5 minutes after its work finished, because the worker only checked
+  the lane's goal on its `POLL`-spaced tick. A worker that owns a live lane now ticks every `HARNESS_TEND_TICK` (15s) and
+  runs only that lane's tend step; the next claim happens at once after a reap. Fleet-wide chores and the stall watchdog
+  stay on `POLL`.
+- The goal check runs only while the lane's pane is idle, so `gh` is not hit every 15s while the agent works. A pane whose
+  sub-agent is still running (`← 1 agent`) counts as busy, so a review lane waiting on its sub-agent is not reaped. A
+  `DECOMPOSE` lane is not reaped partway through filing children: it waits for its completion promise, or
+  `HARNESS_TEND_IDLE_TICKS` idle ticks with no `gh` process running.
+
 ### Bench: a large fixture, `tallybook`, with a mid-run requirement change (#592)
 
 - The only fixture, `pennywise` (a 4.7 KB brief, about 400 lines), fits one session in under 3 minutes: the case where

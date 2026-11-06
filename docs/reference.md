@@ -156,7 +156,14 @@ a claim):
    the [auto harness-one lane](#auto-harness-one-lane-harness_one_auto).
 3. **Own lanes** — one tend step per lane this worker holds a claim on: the goal check, the stall
    watchdog (which advances a driven goal loop) and the self-park check. A lane whose session has ended is
-   reaped and its claim released.
+   reaped and its claim released. A worker that owns a live lane tends it on a **short tick**
+   (`HARNESS_TEND_TICK`, 15s) instead of waiting a full `POLL` (#594): the short tick runs only this step,
+   checks the lane's goal only while its pane is idle (not busy, and no sub-agent still running — the status
+   line's `← 1 agent`), and leaves the stall watchdog and every fleet-wide chore on the `POLL` cadence. A
+   `DECOMPOSE` lane is not goal-checked until it prints its completion promise, or has been idle for
+   `HARNESS_TEND_IDLE_TICKS` ticks in a row with no `gh` process running (the goal counts as met once the PRD
+   has *any* child, so a pane idle between two `gh issue create` calls must not be reaped). After a reap the
+   next step is a full one, at once, so the next claim (or a slotless `CLOSE_PRD`) does not wait.
 4. **Claim** — only when the worker owns no lane, is not paused, usage is not held, the GitHub budget is
    fine and the default branch is not red. Under `run/pool.lock`: when live lanes + live claims is below
    `POOL`, it takes the first slot-taking item `dispatch` returns and writes its claim; the lane is spawned
@@ -242,6 +249,8 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
 | `HARNESS_POOL` | `3` | The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob (#469): a cap setting left over from an older release is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
+| `HARNESS_TEND_TICK` | `15` | Seconds between ticks of a worker that owns a live lane (#594): only that lane's tend step runs, with the goal check gated on an idle pane. Fleet-wide chores stay on `HARNESS_POLL`. `0`, or a value at or above `HARNESS_POLL`, = tend every `POLL` as before |
+| `HARNESS_TEND_IDLE_TICKS` | `3` | Consecutive idle short ticks, with no `gh` process running, before a `DECOMPOSE` lane's goal is checked (a printed completion promise skips the wait) |
 | `HARNESS_PRIORITY_POLL` | `60` | Fast poll interval for the priority bug lane |
 | `HARNESS_POOL_TAKES_BUGS` | `1` | `1` = a pool worker with no dispatchable impl work takes the oldest open `bug`/`bug-triaged` issue in its unit's repo while the priority lane is busy (or not running), through the lane's own triage→fix flow; the lane keeps first pick whenever it is free, and the shared bug claim means the two never take the same bug. `0` = bugs wait for the priority lane |
 | `HARNESS_SESS_PREFIX` | derived from the project dir at `init` (`hz` for pre-existing configs) | tmux session name prefix — **must be unique per fleet on a host**; a shared prefix makes `harness stop` in one project kill another's agents. See [Fleet prefixes](#fleet-prefixes) |
