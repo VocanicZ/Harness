@@ -265,6 +265,36 @@ def test_the_real_grader_scores_the_seeded_repo_zero(e):
     assert h["passed"] == 0 and h["total"] and h["failed"] == h["total"], h
 
 
+@with_env(usage_pct="50")
+def test_an_optional_arm_the_guard_refuses_is_recorded_as_skipped_budget_and_spends_nothing(e):
+    p = e.run("stub", "--optional")
+    assert p.returncode == 0, (p.returncode, p.stdout, p.stderr)
+    assert "stub skipped: budget" in p.stdout and "REFUSED" in p.stdout, p.stdout
+    assert e.calls() == [] and e.repos() == [], "no repo was created, nothing was spent"
+    r = e.result()
+    assert bench_run.validate(r) == [] and (r["status"], r["reason"], r["arm"]) == ("skipped", "budget", "stub"), r
+    g = r["guard"]
+    assert g["windows"][0]["now_pct"] == 50 and g["windows"][0]["fits"] is False and g["stop_pct"] == 98, g
+    assert any("50% now + 80% expected" in x for x in g["reasons"]), g["reasons"]
+    assert not os.path.exists(os.path.join(e.results, "t1", "stub.logs")), "no run logs: nothing ran"
+
+
+@with_env(usage_pct="50")
+def test_without_optional_the_refusal_stays_exit_3_and_records_nothing(e):
+    p = e.run("stub")
+    assert p.returncode == 3 and not os.path.exists(e.results), (p.returncode, p.stderr)
+    q = e.run("stub", "--optional", "--dry-run")   # a dry run never records, optional or not
+    assert q.returncode == 3 and not os.path.exists(e.results), (q.returncode, q.stderr)
+
+
+@with_env()
+def test_an_optional_arm_with_headroom_runs_normally(e):
+    p = e.run("stub", "--optional")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["status"] == "ok" and bench_run.validate(r) == [], r
+
+
 def test_validate_names_what_is_wrong():
     good = {"schema": 1, "run_id": "x", "arm": "a", "repo": "o/r", "status": "ok", "capped": None, "error": None,
             "started_at": "t", "ended_at": "t", "wall_s": 1.0, "coding_s": None, "testing_s": None, "test_calls": None,
@@ -282,6 +312,9 @@ def test_validate_names_what_is_wrong():
     assert bench_run.validate(dict(good, quality="ok", sonarqube={"bugs": 0})) == []
     assert bench_run.validate(dict(good, quality="ok")) != []                     # ok without measures
     assert bench_run.validate(dict(good, quality="skipped (x)", sonarqube={})) != []
+    skipped = {"schema": 1, "run_id": "x", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "t", "guard": {}}
+    assert bench_run.validate(skipped) == []
+    assert bench_run.validate(dict(skipped, reason="tired")) != [] and bench_run.validate({k: v for k, v in skipped.items() if k != "guard"}) != []
 
 
 if __name__ == "__main__":

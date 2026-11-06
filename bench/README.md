@@ -10,6 +10,7 @@ bench/run.py stub                       # run an arm
 bench/run.py stub --dry-run             # print the guard decision; create and spend nothing
 bench/run.py plain --arm-opt K=V        # options passed to the arm
 bench/run.py harness --workers 3        # --workers N: the fleet's pool size, for an arm that runs one
+bench/run.py hx --optional              # an optional arm: a guard refusal is recorded as `skipped: budget`, exit 0
 ```
 
 ## One run
@@ -161,6 +162,49 @@ fleet, default 30); the last two are for tests.
   stream per turn and `launch.txt`. Tokens, $ and the coding / testing split are measured on the transcripts
   like every arm's; the $ cap counts the lanes' transcripts as they appear.
 
+## Hx arm
+
+`bench/run.py hx [--optional]` (`bench/arms/hx.py`, #386): [Hx](https://github.com/MorphEdit/Hx) (`MorphEdit/Hx`)
+on the same brief with its default config. One of the two optional arms, the other is `harness-3`.
+
+- **Install.** Hx is cloned at the pinned commit `HX_COMMIT` (in `bench/arms/hx.py`) into a throwaway
+  directory and run as `node bin/hx.mjs` (Hx needs node 23.6 or newer and has nothing else to install). The
+  clone must land on exactly the pin or the arm fails. `<arm>.logs/hx.json` records the commit and the node
+  version. A newer Hx is a different measurement: change the pin on purpose. Options (`--arm-opt K=V`):
+  `hx_src=DIR` (use this checkout), `node=CMD`, `poll=SECS`; the first two are for tests.
+- **What runs.** In the fresh run repo: `hx init --yes`, then `hx prd brief.md --title "PRD: <heading>"`, then
+  `hx run --watch`: Hx's own gauntlet, decompose, impl, audit, gate, review and security pass. Hx's
+  interview commands (`hx start`, `hx grill`) need a human in an interactive session, which an unattended run
+  has none of, so the brief is filed as the PRD as written, the way Hx's own project benchmark does.
+- **Default config.** `.hx/config.json` stays what `hx init` wrote (workers 2 with auto-scaling, model, effort,
+  rounds, gates) except `worktreeRoot`, which Hx defaults to a directory at the filesystem root a Linux user
+  cannot create; the arm points it into the run's throwaway directory. The models that ran come from the
+  transcripts (every session id in Hx's `usage.jsonl`), like every arm's.
+- **Isolation.** A scrubbed environment: no `HARNESS_*`, `STATE_DIR`, `RUN_DIR` or API key reaches Hx.
+- **Stopping.** Never by pattern. The `hx run --watch` the arm spawned gets SIGINT (Hx's own Ctrl+C: sessions
+  commit, push and hand off), through a small forwarder that also turns the runner's SIGTERM at a cap into that
+  SIGINT; then `ctx.terminate` if it has not exited. Done, error or cap.
+- **Done** = the PRD issue is closed. An `hx run` that exits first is started again (Hx's only state is
+  GitHub), at most 3 times (`counts.fleet_restarts`), then the arm fails.
+- **Results.** `counts`: `issues_closed`, `prs_merged`, `workers` (Hx's configured ceiling), `fleet_restarts`.
+  Beside them in `<arm>.logs/`: `usage.jsonl`, `config.json`, `run.out`, `hx.json`.
+
+## Optional arms and `skipped: budget`
+
+The optional arms (`harness-3`, `hx`) are never blocking. `bench/run.py <arm> --optional` runs the arm when
+the guard passes, exactly as without the flag. When the guard refuses, nothing is created or spent and
+`bench/results/<run-id>/<arm>.json` records the outcome instead, exit 0:
+
+```json
+{"schema": 1, "run_id": "…", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "…",
+ "guard": {"reasons": [...], "held": [...], "expected_usd": 80, "stop_pct": 98, "reserve_pct": 2,
+           "usd_per_pct": 4.15, "usd_per_pct_source": "fit", "windows": [{"account": "…", "window": "seven_day",
+           "now_pct": 96, "need_pct": 19.28, "total_pct": 117.28, "fits": false}]}}
+```
+
+`bench/figures.py` renders a `status: skipped` record as a `skipped: budget` row (a `skipped.json` map still
+works for a reason that is not the guard's). `--dry-run` never records.
+
 ## Figures and the README Benchmark section
 
 `bench/figures.py` writes the README **Benchmark** section (the table and a pointer to the figure) and the
@@ -182,7 +226,7 @@ models that ran. A **SonarQube** column appears only when some result carries a 
 (`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`, `duplicated_lines_density`, `coverage`).
 Anything a result lacks renders as `n/a`. The optional arms (`harness-3`, `hx`) get a `skipped: <reason>` row
 when they have no results; the reason is read from `bench/results/<run-id>/skipped.json`,
-`{"<arm>": "<reason>"}`, else `not run`.
+`{"<arm>": "<reason>"}`, or a `status: skipped` `<arm>.json` (above), else `not run`.
 
 ## Code quality (optional)
 
