@@ -3,11 +3,14 @@
   "run_id": "run-20261106",
   "arm": "harness-3",
   "status": "skipped",
-  "reason": "budget",
+  "reason": "disk",
   "skipped_at": "2026-11-06T08:21:42Z",
   "guard": {
     "reasons": [
       "host disk: /home/claude/harness-dev/.harness/worktrees/harness-i386 has 2.47 GB free < 4 GB (a run clones repos and builds worktrees there)"
+    ],
+    "causes": [
+      "disk"
     ],
     "held": [],
     "expected_usd": 80.0,
@@ -38,5 +41,6 @@
         "fits": false
       }
     ]
-  }
+  },
+  "note": "Recorded before #577: the disk guard also measured the checkout's filesystem (2.47 GB free), which a run never writes to; the temp dir had 132.76 GB free. The usage window fit. The arm was not re-run; the real refusal cause the guard recorded was disk."
 }

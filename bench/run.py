@@ -131,11 +131,17 @@ def usd_per_pct(fc, events, account):
     return (fb, "fallback") if fb else (None, "none")
 
 
+# why a guard refuses; a skipped optional arm records exactly the causes it was refused on (#577)
+CAUSES = ("disk", "held", "no-usage-reading", "no-calibration", "budget")
+
+
 def disk_free(paths=None):
-    """[{"path", "free_gb"}] for each distinct filesystem a run writes to: the temp dir (run clones, Hx and fleet
-    worktrees) and the checkout. A path that cannot be read is left out."""
+    """[{"path", "free_gb"}] for each distinct filesystem a run writes to. That is the temp dir alone: the run
+    clone, Hx's and the fleet's state dir and worktrees all live under it. The checkout is only read (scripts,
+    brief) and the results JSON written into it is a few KB, so its filesystem is not measured (#577). A path
+    that cannot be read is left out."""
     seen, out = set(), []
-    for path in paths or [tempfile.gettempdir(), ROOT]:
+    for path in paths or [tempfile.gettempdir()]:
         try:
             dev, free = os.stat(path).st_dev, shutil.disk_usage(path).free
         except OSError:
@@ -152,7 +158,7 @@ def guard(a, fc, st):
     reserve = _num(os.environ.get("HARNESS_ONE_RESERVE_PCT"), 2.0)
     expected = a.expected_usd if a.expected_usd is not None else a.cost_cap_usd
     min_gb = _num(os.environ.get("BENCH_MIN_FREE_GB"), 4.0)
-    d = {"ok": True, "reasons": [], "held": [], "expected_usd": expected, "stop_pct": stop,
+    d = {"ok": True, "reasons": [], "causes": [], "held": [], "expected_usd": expected, "stop_pct": stop,
          "reserve_pct": reserve, "usd_per_pct": None, "usd_per_pct_source": "none", "windows": [],
          "min_free_gb": min_gb, "disk": disk_free()}
     for fs in d["disk"]:
@@ -160,13 +166,16 @@ def guard(a, fc, st):
         if not fs["fits"]:
             d["reasons"].append(f"host disk: {fs['path']} has {fs['free_gb']:g} GB free < {min_gb:g} GB "
                                 "(a run clones repos and builds worktrees there)")
+            d["causes"].append("disk")
     for acct, win, pct in held_accounts(run_dir(a.run_dir)):
         d["held"].append({"account": acct, "window": win, "pct": pct})
         d["reasons"].append(f"account {acct} is usage-HELD ({win or '?'} window at {pct or '?'}%): "
                             "the fleet claims nothing until it resets")
+        d["causes"].append("held")
     reads = [r for r in usage_readings() if WEEKLY.search(r[1] or "")]
     if not reads:
         d["reasons"].append("no weekly usage reading: cannot show the run fits the window")
+        d["causes"].append("no-usage-reading")
     else:
         events = st.load_events(a.events)
         per, src = usd_per_pct(fc, events, run_account())
@@ -174,6 +183,7 @@ def guard(a, fc, st):
         if not per:
             d["reasons"].append("no $ per 1% (no calibration in the event log and HARNESS_ONE_USD_PER_PCT "
                                 "unset): cannot turn the expected spend into a % of the window")
+            d["causes"].append("no-calibration")
         else:
             need = round(expected / per, 2)
             for acct, win, pct, _ in reads:
@@ -183,6 +193,8 @@ def guard(a, fc, st):
                 if total > stop:
                     d["reasons"].append(f"{acct} {win}: {pct:g}% now + {need:g}% expected (${expected:g}) + "
                                         f"{reserve:g}% reserve = {total:g}% > {stop:g}%")
+                    d["causes"].append("budget")
+    d["causes"] = [c for c in CAUSES if c in d["causes"]]   # each cause once, in a fixed order
     d["ok"] = not d["reasons"]
     return d
 
@@ -387,13 +399,19 @@ REQUIRED = {
 }
 
 
+def valid_reason(reason):
+    """A skipped record's `reason`: the guard's causes, comma-joined, each a known one."""
+    parts = reason.split(",")
+    return all(p in CAUSES for p in parts) and len(set(parts)) == len(parts)
+
+
 def validate_skipped(d):
     """[problem] for a `status: skipped` record (an optional arm the guard refused, #386)."""
     want = {"schema": int, "run_id": str, "arm": str, "status": str, "reason": str, "skipped_at": str, "guard": dict}
     bad = [f"missing {k}" if k not in d else f"{k}: {type(d[k]).__name__}"
            for k, t in want.items() if k not in d or not isinstance(d[k], t)]
-    if not bad and (d["schema"] != SCHEMA or d["status"] != "skipped" or d["reason"] != "budget"):
-        bad.append("skipped record must be schema 1, status skipped, reason budget")
+    if not bad and (d["schema"] != SCHEMA or d["status"] != "skipped" or not valid_reason(d["reason"])):
+        bad.append("skipped record must be schema 1, status skipped, reason one or more of " + ",".join(CAUSES))
     return bad
 
 
@@ -442,8 +460,8 @@ def parse_args(argv):
     ap.add_argument("--owner", default=None, help="GitHub owner for the run repo (default: the gh login)")
     ap.add_argument("--arm-opt", action="append", default=[], metavar="K=V", help="passed to the arm as ctx.opts")
     ap.add_argument("--optional", action="store_true",
-                    help="an optional arm: when the guard refuses, record `skipped: budget` (with the guard's "
-                         "numbers) as <arm>.json and exit 0, instead of refusing")
+                    help="an optional arm: when the guard refuses, record `skipped: <cause>` (the cause(s) the guard "
+                         "refused on: disk, held, no-usage-reading, no-calibration, budget; with its numbers) as <arm>.json and exit 0, instead of refusing")
     ap.add_argument("--workers", type=int, default=None, metavar="N",
                     help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
     ap.add_argument("--wall-cap-secs", type=float, default=WALL_CAP_S)
@@ -496,17 +514,18 @@ def main(argv=None):
 
 def record_skipped(a, g):
     """An optional arm the guard refused: nothing is created or spent; the refusal is the recorded outcome
-    (`status: skipped`, `reason: budget`, the guard's numbers) in <results>/<run-id>/<arm>.json (#386)."""
+    (`status: skipped`, `reason`: the guard's cause(s), comma-joined, the guard's numbers) in <results>/<run-id>/<arm>.json (#386)."""
     run_id = a.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = os.path.join(a.results_dir, run_id)
     os.makedirs(out_dir, exist_ok=True)
-    doc = {"schema": SCHEMA, "run_id": run_id, "arm": a.arm, "status": "skipped", "reason": "budget",
+    doc = {"schema": SCHEMA, "run_id": run_id, "arm": a.arm, "status": "skipped",
+           "reason": ",".join(g["causes"]),
            "skipped_at": now_iso(), "guard": {k: g[k] for k in (
-               "reasons", "held", "expected_usd", "stop_pct", "reserve_pct", "usd_per_pct", "usd_per_pct_source",
+               "reasons", "causes", "held", "expected_usd", "stop_pct", "reserve_pct", "usd_per_pct", "usd_per_pct_source",
                "windows", "min_free_gb", "disk")}}
     path = os.path.join(out_dir, f"{a.arm}.json")
     write_json(path, doc)
-    print(f"bench: {a.arm} skipped: budget: {path}")
+    print(f"bench: {a.arm} skipped: {doc['reason']}: {path}")
     return EXIT_OK
 
 
