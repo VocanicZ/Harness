@@ -180,6 +180,18 @@ assert_no "…and writes no config" test -f "$proj/.harness/config"
 out="$(HARNESS_CLI=fakecli DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
 assert_ok "harness doctor flags it" grep -qF "session backend: agent CLI 'fakecli' is tmux-only" <<<"$out"
 assert_eq "$rc" 1 "…as a problem"
+# #574: the auto-release gate runs with SIGPIPE inherited as ignored. Then a writer into a pipe `head -1` has closed
+# gets EPIPE, and bash prints "write error: Broken pipe" to stderr — which doctor folds into its `session backend:` line.
+sigpipe_ignored(){ python3 -c 'import signal,os,sys; signal.signal(signal.SIGPIPE, signal.SIG_IGN); os.execvp(sys.argv[1], sys.argv[1:])' "$@"; }
+probe574='source "$1/scripts/lib.sh"; _DOCTOR_SOURCED=1 source "$1/scripts/doctor.sh"
+  case "$2" in check) cli_backend_check ;; doctor) DOCTOR_FIX=0 doctor_main 2>&1 ;; esac'
+errout="$(HARNESS_CLI=fakecli sigpipe_ignored bash -c "$probe574" _ "$ROOT" check 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "SIGPIPE ignored: cli_backend_check still refuses fakecli"
+assert_no "…and writes no EPIPE 'write error' to stderr" grep -qF "write error" <<<"$errout"
+assert_eq "$(wc -l <<<"$errout" | tr -d ' ')" 1 "…only its one refusal line"
+out="$(HARNESS_CLI=fakecli sigpipe_ignored bash -c "$probe574" _ "$ROOT" doctor)"
+assert_ok "SIGPIPE ignored: doctor's line stays whole" grep -qF "session backend: agent CLI 'fakecli' is tmux-only" <<<"$out"
+assert_no "…with no 'write error' in it" grep -qF "write error" <<<"$out"
 out="$(cd "$proj" && STATE_DIR="$RUN_DIR/nostate" HARNESS_CLI=fakecli bash "$TO/scripts/start.sh" 2>&1)"; rc=$?
 assert_no "harness start refuses it" test "$rc" -eq 0
 assert_ok "…naming fakecli as tmux-only" grep -qF "agent CLI 'fakecli' is tmux-only" <<<"$out"

@@ -21,6 +21,14 @@ if [[ -r /proc/self/status ]]; then
   got="$("${IGN[@]}" bash -c "source '$HERE/helpers.sh'; default_signals_prefix; \"\${DEFSIG[@]}\" bash -c '$sigign_probe'")"
   assert_eq "$(( 16#$got & 7 ))" 0 "a child through DEFSIG has HUP, INT and QUIT at default"
 fi
+# #574: SIGPIPE (signal 13 = bit 0x1000) too — ignored, a closed pipe is an EPIPE "write error" on stderr, not a quiet death.
+if [[ -r /proc/self/status ]]; then
+  IGNP=(env --ignore-signal=PIPE)
+  masked="$("${IGNP[@]}" bash -c "$sigign_probe")"
+  assert_eq "$(( 16#$masked & 16#1000 ))" 4096 "(precondition) the probe shell starts with SIGPIPE ignored"
+  got="$("${IGNP[@]}" bash -c "source '$HERE/helpers.sh'; default_signals_prefix; \"\${DEFSIG[@]}\" bash -c '$sigign_probe'")"
+  assert_eq "$(( 16#$got & 16#1000 ))" 0 "a child through DEFSIG has SIGPIPE at default"
+fi
 assert_ok "SIGINT is restorable for a child of an INT-ignoring shell here" "${IGN[@]}" bash -c "source '$HERE/helpers.sh'; sigint_restorable"
 
 echo "== run.sh: each test starts with the default dispositions =="
