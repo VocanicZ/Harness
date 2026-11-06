@@ -264,6 +264,16 @@ def figure(arms):
 
 
 # --- README section --------------------------------------------------------------------
+def undeleted(arms):
+    """The note for runs whose repo was left behind (`repo_deleted: false`), or None when none was (#578)."""
+    left = [(a, arms[a].get("repo")) for a in sorted(arms, key=arm_key) if arms[a].get("repo_deleted") is False]
+    if not left:
+        return None
+    names = ", ".join(f"`{r}`" if isinstance(r, str) and r else f"the {title(a)} repo" for a, r in left)
+    return ("**Repos not deleted:** the run's private bench repos were left behind (`repo_deleted: false`): "
+            f"{names}. `gh repo delete` failed (usually the gh token lacks the `delete_repo` scope: `gh auth refresh -s delete_repo`); delete them by hand.")
+
+
 def section(run_id, arms, skipped, fig_ref):
     if not arms:
         return ("No benchmark results are committed yet. The table and figure appear here once a run is "
@@ -274,6 +284,8 @@ def section(run_id, arms, skipped, fig_ref):
     if fig_ref:
         parts.append(f"![Benchmark: wall time and list-price cost per arm]({fig_ref})")
     parts.append(table(arms, skipped))
+    if undeleted(arms):
+        parts.append(undeleted(arms))
     return "\n\n".join(parts)
 
 

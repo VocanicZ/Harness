@@ -100,6 +100,15 @@ try:
     run(d)
     check("a skipped <arm>.json shows every cause", "| Harness (3 workers) | skipped: disk,budget | n/a |" in slurp(readme, "r"))
     os.remove(os.path.join(d, "results", "r1", "harness-3.json")); run(d)
+    check("no undeleted-repos note while every repo was deleted", "Repos not deleted" not in slurp(readme, "r"))
+    # #578: a run that left its repo behind says so in the README
+    put(d, "results", "r1", "plain.json", data=doc("plain", repo="o/bench-r1-plain", repo_deleted=False))
+    run(d)
+    left = slurp(readme, "r")
+    check("an undeleted repo is named in the README", "**Repos not deleted:**" in left and "`o/bench-r1-plain`" in left
+          and "`repo_deleted: false`" in left and "bench-r1-harness" not in left, left)
+    check("--check passes with the undeleted note", run(d, "--check").returncode == 0)
+    put(d, "results", "r1", "plain.json", data=doc("plain")); run(d)
     check("figure referenced relative to README", "![Benchmark: wall time and list-price cost per arm](results/benchmark.svg)" in text, text)
     check("hand-written text outside the markers untouched",
           text.startswith("# T\n\nintro by hand\n\n## Benchmark\n\n<!-- bench:begin") and text.endswith("<!-- bench:end -->\n\ntail by hand\n") and "OLD" not in text)

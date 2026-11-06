@@ -23,7 +23,10 @@ bench/run.py hx --optional              # an optional arm: a guard refusal is re
 5. Measure the arm's transcripts and write `bench/results/<run-id>/<arm>.json`.
 6. **Delete the repo**, whatever happened: arm error, cap hit, grading failure. If `gh repo delete`
    fails (the gh token needs the `delete_repo` scope) the results say `repo_deleted: false`, the repo is
-   named on stderr, and the exit status is 4.
+   named on stderr, and the exit status is 4. The guard checks this up front: a gh token whose
+   `X-OAuth-Scopes` are known and lack `delete_repo` is refused (exit 3, or `skipped: no-delete-repo` for an
+   `--optional` arm) before any repo is created; run `gh auth refresh -s delete_repo`. A fine-grained token has no
+   scope header and is not refused on that alone. `bench/figures.py` lists any run repo left undeleted in the README.
 
 Exit status: 0 recorded (`ok` or `capped`), 1 the arm failed (recorded as `error`), 2 bad arguments or
 unknown arm, 3 guard refused, 4 recorded but the repo could not be deleted.
