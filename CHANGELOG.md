@@ -21,6 +21,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   continue replies (the plain arm's cap is 50 here), the 1 to 3 worker speed-up, how often an arm hits a cap, and the
   hidden tests per module.
 
+### Lane prompts and review.md use `HARNESS_WINDOWS_HOST` for rtdd rounds and the PRD-review full suite (#494)
+
+- With `HARNESS_WINDOWS_HOST` set, a lane whose diff touches Windows-relevant code (`scripts/portable.*`, `install.sh`,
+  `update.sh`, `scripts/uninstall.sh`, `scripts/doctor.sh`, `scripts/session/headless.sh`, `scripts/cli/*`,
+  `scripts/supervise.sh`, `scripts/web.sh`, `scripts/attach.sh`, `test/smoke/winsma/*`) also runs its rtdd Rounds 1 and 2 (never
+  the full suite) on that host, through the winsma lock, isolation and guard helpers. The new `scripts/windows-relevant.sh` answers
+  "does this diff touch that list?" for the lane.
+- `prompts/review.md`: the PRD review's single full suite also runs on the Windows host, in the full-suite isolation with the guard.
+  The bar is no Windows failure that Linux does not also have at the same commit, and every Windows skip names an `n/a` row.
+- With the key unset the rendered prompts are byte-for-byte what they were. The Windows paragraphs live in
+  `prompts/_windows_rtdd.md` and `prompts/_windows_suite.md` and are rendered in only when the key is set.
+  `docs/reference.md` documents it ("Windows host checks"); `test/test_windows_prompts.sh` covers it.
+
 ### Bench: SonarQube on a tmpfs, a skipped scan invalidates the run, branch coverage (#588)
 
 - `bench/quality.py` mounts SonarQube's data directory as a tmpfs, so a host with under 10% free disk no longer

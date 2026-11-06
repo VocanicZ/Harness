@@ -19,6 +19,7 @@ Steps:
 1. Read the refined issue:  gh issue view {{ISSUE}} -R {{SLUG}}   — note its acceptance criteria.
 2. Fix, test-guided:
 {{> _rtdd.md}}
+{{WINDOWS_RTDD}}
    The regression test is MANDATORY, and it must be a test that FAILS ON THE UNFIXED CODE — write it
    first and WATCH IT FAIL before you fix anything, or `git stash` the fix afterwards and watch it
    fail then. A regression test that passes without the fix proves nothing and guards nothing.

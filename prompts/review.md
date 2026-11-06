@@ -49,7 +49,9 @@ PHASE 1 — CRITERIA GATE (always).
    only. When this fleet's HARNESS_SWARM (`{{SWARM}}`) is `auto`, run it as a swarm job:
      {{SWARM_SUITE}} "$PWD" {{SLUG}}-prd{{PRD}}-review
    Exit `0` green · `1` red (the failing files are printed) · `3` not run on swarm (swarm absent,
-   off, or timed out) → run the suite locally. Then have ONE review sub-agent do a thorough
+   off, or timed out) → run the suite locally.
+{{WINDOWS_SUITE}}
+   Then have ONE review sub-agent do a thorough
    pass (correctness, edge cases, the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate
    numbers if this is a spike). To start it, {{REVIEW_SUBAGENT}}
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in

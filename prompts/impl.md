@@ -17,6 +17,7 @@ Steps:
 1. Read the issue:  gh issue view {{ISSUE}} -R {{SLUG}}   — note its acceptance criteria.
 2. Implement, test-guided:
 {{> _rtdd.md}}
+{{WINDOWS_RTDD}}
    THREE conditions, all required, and together they ARE the test bar: Rounds 1 and 2 pass;
    `untested` is clear for what you changed; and AT LEAST ONE test FAILS WITHOUT YOUR CHANGE — a
    test that reaches your new lines and asserts nothing clears `untested` while proving nothing.
