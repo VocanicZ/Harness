@@ -113,3 +113,146 @@ exit 0
 [21:18:43] == venv
 [21:19:04] python3 = /c/hx-493/venv/Scripts/python3: Python 3.13.5
 [21:19:04] ######## test/run.sh (per-test cap 1200s)
+[22:14:25] run.sh finished rc=1 after 3321s
+  reap: reaped 21332 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 14408 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 17536 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 25472 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 15180 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 28164 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 8052 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 11948 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 12940 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 23960 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 11000 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 16356 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 23280 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 26220 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 21728 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 27500 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 21636 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 4252 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 20216 cat.exe "C:\Program Files\Git\usr\bin\cat.exe" /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/
+  reap: reaped 15948 python3.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 27864 python.exe C:\hx-493\venv\Scripts\python3.EXE C:/hx-493/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  [test_sess_sweep_headless.sh]   FAIL: fixture: the detached job is up before the kill — expected success from: up /c/hx-493/tmp/tmp.OAQb1F8lrC/test_sess_sweep_headless.sh/tmp/tmp.fkI1zP8TiZ/pids/a-det.pid
+  [test_sess_sweep_headless.sh]   FAIL: fixture: the TERM-ignoring job is up before the kill — expected success from: up /c/hx-493/tmp/tmp.OAQb1F8lrC/test_sess_sweep_headless.sh/tmp/tmp.fkI1zP8TiZ/pids/a-stubborn.pid
+  [test_sess_sweep_headless.sh]   FAIL: fixture: the detached job inherited the lane's HARNESS_SESSION — want [ff65e438-7f27-43a8-89b7-160b0bdddcb4] got []
+  [test_env_leak_headless.sh]   FAIL: its turn runs — expected success from: wait_until 20 turn_ended fleeta-main-i1 1
+  [test_env_leak_headless.sh]   FAIL: the turn recorded its environment — expected success from: test -n 
+  [test_env_leak_headless.sh]   FAIL: the turn has its own HARNESS_SESSION (-e) — expected success from: env_has EA HARNESS_SESSION=4a668c11-ceda-466a-a2dd-bcce4ea5267b
+  [test_env_leak_headless.sh]   FAIL: …its HARNESS_PREFIX (-e) — expected success from: env_has EA HARNESS_PREFIX=fleeta
+  [test_env_leak_headless.sh]   FAIL: …its HARNESS_REPO (-e) — expected success from: env_has EA HARNESS_REPO=acme/a
+  [test_env_leak_headless.sh]   FAIL: …its RTDD_EVENT_LOG (-e) — expected success from: env_has EA RTDD_EVENT_LOG=/fake/fleetA/rtdd-events.jsonl
+  [test_env_leak_headless.sh]   FAIL: …and the STATE_DIR of the client that started it — expected success from: env_has EA STATE_DIR=/fake/fleetA/.harness
+  [test_env_leak_headless.sh]   FAIL: …its RTDD_EVENT_LOG — expected success from: env_has RA RTDD_EVENT_LOG=/fake/fleetA/rtdd-events.jsonl
+  [test_env_leak_headless.sh]   FAIL: …its STATE_DIR — expected success from: env_has RA STATE_DIR=/fake/fleetA/.harness
+  [test_env_leak_headless.sh]   FAIL: its turn runs — expected success from: wait_until 20 turn_ended fleetb-main-i2 1
+  [test_env_leak_headless.sh]   FAIL: the turn recorded its environment — expected success from: test -n 
+  [test_env_leak_headless.sh]   FAIL: …its own HARNESS_SESSION is there — expected success from: env_has EB HARNESS_SESSION=d10201ca-376c-4105-86bd-0a180b1b2597
+  [test_env_leak_headless.sh]   FAIL: …its own HARNESS_PREFIX — expected success from: env_has EB HARNESS_PREFIX=fleetb
+  [test_env_leak_headless.sh]   FAIL: …its own HARNESS_REPO, not A's — expected success from: env_has EB HARNESS_REPO=acme/b
+  [test_env_leak_headless.sh]   FAIL: …its own RTDD_EVENT_LOG, not A's — expected success from: env_has EB RTDD_EVENT_LOG=/c/hx-493/tmp/tmp.OAQb1F8lrC/test_env_leak_headless.sh/tmp/tmp.UHbuu9fBgM/fleetB-rtdd-events.jsonl
+  [test_env_leak_headless.sh]   FAIL: its turn runs — expected success from: wait_until 20 turn_ended fleetc-main-i3 1
+  [test_env_leak_headless.sh]   FAIL: the turn recorded its environment — expected success from: test -n 
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: worker runs from releases/v0.1.0 — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.1.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: worker runs from releases/v0.1.0 — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.1.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: the engine link points at the published release — want [releases/v0.2.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: the worker runs from releases/v0.2.0 — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: the priority lane runs from releases/v0.2.0 — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: the worker runs from releases/v0.2.0 — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: the priority lane runs from releases/v0.2.0 — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: the old worker process is gone — expected failure from: alive 711315
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: the old priority process is gone — expected failure from: alive 711416
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: the old worker process is gone — expected failure from: alive 711844
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: the old priority process is gone — expected failure from: alive 711945
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: its mid-turn claude and grandchild are still running — expected success from: alive_all 14408 6088 
+  [test_supervise_autoupdate_headless.sh]   FAIL: engine_updated is emitted once — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: workers_rolled is emitted once per fleet — want [2] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: engine_updated names from and to — expected success from: grep -qE "event": *"engine_updated".*"from": *"v0.1.0".*"to": *"v0.2.0"|"event": *"engine_updated".*"to": *"v0.2.0".*"from": *"v0.1.0" /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/events.jsonl
+  [test_supervise_autoupdate_headless.sh]   FAIL: a second pass does not install it again — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: a second pass rolls nothing more — want [2] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: after a second pass: fb: its mid-turn claude and grandchild are still running — expected success from: alive_all 14408 6088 
+  [test_supervise_autoupdate_headless.sh]   FAIL: the idle worker beside it is rolled — expected failure from: alive 713843
+  [test_supervise_autoupdate_headless.sh]   FAIL: …onto the new release — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: the other fleet is rolled in full — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: the deferral is in the event — expected success from: grep -qE "deferred": *1 /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/events.jsonl
+  [test_supervise_autoupdate_headless.sh]   FAIL: the claim released: the next pass rolls the priority worker — expected failure from: alive 713945
+  [test_supervise_autoupdate_headless.sh]   FAIL: …onto the new release — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: the paused fleet's old worker is gone — expected failure from: alive 715079
+  [test_supervise_autoupdate_headless.sh]   FAIL: …its new one runs the new release — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.2.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: only the live fleet is rolled — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: HARNESS_AUTO_UPDATE=0: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: a HARNESS_REF pin: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: an equal published tag: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: an older published tag: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: an unparseable tag: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: an unparseable tag is logged — expected success from: grep -q nightly /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/supervise.log
+  [test_supervise_autoupdate_headless.sh]   FAIL: a dev clone's supervisor: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: inside the interval the release is not queried again — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: once the interval has elapsed it is installed — want [releases/v0.2.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: offline: nothing is installed — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: an unreachable release API installs nothing — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: …and logs one WARN — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: dry run: the engine is unchanged — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: dry run: the would-be update is logged — expected success from: grep -q DRY auto-update: would update v0.1.0 -> v0.2.0 /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/supervise.log
+  [test_supervise_autoupdate_headless.sh]   FAIL: dry run: the would-be kill is logged — expected success from: grep -q DRY auto-update: would kill /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/supervise.log
+  [test_supervise_autoupdate_headless.sh]   FAIL: the bad release was installed — want [releases/v0.2.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: the engine points at the old tag again — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: the worker runs the old release again — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.1.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fa: the priority lane too — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.1.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: the worker runs the old release again — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.1.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: fb: the priority lane too — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.1.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: exactly one bug is filed — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: …on the engine's own repo, labelled bug — expected success from: grep -q issue create -R VocanicZ/Harness --label bug /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/gh.calls
+  [test_supervise_autoupdate_headless.sh]   FAIL: …naming the bad tag — expected success from: grep -q v0.2.0 /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/gh.calls
+  [test_supervise_autoupdate_headless.sh]   FAIL: …and the release it rolled back to — expected success from: grep -q v0.1.0 /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/gh.calls
+  [test_supervise_autoupdate_headless.sh]   FAIL: …and the dead pid files — expected success from: grep -q worker-1.pid /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/gh.calls
+  [test_supervise_autoupdate_headless.sh]   FAIL: engine_rolled_back is emitted — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: the update and the rollback: fb: its mid-turn claude and grandchild are still running — expected success from: alive_all 4252 1060 
+  [test_supervise_autoupdate_headless.sh]   FAIL: a later pass with the same tag still latest does not install it again — want [releases/v0.1.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: …and files no second bug — want [1] got [0]
+  [test_supervise_autoupdate_headless.sh]   FAIL: a NEWER tag is still installed — want [releases/v0.3.0] got []
+  [test_supervise_autoupdate_headless.sh]   FAIL: …and the workers roll onto it — want [/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/releases/v0.3.0] got [C:/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/engine]
+  [test_supervise_autoupdate_headless.sh]   FAIL: the supervise unit is installed — expected success from: test -f /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/units/harness-supervise.service
+  [test_supervise_autoupdate_headless.sh] TIMEOUT: test_supervise_autoupdate_headless.sh ran past HARNESS_TEST_TIMEOUT=1200s
+  [test_fleet_migrate_headless.sh]   FAIL: update: fleet A is migrated — expected success from: grep -q HARNESS_UNIT:=alpha /c/hx-493/tmp/tmp.OAQb1F8lrC/test_fleet_migrate_headless.sh/tmp/tmp.o0TGQ8gYC6/upd-a/.harness/config
+  [test_fleet_migrate_headless.sh]   FAIL: update: A's old worker + priority pids are dead — expected success from: dead 726195 726196 
+  [test_fleet_migrate_headless.sh]   FAIL: update: an already-migrated (rc 10) fleet's old-release workers are killed (#537) — expected success from: dead 726197 726198 
+  [test_supervise_headless.sh]   FAIL: …its process still running — expected success from: alive 27240
+  [test_supervise_headless.sh]   FAIL: an orphan lock (no lane for it) is cleared — expected success from: grep -q issue edit 5 -R owner/fx --remove-label agent-working /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_headless.sh/tmp/tmp.FT0q26d2aE/sup-t/gh.calls
+  [test_supervise_headless.sh]   FAIL: the fleet's frozen lane is nudged — want [1] got [0]
+  [test_supervise_headless.sh]   FAIL: …and the nudge reaches it — expected success from: wait_until 15 idle_at fx-main-i6 2
+  [test_supervise_headless.sh]   FAIL: the arc rules are handed the headless lane — expected success from: grep -qx fx-main-i6	owner/fx	6	impl /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_headless.sh/tmp/tmp.FT0q26d2aE/sup-t/rules.stdin
+  [test_supervise_headless.sh]   FAIL: a dead worker → harness start for the headless fleet — expected success from: grep -q -- --state-dir /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_headless.sh/tmp/tmp.FT0q26d2aE/sup-t/fleets/proj/.harness start /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_headless.sh/tmp/tmp.FT0q26d2aE/sup-t/harness.calls
+  [test_supervise_headless.sh]   FAIL: …and writes the unit — expected success from: test -f /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_headless.sh/tmp/tmp.FT0q26d2aE/sup-t/unit/harness-supervise.service
+  [test_supervise_headless.sh]   FAIL: the unit's PATH reaches every session backend's binaries the host has (python3) — expected success from: grep -q ^Environment=PATH=.*/c/hx-493/venv/Scripts /c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_headless.sh/tmp/tmp.FT0q26d2aE/sup-t/unit/harness-supervise.service
+  [test_tmux_twins.sh]   FAIL: claude: supervisor-frozen-session passes on its headless twin — expected success from: grep -qF ok: claude: supervisor-frozen-session
+  [test_tmux_twins.sh]   FAIL: claude: supervisor-skips-trust-dialog passes on its headless twin — expected success from: grep -qF ok: claude: supervisor-skips-trust-dialog
+  [test_tmux_twins.sh]   FAIL: …and nothing failed — expected failure from: grep -q FAIL
+  [test_headless_lane.sh]   FAIL: the goal loop reads the last turn's reply — want [372a6447-ebda-4983-ba12-9ffa1e5ec185:2
+  [test_headless_lane.sh]   FAIL: harness attach <session> watches the headless lane — expected success from: grep -qF watching headless lane hlt-main-i9
+  [test_headless_lane.sh]   FAIL: …showing its turns — expected success from: grep -qF ── turn 1 (bootstrap)
+  [test_headless_lane.sh]   FAIL: …and its replies — expected success from: grep -qF ← <promise>ISSUE 9 DONE</promise>
+  [test_headless_lane.sh]   FAIL: its state reads ended — want [ended] got [busy]
+  [test_headless_lane.sh]   FAIL: …though its claude turn still runs (its own process group) — expected success from: alive 27864
+  [test_headless_lane.sh]   FAIL: …only its one refusal line — want [1] got [5]
+  [test_headless_lane.sh] Traceback (most recent call last):
+  [test_headless_lane.sh]   FAIL: SIGPIPE ignored: doctor's line stays whole — expected success from: grep -qF session backend: agent CLI 'fakecli' is tmux-only
+== run.sh: 2/9 test files passed ==
+FAILED: test_sess_sweep_headless.sh
+FAILED: test_env_leak_headless.sh
+FAILED: test_supervise_autoupdate_headless.sh
+FAILED: test_fleet_migrate_headless.sh
+FAILED: test_supervise_headless.sh
+FAILED: test_tmux_twins.sh
+FAILED: test_headless_lane.sh
+rm: cannot remove '/c/hx-493/tmp/tmp.OAQb1F8lrC/test_headless_lane.sh/tmp/tmp.bYysFyXnzy/host/lanes/hlt-main-i12/stderr.log': Device or resource busy
+rm: cannot remove '/c/hx-493/tmp/tmp.OAQb1F8lrC/test_headless_lane.sh/tmp/tmp.bYysFyXnzy/wd-i12': Device or resource busy
+rm: cannot remove '/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+rm: cannot remove '/c/hx-493/tmp/tmp.OAQb1F8lrC/test_supervise_autoupdate_headless.sh/tmp/tmp.s1Ty0zdCcx/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+SUITE-RESULT 7 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-493
+credentials: GH_TOKEN written nowhere new
+[22:15:47] cleanup: winsma clean (no hx-493, lock released, no run task or process)
+[22:15:48] run: OK

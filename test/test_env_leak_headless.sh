@@ -56,7 +56,7 @@ assert_ne(){ [[ "$1" != "$2" ]]; }
 env_leak(){ grep -E 'fleetA|fleeta|acme/a([^a-z]|$)' <<<"$1"; return 0; }
 
 LEAK_KEYS=(STATE_DIR HARNESS_REPO HARNESS_CHECKOUT HARNESS_GUARD_BASE HARNESS_SNAPSHOT_FILE)
-A_STATE=/fake/fleetA/.harness; A_RTDD=/fake/fleetA/rtdd-events.jsonl
+A_STATE=fleetA-state; A_RTDD=fleetA-rtdd-events
 cd "$RUN_DIR" || exit 1
 
 echo "== fleet A's lane carries A's env and its own -e pairs =="
@@ -64,7 +64,7 @@ lane ia
 SA=fleeta-main-i1
 (
   export STATE_DIR="$A_STATE" HARNESS_REPO=acme/a HARNESS_SESS_PREFIX=fleeta SLUG=acme/a HARNESS_RTDD_EVENTS_FILE="$A_RTDD"
-  export HARNESS_CHECKOUT=/fake/fleetA/co HARNESS_GUARD_BASE=/fake/fleetA/base HARNESS_SNAPSHOT_FILE=/fake/fleetA/snap
+  export HARNESS_CHECKOUT=fleetA-co HARNESS_GUARD_BASE=fleetA-base HARNESS_SNAPSHOT_FILE=fleetA-snap
   GOAL=ISSUE:1 MAXITER=10 PROMISE="ISSUE 1 DONE" launch_agent "$SA" "$WD" >/dev/null 2>&1
 ); rc=$?
 assert_eq "$rc" 0 "launch_agent starts fleet A's lane"
