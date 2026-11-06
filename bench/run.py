@@ -15,6 +15,7 @@ but the brief is ever put in it, and no GitHub Actions run in it.
 GUARD (refuses with exit 3, before anything is created or spent; --dry-run prints the decision and
 spends nothing):
   * any account usage-HELD (a *.hold file in <run dir>/usage-holds, written by the fleet's usage watch);
+  * host disk short: under BENCH_MIN_FREE_GB (default 4) free on the temp dir's or the checkout's filesystem;
   * forecast-style headroom short: for every weekly window read, now% + expected% + reserve must be
     <= HARNESS_ONE_STOP_PCT, where expected% = the expected spend over the account's $ per 1% (the
     calibration forecast.py fits from the host event log, else HARNESS_ONE_USD_PER_PCT). The expected
@@ -130,13 +131,35 @@ def usd_per_pct(fc, events, account):
     return (fb, "fallback") if fb else (None, "none")
 
 
+def disk_free(paths=None):
+    """[{"path", "free_gb"}] for each distinct filesystem a run writes to: the temp dir (run clones, Hx and fleet
+    worktrees) and the checkout. A path that cannot be read is left out."""
+    seen, out = set(), []
+    for path in paths or [tempfile.gettempdir(), ROOT]:
+        try:
+            dev, free = os.stat(path).st_dev, shutil.disk_usage(path).free
+        except OSError:
+            continue
+        if dev not in seen:
+            seen.add(dev)
+            out.append({"path": path, "free_gb": round(free / 1e9, 2)})
+    return out
+
+
 def guard(a, fc, st):
     """{"ok", "reasons", ...the numbers}: whether a run may start. Spends nothing."""
     stop = _num(os.environ.get("HARNESS_ONE_STOP_PCT"), 98.0)
     reserve = _num(os.environ.get("HARNESS_ONE_RESERVE_PCT"), 2.0)
     expected = a.expected_usd if a.expected_usd is not None else a.cost_cap_usd
+    min_gb = _num(os.environ.get("BENCH_MIN_FREE_GB"), 4.0)
     d = {"ok": True, "reasons": [], "held": [], "expected_usd": expected, "stop_pct": stop,
-         "reserve_pct": reserve, "usd_per_pct": None, "usd_per_pct_source": "none", "windows": []}
+         "reserve_pct": reserve, "usd_per_pct": None, "usd_per_pct_source": "none", "windows": [],
+         "min_free_gb": min_gb, "disk": disk_free()}
+    for fs in d["disk"]:
+        fs["fits"] = fs["free_gb"] >= min_gb
+        if not fs["fits"]:
+            d["reasons"].append(f"host disk: {fs['path']} has {fs['free_gb']:g} GB free < {min_gb:g} GB "
+                                "(a run clones repos and builds worktrees there)")
     for acct, win, pct in held_accounts(run_dir(a.run_dir)):
         d["held"].append({"account": acct, "window": win, "pct": pct})
         d["reasons"].append(f"account {acct} is usage-HELD ({win or '?'} window at {pct or '?'}%): "
@@ -480,7 +503,7 @@ def record_skipped(a, g):
     doc = {"schema": SCHEMA, "run_id": run_id, "arm": a.arm, "status": "skipped", "reason": "budget",
            "skipped_at": now_iso(), "guard": {k: g[k] for k in (
                "reasons", "held", "expected_usd", "stop_pct", "reserve_pct", "usd_per_pct", "usd_per_pct_source",
-               "windows")}}
+               "windows", "min_free_gb", "disk")}}
     path = os.path.join(out_dir, f"{a.arm}.json")
     write_json(path, doc)
     print(f"bench: {a.arm} skipped: budget: {path}")

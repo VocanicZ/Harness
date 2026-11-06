@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run_id": "run-20261106",
+  "arm": "hx",
+  "status": "skipped",
+  "reason": "budget",
+  "skipped_at": "2026-11-06T08:21:49Z",
+  "guard": {
+    "reasons": [
+      "host disk: /home/claude/harness-dev/.harness/worktrees/harness-i386 has 2.47 GB free < 4 GB (a run clones repos and builds worktrees there)"
+    ],
+    "held": [],
+    "expected_usd": 80.0,
+    "stop_pct": 98.0,
+    "reserve_pct": 2.0,
+    "usd_per_pct": 4.63,
+    "usd_per_pct_source": "fit",
+    "windows": [
+      {
+        "account": "main",
+        "window": "seven_day",
+        "now_pct": 16.0,
+        "need_pct": 17.28,
+        "total_pct": 35.28,
+        "fits": true
+      }
+    ],
+    "min_free_gb": 4.0,
+    "disk": [
+      {
+        "path": "/tmp",
+        "free_gb": 132.76,
+        "fits": true
+      },
+      {
+        "path": "/home/claude/harness-dev/.harness/worktrees/harness-i386",
+        "free_gb": 2.47,
+        "fits": false
+      }
+    ]
+  }
+}

@@ -52,6 +52,7 @@ class Env:
         self.env.update(PATH=self.bin + os.pathsep + os.environ["PATH"], FAKE_GH_HOME=self.h, PYTHONDONTWRITEBYTECODE="1",
                         HARNESS_FLEETS_DIR=os.path.join(self.d, "home", "fleets"),   # #541: the host pins move together
                         CLAUDE_CONFIG_DIR=os.path.join(self.d, "acct"), HARNESS_HOME=os.path.join(self.d, "home"))
+        self.env["BENCH_MIN_FREE_GB"] = "0"   # these tests are not about the host's disk: see the disk-guard tests
         if usage_pct is not None:
             self.env["HARNESS_USAGE_CMD"] = USAGE % (usage_pct, "")
         if per_pct is not None:
@@ -285,6 +286,22 @@ def test_without_optional_the_refusal_stays_exit_3_and_records_nothing(e):
     assert p.returncode == 3 and not os.path.exists(e.results), (p.returncode, p.stderr)
     q = e.run("stub", "--optional", "--dry-run")   # a dry run never records, optional or not
     assert q.returncode == 3 and not os.path.exists(e.results), (q.returncode, q.stderr)
+
+
+@with_env()
+def test_guard_refuses_when_the_host_disk_is_short_and_an_optional_arm_records_it(e):
+    e.env["BENCH_MIN_FREE_GB"] = "1000000"   # no host has this much free
+    p = e.run("stub")
+    assert p.returncode == 3 and "host disk:" in p.stderr and "GB free < 1e+06 GB" in p.stderr, (p.returncode, p.stderr)
+    assert e.calls() == [] and not os.path.exists(e.results)
+    q = e.run("stub", "--optional")
+    assert q.returncode == 0 and "stub skipped: budget" in q.stdout, (q.returncode, q.stdout, q.stderr)
+    r = e.result()
+    assert bench_run.validate(r) == [] and r["status"] == "skipped" and r["reason"] == "budget", r
+    g = r["guard"]
+    assert g["min_free_gb"] == 1e6 and g["disk"] and all(x["fits"] is False and x["free_gb"] > 0 for x in g["disk"]), g
+    assert any(x.startswith("host disk:") for x in g["reasons"]), g["reasons"]
+    assert e.calls() == [] and e.repos() == [], "nothing was created or spent"
 
 
 @with_env()

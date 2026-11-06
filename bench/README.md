@@ -34,6 +34,8 @@ A run refuses to start when:
 
 - any account is usage-HELD: a `*.hold` file in `<run dir>/usage-holds/` (`--run-dir`, else `$RUN_DIR`,
   else `$STATE_DIR/run`, else `./.harness/run`), the files the fleet's usage watch writes; or
+- the host disk is short (#386): under `BENCH_MIN_FREE_GB` (default 4) free on the temp dir's or the checkout's
+  filesystem, where a run clones repos and builds worktrees; or
 - the headroom is short, as `harness one gate` computes it: for every weekly window the usage seam reads
   (`HARNESS_USAGE_CMD`, else the CLI adapter's `cli_limit_usage`),
   `now% + expected% + reserve% <= HARNESS_ONE_STOP_PCT` (default 98) must hold, with the reserve
@@ -198,6 +200,7 @@ the guard passes, exactly as without the flag. When the guard refuses, nothing i
 ```json
 {"schema": 1, "run_id": "…", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "…",
  "guard": {"reasons": [...], "held": [...], "expected_usd": 80, "stop_pct": 98, "reserve_pct": 2,
+           "min_free_gb": 4, "disk": [{"path": "/", "free_gb": 2.4, "fits": false}],
            "usd_per_pct": 4.15, "usd_per_pct_source": "fit", "windows": [{"account": "…", "window": "seven_day",
            "now_pct": 96, "need_pct": 19.28, "total_pct": 117.28, "fits": false}]}}
 ```
