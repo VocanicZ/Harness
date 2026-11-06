@@ -1,0 +1,60 @@
+# windows_coverage.tsv — #492 / PRD #475 Solution 6: which test actually RUNS on Windows for each `✓` row of the
+# parity matrix (docs/reference.md). test/test_windows_parity_doc.sh fails on a `✓` row with no line here, on a line
+# whose test file is missing or skips itself for want of tmux (that is a test Windows does not run), and on a line for a
+# row the matrix does not have or marks `n/a` on Windows.
+# Format: <matrix row, no backticks> TAB <test files in test/, space separated>. A row needs one running test, not all.
+harness install	test_install.sh test_windows_installer.sh
+harness version	test_version.sh
+harness update	test_windows_update.sh
+harness release	test_release.sh
+harness poll	test_poller.sh
+harness stats	test_stats.py test_stats.sh
+harness forecast	test_forecast.py
+harness supervise	test_supervise_headless.sh
+harness web	test_web.py
+harness init	test_init.sh
+harness start	test_windows_lifecycle.sh test_start_lock.sh
+harness stop	test_headless_lane.sh
+harness status	test_status.sh
+harness one	test_one.sh
+harness doctor	test_doctor.sh
+harness attach	test_headless_attach.sh
+harness pause	test_pause.sh test_headless_checkpoint.sh
+harness setup	test_setup.sh
+harness migrate	test_migrate.sh
+harness uninstall	test_windows_uninstall.sh
+harness plan	test_inject.sh
+harness prd	test_inject.sh
+harness issue	test_inject.sh
+harness resume	test_resume.sh
+/harness	test_windows_lane_tooling.sh
+/harness-arc	test_operator_skills.sh
+/harness-init	test_windows_lane_tooling.sh
+/harness-issue	test_operator_skills.sh
+/harness-one	test_operator_skills.sh
+/harness-pause	test_windows_lane_tooling.sh
+/harness-plan	test_operator_skills.sh
+/harness-prd	test_operator_skills.sh
+/harness-resume	test_windows_lane_tooling.sh
+/harness-start	test_windows_lane_tooling.sh
+/harness-status	test_operator_skills.sh
+/harness-stop	test_windows_lane_tooling.sh
+/harness-uninstall	test_windows_uninstall.sh
+cli claude	test_claude_headless.py
+cli agy	test_agy_headless.py
+cli codex	test_codex_headless.py
+cli copilot	test_copilot_headless.py
+cli opencode	test_opencode_headless.py
+cli hermes	test_hermes_headless.py
+cli openclaw	test_openclaw_headless.py
+rtdd	test_windows_lane_tooling.sh
+supervise --install	test_windows_lifecycle.sh
+web --install	test_web_install.sh
+harness-one	test_one_run.sh
+inject	test_inject.sh
+pause --force and resume	test_headless_checkpoint.sh
+headless attach: typed lines and Ctrl-C detach	test_headless_attach.sh
+install via npx	test_install_npx.sh
+install via curl	test_install_release.sh
+install prerequisite offers	test_windows_installer.sh
+update --rollback	test_windows_update.sh

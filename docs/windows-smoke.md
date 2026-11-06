@@ -236,6 +236,24 @@ registered there, `to-prd`, `to-issues`, `subagent-task-tree` and every skill a 
 and `lane` (a shell with a lane's env, a short `TMPDIR` and a worktree path with a space, running git, gh, `rtdd.exe`, python3 through the
 shim, grep and sed). Log: `test/smoke/logs/tooling-windows-20261104T141533Z.log`.
 
+The full suite on a Windows host (#492): `test/smoke/winsma/suite.sh` is the script a run sends
+(`winsma.sh run <issue> suite "$(cat test/smoke/winsma/suite.sh)"`; the branch must be pushed). It runs in the `suite` isolation, where
+`HOME` and `USERPROFILE` are `C:\hx-<issue>\home`, so no install or uninstall test can reach `C:\Users\pc`. It clones the branch, makes a
+venv under the run folder whose `python.exe` is also `python3.exe` (the host's `python3` is the Store stub), and runs `bash test/run.sh`
+with `PYTHONUTF8=1` (what the engine's python3 shim sets, #406) and `HARNESS_TEST_TIMEOUT` (default 600 s) per test file. It prints every red assertion with its file, run.sh's own summary
+(`FAILED: <file>` lines) and `SUITE-RESULT <n> failed`; the failures Linux does not also have at the same commit are the Windows ones.
+It exits 0 once run.sh has completed (`HX_STRICT=1` passes run.sh's status through), so the guard, the credential scan and the cleanup
+of `winsma.sh run` still decide the run.
+After run.sh it ends every process left under the run folder that is not the script's own or an ancestor of it (`reap.ps1`): tests leak
+watchers that hold the ssh session's stdout open, and without this the run never returns to the claude host.
+
+Result of the first complete runs (#492): `test/smoke/logs/suite-windows-20261106T061737Z.log` (109 of 168 files red, and the guard failed:
+tests had registered five real `Harness\harness-*` Task Scheduler tasks, which led to the `schtasks` and `winget` stubs in `run.sh`), and
+`test/smoke/logs/suite-windows-20261106T120731Z.log` (300 s per-file cap, `PYTHONUTF8=1`: **72 of 168 files pass, 96 red, guard clean,
+no credential written, winsma clean**). The failures Linux does not have are filed as #605 (mixed `C:/` and `/c/` path spellings),
+#606 (headless runner tests never reach the runner's first state), #607 (tests asserting POSIX-only mechanisms), #608 (install and
+update fixtures) and #609 (gh-stub, prompt and bench tests).
+
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;

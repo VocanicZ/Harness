@@ -8,6 +8,47 @@ assert_ok(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then ec
 assert_no(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then echo "  FAIL: $msg — expected failure from: $*"; TESTS_FAIL=$((TESTS_FAIL+1)); else echo "  ok: $msg"; fi; }
 finish(){ echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"; [[ $TESTS_FAIL -eq 0 ]]; }
 
+# windows_row_value <row> [doc] — the Windows cell of <row> in the parity matrix of docs/reference.md (#492, PRD #475),
+# printed trimmed; rc 1 and nothing printed when the matrix has no such row. HARNESS_PARITY_DOC names another doc
+# (the helper's own tests point it at a fixture). Only the `| feature | Linux | Windows |` table is read: the per-CLI
+# research table below it shares row names. Pure awk, so it runs in Git Bash as it does on Linux.
+windows_row_value(){ local row="$1" doc="${2:-${HARNESS_PARITY_DOC:-$(dirname "${BASH_SOURCE[0]}")/../docs/reference.md}}"
+  [[ -r $doc ]] || { echo "windows_row_value: cannot read $doc" >&2; return 1; }
+  awk -F'|' -v row="$row" '
+    function trim(x){ gsub(/^[ \t\r]+|[ \t\r]+$/, "", x); return x }
+    trim($2)=="feature" && trim($3)=="Linux" && trim($4)=="Windows" { on=1; next }
+    on && substr($0,1,1)!="|" { on=0 }
+    on { f=trim($2); gsub(/^`|`$/, "", f); if (f==row) { print trim($4); found=1; exit } }
+    END { exit found ? 0 : 1 }' "$doc"; }
+
+# host_is_windows — Git Bash / MSYS / Cygwin, or HARNESS_PLATFORM=windows (the suite's way to force the Windows paths on
+# Linux; HARNESS_PLATFORM=posix forces the other way). scripts/portable.sh has the engine's is_windows; this is the
+# test rig's, so helpers.sh needs no engine file sourced first.
+host_is_windows(){ case "${HARNESS_PLATFORM:-}" in windows) return 0;; posix) return 1;; esac
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
+
+# windows_skip <matrix row> <why> — the ONE way a test skips itself on Windows. A skip is allowed only when the row it
+# names is `n/a` on Windows in the parity matrix (docs/reference.md): Windows physically cannot do that feature.
+#   row n/a on Windows : on Windows prints "SKIP (Windows n/a: row '<row>'): <why>" and returns 0; elsewhere returns 1.
+#   row ✓ (or ✓ target): FAIL, loudly, on every OS — a feature Windows can do is never skipped there; returns 1.
+#   row missing        : FAIL, loudly, on every OS — a typo'd or unlisted row is never a free pass; returns 1.
+# A FAIL counts in TESTS_FAIL, so the file ends red even if the caller ignores the status. Use:
+#   windows_skip "swarm submission" "needs the Linux HTCondor service" && { finish; exit 0; }
+# or windows_skip_file, which does exactly that.
+windows_skip(){ local row="$1" why="${2:-}" val
+  if ! val="$(windows_row_value "$row")"; then
+    TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1))
+    echo "  FAIL: windows_skip: the parity matrix has no row '$row' — a Windows skip names a matrix row that is n/a on Windows"; return 1; fi
+  case "$val" in
+    n/a*) host_is_windows || return 1
+          echo "  SKIP (Windows n/a: row '$row'): $why"; return 0;;
+    *)    TESTS_RUN=$((TESTS_RUN+1)); TESTS_FAIL=$((TESTS_FAIL+1))
+          echo "  FAIL: windows_skip: row '$row' is ${val%% *} on Windows, not n/a — Windows runs this test, it may not skip it"; return 1;;
+  esac; }
+# windows_skip_file <matrix row> <why> — windows_skip for a whole file: when it skips, finish and exit 0 (a file that
+# skipped on its n/a row is green); when it does not, a call that FAILed leaves the file to run on and end red.
+windows_skip_file(){ if windows_skip "$@"; then finish; exit 0; fi; return 0; }
+
 # default_signals_prefix — set DEFSIG, a command prefix that starts what follows with SIGINT, SIGHUP and
 # SIGQUIT back at their default disposition (#553), and SIGPIPE and SIGXFSZ too (#574: an ignored SIGPIPE turns a
 # closed pipe into an EPIPE "write error" on stderr). A non-interactive bash cannot trap, or reset, a

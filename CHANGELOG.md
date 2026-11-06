@@ -80,6 +80,25 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `harness stop --state-dir <its own>`, however the arm ends. Results carry `issues_closed`, `prs_merged`, the models
   that ran, and the fleet's own event log. `test/test_bench_harness.py` drives it with a fake front door, engine and gh.
 
+### The test suite runs in Git Bash on Windows, and a Windows skip must name an `n/a` matrix row (#492)
+
+- `test/helpers.sh` gains `windows_skip <matrix row> <why>` (and `windows_skip_file`, which ends the file): the one way a test
+  skips itself on Windows. It reads the Windows column of the parity matrix in `docs/reference.md`. An `n/a` row skips on Windows
+  and names the row in the `SKIP` line; a `✓` or `✓ target` row, or a row the matrix does not have, is a failure on every OS,
+  so a wrong skip shows on Linux first. `test/test_swarm.sh` takes the one real skip (`swarm submission`).
+  `test/test_windows_skip.sh` covers the helper.
+- `test/windows_coverage.tsv` names, for every row that is `✓` on Windows, a test that actually runs there.
+  `test/test_windows_parity_doc.sh` now fails on a `✓` row with no running test (no line, a missing file, or a test that skips
+  itself without tmux) and on a line for a row that is `n/a` or not in the matrix.
+- `test/run.sh` takes `HARNESS_TEST_TIMEOUT=<seconds>` (a hung test ends as `TIMEOUT` instead of stalling the run) and ends with
+  `== run.sh: N/M test files passed ==` plus one `FAILED: <file>` line per red file; `test/test_run_summary.sh` covers both. On a Windows host `run.sh` also points
+  `HARNESS_SCHTASKS` and `HARNESS_WINGET` at recording stubs: the first full run on winsma registered five real
+  `Harness\harness-*` Task Scheduler tasks from tests and tripped the before/after guard.
+- `test/smoke/winsma/suite.sh` runs the whole suite on the Windows check host in the full-suite isolation (`HOME` and
+  `USERPROFILE` under `C:\hx-<issue>\home`), see `docs/windows-smoke.md`. It ends the processes tests leak (they held the ssh
+  session open) and the logs are committed under `test/smoke/logs/`: the first complete run on winsma passes 72 of 168 test
+  files with the guard clean; the Windows-only failures are filed as #605 to #609.
+
 ### `harness start` replaces a fleet's old-engine workers instead of leaving them on the default cap (#566)
 
 - `harness start` migrates the fleet's config with `--no-start`, which for an already-migrated fleet only dropped a
