@@ -78,15 +78,16 @@ try:
     svg = slurp(svg_path, "r") if os.path.isfile(svg_path) else ""
     check("figure is an svg with both arms", svg.startswith("<svg") and "Plain Claude Code" in svg and "Harness (1 worker)" in svg)
     check("table header columns", all(c in text for c in ("Wall time", "Coding", "Testing", "List price", "% of weekly window",
-                                                          "Hidden tests passed", "Issues / PRs / commits", "Continue replies",
+                                                          "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
                                                           "Cap status", "Models", "in / out / cache read / cache write")))
-    check("plain row", "| Plain Claude Code | within caps | 1h 02m | 50m 00s | 10m 00s | 13.1M | 1.2k / 250.0k / 12.0M / 800.0k | $41.50 | 2.1% | 17 / 20 | 12 commits | 3 | claude-opus-4-1 |" in text, text)
+    check("plain row", "| Plain Claude Code | within caps | 1h 02m | 50m 00s | 10m 00s | 13.1M | 1.2k / 250.0k / 12.0M / 800.0k | $41.50 | 2.1% | 17 / 20 | n/a | 12 commits | 3 | claude-opus-4-1 |" in text, text)
     check("harness row: capped, issues/PRs, models",
           "| Harness (1 worker) | capped: cost | 2h 00m | 1h 23m | 31m 40s |" in text and "6 issues, 6 PRs" in text and "claude-opus-4-1, claude-sonnet-4-5" in text, text)
-    check("harness row has n/a continue replies", "| 6 issues, 6 PRs | n/a |" in text, text)
+    check("harness row has n/a continue replies", "| n/a | 6 issues, 6 PRs | n/a |" in text, text)
     check("skipped optional arm with reason", "| Hx | skipped: Hx needs a second account | n/a |" in text, text)
     check("optional arm without a reason is skipped: not run", "| Harness (3 workers) | skipped: not run |" in text, text)
     check("no SonarQube column without data", "SonarQube" not in text)
+    check("no fuzz note while no arm has fuzz results", "**Fuzz divergences:**" not in text)
     # a `status: skipped` <arm>.json (bench/run.py --optional, #386) is a skipped row, and is not a measured arm
     put(d, "results", "r1", "harness-3.json", data={"schema": 1, "run_id": "r1", "arm": "harness-3", "status": "skipped",
                                                     "reason": "budget", "skipped_at": "t", "guard": {}})
@@ -269,6 +270,23 @@ try:
     r8 = run(d8, "--check")
     check("--check fails when fleet_restarts hides the restart the front door made",
           r8.returncode == 1 and "fleet_restarts" in r8.stderr, r8.stderr)
+
+    # --- #589: the Fuzz divergences column and its note ------------------------------------
+    d9 = os.path.join(tmp, "fuzz"); os.makedirs(d9)
+    ex = [{"case": 1, "argv": ["add", "f", "d", "c", "-5", "-refund"]}]
+    put(d9, "results", "r1", "plain.json", data=doc("plain", fuzz_cases=1000, fuzz_divergences=250, fuzz_examples=ex,
+                                                    fuzz_seed=589, fuzz_hash="0123456789abcdef" * 4))
+    put(d9, "results", "r1", "harness.json", data=doc("harness", fuzz_cases=1000, fuzz_divergences=0, fuzz_examples=[],
+                                                      fuzz_seed=589, fuzz_hash="0123456789abcdef" * 4))
+    put(d9, "results", "r1", "harness-3.json", data=doc("harness-3", fuzz_error="fuzz did not run: OSError"))
+    readme9 = readme_with_markers(d9)
+    run(d9)
+    t9 = slurp(readme9, "r")
+    check("fuzz divergences per arm in the table", "| 17 / 20 | 250 / 1000 | 12 commits |" in t9 and "| 17 / 20 | 0 / 1000 |" in t9, t9)
+    check("an arm whose fuzz could not run says so", "| 17 / 20 | n/a (fuzz error) |" in t9, t9)
+    check("the fuzz note names what is counted, the seed and the hash",
+          "**Fuzz divergences:**" in t9 and "seed 589" in t9 and "`0123456789ab…`" in t9 and "`fuzz_examples`" in t9, t9)
+    check("--check passes with fuzz results", run(d9, "--check").returncode == 0)
 
     # --- the committed README and figure are current with the committed results -------------
     r = subprocess.run([sys.executable, "-I", FIG, "--check"], capture_output=True, text=True)

@@ -5,8 +5,10 @@ from decimal import Decimal
 
 Entry = namedtuple("Entry", "date category amount note")
 
-_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_AMOUNT = re.compile(r"^[+-]?\d+(\.\d{1,2})?$")
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+_AMOUNT = re.compile(r"[+-]?\d+(\.\d{1,2})?", re.ASCII)
+# A line ends at LF, CRLF or a lone CR and nowhere else: a form feed, U+2028 or NEL inside a note is part of the note.
+_LINE_END = re.compile(r"\r\n|\r|\n")
 
 
 class ParseError(ValueError):
@@ -17,7 +19,7 @@ class ParseError(ValueError):
 
 
 def parse_date(text):
-    if not _DATE.match(text):
+    if not _DATE.fullmatch(text):
         raise ValueError("bad date %r (want YYYY-MM-DD)" % text)
     try:
         return datetime.date(int(text[:4]), int(text[5:7]), int(text[8:]))
@@ -26,19 +28,24 @@ def parse_date(text):
 
 
 def parse_amount(text):
-    if not _AMOUNT.match(text):
+    if not _AMOUNT.fullmatch(text):
         raise ValueError("bad amount %r (want at most two decimals)" % text)
     return Decimal(text)
 
 
 def make_entry(date, category, amount, note=""):
     """Validate the raw text fields of one entry and build it; ValueError on a mistake."""
+    if not category or category != "".join(category.split()):
+        raise ValueError("bad category %r (want one word)" % category)
+    if _LINE_END.search(note):
+        raise ValueError("bad note (want a single line)")
     return Entry(parse_date(date), category.lower(), parse_amount(amount), note.strip())
 
 
 def parse(text):
     entries = []
-    for number, raw in enumerate(text.splitlines(), 1):
+    text = text[1:] if text.startswith("\ufeff") else text      # a UTF-8 byte order mark is not part of the date
+    for number, raw in enumerate(_LINE_END.split(text), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -84,6 +91,11 @@ def filter_entries(entries, category=None, since=None, until=None):
     return out
 
 
+def money(value):
+    """An amount with two decimals; zero is `0.00` whether it was typed as `0` or `-0`."""
+    return "%.2f" % (value + 0)
+
+
 def format_entry(e):
-    line = "%s %s %.2f" % (e.date.isoformat(), e.category, e.amount)
+    line = "%s %s %s" % (e.date.isoformat(), e.category, money(e.amount))
     return line + " " + e.note if e.note else line

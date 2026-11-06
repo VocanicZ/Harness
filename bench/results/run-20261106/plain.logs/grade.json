@@ -406,5 +406,406 @@
         "message": ""
       }
     ]
+  },
+  "fuzz": {
+    "fuzz_cases": 1000,
+    "fuzz_divergences": 234,
+    "fuzz_examples": [
+      {
+        "case": 10,
+        "argv": [
+          "export",
+          "--format",
+          "csv",
+          "-"
+        ],
+        "ledger": "2024-05-06\\t\\tFood\\t\\t+1470.1 \\t   spaced  note \\r\\n#\\n\\t2025-02-10  k-n\\t\\t+3566.43  --flag\\n2025-10-08  gas   -2407\\tline\\u2028sep\\n\\r2024-04-16\\t\\tCaf\\xe9\\t3167.1 \\t form\\x0cfeed\\r\\n\\t\\n2023-01-16 …",
+        "ledger_from": "stdin",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "date,category,amount,note\\n2023-01-16,gas,-5.00,-5\\n2023-11-13,rent,-1000.00,--flag\\n2024-04-16,caf\\xe9,3167.10,form\\x0cfeed\\n2024-05-06,food,1470.10,spaced  note\\n2025-02-10,k-n,3566.43,--flag\\n2025-…",
+          "stderr_empty": true,
+          "file": null
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "date,category,amount,note\\n2023-01-16,gas,-5.00,\"-5\\r2023-11-13  Rent -1000   --flag\"\\n2024-04-16,caf\\xe9,3167.10,form\\x0cfeed\\n2024-05-06,food,1470.10,spaced  note\\n2025-02-10,k-n,3566.43,--flag\\n202…",
+          "stderr_empty": true,
+          "file": null
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 11,
+        "argv": [
+          "summary",
+          "ledger.txt"
+        ],
+        "ledger": "2023-08-10\\t\\tCaf\\xe9\\t100000000.99\\t\\t--flag\\r2025-01-16  Rent   12.5  nel\\x85x\\r 2023-09-11  x1   -4238  a  b\\r#\\tx\\r\\t2024-12-30\\t\\tfun\\t\\t12.505\\t\\t# not a comment\\r#\\tx\\r\\t\\r",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2023-08-10\t\tCafé\t100000000.99\t\t--flag",
+            "2025-01-16  Rent   12.5  nelx",
+            " 2023-09-11  x1   -4238  a  b",
+            "#\tx",
+            "\t2024-12-30\t\tfun\t\t12.505\t\t# not a comment",
+            "#\tx",
+            "\t"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "caf\\xe9  100000000.99\\n",
+          "stderr_empty": true,
+          "file": [
+            "2023-08-10\t\tCafé\t100000000.99\t\t--flag",
+            "2025-01-16  Rent   12.5  nelx",
+            " 2023-09-11  x1   -4238  a  b",
+            "#\tx",
+            "\t2024-12-30\t\tfun\t\t12.505\t\t# not a comment",
+            "#\tx",
+            "\t"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 24,
+        "argv": [
+          "balance",
+          "ledger.txt"
+        ],
+        "ledger": " \\t \\r\\t2025-02-15   fun\\t-1135 \\t   spaced  note \\r\\t2023-12-10\\ta_b   -5  nel\\x85x\\r  2023-06-14\\tx1\\t\\t103.71\\t\\tline\\u2028sep\\r2024-08-13   k-n\\t3.1  unicode \\u2603 \\xe9\\r2024-11-18 food +2430 for…",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "1396.81\\n",
+          "stderr_empty": true,
+          "file": [
+            " \t ",
+            "\t2025-02-15   fun\t-1135 \t   spaced  note ",
+            "\t2023-12-10\ta_b   -5  nelx",
+            "  2023-06-14\tx1\t\t103.71\t\tline sep",
+            "2024-08-13   k-n\t3.1  unicode ☃ é",
+            "2024-11-18 food +2430 form\ffeed"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "-1135.00\\n",
+          "stderr_empty": true,
+          "file": [
+            " \t ",
+            "\t2025-02-15   fun\t-1135 \t   spaced  note ",
+            "\t2023-12-10\ta_b   -5  nelx",
+            "  2023-06-14\tx1\t\t103.71\t\tline sep",
+            "2024-08-13   k-n\t3.1  unicode ☃ é",
+            "2024-11-18 food +2430 form\ffeed"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 25,
+        "argv": [
+          "list",
+          "ledger.txt"
+        ],
+        "ledger": "\\t\\r# household, March\\r  2025-06-08\\t\\tCaf\\xe9\\t-1166.86\\t# not a comment\\r\\t2024-02-31   SALARY \\t -1000\\t\\tform\\x0cfeed\\r\\t2025-09-03   Rent\\t3218\\ttab\\tinside\\r2023-03-27 food\\t-4056.02 \\r2023-07-…",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "\t",
+            "# household, March",
+            "  2025-06-08\t\tCafé\t-1166.86\t# not a comment",
+            "\t2024-02-31   SALARY \t -1000\t\tform\ffeed",
+            "\t2025-09-03   Rent\t3218\ttab\tinside",
+            "2023-03-27 food\t-4056.02 ",
+            "2023-07-18 \t Rent -4343.08   nelx",
+            "2023-03-14  k-n   +4123\tpara sep",
+            "2024-12-03   SALARY 4693.7\ttab\tinside"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "\t",
+            "# household, March",
+            "  2025-06-08\t\tCafé\t-1166.86\t# not a comment",
+            "\t2024-02-31   SALARY \t -1000\t\tform\ffeed",
+            "\t2025-09-03   Rent\t3218\ttab\tinside",
+            "2023-03-27 food\t-4056.02 ",
+            "2023-07-18 \t Rent -4343.08   nelx",
+            "2023-03-14  k-n   +4123\tpara sep",
+            "2024-12-03   SALARY 4693.7\ttab\tinside"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 34,
+        "argv": [
+          "add",
+          "ledger.txt",
+          "2025-07-20",
+          "SALARY",
+          "3.1",
+          "--",
+          "unicode ☃ é"
+        ],
+        "ledger": "2025-11-06   gas\\t\\t1877 \\t vt\\x0bx\\r\\n  \\r\\n\\t2025-05-05   SALARY\\t+3664.06  -5\\r\\n\\t\\r\\n2023-04-26\\t\\tx1 12 \\t line\\u2028sep\\r\\n 2025-07-11\\tfun \\t +0.5\\tweekly shop\\r\\n  2025-09-04  a_b \\t -4640.13…",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "2025-07-20 salary 3.10 unicode \\u2603 \\xe9\\n",
+          "stderr_empty": true,
+          "file": [
+            "2025-11-06   gas\t\t1877 \t vt\u000bx",
+            "  ",
+            "\t2025-05-05   SALARY\t+3664.06  -5",
+            "\t",
+            "2023-04-26\t\tx1 12 \t line sep",
+            " 2025-07-11\tfun \t +0.5\tweekly shop",
+            "  2025-09-04  a_b \t -4640.13   spaced  note ",
+            "\t2023-11-01\t\tfood 3708.6 March pay",
+            "2024-08-06\t\ta_b\t-2713.8\tx",
+            "2025-05-23   SALARY   +2500 # not a comment",
+            "2023-03-23\tfood\t\t+258\t\ttab\tinside",
+            "2025-07-20 salary 3.10 unicode ☃ é"
+          ]
+        },
+        "arm": {
+          "exit": 2,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2025-11-06   gas\t\t1877 \t vt\u000bx",
+            "  ",
+            "\t2025-05-05   SALARY\t+3664.06  -5",
+            "\t",
+            "2023-04-26\t\tx1 12 \t line sep",
+            " 2025-07-11\tfun \t +0.5\tweekly shop",
+            "  2025-09-04  a_b \t -4640.13   spaced  note ",
+            "\t2023-11-01\t\tfood 3708.6 March pay",
+            "2024-08-06\t\ta_b\t-2713.8\tx",
+            "2025-05-23   SALARY   +2500 # not a comment",
+            "2023-03-23\tfood\t\t+258\t\ttab\tinside"
+          ]
+        },
+        "arm_stderr": "usage: pennywise [-h] [--version] COMMAND ...\\npennywise: error: unrecognized arguments: unicode \\u2603 \\xe9\\n"
+      },
+      {
+        "case": 40,
+        "argv": [
+          "list",
+          "--category",
+          "Rent",
+          "--json",
+          "ledger.txt"
+        ],
+        "ledger": "\\ufeff2025-02-24\\tx1\\t-0\\t\\tvt\\x0bx\\r  2025-04-28  Food   -0 \\t unicode \\u2603 \\xe9\\r  # indented\\r2023-04-18  a_b +642 \\t para\\u2029sep\\r#\\r\\r  2024-07-02\\t\\tFood \\t 2837.24\\t(note)\\r\\r 2023-11-13 \\t…",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "[{\"date\": \"2023-03-14\", \"category\": \"rent\", \"amount\": \"100000000.99\", \"note\": \"nel\\\\u0085x\"}, {\"date\": \"2024-12-09\", \"category\": \"rent\", \"amount\": \"-4712.00\", \"note\": \"line\\\\u2028sep\"}]\\n",
+          "stderr_empty": true,
+          "file": [
+            "﻿2025-02-24\tx1\t-0\t\tvt\u000bx",
+            "  2025-04-28  Food   -0 \t unicode ☃ é",
+            "  # indented",
+            "2023-04-18  a_b +642 \t para sep",
+            "#",
+            "  2024-07-02\t\tFood \t 2837.24\t(note)",
+            " 2023-11-13 \t Food\t3463.2\tx",
+            "2024-12-09 Rent  -4712.0  line sep",
+            "2023-03-14  Rent 100000000.99   nelx"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "[]\\n",
+          "stderr_empty": true,
+          "file": [
+            "﻿2025-02-24\tx1\t-0\t\tvt\u000bx",
+            "  2025-04-28  Food   -0 \t unicode ☃ é",
+            "  # indented",
+            "2023-04-18  a_b +642 \t para sep",
+            "#",
+            "  2024-07-02\t\tFood \t 2837.24\t(note)",
+            " 2023-11-13 \t Food\t3463.2\tx",
+            "2024-12-09 Rent  -4712.0  line sep",
+            "2023-03-14  Rent 100000000.99   nelx"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 43,
+        "argv": [
+          "summary",
+          "--by",
+          "category",
+          "ledger.txt"
+        ],
+        "ledger": "2023-11-05\\t\\tCaf\\xe9\\t\\t12.5  nel\\x85x\\r# household, March\\r\\n\\r\\n2024-08-07   Caf\\xe9\\t+997\\t\\tMarch pay\\r 2024-03-07\\tSALARY \\t -3971.54   -refund\\n  # indented\\r2025-03-07   k-n \\t -1027.3 line\\u2…",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "caf\\xe9  1467.50\\nfood  -1000.00\\nk-n  -1027.30\\nsalary  1028.46\\n",
+          "stderr_empty": true,
+          "file": [
+            "2023-11-05\t\tCafé\t\t12.5  nelx",
+            "# household, March",
+            "2024-08-07   Café\t+997\t\tMarch pay",
+            " 2024-03-07\tSALARY \t -3971.54   -refund",
+            "  # indented",
+            "2025-03-07   k-n \t -1027.3 line sep",
+            "\t2024-03-13 \t SALARY\t\t+2500   # not a comment",
+            " 2025-11-13 \t food   -1000   unicode ☃ é",
+            "  2023-04-08   SALARY \t 2500.00 (note)",
+            "2025-07-20 \t Café\t\t+458    spaced  note "
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "caf\\xe9  1009.50\\nsalary  5000.00\\n",
+          "stderr_empty": true,
+          "file": [
+            "2023-11-05\t\tCafé\t\t12.5  nelx",
+            "# household, March",
+            "2024-08-07   Café\t+997\t\tMarch pay",
+            " 2024-03-07\tSALARY \t -3971.54   -refund",
+            "  # indented",
+            "2025-03-07   k-n \t -1027.3 line sep",
+            "\t2024-03-13 \t SALARY\t\t+2500   # not a comment",
+            " 2025-11-13 \t food   -1000   unicode ☃ é",
+            "  2023-04-08   SALARY \t 2500.00 (note)",
+            "2025-07-20 \t Café\t\t+458    spaced  note "
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 73,
+        "argv": [
+          "list",
+          "--json",
+          "-"
+        ],
+        "ledger": " 2025-11-08 \\t x1\\t-616.9\\t\\tunicode \\u2603 \\xe9\\r2024-01-01 food  \\r2024-12-05\\t\\tRent +4141\\tpara\\u2029sep\\n\\t2025-11-20 food\\t\\t1025   x\\n 2023-05-14\\t\\tfood   3.1 -refund\\n#2024-01-01 a 5",
+        "ledger_from": "stdin",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": null
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "[{\"date\": \"2023-05-14\", \"category\": \"food\", \"amount\": \"3.10\", \"note\": \"-refund\"}, {\"date\": \"2025-11-08\", \"category\": \"x1\", \"amount\": \"-616.90\", \"note\": \"unicode \\\\u2603 \\\\u00e9\\\\r2024-01-01 food  \\\\r2…",
+          "stderr_empty": true,
+          "file": null
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 86,
+        "argv": [
+          "add",
+          "ledger.txt",
+          "--",
+          "24-01-01",
+          "SALARY",
+          "007",
+          "-x y"
+        ],
+        "ledger": "#\\tx\\r# household, March\\r \\t \\r\\t\\r  # indented\\r\\t2023-10-01 \\t Rent   1993.74   weekly shop\\r2023-08-04  Rent\\t\\t0.00\\t# not a comment\\r  2023-05-09 \\t SALARY -2435  x\\r  \\r2025-03-28 Rent 4547\\tun…",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "#\tx",
+            "# household, March",
+            " \t ",
+            "\t",
+            "  # indented",
+            "\t2023-10-01 \t Rent   1993.74   weekly shop",
+            "2023-08-04  Rent\t\t0.00\t# not a comment",
+            "  2023-05-09 \t SALARY -2435  x",
+            "  ",
+            "2025-03-28 Rent 4547\tunicode ☃ é",
+            "\t2024-04-23 food \t +2500\t\ttab\tinside",
+            "\t"
+          ]
+        },
+        "arm": {
+          "exit": 2,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "#\tx",
+            "# household, March",
+            " \t ",
+            "\t",
+            "  # indented",
+            "\t2023-10-01 \t Rent   1993.74   weekly shop",
+            "2023-08-04  Rent\t\t0.00\t# not a comment",
+            "  2023-05-09 \t SALARY -2435  x",
+            "  ",
+            "2025-03-28 Rent 4547\tunicode ☃ é",
+            "\t2024-04-23 food \t +2500\t\ttab\tinside",
+            "\t"
+          ]
+        },
+        "arm_stderr": "usage: pennywise [-h] [--version] COMMAND ...\\npennywise: error: unrecognized arguments: -x y\\n"
+      },
+      {
+        "case": 155,
+        "argv": [
+          "export",
+          "--format",
+          "csv",
+          "-"
+        ],
+        "ledger": "\\t2024-08-18 \\t x1 -2395 \\r2023-05-15   food  +1474.8 tab\\tinside\\r2024-01-01\\r  \\r2024-06-14  x1 -4018.44   # not a comment\\r  2023-04-21 k-n  0\\t\\t(note)\\r 2024-08-26 k-n\\t\\t12  a  b\\r2024-06-16   x…",
+        "ledger_from": "stdin",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": null
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "date,category,amount,note\\n2024-08-18,x1,-2395.00,\"2023-05-15   food  +1474.8 tab\\tinside\\r2024-01-01\\r  \\r2024-06-14  x1 -4018.44   # not a comment\\r  2023-04-21 k-n  0\\t\\t(note)\\r 2024-08-26 k-n\\t\\t…",
+          "stderr_empty": true,
+          "file": null
+        },
+        "arm_stderr": ""
+      }
+    ],
+    "fuzz_seed": 589,
+    "fuzz_hash": "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478"
   }
 }

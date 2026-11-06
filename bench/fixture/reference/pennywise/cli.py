@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import os
 import sys
 
 from . import ledger
@@ -14,14 +15,18 @@ def _date(text):
 
 
 def _read(path):
+    """The ledger text. Bytes are decoded as UTF-8; a byte order mark is dropped (UnicodeDecodeError on bad bytes)."""
     if path == "-":
-        return sys.stdin.read()
-    with open(path, encoding="utf-8") as fh:
-        return fh.read()
+        stream = getattr(sys.stdin, "buffer", None)
+        data = stream.read() if stream is not None else sys.stdin.read()
+    else:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    return data.decode("utf-8-sig") if isinstance(data, bytes) else data
 
 
 def _money(value):
-    return "%.2f" % value
+    return ledger.money(value)
 
 
 def _sorted(entries):
@@ -75,14 +80,14 @@ def _cmd_add(args):
         return 1
     try:
         try:
-            with open(args.file, encoding="utf-8") as fh:
+            with open(args.file, "rb") as fh:
                 existing = fh.read()
         except FileNotFoundError:
-            existing = ""
-        with open(args.file, "a", encoding="utf-8", newline="") as fh:
-            if existing and not existing.endswith("\n"):
-                fh.write("\n")
-            fh.write(ledger.format_entry(entry) + "\n")
+            existing = b""
+        with open(args.file, "ab") as fh:
+            if existing and not existing.endswith((b"\n", b"\r")):
+                fh.write(b"\n")
+            fh.write((ledger.format_entry(entry) + "\n").encode("utf-8"))
     except OSError as exc:
         print("pennywise: %s" % exc, file=sys.stderr)
         return 2
@@ -123,8 +128,41 @@ def _parser():
     return p
 
 
+def _add_args(argv):
+    """`add`'s arguments are all positional: FILE DATE CATEGORY AMOUNT [NOTE], each taken as typed, so a
+    dash-led amount (`-5`, `-abc`) or note (`-refund`) is an argument and not an option. A leading `--` is
+    dropped; `-h` / `--help` before it still reaches argparse. None leaves the line to argparse."""
+    rest = list(argv[1:])
+    if "--" in rest:
+        rest.remove("--")
+    elif "-h" in rest or "--help" in rest:
+        return None
+    ns = argparse.Namespace(command="add")
+    if not 4 <= len(rest) <= 5:
+        return None
+    ns.file, ns.date, ns.category, ns.amount = rest[:4]
+    ns.note = rest[4] if len(rest) == 5 else ""
+    return ns
+
+
 def main(argv=None):
-    args = _parser().parse_args(argv)
+    """Run the CLI; its exit status. A reader that went away (`pennywise list | head -1`) ends the output
+    quietly with status 0: no traceback, nothing on standard error."""
+    try:
+        status = _main(sys.argv[1:] if argv is None else list(argv))
+        if sys.stdout is not None:
+            sys.stdout.flush()
+        return status
+    except BrokenPipeError:
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())   # the exit-time flush must not fail too
+        except (OSError, ValueError, AttributeError):
+            pass
+        return 0
+
+
+def _main(argv):
+    args = (_add_args(argv) if argv[:1] == ["add"] else None) or _parser().parse_args(argv)
     if args.command == "add":
         return _cmd_add(args)
     try:

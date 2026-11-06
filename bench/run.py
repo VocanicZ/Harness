@@ -385,6 +385,17 @@ def grade(repo, workdir, gh, log, grader):
         return {"passed": 0, "failed": None, "total": None, "details": {"error": str(e)[:300]}}
 
 
+def fuzz_fields(fuzz):
+    """The `fuzz_*` results keys from the grader's `fuzz` fragment (bench/fuzz.py, #589); `fuzz_error` when it
+    could not run, nothing when the grader is an older one that has no fuzz."""
+    if not isinstance(fuzz, dict):
+        return {}
+    if "fuzz_cases" in fuzz:
+        return {k: fuzz[k] for k in ("fuzz_cases", "fuzz_divergences", "fuzz_examples", "fuzz_seed", "fuzz_hash")
+                if k in fuzz}
+    return {"fuzz_error": str(fuzz.get("error") or "fuzz did not run")[:300]}
+
+
 def quality(workdir, script, log, timeout=2700):
     """The code-quality fragment ({"quality": ..., ["sonarqube": {...}]}) for the graded clone. Optional and
     never blocking: whatever goes wrong is `quality: skipped (<reason>)` (bench/quality.py, #387)."""
@@ -421,6 +432,11 @@ REQUIRED = {
     "weekly_window_pct": (int, float, type(None)), "models": dict, "hidden_tests": dict,
     "counts": dict, "caps": dict, "repo_deleted": (bool, type(None)), "logs": str,
 }
+
+
+# Optional (results written before #589 have none): bench/fuzz.py's differential fuzz of the graded build.
+FUZZ_FIELDS = {"fuzz_cases": int, "fuzz_divergences": int, "fuzz_examples": list, "fuzz_seed": int,
+               "fuzz_hash": str, "fuzz_error": str}
 
 
 def valid_reason(reason):
@@ -460,6 +476,14 @@ def validate(d):
         bad.append("caps keys")
     if not all(k in d["hidden_tests"] for k in ("passed", "failed", "total")):
         bad.append("hidden_tests needs passed/failed/total")
+    for k, t in FUZZ_FIELDS.items():
+        if k in d and (not isinstance(d[k], t) or isinstance(d[k], bool)):
+            bad.append(f"{k}: {type(d[k]).__name__}")
+    if isinstance(d.get("fuzz_examples"), list) and len(d["fuzz_examples"]) > 10:
+        bad.append("fuzz_examples: more than 10")
+    if isinstance(d.get("fuzz_divergences"), int) and isinstance(d.get("fuzz_cases"), int) \
+            and d["fuzz_divergences"] > d["fuzz_cases"]:
+        bad.append("fuzz_divergences > fuzz_cases")
     q = d.get("quality")
     if "quality" in d and not (q == "ok" and isinstance(d.get("sonarqube"), dict)
                                or isinstance(q, str) and q.startswith("skipped (") and "sonarqube" not in d):
@@ -603,8 +627,10 @@ def execute(a, arm, opts, g, fc, st):
             if m["split"]:
                 res.update(m["split"])
             copy_transcripts(ctx, logs)
-            res["hidden_tests"] = grade(repo, work, gh, log, a.grader)
-            write_json(os.path.join(logs, "grade.json"), res["hidden_tests"])
+            graded = grade(repo, work, gh, log, a.grader)
+            write_json(os.path.join(logs, "grade.json"), graded)
+            res["hidden_tests"] = {k: v for k, v in graded.items() if k != "fuzz"}
+            res.update(fuzz_fields(graded.get("fuzz")))
             res.update(quality(work, a.quality, log))
             res["weekly_window_pct"] = (round(m["cost_usd"] / g["usd_per_pct"], 2) if g["usd_per_pct"] else None)
         res["ended_at"] = now_iso()

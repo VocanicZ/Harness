@@ -4,6 +4,20 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench grading: a differential fuzz of every arm against the reference implementation (#589)
+
+- The 80 hidden tests cannot tell the arms apart (both scored 80 / 80, while a blind review found five bugs they never
+  exercise). `bench/fuzz.py` now feeds 1000 random argv and ledger files (dash-led arguments and `--`, a byte order
+  mark, invalid UTF-8, LF / CRLF / lone CR line endings, form feeds and U+2028 in notes, stdin or a file, a closed
+  output pipe) from a frozen seed and generator through the arm's `pennywise` and the reference, and counts where
+  standard output, "standard error is empty" or the exit status differ. `bench/grade.py` runs it after the hidden
+  tests; results carry `fuzz_cases`, `fuzz_divergences`, up to 10 `fuzz_examples`, `fuzz_seed` and `fuzz_hash`, and the
+  README table has a **Fuzz divergences** column. `grade.py REPO --fuzz-only --arm-json FILE` backfills a graded run:
+  `run-20261106` shows Harness 387 / 1000 and Plain 234 / 1000 divergences.
+- The reference implementation is fixed on those shapes first: `add` takes a dash-led amount or note as typed, a byte
+  order mark is dropped, a line ends only at LF, CRLF or a lone CR, a closed output pipe ends quietly, `-0` prints as
+  `0.00`, and `add` refuses a category or note that would corrupt the ledger.
+
 ### Bench: an arm's committed raw logs reproduce its results JSON, sub-agent transcripts included (#579)
 
 - `bench/run.py` copied only the main `.jsonl` of each registered transcript into `<arm>.logs/transcripts/`, while the

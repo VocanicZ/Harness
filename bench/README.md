@@ -19,7 +19,8 @@ bench/run.py hx --optional              # an optional arm: a guard refusal is re
 2. Create a fresh **private** GitHub repo `<gh login>/bench-<run-id>-<arm>`, GitHub Actions disabled,
    seeded with the project brief and nothing else (never the hidden tests or the reference solution).
 3. Clone it into a throwaway directory and run the arm there, under the caps.
-4. Grade a fresh clone of the repo's final default branch with `bench/grade.py` (the hidden tests).
+4. Grade a fresh clone of the repo's final default branch with `bench/grade.py`: the hidden tests, then the
+   [differential fuzz](#differential-fuzz) against the reference implementation.
 5. Measure the arm's transcripts and write `bench/results/<run-id>/<arm>.json`.
 6. **Delete the repo**, whatever happened: arm error, cap hit, grading failure. If `gh repo delete`
    fails (the gh token needs the `delete_repo` scope) the results say `repo_deleted: false`, the repo is
@@ -104,12 +105,52 @@ whatever the arm wrote to `ctx.logs`.
 | `weekly_window_pct` | number or null | `cost_usd` as a % of the weekly usage window |
 | `models` | object | per model that actually ran, from the transcripts: `messages`, `input`, `output`, `cache_read`, `cache_write`, `cost_usd` |
 | `hidden_tests` | object | `bench/grade.py`'s fragment: `passed`, `failed`, `total`, `details` (`failed` and `total` are null, `details.error` set, when grading failed) |
+| `fuzz_cases`, `fuzz_divergences` | int | [differential fuzz](#differential-fuzz) (#589): cases run, and cases where the arm and the reference disagree. Absent in results written before #589 and backfilled for `run-20261106` |
+| `fuzz_examples` | list | up to 10 of those divergences: `case`, `argv`, `ledger`, `ledger_from`, `closed_stdout`, `reference` and `arm` (`exit`, `stdout`, `stderr_empty`, `file`), `arm_stderr` |
+| `fuzz_seed`, `fuzz_hash` | int, string | the frozen generator's seed and the SHA-256 of its 1000 planned cases |
+| `fuzz_error` | string | only when the fuzz could not run; it never fails a run |
 | `counts` | object | the arm's own counts (`ctx.count`, the returned `counts`) |
 | `caps` | object | `wall_s`, `cost_usd` in force |
 | `repo_deleted` | bool or null | whether the run repo was deleted afterwards |
 | `logs` | string | the logs directory next to the file |
 
 `run.validate(doc)` in `bench/run.py` returns the problems with a results document (empty when valid).
+
+## Differential fuzz
+
+The 80 hidden tests are the same for every arm and both arms scored 80 / 80, so they cannot tell the arms apart:
+a blind review found five user-facing bugs in the Harness arm that no hidden test exercises (`add … -5 -refund`
+exits 2; `add … -abc` exits 2 where the brief says 1; `list | head -1` gives a BrokenPipe traceback; a UTF-8
+byte order mark is rejected; a form feed or U+2028 in a note gives the wrong error line). Adding exactly those
+cases would tune the tests to one arm, so `bench/fuzz.py` (#589) grades the same way for every arm instead:
+
+```
+bench/fuzz.py --self                  # the reference against itself: 0 divergences
+bench/fuzz.py --cmd '["pennywise"]'   # an arm's command line as a JSON argv (default: $PENNYWISE_CMD)
+bench/grade.py REPO_DIR --fuzz-only --arm-json bench/results/<run-id>/<arm>.json   # backfill a graded run
+```
+
+- **What runs.** 1000 cases (`--cases`, capped at 300 s, `--cap`) of random argv and ledger files go through the
+  arm's `pennywise` and through the reference implementation (the benchmark's reference solution, which the hidden tests
+  prove against the brief), each in its own empty directory. The generator covers the commands and their options,
+  dash-led arguments and `--`, a byte order mark and invalid UTF-8, LF / CRLF / lone CR / mixed line endings, a
+  form feed, vertical tab, NEL, U+2028 or U+2029 inside a note, a ledger from a file or from `-` (stdin), a missing
+  file or a directory, bad options, and a closed standard-output pipe (`pennywise list | head -1`).
+- **A divergence** is a case where the two differ in standard output, in whether standard error is empty, in the
+  exit status, or in the ledger `add` leaves behind (as lines). Where the brief leaves room it is not a difference:
+  how many spaces `summary` puts between the name and the total, and JSON formatting (compared as data). With a closed
+  output pipe only "standard error stays empty" and the ledger are compared: the brief gives no status for it.
+- **Frozen.** The generator has its own PRNG (no `random` module), seed `589`, and the SHA-256 of its case list is
+  pinned (`FROZEN_HASH`, and in `test/test_bench_fuzz.py`): `bench/fuzz.py` refuses to run when they disagree. A
+  changed generator is a different measurement: update the seed and hash on purpose and re-grade the runs you compare.
+  The hash is recorded in every result (`fuzz_hash`). A prefix of the cases is the same cases (`--cases 200`).
+- **The reference** is held to the brief on exactly these shapes (`test/test_bench_reference.py`): `add` takes
+  every argument as typed (a dash-led amount or note is not an option; `-abc` is a bad amount, exit 1), a UTF-8 byte
+  order mark is dropped, a line ends at LF, CRLF or a lone CR and nowhere else, and a reader that went away ends the
+  output quietly (no traceback, status 0).
+- **Where it runs.** `bench/grade.py` runs it after the hidden tests on the same build and adds a `fuzz` object to its
+  fragment; `bench/run.py` lifts that into the `fuzz_*` fields. A fuzz that cannot run is `fuzz_error`; the grade and the
+  run are unaffected. `BENCH_FUZZ_CASES` / `BENCH_FUZZ_CAP_S` shorten it for tests.
 
 ## Plain arm
 
@@ -250,7 +291,7 @@ bench/figures.py --check         # write nothing; exit 1 when the README section
 Output is deterministic (no timestamps, fixed fonts, colours and rounding), so the same results give the same
 bytes and re-running reproduces the committed files exactly. The table has one row per `<arm>.json`: cap
 status, wall time with the coding and testing split, tokens (total and input / output / cache read / cache
-write), list-price $ and % of the weekly window, hidden tests passed, issues / PRs (`counts.issues_closed`,
+write), list-price $ and % of the weekly window, hidden tests passed, fuzz divergences (`fuzz_divergences` / `fuzz_cases`, #589), issues / PRs (`counts.issues_closed`,
 `counts.prs_merged`) or commits (`counts.commits`), continue replies (`counts.continue_replies`) and the
 models that ran. A **SonarQube** column appears only when some result carries a `sonarqube` object
 (`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`, `duplicated_lines_density`, `coverage`).
