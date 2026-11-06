@@ -38,6 +38,9 @@ say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
 start=$SECONDS
 ( cd src && bash test/run.sh ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
 say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
 # What a reader needs: every red assertion with its file, then the summary run.sh ends with.
 awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
 sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"

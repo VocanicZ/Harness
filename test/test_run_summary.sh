@@ -47,7 +47,7 @@ assert_ok "on Windows run.sh stubs schtasks (an executable under the run's temp 
 assert_ok "… and winget" grep -qE '^WINGET=/.*/stubs/winget$' <<<"$out"
 assert_ok "… the stub accepts a create" grep -qx "create_rc=0" <<<"$out"
 assert_ok "… and reports a task absent on query (rc 1)" grep -qx "query_rc=1" <<<"$out"
-out="$(HARNESS_PLATFORM=posix bash "$T/stubs-suite/run.sh" 2>&1)"
+out="$(env -u HARNESS_SCHTASKS -u HARNESS_WINGET HARNESS_PLATFORM=posix bash "$T/stubs-suite/run.sh" 2>&1)"
 assert_ok "off Windows run.sh leaves HARNESS_SCHTASKS unset" grep -qx "SCHTASKS=unset" <<<"$out"
 assert_ok "… and HARNESS_WINGET" grep -qx "WINGET=unset" <<<"$out"
 finish

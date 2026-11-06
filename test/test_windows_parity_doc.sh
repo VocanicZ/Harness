@@ -157,7 +157,7 @@ for p in problems:
 sys.exit(1 if problems else 0)
 '
 MANIFEST="$HERE/windows_coverage.tsv"
-check(){ python3 -I -c "$CHECK" "$1" "$ROOT" "${2:-$MANIFEST}"; }
+check(){ python3 -X utf8 -I -c "$CHECK" "$1" "$ROOT" "${2:-$MANIFEST}"; }
 
 out="$(check "$DOC" 2>&1)"; rc=$?
 assert_eq "$rc" "0" "the real matrix passes ($out)"
@@ -165,7 +165,7 @@ assert_eq "$rc" "0" "the real matrix passes ($out)"
 # --- fixture cases: the real doc with one defect each; the checker must fail and name it ----------
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mutate(){ # <name> <python expression editing s> — writes $TMP/<name>.md from the real doc
-  python3 -I -c '
+  python3 -X utf8 -I -c '
 import sys
 s = open(sys.argv[1], encoding="utf-8").read()
 exec(sys.argv[3])
@@ -206,7 +206,7 @@ mutate research-no-source 's = s.replace("[agent exec](https://docs.openclaw.ai/
 expect_fail research-no-source "research row \`openclaw\` has no source link" "a research row with no source"
 # --- Windows test coverage (#492): every ✓ row names a test that runs on Windows -------------------
 mutate_cov(){ # <name> <python expression editing s> — writes $TMP/<name>.tsv from the real manifest
-  python3 -I -c '
+  python3 -X utf8 -I -c '
 import sys
 s = open(sys.argv[1], encoding="utf-8").read()
 exec(sys.argv[3])
