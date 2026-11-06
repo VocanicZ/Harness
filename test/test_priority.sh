@@ -223,6 +223,24 @@ reap_lane
 assert_eq "$(cat "$GHLOG")" "" "reap_lane did NOT touch a live-session bug's labels"
 assert_eq "$(cat "$WTLOG")" "" "reap_lane did NOT reap a live-session bug's worktree"
 
+# #567 CLAIMED bug: a pool worker's spawn_bug stamps agent-working BEFORE its session starts, so in
+# that window the bug has the label + a pool claim but no live session. reap_lane must NOT reap it
+# (it would remove the worktree the pool worker is about to start the lane in) while the claim's pid
+# is live; a claim whose pid is dead must NOT protect the bug (a crashed pool worker's bug is reaped).
+CK="$CLAIMS_DIR/$(_bug_claim_key "$SLUG#9").claim"
+: > "$GHLOG"; : > "$WTLOG"; : > "$LIVE"                   # no live session for #9
+printf 'pool-W1 %s %s#9\n' "$$" "$SLUG" > "$CK"            # claim held by a LIVE pid (this shell)
+reap_lane
+assert_eq "$(cat "$GHLOG")" "" "reap_lane did NOT strip agent-working from a bug under a live pool claim (#567)"
+assert_eq "$(cat "$WTLOG")" "" "reap_lane did NOT reap the worktree of a bug under a live pool claim (#567)"
+printf 'pool-W1 999999 %s#9\n' "$SLUG" > "$CK"             # same claim, DEAD pid
+reap_lane
+assert_ok "reap_lane still reaps a bug whose claim pid is dead (#567)" \
+  grep -q "issue edit 9 -R acme/widget --remove-label agent-working" "$GHLOG"
+assert_ok "reap_lane still reaps the worktree of a bug whose claim pid is dead (#567)" \
+  grep -qxF "$WORKTREES_DIR/bug-acme_widget-i9|issue/9" "$WTLOG"
+rm -f "$CK"
+
 # wiring: bug_step runs reap_lane at the top of EVERY poll (per-poll self-heal, like the pool).
 # The direct-gh path: the host poller is ON by default since #182, so switch it off explicitly here
 # (the snapshot-gated path is covered below with HARNESS_USE_POLLER=1).

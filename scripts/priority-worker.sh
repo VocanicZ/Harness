@@ -75,6 +75,10 @@ reap_lane(){ local repo slug n
     while read -r n; do
       [[ -n "$n" ]] || continue
       bug_session_live "$slug" "$n" && continue   # live session — never sweep (no double-dispatch, #43)
+      # #567: a pool worker's spawn_bug stamps agent-working BEFORE its session starts, so in that window the bug
+      # has the label + a pool claim but no session yet. A claim held by a LIVE pid protects it (is_bug_claimed
+      # is false for a dead pid, so a crashed pool worker's bug is still reaped).
+      is_bug_claimed "$slug#$n" && continue
       log "priority: reaping stale agent-working on bug $repo#$n (no live session) — re-claimable next poll"
       unlock_issue "$slug" "$n" || true   # #179: a gh failure queues it for retry_pending_unlocks
       # The crash could have been in either phase; reap BOTH possible worktrees (idempotent on the
