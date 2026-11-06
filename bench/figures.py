@@ -341,10 +341,11 @@ def sonar(doc):
 def coverage(doc):
     """The Coverage cell: the arm's own tests' total (line, branch) %, a median (min-max) over several runs, or
     `n/a (<reason>)` (#588)."""
+    def p(v):
+        return f"{v:g}%"
     if metric(doc, "cov_line_pct") is not None and metric(doc, "cov_branch_pct") is not None:
-        total = f"{stat(doc, 'cov_total_pct', gfmt)}% (" if metric(doc, "cov_total_pct") is not None else ""
-        return (f"{total}line {stat(doc, 'cov_line_pct', gfmt)}%, branch {stat(doc, 'cov_branch_pct', gfmt)}%"
-                + (")" if total else ""))
+        total = f"{stat(doc, 'cov_total_pct', p)} (" if metric(doc, "cov_total_pct") is not None else ""
+        return f"{total}line {stat(doc, 'cov_line_pct', p)}, branch {stat(doc, 'cov_branch_pct', p)}" + (")" if total else "")
     reason = first_reason(runs_of(doc), "coverage")
     return f"{NA} ({reason})" if reason else f"{NA} (not measured)"
 

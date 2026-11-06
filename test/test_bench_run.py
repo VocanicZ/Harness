@@ -564,6 +564,15 @@ def test_the_disk_guard_measures_only_the_temp_dir_not_the_checkout():
     assert seen == ["/tmp"] and [x["path"] for x in out] == ["/tmp"], (seen, out)
 
 
+def test_aggregate_summarises_own_test_coverage_and_ignores_skipped_ones():
+    import aggregate
+    ok = lambda l, b, t: {"status": "ok", "coverage": {"line_pct": l, "branch_pct": b, "total_pct": t}}
+    m = aggregate.aggregate([ok(90.0, 80.0, 85.0), ok(96.0, 90.0, 93.0), {"status": "ok", "coverage": "skipped (x)"}])["metrics"]
+    assert m["cov_line_pct"] == {"n": 2, "median": 93.0, "min": 90.0, "max": 96.0}, m
+    assert m["cov_branch_pct"]["median"] == 85.0 and m["cov_total_pct"]["max"] == 93.0, m
+    assert "cov_line_pct" not in aggregate.aggregate([{"status": "ok", "coverage": "skipped (x)"}])["metrics"]
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

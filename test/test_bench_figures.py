@@ -398,6 +398,35 @@ try:
     check("a batch is byte-for-byte reproducible", (slurp(readme12), slurp(os.path.join(d12, "results", "benchmark.svg"))) ==
           (lambda: (run(d12), (slurp(readme12), slurp(os.path.join(d12, "results", "benchmark.svg"))))[1])())
     check("--check passes on a batch", run(d12, "--check").returncode == 0, run(d12, "--check").stderr)
+
+    # --- #588 with --runs N: coverage is a median (min-max) over the runs, and a run with a skipped scan is invalid ---
+    d13 = os.path.join(tmp, "batchq"); os.makedirs(d13)
+    sqb = {"bugs": 0, "vulnerabilities": 0, "code_smells": 0, "maintainability_rating": "A", "duplicated_lines_density": 0.0}
+    qdocs, qruns = [], []
+    for i, (qual, cov) in enumerate([("ok", {"line_pct": 90.0, "branch_pct": 80.0, "total_pct": 85.0}),
+                                     ("skipped (Not enough free disk space)", "skipped (coverage.py is not installed)"),
+                                     ("ok", {"line_pct": 96.0, "branch_pct": 90.0, "total_pct": 93.0})], 1):
+        f = f"plain.runs/run-{i:02d}.json"
+        extra = {"quality": qual, "coverage": cov}
+        if qual == "ok":
+            extra["sonarqube"] = sqb
+        r = doc("plain", run=i, logs=f"run-{i:02d}.logs", **extra)
+        put(d13, "results", "r1", f, data=r)
+        qdocs.append(r)
+        qruns.append({"run": i, "file": f, "status": "ok", "capped": None})
+    a13 = agglib.aggregate(qdocs)
+    put(d13, "results", "r1", "plain.json", data={"schema": 1, "run_id": "r1", "arm": "plain", "status": "aggregate",
+                                                  "runs_requested": 3, "runs_completed": 3, "stopped": None,
+                                                  "runs": qruns, "aggregate": a13})
+    readme13 = readme_with_markers(d13)
+    r13 = run(d13)
+    t13 = slurp(readme13, "r")
+    cov_cell = [c.strip() for c in t13.splitlines() if c.startswith("| Plain Claude Code")][0].split("|")[-2].strip()
+    check("coverage cell: median (min-max) over the runs that measured it", r13.returncode == 0
+          and cov_cell == "89% (85%–93%) (line 93% (90%–96%), branch 85% (80%–90%))", cov_cell + t13 + r13.stderr)
+    check("one run's skipped scan makes the batch invalid, naming the run",
+          "**INVALID RUN: rerun.**" in t13 and "Plain Claude Code run 2: quality skipped (Not enough free disk space)" in t13, t13)
+    check("--check passes on an invalid batch", run(d13, "--check").returncode == 0, run(d13, "--check").stderr)
     # an aggregate that no longer matches its runs, or a run file that went missing, fails --check
     stored = json.load(open(os.path.join(d12, "results", "r1", "plain.json")))
     stored["aggregate"]["metrics"]["cost_usd"]["median"] = 99.0

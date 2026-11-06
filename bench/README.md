@@ -58,7 +58,7 @@ before its cap), `runs` (`run`, `file`, `status`, `capped` of each run started) 
 `test_calls`, `cost_usd`, `weekly_window_pct`, `tokens` (and `tokens_input`, `tokens_output`,
 `tokens_cache_read`, `tokens_cache_write`), `hidden_passed`, `hidden_total`, `fuzz_divergences`, `fuzz_cases`,
 `coverage` (SonarQube), `sonar_bugs`, `sonar_vulnerabilities`, `sonar_code_smells`,
-`sonar_duplicated_lines_density` and the `counts` `issues_closed`, `prs_merged`, `commits`,
+`sonar_duplicated_lines_density`, the arm's own-test coverage `cov_line_pct`, `cov_branch_pct`, `cov_total_pct` (#588) and the `counts` `issues_closed`, `prs_merged`, `commits`,
 `continue_replies`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
 run is listed in `runs` but not counted. The code is `bench/aggregate.py`.
 
