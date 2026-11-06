@@ -1,0 +1,52 @@
+{
+  "bn4e53c": {
+    "sessions": 21,
+    "tokens": {
+      "claude-opus-5-5": {
+        "input": 112,
+        "output": 30123,
+        "cache_create": 238678,
+        "cache_read": 2973664
+      },
+      "claude-sonnet-5-5": {
+        "input": 224,
+        "output": 56758,
+        "cache_create": 368746,
+        "cache_read": 5933257
+      }
+    },
+    "issues_closed": 6,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261106-harness": {
+        "claims": 21,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 6,
+        "which": 16,
+        "init": 1
+      },
+      "which": 16,
+      "changed_nodes": 717,
+      "round1": 931,
+      "round2": 124,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 16
+      },
+      "wall_ms": 3078,
+      "selective": 16,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}
