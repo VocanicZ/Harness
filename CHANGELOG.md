@@ -4,6 +4,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench: SonarQube on a tmpfs, a skipped scan invalidates the run, branch coverage (#588)
+
+- `bench/quality.py` mounts SonarQube's data directory as a tmpfs, so a host with under 10% free disk no longer
+  stops Elasticsearch from starting (both the bench host and the owner's desktop were about 95% full, so the
+  first run measured no quality at all). A server that exits now reports the log's first `ERROR` /
+  `MessageException` line instead of the log tail, and its container is removed with its anonymous volumes.
+- A run in which any arm's quality scan did not run is **invalid: rerun**. The README Benchmark section opens
+  with `INVALID RUN: rerun.` naming the arm and the reason, and `bench/run.py` says so on stderr, so a host
+  problem is not published as a footnote or counted against an arm.
+- New `bench/testcov.py` runs each arm's own tests under coverage.py with branch measurement, counting the
+  subprocess CLI calls, and `bench/run.py` records it as `coverage` (line, branch and total %, aggregated over
+  `--runs N`). The README table always shows the SonarQube and Coverage columns, `n/a (<reason>)` when missing.
+- `run-20261106` is backfilled: both arms scan `ok` (0 bugs, 0 vulnerabilities, 0 code smells, rating A), and own-test
+  coverage is 94% for plain and 98.6% for Harness.
+
 ### Bench: `--runs N` per arm, median and range, `n=1` labelled (#591)
 
 - Every number in the benchmark was one run, and agent wall time and cost vary 20–40% between runs. `bench/run.py

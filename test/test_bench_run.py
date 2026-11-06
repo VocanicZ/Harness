@@ -423,6 +423,10 @@ def test_validate_names_what_is_wrong():
     for bad in (dict(provenance={"engine_commit": "abc"}), dict(provenance=dict(prov, cli_version=3)), dict(effort={"medium": "3"}),
                 dict(effort=["medium"]), dict(configured={"model": "opus"}), dict(configured={"model": 1, "effort": None})):
         assert bench_run.validate(dict(good, **bad)) != [], bad
+    assert bench_run.validate(dict(good, coverage={"line_pct": 97, "branch_pct": 94.5})) == []
+    assert bench_run.validate(dict(good, coverage="skipped (coverage.py is not installed)")) == []
+    assert bench_run.validate(dict(good, coverage={"line_pct": 97})) != []        # no branch %
+    assert bench_run.validate(dict(good, coverage="ok")) != []
     skipped = {"schema": 1, "run_id": "x", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "t", "guard": {}}
     assert bench_run.validate(skipped) == []
     assert bench_run.validate(dict(skipped, reason="tired")) != []
@@ -558,6 +562,15 @@ def test_the_disk_guard_measures_only_the_temp_dir_not_the_checkout():
     finally:
         bench_run.tempfile.gettempdir, bench_run.shutil.disk_usage = real_tmp, real_du
     assert seen == ["/tmp"] and [x["path"] for x in out] == ["/tmp"], (seen, out)
+
+
+def test_aggregate_summarises_own_test_coverage_and_ignores_skipped_ones():
+    import aggregate
+    ok = lambda l, b, t: {"status": "ok", "coverage": {"line_pct": l, "branch_pct": b, "total_pct": t}}
+    m = aggregate.aggregate([ok(90.0, 80.0, 85.0), ok(96.0, 90.0, 93.0), {"status": "ok", "coverage": "skipped (x)"}])["metrics"]
+    assert m["cov_line_pct"] == {"n": 2, "median": 93.0, "min": 90.0, "max": 96.0}, m
+    assert m["cov_branch_pct"]["median"] == 85.0 and m["cov_total_pct"]["max"] == 93.0, m
+    assert "cov_line_pct" not in aggregate.aggregate([{"status": "ok", "coverage": "skipped (x)"}])["metrics"]
 
 
 if __name__ == "__main__":

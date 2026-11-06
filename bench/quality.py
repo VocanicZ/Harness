@@ -18,7 +18,7 @@ not come up, a scan that fails or times out: `quality: skipped (<reason>)` and e
 fails because of this. Exit 2 is bad arguments only.
 
 The scan: a user-defined docker network, `sonarqube:community` on it (published on a random loopback
-port), `sonarsource/sonar-scanner-cli` run with the repo mounted read-only, the analysis task polled to
+port, its data directory on a tmpfs so a nearly full host disk cannot stop it), `sonarsource/sonar-scanner-cli` run with the repo mounted read-only, the analysis task polled to
 SUCCESS, the measures read over the web API. The container and network are removed afterwards, also on
 failure. Override the images with BENCH_SONAR_IMAGE / BENCH_SONAR_SCANNER_IMAGE. Stdlib only.
 """
@@ -27,14 +27,36 @@ import argparse, base64, json, os, re, shutil, subprocess, sys, time, urllib.err
 sys.dont_write_bytecode = True
 SERVER_IMAGE = "sonarqube:community"
 SCANNER_IMAGE = "sonarsource/sonar-scanner-cli"
+DATA_TMPFS_SIZE = "6g"               # SonarQube's data dir lives on a tmpfs of this size (#588), see tmpfs_size()
 ADMIN = ("admin", "admin")           # the fresh container's own default; nothing outside it uses it
 METRICS = ["bugs", "vulnerabilities", "code_smells", "sqale_rating", "duplicated_lines_density", "coverage"]
 RATINGS = {1: "A", 2: "B", 3: "C", 4: "D", 5: "E"}
 TASK_RE = re.compile(r"api/ce/task\?id=([A-Za-z0-9_-]+)")
+STAMP_RE = re.compile(r"^\d{4}[.-]\d\d[.-]\d\d[ T]\d\d:\d\d:\d\d(?:[.,]\d+)?\s+")
+LEVEL_RE = re.compile(r"^ERROR\s+(?:\S*\[[^\]]*\]\S*\s+)?")      # "ERROR es[][o.s.x.Y] " before the message
+FAIL_RE = re.compile(r"\bERROR\b|MessageException")
 
 
 class Skip(Exception):
     """A reason the scan cannot be done. Never an error of the bench."""
+
+
+def tmpfs_size():
+    """The size of the tmpfs mounted over /opt/sonarqube/data: BENCH_SONAR_DATA_SIZE, else DATA_TMPFS_SIZE."""
+    return os.environ.get("BENCH_SONAR_DATA_SIZE") or DATA_TMPFS_SIZE
+
+
+def failure_reason(log):
+    """Why a SonarQube container exited, from its log (#588): the first `ERROR` / `MessageException` line
+    (its exception message when it has one, else the line without its timestamp and level), not the log
+    tail, which only says the server stopped. The last 200 characters when no line says ERROR."""
+    for line in (log or "").splitlines():
+        if FAIL_RE.search(line):
+            m = re.search(r"MessageException:\s*(.+)", line)
+            if m:
+                return m.group(1).strip()
+            return LEVEL_RE.sub("", STAMP_RE.sub("", line.strip(), count=1), count=1).strip()
+    return (log or "").strip()[-200:]
 
 
 def skipped(reason):
@@ -113,7 +135,10 @@ def scan(repo_dir, startup_secs=600.0, analysis_secs=900.0, log=lambda m: None):
     try:
         _docker(["network", "create", tag], 60)
         made_net = True
+        # Elasticsearch refuses to start when its data dir's filesystem has under 10% free, and a bench host's
+        # disk is often fuller than that; the data dir is throwaway, so it goes on a tmpfs (#588).
         _docker(["run", "-d", "--name", tag, "--network", tag, "-p", "127.0.0.1::9000",
+                 "--tmpfs", f"/opt/sonarqube/data:size={tmpfs_size()}",
                  "-e", "SONAR_SEARCH_JAVAADDITIONALOPTS=-Dnode.store.allow_mmap=false",
                  server_image], 1800)       # a first run pulls the image
         made_srv = True
@@ -126,8 +151,8 @@ def scan(repo_dir, startup_secs=600.0, analysis_secs=900.0, log=lambda m: None):
 
         def up():
             if _docker(["inspect", "-f", "{{.State.Running}}", tag], 30, check=False).stdout.strip() == "false":
-                tail = _docker(["logs", "--tail", "5", tag], 30, check=False)
-                raise Skip("the SonarQube container exited: " + (tail.stdout + tail.stderr).strip()[-200:])
+                lg = _docker(["logs", tag], 30, check=False)
+                raise Skip("the SonarQube container exited: " + failure_reason(lg.stdout + "\n" + lg.stderr))
             return _api(base, "/api/system/status").get("status") == "UP"
         _wait("SonarQube", startup_secs, up)
         token = _api(base, "/api/user_tokens/generate?name=bench", "POST").get("token")
@@ -158,7 +183,8 @@ def scan(repo_dir, startup_secs=600.0, analysis_secs=900.0, log=lambda m: None):
         raise Skip(f"SonarQube answered {e.code} {e.reason}")
     finally:
         if made_srv:
-            _docker(["rm", "-f", tag], 120, check=False)
+            # -v: the image declares anonymous volumes, which would otherwise pile up on the host after every scan (#588)
+            _docker(["rm", "-f", "-v", tag], 120, check=False)
         if made_net:
             _docker(["network", "rm", tag], 60, check=False)
 

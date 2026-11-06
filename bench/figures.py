@@ -13,7 +13,9 @@ results (shown as `n=1`), or the aggregate of `bench/run.py --runs N` (its runs 
 the median and the min-max range, the figure the median with range whiskers, #591) — and an
 optional `<results-dir>/<run-id>/skipped.json`, {"<arm>": "<reason>"}, for arms that were not run; an
 `<arm>.json` with `"status": "skipped"` (written by `bench/run.py --optional`) counts the same.
-Anything missing renders as "n/a" or a "skipped: <reason>" row, never as an error.
+Anything missing renders as "n/a" or a "skipped: <reason>" row, never as an error. The SonarQube and
+Coverage columns are always there (#588): `n/a (<reason>)` when the scan or the coverage run did not produce
+numbers. A run in which any arm's quality scan did not run is INVALID, and the section opens saying so.
 """
 import argparse, html, importlib.util, json, os, sys
 
@@ -292,13 +294,30 @@ def models(doc):
     return ", ".join(names) if names else NA
 
 
+def reason_of(q):
+    """The reason inside a `skipped (<reason>)` string, else None."""
+    if isinstance(q, str) and q.startswith("skipped (") and q.endswith(")"):
+        return q[len("skipped ("):-1]
+    return None
+
+
+def first_reason(runs, key):
+    """The first `skipped (<reason>)` reason among the runs' `key` ("quality" or "coverage"), else None."""
+    for r in runs:
+        reason = reason_of(r.get(key))
+        if reason:
+            return reason
+    return None
+
+
 def sonar(doc):
+    """The SonarQube cell: the measures, or `n/a (<reason>)` when the scan did not run (#588)."""
     runs = runs_of(doc)
     if not any(isinstance(r.get("sonarqube"), dict) for r in runs):
-        q = doc.get("quality")      # bench/quality.py, #387: "skipped (<reason>)" when the scan could not run
-        return q if isinstance(q, str) and q.startswith("skipped") else NA
+        reason = first_reason(runs, "quality")
+        return f"{NA} ({reason})" if reason else f"{NA} (not measured)"
+    bits = []   # not its `coverage`: no report is imported (0 or null), the Coverage column has the real figure
     if "_runs" in doc:
-        bits = []
         for key, label in (("sonar_bugs", "bugs"), ("sonar_vulnerabilities", "vulns"), ("sonar_code_smells", "smells")):
             if metric(doc, key) is not None:
                 bits.append(f"{label} {stat(doc, key, gfmt)}")
@@ -306,33 +325,56 @@ def sonar(doc):
                           if isinstance(r.get("sonarqube"), dict) and r["sonarqube"].get("maintainability_rating") is not None})
         if ratings:
             bits.append("maint. " + (ratings[0] if len(ratings) == 1 else f"{ratings[0]}{DASH}{ratings[-1]}"))
-        for key, label in (("sonar_duplicated_lines_density", "dup"), ("coverage", "cov")):
-            if metric(doc, key) is not None:
-                bits.append(f"{label} {stat(doc, key, gfmt)}%")
-        return ", ".join(bits) or NA
+        if metric(doc, "sonar_duplicated_lines_density") is not None:
+            bits.append(f"dup {stat(doc, 'sonar_duplicated_lines_density', gfmt)}%")
+        return ", ".join(bits) or f"{NA} (no measures)"
     s = doc["sonarqube"]
-    bits = []
     for key, label, fmt in (("bugs", "bugs", "{:g}"), ("vulnerabilities", "vulns", "{:g}"),
                             ("code_smells", "smells", "{:g}"), ("maintainability_rating", "maint.", "{}"),
-                            ("duplicated_lines_density", "dup", "{:g}%"), ("coverage", "cov", "{:g}%")):
+                            ("duplicated_lines_density", "dup", "{:g}%")):
         v = s.get(key)
         if v is not None and not isinstance(v, (dict, list)):
             bits.append(f"{label} {fmt.format(v)}")
-    return ", ".join(bits) or NA
+    return ", ".join(bits) or f"{NA} (no measures)"
+
+
+def coverage(doc):
+    """The Coverage cell: the arm's own tests' total (line, branch) %, a median (min-max) over several runs, or
+    `n/a (<reason>)` (#588)."""
+    def p(v):
+        return f"{v:g}%"
+    if metric(doc, "cov_line_pct") is not None and metric(doc, "cov_branch_pct") is not None:
+        total = f"{stat(doc, 'cov_total_pct', p)} (" if metric(doc, "cov_total_pct") is not None else ""
+        return f"{total}line {stat(doc, 'cov_line_pct', p)}, branch {stat(doc, 'cov_branch_pct', p)}" + (")" if total else "")
+    reason = first_reason(runs_of(doc), "coverage")
+    return f"{NA} ({reason})" if reason else f"{NA} (not measured)"
+
+
+def invalid_reasons(arms):
+    """[message] for each arm with a run whose quality scan did not produce measures: a host problem, which must
+    not count against an arm, so the run is invalid and is rerun (#588)."""
+    out = []
+    for arm in sorted(arms, key=arm_key):
+        for r in runs_of(arms[arm]):
+            if r.get("status") == "skipped" or (r.get("quality") == "ok" and isinstance(r.get("sonarqube"), dict)):
+                continue
+            reason = reason_of(r.get("quality"))
+            tag = f"{title(arm)}" + (f" run {r['run']}" if "_runs" in arms[arm] and r.get("run") is not None else "")
+            out.append(f"{tag}: quality " + (f"skipped ({reason})" if reason else "not measured"))
+    return out
 
 
 # --- table -----------------------------------------------------------------------------
 def table(arms, skipped):
-    has_sonar = any(isinstance(r.get("sonarqube"), dict) for d in arms.values() for r in runs_of(d))
     head = ["Arm", "n", "Cap status", "Wall time", "Coding", "Testing", "Tokens", "in / out / cache read / cache write (median)",
             "List price", "% of weekly window", "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
-            "Models"] + (["SonarQube"] if has_sonar else [])
+            "Models", "SonarQube", "Coverage (own tests)"]
     rows = []
     for arm in sorted(arms, key=arm_key):
         d = arms[arm]
         rows.append([title(arm), n_label(d), cap_status(d), cstat(d, "wall_s", dur), cstat(d, "coding_s", dur),
                      cstat(d, "testing_s", dur), cstat(d, "tokens", tok), tokens_split(d), cstat(d, "cost_usd", usd),
-                     cstat(d, "weekly_window_pct", pct), hidden(d), fuzz(d), work(d), continues(d), models(d)] + ([sonar(d)] if has_sonar else []))
+                     cstat(d, "weekly_window_pct", pct), hidden(d), fuzz(d), work(d), continues(d), models(d), sonar(d), coverage(d)])
     ncol = len(head)
     for arm in sorted(set(skipped) | (set(OPTIONAL_ARMS) - set(arms)), key=arm_key):
         if arm in arms:
@@ -555,9 +597,15 @@ def section(run_id, arms, skipped, fig_ref):
     if not arms:
         return ("No benchmark results are committed yet. The table and figure appear here once a run is "
                 "recorded under `bench/results/`.")
-    parts = [f"Generated by `bench/figures.py` from `bench/results/{run_id}/`; re-running it reproduces this "
-             "section and the figure byte for byte. Costs are list price; `n/a` is a figure the run did not "
-             "produce."]
+    parts = []
+    bad = invalid_reasons(arms)
+    if bad:
+        parts.append("**INVALID RUN: rerun.** An arm's quality scan did not run, which is a host problem and must not "
+                     "count against an arm, so this run is not a comparison and its numbers are not published as "
+                     "one: " + "; ".join(bad) + ".")
+    parts += [f"Generated by `bench/figures.py` from `bench/results/{run_id}/`; re-running it reproduces this "
+              "section and the figure byte for byte. Costs are list price; `n/a` is a figure the run did not "
+              "produce."]
     if fig_ref:
         parts.append(f"![Benchmark: wall time and list-price cost per arm]({fig_ref})")
     parts.append(table(arms, skipped))

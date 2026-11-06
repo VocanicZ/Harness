@@ -57,6 +57,14 @@ def _sonar(key):
     return get
 
 
+def _cov(key):
+    """The arm's own tests' coverage (bench/testcov.py, #588): `coverage` is {line_pct, branch_pct, total_pct} or a skip."""
+    def get(doc):
+        c = doc.get("coverage")
+        return num(c.get(key)) if isinstance(c, dict) else None
+    return get
+
+
 def _count(key):
     def get(doc):
         c = doc.get("counts")
@@ -79,6 +87,7 @@ METRICS = {
     "fuzz_divergences": _field("fuzz_divergences"), "fuzz_cases": _field("fuzz_cases"),
     "coverage": _sonar("coverage"), "sonar_bugs": _sonar("bugs"), "sonar_vulnerabilities": _sonar("vulnerabilities"),
     "sonar_code_smells": _sonar("code_smells"), "sonar_duplicated_lines_density": _sonar("duplicated_lines_density"),
+    "cov_line_pct": _cov("line_pct"), "cov_branch_pct": _cov("branch_pct"), "cov_total_pct": _cov("total_pct"),
     "issues_closed": _count("issues_closed"), "prs_merged": _count("prs_merged"), "commits": _count("commits"),
     "continue_replies": _count("continue_replies"),
 }

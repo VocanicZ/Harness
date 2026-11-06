@@ -28,9 +28,14 @@ if a[0] == "info":
 elif a[0] == "port":
     print("127.0.0.1:" + os.environ["FAKE_SONAR_PORT"])
 elif a[0] == "inspect":
-    print("false" if mode == "server-exits" else "true")
+    print("false" if mode in ("server-exits", "disk-full") else "true")
 elif a[0] == "logs":
-    print("max virtual memory areas vm.max_map_count [65530] is too low")
+    if mode == "disk-full":              # what a real SonarQube prints on a host with under 10% free disk
+        print("2026.11.06 06:54:20 INFO  app[][o.s.a.AppFileSystem] Cleaning or creating temp directory /opt/sonarqube/temp")
+        print("2026.11.06 06:54:24 ERROR es[][o.s.e.b.Elasticsearch] fatal exception while booting Elasticsearch: org.sonar.application.MessageException: Not enough free disk space for Elasticsearch data directory [/opt/sonarqube/data]: 41.2 GB available out of 914.7 GB (4.5%), at least 91.5 GB is required.")
+        print("2026.11.06 06:54:26 INFO  app[][o.s.a.SchedulerImpl] SonarQube is stopped")
+    else:
+        print("max virtual memory areas vm.max_map_count [65530] is too low")
 elif a[0] == "run" and "-d" in a:
     if mode == "pull-fails":
         print("pull access denied", file=sys.stderr); sys.exit(125)
@@ -140,12 +145,15 @@ def test_a_scan_writes_the_quality_fields_and_cleans_up(e):
     assert json.load(open(arm)) == {"arm": "plain", "status": "ok", "quality": "ok", "sonarqube": s}
     calls = e.calls()
     assert any(c.startswith("run -d ") and "sonarqube:community" in c for c in calls), calls
+    # the data dir is a tmpfs, so a host with under 10% free disk still starts SonarQube (#588)
+    server = [c for c in calls if c.startswith("run -d ")][0]
+    assert "--tmpfs /opt/sonarqube/data:size=6g" in server, server
     scanner = open(os.path.join(e.d, "scanner.args")).read().split("\n")
     assert any(x.endswith(":/usr/src:ro") and x.startswith(e.repo) for x in scanner), scanner     # repo read-only
     assert "SONAR_TOKEN=squ_fake" in scanner and "-Dsonar.projectKey=bench" in scanner, scanner
     # the container and the network it made are removed again
     names = [c.split()[-1] for c in calls if c.startswith("network create")]
-    assert len(names) == 1 and f"rm -f {names[0]}" in calls and f"network rm {names[0]}" in calls, calls
+    assert len(names) == 1 and f"rm -f -v {names[0]}" in calls and f"network rm {names[0]}" in calls, calls
 
 
 @with_env(with_docker=False)
@@ -178,14 +186,38 @@ def test_a_server_image_that_cannot_start_is_skipped_and_the_network_removed(e):
 def test_a_server_that_exits_is_skipped_with_its_log(e):
     f = frag(e.run())
     assert f["quality"].startswith("skipped (the SonarQube container exited") and "max_map_count" in f["quality"], f
-    assert any(c.startswith("rm -f bench-sonar-") for c in e.calls()), e.calls()
+    assert any(c.startswith("rm -f -v bench-sonar-") for c in e.calls()), e.calls()
+
+
+@with_env(mode="disk-full")
+def test_a_skipped_scan_reports_the_first_error_line_not_the_log_tail(e):
+    f = frag(e.run())
+    assert f["quality"].startswith("skipped (the SonarQube container exited: Not enough free disk space for "
+                                   "Elasticsearch data directory"), f
+    assert "SonarQube is stopped" not in f["quality"], f
+
+
+@with_env()
+def test_the_data_tmpfs_size_can_be_overridden(e):
+    e.env["BENCH_SONAR_DATA_SIZE"] = "9g"
+    frag(e.run())
+    assert any("--tmpfs /opt/sonarqube/data:size=9g" in c for c in e.calls()), e.calls()
+
+
+def test_failure_reason_picks_the_first_error_or_message_exception_line():
+    log = "2026.11.06 06:54:20 INFO  app[][x] boot\n2026.11.06 06:54:24 ERROR app[][y] Elasticsearch died\n" \
+          "2026.11.06 06:54:25 ERROR app[][y] second\nSonarQube is stopped"
+    assert bench_quality.failure_reason(log) == "Elasticsearch died"
+    assert bench_quality.failure_reason("x\nCaused by: org.sonar.MessageException: bad thing\ny") == "bad thing"
+    assert bench_quality.failure_reason("no marker here\nlast line") == "no marker here\nlast line"   # the tail
+    assert bench_quality.failure_reason("") == "" and bench_quality.failure_reason(None) == ""
 
 
 @with_env(status="STARTING")
 def test_a_server_that_never_comes_up_is_skipped(e):
     f = frag(e.run())
     assert f["quality"] == "skipped (SonarQube not ready after 3s)", f
-    assert any(c.startswith("rm -f bench-sonar-") for c in e.calls()), e.calls()
+    assert any(c.startswith("rm -f -v bench-sonar-") for c in e.calls()), e.calls()
 
 
 @with_env(mode="scanner-fails")
@@ -238,7 +270,7 @@ def test_figures_show_the_quality_column_and_a_skip():
         text = open(readme).read()
         assert "| SonarQube |" in text, text
         assert "bugs 2, vulns 0, smells 7, maint. A, dup 3.5%" in text and "cov" not in text.split("bugs 2")[1].split("\n")[0], text
-        assert "skipped (docker is not installed)" in text, text
+        assert "n/a (docker is not installed)" in text, text
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

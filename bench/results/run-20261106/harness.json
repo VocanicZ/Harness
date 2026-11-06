@@ -463,14 +463,14 @@
   },
   "repo_deleted": false,
   "logs": "harness.logs",
-  "quality": "skipped (the SonarQube container exited: ace and restart SonarQube. 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] SonarQube is stopped 2026.11.06 06:54:26 INFO app[][o.s.a.SchedulerImpl] Waiting for Elasticsearch to be up and running)",
+  "quality": "ok",
   "claude_config": {
     "source": "front-door init",
     "skills": 186,
     "plugins": 6,
     "mcp_servers": 4
   },
-  "note": "The Harness arm's front door and fleet sessions ran with the operator's personal Claude config (186 skills, 6 user plugins and 4 claude.ai MCP servers in the front-door init), not an isolated one like the plain arm's. The orchestrator session crash-looped 13 times (05:56 to 05:59) because the tmux socket directory was missing; the front-door session repaired it by hand (it created /home/claude/.harness/tmux-hzhn/tmux-1000 on the host, outside the run's isolated home) and restarted the fleet with `harness start --recover`, which is the 1 fleet restart counted.",
+  "note": "The Harness arm's front door and fleet sessions ran with the operator's personal Claude config (186 skills, 6 user plugins and 4 claude.ai MCP servers in the front-door init), not an isolated one like the plain arm's. The orchestrator session crash-looped 13 times (05:56 to 05:59) because the tmux socket directory was missing; the front-door session repaired it by hand (it created /home/claude/.harness/tmux-hzhn/tmux-1000 on the host, outside the run's isolated home) and restarted the fleet with `harness start --recover`, which is the 1 fleet restart counted. Quality and own-test coverage were backfilled after #588: the first run's SonarQube scan was skipped because the host disk had under 10% free (Elasticsearch refuses to start), so both arms' final repos were rescanned with the data directory on a tmpfs and their own tests re-run under coverage with subprocesses counted.",
   "fuzz_cases": 1000,
   "fuzz_divergences": 387,
   "fuzz_examples": [
@@ -835,5 +835,19 @@
     }
   ],
   "fuzz_seed": 589,
-  "fuzz_hash": "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478"
+  "fuzz_hash": "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478",
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  },
+  "coverage": {
+    "line_pct": 98.7,
+    "branch_pct": 97.8,
+    "total_pct": 98.6,
+    "tests": "unittest"
+  }
 }
