@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench arm: Harness (`--workers N`) — the same brief through `/harness <idea>` in an isolated run fleet (#383)
+
+- `bench/run.py harness` (and `harness-3`) hands the benchmark brief to one `claude -p` session as `/harness <brief>`,
+  unattended, and lets the /harness skill take it to a PRD, lanes and a running fleet, on Harness's out-of-the-box
+  role defaults. `--workers N` (new on `bench/run.py`, also `--arm-opt workers=N`) is passed through as
+  `HARNESS_POOL`. The run fleet is isolated (own `HARNESS_HOME`, own state dir in the run clone, a run-named session
+  prefix, the host's `HARNESS_*` and `STATE_DIR` scrubbed, no host poller) and is stopped only with
+  `harness stop --state-dir <its own>`, however the arm ends. Results carry `issues_closed`, `prs_merged`, the models
+  that ran, and the fleet's own event log. `test/test_bench_harness.py` drives it with a fake front door, engine and gh.
+
 ### `harness start` replaces a fleet's old-engine workers instead of leaving them on the default cap (#566)
 
 - `harness start` migrates the fleet's config with `--no-start`, which for an already-migrated fleet only dropped a

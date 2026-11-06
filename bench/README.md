@@ -2,12 +2,14 @@
 
 `bench/run.py <arm>` runs one benchmark arm end to end and records one results file for it (PRD #345).
 The arms themselves (plain Claude Code, Harness with 1 worker, …) are separate tasks that plug in as
-modules; this is the core they all go through. [The plain arm](#plain-arm) is the first.
+modules; this is the core they all go through. [The plain arm](#plain-arm) is the first;
+[the Harness arm](#harness-arm) is the second.
 
 ```
 bench/run.py stub                       # run an arm
 bench/run.py stub --dry-run             # print the guard decision; create and spend nothing
 bench/run.py plain --arm-opt K=V        # options passed to the arm
+bench/run.py harness --workers 3        # --workers N: the fleet's pool size, for an arm that runs one
 ```
 
 ## One run
@@ -123,6 +125,41 @@ that actually ran come from the transcript like every other arm's. `--arm-opt cl
   brief). Otherwise `keep going, decide for yourself` goes in, at most 20 times; at the cap the arm stops and
   the run is graded as it stands. A turn that errors (a usage limit, an API failure) fails the arm.
 - **Counts** in the results: `continue_replies` and `commits` (commits on `main` past the brief).
+
+## Harness arm
+
+`bench/run.py harness [--workers N]` (`bench/arms/harness.py`, #383): the same brief through `/harness <idea>`
+-> PRD -> decompose -> lanes, fully autonomous. `--workers N` (or `--arm-opt workers=N`) is the fleet's pool
+size, `HARNESS_POOL`: how many issues run in parallel. It defaults to 1; the optional 3-worker run is
+`bench/run.py harness-3` (the same module with `workers` defaulting to 3, results under `harness-3.json`).
+Other options: `harness=CMD` (default: this checkout's `bin/harness`, so the engine measured is the one the
+benchmark ships with), `claude=CMD` (the front door's binary), `poll=SECS` (how often the arm looks at the
+fleet, default 30); the last two are for tests.
+
+- **Front door.** ONE `claude -p` session in the run repo's clone is handed `/harness ` + the brief
+  (bench/fixture/brief.md) and one fixed line saying nobody is there to answer (every Confirm is a yes, the
+  session settles its own questions). The /harness skill then does what it does for any user: `harness init`,
+  the PRD, `harness start`. A front door that stops before a fleet is up gets `keep going, decide for
+  yourself`, at most 5 times (`counts.continue_replies`); a fleet that is still not up after that fails the arm.
+- **Out-of-the-box defaults.** No `--model` or `--effort` for the front door and no `HARNESS_MODEL_*` /
+  `HARNESS_EFFORT_*` in the fleet's environment, so Harness runs its role defaults (#373, #375). The models
+  that ran come from the transcripts: the front door's, and every session in the run fleet's `events.jsonl`.
+  The pool runs with `HARNESS_USE_POLLER=0`: the host poller is a host-level process that nothing here would stop.
+- **Isolation.** The run fleet has its own `HARNESS_HOME` (event log, fleet registry, snapshots), its own state
+  dir inside the clone (`<clone>/.harness`), a session prefix made from the run repo's name (`bn` + 5 hex) and a
+  scrubbed environment: every `HARNESS_*` and `STATE_DIR` / `RUN_DIR` of the host's fleets is dropped (only
+  `HARNESS_USAGE_CMD` and `HARNESS_CLAUDE_CONFIG_DIRS` pass through) and no API key reaches it.
+- **Stopping.** Never by pattern. The arm runs `harness stop --state-dir <clone>/.harness`, the engine's own
+  stop for exactly that state dir, and the front door it spawned is terminated through `ctx.spawn`. This
+  happens however the arm ends: done, error or a cap. `<arm>.logs/fleet.json` names the state dir and the
+  stop command, for a run whose runner was killed.
+- **Done** = every PRD issue of the run repo is closed. A fleet whose workers are all gone before that is
+  restarted with `harness start --recover`, at most 3 times (`counts.fleet_restarts`), then the arm fails.
+- **Results.** `counts`: `issues_closed` (closed issues that are not PRDs), `prs_merged`, `workers`,
+  `continue_replies`, `fleet_restarts`. Beside them in `<arm>.logs/`: `events.jsonl` (the fleet's event log),
+  `stats.json` (`harness stats --json` on it), `fleet.config` (the config the fleet ran with), the front-door
+  stream per turn and `launch.txt`. Tokens, $ and the coding / testing split are measured on the transcripts
+  like every arm's; the $ cap counts the lanes' transcripts as they appear.
 
 ## Figures and the README Benchmark section
 

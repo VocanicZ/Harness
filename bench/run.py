@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """run.py — the benchmark runner core (#381, PRD #345). Every arm runs through it.
 
-    bench/run.py <arm> [--dry-run] [--run-id ID] [--results-dir DIR] [--arm-opt k=v]...
+    bench/run.py <arm> [--dry-run] [--run-id ID] [--results-dir DIR] [--arm-opt k=v]... [--workers N]
                        [--wall-cap-secs 21600] [--cost-cap-usd 80] [--expected-usd N]
 
 One run = one arm, one fresh PRIVATE GitHub repo:
@@ -406,6 +406,8 @@ def parse_args(argv):
     ap.add_argument("--results-dir", default=os.path.join(HERE, "results"))
     ap.add_argument("--owner", default=None, help="GitHub owner for the run repo (default: the gh login)")
     ap.add_argument("--arm-opt", action="append", default=[], metavar="K=V", help="passed to the arm as ctx.opts")
+    ap.add_argument("--workers", type=int, default=None, metavar="N",
+                    help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
     ap.add_argument("--wall-cap-secs", type=float, default=WALL_CAP_S)
     ap.add_argument("--cost-cap-usd", type=float, default=COST_CAP_USD)
     ap.add_argument("--expected-usd", type=float, default=None, help="expected spend for the guard (default: the cap)")
@@ -428,6 +430,11 @@ def main(argv=None):
             print(f"bench: bad --arm-opt {kv!r} (want K=V)", file=sys.stderr)
             return EXIT_USAGE
         opts[k] = v
+    if a.workers is not None:
+        if a.workers < 1:
+            print("bench: --workers must be at least 1", file=sys.stderr)
+            return EXIT_USAGE
+        opts["workers"] = str(a.workers)
     if a.wall_cap_secs <= 0 or a.cost_cap_usd <= 0:
         print("bench: the caps must be positive", file=sys.stderr)
         return EXIT_USAGE
