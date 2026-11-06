@@ -34,8 +34,10 @@ A run refuses to start when:
 
 - any account is usage-HELD: a `*.hold` file in `<run dir>/usage-holds/` (`--run-dir`, else `$RUN_DIR`,
   else `$STATE_DIR/run`, else `./.harness/run`), the files the fleet's usage watch writes; or
-- the host disk is short (#386): under `BENCH_MIN_FREE_GB` (default 4) free on the temp dir's or the checkout's
-  filesystem, where a run clones repos and builds worktrees; or
+- the host disk is short (#386): under `BENCH_MIN_FREE_GB` (default 4) free on the temp dir's filesystem, where
+  a run clones repos and builds worktrees (the run clone, Hx's and the fleet's state dir and worktrees). Only
+  the filesystems a run writes to are measured (#577): the checkout is read, not written (the results JSON is a
+  few KB), so a full checkout filesystem does not refuse a run; or
 - the headroom is short, as `harness one gate` computes it: for every weekly window the usage seam reads
   (`HARNESS_USAGE_CMD`, else the CLI adapter's `cli_limit_usage`),
   `now% + expected% + reserve% <= HARNESS_ONE_STOP_PCT` (default 98) must hold, with the reserve
@@ -191,7 +193,7 @@ on the same brief with its default config. One of the two optional arms, the oth
 - **Results.** `counts`: `issues_closed`, `prs_merged`, `workers` (Hx's configured ceiling), `fleet_restarts`.
   Beside them in `<arm>.logs/`: `usage.jsonl`, `config.json`, `run.out`, `hx.json`.
 
-## Optional arms and `skipped: budget`
+## Optional arms and `skipped: <cause>`
 
 The optional arms (`harness-3`, `hx`) are never blocking. `bench/run.py <arm> --optional` runs the arm when
 the guard passes, exactly as without the flag. When the guard refuses, nothing is created or spent and
@@ -199,14 +201,26 @@ the guard passes, exactly as without the flag. When the guard refuses, nothing i
 
 ```json
 {"schema": 1, "run_id": "…", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "…",
- "guard": {"reasons": [...], "held": [...], "expected_usd": 80, "stop_pct": 98, "reserve_pct": 2,
+ "guard": {"reasons": [...], "causes": ["budget"], "held": [...], "expected_usd": 80, "stop_pct": 98, "reserve_pct": 2,
            "min_free_gb": 4, "disk": [{"path": "/", "free_gb": 2.4, "fits": false}],
            "usd_per_pct": 4.15, "usd_per_pct_source": "fit", "windows": [{"account": "…", "window": "seven_day",
            "now_pct": 96, "need_pct": 19.28, "total_pct": 117.28, "fits": false}]}}
 ```
 
-`bench/figures.py` renders a `status: skipped` record as a `skipped: budget` row (a `skipped.json` map still
-works for a reason that is not the guard's). `--dry-run` never records.
+`reason` is never hardcoded: it is the guard's own refusal cause(s), comma-joined in a fixed order when
+several apply (`guard.causes` holds the same list; `guard.reasons` keeps the human-readable sentences):
+
+| `reason` | the guard refused because |
+| --- | --- |
+| `disk` | the temp dir's filesystem has less than `BENCH_MIN_FREE_GB` free |
+| `held` | an account is usage-HELD |
+| `no-usage-reading` | no weekly usage reading |
+| `no-calibration` | no $ per 1%, so the expected spend cannot become a % of the window |
+| `budget` | `now% + expected% + reserve%` is over the stop % for a weekly window |
+
+A disk-only refusal on a host whose usage fits is `disk`, a usage refusal is `budget`, and both is
+`disk,budget`. `bench/figures.py` renders a `status: skipped` record as a `skipped: <reason>` row (a
+`skipped.json` map still works for a reason that is not the guard's). `--dry-run` never records.
 
 ## Figures and the README Benchmark section
 

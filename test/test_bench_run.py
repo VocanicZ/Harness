@@ -267,7 +267,7 @@ def test_the_real_grader_scores_the_seeded_repo_zero(e):
 
 
 @with_env(usage_pct="50")
-def test_an_optional_arm_the_guard_refuses_is_recorded_as_skipped_budget_and_spends_nothing(e):
+def test_an_optional_arm_the_guard_refuses_is_recorded_as_skipped_with_its_cause_and_spends_nothing(e):
     p = e.run("stub", "--optional")
     assert p.returncode == 0, (p.returncode, p.stdout, p.stderr)
     assert "stub skipped: budget" in p.stdout and "REFUSED" in p.stdout, p.stdout
@@ -295,10 +295,11 @@ def test_guard_refuses_when_the_host_disk_is_short_and_an_optional_arm_records_i
     assert p.returncode == 3 and "host disk:" in p.stderr and "GB free < 1e+06 GB" in p.stderr, (p.returncode, p.stderr)
     assert e.calls() == [] and not os.path.exists(e.results)
     q = e.run("stub", "--optional")
-    assert q.returncode == 0 and "stub skipped: budget" in q.stdout, (q.returncode, q.stdout, q.stderr)
+    assert q.returncode == 0 and "stub skipped: disk:" in q.stdout, (q.returncode, q.stdout, q.stderr)
     r = e.result()
-    assert bench_run.validate(r) == [] and r["status"] == "skipped" and r["reason"] == "budget", r
+    assert bench_run.validate(r) == [] and r["status"] == "skipped" and r["reason"] == "disk", r   # #577: the usage fit
     g = r["guard"]
+    assert g["causes"] == ["disk"] and all(w["fits"] for w in g["windows"]), g
     assert g["min_free_gb"] == 1e6 and g["disk"] and all(x["fits"] is False and x["free_gb"] > 0 for x in g["disk"]), g
     assert any(x.startswith("host disk:") for x in g["reasons"]), g["reasons"]
     assert e.calls() == [] and e.repos() == [], "nothing was created or spent"
@@ -331,7 +332,66 @@ def test_validate_names_what_is_wrong():
     assert bench_run.validate(dict(good, quality="skipped (x)", sonarqube={})) != []
     skipped = {"schema": 1, "run_id": "x", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "t", "guard": {}}
     assert bench_run.validate(skipped) == []
+    assert bench_run.validate(dict(skipped, reason="tired")) != []
+    for ok in ("disk", "held", "no-usage-reading", "no-calibration", "disk,budget"):
+        assert bench_run.validate(dict(skipped, reason=ok)) == [], ok
+    for bad in ("", "disk,disk", "disk,tired", "budget,"):
+        assert bench_run.validate(dict(skipped, reason=bad)) != [], bad
     assert bench_run.validate(dict(skipped, reason="tired")) != [] and bench_run.validate({k: v for k, v in skipped.items() if k != "guard"}) != []
+
+
+@with_env(usage_pct="50")
+def test_a_usage_only_refusal_records_reason_budget(e):
+    q = e.run("stub", "--optional")
+    assert q.returncode == 0 and "stub skipped: budget:" in q.stdout, (q.returncode, q.stdout)
+    r = e.result()
+    assert r["reason"] == "budget" and r["guard"]["causes"] == ["budget"], r
+
+
+@with_env(usage_pct="50")
+def test_a_mixed_refusal_records_every_cause(e):
+    e.env["BENCH_MIN_FREE_GB"] = "1000000"
+    q = e.run("stub", "--optional")
+    assert q.returncode == 0 and "stub skipped: disk,budget:" in q.stdout, (q.returncode, q.stdout)
+    r = e.result()
+    assert bench_run.validate(r) == [] and r["reason"] == "disk,budget" and r["guard"]["causes"] == ["disk", "budget"], r
+    assert len(r["guard"]["reasons"]) >= 2, r["guard"]["reasons"]
+
+
+@with_env(usage_pct=None)
+def test_a_missing_usage_reading_records_reason_no_usage_reading(e):
+    q = e.run("stub", "--optional")
+    assert q.returncode == 0, (q.returncode, q.stdout, q.stderr)
+    assert e.result()["reason"] == "no-usage-reading", e.result()
+
+
+@with_env(per_pct=None)
+def test_a_missing_calibration_records_reason_no_calibration(e):
+    q = e.run("stub", "--optional")
+    assert q.returncode == 0, (q.returncode, q.stdout, q.stderr)
+    assert e.result()["reason"] == "no-calibration", e.result()
+
+
+@with_env()
+def test_a_usage_held_account_records_reason_held(e):
+    os.makedirs(os.path.join(e.rundir, "usage-holds"))
+    with open(os.path.join(e.rundir, "usage-holds", "main.hold"), "w") as fh:
+        fh.write("seven_day 99\n")
+    q = e.run("stub", "--optional")
+    assert q.returncode == 0, (q.returncode, q.stdout, q.stderr)
+    r = e.result()
+    assert r["reason"] == "held" and r["guard"]["causes"] == ["held"] and r["guard"]["held"], r
+
+
+def test_the_disk_guard_measures_only_the_temp_dir_not_the_checkout():
+    seen, real_tmp, real_du = [], bench_run.tempfile.gettempdir, bench_run.shutil.disk_usage
+    bench_run.tempfile.gettempdir = lambda: "/tmp"
+    bench_run.shutil.disk_usage = lambda p: seen.append(p) or real_du(p)
+    try:
+        out = bench_run.disk_free()
+    finally:
+        bench_run.tempfile.gettempdir, bench_run.shutil.disk_usage = real_tmp, real_du
+    assert seen == ["/tmp"] and [x["path"] for x in out] == ["/tmp"], (seen, out)
 
 
 if __name__ == "__main__":

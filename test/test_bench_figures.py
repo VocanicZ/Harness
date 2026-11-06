@@ -94,6 +94,11 @@ try:
     text2 = slurp(readme, "r")
     check("a skipped <arm>.json renders as skipped: budget", "| Harness (3 workers) | skipped: budget | n/a |" in text2, text2)
     check("a skipped record is not a plotted arm", "Harness (3 workers)" not in slurp(svg_path, "r"))
+    # #577: the cell shows the guard's real cause(s), whatever they are
+    put(d, "results", "r1", "harness-3.json", data={"schema": 1, "run_id": "r1", "arm": "harness-3", "status": "skipped",
+                                                    "reason": "disk,budget", "skipped_at": "t", "guard": {}})
+    run(d)
+    check("a skipped <arm>.json shows every cause", "| Harness (3 workers) | skipped: disk,budget | n/a |" in slurp(readme, "r"))
     os.remove(os.path.join(d, "results", "r1", "harness-3.json")); run(d)
     check("figure referenced relative to README", "![Benchmark: wall time and list-price cost per arm](results/benchmark.svg)" in text, text)
     check("hand-written text outside the markers untouched",
