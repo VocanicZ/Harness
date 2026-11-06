@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Bench: an arm's committed raw logs reproduce its results JSON, sub-agent transcripts included (#579)
+
+- `bench/run.py` copied only the main `.jsonl` of each registered transcript into `<arm>.logs/transcripts/`, while the
+  measurement also counts each one's `subagents/*.jsonl`; the Harness arm's committed logs re-measured to $9.32, not
+  the recorded $10.28. It now keeps `<i>-<name>/subagents/` beside `<i>-<name>.jsonl`, the layout `stats.transcript_files`
+  reads, and `bench/figures.py --check` fails when re-measuring an arm's logs (tokens, $, coding / testing split, test
+  calls) does not reproduce its results JSON. `run-20261106`'s Harness arm is backfilled with its one sub-agent transcript.
+
 ### Bench arm: Harness (`--workers N`) — the same brief through `/harness <idea>` in an isolated run fleet (#383)
 
 - `bench/run.py harness` (and `harness-3`) hands the benchmark brief to one `claude -p` session as `/harness <brief>`,

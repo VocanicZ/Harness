@@ -2,17 +2,18 @@
 
     cost=USD     write a transcript whose list price is about USD (default 0.01)
     sleep=SECS   keep "working" this long, or until the runner stops it (default 0)
+    subagents=1  also write a sub-agent transcript beside the session's (priced at `cost` again)
     fail=1       raise, to exercise the error path
 """
 import json, os, time
 
 
-def write_transcript(path, usd):
+def write_transcript(path, usd, mid="m1"):
     """One Opus message priced at `usd`: output tokens at $25 per Mtok."""
     t0 = time.time() - 3
     lines = [
         {"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0)),
-         "message": {"id": "m1", "model": "claude-opus-4-1", "usage": {"input_tokens": 10, "output_tokens": int(usd / 25 * 1e6)},
+         "message": {"id": mid, "model": "claude-opus-4-1", "usage": {"input_tokens": 10, "output_tokens": int(usd / 25 * 1e6)},
                      "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "pytest -q"}}]}},
         {"type": "user", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0 + 1)),
          "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}},
@@ -27,6 +28,10 @@ def run(ctx):
         raise RuntimeError("stub arm told to fail")
     tr = os.path.join(ctx.logs, "stub-session.jsonl")
     write_transcript(tr, float(ctx.opts.get("cost", "0.01")))
+    if ctx.opts.get("subagents"):
+        sdir = os.path.join(ctx.logs, "stub-session", "subagents")
+        os.makedirs(sdir)
+        write_transcript(os.path.join(sdir, "agent-a1.jsonl"), float(ctx.opts.get("cost", "0.01")), mid="sub1")
     ctx.add_transcripts(tr)
     ctx.count("commits", 1)
     ctx.stop.wait(float(ctx.opts.get("sleep", "0")))

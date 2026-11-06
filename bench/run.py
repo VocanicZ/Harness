@@ -661,15 +661,63 @@ def run_arm(a, arm, ctx, fc, st, t0, log):
     return capped
 
 
+def subagent_files(transcript):
+    """The sub-agent transcripts beside a session transcript: <transcript minus .jsonl>/subagents/*.jsonl,
+    where scripts/stats.py (transcript_files) reads them."""
+    return sorted(glob.glob(os.path.join(transcript[:-len(".jsonl")], "subagents", "*.jsonl")))
+
+
 def copy_transcripts(ctx, logs):
-    """The transcripts an arm named, kept beside the results as raw logs."""
+    """The transcripts an arm named, kept beside the results as raw logs (#579): each main transcript as
+    `transcripts/<i>-<name>.jsonl` with its sub-agent transcripts in `transcripts/<i>-<name>/subagents/`,
+    the layout stats.transcript_files resolves, so measuring the copies gives the numbers measured live."""
     dest = os.path.join(logs, "transcripts")
     for i, tr in enumerate(ctx.transcripts):
         try:
             os.makedirs(dest, exist_ok=True)
-            shutil.copyfile(tr, os.path.join(dest, f"{i}-{os.path.basename(tr)}"))
+            name = f"{i}-{os.path.basename(tr)}"
+            shutil.copyfile(tr, os.path.join(dest, name))
         except OSError:
             ctx.log(f"could not copy transcript {tr}")
+            continue
+        for sub in subagent_files(tr):
+            try:
+                sdir = os.path.join(dest, name[:-len(".jsonl")], "subagents")
+                os.makedirs(sdir, exist_ok=True)
+                shutil.copyfile(sub, os.path.join(sdir, os.path.basename(sub)))
+            except OSError:
+                ctx.log(f"could not copy sub-agent transcript {sub}")
+
+
+def remeasure(fc, st, logs):
+    """measure() over the transcripts kept in an arm's `<arm>.logs/` (main transcripts only: their
+    sub-agents are found beside them). None when the logs hold no transcript."""
+    trs = sorted(glob.glob(os.path.join(logs, "transcripts", "*.jsonl")))
+    return measure(fc, st, trs) if trs else None
+
+
+def verify_logs(fc, st, doc, logs):
+    """What re-measuring an arm's committed logs gets different from its results JSON, as messages
+    (tokens, $, coding / testing split, test calls — #579). [] when they reproduce it, or when the arm
+    recorded no measurement (it failed before it had a transcript)."""
+    tokens = doc.get("tokens") if isinstance(doc.get("tokens"), dict) else None
+    if tokens is None and doc.get("cost_usd") is None:
+        return []
+    m = remeasure(fc, st, logs)
+    if m is None:
+        return [f"{logs}: results JSON records a measurement but the logs hold no transcripts"]
+    bad = []
+    for k in ("input", "output", "cache_read", "cache_write"):
+        if (tokens or {}).get(k) != m["tokens"][k]:
+            bad.append(f"tokens.{k}: results JSON {(tokens or {}).get(k)}, logs {m['tokens'][k]}")
+    if not isinstance(doc.get("cost_usd"), (int, float)) or abs(doc["cost_usd"] - m["cost_usd"]) > 1e-4:
+        bad.append(f"cost_usd: results JSON {doc.get('cost_usd')}, logs {m['cost_usd']}")
+    for k in ("coding_s", "testing_s", "test_calls"):
+        want = (m["split"] or {}).get(k)
+        got = doc.get(k)
+        if (got is None) != (want is None) or (got is not None and abs(got - want) > 1e-3):
+            bad.append(f"{k}: results JSON {got}, logs {want}")
+    return bad
 
 
 if __name__ == "__main__":
