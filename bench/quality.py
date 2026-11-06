@@ -183,7 +183,8 @@ def scan(repo_dir, startup_secs=600.0, analysis_secs=900.0, log=lambda m: None):
         raise Skip(f"SonarQube answered {e.code} {e.reason}")
     finally:
         if made_srv:
-            _docker(["rm", "-f", tag], 120, check=False)
+            # -v: the image declares anonymous volumes, which would otherwise pile up on the host after every scan (#588)
+            _docker(["rm", "-f", "-v", tag], 120, check=False)
         if made_net:
             _docker(["network", "rm", tag], 60, check=False)
 

@@ -153,7 +153,7 @@ def test_a_scan_writes_the_quality_fields_and_cleans_up(e):
     assert "SONAR_TOKEN=squ_fake" in scanner and "-Dsonar.projectKey=bench" in scanner, scanner
     # the container and the network it made are removed again
     names = [c.split()[-1] for c in calls if c.startswith("network create")]
-    assert len(names) == 1 and f"rm -f {names[0]}" in calls and f"network rm {names[0]}" in calls, calls
+    assert len(names) == 1 and f"rm -f -v {names[0]}" in calls and f"network rm {names[0]}" in calls, calls
 
 
 @with_env(with_docker=False)
@@ -186,7 +186,7 @@ def test_a_server_image_that_cannot_start_is_skipped_and_the_network_removed(e):
 def test_a_server_that_exits_is_skipped_with_its_log(e):
     f = frag(e.run())
     assert f["quality"].startswith("skipped (the SonarQube container exited") and "max_map_count" in f["quality"], f
-    assert any(c.startswith("rm -f bench-sonar-") for c in e.calls()), e.calls()
+    assert any(c.startswith("rm -f -v bench-sonar-") for c in e.calls()), e.calls()
 
 
 @with_env(mode="disk-full")
@@ -217,7 +217,7 @@ def test_failure_reason_picks_the_first_error_or_message_exception_line():
 def test_a_server_that_never_comes_up_is_skipped(e):
     f = frag(e.run())
     assert f["quality"] == "skipped (SonarQube not ready after 3s)", f
-    assert any(c.startswith("rm -f bench-sonar-") for c in e.calls()), e.calls()
+    assert any(c.startswith("rm -f -v bench-sonar-") for c in e.calls()), e.calls()
 
 
 @with_env(mode="scanner-fails")

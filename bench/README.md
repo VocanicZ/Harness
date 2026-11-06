@@ -411,7 +411,8 @@ RAM, so it takes minutes. `BENCH_SONAR_IMAGE` / `BENCH_SONAR_SCANNER_IMAGE` pick
 SonarQube's data directory (`/opt/sonarqube/data`) is mounted as a **tmpfs** (`BENCH_SONAR_DATA_SIZE`, default
 `6g`, RAM-backed). Without it, Elasticsearch refuses to start when that filesystem has under 10% free
 (`Not enough free disk space for Elasticsearch data directory`), and the bench host's disk is often fuller than
-that. When the server does exit, the skip reason is the log's first `ERROR` / `MessageException` line, not its tail.
+that. The container is removed with its anonymous volumes (`docker rm -f -v`); the images (about 4 GB) stay, so on a
+host short of disk run `docker rmi sonarqube:community sonarsource/sonar-scanner-cli` after the run. When the server does exit, the skip reason is the log's first `ERROR` / `MessageException` line, not its tail.
 
 It is **never blocking**. Docker not installed, its daemon down, an image that cannot be pulled, a server that
 does not come up, a scan that fails or times out: the arm's results say `quality: "skipped (<reason>)"`, the run's
