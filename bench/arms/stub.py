@@ -3,12 +3,13 @@
     cost=USD     write a transcript whose list price is about USD (default 0.01)
     sleep=SECS   keep "working" this long, or until the runner stops it (default 0)
     subagents=1  also write a sub-agent transcript beside the session's (priced at `cost` again)
+    effort=E     record effort E on the session's messages (default: none), as Claude Code does (#590)
     fail=1       raise, to exercise the error path
 """
 import json, os, time
 
 
-def write_transcript(path, usd, mid="m1"):
+def write_transcript(path, usd, mid="m1", effort=None):
     """One Opus message priced at `usd`: output tokens at $25 per Mtok."""
     t0 = time.time() - 3
     lines = [
@@ -19,6 +20,8 @@ def write_transcript(path, usd, mid="m1"):
          "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}},
         {"type": "user", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0 + 3)), "message": {"content": "done"}},
     ]
+    if effort:
+        lines[0]["effort"] = effort
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("".join(json.dumps(r) + "\n" for r in lines))
 
@@ -27,7 +30,7 @@ def run(ctx):
     if ctx.opts.get("fail"):
         raise RuntimeError("stub arm told to fail")
     tr = os.path.join(ctx.logs, "stub-session.jsonl")
-    write_transcript(tr, float(ctx.opts.get("cost", "0.01")))
+    write_transcript(tr, float(ctx.opts.get("cost", "0.01")), effort=ctx.opts.get("effort"))
     if ctx.opts.get("subagents"):
         sdir = os.path.join(ctx.logs, "stub-session", "subagents")
         os.makedirs(sdir)

@@ -11,6 +11,7 @@ bench/run.py stub --dry-run             # print the guard decision; create and s
 bench/run.py plain --arm-opt K=V        # options passed to the arm
 bench/run.py harness --workers 3        # --workers N: the fleet's pool size, for an arm that runs one
 bench/run.py hx --optional              # an optional arm: a guard refusal is recorded as `skipped: budget`, exit 0
+bench/run.py harness-opus --optional    # the matched arm: Harness with every role on Opus at plain's effort
 ```
 
 ## One run
@@ -109,6 +110,11 @@ whatever the arm wrote to `ctx.logs`.
 | `fuzz_examples` | list | up to 10 of those divergences: `case`, `argv`, `ledger`, `ledger_from`, `closed_stdout`, `reference` and `arm` (`exit`, `stdout`, `stderr_empty`, `file`), `arm_stderr` |
 | `fuzz_seed`, `fuzz_hash` | int, string | the frozen generator's seed and the SHA-256 of its 1000 planned cases |
 | `fuzz_error` | string | only when the fuzz could not run; it never fails a run |
+| `effort` | object | optional (#590): messages per effort level as the transcripts record it (each entry's `effort` field, sub-agents included), e.g. `{"medium": 42}`; `bench/figures.py --check` re-reads it from the kept transcripts |
+| `configured` | object | optional (#590): `{model, effort}` the arm asked for, `null` meaning the out-of-the-box default (plain and `harness`: both null; `harness-opus`: `opus` / `medium`). What actually ran is `models` and `effort` |
+| `provenance` | object | optional (#590): `engine_commit` (the checkout's git commit, `-dirty` with uncommitted changes), `skill_version` (`sha256:` of the engine's `skill/` files, the `/harness` skill the Harness arms install), `cli_version` (`claude --version`); each a string or null when it could not be read |
+| `claude_config` | object | optional: `{source, skills, plugins, mcp_servers}` counts from the first session init (plain: from its isolation proof; the Harness arms: the front door's, #584) |
+| `isolation` | object | optional, Harness arms (#590): `{config: "isolated", engine_skills, engine_plugins}` the names installed into the isolated config |
 | `counts` | object | the arm's own counts (`ctx.count`, the returned `counts`) |
 | `caps` | object | `wall_s`, `cost_usd` in force |
 | `repo_deleted` | bool or null | whether the run repo was deleted afterwards |
@@ -152,6 +158,28 @@ bench/grade.py REPO_DIR --fuzz-only --arm-json bench/results/<run-id>/<arm>.json
   fragment; `bench/run.py` lifts that into the `fuzz_*` fields. A fuzz that cannot run is `fuzz_error`; the grade and the
   run are unaffected. `BENCH_FUZZ_CASES` / `BENCH_FUZZ_CAP_S` shorten it for tests.
 
+## Isolated Claude config (#590)
+
+The arms are compared on what they do, so they start from the same Claude setup. Run `run-20261106` did not: the Harness
+arm loaded the operator's own 186 skills, user plugins, 4 MCP servers and hooks, the plain arm none. Now every session of
+every arm runs with `CLAUDE_CONFIG_DIR` set to a throwaway `claude-config` directory in the run's work dir
+(`bench/armlib.py`):
+
+- **What it holds.** The login, `.credentials.json`, as a symlink to the host's file (never a copied directory; a login that
+  lives in the environment passes as before), and a `.claude.json` that marks onboarding done. No user skills, plugins,
+  MCP servers, hooks or settings of the host user's. The run log names the directory and the login it linked.
+- **Plain arm.** Runs on exactly that, with its existing flags and its existing isolation proof.
+- **Harness arms.** Add only what the Harness engine installs for any user: its own skills, linked from this checkout's
+  `skill/` the way `install.sh` links them (the umbrella `skill/SKILL.md` as `harness`, and each `skill/<name>/`), and the
+  plugins its lanes need, `ralph-loop` and `superpowers`, through `claude plugin install … --scope user` into that
+  directory. The fleet sees the same directory (`CLAUDE_CONFIG_DIR`, `HARNESS_USER_SKILLS`, the transcript search list).
+  A plugin that will not install fails the arm: a fleet without them is a different measurement.
+- **The check.** The front door's init event is kept in `<arm>.logs/init.json` (`view` = the names it listed) and checked
+  before any work: an MCP server, or a plugin that is not the engine's, stops the arm (`status: error`, "isolation check
+  failed"). Skills are not checked by name, because the CLI bundles some of its own. `test/test_bench_plain.py` runs both
+  arms against a host config that has a skill, a plugin, an MCP server and a login of its own and asserts the two inits
+  match apart from the engine's skills and plugins.
+
 ## Plain arm
 
 `bench/run.py plain` (`bench/arms/plain.py`, #382): what a new user gets. ONE `claude` session in the run
@@ -192,7 +220,7 @@ fleet, default 30); the last two are for tests.
   session settles its own questions). The /harness skill then does what it does for any user: `harness init`,
   the PRD, `harness start`. A front door that stops before a fleet is up gets `keep going, decide for
   yourself`, at most 5 times (`counts.continue_replies`); a fleet that is still not up after that fails the arm.
-- **Out-of-the-box defaults.** No `--model` or `--effort` for the front door and no `HARNESS_MODEL_*` /
+- **Out-of-the-box defaults.** (The matched arm below is the exception.) No `--model` or `--effort` for the front door and no `HARNESS_MODEL_*` /
   `HARNESS_EFFORT_*` in the fleet's environment, so Harness runs its role defaults (#373, #375). The models
   that ran come from the transcripts: the front door's, and every session in the run fleet's `events.jsonl`.
   The pool runs with `HARNESS_USE_POLLER=0`: the host poller is a host-level process that nothing here would stop.
@@ -200,10 +228,10 @@ fleet, default 30); the last two are for tests.
   dir inside the clone (`<clone>/.harness`), a session prefix made from the run repo's name (`bn` + 5 hex) and a
   scrubbed environment: every `HARNESS_*` and `STATE_DIR` / `RUN_DIR` of the host's fleets is dropped (only
   `HARNESS_USAGE_CMD` and `HARNESS_CLAUDE_CONFIG_DIRS` pass through) and no API key reaches it.
-  The Claude config is NOT isolated (#584): the front door and the fleet's sessions load the host user's own
-  skills, plugins and MCP servers, unlike the plain arm. The arm therefore records what the front door's init
-  event listed, `claude_config` = `{source, skills, plugins, mcp_servers}` (`plugins` leaves out the CLI's
-  built-ins), and `bench/figures.py` states it under the README table.
+  The Claude config is the [isolated one](#isolated-claude-config-590) the plain arm runs on, plus the engine's own skills and
+  plugins (#590); before that (run-20261106) the sessions loaded the host user's own, which is why the arm records what the
+  front door's init event listed, `claude_config` = `{source, skills, plugins, mcp_servers}` (`plugins` leaves out the CLI's
+  built-ins; the skills count includes the CLI's bundled ones), and `bench/figures.py` states it under the README table.
 - **Stopping.** Never by pattern. The arm runs `harness stop --state-dir <clone>/.harness`, the engine's own
   stop for exactly that state dir, and the front door it spawned is terminated through `ctx.spawn`. This
   happens however the arm ends: done, error or a cap. `<arm>.logs/fleet.json` names the state dir and the
@@ -218,6 +246,20 @@ fleet, default 30); the last two are for tests.
   `stats.json` (`harness stats --json` on it), `fleet.config` (the config the fleet ran with), the front-door
   stream per turn and `launch.txt`. Tokens, $ and the coding / testing split are measured on the transcripts
   like every arm's; the $ cap counts the lanes' transcripts as they appear.
+
+## Harness all-Opus arm
+
+`bench/run.py harness-opus [--optional]` (`bench/arms/harness-opus.py`, #590): the matched arm. The headline `harness` arm
+keeps Harness's out-of-the-box defaults, so its models (Opus manages, Sonnet implements) and effort (`high`) differ from the
+plain arm's. This arm is the same module with `model=opus` and `effort=medium` set (override with `--arm-opt model=…` /
+`effort=…`): the front door gets `--model opus --effort medium`, and the fleet gets `HARNESS_MODEL_MANAGER`,
+`HARNESS_MODEL_IMPLEMENTER` = `opus` and `HARNESS_EFFORT_MANAGER`, `HARNESS_EFFORT_IMPLEMENTER` = `medium`, so model and effort
+are matched together. `medium` is the effort the plain arm ran at in `run-20261106` (its transcripts' `effort` field).
+Everything else is the Harness arm: one worker, the same isolated config, the same brief. Results are `harness-opus.json`
+with `configured: {model: "opus", effort: "medium"}`; what ran is in `models` and `effort`.
+
+It is optional and never blocking: with `--optional` a guard refusal is recorded as `skipped: <cause>` (below), and
+`bench/figures.py` shows `skipped: not run` for a run with no record of it.
 
 ## Hx arm
 
@@ -248,7 +290,7 @@ on the same brief with its default config. One of the two optional arms, the oth
 
 ## Optional arms and `skipped: <cause>`
 
-The optional arms (`harness-3`, `hx`) are never blocking. `bench/run.py <arm> --optional` runs the arm when
+The optional arms (`harness-opus`, `harness-3`, `hx`) are never blocking. `bench/run.py <arm> --optional` runs the arm when
 the guard passes, exactly as without the flag. When the guard refuses, nothing is created or spent and
 `bench/results/<run-id>/<arm>.json` records the outcome instead, exit 0:
 
@@ -293,9 +335,10 @@ bytes and re-running reproduces the committed files exactly. The table has one r
 status, wall time with the coding and testing split, tokens (total and input / output / cache read / cache
 write), list-price $ and % of the weekly window, hidden tests passed, fuzz divergences (`fuzz_divergences` / `fuzz_cases`, #589), issues / PRs (`counts.issues_closed`,
 `counts.prs_merged`) or commits (`counts.commits`), continue replies (`counts.continue_replies`) and the
-models that ran. A **SonarQube** column appears only when some result carries a `sonarqube` object
+models that ran. Under the table, a **Run settings** line per arm that recorded them (#590) gives the models that ran, the effort by message,
+what the arm asked for, the engine commit, the `/harness` skill version and the Claude Code CLI version. A **SonarQube** column appears only when some result carries a `sonarqube` object
 (`bugs`, `vulnerabilities`, `code_smells`, `maintainability_rating`, `duplicated_lines_density`, `coverage`).
-Anything a result lacks renders as `n/a`. The optional arms (`harness-3`, `hx`) get a `skipped: <reason>` row
+Anything a result lacks renders as `n/a`. The optional arms (`harness-opus`, `harness-3`, `hx`) get a `skipped: <reason>` row
 when they have no results; the reason is read from `bench/results/<run-id>/skipped.json`,
 `{"<arm>": "<reason>"}`, or a `status: skipped` `<arm>.json` (above), else `not run`.
 

@@ -56,6 +56,14 @@ def _load(name):
     return mod
 
 
+def armlib():
+    """bench/armlib.py: what the arms share (isolated config, provenance, effort), loaded by path."""
+    spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(HERE, "armlib.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def now_iso(t=None):
     return datetime.fromtimestamp(time.time() if t is None else t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -435,6 +443,9 @@ REQUIRED = {
 
 
 # Optional (results written before #589 have none): bench/fuzz.py's differential fuzz of the graded build.
+# Optional (results written before #590 have none): the effort the transcripts show, what the arm configured, and
+# the engine commit / skill version / CLI version the arm ran with.
+PROVENANCE_KEYS = ("engine_commit", "skill_version", "cli_version")
 FUZZ_FIELDS = {"fuzz_cases": int, "fuzz_divergences": int, "fuzz_examples": list, "fuzz_seed": int,
                "fuzz_hash": str, "fuzz_error": str}
 
@@ -479,6 +490,18 @@ def validate(d):
     for k, t in FUZZ_FIELDS.items():
         if k in d and (not isinstance(d[k], t) or isinstance(d[k], bool)):
             bad.append(f"{k}: {type(d[k]).__name__}")
+    prov = d.get("provenance")
+    if "provenance" in d and not (isinstance(prov, dict) and sorted(prov) == sorted(PROVENANCE_KEYS)
+                                  and all(v is None or isinstance(v, str) for v in prov.values())):
+        bad.append(f"provenance: want {', '.join(PROVENANCE_KEYS)} (strings or null)")
+    eff = d.get("effort")
+    if "effort" in d and not (isinstance(eff, dict) and all(isinstance(k, str) and isinstance(v, int)
+                                                            and not isinstance(v, bool) for k, v in eff.items())):
+        bad.append("effort: want {effort: messages}")
+    conf = d.get("configured")
+    if "configured" in d and not (isinstance(conf, dict) and sorted(conf) == ["effort", "model"]
+                                  and all(v is None or isinstance(v, str) for v in conf.values())):
+        bad.append("configured: want {model, effort} (strings or null)")
     if isinstance(d.get("fuzz_examples"), list) and len(d["fuzz_examples"]) > 10:
         bad.append("fuzz_examples: more than 10")
     if isinstance(d.get("fuzz_divergences"), int) and isinstance(d.get("fuzz_cases"), int) \
@@ -627,6 +650,12 @@ def execute(a, arm, opts, g, fc, st):
             if m["split"]:
                 res.update(m["split"])
             copy_transcripts(ctx, logs)
+            try:   # what ran and what it ran on (#590); never fails a run
+                lib = armlib()
+                res["effort"] = lib.efforts(st, ctx.transcripts)
+                res["provenance"] = lib.provenance(opts.get("claude", "claude"))
+            except Exception as e:
+                log(f"provenance/effort: {e!r}")
             graded = grade(repo, work, gh, log, a.grader)
             write_json(os.path.join(logs, "grade.json"), graded)
             res["hidden_tests"] = {k: v for k, v in graded.items() if k != "fuzz"}
@@ -745,6 +774,12 @@ def verify_logs(fc, st, doc, logs):
         got = doc.get(k)
         if (got is None) != (want is None) or (got is not None and abs(got - want) > 1e-3):
             bad.append(f"{k}: results JSON {got}, logs {want}")
+    if isinstance(doc.get("effort"), dict):   # the effort the transcripts show (#590)
+        lib = armlib()
+        trs = sorted(glob.glob(os.path.join(logs, "transcripts", "*.jsonl")))
+        got = lib.efforts(st, trs)
+        if got != doc["effort"]:
+            bad.append(f"effort: results JSON {doc['effort']}, logs {got}")
     if isinstance(doc.get("claude_config"), dict):   # a Harness arm: the disclosed config and restarts (#584)
         spec = importlib.util.spec_from_file_location("bench_arm_harness", os.path.join(HERE, "arms", "harness.py"))
         arm = importlib.util.module_from_spec(spec)
