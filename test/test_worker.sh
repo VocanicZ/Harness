@@ -5,6 +5,7 @@ source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"
 _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
 source "$HERE/../scripts/pool-worker.sh"   # defines worker_tick; main() guarded out
 source "$HERE/helpers.sh"; make_env
+ensure_checkout(){ :; }   # #558: worker_tick clones a missing checkout before claiming (#539); fixtures have none — never reach the network
 seed_if_needed(){ :; }            # no real gh
 
 # --- resident pool (#24): worker_step idles on a COMPLETE repo instead of retiring ----
