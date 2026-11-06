@@ -422,6 +422,54 @@ def test_a_usage_held_account_records_reason_held(e):
     assert r["reason"] == "held" and r["guard"]["causes"] == ["held"] and r["guard"]["held"], r
 
 
+@with_env()
+def test_subagent_transcripts_are_kept_in_a_layout_measure_reads_back(e):
+    p = e.run("stub", "--arm-opt", "cost=2", "--arm-opt", "subagents=1")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert r["tokens"]["output"] == 160000, r["tokens"]       # the session and its sub-agent, counted live
+    logs = os.path.join(e.results, "t1", "stub.logs")
+    kept = os.path.join(logs, "transcripts", "0-stub-session", "subagents", "agent-a1.jsonl")
+    assert os.path.isfile(kept), glob.glob(os.path.join(logs, "**"), recursive=True)
+    fc, st = bench_run._load("forecast"), bench_run._load("stats")
+    m = bench_run.remeasure(fc, st, logs)
+    assert m["tokens"] == r["tokens"] and abs(m["cost_usd"] - r["cost_usd"]) < 1e-4, (m, r)
+    assert bench_run.verify_logs(fc, st, r, logs) == []
+
+
+@with_env()
+def test_logs_that_lost_their_subagent_transcripts_do_not_reproduce_the_results(e):
+    assert e.run("stub", "--arm-opt", "cost=2", "--arm-opt", "subagents=1").returncode == 0
+    logs = os.path.join(e.results, "t1", "stub.logs")
+    shutil.rmtree(os.path.join(logs, "transcripts", "0-stub-session"))
+    bad = bench_run.verify_logs(bench_run._load("forecast"), bench_run._load("stats"), e.result(), logs)
+    assert any(m.startswith("tokens.output") for m in bad) and any(m.startswith("cost_usd") for m in bad), bad
+
+
+@with_env()
+def test_logs_with_no_transcripts_do_not_reproduce_a_recorded_measurement(e):
+    assert e.run("stub", "--arm-opt", "cost=2").returncode == 0
+    logs = os.path.join(e.results, "t1", "stub.logs")
+    shutil.rmtree(os.path.join(logs, "transcripts"))
+    bad = bench_run.verify_logs(bench_run._load("forecast"), bench_run._load("stats"), e.result(), logs)
+    assert len(bad) == 1 and "no transcripts" in bad[0], bad
+
+
+@with_env()
+def test_figures_check_fails_when_an_arms_logs_do_not_reproduce_its_results(e):
+    assert e.run("stub", "--arm-opt", "cost=2", "--arm-opt", "subagents=1").returncode == 0
+    readme = os.path.join(e.d, "README.md")
+    with open(readme, "w") as fh:
+        fh.write("# T\n\n<!-- bench:begin — x -->\nOLD\n<!-- bench:end -->\n")
+    fig = [sys.executable, os.path.join(ROOT, "bench", "figures.py"), "--results-dir", e.results, "--readme", readme]
+    assert subprocess.run(fig, capture_output=True, text=True).returncode == 0     # write README + figure
+    ok = subprocess.run(fig + ["--check"], capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr
+    shutil.rmtree(os.path.join(e.results, "t1", "stub.logs", "transcripts", "0-stub-session"))
+    bad = subprocess.run(fig + ["--check"], capture_output=True, text=True)
+    assert bad.returncode == 1 and "logs do not reproduce results: stub: tokens.output" in bad.stderr, bad.stderr
+
+
 def test_the_disk_guard_measures_only_the_temp_dir_not_the_checkout():
     seen, real_tmp, real_du = [], bench_run.tempfile.gettempdir, bench_run.shutil.disk_usage
     bench_run.tempfile.gettempdir = lambda: "/tmp"

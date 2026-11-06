@@ -5,14 +5,15 @@ re-running reproduces the committed files exactly (`--check` fails when they are
 
     bench/figures.py                    # latest run in bench/results/ -> bench/results/benchmark.svg + README
     bench/figures.py --run-id ID        # a specific run
-    bench/figures.py --check            # write nothing; exit 1 when the figure or README are not current
+    bench/figures.py --check            # write nothing; exit 1 when the figure or README are not current, or an
+                                        # arm's committed logs, re-measured, do not reproduce its results JSON
 
 Input: `<results-dir>/<run-id>/<arm>.json` (schema: bench/README.md, written by bench/run.py) and an
 optional `<results-dir>/<run-id>/skipped.json`, {"<arm>": "<reason>"}, for arms that were not run; an
 `<arm>.json` with `"status": "skipped"` (written by `bench/run.py --optional`) counts the same.
 Anything missing renders as "n/a" or a "skipped: <reason>" row, never as an error.
 """
-import argparse, html, json, os, sys
+import argparse, html, importlib.util, json, os, sys
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -25,6 +26,21 @@ OPTIONAL_ARMS = ["harness-3", "hx"]        # shown as a "skipped" row when no re
 ARM_TITLES = {"plain": "Plain Claude Code", "harness": "Harness (1 worker)", "harness-1": "Harness (1 worker)",
               "harness-3": "Harness (3 workers)", "hx": "Hx"}
 NA = "n/a"
+
+
+# --- logs reproduce the results (#579) --------------------------------------------------
+def verify_logs(results_dir, run_id, arms):
+    """[message] for every arm whose committed raw logs, re-measured, do not reproduce its results JSON."""
+    spec = importlib.util.spec_from_file_location("bench_run", os.path.join(HERE, "run.py"))
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    fc, st = runner._load("forecast"), runner._load("stats")
+    bad = []
+    for arm, doc in sorted(arms.items()):
+        logs = os.path.join(results_dir, run_id, str(doc.get("logs") or arm + ".logs"))
+        if os.path.isdir(logs):
+            bad += [f"{arm}: {m}" for m in runner.verify_logs(fc, st, doc, logs)]
+    return bad
 
 
 # --- loading ---------------------------------------------------------------------------
@@ -346,7 +362,10 @@ def main(argv=None):
     if a.check:
         for p in stale:
             print(f"figures.py: stale: {p}", file=sys.stderr)
-        return 1 if stale else 0
+        unreproduced = verify_logs(a.results_dir, run_id, arms) if run_id else []
+        for m in unreproduced:
+            print(f"figures.py: logs do not reproduce results: {m}", file=sys.stderr)
+        return 1 if stale or unreproduced else 0
     if svg is not None and fig_path in stale:
         write(fig_path, svg)
     if a.readme in stale:

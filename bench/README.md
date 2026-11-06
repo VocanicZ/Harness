@@ -83,7 +83,9 @@ An exception from `run` is recorded as `status: "error"` and the run continues t
 
 `bench/results/<run-id>/<arm>.json` (`--results-dir` moves the tree), with the raw logs beside it in
 `<arm>.logs/`: `run.log` (what the runner did, with the gh calls), `grade.json`, `transcripts/` (copies of
-the registered transcripts), and whatever the arm wrote to `ctx.logs`.
+the registered transcripts: `<i>-<name>.jsonl`, with its sub-agent transcripts in `<i>-<name>/subagents/*.jsonl`,
+where `scripts/stats.py` reads them, so re-measuring the copies gives the numbers in the results JSON), and
+whatever the arm wrote to `ctx.logs`.
 
 | field | type | meaning |
 |---|---|---|
@@ -234,7 +236,8 @@ figure `bench/results/benchmark.svg` from `bench/results/`, and nothing else; th
 ```
 bench/figures.py                 # the latest run under bench/results/
 bench/figures.py --run-id ID     # a specific run
-bench/figures.py --check         # write nothing; exit 1 when the README section or figure is stale
+bench/figures.py --check         # write nothing; exit 1 when the README section or figure is stale, or an arm's
+                                 # committed logs, re-measured, do not reproduce its results JSON (#579)
 ```
 
 Output is deterministic (no timestamps, fixed fonts, colours and rounding), so the same results give the same
