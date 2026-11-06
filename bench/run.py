@@ -47,7 +47,7 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SCRIPTS = os.path.join(ROOT, "scripts")
-BRIEF = os.path.join(ROOT, "bench/fixture/brief.md")
+BRIEF = os.path.join(ROOT, "bench/fixture/brief.md")   # the default fixture's; a run uses its fixture's (bench/fixtures.py)
 GRADER = os.path.join(HERE, "grade.py")
 QUALITY = os.path.join(HERE, "quality.py")
 TESTCOV = os.path.join(HERE, "testcov.py")
@@ -72,6 +72,23 @@ def armlib():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _bylib(name, filename):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, filename))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def fixtures():
+    """bench/fixtures.py: which fixture a run uses (#592)."""
+    return _bylib("bench_fixtures", "fixtures.py")
+
+
+def progresslib():
+    """bench/progress.py: milestones, regressions and the mid-run change (#592)."""
+    return _bylib("bench_progress", "progress.py")
 
 
 def agglib():
@@ -283,9 +300,9 @@ class Gh:
     def clone(self, repo, dest):
         self._run(["gh", "repo", "clone", repo, dest])
 
-    def seed(self, repo, clone):
+    def seed(self, repo, clone, brief=BRIEF):
         """Commit the brief — and nothing else — to the repo's default branch."""
-        shutil.copyfile(BRIEF, os.path.join(clone, "brief.md"))
+        shutil.copyfile(brief, os.path.join(clone, "brief.md"))
         git = ["git", "-c", "user.name=bench", "-c", "user.email=bench@localhost"]
         self._run(git + ["checkout", "-B", "main"], cwd=clone)
         self._run(["git", "add", "brief.md"], cwd=clone)
@@ -307,6 +324,8 @@ class Ctx:
         self.run = None   # 1-based index of this run in a `--runs N` batch (#591); None for `--runs 1`
         self.transcripts, self.counts = [], {}
         self.extra = {}   # more top-level fields for the results JSON (never one the runner owns)
+        self.fixture = None   # bench/fixtures.py's Fixture of this run (#592)
+        self.change = None    # bench/progress.py's Change: the mid-run requirement change, or None
         self._procs, self._lock = [], threading.Lock()
 
     def add_transcripts(self, *paths):
@@ -318,6 +337,16 @@ class Ctx:
     def count(self, name, n=1):
         with self._lock:
             self.counts[name] = self.counts.get(name, 0) + n
+
+    def next_change(self, done=False):
+        """The mid-run requirement change (#592), once, when it is due: the text to hand to the agent exactly as given,
+        else None (no change in this fixture, not yet fired, or already taken). `done=True`: the arm is about to
+        stop; a change that has not fired yet fires now, so no arm finishes without it."""
+        return self.change.take(done) if self.change is not None else None
+
+    def change_due(self):
+        """True when the change has fired and the arm has not taken it (an arm may interrupt a long turn for it)."""
+        return self.change is not None and self.change.due()
 
     def spawn(self, argv, **kw):
         """subprocess.Popen, tracked: the runner terminates it (by its own handle) at a cap."""
@@ -396,12 +425,13 @@ def cost_now(fc, st, transcripts):
 GRADED = "graded"
 
 
-def grade(repo, workdir, gh, log, grader):
+def grade(repo, workdir, gh, log, grader, fixture=None):
     """The hidden-tests fragment for a fresh clone of the repo's final default branch, or an error stub."""
     dest = os.path.join(workdir, GRADED)
     try:
         gh.clone(repo, dest)
-        p = subprocess.run([sys.executable, grader, dest], capture_output=True, text=True, timeout=1500,
+        extra = ["--fixture", fixture] if fixture and fixture != fixtures().DEFAULT else []
+        p = subprocess.run([sys.executable, grader, dest] + extra, capture_output=True, text=True, timeout=3600,
                            stdin=subprocess.DEVNULL)
         log(f"grade -> {p.returncode}")
         if p.returncode != 0:
@@ -410,6 +440,25 @@ def grade(repo, workdir, gh, log, grader):
     except Exception as e:
         log(f"grade failed: {e}")
         return {"passed": 0, "failed": None, "total": None, "details": {"error": str(e)[:300]}}
+
+
+def derived_fields(res, fx, watcher, ctx, st, logs, wall_s):
+    """The measures of #592 that come from more than the end-of-run grade: $ per passed hidden test, compactions,
+    and, for a fixture with milestones, the change request, the milestones, the regressions and the wall time of the
+    first full pass. The raw milestones, per test, are kept in <logs>/milestones.json."""
+    out = {}
+    passed = (res.get("hidden_tests") or {}).get("passed")
+    if isinstance(passed, int) and passed > 0:
+        out["usd_per_passed_test"] = round(res["cost_usd"] / passed, 4)
+    try:
+        out["compactions"] = armlib().compactions(st, ctx.transcripts)
+    except Exception:
+        pass
+    if watcher is not None:
+        watcher.add_final({"details": res["hidden_tests"].get("details")}, wall_s)
+        out.update(progresslib().summarize(watcher.milestones, ctx.change))
+        watcher.dump(os.path.join(logs, "milestones.json"))
+    return out
 
 
 def fuzz_fields(fuzz):
@@ -595,6 +644,11 @@ def parse_args(argv):
                          "refused on: disk, held, no-usage-reading, no-calibration, budget; with its numbers) as <arm>.json and exit 0, instead of refusing")
     ap.add_argument("--workers", type=int, default=None, metavar="N",
                     help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
+    ap.add_argument("--fixture", default=fixtures().DEFAULT, choices=fixtures().names(),
+                    help="which fixture the arms build (default pennywise, a 4.7 KB brief; large is the 20-page brief "
+                         "with a mid-run requirement change, graded at milestones; bench/fixtures.py)")
+    ap.add_argument("--progress-poll-secs", type=float, default=progresslib().POLL_S,
+                    help="a fixture with milestones: how often the repo is graded while the arm works (default 300)")
     ap.add_argument("--wall-cap-secs", type=float, default=WALL_CAP_S)
     ap.add_argument("--cost-cap-usd", type=float, default=COST_CAP_USD)
     ap.add_argument("--expected-usd", type=float, default=None, help="expected spend for the guard (default: the cap)")
@@ -666,8 +720,29 @@ def record_skipped(a, g):
     return EXIT_OK
 
 
+def link_speedup(results_dir, run_id):
+    """When a run holds both `harness.json` and `harness-3.json`, put the 1 -> 3 worker speed-up (#592) into
+    `harness-3.json` as `speedup_1_to_3`. Either arm may have been run first; the field is recomputed each time."""
+    base = os.path.join(results_dir, run_id)
+    docs = {}
+    for arm in ("harness", "harness-3"):
+        try:
+            with open(os.path.join(base, arm + ".json"), encoding="utf-8") as fh:
+                docs[arm] = json.load(fh)
+        except (OSError, ValueError):
+            return None
+    sp = agglib().speedup(docs["harness"], docs["harness-3"])
+    if sp is not None:
+        docs["harness-3"]["speedup_1_to_3"] = sp
+        write_json(os.path.join(base, "harness-3.json"), docs["harness-3"])
+    return sp
+
+
 def new_run_id(a):
-    return a.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    """--run-id, else a UTC timestamp; a run of the large fixture ends in `-large`, so its results never share a
+    directory (and an arm's file name) with a pennywise run's (#592)."""
+    suffix = "" if a.fixture == fixtures().DEFAULT else "-" + a.fixture
+    return a.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + suffix
 
 
 def run_slot(a, run_id, index=None):
@@ -687,6 +762,13 @@ def execute(a, arm, opts, g, fc, st):
     """The runs of `--runs N`, each guarded, run and recorded on its own; `g` is the guard decision for the first.
     Returns the exit status (see the module docstring): 4 beats 1 beats 0."""
     run_id = new_run_id(a)
+    code = execute_batch(a, arm, opts, g, fc, st, run_id)
+    if a.arm in ("harness", "harness-3"):
+        link_speedup(a.results_dir, run_id)
+    return code
+
+
+def execute_batch(a, arm, opts, g, fc, st, run_id):
     if a.runs == 1:
         return execute_one(a, arm, opts, g, fc, st, run_slot(a, run_id))[0]
     agg_path = os.path.join(a.results_dir, run_id, f"{a.arm}.json")
@@ -742,7 +824,8 @@ def execute_one(a, arm, opts, g, fc, st, slot):
 
     gh, work, repo, leaked = Gh(log), tempfile.mkdtemp(prefix="bench-run-"), None, False
     caps = {"wall_s": a.wall_cap_secs, "cost_usd": a.cost_cap_usd}
-    res = {"schema": SCHEMA, "run_id": run_id, "arm": a.arm, "repo": "", "status": "ok", "capped": None,
+    fx, watcher = fixtures().load(a.fixture), None
+    res = {"schema": SCHEMA, "run_id": run_id, "arm": a.arm, "fixture": fx.name, "repo": "", "status": "ok", "capped": None,
            "error": None, "started_at": now_iso(), "ended_at": "", "wall_s": 0.0, "coding_s": None,
            "testing_s": None, "test_calls": None, "tokens": dict.fromkeys(("input", "output", "cache_read", "cache_write"), 0),
            "cost_usd": 0.0, "usd_per_pct": g["usd_per_pct"], "usd_per_pct_source": g["usd_per_pct_source"],
@@ -761,11 +844,19 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             gh.no_actions(repo)
             clone = os.path.join(work, "clone")
             gh.clone(repo, clone)
-            gh.seed(repo, clone)
+            gh.seed(repo, clone, fx.brief)
             ctx = Ctx(a.arm, repo, clone, logs, threading.Event(), opts, caps, log)
-            ctx.run = slot["index"]
+            ctx.run, ctx.fixture = slot["index"], fx
             t0 = time.time()
-            res["capped"] = run_arm(a, arm, ctx, fc, st, t0, log)
+            if fx.milestones:   # graded while it works; the mid-run change fires on progress (bench/progress.py)
+                pl = progresslib()
+                ctx.change = pl.Change(fx.change, fx.change_at, t0) if fx.change else None
+                watcher = pl.Watcher(fx, repo, work, gh, log, a.grader, ctx.change, t0, a.progress_poll_secs).start()
+            try:
+                res["capped"] = run_arm(a, arm, ctx, fc, st, t0, log)
+            finally:
+                if watcher is not None:
+                    watcher.finish()
             res["wall_s"] = round(time.time() - t0, 3)
             res["status"] = "capped" if res["capped"] else "ok"
         except Exception as e:   # the arm's own failure, or the repo lifecycle's: recorded, never lost
@@ -774,6 +865,8 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             if ctx is not None:
                 ctx.stop.set()
                 ctx.terminate(a.grace_secs)
+            if watcher is not None:
+                watcher.finish()
         if ctx is not None:
             res["counts"] = dict(ctx.counts)
             res.update({k: v for k, v in ctx.extra.items() if k not in res})
@@ -788,10 +881,11 @@ def execute_one(a, arm, opts, g, fc, st, slot):
                 res["provenance"] = lib.provenance(opts.get("claude", "claude"))
             except Exception as e:
                 log(f"provenance/effort: {e!r}")
-            graded = grade(repo, work, gh, log, a.grader)
+            graded = grade(repo, work, gh, log, a.grader, fx.name)
             write_json(os.path.join(logs, "grade.json"), graded)
             res["hidden_tests"] = {k: v for k, v in graded.items() if k != "fuzz"}
             res.update(fuzz_fields(graded.get("fuzz")))
+            res.update(derived_fields(res, fx, watcher, ctx, st, logs, time.time() - t0))
             res.update(quality(work, a.quality, log))
             res.update(coverage(work, a.testcov, log))
             if not str(res.get("quality")).startswith("ok"):

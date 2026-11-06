@@ -8,6 +8,7 @@ random argv and ledger files and counts where they disagree, without tuning anyt
     bench/fuzz.py --self                  # the reference against itself: must report 0 divergences
     bench/fuzz.py --cmd '["pennywise"]'   # an arm's command line (JSON argv); default $PENNYWISE_CMD
     bench/fuzz.py --cases 200 --cap 60    # fewer cases / a shorter time cap (the defaults are 1000 / 300 s)
+    bench/fuzz.py --fixture large --self  # another fixture's fuzz (#592): bench/fixture-large/fuzz.py, same options
 
 Prints one JSON object (exit 0; 2 for bad arguments or a generator that no longer matches its frozen hash):
 
@@ -25,6 +26,7 @@ Stdlib only.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -358,8 +360,39 @@ def run(cmd, env=None, cases=CASES, cap_s=CAP_S, reference=None):
             "fuzz_seed": SEED, "fuzz_hash": digest}
 
 
+def other_fixture(argv):
+    """`--fixture NAME` (#592): (fuzz module of that fixture, argv without the option); (None, argv) for pennywise."""
+    if "--fixture" not in argv:
+        return None, argv
+    at = argv.index("--fixture")
+    name = argv[at + 1] if at + 1 < len(argv) else ""
+    rest = argv[:at] + argv[at + 2:]
+    spec = importlib.util.spec_from_file_location("bench_fixtures", os.path.join(HERE, "fixtures.py"))
+    fixtures = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixtures)
+    try:
+        fx = fixtures.load(name)
+    except ValueError as exc:
+        raise SystemExit("fuzz.py: %s" % exc)
+    if os.path.abspath(fx.fuzz) == os.path.abspath(__file__):
+        return None, rest
+    spec = importlib.util.spec_from_file_location("bench_fuzz_%s" % fx.name, fx.fuzz)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod, rest
+
+
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        mod, argv = other_fixture(argv)
+    except SystemExit as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if mod is not None:
+        return mod.main(argv)
     ap = argparse.ArgumentParser(description="Differential fuzz of a pennywise command against the reference.")
+    ap.add_argument("--fixture", help="another fixture's fuzz (bench/fixtures.py): large; default pennywise")
     ap.add_argument("--cmd", help="the arm's command line, a JSON argv list (default: $PENNYWISE_CMD)")
     ap.add_argument("--self", action="store_true", help="fuzz the reference against itself (0 divergences expected)")
     ap.add_argument("--cases", type=int, default=CASES)

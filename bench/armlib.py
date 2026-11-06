@@ -198,3 +198,28 @@ def efforts(st, transcripts):
             except OSError:
                 continue
     return dict(sorted(out.items()))
+
+
+def compactions(st, transcripts):
+    """How many times a session's context was compacted, as the transcripts record it: an entry marked
+    `isCompactSummary`, or a `system` entry with subtype `compact_boundary` (one compaction writes both: a
+    boundary is counted once, a summary without a boundary counts). The main transcripts and their sub-agents'.
+    A compaction is the sign of work that outgrew one context window (#592)."""
+    total = 0
+    for tr in transcripts:
+        for f in st.transcript_files(tr):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    for line in fh:
+                        if "ompact" not in line:
+                            continue
+                        try:
+                            ev = json.loads(line)
+                        except ValueError:
+                            continue
+                        if isinstance(ev, dict) and (ev.get("subtype") == "compact_boundary"
+                                                     or (ev.get("isCompactSummary") and ev.get("type") == "user")):
+                            total += 1
+            except OSError:
+                continue
+    return total

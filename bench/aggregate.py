@@ -90,6 +90,9 @@ METRICS = {
     "cov_line_pct": _cov("line_pct"), "cov_branch_pct": _cov("branch_pct"), "cov_total_pct": _cov("total_pct"),
     "issues_closed": _count("issues_closed"), "prs_merged": _count("prs_merged"), "commits": _count("commits"),
     "continue_replies": _count("continue_replies"),
+    # the large fixture's measures (#592)
+    "regressions": _field("regressions"), "first_full_pass_s": _field("first_full_pass_s"),
+    "usd_per_passed_test": _field("usd_per_passed_test"), "compactions": _field("compactions"),
 }
 
 
@@ -116,8 +119,16 @@ def completed(docs):
     return [d for d in docs if d.get("status") in COMPLETED]
 
 
+def cap_hits(docs):
+    """How often the runs hit a cap (#592): {"runs": n capped, "of": n completed, "wall": n, "cost": n}."""
+    done = completed(docs)
+    return {"runs": sum(1 for d in done if d.get("capped")), "of": len(done),
+            "wall": sum(1 for d in done if d.get("capped") == "wall"),
+            "cost": sum(1 for d in done if d.get("capped") == "cost")}
+
+
 def aggregate(docs):
-    """{"n", "metrics"} over the runs in `docs` that completed. Deterministic: the same runs, the same bytes."""
+    """{"n", "metrics", "cap_hits"} over the runs in `docs` that completed. Deterministic: the same runs, the same bytes."""
     done = completed(docs)
     rows = [extract(d) for d in done]
     metrics = {}
@@ -125,7 +136,33 @@ def aggregate(docs):
         s = summarize([r.get(name) for r in rows])
         if s is not None:
             metrics[name] = s
-    return {"n": len(done), "metrics": metrics}
+    return {"n": len(done), "metrics": metrics, "cap_hits": cap_hits(docs)}
+
+
+def wall_of(doc):
+    """The wall time of a results record: the median of an aggregate, the run's own otherwise; None without one."""
+    if not isinstance(doc, dict):
+        return None
+    if doc.get("status") == "aggregate":
+        s = ((doc.get("aggregate") or {}).get("metrics") or {}).get("wall_s")
+        return num(s.get("median")) if isinstance(s, dict) else None
+    return num(doc.get("wall_s")) if doc.get("status") in COMPLETED else None
+
+
+def speedup(one, three):
+    """The 1 -> 3 worker speed-up (#592): {"x", "wall_1_s", "wall_3_s", "capped"} from the `harness` and `harness-3`
+    records of one run (aggregates or single runs), x = wall 1 over wall 3; None when either has no wall time.
+    `capped` is true when a side hit a cap, so its wall time is a lower bound and x is not a clean ratio."""
+    w1, w3 = wall_of(one), wall_of(three)
+    if not w1 or not w3:
+        return None
+
+    def capped(doc):
+        if doc.get("status") == "aggregate":
+            return bool(((doc.get("aggregate") or {}).get("cap_hits") or {}).get("runs"))
+        return bool(doc.get("capped"))
+    return {"x": round(w1 / w3, 2), "wall_1_s": round(w1, 3), "wall_3_s": round(w3, 3),
+            "capped": capped(one) or capped(three)}
 
 
 def validate_aggregate(d):
@@ -160,7 +197,7 @@ def validate_aggregate(d):
         bad.append("stopped: want {reason: " + "|".join(STOP_REASONS) + ", detail}")
     agg = d["aggregate"]
     if not isinstance(agg.get("metrics"), dict) or agg.get("n") != d["runs_completed"]:
-        bad.append("aggregate: want {n == runs_completed, metrics}")
+        bad.append("aggregate: want {n == runs_completed, metrics, cap_hits}")
     else:
         for name, s in agg["metrics"].items():
             if name not in METRICS or not (isinstance(s, dict) and sorted(s) == ["max", "median", "min", "n"]

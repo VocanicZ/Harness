@@ -33,7 +33,9 @@ _spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(os.p
 armlib = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(armlib)
 CONTINUE_REPLY = "keep going, decide for yourself"
-MAX_REPLIES = 20
+MAX_REPLIES = 20      # the default fixture's; a fixture sets its own (bench/fixtures.py: the large one raises it to 50, #592)
+CHANGE_INTRO = "I have changed my mind about some of what I asked for. Here is the change, in writing:\n\n"
+CHANGE_OUTRO = "\nPlease bring the project in line with it, and carry on with what is still to do."
 DELIVERY_NOTE = ("\n\n(This folder is a git clone of my private GitHub repo. Commit your work to the main "
                  "branch and push it there.)\n")
 FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--disable-slash-commands",
@@ -123,6 +125,10 @@ def turn(ctx, claude, prompt, session, n, st, registered, config_dir=None):
         p.stdin.close()
         for line in p.stdout:
             stream.write(line)
+            if ctx.change_due() and out["session"]:   # the user types the change into the running session (#592)
+                out["interrupted"] = True
+                p.terminate()
+                break
             try:
                 ev = json.loads(line)
             except ValueError:
@@ -152,9 +158,14 @@ def turn(ctx, claude, prompt, session, n, st, registered, config_dir=None):
     return out
 
 
+def change_prompt(text):
+    return CHANGE_INTRO + text.rstrip("\n") + "\n" + CHANGE_OUTRO
+
+
 def run(ctx):
     claude = ctx.opts.get("claude", "claude")
     st = _stats()
+    max_replies = int(ctx.opts.get("max_replies") or (ctx.fixture.plain_max_replies if ctx.fixture else MAX_REPLIES))
     with open(ctx.brief, encoding="utf-8") as fh:
         prompt = fh.read().rstrip("\n") + DELIVERY_NOTE
     session, registered, replies, n = None, [], 0, 0
@@ -170,15 +181,22 @@ def run(ctx):
             session = t["session"]
             if ctx.stop.is_set():
                 break
-            res = t["result"]
-            if res is None or res.get("is_error"):
-                raise RuntimeError("claude turn failed: " + (str((res or {}).get("result") or "no result")[:300]))
-            ctx.log(f"turn {n}: {t['text'][:80]!r}")
-            if is_done(ctx.clone, t["text"]):
+            interrupted, res = bool(t.get("interrupted")), t["result"]
+            if not interrupted:
+                if res is None or res.get("is_error"):
+                    raise RuntimeError("claude turn failed: " + (str((res or {}).get("result") or "no result")[:300]))
+                ctx.log(f"turn {n}: {t['text'][:80]!r}")
+            done = not interrupted and is_done(ctx.clone, t["text"])
+            change = ctx.next_change(done=done)   # the mid-run requirement change (#592): a turn interrupted for it, or work that would stop
+            if change:
+                ctx.log(f"turn {n}: the change request is handed over ({'interrupting the turn' if interrupted else 'at the end of the turn'})")
+                prompt = change_prompt(change)
+                continue
+            if done:
                 ctx.log(f"done after {replies} continue replies")
                 break
-            if replies >= MAX_REPLIES:
-                ctx.log(f"not done at the {MAX_REPLIES}-reply cap")
+            if replies >= max_replies:
+                ctx.log(f"not done at the {max_replies}-reply cap")
                 break
             replies += 1
             ctx.count("continue_replies")

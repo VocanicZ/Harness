@@ -5,6 +5,8 @@
     sleep=SECS   keep "working" this long, or until the runner stops it (default 0)
     subagents=1  also write a sub-agent transcript beside the session's (priced at `cost` again)
     effort=E     record effort E on the session's messages (default: none), as Claude Code does (#590)
+    change=1     take the mid-run requirement change when it is due, writing its text to the logs as change.txt;
+                 asked for at the end of `sleep`, it is handed over then (trigger `arm-done`) (#592)
     fail=1       raise, to exercise the error path
 """
 import json, os, time
@@ -43,5 +45,17 @@ def run(ctx):
         write_transcript(os.path.join(sdir, "agent-a1.jsonl"), run_cost(ctx), mid="sub1")
     ctx.add_transcripts(tr)
     ctx.count("commits", 1)
-    ctx.stop.wait(float(ctx.opts.get("sleep", "0")))
+    deadline = time.time() + float(ctx.opts.get("sleep", "0"))
+    taken = None
+    while not ctx.stop.is_set() and time.time() < deadline:
+        taken = ctx.next_change() if ctx.opts.get("change") else None
+        if taken:
+            break
+        ctx.stop.wait(0.05)
+    if ctx.opts.get("change") and not taken and not ctx.stop.is_set():
+        taken = ctx.next_change(done=True)
+    if taken:
+        with open(os.path.join(ctx.logs, "change.txt"), "w", encoding="utf-8") as fh:
+            fh.write(taken)
+        ctx.count("changes_taken")
     return {"counts": {"stub": 1}}
