@@ -80,9 +80,13 @@ assert_no "brief names no source/file layout" \
 assert_no "brief names no hidden test" grep -qE 'test_[a-z]|Tests\b' "$FIX/brief.md"
 
 echo "=== nothing hidden or reference is reachable from the brief or any run script ==="
-# a run script may use bench/fixture/brief.md and nothing else of the fixture dir
-BAD="$(cd "$ROOT" && grep -rnoE 'fixture[^[:space:]"'"'"')]*' bench --include='*' --exclude-dir=fixture --exclude=grade.py 2>/dev/null | grep -vE 'fixture/brief\.md$' || true)"
+# a run script may use bench/fixture/brief.md and nothing else of the fixture dir.
+# bench/results/ is recorded output (raw agent transcripts), not a run script: it is scanned below for
+# the hidden/reference paths specifically, not for the word "fixture" the agents use for their own test fixtures.
+BAD="$(cd "$ROOT" && grep -rnoE 'fixture[^[:space:]"'"'"')]*' bench --include='*' --exclude-dir=fixture --exclude-dir=results --exclude=grade.py 2>/dev/null | grep -vE 'fixture/brief\.md$' || true)"
 assert_eq "$BAD" "" "bench/ scripts (bar grade.py) reference only fixture/brief.md"
+BAD="$(cd "$ROOT" && grep -rlE 'fixture/(hidden|reference)|run_hidden|bench/fixture|test_hidden' bench/results 2>/dev/null || true)"
+assert_eq "$BAD" "" "recorded bench results (raw transcripts, logs) never touched the hidden tests or the reference"
 BAD="$(cd "$ROOT" && grep -rnE 'bench/fixture|fixture/(hidden|reference)|run_hidden' bin scripts skill prompts plugins docs install.sh update.sh 2>/dev/null | grep -vE 'bench/fixture/brief\.md' || true)"
 assert_eq "$BAD" "" "engine, skills, prompts, docs: no reference to the hidden tests or reference"
 assert_no "reference solution does not embed the hidden tests" grep -rqE 'test_hidden|run_hidden|unittest' "$FIX/reference"
