@@ -9,14 +9,15 @@ assert_no(){ local msg="$1"; shift; TESTS_RUN=$((TESTS_RUN+1)); if "$@"; then ec
 finish(){ echo "── $((TESTS_RUN-TESTS_FAIL))/$TESTS_RUN passed"; [[ $TESTS_FAIL -eq 0 ]]; }
 
 # default_signals_prefix — set DEFSIG, a command prefix that starts what follows with SIGINT, SIGHUP and
-# SIGQUIT back at their default disposition (#553). A non-interactive bash cannot trap, or reset, a
+# SIGQUIT back at their default disposition (#553), and SIGPIPE and SIGXFSZ too (#574: an ignored SIGPIPE turns a
+# closed pipe into an EPIPE "write error" on stderr). A non-interactive bash cannot trap, or reset, a
 # signal that was ignored when it STARTED, and the disposition is inherited: the suite run from a
 # background or nohup context (the auto-release gate) hands every test, and every child a test starts,
 # SIGINT as SIG_IGN, so a `trap … INT` in the code under test silently does nothing. `env --default-signal`
 # (coreutils >= 9.0) restores them; else a python3 trampoline does, resetting SIGPIPE and SIGXFSZ too —
 # python ignores both itself and the exec'd child would inherit that. Use as: "${DEFSIG[@]}" cmd args…
 default_signals_prefix(){
-  if env --default-signal=INT true >/dev/null 2>&1; then DEFSIG=(env --default-signal=INT,HUP,QUIT)
+  if env --default-signal=INT true >/dev/null 2>&1; then DEFSIG=(env --default-signal=INT,HUP,QUIT,PIPE,XFSZ)
   else
     DEFSIG=(python3 -c 'import os,signal,sys
 for n in ("SIGINT","SIGHUP","SIGQUIT","SIGPIPE","SIGXFSZ"):

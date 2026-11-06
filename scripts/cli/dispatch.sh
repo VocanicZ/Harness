@@ -199,10 +199,14 @@ cli_headless_list(){ local c; for c in $(cli_list); do _cli_has_headless_adapter
 # cli_backend_check — true when the fleet's CLI can run on the fleet's session backend: any CLI on
 # tmux, only a CLI with a headless lane runner on headless. Otherwise says so, naming the CLI as
 # tmux-only, and is false. `harness init`, `doctor` and `start` refuse the pair with it.
-cli_backend_check(){ local b; b="$(sess_backend)"
+# The list is read once into a variable and never piped into `head -1` (#574): a writer into a pipe that head
+# has closed gets EPIPE when SIGPIPE is inherited ignored (the auto-release gate), and bash would print
+# "write error: Broken pipe" to stderr ahead of the refusal, splitting doctor's `session backend:` line.
+cli_backend_check(){ local b l first; b="$(sess_backend)"
   [[ $b == tmux ]] && return 0
   _cli_has_headless_adapter "$(cli_name)" && return 0
-  echo "agent CLI '$(cli_name)' is tmux-only: session backend '$b' runs $(cli_headless_list | xargs | sed 's/ /, /g') lanes only — set $SESS_CONFIG_VAR=tmux or $CLI_CONFIG_VAR=$(cli_headless_list | head -1)" >&2
+  l="$(cli_headless_list)"; first="${l%%$'\n'*}"; l="${l//$'\n'/, }"
+  echo "agent CLI '$(cli_name)' is tmux-only: session backend '$b' runs $l lanes only — set $SESS_CONFIG_VAR=tmux or $CLI_CONFIG_VAR=$first" >&2
   return 1; }
 
 # --- the skills the prompts name (#303, #315) -------------------------------------------------------
