@@ -8,7 +8,8 @@ re-running reproduces the committed files exactly (`--check` fails when they are
     bench/figures.py --check            # write nothing; exit 1 when the figure or README are not current
 
 Input: `<results-dir>/<run-id>/<arm>.json` (schema: bench/README.md, written by bench/run.py) and an
-optional `<results-dir>/<run-id>/skipped.json`, {"<arm>": "<reason>"}, for arms that were not run.
+optional `<results-dir>/<run-id>/skipped.json`, {"<arm>": "<reason>"}, for arms that were not run; an
+`<arm>.json` with `"status": "skipped"` (written by `bench/run.py --optional`) counts the same.
 Anything missing renders as "n/a" or a "skipped: <reason>" row, never as an error.
 """
 import argparse, html, json, os, sys
@@ -51,7 +52,7 @@ def run_dirs(results_dir):
 def load_run(results_dir, run_id):
     """({arm: results doc}, {arm: skip reason}) for one run."""
     d = os.path.join(results_dir, run_id)
-    arms, skipped = {}, {}
+    arms, skipped, recorded = {}, {}, {}
     for f in sorted(os.listdir(d)):
         if not f.endswith(".json"):
             continue
@@ -60,9 +61,11 @@ def load_run(results_dir, run_id):
             continue
         if f == "skipped.json":
             skipped = {str(k): " ".join(str(v).split()) for k, v in doc.items()}
+        elif doc.get("status") == "skipped":   # bench/run.py --optional: the guard refused the arm (#386)
+            recorded[str(doc.get("arm") or f[:-5])] = " ".join(str(doc.get("reason") or "not run").split())
         else:
             arms[str(doc.get("arm") or f[:-5])] = doc
-    return arms, skipped
+    return arms, {**skipped, **recorded}
 
 
 # --- formatting ------------------------------------------------------------------------

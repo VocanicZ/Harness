@@ -87,6 +87,14 @@ try:
     check("skipped optional arm with reason", "| Hx | skipped: Hx needs a second account | n/a |" in text, text)
     check("optional arm without a reason is skipped: not run", "| Harness (3 workers) | skipped: not run |" in text, text)
     check("no SonarQube column without data", "SonarQube" not in text)
+    # a `status: skipped` <arm>.json (bench/run.py --optional, #386) is a skipped row, and is not a measured arm
+    put(d, "results", "r1", "harness-3.json", data={"schema": 1, "run_id": "r1", "arm": "harness-3", "status": "skipped",
+                                                    "reason": "budget", "skipped_at": "t", "guard": {}})
+    run(d)
+    text2 = slurp(readme, "r")
+    check("a skipped <arm>.json renders as skipped: budget", "| Harness (3 workers) | skipped: budget | n/a |" in text2, text2)
+    check("a skipped record is not a plotted arm", "Harness (3 workers)" not in slurp(svg_path, "r"))
+    os.remove(os.path.join(d, "results", "r1", "harness-3.json")); run(d)
     check("figure referenced relative to README", "![Benchmark: wall time and list-price cost per arm](results/benchmark.svg)" in text, text)
     check("hand-written text outside the markers untouched",
           text.startswith("# T\n\nintro by hand\n\n## Benchmark\n\n<!-- bench:begin") and text.endswith("<!-- bench:end -->\n\ntail by hand\n") and "OLD" not in text)
