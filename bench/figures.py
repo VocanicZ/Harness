@@ -150,6 +150,14 @@ def hidden(doc):
     return f"{int(p)} / {int(total)}"
 
 
+def fuzz(doc):
+    """Divergences from the reference implementation over the fuzz cases run (bench/fuzz.py, #589)."""
+    n, c = num(doc.get("fuzz_divergences")), num(doc.get("fuzz_cases"))
+    if n is None or c is None:
+        return f"{NA} (fuzz error)" if doc.get("fuzz_error") else NA
+    return f"{int(n)} / {int(c)}"
+
+
 def work(doc):
     c = doc.get("counts") if isinstance(doc.get("counts"), dict) else {}
     parts = []
@@ -200,14 +208,14 @@ def sonar(doc):
 def table(arms, skipped):
     has_sonar = any(isinstance(d.get("sonarqube"), dict) for d in arms.values())
     head = ["Arm", "Cap status", "Wall time", "Coding", "Testing", "Tokens", "in / out / cache read / cache write",
-            "List price", "% of weekly window", "Hidden tests passed", "Issues / PRs / commits", "Continue replies",
+            "List price", "% of weekly window", "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
             "Models"] + (["SonarQube"] if has_sonar else [])
     rows = []
     for arm in sorted(arms, key=arm_key):
         d = arms[arm]
         rows.append([title(arm), cap_status(d), dur(d.get("wall_s")), dur(d.get("coding_s")), dur(d.get("testing_s")),
                      tok(tokens_total(d)), tokens_split(d), usd(d.get("cost_usd")), pct(d.get("weekly_window_pct")),
-                     hidden(d), work(d), continues(d), models(d)] + ([sonar(d)] if has_sonar else []))
+                     hidden(d), fuzz(d), work(d), continues(d), models(d)] + ([sonar(d)] if has_sonar else []))
     ncol = len(head)
     for arm in sorted(set(skipped) | (set(OPTIONAL_ARMS) - set(arms)), key=arm_key):
         if arm in arms:
@@ -336,6 +344,20 @@ TIME_NOTE = ("Coding and Testing count time inside agent sessions; the rest of W
              "(orchestration, waiting), drawn as its own segment in the figure.")
 
 
+def fuzz_note(arms):
+    """What the Fuzz divergences column counts (#589), once some arm carries it."""
+    docs = [arms[a] for a in sorted(arms, key=arm_key) if num(arms[a].get("fuzz_cases")) is not None]
+    if not docs:
+        return []
+    seed, digest = docs[0].get("fuzz_seed"), str(docs[0].get("fuzz_hash") or "")[:12]
+    return ["**Fuzz divergences:** cases where the arm and the reference implementation "
+            "disagree, out of the cases run, for the same random argv and ledger files (dash-led arguments and `--`, "
+            "a byte order mark and invalid UTF-8, LF / CRLF / lone CR line endings and form feeds or U+2028 in a note, "
+            "stdin or a file, a closed output pipe): on standard output, on whether standard error is empty, on the "
+            f"exit status, or on the ledger `add` leaves behind (`bench/fuzz.py`, seed {seed}, generator hash "
+            f"`{digest}…`). Up to 10 examples per arm are in its results JSON (`fuzz_examples`)."]
+
+
 def section(run_id, arms, skipped, fig_ref):
     if not arms:
         return ("No benchmark results are committed yet. The table and figure appear here once a run is "
@@ -347,7 +369,7 @@ def section(run_id, arms, skipped, fig_ref):
         parts.append(f"![Benchmark: wall time and list-price cost per arm]({fig_ref})")
     parts.append(table(arms, skipped))
     parts.append(TIME_NOTE)
-    parts += config_notes(arms) + arm_notes(arms)
+    parts += fuzz_note(arms) + config_notes(arms) + arm_notes(arms)
     if undeleted(arms):
         parts.append(undeleted(arms))
     return "\n\n".join(parts)

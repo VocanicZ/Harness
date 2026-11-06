@@ -266,10 +266,53 @@ def test_unknown_arm_and_bad_options_are_usage_errors(e):
 @with_env()
 def test_the_real_grader_scores_the_seeded_repo_zero(e):
     # nothing but the brief was seeded: the hidden tests all fail, and the grader does not crash
-    p = e.run("stub", grader=False)
+    p = e.run("stub", grader=False, extra_env={"BENCH_FUZZ_CASES": "20"})
     assert p.returncode == 0, (p.stdout, p.stderr)
-    h = e.result()["hidden_tests"]
+    r = e.result()
+    h = r["hidden_tests"]
     assert h["passed"] == 0 and h["total"] and h["failed"] == h["total"], h
+    # #589: nothing built to fuzz is not an error: most cases diverge from the reference, none crash the grader
+    assert r["fuzz_cases"] == 20 and 10 < r["fuzz_divergences"] <= 20 and "fuzz" not in h, r
+    assert bench_run.validate(r) == [] and len(r["fuzz_examples"]) == 10, r
+
+
+FUZZ_GRADER = r'''#!/usr/bin/env python3
+import json
+print(json.dumps({"passed": 3, "failed": 1, "total": 4, "details": {"install": "pip", "tests": []},
+                  "fuzz": {"fuzz_cases": 1000, "fuzz_divergences": 7, "fuzz_examples": [{"case": 4}],
+                           "fuzz_seed": 589, "fuzz_hash": "ab" * 32}}))
+'''
+FUZZ_ERROR_GRADER = FUZZ_GRADER.replace('{"fuzz_cases": 1000, "fuzz_divergences": 7, "fuzz_examples": [{"case": 4}],\n                           "fuzz_seed": 589, "fuzz_hash": "ab" * 32}', '{"error": "fuzz did not run: OSError"}')
+
+
+@with_env()
+def test_the_fuzz_fragment_becomes_fuzz_fields_and_stays_out_of_hidden_tests(e):
+    e.write_exe(e.grader, FUZZ_GRADER)
+    assert e.run("stub").returncode == 0
+    r = e.result()
+    assert bench_run.validate(r) == [], bench_run.validate(r)
+    assert (r["fuzz_cases"], r["fuzz_divergences"], r["fuzz_seed"], r["fuzz_hash"]) == (1000, 7, 589, "ab" * 32), r
+    assert r["fuzz_examples"] == [{"case": 4}] and "fuzz" not in r["hidden_tests"], r
+    assert (r["hidden_tests"]["passed"], r["hidden_tests"]["total"]) == (3, 4)
+    kept = json.load(open(os.path.join(e.results, "t1", "stub.logs", "grade.json")))
+    assert kept["fuzz"]["fuzz_divergences"] == 7, kept
+
+
+@with_env()
+def test_a_fuzz_that_could_not_run_is_recorded_not_fatal(e):
+    e.write_exe(e.grader, FUZZ_ERROR_GRADER)
+    assert e.run("stub").returncode == 0
+    r = e.result()
+    assert r["fuzz_error"] == "fuzz did not run: OSError" and "fuzz_cases" not in r and bench_run.validate(r) == [], r
+
+
+def test_fuzz_fields_reads_only_what_the_grader_gave():
+    assert bench_run.fuzz_fields(None) == {} and bench_run.fuzz_fields("x") == {}
+    got = bench_run.fuzz_fields({"fuzz_cases": 5, "fuzz_divergences": 1, "fuzz_examples": [], "fuzz_seed": 1,
+                                 "fuzz_hash": "h", "junk": 1})
+    assert got == {"fuzz_cases": 5, "fuzz_divergences": 1, "fuzz_examples": [], "fuzz_seed": 1, "fuzz_hash": "h"}
+    assert bench_run.fuzz_fields({"error": "boom"}) == {"fuzz_error": "boom"}
+    assert bench_run.fuzz_fields({}) == {"fuzz_error": "fuzz did not run"}
 
 
 @with_env(usage_pct="50")
@@ -369,6 +412,10 @@ def test_validate_names_what_is_wrong():
     assert bench_run.validate(dict(good, quality="ok", sonarqube={"bugs": 0})) == []
     assert bench_run.validate(dict(good, quality="ok")) != []                     # ok without measures
     assert bench_run.validate(dict(good, quality="skipped (x)", sonarqube={})) != []
+    fz = dict(good, fuzz_cases=10, fuzz_divergences=3, fuzz_examples=[{}] * 3, fuzz_seed=589, fuzz_hash="h")
+    assert bench_run.validate(fz) == [] and bench_run.validate(dict(good, fuzz_error="x")) == []   # optional (#589)
+    assert bench_run.validate(dict(fz, fuzz_cases="10")) != [] and bench_run.validate(dict(fz, fuzz_divergences=11)) != []
+    assert bench_run.validate(dict(fz, fuzz_examples=[{}] * 11)) != [] and bench_run.validate(dict(fz, fuzz_seed=True)) != []
     skipped = {"schema": 1, "run_id": "x", "arm": "hx", "status": "skipped", "reason": "budget", "skipped_at": "t", "guard": {}}
     assert bench_run.validate(skipped) == []
     assert bench_run.validate(dict(skipped, reason="tired")) != []

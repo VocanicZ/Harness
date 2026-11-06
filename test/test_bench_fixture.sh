@@ -13,6 +13,8 @@ source "$HERE/helpers.sh"
 FIX="$ROOT/bench/fixture"
 GRADE="$ROOT/bench/grade.py"
 W="$(mktemp -d)"; tmp_track "$W"
+# the grader also fuzzes the build against the reference (#589): a few cases here, test_bench_fuzz.py runs the real count
+export BENCH_FUZZ_CASES=48
 
 # frag <field> <json> — one field of the grader's JSON fragment
 frag(){ python3 -c 'import json,sys; print(json.loads(sys.argv[2])[sys.argv[1]])' "$1" "$2"; }
@@ -29,7 +31,9 @@ echo "=== the reference solution scores 100% ==="
 REF="$(python3 "$GRADE" "$FIX/reference")"; rc=$?
 assert_eq "$rc" "0" "grader exits 0"
 assert_eq "$(python3 -c 'import json,sys; print(sorted(json.loads(sys.argv[1])))' "$REF")" \
-          "['details', 'failed', 'passed', 'total']" "fragment is {passed, failed, total, details}"
+          "['details', 'failed', 'fuzz', 'passed', 'total']" "fragment is {passed, failed, total, details, fuzz}"
+assert_eq "$(python3 -c 'import json,sys; f=json.loads(sys.argv[1])["fuzz"]; print(f["fuzz_cases"], f["fuzz_divergences"], f["fuzz_examples"], f["fuzz_seed"])' "$REF")" \
+          "48 0 [] 589" "reference: the fuzz ran its cases and found 0 divergences against itself"
 assert_ok "hidden tests exist (total > 0)"   test "$(frag total "$REF")" -gt 0
 assert_eq "$(frag failed "$REF")" "0" "reference: nothing failed"
 assert_eq "$(frag passed "$REF")" "$(frag total "$REF")" "reference: passed == total"
@@ -61,6 +65,21 @@ assert_ok "broken balance: some hidden test fails"  test "$(frag failed "$BROKEN
 assert_ok "broken balance: the rest still pass"     test "$(frag passed "$BROKEN")" -gt 0
 assert_eq "$(( $(frag passed "$BROKEN") + $(frag failed "$BROKEN") ))" "$(frag total "$BROKEN")" "passed + failed == total"
 
+echo "=== a broken solution diverges from the reference under the fuzz ==="
+BROKEN_FUZZ="$(BENCH_FUZZ_CASES=120 python3 "$GRADE" "$W/broken" | python3 -c 'import json,sys; f=json.load(sys.stdin)["fuzz"]; print(f["fuzz_cases"], f["fuzz_divergences"] > 0, len(f["fuzz_examples"]) > 0)')"
+assert_eq "$BROKEN_FUZZ" "120 True True" "broken balance: divergences counted, examples recorded"
+
+echo "=== --fuzz-only backfills an arm's results JSON and its grade.json ==="
+mkdir -p "$W/res/x.logs"; echo '{"arm": "x", "logs": "x.logs", "fuzz_cases": 1}' > "$W/res/x.json"; echo '{"passed": 1}' > "$W/res/x.logs/grade.json"
+OUT="$(python3 "$GRADE" "$FIX/reference" --fuzz-only --arm-json "$W/res/x.json")"; rc=$?
+assert_eq "$rc" "0" "--fuzz-only exits 0"
+assert_eq "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["fuzz_cases"], d["fuzz_divergences"], d["fuzz_seed"], len(d["fuzz_hash"]), d["arm"])' "$W/res/x.json")" \
+          "48 0 589 64 x" "results JSON: fuzz_* replaced, the rest kept"
+assert_eq "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["passed"], d["fuzz"]["fuzz_cases"])' "$W/res/x.logs/grade.json")" \
+          "1 48" "logs/grade.json carries the fuzz fragment too"
+python3 "$GRADE" "$FIX/reference" --arm-json "$W/res/x.json" >/dev/null 2>&1; assert_eq "$?" "2" "--arm-json without --fuzz-only → exit 2"
+python3 "$GRADE" "$FIX/reference" --fuzz-only --arm-json >/dev/null 2>&1;      assert_eq "$?" "2" "--arm-json without a file → exit 2"
+
 echo "=== the grader copies: the graded checkout is left untouched ==="
 cp -r "$FIX/reference" "$W/pristine"
 before="$(cd "$W/pristine" && find . -print | LC_ALL=C sort | xargs -d '\n' ls -ld --time-style=+%s 2>/dev/null | md5sum)"
@@ -83,8 +102,8 @@ echo "=== nothing hidden or reference is reachable from the brief or any run scr
 # a run script may use bench/fixture/brief.md and nothing else of the fixture dir.
 # bench/results/ is recorded output (raw agent transcripts), not a run script: it is scanned below for
 # the hidden/reference paths specifically, not for the word "fixture" the agents use for their own test fixtures.
-BAD="$(cd "$ROOT" && grep -rnoE 'fixture[^[:space:]"'"'"')]*' bench --include='*' --exclude-dir=fixture --exclude-dir=results --exclude=grade.py 2>/dev/null | grep -vE 'fixture/brief\.md$' || true)"
-assert_eq "$BAD" "" "bench/ scripts (bar grade.py) reference only fixture/brief.md"
+BAD="$(cd "$ROOT" && grep -rnoE 'fixture[^[:space:]"'"'"')]*' bench --include='*' --exclude-dir=fixture --exclude-dir=results --exclude=grade.py --exclude=fuzz.py 2>/dev/null | grep -vE 'fixture/brief\.md$' || true)"
+assert_eq "$BAD" "" "bench/ scripts (bar the graders grade.py and fuzz.py) reference only fixture/brief.md"
 BAD="$(cd "$ROOT" && grep -rlE 'fixture/(hidden|reference)|run_hidden|bench/fixture|test_hidden' bench/results 2>/dev/null || true)"
 assert_eq "$BAD" "" "recorded bench results (raw transcripts, logs) never touched the hidden tests or the reference"
 BAD="$(cd "$ROOT" && grep -rnE 'bench/fixture|fixture/(hidden|reference)|run_hidden' bin scripts skill prompts plugins docs install.sh update.sh 2>/dev/null | grep -vE 'bench/fixture/brief\.md' || true)"
