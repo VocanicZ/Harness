@@ -236,6 +236,15 @@ registered there, `to-prd`, `to-issues`, `subagent-task-tree` and every skill a 
 and `lane` (a shell with a lane's env, a short `TMPDIR` and a worktree path with a space, running git, gh, `rtdd.exe`, python3 through the
 shim, grep and sed). Log: `test/smoke/logs/tooling-windows-20261104T141533Z.log`.
 
+The full suite on a Windows host (#492): `test/smoke/winsma/suite.sh` is the script a run sends
+(`winsma.sh run <issue> suite "$(cat test/smoke/winsma/suite.sh)"`; the branch must be pushed). It runs in the `suite` isolation, where
+`HOME` and `USERPROFILE` are `C:\hx-<issue>\home`, so no install or uninstall test can reach `C:\Users\pc`. It clones the branch, makes a
+venv under the run folder whose `python.exe` is also `python3.exe` (the host's `python3` is the Store stub), and runs `bash test/run.sh`
+with `HARNESS_TEST_TIMEOUT` (default 900 s) per test file. It prints every red assertion with its file, run.sh's own summary
+(`FAILED: <file>` lines) and `SUITE-RESULT <n> failed`; the failures Linux does not also have at the same commit are the Windows ones.
+It exits 0 once run.sh has completed (`HX_STRICT=1` passes run.sh's status through), so the guard, the credential scan and the cleanup
+of `winsma.sh run` still decide the run.
+
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;

@@ -32,7 +32,12 @@ export HARNESS_INIT_SEED=0       # #432: no non-interactive init seeds real labe
 # be trapped by it — test_headless_attach.sh's Ctrl-C detach hung forever on exactly that. DEFSIG restores
 # the defaults a foreground run has; test_signal_defaults.sh covers it.
 default_signals_prefix
-rc=0
+# Per-test wall-clock cap (#492): HARNESS_TEST_TIMEOUT=<seconds> ends a test that hangs (rc 124, reported as TIMEOUT)
+# instead of blocking the whole run — on a Windows host a hung child can otherwise stall the suite for hours. Unset or 0:
+# no cap, as before. The run ends with one summary line per failing test and a count, so a long Windows run reads in
+# one place which tests were red (the lane compares that list against the same commit on Linux).
+TCAP=(); if [[ "${HARNESS_TEST_TIMEOUT:-0}" =~ ^[1-9][0-9]*$ ]] && command -v timeout >/dev/null 2>&1; then TCAP=(timeout -k 10 "$HARNESS_TEST_TIMEOUT"); fi
+rc=0; ran=0; FAILED=()
 for t in test_*.sh test_*.py; do
   [[ -e "$t" ]] || continue
   echo "== $t =="
@@ -55,7 +60,12 @@ for t in test_*.sh test_*.py; do
   # in the host's /tmp, and the whole per-test subtree goes as soon as the test ends — so a test that
   # forgets its own cleanup leaks into nothing, and peak use is one test's worth, not the suite's.
   export TMPDIR="$TMPROOT/$t/tmp"; mkdir -p "$TMPDIR"
-  case "$t" in *.py) "${DEFSIG[@]}" python3 "$t" || rc=1;; *) "${DEFSIG[@]}" bash "$t" || rc=1;; esac
+  ran=$((ran+1))
+  case "$t" in *.py) "${TCAP[@]}" "${DEFSIG[@]}" python3 "$t";; *) "${TCAP[@]}" "${DEFSIG[@]}" bash "$t";; esac
+  trc=$?
+  if (( trc != 0 )); then rc=1; FAILED+=("$t"); (( trc == 124 )) && echo "TIMEOUT: $t ran past HARNESS_TEST_TIMEOUT=${HARNESS_TEST_TIMEOUT}s"; fi
   rm -rf "${TMPROOT:?}/$t"
 done
+echo "== run.sh: $((ran-${#FAILED[@]}))/$ran test files passed =="
+for t in "${FAILED[@]}"; do echo "FAILED: $t"; done
 exit $rc

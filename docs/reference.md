@@ -716,6 +716,22 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `update --rollback` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
 | `swarm submission` | ✓ | n/a: swarm is a Linux-only HTCondor service ("Linux with systemd + cgroup v2", [VocanicZ/swarm README](https://github.com/VocanicZ/swarm#readme)); a Windows lane runs rtdd locally |
 
+#### Skipping a test on Windows, and the coverage check (#492)
+
+A test skips itself on Windows **only** through `windows_skip <matrix row> <why>` (or `windows_skip_file`, which also ends the
+file) from `test/helpers.sh`, and only when that row is `n/a` on Windows in the matrix above. The helper looks the row up in this
+file: an `n/a` row skips on Windows (printing `SKIP (Windows n/a: row '<row>')`) and runs everywhere else; a `✓` row, a
+`✓ target` row, or a row the matrix does not have is a **failure on every OS**, so a wrong skip is caught on Linux. The one use
+today is `test/test_swarm.sh` (`swarm submission`). `test/test_windows_skip.sh` covers the helper.
+
+Every row that is `✓` on Windows has a line in `test/windows_coverage.tsv` naming at least one test that actually runs there.
+`test/test_windows_parity_doc.sh` fails on a `✓` row with no line, on a line whose test file is missing or skips itself for want of
+tmux (the tests of PRD #475 task 6's second part, #493, give those a headless twin), and on a line for a row that is `n/a` or absent.
+
+`test/run.sh` runs in Git Bash. `HARNESS_TEST_TIMEOUT=<seconds>` caps each test file (a hang ends as `TIMEOUT`, rc 124), and the
+run ends with `== run.sh: N/M test files passed ==` and one `FAILED: <file>` line per red file.
+`test/smoke/winsma/suite.sh` runs it on the Windows check host in the full-suite isolation ([windows-smoke.md](windows-smoke.md)).
+
 #### Non-interactive mode per agent CLI
 
 What the per-CLI turn code of PRD #475 task 2 builds on. Each row is the exact command a headless turn runs, what it prints,

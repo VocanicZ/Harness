@@ -11,6 +11,9 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
+# Swarm submission is a Linux-only HTCondor service (docs/reference.md parity matrix, row `swarm submission`: n/a on Windows,
+# #492), and this file's fake coordinator stands in for it: the one Windows skip it may take.
+windows_skip_file "swarm submission" "swarm is a Linux-only HTCondor service; a Windows lane runs rtdd locally"
 SUITE="$HERE/../scripts/swarm-suite.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
 export RUN_DIR="$T/run"; unset HARNESS_SWARM HARNESS_SWARM_TEST_CMD HARNESS_SWARM_TIMEOUT HARNESS_SWARM_PACK
