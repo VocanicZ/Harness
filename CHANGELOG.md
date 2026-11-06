@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Lean lane context: Claude lanes start without the operator's user-scope config (#595)
+
+- Every lane inherited the operator's whole personal Claude Code config (186 skills, user plugins, MCP servers and
+  hooks): about 13k tokens of fixed context, re-cached with the 1h TTL in every session. A `claude` lane now launches
+  with `--setting-sources project,local --strict-mcp-config` and `--disallowedTools` for the tools no lane used
+  (`Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`, and `AskUserQuestion` on an autonomous fleet). In 12
+  local runs the first-turn cache write fell from 32.5k to 3.85k tokens. The Skill tool stays (`--disable-slash-commands`
+  would remove it), and no custom `--tools` list is used (it misses the shared prompt cache).
+- The engine supplies what a lane uses. Each skill a prompt names is linked into the worktree's `.claude/skills` from the
+  engine's `skill/<name>` (rtdd's own from the user skills dir), git-excluded so `git add -A` never commits it; a skill the
+  project ships itself is left alone. The goal loop's Stop hook, the `ralph-loop` plugin, is loaded with `--plugin-dir`.
+- `HARNESS_CLAUDE_LEAN=0` launches with the full config as before. A `--setting-sources` in `HARNESS_CLAUDE_FLAGS`, or a
+  host with no `ralph-loop` plugin to load, does too, so the goal loop never breaks silently. The other CLI backends cannot
+  drop user config without dropping what a lane needs; each is listed with the reason in `docs/cli-capabilities.md`
+  (§ Lean lane). `test/test_cli_lean.sh` pins the flags, the skills and the engine-supplies-every-prompt-skill check.
+
 ### A worker tends its own lane on a ~15s tick (#594)
 
 - In bench run-20261106 every lane sat idle about 5.5 minutes after its work finished, because the worker only checked

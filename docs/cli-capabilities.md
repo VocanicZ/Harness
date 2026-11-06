@@ -311,3 +311,27 @@ Version on the fleet host: `2026.10.8` (`dc2523e`; npm `openclaw@latest`, instal
 | headless resume | There is none to name: `agent exec` takes no session id and each turn is its own isolated OpenClaw session (a different `sessionId` in each envelope), so every turn's command is the same but for the message. The lane stays Harness's: its id (the launch's, or a relaunched lane's, #350) is the session the core, the stats sweep and the driven goal loop know, and each envelope is appended to `<wt>/.harness-openclaw/runs/<lane id>.jsonl` (the transcript a pane's loop writes), which `openclaw_transcripts` / `openclaw_usage` fold. The goal loop re-prompts from the lane's last reply (`state.json`), so a later turn's context is the message, not a resumed session. | `test/fixtures/cli/openclaw/agent-json/usage.expected` ; `test/fixtures/cli/openclaw/transcript.jsonl` |
 
 Unattended notes: killing the pane hangs up the loop, not the turn: `agent exec` and the `claude` process the `claude-cli` provider runs (and that process's commands, a `sleep 120`) outlived a `tmux kill-session`. The loop therefore stops the running turn's whole process tree on HUP/TERM, and `cli_kill` stops the tree it read before killing the pane. A turn's exit status: `0` ok, `1` model or result error, `2` timeout (`D/cli/agent.md`); the loop records each, and the goal loop counts any finished turn but a limit or transient one, which the watchdog handles.
+
+## Lean lane (#595, PRD #587)
+
+A lane does not need the operator's user-scope CLI config. For `claude` it costs about 13k tokens of fixed context per session, re-cached with the 1h TTL in each one (cache writes were 53% of the run-20261106 bench cost). Measured with 12 local `claude -p` runs on `2.1.319`, first-turn cache write / total context:
+
+| Launch | First-turn write | Total |
+|---|---|---|
+| Default (owner config) | 32.5k | 43.9k |
+| `--setting-sources project,local --strict-mcp-config --disable-slash-commands` | 3.85k | 20.9k |
+| Same without `--disable-slash-commands`, 2 project skills, `--plugin-dir ralph-loop` | 6.6k | 18.0k |
+| …and `--disallowedTools Workflow,ScheduleWakeup,AskUserQuestion,ReportFindings,ListAgents` | | 9.7k |
+
+`claude` launches with `--setting-sources project,local --strict-mcp-config --plugin-dir=<ralph-loop> --disallowedTools=Workflow,ScheduleWakeup,ReportFindings,ListAgents[,AskUserQuestion]` (`claude_lean_flags`, `scripts/cli/claude.sh`; `AskUserQuestion` only on an autonomous fleet). Not `--disable-slash-commands` (it removes the Skill tool, and makes the Workflow tool's description about 6× larger) and not `--tools <list>` (a custom tool set misses the shared global cache: that run read 0 from cache). The engine supplies what a lane uses: each skill a prompt names is a symlink in the worktree's `.claude/skills` (`claude_lean_setup`, from `skill/<name>`; rtdd's own from the user skills dir), git-excluded; the goal loop's Stop hook is the installed `ralph-loop` plugin, loaded by `--plugin-dir` (until the engine-owned hook of #616 lands). `HARNESS_CLAUDE_LEAN=0` turns it off; so does a `--setting-sources` in `HARNESS_CLAUDE_FLAGS`, and a host where no `ralph-loop` plugin is found launches with the full config (its hook is then the one the goal loop needs). Test: `test/test_cli_lean.sh`.
+
+The other backends cannot drop user config the same way; each lane there keeps launching as before, for the reason given:
+
+| CLI | Why it launches with its full config |
+|---|---|
+| `agy` | `--settings` is per-session and additive: no flag drops `~/.gemini` settings, plugins or MCP servers. The goal loop's hook and the prompt skills live in that user config. |
+| `codex` | `-c` only overrides single keys; there is no ignore-user-config flag. Pointing `CODEX_HOME` elsewhere would also drop the login, the Stop hook and the skills the lane uses. |
+| `copilot` | `--disable-mcp-server` names servers one by one, `--no-custom-instructions` drops only instruction files: no flag isolates `~/.copilot` as a whole, where its skills are. |
+| `hermes` | A lane already runs on its own profile home (`HERMES_HOME`) holding only the copied login; `--ignore-user-config` would drop the lane config that carries its model, approvals and the skill dirs the prompts need. |
+| `opencode` | `--pure` drops all external plugins, the goal-loop plugin (`opencode-ralph.js`) among them; the lane's skills come from `~/.claude/skills`. |
+| `openclaw` | The lane config `$include`s the operator config for its provider login and lists its skill dirs in `skills.load.extraDirs`; the CLI has no flag to drop the rest without those. |
