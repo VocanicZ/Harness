@@ -132,7 +132,7 @@ def usd_per_pct(fc, events, account):
 
 
 # why a guard refuses; a skipped optional arm records exactly the causes it was refused on (#577)
-CAUSES = ("disk", "held", "no-usage-reading", "no-calibration", "budget")
+CAUSES = ("disk", "held", "no-usage-reading", "no-calibration", "budget", "no-delete-repo")
 
 
 def disk_free(paths=None):
@@ -152,6 +152,25 @@ def disk_free(paths=None):
     return out
 
 
+def gh_scopes():
+    """The gh token's OAuth scopes (a list), or None when they cannot be known: gh is missing or fails, or the
+    token is fine-grained and the API sends no `X-OAuth-Scopes` header. Only a KNOWN list can refuse a run (#578)."""
+    try:
+        p = subprocess.run(["gh", "api", "-i", "user"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if p.returncode != 0:
+        return None
+    for line in p.stdout.splitlines():
+        name, sep, value = line.partition(":")
+        if sep and name.strip().lower() == "x-oauth-scopes":
+            return [x.strip() for x in value.split(",") if x.strip()]
+        if not line.strip():
+            break                      # end of the headers
+    return None
+
+
 def guard(a, fc, st):
     """{"ok", "reasons", ...the numbers}: whether a run may start. Spends nothing."""
     stop = _num(os.environ.get("HARNESS_ONE_STOP_PCT"), 98.0)
@@ -160,7 +179,11 @@ def guard(a, fc, st):
     min_gb = _num(os.environ.get("BENCH_MIN_FREE_GB"), 4.0)
     d = {"ok": True, "reasons": [], "causes": [], "held": [], "expected_usd": expected, "stop_pct": stop,
          "reserve_pct": reserve, "usd_per_pct": None, "usd_per_pct_source": "none", "windows": [],
-         "min_free_gb": min_gb, "disk": disk_free()}
+         "min_free_gb": min_gb, "disk": disk_free(), "gh_scopes": gh_scopes()}
+    if d["gh_scopes"] is not None and "delete_repo" not in d["gh_scopes"]:
+        d["reasons"].append("the gh token lacks the delete_repo scope (scopes: " + (", ".join(d["gh_scopes"]) or "none")
+                            + "): a run could not delete its repo afterwards. Run: gh auth refresh -s delete_repo")
+        d["causes"].append("no-delete-repo")
     for fs in d["disk"]:
         fs["fits"] = fs["free_gb"] >= min_gb
         if not fs["fits"]:
@@ -522,7 +545,7 @@ def record_skipped(a, g):
            "reason": ",".join(g["causes"]),
            "skipped_at": now_iso(), "guard": {k: g[k] for k in (
                "reasons", "causes", "held", "expected_usd", "stop_pct", "reserve_pct", "usd_per_pct", "usd_per_pct_source",
-               "windows", "min_free_gb", "disk")}}
+               "windows", "min_free_gb", "disk", "gh_scopes")}}
     path = os.path.join(out_dir, f"{a.arm}.json")
     write_json(path, doc)
     print(f"bench: {a.arm} skipped: {doc['reason']}: {path}")

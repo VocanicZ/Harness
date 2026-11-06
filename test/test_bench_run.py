@@ -15,7 +15,13 @@ sys.path.insert(0, os.path.join(ROOT, "bench"))
 import run as bench_run                      # noqa: E402
 
 FAKE_GH = r'''#!/usr/bin/env bash
-H="$FAKE_GH_HOME"; echo "gh $*" >> "$H/calls.log"
+H="$FAKE_GH_HOME"
+if [[ "$1 $2" == "api -i" ]]; then   # the guard's read-only scope probe (#578): not a call that creates or spends
+  echo "HTTP/2.0 200 OK"; echo "Content-Type: application/json"
+  [[ "${FAKE_GH_SCOPES-unset}" != "none" ]] && echo "X-Oauth-Scopes: ${FAKE_GH_SCOPES-gist, read:org, repo, workflow, delete_repo}"
+  echo; echo '{"login":"bencher"}'; exit 0
+fi
+echo "gh $*" >> "$H/calls.log"
 case "$1 $2" in
   "api user") echo bencher;;
   "repo create") n="${3#*/}"; git init -q --bare -b main "$H/repos/$n.git" && echo "$*" > "$H/repos/$n.create";;
@@ -303,6 +309,39 @@ def test_guard_refuses_when_the_host_disk_is_short_and_an_optional_arm_records_i
     assert g["min_free_gb"] == 1e6 and g["disk"] and all(x["fits"] is False and x["free_gb"] > 0 for x in g["disk"]), g
     assert any(x.startswith("host disk:") for x in g["reasons"]), g["reasons"]
     assert e.calls() == [] and e.repos() == [], "nothing was created or spent"
+
+
+@with_env()
+def test_guard_refuses_a_token_without_delete_repo_before_creating_any_repo(e):
+    p = e.run("stub", extra_env={"FAKE_GH_SCOPES": "gist, read:org, repo, workflow"})
+    assert p.returncode == 3 and "lacks the delete_repo scope" in p.stderr, (p.returncode, p.stderr)
+    assert "gh auth refresh -s delete_repo" in p.stderr, p.stderr
+    assert e.calls() == [] and e.repos() == [] and not os.path.exists(e.results), "no repo, no record"
+    q = e.run("stub", "--dry-run", extra_env={"FAKE_GH_SCOPES": ""})   # an empty scope list lacks it too
+    assert q.returncode == 3 and "scopes: none" in q.stderr, (q.returncode, q.stderr)
+
+
+@with_env()
+def test_guard_passes_a_token_with_delete_repo(e):
+    p = e.run("stub", extra_env={"FAKE_GH_SCOPES": "repo,delete_repo"})
+    assert p.returncode == 0, (p.returncode, p.stderr)
+    assert e.result()["repo_deleted"] is True
+
+
+@with_env()
+def test_guard_passes_a_token_with_no_scope_header(e):
+    p = e.run("stub", extra_env={"FAKE_GH_SCOPES": "none"})   # fine-grained token: no X-OAuth-Scopes header
+    assert p.returncode == 0, (p.returncode, p.stderr)
+    assert e.result()["repo_deleted"] is True
+
+
+@with_env()
+def test_an_optional_arm_refused_for_the_scope_is_recorded_as_skipped(e):
+    p = e.run("stub", "--optional", extra_env={"FAKE_GH_SCOPES": "repo"})
+    assert p.returncode == 0 and "stub skipped: no-delete-repo" in p.stdout, (p.returncode, p.stdout, p.stderr)
+    r = e.result()
+    assert bench_run.validate(r) == [] and (r["status"], r["reason"]) == ("skipped", "no-delete-repo"), r
+    assert r["guard"]["gh_scopes"] == ["repo"] and e.calls() == [] and e.repos() == [], r["guard"]
 
 
 @with_env()
