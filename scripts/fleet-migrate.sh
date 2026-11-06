@@ -8,7 +8,8 @@
 #                  fleet is migrated too when it is not registered.
 #   --state-dir D  one fleet (default: $STATE_DIR). `harness start` runs this for its own fleet with
 #                  --no-start: start.sh launches the workers itself, right after.
-#   --no-start     migrate and kill the old workers, but leave the launch to the caller.
+#   --no-start     migrate and kill the old workers, but leave the launch to the caller. An already-migrated
+#                  fleet's workers on an older engine release are killed too (#566), none on this one.
 #   --quiet        print nothing for a fleet that needs nothing.
 #   --warn-cap     change nothing: warn (stderr) when HARNESS_CAP is set in the environment or still in the
 #                  fleet's config. CAP is gone (#469); `harness start` runs this once, before migrating.
@@ -94,7 +95,19 @@ migrate_fleet(){ local state="$1" start="$2" out rc lockh="" pf
     shopt -u nullglob
   fi
   lock_release "$lockh"
-  (( start )) || return 0
+  if (( ! start )); then
+    # #566: `harness start` migrates with --no-start and launches the workers itself (pool.sh skips a pid that
+    # is alive). A worker on an older release than this engine that stayed up under an already-migrated config
+    # (rc 10/11) would keep the OLD unit-claim loop — and, with the CAP line gone, its default cap. Stop those
+    # now (fleet_roll's engine comparison, stop only: the launch is the caller's) so start.sh replaces them.
+    # Workers already on this engine are left alone, so a second start kills nothing; lane sessions keep running.
+    if (( rc == 10 || rc == 11 )); then
+      ( unset "${FLEET_ENV[@]}"; source "$ENGINE_DIR/scripts/roll.sh"
+        fleet_roll "$state" "$ENGINE_DIR" "$ENGINE_DIR/bin/harness" 0 1 ) \
+        || { echo "  stopping the old-engine workers of $state FAILED" >&2; return 1; }
+    fi
+    return 0
+  fi
   # the relaunch is #477's fleet_roll (scripts/roll.sh): `harness start --state-dir` without --recover, a
   # paused fleet comes back paused, a fleet with no worker pid files (stopped on purpose) is skipped.
   # Run with no other fleet's keys in the environment: they would beat this fleet's config.
