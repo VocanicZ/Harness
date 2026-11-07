@@ -22,6 +22,10 @@ unset_inherited_config
 # The fleet's own tmux server is no test's (#333): a bare `tmux` in a test must never reach the
 # server every co-resident fleet runs on.
 unset TMUX TMUX_PANE
+# …and no test may reach the host's DEFAULT server by a back door either (#649): tmux silently falls back to /tmp/tmux-$UID/ when
+# TMUX_TMPDIR names a directory that no longer exists, so a test that wiped its own private home then ran `tmux kill-server` ended
+# every lane on the host. A guard first on PATH refuses (exit 97) any tmux call whose TMUX_TMPDIR is unset, missing or /tmp.
+tmux_guard_install || exit 1
 # One locale for every run (#333): a fleet worker runs under LANG=C, where grep reads the adapters'
 # multibyte pane regexes as bytes. The suite's expectations are UTF-8's; test_cli_locale.sh covers C.
 unset LC_ALL; export LANG=C.UTF-8 LC_CTYPE=C.UTF-8
@@ -55,6 +59,7 @@ if (( $# )); then TESTS=("$@"); else TESTS=(test_*.sh test_*.py); fi
 for t in "${TESTS[@]}"; do
   [[ -e "$t" ]] || { [[ $# -gt 0 ]] && { echo "== $t =="; echo "FAIL: $t: no such test file"; rc=1; ran=$((ran+1)); FAILED+=("$t"); }; continue; }
   echo "== $t =="
+  export HARNESS_TEST_FILE="$t"   # the tmux guard names the test it refuses
   export STATE_DIR="$TMPROOT/$t/.harness"
   mkdir -p "$STATE_DIR/worktrees" "$STATE_DIR/checkouts" "$STATE_DIR/run/claims"
   # Host root too (lib.sh:86): it is NOT derived from STATE_DIR, and its poller registry is SHARED by

@@ -19,6 +19,23 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   are written, so a claim that lands first keeps the worktree. A dead builder's marker, or a marker whose worktree is gone, is swept. A
   failed add is not retried for `HARNESS_PREBUILD_RETRY_SECS` (600). `HARNESS_PREBUILD=0` turns it off.
 
+### Test runs can no longer reach the host's shared tmux server; a roll starts a fleet with its own configured CLI binary (#649)
+
+- Three times on 2026-11-07 a lane's test run killed the host's default tmux server (`/tmp/tmux-$UID/default`) and took every other lane
+  with it. tmux does not fail when `$TMUX_TMPDIR` names a directory that no longer exists: it silently uses `/tmp/tmux-$UID/`. A test that
+  wiped the private home it had pinned (`test_supervise_autoupdate.sh`'s `fresh_host` removed `$HOME_PIN/tmux`) then ran its `tmux
+  kill-server` at the host's server, and still passed.
+- The suite now puts a fail-closed `tmux` guard (`test/guard/tmux`) first on `PATH` (`run.sh`, and `pin_host_home` for a direct `bash
+  test_foo.sh`). It refuses any tmux call, with exit 97 and a stderr line naming the test, while `TMUX_TMPDIR` is unset, empty, missing or
+  `/tmp`, or `TMUX` names a socket outside it; otherwise it runs the next `tmux` on `PATH`. `test_supervise_autoupdate.sh` and
+  `test_fleet_migrate.sh` keep their private tmux dir outside the host root they wipe. `test_tmux_fallback_guard.sh` covers the guard and a
+  planted wiping test that must fail under `run.sh`.
+- `fleet_roll` (and so `harness update`, `harness start`'s roll and supervise's auto-update) starts a fleet with the fleet config that
+  `lib.sh` and the CLI adapters export dropped from the environment. Config lines are `: "${VAR:=…}"`, so an inherited `HARNESS_CLAUDE_BIN=claude`
+  beat the fleet's own configured wrapper: every priority and bug lane on the host launched bare `claude`, outside the host's lane sandbox. Path
+  seams (`*_DIR`, `*_HOME`, `*_FILE`) and `HARNESS_START_*` still pass. `test_fleet_roll_env.sh` covers every adapter's `_BIN`/`_FLAGS`/`_TIMEOUT`,
+  `HARNESS_CLI` and `HARNESS_SESSION_BACKEND`.
+
 ### `start`, `start --recover`, `fleet_roll` and `status` look at the process table, not only the pid files: no second worker beside a live one (#647)
 
 - A fleet ran 27 pool/priority workers instead of 3 for about 40 hours: 24 orphan v0.5.0 workers (8 full sets) beside the 3 official v0.9.0

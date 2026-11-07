@@ -57,7 +57,7 @@ done
 
 echo "-- run.sh gives each test its own TMPDIR and removes it once the test finishes"
 R="$T/runner"; d="$T/runner-tmp"; mkdir -p "$R" "$d"
-cp "$HERE/run.sh" "$HERE/helpers.sh" "$R/"
+cp "$HERE/run.sh" "$HERE/helpers.sh" "$R/"; cp -r "$HERE/guard" "$R/guard"
 # Fixture tests that leak the way the real ones did: a bare mktemp with no trap, in bash and Python.
 cat >"$R/test_leak.sh" <<'EOF'
 #!/usr/bin/env bash

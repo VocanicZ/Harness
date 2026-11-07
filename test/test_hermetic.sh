@@ -261,7 +261,7 @@ assert_ok "pin_host_home pins HARNESS_FLEETS_DIR" bash -c '[[ " $1 " == *" HARNE
 # every fleet variable leaked into every test. Run a copy of run.sh exactly that way, on a tree whose
 # only test is a probe that records what it inherited.
 RT="$(mktemp -d)"; tmp_track "$RT"; mkdir -p "$RT/test"
-cp "$HERE/run.sh" "$HERE/helpers.sh" "$RT/test/"
+cp "$HERE/run.sh" "$HERE/helpers.sh" "$RT/test/"; cp -r "$HERE/guard" "$RT/test/guard"   # run.sh installs the tmux guard (#649): it ships beside helpers.sh
 cat > "$RT/test/test_probe.sh" <<'EOF'
 #!/usr/bin/env bash
 for v in HARNESS_SESS_PREFIX HARNESS_CLAUDE_BIN HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR \
@@ -435,6 +435,11 @@ assert_eq "$(tmux_offenders "$LINT"/test_tmux_bad_* | tr '\n' ' ')" \
   "test_tmux_bad_no_unset.sh test_tmux_bad_server.sh test_tmux_bad_session.sh " "the tmux lint catches a planted offender"
 assert_eq "$(tmux_offenders "$LINT"/test_tmux_good_*)" "" "...and passes a private TMUX_TMPDIR + unset TMUX, a -L socket, and a grep"
 assert_eq "$(tmux_offenders "$HERE"/test_*.sh | tr '\n' ' ')" "" "every test that kills tmux has a private TMUX_TMPDIR and drops TMUX"
+# …and the lint above checks that a private dir is SET, not that it still EXISTS at every call (#649): tmux silently uses the host's
+# /tmp/tmux-$UID/ when TMUX_TMPDIR names a deleted dir. The fail-closed guard (test/guard/tmux) is what covers that; the behaviour is
+# test_tmux_fallback_guard.sh's, here only that nothing can run the suite — or pin a host — without installing it.
+assert_ok "run.sh installs the tmux guard before any test runs" grep -q '^tmux_guard_install || exit 1' "$HERE/run.sh"
+assert_ok "pin_host_home installs the tmux guard (a direct bash test_foo.sh is guarded too)" bash -c "sed -n '/^pin_host_home(){/,/^}/p' '$HERE/helpers.sh' | grep -q tmux_guard_install"
 
 # ── the generalised decoy (Acceptance 2): a LIVE worker in a registered fleet must survive every test ──
 # that updates, supervises, or starts a fleet — handed ONLY the fleet/poller/snapshot pins, which is all a
