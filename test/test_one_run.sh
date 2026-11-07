@@ -58,7 +58,7 @@ stub_usage(){ printf 'main\tseven_day\t%s\t%s\n' "$1" "$future" > "$STUB"; mkdir
 EV="$RUN_DIR/events.jsonl"
 cat > "$EV" <<'EOF'
 {"event": "launch", "ts": "2026-10-01T00:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1"}
-{"event": "session_end", "ts": "2026-10-01T01:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1", "usage": {"claude-opus-5-5": {"output": 400000}}}
+{"event": "session_end", "ts": "2026-10-01T01:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1", "usage": {"claude-opus-5-5": {"output": 500000}}}
 EOF
 BODIES="$RUN_DIR/bodies.json"
 printf '[{"number": 1, "body": "%s"}, {"number": 7, "body": "%s"}]\n' "$(printf 'x%.0s' {1..80})" "$(printf 'y%.0s' {1..80})" > "$BODIES"
@@ -185,9 +185,9 @@ drop(){ # <pct> <resets_at> <taken at> — what usage-statusline.sh writes for a
   python3 -c 'import json,sys; json.dump({"account": "main", "at": int(sys.argv[3]), "rate_limits": {"seven_day": {"used_percentage": float(sys.argv[1]), "resets_at": int(sys.argv[2])}}}, open(sys.argv[4], "w"))' \
     "$1" "$2" "$3" "$DROP"; touch -d "@$3" "$DROP"; }
 MSG=0
-spend(){ # <usd> — the session's next message, as Claude Code logs it: opus output at $25/Mtok
+spend(){ # <usd> — the session's next message, as Claude Code logs it: opus output at $20/Mtok
   MSG=$(( MSG + 1 ))
-  python3 -c 'import json,sys,time; print(json.dumps({"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "message": {"id": "msg" + sys.argv[2], "model": "claude-opus-5-5", "usage": {"output_tokens": int(float(sys.argv[1]) * 40000)}}}))' \
+  python3 -c 'import json,sys,time; print(json.dumps({"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "message": {"id": "msg" + sys.argv[2], "model": "claude-opus-5-5", "usage": {"output_tokens": int(float(sys.argv[1]) * 50000)}}}))' \
     "$1" "$MSG" >> "$TR"; }
 drop 90 "$future" "$(( $(date +%s) - 120 ))"; frozen="$(sha1sum < "$DROP")$(stat -c %Y "$DROP")"
 out="$("${ONE[@]}" start 7 2>&1)"; rc=$?

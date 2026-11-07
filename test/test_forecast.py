@@ -8,7 +8,7 @@ spec = importlib.util.spec_from_file_location("forecast", os.path.join(ROOT, "sc
 fc = importlib.util.module_from_spec(spec); spec.loader.exec_module(fc)
 
 MTOK = 1_000_000
-OPUS_OUT = 40_000   # output tokens that cost exactly $1.00 on Opus ($25/Mtok)
+OPUS_OUT = 50_000   # output tokens that cost exactly $1.00 on Opus ($20/Mtok)
 
 
 def msg(mid, *tools, out=OPUS_OUT, model="claude-opus-5-5", usage=None):
@@ -62,17 +62,43 @@ def transcript(cfg, sid, lines, subagents=()):
 
 # --- cost --------------------------------------------------------------------
 def test_list_price_per_model_and_cache_split():
-    assert fc.raw_cost({"output_tokens": MTOK}, "claude-opus-5-5") == 25
-    assert fc.raw_cost({"input_tokens": MTOK, "output_tokens": MTOK}, "claude-sonnet-5-5") == 18
+    assert fc.raw_cost({"output_tokens": MTOK}, "claude-opus-5-5") == 20
+    assert fc.raw_cost({"input_tokens": MTOK}, "claude-opus-5-5") == 4
+    assert fc.raw_cost({"input_tokens": MTOK, "output_tokens": MTOK}, "claude-sonnet-5-5") == 12
+    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-opus-5-5") == 0.2
+    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-sonnet-5-5") == 0.2
     assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-haiku-5-5") == 0.1
     # cache writes: 5-minute at 1.25x input, 1-hour at 2x; the total with no split is all 5-minute
     assert fc.raw_cost({"cache_creation_input_tokens": 2 * MTOK,
-                        "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "opus") == 6.25 + 10
-    assert fc.raw_cost({"cache_creation_input_tokens": MTOK}, "opus") == 6.25
-    assert fc.raw_cost({"output_tokens": MTOK}, "gpt-5-codex") == 25, "an unknown model prices as Opus"
+                        "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "opus") == 5 + 8
+    assert fc.raw_cost({"cache_creation_input_tokens": MTOK}, "opus") == 5
+    assert fc.raw_cost({"cache_creation_input_tokens": MTOK}, "claude-sonnet-5-5") == 2.5
+    assert fc.raw_cost({"cache_creation_input_tokens": MTOK,
+                        "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "claude-sonnet-5-5") == 4
+    assert fc.raw_cost({"output_tokens": MTOK}, "gpt-5-codex") == 20, "an unknown model prices as Opus"
     # the folded usage stats.py / a CLI adapter's usage_tsv writes (#188)
     assert fc.usage_cost({"claude-sonnet-5-5": {"input": MTOK, "output": MTOK, "cache_create": MTOK,
-                                                "cache_read": MTOK}}) == 3 + 15 + 3.75 + 0.3
+                                                "cache_read": MTOK}}) == 2 + 10 + 2.5 + 0.2
+
+
+def test_price_table_per_family_and_generation_pinned():
+    """(input, output, 5m write, 1h write, cache read) $ per Mtok — the one table behind the forecast, the
+    `harness one` budget gate, `harness stats` and bench/run.py (#597)."""
+    cur_opus, cur_sonnet = (4, 20, 5, 8, 0.2), (2, 10, 2.5, 4, 0.2)
+    old_opus, old_sonnet = (5, 25, 6.25, 10, 0.5), (3, 15, 3.75, 6, 0.3)
+    for m in ("claude-opus-5-5", "claude-opus-5", "claude-opus-6-0", "opus", "CLAUDE-OPUS-5-5"):
+        assert fc.price(m) == cur_opus, m
+    for m in ("claude-sonnet-5-5", "claude-sonnet-5", "sonnet", "claude-sonnet-5-5[1m]"):
+        assert fc.price(m) == cur_sonnet, m
+    for m in ("claude-opus-4-1", "claude-opus-4-5-20251101", "claude-opus-4-20250514", "claude-3-opus-20240229"):
+        assert fc.price(m) == old_opus, m
+    for m in ("claude-sonnet-4-5", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet"):
+        assert fc.price(m) == old_sonnet, m
+    assert fc.price("claude-haiku-5-5") == fc.price("claude-haiku-4-5") == (1, 5, 1.25, 2, 0.1)
+    assert fc.price(None) == fc.price("") == fc.price("gpt-5-codex") == cur_opus, "no family: conservative Opus"
+    # the invariant the prices follow: writes at 1.25x / 2x input
+    for k, row in fc.PRICE.items():
+        assert row[2] == row[0] * 1.25 and row[3] == row[0] * 2, k
 
 
 # --- phase attribution -------------------------------------------------------
@@ -183,7 +209,7 @@ def fixture(d):
                               msg(f"{sid}i", EDIT_SRC, out=OPUS_OUT * rest // 2),
                               msg(f"{sid}g", GATE, out=OPUS_OUT * (rest - rest // 2 - 1)), msg(f"{sid}s", SHIP)])
         evs += lane_events(W, n, sid, prd=3)
-    evs += lane_events(W, 5, "codex-5", usage={"gpt-5-codex": {"input": 0, "output": 400_000, "cache_create": 0,
+    evs += lane_events(W, 5, "codex-5", usage={"gpt-5-codex": {"input": 0, "output": 10 * OPUS_OUT, "cache_create": 0,
                                                                 "cache_read": 0}})
     evs += lane_events(W, 6, "s6")
     transcript(cfg, "s6", [msg("s6e", READ, out=400)])   # $0.01: died at turn 1
@@ -340,7 +366,7 @@ def calibration_fixture(d):
     transcript(other, "sB", [timed("b1", "02:00", 100)])
     evs = []
     for n, sid in ((1, "sA"), (2, "sB"), (3, "codex-3")):
-        for e in lane_events(W, n, sid, usage={"gpt-5-codex": {"input": 0, "output": 40_000, "cache_create": 0,
+        for e in lane_events(W, n, sid, usage={"gpt-5-codex": {"input": 0, "output": OPUS_OUT, "cache_create": 0,
                                                               "cache_read": 0}} if n == 3 else None):
             e["ts"] = at("00:00" if e["event"] == "launch" else "07:00")
             evs.append(e)
@@ -395,7 +421,7 @@ def test_forecast_prints_pct_of_each_window_from_the_bound_or_the_fallback():
             if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
         assert rc == 0 and rc2 == 0, (rc, rc2)
         f = json.loads(js)
-        # pool totals $1 (codex: 40k gpt output, priced as Opus), $100, $105 → p50 $100, p80/p95 $105
+        # pool totals $1 (codex: 50k gpt output, priced as Opus), $100, $105 → p50 $100, p80/p95 $105
         assert f["total"] == {"p50": 100.0, "p80": 105.0, "p95": 105.0}, f["total"]
         pct = {(w["account"], w["window"]): w for w in f["pct"]}
         assert pct[("main", "seven_day")]["source"] == "fit" and pct[("main", "seven_day")]["usd_per_pct"] == 10.0

@@ -18,10 +18,10 @@
     "cache_read": 474647,
     "cache_write": 26069
   },
-  "cost_usd": 0.9222,
+  "cost_usd": 0.6428,
   "usd_per_pct": 4.15,
   "usd_per_pct_source": "fit",
-  "weekly_window_pct": 0.22,
+  "weekly_window_pct": 0.15,
   "models": {
     "claude-opus-5-5": {
       "messages": 14,
@@ -29,7 +29,7 @@
       "output": 16960,
       "cache_read": 474647,
       "cache_write": 26069,
-      "cost_usd": 0.9222
+      "cost_usd": 0.6428
     }
   },
   "hidden_tests": {
