@@ -251,7 +251,7 @@ sweep_stale_lane_claims(){ local f k lockfd; shopt -s nullglob
   done
   lock_release "$lockfd"; shopt -u nullglob; }
 
-# chores_slotless — every slotless action that takes no slot (LABEL_READY, CLOSE_PRD), this tick. On a
+# chores_slotless — every slotless action that takes no slot (LABEL_READY, CLOSE_PRD, FILE_CHILD), this tick. On a
 # COMPLETE repo: archive PLAN.md once (archive_plan is idempotent) and nothing else — never a kill-all sweep,
 # and no lane holding a claim is touched. A new PRD or ready issue makes the repo incomplete again.
 chores_slotless(){ local live allow busy owned actions rc errf action payload promise
@@ -271,6 +271,7 @@ chores_slotless(){ local live allow busy owned actions rc errf action payload pr
     case "$action" in
       CLOSE_PRD)   close_prd "$payload";;
       LABEL_READY) label_ready "$payload";;
+      FILE_CHILD)  file_child "$payload";;   # #614
     esac
   done <<< "$actions"; }
 

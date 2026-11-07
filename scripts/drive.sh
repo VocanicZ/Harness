@@ -224,6 +224,28 @@ label_ready(){
     || log "label of #$n failed (will retry next poll)"
 }
 
+# file_child <prd> — the FILE_CHILD dispatch action (#614). A small PRD (or any PRD when POOL=1) gets ONE child
+# filed by the engine, not a decompose session: `[AFK] Implement PRD #N`, the PRD's acceptance criteria copied
+# word for word, `Part of #N`, labelled ready. Idempotent: the snapshot can lag a poll behind this create, so a
+# child already carrying the title (any state) or a marker from an earlier create stops a second one.
+file_child(){
+  local prd="$1" title body marker existing
+  title="[AFK] Implement PRD #$prd"
+  marker="${RUN_DIR:-/tmp}/filed-child-${SLUG//\//__}-$prd"
+  [[ -e "$marker" ]] && return 0
+  existing="$(gh issue list -R "$SLUG" --state all --limit 200 --search "\"Implement PRD #$prd\" in:title" \
+                --json title --jq "[.[]|select(.title==\"$title\")]|length" 2>/dev/null)"
+  if [[ "$existing" =~ ^[1-9][0-9]*$ ]]; then : > "$marker"; return 0; fi
+  body="$(python3 "$ISSUELIB" child-body "$SLUG" "$prd" 2>/dev/null)" || body=""
+  if [[ -z "$body" ]]; then log "file_child: no body for PRD #$prd (will retry next poll)"; return 1; fi
+  log "filing the one child of PRD #$prd (small PRD or POOL=1) — no decompose session"
+  if gh issue create -R "$SLUG" --title "$title" --body "$body" --label "$HARNESS_LABEL_READY" >/dev/null 2>&1; then
+    : > "$marker"; harness_event child_filed kind=engine prd="$prd"
+  else
+    log "file_child: create for PRD #$prd failed (will retry next poll)"
+  fi
+}
+
 spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   local action="$1" payload="$2"; PROMISE="$3"; MAXITER="$ORCH_MAXITER"
   local tmpl wd prd=0 base ground=""; STAT_PRD=""

@@ -22,6 +22,36 @@ gh(){ echo "gh $*" >> "$GHL"; return 0; }
 label_ready 18
 assert_ok "label_ready adds the ready label to the stray" grep -q 'gh issue edit 18 -R acme/widget --add-label go' "$GHL"
 
+# --- file_child (#614): the engine files the one child of a small PRD / POOL=1 — one gh create, no session ---
+make_env
+SLUG="acme/widget"; HARNESS_LABEL_READY=go
+GHF="$RUN_DIR/ghfile"; : > "$GHF"; GH_EXISTING=0
+gh(){ echo "gh $*" >> "$GHF"
+  case "$1 $2" in
+    "issue list") echo "$GH_EXISTING";;
+    "issue create") return "${GH_CREATE_RC:-0}";;
+  esac; return 0; }
+REAL_ISSUELIB="$ISSUELIB"; ISSUELIB="$RUN_DIR/fake-issuelib.py"
+printf 'import sys\nprint("## Acceptance criteria\\n\\n- [ ] ship it\\n\\nPart of #%%s" %% sys.argv[3])\n' > "$ISSUELIB"
+file_child 7
+assert_ok "file_child creates the child titled for the PRD" grep -q 'gh issue create -R acme/widget --title \[AFK\] Implement PRD #7 --body' "$GHF"
+assert_ok "file_child labels the child ready" grep -q -- '--label go' "$GHF"
+assert_ok "file_child passes the PRD's criteria and Part of line in the body" grep -q 'ship it' "$GHF"
+assert_eq "$(grep -c 'issue create' "$GHF")" "1" "one create"
+# idempotent: a second poll (snapshot still lagging) files nothing more
+file_child 7
+assert_eq "$(grep -c 'issue create' "$GHF")" "1" "second call files nothing (marker)"
+# a child already carrying the title (any state) stops it even without our marker
+make_env; SLUG="acme/widget"; : > "$GHF"; GH_EXISTING=1
+file_child 8
+assert_no "file_child skips when the titled child already exists" grep -q 'issue create' "$GHF"
+# a failed create leaves no marker, so the next poll retries
+make_env; SLUG="acme/widget"; : > "$GHF"; GH_EXISTING=0; GH_CREATE_RC=1
+file_child 9
+GH_CREATE_RC=0; file_child 9
+assert_eq "$(grep -c 'issue create' "$GHF")" "2" "a failed create is retried on the next call"
+ISSUELIB="$REAL_ISSUELIB"; unset -f gh; GH_CREATE_RC=0
+
 # --- archive_plan: on completion, archive PLAN.md + write a spec-keyed marker (idempotent) ---
 # CHECKOUT is a plain dir (no git repo) so `git mv`/commit/push fall back / no-op; archival itself
 # must still happen via the plain-mv fallback. HARNESS_SPEC points at a real temp spec to hash.

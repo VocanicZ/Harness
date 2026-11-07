@@ -52,6 +52,13 @@ _PARENT_COLON = re.compile(r"(?<![\w.-])Parent:[ \t]*(?:([\w.-]+/[\w.-]+)#(\d+)|
 # child whose title names Task 1 — `Task 1` exactly, never `Task 10`.
 _TASK1_HEADING = re.compile(r"^#{2,3}\s+Task\s+1(?!\d)", re.IGNORECASE | re.MULTILINE)
 _TASK1_TITLE = re.compile(r"\bTask\s+1(?!\d)", re.IGNORECASE)
+# #614: a PRD's `## Acceptance criteria` section, and the item lines in it. The engine counts them to decide
+# whether it files the one implement-child itself (no decompose session), and copies the section verbatim.
+_AC_HEADING = re.compile(r"^#{2,3}[ \t]+Acceptance\s+criteria[ \t]*:?[ \t]*$", re.IGNORECASE | re.MULTILINE)
+_ANY_HEADING = re.compile(r"^#{1,3}[ \t]+\S", re.MULTILINE)
+_AC_CHECKBOX = re.compile(r"^[ \t]*[-*][ \t]+\[[ xX]\]", re.MULTILINE)
+_AC_BULLET = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]+\S", re.MULTILINE)
+ENGINE_CHILD_MAX_DEFAULT = 15
 # States that satisfy a blocked-by ref. "merged" covers a ref pointing at a merged PR: `gh issue
 # view <pr-number>` resolves the PR and returns {"state":"MERGED"}, so a merged PR must NOT block.
 _SATISFIED_STATES = {"closed", "merged"}
@@ -1120,6 +1127,52 @@ def _prd_list(issues):
                   key=lambda i: i["number"])
 
 
+def acceptance_section(body):
+    """The text under a PRD's `## Acceptance criteria` heading, up to the next heading — verbatim, minus
+    surrounding blank lines. "" when the PRD has no such section (#614)."""
+    body = body or ""
+    m = _AC_HEADING.search(body)
+    if not m: return ""
+    rest = body[m.end():]
+    nxt = _ANY_HEADING.search(rest)
+    return (rest[:nxt.start()] if nxt else rest).strip("\r\n").strip()
+
+def acceptance_count(body):
+    """How many acceptance criteria a PRD lists: its checkbox items, else its plain bullet / numbered items."""
+    sec = acceptance_section(body)
+    return len(_AC_CHECKBOX.findall(sec)) or len(_AC_BULLET.findall(sec))
+
+def engine_child_max():
+    """K (#614): a PRD with this many acceptance criteria or fewer is small enough for the engine to file its
+    one child itself. HARNESS_ENGINE_CHILD_MAX, default 15."""
+    try: return int(os.environ.get("HARNESS_ENGINE_CHILD_MAX", "") or ENGINE_CHILD_MAX_DEFAULT)
+    except ValueError: return ENGINE_CHILD_MAX_DEFAULT
+
+def engine_pool():
+    try: return int(os.environ.get("HARNESS_POOL", "") or 3)   # lib.sh's default pool
+    except ValueError: return 3
+
+def engine_files_child(p):
+    """#614: does the engine file this PRD's one child itself, with no decompose session? Only a PRD with no
+    child yet and no `## Task 1` plan-first section (the arc shape, which needs decompose), and either the fleet
+    runs ONE lane (HARNESS_POOL=1 — a split could not run in parallel, only add session starts) or the PRD lists
+    1..K acceptance criteria. A PRD with no criteria section is not guessed at: it decomposes."""
+    if p.get("children_exist") or p.get("needs_task1") or p.get("has_task1"): return False
+    if engine_pool() == 1: return True
+    n = p.get("ac_count") or 0
+    return 1 <= n <= engine_child_max()
+
+def engine_child_title(prd): return f"[AFK] Implement PRD #{prd}"
+
+def engine_child_body(prd_issue, prd_num):
+    """The body of the one child the engine files for a small PRD (#614): the PRD's acceptance criteria word for
+    word, no blockers, and the `## Parent` / `Part of` attribution that makes it the PRD's child."""
+    ac = acceptance_section((prd_issue or {}).get("body"))
+    crit = ac if ac else f"Everything PRD #{prd_num} asks for (read its body)."
+    return (f"## What to build\n\nImplement PRD #{prd_num} in full. Its body is the contract; the acceptance "
+            f"criteria below are copied from it word for word.\n\n## Acceptance criteria\n\n{crit}\n\n"
+            f"## Blocked by\n\nNone\n\n## Parent\n\n#{prd_num}\n\nPart of #{prd_num}\n")
+
 def compute_state(repo):
     slug = _repo_slug(repo)
     # secure-by-default: drop issues from non-allowed authors up front, so neither PRD
@@ -1220,6 +1273,9 @@ def compute_state(repo):
                      "needs_task1": bool(_TASK1_HEADING.search(p.get("body") or ""))
                                     and not any(_TASK1_TITLE.search(k.get("title") or "") for k in kids),
                      "children_all_closed": all_closed,
+                     # #614: the size test that lets the engine file the one child itself
+                     "ac_count": acceptance_count(p.get("body")),
+                     "has_task1": bool(_TASK1_HEADING.search(p.get("body") or "")),
                      # #287: open issues naming this PRD outside its ready children; `unlabelled` is
                      # the subset dispatch labels ready
                      "stray": [i["number"] for i in stray],
@@ -1429,7 +1485,8 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     # PLAN/PRD stay under `allow_orchestration`: they are unit-level and must not race anything.
     if a["decompose"]:
         for p in eligible:
-            if p["open"] and (not p["children_exist"] or p.get("needs_task1")) and p["number"] not in busy:
+            if p["open"] and (not p["children_exist"] or p.get("needs_task1")) and p["number"] not in busy \
+                    and not engine_files_child(p):   # #614: a small PRD gets FILE_CHILD below instead
                 return [("DECOMPOSE", str(p["number"]), "DECOMPOSE DONE")]
     # Slots: in impl_queue's order — unparented first, then eligible PRDs, resumable first (#210).
     # Busy issues are dropped BEFORE the slice, so their slots go to the next claimable issue.
@@ -1466,7 +1523,15 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
     # poll. Takes no slot: there is no session, and it must never wait behind one.
     if a["review"]:
         out += _label_ready_actions(prds)
+    # #614: FILE_CHILD likewise takes no slot — the engine files the one child of a small PRD (or of any PRD
+    # when POOL=1) with a single `gh issue create`, so no decompose session starts.
+    if a["decompose"]:
+        out += _file_child_actions(eligible, busy)
     return out
+
+def _file_child_actions(eligible, busy):
+    return [("FILE_CHILD", str(p["number"]), "-") for p in eligible
+            if p["open"] and p["number"] not in busy and engine_files_child(p)]
 
 def _label_ready_actions(prds):
     return [("LABEL_READY", str(n), "-") for p in prds if p["open"] for n in p.get("unlabelled", ())]
@@ -1477,8 +1542,9 @@ def slotless_actions(repo, busy_prds=()):
     chores pass built on it never reached these while any PRD waited to be decomposed. The claim path
     keeps dispatch(); this one skips PLAN/PRD/DECOMPOSE/IMPL/REVIEW/BUG (each takes a session)."""
     s = compute_state(repo); a = _allowed(MODE()); out = []
-    if not a["review"]: return out
     busy = set(busy_prds)
+    if a["decompose"]: out += _file_child_actions([p for p in s["prds"] if p["eligible"]], busy)   # #614
+    if not a["review"]: return out
     for p in s["prds"]:
         if (p["eligible"] and p["number"] not in busy and p["open"] and p["children_all_closed"]
                 and not p.get("stray") and p["reviewed"]):
@@ -1567,6 +1633,12 @@ def main():
                 raw = sys.argv[sys.argv.index("--busy-prds")+1]
                 busy = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
             for action, payload, promise in slotless_actions(repo, busy): print(f"{action}\t{payload}\t{promise}")
+        elif cmd == "child-body":
+            # child-body <repo> <prd> (#614): the body drive.sh's file_child gives the one issue it files for a PRD.
+            n = int(sys.argv[3])
+            prd = next((i for i in _list_issues(_repo_slug(repo)) if i["number"] == n), None)
+            if prd is None: print(f"[issuelib] PRD #{n} not found", file=sys.stderr); sys.exit(1)
+            sys.stdout.write(engine_child_body(prd, n))
         elif cmd == "status":
             s = compute_state(repo); prd = f"PRD#{s['prd']}" if s["prd"] else "no-PRD"
             prd += "(open)" if s["prd_open"] else ("(closed)" if s["prd"] else "")
