@@ -53,9 +53,9 @@ assert_ok "spawn_impl: no unbound-var crash (C1)" bash -c '
   source "'"$HERE"'/../scripts/lib.sh"
   source "'"$HERE"'/../scripts/drive.sh"
   # Stubs
-  tmux(){ :; }; render(){ :; }; launch_claude(){ :; }
+  tmux(){ :; }; render(){ echo task; }; launch_claude(){ :; }   # #643: a real render fills the task file
   default_branch(){ echo main; }; ensure_safe(){ :; }
-  git(){ :; }; gh(){ :; }
+  git(){ case "$*" in *"worktree add"*) mkdir -p "$WORKTREES_DIR/main-i5"; : > "$WORKTREES_DIR/main-i5/.git";; esac; return 0; }; gh(){ :; }
   # HARNESS_SPEC intentionally empty (as in a fresh env); SPEC is never defined
   HARNESS_REPO=acme/widget
   HARNESS_SPEC=""

@@ -10,6 +10,9 @@
 #   6. the priority bug worker runs on top of POOL, and a pool-taken bug is never also its claim.
 #   7. pause: no new claim, a running lane (and a driven goal loop) still tended.
 #   8. a lane that fails to spawn sleeps POLL and drops its claim (#539); a missing HARNESS_CHECKOUT is cloned
+#  10. #643: no launch into a missing or empty worktree; the reap spares a claimless lane being launched; adoption
+#      only takes a lane with a worktree on issue/<N> and its task file (else kills the session); a live legacy
+#      unit claim is warned about once per pid.
 #      before the first claim, or held with one deduped log line — never a loop without sleeping.
 # Real issuelib.py dispatch over a snapshot; gh, tmux, git and the launch are stubbed.
 set -uo pipefail
@@ -58,11 +61,13 @@ setup(){  # [pool]
   export -f gh tmux
   git(){ case "$*" in
            *"worktree add"*) local wd; for wd in "$@"; do [[ "$wd" == "$WORKTREES_DIR"/* ]] && break; done
-                             [[ -d "$wd" ]] && return 128; mkdir -p "$wd"; return 0;;
+                             [[ -d "$wd" ]] && return 128; mkdir -p "$wd"; : > "$wd/.git"; return 0;;   # #643: a real add leaves .git
+           *"rev-parse --show-toplevel"*) echo "$2"; return 0;;                                                 # git -C <wd> …: a worktree's own top level
+           *"symbolic-ref"*) local d; d="$(basename "$2")"; cat "$2/.stub-branch" 2>/dev/null || echo "issue/${d##*-i}"; return 0;;                 # …on issue/<N>
            *"worktree remove"*|*"branch -D"*) echo "git $*" >> "$CALLS"; return 0;;
          esac; return 0; }
   log(){ echo "$*" >> "$LOGF"; }
-  render(){ :; }
+  render(){ echo "task"; }   # #643: a lane with an empty task file is not launched
   launch_claude(){ echo "launch $1" >> "$CALLS"; echo "$1" >> "$LIVE"; }
   ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }; default_branch(){ echo main; }
   resume_handoff(){ :; }; issue_parent_prd(){ :; }; stats_sweep_ended(){ :; }; gc_orphan_goals(){ :; }
@@ -75,6 +80,9 @@ setup(){  # [pool]
   sleep(){ :; }
   COMPLETE=0; unit_complete(){ (( COMPLETE )); }
 }
+# mkwt <N> — the worktree a launched lane leaves: a git worktree on issue/<N> with its task file, old enough that
+# no launch can still be setting it up (#643: reap_team spares a seconds-old claimless worktree).
+mkwt(){ local wd="$WORKTREES_DIR/main-i$1"; mkdir -p "$wd"; : > "$wd/.git"; echo task > "$wd/.harness-task.md"; touch -d '2 minutes ago' "$wd"; }
 # Where a lane's session or worktree is — the way a launched lane leaves them.
 live(){ local s; for s in "$@"; do echo "$s" >> "$LIVE"; done; }
 die_session(){ grep -vxF "$1" "$LIVE" > "$LIVE.n"; mv "$LIVE.n" "$LIVE"; }
@@ -201,7 +209,7 @@ worker_tick W1; assert_eq "$(launches)" "0" "no decompose session launched"
 
 echo "=== 3b. only ownerless lanes are reaped/checked/watchdogged by the chores ==="
 setup 3; snap "5:ready-for-agent" "6:ready-for-agent"
-worker_tick W1; mkdir -p "$WORKTREES_DIR/main-i6"; live hz-main-i6   # #6: a live lane nobody owns
+worker_tick W1; mkwt 6; live hz-main-i6   # #6: a live lane nobody owns
 inctx reap_done_sessions; inctx watchdog_team
 assert_no "the owned lane #5 is left to its owner (goal)" grep -qx "goal hz-main-i5" "$CALLS"
 assert_no "... and watchdog" grep -qx "watchdog hz-main-i5" "$CALLS"
@@ -221,7 +229,7 @@ race(){ RACE_KEY="$1"; is_claimed(){ if [[ "$1" == "$RACE_KEY" ]]; then
           is_claimed(){ real_is_claimed "$@"; }; worker_tend W1 >/dev/null; fi; real_is_claimed "$@"; }; }
 count_events(){ grep -c "\"event\": \"$1\"" "$HARNESS_EVENTS_FILE" 2>/dev/null || true; }
 setup 3; snap "5:ready-for-agent,agent-working"
-mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
+mkwt 5; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
 : > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
 race impl-5; inctx reap_team
 assert_no "the claim is gone" test -f "$CLAIMS_DIR/impl-5.claim"
@@ -232,7 +240,7 @@ assert_eq "$(grep -c '^unlock 5$' "$CALLS")" "1" "... one unlock"
 echo "-- closed issue: one merged event, one branch drop"
 setup 3; snap "5:ready-for-agent,agent-working"
 gh(){ echo "gh $*" >> "$CALLS"; case "$*" in *"issue view"*"state,labels"*) echo '{"state":"CLOSED","labels":[]}';; esac; return 0; }
-mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
+mkwt 5; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
 : > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
 race impl-5; inctx reap_team
 assert_eq "$(count_events reap)" "1" "impl, closed issue: exactly one reap event"
@@ -251,7 +259,7 @@ assert_eq "$(grep -c 'remove_worktree' "$CALLS")" "1" "... one worktree removal"
 echo "=== 3d. #562: a restarted worker reuses its id — it never tends or releases its dead predecessor's claims ==="
 # worker-N is worker-N again after `harness start` / a fleet_roll: the claim's wid matches, its pid does not.
 setup 3; snap "5:ready-for-agent,agent-working"
-mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"   # old W1: pid gone, session ended
+mkwt 5; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"   # old W1: pid gone, session ended
 : > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
 assert_eq "$(worker_claims W1)" "" "worker_claims names no claim a dead pid wrote, though the wid matches"
 worker_tend W1; assert_eq "$?" "1" "the restarted W1 tends nothing"
@@ -259,7 +267,7 @@ assert_ok "... the dead predecessor's claim is still on disk" test -f "$CLAIMS_D
 assert_no "... and its worktree is not reaped by W1" grep -q 'remove_worktree .*main-i5' "$CALLS"
 echo "-- the chores winner reaps the lane exactly once"
 setup 3; snap "5:ready-for-agent,agent-working"
-mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"
+mkwt 5; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"
 : > "$HARNESS_EVENTS_FILE"; : > "$CALLS"
 worker_tend W1; worker_chores W2; worker_tend W1; worker_tend W2
 assert_eq "$(grep -c 'remove_worktree .*main-i5' "$CALLS")" "1" "the worktree was reaped exactly once"
@@ -267,14 +275,14 @@ assert_eq "$(grep -c '^unlock 5$' "$CALLS")" "1" "the issue was freed exactly on
 assert_no "the claim is gone" test -f "$CLAIMS_DIR/impl-5.claim"
 echo "-- an adopted lane's fresh claim survives the restarted worker's tend"
 setup 3; snap "5:ready-for-agent,agent-working"
-live hz-main-i5; mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"
+live hz-main-i5; mkwt 5; printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"
 worker_chores W2; worker_tend W1
 assert_eq "$(claim_wid impl-5)" "W2" "W2's adopted claim is still W2's after W1 tended"
 restore
 
 echo "=== 4. a killed worker: its lane is adopted, reaped once, never dispatched twice ==="
 setup 2; snap "5:ready-for-agent,agent-working" "6:ready-for-agent"
-live hz-main-i5; mkdir -p "$WORKTREES_DIR/main-i5"
+live hz-main-i5; mkwt 5
 echo "echo $(printf 'W1 999999 IMPL:5 hz-main-i5 -')" > /dev/null
 printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"   # W1 died: its pid is gone
 assert_no "a dead worker's claim is no claim" is_claimed impl-5
@@ -299,7 +307,7 @@ assert_eq "$(grep -c '^unlock 5$' "$CALLS")" "1" "the issue was freed exactly on
 
 echo "-- start --recover: clear_stale_claims drops the claims, the live lanes are adopted from their sessions"
 setup 3; snap "5:ready-for-agent,agent-working" "6:ready-for-agent,agent-working"
-live hz-main-i5 hz-main-p41; mkdir -p "$WORKTREES_DIR/main-i5"; echo "DECOMPOSE:41" > "$RUN_DIR/hz-main-p41.goal"
+live hz-main-i5 hz-main-p41; mkwt 5; echo "DECOMPOSE:41" > "$RUN_DIR/hz-main-p41.goal"
 printf 'W1 999999 IMPL:5 hz-main-i5 -\n' > "$CLAIMS_DIR/impl-5.claim"; printf 'W2 999998 DECOMPOSE:41 hz-main-p41 -\n' > "$CLAIMS_DIR/orch-41.claim"
 clear_stale_claims >/dev/null
 assert_eq "$(ls "$CLAIMS_DIR" | wc -l | tr -d ' ')" "0" "recover cleared the stale claims"
@@ -325,7 +333,7 @@ kill "$OLDW" 2>/dev/null; wait "$OLDW" 2>/dev/null; rm -f "$CLAIMS_DIR/other.cla
 
 echo "-- a dead lane's worktree is reaped, by the chores, once its session is gone"
 setup 3; snap "5:ready-for-agent,agent-working"
-mkdir -p "$WORKTREES_DIR/main-i5" "$WORKTREES_DIR/orch-acme_widget-p41"
+mkwt 5; mkdir -p "$WORKTREES_DIR/orch-acme_widget-p41"
 worker_chores W1
 assert_no "the impl worktree is gone" test -d "$WORKTREES_DIR/main-i5"
 assert_no "the orch worktree is gone" test -d "$WORKTREES_DIR/orch-acme_widget-p41"
@@ -335,7 +343,7 @@ echo "=== 5. planned mode: PLAN.md archived once on completion; nothing else tou
 setup 3; export HARNESS_MODE=planned; SPECFILE="$RUN_DIR/spec.md"; printf 's\n' > "$SPECFILE"; HARNESS_SPEC="$SPECFILE"
 snap "5:ready-for-agent,agent-working"
 printf '# plan\n' > "$HARNESS_CHECKOUT/PLAN.md"; git(){ return 1; }
-live hz-main-i5; mkdir -p "$WORKTREES_DIR/main-i5"; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
+live hz-main-i5; mkwt 5; printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"
 dispatch_actions(){ echo "dispatch $*" >> "$CALLS"; return 0; }; spawn_orch(){ echo "spawn_orch $*" >> "$CALLS"; }
 COMPLETE=1
 worker_chores W1; worker_chores W2
@@ -459,7 +467,7 @@ git(){ case "$*" in
          *"rev-parse --git-dir"*) [[ -d "$HARNESS_CHECKOUT/.git" ]]; return;;
          *"clone"*) echo "git $*" >> "$CALLS"; mkdir -p "$HARNESS_CHECKOUT/.git"; return 0;;
          *"worktree add"*) local wd; for wd in "$@"; do [[ "$wd" == "$WORKTREES_DIR"/* ]] && break; done
-                           mkdir -p "$wd"; return 0;;
+                           mkdir -p "$wd"; : > "$wd/.git"; return 0;;
        esac; return 0; }
 ensure_safe(){ :; }
 worker_tick W1; assert_eq "$?" "0" "checkout cloned, then the lane was claimed + spawned"
@@ -499,5 +507,101 @@ worker_tick W1; assert_eq "$?" "0" "W1 claims on the first tick (not idle behind
 assert_eq "$(launches)" "1" "one lane launched"
 assert_ok "... the REVIEW of the unreviewed PRD 70" grep -qx "hz-main-p70" "$LIVE"
 assert_eq "$(awk '{print $3}' "$CLAIMS_DIR/orch-70.claim")" "REVIEW:70" "the claim names REVIEW"
+
+echo "=== 10a. #643: no launch into a missing or empty worktree ==="
+# run_worktree_hook runs between the worktree add and the render: where a reap of the lane (or anything else) takes $wd.
+setup 3; snap "5:ready-for-agent"
+run_worktree_hook(){ rm -rf "$WORKTREES_DIR/main-i5"; }
+worker_tick W1; assert_eq "$?" "6" "the worktree vanished before the render: the lane failed to start"
+assert_eq "$(launches)" "0" "...no session was launched into the missing dir"
+assert_no "...the claim is dropped" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_ok "...the issue is freed again" grep -qx 'unlock 5' "$CALLS"
+assert_ok "...and the refusal is logged" grep -q 'not a git worktree with a task file' "$LOGF"
+echo "-- a dir with no .git (only .claude/) is no worktree"
+setup 3; snap "5:ready-for-agent"
+run_worktree_hook(){ rm -f "$WORKTREES_DIR/main-i5/.git"; mkdir -p "$WORKTREES_DIR/main-i5/.claude"; }
+worker_tick W1; assert_eq "$?" "6" "not a git worktree: the lane failed to start"
+assert_eq "$(launches)" "0" "...nothing launched"
+assert_no "...the claim is dropped" test -f "$CLAIMS_DIR/impl-5.claim"
+echo "-- a render that wrote nothing leaves an empty task file"
+setup 3; snap "5:ready-for-agent"
+render(){ return 1; }
+worker_tick W1; assert_eq "$?" "6" "empty task file: the lane failed to start"
+assert_eq "$(launches)" "0" "...nothing launched"
+assert_no "...the claim is dropped" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_ok "...the issue is freed again" grep -qx 'unlock 5' "$CALLS"
+echo "-- the happy path still launches"
+setup 3; snap "5:ready-for-agent"
+worker_tick W1; assert_eq "$?" "0" "a worktree with its task file: the lane starts"
+assert_eq "$(launches)" "1" "...and launches"
+
+echo "=== 10b. #643: reap spares a claimless lane younger than the launch grace ==="
+setup 3; snap "5:ready-for-agent,agent-working"
+mkdir -p "$WORKTREES_DIR/main-i5"   # a launcher that writes no claim has just done its worktree add: fresh, no session, no claim
+: > "$CALLS"; inctx reap_team
+assert_ok "a fresh claimless worktree survives reap_team" test -d "$WORKTREES_DIR/main-i5"
+assert_no "...no removal" grep -q 'remove_worktree' "$CALLS"
+assert_no "...its issue is not unlocked" grep -qx 'unlock 5' "$CALLS"
+inctx reap_team
+assert_ok "...nor by a second reap_team inside the grace" test -d "$WORKTREES_DIR/main-i5"
+touch -d "2 minutes ago" "$WORKTREES_DIR/main-i5"   # past HARNESS_LAUNCH_FAIL_SECS
+inctx reap_team
+assert_no "past the grace the dead lane's worktree is reaped as before" test -d "$WORKTREES_DIR/main-i5"
+assert_ok "...and its issue unlocked" grep -qx 'unlock 5' "$CALLS"
+echo "-- a lane whose session did launch and died is reaped at once, however young (launch_failed path, #596)"
+setup 3; snap "5:ready-for-agent,agent-working"
+mkdir -p "$WORKTREES_DIR/main-i5"; echo "$(date +%s) uuid-5" > "$RUN_DIR/hz-main-i5.launched"
+: > "$CALLS"; inctx reap_team
+assert_no "its worktree is reaped" test -d "$WORKTREES_DIR/main-i5"
+assert_ok "...as a launch_failed" grep -q '"event": "launch_failed"' "$HARNESS_EVENTS_FILE"
+echo "-- a claim written after reap_team's first is_claimed check keeps the worktree (re-checked under pool.lock)"
+setup 3; snap "5:ready-for-agent,agent-working"
+mkwt 5; : > "$CALLS"
+session_live(){ printf 'W1 %s IMPL:5 hz-main-i5 -\n' "$$" > "$CLAIMS_DIR/impl-5.claim"; return 1; }   # a worker claims the lane right after the unlocked check
+inctx reap_team
+assert_ok "the worktree is kept" test -d "$WORKTREES_DIR/main-i5"
+assert_no "...no removal" grep -q 'remove_worktree' "$CALLS"
+assert_no "...its issue is not unlocked" grep -qx 'unlock 5' "$CALLS"
+assert_ok "...the claim is untouched" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_ok "pool.lock was released" lock_try "$POOL_LOCK" _pl_fd
+
+echo "=== 10c. #643: adoption validates an impl lane ==="
+setup 3; snap "5:ready-for-agent,agent-working" "6:ready-for-agent,agent-working" "7:ready-for-agent,agent-working" "8:ready-for-agent,agent-working"
+cli_kill(){ echo "kill $1" >> "$CALLS"; die_session "$1"; }
+live hz-main-i5 hz-main-i6 hz-main-i7 hz-main-i8
+mkwt 6                                                                    # sound
+mkdir -p "$WORKTREES_DIR/main-i7/.claude"                                 # only .claude/ (the incident)
+mkwt 8; echo agent/other > "$WORKTREES_DIR/main-i8/.stub-branch"           # wrong branch
+: > "$HARNESS_EVENTS_FILE"; worker_chores W1
+assert_eq "$(claim_wid impl-6)" "W1" "a worktree on issue/6 with its task file is adopted"
+assert_no "a live session with no worktree dir at all is not adopted" test -f "$CLAIMS_DIR/impl-5.claim"
+assert_no "a dir with only .claude/ is not adopted" test -f "$CLAIMS_DIR/impl-7.claim"
+assert_no "a worktree on another branch is not adopted" test -f "$CLAIMS_DIR/impl-8.claim"
+assert_ok "the no-worktree session was killed" grep -qx 'kill hz-main-i5' "$CALLS"
+assert_ok "the .claude/-only session was killed" grep -qx 'kill hz-main-i7' "$CALLS"
+assert_ok "the wrong-branch session was killed" grep -qx 'kill hz-main-i8' "$CALLS"
+assert_no "the sound lane's session was not" grep -qx 'kill hz-main-i6' "$CALLS"
+assert_ok "the log names the session and the reason" grep -q 'adopt: hz-main-i5 has no worktree/task file — killed for re-dispatch' "$LOGF"
+assert_ok "lane_adopt_rejected event names the lane and the reason" grep -q '"event": "lane_adopt_rejected".*"lane": "impl-5".*"reason": "no worktree/task file"' "$HARNESS_EVENTS_FILE"
+assert_eq "$(grep -c '"event": "lane_adopt_rejected"' "$HARNESS_EVENTS_FILE")" "3" "...one per rejected lane"
+echo "-- a worktree without its task file is rejected too"
+setup 3; snap "5:ready-for-agent,agent-working"; live hz-main-i5
+mkwt 5; rm -f "$WORKTREES_DIR/main-i5/.harness-task.md"
+worker_chores W1
+assert_no "no task file: not adopted" test -f "$CLAIMS_DIR/impl-5.claim"
+echo "-- an orch lane is not subject to the impl check"
+setup 3; snap "41:prd"; live hz-main-p41; echo "DECOMPOSE:41" > "$RUN_DIR/hz-main-p41.goal"
+worker_chores W1
+assert_eq "$(claim_wid orch-41)" "W1" "an orch session is adopted as before"
+restore
+
+echo "=== 10d. #643: a live legacy unit claim is warned about once per pid ==="
+setup 3; snap "5:ready-for-agent"
+command sleep 60 & OLDW=$!; printf 'W8 %s\n' "$OLDW" > "$CLAIMS_DIR/harness.claim"
+worker_chores W1; worker_chores W1
+assert_eq "$(grep -c "legacy worker pid $OLDW" "$LOGF")" "1" "one WARN for the live legacy worker, however many ticks"
+assert_ok "...it names the claim" grep -q "unit claim harness.claim" "$LOGF"
+assert_ok "...and the claim stays (fleet_roll owns stopping it)" test -f "$CLAIMS_DIR/harness.claim"
+kill "$OLDW" 2>/dev/null; wait "$OLDW" 2>/dev/null
 
 finish

@@ -102,6 +102,8 @@ lane_survived(){ local s="$1" want="$2" what="$3" p; p="${want#pid=}"; p="${p%% 
   assert_ok "$what: the lane is still live" sess_live "$s"
   assert_eq "$(LANESNAP "$s")" "$want" "$what: the same runner, state, turns, claude count and start directory (neither killed nor relaunched)"; }
 mklane ua-alpha-i5 "$UA/worktrees/alpha-i5"; mklane ud-main-i3 "$UD/worktrees/main-i3"; mklane other-session "$ROOT/other/wd"
+# #643: adoption only takes a lane whose worktree is a git worktree on issue/<N> holding its task file
+git init -q "$UD/worktrees/main-i3"; git -C "$UD/worktrees/main-i3" symbolic-ref HEAD refs/heads/issue/3
 SNAP_A="$(LANESNAP ua-alpha-i5)"; SNAP_D="$(LANESNAP ud-main-i3)"; SNAP_O="$(LANESNAP other-session)"
 assert_eq "$(sess_list | sort | tr '\n' ' ')" "other-session ua-alpha-i5 ud-main-i3 " "setup: the three headless lanes are live"
 assert_ok "setup: each is a detached runner" test "$(sess_panes | grep -c ' headless$')" = 3

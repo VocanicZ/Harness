@@ -51,10 +51,10 @@ setup(){
   # `worktree add` fails exactly like git does when the lane's worktree already holds issue/<n>.
   git(){ case "$*" in
            *"worktree add"*) local wd; for wd in "$@"; do [[ "$wd" == "$WORKTREES_DIR"/* ]] && break; done
-                             [[ -d "$wd" ]] && return 128; echo "git $*" >> "$CALLS"; mkdir -p "$wd"; return 0;;
+                             [[ -d "$wd" ]] && return 128; echo "git $*" >> "$CALLS"; mkdir -p "$wd"; : > "$wd/.git"; return 0;;
          esac; return 0; }
   log(){ echo "$*" >> "$LOGF"; }
-  render(){ echo "render $1" >> "$CALLS"; }
+  render(){ echo "render $1" >> "$CALLS"; echo task; }   # #643: a real render fills the task file
   launch_claude(){ echo "launch $1" >> "$CALLS"; echo "$1" >> "$LIVE"; }
   ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }; default_branch(){ echo main; }
   resume_handoff(){ :; }; issue_parent_prd(){ :; }; harness_event(){ :; }; stats_sweep_ended(){ :; }

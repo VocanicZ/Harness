@@ -478,6 +478,11 @@ launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid k
     [[ -n "$key" ]] && launch_backoff_mark "$key"
   else [[ -n "$key" ]] && launch_backoff_clear "$key"; fi
   return 0; }
+# launch_grace_live <worktree> — #643: the worktree dir is younger than HARNESS_LAUNCH_FAIL_SECS (30s). A launcher that
+# writes no lane claim (the retired unit-claim loop, a hand-run spawn) leaves exactly this between its `git worktree
+# add` and `launch_claude`: no claim, no session yet. The reap spares it for that long. rc 1 for a missing dir.
+launch_grace_live(){ local m; m="$(stat -c %Y "$1" 2>/dev/null)" || return 1
+  (( $(date +%s) - m < ${HARNESS_LAUNCH_FAIL_SECS:-30} )); }
 # _csv_union <a,b> <c,d> … — the distinct numbers of the comma lists, ascending, comma-separated.
 _csv_union(){ printf '%s\n' "$@" | tr ',' '\n' | grep -E '^[0-9]+$' | sort -un | paste -sd, -; }
 

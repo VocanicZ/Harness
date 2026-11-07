@@ -158,13 +158,13 @@ WORKTREES_DIR="$RUN_DIR/wt416"; mkdir -p "$WORKTREES_DIR"
 GH416="$RUN_DIR/ghcalls416"; : > "$GH416"
 gh(){ case "$*" in *add-label*) echo "gh $* wt=$([[ -d "$WORKTREES_DIR/main-i5" ]] && echo yes || echo no)" >> "$GH416";;
                    *) echo "gh $*" >> "$GH416";; esac; return 0; }
-render(){ :; }; launch_claude(){ :; }; tmux(){ :; }; run_worktree_hook(){ :; }; resume_handoff(){ :; }
+render(){ echo task; }; launch_claude(){ :; }; tmux(){ :; }; run_worktree_hook(){ :; }; resume_handoff(){ :; }
 ensure_checkout(){ :; }; ensure_safe(){ :; }; default_branch(){ echo main; }
 git(){ case "$*" in *"worktree add"*) return 128;; *) return 0;; esac; }
 prepare_impl 5 "ISSUE 5 DONE" 2>/dev/null; assert_eq "$?" "1" "prepare_impl returns nonzero when worktree add fails"
 assert_eq "$(grep -c 'add-label' "$GH416" 2>/dev/null; true)" "0" \
   "prepare_impl does NOT stamp agent-working when worktree add fails (#416)"
-git(){ case "$*" in *"worktree add"*) mkdir -p "$WORKTREES_DIR/main-i5";; esac; return 0; }
+git(){ case "$*" in *"worktree add"*) mkdir -p "$WORKTREES_DIR/main-i5"; : > "$WORKTREES_DIR/main-i5/.git";; esac; return 0; }   # #643: a real add leaves .git
 : > "$GH416"
 prepare_impl 5 "ISSUE 5 DONE" 2>/dev/null; assert_eq "$?" "0" "prepare_impl succeeds when worktree add does"
 assert_eq "$(grep -c 'add-label agent-working' "$GH416")" "1" "agent-working stamped exactly once on success"

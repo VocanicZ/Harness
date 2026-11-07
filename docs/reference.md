@@ -191,6 +191,16 @@ and lets a killed worker's lane be reaped and merged once. A dead lane's worktre
 chores, so an issue is never held "owned" by a lane that is gone. Adoption adds no lane, so it cannot push a
 fleet past `POOL`.
 
+**Launch grace and adoption checks** (#643). A launcher that writes no lane claim (the retired unit-claim loop, a hand-run
+spawn) leaves a worktree with no claim and no session between its `git worktree add` and its launch. The chores' reap spares
+such a worktree while it is younger than `HARNESS_LAUNCH_FAIL_SECS` (30 s) and no session of it was ever launched, and it
+re-checks the lane's claim under `run/pool.lock` immediately before removing a worktree, so a claim written in between keeps
+it. A session whose launch did happen and died is still reaped at once. `spawn_impl` does not launch into a worktree that is
+not a git worktree, or whose `.harness-task.md` is missing or empty after the render: it fails, the claim is dropped and the
+issue is freed. Adoption takes an impl session only when `$WORKTREES_DIR/<unit>-i<N>` is a git worktree on `issue/<N>` with
+its task file; any other session is killed (`lane_adopt_rejected` event, one log line naming it and why) and its issue is
+re-dispatched. A live worker of the retired loop (a 2-field `claims/<unit>.claim`) is warned about once per pid in the worker log.
+
 **Pause.** No new claim. Running lanes keep running and keep being tended, a driven goal loop included.
 Workers stay alive and idle.
 
@@ -1510,6 +1520,9 @@ Each pass, every `INTERVAL` seconds:
    it is newer than the installed one it runs `harness update`, then rolls the workers of every
    registered fleet: only `worker-*.pid` / `priority.pid` processes whose `ENGINE_DIR` is not the new
    release are killed, each under the fleet's `run/pool.lock`, and `harness start` relaunches them.
+   A live worker of the retired unit-claim loop that no pid file names (the pid of a 2-field
+   `claims/<unit>.claim`) is rolled the same way and its claim removed; one whose process cannot be verified is
+   a `WARN`, never killed (#643).
    Lane sessions are never touched (the new worker adopts them), a worker holding a `bug-*.claim` is
    left until the claim is released, and a paused fleet comes back paused. `HARNESS_AUTO_UPDATE_HEALTH_S`
    after the roll, a dead worker or priority pid runs `harness update --rollback`, rolls the workers

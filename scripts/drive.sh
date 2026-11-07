@@ -106,15 +106,26 @@ selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
 # reap_impl_lane <issue> — reap one impl lane whose session is gone: its worktree goes, and the issue is
 # freed (still open) or its local branch dropped (closed — the PR squash-merged). A live session, or a
 # fresh /harness-one lease, keeps the lane. rc 0 = reaped, 1 = the lane lives on.
-reap_impl_lane(){ local issue="$1" wd="$WORKTREES_DIR/$UNIT-i$1" sess; sess="$(sess_impl "$UNIT" "$issue")"
+reap_impl_lane(){ local issue="$1" unowned="${2:-}" wd="$WORKTREES_DIR/$UNIT-i$1" sess lockfd; sess="$(sess_impl "$UNIT" "$issue")"
   session_live "$sess" && return 1
+  # #643: reap_team (unowned = it found no live claim) must not take a lane that is being set up right now. A launcher
+  # that writes no claim leaves a seconds-old worktree, no session and no `.launched` stamp between its worktree add and
+  # its launch. Spare it for the launch grace; a lane whose session did launch (and died) has the stamp and is reaped.
+  if [[ -n "$unowned" && ! -f "$RUN_DIR/$sess.launched" ]] && launch_grace_live "$wd"; then
+    log "reap: issue #$issue worktree is under ${HARNESS_LAUNCH_FAIL_SECS:-30}s old with no session yet — a launch may be in flight, left alone (#643)"
+    return 1; fi
+  # ...and the claim check is repeated under pool.lock, held across the removal: a claim written since reap_team's
+  # unlocked is_claimed (a worker claimed the lane and is about to spawn it) keeps the worktree.
+  if [[ -n "$unowned" ]]; then lock_acquire "$POOL_LOCK" lockfd
+    if is_claimed "impl-$issue"; then lock_release "$lockfd"; return 1; fi; fi
   launch_gone_check "$sess" impl issue="$issue"   # #596: gone within 30s of its launch → launch_failed + backoff
   rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
-  one_lease_live "$UNIT" "$issue" && return 1   # #366: a /harness-one session is working it
+  if one_lease_live "$UNIT" "$issue"; then [[ -n "$unowned" ]] && lock_release "$lockfd"; return 1; fi   # #366: a /harness-one session is working it
   rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
   log "reaping issue #$issue worktree"
   harness_event reap kind=impl issue="$issue" reason=session_gone
   remove_worktree "$CHECKOUT" "$wd"
+  [[ -n "$unowned" ]] && lock_release "$lockfd"
   local state
   # #179: the worktree is gone, so this reap never comes round again — a gh failure here must not
   # strand the lock. Unreadable state ⇒ queue the unlock (harmless on a closed issue).
@@ -145,7 +156,7 @@ reap_team(){
     # #528: the owner removes the worktree before it releases its claim. If it finished this lane after the
     # glob listed it, the claim is gone AND so is the worktree: already reaped, once — not for us to redo.
     [[ -d "$wd" ]] || continue
-    reap_impl_lane "$issue"
+    reap_impl_lane "$issue" unowned
   done
   shopt -u nullglob
 }
@@ -345,8 +356,15 @@ prepare_impl(){   # <ISSUE> <PROMISE>
     SUBAGENT="$(cli_subagent "$wd" "$wd" "$STATE_DIR/subagent/$UNIT-i$issue/NAME.md")" \
     WINDOWS_RTDD="$(windows_block _windows_rtdd.md ISSUE="$issue")" \
     ORIGINAL_REQUEST="$TC_REQUEST" ISSUE_BLOCK="$TC_ISSUE" PRD_BLOCK="$TC_PRD" TASK_LINT="$TC_LINT" \
-    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
-  return 0   # as before the split: a failed render write never stopped the launch
+    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md" 2>/dev/null
+  # #643: a lane launched into a missing or empty worktree sits idle for hours holding a slot (a reap took $wd between
+  # the add and this render). It must be a git worktree and the task file must have landed — else no launch: the caller
+  # drops its claim, and the issue is freed here (the worktree, if any, is the reap's).
+  if [[ ! -e "$wd/.git" || ! -s "$wd/.harness-task.md" ]]; then
+    log "prepare #$issue: $wd is not a git worktree with a task file after setup — not launching (#643)"
+    harness_event launch_skipped kind=impl issue="$issue" reason=no_worktree_task
+    unlock_issue "$SLUG" "$issue" || true; return 1; fi
+  return 0
 }
 
 spawn_impl(){   # <ISSUE> <PROMISE>

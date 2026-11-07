@@ -7,6 +7,8 @@
 #   3. a worker on an older release dir is rolled onto the new release's loop
 #   4. lanes launched by the rolled engine use the lean-context flags
 #   5. `harness update` no longer tells the operator to pause, stop and start by hand
+#   6. #643: a live worker of the retired unit-claim loop, named only by a 2-field claims/<unit>.claim (no pid file),
+#      is stopped by the roll and its claim removed; one the roll cannot verify is a WARN, never a kill
 # The worker is the REAL pool.sh launching a stand-in pool-worker.sh whose "loop" is a version string, so what the test
 # watches is which loop the relaunched worker runs. No tmux, no claude, no gh.
 set -uo pipefail
@@ -112,4 +114,34 @@ assert_ok "...and no user MCP servers" grep -qF -- ' --strict-mcp-config ' <<<"$
 echo "=== 5. harness update tells the operator to do nothing by hand ==="
 assert_no "update.sh has no 'pause → stop → start --recover' instruction" grep -q 'harness pause  →' "$REAL/update.sh"
 assert_no "...nor says live workers keep the old logic" grep -q 'keep the OLD engine logic' "$REAL/update.sh"
+echo "=== 6. #643: a live legacy unit-claim worker that no pid file names is rolled, not ignored ==="
+LREL="$ROOT/engine-legacy"; mk_engine "$LREL" v1
+F6="$(fleet six)"; mkdir -p "$F6/run/claims"
+( ENGINE_DIR="$NEWREL" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$F6/run/worker-1.pid" )   # the current worker, on the target engine
+( ENGINE_DIR="$LREL" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$ROOT/legacy.pid" )         # the v0.5.0 loop: no pid file
+sleep 0.2; CUR="$(wpid "$F6")"; LEG="$(cat "$ROOT/legacy.pid")"
+printf '1 %s\n' "$LEG" > "$F6/run/claims/main.claim"                                                # the retired <unit>.claim format
+out="$(roll "$NEWREL")"
+assert_no "the legacy worker was stopped" alive "$LEG"
+assert_no "...its claim file was removed" test -f "$F6/run/claims/main.claim"
+assert_ok "...and the roll logged it" grep -q "killed legacy unit-claim worker pid $LEG" <<<"$out"
+assert_ok "the current worker on the target engine was left alone" alive "$CUR"
+kill "$CUR" 2>/dev/null
+echo "-- a legacy claim whose process cannot be verified is a WARN, never a kill"
+F7="$(fleet seven)"; mkdir -p "$F7/run/claims"
+( ENGINE_DIR="$NEWREL" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$F7/run/worker-1.pid" )
+( env -u ENGINE_DIR nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$ROOT/stranger.pid" )          # no ENGINE_DIR, not a Harness worker
+sleep 0.2; CUR7="$(wpid "$F7")"; STR="$(cat "$ROOT/stranger.pid")"
+printf '1 %s\n' "$STR" > "$F7/run/claims/main.claim"
+out="$(roll "$NEWREL")"
+assert_ok "an unverifiable legacy process is still alive" alive "$STR"
+assert_ok "...its claim is kept" test -f "$F7/run/claims/main.claim"
+assert_ok "...and a WARN says why" grep -q "WARN roll: legacy claim main.claim pid $STR" <<<"$out"
+echo "-- impl-/orch-/bug- lane claims and a current-engine worker are not legacy workers"
+( ENGINE_DIR="$NEWREL" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$ROOT/lane.pid" ); sleep 0.2; LANE="$(cat "$ROOT/lane.pid")"
+printf 'W1 %s IMPL:5 x-main-i5 -\n' "$LANE" > "$F7/run/claims/impl-5.claim"
+out="$(roll "$NEWREL")"
+assert_ok "a 5-field lane claim's process is untouched" alive "$LANE"
+kill "$CUR7" "$STR" "$LANE" 2>/dev/null
+
 finish

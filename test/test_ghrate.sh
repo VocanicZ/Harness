@@ -103,6 +103,8 @@ PY2
   assert_eq "$(tr '\n' ' ' < "$SLEPT")" "14 14 " "$cli: the poll interval doubles on a low budget"
   : > "$SLEPT"; TMUXLOG="$RUN_DIR/tmux"; : > "$TMUXLOG"
   tmux(){ echo "tmux $*" >> "$TMUXLOG"; [[ "$1" == ls ]] && echo hz-main-i5; return 0; }
+  # #643: adoption only takes (and never kills) a lane whose worktree is a git worktree on issue/5 with its task file
+  mkdir -p "$WORKTREES_DIR/main-i5"; command git init -q "$WORKTREES_DIR/main-i5"; command git -C "$WORKTREES_DIR/main-i5" symbolic-ref HEAD refs/heads/issue/5; echo task > "$WORKTREES_DIR/main-i5/.harness-task.md"
   ci_gate_ok(){ return 0; }; claim_lane(){ echo pool >> "$CLAIMED"; }
   worker_step W1 >/dev/null
   assert_eq "$(cat "$CLAIMED")" "" "$cli: the worker claims nothing new on a low budget"

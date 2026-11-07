@@ -23,6 +23,9 @@
 #     - never one holding a BUG claim (run/claims/bug-*.claim naming its pid): it is mid-session. It
 #       is counted as deferred and rolled by a later call, once the claim is released. A worker
 #       holding a UNIT claim is rolled at once: the next worker claims the unit and adopts its lanes.
+#   Also kills (#643) a live worker of the retired unit-claim loop that no pid file names: the process of a 2-field
+#   run/claims/<unit>.claim (a key that is no impl-/orch-/bug- lane), on another engine than <engine dir> or of an
+#   unreadable one whose cmdline is a Harness worker; its claim file goes with it. One it cannot verify is a WARN, never a kill.
 #   then `harness --state-dir <fleet> start` (never --recover) relaunches the missing ones. A paused
 #   fleet is rolled too and stays paused (start.sh keeps PAUSED under HARNESS_START_KEEP_PAUSE). A
 #   fleet with no worker pid files was stopped on purpose and is skipped.
@@ -74,6 +77,38 @@ fleet_roll(){
     fi
     lock_release "$lockfd"
   done
+  # #643: a worker of the retired unit-claim loop is named by no pid file (a newer worker took worker-N.pid), only by its
+  # 2-field `claims/<unit>.claim` — "<wid> <pid>", a key that is no impl-/orch-/bug- lane. It launches lanes the new
+  # engine cannot see, so it is rolled like any old-engine worker.
+  local cf ck cpid known lcmd
+  shopt -s nullglob
+  for cf in "$run"/claims/*.claim; do
+    ck="$(basename "$cf" .claim)"; case "$ck" in impl-*|orch-*|bug-*) continue;; esac
+    [[ "$(awk '{print NF; exit}' "$cf" 2>/dev/null)" == 2 ]] || continue
+    cpid="$(awk '{print $2; exit}' "$cf" 2>/dev/null)"
+    [[ $cpid =~ ^[0-9]+$ ]] && kill -0 "$cpid" 2>/dev/null || continue
+    known=0; for pf in "${pids[@]}"; do [[ "$(cat "$pf" 2>/dev/null)" == "$cpid" ]] && known=1; done
+    (( known )) && continue                                          # a pid-file worker: handled above
+    ed="$(_roll_proc_engine "$cpid")"
+    if [[ -n $ed ]]; then
+      if [[ $ed == "$want" ]]; then _roll_stale_code "$cpid" "$want" || continue; fi
+    else
+      lcmd="$(proc_cmdline "$cpid")"
+      case "$lcmd" in *pool-worker.sh*|*scripts/drive.sh*|*scripts/pool.sh*) ed="unknown engine";;
+        *) _roll_log "WARN roll: legacy claim ${cf##*/} pid $cpid: ENGINE_DIR unreadable and it is not a recognisable Harness worker — left alone"; continue;; esac
+    fi
+    if (( dry )); then
+      killed=$((killed+1)); _roll_log "DRY auto-update: would kill legacy unit-claim worker pid $cpid (${cf##*/}, $ed)"; continue; fi
+    lock_acquire "$run/pool.lock" lockfd
+    if _roll_bug_claimed "$run" "$cpid"; then
+      deferred=$((deferred+1)); _roll_log "roll: legacy worker pid $cpid holds a bug claim — rolled on a later pass"
+    elif kill "$cpid" 2>/dev/null; then
+      killed=$((killed+1)); victims+=("$cpid"); rm -f "$cf"
+      _roll_log "ACT roll: killed legacy unit-claim worker pid $cpid (${cf##*/}, $ed) — no pid file named it"
+    fi
+    lock_release "$lockfd"
+  done
+  shopt -u nullglob
   # a killed worker has to be gone before start.sh looks at its pid file ("already running"); KILL one
   # that ignores TERM — it holds no claim, so nothing is lost.
   for pid in "${victims[@]}"; do

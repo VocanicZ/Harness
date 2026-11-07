@@ -200,7 +200,7 @@ echo "-- drive.sh renders the helper + mode into the lane prompts"
   HARNESS_SWARM=auto; RUN_DIR="$T/run dir"   # a space: the rendered command must stay one argv
   launch_claude(){ :; }; ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }
   remove_worktree(){ :; }; default_branch(){ echo main; }; gh(){ return 1; }
-  git(){ local a; case "$*" in *"worktree add"*) for a in "$@"; do [[ "$a" == "$WORKTREES_DIR"/* ]] && mkdir -p "$a"; done;; esac; return 0; }
+  git(){ local a; case "$*" in *"worktree add"*) for a in "$@"; do [[ "$a" == "$WORKTREES_DIR"/* ]] && { mkdir -p "$a"; : > "$a/.git"; }; done;; esac; return 0; }   # #643: a real add leaves .git
   UNIT=main; SLUG=acme/widget; PROJECT=w; DESC=d; CHECKOUT="$T/checkout"; mkdir -p "$CHECKOUT"
   spawn_impl 7 "ISSUE 7 DONE"
   F="$WORKTREES_DIR/main-i7/.harness-task.md"

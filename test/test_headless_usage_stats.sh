@@ -99,7 +99,7 @@ ensure_checkout(){ return 0; }; default_branch(){ echo main; }
 git(){ return 0; }
 
 echo "== a busy headless lane under the usage threshold is left alone =="
-S="$(sess_impl main 9)"; WD="$WORKTREES_DIR/main-i9"; mkdir -p "$WD"
+S="$(sess_impl main 9)"; WD="$WORKTREES_DIR/main-i9"; mkdir -p "$WD"; : > "$WD/.git"   # #643: the worktree is a git worktree (.git file)
 printf 'agent-working\n' > "$FAKE_GH_DIR/labels-9"
 fake_claude i9 "tool-use working on it" "normal checkpointed <promise>ISSUE 9 DONE</promise>" "normal"
 touch "$FAKE_CLAUDE_DIR/hold"   # the lane is mid-turn on the issue when the usage watch looks
@@ -239,7 +239,7 @@ assert_eq "$(jq -r .account <<<"$st")" team "the account is the lane's config di
 assert_ok "rate_limit_at is stamped with the reading" jq -e '.rate_limit_at > 0 and .rate_limit.unifiedWindows.seven_day.utilization == 0.94' >/dev/null <<<"$st"
 
 echo "== harness status, fleetview and harness web list a live headless lane with its state =="
-S="$(sess_impl main 11)"; WD="$WORKTREES_DIR/main-i11"; mkdir -p "$WD"
+S="$(sess_impl main 11)"; WD="$WORKTREES_DIR/main-i11"; mkdir -p "$WD"; : > "$WD/.git"
 printf 'ready-for-agent\n' > "$FAKE_GH_DIR/labels-11"
 fake_claude i11 "normal working"; touch "$FAKE_CLAUDE_DIR/hold"
 spawn_impl 11 "ISSUE 11 DONE" >/dev/null 2>&1

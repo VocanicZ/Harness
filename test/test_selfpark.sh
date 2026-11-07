@@ -86,6 +86,7 @@ for cli in claude agy; do
   assert_ok "[$cli] the WIP is pushed to origin/issue/5" bash -c "git -C '$ORIGIN' show issue/5:feature.txt | grep -q wip"
   assert_eq "$(killed)" "1" "[$cli] the session is killed"
   assert_eq "$(nudges)" "1" "[$cli] no second nudge before the kill"
+  touch -d "2 minutes ago" "$WD"   # #643: the lane has long run; reap_team spares only a seconds-old claimless worktree
   reap_team 2>/dev/null
   assert_no "[$cli] reap_team removed its worktree" test -d "$WD"
   assert_no "[$cli] the self-park state went with the session" test -f "$RUN_DIR/$S.selfpark"
