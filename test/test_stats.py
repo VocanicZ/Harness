@@ -176,6 +176,18 @@ def test_fleet_summary():
     assert f["bw"]["sessions"] == 1
     assert st.fleet_summary(evs, model="sonnet")["hz"]["sessions"] == 2
 
+def test_launch_failed_lane_is_not_a_session():
+    # #596: a lane that was gone within seconds of its launch never ran; harness stats must not count it
+    evs = [
+        _ev("launch", session="ok1", prefix="hz", issue=1, kind="impl"),
+        _ev("launch", session="dead1", prefix="hz", issue=2, kind="impl"),
+        _ev("launch_failed", session="dead1", prefix="hz", issue=2, kind="impl", reason="session_gone"),
+        _ev("session_end", session="dead1", prefix="hz", issue=2, kind="impl", wall_s=1),
+        _ev("launch_failed", session="dead2", prefix="hz", issue=3, kind="impl", reason="start_failed"),
+    ]
+    assert [x["session"] for x in st.sessions(evs)] == ["ok1"]
+    assert st.fleet_summary(evs)["hz"]["sessions"] == 1
+
 def test_fleet_summary_reads_old_unit_and_new_repo_worker_events():
     """#472: old claim/release events carry `unit`, new lane_* events carry `repo` + `worker`. The old
     totals do not move; the lanes block attributes a new claim by its repo and an old one by its repo

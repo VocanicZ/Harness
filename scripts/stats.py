@@ -686,7 +686,8 @@ def add_usage(into, usage, model_filter=None):
 
 
 def sessions(events):
-    """One record per session id, merged from its launch + session_end (+ the rest)."""
+    """One record per session id, merged from its launch + session_end (+ the rest). A session whose launch
+    failed (`launch_failed`, #596) never ran and is left out."""
     by = {}
     for e in events:
         sid = e.get("session")
@@ -704,6 +705,8 @@ def sessions(events):
             s["usage"] = fold_session_end(s["usage"], e)
             s["wall_s"] = ((s.get("wall_s") or 0) + (e.get("wall_s") or 0)) if e.get("resumed") else e.get("wall_s")
             s["ended"] = e.get("ts")
+        elif ev == "launch_failed":   # #596: it never ran — not a session
+            s["launch_failed"] = True
         elif ev == "watchdog_kill":
             s["watchdog_kills"] += 1
         elif ev == "nudge":
@@ -712,7 +715,7 @@ def sessions(events):
             s["turn_interrupts"] += 1
         elif ev == "model_mismatch":
             s["model_mismatch"] = {"intended": e.get("intended"), "actual": e.get("actual")}
-    return list(by.values())
+    return [s for s in by.values() if not s.get("launch_failed")]
 
 
 def mismatches(events):

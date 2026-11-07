@@ -437,6 +437,47 @@ claimed_issues(){ local f k tok; shopt -s nullglob
   for f in "$CLAIMS_DIR"/bug-*.claim; do k="$(basename "$f" .claim)"; tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
     [[ -n "$tok" ]] && is_claimed "$k" && _bug_ref_num "$tok"; done
   shopt -u nullglob; }
+# --- #596: a launch counts only if the lane lives -----------------------------------------------------------
+# A lane whose session is gone within HARNESS_LAUNCH_FAIL_SECS (30s) of its launch never ran: launch_gone_check logs
+# `launch_failed` (stats.py does not count it as a session) and arms a backoff on that lane's claim key, so
+# claim_lane holds the same issue / PRD action back for HARNESS_LAUNCH_BACKOFF s (60, doubling per consecutive
+# failure, capped at HARNESS_LAUNCH_BACKOFF_MAX 900) instead of re-claiming it at once.
+# launch_key_of_sess <sess> — the claim key of an issue (-i<N>) or PRD (-p<N>) lane's session; empty for others.
+launch_key_of_sess(){ case "$1" in *-i[0-9]*) echo "impl-${1##*-i}";; *-p[0-9]*) echo "orch-${1##*-p}";; esac; }
+_launchfail_file(){ echo "$RUN_DIR/launchfail.$1"; }
+launch_backoff_mark(){ local key="$1" f n=0 t; f="$(_launchfail_file "$key")"
+  read -r t n 2>/dev/null < "$f"; [[ "${n:-}" =~ ^[0-9]+$ ]] || n=0
+  echo "$(date +%s) $(( n + 1 ))" > "$f"; }
+launch_backoff_clear(){ rm -f "$(_launchfail_file "$1")"; }
+# launch_backoff_active <key> — the lane failed to launch and its backoff has not run out.
+launch_backoff_active(){ local f t n wait base="${HARNESS_LAUNCH_BACKOFF:-60}" max="${HARNESS_LAUNCH_BACKOFF_MAX:-900}"
+  f="$(_launchfail_file "$1")"; read -r t n 2>/dev/null < "$f" || return 1
+  [[ "$t" =~ ^[0-9]+$ && "${n:-}" =~ ^[0-9]+$ ]] || return 1
+  wait=$(( base << (n > 1 ? (n > 8 ? 7 : n - 1) : 0) )); (( wait > max )) && wait="$max"
+  (( $(date +%s) - t < wait )); }
+# backoff_keys <impl|orch> — the numbers of the issues / PRDs whose launch backoff is active, comma-separated, for
+# claim_lane to add to dispatch's busy lists (orch-0, the PLAN/PRD session, has no number and is held in the loop).
+backoff_keys(){ local f k out=(); shopt -s nullglob
+  for f in "$RUN_DIR"/launchfail."$1"-*; do k="${f##*/launchfail.}"; [[ "${k#"$1"-}" =~ ^[0-9]+$ ]] || continue
+    launch_backoff_active "$k" && out+=("${k#"$1"-}"); done
+  shopt -u nullglob; local IFS=,; echo "${out[*]-}"; }
+# launch_fail <sess> <uuid> <reason> — the launch itself failed (the backend could not start the session).
+launch_fail(){ local sess="$1" uuid="$2" reason="$3" key; key="$(launch_key_of_sess "$sess")"
+  harness_event launch_failed session="$uuid" tmux="$sess" goal="${GOAL:-}" prd="${STAT_PRD:-}" reason="$reason"
+  log "launch of $sess failed ($reason)"; [[ -n "$key" ]] && launch_backoff_mark "$key"; return 0; }
+# launch_gone_check <sess> <kind> [issue|prd args…] — <sess> has just been found gone. A lane launched under
+# HARNESS_LAUNCH_FAIL_SECS ago never ran: log launch_failed and back off its claim key. One that ran its course
+# clears the backoff. No-op for a session launch_agent did not record.
+launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid key age; shift 2
+  [[ -f "$f" ]] || return 0; read -r t uuid < "$f"; rm -f "$f"; key="$(launch_key_of_sess "$sess")"
+  [[ "$t" =~ ^[0-9]+$ ]] || return 0
+  age=$(( $(date +%s) - t ))
+  if (( age < ${HARNESS_LAUNCH_FAIL_SECS:-30} )); then
+    harness_event launch_failed session="$uuid" tmux="$sess" kind="$kind" "$@" reason=session_gone age_s="$age"
+    log "session $sess was gone ${age}s after launch — launch_failed, backing off"
+    [[ -n "$key" ]] && launch_backoff_mark "$key"
+  else [[ -n "$key" ]] && launch_backoff_clear "$key"; fi
+  return 0; }
 # _csv_union <a,b> <c,d> … — the distinct numbers of the comma lists, ascending, comma-separated.
 _csv_union(){ printf '%s\n' "$@" | tr ',' '\n' | grep -E '^[0-9]+$' | sort -un | paste -sd, -; }
 
@@ -1682,10 +1723,10 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
   session_env "$uuid"; lane_guard_env "$wd"; lane_tmp_env "$wd"
   local model effort line line_me
-  if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || return 1
+  if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || { launch_fail "$sess" "$uuid" start_failed; return 1; }
   else
   # A backend that cannot start the session stops the launch here: nothing to type into.
-  sess_start "$sess" "$wd" "${SESSION_ENV[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; return 1; }
+  sess_start "$sess" "$wd" "${SESSION_ENV[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; launch_fail "$sess" "$uuid" start_failed; return 1; }
   sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
   # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
@@ -1710,6 +1751,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   [[ "$line_me" == *$'\t'* ]] || effort=""
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
     worktree="$wd" model="$model" effort="$effort" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
+  echo "$(date +%s) $uuid" > "$RUN_DIR/$sess.launched"   # #596: launch_gone_check reads when it started
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }
 # _launch_headless <sess> <wd> <uuid> [resume] — launch_agent on a headless backend (#349): the lane IS the CLI's
