@@ -58,6 +58,23 @@ churn_report(){ local l
     < <(timeout 10 python3 "$ENGINE_DIR/scripts/churn.py" status --fleet "$HARNESS_SESS_PREFIX" 2>/dev/null)
   return 0; }
 
+# duplicate_workers_report — #647: a live top-level worker process of THIS fleet that no pid file names, or a slot with more than one.
+# The pid files alone said UP for a fleet that was running 27 workers instead of 3. A worker's own `$(…)` forks are not workers
+# (fleet_worker_procs), so a healthy fleet — even mid-fork — prints nothing. Silent without a /proc; never fails the dashboard.
+duplicate_workers_report(){ local pid slot n untracked list="" dup=0
+  declare -A _per=()
+  untracked=" $(fleet_untracked_workers "$STATE_DIR" | awk '{printf "%s ", $1}')"
+  while read -r pid slot; do
+    [[ -n $pid ]] || continue
+    _per[$slot]=$(( ${_per[$slot]:-0} + 1 )); list+="${list:+, }pid $pid ($slot)"
+    [[ $untracked == *" $pid "* ]] && dup=1
+  done < <(fleet_worker_procs "$STATE_DIR")
+  (( ${#_per[@]} )) && for slot in "${!_per[@]}"; do n="${_per[$slot]}"; (( n > 1 )) && dup=1; done
+  (( dup )) || return 0
+  printf '  ⚠ duplicate workers: %s\n' "$list"
+  echo "      a pid file names fewer workers than are running, or a slot has more than one — fix: harness start (adopts or stops them)"
+  return 0; }
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -81,6 +98,7 @@ render_once(){
   gh_rate_report   # #183: each GitHub token's remaining budget, reset time, and any rate-limit hold
   model_mismatch_report   # #376: a session that ran another model than the one it was launched with
   churn_report            # #545: an issue parked because every session on it died young
+  duplicate_workers_report   # #647: a live worker no pid file names, or two on one slot
   echo "───────────────────────────────────────────────────────────────────"
 
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes

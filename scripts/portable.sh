@@ -164,6 +164,37 @@ proc_ppid(){ local k v
   while read -r k v; do [[ $k == PPid: ]] && { printf '%s\n' "$v"; return 0; }; done \
     2>/dev/null < "${HARNESS_PROC_ROOT:-/proc}/$1/status"
   is_windows || ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; return 0; }
+# fleet_worker_procs <state dir> — `<pid> <slot>` for every live TOP-LEVEL pool / priority worker process of THIS fleet (#647),
+# whether or not a pid file names it. The process table is the truth a pid file can lose: a pid file overwritten, cleared, or
+# read from another pid namespace stops naming a worker that keeps running. Slot = `worker-N` (pool-worker.sh N) or `priority`
+# (priority-worker.sh <id>), the pid-file stem its launcher uses. Counted: STATE_DIR (compared by realpath) equal to <state dir>;
+# argv names the worker script as an argument of its own (a `grep pool-worker.sh` does not match); and the parent is not itself a
+# worker of this fleet — a worker's `$(…)` and background subshells carry its command line and environment, and are not workers.
+# Another fleet's workers never match. Nothing without a /proc (macOS), so callers behave as they did before.
+fleet_worker_procs(){ local want pid sd cmd kind arg ppid
+  declare -A _fw_slot=()
+  want="$(realpath -m "$1" 2>/dev/null)" || return 0
+  for pid in $(proc_find '(^|[ /])(pool|priority)-worker\.sh( |$)'); do
+    sd="$(proc_env "$pid" STATE_DIR)"; [[ -n $sd && "$(realpath -m "$sd" 2>/dev/null)" == "$want" ]] || continue
+    cmd="$(proc_cmdline "$pid")"
+    # a worker is a shell running the script; `pgrep -f pool-worker.sh` / `bash -c '… grep pool-worker.sh'` only mention it
+    [[ $cmd =~ ^([^\ ]*/)?(ba|da|z)?sh(\.exe)?\  && $cmd != *" -c "* ]] || continue
+    if [[ $cmd =~ (pool|priority)-worker\.sh\ +([^\ ]+) ]]; then kind="${BASH_REMATCH[1]}"; arg="${BASH_REMATCH[2]}"
+    else kind="${cmd##*/}"; kind="${kind%%-*}"; arg=""; fi
+    if [[ $kind == priority ]]; then _fw_slot[$pid]=priority; else _fw_slot[$pid]="worker-${arg:-?}"; fi
+  done
+  for pid in "${!_fw_slot[@]}"; do
+    ppid="$(proc_ppid "$pid")"
+    [[ -n $ppid && -n ${_fw_slot[$ppid]:-} ]] && continue
+    printf '%s %s\n' "$pid" "${_fw_slot[$pid]}"
+  done | sort -n; return 0; }
+# fleet_untracked_workers <state dir> — fleet_worker_procs minus the pids a run/*.pid file names: the workers nothing launched or
+# will stop by pid file — invisible to start, roll and status until #647.
+fleet_untracked_workers(){ local pf p line
+  declare -A _fu_named=()
+  for pf in "$1"/run/*.pid; do [[ -f $pf ]] || continue; p="$(cat "$pf" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && _fu_named[$p]=1; done
+  while IFS= read -r line; do [[ -n $line && -z ${_fu_named[${line%% *}]:-} ]] && printf '%s\n' "$line"; done < <(fleet_worker_procs "$1")
+  return 0; }
 # proc_descendants <pid>… — every descendant of each <pid> (children, theirs, …), one per line, the
 # <pid>s themselves not included. procps `ps -e -o pid=,ppid=` (POSIX only: a tmux pane's tree, #418).
 proc_descendants(){ (( $# )) && ! is_windows || return 0
