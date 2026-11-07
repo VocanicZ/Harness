@@ -48,6 +48,7 @@ _cli_call(){ local fn="$1" cli="${HARNESS_CLI:-claude}"; shift
 
 # --- defaults: an adapter overrides only what its CLI needs -----------------------------------
 _cli_default_lane_settings(){ :; }
+_cli_default_lane_env(){ :; }
 # #375: no CLI but claude ships a model or effort per role — '' = the CLI's own default (copilot and
 # others need full model ids, which Harness never guesses). No pin outside .harness-lane either.
 _cli_default_role_default(){ :; }
@@ -119,6 +120,7 @@ cli_exe(){ _cli_exe "$(cli_bin)"; }                    # its executable: what to
 cli_launch(){ _cli_call launch "$@"; }                 # <wd> <uuid> <model> <effort> → the line typed into the pane
 cli_headless(){ _cli_call headless "$@"; }             # <wd> <uuid> <model> <effort> [resume] → the headless lane runner's argv, one word per line (#349); resume: <uuid> is an existing session to carry on (#350)
 cli_lane_settings(){ _cli_call lane_settings "$@"; }   # <wd> → per-lane settings written outside the launch line
+cli_lane_env(){ _cli_call lane_env "$@"; }             # → NAME=value lines the lane's environment gets from this CLI's adapter (#615)
 cli_pinned_model(){ _cli_call pinned_model "$@"; }     # <wd> → a model a worktree hook pinned outside .harness-lane ('' = none) (#375)
 cli_role_default(){ _cli_call role_default "$@"; }     # <manager|implementer> <model|effort> → the shipped default ('' = the CLI's own) (#375)
 cli_model_effort(){ _cli_call model_effort "$@"; }     # <launch line> <wd> → <model>\t<effort> the launch runs with ('' = the CLI's default)

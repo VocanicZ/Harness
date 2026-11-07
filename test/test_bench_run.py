@@ -5,7 +5,7 @@ Covered: a run creates a private repo seeded with the brief only, records a sche
 and deletes the repo (also on failure, cap and a failed delete); the guard refuses a usage-HELD account,
 short headroom, no weekly reading and no $ per 1%, and --dry-run creates and spends nothing; a stub
 arm over the wall or $ cap is stopped and recorded as capped."""
-import glob, json, os, shutil, stat, subprocess, sys, tempfile
+import glob, importlib.util, json, os, shutil, stat, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -743,3 +743,80 @@ def test_figures_check_re_measures_every_runs_logs_in_a_batch(e):
     shutil.rmtree(os.path.join(e.results, "t1", "stub.runs", "run-02.logs", "transcripts", "0-stub-session"))
     bad = subprocess.run(fig + ["--check"], capture_output=True, text=True)
     assert bad.returncode == 1 and "logs do not reproduce results: stub run 2: tokens.output" in bad.stderr, bad.stderr
+
+
+# --- #615: the prompt-cache TTL's measures --------------------------------------------------
+def _ttl_transcript(path, turns):
+    """turns: [(seconds from start, cache_creation {5m, 1h} or None, cache_read)] — one assistant message each."""
+    rows = []
+    for i, (t, cc, rd) in enumerate(turns):
+        u = {"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": rd}
+        if cc is not None:
+            u["cache_creation_input_tokens"] = sum(cc.values())
+            u["cache_creation"] = {"ephemeral_5m_input_tokens": cc.get("5m", 0), "ephemeral_1h_input_tokens": cc.get("1h", 0)}
+        rows.append({"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(1794304800 + t)),
+                     "message": {"id": f"m{i}", "model": "claude-opus-4-1", "usage": u, "content": []}})
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def test_measure_splits_cache_writes_by_ttl_and_prices_the_cache_at_each(tmp_path=None):
+    d = tempfile.mkdtemp()
+    try:
+        tr = os.path.join(d, "s.jsonl")
+        # 1000 written at 5m, 400 at 1h, one block that records no split (all 5m), a read of 5000
+        _ttl_transcript(tr, [(0, {"5m": 1000}, 0), (10, {"1h": 400}, 5000), (20, None, 0)])
+        with open(tr, "a") as fh:
+            fh.write(json.dumps({"type": "assistant", "timestamp": "2026-11-07T10:00:30Z", "message": {
+                "id": "legacy", "model": "claude-opus-4-1", "content": [],
+                "usage": {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 200}}}) + "\n")
+        fc, st = bench_run._load("forecast"), bench_run._load("stats")
+        m = bench_run.measure(fc, st, [tr])
+        assert (m["cache_write_5m"], m["cache_write_1h"]) == (1200, 400), m
+        assert m["tokens"]["cache_write"] == 1600 == m["cache_write_5m"] + m["cache_write_1h"], m["tokens"]
+        _, _, pw5, pw1, pr = fc.price("claude-opus-4-1")
+        assert abs(m["cache_cost_usd"] - (1200 * pw5 + 400 * pw1 + 5000 * pr) / 1e6) < 1e-4, m["cache_cost_usd"]
+        assert pw1 > pw5, "the 1h write costs more than the 5m one: that is the saving"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_measure_reports_the_turn_gap_distribution_and_counts_the_gaps_a_5m_cache_misses():
+    d = tempfile.mkdtemp()
+    try:
+        tr = os.path.join(d, "s.jsonl")
+        # gaps: 10s, 20s, 400s (over 5m), 30s, 3700s (over 5m and 1h)
+        _ttl_transcript(tr, [(0, None, 1), (10, None, 1), (30, None, 1), (430, None, 1), (460, None, 1), (4160, None, 1)])
+        fc, st = bench_run._load("forecast"), bench_run._load("stats")
+        g = bench_run.measure(fc, st, [tr])["turn_gaps"]
+        assert g == {"turns": 6, "p50_s": 30.0, "p90_s": 3700.0, "max_s": 3700.0, "over_5m": 2, "over_1h": 1}, g
+        assert bench_run.gap_stats([]) is None and bench_run.measure(fc, st, [])["turn_gaps"] is None
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@with_env()
+def test_a_run_records_its_cache_ttl_split_gaps_and_the_logs_reproduce_them(e):
+    p = e.run("stub", "--arm-opt", "cost=2")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = e.result()
+    assert bench_run.validate(r) == [], bench_run.validate(r)
+    assert r["cache_ttl"] == "5m" and r["cache_write_5m"] == 0 and r["cache_write_1h"] == 0, r
+    assert r["cache_cost_usd"] == 0 and r["turn_gaps"] is None, r      # the stub's one-message transcript has no cache and no gap
+    logs = os.path.join(e.results, "t1", "stub.logs")
+    fc, st = bench_run._load("forecast"), bench_run._load("stats")
+    assert bench_run.verify_logs(fc, st, r, logs) == []
+    assert bench_run.verify_logs(fc, st, dict(r, cache_write_1h=7), logs) != []   # a split the logs do not hold
+    assert bench_run.validate(dict(r, cache_ttl="2h")) != []
+    assert bench_run.validate(dict(r, turn_gaps={"turns": 2})) != []
+
+
+def test_the_ttl_measures_aggregate_and_the_bench_fleet_env_carries_the_setting():
+    import aggregate
+    doc = {"cache_write_5m": 10, "cache_write_1h": 3, "cache_cost_usd": 0.5,
+           "turn_gaps": {"turns": 4, "p50_s": 5.0, "p90_s": 400.0, "max_s": 400.0, "over_5m": 1, "over_1h": 0}}
+    got = {k: f(doc) for k, f in aggregate.METRICS.items() if k in ("cache_write_5m", "cache_write_1h", "cache_cost_usd", "gap_p90_s", "gaps_over_5m")}
+    assert got == {"cache_write_5m": 10, "cache_write_1h": 3, "cache_cost_usd": 0.5, "gap_p90_s": 400.0, "gaps_over_5m": 1}, got
+    assert aggregate.METRICS["gap_p90_s"]({"turn_gaps": None}) is None
+    spec = importlib.util.spec_from_file_location("bench_arm_h615", os.path.join(ROOT, "bench", "arms", "harness.py"))
+    assert "HARNESS_CACHE_TTL" in [l for l in open(spec.origin) if l.startswith("PASS_ENV")][0]

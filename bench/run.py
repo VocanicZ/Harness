@@ -385,10 +385,49 @@ def load_arm(name, arms_dir):
 
 
 # --- measuring ----------------------------------------------------------------------
+def cache_writes(u):
+    """(5m, 1h) cache-write tokens of one raw usage block: the split it records, or, when it records none,
+    all of them as 5m (the same reading as forecast.raw_cost)."""
+    cc = u.get("cache_creation") or {}
+    w1 = int(cc.get("ephemeral_1h_input_tokens") or 0)
+    w5 = cc.get("ephemeral_5m_input_tokens")
+    w5 = int(u.get("cache_creation_input_tokens") or 0) - w1 if w5 is None else int(w5)
+    return max(w5, 0), w1
+
+
+def turn_gaps(fc, st, transcripts):
+    """The gaps between one model turn and the next in each main session, seconds, sorted (#615): what a 5m
+    prompt-cache TTL has to bridge. A gap over 5 minutes is a cache written again."""
+    gaps = []
+    for tr in transcripts:
+        for f in st.transcript_files(tr):
+            ts = []
+            for _, _, _, _, t in fc._messages(f):
+                try:
+                    ts.append(datetime.fromisoformat(str(t).replace("Z", "+00:00")).timestamp())
+                except (TypeError, ValueError):
+                    continue
+            gaps += [b - a for a, b in zip(ts, ts[1:]) if b >= a]
+    return sorted(gaps)
+
+
+def gap_stats(gaps):
+    """The turn-gap distribution a bench record carries: count, median, p90, max, and the gaps a 5m / 1h cache
+    does not bridge. None when there were fewer than two turns."""
+    if not gaps:
+        return None
+    pick = lambda q: round(gaps[min(len(gaps) - 1, int(q * len(gaps)))], 1)
+    return {"turns": len(gaps) + 1, "p50_s": pick(0.5), "p90_s": pick(0.9), "max_s": round(gaps[-1], 1),
+            "over_5m": sum(g > 300 for g in gaps), "over_1h": sum(g > 3600 for g in gaps)}
+
+
 def measure(fc, st, transcripts):
     """Tokens, list-price $ and models of the transcripts (each also counting its sub-agents' files, every
-    message once), and the coding / testing split of their main sessions (#379)."""
+    message once), the coding / testing split of their main sessions (#379), the cache writes split by TTL
+    and what they cost, and the turn-gap distribution (#615)."""
     seen, models = set(), {}
+    w5t = w1t = 0
+    cache_usd = 0.0
     for tr in transcripts:
         for f in st.transcript_files(tr):
             for key, model, u, _, _ in fc._messages(f):
@@ -406,13 +445,18 @@ def measure(fc, st, transcripts):
                 m["cache_read"] += int(u.get("cache_read_input_tokens") or 0)
                 m["cache_write"] += int(cc or 0)
                 m["cost_usd"] += fc.raw_cost(u, model)
+                w5, w1 = cache_writes(u)
+                w5t, w1t = w5t + w5, w1t + w1
+                _, _, pw5, pw1, pr = fc.price(model)
+                cache_usd += (w5 * pw5 + w1 * pw1 + int(u.get("cache_read_input_tokens") or 0) * pr) / 1e6
     for m in models.values():
         m["cost_usd"] = round(m["cost_usd"], 4)
     tokens = {k: sum(m[k] for m in models.values()) for k in ("input", "output", "cache_read", "cache_write")}
     splits = [s for s in (st.time_split(t) for t in transcripts) if s]
     split = None if not splits else {k: sum(s[k] for s in splits) for k in ("coding_s", "testing_s", "test_calls")}
     return {"tokens": tokens, "models": models, "cost_usd": round(sum(m["cost_usd"] for m in models.values()), 4),
-            "split": split}
+            "split": split, "cache_write_5m": w5t, "cache_write_1h": w1t, "cache_cost_usd": round(cache_usd, 4),
+            "turn_gaps": gap_stats(turn_gaps(fc, st, transcripts))}
 
 
 def cost_now(fc, st, transcripts):
@@ -550,6 +594,13 @@ FUZZ_FIELDS = {"fuzz_cases": int, "fuzz_divergences": int, "fuzz_examples": list
                "fuzz_hash": str, "fuzz_error": str, "fuzz_classes": int, "fuzz_class_counts": dict}
 # Optional (#620): the scripted blind review (bench/review.py): `review_score` is its mean (0..10), `review` the detail.
 REVIEW_FIELDS = {"review_score": (int, float), "review": dict}
+# Optional (#615): the prompt-cache TTL the arm's lanes ran with (HARNESS_CACHE_TTL, 5m or 1h), the cache-write
+# tokens split by TTL, what the cache cost (writes at their TTL's price, plus reads), and the turn-gap distribution.
+CACHE_FIELDS = {"cache_ttl": str, "cache_write_5m": int, "cache_write_1h": int, "cache_cost_usd": (int, float),
+                "turn_gaps": (dict, type(None))}
+
+
+GAP_KEYS = ("turns", "p50_s", "p90_s", "max_s", "over_5m", "over_1h")
 
 
 def valid_reason(reason):
@@ -611,6 +662,13 @@ def validate(d):
     for k, t in REVIEW_FIELDS.items():
         if k in d and (not isinstance(d[k], t) or isinstance(d[k], bool)):
             bad.append(f"{k}: {type(d[k]).__name__}")
+    for k, t in CACHE_FIELDS.items():
+        if k in d and (not isinstance(d[k], t) or isinstance(d[k], bool)):
+            bad.append(f"{k}: {type(d[k]).__name__}")
+    if d.get("cache_ttl") not in (None, "5m", "1h"):
+        bad.append(f"cache_ttl: {d['cache_ttl']!r} is not 5m or 1h")
+    if isinstance(d.get("turn_gaps"), dict) and sorted(d["turn_gaps"]) != sorted(GAP_KEYS):
+        bad.append("turn_gaps: want " + ", ".join(GAP_KEYS))
     if isinstance(d.get("review_score"), (int, float)) and not isinstance(d.get("review_score"), bool) \
             and not 0 <= d["review_score"] <= 10:
         bad.append("review_score: not within 0..10")
@@ -888,7 +946,9 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             res["counts"] = dict(ctx.counts)
             res.update({k: v for k, v in ctx.extra.items() if k not in res})
             m = measure(fc, st, ctx.transcripts)
-            res.update(tokens=m["tokens"], models=m["models"], cost_usd=m["cost_usd"])
+            res.update(tokens=m["tokens"], models=m["models"], cost_usd=m["cost_usd"], cache_write_5m=m["cache_write_5m"],
+                       cache_write_1h=m["cache_write_1h"], cache_cost_usd=m["cache_cost_usd"], turn_gaps=m["turn_gaps"],
+                       cache_ttl=os.environ.get("HARNESS_CACHE_TTL") or "5m")
             if m["split"]:
                 res.update(m["split"])
             copy_transcripts(ctx, logs)
@@ -1016,6 +1076,12 @@ def verify_logs(fc, st, doc, logs):
             bad.append(f"tokens.{k}: results JSON {(tokens or {}).get(k)}, logs {m['tokens'][k]}")
     if not isinstance(doc.get("cost_usd"), (int, float)) or abs(doc["cost_usd"] - m["cost_usd"]) > 1e-4:
         bad.append(f"cost_usd: results JSON {doc.get('cost_usd')}, logs {m['cost_usd']}")
+    for k in ("cache_write_5m", "cache_write_1h"):   # the cache-write split by TTL (#615)
+        if k in doc and doc[k] != m[k]:
+            bad.append(f"{k}: results JSON {doc[k]}, logs {m[k]}")
+    if "cache_cost_usd" in doc and (not isinstance(doc["cache_cost_usd"], (int, float))
+                                    or abs(doc["cache_cost_usd"] - m["cache_cost_usd"]) > 1e-4):
+        bad.append(f"cache_cost_usd: results JSON {doc['cache_cost_usd']}, logs {m['cache_cost_usd']}")
     for k in ("coding_s", "testing_s", "test_calls"):
         want = (m["split"] or {}).get(k)
         got = doc.get(k)
