@@ -55,7 +55,7 @@ for cli in claude agy; do
   echo "=== [$cli] a lane parks #5 agent-blocked: reaped in one poll, slot goes to #6 ==="
   setup
   s="$(sess_impl main 5)"; echo "$s" > "$LIVE"; echo "ISSUE:5" > "$RUN_DIR/$s.goal"
-  mkdir -p "$WORKTREES_DIR/main-i5"
+  mkdir -p "$WORKTREES_DIR/main-i5"; touch -d "2 minutes ago" "$WORKTREES_DIR/main-i5"   # #643: past the launch grace
   snapshot "ready-for-agent,agent-working,agent-blocked" "2026-10-28T00:31:00Z"
   assert_eq "$(python3 "$ISSUELIB" check "$REPO" ISSUE:5 2>/dev/null)" "DONE" "[$cli] check ISSUE:5 is DONE once #5 is agent-blocked"
   reap_done_sessions 2>/dev/null

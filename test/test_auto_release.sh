@@ -119,6 +119,7 @@ MERGED="$RUN_DIR/merged"; : > "$MERGED"
 release_on_bug_merge(){ echo "$SLUG#$1" >> "$MERGED"; }
 # reap_team: a closed impl issue that is a bug fix is queued; a closed feature issue is not.
 UNIT=main; SLUG=acme/harness; WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR/main-i41" "$WORKTREES_DIR/main-i42"
+touch -d "2 minutes ago" "$WORKTREES_DIR/main-i41" "$WORKTREES_DIR/main-i42"   # #643: past the launch grace
 echo '{"labels":[{"name":"bug-triaged"}],"state":"CLOSED"}'     > "$RUN_DIR/state-41"
 echo '{"labels":[{"name":"ready-for-agent"}],"state":"CLOSED"}' > "$RUN_DIR/state-42"
 gh(){ [[ "$1 $2" == "issue view" ]] && cat "$RUN_DIR/state-$3"; return 0; }

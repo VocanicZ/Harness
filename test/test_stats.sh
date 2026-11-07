@@ -146,7 +146,7 @@ assert_eq "$(ev 1 "e['event'],e['unit']")" "('release', 'bug-acme_widget-9')" "r
 
 : > "$EVENTS"
 UNIT=main; SLUG=acme/widget; REPO=acme/widget; CHECKOUT="$RUN_DIR/co"
-mkdir -p "$WORKTREES_DIR/main-i12"
+mkdir -p "$WORKTREES_DIR/main-i12"; touch -d "2 minutes ago" "$WORKTREES_DIR/main-i12"   # #643: past the launch grace
 remove_worktree(){ :; }
 gh(){ case "$1 $2" in "issue view") echo '{"state":"CLOSED","labels":[]}';; "issue close") return 0;; *) return 0;; esac; }
 git(){ :; }

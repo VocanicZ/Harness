@@ -180,12 +180,28 @@ worker_tend(){ local wid="$1" f key ended=1
 # claim on is adopted: this worker writes the claim and tends the lane from then on. Derived from sessions,
 # not claim files, so it survives `start --recover`'s clear_stale_claims and picks up what a worker roll
 # (#467) or a killed worker left running. A dead lane is not adopted: reap_team / reap_orch reap it.
-adopt_lanes(){ local wid="$1" s key goal tok lockfd
+# adopt_impl_flaw <issue> — #643: why a live impl session's lane is not worth adopting; empty when it is sound: its
+# worktree is a git worktree whose top level is that dir, on issue/<N>, with the task file in it. A claimless launcher
+# whose worktree was reaped under it leaves a session in an empty (or missing) dir that would hold a slot forever.
+adopt_impl_flaw(){ local n="$1" wd="$WORKTREES_DIR/$UNIT-i$1" top br
+  [[ -d "$wd" ]] || { echo "no worktree/task file"; return 0; }
+  top="$(git -C "$wd" rev-parse --show-toplevel 2>/dev/null)"
+  [[ -n "$top" && "$top" -ef "$wd" ]] || { echo "no worktree/task file"; return 0; }
+  [[ -f "$wd/.harness-task.md" ]] || { echo "no worktree/task file"; return 0; }
+  br="$(git -C "$wd" symbolic-ref --short -q HEAD 2>/dev/null)"
+  [[ "$br" == "issue/$n" ]] || echo "worktree is on '${br:-detached HEAD}', not issue/$n"; return 0; }
+adopt_lanes(){ local wid="$1" s key goal tok lockfd flaw
   while read -r s; do
     [[ -n "$s" ]] || continue
     key="$(session_lane_key "$s")"; [[ -n "$key" ]] || continue
     is_claimed "$key" && continue
     session_live "$s" || continue
+    if [[ "$key" == impl-* ]] && flaw="$(adopt_impl_flaw "${key#impl-}")" && [[ -n "$flaw" ]]; then
+      log "adopt: $s has $flaw — killed for re-dispatch (#643)"
+      harness_event lane_adopt_rejected lane="$key" session="$s" reason="$flaw" repo="$SLUG"
+      cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
+      continue
+    fi
     lock_acquire "$POOL_LOCK" lockfd
     if ! is_claimed "$key"; then
       goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"
@@ -243,11 +259,17 @@ reap_ownerless_pool_bugs(){ local f tok n slug pid nf lockfd
 # sweep_stale_lane_claims — a claim whose worker is dead says nothing: adoption reads sessions. That covers an
 # impl-/orch- lane claim and a leftover <unit>.claim from the retired unit-claim loop (a rolled old worker
 # wrote it; nothing reads it now). bug-*.claim is NOT swept here: reap_ownerless_pool_bugs tears its worktrees down first.
-sweep_stale_lane_claims(){ local f k lockfd; shopt -s nullglob
+sweep_stale_lane_claims(){ local f k lockfd pid; shopt -s nullglob
   lock_acquire "$POOL_LOCK" lockfd
   for f in "$CLAIMS_DIR"/*.claim; do
     k="$(basename "$f" .claim)"; [[ "$k" == bug-* ]] && continue
-    is_claimed "$k" || rm -f "$f"
+    if ! is_claimed "$k"; then rm -f "$f"; continue; fi
+    # #643: a LIVE legacy unit claim is a worker of the retired unit-claim loop that no pid file names: fleet_roll stops it
+    # on the next roll, but until then an operator should see the mixed-engine fleet. Once per pid.
+    case "$k" in impl-*|orch-*) continue;; esac
+    pid="$(awk '{print $2; exit}' "$f" 2>/dev/null)"; [[ -f "$RUN_DIR/legacy-warned.$pid" ]] && continue
+    : > "$RUN_DIR/legacy-warned.$pid"
+    log "WARN legacy worker pid $pid holds unit claim $k.claim — a worker of the retired unit-claim loop is alive: a mixed-engine fleet. \`harness update\` (fleet_roll) stops it (#643)"
   done
   lock_release "$lockfd"; shopt -u nullglob; }
 

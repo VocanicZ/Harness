@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A reap can no longer delete a lane's worktree 5 s before its session starts; adoption validates the lane; a leftover old-loop worker is stopped (#643)
+
+- On a fleet running two engine versions, a v0.5.0 worker left over from before a roll launched impl lanes without a lane
+  claim. A v0.9.0 worker's reap deleted the worktree of #618 between the old loop's `git worktree add` and its launch, and the
+  session started in an empty directory, sat idle for 2.5 h holding a pool slot, and was then adopted. Four changes close it:
+  the reap spares a claimless worktree younger than the launch grace (`HARNESS_LAUNCH_FAIL_SECS`, 30 s) that never had a
+  session, and re-checks the claim under `run/pool.lock` before it removes anything; `spawn_impl` no longer launches into a
+  worktree that is not a git worktree or has no task file; adoption kills (and logs, as a `lane_adopt_rejected` event) a live
+  impl session whose worktree is not on `issue/<N>` with its `.harness-task.md`, so the issue is re-dispatched; and
+  `fleet_roll` (so `harness start`, `harness update` and supervise auto-update) stops a live worker of the retired unit-claim
+  loop that no pid file names, logging a `WARN` instead when it cannot verify the process. The worker log warns once per pid
+  while such a worker is alive.
+
 ### The engine files one child itself for a small PRD or POOL=1: no decompose session (#614)
 
 - In bench run-20261106 the decompose session cost $1.29 and split a 4.7 KB brief into 6 issues, which 6 implementer sessions

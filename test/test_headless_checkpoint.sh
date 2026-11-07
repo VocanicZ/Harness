@@ -104,7 +104,7 @@ ensure_checkout(){ return 0; }; default_branch(){ echo main; }
 git(){ case "$*" in *ls-remote*) echo "abc123	refs/heads/issue/${LS_REMOTE:-none}";; esac; return 0; }
 
 echo "== pause --force checkpoints a headless lane mid-issue, waits on its state, ends it =="
-S="$(sess_impl main 9)"; WD="$WORKTREES_DIR/main-i9"; mkdir -p "$WD"
+S="$(sess_impl main 9)"; WD="$WORKTREES_DIR/main-i9"; mkdir -p "$WD"; : > "$WD/.git"   # #643: the worktree is a git worktree (.git file)
 printf 'agent-working\n' > "$FAKE_GH_DIR/labels-9"
 fake_claude i9 "normal working on it" "normal checkpointed <promise>ISSUE 9 DONE</promise>" "normal resumed" "normal"
 touch "$FAKE_CLAUDE_DIR/hold"   # the lane is mid-turn on the issue when the pause comes
@@ -156,7 +156,7 @@ assert_eq "$(claude_last_reply "$WD" "$uuid")" "$uuid:1"$'\n'"resumed" "…so th
 sess_kill "$S" >/dev/null; : > "$FAKE_GH_DIR/labels-9"   # its work merges: the issue is done with
 
 echo "== a lane whose runner died with the box: the crash-recovery sweep frees it, the relaunch resumes it =="
-S="$(sess_impl main 12)"; WD="$WORKTREES_DIR/main-i12"; mkdir -p "$WD"
+S="$(sess_impl main 12)"; WD="$WORKTREES_DIR/main-i12"; mkdir -p "$WD"; : > "$WD/.git"
 printf 'ready-for-agent\n' > "$FAKE_GH_DIR/labels-12"
 fake_claude i12 hang "normal back"
 LS_REMOTE=none spawn_impl 12 "ISSUE 12 DONE" >/dev/null 2>&1

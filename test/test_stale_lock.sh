@@ -38,7 +38,7 @@ for cli in claude agy; do
   export HARNESS_CLI="$cli"
   echo "=== [$cli] reap with gh failing, then gh recovering → cleared on the next poll ==="
   setup
-  mkdir -p "$WORKTREES_DIR/main-i7"   # the watchdog just killed hz-main-i7; its worktree is left
+  mkdir -p "$WORKTREES_DIR/main-i7"; touch -d "2 minutes ago" "$WORKTREES_DIR/main-i7"   # the watchdog just killed hz-main-i7; its worktree is left
   # worker_chores, two ticks. Tick 1 runs with gh DOWN: the reap removes the worktree but cannot reach
   # GitHub. gh recovers after tick 1; tick 2 must clear the label with no worktree left.
   touch "$GHDOWN"
@@ -55,7 +55,7 @@ for cli in claude agy; do
 
   echo "=== [$cli] reap of an OPEN issue whose label edit fails → queued, cleared on retry ==="
   setup
-  mkdir -p "$WORKTREES_DIR/main-i8"
+  mkdir -p "$WORKTREES_DIR/main-i8"; touch -d "2 minutes ago" "$WORKTREES_DIR/main-i8"
   UNIT=main; SLUG=acme/widget; CHECKOUT="$RUN_DIR"
   touch "$EDITDOWN"; reap_team >/dev/null
   assert_eq "$(cat "$RUN_DIR/pending-unlock")" "acme/widget	8" "[$cli] the refused unlock is queued, not dropped"
@@ -86,7 +86,7 @@ for cli in claude agy; do
   old="$(ago 7200)"; fresh="$(ago 300)"
   _working_locks(){ printf '%s\t%s\n' 11 "$old" 12 "$old" 13 "$old" 14 "$old" 15 "$fresh" 16 "$old" 17 "$old" 18 garbage; }
   printf '%s\n' hz-main-i12 hz-main-p13 hz-bug-acme_widget-14-fix > "$LIVE"   # impl, orch, bug-lane fix
-  mkdir -p "$WORKTREES_DIR/main-i16"                                           # still owned by reap_team
+  mkdir -p "$WORKTREES_DIR/main-i16"; touch -d "2 minutes ago" "$WORKTREES_DIR/main-i16"                                           # still owned by reap_team
   mkdir -p "$(triage_worktree acme/widget 17)"                                 # a triage still launching
   sweep_orphan_locks main >/dev/null
   assert_eq "$(unlocks 11)" "1" "[$cli] #11: no session, 2h old → unlocked"

@@ -142,7 +142,7 @@ assert_ok "release says the pool resumes it" grep -q 'the pool resumes it' <<<"$
 
 # ── the pool resumes it, through its own spawn_impl path, from the pushed branch ─────────────────
 RENDERED="$RUN_DIR/rendered"
-( render(){ echo "$1" > "$RENDERED"; }; launch_claude(){ echo "$1" >> "$RENDERED"; }; issue_parent_prd(){ :; }
+( render(){ echo "$1" > "$RENDERED"; echo task; }; launch_claude(){ echo "$1" >> "$RENDERED"; }; issue_parent_prd(){ :; }
   spawn_impl 7 "ISSUE 7 DONE" ) >/dev/null 2>&1; rc=$?
 assert_eq "$rc" "0" "the pool's spawn_impl sets #7 up again — nothing of this session's in its way"
 assert_ok "from resume.md" grep -q 'resume.md$' "$RENDERED"
@@ -168,6 +168,7 @@ assert_ok "and says so" grep -q 'not checkpointed' <<<"$out"
 "${ONE[@]}" start 7 >/dev/null 2>&1
 touch -d "-$(( HARNESS_ONE_LEASE_MIN + 1 )) minutes" "$LEASE"
 assert_no "a stale lease is not a live session" issue_session_live acme/widget 7
+touch -d "2 minutes ago" "$WD"   # #643: past the launch grace
 reap_team
 assert_no "reap_team reaps a worktree whose lease went stale" test -d "$WD"
 assert_no "and drops the lease" test -f "$LEASE"

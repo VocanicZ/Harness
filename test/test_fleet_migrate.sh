@@ -273,6 +273,8 @@ OLD_A="$(pidsof "$UA")"; OLD_B="$(pidsof "$UB")"; OLD_C="$(pidsof "$UC")"; OLD_D
 # a lane session and a bystander on a private tmux server — neither may be touched
 TMUX_SOCK="lm$$"
 if command -v tmux >/dev/null 2>&1; then
+  # #643: adoption only takes a lane whose worktree is a git worktree on issue/<N> holding its task file
+  mkdir -p "$UD/worktrees/main-i3"; git init -q "$UD/worktrees/main-i3"; git -C "$UD/worktrees/main-i3" symbolic-ref HEAD refs/heads/issue/3; echo task > "$UD/worktrees/main-i3/.harness-task.md"
   tmux -L "$TMUX_SOCK" new-session -d -s ua-alpha-i5 'sleep 600'; tmux -L "$TMUX_SOCK" new-session -d -s ud-main-i3 'sleep 600'; tmux -L "$TMUX_SOCK" new-session -d -s other-session 'sleep 600'
   trap 'tmux -L "$TMUX_SOCK" kill-server 2>/dev/null; tmp_cleanup' EXIT
 fi
