@@ -37,6 +37,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_AUTONOMOUS:=true}"
 : "${HARNESS_POOL:=3}"
 : "${HARNESS_POLL:=300}"               # resident pool: slow idle/steady-state poll
+: "${HARNESS_PREBUILD:=1}"              # #644: 1 = while a lane runs, pre-build the next claimable issue's worktree; 0 = off
 : "${HARNESS_TEND_TICK:=15}"            # #594: a worker that owns a live lane tends it this often (s), not every POLL
 : "${HARNESS_TEND_IDLE_TICKS:=3}"      # #594: idle ticks a DECOMPOSE lane must show, with no gh running, before its goal is checked
 : "${HARNESS_PRIORITY_POLL:=60}"       # fast cadence for the priority bug lane (#23)
@@ -741,6 +742,23 @@ issue_worktree_present(){ local slug="$1" n="$2" u
   done
   return 1; }
 
+# --- #644: the pre-built worktree ---------------------------------------------------------------------------
+# While a lane runs, the pool builds the worktree of the NEXT claimable issue (git worktree add, the worktree hook, the
+# ensure_* setup — about 10 s of a lane switch), so spawning it only renders the task file. Whose is it? Nobody's: the
+# issue carries NO agent-working label (that is stamped when the lane starts, #416) and holds no claim. A marker says so:
+#   $RUN_DIR/prebuilt/<unit>-i<n>   `<state> <epoch> <pid>` — state `building` (the add runs, <pid> is the builder) or
+#                                   `ready`. prebuild_tick (drive.sh) writes it, prepare_impl takes it, reap_team keeps
+#                                   off a worktree that has one, and busy_issues_for does not count a ready one.
+prebuilt_file(){ echo "$RUN_DIR/prebuilt/$1-i$2"; }                                 # <unit> <issue>
+prebuilt_state(){ awk '{print $1; exit}' "$(prebuilt_file "$1" "$2")" 2>/dev/null; }   # <unit> <issue> — building|ready|(empty)
+prebuilt_ready(){ [[ "$(prebuilt_state "$1" "$2")" == ready ]]; }
+# prebuilt_building <unit> <issue> — a builder is mid-add (its pid is alive). A dead builder's marker is stale: prebuild_tick sweeps it.
+prebuilt_building(){ local pid; [[ "$(prebuilt_state "$1" "$2")" == building ]] || return 1
+  pid="$(awk '{print $3; exit}' "$(prebuilt_file "$1" "$2")" 2>/dev/null)"
+  [[ "$pid" =~ ^[0-9]+$ ]] && (( pid > 1 )) && kill -0 "$pid" 2>/dev/null; }
+# prebuilt_marked <unit> <issue> — any marker that keeps reap_team off the worktree: ready, or building with a live builder.
+prebuilt_marked(){ prebuilt_ready "$1" "$2" || prebuilt_building "$1" "$2"; }
+
 # busy_issues_for <unit> — #416: comma-separated issue numbers of <unit>'s repo that a lane still owns,
 # for dispatch's --busy-issues gate: an impl/bug/triage worktree (its session may be launching, or its
 # reaper owns it), a live impl or bug-lane session, or a fresh /harness-one lease — the same ownership
@@ -752,7 +770,9 @@ busy_issues_for(){ local slug san u wd f n sessions
     for wd in "$WORKTREES_DIR/bug-$san"-i* "$WORKTREES_DIR/triage-$san"-i*; do echo "${wd##*-i}"; done
     for u in $(all_units); do
       [[ "$(unit_slug "$u")" == "$slug" ]] || continue
-      for wd in "$WORKTREES_DIR/$u"-i*; do echo "${wd##*-i}"; done
+      # #644: a READY pre-built worktree is no lane's — its issue stays claimable (a BUILDING one is not: it is mid-add)
+      for wd in "$WORKTREES_DIR/$u"-i*; do prebuilt_ready "$u" "${wd##*-i}" || echo "${wd##*-i}"; done
+      for f in "$RUN_DIR/prebuilt/$u"-i*; do n="${f##*-i}"; prebuilt_building "$u" "$n" && echo "$n"; done   # #644: mid-add, not yet claimable
       for f in "$RUN_DIR/one/$u"-i*.lease; do n="${f##*-i}"; n="${n%.lease}"; one_lease_live "$u" "$n" && echo "$n"; done
       sed -n "s/^$HARNESS_SESS_PREFIX-$u-i\([0-9][0-9]*\)\$/\1/p" <<<"$sessions"
     done

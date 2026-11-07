@@ -4,6 +4,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### While a lane runs, the pool builds the next claimable issue's worktree ahead, so a lane switch skips the `worktree add` and the hook (#644)
+
+- The last item of #618: a lane switch still paid `git worktree add`, the worktree hook and the `ensure_*` setup after the claim, about 10 s
+  of the 10-15 s switch in run-20261106. While a lane runs, the chores now build the worktree of the next claimable issue
+  (`prebuild_tick`, once per full step, one worktree at a time); when that issue is claimed, `prepare_impl` reuses it, moves its branch to
+  today's `origin/<default branch>` and only renders the task file.
+- The issue is not labelled `agent-working` while its worktree is pre-built, and holds no claim: the label is still stamped when the lane
+  starts (#416). A marker file in `run/prebuilt/` says whose the worktree is. `reap_team` keeps off a worktree that has one, and
+  `busy_issues_for` does not count it, so the issue stays claimable. The marker is `building` while the add runs, which holds the issue
+  back from every claim.
+- The worktree is removed (with its local branch and marker) as soon as its issue is no longer claimable: claimed by someone else
+  (`agent-working`), closed, blocked, or backed off after a failed launch. The check-then-remove runs under `run/pool.lock`, where claims
+  are written, so a claim that lands first keeps the worktree. A dead builder's marker, or a marker whose worktree is gone, is swept. A
+  failed add is not retried for `HARNESS_PREBUILD_RETRY_SECS` (600). `HARNESS_PREBUILD=0` turns it off.
+
 ### `start`, `start --recover`, `fleet_roll` and `status` look at the process table, not only the pid files: no second worker beside a live one (#647)
 
 - A fleet ran 27 pool/priority workers instead of 3 for about 40 hours: 24 orphan v0.5.0 workers (8 full sets) beside the 3 official v0.9.0
