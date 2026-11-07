@@ -67,8 +67,10 @@ for cli in claude agy; do
             HARNESS_REPO=acme/widget HARNESS_KIND=impl HARNESS_ISSUE=7 HARNESS_PRD=5 "TMPDIR=$(lane_tmpdir "$WT")"; do
     assert_ok "$cli: tmux new-session sets -e $kv" grep -qxF -- "$kv" "$NEWSESS"
   done
-  want=8; [[ $cli == claude ]] && want=9   # #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M)
-  assert_eq "$(grep -cx -- -e "$NEWSESS")" "$want" "$cli: exactly the rtdd env, the lane's TMPDIR (#610) and the CLI's own lane env, nothing else"
+  assert_ok "$cli: tmux new-session sets -e HARNESS_COAUTHOR (#642)" grep -qxF -- "HARNESS_COAUTHOR=$HARNESS_COAUTHOR" "$NEWSESS"
+  assert_ok "$cli: tmux new-session puts scripts/lane-bin first on PATH (#642)" grep -qF -- "PATH=$ENGINE_DIR/scripts/lane-bin:" "$NEWSESS"
+  want=10; [[ $cli == claude ]] && want=11   # #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #642: lane-bin PATH + HARNESS_COAUTHOR
+  assert_eq "$(grep -cx -- -e "$NEWSESS")" "$want" "$cli: exactly the rtdd env, the lane's TMPDIR (#610), the lane-bin PATH and trailer (#642) and the CLI's own lane env, nothing else"
   assert_eq "$(ev 1 "e['session']")" "$FIXTURE_SID" "$cli: the launch event's session is the HARNESS_SESSION rtdd joins on"
   rm -f "$RUN_DIR/hz-$cli-i7.stats"
 done

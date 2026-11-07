@@ -17,6 +17,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   loop that no pid file names, logging a `WARN` instead when it cannot verify the process. The worker log warns once per pid
   while such a worker is alive.
 
+### Every agent commit credits Harness: a `Co-authored-by` trailer from a `lane-bin/git` wrapper (#642)
+
+- A commit a Harness agent session makes now ends with `Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>`
+  (the `vocanicz-harness[bot]` GitHub App), the way Claude Code credits Claude. GitHub shows the Harness avatar on those commits and lists it
+  under the repo's contributors; a squash merge keeps the trailer in the default message. `scripts/lane-bin/git` adds `--trailer` to
+  `git commit` (skipping global options such as `-C <dir>` and `-c k=v` to find the subcommand) and passes every other command through
+  untouched; an amend or a message that already ends with the trailer does not get it twice. It works for every CLI the fleet runs and does
+  not depend on prompt wording; Claude Code's own `Co-Authored-By: Claude` line stays beside it.
+- `scripts/lane-bin` is now first on the `PATH` of **every** lane (impl, bug-fix, resume, plan, inject), not only a submodule repo's;
+  `lane-bin/gh` still runs the gitlink guard only where there is a `.gitmodules`, so `gh` behaves as before elsewhere.
+- Opt out with `HARNESS_COAUTHOR=` (empty) in `.harness/config` or the environment; any other value replaces the trailer.
+  Covered by `test/test_lane_git.sh`.
+
 ### The engine files one child itself for a small PRD or POOL=1: no decompose session (#614)
 
 - In bench run-20261106 the decompose session cost $1.29 and split a 4.7 KB brief into 6 issues, which 6 implementer sessions

@@ -57,6 +57,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
 : "${HARNESS_USE_POLLER:=1}"           # #182: ON by default — workers read the host poller's shared snapshots; 0 = direct-gh polling
+: "${HARNESS_COAUTHOR=Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>}"  # #642: trailer on every lane commit; set EMPTY to turn it off
 : "${HARNESS_PREFIX_COLLISION:=refuse}"  # PRD-B slice 4 (#73): refuse|warn — start-time guard when another active fleet's session prefix collides
 : "${HARNESS_STALL_RETRIES:=3}"          # #115: consecutive stalled polls before the watchdog kills a wedged session
 : "${HARNESS_ORPHAN_LOCK_MIN:=20}"       # #179: minutes an agent-working issue may sit with no live session before the pool unlocks it
@@ -1702,15 +1703,16 @@ session_env(){ local kv
   while read -r kv; do kv="${kv%$'\r'}"   # #615: the CLI's own lane env (claude: the 5m prompt-cache TTL)
     [[ -n "$kv" ]] && SESSION_ENV+=(-e "$kv"); done < <(cli_lane_env 2>/dev/null)
   return 0; }
-# lane_guard_env <wd> — append to SESSION_ENV (#470) the PATH that puts scripts/lane-bin first, so a lane in a
-# repo WITH submodules runs `gh pr merge` through the gitlink guard. A repo without .gitmodules gets no
-# change at all: its lane env is exactly what session_env built.
+# lane_guard_env <wd> — append to SESSION_ENV the PATH that puts scripts/lane-bin first, for EVERY lane (#642):
+# `lane-bin/git` adds the Harness `Co-authored-by` trailer (HARNESS_COAUTHOR, passed on as a pair, so an empty
+# value reaches the lane as empty) to each `git commit`; `lane-bin/gh` (#470) runs the gitlink guard before
+# `gh pr merge`, but only in a repo WITH .gitmodules, so any other repo's `gh` behaves as before.
 # lane_tmp_env <wd> (#610) — append to SESSION_ENV a TMPDIR private to this lane, made here. The reap
 # (remove_session_worktrees) removes it with the worktree, so a test the lane runs cannot leak into /tmp.
 lane_tmp_env(){ local d; d="$(lane_tmpdir "$1")"; mkdir -p "$d" 2>/dev/null || return 0
   SESSION_ENV+=(-e "TMPDIR=$d"); return 0; }
-lane_guard_env(){ [[ -f "$1/.gitmodules" && -x "$ENGINE_DIR/scripts/lane-bin/gh" ]] || return 0
-  SESSION_ENV+=(-e "PATH=$ENGINE_DIR/scripts/lane-bin:$PATH"); return 0; }
+lane_guard_env(){ [[ -d "$ENGINE_DIR/scripts/lane-bin" ]] || return 0
+  SESSION_ENV+=(-e "PATH=$ENGINE_DIR/scripts/lane-bin:$PATH"); [[ -v HARNESS_COAUTHOR ]] && SESSION_ENV+=(-e "HARNESS_COAUTHOR=$HARNESS_COAUTHOR"); return 0; }
 # task_context <issue> <issue-json> <worktree> [base-branch] — the blocks a lane's .harness-task.md carries so the lane
 # fetches nothing (#617). <issue-json> is the one `gh issue view --json labels,title,body,comments` answer
 # the caller already has. Sets TC_ISSUE (the issue body + comments), TC_REQUEST (the parent PRD's

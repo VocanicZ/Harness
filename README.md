@@ -38,6 +38,8 @@ One fleet drives one repo. `HARNESS_POOL` is the number of parallel issues: each
 
 ◐ partial. Harness steering is by injecting issues into a running fleet (`/harness-issue`).
 
+**Commit credit.** Every commit an agent session makes ends with `Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>`, so GitHub shows the Harness avatar on it and lists Harness among the repo's contributors. It is added by a `git` wrapper on each lane's `PATH`, so it works for every agent CLI. Set `HARNESS_COAUTHOR=` (empty) in `.harness/config` or the environment to turn it off. Details: [reference](docs/reference.md#the-harness-commit-trailer-642).
+
 ## Install
 
 Ask your agent:
