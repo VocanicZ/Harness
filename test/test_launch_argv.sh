@@ -37,7 +37,7 @@ assert_ok "claude launch line names .harness-task.md via the bootstrap prompt" \
   grep -F -q "\"$BOOT\"" <<<"$line"
 assert_ok "bootstrap prompt references .harness-task.md" grep -F -q .harness-task.md <<<"$BOOT"
 assert_ok "claude launch keeps --session-id <uuid> and CLAUDE_FLAGS" \
-  grep -E -q 'exec mock-claude --session-id [0-9a-f-]{36} --fa --fb "' <<<"$line"
+  grep -E -q 'exec mock-claude --session-id [0-9a-f-]{36} --fa --fb( --setting-sources [^ ]+| --strict-mcp-config| --disallowedTools=[^ ]+)* --plugin-dir=[^ ]+/plugins/claude/harness-ralph( --settings=[^ ]+)? "' <<<"$line"
 assert_ok "ralph state still holds the full task text" grep -F -q UNIQUE_MARKER_123 "$WD/.claude/ralph-loop.local.md"
 
 echo "=== agy launch ==="

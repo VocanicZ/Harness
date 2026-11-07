@@ -1,0 +1,5 @@
+{
+  "name": "harness-ralph",
+  "version": "1.0.0",
+  "description": "Harness's goal-loop Stop hook for Claude Code lanes: ends the loop on the promise, nudges briefly when the goal is not met."
+}

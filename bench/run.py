@@ -488,6 +488,7 @@ def grade(repo, workdir, gh, log, grader, fixture=None):
 
 def derived_fields(res, fx, watcher, ctx, st, logs, wall_s):
     """The measures of #592 that come from more than the end-of-run grade: $ per passed hidden test, compactions,
+    the goal loop's re-feeds (#616),
     and, for a fixture with milestones, the change request, the milestones, the regressions and the wall time of the
     first full pass. The raw milestones, per test, are kept in <logs>/milestones.json."""
     out = {}
@@ -496,6 +497,11 @@ def derived_fields(res, fx, watcher, ctx, st, logs, wall_s):
         out["usd_per_passed_test"] = round(res["cost_usd"] / passed, 4)
     try:
         out["compactions"] = armlib().compactions(st, ctx.transcripts)
+    except Exception:
+        pass
+    try:   # the goal loop's re-feeds (#616)
+        rf = armlib().refeeds(st, ctx.transcripts)
+        out["refeeds"], out["refeed_tokens"] = rf["count"], rf["tokens"]
     except Exception:
         pass
     if watcher is not None:

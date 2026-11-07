@@ -223,3 +223,37 @@ def compactions(st, transcripts):
             except OSError:
                 continue
     return total
+
+
+REFEED_PREFIX = "Stop hook feedback:"
+
+
+def refeeds(st, transcripts):
+    """The Stop hook's re-feeds, as the transcripts record them (#616): a meta `user` entry whose text starts
+    `Stop hook feedback:` is one nudge sent back to a session that ended a turn without its promise. Returns
+    {"count": entries, "tokens": their text's size in tokens, estimated as characters over 4}: the cost of the goal
+    loop's re-feeds, the whole task each time before the engine-owned hook sent a short reminder. run-20261106
+    (the user-scope ralph-loop plugin): 15 re-feeds, about 39.6k tokens."""
+    count = chars = 0
+    for tr in transcripts:
+        for f in st.transcript_files(tr):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    for line in fh:
+                        if REFEED_PREFIX not in line:
+                            continue
+                        try:
+                            ev = json.loads(line)
+                        except ValueError:
+                            continue
+                        if not (isinstance(ev, dict) and ev.get("type") == "user" and ev.get("isMeta")):
+                            continue
+                        c = (ev.get("message") or {}).get("content")
+                        if isinstance(c, list):
+                            c = " ".join(b.get("text", "") for b in c if isinstance(b, dict))
+                        if isinstance(c, str) and c.startswith(REFEED_PREFIX):
+                            count += 1
+                            chars += len(c)
+            except OSError:
+                continue
+    return {"count": count, "tokens": round(chars / 4)}

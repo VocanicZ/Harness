@@ -99,6 +99,8 @@ METRICS = {
     # the large fixture's measures (#592)
     "regressions": _field("regressions"), "first_full_pass_s": _field("first_full_pass_s"),
     "usd_per_passed_test": _field("usd_per_passed_test"), "compactions": _field("compactions"),
+    # the goal loop's Stop-hook re-feeds (#616)
+    "refeeds": _field("refeeds"), "refeed_tokens": _field("refeed_tokens"),
 }
 
 
