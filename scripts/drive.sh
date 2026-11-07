@@ -268,7 +268,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     rsub="$(cli_subagent "$wd" "$wd" "$STATE_DIR/review/$UNIT/p$prd/subagent.md")"
     csub="$(cli_subagent "$wd" "$gdir/r$ground" "$gdir/r$ground-critic.md")"; fi
   render "$PROMPTS_DIR/$tmpl" PROJECT="$PROJECT" DESC="$DESC" SLUG="$SLUG" OWNER="$HARNESS_OWNER" \
-    SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" \
+    SPEC="$HARNESS_SPEC" PRD="$payload" ISSUE="" BRANCH="" PROMISE="$PROMISE" POOL="$POOL" \
     LABEL_READY="$HARNESS_LABEL_READY" LABEL_PRD="$HARNESS_LABEL_PRD" LABEL_REVIEWED="$HARNESS_LABEL_REVIEWED" LABEL_HITL="$HARNESS_LABEL_HITL" \
     GAUNTLET_DIR="$gdir" GAUNTLET_ROUNDS="$HARNESS_GAUNTLET_ROUNDS" \
     GAUNTLET_ROUND="$ground" REVIEW_SUBAGENT="$rsub" CRITIC_SUBAGENT="$csub" \

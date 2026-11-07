@@ -13,6 +13,12 @@ Steps:
 1. Read PLAN.md (in this repo) and the {{PROJECT}} sections of {{SPEC}}.
 2. Invoke the {{skill:to-prd}} skill to write a PRD for {{PROJECT}}: problem, scope, milestones, and
    explicit, testable acceptance criteria.
+2a. BEHAVIOUR, NOT PRIMITIVES — state what the user asked for, not how to build it. Do NOT prescribe
+   an implementation primitive the brief does not require: a string-splitting function, an encoding, a
+   library, a parsing call. A primitive in a PRD is a requirement every later issue copies, and it
+   carries its edge cases with it (a PRD that said "use `str.splitlines()`" and "read as UTF-8" caused a
+   byte-order-mark bug and a form-feed / U+2028 line-split bug). Say "split the input into lines" and
+   let the implementer choose. Name a primitive only where the brief itself names it.
 3. QUALITY BAR — optional, and honestly optional. If (and only if) there is a real, specific
    artifact this project should beat, add ONE more section to the PRD body:
      ## Quality bar
