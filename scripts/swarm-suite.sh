@@ -20,7 +20,9 @@
 #
 # Knobs (env): HARNESS_SWARM (auto|off), HARNESS_SWARM_TIMEOUT (seconds `swarm wait` gets, default
 # 1800), HARNESS_SWARM_TEST_CMD (per-file command with {file} and optional {junit}; default: bash for
-# .sh, python3 for a .py with a __main__ block, pytest for any other .py), HARNESS_SWARM_PACK (git =
+# .sh, python3 for a .py with a __main__ block, pytest for any other .py; #601: a script run puts the
+# project root on PYTHONPATH, because `python3 tests/test_x.py` otherwise only sees tests/ and the
+# project's own `from tests import …` fails with "No module named 'tests'"), HARNESS_SWARM_PACK (git =
 # the snapshot above, the default; all = tar the whole worktree, ignored files included).
 # The swarm.toml contract: https://github.com/VocanicZ/swarm/blob/main/skill/SKILL.md
 set -uo pipefail
@@ -112,7 +114,7 @@ if [[ -n "$TEST_CMD" ]]; then
   cmd="${TEST_CMD//\{file\}/\"\$f\"}"; cmd="${cmd//\{junit\}/\"\$o/.junit.tmp\"}"
 else
   cmd='case "$f" in
-  *.py) if grep -q __main__ "$f"; then python3 "$f"; else python3 -m pytest -q "$f" --junitxml="$o/.junit.tmp"; fi ;;
+  *.py) if grep -q __main__ "$f"; then PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" python3 "$f"; else python3 -m pytest -q "$f" --junitxml="$o/.junit.tmp"; fi ;;
   *) bash "$f" ;;
 esac'
 fi
