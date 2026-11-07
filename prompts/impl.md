@@ -42,15 +42,15 @@ Steps:
      git add -A && git commit -m "feat: <summary> (closes #{{ISSUE}})"
      git push -u origin {{BRANCH}}
      gh pr create -R {{SLUG}} --fill --head {{BRANCH}} --base <default-branch>
-5. RE-VERIFY AGAINST THE CURRENT BASE — immediately before merging, every time:
-     git fetch origin && git rebase origin/<default-branch>
-   Other lanes merge while you work. Green rounds on your branch only prove your change against
-   the base you STARTED from, and a conflict-free text merge can still be semantically broken:
-   another lane edited the same function, moved a helper's contract, or rebuilt an artifact your
-   tests load. If the rebase moved anything: re-run the build, re-run `rtdd which --base
+5. RE-VERIFY AGAINST THE CURRENT BASE — immediately before merging, every time:  git fetch origin
+   NOTHING MERGED SINCE YOUR BASE → SKIP THE REBASE AND THE RE-GATE: if `git rev-list HEAD..origin/<default-branch>`
+   prints nothing, a rebase is a no-op and your step 2 Round 1+2 run (green on this HEAD, no edit since) already
+   proves the change against the current base. Do not rebase, push again, or re-run `rtdd which` or its rounds in step 6b.
+   Otherwise other lanes merged while you worked, and a conflict-free text merge can still be semantically broken
+   (the same function edited, a helper's contract moved, an artifact your tests load rebuilt). Run
+   `git rebase origin/<default-branch>`. If the rebase moved anything: re-run the build, re-run `rtdd which --base
    origin/<default-branch>` and its Rounds 1 and 2 (the rebase changed your diff, so it re-selects), then
-   `git push --force-with-lease`. Repeat until the rebase is a no-op.
-   This catches semantic merge conflicts; step 6 then gates the merge on this rebased HEAD.
+   `git push --force-with-lease`. Repeat until the rebase is a no-op. Step 6 then gates the merge on this HEAD.
 6. GATE LOCALLY — run the repo's gate on your rebased HEAD and read its RESULT before merging, every
    time. Harness projects run NO GitHub CI: the gate is ALWAYS local. FIRST find which one applies:
    a. A LOCAL CI ENTRYPOINT — a script the repo ships to run its own checks, typically
@@ -61,7 +61,8 @@ Steps:
       Its exit code is the verdict.
    b. OTHERWISE the gate is rtdd Rounds 1+2 plus your own new tests — re-select with
       `rtdd which --base origin/<default-branch>` on this rebased HEAD and run both rounds —
-      never the full suite (it runs once, at PRD review). A red there is NOT automatically yours:
+      never the full suite (it runs once, at PRD review). When step 5 skipped the rebase, the
+      step 2 run on this same HEAD IS this gate: do not run the rounds a second time. A red there is NOT automatically yours:
       the pre-existing-red check in step 2 applies.
    NEVER use `gh pr checks`, a GitHub Actions run, or mergeable-state as the gate or as permission
    to merge. GitHub CI is disabled on Harness repos by design, so whatever GitHub reports is stale
@@ -76,14 +77,14 @@ Steps:
      CI script itself, which is the same offence as deleting a test.
    This OVERRIDES the autonomy note below: "never park" means never wait on a human — it does not
    mean merge anyway. A red merge poisons the base branch for every other lane.
-7. Get the PR MERGED — robustly, because some repos disable auto-merge:
-   a. FIRST try to enable auto-merge:
-        gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
-   b. If that FAILS because the repo forbids auto-merge (gh prints something like
-      "Auto-merge is not allowed for this repository" or "Pull request is not mergeable"),
-      FALL BACK to a direct squash merge once the step 6 gate is green:
-        gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
-   The goal is unchanged: the PR ends MERGED and the issue CLOSED. Do not stop at "PR opened".
+7. Get the PR MERGED with ONE direct squash merge, once the step 6 gate is green:
+     gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
+   Exit 0 means MERGED: print the promise at once — no polling, sleeping or re-reading the PR; the engine's `merged`
+   check confirms the issue closed. If it exits non-zero (e.g. "Pull request is not mergeable" because the base
+   requires checks), a repo that wants auto-merge is the ONE case for the slower route: retry with
+     gh pr merge --auto --squash --delete-branch -R {{SLUG}} <pr-number>
+   and promise only once that exits 0 and the PR is merged or queued on green. A conflict goes back to step 5.
+   The PR must end MERGED and the issue CLOSED. Do not stop at "PR opened".
 
 {{> _followup.md}}
 
@@ -103,9 +104,8 @@ comment whose first line is
 `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
 --remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.
 
-Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
+Output the promise ONLY when the PR is genuinely MERGED (`gh pr merge` exited 0; or truly auto-merging on green —
 NOT merely opened), the repo's CI GATE was GREEN when it merged (step 6 — the local entrypoint
-where the repo ships one, rtdd Rounds 1+2 otherwise), AND the issue is closing. On an
-auto-merge-disabled repo, complete the direct squash merge (step 7b) BEFORE promising. A PR left
+where the repo ships one, rtdd Rounds 1+2 otherwise), AND the issue is closing. Complete the step 7 merge BEFORE promising. A PR left
 open on a red gate is NOT a promise — report the failure instead. KNOWN-GAP GATE: a known gap against this issue's acceptance criteria or the brief is a FAILED gate, even if only written in your chat output. Either FIX it on this branch, or FILE it as a follow-up under the FILING A FOLLOW-UP rules above and LINK that issue in the PR body. Never merge, and never output the promise, over a gap that is neither fixed nor filed. When it holds, output exactly:
 <promise>{{PROMISE}}</promise>

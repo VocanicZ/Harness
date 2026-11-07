@@ -8,8 +8,10 @@
 # Exit codes (the whole contract the prompts read):
 #   0  green — every file passed
 #   1  red   — the failing files are printed (file, status, the shard's out dir holding output.log)
-#   3  not run here — swarm missing, HARNESS_SWARM != auto, a timeout, or nothing to shard. The
-#      caller runs the suite LOCALLY, exactly as it would on a host without swarm.
+#   3  not run here — swarm missing, HARNESS_SWARM != auto, a timeout, nothing to shard, or a SMALL suite
+#      (#618: files x HARNESS_SWARM_SECS_PER_FILE under HARNESS_SWARM_LOCAL_MAX_SECS, so it finishes
+#      locally before a swarm job would have been scheduled). The caller runs the suite LOCALLY,
+#      exactly as it would on a host without swarm.
 #
 # The job dir lives under $RUN_DIR/swarm/<name>, never in the worktree: the lane's diff must not grow
 # files it did not write. #234: the swarm `workdir` is a hardlinked snapshot of what git sees in the
@@ -19,7 +21,8 @@
 # cancelled. Results and logs stay.
 #
 # Knobs (env): HARNESS_SWARM (auto|off), HARNESS_SWARM_TIMEOUT (seconds `swarm wait` gets, default
-# 1800), HARNESS_SWARM_TEST_CMD (per-file command with {file} and optional {junit}; default: bash for
+# 1800), HARNESS_SWARM_LOCAL_MAX_SECS (default 60: a suite estimated under this runs locally, 0 = always swarm)
+# and HARNESS_SWARM_SECS_PER_FILE (default 2: the per-file estimate behind it), HARNESS_SWARM_TEST_CMD (per-file command with {file} and optional {junit}; default: bash for
 # .sh, python3 for a .py with a __main__ block, pytest for any other .py; #601: a script run puts the
 # project root on PYTHONPATH, because `python3 tests/test_x.py` otherwise only sees tests/ and the
 # project's own `from tests import …` fails with "No module named 'tests'"), HARNESS_SWARM_PACK (git =
@@ -56,6 +59,13 @@ else
   FILES=("$@")
 fi
 [[ ${#FILES[@]} -gt 0 ]] || unavailable "no test files to shard"
+# #618: a small suite is faster run here than queued, shipped and merged as a swarm job (61 s on swarm,
+# about 2 s locally, and a false red, in run-20261106). Estimate = files x secs-per-file; below the
+# ceiling → exit 3 before any swarm call. A non-numeric knob falls back to its default.
+max_local="${HARNESS_SWARM_LOCAL_MAX_SECS:-60}"; per_file="${HARNESS_SWARM_SECS_PER_FILE:-2}"
+[[ "$max_local" =~ ^[0-9]+$ ]] || max_local=60; [[ "$per_file" =~ ^[0-9]+$ ]] || per_file=2
+est=$(( ${#FILES[@]} * per_file ))
+(( est < max_local )) && unavailable "small suite (${#FILES[@]} files, ~${est}s locally, under ${max_local}s)"
 if [[ -z "$TEST_CMD" ]]; then
   for f in "${FILES[@]}"; do
     case "$f" in *.sh|*.bash|*.py) ;; *) unavailable "no default command for $f (set HARNESS_SWARM_TEST_CMD)";; esac

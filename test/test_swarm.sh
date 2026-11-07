@@ -16,7 +16,8 @@ source "$HERE/helpers.sh"
 windows_skip_file "swarm submission" "swarm is a Linux-only HTCondor service; a Windows lane runs rtdd locally"
 SUITE="$HERE/../scripts/swarm-suite.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
-export RUN_DIR="$T/run"; unset HARNESS_SWARM HARNESS_SWARM_TEST_CMD HARNESS_SWARM_TIMEOUT HARNESS_SWARM_PACK
+export RUN_DIR="$T/run"; unset HARNESS_SWARM HARNESS_SWARM_TEST_CMD HARNESS_SWARM_TIMEOUT HARNESS_SWARM_PACK HARNESS_SWARM_SECS_PER_FILE
+export HARNESS_SWARM_LOCAL_MAX_SECS=0   # #618: the fixture suites below are tiny; pin the small-suite switch off except where it is tested
 export SWARM_JOBS_DIR="$T/swarm jobs"
 FAKEBIN="$T/bin"; mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/swarm" <<'EOF'
@@ -179,6 +180,25 @@ rc="$(PATH="/usr/bin:/bin" bash "$SUITE" "$WT" nos test/test_ok.sh 2>/dev/null)"
 rc="$(HARNESS_SWARM=off run_suite "$WT" off test/test_ok.sh)"; assert_eq "$rc" 3 "HARNESS_SWARM=off → 3"
 assert_eq "$(cat "$FAKE_SWARM_STATE/calls")" "" "HARNESS_SWARM=off never touches swarm"
 rc="$(run_suite "$WT" unk README.md)"; assert_eq "$rc" 3 "file with no default command → 3"
+
+echo "-- #618: a small suite runs locally (exit 3), a big one still goes to swarm"
+: > "$FAKE_SWARM_STATE/calls"
+rc="$(HARNESS_SWARM_LOCAL_MAX_SECS=60 run_suite "$WT" small test/test_ok.sh test/test_red.sh)"
+assert_eq "$rc" 3 "2 files x 2s = 4s < 60s → 3 (run locally)"
+assert_ok "the reason names the small suite" grep -q 'small suite (2 files' "$T/err"
+assert_eq "$(cat "$FAKE_SWARM_STATE/calls")" "" "a small suite never touches swarm"
+rc="$(HARNESS_SWARM_LOCAL_MAX_SECS=4 run_suite "$WT" edge test/test_ok.sh test/test_red.sh)"
+assert_eq "$rc" 1 "estimate == ceiling (4s, 4s) → swarm (red file reported)"
+rc="$(HARNESS_SWARM_LOCAL_MAX_SECS=60 HARNESS_SWARM_SECS_PER_FILE=40 run_suite "$WT" slowfiles test/test_ok.sh)"
+assert_eq "$rc" 3 "1 file x 40s = 40s < 60s → 3 (the per-file estimate is a knob)"
+rc="$(HARNESS_SWARM_LOCAL_MAX_SECS=60 HARNESS_SWARM_SECS_PER_FILE=70 run_suite "$WT" slowfiles2 test/test_ok.sh)"
+assert_eq "$rc" 0 "1 file x 70s >= 60s → swarm"
+rc="$(HARNESS_SWARM_LOCAL_MAX_SECS=junk run_suite "$WT" junk test/test_ok.sh)"
+assert_eq "$rc" 3 "a non-numeric ceiling falls back to 60 → small → 3"
+rc="$(HARNESS_SWARM_LOCAL_MAX_SECS=0 run_suite "$WT" always test/test_ok.sh)"
+assert_eq "$rc" 0 "ceiling 0 = always swarm"
+rc="$(env -u HARNESS_SWARM_LOCAL_MAX_SECS PATH="$FAKEBIN:$PATH" bash "$SUITE" "$WT" dflt test/test_ok.sh 2>/dev/null; echo $?)"
+assert_eq "$rc" 3 "default ceiling (60s) sends a 1-file suite local"
 
 echo "-- config + prompts"
 ( unset_inherited_config; source "$HERE/../scripts/lib.sh" >/dev/null 2>&1; [[ "$HARNESS_SWARM" == auto ]] )

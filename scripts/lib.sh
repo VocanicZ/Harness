@@ -1718,14 +1718,15 @@ lane_guard_env(){ [[ -d "$ENGINE_DIR/scripts/lane-bin" ]] || return 0
 # the caller already has. Sets TC_ISSUE (the issue body + comments), TC_REQUEST (the parent PRD's
 # `## Original request` with the precedence rule), TC_PRD (the PRD inlined — only when this issue is its
 # sole child, where the PRD IS the spec) and TC_LINT (primitives the issue names that neither the request
-# nor the repo at the base commit has). Every gh failure leaves its block empty; it never fails the caller.
+# nor the repo at the base commit has), and TC_PARENT (the parent PRD number, or empty). Every gh failure leaves its block empty; it never fails the caller.
 task_context(){
   local issue="$1" ij="$2" wd="$3" base="${4:-main}" prd pj kids rf
-  TC_ISSUE="" TC_REQUEST="" TC_PRD="" TC_LINT=""
+  TC_ISSUE="" TC_REQUEST="" TC_PRD="" TC_LINT="" TC_PARENT=""
   [[ -n "$ij" ]] || return 0
   TC_ISSUE="$(python3 "$TASKCTX_PY" issue-block <<<"$ij" 2>/dev/null)" || TC_ISSUE=""
   prd="$(python3 "$TASKCTX_PY" body <<<"$ij" 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null)" || prd=""
   [[ "$prd" =~ ^[0-9]+$ ]] || prd=""
+  TC_PARENT="$prd"   # #618: the lane's STAT_PRD, so spawning does not ask GitHub for the parent a second time
   if [[ -n "$prd" ]]; then
     pj="$(gh issue view "$prd" -R "$SLUG" --json number,title,body 2>/dev/null || echo '')"
     if [[ -n "$pj" ]]; then
@@ -1778,7 +1779,6 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   else
   # A backend that cannot start the session stops the launch here: nothing to type into.
   sess_start "$sess" "$wd" "${SESSION_ENV[@]}" || { log "session $sess could not be started (backend $(sess_backend))"; launch_fail "$sess" "$uuid" start_failed; return 1; }
-  sleep 1.5
   # Write the .goal AFTER the session is live, never before. gc_orphan_goals runs at the top of
   # EVERY lane's tick over the shared RUN_DIR and reaps any .goal whose session is not live. Writing
   # the goal before `tmux new-session` opened a cross-lane TOCTOU window: a concurrent sweep in that

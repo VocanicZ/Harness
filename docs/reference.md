@@ -1143,7 +1143,7 @@ scripts/swarm-suite.sh <worktree> <job-name> [test files...]
 |---|---|---|
 | `0` | every test file passed | treats the run as green |
 | `1` | red — each failing file is printed with its shard's `output.log` dir | reads the failures, as for a local run |
-| `3` | not run on swarm: no `swarm` on `PATH`, `HARNESS_SWARM=off`, the job timed out (it is cancelled), or the job failed with no failing file listed | runs the suite locally, exactly as today |
+| `3` | not run on swarm: no `swarm` on `PATH`, `HARNESS_SWARM=off`, a small suite (below), the job timed out (it is cancelled), or the job failed with no failing file listed | runs the suite locally, exactly as today |
 
 - One shard per test file (default: every tracked `test_*` / `*_test` `.sh`/`.py`). Each runs with
   `bash`, `python3` or `pytest`, or `HARNESS_SWARM_TEST_CMD` (`{file}`, optional `{junit}`), and
@@ -1154,6 +1154,11 @@ scripts/swarm-suite.sh <worktree> <job-name> [test files...]
 - Only files git sees are packed (tracked + untracked-not-ignored); `.swarmignore` trims more,
   `HARNESS_SWARM_PACK=all` packs everything. The job tarball is deleted when the job ends.
 - `HARNESS_SWARM_TIMEOUT` (default `1800`) is the wait budget in seconds.
+- A small suite runs locally (#618): the helper estimates the local run as files × `HARNESS_SWARM_SECS_PER_FILE`
+  (default `2`) and exits `3` before any swarm call when that is under `HARNESS_SWARM_LOCAL_MAX_SECS` (default `60`,
+  so fewer than 30 files). In bench run-20261106 a swarm job for a tiny suite took 61 s and gave a false red; locally
+  it took about 2 s. `HARNESS_SWARM_LOCAL_MAX_SECS=0` always uses swarm.
+- The PRD review prompt starts its review sub-agent before the suite run, so the two overlap.
 
 ## Commands
 

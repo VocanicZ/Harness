@@ -51,16 +51,20 @@ PHASE 1 — CRITERIA GATE (always).
    source), find it and read it, and judge the implementation against it AS WELL AS against the PRD. When the two
    disagree, the brief wins: a behaviour the brief asks for and the PRD omits is a gap. If no brief or spec exists in
    the repo, judge against the PRD alone.
-2. Review the implemented code against EVERY acceptance criterion. Run the FULL test suite — this
-   is the ONLY full-suite run in the pipeline: lanes never run it, they test with rtdd Rounds 1+2
-   only. When this fleet's HARNESS_SWARM (`{{SWARM}}`) is `auto`, run it as a swarm job:
+2. Review the implemented code against EVERY acceptance criterion.
+   START THE REVIEW SUB-AGENT FIRST, before any suite run: it works while the suite runs, so the two
+   overlap instead of queueing. Have ONE review sub-agent do a thorough pass (correctness, edge cases,
+   the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate numbers if this is a spike).
+   To start it, {{REVIEW_SUBAGENT}}
+   Do not wait for it to finish before the next step: run the suite now, then collect its report.
+   Run the FULL test suite — this is the ONLY full-suite run in the pipeline: lanes never run it, they
+   test with rtdd Rounds 1+2 only. When this fleet's HARNESS_SWARM (`{{SWARM}}`) is `auto`, ask the
+   swarm helper first:
      {{SWARM_SUITE}} "$PWD" {{SLUG}}-prd{{PRD}}-review
    Exit `0` green · `1` red (the failing files are printed) · `3` not run on swarm (swarm absent,
-   off, or timed out) → run the suite locally.
+   off, timed out, or a SMALL suite the helper sends back because it runs faster locally than it
+   queues on swarm) → run the suite locally.
 {{WINDOWS_SUITE}}
-   Then have ONE review sub-agent do a thorough
-   pass (correctness, edge cases, the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate
-   numbers if this is a spike). To start it, {{REVIEW_SUBAGENT}}
    That sub-agent is the PROBE: it ALWAYS runs a fixed robustness checklist against the real interface, not only
    the cases the PRD lists. Pick the checklist that suits the interface:
    - CLI: a value starting with a dash, both positional and as an option value (`-x`, `--flag`, `-`); output piped
