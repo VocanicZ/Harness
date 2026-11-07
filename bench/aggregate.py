@@ -83,6 +83,11 @@ METRICS = {
     "weekly_window_pct": _field("weekly_window_pct"), "tokens": tokens_total,
     "tokens_input": _token("input"), "tokens_output": _token("output"),
     "tokens_cache_read": _token("cache_read"), "tokens_cache_write": _token("cache_write"),
+    # the prompt-cache TTL's measures (#615)
+    "cache_write_5m": _field("cache_write_5m"), "cache_write_1h": _field("cache_write_1h"),
+    "cache_cost_usd": _field("cache_cost_usd"),
+    "gap_p90_s": lambda doc: num((doc.get("turn_gaps") or {}).get("p90_s")) if isinstance(doc.get("turn_gaps"), dict) else None,
+    "gaps_over_5m": lambda doc: num((doc.get("turn_gaps") or {}).get("over_5m")) if isinstance(doc.get("turn_gaps"), dict) else None,
     "hidden_passed": _hidden("passed"), "hidden_total": _hidden("total"),
     "fuzz_divergences": _field("fuzz_divergences"), "fuzz_cases": _field("fuzz_cases"),
     "fuzz_classes": _field("fuzz_classes"), "review_score": _field("review_score"),

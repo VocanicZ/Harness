@@ -61,7 +61,7 @@ before its cap), `runs` (`run`, `file`, `status`, `capped` of each run started) 
 `coverage` (SonarQube), `sonar_bugs`, `sonar_vulnerabilities`, `sonar_code_smells`,
 `sonar_duplicated_lines_density`, the arm's own-test coverage `cov_line_pct`, `cov_branch_pct`, `cov_total_pct` (#588) and the `counts` `issues_closed`, `prs_merged`, `commits`,
 `continue_replies`, and for the [large fixture](#large-fixture-592) `regressions`, `first_full_pass_s`, `usd_per_passed_test` and
-`compactions`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
+`compactions`, and for the [prompt-cache TTL](#prompt-cache-ttl-615) `cache_write_5m`, `cache_write_1h`, `cache_cost_usd`, `gap_p90_s`, `gaps_over_5m`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
 run is listed in `runs` but not counted. `aggregate.cap_hits` is how often the runs hit a cap: `{runs, of, wall, cost}` (#592). The code is `bench/aggregate.py`.
 
 **A batch that stops early says so.** `stopped` is `null` when all N runs completed; otherwise
@@ -173,6 +173,7 @@ whatever the arm wrote to `ctx.logs`.
 | `fixture` | string | `pennywise` or `large` (#592); absent in results written before it, which are `pennywise` |
 | `usd_per_passed_test` | number | optional (#592): `cost_usd` over the hidden tests that passed; absent when none passed |
 | `compactions` | int | optional (#592): how many times a session's context was compacted, from the transcripts (an `isCompactSummary` entry or a `compact_boundary` event); work that outgrew one context window |
+| `cache_ttl`, `cache_write_5m`, `cache_write_1h`, `cache_cost_usd`, `turn_gaps` | | optional (#615), see [Prompt-cache TTL](#prompt-cache-ttl-615): the TTL the lanes ran with (`5m` or `1h`), the cache-write tokens at each TTL (`cache_write` is their sum), what the cache cost at list price (writes at their TTL's price plus reads), and `{turns, p50_s, p90_s, max_s, over_5m, over_1h}` of the gaps between one model turn and the next (null with fewer than two turns) |
 | `change`, `milestones`, `regressions`, `regressed_tests`, `first_full_pass_s` | | the [large fixture's](#large-fixture-592) measures, only for a fixture with milestones |
 | `speedup_1_to_3` | object | only `harness-3.json`, and only when the run also holds `harness.json` (#592): `{x, wall_1_s, wall_3_s, capped}`, x = wall time of one worker over three; `capped` when a side hit a cap, so x is not a clean ratio |
 
@@ -360,7 +361,7 @@ fleet, default 30); the last two are for tests.
 - **Isolation.** The run fleet has its own `HARNESS_HOME` (event log, fleet registry, snapshots), its own state
   dir inside the clone (`<clone>/.harness`), a session prefix made from the run repo's name (`bn` + 5 hex) and a
   scrubbed environment: every `HARNESS_*` and `STATE_DIR` / `RUN_DIR` of the host's fleets is dropped (only
-  `HARNESS_USAGE_CMD` and `HARNESS_CLAUDE_CONFIG_DIRS` pass through) and no API key reaches it.
+  `HARNESS_USAGE_CMD`, `HARNESS_CLAUDE_CONFIG_DIRS` and `HARNESS_CACHE_TTL` pass through) and no API key reaches it.
   The Claude config is the [isolated one](#isolated-claude-config-590) the plain arm runs on, plus the engine's own skills and
   plugins (#590); before that (run-20261106) the sessions loaded the host user's own, which is why the arm records what the
   front door's init event listed, `claude_config` = `{source, skills, plugins, mcp_servers}` (`plugins` leaves out the CLI's
@@ -611,3 +612,13 @@ small sample repo is opt-in (`BENCH_QUALITY_REAL=1 python3 test/test_bench_quali
 A standing audit of the **public Harness repo itself** (SonarQube Cloud, Codacy or DeepSource, free for public
 repos) is a separate, owner-side choice: see [docs/online-code-audit.md](../docs/online-code-audit.md). It is not a
 gate, and nothing in the fleet depends on it.
+
+## Prompt-cache TTL (#615)
+
+Fleet lanes write their prompt cache with the 5-minute TTL (1.25× the input price) rather than Claude Code's 1-hour one (2×): `FORCE_PROMPT_CACHING_5M=1` in the lane environment (`HARNESS_CACHE_TTL=5m|1h`, default `5m`; `docs/reference.md`). The risk is a gap of over five minutes between two turns, which writes the cache again. A run measures it instead of assuming:
+
+- `cache_write_5m` / `cache_write_1h` split `tokens.cache_write` by the TTL each usage block records, and `cache_cost_usd` is what the cache cost (writes at their TTL's price, plus reads).
+- `turn_gaps` is the distribution of the gaps between one model turn and the next in each main session: `p50_s`, `p90_s`, `max_s`, and how many gaps a 5-minute (`over_5m`) and a 1-hour (`over_1h`) cache would not have bridged. `over_5m` is the number of cache re-writes the 5m TTL can cost.
+- `cache_ttl` records the setting the run had.
+
+To compare the arms, run the same fixture twice, `HARNESS_CACHE_TTL=5m` and `HARNESS_CACHE_TTL=1h` (it passes through the scrubbed environment), and read `cache_cost_usd`, `cache_write_5m` / `cache_write_1h` and `turn_gaps` of the two results files. `--reproduce` recomputes the split and the cost from the kept transcripts.

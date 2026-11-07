@@ -1689,6 +1689,8 @@ session_env(){ local kv
   while read -r kv; do kv="${kv%$'\r'}"   # #509: a native Windows python ends its lines CRLF; read -r keeps the CR
     [[ -n "$kv" ]] && SESSION_ENV+=(-e "HARNESS_$kv"); done \
     < <(timeout 10 python3 "$STATS_PY" goal-env "${GOAL:-}" "${STAT_PRD:-}" 2>/dev/null)
+  while read -r kv; do kv="${kv%$'\r'}"   # #615: the CLI's own lane env (claude: the 5m prompt-cache TTL)
+    [[ -n "$kv" ]] && SESSION_ENV+=(-e "$kv"); done < <(cli_lane_env 2>/dev/null)
   return 0; }
 # lane_guard_env <wd> — append to SESSION_ENV (#470) the PATH that puts scripts/lane-bin first, so a lane in a
 # repo WITH submodules runs `gh pr merge` through the gitlink guard. A repo without .gitmodules gets no

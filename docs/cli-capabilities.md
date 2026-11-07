@@ -335,3 +335,7 @@ The other backends cannot drop user config the same way; each lane there keeps l
 | `hermes` | A lane already runs on its own profile home (`HERMES_HOME`) holding only the copied login; `--ignore-user-config` would drop the lane config that carries its model, approvals and the skill dirs the prompts need. |
 | `opencode` | `--pure` drops all external plugins, the goal-loop plugin (`opencode-ralph.js`) among them; the lane's skills come from `~/.claude/skills`. |
 | `openclaw` | The lane config `$include`s the operator config for its provider login and lists its skill dirs in `skills.load.extraDirs`; the CLI has no flag to drop the rest without those. |
+
+## Prompt-cache TTL (#615, PRD #587)
+
+`claude` lanes run with `FORCE_PROMPT_CACHING_5M=1` in their environment (`claude_lane_env`, added to the lane's `session_env` through `cli_lane_env`; tmux `-e` pair and headless alike): cache writes at the 5-minute TTL cost 1.25× the input price, Claude Code's default 1-hour TTL 2×. `HARNESS_CACHE_TTL=1h` leaves the CLI's default (any other value is `5m`). The price of the 5m TTL is a re-write after a gap of over five minutes between turns; `bench/run.py` records the writes by TTL and the turn-gap distribution (`bench/README.md` § Prompt-cache TTL). Other CLIs add nothing. Test: `test/test_cache_ttl.sh`.

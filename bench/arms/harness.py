@@ -66,8 +66,9 @@ AUTONOMY_NOTE = ("\n\n(Unattended run: nobody is here to answer. Treat every Con
                  "keep them.)\n")
 FRONT_FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--dangerously-skip-permissions"]
 SECRET_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
-# The only HARNESS_* that cross into the run fleet: where usage is read and where transcripts are searched.
-PASS_ENV = ("HARNESS_USAGE_CMD", "HARNESS_CLAUDE_CONFIG_DIRS")
+# The only HARNESS_* that cross into the run fleet: where usage is read and where transcripts are searched,
+# and the prompt-cache TTL the run measures (#615: run the bench once with HARNESS_CACHE_TTL=5m, once with 1h).
+PASS_ENV = ("HARNESS_USAGE_CMD", "HARNESS_CLAUDE_CONFIG_DIRS", "HARNESS_CACHE_TTL")
 WIPE_ENV = ("STATE_DIR", "RUN_DIR", "HARNESS_DIR")
 
 

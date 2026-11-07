@@ -88,6 +88,16 @@ claude_lean_setup(){ local wd="$1" n src dst
     mkdir -p "$wd/.claude/skills" && ln -s "$src" "$dst" || continue
     git_exclude "$wd" ".claude/skills/$n"
   done; return 0; }
+# --- the prompt-cache TTL (#615) ------------------------------------------------------------------
+# Claude Code writes its prompt cache with the 1h TTL (2x the input price); the 5m TTL is 1.25x. Cache
+# writes were the largest share of the bench run's cost, and a lane re-reads its cache every turn, so a
+# lane launches with the 5m TTL: FORCE_PROMPT_CACHING_5M=1 in its environment (a local test switched
+# every write to 5m with it). The cost is a gap over 5 minutes between turns (a long suite, a wait),
+# after which the cache is written again; bench/run.py records the gap distribution next to the write split.
+# HARNESS_CACHE_TTL=5m|1h picks it (default 5m); 1h leaves the CLI's own default. Anything else is 5m.
+claude_cache_ttl(){ case "${HARNESS_CACHE_TTL:-5m}" in 1h) echo 1h;; *) echo 5m;; esac; }
+# claude_lane_env — the `NAME=value` lines a lane's environment gets from this adapter (session_env, lib.sh).
+claude_lane_env(){ [[ "$(claude_cache_ttl)" == 5m ]] && echo "FORCE_PROMPT_CACHING_5M=1"; return 0; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model effort="$4" lean; model="$(_claude_lane_model "$wd" "$3")"; lean="$(claude_lean_flags)"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")${lean:+ $lean} \"$HARNESS_BOOTSTRAP_PROMPT\""; }
