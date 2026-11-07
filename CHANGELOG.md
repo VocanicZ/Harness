@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The implementer treats a known gap as a failed gate (#599)
+
+- In bench run-20261106 the implementer of issue #5 wrote "Known gap: An AMOUNT like `-abc` exits 2 instead of 1" only in its
+  chat output, merged anyway and output the done promise. `prompts/impl.md` now carries a KNOWN-GAP GATE in its closing promise paragraph: a known gap against the
+  issue's acceptance criteria or the brief is a failed gate. The implementer fixes it, or files it as a follow-up under the
+  `_followup.md` rules and links it in the PR body, and never outputs the done promise over a gap that is neither fixed nor
+  filed. `test/test_prompt_known_gap.sh` pins the rule.
+
 ### A small PRD stays small: decompose splits only when it pays, the PRD stops prescribing primitives (#598)
 
 - In bench run-20261106 a 4.7 KB brief became 6 issues, 6 implementer sessions and 6 PRs, one of them a final
