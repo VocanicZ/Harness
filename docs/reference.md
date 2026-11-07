@@ -153,7 +153,11 @@ a claim):
    **adopts** ownerless live lanes, and runs every *slotless* dispatch action this tick (`LABEL_READY`,
    `CLOSE_PRD`). On a COMPLETE repo it archives `PLAN.md` once and does nothing else: it never kills a
    lane, and a new PRD or ready issue makes the repo incomplete again. While usage is held it also ticks
-   the [auto harness-one lane](#auto-harness-one-lane-harness_one_auto).
+   the [auto harness-one lane](#auto-harness-one-lane-harness_one_auto). Last, while a lane runs, it
+   **pre-builds the worktree of the next claimable issue** (#644): the `git worktree add`, the worktree hook and
+   the `ensure_*` setup, so the lane switch only renders the task file. The issue is not labelled `agent-working`
+   and holds no claim until its lane starts; a marker in `run/prebuilt/` keeps `reap_team` off the worktree, and
+   the worktree is removed once the issue is claimed elsewhere, closed or blocked.
 3. **Own lanes** — one tend step per lane this worker holds a claim on: the goal check, the stall
    watchdog (which advances a driven goal loop) and the self-park check. A lane whose session has ended is
    reaped and its claim released. A worker that owns a live lane tends it on a **short tick**
@@ -265,6 +269,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_COAUTHOR` | `Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>` | The trailer `scripts/lane-bin/git` adds to every `git commit` a lane makes (#642; [The Harness commit trailer](#the-harness-commit-trailer-642)). **Empty turns it off**; unset is the default, so write `HARNESS_COAUTHOR=` in `.harness/config`, not `: "${HARNESS_COAUTHOR:=}"` |
 | `HARNESS_POOL` | `3` | The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob (#469): a cap setting left over from an older release is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
+| `HARNESS_PREBUILD` | `1` | `1` = while a lane runs, the chores build the next claimable issue's worktree ahead (#644), so spawning it skips the `git worktree add`, the worktree hook and the `ensure_*` setup. `0` = every lane builds its worktree after the claim. A failed pre-build is not retried for `HARNESS_PREBUILD_RETRY_SECS` (`600`) |
 | `HARNESS_TEND_TICK` | `15` | Seconds between ticks of a worker that owns a live lane (#594): only that lane's tend step runs, with the goal check gated on an idle pane. Fleet-wide chores stay on `HARNESS_POLL`. `0`, or a value at or above `HARNESS_POLL`, = tend every `POLL` as before |
 | `HARNESS_ENGINE_CHILD_MAX` | `15` | A PRD with this many `## Acceptance criteria` items or fewer (and at least one) gets its one child filed by the engine, with no `DECOMPOSE` session. With `HARNESS_POOL=1` every PRD does, whatever its size (#614) |
 | `HARNESS_TEND_IDLE_TICKS` | `3` | Consecutive idle short ticks, with no `gh` process running, before a `DECOMPOSE` lane's goal is checked (a printed completion promise skips the wait) |

@@ -313,6 +313,7 @@ worker_chores(){ local wid="$1" lockfd
   # and must not inherit chores.lock, or the chores would stop for as long as it lives.
   release_tick     # #283: a throttled patch release for queued bug fixes (Harness repo only)
   usage_held && one_auto_tick   # #392: a usage hold starts one gated harness-one lane per account
+  prebuild_tick    # #644: while a lane runs, the next claimable issue's worktree is built ahead; one nobody can claim any more is dropped
   return 0; }
 
 # worker_hold_tick — gh-free work while a GitHub rate limit holds the worker (gh_rate_wait's callback):

@@ -162,6 +162,7 @@ reap_team(){
   for wd in "$WORKTREES_DIR/$UNIT"-i*; do
     local issue="${wd##*-i}"
     is_claimed "impl-$issue" && continue
+    prebuilt_marked "$UNIT" "$issue" && continue   # #644: a pre-built worktree is prebuild_tick's, while its issue is claimable
     # #528: the owner removes the worktree before it releases its claim. If it finished this lane after the
     # glob listed it, the claim is gone AND so is the worktree: already reaped, once — not for us to redo.
     [[ -d "$wd" ]] || continue
@@ -325,6 +326,109 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   launch_claude "$(sess_orch "$UNIT" "$prd")" "$wd"
 }
 
+# --- #644: pre-build the next claimable issue's worktree --------------------------------------------------
+# A lane switch used to pay `git worktree add`, the worktree hook and the ensure_* setup (about 10 s of 10-15) once the
+# issue was claimed. While a lane runs, prebuild_tick builds that worktree for the next claimable issue instead, so
+# prepare_impl only renders the task file. The issue is NOT labelled agent-working here (#416: that is stamped when the
+# lane really starts) and holds no claim: its marker (prebuilt_file, lib.sh) is what keeps reap_team off the worktree.
+# The marker stays only while the issue is claimable; prebuild_sweep removes the worktree when it is claimed elsewhere
+# (agent-working), closed or blocked, and every check-then-remove runs under pool.lock, where a claim is written.
+
+# prebuilt_take <issue> <worktree> <branch> <base> — prepare_impl's reuse. rc 0 = the pre-built worktree is the lane's now
+# (marker dropped, branch moved to the current origin/<base>); rc 1 = none, or unusable (then it is removed), build it.
+prebuilt_take(){ local issue="$1" wd="$2" branch="$3" base="$4" f; f="$(prebuilt_file "$UNIT" "$issue")"
+  [[ -e "$f" ]] || return 1
+  prebuilt_building "$UNIT" "$issue" && return 1   # its builder is mid-add: not ours to touch (the add below then fails, as for any busy issue)
+  if prebuilt_ready "$UNIT" "$issue" && [[ -e "$wd/.git" && "$(git -C "$wd" symbolic-ref --short -q HEAD 2>/dev/null)" == "$branch" ]]; then
+    rm -f "$f"
+    # the branch was cut from origin/<base> when it was built: bring it to today's, nothing is on it
+    [[ "$(git -C "$wd" rev-parse HEAD 2>/dev/null)" == "$(git -C "$CHECKOUT" rev-parse "origin/$base" 2>/dev/null)" ]] \
+      || git -C "$wd" reset -q --hard "origin/$base" 2>/dev/null || true
+    log "prepare #$issue: reusing the pre-built worktree (#644)"
+    harness_event prebuilt_used kind=impl issue="$issue"
+    return 0; fi
+  rm -f "$f"; remove_worktree "$CHECKOUT" "$wd" "$branch"   # a marker with no sound worktree behind it
+  return 1; }
+
+# prebuild_candidates — the IMPL issue numbers a claim could take, in dispatch order, one per line (the head is what the
+# next claim takes). rc 1 = unknown or pre-empted: dispatch held or failed, or an orchestration action (PLAN, PRD,
+# DECOMPOSE) comes first — the caller then neither builds nor drops anything.
+prebuild_candidates(){ local busy owned errf actions rc act pl pr
+  busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)")"
+  owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)")"
+  errf="$RUN_DIR/$UNIT.prebuild.err"
+  actions="$(dispatch_actions "$REPO" 99 0 "$busy" "$owned" 2>"$errf")"; rc=$?
+  (( rc == 0 )) || return 1
+  while IFS=$'\t' read -r act pl pr; do
+    case "$act" in PLAN|PRD|DECOMPOSE) return 1;; IMPL) echo "$pl";; esac
+  done <<< "$actions"
+  return 0; }
+
+# prebuild_drop <issue> <why> — remove a pre-built worktree, its local branch and its marker, unless a claim took the issue
+# first. The claim check and the removal share pool.lock (the same hold reap_impl_lane keeps), where claims are written.
+prebuild_drop(){ local n="$1" why="$2" wd="$WORKTREES_DIR/$UNIT-i$1" lockfd
+  lock_acquire "$POOL_LOCK" lockfd
+  if is_claimed "impl-$n"; then lock_release "$lockfd"; return 1; fi
+  remove_worktree "$CHECKOUT" "$wd" "issue/$n"; rm -f "$(prebuilt_file "$UNIT" "$n")"
+  lock_release "$lockfd"
+  log "prebuild: dropped the pre-built worktree of #$n — $why (#644)"
+  harness_event prebuilt_dropped kind=impl issue="$n" reason="$why"; }
+
+# prebuild_sweep — keep a pre-built worktree only while its issue is claimable.
+prebuild_sweep(){ local f n cands="" known=0; shopt -s nullglob
+  local -a marks=("$RUN_DIR/prebuilt/$UNIT"-i*)
+  shopt -u nullglob
+  (( ${#marks[@]} )) || return 0
+  for f in "${marks[@]}"; do prebuilt_ready "$UNIT" "${f##*-i}" && { cands="$(prebuild_candidates)" && known=1; break; }; done
+  for f in "${marks[@]}"; do
+    n="${f##*-i}"
+    prebuilt_building "$UNIT" "$n" && continue
+    is_claimed "impl-$n" && continue   # taken: prepare_impl owns the marker
+    if ! prebuilt_ready "$UNIT" "$n"; then prebuild_drop "$n" "its builder died mid-add"; continue; fi
+    [[ -e "$WORKTREES_DIR/$UNIT-i$n/.git" ]] || { rm -f "$f"; continue; }   # the worktree is gone: only the marker is left
+    (( known )) || continue   # claimability unknown this tick: keep
+    grep -qxF "$n" <<<"$cands" || prebuild_drop "$n" "#$n is no longer claimable (claimed elsewhere, closed or blocked)"
+  done; }
+
+# prebuild_build <issue> — build the worktree under a `building` marker written under pool.lock (the claim path reads the
+# marker through busy_issues_for, so nobody claims the issue mid-add). Never stamps agent-working. rc 1 = not built.
+prebuild_build(){ local n="$1" wd="$WORKTREES_DIR/$UNIT-i$1" branch="issue/$1" f base lockfd; f="$(prebuilt_file "$UNIT" "$n")"
+  lock_acquire "$POOL_LOCK" lockfd
+  if is_claimed "impl-$n" || [[ -e "$wd" ]]; then lock_release "$lockfd"; return 1; fi
+  mkdir -p "$RUN_DIR/prebuilt"; printf 'building %s %s\n' "$(date +%s)" "$$" > "$f"
+  lock_release "$lockfd"
+  base="$(default_branch)"
+  git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+  if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null \
+     && ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null; then
+    log "prebuild: worktree add failed #$n — will not retry for ${HARNESS_PREBUILD_RETRY_SECS:-600}s (#644)"
+    remove_worktree "$CHECKOUT" "$wd" "$branch"; rm -f "$f"; : > "$RUN_DIR/prebuilt/.failed-$UNIT-i$n"; return 1; fi
+  ensure_safe "$wd"
+  win_repo_config "$wd"   # #488
+  run_worktree_hook "$wd"
+  printf 'ready %s %s\n' "$(date +%s)" "$$" > "$f.tmp" && mv -f "$f.tmp" "$f"
+  log "prebuild: worktree of #$n is ready, ahead of its claim (#644)"
+  harness_event prebuilt_built kind=impl issue="$n"; return 0; }
+
+# prebuild_tick — the chores' step (worker_chores, after its lock): drop what stopped being claimable, then, while a lane runs
+# and none is pre-built yet, build the head of the claim queue. One builder at a time (prebuild.lock); one worktree at a time.
+prebuild_tick(){ local lockfd f n cands head skip
+  (( ${HARNESS_PREBUILD:-1} )) || return 0
+  lock_try "$RUN_DIR/prebuild.lock" lockfd || return 0
+  prebuild_sweep
+  shopt -s nullglob; local -a marks=("$RUN_DIR/prebuilt/$UNIT"-i*); shopt -u nullglob
+  if (( ${#marks[@]} == 0 )) && (( $(pool_lane_count) >= 1 )) && ! is_paused && ! usage_held && ! gh_budget_low \
+     && ! unit_complete "$UNIT" && ensure_checkout && cands="$(prebuild_candidates)"; then   # a COMPLETE repo has nothing to claim
+    while read -r n; do
+      [[ -n "$n" ]] || continue
+      f="$RUN_DIR/prebuilt/.failed-$UNIT-i$n"   # a failed add is not retried every tick
+      [[ -f "$f" && -n "$(find "$f" -mmin -$(( ${HARNESS_PREBUILD_RETRY_SECS:-600} / 60 + 1 )) 2>/dev/null)" ]] && continue
+      [[ -e "$WORKTREES_DIR/$UNIT-i$n" ]] && continue
+      prebuild_build "$n"; break
+    done <<< "$cands"
+  fi
+  lock_release "$lockfd"; return 0; }
+
 # prepare_impl <ISSUE> <PROMISE> — claim the issue (agent-working), set up its worktree on
 # issue/<n> and render impl.md — resume.md for a force-paused issue or one whose branch is already
 # pushed — into <worktree>/.harness-task.md. Everything spawn_impl does short of the launch, so
@@ -334,12 +438,15 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   local issue="$1"; PROMISE="$2"
   local wd="$WORKTREES_DIR/$UNIT-i$issue" branch="issue/$issue" base; base="$(default_branch)"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
-  if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null; then
-    git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
+  # #644: a worktree pre-built for this issue while another lane ran is reused — no add, no hook, no ensure_*.
+  if ! prebuilt_take "$issue" "$wd" "$branch" "$base"; then
+    if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null; then
+      git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
+    fi
+    ensure_safe "$wd"
+    win_repo_config "$wd"   # #488
+    run_worktree_hook "$wd"
   fi
-  ensure_safe "$wd"
-  win_repo_config "$wd"   # #488
-  run_worktree_hook "$wd"
   # Stamp agent-working only AFTER the worktree is in place (#416, as spawn_bug since #34). A failed
   # add returns above WITHOUT a stamp — and never removes one: it can mean a live lane still owns the
   # issue's worktree, and that lane may have re-taken the lock.
