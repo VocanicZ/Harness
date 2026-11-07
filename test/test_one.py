@@ -422,10 +422,10 @@ def test_account_spend_since_reads_the_accounts_transcripts():
         iso = lambda t: _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(t))
         with open(os.path.join(proj, "s1.jsonl"), "w") as fh:
             fh.write(_msg("old", iso(t0 - 60), 4_000_000))   # before t0: not counted
-            fh.write(_msg("m1", iso(t0 + 60), 400_000))      # $10 at opus output $25/Mtok
-            fh.write(_msg("m1", iso(t0 + 60), 400_000))      # the same message streamed again: once
+            fh.write(_msg("m1", iso(t0 + 60), 500_000))      # $10 at opus output $20/Mtok
+            fh.write(_msg("m1", iso(t0 + 60), 500_000))      # the same message streamed again: once
         with open(os.path.join(proj, "s1", "subagents", "agent-a.jsonl"), "w") as fh:
-            fh.write(_msg("m2", iso(t0 + 120), 200_000))     # a sub-agent's: $5
+            fh.write(_msg("m2", iso(t0 + 120), 250_000))     # a sub-agent's: $5
         with open(os.path.join(other, "projects", "-w", "s2.jsonl"), "w") as fh:
             fh.write(_msg("m3", iso(t0 + 60), 4_000_000))    # another account's
         old = os.environ.get("HARNESS_CLAUDE_CONFIG_DIRS")

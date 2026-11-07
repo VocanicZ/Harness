@@ -18,10 +18,10 @@
     "cache_read": 9545982,
     "cache_write": 654286
   },
-  "cost_usd": 10.2805,
+  "cost_usd": 6.8559,
   "usd_per_pct": 4.15,
   "usd_per_pct_source": "fit",
-  "weekly_window_pct": 2.48,
+  "weekly_window_pct": 1.65,
   "models": {
     "claude-opus-5-5": {
       "messages": 65,
@@ -29,7 +29,7 @@
       "output": 39919,
       "cache_read": 3612725,
       "cache_write": 285540,
-      "cost_usd": 5.436
+      "cost_usd": 3.6262
     },
     "claude-sonnet-5-5": {
       "messages": 106,
@@ -37,7 +37,7 @@
       "output": 56758,
       "cache_read": 5933257,
       "cache_write": 368746,
-      "cost_usd": 4.8445
+      "cost_usd": 3.2297
     }
   },
   "hidden_tests": {

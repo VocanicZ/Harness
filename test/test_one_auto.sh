@@ -78,7 +78,7 @@ stub_usage(){ printf 'main\tseven_day\t%s\t%s\n' "$1" "$future" > "$STUB"; mkdir
 EV="$HARNESS_EVENTS_FILE"
 cat > "$EV" <<'EOF'
 {"event": "launch", "ts": "2026-10-01T00:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1"}
-{"event": "session_end", "ts": "2026-10-01T01:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1", "usage": {"claude-opus-5-5": {"output": 400000}}}
+{"event": "session_end", "ts": "2026-10-01T01:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1", "usage": {"claude-opus-5-5": {"output": 500000}}}
 EOF
 hold(){ mkdir -p "$(_usage_hold_dir)"; printf 'main\tseven_day\t%s\t%s\n' "$1" "$future" > "$(_usage_hold_dir)/main.hold"; }
 unhold(){ rm -f "$(_usage_hold_dir)"/*.hold; }

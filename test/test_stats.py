@@ -803,9 +803,9 @@ def test_role_rollup_tokens_and_list_price_per_role():
     assert (mgr["sessions"], imp["sessions"], oth["sessions"]) == (4, 3, 2), r
     assert imp["input"] == M and imp["output"] == 3 * M and imp["cache_read"] == M, imp
     assert mgr["input"] == 4 and mgr["output"] == 4 * M and mgr["cache_create"] == 40 and mgr["cache_read"] == 400, mgr
-    # list price: sonnet $3 in / $15 out / $0.30 cache read per Mtok; opus $5 / $25 / $6.25 write / $0.50 read
-    assert imp["usd"] == round(3 + 15 * 3 + 0.3, 4), imp["usd"]
-    opus_one = (1 * 5 + M * 25 + 10 * 6.25 + 100 * 0.5) / M
+    # list price: sonnet $2 in / $10 out / $0.20 cache read per Mtok; opus $4 / $20 / $5 write / $0.20 read
+    assert imp["usd"] == round(2 + 10 * 3 + 0.2, 4), imp["usd"]
+    opus_one = (1 * 4 + M * 20 + 10 * 5 + 100 * 0.2) / M
     assert abs(mgr["usd"] - 4 * opus_one) < 1e-3 and abs(oth["usd"] - 2 * opus_one) < 1e-3, (mgr, oth)
     t = r["total"]
     assert t["sessions"] == 9 and t["output"] == 9 * M and abs(t["usd"] - (imp["usd"] + mgr["usd"] + oth["usd"])) < 1e-3, t
@@ -832,11 +832,11 @@ def test_report_cli_by_role_text_and_json():
         assert rc == 0, out
         lines = {l.split()[0]: l for l in out.splitlines() if l and not l.startswith(" ")}
         assert set(lines) == {"manager", "implementer", "other", "total"}, out
-        assert "sessions 3  in 1,000,000  out 3,000,000" in lines["implementer"] and "$48.30" in lines["implementer"], out
+        assert "sessions 3  in 1,000,000  out 3,000,000" in lines["implementer"] and "$32.20" in lines["implementer"], out
         assert "sessions 9" in lines["total"] and "claude-sonnet-5-5: out 3,000,000" in out, out
         rc, out = run(["report", "--by-role", "--since", "2026-01-01", "--json"])
         j = json.loads(out)
-        assert j["roles"]["implementer"]["usd"] == 48.3 and j["roles"]["other"]["sessions"] == 2, j
+        assert j["roles"]["implementer"]["usd"] == 32.2 and j["roles"]["other"]["sessions"] == 2, j
         rc, out = run(["report", "--by-role", "--prd", "9", "--json"])
         assert rc == 0 and json.loads(out)["total"]["sessions"] == 3, out
         rc, out = run(["report", "--by-role", "--issue", "30", "--json"])

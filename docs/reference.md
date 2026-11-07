@@ -951,8 +951,8 @@ runner only mentioned in an `echo` or a `gh issue comment` does not count. The d
 
 **Measuring the saving (#378).** `harness stats --by-role` reports, per role, the sessions, input /
 output / cache-write / cache-read tokens (by model too) and their list-price $ (the `forecast.py` price
-table: Opus $5 / $25, Sonnet $3 / $15, Haiku $1 / $5 per Mtok in / out; cache writes at the 5-minute
-rate, reads at a tenth of input), plus the total. A session's role is read from the `kind` its
+table: Opus 5.x $4 / $20, Sonnet 5.x $2 / $10, Haiku $1 / $5 per Mtok in / out, and Opus / Sonnet 4.x and older at
+their own $5 / $25 and $3 / $15; cache writes at the 5-minute rate, reads $0.20 for Opus and Sonnet 5.x), plus the total. A session's role is read from the `kind` its
 `launch` logged — `impl` and `bug-fix` are Implementer; `orch` (PLAN / PRD / DECOMPOSE), `review` (and
 its gauntlet), `bug-triage` and `inject` are Manager — or, for an event from before kinds, from its
 worktree's name (`<unit>-i<n>` and `bug-…-i<n>` Implementer, `orch-…-p<n>` and `triage-…-i<n>` Manager). Anything else is `other`, shown, never dropped. It reads the
@@ -1324,8 +1324,9 @@ one issue at a time while the fleet is paused or HELD (#362).
   `impl`; a test or gate runner (`test/run.sh`, `ci-local`, `swarm-suite`, `rtdd which`, `pytest`, …)
   is `gate`; `gh pr`, `git push` and `gh issue close|edit|comment` are `ship`. A message counts once,
   in the phase its own tool calls leave the lane in.
-- **Cost** is list price per model (Opus, Sonnet, Haiku; any other model is priced as Opus, the
-  conservative end). A lane with no Claude transcript — another CLI, whose adapter folded its usage
+- **Cost** is list price per model (Opus, Sonnet, Haiku; Opus and Sonnet 4.x and older keep their older, dearer
+  prices; any other model is priced as Opus, the conservative end). The one `PRICE` table in `forecast.py` also
+  drives `harness stats`, the `harness one` budget gate and `bench/run.py`. A lane with no Claude transcript — another CLI, whose adapter folded its usage
   into `session_end` — adds its priced total, spread over the phases by the other lanes' mix. A lane
   that spent under $0.50 died at its first turn and is skipped.
 - **History.** The forecast uses the issue's PRD siblings in the same repo; with fewer than 3 past

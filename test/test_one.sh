@@ -47,7 +47,7 @@ assert_eq "$rc" "0" "harness one check is wired into bin/harness"
 EV="$RUN_DIR/events.jsonl"
 cat > "$EV" <<'EOF'
 {"event": "launch", "ts": "2026-10-01T00:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1"}
-{"event": "session_end", "ts": "2026-10-01T01:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1", "usage": {"claude-opus-5-5": {"output": 400000}}}
+{"event": "session_end", "ts": "2026-10-01T01:00:00Z", "prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 1, "session": "s1", "usage": {"claude-opus-5-5": {"output": 500000}}}
 EOF
 BODIES="$RUN_DIR/bodies.json"
 printf '[{"number": 1, "body": "%s"}, {"number": 7, "body": "%s"}]\n' "$(printf 'x%.0s' {1..80})" "$(printf 'y%.0s' {1..80})" > "$BODIES"

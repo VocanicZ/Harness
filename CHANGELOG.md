@@ -17,6 +17,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   caused the byte-order-mark and form-feed / U+2028 bugs. They state the behaviour instead. `test/test_prompt_decompose.sh`
   pins both rules and the `POOL` render.
 
+### Cost figures use current list prices (#597)
+
+- `scripts/forecast.py` still priced Opus at $5 / $25 and Sonnet at $3 / $15 per Mtok (cache read $0.50 / $0.30), the 4.x
+  prices, so every reported dollar figure ran about 1.5× high. `PRICE` now carries the 5.x list prices: Opus $4 / $20,
+  Sonnet $2 / $10, cache reads $0.20 for both, cache writes at 1.25× (5 minutes) and 2× (1 hour) input. Opus and Sonnet
+  4.x and older (`claude-opus-4-1`, `claude-3-5-sonnet`, ...) keep the old rows. The `harness one` budget gate, `harness
+  stats` and `bench/run.py` read the same table.
+- Run `run-20261106` is re-costed from its committed logs: $6.86 for Harness (was $10.28) and $0.64 for plain Claude
+  Code (was $0.92).
+
 ### Lean lane context: Claude lanes start without the operator's user-scope config (#595)
 
 - Every lane inherited the operator's whole personal Claude Code config (186 skills, user plugins, MCP servers and
