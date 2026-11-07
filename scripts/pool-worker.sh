@@ -42,8 +42,9 @@ claim_lane(){ local wid="$1" lockfd live allow busy owned actions rc errf action
   live="$(pool_lane_count)"
   if (( live < POOL )); then
     allow=0; (( live == 0 )) && allow=1
-    busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)")"
-    owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)")"
+    # #596: an issue / PRD whose last launch failed is held back (like a busy one) until its backoff runs out
+    busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)")"
+    owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)")"
     errf="$RUN_DIR/$UNIT.dispatch.err"
     actions="$(dispatch_actions "$REPO" 1 "$allow" "$busy" "$owned" 2>"$errf")"; rc=$?
     [[ -s "$errf" ]] && cat "$errf" >&2
@@ -51,6 +52,7 @@ claim_lane(){ local wid="$1" lockfd live allow busy owned actions rc errf action
     while IFS=$'\t' read -r action payload promise; do
       case "$action" in IMPL|BUG|PLAN|PRD|DECOMPOSE|REVIEW) ;; *) action=""; continue;; esac
       key="$(lane_claim_key "$action" "$payload")"; tok="$action:$payload"
+      [[ "$action" != BUG ]] && launch_backoff_active "$key" && { action=""; continue; }   # #596 (orch-0 has no number to exclude)
       case "$action" in
         IMPL)              sess="$(sess_impl "$UNIT" "$payload")";;
         PLAN|PRD)          sess="$(sess_orch "$UNIT" 0)";;
@@ -123,7 +125,8 @@ tend_lane_done(){ local f="$1" key tok sess n prd slug
             reap_impl_lane "$n";;
     orch-*) prd="${key#orch-}"; sess="$(sess_orch "$UNIT" "$prd")"
             if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; fi
-            if (( prd == 0 )); then ! session_live "$sess"; else reap_orch_lane "$prd"; fi;;
+            if (( prd == 0 )); then session_live "$sess" && return 1; launch_gone_check "$sess" orch; return 0   # #596
+            else reap_orch_lane "$prd"; fi;;
     bug-*)  (( ${TEND_FAST:-0} )) && return 1   # #594: a bug lane has no goal; the full step tends it
             slug="$(_with_owner "$(_bug_ref_repo "$tok")")"; n="$(_bug_ref_num "$tok")"
             bug_lane_tend "$slug" "$n"
@@ -348,6 +351,7 @@ worker_step(){ local wid="$1" rc
   return "$rc"; }
 
 main(){ local wid="${1:?usage: pool-worker.sh <worker-id>}"; UNIT="worker-$wid"; _IDLE_LOGGED=0
+  declare -F tmux_env_sanitize >/dev/null && tmux_env_sanitize   # #596: a stale inherited TMUX breaks every tmux call
   log "pool worker $wid up — one lane at a time, at most $POOL at once, poll ${POLL}s"
   roots_watch   # #419: the resident loop ends by itself once the roots it serves are deleted
   seed_if_needed "$(fleet_unit)"   # once, at worker start

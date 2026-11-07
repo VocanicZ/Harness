@@ -108,6 +108,7 @@ selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
 # fresh /harness-one lease, keeps the lane. rc 0 = reaped, 1 = the lane lives on.
 reap_impl_lane(){ local issue="$1" wd="$WORKTREES_DIR/$UNIT-i$1" sess; sess="$(sess_impl "$UNIT" "$issue")"
   session_live "$sess" && return 1
+  launch_gone_check "$sess" impl issue="$issue"   # #596: gone within 30s of its launch → launch_failed + backoff
   rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
   one_lease_live "$UNIT" "$issue" && return 1   # #366: a /harness-one session is working it
   rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
@@ -160,6 +161,7 @@ busy_prds_for(){
 # branch once the session is gone.
 reap_orch_lane(){ local prd="$1" wd; wd="$(orch_worktree "$SLUG" "$prd")"
   session_live "$(sess_orch "$UNIT" "$prd")" && return 1
+  launch_gone_check "$(sess_orch "$UNIT" "$prd")" orch prd="$prd"   # #596
   log "reaping orch worktree for PRD #$prd"
   harness_event reap kind=orch prd="$prd" reason=session_gone
   remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"

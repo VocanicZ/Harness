@@ -27,6 +27,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - Run `run-20261106` is re-costed from its committed logs: $6.86 for Harness (was $10.28) and $0.64 for plain Claude
   Code (was $0.92).
 
+### A tmux launch counts only if the session exists; an instantly dead lane backs off (#596)
+
+- A stale inherited `TMUX=` (its socket directory gone) made `tmux new-session` print `error creating …` but exit 0, so
+  the launch was logged as a success and the worker re-claimed at once with no backoff: in a benchmark run the first
+  3.7 minutes were 13 DECOMPOSE launches that died in 0-1s, and `harness stats` counted 21 sessions where 9 ran.
+  `tmux_sess_start` now confirms the session with `has-session` and fails when it is missing, and no longer passes the
+  caller's `TMUX` through; a pool worker started with a stale `TMUX` drops it at start.
+- A lane that is gone within 30s of its launch (`HARNESS_LAUNCH_FAIL_SECS`) logs a `launch_failed` event, and the worker
+  holds that issue or PRD action back for `HARNESS_LAUNCH_BACKOFF` seconds (60, doubling per consecutive failure up to
+  `HARNESS_LAUNCH_BACKOFF_MAX`, 900) before claiming it again; other ready work is claimed meanwhile.
+- `harness stats` does not count a `launch_failed` lane as a session.
+
 ### Lean lane context: Claude lanes start without the operator's user-scope config (#595)
 
 - Every lane inherited the operator's whole personal Claude Code config (186 skills, user plugins, MCP servers and

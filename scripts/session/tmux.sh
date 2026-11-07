@@ -16,11 +16,23 @@ tmux_sess_live(){ tmux has-session -t "$1" 2>/dev/null; }
 # exported. So run the real tmux through `env -u` for those: the caller's shell is never touched (#558: unsetting
 # and restoring them here promoted a caller's temporary `HARNESS_CLI=agy f` or `local STATE_DIR` to an exported
 # global). A `tmux` FUNCTION stub (a test) is called directly, so it runs in THIS shell and keeps its side
-# effects. The lane gets its own values from the -e pairs. TMUX_TMPDIR, TMUX, PATH and HOME stay.
-tmux_sess_start(){ local v unset_args=()
-  if declare -F tmux >/dev/null; then tmux new-session -d -s "$1" -c "$2" "${@:3}"; return $?; fi
-  for v in STATE_DIR RTDD_EVENT_LOG $(compgen -e HARNESS_); do unset_args+=(-u "$v"); done
-  env "${unset_args[@]}" tmux new-session -d -s "$1" -c "$2" "${@:3}"; }
+# effects. The lane gets its own values from the -e pairs. TMUX_TMPDIR, PATH and HOME stay.
+# #596: the caller's TMUX is dropped too — a stale inherited `TMUX=` (the socket directory gone) made tmux print
+# `error creating …` yet exit 0, and the lane was logged as launched. The server is the default one under
+# TMUX_TMPDIR, never the caller's own. And a start counts only if the session exists: has-session confirms it,
+# so a tmux that exits 0 without creating one (or whose command died at once) is a failed start, rc 1.
+tmux_sess_start(){ local v unset_args=(-u TMUX) rc
+  if declare -F tmux >/dev/null; then tmux new-session -d -s "$1" -c "$2" "${@:3}"; rc=$?
+  else
+    for v in STATE_DIR RTDD_EVENT_LOG $(compgen -e HARNESS_); do unset_args+=(-u "$v"); done
+    env "${unset_args[@]}" tmux new-session -d -s "$1" -c "$2" "${@:3}"; rc=$?
+  fi
+  (( rc == 0 )) || return "$rc"
+  declare -F tmux >/dev/null && return 0   # a test's stub does not model a session coming alive
+  env -u TMUX tmux has-session -t "=$1" 2>/dev/null; }
+# tmux_env_sanitize — a pool worker started from a stale tmux client (TMUX names a socket that is gone) would have
+# every tmux call fail, not only the launch: drop TMUX / TMUX_PANE then. A live one is left alone (#596).
+tmux_env_sanitize(){ [[ -n "${TMUX:-}" && ! -S "${TMUX%%,*}" ]] && unset TMUX TMUX_PANE; return 0; }
 tmux_sess_send_line(){ tmux send-keys -t "$1" "$2" Enter; }
 tmux_sess_type(){ tmux send-keys -t "$1" -l "$2"; }
 tmux_sess_enter(){ tmux send-keys -t "$1" Enter; }
