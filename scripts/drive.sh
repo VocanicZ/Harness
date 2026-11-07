@@ -11,7 +11,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/autorelease.sh"   # #283: the fleet cuts 
 PLAN_MARKER_PATH="docs/harness/plan-complete.json"
 PLAN_ARCHIVE_DIR="docs/harness/archive"
 
-default_branch(){ gh repo view "$SLUG" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main; }
+# default_branch — the repo's default branch. #618: asked of GitHub once per fleet (an hour at most), not on every lane switch
+# (spawn_impl, spawn_orch and spawn_bug each used to pay a `gh repo view`, 1-3 s apiece). The answer is kept in the fleet's
+# RUN_DIR; only a real answer is kept, so a gh failure (-> `main`) is asked again next time.
+default_branch(){ local f b
+  f="${RUN_DIR:+$RUN_DIR/default-branch.$(printf '%s' "$SLUG" | tr -c 'A-Za-z0-9._-' '_')}"
+  if [[ -n "$f" && -s "$f" && -n "$(find "$f" -mmin -60 2>/dev/null)" ]]; then cat "$f"; return 0; fi
+  b="$(gh repo view "$SLUG" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)"
+  if [[ -z "$b" ]]; then echo main; return 0; fi
+  [[ -n "$f" ]] && { printf '%s\n' "$b" > "$f.$$" && mv -f "$f.$$" "$f"; } 2>/dev/null
+  echo "$b"; }
 
 # archive_plan — on unit completion, archive a live PLAN.md (never delete) and write a committed,
 # spec-keyed completion marker, so the auto-PLAN gate (issuelib.py) neither stays blocked by the
@@ -339,7 +348,10 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   # means a prior agent checkpointed WIP to GitHub — continue it instead of starting fresh.
   local tmpl="impl.md" labels handoff=""
   # #617: ONE call serves the labels and the issue text the task file inlines.
+  # #618: this is the lane switch's ONLY `gh issue view` — the labels, the issue text and the parent PRD (stats attribution)
+  # all come off this one answer. IMPL_IJSON_OK says spawn_impl may trust TC_PARENT instead of asking GitHub again.
   local ijson; ijson="$(gh issue view "$issue" -R "$SLUG" --json labels,title,body,comments 2>/dev/null || echo '')"
+  IMPL_IJSON_OK=""; [[ -n "$ijson" ]] && IMPL_IJSON_OK=1
   labels="$(python3 "$TASKCTX_PY" labels <<<"$ijson" 2>/dev/null || echo '')"
   task_context "$issue" "$ijson" "$wd" "$base"
   # #471: the branch may sit ONLY in a submodule (issue/<unit>-<n>) — a lane that died after pushing just that.
@@ -367,10 +379,14 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   return 0
 }
 
+# prepared_parent_prd <issue> — the PRD the issue names, read off the `gh issue view` prepare_impl already made (#618); only when
+# that call failed does it ask GitHub again (issue_parent_prd).
+prepared_parent_prd(){ if [[ -n "${IMPL_IJSON_OK:-}" ]]; then printf '%s' "${TC_PARENT:-}"; else issue_parent_prd "$1"; fi; }
+
 spawn_impl(){   # <ISSUE> <PROMISE>
   local issue="$1"; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$issue"; STAT_PRD=""
   prepare_impl "$issue" "$2" || return 1
-  STAT_PRD="$(issue_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
+  STAT_PRD="$(prepared_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$WORKTREES_DIR/$UNIT-i$issue"
 }
 

@@ -121,7 +121,7 @@ one_auto_spawn(){ local issue="$1" wd; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$iss
   wd="$WORKTREES_DIR/$UNIT-i$issue"
   prepare_impl "$issue" "ISSUE $issue DONE" && [[ -s "$wd/.harness-task.md" ]] || return 1
   _one_auto_note "$issue" >> "$wd/.harness-task.md"
-  STAT_PRD="$(issue_parent_prd "$issue")"
+  STAT_PRD="$(prepared_parent_prd "$issue")"   # #618: off the view prepare_impl made
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$wd"; }
 
 # one_auto_tick — the pool worker's chores while usage is HELD, every tick: start the account's lane on this fleet's

@@ -30,6 +30,20 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - Opt out with `HARNESS_COAUTHOR=` (empty) in `.harness/config` or the environment; any other value replaces the trailer.
   Covered by `test/test_lane_git.sh`.
 
+### Fewer serial waits: review sub-agent beside the suite, small suites local, no-op rebase skipped, fewer `gh` calls per lane switch (#618)
+
+- Review: `prompts/review.md` starts the review sub-agent first and runs the suite while it works (it used to start after about 80 s of
+  serial checks). `scripts/swarm-suite.sh` exits `3` ("run it locally") for a small suite: files × `HARNESS_SWARM_SECS_PER_FILE`
+  (default 2) under `HARNESS_SWARM_LOCAL_MAX_SECS` (default 60; `0` = always swarm). In run-20261106 the swarm job took 61 s and gave
+  a false red where a local run takes about 2 s.
+- Implementer: `prompts/impl.md` skips the rebase and the re-gate when `git rev-list HEAD..origin/<default-branch>` is empty, and
+  merges with one direct `gh pr merge --squash --delete-branch`; the promise is printed once it exits 0 (the engine's `merged` check
+  confirms it). `--auto` is only the retry for a merge that failed. `bug-fix.md` and `resume.md` are unchanged.
+- Lane switch: `default_branch` asks GitHub once per fleet (kept in `RUN_DIR` for an hour; a gh failure is never kept). Spawning an
+  impl lane makes one `gh issue view` for its issue: the labels, the issue text and the parent PRD for stats attribution all come off
+  that answer (the parent PRD's own `## Original request` still costs its own view). The fixed `sleep 1.5` after a tmux session
+  starts is gone. `test/test_lane_switch.sh`, `test/test_prompt_fast_ship.sh` and `test/test_swarm.sh` cover them.
+
 ### The engine files one child itself for a small PRD or POOL=1: no decompose session (#614)
 
 - In bench run-20261106 the decompose session cost $1.29 and split a 4.7 KB brief into 6 issues, which 6 implementer sessions
