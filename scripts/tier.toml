@@ -1,0 +1,38 @@
+# tier.toml — the "When to use Harness" thresholds (#619, PRD #587): the one place they live.
+# Read by scripts/tier.py (`harness tier decide`), which every entry skill (/harness, /harness-prd,
+# /harness-issue, /harness-arc) calls for its tier check. Edit numbers HERE, never in a prompt.
+#
+# PROVISIONAL: these numbers are a first guess from one bench run (run-20261106: a 3-minute
+# single-session job took the fleet 59 minutes and about $7.58 against $0.64 direct). #621 sweeps
+# real runs and recalibrates them; until it reports, treat every value below as a starting point.
+
+[direct]
+# A change fits ONE session — do it in the session itself — when ALL of these hold ...
+max_criteria     = 8      # acceptance criteria
+max_changed_lines = 500   # estimated diff, added + removed
+max_files        = 10     # estimated files touched
+max_subsystems   = 1      # one subsystem
+# ... and the user is around, or the job is quick.
+max_unattended_minutes = 45
+
+[fleet]
+# The work will not fit one session when ANY of these holds.
+min_criteria     = 16     # more than ~15 acceptance criteria
+min_subsystems   = 3      # "several" subsystems
+min_workstreams  = 2      # >= 2 independent workstreams ... (only with pool > 1)
+min_pool         = 2      # ... and a pool that can run them in parallel
+min_unattended_minutes = 120   # hours of unattended work
+# a multi-step plan (--multi-step-plan) is a fleet job on its own
+
+[estimate]
+# Rough time and cost shown for both paths. Minutes and USD at current list prices; the direct
+# figure scales with criteria, the fleet figure is its fixed pipeline (front -> PRD -> lanes -> review)
+# plus the same per-criterion work. Where `harness forecast` has history for the issue, prefer it.
+direct_minutes_base    = 3
+direct_minutes_per_criterion = 1.5
+direct_usd_base        = 0.30
+direct_usd_per_criterion = 0.10
+fleet_minutes_base     = 12   # the projection after the fixes in PRD #587 (was 59 in run-20261106)
+fleet_minutes_per_criterion = 2
+fleet_usd_base         = 2.50
+fleet_usd_per_criterion = 0.30

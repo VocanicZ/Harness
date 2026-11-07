@@ -11,6 +11,16 @@ create ONLY the **delta** child issues — never duplicating existing children. 
 in a headless injector; your job here is to **grill the new scope, then gate it behind an explicit
 human confirmation**. Mutate NOTHING while grilling.
 
+## 0. Tier check (before anything else)
+Run the "When to use Harness" check from the `/harness` skill first: grill just enough to estimate
+(acceptance criteria, subsystems, changed lines/files, workstreams and pool size, user around or
+unattended), run `harness tier decide …`, and show the tier, the reason and the time and cost of
+both "direct" and "fleet". The user may override either way (`--prefer`). If it says **direct**, offer
+the direct path instead of growing the PRD: do the work in this session, on a branch with a PR (`Direct fix: fits one session` in the
+body); on a live fleet first `harness tier overlap --files … -R <owner/repo>` and, if it exits 1,
+file it through `/harness-issue`. Only on **single lane** or **fleet** (or the user's override)
+continue below.
+
 ## 1. Grill first (no mutation)
 Interview the user (reuse the `grill-me` pattern) until the scope expansion is fully pinned down:
 - **Milestone outcome** — what does the grown PRD now promise that it didn't before?

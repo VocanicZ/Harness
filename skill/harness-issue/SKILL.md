@@ -10,6 +10,16 @@ work**: a discrete `[AFK]` implementation issue the running pool can claim on it
 fleet restart. The actual mutation happens in a headless injector; your job here is to **grill the
 requirement, then gate it behind an explicit human confirmation**. Mutate NOTHING while grilling.
 
+## 0. Tier check (before anything else)
+Run the "When to use Harness" check from the `/harness` skill first: grill just enough to estimate
+(acceptance criteria, subsystems, changed lines/files, workstreams and pool size, user around or
+unattended), run `harness tier decide …`, and show the tier, the reason and the time and cost of
+both "direct" and "fleet". The user may override either way (`--prefer`). If it says **direct**, offer
+the direct path instead of injecting an issue: do the work in this session, on a branch with a PR (`Direct fix: fits one session` in the
+body); on a live fleet first `harness tier overlap --files … -R <owner/repo>` and, if it exits 1,
+file it through `/harness-issue`. Only on **single lane** or **fleet** (or the user's override)
+continue below.
+
 ## 1. Grill first (no mutation)
 Interview the user (reuse the `grill-me` pattern) until the new task is fully pinned down. Cover:
 - **Outcome** — what should exist when this issue is done?
