@@ -8,7 +8,7 @@ source "$HERE/helpers.sh"
 unset_inherited_config
 command -v timeout >/dev/null 2>&1 || { echo "  skip: no timeout(1) on this host"; finish; exit 0; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/suite/"
+mkdir -p "$T/suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/suite/"; cp -r "$HERE/guard" "$T/suite/guard"
 printf '#!/usr/bin/env bash\necho in-a\nexit 0\n' >"$T/suite/test_a_pass.sh"
 printf '#!/usr/bin/env bash\necho in-b\nexit 1\n'  >"$T/suite/test_b_fail.sh"
 printf '#!/usr/bin/env bash\necho in-c\nsleep 60\n' >"$T/suite/test_c_hang.sh"
@@ -50,7 +50,7 @@ assert_ok "… and the count is 1/3" grep -qxF "== run.sh: 1/3 test files passed
 
 # Windows side-effect stubs: on a Windows host (forced here) run.sh points schtasks and winget at recording stubs, so no
 # test reaches the real Task Scheduler or winget; on Linux it leaves both unset.
-mkdir -p "$T/stubs-suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/stubs-suite/"
+mkdir -p "$T/stubs-suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/stubs-suite/"; cp -r "$HERE/guard" "$T/stubs-suite/guard"
 cat >"$T/stubs-suite/test_env.sh" <<'S'
 echo "SCHTASKS=${HARNESS_SCHTASKS:-unset}"; echo "WINGET=${HARNESS_WINGET:-unset}"
 [[ -x ${HARNESS_SCHTASKS:-/nonexistent} ]] && { "$HARNESS_SCHTASKS" //Create //TN x; echo "create_rc=$?"; "$HARNESS_SCHTASKS" //Query //TN x; echo "query_rc=$?"; }

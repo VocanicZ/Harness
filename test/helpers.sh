@@ -176,6 +176,14 @@ HARNESS_HOST_DROP_BUS="XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS"
 #   HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR — per-project config, dropped by unset_inherited_config
 #   CLAUDE_CONFIG_DIR — Claude Code's config dir, dropped by make_env
 HARNESS_HOST_PATH_EXEMPT="ENGINE_DIR RUN_DIR STATE_DIR HARNESS_HOME HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR CLAUDE_CONFIG_DIR"
+# tmux_guard_install — put test/guard/tmux first on PATH, once (#649). tmux does not fail when TMUX_TMPDIR names a MISSING
+# directory: it silently uses /tmp/tmux-$UID/, the host's DEFAULT server. A test that wipes the private home it pinned and then
+# calls tmux (test_supervise_autoupdate.sh's fresh_host did) therefore killed every lane on the host, three times on 2026-11-07.
+# The guard refuses (exit 97, loud) any tmux call made while TMUX_TMPDIR is unset, empty, missing or /tmp, and otherwise execs
+# the next tmux on PATH. run.sh installs it for the whole suite; pin_host_home for a direct `bash test_foo.sh`.
+TMUX_GUARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/guard"
+tmux_guard_install(){ [[ -x $TMUX_GUARD_DIR/tmux ]] || { echo "tmux_guard_install: $TMUX_GUARD_DIR/tmux is missing — not running unguarded" >&2; return 1; }
+  case ":$PATH:" in ":$TMUX_GUARD_DIR:"*) ;; *) PATH="$TMUX_GUARD_DIR:$(tr ':' '\n' <<<"$PATH" | grep -vxF "$TMUX_GUARD_DIR" | paste -sd: -)"; export PATH;; esac; }
 # pin_host_home <dir> — export HARNESS_HOME=<dir> and everything that would otherwise point at the host.
 # Creates nothing: a test may assert on a host root that does not exist yet.
 pin_host_home(){ local home="$1" e v
@@ -183,6 +191,7 @@ pin_host_home(){ local home="$1" e v
   export HARNESS_HOME="$home"
   for e in $HARNESS_HOST_PIN_VARS; do export "${e%%:*}=$home/${e#*:}"; done
   mkdir -p "$TMUX_TMPDIR"; unset $HARNESS_LANE_IDENTITY_VARS   # ops 2026-11-05: a private tmux server; unset TMUX alone still reached /tmp/tmux-$UID/default (live lanes)
+  tmux_guard_install || return 1
   unset $HARNESS_HOST_DROP_VARS $HARNESS_HOST_DROP_BUS
   for v in $HARNESS_HOST_FAIL_TOOLS; do export "$v=false"; done
   POLLER_REGISTRY_DIR="$HARNESS_POLLER_DIR/registry"; POLLER_PID="$HARNESS_POLLER_DIR/poller.pid"; POLLER_LOCK="$HARNESS_POLLER_DIR/poller.lock"
@@ -212,7 +221,16 @@ tmp_kill_rooted(){ local proc="${HARNESS_PROC_ROOT:-/proc}"
   python3 - "$proc" "$BASHPID" "$@" <<'PY' 2>/dev/null || true
 import os, signal, sys, time
 proc, me, dirs = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
-roots = {r for d in dirs if d.strip("/") for r in (d.rstrip("/"), os.path.realpath(d))}
+# A root is a test's own throwaway dir. One that is shallow (/, /home, /tmp, $HOME…) or that CONTAINS $HOME or the host's real
+# ~/.harness would match every live worker and lane of the user running the suite (#649: pool workers died during host test runs),
+# so it is ignored — never "everything under it".
+home = os.path.realpath(os.environ.get("HOME", "/nonexistent"))
+def broad(d):
+    rd = os.path.realpath(d)
+    if len([c for c in rd.split("/") if c]) < 3:
+        return True
+    return any(h == rd or h.startswith(rd + "/") for h in (home, home + "/.harness"))
+roots = {r for d in dirs if d.strip("/") and not broad(d) for r in (d.rstrip("/"), os.path.realpath(d))}
 inside = lambda p: any(p == r or p.startswith(r + "/") for r in roots)
 def status(pid, key):
     try:

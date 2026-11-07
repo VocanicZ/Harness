@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# tmux — the suite's fail-closed tmux guard (#649). helpers.sh (tmux_guard_install, called by run.sh and pin_host_home)
+# puts this directory FIRST on PATH, so every bare `tmux` a test — or the engine code a test runs — makes comes here.
+#
+# Why: when $TMUX_TMPDIR is set but its directory does not exist, tmux 3.5a does not fail. It silently uses
+# /tmp/tmux-$UID/ instead — the host's DEFAULT server, shared by every co-resident fleet. A test that wipes the
+# private home it pinned (test_supervise_autoupdate.sh's fresh_host did) then talks to the host's server, and its
+# `tmux kill-server` ends every lane on the machine (three outages on 2026-11-07).
+#
+# It refuses — exit 97, a loud stderr line naming the test — whenever tmux would reach a socket outside a private dir:
+#   TMUX_TMPDIR unset or empty · not an existing directory · resolving to /tmp · a TMUX socket outside TMUX_TMPDIR.
+# Otherwise it execs the next `tmux` on PATH (the real one, or a test's stub). -S <path> and -L <name> are the
+# caller's explicit socket choice, but -L still lives under TMUX_TMPDIR, so only -S skips the TMUX_TMPDIR checks.
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+who="${HARNESS_TEST_FILE:-${0##*/}}"
+refuse(){ echo "tmux-guard: REFUSED 'tmux $*' in ${who}: $REASON — it would reach the host's /tmp/tmux-$(id -u)/ server" >&2; exit 97; }
+explicit_sock=0; viaL=0; prev=""
+for a in "$@"; do
+  case "$prev" in -S) explicit_sock=1;; -L) viaL=1;; esac
+  case "$a" in -S) ;; -S?*) explicit_sock=1;; -L?*) viaL=1;; esac
+  prev="$a"; [[ $a != -* ]] && break
+done
+if (( ! explicit_sock )); then
+  d="${TMUX_TMPDIR:-}"
+  [[ -n $d ]] || { REASON="TMUX_TMPDIR is unset or empty"; refuse "$@"; }
+  [[ -d $d ]] || { REASON="TMUX_TMPDIR=$d is not an existing directory (tmux falls back to /tmp/tmux-$(id -u))"; refuse "$@"; }
+  rd="$(cd "$d" && pwd -P)"
+  case "$rd" in /tmp|/tmp/) REASON="TMUX_TMPDIR=$d is /tmp"; refuse "$@";; esac
+  if (( ! viaL )) && [[ -n ${TMUX:-} ]]; then
+    case "${TMUX%%,*}" in "$rd"/*|"$d"/*) ;; *) REASON="TMUX=${TMUX%%,*} names a socket outside TMUX_TMPDIR"; refuse "$@";; esac
+  fi
+fi
+# the next tmux on PATH after this directory
+IFS=: read -ra dirs <<<"$PATH"
+for e in "${dirs[@]}"; do
+  [[ -n $e && -x $e/tmux && -f $e/tmux ]] || continue
+  [[ "$(cd "$e" && pwd -P)" == "$self" ]] && continue
+  exec "$e/tmux" "$@"
+done
+echo "tmux-guard: no tmux on PATH behind the guard" >&2; exit 127

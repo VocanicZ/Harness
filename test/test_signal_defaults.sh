@@ -32,7 +32,7 @@ fi
 assert_ok "SIGINT is restorable for a child of an INT-ignoring shell here" "${IGN[@]}" bash -c "source '$HERE/helpers.sh'; sigint_restorable"
 
 echo "== run.sh: each test starts with the default dispositions =="
-mkdir -p "$T/suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/suite/"
+mkdir -p "$T/suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/suite/"; cp -r "$HERE/guard" "$T/suite/guard"
 cat > "$T/suite/test_probe.sh" <<PROBE
 #!/usr/bin/env bash
 [[ -r /proc/self/status ]] && echo "probe SigIgn=\$(awk '/^SigIgn:/{print \$2}' /proc/self/status)"

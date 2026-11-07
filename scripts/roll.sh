@@ -106,6 +106,19 @@ fleet_slot_reconcile(){
   return 0
 }
 
+# _roll_clean_env — the `-u VAR` words that drop this process's fleet config out of a child's environment (#649).
+# lib.sh and every CLI adapter EXPORT the config they resolved (HARNESS_REPO, HARNESS_<CLI>_BIN/_FLAGS/_TIMEOUT, HARNESS_CLI,
+# HARNESS_SESSION_BACKEND, …), and a fleet's config lines are `: "${VAR:=…}"`, so an inherited value beats the file. The process
+# that rolls fleet B (`harness update` -> fleet-migrate --all, or supervise) has sourced lib.sh — for fleet A, or for none, which
+# exports the engine DEFAULTS — so `harness start --state-dir B` handed B's workers `claude` instead of B's configured wrapper:
+# every priority/bug lane on the host launched bare, outside the host's bwrap lane sandbox. B's start loads B's own config.
+# Same rule as supervise's sup_clean_env: path seams (*_DIR/_DIRS/_HOME/_FILE/CONFIG*) and the supervisor's own knobs stay.
+_roll_clean_env(){ local v
+  for v in $(compgen -v HARNESS_); do
+    case $v in *_DIR|*_DIRS|*_HOME|*_FILE|*CONFIG*|HARNESS_SUPERVISE_*|HARNESS_START_*|HARNESS_TEST_*|HARNESS_PLATFORM|HARNESS_GH_RATE_GUARD) ;; *) printf -- '-u\n%s\n' "$v";; esac
+  done
+  printf -- '-u\nRUN_DIR\n-u\nCLAIMS_DIR\n-u\nPOOL_LOCK\n-u\nPAUSE_FLAG\n'; }
+
 fleet_roll(){
   local sd="$1" want hb="$3" dry="${4:-0}" stop_only="${5:-0}" run pf pid ed lockfd killed=0 deferred=0 dead=0 victims=() keep=() line w
   want="$(realpath -m "$2")"; run="$sd/run"
@@ -200,8 +213,9 @@ fleet_roll(){
   done
   if (( ! dry && dead > 0 )); then
     [[ -f $run/PAUSED ]] && keep=(HARNESS_START_KEEP_PAUSE=1)
+    local cleanenv=(); mapfile -t cleanenv < <(_roll_clean_env)
     while IFS= read -r line; do _roll_log "  start: $line"; done < <(
-      env -C "$(dirname "$sd")" ${keep[@]+"${keep[@]}"} "$hb" --state-dir "$sd" start 2>&1 </dev/null)
+      env -C "$(dirname "$sd")" ${cleanenv[@]+"${cleanenv[@]}"} ${keep[@]+"${keep[@]}"} "$hb" --state-dir "$sd" start 2>&1 </dev/null)
     dead=0
     for pf in ${pids[@]+"${pids[@]}"}; do
       pid="$(cat "$pf" 2>/dev/null)"; [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || dead=$((dead+1))
