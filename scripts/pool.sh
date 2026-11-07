@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+# #602: the code this worker loads, so fleet_roll can tell it from a later fast-forward of the same engine dir
+export HARNESS_ENGINE_STAMP="$(engine_stamp "$ENGINE_DIR")"
 echo "Launching $POOL pool worker(s) (one lane each, poll=${POLL}s):"
 for ((i=1; i<=POOL; i++)); do
   pidf="$RUN_DIR/worker-$i.pid"

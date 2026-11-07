@@ -15,6 +15,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   into `head -1`, a UTF-8 BOM, CRLF and lone-CR line endings, and a form feed or U+2028 inside a field; for any other
   interface it writes the equivalent checklist first. `test/test_prompt_review_probe.sh` pins each rule.
 
+### Running fleets pick up the tend tick, launch check and lean lane context through the engine roll, with no manual step (#602)
+
+- The engine roll (`fleet_roll`, run by `harness update`, `harness start` and `harness supervise`) restarted a worker only when its
+  `ENGINE_DIR` differed from the new engine's. A git-checkout engine that `update` fast-forwards in place keeps the same
+  directory, so its running workers stayed on the old loop, without the 15 s lane tend tick (#594) and the launch check (#596).
+  `pool.sh` and `priority.sh` now export `HARNESS_ENGINE_STAMP` (`engine_stamp` in `scripts/portable.sh`, a checksum of the engine's
+  scripts) to the worker they launch, and `fleet_roll` also rolls a worker whose stamp differs from the engine's current one.
+  A worker that predates the stamp on a git checkout is rolled once: that one-time migration is the roll's own. Lane sessions keep
+  running and the relaunched worker adopts them. A worker on a release directory is unchanged: the release never changes under it.
+- Lanes launch from the worker's engine, so a lane launched after the roll carries the lean-context flags (#595) with no further step.
+- `harness update` no longer prints "pause, drain, stop, start --recover". It prints a note only for a worker the roll deferred
+  because it holds a bug claim, which the next roll moves on its own. `test/test_engine_roll.sh` covers the roll.
+
 ### The implementer treats a known gap as a failed gate (#599)
 
 - In bench run-20261106 the implementer of issue #5 wrote "Known gap: An AMOUNT like `-abc` exits 2 instead of 1" only in its

@@ -109,6 +109,14 @@ proc_env(){ local kv
   while IFS= read -r -d '' kv; do [[ $kv == "$2="* ]] && { printf '%s\n' "${kv#"$2="}"; return 0; }; done \
     2>/dev/null < "${HARNESS_PROC_ROOT:-/proc}/$1/environ"
   return 0; }
+# engine_stamp <engine dir> — a checksum of the worker-side code (scripts/**/*.sh, *.py) of an engine: what a worker loads at
+# start and never re-reads. pool.sh / priority.sh export it as HARNESS_ENGINE_STAMP to the worker they launch (#602), and
+# fleet_roll compares it with the engine's current one — so a worker on a git-checkout engine, whose ENGINE_DIR does not change
+# when `update` fast-forwards it, is still rolled onto the new loop. Empty when the dir has no scripts.
+engine_stamp(){ local d="$1" f
+  [[ -d $d/scripts ]] || return 0
+  while IFS= read -r f; do printf '%s\n' "${f#"$d"/}"; cat "$f"; done < <(find "$d/scripts" -type f \( -name '*.sh' -o -name '*.py' \) 2>/dev/null | LC_ALL=C sort) | cksum | awk '{print $1 "-" $2}'
+  return 0; }
 # proc_winpid <pid> — the Windows pid behind an MSYS pid (empty on POSIX, or when it is gone).
 proc_winpid(){ is_windows || return 0; cat "${HARNESS_PROC_ROOT:-/proc}/$1/winpid" 2>/dev/null; return 0; }
 # proc_find <regex> — the pids whose command line (argv joined by spaces) matches <regex>, one per

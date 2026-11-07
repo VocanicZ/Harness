@@ -262,7 +262,7 @@ done
 # environment (#477): spawn_eng gives a stand-in one, like a real worker's (the realpath of the release it started on).
 spawn(){ nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$1"; }
 OLDENG="$ROOT/engine-old"; mkdir -p "$OLDENG"      # an older release dir: any dir that is not the engine under test
-spawn_eng(){ ENGINE_DIR="$2" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$1"; }
+spawn_eng(){ HARNESS_ENGINE_STAMP="$(source "$ENGINE/scripts/portable.sh"; engine_stamp "$2")" ENGINE_DIR="$2" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$1"; }
 for d in "$UA" "$UB" "$UC"; do spawn "$d/run/worker-1.pid"; spawn "$d/run/priority.pid"; done
 spawn "$UB/run/worker-2.pid"
 for d in "$UD"; do spawn_eng "$d/run/worker-1.pid" "$OLDENG"; spawn_eng "$d/run/priority.pid" "$OLDENG"; done   # rc 10, old release
