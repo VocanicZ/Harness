@@ -195,19 +195,20 @@ if [[ "${HARNESS_FLEET_MIGRATE:-1}" != 0 && -f "$ENGINE_DIR/scripts/fleet-migrat
     || echo "WARNING: migrating the registered fleets to one repo failed (see above); 'harness start' retries it per fleet" >&2
 fi
 
-# if a pool is running (in this project's state dir), new engine logic only applies after a relaunch.
+# a running pool needs no manual step (#602): the fleet-migrate --all roll above relaunched every worker still on an old release
+# or on old code, lane sessions untouched. What is left here is a worker the roll deliberately deferred — it holds a bug claim,
+# is mid-session — and that the next `harness update`, `harness start` or supervise pass rolls once the claim is released.
 run_dir="${STATE_DIR:-$ENGINE_DIR}/run"
-if compgen -G "$run_dir/worker-*.pid" >/dev/null 2>&1; then
-  for pf in "$run_dir"/worker-*.pid; do
-    kill -0 "$(cat "$pf" 2>/dev/null)" 2>/dev/null && {
-      if (( POST_FLIP )); then
-        echo "NOTE: a worker pool is running. Live workers keep running their release directory until relaunched."
-      else
-        echo "NOTE: a worker pool is running. Live workers keep the OLD engine logic until relaunched."
-      fi
-      echo "      To apply this update safely: harness pause  →  let sessions drain  →  harness stop  →  harness start --recover"
-      break
-    }
-  done
+if [[ "${HARNESS_FLEET_MIGRATE:-1}" != 0 ]] && compgen -G "$run_dir/worker-*.pid" >/dev/null 2>&1; then
+  ( source "$ENGINE_DIR/scripts/portable.sh"; source "$ENGINE_DIR/scripts/roll.sh"
+    left=0
+    for pf in "$run_dir"/worker-*.pid; do
+      pid="$(cat "$pf" 2>/dev/null)"; [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || continue
+      ed="$(_roll_proc_engine "$pid")"
+      [[ -n $ed && "$ed" != "$(realpath -m "$ENGINE_DIR")" ]] || _roll_stale_code "$pid" "$ENGINE_DIR" || continue
+      left=$((left+1))
+    done
+    (( left )) && echo "NOTE: $left worker(s) hold a bug claim and are mid-session; they move onto this engine on their own at the next roll, once the claim is released."
+    exit 0 )
 fi
 echo "Update complete."

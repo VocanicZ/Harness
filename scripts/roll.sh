@@ -16,7 +16,8 @@
 #     dry (1)      log what would be killed and started, change nothing
 #     stop-only (1) kill the old-engine workers but relaunch nothing: `harness start` (start.sh) is
 #                  already launching the workers itself and must not recurse into another start (#566)
-#   Kills each run/worker-*.pid and run/priority.pid process whose ENGINE_DIR is not <engine dir>:
+#   Kills each run/worker-*.pid and run/priority.pid process whose ENGINE_DIR is not <engine dir> — or whose code is
+#   stale on a git-checkout engine updated in place (engine_stamp, #602):
 #     - under the fleet's run/pool.lock (the lock claim_bug / claim_first_bug take), so the worker
 #       cannot claim something between the check and the kill;
 #     - never one holding a BUG claim (run/claims/bug-*.claim naming its pid): it is mid-session. It
@@ -39,6 +40,14 @@ _roll_proc_engine(){ local e; e="$(proc_env "$1" ENGINE_DIR)"; [[ -n $e ]] && re
 _roll_bug_claimed(){ local f; for f in "$1"/claims/bug-*.claim; do
     [[ -f $f && "$(awk '{print $2; exit}' "$f" 2>/dev/null)" == "$2" ]] && return 0; done; return 1; }
 
+# _roll_stale_code <pid> <engine dir> — a worker already on this ENGINE_DIR still runs OLD code when `update` fast-forwarded a
+# git-checkout engine in place (#602): the directory is the same, the scripts the worker loaded at start are not. True when the
+# worker's HARNESS_ENGINE_STAMP differs from the engine's current one — or it has none (it predates the stamp: rolled once, the
+# migration itself) and the engine is a git checkout. A release dir never changes under a worker, so there a missing stamp is fine.
+_roll_stale_code(){ local ws cs; cs="$(engine_stamp "$2")"; [[ -n $cs ]] || return 1
+  ws="$(proc_env "$1" HARNESS_ENGINE_STAMP)"
+  if [[ -n $ws ]]; then [[ $ws != "$cs" ]]; else [[ -e $2/.git ]]; fi; }
+
 fleet_roll(){
   local sd="$1" want hb="$3" dry="${4:-0}" stop_only="${5:-0}" run pf pid ed lockfd killed=0 deferred=0 dead=0 victims=() keep=() line w
   want="$(realpath -m "$2")"; run="$sd/run"
@@ -51,7 +60,7 @@ fleet_roll(){
     [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || continue
     ed="$(_roll_proc_engine "$pid")"
     [[ -n $ed ]] || { _roll_log "WARN roll: ${pf##*/} pid $pid: ENGINE_DIR unreadable — left alone"; continue; }
-    [[ $ed == "$want" ]] && continue
+    if [[ $ed == "$want" ]]; then _roll_stale_code "$pid" "$want" || continue; fi
     if (( dry )); then
       if _roll_bug_claimed "$run" "$pid"; then deferred=$((deferred+1)); _roll_log "DRY auto-update: would defer $pf pid $pid (bug claim, $ed)"
       else killed=$((killed+1)); _roll_log "DRY auto-update: would kill $pf pid $pid ($ed)"; fi
