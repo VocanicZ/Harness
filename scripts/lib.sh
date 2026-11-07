@@ -1548,6 +1548,10 @@ def part(m):
     return body.rstrip('\n') + '\n' if m.group(0).endswith('\n') else body
 tmpl = re.sub(r'{{>\s*([\w.-]+)\s*}}\n?', part, tmpl)
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
+# #617: the task-file blocks sit alone on a line; a non-empty one is followed by a blank line, an empty one takes its line with it.
+for k in ('ORIGINAL_REQUEST', 'ISSUE_BLOCK', 'PRD_BLOCK', 'TASK_LINT'):
+    v = kv.pop(k, '').rstrip('\n')
+    tmpl = re.sub(r'^{{%s}}[ \t]*\n' % k, lambda m, v=v: v + '\n\n' if v else '', tmpl, flags=re.M)
 kv.setdefault('CHURN', '')   # #545: optional — a caller that passes no crash-loop block renders none
 # #494: a {{WINDOWS_*}} token alone on its line, with nothing to render (HARNESS_WINDOWS_HOST unset), takes its line with it.
 tmpl = re.sub(r'^[ \t]*{{(WINDOWS_\w+)}}[ \t]*\n', lambda m: m.group(0) if kv.get(m.group(1)) else '', tmpl, flags=re.M)
@@ -1637,6 +1641,7 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
 # swallowed and only the FIRST one per process is logged (to stderr — several callers' stdout is a
 # captured return value, e.g. claim_first_bug).
 STATS_PY="$ENGINE_DIR/scripts/stats.py"
+TASKCTX_PY="$ENGINE_DIR/scripts/taskctx.py"
 harness_event(){
   timeout 10 python3 "$STATS_PY" emit "$@" -c "prefix=$HARNESS_SESS_PREFIX" -c "project=$PROJECT_ROOT" \
     -c "repo=${SLUG:-}" -c "unit=${UNIT:-}" >/dev/null 2>&1 && return 0
@@ -1701,6 +1706,43 @@ lane_tmp_env(){ local d; d="$(lane_tmpdir "$1")"; mkdir -p "$d" 2>/dev/null || r
   SESSION_ENV+=(-e "TMPDIR=$d"); return 0; }
 lane_guard_env(){ [[ -f "$1/.gitmodules" && -x "$ENGINE_DIR/scripts/lane-bin/gh" ]] || return 0
   SESSION_ENV+=(-e "PATH=$ENGINE_DIR/scripts/lane-bin:$PATH"); return 0; }
+# task_context <issue> <issue-json> <worktree> [base-branch] — the blocks a lane's .harness-task.md carries so the lane
+# fetches nothing (#617). <issue-json> is the one `gh issue view --json labels,title,body,comments` answer
+# the caller already has. Sets TC_ISSUE (the issue body + comments), TC_REQUEST (the parent PRD's
+# `## Original request` with the precedence rule), TC_PRD (the PRD inlined — only when this issue is its
+# sole child, where the PRD IS the spec) and TC_LINT (primitives the issue names that neither the request
+# nor the repo at the base commit has). Every gh failure leaves its block empty; it never fails the caller.
+task_context(){
+  local issue="$1" ij="$2" wd="$3" base="${4:-main}" prd pj kids rf
+  TC_ISSUE="" TC_REQUEST="" TC_PRD="" TC_LINT=""
+  [[ -n "$ij" ]] || return 0
+  TC_ISSUE="$(python3 "$TASKCTX_PY" issue-block <<<"$ij" 2>/dev/null)" || TC_ISSUE=""
+  prd="$(python3 "$TASKCTX_PY" body <<<"$ij" 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null)" || prd=""
+  [[ "$prd" =~ ^[0-9]+$ ]] || prd=""
+  if [[ -n "$prd" ]]; then
+    pj="$(gh issue view "$prd" -R "$SLUG" --json number,title,body 2>/dev/null || echo '')"
+    if [[ -n "$pj" ]]; then
+      TC_REQUEST="$(python3 "$TASKCTX_PY" request-block <<<"$pj" 2>/dev/null)" || TC_REQUEST=""
+      kids="$(gh issue list -R "$SLUG" --label "$HARNESS_LABEL_READY" --state all --limit 500 --json number,body 2>/dev/null \
+              | python3 "$TASKCTX_PY" count-children "$prd" 2>/dev/null)" || kids=""
+      [[ "$kids" == 1 ]] && { TC_PRD="$(python3 "$TASKCTX_PY" prd-block <<<"$pj" 2>/dev/null)" || TC_PRD=""; }
+    fi
+  fi
+  if [[ -d "$wd" ]]; then
+    rf="$(mktemp)"
+    printf '%s' "$TC_REQUEST" > "$rf"
+    TC_LINT="$(python3 "$TASKCTX_PY" body <<<"$ij" 2>/dev/null \
+               | python3 "$TASKCTX_PY" lint --request "$rf" --repo "$wd" --rev "origin/$base" 2>/dev/null)" || true
+    rm -f "$rf"
+    [[ -n "$TC_LINT" ]] && TC_LINT="## Lint — implementation choices the issue names without a source
+$TC_LINT
+Treat each as the implementer's call, not a requirement: pick what fits the behaviour asked for.
+"
+  fi
+  return 0
+}
+# orig_request_block <prd> — the `## Original request` block of a PRD (empty when it has none / gh fails).
+orig_request_block(){ gh issue view "$1" -R "$SLUG" --json number,title,body 2>/dev/null | python3 "$TASKCTX_PY" request-block 2>/dev/null || true; }
 # issue_parent_prd <issue> — the PRD an issue's `## Parent` names (empty when unparented / gh fails).
 issue_parent_prd(){ gh issue view "$1" -R "$SLUG" --json body -q .body 2>/dev/null | python3 "$STATS_PY" parent-prd "$SLUG" 2>/dev/null || true; }
 # #213: the agent's prompt argument is this fixed bootstrap, NEVER the task text. Interpolating

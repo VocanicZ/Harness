@@ -90,7 +90,10 @@ and wait for the user's yes before you act.
 3. **Grill the idea** one question at a time until the goal, the scope (in and out) and testable
    acceptance criteria are all clear — don't file on a fuzzy idea. Then draft one `prd`-labelled issue
    in the `to-prd` structure (Problem Statement, Solution, User Stories, Implementation Decisions,
-   Testing Decisions, Out of Scope) plus a `## Acceptance criteria` checklist. **Confirm** the draft,
+   Testing Decisions, Out of Scope) plus a `## Acceptance criteria` checklist, plus an
+   `## Original request` section holding the user's own words, VERBATIM (their message that started this,
+   not your summary of it). Lanes get that section at the top of their task file and treat it as the top
+   authority: the original request outranks the PRD, which outranks the issues. **Confirm** the draft,
    then file it: `gh issue create -R <repo> --label prd --title … --body-file …`.
    **Fleet already running?** Go through `/harness-prd` instead of filing the PRD by hand (`harness
    status` shows live workers): it grills, confirms its brief and injects the scope into the live

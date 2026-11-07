@@ -21,7 +21,7 @@ gh(){
   case "$1 $2" in "api user") echo "Fleet-Bot"; return;; esac
   for a in "$@"; do [[ "$a" == comments ]] && { while (($#)); do [[ "$1" == -q ]] && { q="$2"; break; }; shift; done
     jq -r "$q" "$FIXTURE"; return; }; done
-  for a in "$@"; do [[ "$a" == labels ]] && { echo '["agent-paused"]'; return; }; done
+  for a in "$@"; do [[ "$a" == labels* ]] && { echo '["agent-paused"]'; return; }; done
   return 0; }
 cat > "$FIXTURE" <<'EOF'
 {"comments":[

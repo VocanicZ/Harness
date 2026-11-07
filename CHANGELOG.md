@@ -32,6 +32,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - The bench records `refeeds` and `refeed_tokens` per run (and in the aggregate); run-20261106 measures 15 and about 39.6k.
   `test/test_ralph_stop_hook.py`, `test/test_bench_refeeds.py` and `test/test_cli_lean.sh` pin the behaviour.
 
+### The task file carries the issue, the caveman rules and the user's original request, and no prompt can hit the `gh issue view` error (#617)
+
+- In bench run-20261106 every plain `gh issue view N` failed with the "Projects (classic) is being deprecated" error and
+  lanes retried with `--json`, a wasted turn in 8 of 9 sessions. Every prompt's `gh issue view` now passes
+  `--json title,body,labels,comments`, and `test/test_task_context.sh` greps the prompts for the bare form.
+- `.harness-task.md` now holds the issue title, body and comments (the one `gh issue view` call `prepare_impl` already made
+  for the labels is widened, no extra call). The parent PRD is inlined only when the issue is its sole child.
+- The caveman rules are inlined in `prompts/_caveman.md`; no lane invokes the `caveman` skill, saving a turn per session.
+- PRDs carry an `## Original request` section with the user's words verbatim (`/harness`, `prompts/prd.md`). Implementer and
+  reviewer task files put it at the top with the rule that it outranks the PRD, which outranks the issue.
+- `scripts/taskctx.py lint` flags a function or library an issue names that is in neither the original request nor the repo at the
+  base commit (run-20261106's issue #2 named `str.splitlines()`); the implementer's task file lists such names as its own call.
+
 ### The PRD review judges against the brief and files every user-visible I/O finding (#600)
 
 - In bench run-20261106 the review's probe sub-agent found the UTF-8 byte-order-mark bug but filed it as a minor observation

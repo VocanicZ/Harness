@@ -966,8 +966,8 @@ window before #375 with one after. The usual filters apply — `--since`, `--fle
 ### Lane output style (caveman)
 
 Every session prompt (`prompts/*.md` other than the `_*.md` partials, which render inside one)
-includes `prompts/_caveman.md`, so every lane invokes the `caveman` skill at session start (#377).
-Its scope:
+includes `prompts/_caveman.md`, which carries the caveman rules inline, so a lane spends no turn invoking
+the `caveman` skill (#377, inlined in #617). Its scope:
 
 - **Caveman:** the session's own output and agent-to-agent comments — handoffs, review findings,
   checkpoint notes. No human reads those live.
@@ -976,9 +976,27 @@ Its scope:
 - **Never compressed:** exact strings — code, commands, errors, file paths, test names, label names,
   issue and PR refs, `<!-- harness-… -->` marker lines, the completion promise.
 
-`harness setup`'s `prompt-skills-installed` check covers `caveman` for every CLI, like any skill a
-prompt names. `test/test_prompt_caveman.sh` enumerates the prompts, so a new one without the partial
-fails.
+`caveman` is no longer a skill the prompts name, so `harness setup`'s `prompt-skills-installed` check does
+not cover it. `test/test_prompt_caveman.sh` enumerates the prompts, so a new one without the partial fails.
+
+### What the task file carries (#617)
+
+`.harness-task.md` holds what a lane would otherwise spend turns fetching:
+
+- **The issue.** `prepare_impl` makes one `gh issue view --json labels,title,body,comments` call (it already
+  made one for the labels) and inlines the title, body and comments under "The issue". Comments are attributed
+  and marked as data: anyone who can see the issue can write one. Every prompt's own `gh issue view` passes
+  `--json`, because the plain form fails with the "Projects (classic) is being deprecated" error.
+- **The parent PRD, when it is the spec.** Inlined only when the issue is the PRD's sole child. In a
+  multi-child PRD it is not (about 3k tokens per turn that no implementer read).
+- **The original request, first.** The PRD's `## Original request` section holds the user's own words
+  verbatim (the front, `prompts/prd.md` and `/harness` write it). The implementer's and the reviewer's task
+  files put it at the top with the rule: the original request outranks the PRD, which outranks the issue; where
+  they conflict, follow the original request and say so in the PR.
+- **A lint.** `scripts/taskctx.py lint` flags a function or library the issue writes as a call in a code span
+  (`str.splitlines()`) that appears in neither the original request nor the repo at the base commit. Such a
+  name is an implementation choice an earlier stage invented, so the task file lists it as the implementer's
+  call, not a requirement. It exits 1 when it flags something.
 
 ### Parallel-lane merge safety
 

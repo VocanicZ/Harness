@@ -9,7 +9,10 @@ PRD issue to decompose: #{{PRD}}
 GOAL: break PRD #{{PRD}} into implementation issues in THIS repo, with dependency edges.
 
 Steps:
-1. Read PRD #{{PRD}}:  gh issue view {{PRD}} -R {{SLUG}}
+1. Read PRD #{{PRD}}:  gh issue view {{PRD}} -R {{SLUG}} --json title,body,labels,comments
+   Its `## Original request` section is the user's own words and outranks the rest of the PRD: slice and
+   word the issues from it, and never carry a library, function or encoding into an issue that neither it
+   nor the PRD's own text names.
 2. Invoke the {{skill:to-issues}} skill to slice the PRD into implementation tasks (each ~1 PR of
    work, with its own acceptance criteria) — but only as many slices as the SLICING RULE below allows.
    SLICING RULE — split only when it pays. This OVERRIDES the skill's "Prefer many thin slices over

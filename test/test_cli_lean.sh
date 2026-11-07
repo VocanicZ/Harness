@@ -83,15 +83,15 @@ cli_lean_setup "$WD"
 for n in $wanted; do
   assert_ok "skill $n resolves in the worktree's .claude/skills" test -f "$WD/.claude/skills/$n/SKILL.md"
 done
-assert_eq "$(readlink "$WD/.claude/skills/caveman" | sed 's#.*/skill/#skill/#')" "skill/caveman" "an engine skill is a link into the engine's skill/"
+assert_eq "$(readlink "$WD/.claude/skills/handoff" | sed 's#.*/skill/#skill/#')" "skill/handoff" "an engine skill is a link into the engine's skill/"
 assert_eq "$(readlink "$WD/.claude/skills/rtdd")" "$USK/rtdd" "rtdd's own skill is linked from the user skills dir"
 assert_eq "$(git -C "$WD" status --porcelain | grep -v harness-task)" "" "git add -A would commit none of them (excluded)"
 cli_lean_setup "$WD"
 assert_eq "$(ls "$WD/.claude/skills" | wc -l)" "$(wc -l <<<"$wanted")" "setting up again changes nothing"
 
-WP="$RUN_DIR/wp"; git init -q "$WP"; mkdir -p "$WP/.claude/skills/caveman"; echo mine > "$WP/.claude/skills/caveman/SKILL.md"
+WP="$RUN_DIR/wp"; git init -q "$WP"; mkdir -p "$WP/.claude/skills/handoff"; echo mine > "$WP/.claude/skills/handoff/SKILL.md"
 cli_lean_setup "$WP"
-assert_eq "$(cat "$WP/.claude/skills/caveman/SKILL.md")" mine "a skill the project ships itself is left alone"
+assert_eq "$(cat "$WP/.claude/skills/handoff/SKILL.md")" mine "a skill the project ships itself is left alone"
 
 WF="$RUN_DIR/wf"; git init -q "$WF"; HARNESS_CLAUDE_LEAN=0 cli_lean_setup "$WF"
 assert_no "nothing is linked for a lane that launches with the full config" test -e "$WF/.claude/skills"

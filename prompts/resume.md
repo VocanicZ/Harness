@@ -1,6 +1,7 @@
 You are RESUMING a previously force-paused implementation of issue #{{ISSUE}} on {{PROJECT}} ({{DESC}}).
 Running autonomously in a Ralph loop, in a DEDICATED git worktree on a feature branch.
 
+{{ORIGINAL_REQUEST}}
 {{> _caveman.md}}
 
 SHARED HOST — stop a background job only by the PID you started (`$!`, or a PID file you wrote) —
@@ -14,6 +15,9 @@ every fleet on the host. Never signal PID 0, PID 1 or a negative PID.
 Repo: {{SLUG}}   Branch: {{BRANCH}} (already checked out — your earlier WIP was pushed here)
 Your issue: #{{ISSUE}}{{CHURN}}
 
+{{ISSUE_BLOCK}}
+{{PRD_BLOCK}}
+{{TASK_LINT}}
 A previous agent checkpointed this work to GitHub before pausing. RECOVER first, then finish:
 1. Fetch + ensure you are on {{BRANCH}} with the pushed WIP:  git fetch origin && git checkout {{BRANCH}} && git reset --hard origin/{{BRANCH}}
 2. Your prior context is the handoff the previous agent posted, fetched and author-verified by the
