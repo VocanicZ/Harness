@@ -2898,6 +2898,119 @@ def test_next_claimable_on_a_fixture_issue_list():
     finally:
         _restore_repo(); os.environ.pop("HARNESS_AUTONOMOUS", None)
 
+# ── #614: the engine files one child itself for a small PRD or POOL=1 — no decompose session ────────
+def _ac_prd(n, count, extra="", num=41):
+    items = "".join(f"- [ ] criterion {i} says exactly this\n" for i in range(1, count + 1))
+    return _issue(num, labels=["prd"], body=f"## Problem\nbuild it\n\n## Acceptance criteria\n{items}\n{extra}")
+
+def _file_child_env(pool=None, k=None):
+    os.environ["HARNESS_MODE"] = "prd"
+    for name, v in (("HARNESS_POOL", pool), ("HARNESS_ENGINE_CHILD_MAX", k)):
+        if v is None: os.environ.pop(name, None)
+        else: os.environ[name] = str(v)
+
+def _file_child_cleanup():
+    _restore_repo()
+    for name in ("HARNESS_POOL", "HARNESS_ENGINE_CHILD_MAX"): os.environ.pop(name, None)
+
+def test_acceptance_count_counts_checkboxes_under_the_heading_only():
+    body = "## Problem\n- [ ] not a criterion\n\n## Acceptance criteria\n- [ ] a\n- [x] b\n* [ ] c\n\n## Notes\n- [ ] nor this\n"
+    assert il.acceptance_count(body) == 3
+    assert il.acceptance_count("## Problem\nno section\n") == 0
+    assert il.acceptance_count("## Acceptance criteria\n1. one\n2. two\n") == 2   # plain list falls back to items
+    assert il.acceptance_section(body) == "- [ ] a\n- [x] b\n* [ ] c"
+
+def test_small_prd_gets_file_child_and_no_decompose():
+    _file_child_env()
+    _stub_repo([_ac_prd(41, 5)])
+    try:
+        acts = il.dispatch("acme/widget", 3, True)
+        assert ("FILE_CHILD", "41", "-") in acts, acts
+        assert all(a[0] != "DECOMPOSE" for a in acts), acts
+        assert il.slotless_actions("acme/widget") == [("FILE_CHILD", "41", "-")]
+    finally: _file_child_cleanup()
+
+def test_file_child_k_boundary_is_inclusive():
+    _file_child_env(pool=3, k=15)
+    try:
+        _stub_repo([_ac_prd(41, 15)])
+        assert il.dispatch("acme/widget", 3, True) == [("FILE_CHILD", "41", "-")]
+        _stub_repo([_ac_prd(41, 16)])
+        assert il.dispatch("acme/widget", 3, True) == [("DECOMPOSE", "41", "DECOMPOSE DONE")]
+        assert il.slotless_actions("acme/widget") == []
+        os.environ["HARNESS_ENGINE_CHILD_MAX"] = "20"        # K is configurable
+        assert il.dispatch("acme/widget", 3, True) == [("FILE_CHILD", "41", "-")]
+    finally: _file_child_cleanup()
+
+def test_larger_prd_with_pool_above_one_still_decomposes():
+    _file_child_env(pool=3)
+    _stub_repo([_ac_prd(41, 40)])
+    try: assert il.dispatch("acme/widget", 3, True) == [("DECOMPOSE", "41", "DECOMPOSE DONE")]
+    finally: _file_child_cleanup()
+
+def test_pool_one_files_a_child_whatever_the_size():
+    _file_child_env(pool=1)
+    _stub_repo([_ac_prd(41, 40)])
+    try:
+        acts = il.dispatch("acme/widget", 1, True)
+        assert ("FILE_CHILD", "41", "-") in acts and all(a[0] != "DECOMPOSE" for a in acts), acts
+    finally: _file_child_cleanup()
+
+def test_file_child_not_for_a_prd_that_has_a_child_or_a_task1_or_no_criteria():
+    _file_child_env(pool=1)
+    try:
+        _stub_repo([_ac_prd(41, 3), _issue(42, labels=["ready-for-agent"], body="## Parent\n#41\n")])
+        assert all(a[0] not in ("FILE_CHILD", "DECOMPOSE") for a in il.dispatch("acme/widget", 3, True))
+        _stub_repo([_ac_prd(41, 3, extra="## Task 1\nwrite the plan first\n")])   # arc shape: decompose files it
+        assert il.dispatch("acme/widget", 3, True) == [("DECOMPOSE", "41", "DECOMPOSE DONE")]
+        _file_child_env(pool=3)
+        _stub_repo([_issue(41, labels=["prd"], body="## Problem\nno criteria section\n")])
+        assert il.dispatch("acme/widget", 3, True) == [("DECOMPOSE", "41", "DECOMPOSE DONE")]
+    finally: _file_child_cleanup()
+
+def test_file_child_not_while_a_session_owns_the_prd_or_when_blocked_or_wrong_mode():
+    _file_child_env()
+    try:
+        _stub_repo([_ac_prd(41, 3)])
+        assert il.dispatch("acme/widget", 3, True, busy_prds=(41,)) == []
+        assert il.slotless_actions("acme/widget", busy_prds=(41,)) == []
+        _stub_repo([_issue(41, labels=["prd"], body="## Acceptance criteria\n- [ ] a\n\n## Blocked by\n#40\n"),
+                    _issue(40, labels=["prd"], body="## Problem\nopen blocker\n")])
+        assert ("FILE_CHILD", "41", "-") not in il.dispatch("acme/widget", 3, True)
+        os.environ["HARNESS_MODE"] = "issue-only"
+        _stub_repo([_ac_prd(41, 3)])
+        assert all(a[0] != "FILE_CHILD" for a in il.dispatch("acme/widget", 3, True))
+    finally: _file_child_cleanup()
+
+def test_engine_child_body_carries_the_criteria_word_for_word_and_the_parent():
+    prd = _ac_prd(41, 4, extra="## Out of scope\nnothing\n")
+    body = il.engine_child_body(prd, 41)
+    assert il.acceptance_section(prd["body"]) in body
+    assert il.acceptance_section(body) == il.acceptance_section(prd["body"])
+    assert "## Blocked by\n\nNone" in body and "## Parent\n\n#41" in body and body.rstrip().endswith("Part of #41")
+    # the child attributes to the PRD, so REVIEW later waits on it
+    assert il.parse_parent(body, "acme/widget") == ("acme/widget", 41)
+
+def test_review_dispatches_on_the_prd_once_the_engine_child_closes():
+    _file_child_env(pool=1)
+    _stub_repo([_ac_prd(41, 3), _issue(42, "CLOSED", labels=["ready-for-agent"], body=il.engine_child_body(_ac_prd(41, 3), 41))])
+    try: assert il.dispatch("acme/widget", 3, True) == [("REVIEW", "41", "REVIEW DONE")]
+    finally: _file_child_cleanup()
+
+def test_cli_child_body_prints_the_body_and_fails_for_a_missing_prd():
+    import io, contextlib
+    _file_child_env()
+    _stub_repo([_ac_prd(41, 2)])
+    real_argv = sys.argv
+    try:
+        sys.argv = ["issuelib.py", "child-body", "acme/widget", "41"]; buf = io.StringIO()
+        with contextlib.redirect_stdout(buf): il.main()
+        assert buf.getvalue() == il.engine_child_body(_ac_prd(41, 2), 41), buf.getvalue()
+        sys.argv = ["issuelib.py", "child-body", "acme/widget", "99"]
+        try: il.main(); assert False, "expected exit"
+        except SystemExit as e: assert e.code == 1
+    finally: sys.argv = real_argv; _file_child_cleanup()
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

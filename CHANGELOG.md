@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The engine files one child itself for a small PRD or POOL=1: no decompose session (#614)
+
+- In bench run-20261106 the decompose session cost $1.29 and split a 4.7 KB brief into 6 issues, which 6 implementer sessions
+  then ran one after another, each paying a ~35k-token start. `dispatch()` now has a `FILE_CHILD` action that takes no slot
+  and no session: the pool's chores run `file_child`, which files one `[AFK] Implement PRD #N` issue with a single
+  `gh issue create`, labelled ready. Its body carries the PRD's `## Acceptance criteria` section word for word, `## Blocked by`
+  `None`, and the `## Parent` / `Part of #N` attribution. It fires for a PRD with no child yet when `HARNESS_POOL=1`, or when
+  the PRD lists 1 to K acceptance criteria (`HARNESS_ENGINE_CHILD_MAX`, default 15). A larger PRD with `HARNESS_POOL` above 1,
+  a PRD with no criteria section, and a PRD with a `## Task 1` plan-first section still go through decompose. The PRD session
+  in front and the REVIEW after the child closes are unchanged. `file_child` checks for an existing child by title and leaves a
+  marker, so a snapshot that lags a poll behind cannot file two.
+
 ### "When to use Harness": a tier check (direct / single lane / fleet) before setup or new work (#619)
 
 - In bench run-20261106 a 3-minute single-session job took Harness 59 minutes and about $7.58, against $0.64 done in the

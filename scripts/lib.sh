@@ -107,7 +107,7 @@ export HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HAR
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
   HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM HARNESS_BLOCKED_BACKOFF_MIN HARNESS_WINDOWS_HOST \
   HARNESS_CHURN_COUNT HARNESS_CHURN_MAX_WALL_S HARNESS_CHURN_WINDOW_MIN \
-  HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT
+  HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT HARNESS_POOL HARNESS_ENGINE_CHILD_MAX
 
 OWNER="$HARNESS_OWNER"
 POLL="$HARNESS_POLL"; POOL="$HARNESS_POOL"; PRIORITY_POLL="$HARNESS_PRIORITY_POLL"
@@ -834,7 +834,7 @@ dispatch_actions(){ local pfree=() owned=()
   [[ -n "${5:-}" ]] && owned=(--busy-issues "$5")
   python3 "$ISSUELIB" dispatch "$1" "$2" --allow-orchestration "$3" --busy-prds "${4:-}" "${owned[@]}" "${pfree[@]}"; }
 
-# slotless_actions <repo> <busy-prds> (#527) — CLOSE_PRD / LABEL_READY only, never masked by a pending DECOMPOSE.
+# slotless_actions <repo> <busy-prds> (#527) — CLOSE_PRD / LABEL_READY / FILE_CHILD (#614) only, never masked by a pending DECOMPOSE.
 slotless_actions(){ python3 "$ISSUELIB" slotless "$1" --busy-prds "${2:-}"; }
 
 # --- default-branch CI gate (#50) --------------------------------------------

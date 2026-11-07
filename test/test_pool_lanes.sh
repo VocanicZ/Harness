@@ -182,6 +182,23 @@ worker_chores W2; assert_ok "free again: they ran" grep -qx reap_team "$CHORES"
 : > "$CHORES"; worker_step W1 >/dev/null
 assert_eq "$(grep -c '^reap_team$' "$CHORES")" "1" "chores ran once in a tick of one worker"
 
+echo "=== 3a. #614: a small PRD's one child is filed by the chores (FILE_CHILD), no DECOMPOSE session ==="
+setup 3; export HARNESS_MODE=prd; snap "41:prd"
+python3 - "$SNAP" <<'EOF3'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for i in d["issues"]:
+    if i["number"] == 41: i["body"] = "## Problem\nx\n\n## Acceptance criteria\n- [ ] one\n- [ ] two\n"
+json.dump(d, open(sys.argv[1], "w"))
+EOF3
+CHORES="$RUN_DIR/chores"; : > "$CHORES"
+file_child(){ echo "file_child $1" >> "$CHORES"; }
+label_ready(){ :; }; close_prd(){ :; }
+HARNESS_POOL=3 worker_chores W1
+assert_ok "FILE_CHILD advanced for the small PRD" grep -qx "file_child 41" "$CHORES"
+assert_eq "$(python3 "$ISSUELIB" dispatch acme/widget 99 --allow-orchestration 0 --busy-prds "" | cut -f1 | grep -c DECOMPOSE)" "0" "the claim path does not DECOMPOSE it"
+worker_tick W1; assert_eq "$(launches)" "0" "no decompose session launched"
+
 echo "=== 3b. only ownerless lanes are reaped/checked/watchdogged by the chores ==="
 setup 3; snap "5:ready-for-agent" "6:ready-for-agent"
 worker_tick W1; mkdir -p "$WORKTREES_DIR/main-i6"; live hz-main-i6   # #6: a live lane nobody owns
