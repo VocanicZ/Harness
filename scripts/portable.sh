@@ -203,6 +203,18 @@ proc_descendants(){ (( $# )) && ! is_windows || return 0
     { kid[NR] = $1; par[NR] = $2 }
     END { do { more = 0; for (i = 1; i <= NR; i++) if ((par[i] in want) && !(kid[i] in want)) { want[kid[i]] = 1; out[kid[i]] = 1; more = 1 } } while (more)
           for (p in out) print p }'; return 0; }
+# proc_tree_has_comm <root-pid> <comm> — is a process named <comm> (its `comm`, no path) <root-pid> itself or one of
+# its descendants? 0 yes, 1 no (also for a <root-pid> that is not a number). POSIX: procps
+# `ps -e -o pid=,ppid=,comm=`. Windows (MSYS `ps` has no -o, #355): the table cannot be read, so it answers 0 —
+# "assume it is there": a caller that waits for <comm> to go (lane_has_gh, #594) then keeps waiting rather than
+# ending a lane while it is mid-filing.
+proc_tree_has_comm(){ [[ "${1:-}" =~ ^[0-9]+$ && -n "${2:-}" ]] || return 1
+  is_windows && return 0
+  ps -e -o pid=,ppid=,comm= 2>/dev/null | awk -v root="$1" -v want="$2" '
+    { ppid[$1]=$2; comm[$1]=$3 }
+    END { for (p in comm) { if (comm[p] != want) continue; q=p
+            while (q != "" && q != 0 && q != 1) { if (q == root) exit 0; q=ppid[q] } }
+          exit 1 }'; }
 # proc_session_pids <uuid> — the pids whose exec-time environment has HARNESS_SESSION EXACTLY <uuid>
 # (one whole NUL-separated entry, fixed string: never a prefix, a suffix, or a pattern; never argv).
 # Nothing for an empty <uuid>, or without a /proc to read.

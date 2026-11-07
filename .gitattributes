@@ -3,3 +3,5 @@
 * text=auto eol=lf
 # …but for cmd batch files, which cmd.exe reads CRLF (test/smoke/fleet_smoke.cmd, #357).
 *.cmd text eol=crlf
+# bench/ENGINE_COMMIT carries the commit in a `git archive` extraction (the release gate has no .git, #653).
+bench/ENGINE_COMMIT export-subst

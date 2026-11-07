@@ -143,11 +143,7 @@ lane_pane_active(){ local pane; pane="$(sess_capture "$1" 2>/dev/null)" || retur
   cli_pane_busy "$pane" || grep -qE -- "$LANE_AGENT_RE" <<<"$pane"; }
 # lane_has_gh <sess> — a `gh` process runs under the lane's pane (it is mid-filing: issue create, edit…).
 lane_has_gh(){ local pid; pid="$(sess_pane_pid "$1" 2>/dev/null)"; [[ "$pid" =~ ^[0-9]+$ ]] || return 1
-  ps -eo pid=,ppid=,comm= 2>/dev/null | awk -v root="$pid" '
-    { ppid[$1]=$2; comm[$1]=$3 }
-    END { for (p in comm) { if (comm[p] != "gh") continue; q=p
-            while (q != "" && q != 0 && q != 1) { if (q == root) exit 0; q=ppid[q] } }
-          exit 1 }'; }
+  proc_tree_has_comm "$pid" gh; }   # scripts/portable.sh: the process-table walk, Windows-safe (#653)
 # lane_goal_gate <sess> — may the short tick check this lane's goal? Only while its pane is idle, so gh is not
 # hit every 15s while the agent works. A DECOMPOSE lane counts as done once the PRD has ANY child
 # (issuelib `check`), so an idle pane between two `gh issue create` calls must not end it: it waits for its
