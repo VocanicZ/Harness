@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# lane-bin/git — the `git` a lane gets first on PATH (session_env, #642). It is the real git in every respect
+# but one: `git commit` also gets `--trailer "$HARNESS_COAUTHOR"`, so every commit an agent session makes credits
+# the Harness GitHub identity (a `Co-authored-by` trailer), whichever CLI the fleet runs. Everything else —
+# every other subcommand, and a commit with the trailer off — is exec'd untouched.
+#   HARNESS_COAUTHOR  the trailer. Unset = the default below; set EMPTY (in .harness/config or the env) = no trailer.
+# Git's default trailer.ifexists (addIfDifferentNeighbor) keeps an --amend, or a message that already ends
+# with the trailer, from getting it twice.
+set -uo pipefail
+here="${BASH_SOURCE[0]}"; [[ "$here" == */* ]] && here="${here%/*}" || here=.
+SELF="$(cd "$here" && pwd)"
+DEFAULT_COAUTHOR='Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>'
+# the real git: first `git` on PATH that is not this directory
+real=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  [[ -n "$d" && "$(cd "$d" 2>/dev/null && pwd)" == "$SELF" ]] && continue
+  [[ -x "$d/git" ]] && { real="$d/git"; break; }
+done
+[[ -n "$real" ]] || { echo "git: command not found" >&2; exit 127; }
+
+trailer="${HARNESS_COAUTHOR-$DEFAULT_COAUTHOR}"
+if [[ -n "$trailer" ]]; then
+  # the subcommand: the first word that is not a global option (and not such an option's value)
+  i=1; sub=
+  while (( i <= $# )); do
+    case "${!i}" in
+      -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env|--attr-source|--list-cmds) i=$((i+2));;
+      -*) i=$((i+1));;
+      *) sub="${!i}"; break;;
+    esac
+  done
+  if [[ "$sub" == commit ]]; then
+    # --trailer needs git 2.32; an older git runs the commit without it
+    v="$("$real" --version 2>/dev/null)"; v="${v#git version }"; maj="${v%%.*}"; min="${v#*.}"; min="${min%%.*}"
+    if [[ "$maj" =~ ^[0-9]+$ && "$min" =~ ^[0-9]+$ ]] && (( maj > 2 || (maj == 2 && min >= 32) )); then
+      args=("$@"); exec "$real" "${args[@]:0:i}" --trailer "$trailer" "${args[@]:i}"
+    fi
+  fi
+fi
+exec "$real" "$@"

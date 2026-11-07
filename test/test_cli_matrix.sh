@@ -201,6 +201,7 @@ state_uuid(){ sed -n 's/^session_id: //p' "$1/.claude/ralph-loop.local.md" 2>/de
 # run_pane <sess> <wd> — run the typed line as the pane's shell would (in <wd>, with the session's
 # env) against the CLI's fake, which leaves on disk what the real CLI leaves (fake-cli). The fake runs
 # $FAKE_CLI_TURN as the turn's tool call; rtdd there is fake_rtdd.
+# #642: the session's own PATH pair (lane-bin) must not hide the fakes, so the fakes' dir is put first again inside the pane.
 run_pane(){ local line bin d="$RUN_DIR/bin-$HARNESS_CLI" envs=()
   line="$(typed_line "$1")"; [[ -n $line ]] || return 1
   mapfile -t envs < <(session_env_of "$1")
@@ -217,7 +218,7 @@ print(json.dumps({"v": 1, "ts": "2026-10-27T00:00:00Z", "cmd": sys.argv[1], "arg
 RTDD
   chmod +x "$d/${bin##*/}" "$d/rtdd"
   ( cd "$2" && env -u RTDD_EVENT_LOG -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX \
-      -u HARNESS_REPO PATH="$d:$PATH" "${envs[@]}" bash -c "$line" ) </dev/null >/dev/null 2>&1; }
+      -u HARNESS_REPO PATH="$d:$PATH" "${envs[@]}" bash -c 'PATH="$1:$PATH"; eval "$2"' _ "$d" "$line" ) </dev/null >/dev/null 2>&1; }
 # new_wd <wd> — a fresh worktree with a task file.
 new_wd(){ mkdir -p "$1" && git -C "$1" init -q && printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$1/.harness-task.md"; }
 

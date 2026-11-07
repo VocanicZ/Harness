@@ -262,6 +262,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
 | `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
+| `HARNESS_COAUTHOR` | `Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>` | The trailer `scripts/lane-bin/git` adds to every `git commit` a lane makes (#642; [The Harness commit trailer](#the-harness-commit-trailer-642)). **Empty turns it off**; unset is the default, so write `HARNESS_COAUTHOR=` in `.harness/config`, not `: "${HARNESS_COAUTHOR:=}"` |
 | `HARNESS_POOL` | `3` | The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob (#469): a cap setting left over from an older release is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_TEND_TICK` | `15` | Seconds between ticks of a worker that owns a live lane (#594): only that lane's tend step runs, with the goal check gated on an idle pane. Fleet-wide chores stay on `HARNESS_POLL`. `0`, or a value at or above `HARNESS_POLL`, = tend every `POLL` as before |
@@ -871,8 +872,13 @@ lane-facing rules that use them are in the lane prompts):
   is printed; exit 1 = refused, 2 = could not decide (an uninitialised submodule, no base ref — it fails
   closed), 0 = allowed. A change with no gitlink change, or a repo with no submodules, passes untouched.
   Lanes cannot bypass it: a lane in a repo with submodules gets `scripts/lane-bin/gh` first on its `PATH`, a
-  `gh` that runs the guard before `gh pr merge` and passes every other command through to the real `gh`. A
-  repo without submodules gets no change to its lane environment.
+  `gh` that runs the guard before `gh pr merge` and passes every other command through to the real `gh`. Every
+  lane has `lane-bin` on its `PATH` since #642 (for its `git`, [the commit trailer](#the-harness-commit-trailer-642)), but a
+  repo without `.gitmodules` runs no guard: its `gh` behaves as before.
+
+#### The Harness commit trailer (#642)
+
+Every lane gets `scripts/lane-bin` first on its `PATH` (impl, bug-fix, resume, plan and inject sessions alike; `lane_guard_env` in `scripts/lib.sh`). Its `git` is the real git except for `git commit`, which also gets `--trailer "$HARNESS_COAUTHOR"` (git 2.32 or newer; an older git runs the commit unchanged). The subcommand is found past global options (`-C <dir>`, `-c k=v`, `--no-pager`, …); every other subcommand, such as `status`, `log` or `commit-tree`, is exec'd untouched. Git's default `trailer.ifexists` (`addIfDifferentNeighbor`) keeps `--amend` and a message that already ends with the trailer from carrying it twice. The default trailer credits the `vocanicz-harness[bot]` GitHub App (user id 353635118): GitHub shows its avatar on the commit, lists it in `/contributors`, and keeps the trailer in the default squash message. `HARNESS_COAUTHOR=` (empty) in `.harness/config` or the environment turns it off. It is independent of the agent CLI: Claude Code's own `Co-Authored-By: Claude` line is a second trailer beside it. Test: `test/test_lane_git.sh`.
 
 #### Submodule issues, end to end
 

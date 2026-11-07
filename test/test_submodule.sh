@@ -150,13 +150,13 @@ guard(){ bash "$GUARD" --repo "$1" --base "${2:-origin/main}" --head "${3:-HEAD}
   finish
 ) || rc=1
 
-# ── group 7: a lane in a submodule repo gets the guarded gh first on PATH; any other lane's env is unchanged
+# ── group 7: every lane gets scripts/lane-bin first on PATH (#642); only a submodule repo's gh runs the guard (#470)
 (
   GOAL=""; SLUG="acme/widget"; STATS_PY=/nonexistent
   D="$TMP/g7"; mkdir -p "$D/with" "$D/without"; : > "$D/with/.gitmodules"
-  session_env sess-1; plain="${SESSION_ENV[*]}"
   session_env sess-1; lane_guard_env "$D/without"
-  assert_eq "${SESSION_ENV[*]}" "$plain" "no .gitmodules: the lane env is exactly session_env's"
+  assert_ok "no .gitmodules: scripts/lane-bin is on the lane PATH too (#642: the git trailer wrapper)" \
+    grep -qF -- "PATH=$ROOT/scripts/lane-bin:" <<<"${SESSION_ENV[*]}"
   session_env sess-1; lane_guard_env "$D/with"
   assert_ok "with .gitmodules: scripts/lane-bin is first on the lane PATH" \
     grep -qF -- "PATH=$ROOT/scripts/lane-bin:" <<<"${SESSION_ENV[*]}"
