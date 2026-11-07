@@ -107,8 +107,8 @@ fleet_slot_reconcile(){
 }
 
 # _roll_clean_env — the `-u VAR` words that drop this process's fleet config out of a child's environment (#649).
-# lib.sh and every CLI adapter EXPORT the config they resolved (HARNESS_REPO, HARNESS_<CLI>_BIN/_FLAGS/_TIMEOUT, HARNESS_CLI,
-# HARNESS_SESSION_BACKEND, …), and a fleet's config lines are `: "${VAR:=…}"`, so an inherited value beats the file. The process
+# lib.sh and every CLI adapter EXPORT the config they resolved (HARNESS_REPO, HARNESS_<CLI>_BIN/_FLAGS/_TIMEOUT, the CLI and
+# session-backend selector keys ($CLI_CONFIG_VAR / $SESS_CONFIG_VAR), …), and a fleet's config lines are `: "${VAR:=…}"`, so an inherited value beats the file. The process
 # that rolls fleet B (`harness update` -> fleet-migrate --all, or supervise) has sourced lib.sh — for fleet A, or for none, which
 # exports the engine DEFAULTS — so `harness start --state-dir B` handed B's workers `claude` instead of B's configured wrapper:
 # every priority/bug lane on the host launched bare, outside the host's bwrap lane sandbox. B's start loads B's own config.

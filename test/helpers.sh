@@ -182,7 +182,18 @@ HARNESS_HOST_PATH_EXEMPT="ENGINE_DIR RUN_DIR STATE_DIR HARNESS_HOME HARNESS_SNAP
 # The guard refuses (exit 97, loud) any tmux call made while TMUX_TMPDIR is unset, empty, missing or /tmp, and otherwise execs
 # the next tmux on PATH. run.sh installs it for the whole suite; pin_host_home for a direct `bash test_foo.sh`.
 TMUX_GUARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/guard"
+# The guard exists to stop a test reaching the host's tmux server, so it is on PATH only while a real tmux is (#655). With none
+# behind it `command -v tmux` would still succeed and every gate on it would take its tmux branch and die with 127 instead of
+# skipping or running its headless twin (native Windows, tmux-less slots, test_tmux_twins.sh): then it is taken OUT of PATH,
+# also when run.sh inherited it. Stubs are shell functions or sit on PATH before this call; a tmux that appears on PATH later
+# is the test's own.
+tmux_guard_real_tmux(){ local e self; self="$(cd "$TMUX_GUARD_DIR" && pwd -P)"
+  while IFS= read -r e; do
+    [[ -n $e && -x $e/tmux && -f $e/tmux && "$(cd "$e" 2>/dev/null && pwd -P)" != "$self" ]] && return 0
+  done < <(tr ':' '\n' <<<"$PATH"); return 1; }
 tmux_guard_install(){ [[ -x $TMUX_GUARD_DIR/tmux ]] || { echo "tmux_guard_install: $TMUX_GUARD_DIR/tmux is missing — not running unguarded" >&2; return 1; }
+  if ! tmux_guard_real_tmux; then
+    PATH="$(tr ':' '\n' <<<"$PATH" | grep -vxF "$TMUX_GUARD_DIR" | paste -sd: -)"; export PATH; return 0; fi
   case ":$PATH:" in ":$TMUX_GUARD_DIR:"*) ;; *) PATH="$TMUX_GUARD_DIR:$(tr ':' '\n' <<<"$PATH" | grep -vxF "$TMUX_GUARD_DIR" | paste -sd: -)"; export PATH;; esac; }
 # pin_host_home <dir> — export HARNESS_HOME=<dir> and everything that would otherwise point at the host.
 # Creates nothing: a test may assert on a host root that does not exist yet.
