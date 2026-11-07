@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The PRD review judges against the brief and files every user-visible I/O finding (#600)
+
+- In bench run-20261106 the review's probe sub-agent found the UTF-8 byte-order-mark bug but filed it as a minor observation
+  "consistent with 'read as UTF-8'"; the review judged against the PRD, never read `brief.md`, and signed off with no
+  follow-up issue. `prompts/review.md` now tells the reviewer to find the original brief or spec in the repo (`brief.md`,
+  `HARNESS_SPEC`, ...) and judge against it as well as the PRD, with the brief winning a disagreement. Every finding about
+  user-visible input or output, of any severity, becomes a `ready-for-agent` follow-up issue before sign-off. The probe
+  sub-agent always runs a fixed robustness checklist: for a CLI, dash-leading values (positional and option), output piped
+  into `head -1`, a UTF-8 BOM, CRLF and lone-CR line endings, and a form feed or U+2028 inside a field; for any other
+  interface it writes the equivalent checklist first. `test/test_prompt_review_probe.sh` pins each rule.
+
 ### The implementer treats a known gap as a failed gate (#599)
 
 - In bench run-20261106 the implementer of issue #5 wrote "Known gap: An AMOUNT like `-abc` exits 2 instead of 1" only in its

@@ -44,6 +44,11 @@ Both are parsed by the engine, not decoration, and getting either wrong wedges t
 
 PHASE 1 — CRITERIA GATE (always).
 1. Read PRD #{{PRD}} and its `## Acceptance criteria`.  gh issue view {{PRD}} -R {{SLUG}}
+1b. JUDGE AGAINST THE ORIGINAL BRIEF. The PRD is a derived summary and can drop or distort what was asked. When the
+   repo holds the original brief or spec (for example `brief.md`, `HARNESS_SPEC`, or the file the PRD cites as its
+   source), find it and read it, and judge the implementation against it AS WELL AS against the PRD. When the two
+   disagree, the brief wins: a behaviour the brief asks for and the PRD omits is a gap. If no brief or spec exists in
+   the repo, judge against the PRD alone.
 2. Review the implemented code against EVERY acceptance criterion. Run the FULL test suite — this
    is the ONLY full-suite run in the pipeline: lanes never run it, they test with rtdd Rounds 1+2
    only. When this fleet's HARNESS_SWARM (`{{SWARM}}`) is `auto`, run it as a swarm job:
@@ -54,6 +59,22 @@ PHASE 1 — CRITERIA GATE (always).
    Then have ONE review sub-agent do a thorough
    pass (correctness, edge cases, the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate
    numbers if this is a spike). To start it, {{REVIEW_SUBAGENT}}
+   That sub-agent is the PROBE: it ALWAYS runs a fixed robustness checklist against the real interface, not only
+   the cases the PRD lists. Pick the checklist that suits the interface:
+   - CLI: a value starting with a dash, both positional and as an option value (`-x`, `--flag`, `-`); output piped
+     into `head -1` (a closed pipe must not print a traceback or error); a UTF-8 BOM at the start of the input;
+     CRLF and lone-CR line endings; a form feed (U+000C) and U+2028 inside a field.
+   - Any other interface (HTTP API, library, GUI, file format, ...): write the equivalent checklist for THAT
+     interface first, covering hostile or awkward input, encodings and line endings, a consumer that stops reading
+     early, empty and oversized values; then run it. Do not skip the probe because the interface is not a CLI.
+   Report every probe result, pass or fail, with the exact command or call.
+2b. FILE EVERY USER-VISIBLE I/O FINDING. A finding about what a user feeds in or sees come out (arguments, input
+   parsing, output text or format, exit status, error messages, encodings, line endings, a closed pipe), from the probe,
+   the sub-agent or your own reading, becomes a `{{LABEL_READY}}` follow-up issue BEFORE sign-off, whatever its
+   severity: "minor", "cosmetic", "consistent with the PRD" and "matches how the PRD says to read it" are not reasons
+   to skip filing it. File one issue per finding, with the `## Blocked by` + `## Parent` trailer from FILING A GAP
+   ISSUE above, and never sign off in step 6 over a finding you did not file. An I/O follow-up does not by itself fail
+   the criteria gate: if every criterion is met, filing it is not a reason to stop at step 3.
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in
    this repo — with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above,
    which is mandatory on every issue you file — and comment the findings on PRD #{{PRD}}. Do NOT add
