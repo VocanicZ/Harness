@@ -12,6 +12,16 @@ PRD closes. That is what lets you file the whole arc up front and walk away.
 Three parts, in order: **chain** (the PRDs), **map** (the human decisions), **watch** (the stalls —
 the host supervisor's job; you read its alarms).
 
+## 0. Tier check (before anything else)
+Run the "When to use Harness" check from the `/harness` skill first: grill just enough to estimate
+(acceptance criteria, subsystems, changed lines/files, workstreams and pool size, user around or
+unattended), run `harness tier decide …`, and show the tier, the reason and the time and cost of
+both "direct" and "fleet". The user may override either way (`--prefer`). If it says **direct**, offer
+the direct path (or a single PRD) instead of an arc: do the work in this session, on a branch with a PR (`Direct fix: fits one session` in the
+body); on a live fleet first `harness tier overlap --files … -R <owner/repo>` and, if it exits 1,
+file it through `/harness-issue`. Only on **single lane** or **fleet** (or the user's override)
+continue below.
+
 ## 1. Preflight — before filing anything
 
 ```bash

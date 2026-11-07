@@ -127,6 +127,11 @@ usage: harness <command> [args]
                        host-wide event log report: sessions, tokens by model, retries, HOLD time
   forecast <issue> [-R repo] [--unit U] [--json]
                        per-phase p50/p80/p95 \$ forecast for one issue, from past lanes in the event log
+  tier decide --criteria N --lines N --files N --subsystems N [--prefer direct|lane|fleet] [--json]
+  tier overlap --files a,b [-R repo]
+                       "When to use Harness" (#619): pick direct / single lane / fleet from an estimate,
+                       with a time + cost for direct and fleet; overlap = may a direct fix touch these
+                       files, or does an open lane/PR own them (exit 1 -> /harness-issue)
   one check | one gate <issue> [-R repo] [--unit U] [--json]
                        /harness-one: is the fleet PAUSED or usage-HELD; APPROVE/DENY the issue's
                        forecast against live usage (HARNESS_ONE_STOP_PCT) — the human decides
@@ -201,6 +206,8 @@ case "$cmd" in
   stats)  try_state_dir; exec python3 "$ENGINE_DIR/scripts/stats.py" report "$@";;
   # forecast reads the same host event log; the project (best-effort) only names the issue's unit (#363).
   forecast) try_state_dir; exec python3 "$ENGINE_DIR/scripts/forecast.py" "$@";;
+  # tier is HOST-level: an estimate in, a tier out, thresholds from scripts/tier.toml (#619); overlap asks gh/git only.
+  tier) try_state_dir; exec python3 "$ENGINE_DIR/scripts/tier.py" "$@";;
   # supervise is HOST-level too: one supervisor walks every fleet on the host (#180).
   supervise) exec bash "$ENGINE_DIR/scripts/supervise.sh" "$@";;
   # web is HOST-level too: the read-only dashboard over every registered fleet (#223).

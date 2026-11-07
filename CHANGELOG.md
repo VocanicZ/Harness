@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### "When to use Harness": a tier check (direct / single lane / fleet) before setup or new work (#619)
+
+- In bench run-20261106 a 3-minute single-session job took Harness 59 minutes and about $7.58, against $0.64 done in the
+  session. `/harness <idea>` now runs a tier check as its step 0, before the install and `harness init`; `/harness-prd`,
+  `/harness-issue` and `/harness-arc` run it first too. The session grills just enough to estimate, then
+  `harness tier decide` names the tier (direct: do it in the session on a branch with a PR; single lane: PRD, one child,
+  review; fleet: the full flow), the reason, and a rough time and cost for direct and fleet. The user can override either way
+  (`--prefer`). The thresholds live in one file, `scripts/tier.toml`, marked provisional until #621 recalibrates them.
+- On a live fleet a direct fix first runs `harness tier overlap --files …`: it refuses (exit 1) and routes to `/harness-issue`
+  when an open `agent-working` issue's branch or worktree, or an open PR, touches any of the files. A direct fix records
+  `Direct fix: fits one session` in its PR body. The `/harness` rule "don't do a unit's work by hand" now allows such a fix.
+  `test/test_tier.sh` covers the three tiers, the override, and the overlap check against a stubbed `gh` and real worktrees.
+
 ### The engine owns the Claude goal-loop Stop hook: a short nudge, no re-feed while a sub-agent runs, no lost promise (#616)
 
 - In bench run-20261106 the user-scope `ralph-loop` plugin's hook re-sent the whole task prompt 15 times (about 39.6k tokens,

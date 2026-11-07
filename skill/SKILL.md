@@ -7,16 +7,63 @@ description: Operate the Harness agent fleet for this project — `/harness <ide
 
 The board is **GitHub issues**; the dispatcher is the worker pool under `.harness/`. State lives in
 GitHub + a small local run dir, so it is resumable (even on another machine). Your job is set up +
-operate + observe + unstick — never hand-do a unit's PLAN/PRD/IMPL work; let the pool dispatch it.
+operate + observe + unstick — never hand-do a unit's PLAN/PRD/IMPL work; let the pool dispatch it. The
+one exception is a **direct** fix that clears the tier check (next section) and overlaps no lane.
 
 `harness` is one host install run off PATH (`command -v harness`); nothing engine-side lives in the
 project. Plain `/harness` (no text after it) keeps the state-detect-and-operate behaviour below
 unchanged; text after it is an idea to build — see the next section.
 
+## When to use Harness — the tier check (runs FIRST)
+
+Harness's pipeline (front → PRD → lanes → review) only pays off when the work is bigger than one
+session, long and unattended, or parallel. In run-20261106 a 3-minute single-session job took the
+fleet 59 minutes and about $7.58, against $0.64 done directly. So before anything is installed,
+initialised or filed, **pick a tier** — in this session, no extra session. `/harness-prd`,
+`/harness-issue` and `/harness-arc` run the same check as their step 0.
+
+Grill only as much as it takes to estimate: acceptance criteria, subsystems touched, changed lines
+and files, how many independent workstreams (and the pool size), whether the user is around, whether
+they want it unattended or independently reviewed. Then ask the engine:
+
+```bash
+harness tier decide --criteria 5 --lines 120 --files 4 --subsystems 1 [--workstreams 2 --pool 3] \
+  [--minutes 90 --unattended] [--wants-review] [--multi-step-plan]
+```
+
+| Tier | When | What happens |
+|---|---|---|
+| **Direct** | Fits one session: one subsystem, few acceptance criteria, a small diff, and the user is around or the job is quick | Do it here, on a branch with a PR. No `harness init`, no PRD |
+| **Single lane** | Fits one session, but the user wants it unattended, or wants an independent review (security, money, data migration) | A PRD, then one engine-filed child, then review |
+| **Fleet** | Will not fit one session (many criteria, several subsystems, a multi-step plan), or ≥2 independent workstreams with POOL>1, or hours unattended | The full flow below; `/harness-arc` for several PRDs |
+
+The numbers behind "few", "small" and "quick" live in ONE file, `scripts/tier.toml` in the engine
+(`harness tier thresholds` prints them). They are **provisional** until #621 recalibrates them from
+real runs; change them there, never in a prompt.
+
+**Show the result**: the tier, the reason, and a rough time and cost for both "direct" and "fleet"
+(it prints both; where `harness forecast` has history for the work, quote that). **The user decides**:
+they can override in either direction — "use the fleet anyway" / "just do it here" — pass it as
+`--prefer direct|lane|fleet` so the recorded answer keeps both. Ask once; nothing waits on a manual
+gate afterwards.
+
+**Direct path.** Do the work in this session, no `harness init`, no PRD:
+- **On a live Harness project** (a `.harness/config`, workers up), check overlap first:
+  `harness tier overlap --files <the files the fix will touch, comma-separated> -R <owner/repo>`.
+  It lists the open `agent-working` issues (their branches and worktrees) and the open PRs with the
+  files each touches. Exit 1 = the fix touches a file a lane or PR owns: do NOT fix it here, file it
+  through `/harness-issue` instead. Exit 0 = clear.
+- Branch from the default branch, make the fix, run `rtdd which` for its tests (never the full
+  suite), open a PR, and merge once green. Lanes rebase onto it as usual — no lane's files were touched.
+- **Record it**: put `Direct fix: fits one session` in the PR body, so the dashboard and history tell
+  it apart from fleet work.
+- Single lane and fleet continue with the steps below.
+
 ## On `/harness <idea>` — from an idea to a running fleet in one conversation
 
-Text after `/harness` is something the user wants built. Walk it to a running fleet, in order,
-skipping a step whose state already holds. Each **Confirm** is a stop: say what you are about to do
+Text after `/harness` is something the user wants built. **Step 0 is the tier check above — before the
+install and before `harness init`; "direct" ends here, in this session.** Otherwise walk it to a running
+fleet, in order, skipping a step whose state already holds. Each **Confirm** is a stop: say what you are about to do
 and wait for the user's yes before you act.
 
 1. **`harness` not on PATH?** (`command -v harness` fails.) Install it:
@@ -126,5 +173,7 @@ To add work to a running fleet without stopping it, three grill-first sibling sk
 `start --recover` first.
 
 ## When NOT to touch
-Don't `--clean` while sessions are live unless discarding their worktrees. Don't do a unit's work
-by hand — operate the fleet, like a CI operator.
+Don't `--clean` while sessions are live unless discarding their worktrees. Don't do a lane's work
+by hand — operate the fleet, like a CI operator. The exception is a **direct fix**: one that passed
+the tier check and whose files no open `agent-working` issue or PR touches (`harness tier overlap`
+exits 0). Make it on its own branch with a PR; if it overlaps lane work, file it with `/harness-issue`.
