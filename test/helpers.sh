@@ -27,6 +27,13 @@ windows_row_value(){ local row="$1" doc="${2:-${HARNESS_PARITY_DOC:-$(dirname "$
 host_is_windows(){ case "${HARNESS_PLATFORM:-}" in windows) return 0;; posix) return 1;; esac
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
 
+# native_path <path> — <path> in the form a NATIVE Windows program reads (`C:/x/y`, cygpath -m) when this host is Windows,
+# unchanged elsewhere (#493). Git Bash converts an MSYS path (`/c/x/y`) handed to a native exe, but not one inside a
+# command line a native Python lane runner builds itself: `HARNESS_CLAUDE_BIN="python3 /c/x/fake-claude"` made the runner
+# open `C:\c\x\fake-claude`, so no headless lane with a fake agent ever ran a turn on winsma (#606). Put the fake's path
+# through this: HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")".
+native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+
 # windows_skip <matrix row> <why> — the ONE way a test skips itself on Windows. A skip is allowed only when the row it
 # names is `n/a` on Windows in the parity matrix (docs/reference.md): Windows physically cannot do that feature.
 #   row n/a on Windows : on Windows prints "SKIP (Windows n/a: row '<row>'): <why>" and returns 0; elsewhere returns 1.
@@ -48,6 +55,20 @@ windows_skip(){ local row="$1" why="${2:-}" val
 # windows_skip_file <matrix row> <why> — windows_skip for a whole file: when it skips, finish and exit 0 (a file that
 # skipped on its n/a row is green); when it does not, a call that FAILed leaves the file to run on and end red.
 windows_skip_file(){ if windows_skip "$@"; then finish; exit 0; fi; return 0; }
+
+# tmux_needing_tests [dir] — #493 / PRD #475 task 6: the shell tests in <dir> (default: this directory) that need a
+# real tmux, one file name per line. A test needs tmux when, outside comments, a line RUNS tmux to start a pane
+# (`tmux [-L sock] new-session`, behind an optional `env -u VAR` or `command`) or gates on the binary
+# (`command -v tmux` in command position: `if command -v tmux`, `command -v tmux >/dev/null || …`). A string that only
+# names such a command (an assertion message, a printf of a fixture) is not in command position and is not counted.
+# test/tmux_twins.tsv names the headless twin of every one; test/test_tmux_twins.sh is the grep check that none is left.
+tmux_needing_tests(){ local dir="${1:-$(dirname "${BASH_SOURCE[0]}")}" f
+  local cp='(^|[;&|({]|[[:space:]](then|do|if)|![[:space:]])[[:space:]]*((if|then|do|while|until)[[:space:]]+)?(![[:space:]]+)?'
+  local re="${cp}(command -v tmux[[:space:]]*(>|\|\||&&|\)|;|\$)|(env( -u [A-Za-z_]+)* )?(command )?tmux( -[LS] [^[:space:]]+)* (new-session|new)([[:space:]]|\$))"
+  local code   # held in a variable, not piped: `grep -q` quits at its first hit and the upstream grep would die of SIGPIPE under pipefail
+  for f in "$dir"/test_*.sh; do [[ -f $f ]] || continue
+    code="$(grep -vE '^[[:space:]]*#' "$f")"
+    grep -qE "$re" <<<"$code" && basename "$f"; done; return 0; }
 
 # default_signals_prefix — set DEFSIG, a command prefix that starts what follows with SIGINT, SIGHUP and
 # SIGQUIT back at their default disposition (#553), and SIGPIPE and SIGXFSZ too (#574: an ignored SIGPIPE turns a

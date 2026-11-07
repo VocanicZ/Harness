@@ -254,6 +254,14 @@ no credential written, winsma clean**). The failures Linux does not have are fil
 #606 (headless runner tests never reach the runner's first state), #607 (tests asserting POSIX-only mechanisms), #608 (install and
 update fixtures) and #609 (gh-stub, prompt and bench tests).
 
+The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
+(`bash test/run.sh <files>`) in the same isolation. Their winsma logs are `test/smoke/logs/suite-windows-20261106T*.log`; the last,
+`suite-windows-20261106T225957Z.log`, has `test_watchdog_headless.sh`, `test_env_leak_headless.sh` and `test_session_names_headless.sh`
+green and `test_sess_sweep_headless.sh` with one red assertion (a job without the lane's `HARNESS_SESSION`, left by a turn whose
+parent exited, outlives `sess_kill`: Windows has no process groups). Two traps these runs found: a path handed to a command line a
+native Python builds itself must be in native form (`native_path` in `test/helpers.sh`; `/c/x` is read as `C:\c\x`), and a shebang
+script is not runnable by a native process, so the fake claude's `turn-hook` goes through bash there. What is still red is #627.
+
 `test/test_winsma.sh` covers all of it on Linux with a fake ssh, a fake `C:` drive, a fake Task Scheduler and a fake
 process list: the host itself is only touched by a recorded run
 (`test/smoke/logs/winsma-helpers-windows-20261104T013238Z.log`: the whole sequence with a trivial command, winsma clean after;

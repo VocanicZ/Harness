@@ -22,7 +22,7 @@ export PATH="$T/bin:$PATH"
 export RUN_DIR HARNESS_SESS_PREFIX=hst HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 export HARNESS_UNIT=u HARNESS_REPO=owner/repo
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_SUPERVISE_CONF="$T/none.conf" HARNESS_SUPERVISE_STATE="$T/sup" HARNESS_SUPERVISE_LOG="$T/sup.log"
 source "$ROOT/scripts/supervise.sh"
 LOG=$SUP_LOG; SUP_DRY=0

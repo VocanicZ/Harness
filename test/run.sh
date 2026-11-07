@@ -50,8 +50,10 @@ fi
 # one place which tests were red (the lane compares that list against the same commit on Linux).
 TCAP=(); if [[ "${HARNESS_TEST_TIMEOUT:-0}" =~ ^[1-9][0-9]*$ ]] && command -v timeout >/dev/null 2>&1; then TCAP=(timeout -k 10 "$HARNESS_TEST_TIMEOUT"); fi
 rc=0; ran=0; FAILED=()
-for t in test_*.sh test_*.py; do
-  [[ -e "$t" ]] || continue
+# `run.sh test_a.sh test_b.sh` runs just those files (#493: the winsma run of the headless twins), each under the same guards.
+if (( $# )); then TESTS=("$@"); else TESTS=(test_*.sh test_*.py); fi
+for t in "${TESTS[@]}"; do
+  [[ -e "$t" ]] || { [[ $# -gt 0 ]] && { echo "== $t =="; echo "FAIL: $t: no such test file"; rc=1; ran=$((ran+1)); FAILED+=("$t"); }; continue; }
   echo "== $t =="
   export STATE_DIR="$TMPROOT/$t/.harness"
   mkdir -p "$STATE_DIR/worktrees" "$STATE_DIR/checkouts" "$STATE_DIR/run/claims"

@@ -15,7 +15,7 @@ _DOCTOR_SOURCED=1 source "$ROOT/scripts/doctor.sh"
 make_env
 export RUN_DIR HARNESS_SESS_PREFIX=hlt HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_INTERRUPT_WAIT=10
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }
 limit_checkpoint_once(){ :; }   # its mechanical checkpoint commits and comments on GitHub (usage.sh)

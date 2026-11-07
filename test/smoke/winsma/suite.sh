@@ -3,7 +3,8 @@
 # Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
 # CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
 # install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
-#   HX_BRANCH            the branch under test (default issue/492); it must be pushed, the host clones it
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
 #   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
 #   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
 #                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
@@ -11,7 +12,7 @@
 # Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
 set -u
 say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
-BRANCH="${HX_BRANCH:-issue/492}"
+BRANCH="${HX_BRANCH:-issue/493}"
 say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
 case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
 # The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
@@ -36,7 +37,7 @@ export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EM
 export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
 say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
 start=$SECONDS
-( cd src && bash test/run.sh ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
 say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
 # Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
 # never returns to the claude host. Only processes under this run's folder that are not ours are ended.
