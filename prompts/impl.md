@@ -102,5 +102,5 @@ Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging o
 NOT merely opened), the repo's CI GATE was GREEN when it merged (step 6 — the local entrypoint
 where the repo ships one, rtdd Rounds 1+2 otherwise), AND the issue is closing. On an
 auto-merge-disabled repo, complete the direct squash merge (step 7b) BEFORE promising. A PR left
-open on a red gate is NOT a promise — report the failure instead. When it holds, output exactly:
+open on a red gate is NOT a promise — report the failure instead. KNOWN-GAP GATE: a known gap against this issue's acceptance criteria or the brief is a FAILED gate, even if only written in your chat output. Either FIX it on this branch, or FILE it as a follow-up under the FILING A FOLLOW-UP rules above and LINK that issue in the PR body. Never merge, and never output the promise, over a gap that is neither fixed nor filed. When it holds, output exactly:
 <promise>{{PROMISE}}</promise>
