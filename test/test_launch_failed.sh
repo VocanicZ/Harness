@@ -2,21 +2,20 @@
 # test_launch_failed.sh — #596 (PRD #587 §2): a tmux launch counts only if the session really exists.
 #   1. tmux_sess_start confirms the session with has-session: a tmux that exits 0 without creating one
 #      (`error creating …`) is a failed start
-#   2. the caller's (stale) TMUX is not passed to the lane's tmux: the launch lands on the default server
+#   2. the caller's (stale) TMUX is not passed to the lane's tmux
 #   3. launch_agent whose start failed logs launch_failed, not launch, and leaves no .launched mark
 #   4. a lane gone within 30s of its launch logs launch_failed; claim_lane then holds that issue back for the
 #      backoff (no tight spin), takes another issue meanwhile, and re-claims once the backoff ran out
 #   5. a lane that ran past 30s is a normal reap: no launch_failed, and its backoff is cleared
-# Real tmux on a private TMUX_TMPDIR for 1-2 (kills only its own server); gh, git and the launch are stubbed after.
+# A fake tmux binary on PATH for 1-2 (no real tmux, so no headless twin is owed: test_tmux_twins.sh); gh, git and the launch are stubbed after.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 source "$ROOT/scripts/lib.sh"; source "$ROOT/scripts/drive.sh"
 _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
 source "$ROOT/scripts/pool-worker.sh"; source "$HERE/helpers.sh"
-command -v tmux >/dev/null || { echo "  skip: tmux not installed"; exit 0; }
 T="$(mktemp -d /tmp/t596.XXXXXX)"
-trap 'TMUX_TMPDIR="$T/srv" tmux kill-server 2>/dev/null; rm -rf "$T"' EXIT
+trap 'rm -rf "$T"' EXIT
 
 not(){ ! "$@"; }
 echo "== 1. a start that left no session is a failed start =="
@@ -35,14 +34,25 @@ assert_eq "$rc" "1" "new-session printed an error and exited 0, no session: tmux
 assert_ok "…and the tmux error stays visible to the caller" grep -q "error creating" <<<"$err"
 
 echo "== 2. a stale TMUX does not reach the lane's tmux =="
-export TMUX_TMPDIR="$T/srv"; mkdir -p "$TMUX_TMPDIR"
-( export TMUX="$T/gone-dir/default,4242,0" TMUX_PANE=%0; unset -f tmux
+cat > "$T/fakebin/tmux" <<'FAKE'
+#!/bin/sh
+case "$1" in
+  new-session) echo "TMUX=${TMUX-unset} PANE=${TMUX_PANE-unset}" >> "$FAKE_LOG"; exit 0;;
+  has-session) echo "has-session TMUX=${TMUX-unset}" >> "$FAKE_LOG"; exit 0;;
+esac
+exit 0
+FAKE
+export FAKE_LOG="$T/fake.log"; : > "$FAKE_LOG"
+( export TMUX="$T/gone-dir/default,4242,0"; PATH="$T/fakebin:$PATH"; unset -f tmux
   source "$ROOT/scripts/session/tmux.sh"; tmux_sess_start s596 /tmp -e HARNESS_SESSION=u596 )
-assert_eq "$?" "0" "stale TMUX (socket directory missing): the launch succeeds on the default server"
-assert_ok "…and the session exists there" env -u TMUX tmux has-session -t =s596
+assert_eq "$?" "0" "stale TMUX (socket directory missing): the launch succeeds"
+assert_eq "$(sed -n 1p "$FAKE_LOG")" "TMUX=unset PANE=unset" "…and new-session ran without the caller's TMUX"
+assert_eq "$(sed -n 2p "$FAKE_LOG")" "has-session TMUX=unset" "…and so did the has-session that confirms it"
 out="$( export TMUX="$T/gone-dir/default,4242,0" TMUX_PANE=%0; source "$ROOT/scripts/session/tmux.sh"; tmux_env_sanitize; echo "${TMUX-unset}/${TMUX_PANE-unset}" )"
 assert_eq "$out" "unset/unset" "tmux_env_sanitize drops a TMUX whose socket is gone"
-env -u TMUX tmux kill-server 2>/dev/null
+mkdir -p "$T/live"; python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$T/live/default"
+out="$( export TMUX="$T/live/default,1,0"; source "$ROOT/scripts/session/tmux.sh"; tmux_env_sanitize; echo "${TMUX-unset}" )"
+assert_eq "$out" "$T/live/default,1,0" "…and keeps a TMUX whose socket exists"
 
 echo "== 3. launch_agent whose backend could not start the session =="
 restore(){ source "$ROOT/scripts/lib.sh"; source "$ROOT/scripts/drive.sh"; source "$ROOT/scripts/pool-worker.sh"; }
