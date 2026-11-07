@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A small PRD stays small: decompose splits only when it pays, the PRD stops prescribing primitives (#598)
+
+- In bench run-20261106 a 4.7 KB brief became 6 issues, 6 implementer sessions and 6 PRs, one of them a final
+  sweep/README issue that repeated what review Phase 1 already does. `prompts/decompose.md` now carries a slicing rule that
+  explicitly overrides the vendored `to-issues` skill's "prefer many thin slices": with `POOL` 1 it files one issue (unless
+  the PRD has more than ~15 acceptance criteria or unrelated subsystems); with `POOL` above 1 it splits only when the
+  dependency graph is at least 2 wide at its top; it never files a final sweep, README or acceptance-check issue (docs go
+  into the slices). The engine passes `POOL` into the decompose render (`scripts/drive.sh`) as an upper bound on parallelism.
+- Neither `prompts/prd.md` nor `prompts/decompose.md` may add an implementation primitive the brief does not require.
+  In the bench run the PRD prescribed `str.splitlines()` and "read as UTF-8", and decompose copied it into an issue; that
+  caused the byte-order-mark and form-feed / U+2028 bugs. They state the behaviour instead. `test/test_prompt_decompose.sh`
+  pins both rules and the `POOL` render.
+
 ### Lean lane context: Claude lanes start without the operator's user-scope config (#595)
 
 - Every lane inherited the operator's whole personal Claude Code config (186 skills, user plugins, MCP servers and

@@ -10,8 +10,23 @@ GOAL: break PRD #{{PRD}} into implementation issues in THIS repo, with dependenc
 
 Steps:
 1. Read PRD #{{PRD}}:  gh issue view {{PRD}} -R {{SLUG}}
-2. Invoke the {{skill:to-issues}} skill to slice the PRD into small, independently-shippable
-   implementation tasks (each ~1 PR of work, with its own acceptance criteria).
+2. Invoke the {{skill:to-issues}} skill to slice the PRD into implementation tasks (each ~1 PR of
+   work, with its own acceptance criteria) — but only as many slices as the SLICING RULE below allows.
+   SLICING RULE — split only when it pays. This OVERRIDES the skill's "Prefer many thin slices over
+   few thick ones": where the skill and this rule disagree, this rule wins. Every issue costs a whole
+   implementer session and a PR; a slice that cannot run beside another one only adds that cost.
+   Parallelism available: at most {{POOL}} lanes (HARNESS_POOL — an upper bound, the fleet may have fewer free).
+   - POOL is 1: file ONE issue carrying the whole PRD's acceptance criteria — unless the work will not fit
+     one session (more than ~15 PRD acceptance criteria, or unrelated subsystems), then slice it.
+   - POOL is above 1: split only when the dependency graph is at least 2 wide at its top (two or more
+     slices with `## Blocked by` None, that can run in parallel). A chain, or one slice with everything
+     else behind it, gains nothing from slicing: file ONE issue.
+   - NEVER file a final sweep, README, docs or acceptance-check issue. Review Phase 1 already checks the
+     PRD's acceptance criteria and the docs; an issue for it only costs another session. Put the docs
+     for a change into the slice that makes the change.
+   - Do NOT add implementation primitives the PRD does not name: a string-splitting function, an
+     encoding, a library, a data structure. State the behaviour the PRD asks for and leave the choice to
+     the implementer. If the PRD itself names one, carry it over as written — never add one of your own.
 2a. Idempotency — before creating anything, list the issues that ALREADY belong to THIS PRD:
       gh issue list -R {{SLUG}} --label {{LABEL_READY}} --state all \
         --json number,title,body \
@@ -20,7 +35,9 @@ Steps:
     duplicate a task that already has an issue (an injector may have already added some).
     Scope this to THIS PRD's children — a sibling PRD's issues are NOT yours and must not make
     you skip real work.
-2b. PRD body has a `## Task 1` section (e.g. "Task 1 — write the plan document")? File it as the
+2b. (A PRD that lays out its own `## Task N` sections has already chosen its slices: file those, as
+    below; the SLICING RULE does not merge them.)
+    PRD body has a `## Task 1` section (e.g. "Task 1 — write the plan document")? File it as the
     FIRST child, titled `[AFK] Task 1 — <its heading>`, and list it under the `## Blocked by` of
     every other child you file. The harness keys on that `Task 1` title: until a child carries it,
     DECOMPOSE re-fires for this PRD — even if other children already exist.
