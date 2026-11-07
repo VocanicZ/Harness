@@ -23,7 +23,7 @@ Constraints:
   and reproduce the bug is fine; changing it is not. The fix lands in the next session.
 
 Steps:
-1. Read the bug:  gh issue view {{ISSUE}} -R {{SLUG}}
+1. Read the bug:  gh issue view {{ISSUE}} -R {{SLUG}} --json title,body,labels,comments
 2. Reproduce / analyse: confirm the bug is real, find the root cause and the smallest
    reproduction. Read the relevant code; do not modify it.
 3. Refine the issue IN PLACE so the fix session needs no extra context. Rewrite the body with:

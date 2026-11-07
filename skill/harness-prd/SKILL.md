@@ -31,6 +31,8 @@ Interview the user (reuse the `grill-me` pattern) until the scope expansion is f
 - **What it must NOT break** — in-flight work and done work are untouched; this is purely additive.
 
 Do not reopen the PRD, edit the body, or create issues during this phase.
+The PRD's `## Original request` section (the user's own words, verbatim) is never rewritten by an
+injection; the new scope goes beside it, and where the two ever conflict the original request wins.
 
 ## 2. Confirm the brief (the human safety gate)
 Replay a single crystallized brief — new scope + acceptance criteria + the delta tasks + ordering —

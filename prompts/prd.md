@@ -40,6 +40,9 @@ Steps:
    until that PRD closes. Prefer parallel — only sequence where there is a real dependency.
    Name ONLY issues a lane can claim there (a PRD, or a `{{LABEL_READY}}` issue) — never an
    operator-only step: nothing claims it, so the PRD would wait on a human forever.
+   The PRD body ALSO carries an `## Original request` section: the user's own words that started this
+   (the brief / PLAN.md request), copied VERBATIM and never summarised or reworded. Lanes get it at the top
+   of their task file as the top authority: the original request outranks the PRD, which outranks the issues.
      gh issue create -R {{SLUG}} --title "[AFK] PRD: {{PROJECT}} — <short scope>" \
        --label {{LABEL_PRD}} --body "<the PRD markdown, incl. an '## Acceptance criteria' section, and '## Quality bar' if step 3 produced one>
 

@@ -16,7 +16,7 @@ Issue: #{{ISSUE}}  (labelled `{{LABEL_WORKING}}` — it is yours)
 GOAL: fix the `{{LABEL_BUG_TRIAGED}}` issue #{{ISSUE}} test-guided via rtdd, get it merged, and close the issue.
 
 Steps:
-1. Read the refined issue:  gh issue view {{ISSUE}} -R {{SLUG}}   — note its acceptance criteria.
+1. Read the refined issue:  gh issue view {{ISSUE}} -R {{SLUG}} --json title,body,labels,comments   — note its acceptance criteria.
 2. Fix, test-guided:
 {{> _rtdd.md}}
 {{WINDOWS_RTDD}}
