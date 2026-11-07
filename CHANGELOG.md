@@ -4,6 +4,24 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `start`, `start --recover`, `fleet_roll` and `status` look at the process table, not only the pid files: no second worker beside a live one (#647)
+
+- A fleet ran 27 pool/priority workers instead of 3 for about 40 hours: 24 orphan v0.5.0 workers (8 full sets) beside the 3 official v0.9.0
+  ones. A lane running a test had written stand-in pid files into the live `run/`; the manager's `start --recover` then cleared the pid
+  files as stale and `pool.sh` / `priority.sh`, seeing no live pid, launched a full new set while the real workers kept running, named by
+  nothing. Neither `start`, `fleet_roll` (whose "all live workers current" read only `run/*.pid`) nor `harness status` ever looked at the
+  workers themselves again, and the extra claimers and reapers are a likely cause of races such as #643.
+- `harness start` (also `--recover`, `harness resume` and the `fleet_roll` relaunch) now scans for live top-level `pool-worker.sh` /
+  `priority-worker.sh` processes of its own `STATE_DIR` (by realpath) before it launches a slot. One that no pid file names is adopted into
+  the slot's pid file when it is on the current engine, otherwise stopped with TERM; the choice is printed with the pid. A worker holding a
+  bug claim is never killed: its slot is not launched and the pid is printed. A worker in a slot the pool does not launch is stopped, so a
+  start leaves at most `POOL` + 1 workers.
+- `fleet_roll` finds such untracked workers too and stops them under `run/pool.lock`, deferring any with a bug claim, logging `ACT roll:
+  stopped untracked …`; a dry run only logs. `harness status` prints a `⚠ duplicate workers` warning listing the pids and slots when more
+  workers are running than the pid files name, or a slot has two.
+- A worker's own `$(…)` and background subshell forks (same command line and environment), another fleet's workers and a `grep
+  pool-worker.sh` are never counted, adopted or killed. Without a `/proc` (macOS) nothing is found and behaviour is as before.
+
 ### A reap can no longer delete a lane's worktree 5 s before its session starts; adoption validates the lane; a leftover old-loop worker is stopped (#643)
 
 - On a fleet running two engine versions, a v0.5.0 worker left over from before a roll launched impl lanes without a lane
