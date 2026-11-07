@@ -221,7 +221,16 @@ tmp_kill_rooted(){ local proc="${HARNESS_PROC_ROOT:-/proc}"
   python3 - "$proc" "$BASHPID" "$@" <<'PY' 2>/dev/null || true
 import os, signal, sys, time
 proc, me, dirs = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
-roots = {r for d in dirs if d.strip("/") for r in (d.rstrip("/"), os.path.realpath(d))}
+# A root is a test's own throwaway dir. One that is shallow (/, /home, /tmp, $HOME…) or that CONTAINS $HOME or the host's real
+# ~/.harness would match every live worker and lane of the user running the suite (#649: pool workers died during host test runs),
+# so it is ignored — never "everything under it".
+home = os.path.realpath(os.environ.get("HOME", "/nonexistent"))
+def broad(d):
+    rd = os.path.realpath(d)
+    if len([c for c in rd.split("/") if c]) < 3:
+        return True
+    return any(h == rd or h.startswith(rd + "/") for h in (home, home + "/.harness"))
+roots = {r for d in dirs if d.strip("/") and not broad(d) for r in (d.rstrip("/"), os.path.realpath(d))}
 inside = lambda p: any(p == r or p.startswith(r + "/") for r in roots)
 def status(pid, key):
     try:

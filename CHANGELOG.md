@@ -35,6 +35,8 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   beat the fleet's own configured wrapper: every priority and bug lane on the host launched bare `claude`, outside the host's lane sandbox. Path
   seams (`*_DIR`, `*_HOME`, `*_FILE`) and `HARNESS_START_*` still pass. `test_fleet_roll_env.sh` covers every adapter's `_BIN`/`_FLAGS`/`_TIMEOUT`,
   `HARNESS_CLI` and `HARNESS_SESSION_BACKEND`.
+- `tmp_kill_rooted` (the sweep behind every test's `tmp_cleanup`) now ignores a tracked root that is shallow, is `$HOME`, or contains `$HOME` or
+  the host's `~/.harness`, so a stray broad root can never stop a user's live workers and lanes. `test_tmp_kill_rooted_scope.sh` covers it.
 
 ### `start`, `start --recover`, `fleet_roll` and `status` look at the process table, not only the pid files: no second worker beside a live one (#647)
 
