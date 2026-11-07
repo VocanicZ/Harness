@@ -1110,6 +1110,9 @@ scripts/swarm-suite.sh <worktree> <job-name> [test files...]
 - One shard per test file (default: every tracked `test_*` / `*_test` `.sh`/`.py`). Each runs with
   `bash`, `python3` or `pytest`, or `HARNESS_SWARM_TEST_CMD` (`{file}`, optional `{junit}`), and
   writes `status`, `output.log` and `junit.xml`.
+  A `.py` file with a `__main__` block runs with the worktree root on `PYTHONPATH`, so a project's
+  own `from tests import …` resolves (#601: without it, `python3 tests/test_x.py` saw only `tests/`
+  and failed with `No module named 'tests'`, a false red).
 - Only files git sees are packed (tracked + untracked-not-ignored); `.swarmignore` trims more,
   `HARNESS_SWARM_PACK=all` packs everything. The job tarball is deleted when the job ends.
 - `HARNESS_SWARM_TIMEOUT` (default `1800`) is the wait budget in seconds.
