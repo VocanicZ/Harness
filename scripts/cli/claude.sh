@@ -34,7 +34,7 @@ claude_role_default(){ case "$1:$2" in manager:model) echo opus;; implementer:mo
 # ~13k tokens of fixed context, re-cached with the 1h TTL in every session; cache writes were 53% of the
 # bench run's cost). It launches with the project and local setting sources only; what it uses comes from
 # the engine: its skills as symlinks in the worktree's .claude/skills (claude_lean_setup) and the goal
-# loop's Stop hook (the ralph-loop plugin) through --plugin-dir. Measured (12 local `claude -p` runs): first
+# loop's Stop hook (the engine's own plugin, below) through --plugin-dir. Measured (12 local `claude -p` runs): first
 # turn cache write 32.5k -> 3.85k with `--setting-sources project,local --strict-mcp-config`.
 # NOT --disable-slash-commands (it removes the Skill tool and bloats the Workflow tool's description) and
 # NOT --tools <list> (a custom tool set misses the shared global prompt cache). The tools no lane used in
@@ -42,37 +42,47 @@ claude_role_default(){ case "$1:$2" in manager:model) echo opus;; implementer:mo
 # autonomous fleet, where no human answers. Flags that take a list use the `=` form: a space-separated
 # variadic option would swallow the positional bootstrap prompt.
 # HARNESS_CLAUDE_LEAN=0 turns it off. Lean is also off when the configured flags name --setting-sources
-# (the operator chose), or when the ralph-loop plugin cannot be found (without its hook the pane's goal loop
-# breaks silently, so the full user config, which has the plugin, is the safe launch).
+# (the operator chose).
 CLAUDE_LEAN_TOOLS="Workflow,ScheduleWakeup,ReportFindings,ListAgents"
-# _claude_plugin_dir <plugin> — the install dir of a user-scope Claude Code plugin: the first of the config
-# dirs a lane may run under (CLAUDE_CONFIG_DIR, HARNESS_CLAUDE_CONFIG_DIRS, ~/.claude, every claude-acc
-# account) whose installed_plugins.json names it. Empty: not installed.
-_claude_plugin_dir(){ local d
+# --- the goal loop's Stop hook is the engine's (#616) ------------------------------------------------
+# plugins/claude/harness-ralph (hooks/stop-hook.py): ends the loop on the promise, re-checks for it before it
+# nudges (the final message may not be flushed yet), gives no nudge while a background sub-agent runs, and
+# nudges with a short reminder, the whole task only after a compaction. Every claude launch loads it with
+# --plugin-dir, lean or full, so the loop no longer depends on the operator's user-scope `ralph-loop` plugin; a
+# full-config launch switches that plugin off for the lane (claude_ralph_off_flag), or its hook would re-send the
+# whole task beside ours.
+# claude_ralph_plugin_dir — the engine's hook plugin, through the stable engine link (cli_engine_skill_root).
+claude_ralph_plugin_dir(){ echo "$(dirname "$(cli_engine_skill_root)")/plugins/claude/harness-ralph"; }
+# _claude_config_dirs — the config dirs a lane may run under that install plugins: CLAUDE_CONFIG_DIR,
+# HARNESS_CLAUDE_CONFIG_DIRS, ~/.claude, every claude-acc account.
+_claude_config_dirs(){ local d
   { [[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && echo "$CLAUDE_CONFIG_DIR"
     tr ':' '\n' <<<"${HARNESS_CLAUDE_CONFIG_DIRS:-}"
     echo "$HOME/.claude"; for d in "$HOME"/.claude-switch/accounts/*/; do [[ -d $d ]] && echo "${d%/}"; done; } |
+  while IFS= read -r d; do [[ -n $d && -f "$d/plugins/installed_plugins.json" ]] && echo "$d"; done; return 0; }
+# claude_ralph_off_flag — `--settings=<json>` that disables every user-scope `ralph-loop` plugin the config dirs
+# install (name@marketplace), shell-quoted for a launch line; empty when none is installed.
+claude_ralph_off_flag(){ local d ids="" k
   while IFS= read -r d; do
-    [[ -n $d && -f "$d/plugins/installed_plugins.json" ]] || continue
-    P="$1" F="$d/plugins/installed_plugins.json" python3 -c 'import json, os, sys
-for k, v in (json.load(open(os.environ["F"])).get("plugins") or {}).items():
-    if k.split("@")[0] != os.environ["P"]:
-        continue
-    for e in sorted(v if isinstance(v, list) else [], key=lambda e: e.get("scope") != "user"):
-        p = e.get("installPath") or ""
-        if os.path.isdir(p):
-            print(p); sys.exit(0)
-sys.exit(1)' 2>/dev/null && return 0
-  done; return 0; }
-# claude_lean_flags — the lean launch flags, one line; empty when the lane launches with the full user
-# config (see above).
-claude_lean_flags(){ local rl tools="$CLAUDE_LEAN_TOOLS"
+    k="$(F="$d/plugins/installed_plugins.json" python3 -c 'import json, os
+for k in (json.load(open(os.environ["F"])).get("plugins") or {}):
+    if k.split("@")[0] == "ralph-loop":
+        print(k)' 2>/dev/null)"
+    [[ -n "$k" ]] && ids="$ids"$'\n'"$k"
+  done < <(_claude_config_dirs)
+  [[ -n "${ids//[$'\n']/}" ]] || return 0
+  printf -- '--settings=%q' "$(printf '%s\n' "$ids" | sort -u | python3 -c 'import json, sys
+print(json.dumps({"enabledPlugins": {k.strip(): False for k in sys.stdin if k.strip()}}, separators=(",", ":")))')"; }
+# claude_lean_flags — the lean launch flags, one line; empty when the lane launches with the full user config.
+claude_lean_flags(){ local tools="$CLAUDE_LEAN_TOOLS"
   [[ "${HARNESS_CLAUDE_LEAN:-1}" == 0 ]] && return 0
   [[ " ${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}} " == *" --setting-sources"* ]] && return 0
-  rl="$(_claude_plugin_dir ralph-loop)"
-  [[ -n "$rl" && "$rl" != *[[:space:]]* ]] || return 0
   [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] && tools="$tools,AskUserQuestion"
-  echo "--setting-sources project,local --strict-mcp-config --plugin-dir=$rl --disallowedTools=$tools"; }
+  echo "--setting-sources project,local --strict-mcp-config --disallowedTools=$tools"; }
+# claude_goal_flags — what every launch adds for the goal loop: the engine's hook plugin, and on a full-config
+# launch the user's ralph-loop switched off.
+claude_goal_flags(){ local f; printf -- '--plugin-dir=%q' "$(claude_ralph_plugin_dir)"
+  [[ -n "$(claude_lean_flags)" ]] || { f="$(claude_ralph_off_flag)"; [[ -n "$f" ]] && printf ' %s' "$f"; }; return 0; }
 # claude_lean_setup <wd> — put the skills the prompts name where a lean lane finds them: a symlink each in
 # <wd>/.claude/skills, from the engine's skill/<name> (Harness's own, vendored ones) or, for a skill that is
 # not the engine's (rtdd: its own, versioned with its binary), from the operator's user skills dir. A skill
@@ -100,7 +110,7 @@ claude_cache_ttl(){ case "${HARNESS_CACHE_TTL:-5m}" in 1h) echo 1h;; *) echo 5m;
 claude_lane_env(){ [[ "$(claude_cache_ttl)" == 5m ]] && echo "FORCE_PROMPT_CACHING_5M=1"; return 0; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model effort="$4" lean; model="$(_claude_lane_model "$wd" "$3")"; lean="$(claude_lean_flags)"
-  echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")${lean:+ $lean} \"$HARNESS_BOOTSTRAP_PROMPT\""; }
+  echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")${lean:+ $lean} $(claude_goal_flags) \"$HARNESS_BOOTSTRAP_PROMPT\""; }
 # --- the headless lane (#349): claude is the one CLI with a headless lane runner -----------------
 # claude_headless <wd> <uuid> <model> <effort> [resume] — the runner's command, one argv word per line: the
 # headless session backend starts it in place of the pane's shell + launch line. Each turn is one
@@ -109,10 +119,10 @@ claude_launch(){ local wd="$1" uuid="$2" model effort="$4" lean; model="$(_claud
 # session the lane carries on: the first turn resumes it.
 claude_headless(){ local wd="$1" uuid="$2" model effort="$4" lean; model="$(_claude_lane_model "$wd" "$3")"; lean="$(claude_lean_flags)"
   printf '%s\n' python3 "$CLI_DIR/claude_headless.py" run --cwd "$wd" --bin "$(claude_bin)" --session-id "$uuid" \
-    ${5:+--resume} "--flags=$(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")${lean:+ $lean}" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
-# A pane's goal loop is ralph-loop's Stop hook. A headless lane is looped by Harness as well (the driven
+    ${5:+--resume} "--flags=$(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")${lean:+ $lean} $(claude_goal_flags)" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
+# A pane's goal loop is the engine's Stop hook (plugins/claude/harness-ralph, #616). A headless lane is looped by Harness as well (the driven
 # loop, lib.sh goal_loop_tick): every `claude -p` turn that ends without the promise is re-prompted from
-# the lane's own last reply. Where ralph-loop's hook runs inside `claude -p` too, it holds the turn open
+# the lane's own last reply. Where the engine's hook runs inside `claude -p` too, it holds the turn open
 # until the promise and the driven loop finds the loop already over (cli_done).
 claude_loop(){ [[ "$(sess_backend)" == headless ]] && echo driven || echo hook; }
 # claude_last_reply <wd> <session id> — the headless lane's last turn: `<session>:<turn>`, then its reply

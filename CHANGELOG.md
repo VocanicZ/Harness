@@ -4,6 +4,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The engine owns the Claude goal-loop Stop hook: a short nudge, no re-feed while a sub-agent runs, no lost promise (#616)
+
+- In bench run-20261106 the user-scope `ralph-loop` plugin's hook re-sent the whole task prompt 15 times (about 39.6k tokens,
+  $1.87 of turns after the first re-feed, about 85 s): the decompose lane printed `<promise>DECOMPOSE DONE</promise>` and was
+  re-fed three more times, and the reviewer was re-fed four times while it waited on its own background sub-agent. The engine now
+  ships the hook (`plugins/claude/harness-ralph`) and every `claude` lane launch loads it with `--plugin-dir`, lean or full.
+  A lean launch no longer needs a `ralph-loop` plugin on the host; a full-config launch switches an installed `ralph-loop` off for
+  the lane so the two hooks do not both re-feed.
+- Before nudging, the hook re-checks the transcript for the promise for up to `HARNESS_RALPH_FLUSH_MS` (1500 ms), so a final
+  message flushed just after Stop fires ends the loop. A Stop while a background sub-agent runs gets no nudge (and a sub-agent
+  whose transcript has not moved for `HARNESS_RALPH_AGENT_STALE_S`, 1800 s, no longer holds it). The nudge is
+  `Not done: <goal>` plus a line to continue or print the promise; the whole task is re-sent only after a context compaction.
+- The bench records `refeeds` and `refeed_tokens` per run (and in the aggregate); run-20261106 measures 15 and about 39.6k.
+  `test/test_ralph_stop_hook.py`, `test/test_bench_refeeds.py` and `test/test_cli_lean.sh` pin the behaviour.
+
 ### The PRD review judges against the brief and files every user-visible I/O finding (#600)
 
 - In bench run-20261106 the review's probe sub-agent found the UTF-8 byte-order-mark bug but filed it as a minor observation

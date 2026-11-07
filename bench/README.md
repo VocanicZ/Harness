@@ -61,7 +61,7 @@ before its cap), `runs` (`run`, `file`, `status`, `capped` of each run started) 
 `coverage` (SonarQube), `sonar_bugs`, `sonar_vulnerabilities`, `sonar_code_smells`,
 `sonar_duplicated_lines_density`, the arm's own-test coverage `cov_line_pct`, `cov_branch_pct`, `cov_total_pct` (#588) and the `counts` `issues_closed`, `prs_merged`, `commits`,
 `continue_replies`, and for the [large fixture](#large-fixture-592) `regressions`, `first_full_pass_s`, `usd_per_passed_test` and
-`compactions`, and for the [prompt-cache TTL](#prompt-cache-ttl-615) `cache_write_5m`, `cache_write_1h`, `cache_cost_usd`, `gap_p90_s`, `gaps_over_5m`. A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
+`compactions`, and for the [prompt-cache TTL](#prompt-cache-ttl-615) `cache_write_5m`, `cache_write_1h`, `cache_cost_usd`, `gap_p90_s`, `gaps_over_5m`, and, for every run, the goal loop's `refeeds` and `refeed_tokens` (#616). A metric no run produced is left out; an ungraded run has no `hidden_passed`. An errored
 run is listed in `runs` but not counted. `aggregate.cap_hits` is how often the runs hit a cap: `{runs, of, wall, cost}` (#592). The code is `bench/aggregate.py`.
 
 **A batch that stops early says so.** `stopped` is `null` when all N runs completed; otherwise
@@ -174,6 +174,7 @@ whatever the arm wrote to `ctx.logs`.
 | `usd_per_passed_test` | number | optional (#592): `cost_usd` over the hidden tests that passed; absent when none passed |
 | `compactions` | int | optional (#592): how many times a session's context was compacted, from the transcripts (an `isCompactSummary` entry or a `compact_boundary` event); work that outgrew one context window |
 | `cache_ttl`, `cache_write_5m`, `cache_write_1h`, `cache_cost_usd`, `turn_gaps` | | optional (#615), see [Prompt-cache TTL](#prompt-cache-ttl-615): the TTL the lanes ran with (`5m` or `1h`), the cache-write tokens at each TTL (`cache_write` is their sum), what the cache cost at list price (writes at their TTL's price plus reads), and `{turns, p50_s, p90_s, max_s, over_5m, over_1h}` of the gaps between one model turn and the next (null with fewer than two turns) |
+| `refeeds`, `refeed_tokens` | int | optional (#616): how many times the goal loop's Stop hook sent a session back to work (a `Stop hook feedback:` entry in the transcripts) and the size of those entries in tokens (characters over 4). Run `run-20261106`, whose lanes re-sent the whole task each time, had 15 re-feeds and about 39.6k tokens; the engine-owned hook sends a short reminder, the task only after a compaction, so both fall |
 | `change`, `milestones`, `regressions`, `regressed_tests`, `first_full_pass_s` | | the [large fixture's](#large-fixture-592) measures, only for a fixture with milestones |
 | `speedup_1_to_3` | object | only `harness-3.json`, and only when the run also holds `harness.json` (#592): `{x, wall_1_s, wall_3_s, capped}`, x = wall time of one worker over three; `capped` when a side hit a cap, so x is not a clean ratio |
 

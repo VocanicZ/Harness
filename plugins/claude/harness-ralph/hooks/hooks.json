@@ -1,0 +1,16 @@
+{
+  "description": "Harness goal loop: the Stop hook of a lane's ralph-loop state file",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
