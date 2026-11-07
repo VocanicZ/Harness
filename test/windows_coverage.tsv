@@ -27,6 +27,7 @@ harness plan	test_inject.sh
 harness prd	test_inject.sh
 harness issue	test_inject.sh
 harness resume	test_resume.sh
+harness tier	test_tier.sh
 /harness	test_windows_lane_tooling.sh
 /harness-arc	test_operator_skills.sh
 /harness-init	test_windows_lane_tooling.sh

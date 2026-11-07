@@ -169,4 +169,22 @@ lock_release "$hp"
 assert_ok "[posix] and sees it released" flock -n "$W/raw.lock" true
 assert_no "[posix] no lock directory on POSIX" test -e "$W/raw.lock.d"
 
+# ---- proc_tree_has_comm <root-pid> <comm> (#653): a process named <comm> under <root-pid> ---------------
+# A real tree: a root shell that runs a `gh` stub (a script named gh: its comm is `gh`) as a grandchild,
+# beside a sibling tree with no gh. POSIX walks `ps -e -o pid=,ppid=,comm=`; on Windows the table has no
+# such columns, so the answer is "assume yes" (never end a lane mid-filing on a blind table).
+mkdir -p "$W/ptc"; printf '#!/bin/sh\nsleep 8\n' > "$W/ptc/gh"; printf '#!/bin/sh\nsleep 8\n' > "$W/ptc/other"; chmod +x "$W/ptc/gh" "$W/ptc/other"
+bash -c "(\"$W/ptc/gh\") & wait" & ptc_with=$!
+bash -c "(\"$W/ptc/other\") & wait" & ptc_without=$!
+for _ in $(seq 1 40); do pgrep -f "$W/ptc/gh" >/dev/null 2>&1 && pgrep -f "$W/ptc/other" >/dev/null 2>&1 && break; sleep 0.05; done
+sleep 0.2
+export HARNESS_PLATFORM=posix
+assert_ok "[posix] proc_tree_has_comm finds a gh grandchild under the root" proc_tree_has_comm "$ptc_with" gh
+assert_no "[posix] ... and not under a root whose tree has no gh" proc_tree_has_comm "$ptc_without" gh
+assert_no "[posix] ... nor a comm that is not there" proc_tree_has_comm "$ptc_with" nosuchcomm
+assert_no "[posix] ... nor a non-numeric root" proc_tree_has_comm "" gh
+export HARNESS_PLATFORM=windows
+assert_ok "[windows] proc_tree_has_comm answers yes (unknown table: assume busy)" proc_tree_has_comm "$ptc_without" gh
+export HARNESS_PLATFORM=posix
+
 finish

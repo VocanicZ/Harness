@@ -14,7 +14,7 @@ engine's, is a problem; the arm then stops before it does any work. (Skills are 
 bundles some of its own, and the host user's cannot load from a config dir that does not hold them.)
 
 Loaded by the arms and the runner with importlib (this directory is not a package)."""
-import glob, hashlib, json, os, shlex, subprocess
+import glob, hashlib, json, os, re, shlex, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -143,10 +143,17 @@ def _run(argv, cwd=None):
 
 
 def engine_commit(root=ROOT):
-    """The engine checkout's git commit (`-dirty` when the tree has uncommitted changes), or None."""
+    """The engine checkout's git commit (`-dirty` when the tree has uncommitted changes), or None. A tree with no
+    git (the release gate's `git archive` extraction, #653) reads bench/ENGINE_COMMIT, which `git archive` fills
+    with the commit (export-subst); an unexpanded stamp (`$Format:%H$`, a plain checkout) is no commit."""
     sha = _run(["git", "-C", root, "rev-parse", "HEAD"])
     if not sha:
-        return None
+        try:
+            with open(os.path.join(root, "bench", "ENGINE_COMMIT"), encoding="utf-8") as fh:
+                stamp = fh.read().strip()
+        except OSError:
+            return None
+        return stamp if re.fullmatch(r"[0-9a-f]{40,64}", stamp) else None
     dirty = _run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"])
     return sha + ("-dirty" if dirty else "")
 

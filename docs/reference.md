@@ -714,6 +714,7 @@ The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn c
 | `harness prd` | ✓ | ✓ target (#475 task 8) |
 | `harness issue` | ✓ | ✓ target (#475 task 8) |
 | `harness resume` | ✓ | ✓ |
+| `harness tier` | ✓ | ✓ |
 | `/harness` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-arc` | ✓ | ✓ target (#475 task 8) |
 | `/harness-init` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |

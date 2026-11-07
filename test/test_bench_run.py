@@ -573,6 +573,29 @@ def test_aggregate_summarises_own_test_coverage_and_ignores_skipped_ones():
     assert "cov_line_pct" not in aggregate.aggregate([{"status": "ok", "coverage": "skipped (x)"}])["metrics"]
 
 
+def test_engine_commit_reads_the_archive_stamp_when_git_cannot_resolve_head():
+    """#653: the release gate runs on a `git archive` extraction (no .git). `git archive` expands the stamp file's
+    `$Format:%H$` (export-subst), so engine_commit() falls back to it; an unexpanded stamp (a checkout) is no commit."""
+    import armlib
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "bench"))
+        stamp = os.path.join(d, "bench", "ENGINE_COMMIT")
+        assert armlib.engine_commit(d) is None, "no git, no stamp"
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        with open(stamp, "w") as fh:
+            fh.write(sha + "\n")
+        assert armlib.engine_commit(d) == sha, "no .git: the archive stamp"
+        with open(stamp, "w") as fh:
+            fh.write("$Format:%H$\n")
+        assert armlib.engine_commit(d) is None, "an unexpanded stamp is not a commit"
+    assert re_commit(armlib.engine_commit(ROOT)), "a git checkout still reads HEAD"
+
+
+def re_commit(v):
+    import re
+    return bool(v) and re.fullmatch(r"[0-9a-f]{40,64}(-dirty)?", v) is not None
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
@@ -820,3 +843,4 @@ def test_the_ttl_measures_aggregate_and_the_bench_fleet_env_carries_the_setting(
     assert aggregate.METRICS["gap_p90_s"]({"turn_gaps": None}) is None
     spec = importlib.util.spec_from_file_location("bench_arm_h615", os.path.join(ROOT, "bench", "arms", "harness.py"))
     assert "HARNESS_CACHE_TTL" in [l for l in open(spec.origin) if l.startswith("PASS_ENV")][0]
+

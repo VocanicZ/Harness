@@ -120,4 +120,19 @@ assert_ok "session still live" sess_live "$S"
 idle; TEND_FAST=1 worker_tend W1
 assert_eq "$(count goal)" "1" "sub-agent gone: checked (REVIEW has no promise gate)"
 
+echo "=== 6. lane_has_gh: a real gh process under the pane pid (#653) ==="
+setup; unset -f lane_has_gh; source "$HERE/../scripts/pool-worker.sh"; source "$HERE/../scripts/portable.sh"
+mkdir -p "$RUN_DIR/stub"; printf '#!/bin/sh\nsleep 8\n' > "$RUN_DIR/stub/gh"; chmod +x "$RUN_DIR/stub/gh"
+bash -c "( \"$RUN_DIR/stub/gh\" ) & wait" & HG=$!
+bash -c "sleep 8 & wait" & HN=$!
+sleep(){ command sleep "$@"; }
+for _ in $(seq 1 40); do ps -e -o comm= | grep -qx gh && break; command sleep 0.05; done; command sleep 0.2
+sess_pane_pid(){ echo "$HG"; }
+assert_ok "gh descendant of the pane pid: lane_has_gh is 0" lane_has_gh any
+sess_pane_pid(){ echo "$HN"; }
+assert_no "no gh under the pane pid: lane_has_gh is 1" lane_has_gh any
+sess_pane_pid(){ echo ""; }
+assert_no "no pane pid: lane_has_gh is 1" lane_has_gh any
+assert_no "pool-worker.sh has no raw ps -o (ADR 0001)" grep -nE '(^|[^[:alnum:]_.-])ps (-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*o\b' "$HERE/../scripts/pool-worker.sh"
+
 finish
