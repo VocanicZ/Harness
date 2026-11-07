@@ -85,6 +85,7 @@ METRICS = {
     "tokens_cache_read": _token("cache_read"), "tokens_cache_write": _token("cache_write"),
     "hidden_passed": _hidden("passed"), "hidden_total": _hidden("total"),
     "fuzz_divergences": _field("fuzz_divergences"), "fuzz_cases": _field("fuzz_cases"),
+    "fuzz_classes": _field("fuzz_classes"), "review_score": _field("review_score"),
     "coverage": _sonar("coverage"), "sonar_bugs": _sonar("bugs"), "sonar_vulnerabilities": _sonar("vulnerabilities"),
     "sonar_code_smells": _sonar("code_smells"), "sonar_duplicated_lines_density": _sonar("duplicated_lines_density"),
     "cov_line_pct": _cov("line_pct"), "cov_branch_pct": _cov("branch_pct"), "cov_total_pct": _cov("total_pct"),

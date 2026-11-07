@@ -277,6 +277,17 @@ def fuzz(doc):
     return f"{n} / {cnt(c)}"
 
 
+def fuzz_classes(doc):
+    """Distinct root causes among the fuzz divergences (bench/rootcause.py, #620): the number the ship rule judges."""
+    return cstat(doc, "fuzz_classes", cnt)
+
+
+def blind_review(doc):
+    """The scripted blind review's score out of 10 (bench/review.py, #620); n/a when the run was not reviewed."""
+    s = metric(doc, "review_score")
+    return NA if s is None else stat(doc, "review_score", lambda v: f"{v:.1f}")
+
+
 def work(doc):
     parts = []
     for key, label in (("issues_closed", "issues"), ("prs_merged", "PRs"), ("commits", "commits")):
@@ -384,14 +395,15 @@ def invalid_reasons(arms):
 # --- table -----------------------------------------------------------------------------
 def table(arms, skipped):
     head = ["Arm", "n", "Cap status", "Wall time", "Coding", "Testing", "Tokens", "in / out / cache read / cache write (median)",
-            "List price", "% of weekly window", "Hidden tests passed", "Fuzz divergences", "Issues / PRs / commits", "Continue replies",
-            "Models", "SonarQube", "Coverage (own tests)"]
+            "List price", "% of weekly window", "Hidden tests passed", "Fuzz divergences", "Fuzz classes", "Blind review (of 10)",
+            "Issues / PRs / commits", "Continue replies", "Models", "SonarQube", "Coverage (own tests)"]
     rows = []
     for arm in sorted(arms, key=arm_key):
         d = arms[arm]
         rows.append([title(arm), n_label(d), cap_status(d), cstat(d, "wall_s", dur), cstat(d, "coding_s", dur),
                      cstat(d, "testing_s", dur), cstat(d, "tokens", tok), tokens_split(d), cstat(d, "cost_usd", usd),
-                     cstat(d, "weekly_window_pct", pct), hidden(d), fuzz(d), work(d), continues(d), models(d), sonar(d), coverage(d)])
+                     cstat(d, "weekly_window_pct", pct), hidden(d), fuzz(d), fuzz_classes(d), blind_review(d), work(d), continues(d),
+                     models(d), sonar(d), coverage(d)])
     ncol = len(head)
     for arm in sorted(set(skipped) | (set(OPTIONAL_ARMS) - set(arms)), key=arm_key):
         if arm in arms:
@@ -405,7 +417,8 @@ def table(arms, skipped):
 # --- the large fixture's own table (#592) ----------------------------------------------
 LARGE_HEAD = ["Arm", "n", "Cap status", "Caps hit", "Wall time", "Wall time to first full pass", "Hidden tests passed (post-change)",
               "List price", "$ per passed test", "Regressions", "Compactions", "Continue replies", "Change request",
-              "Fuzz divergences", "Issues / PRs / commits", "SonarQube", "Coverage (own tests)"]
+              "Fuzz divergences", "Fuzz classes", "Blind review (of 10)", "Issues / PRs / commits", "SonarQube",
+              "Coverage (own tests)"]
 
 
 def caps_hit(doc):
@@ -443,8 +456,8 @@ def large_table(arms, skipped):
         d = arms[arm]
         rows.append([title(arm), n_label(d), cap_status(d), caps_hit(d), cstat(d, "wall_s", dur), cstat(d, "first_full_pass_s", dur),
                      hidden(d), cstat(d, "cost_usd", usd), cstat(d, "usd_per_passed_test", lambda v: "$%.3f" % v),
-                     cstat(d, "regressions", cnt), cstat(d, "compactions", cnt), continues(d), change_cell(d), fuzz(d), work(d),
-                     sonar(d), coverage(d)])
+                     cstat(d, "regressions", cnt), cstat(d, "compactions", cnt), continues(d), change_cell(d), fuzz(d),
+                     fuzz_classes(d), blind_review(d), work(d), sonar(d), coverage(d)])
     ncol = len(LARGE_HEAD)
     for arm in sorted(set(skipped) | (set(OPTIONAL_ARMS) - set(arms)), key=arm_key):
         if arm not in arms:
@@ -714,7 +727,39 @@ def fuzz_note(arms):
             "a byte order mark and invalid UTF-8, LF / CRLF / lone CR line endings and form feeds or U+2028 in a note, "
             "stdin or a file, a closed output pipe): on standard output, on whether standard error is empty, on the "
             f"exit status, or on the ledger `add` leaves behind (`bench/fuzz.py`, seed {seed}, generator hash "
-            f"`{digest}…`). Up to 10 examples per arm are in its results JSON (`fuzz_examples`)."]
+            f"`{digest}…`). Up to 10 examples per arm are in its results JSON (`fuzz_examples`)."] + fuzz_classes_note(arms)
+
+
+SHIP_RULE = (
+    "**Ship rule:** a fleet change ships only if, over at least 5 runs of it against at least 5 runs of the baseline, "
+    "(1) the median number of fuzz classes is no higher than the baseline's, (2) no class appears that the baseline never "
+    "showed, and (3) the blind-review mean has not dropped by more than 0.5. `bench/shiprule.py` applies it to the runs' "
+    "results JSON; cost and time cuts are judged against these, not assumed.")
+
+
+def fuzz_classes_note(arms):
+    """What the Fuzz classes and Blind review columns count (#620), and the ship rule; always shown with a fuzz column."""
+    out = []
+    docs = [arms[a] for a in sorted(arms, key=arm_key)]
+    if any(metric(d, "fuzz_classes") is not None for d in docs):
+        out.append("**Fuzz classes:** the fuzz divergences grouped into distinct root causes, one class per (input feature, "
+                   "what differed) pair (`bench/rootcause.py`); the raw count is dominated by whichever bug the generator "
+                   "reaches most often, the class count is not. The classes of each run are in its results JSON "
+                   "(`fuzz_class_counts`).")
+    else:
+        out.append("**Fuzz classes:** `n/a`: this run's fuzz was graded before root-cause classes existed (#620), so only the "
+                   "raw divergence count is known.")
+    if any(metric(d, "review_score") is not None for d in docs):
+        r = next(r for d in docs for r in runs_of(d) if isinstance(r.get("review"), dict))
+        v = r["review"]
+        out.append(f"**Blind review:** `bench/review.py`: {v.get('judges')} Opus judges read the brief and the two anonymised "
+                   f"repos in both orders against a fixed rubric (seed {v.get('seed')}); the score is the mean of "
+                   f"{v.get('verdicts')} verdicts, out of 10. A review that is not scripted is not evidence, so none is quoted "
+                   "here; per-criterion scores are in the results JSON (`review`).")
+    else:
+        out.append("**Blind review:** `n/a`: no scripted review (`bench/review.py`) has been run on this run's repos. An "
+                   "unscripted review is not evidence and is not quoted.")
+    return out + [SHIP_RULE]
 
 
 def section(run_id, arms, skipped, fig_ref):

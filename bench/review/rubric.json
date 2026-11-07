@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "scale": "each criterion is scored 0, 1 or 2; the five add up to a score out of 10",
+  "criteria": [
+    {"id": "conformance", "title": "Conformance to the brief",
+     "guidance": "Does the program do what the brief says, command by command and option by option: output formats, exit statuses, what goes to standard output and standard error, the rules for every field? 0: a command or a stated rule is missing or wrong in ordinary use. 1: the ordinary cases work; some stated rules are wrong or missing. 2: every stated rule you can find in the code is implemented as written."},
+    {"id": "edge_cases", "title": "Edge cases and error handling",
+     "guidance": "Look past the brief's examples: odd input files (line endings, encodings, a missing final newline, an empty file, non-ASCII text), values at the limits, bad command lines, files that cannot be read, a failed write, a closed output pipe. 0: ordinary odd input crashes or is silently mishandled. 1: the common failures are handled, some gaps remain. 2: the failure modes you can think of are handled and the user is told what went wrong."},
+    {"id": "design", "title": "Design and code quality",
+     "guidance": "Is the structure sensible for the size of the job: small clear modules, the library and the command line sharing one implementation, honest names, no dead or duplicated code, no needless cleverness? 0: tangled or copy-pasted. 1: workable but uneven. 2: clear and proportionate."},
+    {"id": "tests", "title": "Tests",
+     "guidance": "Do the project's own tests check behaviour that matters (the rules, the edge cases, the exit statuses) and would they fail if that behaviour broke? 0: none, or they assert nothing. 1: some real checks, thin on edge cases. 2: they pin the rules and the edge cases."},
+    {"id": "delivery", "title": "Delivery",
+     "guidance": "Can a stranger install and use it as the brief asks (packaging, the command and the library both available, the stated Python and no third-party packages), and is the repository clean (a README that says how to use it, no stray build output, scratch files or tool leftovers)? 0: it does not install or run as asked. 1: it installs; the repository is untidy or undocumented. 2: it installs, works and is tidy."}
+  ]
+}

@@ -467,8 +467,8 @@ def fuzz_fields(fuzz):
     if not isinstance(fuzz, dict):
         return {}
     if "fuzz_cases" in fuzz:
-        return {k: fuzz[k] for k in ("fuzz_cases", "fuzz_divergences", "fuzz_examples", "fuzz_seed", "fuzz_hash")
-                if k in fuzz}
+        return {k: fuzz[k] for k in ("fuzz_cases", "fuzz_divergences", "fuzz_classes", "fuzz_class_counts",
+                                     "fuzz_examples", "fuzz_seed", "fuzz_hash") if k in fuzz}
     return {"fuzz_error": str(fuzz.get("error") or "fuzz did not run")[:300]}
 
 
@@ -547,7 +547,9 @@ REQUIRED = {
 # the engine commit / skill version / CLI version the arm ran with.
 PROVENANCE_KEYS = ("engine_commit", "skill_version", "cli_version")
 FUZZ_FIELDS = {"fuzz_cases": int, "fuzz_divergences": int, "fuzz_examples": list, "fuzz_seed": int,
-               "fuzz_hash": str, "fuzz_error": str}
+               "fuzz_hash": str, "fuzz_error": str, "fuzz_classes": int, "fuzz_class_counts": dict}
+# Optional (#620): the scripted blind review (bench/review.py): `review_score` is its mean (0..10), `review` the detail.
+REVIEW_FIELDS = {"review_score": (int, float), "review": dict}
 
 
 def valid_reason(reason):
@@ -606,6 +608,21 @@ def validate(d):
     if "configured" in d and not (isinstance(conf, dict) and sorted(conf) == ["effort", "model"]
                                   and all(v is None or isinstance(v, str) for v in conf.values())):
         bad.append("configured: want {model, effort} (strings or null)")
+    for k, t in REVIEW_FIELDS.items():
+        if k in d and (not isinstance(d[k], t) or isinstance(d[k], bool)):
+            bad.append(f"{k}: {type(d[k]).__name__}")
+    if isinstance(d.get("review_score"), (int, float)) and not isinstance(d.get("review_score"), bool) \
+            and not 0 <= d["review_score"] <= 10:
+        bad.append("review_score: not within 0..10")
+    counts = d.get("fuzz_class_counts")
+    if isinstance(counts, dict):
+        if not all(isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and v > 0
+                   for k, v in counts.items()):
+            bad.append("fuzz_class_counts: want {class: raw divergences (a positive int)}")
+        elif "fuzz_classes" in d and d["fuzz_classes"] != len(counts):
+            bad.append("fuzz_classes does not match fuzz_class_counts")
+        elif isinstance(d.get("fuzz_divergences"), int) and sum(counts.values()) != d["fuzz_divergences"]:
+            bad.append("fuzz_class_counts do not add up to fuzz_divergences")
     if isinstance(d.get("fuzz_examples"), list) and len(d["fuzz_examples"]) > 10:
         bad.append("fuzz_examples: more than 10")
     if isinstance(d.get("fuzz_divergences"), int) and isinstance(d.get("fuzz_cases"), int) \

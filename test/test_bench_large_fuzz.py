@@ -152,6 +152,15 @@ def test_the_reference_has_no_divergences_against_itself():
     r = fuzz.run(SELF_CMD, env_for(REF), cases=60)
     assert r["fuzz_cases"] == 60 and r["fuzz_divergences"] == 0 and r["fuzz_examples"] == [], r
     assert (r["fuzz_seed"], r["fuzz_hash"]) == (592, PINNED)
+    assert r["fuzz_classes"] == 0 and r["fuzz_class_counts"] == {}, r
+
+
+def test_the_generator_is_blind_and_says_so():
+    """#620: written from the brief and the reference before any arm ran on the fixture, and it says so."""
+    assert "blind" in fuzz.PROVENANCE and "before any arm" in fuzz.PROVENANCE and "brief" in fuzz.PROVENANCE
+    src = open(os.path.join(ROOT, "bench", "fixture-large", "fuzz.py"), encoding="utf-8").read()
+    assert "PROVENANCE (#620): this is a BLIND generator" in src
+    assert '"results"' not in src and "'results'" not in src                                          # reads no arm output
 
 
 def test_each_injected_bug_is_caught():
@@ -167,6 +176,9 @@ def test_each_injected_bug_is_caught():
             assert r["fuzz_cases"] == BUG_CASES, (name, r["fuzz_cases"])
             assert r["fuzz_divergences"] > 0 and r["fuzz_examples"], name
             assert len(r["fuzz_examples"]) <= 10, name
+            assert 1 <= r["fuzz_classes"] <= r["fuzz_divergences"], (name, r["fuzz_classes"])         # root-cause classes (#620)
+            assert r["fuzz_classes"] == len(r["fuzz_class_counts"]), name
+            assert sum(r["fuzz_class_counts"].values()) == r["fuzz_divergences"], (name, r["fuzz_class_counts"])
             print("    %-42s %3d divergences in %d cases, e.g. %s" % (
                 name, r["fuzz_divergences"], BUG_CASES, " ".join(r["fuzz_examples"][0]["what"].split()[:9])))
 
@@ -334,9 +346,9 @@ def test_bench_fuzz_delegates_for_the_large_fixture():
     p = subprocess.run([sys.executable, base, "--fixture", "large", "--print-hash"], capture_output=True, text=True)
     assert p.returncode == 0 and p.stdout.strip() == PINNED, p
     p = subprocess.run([sys.executable, base, "--print-hash"], capture_output=True, text=True)
-    assert p.stdout.strip() == "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478", p      # pennywise untouched
+    assert p.stdout.strip() == "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87", p      # pennywise untouched
     p = subprocess.run([sys.executable, base, "--fixture", "pennywise", "--print-hash"], capture_output=True, text=True)
-    assert p.stdout.strip() == "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478", p
+    assert p.stdout.strip() == "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87", p
     p = subprocess.run([sys.executable, base, "--fixture", "nope", "--self"], capture_output=True, text=True)
     assert p.returncode == 2 and "unknown fixture" in p.stderr, p
     p = subprocess.run([sys.executable, base, "--fixture", "large", "--self", "--cases", "6"], capture_output=True, text=True)

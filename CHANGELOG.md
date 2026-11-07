@@ -31,6 +31,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `DECOMPOSE` lane is not reaped partway through filing children: it waits for its completion promise, or
   `HARNESS_TEND_IDLE_TICKS` idle ticks with no `gh` process running.
 
+### Bench quality gate: fuzz root-cause classes, blind fuzz generators, a scripted blind review and a ship rule (#620)
+
+- The bench could not show "same or better quality": the hidden tests and SonarQube score both arms alike, coverage points the
+  wrong way, the fuzz counts raw cases (one lone CR swamps it) from one fixture, one seed and a generator written after the
+  Harness arm's bugs were known, and the blind review was done by hand so nobody can reproduce it.
+- **Root-cause classes.** `bench/rootcause.py` groups fuzz divergences by (input feature, what differed); results carry
+  `fuzz_classes` and `fuzz_class_counts` and the README table shows the class count. Two planted bugs that make 100 cases
+  diverge are 2 classes.
+- **Blind fuzz per fixture.** The pennywise generator is rewritten from the brief and the reference alone
+  (`bench/fixture/fuzzgen.py`, seed 620); the large fixture's carries a provenance note. Both say how they were written; results
+  of the old pennywise fuzz (seed 589) are not comparable with the new ones.
+- **Scripted blind review.** `bench/review.py` takes a fixed rubric, the brief and two anonymised repos; three Opus judges each
+  review in both orders; the mean score (out of 10) goes into the results JSON as `review_score` / `review`.
+- **Ship rule.** A fleet change ships only if, over at least 5 runs against 5 of the baseline, the median class count is no
+  higher, no new class appears and the review mean has not dropped by more than 0.5. `bench/shiprule.py` applies it.
+
 ### Bench: a large fixture, `tallybook`, with a mid-run requirement change (#592)
 
 - The only fixture, `pennywise` (a 4.7 KB brief, about 400 lines), fits one session in under 3 minutes: the case where

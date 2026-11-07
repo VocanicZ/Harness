@@ -409,17 +409,21 @@
   },
   "fuzz": {
     "fuzz_cases": 1000,
-    "fuzz_divergences": 387,
+    "fuzz_divergences": 22,
+    "fuzz_classes": 3,
+    "fuzz_class_counts": {
+      "output:closed-pipe x stderr": 11,
+      "ledger:byte-order-mark x exit": 7,
+      "argv:dash-led-argument x exit": 4
+    },
     "fuzz_examples": [
       {
-        "case": 4,
+        "case": 126,
         "argv": [
-          "summary",
-          "--by",
-          "month",
+          "export",
           "ledger.txt"
         ],
-        "ledger": "\\t\\r\\n2024-05-12 \\t Caf\\xe9\\t0.00 \\r\\n 2023-08-08 Caf\\xe9\\t-0  March pay\\r\\n\\t2025-10-26 SALARY   -42.50\\ttab\\tinside\\r\\n\\r\\n  2024-07-06\\t\\tgas\\t+992 -refund\\r\\n# household, March\\r\\n\\r\\n  2024-02-09…",
+        "ledger": "2021-01-29 savings +25.14\\n2021-04-26 rent -6 \\t \\n#\\n2021-06-17 \\tRent -1568.25\\n2021-10-18 \\treNt\\t19.91\\n2021-11-07 savings +1091.48\\n2021-12-30 rent -40.75  gift for mum\\n",
         "ledger_from": "file",
         "closed_stdout": true,
         "reference": {
@@ -427,13 +431,13 @@
           "stdout": "",
           "stderr_empty": true,
           "file": [
-            "\t",
-            "2024-05-12 \t Café\t0.00 ",
-            " 2023-08-08 Café\t-0  March pay",
-            "\t2025-10-26 SALARY   -42.50\ttab\tinside",
-            "  2024-07-06\t\tgas\t+992 -refund",
-            "# household, March",
-            "  2024-02-09\t\tk-n \t -1868.1\t-5"
+            "2021-01-29 savings +25.14",
+            "2021-04-26 rent -6 \t ",
+            "#",
+            "2021-06-17 \tRent -1568.25",
+            "2021-10-18 \treNt\t19.91",
+            "2021-11-07 savings +1091.48",
+            "2021-12-30 rent -40.75  gift for mum"
           ]
         },
         "arm": {
@@ -441,141 +445,38 @@
           "stdout": "",
           "stderr_empty": false,
           "file": [
-            "\t",
-            "2024-05-12 \t Café\t0.00 ",
-            " 2023-08-08 Café\t-0  March pay",
-            "\t2025-10-26 SALARY   -42.50\ttab\tinside",
-            "  2024-07-06\t\tgas\t+992 -refund",
-            "# household, March",
-            "  2024-02-09\t\tk-n \t -1868.1\t-5"
+            "2021-01-29 savings +25.14",
+            "2021-04-26 rent -6 \t ",
+            "#",
+            "2021-06-17 \tRent -1568.25",
+            "2021-10-18 \treNt\t19.91",
+            "2021-11-07 savings +1091.48",
+            "2021-12-30 rent -40.75  gift for mum"
           ]
         },
         "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
       },
       {
-        "case": 5,
-        "argv": [
-          "list",
-          "--since",
-          "2023-04-06",
-          "--json",
-          "-"
-        ],
-        "ledger": "2023-01-15\\t\\tRent \\t 0   (note)\\r\\n 2025-10-29 k-n  -0   x\\r\\n 2025-11-06   a_b \\t -0.99\\tpara\\u2029sep\\r\\n",
-        "ledger_from": "stdin",
-        "closed_stdout": false,
-        "reference": {
-          "exit": 0,
-          "stdout": "[{\"date\": \"2025-10-29\", \"category\": \"k-n\", \"amount\": \"0.00\", \"note\": \"x\"}, {\"date\": \"2025-11-06\", \"category\": \"a_b\", \"amount\": \"-0.99\", \"note\": \"para\\\\u2029sep\"}]\\n",
-          "stderr_empty": true,
-          "file": null
-        },
-        "arm": {
-          "exit": 1,
-          "stdout": "",
-          "stderr_empty": false,
-          "file": null
-        },
-        "arm_stderr": "pennywise: line 4: expected DATE CATEGORY AMOUNT [NOTE]\\n"
-      },
-      {
-        "case": 6,
-        "argv": [
-          "summary",
-          "--json",
-          "ledger.txt"
-        ],
-        "ledger": "  2024-01-20\\tx1  -1048.3 \\t form\\x0cfeed\\n2023-11-19\\t\\tgas\\t\\t007  March pay\\n2025-10-23 x1\\t\\t-0\\t\\t(note)\\n",
-        "ledger_from": "file",
-        "closed_stdout": false,
-        "reference": {
-          "exit": 0,
-          "stdout": "{\"gas\": \"7.00\", \"x1\": \"-1048.30\"}\\n",
-          "stderr_empty": true,
-          "file": [
-            "  2024-01-20\tx1  -1048.3 \t form\ffeed",
-            "2023-11-19\t\tgas\t\t007  March pay",
-            "2025-10-23 x1\t\t-0\t\t(note)"
-          ]
-        },
-        "arm": {
-          "exit": 1,
-          "stdout": "",
-          "stderr_empty": false,
-          "file": [
-            "  2024-01-20\tx1  -1048.3 \t form\ffeed",
-            "2023-11-19\t\tgas\t\t007  March pay",
-            "2025-10-23 x1\t\t-0\t\t(note)"
-          ]
-        },
-        "arm_stderr": "pennywise: line 2: expected DATE CATEGORY AMOUNT [NOTE]\\n"
-      },
-      {
-        "case": 8,
-        "argv": [
-          "export",
-          "--format",
-          "csv",
-          "ledger.txt"
-        ],
-        "ledger": "  # indented\\r\\n2023-04-04\\t\\tCaf\\xe9 \\t -3746   para\\u2029sep\\r\\n\\r\\n 2023-03-06\\t\\tx1 \\t 2500.00 \\t unicode \\u2603 \\xe9\\r\\n# household, March\\r\\n 2023-06-10 a_b\\t\\t100000000.99   -5\\r\\n2023-10-17 Re…",
-        "ledger_from": "file",
-        "closed_stdout": false,
-        "reference": {
-          "exit": 0,
-          "stdout": "date,category,amount,note\\n2023-03-06,x1,2500.00,unicode \\u2603 \\xe9\\n2023-04-04,caf\\xe9,-3746.00,para\\u2029sep\\n2023-06-10,a_b,100000000.99,-5\\n2023-10-17,rent,-1527.00,-refund\\n2024-08-09,caf\\xe9,0.…",
-          "stderr_empty": true,
-          "file": [
-            "  # indented",
-            "2023-04-04\t\tCafé \t -3746   para sep",
-            " 2023-03-06\t\tx1 \t 2500.00 \t unicode ☃ é",
-            "# household, March",
-            " 2023-06-10 a_b\t\t100000000.99   -5",
-            "2023-10-17 Rent\t-1527.0\t\t-refund",
-            "2024-08-09 Café\t\t-0 \t (note)",
-            "#2024-01-01 a 5"
-          ]
-        },
-        "arm": {
-          "exit": 1,
-          "stdout": "",
-          "stderr_empty": false,
-          "file": [
-            "  # indented",
-            "2023-04-04\t\tCafé \t -3746   para sep",
-            " 2023-03-06\t\tx1 \t 2500.00 \t unicode ☃ é",
-            "# household, March",
-            " 2023-06-10 a_b\t\t100000000.99   -5",
-            "2023-10-17 Rent\t-1527.0\t\t-refund",
-            "2024-08-09 Café\t\t-0 \t (note)",
-            "#2024-01-01 a 5"
-          ]
-        },
-        "arm_stderr": "pennywise: line 3: expected DATE CATEGORY AMOUNT [NOTE]\\n"
-      },
-      {
-        "case": 13,
+        "case": 232,
         "argv": [
           "add",
           "ledger.txt",
-          "2024-02-22",
-          "Food",
-          "+3703",
-          "--flag"
+          "2024-04-30",
+          "rent",
+          "-abc"
         ],
-        "ledger": "2025-07-16\\t\\ta_b 0\\n 2025-10-14 Food \\t -3655.7\\t\\t# not a comment\\n\\t2025-09-06  SALARY   2668.51 -refund\\n2024-02-15 \\t food   0\\tvt\\x0bx\\n",
+        "ledger": "2024-03-01 savings -91.07\\n\\n2024-03-02 gifts -20\\n2024-03-27 utilities -408841405 weekly shop\\n2024-04-13  utilities      99\\n",
         "ledger_from": "file",
         "closed_stdout": false,
         "reference": {
-          "exit": 0,
-          "stdout": "2024-02-22 food 3703.00 --flag\\n",
-          "stderr_empty": true,
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
           "file": [
-            "2025-07-16\t\ta_b 0",
-            " 2025-10-14 Food \t -3655.7\t\t# not a comment",
-            "\t2025-09-06  SALARY   2668.51 -refund",
-            "2024-02-15 \t food   0\tvt\u000bx",
-            "2024-02-22 food 3703.00 --flag"
+            "2024-03-01 savings -91.07",
+            "2024-03-02 gifts -20",
+            "2024-03-27 utilities -408841405 weekly shop",
+            "2024-04-13  utilities      99"
           ]
         },
         "arm": {
@@ -583,32 +484,56 @@
           "stdout": "",
           "stderr_empty": false,
           "file": [
-            "2025-07-16\t\ta_b 0",
-            " 2025-10-14 Food \t -3655.7\t\t# not a comment",
-            "\t2025-09-06  SALARY   2668.51 -refund",
-            "2024-02-15 \t food   0\tvt\u000bx"
+            "2024-03-01 savings -91.07",
+            "2024-03-02 gifts -20",
+            "2024-03-27 utilities -408841405 weekly shop",
+            "2024-04-13  utilities      99"
           ]
         },
-        "arm_stderr": "usage: pennywise [-h] COMMAND ...\\npennywise: error: unrecognized arguments: --flag\\n"
+        "arm_stderr": "usage: pennywise add [-h] FILE DATE CATEGORY AMOUNT [NOTE]\\npennywise add: error: the following arguments are required: AMOUNT\\n"
       },
       {
-        "case": 19,
+        "case": 281,
+        "argv": [
+          "list",
+          "-",
+          "--since",
+          "2024-05-10"
+        ],
+        "ledger": "2024-05-02 groceries  0\\n2024-04-24\\thealth  -40\\n2024-03-03 Health -51.7\\n# ledger\\n2024-04-02 \\tuTiLiTieS +914090121.5 gift for mum\\n2024-03-29 Travel      -73835.86\\n2024-04-14 TRAVEL -1054\\n2024-0…",
+        "ledger_from": "stdin",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": null
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": null
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      },
+      {
+        "case": 308,
         "argv": [
           "balance",
           "ledger.txt"
         ],
-        "ledger": "2024-10-03   food\\t-2611 \\t (note)\\n2025-09-22\\tRent -3265.17   nel\\x85x\\n 2023-06-14 \\t Caf\\xe9  -2420  --flag\\n\\n# household, March\\n",
+        "ledger": "\\ufeff2024-03-19  DINING -0.1  \\n\\n2024-03-19\\tCoffee -38\\n2024-03-19 salary  -942.59\\n",
         "ledger_from": "file",
         "closed_stdout": false,
         "reference": {
           "exit": 0,
-          "stdout": "-8296.17\\n",
+          "stdout": "-980.69\\n",
           "stderr_empty": true,
           "file": [
-            "2024-10-03   food\t-2611 \t (note)",
-            "2025-09-22\tRent -3265.17   nelx",
-            " 2023-06-14 \t Café  -2420  --flag",
-            "# household, March"
+            "﻿2024-03-19  DINING -0.1  ",
+            "2024-03-19\tCoffee -38",
+            "2024-03-19 salary  -942.59"
           ]
         },
         "arm": {
@@ -616,69 +541,23 @@
           "stdout": "",
           "stderr_empty": false,
           "file": [
-            "2024-10-03   food\t-2611 \t (note)",
-            "2025-09-22\tRent -3265.17   nelx",
-            " 2023-06-14 \t Café  -2420  --flag",
-            "# household, March"
+            "﻿2024-03-19  DINING -0.1  ",
+            "2024-03-19\tCoffee -38",
+            "2024-03-19 salary  -942.59"
           ]
         },
-        "arm_stderr": "pennywise: line 3: expected DATE CATEGORY AMOUNT [NOTE]\\n"
+        "arm_stderr": "pennywise: line 1: invalid date '\\\\ufeff2024-03-19'\\n"
       },
       {
-        "case": 21,
+        "case": 378,
         "argv": [
-          "add",
+          "summary",
           "ledger.txt",
-          "2025-12-27",
-          "fun",
-          "-944",
-          "nelx"
+          "--json",
+          "--by",
+          "month"
         ],
-        "ledger": " \\t \\r 2024-10-10 \\t fun \\t +1746.4  vt\\x0bx\\r\\t2025-04-13\\tk-n  -3763 \\t vt\\x0bx\\r 2023-12-18 fun   0  \\r\\t2024-01-11 \\t gas\\t\\t-1669.9 \\t -refund\\r2024-03-13 \\t a_b   -2969.51\\t\\tline\\u2028sep\\r2024…",
-        "ledger_from": "file",
-        "closed_stdout": false,
-        "reference": {
-          "exit": 0,
-          "stdout": "2025-12-27 fun -944.00 nel\\x85x\\n",
-          "stderr_empty": true,
-          "file": [
-            " \t ",
-            " 2024-10-10 \t fun \t +1746.4  vt\u000bx",
-            "\t2025-04-13\tk-n  -3763 \t vt\u000bx",
-            " 2023-12-18 fun   0  ",
-            "\t2024-01-11 \t gas\t\t-1669.9 \t -refund",
-            "2024-03-13 \t a_b   -2969.51\t\tline sep",
-            "2024-09-27   gas   -2733.48 ",
-            "2025-12-27 fun -944.00 nelx"
-          ]
-        },
-        "arm": {
-          "exit": 1,
-          "stdout": "",
-          "stderr_empty": false,
-          "file": [
-            " \t ",
-            " 2024-10-10 \t fun \t +1746.4  vt\u000bx",
-            "\t2025-04-13\tk-n  -3763 \t vt\u000bx",
-            " 2023-12-18 fun   0  ",
-            "\t2024-01-11 \t gas\t\t-1669.9 \t -refund",
-            "2024-03-13 \t a_b   -2969.51\t\tline sep",
-            "2024-09-27   gas   -2733.48 "
-          ]
-        },
-        "arm_stderr": "pennywise: invalid entry: note must not contain a line break\\n"
-      },
-      {
-        "case": 37,
-        "argv": [
-          "add",
-          "ledger.txt",
-          "2024-12-06",
-          "gas",
-          "+3255",
-          "weekly shop"
-        ],
-        "ledger": "\\n\\t2023-12-10 \\t gas +3934.76\\t\\t(note)\\r2023-07-10 Rent   -2614 a  b\\n\\t2024-05-10\\tgas +2887 \\t vt\\x0bx\\r",
+        "ledger": "## section\\n2000-02-29 coFFEe  -35.51\\n2023-12-22 coFFEe -3.35 two  spaces  inside\\n2024-01-09 Gifts -2952.16\\n2024-01-13 Gifts -0.19 12.505\\n",
         "ledger_from": "file",
         "closed_stdout": true,
         "reference": {
@@ -686,10 +565,11 @@
           "stdout": "",
           "stderr_empty": true,
           "file": [
-            "\t2023-12-10 \t gas +3934.76\t\t(note)",
-            "2023-07-10 Rent   -2614 a  b",
-            "\t2024-05-10\tgas +2887 \t vt\u000bx",
-            "2024-12-06 gas 3255.00 weekly shop"
+            "## section",
+            "2000-02-29 coFFEe  -35.51",
+            "2023-12-22 coFFEe -3.35 two  spaces  inside",
+            "2024-01-09 Gifts -2952.16",
+            "2024-01-13 Gifts -0.19 12.505"
           ]
         },
         "arm": {
@@ -697,52 +577,22 @@
           "stdout": "",
           "stderr_empty": false,
           "file": [
-            "\t2023-12-10 \t gas +3934.76\t\t(note)",
-            "2023-07-10 Rent   -2614 a  b",
-            "\t2024-05-10\tgas +2887 \t vt\u000bx",
-            "2024-12-06 gas 3255.00 weekly shop"
+            "## section",
+            "2000-02-29 coFFEe  -35.51",
+            "2023-12-22 coFFEe -3.35 two  spaces  inside",
+            "2024-01-09 Gifts -2952.16",
+            "2024-01-13 Gifts -0.19 12.505"
           ]
         },
         "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
       },
       {
-        "case": 39,
+        "case": 385,
         "argv": [
-          "list",
-          "--category",
-          "food",
-          "--until",
-          "2025-01-19",
-          "-"
+          "balance",
+          "ledger.txt"
         ],
-        "ledger": "2024-02-12   Caf\\xe9   +0.5 \\t form\\x0cfeed\\r\\n  2024-02-05 Caf\\xe9\\t3.1     spaced  note \\r\\n 2025-09-10   fun  -42.50\\t\\t-refund\\r\\n#\\r\\n",
-        "ledger_from": "stdin",
-        "closed_stdout": false,
-        "reference": {
-          "exit": 0,
-          "stdout": "",
-          "stderr_empty": true,
-          "file": null
-        },
-        "arm": {
-          "exit": 1,
-          "stdout": "",
-          "stderr_empty": false,
-          "file": null
-        },
-        "arm_stderr": "pennywise: line 2: expected DATE CATEGORY AMOUNT [NOTE]\\n"
-      },
-      {
-        "case": 48,
-        "argv": [
-          "add",
-          "ledger.txt",
-          "2024-11-18",
-          "gas",
-          "-0",
-          "line sep"
-        ],
-        "ledger": "#2024-01-01 a 5\\r 2023-03-04\\t\\tFood  -631.3 \\t March pay\\r2025-07-20\\tgas\\t\\t-2286 \\t -refund\\r 2024-06-24   SALARY\\t100000000.99   --flag",
+        "ledger": "2022-07-02 Pets 66 \\trent for march\\n2022-10-14 Travel 84.71 #tag\\n2023-02-06 insurance 1665 -refund\\n2022-07-08 Pets      -1609.02 12.505\\n2023-02-21 insurance 37.20      birthday\\n",
         "ledger_from": "file",
         "closed_stdout": true,
         "reference": {
@@ -750,11 +600,45 @@
           "stdout": "",
           "stderr_empty": true,
           "file": [
-            "#2024-01-01 a 5",
-            " 2023-03-04\t\tFood  -631.3 \t March pay",
-            "2025-07-20\tgas\t\t-2286 \t -refund",
-            " 2024-06-24   SALARY\t100000000.99   --flag",
-            "2024-11-18 gas 0.00 line sep"
+            "2022-07-02 Pets 66 \trent for march",
+            "2022-10-14 Travel 84.71 #tag",
+            "2023-02-06 insurance 1665 -refund",
+            "2022-07-08 Pets      -1609.02 12.505",
+            "2023-02-21 insurance 37.20      birthday"
+          ]
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2022-07-02 Pets 66 \trent for march",
+            "2022-10-14 Travel 84.71 #tag",
+            "2023-02-06 insurance 1665 -refund",
+            "2022-07-08 Pets      -1609.02 12.505",
+            "2023-02-21 insurance 37.20      birthday"
+          ]
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      },
+      {
+        "case": 406,
+        "argv": [
+          "list",
+          "ledger.txt",
+          "--json"
+        ],
+        "ledger": "\\ufeff2021-05-11  health -84.15 bus ticket\\n2021-08-04\\t\\tsavings      -199261203.41      dentist\\n2021-07-14 health\\t-26.03 #tag",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "[{\"date\": \"2021-05-11\", \"category\": \"health\", \"amount\": \"-84.15\", \"note\": \"bus ticket\"}, {\"date\": \"2021-07-14\", \"category\": \"health\", \"amount\": \"-26.03\", \"note\": \"#tag\"}, {\"date\": \"2021-08-04\", \"categ…",
+          "stderr_empty": true,
+          "file": [
+            "﻿2021-05-11  health -84.15 bus ticket",
+            "2021-08-04\t\tsavings      -199261203.41      dentist",
+            "2021-07-14 health\t-26.03 #tag"
           ]
         },
         "arm": {
@@ -762,16 +646,118 @@
           "stdout": "",
           "stderr_empty": false,
           "file": [
-            "#2024-01-01 a 5",
-            " 2023-03-04\t\tFood  -631.3 \t March pay",
-            "2025-07-20\tgas\t\t-2286 \t -refund",
-            " 2024-06-24   SALARY\t100000000.99   --flag"
+            "﻿2021-05-11  health -84.15 bus ticket",
+            "2021-08-04\t\tsavings      -199261203.41      dentist",
+            "2021-07-14 health\t-26.03 #tag"
           ]
         },
-        "arm_stderr": "pennywise: invalid entry: note must not contain a line break\\n"
+        "arm_stderr": "pennywise: line 1: invalid date '\\\\ufeff2021-05-11'\\n"
+      },
+      {
+        "case": 433,
+        "argv": [
+          "summary",
+          "ledger.txt",
+          "--by",
+          "category"
+        ],
+        "ledger": "\\ufeff# trailing space  \\n2024-03-14 \\tutilities 0  weekly shop\\n2024-05-20 utilities 67987\\n",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "utilities  67987.00\\n",
+          "stderr_empty": true,
+          "file": [
+            "﻿# trailing space  ",
+            "2024-03-14 \tutilities 0  weekly shop",
+            "2024-05-20 utilities 67987"
+          ]
+        },
+        "arm": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "﻿# trailing space  ",
+            "2024-03-14 \tutilities 0  weekly shop",
+            "2024-05-20 utilities 67987"
+          ]
+        },
+        "arm_stderr": "pennywise: line 1: invalid date '\\\\ufeff#'\\n"
+      },
+      {
+        "case": 652,
+        "argv": [
+          "export",
+          "ledger.txt"
+        ],
+        "ledger": "\\ufeff2024-03-22  Fuel -14.4\\n2024-03-18\\tgroceries -24\\n2024-03-23 2024tax 44.97\\n2024-03-16 groceries -254677354.21 lunch with Sam\\n",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "date,category,amount,note\\n2024-03-16,groceries,-254677354.21,lunch with Sam\\n2024-03-18,groceries,-24.00,\\n2024-03-22,fuel,-14.40,\\n2024-03-23,2024tax,44.97,\\n",
+          "stderr_empty": true,
+          "file": [
+            "﻿2024-03-22  Fuel -14.4",
+            "2024-03-18\tgroceries -24",
+            "2024-03-23 2024tax 44.97",
+            "2024-03-16 groceries -254677354.21 lunch with Sam"
+          ]
+        },
+        "arm": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "﻿2024-03-22  Fuel -14.4",
+            "2024-03-18\tgroceries -24",
+            "2024-03-23 2024tax 44.97",
+            "2024-03-16 groceries -254677354.21 lunch with Sam"
+          ]
+        },
+        "arm_stderr": "pennywise: line 1: invalid date '\\\\ufeff2024-03-22'\\n"
+      },
+      {
+        "case": 284,
+        "argv": [
+          "list",
+          "ledger.txt"
+        ],
+        "ledger": "2024-05-16  gifts -19\\n2024-05-04  gifts -25.32\\n2024-03-30 books 0 #tag\\n2024-03-18 gifts 54.05 bus ticket\\n2024-03-25      books -759197243.25 bus ticket\\n2024-03-16 \\tfuel 58.2\\n",
+        "ledger_from": "file",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "2024-05-16  gifts -19",
+            "2024-05-04  gifts -25.32",
+            "2024-03-30 books 0 #tag",
+            "2024-03-18 gifts 54.05 bus ticket",
+            "2024-03-25      books -759197243.25 bus ticket",
+            "2024-03-16 \tfuel 58.2"
+          ]
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2024-05-16  gifts -19",
+            "2024-05-04  gifts -25.32",
+            "2024-03-30 books 0 #tag",
+            "2024-03-18 gifts 54.05 bus ticket",
+            "2024-03-25      books -759197243.25 bus ticket",
+            "2024-03-16 \tfuel 58.2"
+          ]
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
       }
     ],
-    "fuzz_seed": 589,
-    "fuzz_hash": "015f0f31f7319a85b203a496d1b09127dd9d3e59c08e592563e0bd880181d478"
+    "fuzz_seed": 620,
+    "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87"
   }
 }
