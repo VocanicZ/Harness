@@ -1,0 +1,38 @@
+{
+  "bna1102": {
+    "sessions": 13,
+    "tokens": {},
+    "issues_closed": 11,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-ttl-ab-1h-harness": {
+        "claims": 13,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 12,
+        "which": 20
+      },
+      "which": 20,
+      "changed_nodes": 544,
+      "round1": 694,
+      "round2": 229,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 20
+      },
+      "wall_ms": 2718,
+      "selective": 18,
+      "full_suite": 2,
+      "backfilled": 0,
+      "selective_share": 0.9
+    },
+    "model_mismatches": []
+  }
+}

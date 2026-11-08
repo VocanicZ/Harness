@@ -1,0 +1,8 @@
+{
+  "state_dir": "/tmp/hzt-1944225439/bench-run-8mds_cct/clone/.harness",
+  "harness_home": "/tmp/hzt-1944225439/bench-run-8mds_cct/harness-home",
+  "prefix": "bna1102",
+  "workers": 1,
+  "repo": "VocanicZ/bench-ttl-ab-1h-harness",
+  "stop": "harness stop --state-dir /tmp/hzt-1944225439/bench-run-8mds_cct/clone/.harness"
+}
