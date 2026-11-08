@@ -129,6 +129,8 @@ remove_entrypoints(){
   fi
   if [[ -f "$shim" ]] && grep -qF "python3 — Harness's shim" "$shim" 2>/dev/null; then
     rm -f "$shim" && echo "  removed the python3 shim $shim"
+    # #609: the LF-stdio sitecustomize the shim puts on PYTHONPATH (install.sh python_lf_dir); only its own file.
+    rm -f "$HARNESS_HOME/bin/pylf/sitecustomize.py"; rmdir "$HARNESS_HOME/bin/pylf" 2>/dev/null
     rmdir "$HARNESS_HOME/bin" 2>/dev/null
   fi
   return 0

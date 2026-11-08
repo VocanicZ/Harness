@@ -30,6 +30,10 @@ export PATH="$(cygpath -u "$VB"):$PATH"
 # What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
 # test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
 export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
 say "python3 = $(command -v python3): $(python3 --version 2>&1)"
 # The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
 export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"

@@ -54,6 +54,20 @@ inst_py(){ local p w
   inst_windows || { python3 "$@"; return; }
   p="$(python_probe)" || { echo "MISSING: a Python 3 that runs (python3/python/py -3; the Microsoft Store stub is not one)" >&2; return 127; }
   if [[ -f $p ]]; then "$p" "$@"; else read -r -a w <<<"$p"; "${w[@]}" "$@"; fi; }
+# python_lf_dir <dir> — write <dir>/sitecustomize.py (#609): a Python run with <dir> on PYTHONPATH writes "\n" to stdout and
+# stderr as "\n", not as the CRLF a native Windows Python text stream turns it into. The python3 shim puts its own pylf dir on
+# PYTHONPATH; the Windows suite stage (test/smoke/winsma/suite.sh) does the same for its venv python, which is not the shim.
+python_lf_dir(){ mkdir -p "$1" || return 1
+  cat >"$1/sitecustomize.py" <<'PYEOF'
+# Harness (#609): LF line endings on stdout and stderr, whatever the platform's text layer does.
+import sys
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(newline="\n")
+    except Exception:
+        pass
+PYEOF
+}
 # install_python_shim — Windows only: $HARNESS_HOME/bin/python3, which bin/harness puts first on PATH,
 # runs HARNESS_PYTHON (default: python_probe's answer, baked in), so the engine's `python3` calls
 # reach a real interpreter. Re-run by `harness update`.
@@ -70,6 +84,12 @@ install_python_shim(){ local d="${HARNESS_HOME:-$HOME/.harness}/bin" py
 # engine Python reads and prints the lane files' and the TUI shapes' non-ASCII (✻ ❯ — …) intact.
 export PYTHONUTF8=1
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# LF stdio (#609): a native Windows Python writes "\n" as CRLF, so every `$(python3 …)` in the engine read a stray CR
+# and every Python-rendered prompt carried CRLF. The pylf dir beside this shim holds a sitecustomize that turns that off.
+if [[ -f $here/pylf/sitecustomize.py ]]; then
+  l="$here/pylf"; command -v cygpath >/dev/null 2>&1 && l="$(cygpath -w "$l")"
+  case ";${PYTHONPATH:-};" in *";$l;"*) ;; *) export PYTHONPATH="$l${PYTHONPATH:+;$PYTHONPATH}" ;; esac
+fi
 EOF
     # %q escapes a space as `\ `, which a double-quoted ${…:-…} keeps as a backslash (C:\Program Files\Python313 → 'not found'):
     # the baked default is a separate, %q-quoted assignment instead (#495).
@@ -83,6 +103,7 @@ exec "$x" "${argv[@]:1}" "$@"
 EOF
   } >"$d/python3" || return 1
   chmod +x "$d/python3"
+  python_lf_dir "$d/pylf" || return 1
   echo "  python3 shim: $d/python3 -> $py"; }
 # inst_bash_exe — Git's bash.exe for the harness.cmd shim (WSL's bash.exe is first on the cmd PATH).
 inst_bash_exe(){ local r
