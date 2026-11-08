@@ -28,7 +28,10 @@ assert "prereqs pass when all present" "check_prereqs"
 # #431 check_prereqs also looks in ~/.local/bin, where the host's own claude usually is.
 rm -f "$PATHBIN/claude"
 NOCLAUDE_HOME="$(mktemp -d)"
-noclaude(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin"; HOME="$NOCLAUDE_HOME"; check_prereqs ); }
+# Git for Windows keeps curl in /mingw64/bin, outside /usr/bin: add the dir the host's curl is in. Its Python is a prerequisite
+# check_prereqs runs for real there (python_probe), which the python3 stub is not: HARNESS_PYTHON is the seam that names one.
+CURL_DIR="$(dirname "$(command -v curl || echo /usr/bin/curl)")"
+noclaude(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin:$CURL_DIR"; HOME="$NOCLAUDE_HOME"; HARNESS_PYTHON=python3; check_prereqs ); }
 assert "prereqs fail without claude"   "! HARNESS_AGY_BIN='$AGY_STUB_DIR/nope' noclaude 2>/dev/null"
 # ...while a present HARNESS_AGY_BIN satisfies it, and is the binary probed (not PATH's agy).
 : > "$AGY_LOG"
@@ -86,8 +89,10 @@ assert "which harness resolves (symlink -> realpath) to ~/.harness/engine/bin/ha
 
 # ── portability mitigation: symlink un-writable -> print explicit PATH instructions ──
 RO="$(mktemp -d)"; chmod 555 "$RO"
+# (chmod does not make a directory read-only on a Windows host: there the bin dir sits under a plain file, which cannot be made)
+if real_windows_host; then RO="$RO/blocker"; : > "$RO"; RO="$RO/bin"; fi
 fail_out="$(HARNESS_HOME="$HH" HARNESS_BIN_DIR="$RO" link_path 2>&1)"
-chmod 755 "$RO"
+chmod 755 "$(dirname "$RO")" 2>/dev/null; chmod 755 "$RO" 2>/dev/null
 assert "symlink-fail creates no broken link"          "[[ ! -e '$RO/harness' ]]"
 assert "symlink-fail prints explicit PATH guidance"   "grep -q 'PATH' <<< \"\$fail_out\""
 assert "symlink-fail names the engine bin dir to add" "grep -q 'engine/bin' <<< \"\$fail_out\""
@@ -142,7 +147,7 @@ git -C "$A2REPO" -c user.email=t@t -c user.name=t add -A
 git -C "$A2REPO" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
 A2HOME="$A2/home"; mkdir -p "$A2HOME/.claude/skills/evil"
 printf 'MY_OWN_SENTINEL\n' > "$A2HOME/.claude/skills/evil/SKILL.md"   # user's own skill — must survive
-HOME="$A2HOME" MATTPOCOCK_SKILLS_URL="$A2REPO" ensure_skills >/dev/null 2>&1
+HOME="$A2HOME" HARNESS_USER_SKILLS="$A2HOME/.claude/skills" MATTPOCOCK_SKILLS_URL="$A2REPO" ensure_skills >/dev/null 2>&1
 assert "ensure_skills installs to-prd"                "[[ -d '$A2HOME/.claude/skills/to-prd' ]]"
 assert "ensure_skills installs to-issues"             "[[ -d '$A2HOME/.claude/skills/to-issues' ]]"
 assert "ensure_skills does NOT clobber user's evil skill" "grep -q MY_OWN_SENTINEL '$A2HOME/.claude/skills/evil/SKILL.md'"

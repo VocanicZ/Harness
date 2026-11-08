@@ -14,15 +14,15 @@ assert_eq "$(lock_holders "$LF")" "" "lock_holders: no holder → empty"
 # background-holder design was inherently flaky under load (the OS might not schedule the child to
 # open fd 9 before the scan, even with a poll). Opening fd 9 here means our OWN pid ($$) holds the
 # lock the instant lock_holders runs — deterministic, zero scheduling race.
-exec 9>"$LF"
+lock_acquire "$LF" LFH                # portable.sh: a flock on Linux, an owned mkdir lock on Windows (Git Bash has no flock)
 assert_ok "lock_holders: reports the holding pid" \
   grep -qE "(^|[^0-9])$$"'\b' <<<"$(lock_holders "$LF")"
-exec 9>&-                             # release before the lock_free test reuses fd 9
+lock_release "$LFH"
 
 # ── lock_free: true when acquirable, false when held; never leaves a holder behind ─────────────
 LF2="$(mktemp)"
 assert_ok "lock_free: free file is acquirable" lock_free "$LF2"
-( exec 9>"$LF2"; flock 9; sleep 5 ) &   # hold an EXCLUSIVE flock
+( lock_acquire "$LF2" LF2H; sleep 5 ) &   # hold the lock (an exclusive flock on Linux)
 HOLDER2=$!; sleep 0.2
 assert_no "lock_free: held lock is not acquirable" lock_free "$LF2"
 kill "$HOLDER2" 2>/dev/null; wait "$HOLDER2" 2>/dev/null
@@ -45,6 +45,9 @@ DOCTOR_FIX=0
 
 # ── doctor_main: healthy env exits 0; a stale pidfile exits 1; --fix returns to clean ──────────
 rm -f "$RUN_DIR"/*.pid "$RUN_DIR"/*.lock
+# A real Windows host also runs the Windows checks: it has no tmux (headless is the one backend there) and the poller state
+# pin_host_home made under HARNESS_HOME would read as a leftover install. The lock/pidfile health below is what this asks.
+if real_windows_host; then export "$SESS_CONFIG_VAR=headless"; rm -rf "$HARNESS_HOME/poller"; fi
 rc=0; DOCTOR_FIX=0; doctor_main >/dev/null || rc=$?
 assert_eq "$rc" "0" "doctor_main: clean env is healthy (exit 0)"
 echo "999999" > "$RUN_DIR/worker-2.pid"           # dead pid → unhealthy
@@ -67,7 +70,7 @@ OUT="$(doctor_fleets)"; PROBLEMS=$?
 # IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would match against an empty string.
 contains(){ grep -qE -- "$1" <<<"$2"; }
 assert_ok "doctor reports the stale entry" contains '[Ss][Tt][Aa][Ll][Ee]' "$OUT"
-assert_ok "doctor names the dead fleet"    contains '/p/dead' "$OUT"
+assert_ok "doctor names the dead fleet"    contains "$(native_path /p/dead)" "$OUT"   # the registry keeps the native form (P:/dead) on Windows
 # Round-1 fix review: doctor_fleets' message must name the owning PROJECT (dirname of the registered
 # STATE_DIR), the same value status.sh's sibling row and check_prefix_collision's refusal print for
 # this same entry — never the raw STATE_DIR with its trailing /.harness leaking through.
@@ -93,7 +96,7 @@ rm -f "$HARNESS_FLEETS_DIR"/*.json     # isolate the count: only the poller reco
 export POLLER_REGISTRY_DIR="$HARNESS_HOME/poller/registry"; mkdir -p "$POLLER_REGISTRY_DIR"
 poller_register acme/widget 60 pollr /p/pollr/.harness
 OUT="$(DOCTOR_FIX=0 doctor_fleets)"; PROBLEMS=$?
-assert_no "doctor does not call a run_dir-less poller entry stale" contains '/p/pollr' "$OUT"
+assert_no "doctor does not call a run_dir-less poller entry stale" contains "$(native_path /p/pollr)" "$OUT"
 assert_eq "$PROBLEMS" "0" "and counts no problem for it"
 DOCTOR_FIX=1 doctor_fleets >/dev/null
 assert_eq "$(ls "$POLLER_REGISTRY_DIR"/*.json 2>/dev/null | wc -l)" "1" \

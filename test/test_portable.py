@@ -5,13 +5,16 @@ The Windows branch is forced on Linux with HARNESS_PLATFORM=windows: pid_alive r
 fake /proc (HARNESS_PROC_ROOT) and asks a fake kernel32 (OpenProcess / GetExitCodeProcess); lock_nb /
 unlock drive a fake msvcrt. Its callers — stats.append_event, fleetview.pid_alive, web_data.claim_alive
 — are checked to go through it (no fcntl, no os.kill(pid, 0) on the Windows branch)."""
-import importlib.util, os, subprocess, sys, tempfile, types
+import importlib.util, os, shutil, subprocess, sys, tempfile, types
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.normpath(os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, SCRIPTS)
 import portable  # noqa: E402
 
 fails = 0
+REAL_WINDOWS = sys.platform == "win32"   # a real Windows host: the POSIX branch of a primitive (fcntl, os.kill(pid, 0)) cannot run on it (#607)
+
+
 def check(ok, msg):
     global fails
     print(("  ok: " if ok else "  FAIL: ") + msg)
@@ -48,7 +51,8 @@ class FakeMsvcrt:
         self.calls = []
 
     def locking(self, fd, mode, nbytes):
-        path = os.readlink(f"/proc/self/fd/{fd}")
+        st = os.fstat(fd)
+        path = (st.st_dev, st.st_ino)   # the file, whatever the OS spells its path (no /proc on a Windows host)
         self.calls.append((mode, nbytes, os.lseek(fd, 0, os.SEEK_CUR)))
         if mode == self.LK_NBLCK:
             if path in self.held and self.held[path] != fd:
@@ -84,13 +88,18 @@ def main():
         check(portable.is_windows() == (sys.platform == "win32"), "default follows sys.platform")
 
     # ---- pid_alive, POSIX
-    with env(HARNESS_PLATFORM="posix"):
-        check(portable.pid_alive(os.getpid()), "[posix] pid_alive: this process is alive")
-        p = subprocess.Popen(["true"]); p.wait()
-        check(not portable.pid_alive(p.pid), "[posix] pid_alive: a reaped child is not")
-        check(not portable.pid_alive("x"), "[posix] pid_alive: garbage is not")
-        check(not portable.pid_alive(0), "[posix] pid_alive: pid 0 is not (os.kill(0, 0) would signal the group)")
-        check(portable.pid_alive(1), "[posix] pid_alive: a live process we may not signal is alive (EPERM)")
+    # The POSIX branch needs os.kill(pid, 0) and `true` on PATH; on a real Windows host os.kill(pid, 0) terminates
+    # the process, and the [windows] cells below are the branch that host runs (#607).
+    if REAL_WINDOWS:
+        print("  SKIP (POSIX branch, no counterpart to run on a Windows host): pid_alive via os.kill")
+    else:
+        with env(HARNESS_PLATFORM="posix"):
+            check(portable.pid_alive(os.getpid()), "[posix] pid_alive: this process is alive")
+            p = subprocess.Popen(["true"]); p.wait()
+            check(not portable.pid_alive(p.pid), "[posix] pid_alive: a reaped child is not")
+            check(not portable.pid_alive("x"), "[posix] pid_alive: garbage is not")
+            check(not portable.pid_alive(0), "[posix] pid_alive: pid 0 is not (os.kill(0, 0) would signal the group)")
+            check(portable.pid_alive(1), "[posix] pid_alive: a live process we may not signal is alive (EPERM)")
 
     # ---- pid_alive, Windows: MSYS pid -> /proc/<pid>/winpid -> OpenProcess/GetExitCodeProcess
     proc = os.path.join(tmp, "proc")
@@ -115,28 +124,45 @@ def main():
             check(k.closed == [("h", 5000), ("h", 5001)], f"[windows] every opened handle is closed ({k.closed})")
     finally:
         os.kill = real_kill
-    # winpid through Git's bash when there is no HARNESS_PROC_ROOT (a native process cannot see MSYS /proc)
-    fakebash = os.path.join(tmp, "fakebash")
-    with open(fakebash, "w") as fh:
-        fh.write("#!/bin/sh\n# argv: -c <script> _ <pid>\n[ \"$4\" = 42 ] && echo 777\n")
-    os.chmod(fakebash, 0o755)
-    with env(HARNESS_PLATFORM="windows", HARNESS_PROC_ROOT=None, HARNESS_BASH=fakebash):
-        check(portable.winpid_of(42) == 777, "[windows] winpid_of asks bash for /proc/<pid>/winpid")
-        check(portable.winpid_of(43) is None, "[windows] … and gets None for a pid MSYS does not know")
+    # winpid through Git's bash when there is no HARNESS_PROC_ROOT (a native process cannot see MSYS's /proc)
+    if REAL_WINDOWS:
+        # the real thing: a real Git bash, a real MSYS pid, and the winpid it reports for itself
+        # (shutil.which: CreateProcess would find WSL's System32\bash.exe before Git's bash on PATH)
+        # (the trailing `true`: a last command is exec'd, which gives the same MSYS pid a new Windows pid)
+        bp = subprocess.Popen([shutil.which("bash") or "bash", "-c", 'echo $$; cat /proc/$$/winpid; sleep 20; true'], stdout=subprocess.PIPE, text=True)
+        try:
+            msys = int(bp.stdout.readline()); win = int(bp.stdout.readline())
+            with env(HARNESS_PLATFORM="windows", HARNESS_PROC_ROOT=None, HARNESS_BASH=None):
+                check(portable.winpid_of(msys) == win, "[windows] winpid_of asks bash for /proc/<pid>/winpid")
+                check(portable.pid_alive(msys), "[windows] … and pid_alive sees that bash alive")
+                check(portable.winpid_of(2147483) is None, "[windows] … and gets None for a pid MSYS does not know")
+        finally:
+            bp.kill(); bp.wait()
+    else:
+        fakebash = os.path.join(tmp, "fakebash")
+        with open(fakebash, "w") as fh:
+            fh.write("#!/bin/sh\n# argv: -c <script> _ <pid>\n[ \"$4\" = 42 ] && echo 777\n")
+        os.chmod(fakebash, 0o755)
+        with env(HARNESS_PLATFORM="windows", HARNESS_PROC_ROOT=None, HARNESS_BASH=fakebash):
+            check(portable.winpid_of(42) == 777, "[windows] winpid_of asks bash for /proc/<pid>/winpid")
+            check(portable.winpid_of(43) is None, "[windows] … and gets None for a pid MSYS does not know")
 
     # ---- lock_nb / unlock
     path = os.path.join(tmp, "events.jsonl")
-    with env(HARNESS_PLATFORM="posix"):
-        a, b = open(path, "a"), open(path, "a")
-        portable.lock_nb(a)
-        try:
-            portable.lock_nb(b); got = False
-        except BlockingIOError:
-            got = True
-        check(got, "[posix] lock_nb on a held file raises BlockingIOError")
-        portable.unlock(a); portable.lock_nb(b)
-        check(True, "[posix] after unlock another handle takes it")
-        portable.unlock(b); a.close(); b.close()
+    if REAL_WINDOWS:
+        print("  SKIP (POSIX branch, no counterpart to run on a Windows host): lock_nb via fcntl.flock")
+    else:
+        with env(HARNESS_PLATFORM="posix"):
+            a, b = open(path, "a"), open(path, "a")
+            portable.lock_nb(a)
+            try:
+                portable.lock_nb(b); got = False
+            except BlockingIOError:
+                got = True
+            check(got, "[posix] lock_nb on a held file raises BlockingIOError")
+            portable.unlock(a); portable.lock_nb(b)
+            check(True, "[posix] after unlock another handle takes it")
+            portable.unlock(b); a.close(); b.close()
     m = FakeMsvcrt()
     with env(HARNESS_PLATFORM="windows"):
         a, b = open(path, "a"), open(path, "a")
@@ -176,8 +202,9 @@ def main():
         stats.portable.lock_nb, stats.portable.unlock = real_nb, real_un
     with open(ev) as fh:
         check(fh.read().count("\n") == 1, "only the unlocked append landed")
-    with env(HARNESS_PLATFORM="posix"):
-        check(stats.append_event({"event": "p"}, ev), "[posix] stats.append_event appends under flock")
+    if not REAL_WINDOWS:
+        with env(HARNESS_PLATFORM="posix"):
+            check(stats.append_event({"event": "p"}, ev), "[posix] stats.append_event appends under flock")
 
     fv = load("fleetview")
     pf = os.path.join(tmp, "w.pid")

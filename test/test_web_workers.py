@@ -9,7 +9,9 @@ import web_fixture as wf
 
 
 def _sleeper():
-    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    wf.live_pid(p.pid)      # on Windows MSYS must know the pid the fleet records for it (pidfix.py)
+    return p
 
 
 def _workers_fleet(host, procs):

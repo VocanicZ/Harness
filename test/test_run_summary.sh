@@ -48,6 +48,19 @@ assert_ok "… the missing one is named" grep -qxF "FAILED: test_missing.sh" <<<
 assert_ok "… with the reason" grep -qF "FAIL: test_missing.sh: no such test file" <<<"$out"
 assert_ok "… and the count is 1/3" grep -qxF "== run.sh: 1/3 test files passed ==" <<<"$out"
 
+# A file may lengthen its own cap on a Windows host (`# harness-test-timeout-windows: N`, #607): a fork-heavy test that is slow
+# under Git Bash is not a hang. Forced here; on a posix host the marker is ignored, and without a cap there is no cap at all.
+mkdir -p "$T/cap-suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/cap-suite/"; cp -r "$HERE/guard" "$T/cap-suite/guard"
+printf '#!/usr/bin/env bash\n# harness-test-timeout-windows: 30\nsleep 4\n' >"$T/cap-suite/test_slow.sh"
+out="$(HARNESS_PLATFORM=windows HARNESS_TEST_TIMEOUT=2 bash "$T/cap-suite/run.sh" 2>&1)"; rc=$?
+assert_eq "$rc" "0" "a Windows host gives a file its own longer cap (a 4s test under a 2s cap passes)"
+out="$(HARNESS_PLATFORM=posix HARNESS_TEST_TIMEOUT=2 bash "$T/cap-suite/run.sh" 2>&1)"; rc=$?
+assert_ok "a posix host ignores the marker: the same test times out" grep -qF "TIMEOUT: test_slow.sh ran past HARNESS_TEST_TIMEOUT=2s" <<<"$out"
+sed -i 's/windows: 30/windows: 2/' "$T/cap-suite/test_slow.sh"
+out="$(HARNESS_PLATFORM=windows HARNESS_TEST_TIMEOUT=3 bash "$T/cap-suite/run.sh" 2>&1)"
+assert_ok "the marker only lengthens: a shorter one keeps the run's cap" grep -qxF "== run.sh: 0/1 test files passed ==" <<<"$out"
+assert_ok "… and the TIMEOUT line names the cap that applied" grep -qF "ran past HARNESS_TEST_TIMEOUT=3s" <<<"$out"
+
 # Windows side-effect stubs: on a Windows host (forced here) run.sh points schtasks and winget at recording stubs, so no
 # test reaches the real Task Scheduler or winget; on Linux it leaves both unset.
 mkdir -p "$T/stubs-suite"; cp "$HERE/run.sh" "$HERE/helpers.sh" "$T/stubs-suite/"; cp -r "$HERE/guard" "$T/stubs-suite/guard"

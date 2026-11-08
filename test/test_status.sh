@@ -146,12 +146,15 @@ export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fle
 tmux(){ return 1; }; export -f tmux
 OUT="$(HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux
+# The registry keeps a project path in the native form on Windows (/p/sib is P:/sib there): cygpath -m, a no-op elsewhere.
+native(){ if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+SIB="$(native /p/sib)"; POLLSIB="$(native /p/pollsib)"
 # IN-PROCESS via `contains` — `bash -c "… <<<\"\$OUT\""` would spawn a child that never had OUT
 # exported, matching against an empty string. See the note in test_prefix_guard.sh.
 contains(){ grep -qE -- "$1" <<<"$2"; }
 contains 'mine' "$OUT"    && echo "  ok: status prints our prefix"           || { echo "  FAIL: status prints our prefix — got:"; echo "$OUT"; exit 1; }
 contains 'sibling' "$OUT" && echo "  ok: status lists the sibling fleet"     || { echo "  FAIL: status lists the sibling fleet — got:"; echo "$OUT"; exit 1; }
-contains '/p/sib' "$OUT"  && echo "  ok: status names the sibling's project" || { echo "  FAIL: status names the sibling's project — got:"; echo "$OUT"; exit 1; }
+contains "$SIB" "$OUT"  && echo "  ok: status names the sibling's project" || { echo "  FAIL: status names the sibling's project — got:"; echo "$OUT"; exit 1; }
 # Round-2 fix review (C1): '/p/sib' is a substring match, and '/p/sib/.harness' (the raw registered
 # STATE_DIR, undirnamed) ALSO contains '/p/sib' — so the assertion above would stay green even if
 # status.sh regressed to printing the raw STATE_DIR instead of the project dir. Same treatment as
@@ -177,7 +180,7 @@ poller_register acme/gadget 60 pollsib /p/pollsib/.harness
 tmux(){ return 1; }; export -f tmux
 POUT="$(HARNESS_REPO=acme/widget HARNESS_SESS_PREFIX=mine bash "$HERE/../scripts/status.sh" 2>&1 || true)"
 unset -f tmux
-contains 'sibling fleet: pollsib +/p/pollsib \(acme/gadget\)' "$POUT" \
+contains "sibling fleet: pollsib +$POLLSIB \\(acme/gadget\\)" "$POUT" \
   && echo "  ok: status names a poller sibling's repo slugs" \
   || { echo "  FAIL: status names a poller sibling's repo slugs — got:"; echo "$POUT"; exit 1; }
 echo "── status prefix + siblings ok"

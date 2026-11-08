@@ -8,6 +8,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGY_STUB_DIR="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' >"$AGY_STUB_DIR/agy"; chmod +x "$AGY_STUB_DIR/agy"
 export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 source "$HERE/helpers.sh"
+# The systemd user unit is the POSIX service. Windows registers a scheduled task instead (the section at the end of this file
+# runs that branch, forced, on every OS), so the unit section runs with the POSIX branch forced: systemctl and loginctl are
+# stubs, and Git Bash runs them (#607).
+export HARNESS_PLATFORM=posix
 T="$(mktemp -d)"; trap 'rm -rf "$T" "$AGY_STUB_DIR"; tmp_cleanup' EXIT
 # The host's engine is host state too (#434): update.sh picks its path off
 # "${HARNESS_HOME:-$HOME/.harness}/engine", and a release symlink there (every host installed since
@@ -87,4 +91,29 @@ assert_no "--uninstall removes the unit"              test -f "$F"
 assert_ok "--uninstall disables it"                   has "disable --now harness-web.service" "$T/systemctl.calls"
 out="$(web_uninstall)"
 assert_ok "--uninstall twice is a no-op"              grep -q "not installed" <<<"$out"
+
+echo "=== harness web --install on Windows: a scheduled task, never systemd (HARNESS_PLATFORM=windows, any OS) ==="
+# schtasks is a logging fake; the web.sh under test is sourced in a child so its source-time Windows switch (the unit dir
+# moves under HARNESS_HOME/tasks) and the forced platform never leak into the POSIX sections above.
+WT="$T/win"; mkdir -p "$WT/bin" "$WT/home"
+printf '#!/bin/sh\necho "$*" >> %s/schtasks.calls\nexit 0\n' "$WT" >"$WT/bin/schtasks"; chmod +x "$WT/bin/schtasks"
+: >"$T/systemctl.calls"
+winweb(){ HARNESS_PLATFORM=windows HARNESS_SCHTASKS="$WT/bin/schtasks" HARNESS_WEB_UNIT_DIR="$WT/tasks" HARNESS_HOME="$WT/home" \
+  HARNESS_WEB_HARNESS=/eng/bin/harness HARNESS_WEB_BIND=0.0.0.0 HARNESS_WEB_PORT=4637 HARNESS_BASH_EXE=bash \
+  bash -c 'source "$1/scripts/portable.sh"; source "$1/scripts/web.sh"; shift; "$@"' _ "$HERE/.." "$@"; }
+WL="$WT/tasks/harness-web.sh"
+winweb web_install >/dev/null 2>&1
+assert_ok "[windows] --install writes the launcher, not a systemd unit"   test -f "$WL"
+assert_no "[windows] …and no .service file"                                test -e "$WT/tasks/harness-web.service"
+assert_ok "[windows] the launcher runs this engine's harness web"          line "# ExecStart=/eng/bin/harness web" "$WL"
+assert_ok "[windows] …with the bind"                                       has "HARNESS_WEB_BIND=0.0.0.0" "$WL"
+assert_ok "[windows] …and the port"                                        has "HARNESS_WEB_PORT=4637" "$WL"
+assert_ok "[windows] a logon task is registered"                           has "/Create /F /TN" "$WT/schtasks.calls"
+assert_ok "[windows] …and started"                                         has "/Run /TN" "$WT/schtasks.calls"
+assert_no "[windows] systemctl is never called"                            test -s "$T/systemctl.calls"
+assert_ok "[windows] installed from this engine"                           winweb web_installed
+winweb web_uninstall >/dev/null 2>&1
+assert_no "[windows] --uninstall removes the launcher"                     test -e "$WL"
+assert_ok "[windows] …and deletes the task"                                has "/Delete /F /TN" "$WT/schtasks.calls"
+
 finish

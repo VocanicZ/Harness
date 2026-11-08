@@ -148,14 +148,16 @@ def test_fleetview_issue_counts_still_uses_tally():
 def test_harness_web_entry_runs_the_server():
     """`harness web` dispatches to scripts/web.sh, which serves on HARNESS_WEB_BIND:HARNESS_WEB_PORT."""
     env = dict(os.environ, HARNESS_WEB_BIND="127.0.0.1", HARNESS_WEB_PORT="0")
-    p = subprocess.Popen(["bash", os.path.join(wf.ROOT, "bin", "harness"), "web"], env=env,
+    # shutil.which, not a bare "bash": CreateProcess searches System32 before PATH, and there `bash` is WSL's (#607).
+    bash = shutil.which("bash") or "bash"
+    p = subprocess.Popen([bash, os.path.join(wf.ROOT, "bin", "harness"), "web"], env=env,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         line = p.stdout.readline()
         assert re.match(r"harness web: serving http://127\.0\.0\.1:\d+/", line), line
     finally:
         p.terminate(); p.wait(timeout=10)
-    out = subprocess.run(["bash", os.path.join(wf.ROOT, "bin", "harness", ), "web", "--bogus"], env=env,
+    out = subprocess.run([bash, os.path.join(wf.ROOT, "bin", "harness", ), "web", "--bogus"], env=env,
                          capture_output=True, text=True)
     assert out.returncode == 2 and "usage" in out.stderr, (out.returncode, out.stderr)
 

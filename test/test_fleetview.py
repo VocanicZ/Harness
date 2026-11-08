@@ -3,8 +3,10 @@
 Every external probe (tmux, ps, gh) goes through fv.run_cmd, so each test installs a fake that
 answers from a table; the filesystem side (registry, run dirs, pid files, logs) is a real tmpdir.
 """
-import contextlib, importlib.util, io, json, os, subprocess, sys, tempfile, time
+import contextlib, importlib.util, io, json, os, subprocess, sys, tempfile, time, types
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from pidfix import live_pid
 # normpath: an unnormalized `test/../scripts/…` filename is what the coverage tracer records, and it
 # would credit these lines to a path that is not scripts/fleetview.py.
 spec = importlib.util.spec_from_file_location("fleetview", os.path.normpath(os.path.join(HERE, "..", "scripts", "fleetview.py")))
@@ -14,7 +16,7 @@ NOW = 1_800_000_000
 
 
 def dead_pid():
-    p = subprocess.Popen(["true"]); p.wait()
+    p = subprocess.Popen([sys.executable, "-c", ""]); p.wait()
     return p.pid
 
 
@@ -41,7 +43,7 @@ def make_host():
     with open(os.path.join(alpha, "config"), "w") as fh:
         fh.write(': "${HARNESS_MODE:=prd}"\n: "${HARNESS_POOL:=2}"\nexport X=1\n')
     with open(os.path.join(run, "worker-1.pid"), "w") as fh:
-        fh.write(str(os.getpid()))
+        fh.write(str(live_pid()))
     with open(os.path.join(run, "worker-1.log"), "w") as fh:
         fh.write("12:00:00 [worker-1] launched session al-web-i7\n")
     recs = {"alpha": {"prefix": "al", "project": alpha, "run_dir": run, "slugs": ["acme/web"]},
@@ -101,9 +103,10 @@ def test_fleet_state_running_paused_dead_stopped():
     assert fv.fleet_state(rec) == ("DEAD", 0)               # pid file present, process gone
     os.remove(os.path.join(run, "worker-1.pid"))
     assert fv.fleet_state(rec) == ("STOPPED", 0)
-    with open(os.path.join(run, "priority.pid"), "w") as fh:
-        fh.write("1")                                        # pid 1: alive but not ours → EPERM
-    assert fv.fleet_state(rec)[0] == "RUNNING"
+    if sys.platform != "win32":   # the EPERM branch of os.kill(pid, 0); Windows' access-denied twin is test_portable.py's
+        with open(os.path.join(run, "priority.pid"), "w") as fh:
+            fh.write("1")                                    # pid 1: alive but not ours → EPERM
+        assert fv.fleet_state(rec)[0] == "RUNNING"
     with open(os.path.join(run, "priority.pid"), "w") as fh:
         fh.write("garbage")
     assert fv.fleet_state(rec)[0] == "DEAD"
@@ -201,7 +204,7 @@ def test_fmt_age_and_config_and_registry_dir():
     saved = {k: os.environ.pop(k, None) for k in ("HARNESS_FLEETS_DIR", "HARNESS_HOME")}
     try:
         os.environ["HARNESS_HOME"] = "/h"
-        assert fv.fleets_dir() == "/h/fleets"
+        assert os.path.normpath(fv.fleets_dir()) == os.path.normpath("/h/fleets")   # os.path.join spells it \\ on Windows
         os.environ["HARNESS_FLEETS_DIR"] = "/f"
         assert fv.fleets_dir() == "/f"
     finally:
@@ -317,6 +320,27 @@ def test_headless_lanes_are_listed_with_model_and_state_beside_tmux_sessions():
         assert "opus  [" not in rows, rows   # the tmux session has no state to show
     finally:
         fv.run_cmd = _REAL_RUN_CMD
+
+
+def test_run_cmd_resolves_the_program_through_path_on_windows():
+    """#607: CreateProcess searches System32 before PATH (a bare `bash` is WSL's) and only appends `.exe` (a `gh.cmd` shim is
+    never found), so on native Windows run_cmd hands subprocess the path shutil.which finds. Elsewhere argv is untouched."""
+    real_plat, real_which, real_run = fv.sys.platform, fv.shutil.which, fv.subprocess.run
+    seen = []
+    fv.shutil.which = lambda name: {"bash": "C:\\Git\\bin\\bash.exe", "gh": "C:\\shims\\gh.cmd"}.get(name)
+    fv.subprocess.run = lambda argv, **kw: seen.append(list(argv)) or types.SimpleNamespace(returncode=0, stdout="ok")
+    try:
+        fv.sys.platform = "win32"
+        assert fv.run_cmd(["bash", "-c", "x"]) == (0, "ok") and seen[-1] == ["C:\\Git\\bin\\bash.exe", "-c", "x"], seen
+        fv.run_cmd(["gh", "issue", "list"])
+        assert seen[-1] == ["C:\\shims\\gh.cmd", "issue", "list"], seen
+        fv.run_cmd(["nosuch", "a"])
+        assert seen[-1] == ["nosuch", "a"], seen            # not on PATH: left for the OS to fail on
+        fv.sys.platform = "linux"
+        fv.run_cmd(["bash", "-c", "x"])
+        assert seen[-1] == ["bash", "-c", "x"], seen        # POSIX: untouched
+    finally:
+        fv.sys.platform, fv.shutil.which, fv.subprocess.run = real_plat, real_which, real_run
 
 
 if __name__ == "__main__":

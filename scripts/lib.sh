@@ -1507,7 +1507,8 @@ fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
   # $FLEET_ROW_SEP, not tab: a poller row's run_dir is an empty INTERIOR field and bash collapses
   # runs of tab, which would read the slug list as $rd and hand back an empty slug list.
   while IFS="$FLEET_ROW_SEP" read -r pfx prj rd slugs; do
-    [[ "$(dirname "$prj")" == "$dir" ]] && { printf '%s\n' "$slugs"; return 0; }
+    # the registry holds a project path in the native spelling on Windows (C:/x) where the owner dir may be /c/x: compare as native
+    [[ "$(native_path "$(dirname "$prj")")" == "$(native_path "$dir")" ]] && { printf '%s\n' "$slugs"; return 0; }
   done < <(fleet_registry_entries "" | tr '\t' "$FLEET_ROW_SEP")
   printf '\n'; }
 # swarm_suite_cmd — the full-suite-on-swarm helper as one shell-quoted command, rendered into the review
@@ -1973,6 +1974,7 @@ PY
 fleet_registry_entries(){
   SELF="$1" python3 - "$HARNESS_FLEETS_DIR" "$POLLER_REGISTRY_DIR" <<'PY' 2>/dev/null
 import json, os, sys
+sys.stdout.reconfigure(newline="\n")        # native Windows Python writes \r\n: a CR would end up inside the last field a bash `read` gets
 self_prj = os.environ["SELF"]
 seen = {}
 for d in sys.argv[1:]:                      # fleet registry first: it wins on conflict
@@ -2002,6 +2004,7 @@ poller_registry_slugs(){
   [[ -d "$POLLER_REGISTRY_DIR" ]] || return 0
   python3 - "$POLLER_REGISTRY_DIR" <<'PY'
 import json, os, sys
+sys.stdout.reconfigure(newline="\n")        # no CR on native Windows Python: bash reads each line whole
 d = sys.argv[1]; slugs = set()
 for name in os.listdir(d):
     if not name.endswith(".json"):

@@ -80,11 +80,11 @@ def engine_files():
     for p in ENGINE:
         full = os.path.join(ROOT, p)
         if os.path.isfile(full):
-            yield p
+            yield p.replace(os.sep, "/")
         for d, _, names in os.walk(full):
             for n in sorted(names):
                 if n.endswith((".sh", ".py")):
-                    yield os.path.relpath(os.path.join(d, n), ROOT)
+                    yield os.path.relpath(os.path.join(d, n), ROOT).replace(os.sep, "/")   # ALLOW is keyed on forward slashes; Windows' os.sep is a backslash (#607)
 
 def is_python(rel):
     return rel.endswith(".py")

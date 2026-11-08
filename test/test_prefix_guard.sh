@@ -88,6 +88,23 @@ SMSG="$( ( HARNESS_SESS_PREFIX=hz STATE_DIR="$OURS" PROJECT_ROOT=/home/u/Harness
 assert_ok "tmux-path refusal names a poller-known owner's repo" \
   contains '^ +owner: +/home/u/Bonsai \(repo acme/widget\)$' "$SMSG"
 
+# 4b. (#607) On Windows the registry holds the project path in the native spelling (C:/x) while the owner dir the session
+#     names may be /c/x, and a native Python's \r\n must not end up inside the last field a bash `read` gets. Both forced on
+#     Linux: a cygpath that spells /x as C:/x, and a python3 whose stdout writes \r\n (the platform default on Windows).
+reset_reg
+poller_register acme/widget 60 hz "C:/home/u/Bonsai/.harness"
+WF="$(mktemp -d)"; tmp_track "$WF" 2>/dev/null || true
+printf '#!/usr/bin/env bash\n[[ $1 == -m ]] || exit 2\np="$2"; [[ $p == C:* ]] && echo "$p" || echo "C:$p"\n' > "$WF/cygpath"
+mkdir -p "$WF/py"; printf 'import sys, io\nsys.stdout = io.TextIOWrapper(sys.stdout.buffer, newline="\\r\\n", write_through=True)\n' > "$WF/py/sitecustomize.py"
+printf '#!/usr/bin/env bash\nPYTHONPATH="%s${PYTHONPATH:+:$PYTHONPATH}" exec "%s" "$@"\n' "$WF/py" "$(command -v python3)" > "$WF/python3"
+chmod +x "$WF/cygpath" "$WF/python3"
+got="$( HARNESS_PLATFORM=windows PATH="$WF:$PATH" fleet_slugs_of /home/u/Bonsai )"
+assert_eq "$got" "acme/widget" "fleet_slugs_of finds a C:/-spelled registry entry for a /-spelled owner dir, with no CR in the slugs"
+assert_no "… and the slug list carries no carriage return" grep -q $'\r' <<<"$got"
+rows="$( HARNESS_PLATFORM=posix PATH="$WF:$PATH" fleet_registry_entries "" )"
+assert_no "fleet_registry_entries prints LF only, whatever the platform's Python default" grep -q $'\r' <<<"$rows"
+assert_no "poller_registry_slugs prints LF only too" grep -q $'\r' <<<"$(PATH="$WF:$PATH" poller_registry_slugs)"
+
 # 5. RESERVATION: a registered sibling with NO live sessions still refuses, so two idle fleets can't
 #    race into one namespace. Its run_dir holds a live pid, so it is not stale.
 reset_reg; no_tmux

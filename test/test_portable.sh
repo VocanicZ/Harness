@@ -21,40 +21,43 @@ for plat in posix windows; do
   echo "── platform: $plat"
   L="$W/$plat.lock"
 
-  # lock_acquire / lock_release in this shell
-  assert_ok "[$plat] lock_free on an untaken lock" lock_free "$L"
-  lock_acquire "$L" h1; rc=$?
-  assert_eq "$rc" 0 "[$plat] lock_acquire takes a free lock"
-  assert_ok "[$plat] the handle is set" test -n "$h1"
-  # another process cannot take it while we hold it
-  assert_no "[$plat] lock_try from another process fails while held" bash -c "source '$HERE/../scripts/portable.sh'; lock_try '$L' x"
-  assert_no "[$plat] lock_free is false while held" lock_free "$L"
-  holders="$(lock_holders "$L" | cut -f1 | tr '\n' ' ')"
-  assert_ok "[$plat] lock_holders names this shell ($holders)" grep -qw "$$" <<< "$holders"
-  lock_release "$h1"
-  assert_ok "[$plat] lock_free again after lock_release" lock_free "$L"
-  assert_ok "[$plat] lock_try from another process succeeds after release" bash -c "source '$HERE/../scripts/portable.sh'; lock_try '$L' x"
+  # The POSIX lock is a flock: a Windows host (Git Bash has no flock) runs the [windows] iteration of these cells instead.
+  if [[ $plat == windows ]] || ! skip_posix_branch "flock lock cells"; then
+    # lock_acquire / lock_release in this shell
+    assert_ok "[$plat] lock_free on an untaken lock" lock_free "$L"
+    lock_acquire "$L" h1; rc=$?
+    assert_eq "$rc" 0 "[$plat] lock_acquire takes a free lock"
+    assert_ok "[$plat] the handle is set" test -n "$h1"
+    # another process cannot take it while we hold it
+    assert_no "[$plat] lock_try from another process fails while held" bash -c "source '$HERE/../scripts/portable.sh'; lock_try '$L' x"
+    assert_no "[$plat] lock_free is false while held" lock_free "$L"
+    holders="$(lock_holders "$L" | cut -f1 | tr '\n' ' ')"
+    assert_ok "[$plat] lock_holders names this shell ($holders)" grep -qw "$$" <<< "$holders"
+    lock_release "$h1"
+    assert_ok "[$plat] lock_free again after lock_release" lock_free "$L"
+    assert_ok "[$plat] lock_try from another process succeeds after release" bash -c "source '$HERE/../scripts/portable.sh'; lock_try '$L' x"
 
-  # contention: a holder in another process blocks lock_try, and lock_acquire waits for it
-  rm -f "$L.held" "$L.released"; hp="$(hold "$L" 1)"
-  assert_no "[$plat] lock_try fails while another process holds it" lock_try "$L" h2
-  lock_acquire "$L" h2
-  assert_ok "[$plat] lock_acquire waited for the holder to release it" test -e "$L.released"
-  lock_release "$h2"; wait "$hp" 2>/dev/null
+    # contention: a holder in another process blocks lock_try, and lock_acquire waits for it
+    rm -f "$L.held" "$L.released"; hp="$(hold "$L" 1)"
+    assert_no "[$plat] lock_try fails while another process holds it" lock_try "$L" h2
+    lock_acquire "$L" h2
+    assert_ok "[$plat] lock_acquire waited for the holder to release it" test -e "$L.released"
+    lock_release "$h2"; wait "$hp" 2>/dev/null
 
-  # a holder that dies without releasing frees the lock (fd close / stale owner)
-  ( bash -c "source '$HERE/../scripts/portable.sh'; lock_acquire '$L' h; kill -KILL \$\$"; true ) 2>/dev/null; sleep 0.1
-  assert_ok "[$plat] a dead holder's lock is free" lock_free "$L"
-  assert_ok "[$plat] and can be taken" lock_try "$L" h3
-  lock_release "$h3"
+    # a holder that dies without releasing frees the lock (fd close / stale owner)
+    ( bash -c "source '$HERE/../scripts/portable.sh'; lock_acquire '$L' h; kill -KILL \$\$"; true ) 2>/dev/null; sleep 0.1
+    assert_ok "[$plat] a dead holder's lock is free" lock_free "$L"
+    assert_ok "[$plat] and can be taken" lock_try "$L" h3
+    lock_release "$h3"
 
-  # fixed fd form (start.sh's fd 9)
-  lock_try "$L" h4 9; rc=$?
-  assert_eq "$rc" 0 "[$plat] lock_try with a fixed fd takes the lock"
-  if [[ $plat == posix ]]; then assert_eq "$h4" 9 "[posix] the fixed fd is the handle"
-  else assert_eq "$h4" "$L.d" "[windows] the handle is the lock directory"; fi
-  lock_release "$h4"
-  assert_ok "[$plat] released" lock_free "$L"
+    # fixed fd form (start.sh's fd 9)
+    lock_try "$L" h4 9; rc=$?
+    assert_eq "$rc" 0 "[$plat] lock_try with a fixed fd takes the lock"
+    if [[ $plat == posix ]]; then assert_eq "$h4" 9 "[posix] the fixed fd is the handle"
+    else assert_eq "$h4" "$L.d" "[windows] the handle is the lock directory"; fi
+    lock_release "$h4"
+    assert_ok "[$plat] released" lock_free "$L"
+  fi
 
   # proc_find: a uniquely named process is found by its command line, and the scan's own subshell is not
   tag="portable-probe-$plat-$$"
@@ -139,8 +142,9 @@ assert_no "[windows] …and it is gone" kill -0 "$sw"
 assert_eq "$(detach_prefix)" "" "[windows] no setsid prefix"
 
 # new_uuid: Git Bash has neither uuidgen nor the kernel's uuid — python3 is the last fallback
-mkdir -p "$W/bin"; ln -sf "$(command -v python3)" "$W/bin/python3"
-u="$(PATH="$W/bin" HARNESS_PROC_ROOT="$W/no-proc" new_uuid)"
+# (a real Windows host: python.exe copied out of its venv does not run, so python3's own directory is the PATH instead of a link)
+mkdir -p "$W/bin"; if real_windows_host; then NU_PATH="$(dirname "$(command -v python3)")"; else ln -sf "$(command -v python3)" "$W/bin/python3"; NU_PATH="$W/bin"; fi
+u="$(PATH="$NU_PATH" HARNESS_PROC_ROOT="$W/no-proc" new_uuid)"
 assert_ok "[windows] new_uuid falls back to python3 ($u)" grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$' <<< "$u"
 
 # path export: exported path variables in cygpath -m form; an unexported one is left alone
@@ -163,11 +167,13 @@ assert_eq "$(native_path /c/x)" /c/x "[posix] native_path is the identity"
 if command -v setsid >/dev/null 2>&1; then assert_eq "$(detach_prefix)" setsid "[posix] detach_prefix is setsid where the host has it"; fi
 assert_ok "[posix] new_uuid gives a uuid" grep -Eq '^[0-9a-f-]{36}$' <<< "$(new_uuid)"
 # the POSIX lock is a flock: a raw flock on the file sees it held
-lock_acquire "$W/raw.lock" hp
-assert_no "[posix] a raw flock sees the helper's lock" flock -n "$W/raw.lock" true
-lock_release "$hp"
-assert_ok "[posix] and sees it released" flock -n "$W/raw.lock" true
-assert_no "[posix] no lock directory on POSIX" test -e "$W/raw.lock.d"
+if ! skip_posix_branch "a raw flock on the helper's lock"; then
+  lock_acquire "$W/raw.lock" hp
+  assert_no "[posix] a raw flock sees the helper's lock" flock -n "$W/raw.lock" true
+  lock_release "$hp"
+  assert_ok "[posix] and sees it released" flock -n "$W/raw.lock" true
+  assert_no "[posix] no lock directory on POSIX" test -e "$W/raw.lock.d"
+fi
 
 # ---- proc_tree_has_comm <root-pid> <comm> (#653): a process named <comm> under <root-pid> ---------------
 # A real tree: a root shell that runs a `gh` stub (a script named gh: its comm is `gh`) as a grandchild,
@@ -179,10 +185,12 @@ bash -c "(\"$W/ptc/other\") & wait" & ptc_without=$!
 for _ in $(seq 1 40); do pgrep -f "$W/ptc/gh" >/dev/null 2>&1 && pgrep -f "$W/ptc/other" >/dev/null 2>&1 && break; sleep 0.05; done
 sleep 0.2
 export HARNESS_PLATFORM=posix
+if ! skip_posix_branch "proc_tree_has_comm walks procps ps -o pid=,ppid=,comm= (the Windows answer is the cell below)"; then
 assert_ok "[posix] proc_tree_has_comm finds a gh grandchild under the root" proc_tree_has_comm "$ptc_with" gh
 assert_no "[posix] ... and not under a root whose tree has no gh" proc_tree_has_comm "$ptc_without" gh
 assert_no "[posix] ... nor a comm that is not there" proc_tree_has_comm "$ptc_with" nosuchcomm
 assert_no "[posix] ... nor a non-numeric root" proc_tree_has_comm "" gh
+fi
 export HARNESS_PLATFORM=windows
 assert_ok "[windows] proc_tree_has_comm answers yes (unknown table: assume busy)" proc_tree_has_comm "$ptc_without" gh
 export HARNESS_PLATFORM=posix

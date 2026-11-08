@@ -81,9 +81,17 @@ for t in "${TESTS[@]}"; do
   export TMPDIR="$TMPROOT/$t/tmp"; mkdir -p "$TMPDIR"
   export HARNESS_TMP_ROOT="$TMPDIR"   # #610: the lane TMPDIR a launch makes (lane_tmpdir) goes with the test too
   ran=$((ran+1))
-  case "$t" in *.py) "${TCAP[@]}" "${DEFSIG[@]}" python3 "$t";; *) "${TCAP[@]}" "${DEFSIG[@]}" bash "$t";; esac
+  # A fork-heavy test runs several times slower under Git Bash (#607: test_pool_lanes.sh is ~2 min on Linux, ~16 on winsma),
+  # so a file may carry `# harness-test-timeout-windows: <seconds>`: on a Windows host, with a cap set, that is its cap when
+  # it is longer than HARNESS_TEST_TIMEOUT. It only lengthens a cap that exists; no cap stays no cap.
+  tcap=("${TCAP[@]}"); tlim="${HARNESS_TEST_TIMEOUT:-}"
+  if (( ${#TCAP[@]} )) && host_is_windows; then
+    tw="$(sed -n 's/^# harness-test-timeout-windows: *\([1-9][0-9]*\).*$/\1/p' "$t" | head -1)"
+    if [[ -n $tw ]] && (( tw > HARNESS_TEST_TIMEOUT )); then tcap=(timeout -k 10 "$tw"); tlim="$tw"; fi
+  fi
+  case "$t" in *.py) "${tcap[@]}" "${DEFSIG[@]}" python3 "$t";; *) "${tcap[@]}" "${DEFSIG[@]}" bash "$t";; esac
   trc=$?
-  if (( trc != 0 )); then rc=1; FAILED+=("$t"); (( trc == 124 )) && echo "TIMEOUT: $t ran past HARNESS_TEST_TIMEOUT=${HARNESS_TEST_TIMEOUT}s"; fi
+  if (( trc != 0 )); then rc=1; FAILED+=("$t"); (( trc == 124 )) && echo "TIMEOUT: $t ran past HARNESS_TEST_TIMEOUT=${tlim}s"; fi
   rm -rf "${TMPROOT:?}/$t"
 done
 echo "== run.sh: $((ran-${#FAILED[@]}))/$ran test files passed =="
