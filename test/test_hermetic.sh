@@ -10,114 +10,20 @@
 #
 # This test pins STATE_DIR at a decoy "live project" and runs the three tests that did the damage.
 # The decoy must come back untouched.
+#
+# (#608) It ran ~60 other test files in one process and, on Windows, ran past the per-test cap. Its loops are files of their own now —
+# test_hermetic_state / _fleets / _agy for the first four seams, test_hermetic_engine_<k> for the fifth, test_hermetic_roll_<k> for the
+# generalised decoy — sharing hermetic_lib.sh. What stays here is every check that runs no other test file.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/helpers.sh"
+source "$HERE/helpers.sh"; source "$HERE/hermetic_lib.sh"
 # #610: every bare mktemp below lands in one private dir that goes with the test, so a run from a plain
 # shell (not run.sh, which gives each test its own TMPDIR) leaves /tmp as it found it.
 PRIVATE_TMP="$(mktemp -d)"; tmp_track "$PRIVATE_TMP"; export TMPDIR="$PRIVATE_TMP"
 unset_inherited_config   # a direct run from inside a live lane (#541): its HARNESS_* config must not reach the probes below
 
-SENTINEL=': "${HARNESS_REPO:=sentinel/live}"'
-
-# make_decoy — a plausible live project state dir, echoed on stdout.
-make_decoy(){
-  local d; d="$(mktemp -d)/.harness"
-  mkdir -p "$d/worktrees" "$d/checkouts" "$d/run/claims"
-  printf '%s\n' "$SENTINEL" > "$d/config"
-  printf '%s' "$d"
-}
-
-# assert_untouched <decoy> <label> — config still the sentinel, no worktrees/checkouts created.
-assert_untouched(){
-  local d="$1" label="$2"
-  assert_eq "$(cat "$d/config")" "$SENTINEL" "$label: live config not overwritten"
-  assert_eq "$(find "$d/worktrees" -mindepth 1 | wc -l)" "0" "$label: no worktrees in live state dir"
-  assert_eq "$(find "$d/checkouts" -mindepth 1 | wc -l)" "0" "$label: no checkouts in live state dir"
-}
-
-# The offenders: init.sh writes $STATE_DIR/config; drive/bug_flow build $STATE_DIR/worktrees paths.
-for t in test_init.sh test_bug_flow.sh test_drive.sh; do
-  [[ -f "$HERE/$t" ]] || continue
-  decoy="$(make_decoy)"
-  STATE_DIR="$decoy" bash "$HERE/$t" >/dev/null 2>&1
-  assert_untouched "$decoy" "$t"
-done
-
-# ── the HOST root (lib.sh:86-92) is a second, independent seam ──────────────────────────────────
-# HARNESS_HOME is NOT derived from STATE_DIR, so pinning STATE_DIR alone left the real ~/.harness
-# poller registry writable. That registry is SHARED by every co-resident fleet and `harness start`
-# aborts on a prefix collision against it, so fixture entries there don't merely litter — they stop
-# an unrelated production fleet from starting at all.
-# The vector is HARNESS_POLLER_DIR specifically, not HARNESS_HOME: lib.sh:87 prefers an INHERITED
-# HARNESS_POLLER_DIR over the HARNESS_HOME a test just set, and :89 exports it from every fleet
-# process — so test_prefix_guard.sh's own `export HARNESS_HOME="$(mktemp -d)"` (line 8) is defeated
-# exactly the way test_init.sh's `export HARNESS_DIR` was.
-make_host_decoy(){ local d; d="$(mktemp -d)/.harness"; mkdir -p "$d/poller/registry" "$d/snapshots"; printf '%s' "$d"; }
-for t in test_prefix_guard.sh test_poller.sh test_priority.sh test_worker.sh; do
-  [[ -f "$HERE/$t" ]] || continue
-  host="$(make_host_decoy)"
-  HARNESS_POLLER_DIR="$host/poller" HARNESS_SNAPSHOTS_DIR="$host/snapshots" bash "$HERE/$t" >/dev/null 2>&1
-  assert_eq "$(find "$host/poller/registry" -mindepth 1 | wc -l)" "0" "$t: no registry entries in live host root"
-  assert_eq "$(find "$host/snapshots" -mindepth 1 | wc -l)" "0" "$t: no snapshots in live host root"
-done
-
-# ── the host FLEET registry is a THIRD such seam, and the worst of the three ────────────────────
-# lib.sh:99-100 prefers an inherited HARNESS_FLEETS_DIR over the HARNESS_HOME a test sets for itself
-# and then exports it, so every fleet worker hands ~/.harness/fleets down to the agent session that
-# runs this suite. Unlike the poller registry, entries here are not merely read — `doctor --fix`
-# DELETES them (test_doctor.sh calls doctor_main --fix), so the suite could strip a live sibling
-# fleet's prefix reservation off the real host. The decoy holds one entry and must come back intact.
-make_fleet_decoy(){ local d; d="$(mktemp -d)/.harness"; mkdir -p "$d/fleets"
-  printf '%s\n' '{"prefix":"live","project":"/live/proj/.harness","run_dir":"/live/proj/.harness/run","slugs":["live/repo"],"started_at":0}' \
-    > "$d/fleets/live.json"; printf '%s' "$d"; }
-for t in test_doctor.sh test_prefix_guard.sh test_fleet_registry.sh test_init.sh test_status.sh; do
-  [[ -f "$HERE/$t" ]] || continue
-  host="$(make_fleet_decoy)"
-  HARNESS_FLEETS_DIR="$host/fleets" bash "$HERE/$t" >/dev/null 2>&1
-  assert_ok "$t: the live fleet-registry entry survives (not pruned by --fix)" \
-    test -f "$host/fleets/live.json"
-  assert_eq "$(find "$host/fleets" -mindepth 1 | wc -l)" "1" "$t: no fixture entries in the live fleet registry"
-done
-
-# ── the host's agy binary is a FOURTH seam (#236) ──────────────────────────────────────────────
-# uninstall.sh's remove_skills ends with `agy plugin uninstall harness-ralph` — agy's goal loop. Run
-# by test_uninstall.sh against the host's real agy, the suite stripped that plugin off a live fleet
-# host and every agy lane after it lost its loop. Both seams leak: agy found on PATH, and an
-# inherited HARNESS_AGY_BIN (lib.sh:85 exports it from every fleet process) naming the real binary.
-# Plant a tripwire on BOTH; it must never be called at all.
-# The install side leaks the same way (#240): install.sh's check_prereqs / ensure_skills run
-# `agy --version`, `agy plugin list` and `agy plugin install`, reached by test_install.sh directly and
-# by test_update.sh / test_supervise.sh through update.sh (which sources install.sh). Each suite pins
-# its own stub, so the tripwire log must come back EMPTY — not merely free of `plugin uninstall`.
-for t in test_install.sh test_update.sh test_supervise.sh test_uninstall.sh; do
-  [[ -f "$HERE/$t" ]] || continue
-  TRIP="$(mktemp -d)"; : > "$TRIP/agy.log"
-  printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$TRIP/agy.log" > "$TRIP/agy"; chmod +x "$TRIP/agy"
-  PATH="$TRIP:$PATH" HARNESS_AGY_BIN="$TRIP/agy" bash "$HERE/$t" >/dev/null 2>&1
-  assert_eq "$(cat "$TRIP/agy.log")" "" \
-    "$t: the host's agy is never called (PATH or inherited HARNESS_AGY_BIN)"
-done
-
-# ── the host's ENGINE is a FIFTH seam (#434) ───────────────────────────────────────────────────
-# update.sh picks its path off "${HARNESS_HOME:-$HOME/.harness}/engine": a release symlink (every host
-# installed since #279) takes the release path — it sources install.sh, asks the real GitHub releases
-# API for the latest tag, and with a newer one published would rel_install + engine_flip the LIVE
-# engine. A test that runs update.sh (or `harness update`) without its own HARNESS_HOME read the
-# host's link, ignored its own ENGINE_DIR fixture, and went red (test_update.sh, test_web_install.sh)
-# or worse. Run every such test against a decoy host root whose engine IS a release symlink — handed
-# down as both HOME and an inherited HARNESS_HOME, the two ways the real one reaches a test — with a
-# curl tripwire first on PATH. Each must pass, leave the decoy byte-for-byte as it was, and never
-# reach github.com.
-# runs_update <file> — the test runs update.sh, or `harness update`, on a non-comment line.
-# The reader drains all input (>/dev/null, not -q): under pipefail an early-exiting `grep -q` SIGPIPEs
-# the writer and the pipeline reads false at random (#441).
-runs_update(){ grep -v '^[[:space:]]*#' "$1" |
-  grep -E '(bash|exec)[^#|]*update\.sh|harness"?[[:space:]]+update([[:space:]]|$|")' >/dev/null; }
-update_tests=()
-# test_hermetic.sh is skipped: its lint fixtures below spell out `bash update.sh`, so the scan would match
-# THIS file and the loop re-run it with the inherited lane env — recursively, killing the lane (#541).
-for f in "$HERE"/test_*.sh; do [[ "${f##*/}" == test_hermetic.sh ]] && continue; runs_update "$f" && update_tests+=("$(basename "$f")"); done
+# ── which tests the slices run (#434, #541, #608) ───────────────────────────────────────────────────────────────────────────────────────
+hermetic_scan   # update_tests: every test that runs update.sh / `harness update`; fleet_tests: … or supervise / start (never a test_hermetic*.sh)
 # The two that leaked (#434), and one that runs it as `harness update`, must be found — or the scan
 # below guards nothing.
 for t in test_update.sh test_web_install.sh test_update_prerelease.sh; do
@@ -141,43 +47,14 @@ missed="$("${pin[@]}" bash -c 'set -uo pipefail; eval "$1"; m=0
 assert_eq "$missed" 0 "the update.sh scan finds a match early in >8 KiB of text 300/300 (no SIGPIPE race)"
 assert_no "the update.sh scan has no '| grep -q' under pipefail" \
   grep -qE '\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' <<<"$(declare -f runs_update)"
-assert_no "the update.sh scan does not pick up test_hermetic.sh itself (it would run itself)" \
+assert_no "the update.sh scan does not pick up test_hermetic*.sh itself (it would run itself)" \
   bash -c '[[ " $1 " == *" test_hermetic.sh "* ]]' _ "${update_tests[*]}"
-# decoy_host — a home whose .harness/engine is a release symlink, echoed on stdout (tracked by the
-# caller: a tmp_track inside the $(…) would delete it as that subshell exits). It carries a git
-# identity, as a real home does — test_supervise.sh's WIP checkpoints commit with the user's own.
-decoy_host(){ local d; d="$(mktemp -d)"; printf '[user]\n\tname = t\n\temail = t@t\n' > "$d/.gitconfig"
-  mkdir -p "$d/.harness/releases/v0.0.1/bin"; printf 'v0.0.1\n' > "$d/.harness/releases/v0.0.1/VERSION"
-  printf 'v0.0.1\n' > "$d/.harness/releases/.installed"; ln -s releases/v0.0.1 "$d/.harness/engine"
-  printf '%s' "$d"; }
-# tree_state <dir> — every path under <dir> with its type, link target, size and mtime.
-tree_state(){ find "$1" -printf '%P %y %l %s %T@\n' | sort; }
-for t in "${update_tests[@]}"; do
-  dh="$(decoy_host)"; tmp_track "$dh"; before="$(tree_state "$dh/.harness")"
-  TRIP="$(mktemp -d)"; tmp_track "$TRIP"; : > "$TRIP/curl.log"
-  # Logs every call; refuses github.com, passes anything else (file:// fixtures) to the real curl.
-  cat > "$TRIP/curl" <<EOF
-#!/usr/bin/env bash
-echo "\$*" >> $(printf %q "$TRIP/curl.log")
-[[ "\$*" == *github.com* ]] && exit 22
-PATH=$(printf %q "$PATH") exec curl "\$@"
-EOF
-  chmod +x "$TRIP/curl"
-  # #541: nor the user service manager — a test that reaches systemctl/loginctl off PATH, or writes a unit
-  # under HOME, would stop and unlink a live fleet host's harness-web.service. Tripwire both.
-  : > "$TRIP/bus.log"
-  for c in systemctl loginctl; do printf '#!/usr/bin/env bash\necho "%s $*" >> %q\nexit 1\n' "$c" "$TRIP/bus.log" > "$TRIP/$c"; chmod +x "$TRIP/$c"; done
-  HOME="$dh" HARNESS_HOME="$dh/.harness" PATH="$TRIP:$PATH" bash "$HERE/$t" >"$TRIP/out" 2>&1; rc=$?
-  assert_eq "$rc" 0 "$t passes on a host whose ~/.harness/engine is a release symlink"
-  (( rc == 0 )) || grep -E 'FAIL|rror' "$TRIP/out" | head -5
-  assert_eq "$(tree_state "$dh/.harness")" "$before" "$t: the host's ~/.harness is left exactly as it was"
-  assert_no "$t: never queries github.com (the releases API)" grep -q 'github\.com' "$TRIP/curl.log"
-  assert_eq "$(cat "$TRIP/bus.log")" "" "$t: never calls systemctl / loginctl off PATH (the user service manager)"
-  assert_no "$t: writes no systemd unit under the inherited HOME" test -e "$dh/.config/systemd"
-  # #439: every update links the engine's skills into each installed CLI's user-skills dir under HOME;
-  # a test's own engine must never be linked into the inherited (real) home's.
-  assert_eq "$(cd "$dh" && ls -d .claude .hermes .agents .gemini .copilot 2>/dev/null | xargs)" "" \
-    "$t: links no skills into the inherited HOME's CLI dirs"
+# Each slice file names its own position and the slice count: the files, together, must be every slice of one count — a file added or
+# dropped without renumbering the others would leave part of the scan unrun.
+for kind in engine roll; do
+  n=$(ls "$HERE"/test_hermetic_${kind}_*.sh | wc -l); ok=1
+  for (( k = 1; k <= n; k++ )); do grep -qE "hermetic_slice $k $n " "$HERE/test_hermetic_${kind}_$k.sh" || ok=0; done
+  assert_eq "$ok" 1 "test_hermetic_${kind}_1..$n: every file runs its own slice $k of $n, so together they run every scanned test"
 done
 
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
@@ -458,54 +335,8 @@ assert_eq "$(tmux_offenders "$HERE"/test_*.sh | tr '\n' ' ')" "" "every test tha
 assert_ok "run.sh installs the tmux guard before any test runs" grep -q '^tmux_guard_install || exit 1' "$HERE/run.sh"
 assert_ok "pin_host_home installs the tmux guard (a direct bash test_foo.sh is guarded too)" bash -c "sed -n '/^pin_host_home(){/,/^}/p' '$HERE/helpers.sh' | grep -q tmux_guard_install"
 
-# ── the generalised decoy (Acceptance 2): a LIVE worker in a registered fleet must survive every test ──
-# that updates, supervises, or starts a fleet — handed ONLY the fleet/poller/snapshot pins, which is all a
-# lane inherits of the real host. The decoy is the incident in miniature: a registered fleet whose worker
-# runs a foreign ENGINE_DIR, which fleet_roll kills and relaunches from the sandbox engine.
-# runs_fleets <file> — the test runs update.sh / `harness update`, supervise.sh / `harness supervise`, or `harness start`.
-runs_fleets(){ grep -v '^[[:space:]]*#' "$1" |
-  grep -E '(bash|exec|"\$[A-Za-z_]+/?[a-z./]*)[^#|]*(update|supervise|start)\.sh|harness"?[[:space:]]+(update|supervise|start)([[:space:]]|$|")' >/dev/null; }
-fleet_tests=()
-for f in "$HERE"/test_*.sh; do [[ "${f##*/}" == test_hermetic.sh ]] && continue; runs_fleets "$f" && fleet_tests+=("$(basename "$f")"); done
 for t in test_supervise_autoupdate.sh test_update_release.sh test_migrate_release.sh test_update_prerelease.sh test_rollback.sh test_update.sh; do
   assert_ok "the fleet-roller scan finds $t" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${fleet_tests[*]}" "$t"
 done
-DECOY_PID=""
-make_live_fleet(){   # LIVE_ROOT: a host root holding ONE registered fleet with a live worker (not in $(): a tmp_track there dies with it)
-  LIVE_ROOT="$(mktemp -d)"; tmp_track "$LIVE_ROOT"
-  local sd="$LIVE_ROOT/decoy/proj/.harness"; mkdir -p "$LIVE_ROOT/fleets" "$LIVE_ROOT/poller/registry" "$LIVE_ROOT/snapshots" "$sd/run"
-  printf ': "${HARNESS_MODE:=single}"\n: "${HARNESS_REPO:=o/decoy}"\n: "${HARNESS_SESS_PREFIX:=decoy}"\n: "${HARNESS_POOL:=1}"\n: "${HARNESS_USE_POLLER:=0}"\n' > "$sd/config"
-  (cd "$LIVE_ROOT/decoy/proj" && git init -q .)
-  ( cd "$LIVE_ROOT/decoy/proj" && exec env ENGINE_DIR=/old/engine sleep 3000 </dev/null >/dev/null 2>&1 ) & DECOY_PID=$!
-  echo "$DECOY_PID" > "$sd/run/worker-1.pid"
-  printf '{"prefix":"decoy","project":"%s","run_dir":"%s/run","slugs":[],"started_at":1}\n' "$sd" "$sd" > "$LIVE_ROOT/fleets/decoy.json"
-}
-for t in "${fleet_tests[@]}"; do
-  make_live_fleet
-  # Only the fleet/poller/snapshot pins reach the test — and a PRIVATE tmux server, never the lane's identity
-  # (STATE_DIR, HARNESS_SESSION, TMUX…): the decoy guards the registry, it must not hand a test the lane's own
-  # session to sweep (#541, the lane ran this block and died with 137).
-  env -u STATE_DIR -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX -u TMUX -u TMUX_PANE \
-      TMUX_TMPDIR="$(mktemp -d)" HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" HARNESS_POLLER_DIR="$LIVE_ROOT/poller" \
-      HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" bash "$HERE/$t" >/dev/null 2>&1
-  assert_ok "$t: the registered fleet's live worker is not killed" kill -0 "$DECOY_PID"
-  assert_eq "$(ls "$LIVE_ROOT/fleets")" "decoy.json" "$t: the fleet registry holds only its one original entry"
-  assert_eq "$(ls "$LIVE_ROOT/decoy/proj/.harness/run")" "worker-1.pid" "$t: no worker / priority pid file was relaunched into the live fleet"
-  assert_eq "$(find "$LIVE_ROOT/poller/registry" "$LIVE_ROOT/snapshots" -mindepth 1 | wc -l)" "0" "$t: nothing in the live poller registry or snapshots dir"
-  kill "$DECOY_PID" 2>/dev/null; wait "$DECOY_PID" 2>/dev/null
-done
-
-# ── (#537) fleet-migrate --all falls back to $STATE_DIR (the folder `harness update` ran in), and it rolls an ──
-# already-migrated fleet's old-release workers. A lane inherits ITS fleet's STATE_DIR, so test_fleet_migrate.sh run
-# directly from a lane would roll the lane's own fleet. Hand it the decoy as STATE_DIR (and a registry that does not
-# list it): the decoy's worker must still be there afterwards.
-make_live_fleet
-printf ': "${HARNESS_UNIT:=main}"\n' >> "$LIVE_ROOT/decoy/proj/.harness/config"   # already one repo: the rc 10 path
-env -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX -u TMUX -u TMUX_PANE \
-    STATE_DIR="$LIVE_ROOT/decoy/proj/.harness" TMUX_TMPDIR="$(mktemp -d)" HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" \
-    HARNESS_POLLER_DIR="$LIVE_ROOT/poller" HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" bash "$HERE/test_fleet_migrate.sh" >/dev/null 2>&1
-assert_ok "test_fleet_migrate.sh run with a live fleet's STATE_DIR: that fleet's worker is not rolled" kill -0 "$DECOY_PID"
-assert_eq "$(ls "$LIVE_ROOT/decoy/proj/.harness/run")" "worker-1.pid" "...and no pid file was relaunched into it"
-kill "$DECOY_PID" 2>/dev/null; wait "$DECOY_PID" 2>/dev/null
 
 finish

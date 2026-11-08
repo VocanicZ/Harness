@@ -24,7 +24,7 @@ CLIS="$(cli_list | xargs)"
 # Every CLI installed: a stub of each adapter's executable, on a PATH that holds no real agent CLI.
 BIN="$T/bin"; mkdir -p "$BIN"
 for c in $CLIS; do printf '#!/bin/sh\nexit 0\n' > "$BIN/$(cli_with "$c" cli_exe)"; chmod +x "$BIN/$(cli_with "$c" cli_exe)"; done
-export PATH="$BIN:/usr/local/bin:/usr/bin:/bin"
+export PATH="$BIN:/usr/local/bin:$(sys_path)"
 harness(){ env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" "$@"; }
 skdir(){ cli_with "$1" cli_user_skills_dir; }
 

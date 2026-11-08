@@ -50,6 +50,10 @@ skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, 
 # spelling of C:/x) reads C:\c\x, so every fixture that served a fake release from $T/srv got "could not resolve" on winsma and
 # install.sh / update.sh / harness update exited 1 or 3. Windows: file:///C:/x/y; elsewhere file:///x/y, as before.
 file_url(){ local p; p="$(native_path "$1")"; case "$p" in /*) printf 'file://%s' "$p";; *) printf 'file:///%s' "$p";; esac; }
+# sys_path — the PATH a test hands a process it keeps "system tools only" (#608): /usr/bin:/bin on Linux; on Git for Windows curl and
+# git live in /mingw64/bin, not in /usr/bin, so a PATH of /usr/bin:/bin alone read "curl: command not found" and install.sh could not
+# resolve the latest release. Always a real directory list, never a stub.
+sys_path(){ local p=/usr/bin:/bin; case "$(uname -s 2>/dev/null)" in MINGW*) [[ -d /mingw64/bin ]] && p="$p:/mingw64/bin";; esac; printf '%s' "$p"; }
 
 # alive_any <pid> — the process is alive and not a zombie, by its MSYS pid OR (Windows) by its native one (#606): a fake agent
 # written in native Python records os.getpid(), a Windows pid, in calls.jsonl / pids, and MSYS `kill -0` does not know it.
