@@ -551,6 +551,15 @@ def _issue_state(slug, number):
     return str(d.get("state", "")).lower()
 
 
+def _issue_live(slug, number):
+    """(state, labels) of one issue read from gh NOW — never the snapshot (#667): the poller refreshes that only
+    every HARNESS_PRIORITY_POLL. Same shape as _issue_state + _issue_labels; an issue gh cannot find is ("", set()).
+    A transient failure raises GhError, so the caller holds."""
+    it = _gh_json(["issue", "view", str(number), "-R", slug, "--json", "state,labels"], allow_absent=True) or {}
+    return (str(it.get("state", "")).lower(),
+            {str(l.get("name", "")).lower() for l in it.get("labels", [])})
+
+
 def _issue_labels(slug, number):
     """The issue's labels, lowercased — from the snapshot in snapshot mode, else one gh read. An issue
     the read cannot find has none. A transient failure raises GhError, like _issue_state."""
@@ -1694,7 +1703,16 @@ def main():
         elif cmd == "complete":
             print("DONE" if is_complete(compute_state(repo)) else "NOTDONE")
         elif cmd == "check":
-            goal = sys.argv[3] if len(sys.argv) > 3 else ""; s = compute_state(repo); done = False
+            goal = sys.argv[3] if len(sys.argv) > 3 else ""
+            # #667: `--live` — the short tend tick asks about ONE lane's issue and must not wait for the poller's
+            # next snapshot (HARNESS_PRIORITY_POLL, up to 600s). An ISSUE goal then reads that issue from gh
+            # (one `issue view`), snapshot mode or not; every other goal still resolves from the snapshot.
+            live = "--live" in sys.argv[4:]
+            if live and goal.startswith("ISSUE:"):
+                s = {"slug": _repo_slug(repo), "prds": []}
+            else:
+                live = False; s = compute_state(repo)
+            done = False
             # Orchestration goals are PRD-qualified (`REVIEW:41`) so reap_done_sessions advances the
             # right session when several PRDs are in flight. A BARE goal (written by a pre-upgrade
             # engine, or by the unit-level PLAN/PRD actions) resolves against the lowest-numbered PRD.
@@ -1712,8 +1730,11 @@ def main():
             elif goal.startswith("ISSUE:"):
                 # #271: an open issue its lane labelled agent-blocked is parked — that session is done
                 # too, so the reap frees its slot instead of letting it idle at its prompt.
-                n = int(goal.split(":",1)[1]); st = _issue_state(s["slug"], n)
-                labels = _issue_labels(s["slug"], n) if st == "open" else set()
+                n = int(goal.split(":",1)[1])
+                if live: st, labels = _issue_live(s["slug"], n)
+                else:
+                    st = _issue_state(s["slug"], n)
+                    labels = _issue_labels(s["slug"], n) if st == "open" else set()
                 done = st == "closed" or L_BLOCKED() in labels
                 # #417: agent-paused WITHOUT agent-working — the lane checkpointed, or parked itself.
                 # Not done (a checkpoint keeps its session); drive.sh's selfpark_tend tells the two

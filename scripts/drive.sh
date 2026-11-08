@@ -53,9 +53,11 @@ EOF
 # check_session_goal <sess> — one live session's goal check: a satisfied goal ends the session, a
 # self-parked issue is nudged (#417), a recovered one clears its state. Split out of reap_done_sessions
 # (#468) so the worker that owns a lane runs it on that lane alone.
-check_session_goal(){ local s="$1" goal res
+# `live` (#667, the short tend tick): an ISSUE goal is read from gh now, not the poller snapshot, which lags up to
+# HARNESS_PRIORITY_POLL; the idle gate (lane_goal_gate) keeps that to one gh call per idle tick.
+check_session_goal(){ local s="$1" live="${2:-}" goal res
   goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"; [[ -z "$goal" ]] && return 0
-  res="$(python3 "$ISSUELIB" check "$REPO" "$goal" 2>/dev/null)"
+  res="$(python3 "$ISSUELIB" check "$REPO" "$goal" ${live:+--live} 2>/dev/null)"
   case "$res" in
     DONE)
       log "session $s goal '$goal' satisfied → advancing"
