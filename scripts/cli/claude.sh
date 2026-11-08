@@ -308,14 +308,20 @@ claude_usage(){ (( $# )) && python3 "$CLI_DIR/../stats.py" usage "$@"; }
 # into each worktree by claude_usage_setup) drops that into $USAGE_DIR/<account>.json. A headless lane
 # (#352) runs no status line: `claude -p` reports the same windows as rate_limit_event
 # `unifiedWindows` (utilization 0–1, resetsAt), which its runner keeps in the lane's state.json with the
-# account it runs on — read from this fleet's own lanes (`<prefix>-…`), as the drops are this fleet's: a
-# sibling fleet's account must not hold this fleet's claims. For each account window the newest reading
-# of either source wins. A window whose resets_at has passed has reset, so it is skipped rather than
-# reported stale. No drop and no lane reading at all = usage unavailable (rc 1). #659: a 5th column is the
-# epoch the winning reading was taken (0 = unknown): a drop freezes once every session on the account is
-# checkpointed, so usage_watch and `harness one` must tell a stale reading from a fresh one.
+# account it runs on — read from this fleet's own lanes (`<prefix>-…`). The drops are read from EVERY
+# fleet on the host (#658): an account key is the config dir's name (`default` = ~/.claude), so on one host
+# the same key is always the same real account, and a sibling fleet's fresher reading of it is a better
+# reading of it than this fleet's own, whose status lines may have stopped drawing. Each fleet registered
+# in $HARNESS_FLEETS_DIR names its run_dir; its `usage/*.json` is read alongside this fleet's own. A
+# sibling's headless lanes are not (a lane is this fleet's, and `<prefix>-` keeps it so). For each account
+# window the newest reading of any source wins. A window whose resets_at has passed has reset, so it is
+# skipped rather than reported stale. No drop and no lane reading at all = usage unavailable (rc 1).
+# #659: a 5th column is the epoch the winning reading was taken (0 = unknown): a drop freezes once every
+# session on the account is checkpointed, so usage_watch and `harness one` must tell a stale reading from a
+# fresh one.
 claude_limit_usage(){
-  USAGE_DIR="$(_usage_dir)" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" PREFIX="${HARNESS_SESS_PREFIX:-}" python3 - <<'PY'
+  USAGE_DIR="$(_usage_dir)" FLEETS="${HARNESS_FLEETS_DIR:-}" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" \
+    PREFIX="${HARNESS_SESS_PREFIX:-}" python3 - <<'PY'
 import glob, json, os, sys, time
 now, best, seen = time.time(), {}, False
 def load(f):
@@ -334,7 +340,12 @@ def take(acct, win, pct, reset, at):   # pct: the reading as printed
         return
     if (acct, win) not in best or at >= best[(acct, win)][2]:
         best[(acct, win)] = (pct, reset, at)
-for f in sorted(glob.glob(os.path.join(os.environ["USAGE_DIR"], "*.json"))):
+dirs = [os.environ["USAGE_DIR"]]
+for f in sorted(glob.glob(os.path.join(os.environ["FLEETS"], "*.json"))) if os.environ["FLEETS"] else ():
+    rd = load(f).get("run_dir")   # a missing / unreadable entry or run dir is skipped, never fatal
+    if isinstance(rd, str) and rd and os.path.join(rd, "usage") not in dirs:
+        dirs.append(os.path.join(rd, "usage"))
+for f in sorted(g for d in dirs for g in glob.glob(os.path.join(d, "*.json"))):
     seen = True
     d = load(f)
     for win, w in sorted((d.get("rate_limits") or {}).items()):

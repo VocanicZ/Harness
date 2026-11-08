@@ -75,6 +75,7 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_ONE_STALE_PAD_PCT:=3}"      # #365: …and the gate pads it by this many points
 : "${HARNESS_ONE_LEASE_MIN:=240}"         # #366: minutes a /harness-one claim holds off the reapers after its last `harness one start|phase`
 : "${HARNESS_ONE_AUTO:=0}"               # #392: 1 = a usage hold (#194) starts ONE headless harness-one lane per account by itself, gated like #365
+: "${HARNESS_USAGE_STALE_MIN:=$HARNESS_ONE_STALE_MIN}"  # #658: a usage reading older than this many minutes is stale — below the checkpoint % it opens no hold (said once; the limit message still checkpoints), at/above it still holds, and it never releases a hold; 0 = off
 : "${HARNESS_USAGE_CMD:=}"               # #194: command printing `<account>\t<window>\t<pct>\t<resets_at>` lines; overrides the CLI adapter
 : "${HARNESS_USAGE_STATUSLINE:=1}"       # #194: 1 = wire each worktree to report its usage windows (cli_usage_setup); 0 = off
 : "${HARNESS_GH_RATE_GUARD:=1}"          # #183: 1 = sleep through a GitHub rate limit + hold claims on a low budget; 0 = off
@@ -106,7 +107,7 @@ export HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HAR
   HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
-  HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
+  HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_STALE_MIN HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
   HARNESS_GH_RATE_GUARD HARNESS_GH_BUDGET_PCT HARNESS_GH_RATE_TTL HARNESS_SWARM HARNESS_BLOCKED_BACKOFF_MIN HARNESS_WINDOWS_HOST \
   HARNESS_CHURN_COUNT HARNESS_CHURN_MAX_WALL_S HARNESS_CHURN_WINDOW_MIN \
   HARNESS_TURN_MAX HARNESS_INTERRUPT_WAIT HARNESS_POOL HARNESS_ENGINE_CHILD_MAX
