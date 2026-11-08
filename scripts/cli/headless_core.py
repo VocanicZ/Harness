@@ -240,14 +240,75 @@ def _descendants(root):
     return seen
 
 
+def _win_job_new(proc):
+    """Windows: a Job Object holding <proc> (#627). Windows has no process groups and `taskkill /T` follows only
+    live parents, so a background job whose parent already exited (a command the turn started, then the shell that
+    started it ended) is out of its reach; a Job Object is the one handle that still holds it, because every
+    process <proc> starts is born inside the job. Not KILL_ON_JOB_CLOSE: a lane's leftovers outlive an ended turn
+    on POSIX too, and are ended by kill_tree or the session sweep. None when the job cannot be made (the caller
+    then has taskkill alone)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        k.AssignProcessToJobObject.restype = wintypes.BOOL
+        job = k.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        if not k.AssignProcessToJobObject(job, wintypes.HANDLE(int(proc._handle))):
+            k.CloseHandle.argtypes = [wintypes.HANDLE]
+            k.CloseHandle(job)
+            return None
+        return job
+    except (OSError, AttributeError, ValueError, TypeError):
+        return None
+
+
+def _win_job_end(job):
+    """Terminate every process in <job> (Windows) and close it."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.TerminateJobObject(job, 1)
+        k.CloseHandle(job)
+    except (OSError, AttributeError, ValueError, TypeError):
+        pass
+
+
+def _win_job_close(proc):
+    """A turn ended on its own: let go of its Job Object without ending it (what the turn left running stays up)."""
+    job = getattr(proc, "_hx_job", None)
+    if not job:
+        return
+    proc._hx_job = None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.CloseHandle(job)
+    except (OSError, AttributeError, ValueError, TypeError):
+        pass
+
+
 def kill_tree(proc, grace=3.0):
     """End <proc> and everything it started. POSIX: proc leads its own process group (spawn()); TERM
     the group and every descendant found before the kill (one that left the group too), then KILL
-    whatever outlives <grace>. Windows: taskkill /T /F."""
+    whatever outlives <grace>. Windows: taskkill /T /F, then the turn's Job Object (spawn()), which also
+    holds what a parent that already exited left behind (#627)."""
     if WINDOWS:
-        if proc.poll() is not None:
-            return
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        job = getattr(proc, "_hx_job", None)
+        if proc.poll() is None:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        if job:
+            proc._hx_job = None
+            _win_job_end(job)
         proc.wait(); return
     tree = _descendants(proc.pid)
 
@@ -282,7 +343,10 @@ def spawn(argv, cwd, stdout, stderr, env=None):
     kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
     if env:
         kw["env"] = {**os.environ, **env}
-    return subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, **kw)
+    proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, **kw)
+    if WINDOWS:
+        proc._hx_job = _win_job_new(proc)
+    return proc
 
 
 # --- the runner ---------------------------------------------------------------------------------
@@ -473,6 +537,8 @@ class Runner:
                 time.sleep(POLL_S)
             th.join(timeout=5)
             rc = proc.wait()
+            if WINDOWS:
+                _win_job_close(proc)
         with lock:
             if stopped:
                 self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": "ended", "exit": rc,
