@@ -1397,12 +1397,12 @@ reading can be hours old. One older than `HARNESS_USAGE_STALE_MIN` minutes (defa
 
 - below `HARNESS_USAGE_CHECKPOINT_PCT` it opens no hold. The poll logs `usage: <account> <window> reading is
   stale (30h old, 70%) — checkpointing on the limit message only` once per stale episode, records a
-  `usage_stale` event, and writes no `usage_reading` event. The checkpoint on the limit message itself is
-  unchanged;
+  `usage_stale` event (a stale reading brought up past the threshold by the spend since it, #659, holds
+  instead). The checkpoint on the limit message itself is unchanged;
 - at or above it still holds: usage only grows inside a window until it resets, so an old reading is a
   lower bound;
 - it never releases a hold. A hold ends at its recorded reset time, or on a *fresh* reading of its window
-  below the threshold.
+  below the threshold, taken after the hold opened (#659).
 
 The claude adapter reads the status-line drops of every fleet in the host registry, not only this fleet's
 (`<run_dir>/usage/*.json`), so a fleet whose own panes stopped reporting still sees an account's usage

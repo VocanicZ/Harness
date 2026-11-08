@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A stale usage reading is no longer taken for the current one, and the fleets on a host share their readings (#658)
+
+- A usage reading older than `HARNESS_USAGE_STALE_MIN` minutes (default `HARNESS_ONE_STALE_MIN`, 30; `0` = never) is stale. Below
+  `HARNESS_USAGE_CHECKPOINT_PCT` it opens no hold: `usage_watch` logs `usage: <account> <window> reading is stale (…)` once per stale
+  episode and records a `usage_stale` event, and the limit-message checkpoint is unchanged. At or above the threshold it still holds,
+  and a reading gone stale never releases a hold: only the reset, or a fresh reading of the held window below the threshold, does.
+  `harness status` marks it `STALE <age> old`.
+- The claude adapter now also reads the status-line drops of every fleet in `$HARNESS_FLEETS_DIR` (`<run_dir>/usage/*.json`), the newest
+  `at` per account window winning, so a fleet whose own panes stopped drawing the status line (hzhn held on a 30-hour-old 70% while a
+  sibling fleet read 91% of the same account) still sees the account's usage. `harness one` reports the age of the reading that won.
+
 ### A lean Claude lane no longer stops at the Bypass Permissions and CLAUDE.md-imports dialogs, and a supervisor-visible dialog is a stuck lane (#660)
 
 - Since lean lanes (#595) a Claude lane on the tmux backend could launch into two dialogs nothing answered. `--setting-sources project,local`

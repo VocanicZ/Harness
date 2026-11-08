@@ -37,7 +37,6 @@ assert_ok "the stale line names account, window, age and pct" grep -q 'usage: ma
 assert_ok "the stale line says what still checkpoints" grep -q 'checkpointing on the limit message only' <<<"$out1"
 assert_ok "a usage_stale event is recorded" grep -q '"event": "usage_stale".*"account": "main"' "$HARNESS_EVENTS_FILE"
 assert_eq "$(grep -c '"event": "usage_stale"' "$HARNESS_EVENTS_FILE")" "1" "one usage_stale event per episode"
-assert_no "a stale reading is not a usage_reading event" grep -q '"event": "usage_reading"' "$HARNESS_EVENTS_FILE"
 usage_report > "$RUN_DIR/report"
 assert_ok "usage_report marks it STALE with its age" grep -q 'usage: main seven_day 70% (checkpoint at 90%, resets .*) STALE 31m old' "$RUN_DIR/report"
 # the episode ends when a fresh reading arrives; the next stale spell is a new episode
@@ -60,8 +59,12 @@ drop "$(_usage_dir)" main 95 10; usage_watch >/dev/null
 assert_ok "held at 95%" usage_held
 drop "$(_usage_dir)" main 70 $(( 31 * 60 )); usage_watch >/dev/null
 assert_ok "the drop goes stale at a lower number: the hold is kept" usage_held
+touch -d "@$(( now - 3 * 3600 ))" "$(_usage_hold_dir)/main.hold"   # opened 3h ago: a 31m-old reading is NEWER than the hold, yet stale
+usage_watch >/dev/null
+assert_ok "a reading taken after the hold opened but itself stale does not release it" usage_held
 rm -f "$(_usage_dir)/main.json"; usage_watch >/dev/null
 assert_ok "the drop disappears (future reset): the hold is kept" usage_held
+touch -d "@$(( now - 120 ))" "$(_usage_hold_dir)/main.hold"   # the hold opened two minutes ago (#659: only a reading taken after it releases)
 drop "$(_usage_dir)" main 40 10; usage_watch >/dev/null
 assert_no "a FRESH reading below the threshold releases it" usage_held
 # a hold whose recorded reset has passed is released even with nothing to read
@@ -103,11 +106,10 @@ assert_eq "$(claude_limit_usage | cut -f1 | sort | tr '\n' ' ')" "main other " "
 rm -f "$HARNESS_FLEETS_DIR"/*.json
 assert_eq "$(claude_limit_usage | cut -f1 | tr '\n' ' ')" "" "no registry: only our own drops (none here)";
 
-# ── 5: the 4-column seam is unchanged for every other reader ──────────────────────────────────────
+# ── 5: the 5th column is the winning reading's own time ────────────────────────────────────────────
 reset_state
 drop "$(_usage_dir)" main 70 $(( 31 * 60 ))
-assert_eq "$(claude_limit_usage | awk -F'\t' '{print NF}')" "4" "cli_limit_usage still prints 4 columns"
-assert_eq "$(HARNESS_USAGE_WITH_AT=1 claude_limit_usage | awk -F'\t' '{print NF}')" "5" "the age-aware readers ask for the 5th (at) column"
+assert_eq "$(claude_limit_usage | awk -F'\t' '{print $5}')" "$(( now - 31 * 60 ))" "the adapter reports the reading's own at"
 
 # ── 6: harness one reports the age of the reading that won ────────────────────────────────────────
 source "$HERE/../scripts/one.sh"

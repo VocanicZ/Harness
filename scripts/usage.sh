@@ -27,6 +27,18 @@ _usage_hold_dir(){ echo "$RUN_DIR/usage-holds"; }              # one <account>.h
 
 _usage_key(){ printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 
+# #658: a stale reading is one stamped (5th column) more than HARNESS_USAGE_STALE_MIN minutes ago (default
+# HARNESS_ONE_STALE_MIN; 0 = never). Below the threshold it opens no hold — said once per stale episode, the
+# limit message still checkpoints — at/above it still holds (usage only grows inside a window), and it never
+# releases a hold: only the reset or a FRESH reading of the held window below the threshold does.
+# _usage_stale_age <at> <now> — the reading's age in seconds when it is stale, else nothing and rc 1.
+_usage_stale_age(){ local age
+  [[ "${1:-}" =~ ^[0-9]+$ && "${HARNESS_USAGE_STALE_MIN:-0}" =~ ^[0-9]+$ ]] && (( $1 > 0 && HARNESS_USAGE_STALE_MIN > 0 )) || return 1
+  age=$(( $2 - $1 )); (( age > HARNESS_USAGE_STALE_MIN * 60 )) || return 1
+  echo "$age"; }
+_usage_age_fmt(){ if (( $1 >= 3600 )); then echo "$(( $1 / 3600 ))h"; else echo "$(( $1 / 60 ))m"; fi; }   # 31m, 30h
+_usage_stale_dir(){ echo "$RUN_DIR/usage-stale"; }   # one marker per stale account window: an episode is logged once
+
 # The usage windows themselves are read per CLI by the adapter (cli_limit_usage, scripts/cli/).
 
 # ensure_usage_statusline <dir> — wire a worktree so its sessions report their usage windows, the
@@ -169,19 +181,19 @@ _usage_spend_pct(){ local f now t val ttl="${HARNESS_USAGE_SPEND_TTL:-300}"
 # #364: each new reading is logged as one `usage_reading` event per account/window (forecast.py
 # calibrates $ per 1% from them), emitted after the lock is released so a slow log never holds the
 # other workers' polls.
-# #659: a stamped reading (5th column) older than HARNESS_ONE_STALE_MIN minutes and below the threshold is
+# #659: a stamped reading (5th column) older than HARNESS_USAGE_STALE_MIN minutes and below the threshold is
 # first brought up by the account's spend since it (_usage_spend_pct, counted before the lock is taken);
 # the usage_reading event keeps the raw reading. A hold is released when its reset time has passed, or when
 # the account answered with no window at the threshold and a reading of the held window taken after the
 # hold opened (its mtime) — a live query is always current; a frozen reading from before says nothing new.
-usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpct stale; local -A over=() seen=() live=() newest=(); local -a readings=()
+usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpct stale sage mark; local -a stales=(); local -A over=() seen=() live=() newest=(); local -a readings=()
   out="$(cli_limit_usage 2>/dev/null)"; local avail=$?
-  now="$(date +%s)"; stale=$(( ${HARNESS_ONE_STALE_MIN:-30} * 60 ))
+  now="$(date +%s)"; stale=$(( ${HARNESS_USAGE_STALE_MIN:-30} * 60 ))
   local -A corr=()
   if (( avail == 0 )); then   # the correction runs before the lock: a transcript scan must not hold the other workers' polls
     while IFS=$'\t' read -r acct win pct reset at; do
       [[ -n "$acct" && -n "$win" && "${pct%.*}" =~ ^[0-9]+$ && "$at" =~ ^[0-9]+$ ]] || continue
-      (( at > 0 && now - at > stale && ${pct%.*} < HARNESS_USAGE_CHECKPOINT_PCT )) || continue
+      (( at > 0 && stale > 0 && now - at > stale && ${pct%.*} < HARNESS_USAGE_CHECKPOINT_PCT )) || continue
       key="$acct"$'\t'"$win"; [[ -z "${corr[$key]+x}" ]] || continue
       sp="$(_usage_spend_pct "$acct" "$win" "$at")"
       if [[ "$sp" == uncalibrated ]]; then
@@ -210,6 +222,14 @@ usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpc
       [[ -n "$win" && -z "${seen[$key]:-}" ]] || continue
       seen[$key]=1; _usage_reading_new "$acct" "$win" "$pct" "$reset" \
         && readings+=("$acct"$'\t'"$win"$'\t'"$pct"$'\t'"$reset")
+      mark="$(_usage_stale_dir)/$(_usage_key "$acct")__$(_usage_key "$win")"   # #658: say a stale, unheld reading once
+      if sage="$(_usage_stale_age "$at" "$now")"; then
+        if [[ "${over[$acct]:-}" != "$win"$'\t'* ]] && [[ ! -f "$mark" ]]; then
+          mkdir -p "${mark%/*}" 2>/dev/null; : > "$mark" 2>/dev/null
+          log "usage: $acct $win reading is stale ($(_usage_age_fmt "$sage") old, ${pct}%) — checkpointing on the limit message only"
+          stales+=("$acct"$'\t'"$win"$'\t'"$pct"$'\t'"$sage")
+        fi
+      else rm -f "$mark"; fi
     done <<< "$out"
     for acct in "${!over[@]}"; do
       hf="$(_usage_hold_dir)/$(_usage_key "$acct").hold"; [[ -f "$hf" ]] && continue
@@ -229,7 +249,8 @@ usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpc
       [[ -n "${over[$acct]:-}" ]] && continue
       if (( ${reset:-0} <= 0 || ${reset:-0} > now )); then   # the window has not reset: only a newer, lower reading releases it
         opened="$(stat -c %Y "$hf" 2>/dev/null || echo "$now")"
-        [[ -n "${live[$acct]:-}" ]] || (( ${newest[$acct$'\t'$win]:-0} > opened )) || continue
+        # #658: and the reading must be fresh — one gone stale since says nothing either
+        [[ -n "${live[$acct]:-}" ]] || { (( ${newest[$acct$'\t'$win]:-0} > opened )) && ! _usage_stale_age "${newest[$acct$'\t'$win]}" "$now" >/dev/null; } || continue
       fi
     else (( ${reset:-0} > now )) && continue; fi
     rm -f "$hf"; log "usage: $acct $win window reset — resuming claims"
@@ -237,6 +258,10 @@ usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpc
   done
   shopt -u nullglob; lock_release "$lockfd"
   usage_park_lanes
+  for r in ${stales[@]+"${stales[@]}"}; do
+    IFS=$'\t' read -r acct win pct sage <<< "$r"
+    harness_event usage_stale account="$acct" window="$win" pct="$pct" age_s="$sage"
+  done
   for r in "${readings[@]}"; do
     IFS=$'\t' read -r acct win pct reset <<< "$r"
     harness_event usage_reading account="$acct" window="$win" pct="$pct" resets_at="$reset"
@@ -244,12 +269,13 @@ usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpc
   return 0; }
 
 # usage_report — the windows and holds, one line per account window (harness status).
-usage_report(){ local out acct win pct reset hold _
+usage_report(){ local out acct win pct reset at hold stale sage now; now="$(date +%s)"
   out="$(cli_limit_usage 2>/dev/null)" || { echo "  usage: unavailable for $(cli_name) (checkpoints on the limit message only)"; return 0; }
   [[ -n "$out" ]] || { echo "  usage: no open windows reported"; return 0; }
-  while IFS=$'\t' read -r acct win pct reset _; do   # #659: the 5th column is the reading's time
+  while IFS=$'\t' read -r acct win pct reset at; do   # #659: the 5th column is the reading's time
     [[ -n "$acct" ]] || continue
+    stale=""; sage="$(_usage_stale_age "$at" "$now")" && stale=" STALE $(_usage_age_fmt "$sage") old"   # #658
     hold=""; [[ -f "$(_usage_hold_dir)/$(_usage_key "$acct").hold" ]] && hold="  HOLD (checkpointed; claims paused)"
-    printf '  usage: %s %s %s%% (checkpoint at %s%%, resets %s)%s\n' "$acct" "$win" "$pct" \
-      "$HARNESS_USAGE_CHECKPOINT_PCT" "$(date -d "@$reset" '+%a %H:%M' 2>/dev/null || echo "$reset")" "$hold"
+    printf '  usage: %s %s %s%% (checkpoint at %s%%, resets %s)%s%s\n' "$acct" "$win" "$pct" \
+      "$HARNESS_USAGE_CHECKPOINT_PCT" "$(date -d "@$reset" '+%a %H:%M' 2>/dev/null || echo "$reset")" "$stale" "$hold"
   done <<< "$out"; }
