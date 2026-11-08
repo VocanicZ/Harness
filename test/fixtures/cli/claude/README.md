@@ -14,6 +14,8 @@ and Harness's own status line (`usage-statusline.sh`) in `.claude/settings.local
 | `busy.txt` | Mid-turn while a foreground `python3 -c 'import time; time.sleep(45)'` ran: the spinner plus `(ctrl+b ctrl+b (twice) to run in background)`. |
 | `busy-spinner.txt` | Mid-turn while the model was writing (no tool running): the spinner line `✻ Puttering… (1s · ↓ 38 tokens · thinking)` only. No `esc to interrupt` anywhere: Harness's status line hides it (docs/cli-capabilities.md Findings 5, confirmed). |
 | `idle.txt` | After the turn ended: `❯` at column 0 in the input box. |
+| `idle-subagent-running.txt` | Claude Code 2.1.319, haiku, same lane setup (#668): the prompt idle while a background `Agent` sub-agent runs `python3 -c 'import time; time.sleep(45)'`. Shows `✻ Waiting for 1 background agent to finish` above the input box and a `◯ general-purpose …` row under the footer. The footer still reads `← 1 agent`, exactly as with no sub-agent. Its scrollback holds an earlier, finished sub-agent's `Waiting for…` line. |
+| `idle-subagent-done.txt` | The same session once that sub-agent finished: the `Waiting for…` lines are only in the scrollback, no `◯` row, footer unchanged (`← 1 agent`). |
 | `limit.txt` | NOT triggerable on demand. `idle.txt` with the limit line a real lane showed (#120, quoted in its issue body) inserted above the input box. |
 | `transient.txt` | NOT triggerable on demand. `idle.txt` with the 529 line a real lane showed (#115, quoted in its issue body) inserted above the input box. |
 | `transcript.jsonl` | The session's own transcript (`$CLAUDE_CONFIG_DIR/projects/<cwd>/<session>.jsonl`), trimmed to its `user`/`assistant` lines; message text replaced by `(trimmed)`, ids, timestamps, model and usage kept as written. |

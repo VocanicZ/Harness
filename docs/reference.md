@@ -162,8 +162,9 @@ a claim):
    watchdog (which advances a driven goal loop) and the self-park check. A lane whose session has ended is
    reaped and its claim released. A worker that owns a live lane tends it on a **short tick**
    (`HARNESS_TEND_TICK`, 15s) instead of waiting a full `POLL` (#594): the short tick runs only this step,
-   checks the lane's goal only while its pane is idle (not busy, and no sub-agent still running — the status
-   line's `← 1 agent`) — and for an issue lane reads that one issue from `gh` itself, not the poller's snapshot, which
+   checks the lane's goal only while its pane is idle (not busy, and no sub-agent still running — the
+   `✻ Waiting for N background agent to finish` line above the input box, or a `◯` agent row under the footer; the
+   footer's `← 1 agent` is on every pane and means nothing, #668) — and for an issue lane reads that one issue from `gh` itself, not the poller's snapshot, which
    is up to `HARNESS_PRIORITY_POLL` old (#667) — and leaves the stall watchdog and every fleet-wide chore on the `POLL` cadence. A
    `DECOMPOSE` lane is not goal-checked until it prints its completion promise, or has been idle for
    `HARNESS_TEND_IDLE_TICKS` ticks in a row with no `gh` process running (the goal counts as met once the PRD
