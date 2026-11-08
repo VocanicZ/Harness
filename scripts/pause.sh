@@ -53,6 +53,17 @@ force_pause(){
         fi
         echo "  confirmed paused: $sl#$i"
         stats_sess_event "$u" paused
+      elif ! session_live "$u"; then
+        # #662: the lane finished its issue and was reaped before its checkpoint turn ran — nothing is
+        # left to checkpoint and no paused label can ever appear. Look once more (it may have labelled
+        # the issue and ended between the read above and the liveness check), then let it go.
+        labels="$(gh issue view "$i" -R "$sl" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
+        if [[ "$labels" == *"$HARNESS_LABEL_PAUSED"* ]]; then
+          echo "  confirmed paused: $sl#$i"
+          stats_sess_event "$u" paused
+        else
+          echo "  session ended on its own: $u"
+        fi
       else
         still+=("$item")
       fi
