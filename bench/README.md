@@ -623,3 +623,27 @@ Fleet lanes write their prompt cache with the 5-minute TTL (1.25× the input pri
 - `cache_ttl` records the setting the run had.
 
 To compare the arms, run the same fixture twice, `HARNESS_CACHE_TTL=5m` and `HARNESS_CACHE_TTL=1h` (it passes through the scrubbed environment), and read `cache_cost_usd`, `cache_write_5m` / `cache_write_1h` and `turn_gaps` of the two results files. `--reproduce` recomputes the split and the cost from the kept transcripts.
+
+### Result of the 5m vs 1h comparison (#637)
+
+Both arms ran the Harness arm on the small fixture (`pennywise`, one run each, 2026-11-08, back to back, same host and account): `HARNESS_CACHE_TTL=5m` in `bench/results/ttl-ab-5m/ttl-ab-5m/harness.json` and `HARNESS_CACHE_TTL=1h` in `bench/results/ttl-ab-1h/ttl-ab-1h/harness.json`. Both are `status: ok`, pass all 80 hidden tests, and their kept transcripts reproduce the committed numbers (`verify_logs`: no mismatch).
+
+| | `5m` | `1h` |
+|---|---|---|
+| `cache_cost_usd` | **$4.1217** | $4.6114 |
+| `cost_usd` (list price, whole run) | $5.7885 | $6.3951 |
+| `cache_write_5m` | 656,287 | 208,945 |
+| `cache_write_1h` | 0 | 395,719 |
+| `tokens.cache_read` | 7,471,658 | 8,526,638 |
+| `turn_gaps.turns` | 160 | 189 |
+| `turn_gaps.p50_s` / `p90_s` / `max_s` | 7.5 / 21.6 / 610.0 | 7.3 / 18.8 / 3264.1 |
+| `turn_gaps.over_5m` | **5** | 3 |
+| `turn_gaps.over_1h` | 0 | 0 |
+| issues closed / PRs merged by the fleet | 9 / 9 | 12 / 12 |
+| wall time | 3532 s | 4390 s |
+
+- **5m is the cheaper setting.** Its cache cost is $0.49 (10.6%) lower, and the whole run $0.61 (9.5%) lower. The default `HARNESS_CACHE_TTL=5m` stays; nothing in this change revisits it.
+- **Gaps over five minutes cost little.** The 5m run had 5 gaps over five minutes out of 160 turns, so at most 5 cache re-writes; its longest gap was 610 s (about ten minutes), and nothing came near an hour. A 1h write is priced at 2× the input price against 1.25× for a 5m write, and the 5m run still came out cheaper in total.
+- **The 1h run still wrote 208,945 tokens at the 5m TTL**, because not every block in a session carries the forced TTL; only 395,719 of its 604,664 written tokens were 1h writes. So the 1h setting did not price all its writes at 2×, and the gap in `cache_cost_usd` understates what a pure 1h cache would cost.
+- **The two runs are not the same workload, so the comparison is a single sample.** The fleet's own planning split the work differently: 12 issues in the 1h run against 9 in the 5m run, which is 189 turns against 160 and 14% more cache reads. Per turn, the cache cost is $0.0258 (5m) against $0.0244 (1h), so the 1h run was 5% cheaper per turn. The $0.49 total difference is therefore partly the larger 1h run. What the data does show is that 5m cost less in total than 1h with at most 5 gap re-writes; it does not show 5m to be cheaper at equal work. Repeating the pair with `--runs` would narrow that.
+

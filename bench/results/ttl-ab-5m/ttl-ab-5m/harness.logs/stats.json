@@ -1,0 +1,39 @@
+{
+  "bnf922a": {
+    "sessions": 10,
+    "tokens": {},
+    "issues_closed": 9,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-ttl-ab-5m-harness": {
+        "claims": 10,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 9,
+        "init": 1,
+        "which": 16
+      },
+      "which": 16,
+      "changed_nodes": 495,
+      "round1": 906,
+      "round2": 34,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 16
+      },
+      "wall_ms": 2345,
+      "selective": 16,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}
