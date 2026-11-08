@@ -299,6 +299,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_ONE_USD_PER_PCT` | _(empty)_ | `harness forecast`'s fallback $ per 1% of a usage window, for an account/window with no calibration yet (no usable `usage_reading` pair). Read from the environment, else this config. Empty = `n/a`. See [Cost forecast](#cost-forecast) |
 | `HARNESS_ONE_STOP_PCT` | `98` | `/harness-one`'s gate: recommend APPROVE only when every usage window's `now% + p80% + HARNESS_ONE_RESERVE_PCT` stays at or under this %. See [One issue at a time](#one-issue-at-a-time-harness-one) |
 | `HARNESS_ONE_RESERVE_PCT` | `2` | % of a window the gate holds back for the checkpoint (commit, push, handoff) when the budget runs out |
+| `HARNESS_USAGE_STALE_MIN` | `HARNESS_ONE_STALE_MIN` (`30`) | A usage reading older than this many minutes is stale (#658): below `HARNESS_USAGE_CHECKPOINT_PCT` it opens no hold, at/above it still holds, and it never releases a hold. `0` = never stale. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
 | `HARNESS_ONE_STALE_MIN` | `30` | A usage reading older than this many minutes, or of unknown age, is stale… |
 | `HARNESS_ONE_STALE_PAD_PCT` | `3` | …and the gate adds this many points to it |
 | `HARNESS_ONE_LEASE_MIN` | `240` | Minutes a `/harness-one` claim keeps the pool's reapers and lock sweeps off its issue after the last `harness one start`/`phase`; past it the session counts as dead and the pool reaps the issue like a dead lane |
@@ -448,7 +449,7 @@ windows off the `rate_limit_event`s claude prints: the runner keeps the latest i
 (`rate_limit`, `rate_limit_at`) with the account the lane runs on (`account`: its `CLAUDE_CONFIG_DIR`'s
 name, `default` without one — the status line's rule), and the claude adapter reports each account window
 from the newest reading of this fleet's lanes (`<prefix>-…`) or status-line drops (utilization × 100, a
-window past its reset skipped) — a sibling fleet's account never holds this fleet's claims. At `HARNESS_USAGE_CHECKPOINT_PCT` every live lane on that account (or of unknown
+window past its reset skipped). The status-line drops of every fleet registered on the host are read too, since an account name means the same account on one host; the newest reading wins (#658). At `HARNESS_USAGE_CHECKPOINT_PCT` every live lane on that account (or of unknown
 account) is sent the checkpoint message, which waits behind a running turn, and claims are held, as on
 tmux; once the lane's checkpoint turn has ended with its issue `agent-paused`, the next usage pass ends the
 lane (`usage: lane parked after its checkpoint`) and the resume carries on its claude session. A lane
@@ -1389,6 +1390,24 @@ reading time for `HARNESS_USAGE_SPEND_TTL` seconds (300), and is skipped, with o
 (one per account and window, only when it changed since the last one logged) goes to the event log
 as a `usage_reading` event (`account`, `window`, `pct`, `resets_at`), whatever the CLI; the
 [cost forecast](#cost-forecast) calibrates $ per 1% from them.
+
+**Stale readings (#658).** A status-line drop only refreshes while a pane draws its status line, so a
+reading can be hours old. One older than `HARNESS_USAGE_STALE_MIN` minutes (default `HARNESS_ONE_STALE_MIN`,
+30) is *stale*, and `harness status` marks it (`… STALE 30h old`):
+
+- below `HARNESS_USAGE_CHECKPOINT_PCT` it opens no hold. The poll logs `usage: <account> <window> reading is
+  stale (30h old, 70%) — checkpointing on the limit message only` once per stale episode, records a
+  `usage_stale` event (a stale reading brought up past the threshold by the spend since it, #659, holds
+  instead). The checkpoint on the limit message itself is unchanged;
+- at or above it still holds: usage only grows inside a window until it resets, so an old reading is a
+  lower bound;
+- it never releases a hold. A hold ends at its recorded reset time, or on a *fresh* reading of its window
+  below the threshold, taken after the hold opened (#659).
+
+The claude adapter reads the status-line drops of every fleet in the host registry, not only this fleet's
+(`<run_dir>/usage/*.json`), so a fleet whose own panes stopped reporting still sees an account's usage
+through a sibling fleet's. Per account window the newest reading wins, and `harness one` reports the age of
+that reading. An unreadable registry entry or run dir is skipped.
 
 ### Cost forecast
 
