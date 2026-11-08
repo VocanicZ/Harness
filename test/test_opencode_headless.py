@@ -7,6 +7,8 @@ transient states, and `watch`. The lane protocol itself (inbox, interrupt, stop,
 by test_headless_core.py and test_claude_headless.py."""
 import importlib.util, json, os, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "opencode_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "opencode", "run-json")
@@ -41,7 +43,7 @@ class Lane:
         with open(os.path.join(self.fake, "plan"), "w") as f:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, XDG_DATA_HOME=self.xdg)
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
                "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}"]
         for flag, val in (("--session-id", session_id), ("--effort", effort), ("--model", model)):
             if val:

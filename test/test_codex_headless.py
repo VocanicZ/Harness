@@ -6,6 +6,8 @@ on codex's own stream: a turn start (no thread id yet), the resume id (the threa
 thread codex lost → a fresh one, and interrupt and stop leaving no child behind."""
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "codex_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "codex", "stream-json")
@@ -42,7 +44,7 @@ class Lane:
             open(os.path.join(self.fake, "hold"), "w").close()
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake)
         env.pop("CODEX_HOME", None)
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
                "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}"]
         if session_id:
             cmd += ["--session-id", session_id]
@@ -80,14 +82,6 @@ class Lane:
             self.proc.wait(timeout=20)
         except subprocess.TimeoutExpired:
             self.proc.kill()
-
-
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()[:1] not in ("", "Z")
 
 
 # --- the turn reader, over each capture -------------------------------------------------------------------

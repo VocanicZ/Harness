@@ -7,6 +7,8 @@ the stats sweep reads, the limit and transient states, and `watch`. The lane pro
 stop, pane) is the core's, proved by test_headless_core.py and test_claude_headless.py."""
 import importlib.util, json, os, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "openclaw_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "openclaw", "agent-json")
@@ -42,7 +44,7 @@ class Lane:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, HARNESS_OPENCLAW_CONFIG=os.path.join(self.tmp, "op", "openclaw.json"))
         flags = f"--config {self.state_dir}/openclaw.json --cwd {self.wd} --state-dir {self.state_dir} --timeout 60"
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
                "--bin", f"{sys.executable} {FAKE}", "--session-id", session_id, "--flags", flags]
         if model:
             cmd += ["--model", model]

@@ -8,6 +8,8 @@ is the `limit` state with its reset, a failed turn is `transient` and the next m
 interrupt ends the turn and not the lane, a stop ends both."""
 import importlib.util, json, os, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 FIX = os.path.join(HERE, "fixtures", "headless-core")
 ENTRY = os.path.join(FIX, "fake_headless.py")
@@ -28,18 +30,6 @@ def wait_for(pred, what, timeout=15):
     raise AssertionError(f"timed out waiting for {what}")
 
 
-def gone(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return True
-    try:   # reaped-later zombies count as gone
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().rsplit(")", 1)[-1].split()[0] == "Z"
-    except OSError:
-        return True
-
-
 class Lane:
     """A core runner on a fresh lane dir, its CLI the fake replaying <plan>."""
 
@@ -51,7 +41,7 @@ class Lane:
         with open(os.path.join(self.fake, "plan"), "w") as f:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLI_DIR=self.fake)
-        cmd = [sys.executable, ENTRY, "run", "--lane", self.lane, "--cwd", self.wd, "--bin", f"{sys.executable} {FAKE}"]
+        cmd = [RUNNER_PY, ENTRY, "run", "--lane", self.lane, "--cwd", self.wd, "--bin", f"{sys.executable} {FAKE}"]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -201,7 +191,7 @@ def test_a_missing_cli_fails_the_turn_not_the_runner():
     try:
         # a second lane whose binary does not exist
         lane2 = os.path.join(L.tmp, "lane2"); os.makedirs(lane2)
-        p = subprocess.Popen([sys.executable, ENTRY, "run", "--lane", lane2, "--cwd", L.wd, "--bin", "/nonexistent/fake-cli",
+        p = subprocess.Popen([RUNNER_PY, ENTRY, "run", "--lane", lane2, "--cwd", L.wd, "--bin", "/nonexistent/fake-cli",
                               "--message", "hi"])
         try:
             st = wait_for(lambda: (lambda s: s if s.get("turn") == 1 and s.get("state") != "busy" else None)(core.read_state(lane2)),
@@ -258,7 +248,7 @@ def test_restart_resumes_the_session_and_inbox_position():
     env = dict(os.environ, FAKE_CLI_DIR=L.fake)
     with open(os.path.join(L.fake, "plan"), "a") as f:
         f.write("ok two\n")
-    p = subprocess.Popen([sys.executable, ENTRY, "run", "--lane", L.lane, "--cwd", L.wd, "--bin", f"{sys.executable} {FAKE}"], env=env)
+    p = subprocess.Popen([RUNNER_PY, ENTRY, "run", "--lane", L.lane, "--cwd", L.wd, "--bin", f"{sys.executable} {FAKE}"], env=env)
     try:
         wait_for(lambda: L.state().get("runner_pid") == p.pid, "the restarted runner")
         L.send("b"); L.wait_turn(2, "idle")

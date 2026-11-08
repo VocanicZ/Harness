@@ -5,6 +5,8 @@ idle → busy → idle / limit / transient, the session id carried across turns,
 from state.json, and a stop (the `stop` request or a SIGTERM) leaving no child process behind."""
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "claude_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "claude", "stream-json")
@@ -40,7 +42,7 @@ class Lane:
         if hold:
             self.hold()
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake)
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
                "--bin", f"{sys.executable} {FAKE}", "--flags=--dangerously-skip-permissions"]
         if session_id:
             cmd += ["--session-id", session_id]
@@ -84,18 +86,6 @@ class Lane:
         r = subprocess.run([sys.executable, RUNNER, "stop", "--lane", self.lane, "--timeout", "15"])
         self.proc.wait(timeout=15)
         return r.returncode
-
-
-def gone(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return True
-    try:   # reaped-later zombies count as gone
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().rsplit(")", 1)[-1].split()[0] == "Z"
-    except OSError:
-        return True
 
 
 # --- the fold over each real capture ------------------------------------------------------------
@@ -249,7 +239,7 @@ def _hang_then(stop):
             lane.proc.kill()
         for p in (claude, grandchild):
             if p and not gone(p):
-                os.kill(p, signal.SIGKILL)
+                kill_tree(p)
 
 
 def test_stop_request_leaves_no_child_behind():
@@ -260,7 +250,10 @@ def test_stop_request_leaves_no_child_behind():
 
 def test_sigterm_leaves_no_child_behind():
     def term(lane):
-        lane.proc.send_signal(signal.SIGTERM); lane.proc.wait(timeout=15)
+        if WINDOWS:   # no signal reaches a Windows process from outside (it would be TerminateProcess): its termination request is the stop file
+            assert lane.stop() == 0, "the runner did not report ended"
+        else:
+            lane.proc.send_signal(signal.SIGTERM); lane.proc.wait(timeout=15)
     _hang_then(term)
 
 
@@ -268,7 +261,7 @@ def test_restart_resumes_session_and_inbox_position():
     lane = Lane(["normal", "normal"], session_id="aaaaaaaa-0000-0000-0000-000000000000")
     lane.send("before restart"); lane.wait_turn(1, "idle"); lane.stop()
     env = dict(os.environ, FAKE_CLAUDE_DIR=lane.fake)
-    p = subprocess.Popen([sys.executable, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd,
+    p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd,
                           "--bin", f"{sys.executable} {FAKE}"], env=env)
     try:
         wait_for(lambda: ch.read_state(lane.lane).get("runner_pid") == p.pid, "the restarted runner")
@@ -286,10 +279,10 @@ def test_killed_runner_redelivers_queued_not_delivered():
     lane.send("delivered"); wait_for(lambda: lane.state().get("state") == "busy", "busy")
     lane.send("queued"); wait_for(lambda: lane.state().get("queued") == 1, "queued")
     lane.proc.kill(); lane.proc.wait()
-    os.kill(lane.calls()[0]["pid"], signal.SIGKILL)   # the fake turn the killed runner left
+    kill_tree(lane.calls()[0]["pid"])   # the fake turn the killed runner left
     lane.release()
     env = dict(os.environ, FAKE_CLAUDE_DIR=lane.fake)
-    p = subprocess.Popen([sys.executable, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd,
+    p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd,
                           "--bin", f"{sys.executable} {FAKE}"], env=env)
     try:
         lane.wait_turn(2, "idle")
@@ -338,7 +331,7 @@ def test_resume_of_a_session_claude_lost_starts_it_under_the_same_id():
 
 def test_missing_claude_fails_the_turn_not_the_runner():
     tmp = tempfile.mkdtemp(); lane = os.path.join(tmp, "lane")
-    p = subprocess.Popen([sys.executable, RUNNER, "run", "--lane", lane, "--cwd", tmp,
+    p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane, "--cwd", tmp,
                           "--bin", os.path.join(tmp, "no-such-claude"), "--message", "hello"])
     try:
         st = wait_for(lambda: (lambda s: s if s.get("turn") == 1 and s.get("state") == "transient" else None)(
@@ -374,7 +367,7 @@ def test_interrupt_ends_the_turn_not_the_runner():
         lane.stop()
         for p in (claude, grandchild):
             if p and not gone(p):
-                os.kill(p, signal.SIGKILL)
+                kill_tree(p)
 
 
 def test_stale_interrupt_does_not_end_the_next_turn():
@@ -533,7 +526,7 @@ def test_lane_dir_deleted_mid_turn_kills_the_turn_and_ends_the_runner():
                 lane.proc.kill()
             for p in (claude, grandchild):
                 if p and not gone(p):
-                    os.kill(p, signal.SIGKILL)
+                    kill_tree(p)
 
 
 if __name__ == "__main__":
