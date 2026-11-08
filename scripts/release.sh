@@ -137,8 +137,9 @@ if ((finishing == 0)); then
   # Every release variable is dropped too (#325): the auto-release path hands this script
   # HARNESS_AUTORELEASE_DIR / _RELEASE_REASON / _RELEASE_REPO, and a gate that inherited them ran
   # test_release.sh against the host's real autorelease dir, so every automatic release failed.
+  # HARNESS_ENGINE_STAMP too (#682): the worker exports it, and a stamped stand-in worker in test_engine_roll.sh is rolled.
   ( cd "$tmp/gate" && env -u STATE_DIR -u ENGINE_DIR -u HARNESS_HOME -u HARNESS_AUTORELEASE_DIR \
-      -u HARNESS_RELEASE_REASON -u HARNESS_RELEASE_REPO -u HARNESS_RELEASE_CMD bash test/run.sh ) >"$log" 2>&1
+      -u HARNESS_RELEASE_REASON -u HARNESS_RELEASE_REPO -u HARNESS_RELEASE_CMD -u HARNESS_ENGINE_STAMP bash test/run.sh ) >"$log" 2>&1
   grc=$?
   if ((grc != 0)); then
     mkdir -p "$AUTORELEASE_DIR" && cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"

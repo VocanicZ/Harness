@@ -11,10 +11,18 @@ ws_owner_live(){ local session="$1" pid="$2"
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && return 0
   [[ -n "$session" && "$session" != - ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t "$session" 2>/dev/null && return 0
   return 1; }
+# ws_clock_ms — milliseconds on a monotonic-enough wall clock (test seam: a test redefines it). EPOCHREALTIME is bash 5+;
+# without it only whole seconds are known, so ws_lock_expired demands a whole extra second rather than risk giving up early.
+ws_clock_ms(){ if [[ -n "${EPOCHREALTIME:-}" ]]; then local t="${EPOCHREALTIME/[.,]/}"; echo $(( 10#$t / 1000 ))
+  else echo $(( SECONDS * 1000 )); fi; }
+# ws_lock_expired <started_ms> — has WS_LOCK_TIMEOUT real seconds passed since <started_ms>? Never true early (#682): a whole-second
+# clock reads 1s after as little as a few ms, so on one the elapsed time must EXCEED the timeout, which makes it at least that long.
+ws_lock_expired(){ local to="${WS_LOCK_TIMEOUT:-0}" slack=0 now; (( to > 0 )) || return 1
+  [[ -n "${EPOCHREALTIME:-}" ]] || slack=1000; now="$(ws_clock_ms)"; (( now - $1 >= to * 1000 + slack )); }
 # ws_lock <issue> [session] [host_pid] — take the lock (waiting or breaking a stale one), then start the heartbeat loop.
 ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3:-${WS_LANE_PID:-$PPID}}"
   ws_need_host >/dev/null || return 1
-  local stale="${WS_STALE_SEC:-1800}" poll="${WS_POLL:-300}" started rc state o oi os op age; started=$SECONDS
+  local stale="${WS_STALE_SEC:-1800}" poll="${WS_POLL:-300}" started rc state o oi os op age; started="$(ws_clock_ms)"
   while :; do
     ws_call r_lock_take "$issue" "$session" "$pid"; rc=$?
     if (( rc == 0 )); then
@@ -33,10 +41,11 @@ ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3
         ws_call r_lock_break "$oi" "$stale" && continue
       fi
     fi
-    if (( ${WS_LOCK_TIMEOUT:-0} > 0 && SECONDS - started >= WS_LOCK_TIMEOUT )); then
+    # Say who holds it BEFORE the timeout check (#682): every waiter that finds a held lock tells the operator at least once.
+    ws_log "lock: held by #$oi ($os), heartbeat ${age}s old; waiting ${poll}s"
+    if ws_lock_expired "$started"; then
       { ws_die "hx-lock still held by #$oi after ${WS_LOCK_TIMEOUT}s"; return 1; }
     fi
-    ws_log "lock: held by #$oi ($os), heartbeat ${age}s old; waiting ${poll}s"
     sleep "$poll"
   done; }
 ws_unlock(){ ws_call r_lock_release "$1"; }

@@ -84,6 +84,31 @@ echo "# lock: waiting and breaking"
   assert_eq "$(sed -n 's/^issue=//p' "$WS_C/hx-lock/owner")" "111" "the holder keeps the lock"
   [[ "$out" != *agent-paused* ]]; assert_eq "$?" "0" "a waiter never labels itself agent-paused"
   finish ) || rc=1
+# #682: the timeout was measured in whole $SECONDS and checked BEFORE the "waiting" line, so a waiter that started
+# just before a wall-clock second boundary gave up at once, after ~25ms, without ever saying who held the lock.
+( fresh_env
+  seed_lock 111 lane-b 999999 10
+  export WS_LOCK_TIMEOUT=1 WS_OWNER_LIVE_CMD=false
+  if [[ "$(date +%N)" =~ ^[0-9]{9}$ ]]; then
+    miss=0
+    for i in 1 2 3 4 5; do   # start ~25ms before a second boundary: the old waiter missed 10/10
+      while (( 10#$(date +%N) < 975000000 )); do :; done
+      out="$(ws_lock 222 lane-c $$ 2>&1)"; [[ "$out" == *"held by #111"*"waiting"* ]] || miss=$((miss+1))
+    done
+    assert_eq "$miss" "0" "a waiter that starts at a second boundary still says it is waiting on #111 (5/5)"
+  fi
+  finish ) || rc=1
+( fresh_env   # deterministic: a stubbed clock that advances 300ms per reading
+  seed_lock 111 lane-b 999999 10
+  export WS_LOCK_TIMEOUT=2 WS_OWNER_LIVE_CMD=false WS_POLL=0.01
+  echo 0 >"$T/clk"
+  # a file, not a variable: ws_lock reads the clock in a $(...) subshell
+  ws_clock_ms(){ local c; c="$(<"$T/clk")"; echo $((c+300)) >"$T/clk"; echo "$c"; }
+  out="$(ws_lock 222 lane-c $$ 2>&1)"; rc=$?
+  assert_eq "$rc" "1" "a held lock: the waiter gives up at its timeout"
+  [[ "$out" == *"held by #111"*"waiting"* ]]; assert_eq "$?" "0" "...after telling the operator who holds the lock"
+  assert_eq "$(( $(<"$T/clk") - 300 >= 2000 ))" "1" "...and not before WS_LOCK_TIMEOUT seconds on the clock have passed"
+  finish ) || rc=1
 ( fresh_env
   mkdir -p "$WS_C/hx-111"; seed_lock 111 lane-b 999999 2000
   export WS_LOCK_TIMEOUT=1 WS_OWNER_LIVE_CMD=true

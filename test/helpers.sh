@@ -161,7 +161,10 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # that builds its own engine would act on the lane's instead (test_web_install's uninstall left the unit behind).
 # Dropped when this file is sourced, so every test is a stranger to the fleet that launched it; a test that
 # wants a session sets its own after sourcing.
-HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX RTDD_EVENT_LOG TMUX TMUX_PANE"
+# HARNESS_ENGINE_STAMP (#682) is the same kind of thing: pool.sh / priority.sh export the worker's engine stamp (#602) and every child
+# inherits it, the release gate included. A test's stand-in "unstamped" worker then carries the host's stamp, roll.sh calls it stale
+# and kills it (test_engine_roll.sh red at the e902e61 gate). A test that wants a stamped process sets it inline on that process.
+HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX HARNESS_ENGINE_STAMP RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
 # ENGINE_DIR is re-pointed, not just dropped: most tests source lib.sh BEFORE this file, and lib.sh has already
 # exported ENGINE_DIR (the lane's, if it was inherited). Unsetting it left them with none ("ENGINE_DIR: unbound
