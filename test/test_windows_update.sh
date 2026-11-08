@@ -17,6 +17,9 @@ R="$(cd "$HERE/.." && pwd)"
 source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
 export HOME="$T/home"; mkdir -p "$HOME"
+# On a real Windows host the symlinks are the real thing (what install.sh and update.sh export for themselves), the directory
+# rule below is Windows' own, and the engine spells its paths C:/x, so the home is handed over in that spelling (native_path).
+real_windows_host && export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
 export TMPDIR="$T/tmp"; mkdir -p "$TMPDIR"
 
 # --- the fakes ------------------------------------------------------------------------------------
@@ -36,7 +39,7 @@ EOF
 for b in powershell taskkill systemctl loginctl; do printf '#!/bin/sh\necho "%s $*" >> %s/%s.calls\nexit 0\n' "$b" "$T" "$b" >"$T/bin/$b"; done
 for b in claude gh rtdd; do printf '#!/bin/sh\nexit 0\n' >"$T/bin/$b"; done
 # mv with Windows' directory rule (only `mv -T <dir> <dst>`, the engine moves): refuse while any process has a file open under <dir>.
-cat >"$T/bin/mv" <<'EOF'
+real_windows_host || cat >"$T/bin/mv" <<'EOF'
 #!/bin/bash
 args=("$@"); n=${#args[@]}
 if [[ ${HARNESS_PLATFORM:-} == windows && ${args[0]} == -T && $n -eq 3 && -d ${args[1]} && ! -L ${args[1]} ]]; then
@@ -48,14 +51,14 @@ if [[ ${HARNESS_PLATFORM:-} == windows && ${args[0]} == -T && $n -eq 3 && -d ${a
 fi
 exec /bin/mv "$@"
 EOF
-chmod +x "$T/bin/"*
+chmod +x "$T/bin/"* 2>/dev/null
 export PATH="$T/bin:$PATH" HARNESS_PLATFORM=windows HARNESS_SCHTASKS="$T/bin/schtasks" HARNESS_POWERSHELL="$T/bin/powershell" \
   HARNESS_TASKKILL="$T/bin/taskkill" HARNESS_BASH_EXE=bash HARNESS_PYTHON="$(command -v python3)" HARNESS_SKIP_RTDD=1 \
   HARNESS_SUPERVISE_CONF="$T/none.conf" \
   HARNESS_SUPERVISE_SYSTEMCTL="$T/bin/systemctl" HARNESS_SUPERVISE_LOGINCTL="$T/bin/loginctl" \
   HARNESS_WEB_SYSTEMCTL="$T/bin/systemctl" HARNESS_WEB_LOGINCTL="$T/bin/loginctl"
 pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
-export HARNESS_HOME="$T/host" HARNESS_BIN_DIR="$T/bin-host" HARNESS_USER_SKILLS="$T/skills"
+export HARNESS_HOME="$(native_path "$T/host")" HARNESS_BIN_DIR="$(native_path "$T/bin-host")" HARNESS_USER_SKILLS="$(native_path "$T/skills")"
 H="$HARNESS_HOME"; SRV="$T/srv"; rel_server "$SRV"
 for t in v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0; do rel_publish "$SRV" "$t"; done; rel_latest "$SRV" v0.2.0
 hv(){ env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" "$@"; }
@@ -108,14 +111,16 @@ assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "a second --rollback goes fo
 assert_no "no flip link is left over" compgen -G "$H/engine.flip.*"
 
 echo "=== rolling back onto a release that predates Windows support says how to come forward ==="
+# (the old release is faked by renaming the token its update.sh exports: an unknown MSYS option is ignored, so on a real
+# Windows host the links stay real nativestrict ones, where `winsymlinks:lnk` would turn them into .lnk shortcuts)
 fresh; rel_install_at "$SRV" v0.1.0
-sed -i 's/winsymlinks:nativestrict/winsymlinks:lnk/g' "$H/releases/v0.1.0/update.sh"
+sed -i 's/winsymlinks:nativestrict/winsymlinks:old/g' "$H/releases/v0.1.0/update.sh"
 hv update >/dev/null 2>&1
 out="$(hv update --rollback 2>&1)"; rc=$?
 assert_eq "$rc" 0 "the rollback itself works"
 assert_ok "it warns that v0.1.0 predates native Windows support" grep -qF 'v0.1.0 predates native Windows support' <<<"$out"
 assert_ok "… and names the command that goes forward" grep -qF 'MSYS=winsymlinks:nativestrict harness update --rollback' <<<"$out"
-fresh; rel_install_at "$SRV" v0.1.0; sed -i 's/winsymlinks:nativestrict/winsymlinks:lnk/g' "$H/releases/v0.1.0/update.sh"; hv update >/dev/null 2>&1
+fresh; rel_install_at "$SRV" v0.1.0; sed -i 's/winsymlinks:nativestrict/winsymlinks:old/g' "$H/releases/v0.1.0/update.sh"
 out="$(HARNESS_PLATFORM=posix hv update --rollback 2>&1)"
 assert_no "Linux never prints it" grep -q 'predates native Windows' <<<"$out"
 
@@ -155,9 +160,12 @@ assert_no "the copy of update.sh it ran from is gone" compgen -G "$TMPDIR/harnes
 # …and the copy is only for Windows: elsewhere update.sh runs in place (nothing to rename around).
 fresh; mkdir -p "$H/engine"; ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$H/engine"
 ( cd "$H/engine" && git init -q . && git -c user.name=t -c user.email=t@t add -A >/dev/null 2>&1 && git -c user.name=t -c user.email=t@t commit -q -m engine >/dev/null 2>&1 )
+# (a real Windows host cannot run update.sh in place from the checkout it moves: that is the rule the section above is about)
+if ! skip_posix_branch "update.sh run in place from the git checkout it migrates"; then
 out="$(HARNESS_PLATFORM=posix env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" update 2>&1)"; rc=$?
 assert_eq "$rc" 0 "Linux: the same update exits 0"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "Linux: engine is a link too"
+fi
 echo "=== the Windows rule itself, so the test above can fail: a directory with an open file does not move ==="
 mkdir -p "$T/d1"; echo x > "$T/d1/f"; exec 7<"$T/d1/f"     # held open by this very shell: no timing to race
 assert_no "the fake mv refuses a directory with an open file" env HARNESS_PLATFORM=windows mv -T "$T/d1" "$T/d2"
@@ -186,6 +194,7 @@ assert_no "… and is not a loop waiting on a timeout" test "$rc" = 124
 assert_no "its baked interpreter is not the shim" grep -qF "p=\"\${HARNESS_PYTHON:-$H/bin/python3}\"" "$H/bin/python3"
 
 echo "=== bin/harness takes the engine link when HARNESS_HOME is spelled C:/x and ENGINE_DIR is /c/x ==="
+skip_posix_branch "C:-spelled fakes of realpath/cygpath (a real Windows host has the real spellings)" || {
 # Windows' realpath keeps the spelling it is given; the fakes do the same (realpath of C:<abs> is C:<resolved>, cygpath -u drops the drive).
 fresh; rel_install_at "$SRV" v0.1.0; mkdir -p "$T/winfake"
 cat >"$T/winfake/realpath" <<'EOF'
@@ -199,8 +208,10 @@ out="$(PATH="$T/winfake:$PATH" HARNESS_HOME="C:$H" bash "$H/engine/bin/linkprobe
 assert_eq "$out" "C:$H/engine" "the stable engine link is taken (not the release path)"
 out="$(PATH="$T/winfake:$PATH" HARNESS_HOME="$T/elsewhere" bash "$H/engine/bin/linkprobe.sh")"
 assert_eq "$out" "$(realpath "$H/engine")" "another home's link is never taken (the release path stays)"
+}
 
 echo "=== a git-checkout engine migrates when bin/harness hands update.sh a C:/ ENGINE_DIR and HOME-derived paths are /c/ ==="
+skip_posix_branch "C:-spelled fakes of realpath/cygpath" || {
 fresh; mkdir -p "$H/engine" "$T/cwd"; ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$H/engine"
 ( cd "$H/engine" && git init -q . && git -c user.name=t -c user.email=t@t add -A >/dev/null 2>&1 && git -c user.name=t -c user.email=t@t commit -q -m engine >/dev/null 2>&1 )
 rel_latest "$SRV" v0.2.0
@@ -209,6 +220,7 @@ out="$(cd "$T/cwd" && env -u STATE_DIR -u HARNESS_REF PATH="$T/winfake:$PATH" EN
 assert_eq "$rc" 0 "the update exits 0"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "the checkout was recognised as this engine and migrated onto the release"
 rm -f "$T/cwd/C:"
+}
 
 echo "=== harness doctor: the installed, rolled-back and broken engine states ==="
 . "$R/scripts/lib.sh"; export HARNESS_PLATFORM=windows

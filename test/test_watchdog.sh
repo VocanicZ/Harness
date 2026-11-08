@@ -27,22 +27,28 @@ S_STALL="$PFX-stalled"; S_BUSY="$PFX-busy"; S_OK="$PFX-ok"
 cleanup(){ for s in "$S_STALL" "$S_BUSY" "$S_OK"; do command tmux kill-session -t "$s" 2>/dev/null || true; done; }
 trap 'cleanup; tmp_cleanup' EXIT
 
-# Stalled: the documented wedge — a satisfied-looking promise, then a 529 error line, then the idle
-# `❯` prompt with NO active "(esc to interrupt)" spinner. This is the state that must be recovered.
-tmux new-session -d -s "$S_STALL" "bash -c \"printf '%s\n' '  <promise>ISSUE 23 DONE</promise>' '  API Error: 529 Overloaded. This is a server-side issue, usually temporary.' '' '❯' '  bypass permissions on (shift+tab to cycle)'; exec sleep 600\""
-# Busy: an active turn mid-tool-use — the TUI shows "(esc to interrupt)". Must NOT be stalled.
-tmux new-session -d -s "$S_BUSY"  "bash -c \"printf '%s\n' 'Editing file… (esc to interrupt)'; exec sleep 600\""
-# Healthy idle: parked at `❯` briefly between ralph turns, but with NO transient-error marker. Must
-# NOT be stalled (the error marker is what separates a wedge from an ordinary idle prompt).
-tmux new-session -d -s "$S_OK"    "bash -c \"printf '%s\n' '  Done.' '❯' '  bypass permissions on (shift+tab to cycle)'; exec sleep 600\""
-sleep 0.4
+# No tmux (native Windows): this section draws panes and has nothing to run; test_watchdog_headless.sh asserts the same
+# classification on headless lanes there (tmux_twins.tsv, #493). Sections B-C stub tmux and run everywhere.
+if command -v tmux >/dev/null 2>&1; then
+  # Stalled: the documented wedge — a satisfied-looking promise, then a 529 error line, then the idle
+  # `❯` prompt with NO active "(esc to interrupt)" spinner. This is the state that must be recovered.
+  tmux new-session -d -s "$S_STALL" "bash -c \"printf '%s\n' '  <promise>ISSUE 23 DONE</promise>' '  API Error: 529 Overloaded. This is a server-side issue, usually temporary.' '' '❯' '  bypass permissions on (shift+tab to cycle)'; exec sleep 600\""
+  # Busy: an active turn mid-tool-use — the TUI shows "(esc to interrupt)". Must NOT be stalled.
+  tmux new-session -d -s "$S_BUSY"  "bash -c \"printf '%s\n' 'Editing file… (esc to interrupt)'; exec sleep 600\""
+  # Healthy idle: parked at `❯` briefly between ralph turns, but with NO transient-error marker. Must
+  # NOT be stalled (the error marker is what separates a wedge from an ordinary idle prompt).
+  tmux new-session -d -s "$S_OK"    "bash -c \"printf '%s\n' '  Done.' '❯' '  bypass permissions on (shift+tab to cycle)'; exec sleep 600\""
+  sleep 0.4
 
-assert_ok "session_stalled detects the error-then-idle wedge" \
-  bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(tmux capture-pane -p -t '$S_STALL')\""
-assert_no "session_stalled leaves a busy mid-turn session alone" \
-  bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(tmux capture-pane -p -t '$S_BUSY')\""
-assert_no "session_stalled leaves a healthy idle-no-error session alone" \
-  bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(tmux capture-pane -p -t '$S_OK')\""
+  assert_ok "session_stalled detects the error-then-idle wedge" \
+    bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(tmux capture-pane -p -t '$S_STALL')\""
+  assert_no "session_stalled leaves a busy mid-turn session alone" \
+    bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(tmux capture-pane -p -t '$S_BUSY')\""
+  assert_no "session_stalled leaves a healthy idle-no-error session alone" \
+    bash -c "source '$HERE/../scripts/lib.sh'; session_stalled \"\$(tmux capture-pane -p -t '$S_OK')\""
+else
+  echo "  skip: tmux not installed — section A runs as test_watchdog_headless.sh on this host"
+fi
 
 # ── B: watchdog_session escalation — nudge first, then kill after K stalled polls ────────────────
 # Deterministic: stub the pane capture to a fixed stalled pane and record nudges/kills, so the

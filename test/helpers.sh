@@ -34,6 +34,19 @@ host_is_windows(){ case "${HARNESS_PLATFORM:-}" in windows) return 0;; posix) re
 # through this: HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")".
 native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 
+# real_windows_host — this machine IS Windows (Git Bash / MSYS / Cygwin), whatever HARNESS_PLATFORM forces. Not host_is_windows:
+# a test that forces HARNESS_PLATFORM=posix on Linux still has flock and fcntl; one that does it on winsma does not (#607).
+real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
+
+# skip_posix_branch <what> — for a cell that exercises the POSIX implementation of a primitive (flock, fcntl, a fd inherited
+# by a child, procps `ps -o`) forced with HARNESS_PLATFORM=posix. On a real Windows host that implementation cannot run
+# (Git Bash has no flock, Python no fcntl), and the Windows branch of the same primitive is asserted by the file's own
+# [windows] cells, which run on every OS (#607). Prints SKIP and returns 0 there, returns 1 anywhere else: write
+#   skip_posix_branch "flock fd inheritance" || { …the POSIX cells… }
+# It is not a way out of a Windows cell: the Windows branch is never skipped (windows_skip, on an n/a matrix row, is the
+# only skip of a feature).
+skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, no counterpart to run on a Windows host): ${1:-}"; return 0; }
+
 # windows_skip <matrix row> <why> — the ONE way a test skips itself on Windows. A skip is allowed only when the row it
 # names is `n/a` on Windows in the parity matrix (docs/reference.md): Windows physically cannot do that feature.
 #   row n/a on Windows : on Windows prints "SKIP (Windows n/a: row '<row>'): <why>" and returns 0; elsewhere returns 1.

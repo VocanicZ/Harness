@@ -93,7 +93,7 @@ def test_a_dead_claim_is_a_stale_lock_and_a_live_one_is_not():
         claims = os.path.join(host.projects["dp"], "run", "claims")
         os.makedirs(claims, exist_ok=True)
         with open(os.path.join(claims, "quiet.claim"), "w") as fh:
-            fh.write(f"w1 {os.getpid()}\n")
+            fh.write(f"w1 {wf.live_pid()}\n")
         f = {x["prefix"]: x for x in wf.get_json(base + "/api/host")["fleets"]}
         assert f["dp"]["attention"] == [], f["dp"]["attention"]
         with open(os.path.join(claims, "quiet.claim"), "w") as fh:

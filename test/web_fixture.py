@@ -13,8 +13,10 @@ no pid file (STOPPED). The supervisor's state (supervise/, supervise.log, superv
 rate-limit files (ghrate/) are copied into the host, pane files stamped as written at NOW. The
 recorded event log (events.jsonl, #228's session timelines) becomes the host's.
 """
-import contextlib, http.client, importlib.util, json, os, shutil, subprocess, sys, tempfile, threading, time
+import contextlib, http.client, importlib.util, json, os, shutil, subprocess, sys, tempfile, threading, time, traceback
 import urllib.parse
+
+from pidfix import live_pid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
@@ -69,7 +71,7 @@ class Host:
             fh.write(config)
         if alive:
             with open(os.path.join(run, "worker-1.pid"), "w") as fh:
-                fh.write(str(os.getpid()))
+                fh.write(str(live_pid()))
         rec = {"prefix": prefix, "project": state, "run_dir": run, "slugs": list(slugs),
                "started_at": NOW - 3600}
         rec.update(rec_extra or {})
@@ -138,6 +140,11 @@ def build_host(root):
         with open(path, "w") as fh:
             fh.write(body)
         os.chmod(path, 0o755)
+        if sys.platform == "win32":
+            # a native program cannot start an extensionless script: a .cmd shim hands it to Git's bash, and run_cmd finds the
+            # shim through PATH and PATHEXT (#607)
+            with open(path + ".cmd", "w", newline="") as fh:
+                fh.write('@"%s" "%%~dp0%s" %%*\r\n' % (shutil.which("bash") or "bash", name))
     return host
 
 
@@ -373,6 +380,7 @@ def run_tests(ns):
             try:
                 fn(); print(f"  ok: {name}")
             except (AssertionError, OSError) as e:
-                print(f"  FAIL: {name} — {e}"); fails += 1
+                where = traceback.extract_tb(e.__traceback__)[-1]
+                print(f"  FAIL: {name} — {e}  [at {os.path.basename(where.filename)}:{where.lineno}: {where.line}]"); fails += 1
     print(f"── {'all pass' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0

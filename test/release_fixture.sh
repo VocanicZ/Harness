@@ -8,8 +8,9 @@
 # Every file it writes lives under <dir> (the archive is staged in <dir>/.build), so a test that
 # removes its own temp root leaves nothing behind (#294).
 FIXTURE_ENGINE_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-rel_server(){ mkdir -p "$1/download"
-  export HARNESS_API_URL="file://$1/latest.json" HARNESS_BASE_URL="file://$1/download"; }
+# A native curl on a Windows host reads file:///C:/x, not file:///c/x: the dir goes through native_path (helpers.sh; no-op on Linux).
+rel_server(){ mkdir -p "$1/download"; local d; d="$(native_path "$1")"; [[ "$d" == /* ]] || d="/$d"
+  export HARNESS_API_URL="file://$d/latest.json" HARNESS_BASE_URL="file://$d/download"; }
 rel_publish(){ local srv="$1" tag="$2" st; st="$srv/.build/harness-$tag"; rm -rf "$st"; mkdir -p "$st"
   ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$st"
   printf '%s\n%040d\n' "$tag" 0 > "$st/VERSION"

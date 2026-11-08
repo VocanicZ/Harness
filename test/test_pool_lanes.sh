@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_pool_lanes.sh — #468 (PRD #464 §2): the step-based pool worker. A worker claims ONE lane (one issue or
 # one PRD action), runs it, reaps it, releases it; POOL is the most lanes that run at once.
 #   1. POOL=3, three ready issues → three impl lanes at once, one per worker; no issue claimed twice, nor a
@@ -183,9 +184,9 @@ assert_ok "the reapers ran" grep -qx reap_team "$CHORES"
 assert_ok "the live lane was tended by its owner" grep -qx "goal hz-main-i5" "$CALLS"
 assert_ok "... and watchdogged" grep -qx "watchdog hz-main-i5" "$CALLS"
 echo "-- one winner per tick: a worker that does not win chores.lock skips them"
-: > "$CHORES"; exec 8>"$RUN_DIR/chores.lock"; flock -n 8
+: > "$CHORES"; lock_try "$RUN_DIR/chores.lock" CHORES_LOCK   # portable.sh: a flock on Linux, an owned mkdir lock on Windows
 worker_chores W2; assert_eq "$(cat "$CHORES")" "" "chores.lock held elsewhere: none ran"
-exec 8>&-
+lock_release "$CHORES_LOCK"
 worker_chores W2; assert_ok "free again: they ran" grep -qx reap_team "$CHORES"
 : > "$CHORES"; worker_step W1 >/dev/null
 assert_eq "$(grep -c '^reap_team$' "$CHORES")" "1" "chores ran once in a tick of one worker"

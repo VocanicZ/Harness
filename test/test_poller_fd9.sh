@@ -26,12 +26,13 @@ LOCK="$WORK/start.lock"
 # Hold fd 9 on the start-lock, fork the poller via ensure_poller (using the HARNESS_POLLER_CMD seam
 # for a long-lived child), then drop fd 9 in THIS (parent) shell. If the poller child inherited fd
 # 9, the lock stays held after the parent releases it.
-( exec 9>"$LOCK"; flock -n 9 || exit 1
+# The lock goes through lock_try (portable.sh) so the same body runs on Windows: there it is a mkdir lock owned by a pid and
+# there is no fd to inherit — the cell then proves ensure_poller leaves the start-lock free after its caller releases it.
+( lock_try "$LOCK" h 9 || exit 1
   HARNESS_POLLER_CMD='sleep 30' ensure_poller
-  exec 9>&- )
+  if is_windows; then lock_release "$h"; else exec 9>&-; fi )
 
-assert_ok "ensure_poller does NOT leak the start-lock (fd 9) to the poller child" \
-  flock -n 8 8>"$LOCK"
+assert_ok "ensure_poller does NOT leak the start-lock (fd 9) to the poller child" lock_free "$LOCK"
 
 # cleanup the spawned poller child
 pid="$(cat "$HARNESS_POLLER_DIR/poller.pid" 2>/dev/null || true)"; [[ -n "$pid" ]] && kill "$pid" 2>/dev/null; sleep 0.2

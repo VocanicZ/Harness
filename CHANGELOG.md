@@ -51,6 +51,29 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `harness one gate` now counts the spend since each reading, as `harness one phase` does, so the two no longer answer differently on the same
   data (the incident: gate APPROVE, phase CHECKPOINT after $523 of spend). Where the spend cannot be counted, the stale pad still applies.
 
+### The Windows test suite no longer asserts POSIX-only mechanisms on a Windows host (#607)
+
+- The first full-suite run on winsma (#492) left 96 of 168 test files red. The ones in this change asserted how Linux does something
+  — a `flock` fd inherited by a child, a systemd unit, an `apt-get` hint, procps `ps -o`, a tmux pane — where Windows has a counterpart that
+  another test covers, or read a Windows path or pid wrongly. Each now runs the branch the host runs, or is fixed where the code was wrong.
+- `fleetview.run_cmd` resolves the program through `PATH` and `PATHEXT` on native Windows. `CreateProcess` searched System32 first, so the
+  bare `bash` of the headless session probe was WSL's, and it appended only `.exe`, so a `gh.cmd` or `tmux.cmd` shim was never found.
+- Lock tests take their locks through `lock_try` / `lock_acquire` (`flock` on Linux, the owned `mkdir` lock on Windows); the cells that
+  prove the POSIX implementation itself (`flock` fd inheritance, `fcntl`, `os.kill(pid, 0)`) skip on a real Windows host through
+  `skip_posix_branch` and still run on Linux. The package-manager offers and the systemd unit run with the POSIX branch forced
+  (`test_install_prereqs.sh`, `test_web_install.sh`); `test_web_install.sh` gains a Windows section for the scheduled task.
+- Python tests record pids through `test/pidfix.py` (a fake `/proc` that maps a native pid to itself), so a fleet reads a live process as live.
+  The portable-use guard keys its allowlist on forward slashes on every OS.
+- `fleet_slugs_of` compares an owner directory and a registered project in their native spelling (the registry holds `C:/x` where a session
+  names `/c/x`), and the registry and poller readers in `lib.sh` write `\n`, not the `\r\n` a native Windows Python defaults to, so a
+  carriage return no longer ends up inside the last field a `read` gets (`harness status` printed `(acme/gadget\r)`).
+- `test/run.sh` takes `# harness-test-timeout-windows: <seconds>` in a test file: on a Windows host with a cap set, that is its cap when
+  longer. `test_pool_lanes.sh` takes about two minutes on Linux and sixteen under Git Bash.
+- The release fixture serves `file:///C:/...` to a native `curl`; `test_windows_update.sh` runs with real symlinks and the engine's
+  `C:/` spelling on a Windows host, and `test_doctor.sh`, `test_install.sh`, `test_status*.sh`, `test_prefix_guard.sh`, `test_portable.*`
+  and the web tests give a Windows host the fixtures it needs (`.cmd` shims for their `tmux` / `gh` stubs, native registry paths, the
+  headless backend).
+
 ### While a lane runs, the pool builds the next claimable issue's worktree ahead, so a lane switch skips the `worktree add` and the hook (#644)
 
 - The last item of #618: a lane switch still paid `git worktree add`, the worktree hook and the `ensure_*` setup after the claim, about 10 s

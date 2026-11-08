@@ -7,6 +7,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 export HARNESS_INSTALL_NOMAIN=1 HARNESS_INSTALL_CLI_BIN=0 HARNESS_SKIP_RTDD=1
+# This file is the POSIX offers: apt, dnf, pacman, zypper, apk and brew stubs. A Windows host offers winget instead, which
+# test_windows_installer.sh covers, so the package-manager branch is forced here and the stubs run under Git Bash too (#607).
+export HARNESS_PLATFORM=posix
 unset HARNESS_INSTALL_PREREQS CLAUDE_BIN
 for v in $(compgen -e | grep -E '^HARNESS_[A-Z]+_BIN$'); do unset "$v"; done
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
@@ -18,6 +21,10 @@ source "$HERE/../install.sh"
 SYS="$T/sys"; mkdir -p "$SYS"
 for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename mkdir chmod ln; do
   p="$(command -v "$t")" && ln -s "$p" "$SYS/$t"; done
+# (a real Windows host: a "link" to an MSYS tool is a copy of its exe, which runs only beside msys-2.0.dll and its siblings)
+# and `ln -s` makes a native symlink (a dangling one included) instead of a copy it cannot make of a target that is not there yet
+real_windows_host && export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+real_windows_host && cp "$(dirname "$(command -v bash)")"/msys-*.dll "$SYS/" 2>/dev/null
 LOG="$T/log"
 # stub <dir> <name> [<body>] — a logging stub: appends "<name> <args>" to $LOG, then runs <body>.
 stub(){ mkdir -p "$1"; printf '#!/bin/sh\necho "%s $*" >> %q\n%s\n' "$2" "$LOG" "${3:-exit 0}" > "$1/$2"; chmod +x "$1/$2"; }

@@ -11,21 +11,25 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./helpers.sh
+source ../scripts/portable.sh
 
 # One lock file PER pattern (#337): a buggy-pattern worker slow to die under load must not leave the
 # lock held for the fixed-pattern check.
 LOCK_BUG="$(mktemp -u)"; LOCK_FIX="$(mktemp -u)"; tmp_track "$LOCK_BUG" "$LOCK_FIX"
 
 # helper: run start.sh's lock+spawn pattern with a given child-spawn redirection, leave a long-lived
-# child alive, exit the "start.sh" parent, then report whether the lock is still held.
+# child alive, exit the "start.sh" parent, then report whether the lock is still held. The lock is taken through
+# lock_try (portable.sh) as start.sh does: a flock on fd 9 on Linux, a mkdir lock owned by a pid on Windows, where
+# there is no fd for the child to inherit.
 run_pattern(){ local redir="$1" pidf="$2" lock="$3"
   bash -c '
+    source "$4/portable.sh"
     redir="$1"; pidf="$2"; lock="$3"
-    exec 9>"$lock"; flock -n 9 || exit 1
+    lock_try "$lock" h 9 || exit 1
     if [[ "$redir" == close ]]; then nohup sleep 30 >/dev/null 2>&1 9>&- & else nohup sleep 30 >/dev/null 2>&1 & fi
     echo $! > "$pidf"
-    exec 9>&-
-  ' _ "$redir" "$pidf" "$lock"
+    if is_windows; then lock_release "$h"; else exec 9>&-; fi
+  ' _ "$redir" "$pidf" "$lock" "$PWD/../scripts"
 }
 
 # helper: is the lock free while the worker is still alive? `9>&-` is applied in the forked child
@@ -35,23 +39,34 @@ run_pattern(){ local redir="$1" pidf="$2" lock="$3"
 # is found free stops a dead worker from passing.
 lock_free_while_alive(){ local lock="$1" pid="$(cat "$2")" deadline=$(( ${EPOCHREALTIME//[!0-9]/} + 5000000 ))
   while (( ${EPOCHREALTIME//[!0-9]/} < deadline )); do
-    if flock -n 8 8>"$lock"; then kill -0 "$pid" 2>/dev/null; return; fi
+    if lock_free "$lock"; then kill -0 "$pid" 2>/dev/null; return; fi
     sleep 0.1
   done
   return 1
 }
+# lock_held_now <lock> — the lock is taken right now (the leaked-fd case).
+lock_held_now(){ ! lock_free "$1"; }
 
 # --- BUGGY pattern (child inherits fd 9): lock stays held after parent exits ---------------------
-PIDF_BUG="$(mktemp)"; tmp_track "$PIDF_BUG"; run_pattern inherit "$PIDF_BUG" "$LOCK_BUG"
-assert_no "leaked-fd pattern: lock is HELD by the live worker after start exits (documents the bug)" \
-  flock -n 8 8>"$LOCK_BUG"
-kill "$(cat "$PIDF_BUG")" 2>/dev/null
+# A POSIX mechanism: only a flock fd is inherited by a child. A Windows lock is owned by a pid, so nothing leaks.
+if ! skip_posix_branch "a child inheriting the flock fd 9"; then
+  PIDF_BUG="$(mktemp)"; tmp_track "$PIDF_BUG"; run_pattern inherit "$PIDF_BUG" "$LOCK_BUG"
+  assert_ok "leaked-fd pattern: lock is HELD by the live worker after start exits (documents the bug)" lock_held_now "$LOCK_BUG"
+  kill "$(cat "$PIDF_BUG")" 2>/dev/null
+fi
 
 # --- FIXED pattern (child spawned with 9>&-): lock is free once parent exits ---------------------
 PIDF_FIX="$(mktemp)"; tmp_track "$PIDF_FIX"; run_pattern close "$PIDF_FIX" "$LOCK_FIX"
 assert_ok "fixed pattern (9>&-): lock is FREE after start exits even though the worker is still alive" \
   lock_free_while_alive "$LOCK_FIX" "$PIDF_FIX"
 kill "$(cat "$PIDF_FIX")" 2>/dev/null
+
+# --- the same on the Windows branch, forced: a mkdir lock a spawned worker cannot hold ---------------
+LOCK_WIN="$(mktemp -u)"; tmp_track "$LOCK_WIN" "$LOCK_WIN.d"; PIDF_WIN="$(mktemp)"; tmp_track "$PIDF_WIN"
+HARNESS_PLATFORM=windows run_pattern close "$PIDF_WIN" "$LOCK_WIN"
+assert_ok "[windows] the lock is FREE after start exits though the worker is still alive" \
+  env HARNESS_PLATFORM=windows bash -c 'source "$1/portable.sh"; source "$1/../test/helpers.sh"; '"$(declare -f lock_free_while_alive)"'; lock_free_while_alive "$2" "$3"' _ "$PWD/../scripts" "$LOCK_WIN" "$PIDF_WIN"
+kill "$(cat "$PIDF_WIN")" 2>/dev/null
 
 # --- static guard: start.sh must close fd 9 on the worker-script spawns --------------------------
 assert_ok "start.sh spawns pool.sh with fd 9 closed for the child"     grep -Eq 'pool\.sh"?[[:space:]]+9>&-'     ../scripts/start.sh
