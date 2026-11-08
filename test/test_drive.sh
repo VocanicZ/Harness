@@ -192,6 +192,46 @@ assert_ok "sweep kept the live-session bug worktree (#6)"    test -d "$LIVE"
 assert_no "sweep deleted the dead bug's local branch (issue/5)" \
   bash -c "git -C '$CHECKOUT' rev-parse --verify -q issue/5 >/dev/null 2>&1"
 
+# ── #609: git.exe lists worktrees and the common dir as C:/…, which the /c/… patterns and the `/*` test do not match ──
+# Forced on Linux: a git wrapper prints those two answers the way Git for Windows does, a cygpath fake reads them back.
+make_env
+HARNESS_REPO=acme/widget
+SLUG=acme/widget
+CHECKOUT="$RUN_DIR/cowin"; git init -q "$CHECKOUT"
+git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
+git -C "$CHECKOUT" commit -q --allow-empty -m init
+WORKTREES_DIR="$RUN_DIR/wtwin"; mkdir -p "$WORKTREES_DIR"
+WINFAKE="$RUN_DIR/winfake"; mkdir -p "$WINFAKE"; REALGIT="$(command -v git)"
+cat >"$WINFAKE/git" <<EOF
+#!/usr/bin/env bash
+case " \$* " in
+  *" worktree list --porcelain "*) "$REALGIT" "\$@" | sed 's#^worktree /#worktree C:/#'; exit "\${PIPESTATUS[0]}";;
+  *" rev-parse --git-common-dir "*) o="\$("$REALGIT" "\$@")" || exit \$?; [[ \$o == /* ]] && o="C:\$o"; echo "\$o";;
+  *) exec "$REALGIT" "\$@";;
+esac
+EOF
+cat >"$WINFAKE/cygpath" <<'EOF'
+#!/usr/bin/env bash
+[[ $1 == -u ]] || exit 2
+echo "${2#C:}"   # the drive goes: this tree lives under /tmp, not /c
+EOF
+chmod +x "$WINFAKE/git" "$WINFAKE/cygpath"
+ensure_safe(){ :; }; session_live(){ return 1; }
+WD="$WORKTREES_DIR/bug-acme_widget-i5"; NESTED="$WD/.claude/worktrees/agent-x"
+export HARNESS_PLATFORM=windows
+PATH="$WINFAKE:$PATH" git -C "$CHECKOUT" worktree add -q -B issue/5 "$WD"
+PATH="$WINFAKE:$PATH" git -C "$CHECKOUT" worktree add -q -b worktree-agent-x "$NESTED" 2>/dev/null
+assert_ok "(setup) the wrapper lists worktrees as C:/…" bash -c "PATH='$WINFAKE:$PATH' git -C '$CHECKOUT' worktree list --porcelain | grep -q '^worktree C:/'"
+PATH="$WINFAKE:$PATH" remove_worktree "$CHECKOUT" "$WD" "issue/5" >/dev/null 2>&1
+assert_no "[windows] remove_worktree: the nested agent worktree's worktree-* branch is deleted" \
+  bash -c "git -C '$CHECKOUT' rev-parse --verify -q worktree-agent-x >/dev/null 2>&1"
+git -C "$CHECKOUT" worktree add -q -B issue/5 "$WD"
+PATH="$WINFAKE:$PATH" sweep_orphan_bug_worktrees >/dev/null 2>&1
+assert_no "[windows] sweep removed the dead bug worktree"   test -d "$WD"
+assert_no "[windows] sweep deleted its local branch (the common dir was read as C:/…, not as relative)" \
+  bash -c "git -C '$CHECKOUT' rev-parse --verify -q issue/5 >/dev/null 2>&1"
+unset HARNESS_PLATFORM
+
 # ── #5/#109: a FAILED spawn_bug TRIAGE must NOT leave the issue stamped agent-working (#34 invariant) ──
 # Triage now creates a worktree too, so the stamp must come AFTER that worktree step — a failed
 # `worktree add` must return BEFORE stamping, exactly like the fix phase, or the open bug keeps

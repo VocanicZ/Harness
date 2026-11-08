@@ -22,11 +22,15 @@ say "== clone $BRANCH"
 git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
 say "src at $(git -C src rev-parse --short HEAD)"
 # python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
-# with python.exe also named python3.exe, first on PATH (nothing is pip-installed; the suite needs only the standard library).
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
 say "== venv"
 python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
 VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
 export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
 # What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
 # test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
 export PYTHONUTF8=1

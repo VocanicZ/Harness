@@ -159,11 +159,21 @@ out="$(PATH="$W/bin:$PATH" bash -c "source '$HERE/../scripts/portable.sh'
   export_native_paths; printf '%s|%s|%s' \"\$STATE_DIR\" \"\$HARNESS_HOME\" \"\$RUN_DIR\"
   python3 -c 'import os; print(\"|\" + os.environ[\"STATE_DIR\"])'")"
 assert_eq "$out" "C:/proj/.harness|C:/Users/me/.harness|/c/proj/.harness/run|C:/proj/.harness" "[windows] export_native_paths puts exported paths in mixed form for native children"
+# #609: git.exe and gh.exe print C:/…; bash's case patterns and `/*` checks need /c/…
+cat >"$W/bin/cygpath" <<'EOF'
+#!/usr/bin/env bash
+[[ $1 == -u ]] || exit 2
+p="$2"; [[ $p =~ ^([A-Za-z]):/(.*)$ ]] && p="/${BASH_REMATCH[1],,}/${BASH_REMATCH[2]}"; echo "$p"
+EOF
+assert_eq "$(PATH="$W/bin:$PATH" bash -c "source '$HERE/../scripts/portable.sh'; export HARNESS_PLATFORM=windows; posix_path C:/hx-1/co/.git; posix_path /c/already; posix_path rel/x")" "/c/hx-1/co/.git
+/c/already
+rel/x" "[windows] posix_path turns C:/… into /c/… and leaves the rest"
 
 # ---- POSIX: unchanged ------------------------------------------------------------------------------
 export HARNESS_PLATFORM=posix
 assert_eq "$(STATE_DIR=/c/x bash -c "source '$HERE/../scripts/portable.sh'; export STATE_DIR; export_native_paths; echo \$STATE_DIR")" /c/x "[posix] export_native_paths changes nothing"
 assert_eq "$(native_path /c/x)" /c/x "[posix] native_path is the identity"
+assert_eq "$(posix_path C:/x)" C:/x "[posix] posix_path is the identity"
 if command -v setsid >/dev/null 2>&1; then assert_eq "$(detach_prefix)" setsid "[posix] detach_prefix is setsid where the host has it"; fi
 assert_ok "[posix] new_uuid gives a uuid" grep -Eq '^[0-9a-f-]{36}$' <<< "$(new_uuid)"
 # the POSIX lock is a flock: a raw flock on the file sees it held
