@@ -163,7 +163,8 @@ a claim):
    reaped and its claim released. A worker that owns a live lane tends it on a **short tick**
    (`HARNESS_TEND_TICK`, 15s) instead of waiting a full `POLL` (#594): the short tick runs only this step,
    checks the lane's goal only while its pane is idle (not busy, and no sub-agent still running — the status
-   line's `← 1 agent`), and leaves the stall watchdog and every fleet-wide chore on the `POLL` cadence. A
+   line's `← 1 agent`) — and for an issue lane reads that one issue from `gh` itself, not the poller's snapshot, which
+   is up to `HARNESS_PRIORITY_POLL` old (#667) — and leaves the stall watchdog and every fleet-wide chore on the `POLL` cadence. A
    `DECOMPOSE` lane is not goal-checked until it prints its completion promise, or has been idle for
    `HARNESS_TEND_IDLE_TICKS` ticks in a row with no `gh` process running (the goal counts as met once the PRD
    has *any* child, so a pane idle between two `gh issue create` calls must not be reaped). After a reap the

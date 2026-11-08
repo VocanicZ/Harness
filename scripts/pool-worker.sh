@@ -159,7 +159,7 @@ lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n
   return 0; }
 # tend_goal / tend_watchdog <sess> — the goal check and watchdog of tend_lane_done. On the short tick
 # (TEND_FAST=1) the goal check is gated and the watchdog is skipped: its stall counter counts POLLs.
-tend_goal(){ if (( ${TEND_FAST:-0} )); then lane_goal_gate "$1" && check_session_goal "$1"; else check_session_goal "$1"; fi; }
+tend_goal(){ if (( ${TEND_FAST:-0} )); then lane_goal_gate "$1" && check_session_goal "$1" live; else check_session_goal "$1"; fi; }
 tend_watchdog(){ (( ${TEND_FAST:-0} )) || watchdog_session "$1"; }
 
 # worker_tend <wid> — step 3: one tend step for every lane this worker holds a claim on. An ended lane is

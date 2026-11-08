@@ -135,4 +135,53 @@ sess_pane_pid(){ echo ""; }
 assert_no "no pane pid: lane_has_gh is 1" lane_has_gh any
 assert_no "pool-worker.sh has no raw ps -o (ADR 0001)" grep -nE '(^|[^[:alnum:]_.-])ps (-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*o\b' "$HERE/../scripts/pool-worker.sh"
 
+echo "=== 7. #667: the short tick's goal check reads gh, not a stale poller snapshot (real check_session_goal → issuelib check) ==="
+# Real check_session_goal and issuelib over a SNAPSHOT-mode env (HARNESS_SNAPSHOT_FILE set, poller refresh far away)
+# whose snapshot still says issue 5 is open, and a stub `gh` on PATH that records every call and says it is closed.
+setup; S=hz-main-i5; own impl-5 "$S" ISSUE:5
+source "$HERE/../scripts/drive.sh"   # the real check_session_goal, over setup's stub
+BIN="$RUN_DIR/bin"; mkdir -p "$BIN"; GHLOG="$RUN_DIR/gh.log"; : > "$GHLOG"
+cat > "$BIN/gh" <<'GH'
+#!/bin/sh
+echo "gh $*" >> "$GHLOG"
+case "$*" in
+  *"issue view 5"*) echo '{"state":"CLOSED","labels":[{"name":"agent-working"}]}';;
+  *) echo '[]';;
+esac
+GH
+chmod +x "$BIN/gh"
+SNAP="$RUN_DIR/snap.json"
+python3 - "$SNAP" <<'PY'
+import json, sys, time
+json.dump({"schema_version": 1, "slug": "acme/widget", "generated_at": time.time() - 590, "self_login": "bot",
+           "issues": [{"number": 5, "state": "OPEN", "title": "t", "body": "", "labels": [{"name": "agent-working"}],
+                       "author": {"login": "bot"}}]}, open(sys.argv[1], "w"))
+PY
+export GHLOG HARNESS_SNAPSHOT_FILE="$SNAP" HARNESS_SNAPSHOT_DIR="$RUN_DIR" HARNESS_PRIORITY_POLL=600 HARNESS_OWNER=acme
+OLDPATH="$PATH"; PATH="$BIN:$PATH"
+idle; TEND_FAST=1 worker_tend W1
+assert_ok "stale snapshot says open, gh says closed: goal_satisfied on the idle short tick" grep -q "^event $S goal_satisfied" "$CALLS"
+echo "-- the check itself: one gh issue view of that lane's issue, no whole-repo list"
+setup; S=hz-main-i5; own impl-5 "$S" ISSUE:5; source "$HERE/../scripts/drive.sh"; : > "$GHLOG"
+check_session_goal "$S" live
+assert_eq "$(cat "$GHLOG")" "gh issue view 5 -R acme/widget --json state,labels" "live check: exactly one gh issue view"
+assert_ok "... and it ended the lane" grep -q "^event $S goal_satisfied" "$CALLS"
+setup; S=hz-main-i5; own impl-5 "$S" ISSUE:5; source "$HERE/../scripts/drive.sh"; : > "$GHLOG"
+check_session_goal "$S"
+assert_eq "$(wc -l < "$GHLOG" | tr -d ' ')" "0" "snapshot check (no live): no gh call, reads the stale snapshot"
+assert_no "... so it stays PENDING" grep -q "goal_satisfied" "$CALLS"
+echo "-- a busy pane: gh is not called on the tick"
+setup; S=hz-main-i5; own impl-5 "$S" ISSUE:5; source "$HERE/../scripts/drive.sh"; : > "$GHLOG"; busy
+TEND_FAST=1 worker_tend W1; TEND_FAST=1 worker_tend W1
+assert_eq "$(wc -l < "$GHLOG" | tr -d ' ')" "0" "busy short ticks: no gh call"
+echo "-- the full tend keeps reading the snapshot (the poller's cadence)"
+idle; TEND_FAST=0 worker_tend W1
+assert_eq "$(wc -l < "$GHLOG" | tr -d ' ')" "0" "full tend: snapshot read, no gh call"
+assert_no "... and the stale snapshot says PENDING: not satisfied" grep -q "goal_satisfied" "$CALLS"
+echo "-- a gh failure on the short tick keeps the lane (no answer)"
+printf '#!/bin/sh\necho "gh $*" >> "$GHLOG"; echo "HTTP 502" >&2; exit 1\n' > "$BIN/gh"
+idle; TEND_FAST=1 worker_tend W1
+assert_ok "lane still live after a transient gh failure" sess_live "$S"
+PATH="$OLDPATH"; unset HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR HARNESS_PRIORITY_POLL GHLOG
+
 finish

@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The short tend tick no longer waits for the poller's snapshot to see a closed issue (#667)
+
+- On a fleet with the poller on, the #594 short tick checked an issue lane's goal against the poller's snapshot, which is
+  refreshed only every `HARNESS_PRIORITY_POLL` (60s by default, 600s on some fleets), so `goal_satisfied` still lagged a closed
+  issue by up to that long (+637s and +781s in the field). The gated short-tick check now reads that one issue from `gh`
+  (`issuelib check … --live`: a single `gh issue view`). It still runs only while the pane is idle, so a busy lane costs no `gh`
+  call; the full tend keeps reading the snapshot. `test/test_lane_tend_tick.sh` § 7 drives the real `check_session_goal` and
+  `issuelib check` over a stale snapshot.
+
 ### A stale usage reading is no longer taken for the current one, and the fleets on a host share their readings (#658)
 
 - A usage reading older than `HARNESS_USAGE_STALE_MIN` minutes (default `HARNESS_ONE_STALE_MIN`, 30; `0` = never) is stale. Below
