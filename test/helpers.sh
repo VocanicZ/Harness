@@ -46,6 +46,10 @@ real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ret
 # It is not a way out of a Windows cell: the Windows branch is never skipped (windows_skip, on an n/a matrix row, is the
 # only skip of a feature).
 skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, no counterpart to run on a Windows host): ${1:-}"; return 0; }
+# file_url <path> — a file:// URL native curl can read (#608). Git for Windows' curl is a native exe: `file:///c/x` (the MSYS
+# spelling of C:/x) reads C:\c\x, so every fixture that served a fake release from $T/srv got "could not resolve" on winsma and
+# install.sh / update.sh / harness update exited 1 or 3. Windows: file:///C:/x/y; elsewhere file:///x/y, as before.
+file_url(){ local p; p="$(native_path "$1")"; case "$p" in /*) printf 'file://%s' "$p";; *) printf 'file:///%s' "$p";; esac; }
 
 # alive_any <pid> — the process is alive and not a zombie, by its MSYS pid OR (Windows) by its native one (#606): a fake agent
 # written in native Python records os.getpid(), a Windows pid, in calls.jsonl / pids, and MSYS `kill -0` does not know it.

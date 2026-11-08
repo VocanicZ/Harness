@@ -59,9 +59,9 @@ rel_latest "$SRV" ""; out="$(upd 2>&1)"; rc=$?
 assert_eq "$rc" 0 "no published release is not an error"
 assert_ok "says the endpoint named no release" grep -qF 'named no release' <<<"$out"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "engine unchanged when nothing is published"
-out="$(HARNESS_API_URL="file://$T/nope.json" upd 2>&1)"; rc=$?
+out="$(HARNESS_API_URL="$(file_url "$T/nope.json")" upd 2>&1)"; rc=$?
 assert_eq "$rc" 3 "an unreachable API exits 3"
-assert_ok "says it could not resolve the latest release" grep -qF "could not resolve the latest release from file://$T/nope.json" <<<"$out"
+assert_ok "says it could not resolve the latest release" grep -qF "could not resolve the latest release from $(file_url "$T/nope.json")" <<<"$out"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "engine unchanged when the API is unreachable"
 
 # ── retention: current + previous 2, plus whatever a live process runs from ──
