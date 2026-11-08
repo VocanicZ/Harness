@@ -12,10 +12,13 @@ _claude_settings_model(){ [[ -f "$1" ]] || return 0
 # _claude_main_local <wd> — a linked git worktree's MAIN checkout's .claude/settings.local.json (empty when
 # <wd> is no linked worktree). Claude Code reads it for every worktree of that repository, and it wins
 # over the worktree's own settings.local.json (#374, claude 2.1.316) — the tracked settings.json does not.
-_claude_main_local(){ local common own
+_claude_main_local(){ local root; root="$(_claude_main_root "$1")"; [[ -n "$root" ]] && echo "$root/.claude/settings.local.json"; return 0; }
+# _claude_main_root <wd> — a linked git worktree's MAIN checkout (empty when <wd> is no linked worktree).
+# Claude Code keys a project's trust and CLAUDE.md-import answers by this path, not by the worktree's (#660).
+_claude_main_root(){ local common own
   common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
   own="$(git -C "$1" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 0
-  [[ -n "$common" && "$common" != "$own" ]] && echo "${common%/.git}/.claude/settings.local.json"; return 0; }
+  [[ -n "$common" && "$common" != "$own" && "$common" == */.git ]] && echo "${common%/.git}"; return 0; }
 # _claude_lane_model <wd> <model> — the model a lane launches with: its own (.harness-lane), else the pin a
 # worktree hook wrote into <wd>/.claude/settings.local.json. That pin alone silently loses to the main
 # checkout's own settings.local.json in a linked worktree (#374: hg2's Sonnet implementer lanes ran Opus,
@@ -188,14 +191,20 @@ _claude_trust_configs(){ local acct
   for acct in "$HOME"/.claude-switch/accounts/*/; do              # every claude-acc account the pane may pick
     [[ -d "$acct" ]] && echo "$acct.claude.json"                  # unmatched glob stays literal — skip it
   done; return 0; }
-# _claude_trust_config <cfg> <dir> — merge the trust flag for <dir> into one config file. Atomic +
+# _claude_trust_dirs <dir> — the project paths Claude Code reads the pre-accept from: <dir>, and for a linked
+# worktree its main checkout too (#660: the CLAUDE.md-import answer is keyed there, not by the worktree).
+_claude_trust_dirs(){ local main; echo "$1"; main="$(_claude_main_root "$1")"; [[ -n "$main" ]] && echo "$main"; return 0; }
+# _claude_trust_config <cfg> <dir>… — merge the workspace pre-accept for each <dir> into one config file:
+# hasTrustDialogAccepted, and hasClaudeMdExternalIncludesWarningShown so the "Allow external CLAUDE.md file
+# imports?" dialog never opens (#660). hasClaudeMdExternalIncludesApproved is never set true: the answer
+# stays "imports disabled" (the dialog's default), and one already recorded is left alone. Atomic +
 # flocked: several agents launch near-simultaneously.
 _claude_trust_config(){
-  local dir="$2" cfg="$1" lockfd
+  local cfg="$1" lockfd; shift
   lock_acquire "$cfg.harness-trust.lock" lockfd
-  CFG="$cfg" DIR="$dir" python3 - <<'PY'
+  CFG="$cfg" DIRS="$(printf '%s\n' "$@")" python3 - <<'PY'
 import json, os, tempfile
-cfg, d = os.environ["CFG"], os.environ["DIR"]
+cfg, dirs = os.environ["CFG"], [d for d in os.environ["DIRS"].split("\n") if d]
 try:
     with open(cfg) as f:
         data = json.load(f)
@@ -206,10 +215,12 @@ except (FileNotFoundError, ValueError):
 projects = data.get("projects")
 if not isinstance(projects, dict):
     projects = data["projects"] = {}
-entry = projects.get(d)
-if not isinstance(entry, dict):
-    entry = projects[d] = {}
-entry["hasTrustDialogAccepted"] = True
+for d in dirs:
+    entry = projects.get(d)
+    if not isinstance(entry, dict):
+        entry = projects[d] = {}
+    entry["hasTrustDialogAccepted"] = True
+    entry["hasClaudeMdExternalIncludesWarningShown"] = True
 dirn = os.path.dirname(os.path.abspath(cfg)) or "."
 os.makedirs(dirn, exist_ok=True)
 fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".claude.json.harness.")
@@ -223,13 +234,17 @@ except BaseException:
 PY
   lock_release "$lockfd"
 }
-claude_trust(){ local cfg
-  while read -r cfg; do _claude_trust_config "$cfg" "$1"; done < <(_claude_trust_configs); }
+claude_trust(){ local cfg dirs
+  mapfile -t dirs < <(_claude_trust_dirs "$1")
+  while read -r cfg; do _claude_trust_config "$cfg" "${dirs[@]}"; done < <(_claude_trust_configs); }
 claude_trusted(){ local cfg
   while read -r cfg; do
-    CFG="$cfg" DIR="$1" python3 -c 'import json,os,sys
-p = (json.load(open(os.environ["CFG"])).get("projects") or {}).get(os.environ["DIR"]) or {}
-sys.exit(0 if p.get("hasTrustDialogAccepted") is True else 1)' 2>/dev/null || return 1
+    CFG="$cfg" DIRS="$(_claude_trust_dirs "$1")" python3 -c 'import json,os,sys
+projects = json.load(open(os.environ["CFG"])).get("projects") or {}
+for d in os.environ["DIRS"].split("\n"):
+    p = projects.get(d) or {}
+    if p.get("hasTrustDialogAccepted") is not True or p.get("hasClaudeMdExternalIncludesWarningShown") is not True:
+        sys.exit(1)' 2>/dev/null || return 1
   done < <(_claude_trust_configs); }
 
 # --- permission bypass ----------------------------------------------------------------------------
@@ -257,6 +272,9 @@ perms = data.get("permissions")
 if not isinstance(perms, dict):
     perms = data["permissions"] = {}
 perms["defaultMode"] = "bypassPermissions"
+# The Bypass Permissions dialog's "accepted" bit lives in the user settings, which a lean lane (--setting-sources
+# project,local) does not read; without it here every lean launch stops at "No, exit" / "Yes, I accept" (#660).
+data["skipDangerousModePermissionPrompt"] = True
 d = os.path.dirname(f) or "."
 fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings.harness.")
 try:
@@ -276,7 +294,7 @@ PY
 }
 claude_bypassed(){ F="$1/.claude/settings.local.json" python3 -c 'import json,os,sys
 d = json.load(open(os.environ["F"]))
-sys.exit(0 if (d.get("permissions") or {}).get("defaultMode") == "bypassPermissions" else 1)' 2>/dev/null; }
+sys.exit(0 if (d.get("permissions") or {}).get("defaultMode") == "bypassPermissions" and d.get("skipDangerousModePermissionPrompt") is True else 1)' 2>/dev/null; }
 
 # --- transcripts + usage (#185) -----------------------------------------------------------------
 # $CLAUDE_CONFIG_DIR/projects/<slug>/<session>.jsonl plus its sub-agents' transcripts; stats.py owns

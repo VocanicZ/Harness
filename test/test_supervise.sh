@@ -85,6 +85,40 @@ assert_no "reacted to the nudge → not killed"              grep -qx tp-u-i2 "$
 assert_no "a killed pane's state is forgotten"             test -f "$SUP_STATE/panes/tp-u-i1"
 tmux kill-server 2>/dev/null
 
+echo "=== #660: a pane a launch dialog owns is a stuck lane — logged, never typed into, killed at KILL_MIN ==="
+# The pane text is the fixture of each dialog a lean claude lane can stop at (bypass accept, CLAUDE.md imports).
+DKILLS="$T/dkills"; : >"$DKILLS"; DEV="$T/dialog.events"; : >"$DEV"
+rec_dkill(){ echo "$1 $4 $5" >>"$DKILLS"; return 0; }
+stats_sess_event(){ echo "$1 $2 ${*:3}" >>"$DEV"; }
+for d in bypass imports; do
+  mk "claude-$d" "cat '$HERE/fixtures/cli/claude/$d-dialog.txt'; sleep 600"
+done
+sleep 1
+SUP_DRY=0; : >"$LOG"
+dpass(){ local t; for t; do sup_watch_pane "$t" "$SUP_STATE/panes/$t" 0 1 "nudge-$t" claude rec_dkill; done; }
+dpass claude-bypass claude-imports                          # baseline
+dpass claude-bypass claude-imports                          # quiet past the nudge threshold
+for d in bypass imports; do
+  assert_ok "$d dialog: a log line names the session"           grep -qE "claude-$d.*dialog" "$LOG"
+  assert_ok "$d dialog: a dialog_stuck event is recorded"       grep -q "^claude-$d dialog_stuck" "$DEV"
+  assert_no "$d dialog: no key is sent to the pane"             grep -qE "send-keys -t claude-$d|nudge-claude-$d" "$LOG"
+done
+assert_eq "$(grep -c '^claude-bypass dialog_stuck' "$DEV")" "1" "the stuck event is recorded once, not every pass"
+assert_eq "$(cat "$DKILLS")" "" "not killed before the kill threshold"
+for t in claude-bypass claude-imports; do read -r a b c t0 rest <"$SUP_STATE/panes/$t"; echo "$a $b $c $((t0-120)) $rest" >"$SUP_STATE/panes/$t"; done
+dpass claude-bypass claude-imports                          # KILL_MIN reached
+assert_ok "bypass dialog: checkpointed and killed at KILL_MIN (the frozen-session path)" grep -q "^claude-bypass " "$DKILLS"
+assert_ok "imports dialog: checkpointed and killed at KILL_MIN"                           grep -q "^claude-imports " "$DKILLS"
+assert_ok "the kill names the dialog and its reason" grep -q "dialog$" "$DKILLS"
+# EXTRA panes (kill 0): logged, never killed.
+mk claude-extra "cat '$HERE/fixtures/cli/claude/bypass-dialog.txt'; sleep 600"; sleep 1; : >"$LOG"; : >"$DKILLS"
+for i in 1 2 3; do sup_watch_pane claude-extra "$SUP_STATE/panes/x_extra" 0 0 "nudge-x" claude rec_dkill; done
+assert_ok "a kill-less pane's dialog is still logged"   grep -q "claude-extra.*dialog" "$LOG"
+assert_no "…never typed into or killed"                 grep -qE "send-keys|nudge-x" "$LOG"
+assert_eq "$(cat "$DKILLS")" "" "…and not killed"
+unset -f stats_sess_event; source "$HERE/../scripts/lib.sh"
+tmux kill-server 2>/dev/null
+
 echo "=== #207: one endless turn with input queued → Escape, then Enter ==="
 # The spinner's timer ticks every second, so the activity test alone calls such a pane busy forever.
 # turnpane.sh draws a mid-turn Claude Code pane; like the real TUI it prints `Interrupted` on Escape,

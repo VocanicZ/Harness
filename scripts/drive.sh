@@ -94,6 +94,14 @@ selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
   [[ "$issue" =~ ^[0-9]+$ ]] || return 0
   [[ -f "$RUN_DIR/$sess.checkpoint" ]] && return 0   # a checkpoint was requested: it is meant to sit there
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; now="$(date +%s)"
+  # #660: a lane launched moments ago is not parked yet. A resumed paused issue still carries agent-paused from the
+  # checkpoint it resumes until the lane itself removes it (prompts/resume.md step 3), so the first goal check reads
+  # PAUSED. Nothing is recorded: if the label outlives the grace, the nudge below fires as ever.
+  t="$(cut -d' ' -f1 "$RUN_DIR/$sess.launched" 2>/dev/null)"
+  [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ${HARNESS_SELFPARK_LAUNCH_GRACE_S:-600} )) && return 0
+  # ...and never type into a dialog: a launch dialog (Bypass Permissions, CLAUDE.md imports) answers an Enter with its
+  # default, `No, exit`. The supervisor owns the stuck dialog (checkpoint and kill, #660).
+  cli_pane_dialog "$(sess_capture "$sess" 2>/dev/null)" && return 0
   t="$(cat "$f" 2>/dev/null)"
   if ! [[ "$t" =~ ^[0-9]+$ ]]; then
     log "self-park: $sess labelled #$issue $HARNESS_LABEL_PAUSED with no checkpoint sent — nudging it to decide and continue (#417)"

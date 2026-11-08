@@ -164,8 +164,22 @@ sup_watch_pane(){
   fi
   echo "$body $bg $cpu $t0 $nudged $lastn" >"$f"                   # quiet: keep the CPU baseline current
   idle=$(( (now - t0) / 60 ))
-  (( $(sup_prompt_line "$cli" "$pane") > 0 )) || return 0           # dialog/menu, not an idle prompt
-  sup_dialog "$cli" "$pane" && return 0
+  # #660: a dialog that owns the pane (the CLI's trust, Bypass Permissions or CLAUDE.md-imports question) is a stuck
+  # lane, not an idle one: nothing answers it, so it holds its slot for good. Keys are NEVER typed into it (an Enter
+  # picks the dialog's default, `No, exit`): it is logged once, and at the kill threshold checkpointed and killed
+  # through the frozen-session path so the pool re-dispatches it. The state file's `nudged` flag marks "logged".
+  if sup_dialog "$cli" "$pane" && ! grep -qiE "$(sup_limit_re "$cli")" <<<"$(tail -40 <<<"$pane")"; then
+    if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
+      "$killfn" "${t%%:*}" "$idle" "$pane" \
+        "Session \`${t%%:*}\` sat on a CLI dialog for ${idle} min (a question nothing answers; the supervisor never types into one), so it was restarted." dialog && rm -f "$f"
+    elif (( idle >= nudge_min && nudged == 0 )); then
+      sup_log "dialog: $t has sat on a CLI dialog for ${idle} min — stuck, never typed into (kill at ${kill_min:-0} min)"
+      (( SUP_DRY )) || stats_sess_event "${t%%:*}" dialog_stuck idle_min="$idle" >/dev/null 2>&1
+      echo "$body $bg $cpu $t0 1 $lastn" >"$f"
+    fi
+    return 0
+  fi
+  (( $(sup_prompt_line "$cli" "$pane") > 0 )) || return 0           # menu, not an idle prompt
   grep -qiE "$(sup_limit_re "$cli")" <<<"$(tail -40 <<<"$pane")" && return 0 # parked at a usage limit
   if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
     "$killfn" "${t%%:*}" "$idle" "$pane" && rm -f "$f"

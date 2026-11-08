@@ -4,6 +4,22 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A lean Claude lane no longer stops at the Bypass Permissions and CLAUDE.md-imports dialogs, and a supervisor-visible dialog is a stuck lane (#660)
+
+- Since lean lanes (#595) a Claude lane on the tmux backend could launch into two dialogs nothing answered. `--setting-sources project,local`
+  hides the user `settings.json` that holds `skipDangerousModePermissionPrompt`, so every launch asked "Bypass Permissions mode" (default
+  `No, exit`). And the operator's global `CLAUDE.md` is then a project memory file whose `@` import lies outside the repository, so the first
+  launch into a repository with no recorded answer asked "Allow external CLAUDE.md file imports?".
+- `claude_bypass` now also writes `skipDangerousModePermissionPrompt: true` into the worktree's `.claude/settings.local.json`
+  (`claude_bypassed` checks for it). The workspace pre-accept sets `hasClaudeMdExternalIncludesWarningShown` next to
+  `hasTrustDialogAccepted`, for the lane directory and, for a linked worktree, for its main checkout, where Claude Code keeps the answer.
+  `hasClaudeMdExternalIncludesApproved` is never set true (imports stay disabled) and an answer already recorded is kept.
+- `harness supervise` no longer ignores a pane a dialog owns. Once it is quiet past the nudge threshold it logs `dialog: <session> has sat
+  on a CLI dialog …` and records a `dialog_stuck` event, never types into the pane, and at the kill threshold checkpoints and ends the
+  session through the frozen-session path so the pool re-dispatches it.
+- The self-park nudge (#417) sends nothing into a dialog-owned pane, and ignores a lane launched less than `HARNESS_SELFPARK_LAUNCH_GRACE_S`
+  (600) ago: a resumed paused issue still carries `agent-paused` until its lane removes it.
+
 ### While a lane runs, the pool builds the next claimable issue's worktree ahead, so a lane switch skips the `worktree add` and the hook (#644)
 
 - The last item of #618: a lane switch still paid `git worktree add`, the worktree hook and the `ensure_*` setup after the claim, about 10 s
