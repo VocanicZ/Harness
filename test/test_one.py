@@ -462,6 +462,60 @@ def test_phase_check_pads_a_live_window_that_reset_while_the_query_answered():
     c = one.phase_check(f, [other], "impl", stop=98, reserve=2, stale_pad=3, spend=no_spend, start=start, now=NOW)
     assert c["verdict"] == "CHECKPOINT" and "codex 5h" in c["reasons"][0], c
 
+# ── #659: the gate counts the spend since each reading, as the phase re-check does ──────────────────
+def test_gate_counts_the_spend_since_a_stale_reading():
+    # the incident: a 27-hour-old 70% reading, $20 per 1%, p80 1% of the window. The gate alone
+    # padded it (70 + 3 + 1 + 2 = 76: APPROVE) while the phase re-check, which adds the account's
+    # spend since the reading ($523 here), CHECKPOINTed on the same data.
+    f = fc(p80=1.0)
+    f["pct"][0]["usd_per_pct"] = 20.0
+    r = dict(rd(70.0, age=27 * 3600.0))
+    assert one.gate(f, [r], stop=98, reserve=2)["verdict"] == "APPROVE"   # the unfixed arithmetic
+    asked = []
+    def spend(account, t0):
+        asked.append((account, t0)); return 523.0
+    g = one.gate_with_spend(f, [r], spend, stop=98, reserve=2, now=NOW)
+    assert g["verdict"] == "DENY", g
+    assert asked == [("main", NOW - 27 * 3600)], "spend is counted from the reading's own time"
+    w = g["windows"][0]
+    assert w["read"] == 70.0 and w["spent_pct"] == 26.15 and w["now"] == 96.15, w
+    assert w["need"] == 102.15 and g["reasons"] == ["main seven_day: 102.15% > 98%"], g
+    # the same data the phase re-check CHECKPOINTs on (the incident's two answers now agree)
+    assert one.phase_check(f, [r], "explore", stop=98, reserve=2, spend=spend, now=NOW)["verdict"] == "CHECKPOINT"
+    out = one.render(g)
+    assert "read 70% + 26.15% spent since: $523 in transcripts" in out, out
+    assert "RECOMMEND: DENY" in out, out
+
+
+def test_gate_with_spend_keeps_the_stale_pad_when_spend_cannot_be_counted():
+    f = fc(p80=6.0)
+    for no_spend in (lambda a, t0: None, lambda a, t0: 0.0):
+        g = one.gate_with_spend(f, [rd(91.0, age=7200.0)], no_spend, stop=98, reserve=2, stale_pad=3, now=NOW)
+        assert g["windows"][0]["pad"] == 3.0, g   # still stale
+    g = one.gate_with_spend(f, [rd(91.0, age=7200.0)], lambda a, t0: None, stop=98, reserve=2, stale_pad=3, now=NOW)
+    assert g["windows"][0]["need"] == 102.0 and g["verdict"] == "DENY", g
+    assert "spent since" not in one.render(g), "nothing is claimed about spend that was not counted"
+    # a fresh reading is not brought up by spend before its own time: ~nothing since it
+    g = one.gate_with_spend(f, [rd(80.0, age=10.0)], lambda a, t0: 0.0, stop=98, reserve=2, now=NOW)
+    assert g["windows"][0]["now"] == 80.0 and g["verdict"] == "APPROVE", g
+
+
+def test_cli_gate_spend_flag_keeps_the_pad_when_nothing_can_be_counted():
+    f = fc(p80=1.0, account="hzhn")
+    f["pct"][0]["usd_per_pct"] = 20.0
+    with tempfile.TemporaryDirectory() as d:
+        fp, rp = os.path.join(d, "f.json"), os.path.join(d, "r.tsv")
+        with open(fp, "w") as fh: json.dump(f, fh)
+        with open(rp, "w") as fh: fh.write("hzhn\tseven_day\t70\t0\t97200\t\n")
+        cmd = [sys.executable, os.path.join(ROOT, "scripts", "one.py"), "gate", "--forecast", fp, "--readings", rp]
+        env = dict(os.environ, HARNESS_CLAUDE_CONFIG_DIRS=os.path.join(d, "no-config-dirs"))
+        r = subprocess.run(cmd + ["--json"], capture_output=True, text=True, env=env)
+        assert r.returncode == 0, "without --spend the gate approves the stale reading (the old behaviour)"
+        r = subprocess.run(cmd + ["--json", "--spend", "--session", "hzhn"], capture_output=True, text=True, env=env)
+        g = json.loads(r.stdout)
+        assert r.returncode == 0 and g["verdict"] == "APPROVE" and g["windows"][0]["pad"] == 3.0, \
+            "--spend with no config dir to count: the existing pad applies, nothing else changes"
+
 
 if __name__ == "__main__":
     fails = 0

@@ -212,10 +212,10 @@ lane_state hus-new "{\"state\":\"busy\",\"account\":\"work\",\"rate_limit_at\":2
 lane_state hus-junk 'not json'
 # A sibling fleet's lane on the same host: its account is not this fleet's to hold claims for.
 lane_state sib-x "{\"state\":\"busy\",\"account\":\"theirs\",\"rate_limit_at\":300,\"rate_limit\":{\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.99,\"resetsAt\":$future}}}}"
-assert_eq "$(cli_limit_usage)" "$(printf 'work\tseven_day\t94\t%s' "$future")" \
+assert_eq "$(cli_limit_usage)" "$(printf 'work\tseven_day\t94\t%s\t200' "$future")" \
   "the newest reading per account window of this fleet's lanes, a reset window skipped"
 mkdir -p "$(_usage_dir)"; printf '{"account":"work","at":300,"rate_limits":{"seven_day":{"used_percentage":96.5,"resets_at":%s}}}' "$future" > "$(_usage_dir)/work.json"
-assert_eq "$(cli_limit_usage)" "$(printf 'work\tseven_day\t96.5\t%s' "$future")" "…a newer status-line drop wins over it"
+assert_eq "$(cli_limit_usage)" "$(printf 'work\tseven_day\t96.5\t%s\t300' "$future")" "…a newer status-line drop wins over it"
 rm -rf "$(_usage_dir)"
 usage_watch
 assert_ok "the usage watch holds claims on a headless lane's reading" usage_held

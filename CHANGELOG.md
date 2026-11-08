@@ -20,6 +20,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - The self-park nudge (#417) sends nothing into a dialog-owned pane, and ignores a lane launched less than `HARNESS_SELFPARK_LAUNCH_GRACE_S`
   (600) ago: a resumed paused issue still carries `agent-paused` until its lane removes it.
 
+### A stale usage reading no longer releases a usage hold, keeps one from opening, or lets `harness one gate` approve what `phase` checkpoints (#659)
+
+- The claude adapter's readings are status-line drops, and they stop updating once every session on the account is checkpointed. `usage_watch`
+  released a hold on any below-threshold reading, so a 27-hour-old 70% reading deleted a correct hold (the real value was 91%) and the pool
+  resumed claims in a window that had not reset; the same reading also kept a hold from opening. `cli_limit_usage` lines now carry an optional
+  5th column, the epoch the reading was taken (absent = a live query), and a hold is released only when its window's `resets_at` has passed
+  or a reading of the held window taken after the hold opened is below `HARNESS_USAGE_CHECKPOINT_PCT`. A stale claude reading below the
+  threshold is brought up by the account's transcript spend since it (cached, `HARNESS_USAGE_SPEND_TTL`) before it is compared.
+- `harness one gate` now counts the spend since each reading, as `harness one phase` does, so the two no longer answer differently on the same
+  data (the incident: gate APPROVE, phase CHECKPOINT after $523 of spend). Where the spend cannot be counted, the stale pad still applies.
+
 ### While a lane runs, the pool builds the next claimable issue's worktree ahead, so a lane switch skips the `worktree add` and the hook (#644)
 
 - The last item of #618: a lane switch still paid `git worktree add`, the worktree hook and the `ensure_*` setup after the claim, about 10 s

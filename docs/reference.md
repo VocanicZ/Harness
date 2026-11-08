@@ -303,7 +303,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_ONE_STALE_PAD_PCT` | `3` | …and the gate adds this many points to it |
 | `HARNESS_ONE_LEASE_MIN` | `240` | Minutes a `/harness-one` claim keeps the pool's reapers and lock sweeps off its issue after the last `harness one start`/`phase`; past it the session counts as dead and the pool reaps the issue like a dead lane |
 | `HARNESS_ONE_AUTO` | `0` | `1` = when a usage hold engages (`HARNESS_USAGE_CHECKPOINT_PCT`), the engine starts ONE harness-one lane per account by itself, gated against `HARNESS_ONE_STOP_PCT` like `/harness-one` but with no human prompt. `0` = a hold leaves the fleet idle until the window resets. See [Auto harness-one lane](#auto-harness-one-lane-harness_one_auto) |
-| `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines. Overrides the CLI adapter |
+| `HARNESS_USAGE_CMD` | _(empty)_ | Your own usage source, for any CLI: a command printing `<account>\t<window>\t<pct>\t<resets_at epoch>` lines, each optionally followed by a 5th column, the epoch the reading was taken (absent = a live query, current now; see [Usage-limit checkpoints](#usage-limit-checkpoints)). Overrides the CLI adapter |
 | `HARNESS_GH_RATE_GUARD` | `1` | `1` = on a GitHub rate limit, sleep the dispatchers until the token's reset instead of retrying every poll, and stop claiming new work when the budget runs low. `0` = off. See [GitHub rate limits](#github-rate-limits) |
 | `HARNESS_GH_BUDGET_PCT` | `20` | Below this % of the token's `core` or `graphql` budget, claim nothing new and poll at half rate until the reset, leaving the rest to live agents |
 | `HARNESS_GH_RATE_TTL` | `60` | Seconds one `gh api rate_limit` probe is reused by every worker on the host |
@@ -1370,6 +1370,21 @@ worktree committed and pushed, a handoff comment with the last screen).
 | `openclaw` | `openclaw status --usage --json`: the windows of every provider the operator's config holds auth for (none for `claude-cli`). The account is the provider. Cached `HARNESS_OPENCLAW_USAGE_TTL` seconds (120) |
 | `opencode` | None: OpenCode 1.x has no quota meter. A limit shows only as its error text at the prompt, which parks the lane (`limit-parks`) and gets the mechanical checkpoint above |
 
+**When a hold is released (#659).** A reading is only as good as its age. The `claude` adapter's
+readings are status-line drops, and they stop updating once every session on the account has been
+checkpointed, so `cli_limit_usage` gives each reading an optional 5th column: the epoch it was taken
+(absent = a live query, current as of now: `HARNESS_USAGE_CMD` and every other adapter). A hold is
+released only when its window's `resets_at` has passed, or when a reading **newer than the hold** (the
+hold file's mtime) of the held window is below `HARNESS_USAGE_CHECKPOINT_PCT` and no window of the account
+is at it. An older, lower reading never releases a hold. A live query keeps its old rule: any reading
+below the threshold releases. The same age rule applies when opening: a stamped reading older than
+`HARNESS_ONE_STALE_MIN` minutes and below the threshold is brought up by the account's Claude transcript
+spend since it (priced as the forecast does, over the window's calibrated $ per 1%, else
+`HARNESS_ONE_USD_PER_PCT`) before it is compared, so a stale 70% plus $523 at $20 per 1% opens a hold at
+90%. That count runs only for stale readings under the threshold, is cached per account, window and
+reading time for `HARNESS_USAGE_SPEND_TTL` seconds (300), and is skipped, with one log line, when no $ per
+1% is known. The `usage_reading` events keep the raw reading.
+
 `harness status` shows every window, with `HOLD` on an account being waited out. Every new reading
 (one per account and window, only when it changed since the last one logged) goes to the event log
 as a `usage_reading` event (`account`, `window`, `pct`, `resets_at`), whatever the CLI; the
@@ -1425,7 +1440,9 @@ the operator keep going one issue at a time in their own session, with a budget 
   (exactly at it approves), else **DENY**, naming each window over it. `p80%` is the forecast's p80
   total as % of that window (its calibrated fit, else `HARNESS_ONE_USD_PER_PCT`). A reading older
   than `HARNESS_ONE_STALE_MIN` minutes — its status-line drop's age, or the adapter's usage cache's —
-  or of unknown age gets `HARNESS_ONE_STALE_PAD_PCT` points added. No reading, no p80% for a window,
+  or of unknown age gets `HARNESS_ONE_STALE_PAD_PCT` points added, and (#659) each reading also counts the
+  account's Claude transcript spend since it was taken (as `phase` does), shown as `read 70% + 26.15% spent
+  since`; where that spend cannot be counted, only the pad applies. No reading, no p80% for a window,
   or no past lanes at all is a DENY: the gate cannot show the work fits.
 - **Decision** — the skill shows all of that and asks: approve / pick another issue / stop. It never
   approves by itself; a DENY is a recommendation the human may overrule.

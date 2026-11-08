@@ -16,7 +16,11 @@
 #      and is left alive for #120's nudge. watchdog_session also calls this on the limit message
 #      itself, so checkpoints still happen for a CLI that cannot report usage.
 #
-# Usage lines, from every source: `<account>\t<window>\t<pct>\t<resets_at epoch>`.
+# Usage lines, from every source: `<account>\t<window>\t<pct>\t<resets_at epoch>[\t<at epoch>]` — #659:
+# the 5th column, when a source stamps its readings (claude's status-line drops), is when the reading was
+# taken; absent = a live query, current now. A frozen reading says nothing about what happened after it, so
+# a hold is only released by a reading taken AFTER it opened (or by the reset), and a stale reading below
+# the threshold is brought up by the account's spend since it before it can fail to open a hold.
 # Both dirs resolve per call, off RUN_DIR, like every other run-state path a test re-pins.
 _usage_dir(){ echo "${HARNESS_USAGE_DIR:-$RUN_DIR/usage}"; }   # statusline drops (claude adapter)
 _usage_hold_dir(){ echo "$RUN_DIR/usage-holds"; }              # one <account>.hold per held account
@@ -147,32 +151,73 @@ _usage_reading_new(){ local f last; f="$RUN_DIR/usage-readings/$(_usage_key "$1"
   last="$(cat "$f" 2>/dev/null)"; [[ "$last" != "$3"$'\t'"$4" ]] || return 1
   mkdir -p "${f%/*}" 2>/dev/null; printf '%s\t%s' "$3" "$4" > "$f" 2>/dev/null; return 0; }
 
+# _usage_spend_pct <account> <window> <at> — #659: the % of <window> the account spent since epoch <at>
+# (one.py spend: its transcripts priced, over the window's $ per 1%). Prints nothing when that cannot be
+# counted (no config dir for the account), `uncalibrated` when no $ per 1% is known. Every worker polls, so
+# one count serves them all for HARNESS_USAGE_SPEND_TTL seconds (300): cached per account/window/reading time.
+_usage_spend_pct(){ local f now t val ttl="${HARNESS_USAGE_SPEND_TTL:-300}"
+  f="$RUN_DIR/usage-spend/$(_usage_key "$1")__$(_usage_key "$2")__$(_usage_key "$3")"; now="$(date +%s)"
+  if [[ -f "$f" ]] && IFS=$'\t' read -r t val < "$f" && [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ttl )); then
+    printf '%s' "$val"; return 0; fi
+  val="$(python3 "$ENGINE_DIR/scripts/one.py" spend --account "$1" --window "$2" --since "$3" 2>/dev/null)" || val=""
+  mkdir -p "${f%/*}" 2>/dev/null && printf '%s\t%s\n' "$now" "$val" > "$f.$$" 2>/dev/null && mv -f "$f.$$" "$f" 2>/dev/null
+  printf '%s' "$val"; }
+
 # usage_watch — one poll: read usage, open a hold (and checkpoint) for an account crossing the
 # threshold, release a hold whose window has reset. Every worker calls it; the flock makes the
 # crossing fire once. Unavailable usage changes nothing except a hold whose reset time has passed.
 # #364: each new reading is logged as one `usage_reading` event per account/window (forecast.py
 # calibrates $ per 1% from them), emitted after the lock is released so a slow log never holds the
 # other workers' polls.
-usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=() seen=(); local -a readings=()
+# #659: a stamped reading (5th column) older than HARNESS_ONE_STALE_MIN minutes and below the threshold is
+# first brought up by the account's spend since it (_usage_spend_pct, counted before the lock is taken);
+# the usage_reading event keeps the raw reading. A hold is released when its reset time has passed, or when
+# the account answered with no window at the threshold and a reading of the held window taken after the
+# hold opened (its mtime) — a live query is always current; a frozen reading from before says nothing new.
+usage_watch(){ local out lockfd acct win pct reset at key hf now r opened sp cpct stale; local -A over=() seen=() live=() newest=(); local -a readings=()
   out="$(cli_limit_usage 2>/dev/null)"; local avail=$?
+  now="$(date +%s)"; stale=$(( ${HARNESS_ONE_STALE_MIN:-30} * 60 ))
+  local -A corr=()
+  if (( avail == 0 )); then   # the correction runs before the lock: a transcript scan must not hold the other workers' polls
+    while IFS=$'\t' read -r acct win pct reset at; do
+      [[ -n "$acct" && -n "$win" && "${pct%.*}" =~ ^[0-9]+$ && "$at" =~ ^[0-9]+$ ]] || continue
+      (( at > 0 && now - at > stale && ${pct%.*} < HARNESS_USAGE_CHECKPOINT_PCT )) || continue
+      key="$acct"$'\t'"$win"; [[ -z "${corr[$key]+x}" ]] || continue
+      sp="$(_usage_spend_pct "$acct" "$win" "$at")"
+      if [[ "$sp" == uncalibrated ]]; then
+        [[ -e "$RUN_DIR/usage-spend/$(_usage_key "$key").logged" ]] || {
+          mkdir -p "$RUN_DIR/usage-spend" 2>/dev/null; : > "$RUN_DIR/usage-spend/$(_usage_key "$key").logged" 2>/dev/null
+          log "usage: $acct $win reading is $(( (now - at) / 60 ))m old and no \$-per-1% calibration exists (HARNESS_ONE_USD_PER_PCT unset) — its spend since is not counted"; }
+        corr[$key]=""; continue
+      fi
+      [[ "$sp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { corr[$key]=""; continue; }
+      cpct="$(awk -v a="$pct" -v b="$sp" 'BEGIN{printf "%.2f", a+b}')"; corr[$key]="$cpct"$'\t'"$sp"
+    done <<< "$out"
+  fi
   mkdir -p "$(_usage_hold_dir)"
   lock_acquire "$RUN_DIR/usage.lock" lockfd
   if (( avail == 0 )); then
     rm -f "$RUN_DIR/usage.unavailable"
-    while IFS=$'\t' read -r acct win pct reset; do
+    while IFS=$'\t' read -r acct win pct reset at; do
       [[ -n "$acct" && "${pct%.*}" =~ ^[0-9]+$ ]] || continue   # a malformed line is skipped, never fatal
-      (( ${pct%.*} >= HARNESS_USAGE_CHECKPOINT_PCT )) && over[$acct]="$win"$'\t'"$pct"$'\t'"$reset"
-      key="$acct"$'\t'"$win"; [[ -n "$win" && -z "${seen[$key]:-}" ]] || continue
+      key="$acct"$'\t'"$win"
+      if [[ "$at" =~ ^[0-9]+$ ]]; then [[ -n "$win" ]] && (( at > ${newest[$key]:-0} )) && newest[$key]="$at"
+      else live[$acct]=1; fi   # no time column: a live query, current as of this poll
+      cpct="$pct"; [[ -n "${corr[$key]:-}" ]] && cpct="${corr[$key]%%$'\t'*}"
+      if awk -v p="$cpct" -v t="$HARNESS_USAGE_CHECKPOINT_PCT" 'BEGIN{exit !(p+0 >= t+0)}'; then
+        over[$acct]="$win"$'\t'"$cpct"$'\t'"$reset"$'\t'"$pct"
+      fi
+      [[ -n "$win" && -z "${seen[$key]:-}" ]] || continue
       seen[$key]=1; _usage_reading_new "$acct" "$win" "$pct" "$reset" \
         && readings+=("$acct"$'\t'"$win"$'\t'"$pct"$'\t'"$reset")
     done <<< "$out"
     for acct in "${!over[@]}"; do
       hf="$(_usage_hold_dir)/$(_usage_key "$acct").hold"; [[ -f "$hf" ]] && continue
-      printf '%s\t%s\n' "$acct" "${over[$acct]}" > "$hf"
-      IFS=$'\t' read -r win pct reset <<< "${over[$acct]}"
-      log "usage: $acct $win window at ${pct}% (>= ${HARNESS_USAGE_CHECKPOINT_PCT}%) — checkpointing live sessions, holding claims until it resets"
-      harness_event usage_checkpoint account="$acct" window="$win" pct="$pct" resets_at="$reset"
-      usage_checkpoint_account "$acct" "usage limit near ($win window at ${pct}%)"
+      IFS=$'\t' read -r win cpct reset pct <<< "${over[$acct]}"
+      printf '%s\t%s\t%s\t%s\n' "$acct" "$win" "$cpct" "$reset" > "$hf"
+      log "usage: $acct $win window at ${cpct}% (>= ${HARNESS_USAGE_CHECKPOINT_PCT}%) $([[ "$cpct" != "$pct" ]] && echo "(the ${pct}% reading plus the spend since it) ")— checkpointing live sessions, holding claims until it resets"
+      harness_event usage_checkpoint account="$acct" window="$win" pct="$cpct" resets_at="$reset"
+      usage_checkpoint_account "$acct" "usage limit near ($win window at ${cpct}%)"
     done
   elif [[ ! -f "$RUN_DIR/usage.unavailable" ]]; then
     touch "$RUN_DIR/usage.unavailable"; log "usage: usage unavailable for $(cli_name) — checkpointing on the limit message only"
@@ -180,7 +225,12 @@ usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=(
   now="$(date +%s)"; shopt -s nullglob
   for hf in "$(_usage_hold_dir)"/*.hold; do
     IFS=$'\t' read -r acct win pct reset < "$hf"
-    if (( avail == 0 )); then [[ -n "${over[$acct]:-}" ]] && continue
+    if (( avail == 0 )); then
+      [[ -n "${over[$acct]:-}" ]] && continue
+      if (( ${reset:-0} <= 0 || ${reset:-0} > now )); then   # the window has not reset: only a newer, lower reading releases it
+        opened="$(stat -c %Y "$hf" 2>/dev/null || echo "$now")"
+        [[ -n "${live[$acct]:-}" ]] || (( ${newest[$acct$'\t'$win]:-0} > opened )) || continue
+      fi
     else (( ${reset:-0} > now )) && continue; fi
     rm -f "$hf"; log "usage: $acct $win window reset — resuming claims"
     harness_event usage_resume account="$acct" window="$win"
@@ -194,10 +244,10 @@ usage_watch(){ local out lockfd acct win pct reset key hf now r; local -A over=(
   return 0; }
 
 # usage_report — the windows and holds, one line per account window (harness status).
-usage_report(){ local out acct win pct reset hold
+usage_report(){ local out acct win pct reset hold _
   out="$(cli_limit_usage 2>/dev/null)" || { echo "  usage: unavailable for $(cli_name) (checkpoints on the limit message only)"; return 0; }
   [[ -n "$out" ]] || { echo "  usage: no open windows reported"; return 0; }
-  while IFS=$'\t' read -r acct win pct reset; do
+  while IFS=$'\t' read -r acct win pct reset _; do   # #659: the 5th column is the reading's time
     [[ -n "$acct" ]] || continue
     hold=""; [[ -f "$(_usage_hold_dir)/$(_usage_key "$acct").hold" ]] && hold="  HOLD (checkpointed; claims paused)"
     printf '  usage: %s %s %s%% (checkpoint at %s%%, resets %s)%s\n' "$acct" "$win" "$pct" \

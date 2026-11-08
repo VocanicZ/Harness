@@ -9,7 +9,9 @@
 #   harness one gate <issue> [-R owner/repo] [--unit U] [--json]
 #       the precondition, then the issue's forecast (forecast.py, #363/#364) against the freshest
 #       usage reading of every window (cli_limit_usage), and the recommendation (one.py):
-#       APPROVE iff now% + p80% + HARNESS_ONE_RESERVE_PCT <= HARNESS_ONE_STOP_PCT, else DENY.
+#       APPROVE iff now% + p80% + HARNESS_ONE_RESERVE_PCT <= HARNESS_ONE_STOP_PCT, else DENY. #659: now%
+#       counts the account's transcript spend since each reading (one.py --spend), as `phase` does;
+#       a reading whose spend cannot be counted keeps the HARNESS_ONE_STALE_PAD_PCT pad.
 #       It only recommends — the human decides (skill/harness-one), and nothing is claimed here.
 #
 #   harness one start <issue> [-R owner/repo] [--unit U]                                   (#366)
@@ -83,11 +85,14 @@ _one_live(){ [[ -n "${HARNESS_USAGE_CMD:-}" || "$(cli_name)" != claude ]] && ech
 # one_readings — the usage readings TSV one.py reads:
 # `<account>\t<window>\t<pct>\t<resets_at>\t<age>\t<live>` (_one_live).
 # Prints nothing when usage is unavailable (the gate then DENIES: it cannot show the work fits).
-one_readings(){ local out acct win pct reset now live; now="$(date +%s)"; live="$(_one_live)"
+# #659: an adapter that stamps its readings (claude's: a 5th column, the epoch it was taken) sets the age —
+# it is the time of the reading that won, where the drop file's mtime is only the newest drop's.
+one_readings(){ local out acct win pct reset at age now live; now="$(date +%s)"; live="$(_one_live)"
   out="$(cli_limit_usage 2>/dev/null)" || return 0
-  while IFS=$'\t' read -r acct win pct reset; do
+  while IFS=$'\t' read -r acct win pct reset at; do
     [[ -n "$acct" && -n "$pct" ]] || continue
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$acct" "$win" "$pct" "${reset:-0}" "$(_one_reading_age "$acct" "$now")" "$live"
+    if [[ "$at" =~ ^[0-9]+$ ]] && (( at > 0 )); then age=$(( now > at ? now - at : 0 )); else age="$(_one_reading_age "$acct" "$now")"; fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$acct" "$win" "$pct" "${reset:-0}" "$age" "$live"
   done <<< "$out"; }
 
 # one_gate <issue> [forecast args…] [--json] — precondition, forecast, readings, recommendation.
@@ -101,7 +106,8 @@ one_gate(){ local issue="${1:-}" json="" a fc rd rc; shift || true
   # rc 1 = no past lanes on the host: its JSON still prints, and the gate DENIES on it.
   if (( rc != 0 && rc != 1 )); then rm -f "$fc" "$rd"; return 2; fi
   one_readings > "$rd"
-  python3 "$ENGINE_DIR/scripts/one.py" gate --forecast "$fc" --readings "$rd" \
+  # #659: --spend counts the account's transcript spend since each reading, as `phase` does.
+  python3 "$ENGINE_DIR/scripts/one.py" gate --forecast "$fc" --readings "$rd" --spend \
     --stop "$HARNESS_ONE_STOP_PCT" --reserve "$HARNESS_ONE_RESERVE_PCT" \
     --stale-min "$HARNESS_ONE_STALE_MIN" --stale-pad "$HARNESS_ONE_STALE_PAD_PCT" $json; rc=$?
   rm -f "$fc" "$rd"; return $rc; }

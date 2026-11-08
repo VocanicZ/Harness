@@ -31,6 +31,13 @@ at the start plus the account's spend since, or listed as unchecked with a warni
 
     one.py phase --phase P --forecast F.json --readings R.tsv --spend [--start S.tsv] [--session A] […]
 
+`gate --spend` (#659) counts the same spend on a gate's readings (gate_with_spend): a frozen status-line
+reading that the gate alone only padded by `stale_pad` points is brought up by what the account spent
+since it was taken, as `phase` does, so the two never answer differently on the same data. A reading whose
+spend cannot be counted keeps the pad. `one.py spend --account A --window W --since T` prints the % of the
+window the account spent since epoch T (usage.sh's open rule for a stale reading): `uncalibrated` when no
+$ per 1% is known, nothing when the account's spend cannot be counted.
+
 R.tsv lines: `<account>\t<window>\t<pct>\t<resets_at>\t<age seconds, empty = unknown>\t<live>`, `live`
 marking a live query's reading (#451: HARNESS_USAGE_CMD, a non-claude adapter), empty otherwise.
 Text output is the forecast, then the arithmetic; --json is the gate dict with the forecast under
@@ -137,6 +144,17 @@ def gate(fc, readings, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0):
             "reasons": reasons}
 
 
+def gate_with_spend(fc, readings, spend, stop=98.0, reserve=2.0, stale_min=30.0, stale_pad=3.0, now=None):
+    """(#659) gate(), on readings brought up to `now` the way phase_check does it: each reading's pct plus
+    what its account spent since it was taken (live_readings), over the window's $ per 1%. The window gains
+    read / spent_usd / spent_pct (None when its spend could not be counted, the stale pad then standing)."""
+    rs = live_readings(fc, readings, spend, None, now)
+    g = gate(fc, rs, stop, reserve, stale_min, stale_pad)
+    for w, r in zip(g["windows"], rs):
+        w.update({k: r.get(k) for k in ("read", "spent_usd", "spent_pct")})
+    return g
+
+
 def remaining(fc, phase):
     """`fc` cut to the work left from `phase` on (#366): every total — the $ one and each window's %
     row — becomes, per quantile, the sum of that quantile over `phase` .. ship, never above the
@@ -183,6 +201,35 @@ def account_spend_since(account, t0):
                 seen.add(key)
                 usd += fm.raw_cost(usage, model)
     return usd
+
+
+def spend_pct(account, window, since):
+    """(#659) % of `window` the account spent after epoch `since`: its transcript spend over the window's
+    $ per 1% — the calibrated bound forecast.py fits from the usage_reading events, else
+    HARNESS_ONE_USD_PER_PCT. None when the spend cannot be counted (no config dir for the account),
+    "uncalibrated" when it can but no $ per 1% is known."""
+    usd = account_spend_since(account, since)
+    if usd is None:
+        return None
+    fm = _forecast()
+    acct = _norm(account)
+    per = next((c["bound"] for c in fm.calibrate(fm.st.load_events(None))
+                if _norm(c["account"]) == acct and c["window"] == window and c["bound"]), None)
+    per = per or fm.usd_per_pct_setting(os.environ.get("STATE_DIR"))
+    return round(usd / per, 2) if per else "uncalibrated"
+
+
+def _spend_main(argv):
+    import argparse
+    ap = argparse.ArgumentParser(prog="harness one spend", description="% of a window spent since an epoch (#659)")
+    ap.add_argument("--account", required=True)
+    ap.add_argument("--window", required=True)
+    ap.add_argument("--since", type=float, required=True)
+    a = ap.parse_args(argv)
+    r = spend_pct(a.account, a.window, a.since)
+    if r is not None:
+        print(r if isinstance(r, str) else f"{r:g}")
+    return 0
 
 
 def live_readings(fc, readings, spend, start=None, now=None):
@@ -387,6 +434,9 @@ def render_phase(g):
 
 def main(argv=None):
     import argparse
+    args = sys.argv[1:] if argv is None else argv
+    if args[:1] == ["spend"]:
+        return _spend_main(args[1:])
     ap = argparse.ArgumentParser(prog="harness one gate", description="the /harness-one budget gate (#365)")
     ap.add_argument("cmd", choices=["gate", "phase"])
     ap.add_argument("--phase", choices=_forecast().PHASES, help="phase: the phase about to start")
@@ -398,9 +448,9 @@ def main(argv=None):
     ap.add_argument("--stale-pad", type=float, default=3.0)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--spend", action="store_true",
-                    help="phase: add each account's transcript spend since its reading (#445)")
+                    help="phase, gate: add each account's transcript spend since its reading (#445, #659)")
     ap.add_argument("--start", help="phase: harness one start's snapshot — the start epoch, then readings TSV")
-    ap.add_argument("--session", help="phase: this session's own account (its CLAUDE_CONFIG_DIR basename, #452)")
+    ap.add_argument("--session", help="phase (accepted and ignored by gate): this session's own account (its CLAUDE_CONFIG_DIR basename, #452)")
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         with open(a.forecast) as fh:
@@ -426,7 +476,10 @@ def main(argv=None):
                         spend=account_spend_since if a.spend else None, start=start, session=a.session)
         print(json.dumps(g, indent=2) if a.json else render_phase(g))
         return 0 if g["verdict"] == "FITS" else 1
-    g = gate(fc, readings, a.stop, a.reserve, a.stale_min, a.stale_pad)
+    if a.spend:   # #659: the gate counts the spend since each reading, as the phase re-check does
+        g = gate_with_spend(fc, readings, account_spend_since, a.stop, a.reserve, a.stale_min, a.stale_pad)
+    else:
+        g = gate(fc, readings, a.stop, a.reserve, a.stale_min, a.stale_pad)
     if a.json:
         print(json.dumps(dict(g, forecast=fc), indent=2))
     else:   # the forecast first, then the arithmetic on it

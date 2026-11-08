@@ -157,7 +157,11 @@ cli_uninstall(){ _cli_call uninstall; }                # remove what Harness ins
 cli_turn_secs(){ _cli_call turn_secs "$@"; }           # <pane> → seconds the running turn has taken; 0 = no turn; '' = no turn timer
 cli_interrupted_re(){ _cli_call interrupted_re; }      # ERE: the line an interrupted turn prints ('' = none: wait for not-busy)
 cli_bg_re(){ _cli_call bg_re; }                        # ERE: footer timers/counters that move while work runs
-# cli_limit_usage — `<account>\t<window>\t<pct used>\t<resets_at>` lines; rc 1 = unavailable.
+# cli_limit_usage — `<account>\t<window>\t<pct used>\t<resets_at>[\t<at>]` lines; rc 1 = unavailable.
+# #659: the optional 5th column is the epoch the reading was TAKEN. Absent = a live query, current as of now
+# (HARNESS_USAGE_CMD, and every adapter but claude's). Present = a frozen reading (claude's status-line
+# drops and headless-lane state stop updating once every session on the account is checkpointed): 0 = its
+# time is unknown. A reader must take `reset` as the 4th field only (`read -r acct win pct reset at`).
 # HARNESS_USAGE_CMD overrides the adapter for ANY CLI (an operator's own source, and the test stub).
 cli_limit_usage(){
   if [[ -n "${HARNESS_USAGE_CMD:-}" ]]; then bash -c "$HARNESS_USAGE_CMD"; return; fi
