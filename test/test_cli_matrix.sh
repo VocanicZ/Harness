@@ -477,7 +477,7 @@ pause_resume_ok(){ ( host_a; checkpoint_ok || exit 1
     grep -qF "BEGIN HANDOFF" "$WORKTREES_DIR/main-i7/.harness-task.md" ); }
 # frozen_ok <kind> — #180: the CLI's idle pane and its <kind> pane (trust dialog, limit), drawn in
 # real tmux panes (a private server) and gone quiet. supervise.sh nudges the idle prompt and never
-# types into the other. A missing fixture fails the cell: no half of it is skipped (#305).
+# types into the other (a trust dialog is logged as stuck, #660; a limit pane is left alone). A missing fixture fails the cell: no half of it is skipped (#305).
 # On a host with no tmux (Windows, #493) the cell is its headless twin: the same supervisor rules on the CLI's headless
 # lanes (headless_supervisor_ok — an idle lane is nudged, a limit-parked one is never typed into); a lane's CLI is
 # trusted at launch (headless_launch_ok), so the trust dialog the pane would show never appears there.
@@ -495,7 +495,10 @@ frozen_ok(){ ( if ! command -v tmux >/dev/null; then
   command sleep 0.3
   for i in 1 2; do for k in idle "$other"; do
     sup_watch_pane "$cli-$k" "$SUP_STATE/panes/$cli-$k" 0 0 "nudge-$k" "$cli"; done; done
-  grep -qF "send-keys -t $cli-idle -l nudge-idle" "$SUP_LOG" && not grep -qF "$cli-$other" "$SUP_LOG" ); }
+  grep -qF "send-keys -t $cli-idle -l nudge-idle" "$SUP_LOG" || exit 1
+  # #660: the quiet trust dialog is a stuck lane — logged by name, and no key is ever sent to it; a limit-parked pane is left alone.
+  if [[ $other == trust ]]; then grep -qF "dialog: $cli-$other " "$SUP_LOG" && not grep -qE "send-keys -t $cli-$other|nudge-$other" "$SUP_LOG"
+  else not grep -qF "$cli-$other" "$SUP_LOG"; fi ); }
 # rtdd_event_ok — #186: a lane launched through this CLI calls `rtdd which` from its turn; rtdd sees
 # the session's env through the CLI and logs it, and `harness stats` joins the call to the lane's
 # session and issue. A CLI whose turns do not run in the pane's env has its fake drop what it would

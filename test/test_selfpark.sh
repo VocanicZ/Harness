@@ -37,7 +37,7 @@ setup(){
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"
   SNAP="$RUN_DIR/snap.json"; export HARNESS_SNAPSHOT_FILE="$SNAP"
   CALLS="$RUN_DIR/calls"; : > "$CALLS"; LIVE="$RUN_DIR/live"; echo "$S" > "$LIVE"
-  export CALLS LIVE
+  export CALLS LIVE; unset PANE_FILE
   # The lane's worktree: a real git repo with WIP and an origin to push it to.
   ORIGIN="$RUN_DIR/origin.git"; git init -q --bare "$ORIGIN"
   WD="$WORKTREES_DIR/main-i5"; git init -q "$WD"
@@ -55,7 +55,8 @@ setup(){
             has-session) grep -qxF "$3" "$LIVE";;
             kill-session) grep -vxF "$3" "$LIVE" > "$LIVE.n"; mv "$LIVE.n" "$LIVE";;
             ls|list-sessions) cat "$LIVE";;
-            capture-pane) printf '%s\n' 'Still waiting on a decision from the PRD owner.' '❯ ';;
+            capture-pane) if [[ -n "${PANE_FILE:-}" ]]; then cat "$PANE_FILE"
+                          else printf '%s\n' 'Still waiting on a decision from the PRD owner.' '❯ '; fi;;
           esac; }
   export -f gh tmux
   remove_worktree(){ rm -rf "$2"; }
@@ -146,6 +147,33 @@ for cli in claude agy; do
   snapshot "ready-for-agent,agent-working,agent-paused"
   reap_done_sessions 2>/dev/null
   assert_eq "$(nudges)" "0" "[$cli] both labels: no nudge"
+
+  echo "=== [$cli] #660: a pane a launch dialog owns is never typed into ==="
+  # The nudge's Enter on the Bypass Permissions dialog would pick `No, exit`.
+  for dlg in trust $([[ $cli == claude ]] && echo "bypass-dialog imports-dialog"); do
+    setup
+    export PANE_FILE="$HERE/fixtures/cli/$cli/$dlg.txt"
+    snapshot "ready-for-agent,agent-paused"
+    reap_done_sessions 2>/dev/null; reap_done_sessions 2>/dev/null
+    assert_eq "$(nudges)" "0" "[$cli] $dlg: no nudge"
+    assert_eq "$(grep -c 'send-keys' "$CALLS")" "0" "[$cli] $dlg: no key sent to the pane at all"
+    assert_no "[$cli] $dlg: no self-park state" test -f "$RUN_DIR/$S.selfpark"
+    assert_eq "$(killed)" "0" "[$cli] $dlg: not killed"
+  done
+  unset PANE_FILE
+
+  echo "=== [$cli] #660: a just-launched resume lane still carrying agent-paused is no self-park ==="
+  # prompts/resume.md step 3: the resumed lane removes agent-paused itself, once it is running.
+  setup
+  snapshot "ready-for-agent,agent-paused"
+  echo "$(date +%s) 11111111-1111-1111-1111-111111111111" > "$RUN_DIR/$S.launched"
+  reap_done_sessions 2>/dev/null; reap_done_sessions 2>/dev/null
+  assert_eq "$(nudges)" "0" "[$cli] inside the launch grace: no nudge"
+  assert_no "[$cli] inside the launch grace: no self-park state" test -f "$RUN_DIR/$S.selfpark"
+  assert_eq "$(killed)" "0" "[$cli] inside the launch grace: not killed"
+  echo "$(( $(date +%s) - 3600 )) 11111111-1111-1111-1111-111111111111" > "$RUN_DIR/$S.launched"
+  reap_done_sessions 2>/dev/null
+  assert_eq "$(nudges)" "1" "[$cli] still PAUSED long after the launch: nudged (#417)"
 
   echo "=== [$cli] a checkpoint sent by the usage checkpoint is no self-park ==="
   setup

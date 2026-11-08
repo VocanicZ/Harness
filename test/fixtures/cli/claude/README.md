@@ -9,6 +9,8 @@ and Harness's own status line (`usage-statusline.sh`) in `.claude/settings.local
 |---|---|
 | `stream-json/` | What a headless lane reads instead of a pane: `claude -p --output-format stream-json` captures (normal turn, tool use, usage limit, transient API error) and the fake claude that replays them for `claude_headless.py` (#347). Its own README says how they were captured. |
 | `trust.txt` | `claude --model haiku` in the repo before it was trusted: the workspace-trust dialog. |
+| `bypass-dialog.txt` | The Bypass Permissions mode dialog, as Claude Code 2.1.319 drew it (#660) on a lean launch (`--setting-sources project,local`) when `skipDangerousModePermissionPrompt` was not in the project or local settings. The issue body quoted the text; `❯ No, exit` is the default. |
+| `imports-dialog.txt` | The "Allow external CLAUDE.md file imports?" dialog, as Claude Code 2.1.319 drew it (#660) on the first lean launch into a repository whose Claude project entry never recorded an answer. The issue body quoted the text; the default is `No, disable external imports`. |
 | `busy.txt` | Mid-turn while a foreground `python3 -c 'import time; time.sleep(45)'` ran: the spinner plus `(ctrl+b ctrl+b (twice) to run in background)`. |
 | `busy-spinner.txt` | Mid-turn while the model was writing (no tool running): the spinner line `✻ Puttering… (1s · ↓ 38 tokens · thinking)` only. No `esc to interrupt` anywhere: Harness's status line hides it (docs/cli-capabilities.md Findings 5, confirmed). |
 | `idle.txt` | After the turn ended: `❯` at column 0 in the input box. |
