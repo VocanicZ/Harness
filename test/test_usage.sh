@@ -52,7 +52,8 @@ out="$(printf '{"workspace":{"current_dir":"%s"},"rate_limits":{"five_hour":{"us
 assert_eq "$out" "harness · 5h 92% · 7d 30%" "statusline prints the windows"
 assert_ok "statusline dropped the account's windows" test -f "$(_usage_dir)/work.json"
 got="$(unset HARNESS_USAGE_CMD; HARNESS_CLI=claude cli_limit_usage)"
-assert_eq "$got" "$(printf 'work\tfive_hour\t91.5\t%s' "$future")" "claude adapter reports the open window, skips the reset one"
+assert_eq "$(cut -f1-4 <<<"$got")" "$(printf 'work\tfive_hour\t91.5\t%s' "$future")" "claude adapter reports the open window, skips the reset one"
+assert_ok "…with the time the status line took it as a 5th column (#659)" bash -c "[[ '$got' =~ ^work.*[[:space:]][0-9]{10}\$ ]]"
 echo "$WT" > "$RUN_DIR/hz-main-i3.wd"
 assert_eq "$(session_account hz-main-i3)" "work" "a session maps to the account its status line reported"
 assert_eq "$(session_account hz-main-i4)" "" "a session with no drop has no known account"
@@ -169,6 +170,125 @@ stub_usage 99; usage_watch
 assert_no "a session on another account is not checkpointed" grep -q 'send-keys -t hz-main-i5 ' "$CALLS"
 assert_ok "the unknown-account lane session is checkpointed" grep -q 'send-keys -t hz-bug-acme_widget-9-fix ' "$CALLS"
 rm -rf "$(_usage_dir)" "$(_usage_hold_dir)" "$RUN_DIR/hz-main-i5.wd"
+
+# ── E (#659): the claude adapter's readings carry the time they were taken; a stale one neither
+#    releases a hold nor keeps one from opening ──────────────────────────────────────────────────────
+_cli0="${HARNESS_CLI-}"; export HARNESS_CLI=claude; unset HARNESS_USAGE_CMD
+export HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/cfg-none"   # no config dir: a real spend count finds nothing
+now=$(date +%s); reset3d=$(( now + 3 * 86400 ))
+drop(){ # drop <account> <window> <pct> <resets_at> <age seconds>
+  mkdir -p "$(_usage_dir)"
+  printf '{"account":"%s","at":%s,"rate_limits":{"%s":{"used_percentage":%s,"resets_at":%s}}}' \
+    "$1" "$(( $(date +%s) - $5 ))" "$2" "$3" "$4" > "$(_usage_dir)/$1.json"; }
+hold(){ # hold <account> <window> <pct> <resets_at> <opened seconds ago>
+  mkdir -p "$(_usage_hold_dir)"; printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" > "$(_usage_hold_dir)/$1.hold"
+  touch -d "$5 seconds ago" "$(_usage_hold_dir)/$1.hold"; }
+n_resume(){ grep -c '"event": "usage_resume"' "$HARNESS_EVENTS_FILE" 2>/dev/null || true; }
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"; : > "$CALLS"
+
+got="$(drop hzhn seven_day 70 "$reset3d" 3600; cli_limit_usage | cut -f1-4)"
+assert_eq "$got" "$(printf 'hzhn\tseven_day\t70\t%s' "$reset3d")" "claude adapter: the first four columns are unchanged"
+got="$(cli_limit_usage | cut -f5)"
+assert_ok "claude adapter: a 5th column is the epoch the reading was taken" \
+  bash -c "(( $got >= $now - 3605 && $got <= $now - 3595 ))"
+usage_report > "$RUN_DIR/report"
+assert_ok "usage_report still prints the reset time, not the new column" \
+  grep -q "usage: hzhn seven_day 70% (checkpoint at 90%, resets $(date -d "@$reset3d" '+%a %H:%M'))" "$RUN_DIR/report"
+
+# the reproduction: a 27-hour-old 70% reading, a hold opened an hour ago at 91%
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"
+drop hzhn seven_day 70 "$reset3d" $(( 27 * 3600 )); hold hzhn seven_day 91 "$reset3d" 3600
+before="$(n_resume)"; usage_watch
+assert_ok "a reading taken BEFORE the hold opened does not release it" usage_held
+assert_eq "$(n_resume)" "$before" "…and no usage_resume event"
+usage_watch; assert_ok "…poll after poll" usage_held
+
+# a reading of the held window taken AFTER the hold opened, below the threshold, releases it
+drop hzhn seven_day 40 "$reset3d" 60; usage_watch
+assert_no "a newer reading of the held window below the threshold releases the hold" usage_held
+assert_eq "$(n_resume)" "$(( before + 1 ))" "…with a usage_resume event"
+
+# …but not when another window of that account is at the threshold
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"; : > "$CALLS"
+hold hzhn seven_day 91 "$reset3d" 3600
+mkdir -p "$(_usage_dir)"
+printf '{"account":"hzhn","at":%s,"rate_limits":{"seven_day":{"used_percentage":40,"resets_at":%s},"five_hour":{"used_percentage":95,"resets_at":%s}}}' \
+  "$now" "$reset3d" "$(( now + 3600 ))" > "$(_usage_dir)/hzhn.json"
+usage_watch
+assert_ok "another window of the account over the threshold keeps the hold" usage_held
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"
+
+# a newer reading of a DIFFERENT window does not release a hold on the held one
+hold hzhn seven_day 91 "$reset3d" 3600; drop hzhn five_hour 5 "$(( now + 3600 ))" 30
+usage_watch
+assert_ok "a newer reading of another window does not release the held window" usage_held
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"
+
+# the reset time passing releases it, with only an old reading, or with none at all
+hold hzhn seven_day 91 "$(( now - 60 ))" 7200; drop hzhn seven_day 70 "$(( now - 60 ))" $(( 27 * 3600 ))
+usage_watch
+assert_no "resets_at passed: released (the adapter reports nothing for the reset window)" usage_held
+hold hzhn seven_day 91 "$(( now - 60 ))" 7200; drop hzhn five_hour 20 "$(( now + 3600 ))" 600
+usage_watch
+assert_no "resets_at passed: released though other windows still report" usage_held
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"
+
+# a live query keeps releasing on any below-threshold reading, whatever the hold's age
+export HARNESS_USAGE_CMD="cat '$STUB'"; stub_usage 40
+hold acctA five_hour 95 "$future" 10; usage_watch
+assert_no "live source (HARNESS_USAGE_CMD): a below-threshold reading releases the hold" usage_held
+unset HARNESS_USAGE_CMD
+
+# opening: a stale reading is brought up to date with the spend since it (a stand-in, no transcripts)
+SPEND_CALLS="$RUN_DIR/spend.calls"; : > "$SPEND_CALLS"
+_usage_spend_pct(){ echo "$*" >> "$SPEND_CALLS"; echo "${SPEND:-26.15}"; }
+drop hzhn seven_day 70 "$reset3d" $(( 27 * 3600 )); : > "$CALLS"
+usage_watch
+assert_ok "70% read 27h ago + 26.15% spent since reaches the 90% threshold: a hold opens" usage_held
+assert_ok "…naming the window" test -f "$(_usage_hold_dir)/hzhn.hold"
+assert_ok "…the hold records the corrected %" grep -q $'^hzhn\tseven_day\t96.15\t' "$(_usage_hold_dir)/hzhn.hold"
+assert_ok "…and the live sessions are checkpointed" grep -q 'send-keys -t hz-main-i5 ' "$CALLS"
+assert_ok "…the spend was asked for the account, window and the reading's time" grep -q '^hzhn seven_day ' "$SPEND_CALLS"
+assert_ok "usage_reading logs the raw reading, not the corrected one" \
+  grep -q '"event": "usage_reading".*"account": "hzhn", "window": "seven_day", "pct": 70,' "$HARNESS_EVENTS_FILE"
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"
+
+drop hzhn seven_day 70 "$reset3d" $(( 27 * 3600 )); SPEND=5 usage_watch
+assert_no "stale 70% + 5% spent is under the threshold: no hold" usage_held
+
+: > "$SPEND_CALLS"; drop hzhn seven_day 70 "$reset3d" 60; SPEND=40 usage_watch
+assert_no "a fresh reading is taken as read" usage_held
+assert_eq "$(wc -l < "$SPEND_CALLS")" "0" "…and the spend correction does not run for it"
+drop hzhn seven_day 95 "$reset3d" $(( 27 * 3600 )); SPEND=0 usage_watch
+assert_ok "a stale reading already over the threshold holds without a count" usage_held
+assert_eq "$(wc -l < "$SPEND_CALLS")" "0" "…the spend correction runs only for stale readings below it"
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)"
+
+_usage_spend_pct(){ :; }   # spend cannot be counted: no correction
+drop hzhn seven_day 70 "$reset3d" $(( 27 * 3600 )); usage_watch
+assert_no "spend that cannot be counted: the reading stands, no hold" usage_held
+unset -f _usage_spend_pct; source "$HERE/../scripts/usage.sh"
+
+# the real counter: transcripts of the account since the reading, over the window's $ per 1%, cached
+CFG="$RUN_DIR/cfg/hzhn"; mkdir -p "$CFG/projects/p"; export HARNESS_CLAUDE_CONFIG_DIRS="$CFG"
+tms="$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+printf '{"type":"assistant","timestamp":"%s","message":{"id":"m1","model":"claude-opus-5-5","usage":{"output_tokens":26150000}}}\n' "$tms" \
+  > "$CFG/projects/p/s1.jsonl"
+at27=$(( $(date +%s) - 27 * 3600 ))
+got="$(HARNESS_ONE_USD_PER_PCT=20 _usage_spend_pct hzhn seven_day "$at27")"
+assert_eq "$got" "26.15" "the real counter: \$523 of transcripts since the reading at \$20 per 1% = 26.15%"
+rm -f "$CFG/projects/p/s1.jsonl"
+got="$(HARNESS_ONE_USD_PER_PCT=20 _usage_spend_pct hzhn seven_day "$at27")"
+assert_eq "$got" "26.15" "…cached per (account, window, reading time): no second transcript scan"
+got="$(HARNESS_ONE_USD_PER_PCT=20 _usage_spend_pct hzhn five_hour "$at27")"
+assert_eq "$got" "0" "…another window is counted on its own"
+got="$(_usage_spend_pct otheracct seven_day "$at27")"
+assert_eq "$got" "" "no config dir for the account: nothing to count"
+got="$( unset HARNESS_ONE_USD_PER_PCT; STATE_DIR="$RUN_DIR/nostate" _usage_spend_pct hzhn seven_day "$(( at27 + 1 ))" )"
+assert_eq "$got" "uncalibrated" "no \$-per-1% calibration and no fallback: reported, never guessed"
+rm -rf "$(_usage_dir)" "$(_usage_hold_dir)" "$RUN_DIR/usage-spend"
+unset HARNESS_CLAUDE_CONFIG_DIRS; if [[ -n "$_cli0" ]]; then export HARNESS_CLI="$_cli0"; else unset HARNESS_CLI; fi
+export HARNESS_USAGE_CMD="cat '$STUB'"   # back to the stub the sections below use
 
 # ── D: a session already frozen at the limit gets a MECHANICAL checkpoint, not killed ──
 ORIGIN="$RUN_DIR/origin.git"; git init -q --bare "$ORIGIN"

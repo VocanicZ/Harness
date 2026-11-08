@@ -311,7 +311,9 @@ claude_usage(){ (( $# )) && python3 "$CLI_DIR/../stats.py" usage "$@"; }
 # account it runs on — read from this fleet's own lanes (`<prefix>-…`), as the drops are this fleet's: a
 # sibling fleet's account must not hold this fleet's claims. For each account window the newest reading
 # of either source wins. A window whose resets_at has passed has reset, so it is skipped rather than
-# reported stale. No drop and no lane reading at all = usage unavailable (rc 1).
+# reported stale. No drop and no lane reading at all = usage unavailable (rc 1). #659: a 5th column is the
+# epoch the winning reading was taken (0 = unknown): a drop freezes once every session on the account is
+# checkpointed, so usage_watch and `harness one` must tell a stale reading from a fresh one.
 claude_limit_usage(){
   USAGE_DIR="$(_usage_dir)" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" PREFIX="${HARNESS_SESS_PREFIX:-}" python3 - <<'PY'
 import glob, json, os, sys, time
@@ -350,8 +352,8 @@ for f in sorted(glob.glob(os.path.join(os.environ["LANES"], pfx + "*", "state.js
                  st.get("rate_limit_at") or st.get("updated"))
 if not seen:
     sys.exit(1)
-for (acct, win), (pct, reset, _) in sorted(best.items()):
-    print(f"{acct}\t{win}\t{pct}\t{reset}")
+for (acct, win), (pct, reset, at) in sorted(best.items()):
+    print(f"{acct}\t{win}\t{pct}\t{reset}\t{int(at)}")
 PY
 }
 # usage_statusline_install <dir> — point a claude worktree's status line at usage-statusline.sh,
