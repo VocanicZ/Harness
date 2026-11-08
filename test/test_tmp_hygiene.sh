@@ -44,15 +44,11 @@ assert_ok "the parent RUN_DIR survives a subshell make_env" grep -qx outer-kept 
 assert_ok "the subshell RUN_DIR is gone when the subshell exits" test ! -e "$(head -1 <<<"$out")"
 assert_eq "$(leftovers "$d")" "" "subshell + parent: nothing left on exit"
 
-# A real test file, run directly (no run.sh) under a fresh private TMPDIR, must leave it empty.
-# test_claim: one make_env. test_drive: many. test_watchdog / test_supervise: their own EXIT trap
-# after make_env. test_cli_matrix: a tmux socket under RUN_DIR, reaped by its own kill-server trap.
+# A real test file, run directly (no run.sh) under a fresh private TMPDIR, must leave it empty: test_tmp_hygiene_<subject>.sh, one per
+# subject (#608: the loop over them took 583 s in this one file, past the per-file cap on Windows). They share tmp_hygiene_lib.sh.
+# Each subject must have its file, or the check below is silently never run.
 for t in test_claim.sh test_drive.sh test_watchdog.sh test_supervise.sh test_cli_matrix.sh; do
-  echo "-- $t run directly leaves its TMPDIR empty"
-  d="$T/${t%.sh}"; mkdir -p "$d"
-  # Its own pass/fail is that test's business (run.sh runs it too); only what it leaves is ours.
-  TMPDIR="$d" bash "$HERE/$t" >"$T/${t%.sh}.log" 2>&1
-  assert_eq "$(leftovers "$d" | head -5)" "" "$t leaves nothing in its TMPDIR"
+  assert_ok "$t has its direct-run hygiene file" grep -q "hygiene_direct $t" "$HERE/test_tmp_hygiene_${t#test_}"
 done
 
 echo "-- run.sh gives each test its own TMPDIR and removes it once the test finishes"

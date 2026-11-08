@@ -4,7 +4,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export HARNESS_INSTALL_NOMAIN=1
 # #610: every mktemp below lands in one private dir that goes with the test, run from run.sh or a plain shell.
 PRIVATE_TMP="$(mktemp -d)"; export TMPDIR="$PRIVATE_TMP"; trap 'rm -rf "$PRIVATE_TMP"' EXIT
-source "$HERE/../install.sh"
+source "$HERE/helpers.sh"; source "$HERE/../install.sh"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 
 # Fake vat remote: a real git repo carrying the skill dir.

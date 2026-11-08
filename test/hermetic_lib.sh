@@ -57,8 +57,12 @@ make_live_fleet(){   # LIVE_ROOT: a host root holding ONE registered fleet with 
 # hermetic_scan — fill update_tests (tests that run update.sh / `harness update`) and fleet_tests (… supervise / start too) with every
 # test_*.sh doing so. Never a test_hermetic*.sh: their lint fixtures spell out `bash update.sh`, so the scan would match them and
 # re-run them with the inherited lane env — recursively, killing the lane (#541).
-hermetic_scan(){ local f; update_tests=(); fleet_tests=()
-  for f in "$HERE"/test_*.sh; do [[ "${f##*/}" == test_hermetic*.sh ]] && continue
-    runs_update "$f" && update_tests+=("$(basename "$f")"); runs_fleets "$f" && fleet_tests+=("$(basename "$f")"); done; }
+# A test that alone runs past the slice budget (test_cli_matrix.sh and the two test_supervise_autoupdate*.sh: 175-250+ s on Linux) moves from fleet_tests to heavy_tests, which
+# test_hermetic_heavy_<k>.sh runs one apiece, so a slow test never stretches a slice of the others.
+HEAVY_TESTS=" test_cli_matrix.sh test_supervise_autoupdate.sh test_supervise_autoupdate_headless.sh "
+hermetic_scan(){ local f b; update_tests=(); fleet_tests=(); heavy_tests=()
+  for f in "$HERE"/test_*.sh; do b="$(basename "$f")"; [[ $b == test_hermetic*.sh ]] && continue
+    runs_update "$f" && update_tests+=("$b")
+    if runs_fleets "$f"; then if [[ $HEAVY_TESTS == *" $b "* ]]; then heavy_tests+=("$b"); else fleet_tests+=("$b"); fi; fi; done; }
 # hermetic_slice <k> <n> <name…> — the names at positions k, k+n, k+2n… (k counts from 1)
 hermetic_slice(){ local k="$1" n="$2" i=0; shift 2; for x in "$@"; do (( i % n == k - 1 )) && echo "$x"; i=$((i+1)); done; }

@@ -51,10 +51,15 @@ assert_no "the update.sh scan does not pick up test_hermetic*.sh itself (it woul
   bash -c '[[ " $1 " == *" test_hermetic.sh "* ]]' _ "${update_tests[*]}"
 # Each slice file names its own position and the slice count: the files, together, must be every slice of one count — a file added or
 # dropped without renumbering the others would leave part of the scan unrun.
-for kind in engine roll; do
-  n=$(ls "$HERE"/test_hermetic_${kind}_*.sh | wc -l); ok=1
+for kind in engine roll heavy; do
+  n=$(ls "$HERE"/test_hermetic_${kind}_[0-9]*.sh | wc -l); ok=1
   for (( k = 1; k <= n; k++ )); do grep -qE "hermetic_slice $k $n " "$HERE/test_hermetic_${kind}_$k.sh" || ok=0; done
   assert_eq "$ok" 1 "test_hermetic_${kind}_1..$n: every file runs its own slice $k of $n, so together they run every scanned test"
+done
+# The heavy tests (each alone fills a slice) run in test_hermetic_heavy_*.sh, never in a roll slice: each must be found by the scan and be in no roll slice.
+for t in $HEAVY_TESTS; do
+  assert_ok "heavy test $t is found by the fleet scan" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${heavy_tests[*]}" "$t"
+  assert_no "heavy test $t is in no roll slice (it would run twice)" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${fleet_tests[*]}" "$t"
 done
 
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
@@ -336,7 +341,7 @@ assert_ok "run.sh installs the tmux guard before any test runs" grep -q '^tmux_g
 assert_ok "pin_host_home installs the tmux guard (a direct bash test_foo.sh is guarded too)" bash -c "sed -n '/^pin_host_home(){/,/^}/p' '$HERE/helpers.sh' | grep -q tmux_guard_install"
 
 for t in test_supervise_autoupdate.sh test_update_release.sh test_migrate_release.sh test_update_prerelease.sh test_rollback.sh test_update.sh; do
-  assert_ok "the fleet-roller scan finds $t" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${fleet_tests[*]}" "$t"
+  assert_ok "the fleet-roller scan finds $t" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${fleet_tests[*]} ${heavy_tests[*]}" "$t"
 done
 
 finish
