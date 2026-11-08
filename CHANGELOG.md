@@ -50,6 +50,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   threshold is brought up by the account's transcript spend since it (cached, `HARNESS_USAGE_SPEND_TTL`) before it is compared.
 - `harness one gate` now counts the spend since each reading, as `harness one phase` does, so the two no longer answer differently on the same
   data (the incident: gate APPROVE, phase CHECKPOINT after $523 of spend). Where the spend cannot be counted, the stale pad still applies.
+
 ### The fake-`gh`, poller, prompt and bench tests run green on native Windows: Python writes LF, git's `C:/` paths are read, Python finds Git's bash (#609)
 
 - The first full-suite run on the Windows check host (#492) had 96 red files; the class this fixes is a tool whose output the engine
