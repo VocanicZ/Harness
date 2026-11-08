@@ -182,6 +182,28 @@ assert_ok "…resuming that session id" grep -qF "\"--resume\", \"$uuid\"" <<<"$
 assert_eq "$(claude_last_reply "$WD" "$uuid")" "$uuid:1"$'\n'"back" "…and the goal loop reads its reply"
 sess_kill "$S" >/dev/null
 
+echo "== #662: a lane that ends while its checkpoint is queued is let go, not waited out =="
+S="$(sess_impl main 15)"; WD="$WORKTREES_DIR/main-i15"; mkdir -p "$WD"; : > "$WD/.git"
+printf 'agent-working\n' > "$FAKE_GH_DIR/labels-15"
+fake_claude i15 "normal working on it" "normal never runs"
+touch "$FAKE_CLAUDE_DIR/hold"
+LS_REMOTE=none spawn_impl 15 "ISSUE 15 DONE" >/dev/null 2>&1
+rpid="$(sess_pane_pid "$S")"
+assert_ok "the lane is mid-turn" wait_until 10 test "$(lane_field "$S" state)" = busy
+HARNESS_PAUSE_GRACE=60 bash "$ROOT/scripts/pause.sh" --force > "$RUN_DIR/pause15.out" 2>&1 & ppid=$!
+assert_ok "the checkpoint is queued behind the turn" wait_until 10 pane_has "$S" "❯ HARNESS CHECKPOINT"
+{ kill -KILL "$rpid"; wait "$rpid"; } 2>/dev/null; rm -f "$FAKE_CLAUDE_DIR/hold"   # the lane finishes and is reaped first
+assert_no "the lane is gone" sess_live "$S"
+assert_ok "the pause finishes within a poll interval, not its grace" wait_until 10 bash -c "! kill -0 $ppid 2>/dev/null"
+if alive "$ppid"; then kill "$ppid" 2>/dev/null; fi
+wait "$ppid" 2>/dev/null; rc=$?; out="$(cat "$RUN_DIR/pause15.out")"
+assert_eq "$rc" 0 "pause --force exits 0"
+assert_ok "…naming the session that ended on its own" grep -qF "session ended on its own: $S" <<<"$out"
+assert_no "…not as confirmed paused" grep -qF "confirmed paused: acme/widget#15" <<<"$out"
+assert_no "…and no straggler warning" grep -qF "did not confirm" <<<"$out"
+assert_ok "the fleet is paused" test -f "$PAUSE_FLAG"
+: > "$FAKE_GH_DIR/labels-15"
+
 echo "== orch sessions and tmux lanes start fresh =="
 S="$(sess_orch main 3)"; WD="$RUN_DIR/orch-p3"; mkdir -p "$WD"; echo task > "$WD/.harness-task.md"
 fake_claude p3 normal normal
