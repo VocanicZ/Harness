@@ -50,6 +50,24 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   threshold is brought up by the account's transcript spend since it (cached, `HARNESS_USAGE_SPEND_TTL`) before it is compared.
 - `harness one gate` now counts the spend since each reading, as `harness one phase` does, so the two no longer answer differently on the same
   data (the incident: gate APPROVE, phase CHECKPOINT after $523 of spend). Where the spend cannot be counted, the stale pad still applies.
+### The fake-`gh`, poller, prompt and bench tests run green on native Windows: Python writes LF, git's `C:/` paths are read, Python finds Git's bash (#609)
+
+- The first full-suite run on the Windows check host (#492) had 96 red files; the class this fixes is a tool whose output the engine
+  or a test reads and gets wrong. Three of the causes were Harness bugs, the rest were Linux-only assumptions in tests.
+- **A native Windows Python writes `\n` as CRLF**, so every `$(python3 …)` in the engine read a stray CR and `render` produced lane
+  prompts with CRLF line endings (a multi-line phrase of a prompt no longer matched). The `python3` shim `install.sh` writes now puts a
+  `sitecustomize.py` (new `pylf/` directory beside it, written by `python_lf_dir` and removed by `harness uninstall`) on `PYTHONPATH` that
+  sets stdout and stderr to LF. `harness update` rewrites it with the shim. The Windows suite stage does the same for its venv python.
+- **`git.exe` answers `C:/…`, bash compares `/c/…`.** `remove_session_worktrees` never matched a worktree git listed, so a session's
+  `worktree-*` branch stayed; `sweep_orphan_bug_worktrees` read `--git-common-dir` as a relative path and removed the dead lane's
+  worktree without its local `issue/<n>` branch. The new `posix_path` (portable.sh, `cygpath -u`; the identity on Linux) fixes both.
+- **A bare `bash` from native Python is WSL's.** `CreateProcess` looks in `System32` before `PATH`, so `bench/run.py` (the usage
+  reading its guard needs: `bench guard: REFUSED: no weekly usage reading`) and `session_backend.lane_rows_argv` ran WSL's launcher. They
+  use `portable.bash_exe()` now (`HARNESS_BASH`, else the first `bash` on `PATH`, as `portable.winpid_of` already did).
+- Tests: the `jq` that a fake `gh` runs ends its lines CRLF where `gh -q` does not (`test_gauntlet.sh`, `test_security_audit.sh`,
+  `test_handoff.sh` strip it); `test_stats.sh`'s CRLF python no longer starts through `env -i`, which a native Windows python will not
+  survive; `test_fleet_smoke.sh` pins `SMOKE_PLATFORM=posix` for its tmux flows. The suite stage installs `setuptools` into its venv
+  (the bench grader's `pip install --no-build-isolation` needs it). New: `test_python_lf.sh`.
 
 ### The Windows test suite no longer asserts POSIX-only mechanisms on a Windows host (#607)
 

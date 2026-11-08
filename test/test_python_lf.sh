@@ -13,6 +13,7 @@ R="$(cd "$HERE/.." && pwd)"
 source "$HERE/helpers.sh"
 T="$(mktemp -d)"; tmp_track "$T"; trap tmp_cleanup EXIT
 PY="$(command -v python3)"
+pin_host_home "$T/pin"
 
 echo "=== python_lf_dir: stdout and stderr write LF where the platform's text layer would write CRLF ==="
 ( HARNESS_INSTALL_NOMAIN=1 source "$R/install.sh"; python_lf_dir "$T/lf" ) >/dev/null 2>&1
