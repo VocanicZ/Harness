@@ -410,6 +410,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `at` per account window winning, so a fleet whose own panes stopped drawing the status line (hzhn held on a 30-hour-old 70% while a
   sibling fleet read 91% of the same account) still sees the account's usage. `harness one` reports the age of the reading that won.
 
+### Windows suite: install, update, rollback and migrate fixtures run on Git for Windows, and the two oversized hermetic and tmp-hygiene tests are split (#608)
+
+- The first full-suite run on winsma (#492) had these fixtures red for test-harness reasons, not engine ones. Release fixtures were served as
+  `file:///c/...` (the MSYS spelling), which Git for Windows' native `curl` reads as `C:\c\...`; `file_url` in `test/helpers.sh` now spells it
+  natively (`rel_server`, `test_update_release.sh`, `test_update.sh`, `test_web_install.sh`; `test_file_url.sh` covers it). Tests that
+  narrowed `PATH` to `/usr/bin:/bin` lost `curl` and `git` (they live in `/mingw64/bin` there): `sys_path` gives the right system directories.
+- `test_windows_lifecycle.sh` no longer needs `setsid` (absent on Git Bash) in its fake powershell and compares native paths; `test_winsma.sh`
+  expects the `C:/` spelling `ws_env` prints and gives its lock-waiter case the time a state read costs on Windows.
+- `test_hermetic.sh` ran about 60 other test files in one process (440 s on Linux, several times that on Windows) and `test_tmp_hygiene.sh`
+  ran five (583 s). Both are now split into files that each finish under the 300 s cap: `test_hermetic_{state,fleets,agy}.sh`,
+  `test_hermetic_engine_{1..4}.sh` and `test_hermetic_roll_{1..6}.sh` (slices of the same scans, with `test_hermetic.sh` asserting that the
+  slices together cover every scanned test), `test_hermetic_heavy_{1..3}.sh` (one each for `test_cli_matrix.sh` and the two
+  `test_supervise_autoupdate*.sh`, which alone fill a slice), and `test_tmp_hygiene_{claim,drive,watchdog,supervise,cli_matrix}.sh`. The
+  shared helpers live in `test/hermetic_lib.sh` and `test/tmp_hygiene_lib.sh`, which `run.sh` does not run.
+
 ### A lean Claude lane no longer stops at the Bypass Permissions and CLAUDE.md-imports dialogs, and a supervisor-visible dialog is a stuck lane (#660)
 
 - Since lean lanes (#595) a Claude lane on the tmux backend could launch into two dialogs nothing answered. `--setting-sources project,local`
