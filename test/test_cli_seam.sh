@@ -80,7 +80,8 @@ assert_no "agy: a moving footer token count is activity" nudged agy-footer
 agy_pane idle > "$PANE"; spass agy-idle; spass agy-idle
 assert_ok "agy: a quiet idle prompt is nudged" nudged agy-idle
 agy_pane trust > "$PANE"; spass agy-trust; spass agy-trust
-assert_no "agy: the trust dialog is never typed into" grep -q agy-trust "$SUP_LOG"
+assert_no "agy: the trust dialog is never typed into" grep -qE "send-keys -t agy-trust|ACT .*agy-trust" "$SUP_LOG"
+assert_ok "agy: …but a quiet trust dialog is logged as a stuck lane (#660)" grep -q "dialog: agy-trust " "$SUP_LOG"
 agy_pane limit > "$PANE"; spass agy-limit; spass agy-limit
 assert_no "agy: a pane parked on agy's quota message is left alone" nudged agy-limit
 # One of our nudges still queued in agy's box a pass later: Escape, then Enter.
