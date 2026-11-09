@@ -48,10 +48,12 @@ if cmd == "submit":
     for i in ids:
         out = os.path.join(sd, "outs", i); os.makedirs(out); outs.append(out)
         r = spec["run"].replace("{shard}", shlex.quote(i)).replace("{out}", shlex.quote(out))
-        rc = subprocess.run(["sh", "-c", r], cwd=work).returncode
+        env = dict(os.environ)
+        if env.get("FAKE_SHARD_PATH"): env["PATH"] = env["FAKE_SHARD_PATH"]   # #793: the worker's PATH (no bwrap / a fake one)
+        rc = subprocess.run(["sh", "-c", r], cwd=work, env=env).returncode
         assert rc == 0, f"run exited {rc} for {i}"   # a red test file is still a COMPLETE shard
         # resume contract: a restart on a finished out must be a no-op
-        assert subprocess.run(["sh", "-c", r], cwd=work).returncode == 0
+        assert subprocess.run(["sh", "-c", r], cwd=work, env=env).returncode == 0
     m = spec["merge"].replace("{outs}", " ".join(shlex.quote(o) for o in outs))
     open(os.path.join(state, spec["name"] + ".rc"), "w").write(str(subprocess.run(["sh", "-c", m], cwd=job).returncode))
 elif cmd == "wait":
@@ -162,6 +164,111 @@ assert_ok "red for the assertion, not the import" grep -rq "AssertionError" "$FA
 echo "-- custom per-file command"
 rc="$(HARNESS_SWARM_TEST_CMD='test -f {file}' run_suite "$WT" custom test/test_ok.sh test/test_red.sh)"
 assert_eq "$rc" 0 "HARNESS_SWARM_TEST_CMD replaces the default command"
+
+echo "-- #793: every shard runs with a private tmux dir, and cannot reach a server outside it"
+UIDN="$(id -u)"
+SHARD_OUTS(){ echo "$FAKE_SWARM_STATE/$1/outs"; }
+# A shard-side PATH with the tools a shard needs but NO bwrap (the real one may be installed on this host).
+NOBWRAP="$T/nobwrap"; mkdir -p "$NOBWRAP"
+for c in sh bash env python3 tar cat printf sed grep mv rm mkdir mktemp id dirname basename test head tr sleep true false ls wc cut; do
+  p="$(type -P "$c" 2>/dev/null)" && [[ -x "$p" && -f "$p" ]] && ln -sf "$p" "$NOBWRAP/$c"
+done
+# …and the REAL tmux, not test/guard/tmux: the guard would refuse the shard's `tmux kill-server` at the inherited socket and hide the hazard.
+while IFS= read -r d; do
+  [[ -x "$d/tmux" && -f "$d/tmux" && "$(cd "$d" && pwd -P)" != "$(cd "$HERE/guard" && pwd -P)" ]] && { ln -sf "$d/tmux" "$NOBWRAP/tmux"; break; }
+done < <(tr ':' '\n' <<<"$PATH")
+HOSTSOCK="$T/hostsock"; mkdir -p "$HOSTSOCK"
+printf 'echo "TMUXDIR=${TMUX_TMPDIR-unset}"; echo "TMUX=${TMUX-unset}"; echo "PANE=${TMUX_PANE-unset}"; test -d "$TMUX_TMPDIR" && echo "DIR_EXISTS=yes"\nexit 0\n' > "$WT/test/test_env.sh"
+printf 'import os, sys\nif __name__ == "__main__":\n    print("TMUXDIR=" + os.environ.get("TMUX_TMPDIR", "unset")); print("TMUX=" + os.environ.get("TMUX", "unset"))\n    sys.exit(0)\n' > "$WT/test/test_env_main.py"
+printf 'import os\n\ndef test_env():\n    assert os.environ.get("TMUX") is None and os.environ.get("TMUX_PANE") is None\n    d = os.environ.get("TMUX_TMPDIR", "")\n    assert d and os.path.isdir(d) and d != os.environ["HOSTSOCK"]\n' > "$WT/test/test_env_pytest.py"
+git -C "$WT" add -A
+# inherit_env [VAR=val…] cmd… — run cmd with a shard-side PATH and the host's tmux variables in the environment the shard inherits.
+inherit_env(){ ( export HOSTSOCK FAKE_SHARD_PATH="$NOBWRAP" TMUX_TMPDIR="$HOSTSOCK" TMUX="$HOSTSOCK/tmux-$UIDN/default,1,0" TMUX_PANE=%9
+    while [[ "${1:-}" == [A-Z_]*=* ]]; do export "$1"; shift; done; "$@" ); }
+rc="$(inherit_env run_suite "$WT" iso test/test_env.sh test/test_env_main.py test/test_env_pytest.py)"
+assert_eq "$rc" 0 "isolation suite: default command for .sh, .py script and pytest → green"
+assert_eq "$(cat "$(SHARD_OUTS iso)/$(grep -F test_env_pytest.py "$RUN_DIR/swarm/iso/shards.tsv" | cut -f1)/status")" pass "pytest run: the test saw a private TMUX_TMPDIR and no TMUX (it asserts that itself)"
+for o in "$(SHARD_OUTS iso)"/*; do
+  f="$(cat "$o/file")"; [[ "$f" == *_pytest.py ]] && continue; td="$(sed -n 's/^TMUXDIR=//p' "$o/output.log")"
+  assert_ok "$f: TMUX_TMPDIR is a path set by the shard" test -n "$td" -a "$td" != unset
+  assert_no "$f: TMUX_TMPDIR is not the inherited one" test "$td" = "$HOSTSOCK"
+  assert_no "$f: TMUX_TMPDIR is not /tmp" test "$td" = /tmp
+  case "$td" in /tmp/tmux-$UIDN|/tmp/tmux-$UIDN/*) bad=1;; *) bad=0;; esac
+  assert_eq "$bad" 0 "$f: TMUX_TMPDIR is not under /tmp/tmux-\$UID"
+  case "$td" in "$FAKE_SWARM_STATE"/*) bad=1;; *) bad=0;; esac
+  assert_eq "$bad" 0 "$f: TMUX_TMPDIR is not under {out}"
+  assert_ok "$f: inherited TMUX is unset" grep -qx 'TMUX=unset' "$o/output.log"
+  assert_no "$f: private tmux dir removed once the shard ended" test -e "$td"
+done
+assert_ok "script run: the dir existed while the test ran" grep -qx 'DIR_EXISTS=yes' "$(SHARD_OUTS iso)/$(grep -F test_env.sh "$RUN_DIR/swarm/iso/shards.tsv" | cut -f1)/output.log"
+assert_ok "script run: TMUX_PANE unset" grep -qx 'PANE=unset' "$(SHARD_OUTS iso)/$(grep -F test_env.sh "$RUN_DIR/swarm/iso/shards.tsv" | cut -f1)/output.log"
+assert_eq "$(ls "$(SHARD_OUTS iso)/$(grep -F test_env.sh "$RUN_DIR/swarm/iso/shards.tsv" | cut -f1)" | tr '\n' ' ')" "file junit.xml output.log status " "{out} holds only file/junit.xml/output.log/status"
+rc="$(inherit_env HARNESS_SWARM_TEST_CMD='sh {file}' run_suite "$WT" isocustom test/test_env.sh)"
+assert_eq "$rc" 0 "custom HARNESS_SWARM_TEST_CMD → runs"
+td="$(sed -n 's/^TMUXDIR=//p' "$(SHARD_OUTS isocustom)"/*/output.log)"
+assert_ok "custom command: private TMUX_TMPDIR, not the inherited one" test -n "$td" -a "$td" != unset -a "$td" != "$HOSTSOCK"
+assert_ok "custom command: inherited TMUX unset" grep -qx 'TMUX=unset' "$(SHARD_OUTS isocustom)"/*/output.log
+assert_no "custom command: private dir removed" test -e "$td"
+
+if command -v tmux >/dev/null 2>&1; then
+  printf 'tmux kill-server\ntmux new-session -d -s x "sleep 30"\ntmux kill-server\nexit 0\n' > "$WT/test/test_killer.sh"
+  git -C "$WT" add -A
+  # The sentinel stands in for the host's default server: it lives on the default socket of $HOSTSOCK, never /tmp/tmux-$UID.
+  ( unset TMUX; TMUX_TMPDIR="$HOSTSOCK" tmux new-session -d -s sentinel "sleep 600" )
+  assert_ok "sentinel server is up" env -u TMUX TMUX_TMPDIR="$HOSTSOCK" tmux has-session -t sentinel
+  rc="$(inherit_env HARNESS_SWARM_SANDBOX=off run_suite "$WT" killer test/test_killer.sh)"
+  assert_eq "$rc" 0 "a test that kills its tmux server → green"
+  assert_ok "a shard cannot kill the outside tmux server (sentinel survives)" env -u TMUX TMUX_TMPDIR="$HOSTSOCK" tmux has-session -t sentinel
+  env -u TMUX TMUX_TMPDIR="$HOSTSOCK" tmux kill-server 2>/dev/null
+else
+  echo "SKIP: tmux not installed — sentinel-server regression test"
+fi
+
+echo "-- #793: bwrap used when it works, clean fallback when it does not"
+FAKEBW="$T/fakebw"; mkdir -p "$FAKEBW"
+cat > "$FAKEBW/bwrap" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$FAKE_BWRAP_LOG"
+while [ $# -gt 0 ]; do [ "$1" = -- ] && { shift; exec "$@"; }; shift; done
+exit 2
+EOF
+chmod +x "$FAKEBW/bwrap"
+BWBAD="$T/badbw"; mkdir -p "$BWBAD"; printf '#!/bin/sh\necho "$*" >> "$FAKE_BWRAP_LOG"\nexit 1\n' > "$BWBAD/bwrap"; chmod +x "$BWBAD/bwrap"
+export FAKE_BWRAP_LOG="$T/bwrap.log"
+tmux_dir_before=0; [[ -d "/tmp/tmux-$UIDN" ]] && tmux_dir_before=1
+: > "$FAKE_BWRAP_LOG"
+rc="$(FAKE_SHARD_PATH="$FAKEBW:$NOBWRAP" TMUX_TMPDIR="$HOSTSOCK" run_suite "$WT" bw test/test_ok.sh test/test_red.sh test/test_env.sh)"
+assert_eq "$rc" 1 "through bwrap: a red file stays red"
+assert_eq "$(cut -f1 "$RUN_DIR/swarm/bw/failures.txt")" "test/test_red.sh" "through bwrap: only the red file fails, green files stay green"
+assert_ok "bwrap run with --unshare-pid" grep -q -- '--unshare-pid' "$FAKE_BWRAP_LOG"
+assert_ok "bwrap run with a tmpfs over /tmp/tmux-<uid>" grep -q -- "--tmpfs /tmp/tmux-$UIDN" "$FAKE_BWRAP_LOG"
+assert_ok "the test command ran through bwrap" grep -qE -- ' -- sh .*/cmd\.sh$' "$FAKE_BWRAP_LOG"
+assert_ok "the shard probed bwrap with a trial run first" grep -qE -- ' -- true$' "$FAKE_BWRAP_LOG"
+mkdir -p -m 700 "$HOSTSOCK/tmux-$UIDN"   # an inherited TMUX_TMPDIR that has its tmux-<uid> dir
+: > "$FAKE_BWRAP_LOG"
+rc="$(FAKE_SHARD_PATH="$FAKEBW:$NOBWRAP" TMUX_TMPDIR="$HOSTSOCK" run_suite "$WT" bwh test/test_ok.sh)"
+assert_ok "inherited TMUX_TMPDIR's tmux-<uid> gets its own tmpfs" grep -q -- "--tmpfs $HOSTSOCK/tmux-$UIDN" "$FAKE_BWRAP_LOG"
+td="$(sed -n 's/^TMUXDIR=//p' "$(SHARD_OUTS bw)"/*/output.log | head -1)"
+assert_ok "through bwrap the shard still has its private TMUX_TMPDIR" test -n "$td" -a "$td" != "$HOSTSOCK"
+: > "$FAKE_BWRAP_LOG"
+rc="$(HARNESS_SWARM_SANDBOX=off FAKE_SHARD_PATH="$FAKEBW:$NOBWRAP" run_suite "$WT" bwoff test/test_ok.sh)"
+assert_eq "$rc" 0 "HARNESS_SWARM_SANDBOX=off → green"
+assert_eq "$(cat "$FAKE_BWRAP_LOG")" "" "HARNESS_SWARM_SANDBOX=off never calls bwrap"
+: > "$FAKE_BWRAP_LOG"
+rc="$(FAKE_SHARD_PATH="$BWBAD:$NOBWRAP" run_suite "$WT" bwbad test/test_ok.sh test/test_red.sh test/test_env.sh)"
+assert_eq "$rc" 1 "bwrap whose trial run fails → tests still run unwrapped, the red file stays red"
+assert_eq "$(cut -f1 "$RUN_DIR/swarm/bwbad/failures.txt")" "test/test_red.sh" "failed trial: only the red file fails"
+assert_eq "$(grep -c . "$FAKE_BWRAP_LOG")" 3 "failed trial: bwrap was only probed (once per shard), never used to run a test"
+td="$(sed -n 's/^TMUXDIR=//p' "$(SHARD_OUTS bwbad)"/*/output.log | head -1)"
+assert_ok "failed trial: private TMUX_TMPDIR still set" test -n "$td" -a "$td" != unset -a "$td" != "$HOSTSOCK"
+rc="$(FAKE_SHARD_PATH="$NOBWRAP" run_suite "$WT" nobw test/test_ok.sh test/test_red.sh test/test_env.sh)"
+assert_eq "$rc" 1 "no bwrap on PATH → tests run unwrapped, the red file stays red"
+assert_eq "$(cut -f1 "$RUN_DIR/swarm/nobw/failures.txt")" "test/test_red.sh" "no bwrap: only the red file fails"
+td="$(sed -n 's/^TMUXDIR=//p' "$(SHARD_OUTS nobw)"/*/output.log | head -1)"
+assert_ok "no bwrap: private TMUX_TMPDIR set" test -n "$td" -a "$td" != unset
+# The helper may have made an empty /tmp/tmux-<uid> (0700) for the mount point; leave the host as found.
+[[ $tmux_dir_before -eq 0 ]] && rmdir "/tmp/tmux-$UIDN" 2>/dev/null
+rm -f "$WT/test/test_env.sh" "$WT/test/test_env_main.py" "$WT/test/test_env_pytest.py" "$WT/test/test_killer.sh"; git -C "$WT" add -A
 
 echo "-- swarm wait exit mapping"
 rc="$(FAKE_WAIT_RC=0 run_suite "$WT" w0 test/test_ok.sh)"; assert_eq "$rc" 0 "wait 0 → 0"

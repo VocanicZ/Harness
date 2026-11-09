@@ -26,7 +26,8 @@
 # .sh, python3 for a .py with a __main__ block, pytest for any other .py; #601: a script run puts the
 # project root on PYTHONPATH, because `python3 tests/test_x.py` otherwise only sees tests/ and the
 # project's own `from tests import …` fails with "No module named 'tests'"), HARNESS_SWARM_PACK (git =
-# the snapshot above, the default; all = tar the whole worktree, ignored files included).
+# the snapshot above, the default; all = tar the whole worktree, ignored files included), HARNESS_SWARM_SANDBOX
+# (#793: auto = each shard runs its test under bwrap when the worker has a working one, off = never; default auto).
 # The swarm.toml contract: https://github.com/VocanicZ/swarm/blob/main/skill/SKILL.md
 set -uo pipefail
 
@@ -45,6 +46,7 @@ WT="$(cd "$WT" && pwd)"
 NAME="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[^A-Za-z0-9]*//; s/\.prev$/-prev/')"
 [[ -n "$NAME" ]] || { echo "swarm-suite: job name has no usable characters" >&2; exit 2; }
 
+SANDBOX="${HARNESS_SWARM_SANDBOX:-auto}"; [[ "$SANDBOX" == off ]] || SANDBOX=auto
 TEST_CMD="${HARNESS_SWARM_TEST_CMD:-}"
 [[ "$TEST_CMD" != *"'''"* ]] || unavailable "HARNESS_SWARM_TEST_CMD contains ''' (cannot embed in swarm.toml)"
 
@@ -132,8 +134,12 @@ fi
 # run — swarm's resumable-shard contract: the ONLY state is {out}, every file is written temp-then-mv,
 # `status` is written last (so a shard stopped mid-test simply reruns that file), and it exits 0
 # whether the tests passed or not — a red test file is a COMPLETE shard; non-zero would be retried.
-# Runs with cwd = the unpacked worktree, as the `swarm` user on a worker, so it touches nothing
-# outside it and {out}.
+# Runs with cwd = the unpacked worktree, as the submitting user: swarm starts a shard under condor_starter, which on a
+# host that is also a fleet host is the SAME user, /tmp and tmux server the live fleets use (#793). So a shard
+# isolates its test itself, on whichever worker it lands on: a private TMUX_TMPDIR (under the condor scratch dir, not
+# {out}), TMUX / TMUX_PANE unset, and, when `bwrap` exists and a trial run works, a private pid namespace plus an
+# empty tmpfs over /tmp/tmux-<uid> (the dir tmux falls back to) and over an inherited TMUX_TMPDIR's tmux-<uid>.
+# No usable bwrap → the test still runs, unwrapped, with the private TMUX_TMPDIR.
 WORKDIR="$WT"
 if [[ "${HARNESS_SWARM_PACK:-git}" != all ]] && git -C "$WT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   WORKDIR="$JOB/workdir"
@@ -152,8 +158,27 @@ mkdir -p "\$o"
 f=\$(printf %b "\$(printf %s {shard} | sed 's/_/\\\\0/g')")
 printf '%s\\n' "\$f" > "\$o/.file.tmp" && mv "\$o/.file.tmp" "\$o/file"
 rm -f "\$o/.junit.tmp"
+td=\$(mktemp -d "\${_CONDOR_SCRATCH_DIR:-\${TMPDIR:-/tmp}}/swt.XXXXXX") || { echo "swarm shard: cannot make a private tmux dir" >&2; exit 1; }
+trap '( unset TMUX TMUX_PANE; TMUX_TMPDIR="\$td"; export TMUX_TMPDIR; tmux kill-server ) >/dev/null 2>&1; rm -rf "\$td"' EXIT
+trap 'exit 1' HUP INT TERM
+cat > "\$td/cmd.sh" <<'HARNESS_SWARM_CMD'
+$cmd
+HARNESS_SWARM_CMD
+h=\${TMUX_TMPDIR:-}
+unset TMUX TMUX_PANE
+TMUX_TMPDIR=\$td; export TMUX_TMPDIR f o
+set -- sh "\$td/cmd.sh"
+if [ "$SANDBOX" != off ] && command -v bwrap >/dev/null 2>&1 && bwrap --dev-bind / / --unshare-pid --proc /proc -- true >/dev/null 2>&1; then
+  u=\$(id -u); x="\$h/tmux-\$u"
+  [ -d "/tmp/tmux-\$u" ] || mkdir -m 700 "/tmp/tmux-\$u" 2>/dev/null
+  if [ -n "\$h" ] && [ -d "\$x" ] && [ "\$x" != "/tmp/tmux-\$u" ]; then
+    set -- bwrap --die-with-parent --dev-bind / / --unshare-pid --proc /proc --tmpfs "/tmp/tmux-\$u" --tmpfs "\$x" -- "\$@"
+  else
+    set -- bwrap --die-with-parent --dev-bind / / --unshare-pid --proc /proc --tmpfs "/tmp/tmux-\$u" -- "\$@"
+  fi
+fi
 rc=0
-( $cmd
+( "\$@"
 ) > "\$o/.output.tmp" 2>&1 < /dev/null || rc=\$?
 mv "\$o/.output.tmp" "\$o/output.log"
 if [ -s "\$o/.junit.tmp" ]; then mv "\$o/.junit.tmp" "\$o/junit.xml"; else
