@@ -254,6 +254,11 @@ no credential written, winsma clean**). The failures Linux does not have are fil
 #606 (headless runner tests never reach the runner's first state), #607 (tests asserting POSIX-only mechanisms), #608 (install and
 update fixtures) and #609 (gh-stub, prompt and bench tests).
 
+What the stage provides beyond Python (#686): `jq` 1.8.1 (the tests' fake `gh` runs gh's own `-q` filters through it, and winsma has none), downloaded into the run folder
+and checked against the release's sha256; a failed download is a `WARN` and the tests that need it fail. `bench/`, `issuelib.py` and `forecast.py` start `gh`, `git`, `claude`,
+`harness` and `docker` through `portable.resolve_argv`, which walks PATH and PATHEXT as a shell would and runs a bash/python script (a test's fake) by its shebang: native
+`CreateProcess` appends only `.exe`, so before this a fake `gh` first on PATH was skipped for the real `gh.exe` and a bench test ran against the host's GitHub account.
+
 The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
 (`bash test/run.sh <files>`) in the same isolation. Their winsma logs are `test/smoke/logs/suite-windows-20261106T*.log`; the last,
 `suite-windows-20261106T225957Z.log`, has `test_watchdog_headless.sh`, `test_env_leak_headless.sh` and `test_session_names_headless.sh`

@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The #609 test fixes are confirmed on winsma, and a native Windows Python now finds a fake `gh` (#686)
+
+- The first winsma run of the fake-`gh` / poller / prompt / bench tests found 17 of 20 files red. Causes fixed: a Python `subprocess.run(["gh", …])`
+  never started a script first on PATH, so the real `gh.exe` answered (`portable.resolve_argv`, now used by `issuelib.py`, `forecast.py` and every `bench/`
+  call of `gh`, `git`, `claude`, `harness` and `docker`; it runs a bash/python script by its shebang and finds `.cmd` shims in PATH order); `render` no longer
+  lets Git Bash rewrite a `KEY=/path` value into `KEY=C:\path`; `bench/armlib.py` `engine_skills` kept a trailing backslash on Windows (so only `harness` was
+  found); a Windows command line is split without eating its backslashes. The suite stage downloads `jq` (pinned by sha256) for the tests that run a `gh -q` filter.
+- Test-side only: LF fixtures (`test_bench_figures`, `test_one_run` pins `core.autocrlf=false`), POSIX-only calls (`os.killpg`, `flock`, `grep $'\r'`) and
+  path spellings in `test_python_lf`, `test_stats`, `test_drive`, `test_bench_*`.
+
 ### The bench usage guard refuses a usage reading outside 0-100 (#757)
 
 - A usage command reporting `-5`% was accepted and the guard did its arithmetic with it (`-5% + 16% ...`), as it would
