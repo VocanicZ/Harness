@@ -3,6 +3,7 @@
 # gh is fully stubbed; no network required.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/helpers.sh"   # stub_exe (#686)
 
 export HARNESS_MODE=issue-only HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 
@@ -17,7 +18,7 @@ elif [[ "$1 $2" == "api user" ]]; then echo "bot"   # authenticated self
 elif [[ "$1" == "api" ]]; then exit 1   # no PLAN.md
 else echo '{}'; fi
 EOF
-chmod +x "$STUB/gh"
+stub_exe "$STUB/gh"
 
 out="$(python3 "$HERE/../scripts/issuelib.py" dispatch acme/widget 3 --allow-orchestration 1)"
 
@@ -35,7 +36,7 @@ if [[ "$1 $2" == "issue list" ]]; then
 elif [[ "$1 $2" == "api user" ]]; then echo "bot"
 elif [[ "$1" == "api" ]]; then exit 1; else echo '{}'; fi
 EOF
-chmod +x "$STUB/gh"
+stub_exe "$STUB/gh"
 
 result="$(python3 "$HERE/../scripts/issuelib.py" complete acme/widget)"
 [[ "$result" == "DONE" ]] && echo "  ok: complete when all closed" || { echo "FAIL: expected DONE, got: $result"; exit 1; }

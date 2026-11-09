@@ -37,15 +37,7 @@ RATE_SIGS = ("rate limit", "rate-limit", "http 403", "403 forbidden", "http 429"
 CONFIG_RE = re.compile(r'^\s*:\s*"\$\{(HARNESS_[A-Z0-9_]+):=(.*)\}"\s*$')
 
 
-def resolve_argv(argv):
-    """argv with its program resolved through PATH on native Windows, as a shell would (#607). CreateProcess searches
-    System32 before PATH (so a bare `bash` is WSL's, not Git's, which broke the headless probe of lane_rows_argv) and
-    appends only `.exe` (so a `gh.cmd` or `tmux.cmd` shim is never found). shutil.which follows PATH and PATHEXT.
-    Elsewhere, and for a program it cannot find, argv is returned as it was."""
-    if sys.platform != "win32" or not argv:
-        return argv
-    exe = shutil.which(argv[0])
-    return [exe, *argv[1:]] if exe else argv
+resolve_argv = portable.resolve_argv  # #686: one home for it (scripts/portable.py), issuelib and forecast use it too
 
 
 def run_cmd(argv, timeout=20):

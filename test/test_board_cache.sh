@@ -66,7 +66,7 @@ if a[:2] == ["api", "-i"]:
 out(404, "", 1, "gh: Not Found (HTTP 404)")
 PY
 STUB
-chmod +x "$GHBIN/gh"
+stub_exe "$GHBIN/gh"
 
 poll(){ PATH="$GHBIN:$PATH" GH_CALLS="$CALLS" BOARD="$BOARD" HARNESS_OWNER=acme bash "$POLLER" --once; }
 charged_since(){ tail -n +"$(( $1 + 1 ))" "$CALLS" | grep -vc '^304 '; }
@@ -106,7 +106,7 @@ assert_eq "$(served)" "$(printf 'IMPL\t8\tISSUE 8 DONE\nIMPL\t9\tISSUE 9 DONE')"
 # ── 3) a rate-limited refresh keeps the cached snapshot intact ────────────────
 cp "$SNAP" "$WORK/before.json"
 RLBIN="$WORK/rlbin"; mkdir -p "$RLBIN"
-printf '#!/usr/bin/env bash\necho "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1\n' > "$RLBIN/gh"; chmod +x "$RLBIN/gh"
+printf '#!/usr/bin/env bash\necho "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1\n' > "$RLBIN/gh"; stub_exe "$RLBIN/gh"
 PATH="$RLBIN:$PATH" poller_write_snapshot acme/widget; rc=$?
 assert_eq "$rc" "1" "rate-limited refresh reports failure"
 assert_ok "rate-limited refresh left the cached snapshot untouched" cmp -s "$SNAP" "$WORK/before.json"

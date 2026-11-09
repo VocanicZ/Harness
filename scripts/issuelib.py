@@ -2,6 +2,9 @@
 """issuelib.py — GitHub-issue state machine for the Harness orchestrator (project-agnostic)."""
 import base64, hashlib, json, os, re, subprocess, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import portable  # noqa: E402  #686: resolve_argv — a gh.cmd shim on a native Windows PATH is found, as a shell would
+
 # PRD-B: the snapshot read seam. A host poller writes one raw, versioned snapshot per repo into
 # ~/.harness/snapshots/<owner__repo>.json; workers read those instead of polling GitHub directly.
 # Bumped whenever the snapshot shape changes; a reader rejecting an unknown version holds dispatch.
@@ -157,7 +160,7 @@ def rate_limits():
     """{resource: {limit, remaining, reset}} for core + graphql, from `gh api rate_limit`, and
     refresh the probe cache. Raises GhError when the probe itself fails."""
     try:
-        r = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True, timeout=30)
+        r = subprocess.run(portable.resolve_argv(["gh", "api", "rate_limit"]), capture_output=True, text=True, timeout=30)
     except Exception as e:
         raise GhError("gh api rate_limit: %s" % e)
     if r.returncode != 0:
@@ -258,7 +261,7 @@ def _gh_json(args, allow_absent=False):
     failure and must never be read as an empty issue set."""
     _rate_hold_check()
     try:
-        out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+        out = subprocess.run(portable.resolve_argv(["gh", *args]), capture_output=True, text=True, timeout=60)
     except Exception as e:
         raise GhError("gh %s: %s" % (" ".join(args), e))
     if out.returncode != 0:
@@ -281,7 +284,7 @@ def _gh_api_read(path, jq):
     (The --jq output is a raw scalar, not JSON, so this can't go through _gh_json.)"""
     _rate_hold_check()
     try:
-        r = subprocess.run(["gh", "api", path, "--jq", jq], capture_output=True, text=True, timeout=60)
+        r = subprocess.run(portable.resolve_argv(["gh", "api", path, "--jq", jq]), capture_output=True, text=True, timeout=60)
     except Exception as e:
         raise GhError("gh api %s: %s" % (path, e))
     if r.returncode == 0:
@@ -466,7 +469,7 @@ def _self_login():
             v = str(snap.get("self_login", "") or "")
         else:
             try:
-                out = subprocess.run(["gh", "api", "user", "--jq", ".login"],
+                out = subprocess.run(portable.resolve_argv(["gh", "api", "user", "--jq", ".login"]),
                                      capture_output=True, text=True, timeout=60)
                 v = out.stdout.strip() if out.returncode == 0 else ""
             except Exception:
@@ -781,7 +784,7 @@ def _gh_api_cond(path, etag=None):
         args += ["-H", f"If-None-Match: {etag}"]
     _rate_hold_check()
     try:
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+        r = subprocess.run(portable.resolve_argv(["gh", *args]), capture_output=True, text=True, timeout=60)
     except Exception as e:
         raise GhError("gh api %s: %s" % (path, e))
     status, headers, body = _parse_http(r.stdout)

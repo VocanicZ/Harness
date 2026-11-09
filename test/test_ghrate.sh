@@ -28,7 +28,7 @@ if [[ "$1 ${2:-}" == "api rate_limit" ]]; then [[ -f "$GH_RATE" ]] || exit 1; ca
 if [[ -f "$GH_ERR" ]]; then cat "$GH_ERR" >&2; exit 1; fi
 echo '[]'
 SH
-chmod +x "$BIN/gh"; export PATH="$BIN:$PATH"
+stub_exe "$BIN/gh"; export PATH="$BIN:$PATH"
 rate(){ printf '{"resources":{"core":{"limit":5000,"remaining":%s,"reset":%s},"graphql":{"limit":5000,"remaining":%s,"reset":%s}}}' \
   "$1" "$3" "$2" "$3" > "$GH_RATE"; }
 RATE_DIR="$HARNESS_HOME/ghrate"

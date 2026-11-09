@@ -28,6 +28,17 @@ def is_windows():
     return sys.platform == "win32"
 
 
+def resolve_argv(argv):
+    """argv with its program resolved through PATH on native Windows, as a shell would (#607, #686). CreateProcess searches
+    System32 before PATH (so a bare `bash` is WSL's, not Git's) and appends only `.exe`, so a `gh.cmd` or `tmux.cmd` shim is
+    never found and the REAL gh.exe further down PATH answers instead. shutil.which follows PATH and PATHEXT. Elsewhere, and
+    for a program it cannot find, argv is returned as it was."""
+    if sys.platform != "win32" or not argv:
+        return argv
+    exe = shutil.which(argv[0])
+    return [exe, *argv[1:]] if exe else argv
+
+
 def bash_exe():
     """The bash the engine's Python runs scripts with (#609): HARNESS_BASH, else the first `bash` on PATH. Never the bare name
     "bash": CreateProcess looks in System32 before PATH, and there `bash` is WSL's launcher (a Linux userland, no Harness)."""

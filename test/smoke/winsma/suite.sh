@@ -31,6 +31,14 @@ export PATH="$(cygpath -u "$VB"):$PATH"
 # itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
 # the suite installs: the Linux hosts have it system-wide.
 python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
 # What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
 # test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
 export PYTHONUTF8=1
