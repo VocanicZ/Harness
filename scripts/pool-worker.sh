@@ -89,6 +89,8 @@ start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0
           log "worker $wid claimed $action #$payload"
           spawn_orch "$action" "$payload" "$promise" || rc=$?;;
   esac
+  if (( rc == 3 )) && [[ "$action" == IMPL ]]; then   # #745: a closed issue was skipped (#730) — not a failed spawn
+    log "worker $wid: #$payload is closed — claim dropped, claiming again"; lane_release "$key" "$wid"; return 7; fi
   harness_event lane_claim kind="$kind" action="$action" payload="$payload" worker="$wid" repo="$SLUG"
   if (( rc != 0 )); then
     log "worker $wid: could not start $action $payload — claim dropped"; lane_release "$key" "$wid"; return 1; fi
@@ -99,8 +101,9 @@ start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0
 # worker_tick [wid] — the claim step (4). rc 0 = claimed + spawned a lane, 1 = nothing to claim (or this
 # worker has a lane), 2 = the repo is COMPLETE, 3 = paused / usage held / default branch red, 5 = the GitHub
 # budget is low, 6 = no usable checkout, or the lane failed to spawn (#539: the claim was dropped — worker_step
-# sleeps POLL, so a persistent failure never re-claims back to back).
-worker_tick(){ local wid="$1" act pl pr
+# sleeps POLL, so a persistent failure never re-claims back to back). rc 7 = the claimed issue was already closed
+# (#730/#745): skipped and marked, no spawn failed — worker_step claims again at once, not after POLL.
+worker_tick(){ local wid="$1" act pl pr rc
   local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
   if is_paused; then return 3; fi   # pause: no new claim — running lanes are still tended (worker_tend)
   if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
@@ -111,7 +114,9 @@ worker_tick(){ local wid="$1" act pl pr
   if ! ci_gate_ok "$SLUG"; then harness_event hold reason=other cause=ci_red secs="$POLL"; return 3; fi
   IFS=$'\t' read -r act pl pr < <(claim_lane "$wid")
   if [[ -z "$act" ]]; then all_complete && return 2; return 1; fi
-  start_lane "$wid" "$act" "$pl" "$pr" || return 6   # #539: a failed spawn is not "a lane was claimed"
+  start_lane "$wid" "$act" "$pl" "$pr"; rc=$?
+  (( rc == 7 )) && return 7   # #745: a closed issue skipped — the marker keeps it out of the next claim
+  (( rc == 0 )) || return 6   # #539: a failed spawn is not "a lane was claimed"
   return 0; }
 
 # tend_lane_done <claim-file> — one tend step for the lane a claim names: the goal check and watchdog of a
@@ -364,7 +369,8 @@ worker_short_step(){ local wid="$1" UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_
 # One tick. rc is the claim step's (worker_tick): 0 a lane was claimed (the next tick comes at once), 1 idle,
 # 2 the repo is COMPLETE — logged ONCE per idle streak (_IDLE_LOGGED), the worker stays resident (#24),
 # 3 paused / held, 4 the host snapshot is stale, 5 the GitHub budget is low, 6 no checkout / a lane failed to
-# spawn (#539 — sleeps POLL like idle, so the same item is not re-claimed at once). Workers only end on stop (kill)
+# spawn (#539 — sleeps POLL like idle, so the same item is not re-claimed at once), 7 a closed issue was skipped
+# (#745 — no sleep: the next step claims again at once). Workers only end on stop (kill)
 # or once their roots are deleted (#419).
 worker_step(){ local wid="$1" rc
   _WORKER_ID="$wid"
@@ -390,6 +396,7 @@ worker_step(){ local wid="$1" rc
        sleep "$POLL" ;;
     5) sleep "$(( POLL * 2 ))" ;;
     6) sleep "$POLL" ;;
+    7) ;;   # #745: a closed issue skipped, not a failed spawn — claim again at once
     *) worker_owns_lane "$wid" && (( HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL" ;;   # #594
   esac
   return "$rc"; }
