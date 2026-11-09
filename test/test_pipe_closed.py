@@ -58,6 +58,30 @@ def test_bench_dry_run_into_a_closed_pipe_is_quiet():
         e.close()
 
 
+def test_help_into_a_closed_pipe_is_quiet_and_exits_0():
+    """#783: argparse prints --help and exits inside parse_args, before pipesafe's flush guard used to see it."""
+    py = sys.executable
+    cmds = [[py, os.path.join(ROOT, "scripts", "stats.py"), "--help"],
+            [py, os.path.join(ROOT, "scripts", "stats.py"), "report", "--help"],
+            [py, os.path.join(ROOT, "scripts", "forecast.py"), "--help"],
+            [py, os.path.join(ROOT, "scripts", "tier.py"), "--help"],
+            [py, os.path.join(ROOT, "scripts", "tier.py"), "decide", "--help"],
+            [py, os.path.join(ROOT, "bench", "run.py"), "--help"],
+            ["bash", os.path.join(ROOT, "bin", "harness"), "stats", "--help"],
+            ["bash", os.path.join(ROOT, "bin", "harness"), "tier", "decide", "--help"]]
+    for argv in cmds:
+        rc, err = into_true(argv)
+        assert err == "" and rc == 0, (argv, rc, err)
+
+
+def test_help_still_prints_and_a_usage_error_still_exits_2():
+    tier = [sys.executable, os.path.join(ROOT, "scripts", "tier.py")]
+    r = subprocess.run(tier + ["decide", "--help"], capture_output=True, text=True)
+    assert r.returncode == 0 and "usage:" in r.stdout and r.stderr == "", r
+    r = subprocess.run(tier + ["decide", "--bogus"], capture_output=True, text=True)
+    assert r.returncode == 2 and "usage:" in r.stderr, r
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
