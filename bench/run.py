@@ -230,8 +230,8 @@ def usage_readings(rejected=None):
     if p.returncode != 0:
         return []
     out = []
-    for line in p.stdout.split("\n"):   # #714: only \n ends a line; splitlines() also cut at \f, U+2028 and friends
-        f = line.removesuffix("\r").removeprefix("﻿").split("\t")   # CRLF; #678: a BOM at any line start is not part of the account name
+    for line in re.split(r"\r\n|\r|\n", p.stdout):   # #714: only LF, CRLF and a lone CR (#864) end a line; splitlines() also cut at \f, U+2028 and friends
+        f = line.removeprefix("﻿").split("\t")   # #678: a BOM at any line start is not part of the account name
         if len(f) >= 3 and f[0] and _finite(_num(f[2])):   # nan/inf is no reading (#709)
             if not 0 <= _num(f[2]) <= 100:   # -5 or 140 is no percentage of a window (#757)
                 if rejected is not None:
