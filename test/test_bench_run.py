@@ -916,3 +916,24 @@ def test_usage_output_that_starts_with_a_bom_reads_the_same_account_and_usage():
             os.environ.pop("HARNESS_USAGE_CMD", None)
         else:
             os.environ["HARNESS_USAGE_CMD"] = saved
+
+
+def test_usage_line_is_split_only_on_newline_and_a_bom_on_a_later_line_is_stripped():   # #714
+    saved = os.environ.get("HARNESS_USAGE_CMD")
+    try:
+        def read(printf_arg):
+            os.environ["HARNESS_USAGE_CMD"] = "printf '%s'" % printf_arg
+            return bench_run.usage_readings()
+        # form feed and U+2028 inside a field stay in it: never re-split into an account named "x"
+        assert read("cfg\\fx\\tseven_day\\t40\\n") == [("cfg\fx", "seven_day", 40.0, "")]
+        assert read("cfg\\342\\200\\250x\\tseven_day\\t40\\n") == [("cfg x", "seven_day", 40.0, "")]
+        assert read("a\\tseven_day\\f40\\n") == []                      # a pct that holds a form feed is malformed, not re-split
+        assert read("a\\tseven_day\\t4\\f0\\n") == []
+        # a BOM at the start of a later line is not part of that account's name; CRLF still reads
+        assert read("a\\tseven_day\\t42\\r\\n\\357\\273\\277b\\tfive_hour\\t7\\r\\n") == [
+            ("a", "seven_day", 42.0, ""), ("b", "five_hour", 7.0, "")]
+    finally:
+        if saved is None:
+            os.environ.pop("HARNESS_USAGE_CMD", None)
+        else:
+            os.environ["HARNESS_USAGE_CMD"] = saved
