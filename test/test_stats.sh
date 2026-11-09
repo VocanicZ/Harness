@@ -104,6 +104,8 @@ if PATH=$SYS_PATH command -v rtdd >/dev/null; then   # rtdd installed system-wid
   SYS_PATH="$RUN_DIR/sysbin"; mkdir -p "$SYS_PATH"
   for f in /bin/* /usr/bin/*; do [[ "${f##*/}" == rtdd ]] || ln -sf "$f" "$SYS_PATH/" 2>/dev/null; done
 fi
+# start.sh refuses a host whose python3 is not a Python 3 (#405): on a real Windows host the venv's must stay on its PATH (#686)
+real_windows_host && SYS_PATH="$SYS_PATH:$(dirname "$(command -v python3)")"
 mkdir -p "$STATE_DIR/run"; : > "$EVENTS"
 # portable.sh's lock (a flock on Linux, an owned mkdir lock on Windows, where Git Bash has no flock): held by a background shell (#686)
 hold_start_lock(){ ( lock_acquire "$STATE_DIR/run/start.lock" _SLH; exec sleep 30 ) & HOLDER=$!

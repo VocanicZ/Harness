@@ -50,7 +50,8 @@ shimpy(){ ( unset PYTHONPATH; [[ $# -gt 0 ]] && export PYTHONPATH="$1"; "$H/bin/
 assert_eq "$(shimpy)" "$LFD" "the interpreter gets the pylf dir as PYTHONPATH"
 assert_eq "$(shimpy /opt/mine)" "$LFD;/opt/mine" "… ahead of a PYTHONPATH the caller already had"
 assert_eq "$(shimpy "$LFD")" "$LFD" "… and once, when a shim run already named it (a python3 that starts a python3)"
-assert_eq "$(unset PYTHONPATH; "$H/bin/python3" -c 'import sys; print(sys.modules["sitecustomize"].__file__)')" "$LFD/sitecustomize.py" "the interpreter imported that sitecustomize"
+SC="$H/bin/pylf/sitecustomize.py"; real_windows_host && SC="$(cygpath -w "$SC")"
+assert_eq "$(unset PYTHONPATH; "$H/bin/python3" -c 'import sys; print(sys.modules["sitecustomize"].__file__)')" "$SC" "the interpreter imported that sitecustomize"
 echo "=== Linux writes neither ==="
 H2="$T/home2"
 ( unset PYTHONPATH; export HARNESS_HOME="$H2" HARNESS_PLATFORM=posix; HARNESS_INSTALL_NOMAIN=1 source "$R/install.sh"; install_python_shim ) >/dev/null 2>&1
