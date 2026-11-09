@@ -737,6 +737,15 @@ def test_runs_below_one_is_a_usage_error(e):
 
 
 @with_env()
+def test_runs_and_workers_are_ascii_digits_only(e):   # #784
+    for opt in ("--runs", "--workers"):
+        for bad in ("1_1", "+5", "\uff12\uff10"):
+            p = e.run("stub", "--dry-run", f"{opt}={bad}")
+            assert p.returncode == 2 and opt in p.stderr and repr(bad) in p.stderr and "bench guard" not in p.stdout, (opt, bad, p.returncode, p.stdout, p.stderr)
+    assert e.calls() == []
+
+
+@with_env()
 def test_runs_n_records_n_results_per_arm_plus_an_aggregate(e):
     p = e.run("stub", "--runs", "3", "--arm-opt", "cost=1,3,2", "--expected-usd", "5")
     assert p.returncode == 0, (p.stdout, p.stderr)

@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Number arguments take ASCII digits only: `1_1`, `+5` and full-width digits are refused (#784)
+
+- `harness forecast`, `harness stats --issue/--prd`, `harness tier decide` (every count) and `bench/run.py --runs/--workers` parsed numbers with Python's
+  `int()`, so `forecast 1_1` forecast issue #11 and `tier decide --criteria ２０` read 20 criteria. A typo became a different number instead of an error.
+  Each now exits 2 with `invalid int value: '1_1' (use ASCII digits only)` naming the option. `test_forecast.py`, `test_stats.py`, `test_tier.sh` and
+  `test_bench_run.py` cover the three forms.
+
 ### A `HARNESS_TEND_TICK` or `HARNESS_TEND_IDLE_TICKS` that is not a number no longer kills the pool worker (#782)
 
 - Both knobs feed bash arithmetic unchecked: `HARNESS_TEND_TICK=abc` stopped the worker on its first step (`abc: unbound variable`), `15s` left the tick

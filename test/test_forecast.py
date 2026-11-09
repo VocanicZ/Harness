@@ -635,6 +635,16 @@ def test_unparseable_event_lines_are_counted_on_stderr():   # #785
         assert json.loads(js2) == json.loads(js), "the forecast itself is unchanged"
 
 
+def test_issue_number_is_ascii_digits_only():   # #784
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for n in ("1_1", "+5", "\uff12\uff10", "\u0665"):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), n, "-R", W,
+                                "--events", events, "--bodies", bodies], capture_output=True, text=True)
+            assert r.returncode == 2 and f"invalid int value: {n!r}" in r.stderr, (n, r.returncode, r.stderr)
+            assert r.stdout == "", (n, r.stdout)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
