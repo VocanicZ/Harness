@@ -322,6 +322,9 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 | `HARNESS_LABEL_PAUSED` | `agent-paused` | Label on an issue checkpointed by `pause --force` or a usage-limit checkpoint |
 | `HARNESS_PAUSE_GRACE` | `300` | Seconds `pause --force` waits for agents to checkpoint |
+| `HARNESS_LAUNCH_FAIL_SECS` | `30` | A lane whose session is gone within this many seconds of its launch, and that reported no usage, never ran: it is logged `launch_failed` (not counted as a session by `harness stats`) and its claim key backs off. The reap also spares a sessionless worktree younger than this (#643). A value that is not a non-negative integer (`30s`, `1.5`, `abc`, `-1`) falls back to `30` with a one-time warning in the log (#792) |
+| `HARNESS_LAUNCH_BACKOFF` | `60` | Seconds claim_lane holds an issue or PRD back after a `launch_failed`; it doubles per consecutive failure, up to `HARNESS_LAUNCH_BACKOFF_MAX`. A value that is not a non-negative integer falls back to `60` with a one-time warning (#759) |
+| `HARNESS_LAUNCH_BACKOFF_MAX` | `900` | Cap, in seconds, of the doubling launch backoff. A value that is not a non-negative integer falls back to `900` with a one-time warning (#759) |
 
 ### Headless lanes
 

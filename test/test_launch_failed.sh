@@ -141,6 +141,33 @@ rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-
 assert_eq "$(HARNESS_LAUNCH_BACKOFF=5 HARNESS_LAUNCH_BACKOFF_MAX=7 launch_backoff_active impl-7 2>&1; echo rc=$?)" "rc=0" "valid numbers are used as is, no warning"
 NOW=$((NOW + 2)); HARNESS_LAUNCH_BACKOFF=5 launch_backoff_active impl-7; assert_eq "$?" "1" "…BACKOFF=5 is over after 6s"
 
+echo "== 4c. #792: a HARNESS_LAUNCH_FAIL_SECS that is not a non-negative integer falls back to 30 and warns once =="
+for bad in 30s 1.5 abc -1; do
+  setup; log(){ echo "LOG $*"; }
+  SESSF="$(sess_impl "$UNIT" 7)"; session_live(){ return 1; }
+  echo "$((NOW - 2)) uuid-f" > "$RUN_DIR/$SESSF.launched"
+  err="$( HARNESS_LAUNCH_FAIL_SECS="$bad" launch_gone_check "$SESSF" impl issue=7 2>&1 >/dev/null )"
+  assert_eq "$(evs | grep -c launch_failed)" "1" "FAIL_SECS='$bad': a lane gone 2s after launch is still launch_failed"
+  assert_ok "…and backed off" launch_backoff_active impl-7
+  assert_ok "…with one warning naming the knob" grep -q "WARN HARNESS_LAUNCH_FAIL_SECS='$bad' is not a non-negative integer — using the default 30" <<<"$err"
+  assert_no "…and no bash arithmetic error" grep -qi "syntax error\|value too great\|invalid arithmetic\|unbound" <<<"$err"
+  echo "$((NOW - 2)) uuid-f" > "$RUN_DIR/$SESSF.launched"
+  assert_eq "$(HARNESS_LAUNCH_FAIL_SECS="$bad" launch_gone_check "$SESSF" impl issue=7 2>&1 >/dev/null)" "" "…the warning is logged once"
+  echo "$((NOW - 40)) uuid-f" > "$RUN_DIR/$SESSF.launched"; rm -f "$RUN_DIR/launchfail.impl-7"
+  HARNESS_LAUNCH_FAIL_SECS="$bad" launch_gone_check "$SESSF" impl issue=7 2>/dev/null
+  assert_no "…and a lane that ran 40s is no launch failure (default 30)" test -e "$RUN_DIR/launchfail.impl-7"
+  NOW="$(command date +%s)"   # launch_grace_live compares the directory's real mtime with date +%s
+  mkdir -p "$T/gr"; touch -d "5 seconds ago" "$T/gr"; rm -f "$RUN_DIR"/launchknob.*
+  err="$( HARNESS_LAUNCH_FAIL_SECS="$bad" launch_grace_live "$T/gr" 2>&1 )"; rc=$?
+  assert_eq "$rc" "0" "launch_grace_live: a 5s-old worktree is in grace"
+  assert_ok "…with one warning naming the knob" grep -q "WARN HARNESS_LAUNCH_FAIL_SECS='$bad' is not a non-negative integer" <<<"$err"
+  touch -d "2 minutes ago" "$T/gr"; HARNESS_LAUNCH_FAIL_SECS="$bad" launch_grace_live "$T/gr" 2>/dev/null
+  assert_eq "$?" "1" "…and a 2-minute-old one is not"
+done
+setup; NOW="$(command date +%s)"; touch -d "2 minutes ago" "$T/gr"
+HARNESS_LAUNCH_FAIL_SECS=0 launch_grace_live "$T/gr"; assert_eq "$?" "1" "FAIL_SECS=0 is a valid number: no grace at all"
+HARNESS_LAUNCH_FAIL_SECS=010 launch_grace_live "$T/gr"; assert_eq "$?" "1" "FAIL_SECS=010 reads as decimal 10, not octal: a 2-minute-old worktree is out of grace"
+
 echo "== 5. a lane that ran past 30s is a plain reap =="
 setup
 SESS9="$(sess_impl "$UNIT" 9)"; echo "$((NOW - 400)) uuid-9" > "$RUN_DIR/$SESS9.launched"

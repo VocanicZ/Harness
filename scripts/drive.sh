@@ -132,7 +132,7 @@ reap_impl_lane(){ local issue="$1" unowned="${2:-}" wd="$WORKTREES_DIR/$UNIT-i$1
   # that writes no claim leaves a seconds-old worktree, no session and no `.launched` stamp between its worktree add and
   # its launch. Spare it for the launch grace; a lane whose session did launch (and died) has the stamp and is reaped.
   if [[ -n "$unowned" && ! -f "$RUN_DIR/$sess.launched" ]] && launch_grace_live "$wd"; then
-    log "reap: issue #$issue worktree is under ${HARNESS_LAUNCH_FAIL_SECS:-30}s old with no session yet — a launch may be in flight, left alone (#643)"
+    log "reap: issue #$issue worktree is under $(_launch_knob HARNESS_LAUNCH_FAIL_SECS 30)s old with no session yet — a launch may be in flight, left alone (#643)"
     return 1; fi
   # ...and the claim check is repeated under pool.lock, held across the removal: a claim written since reap_team's
   # unlocked is_claimed (a worker claimed the lane and is about to spawn it) keeps the worktree.
