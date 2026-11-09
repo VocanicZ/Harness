@@ -723,7 +723,9 @@ def load_events(path=None, skipped=None):
 def parse_since(s, now=None):
     """'7d' / '24h' / '30m' / an ISO date → epoch seconds."""
     now = time.time() if now is None else now
-    m = re.fullmatch(r"(\d+)([dhm])", s or "")
+    m = re.fullmatch(r"([0-9]+)([dhm])", s or "")
+    if not m and re.fullmatch(r"\d+[dhm]", s or ""):   # #804: \d also matches full-width / Arabic-Indic digits
+        raise ValueError(f"bad --since: {s!r} (use ASCII digits only)")
     if m:
         return now - int(m.group(1)) * {"d": 86400, "h": 3600, "m": 60}[m.group(2)]
     t = parse_ts(s if "T" in (s or "") else f"{s}T00:00:00+00:00")
