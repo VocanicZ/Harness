@@ -22,7 +22,8 @@ clean(){ env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK "$@"; }
 
 # origin: a pre-release engine commit (its update.sh the old updater), then main's current tree.
 O="$T/origin.git"; W="$T/work"; git init -q --bare -b main "$O"; mkdir -p "$W"
-( cd "$HERE/.." && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$W"
+# .gitattributes rides along: the real repo pins eol=lf, and Git for Windows (core.autocrlf=true) would check the clone out CRLF (#605).
+( cd "$HERE/.." && tar -cf - .gitattributes bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$W"
 cp "$HERE/fixtures/update-prerelease.sh" "$W/update.sh"
 gc "$W" init -q -b main; gc "$W" add -A; gc "$W" commit -qm 'pre-release engine'
 gc "$W" remote add origin "$O"; gc "$W" push -q -u origin main

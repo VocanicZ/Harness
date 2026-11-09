@@ -1,0 +1,207 @@
+[01:44:29] run: #605 on winsma, mode suite: export HX_BRANCH=issue/605 HX_TESTS="test_path_split.sh test_cli_seam.sh test_session_backend.sh test_submodule.sh test_worker.sh test_fleet_migrate.sh test_update_prerelease.sh test_cli_codex.sh test_cli_copilot.sh test_cli_hermes.sh test_cli_openclaw.sh test_cli_opencode.sh test_fleet_registry.sh test_bypass.sh test_snapshot.sh test_spawn.sh test_stats.py test_supervise_rules.py test_forecast.py" HARNESS_TEST_TIMEOUT=600
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[01:44:36] lock: held by #608 (i608), heartbeat 49s old; waiting 300s
+[01:49:45] lock: held by #608 (i608), heartbeat 45s old; waiting 300s
+[01:54:54] lock: held by #608 (i608), heartbeat 54s old; waiting 300s
+[02:00:03] lock: held by #608 (i608), heartbeat 63s old; waiting 300s
+[02:05:08] lock: held by #608 (i608), heartbeat 67s old; waiting 300s
+[02:10:16] lock: held by #608 (i608), heartbeat 75s old; waiting 300s
+[02:15:22] lock: held by #606 (lane-606), heartbeat 131s old; waiting 300s
+[02:20:28] lock: held by #606 (lane-606), heartbeat 137s old; waiting 300s
+[02:25:36] lock: held by #606 (lane-606), heartbeat 145s old; waiting 300s
+[02:30:43] lock: held by #606 (lane-606), heartbeat 151s old; waiting 300s
+[02:35:47] lock: held by #606 (lane-606), heartbeat 155s old; waiting 300s
+[02:40:57] lock: hx-lock taken by #605 (lane-605)
+[02:41:34] guard: before recorded
+[02:42:25] credentials: before scan recorded
+[02:42:25] exec: export HX_BRANCH=issue/605 HX_TESTS="test_path_split.sh test_cli_seam.sh test_session_backend.sh test_submodule.sh test_worker.sh test_fleet_migrate.sh test_update_prerelease.sh test_cli_codex.sh test_cli_copilot.sh test_cli_hermes.sh test_cli_openclaw.sh test_cli_opencode.sh test_fleet_registry.sh test_bypass.sh test_snapshot.sh test_spawn.sh test_stats.py test_supervise_rules.py test_forecast.py" HARNESS_TEST_TIMEOUT=600
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[02:42:30] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-605/home | USERPROFILE=C:\hx-605\home | TMPDIR=C:/hx-605/tmp
+[02:42:31] == clone issue/605
+[02:42:43] src at 8bd1ace
+[02:42:43] == venv
+[02:43:31] python3 = /c/hx-605/venv/Scripts/python3: Python 3.13.5
+[02:43:32] ######## test/run.sh (per-test cap 600s)
+[03:58:51] run.sh finished rc=1 after 4519s
+  [test_cli_seam.sh]   FAIL: the driven loop runs scripts/goal_loop.py — want [/c/hx-605/src/scripts/goal_loop.py] got [C:/hx-605/src/scripts/goal_loop.py]
+  [test_session_backend.sh]   FAIL: …and a known one is healthy — want [0] got [1]
+  [test_fleet_migrate.sh] TIMEOUT: test_fleet_migrate.sh ran past HARNESS_TEST_TIMEOUT=600s
+  [test_update_prerelease.sh]   FAIL: the host engine starts on the pre-release updater — expected success from: cmp -s /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_update_prerelease.sh/tmp/tmp.YA7BdwIMel/host/engine/update.sh /c/hx-605/src/test/fixtures/update-prerelease.sh
+  [test_update_prerelease.sh]   FAIL: with main's release-aware update.sh — expected success from: cmp -s /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_update_prerelease.sh/tmp/tmp.YA7BdwIMel/host/engine/update.sh /c/hx-605/src/test/../update.sh
+  [test_cli_codex.sh] TIMEOUT: test_cli_codex.sh ran past HARNESS_TEST_TIMEOUT=600s
+  [test_cli_copilot.sh]   FAIL: …and every other folder — expected success from: cli_trusted /elsewhere
+  [test_cli_copilot.sh]   FAIL: trust takes the lock file the CLI keeps beside config.json — expected success from: test -f /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_copilot.sh/tmp/tmp.eKHfxgu0qq/copilot-home/config.json.trusted-folders.lock
+  [test_cli_copilot.sh] TIMEOUT: test_cli_copilot.sh ran past HARNESS_TEST_TIMEOUT=600s
+  [test_cli_hermes.sh]   FAIL: the operator's skills and Harness's user skills are external skill dirs — expected success from: grep -qxF   external_dirs: ["/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_hermes.sh/tmp/tmp.ZrYeP4dQPb/hermes-home/skills", "/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_hermes.sh/tmp/tmp.ZrYeP4dQPb/user-skills"] /dev/fd/63
+  [test_cli_hermes.sh]   FAIL: …one whose owner died holds nothing — expected success from: replies /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_hermes.sh/tmp/tmp.ZrYeP4dQPb/wd local-e942e522f9dd320dbaa131f4126cf901cbcc8b20540b14fd560b662402663880
+  [test_cli_hermes.sh] TIMEOUT: test_cli_hermes.sh ran past HARNESS_TEST_TIMEOUT=600s
+  [test_cli_openclaw.sh]   FAIL: the lane config includes the operator's (model, auth, plugins) — want ["/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/op/openclaw.json"] got ["C:/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/op/openclaw.json"]
+  [test_cli_openclaw.sh]   FAIL: the operator's extra skill dirs, then each user skill Harness installs (a dir with its own SKILL.md reads as one skill) — want [["/opt/team-skills", "/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/handoff", "/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/rtdd"]] got [["/opt/team-skills", "C:/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/handoff", "C:/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/rtdd"]]
+  [test_cli_openclaw.sh]   FAIL: an operator config that is JSON5 is still included, its own extra dirs unread — want [["/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/handoff", "/c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/rtdd"]] got [["C:/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/handoff", "C:/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_openclaw.sh/tmp/tmp.ZTcZct87EV/user-skills/rtdd"]]
+  [test_cli_openclaw.sh]   FAIL: a hangup of the pane's loop stops the turn's whole tree — expected failure from: kill -0 1311219
+  [test_cli_openclaw.sh] TIMEOUT: test_cli_openclaw.sh ran past HARNESS_TEST_TIMEOUT=600s
+  [test_cli_opencode.sh]   FAIL: plugin: an idle lane without the promise is re-prompted with the next iteration — expected success from: has PROMPT lane build/acme/m-9 🔄 Ralph iteration 2 | To stop: output <promise>PLUGIN DONE</promise> node:internal/modules/esm/load:191
+  [test_cli_opencode.sh]   FAIL: …as the agent and model its last prompt ran with, and the state file counts it — expected success from: grep -qx iteration: 2 /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_opencode.sh/tmp/tmp.tHEMaN7gX9/plugin/wd/.claude/ralph-loop.local.md
+  [test_cli_opencode.sh]   FAIL: plugin: a turn that ended in an error is not re-prompted, nor is a sub-agent's session — want [] got [node:internal/modules/esm/load:191
+  [test_cli_opencode.sh]   FAIL: …and neither counts an iteration — expected success from: grep -qx iteration: 2 /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_opencode.sh/tmp/tmp.tHEMaN7gX9/plugin/wd/.claude/ralph-loop.local.md
+  [test_cli_opencode.sh]   FAIL: plugin: an error is forgotten once the session runs a turn again — expected success from: has PROMPT lane build/acme/m-9 🔄 Ralph iteration 3 node:internal/modules/esm/load:191
+  [test_cli_opencode.sh]   FAIL: plugin: a session Harness did not launch (no loop script named) is left alone — want [] got [node:internal/modules/esm/load:191
+  [test_cli_opencode.sh]   FAIL: plugin: the promise ends the loop with no prompt — want [] got [node:internal/modules/esm/load:191
+  [test_cli_opencode.sh]   FAIL: …and removes the state file (cli_done) — expected success from: cli_done /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_cli_opencode.sh/tmp/tmp.tHEMaN7gX9/plugin/wd
+  [test_cli_opencode.sh]   FAIL: plugin: a worktree with no goal loop is left alone — want [] got [node:internal/modules/esm/load:191
+  [test_cli_opencode.sh] TIMEOUT: test_cli_opencode.sh ran past HARNESS_TEST_TIMEOUT=600s
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh]   FAIL: snapshot is valid JSON with required fields — expected success from: python3 - /c/hx-605/tmp/tmp.dQ6Xqj63Y1/test_snapshot.sh/tmp/tmp.MEKfipS7Fl/snapshots/acme__widget.json
+  [test_snapshot.sh]   FAIL: snapshot == direct for: complete acme/widget — want [] got [NOTDONE]
+  [test_snapshot.sh]   FAIL: cross-repo dep (lib#42 closed) → #5 dispatched — expected success from: bash -c grep -q $'^IMPL\t5\t' <<< "$1" _ 
+  [test_snapshot.sh]   FAIL: free issue #8 dispatched — expected success from: bash -c grep -q $'^IMPL\t8\t' <<< "$1" _ 
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh]   FAIL: full snapshot caches the issue/13 PR (not feature/x, not a fork's issue/14) — expected success from: grep -qF -- [[{"draft": false, "head_ref": "issue/13", "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "issue": 13, "number": 60, "url": "https://github.com/acme/widget/pull/60"}], {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {"etag": 
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh]   FAIL: …and its head's combined status — expected success from: grep -qF -- "state": "success"
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh]   FAIL: an unchanged PR list and status cost one 304 each — want [2] got [0]
+  [test_snapshot.sh]   FAIL: a failed PR read never fails the snapshot — want [0] got [3]
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh]   FAIL: never read: no pulls / checks keys (the drawer says unknown) — want [[null, null]] got []
+  [test_snapshot.sh] Traceback (most recent call last):
+  [test_snapshot.sh]   FAIL: no issue/<n> branch: no PR, and… — want [[[], {}]] got []
+  [test_forecast.py]   FAIL: test_harness_forecast_cli_dispatch — 
+== run.sh: 8/19 test files passed ==
+FAILED: test_cli_seam.sh
+FAILED: test_session_backend.sh
+FAILED: test_fleet_migrate.sh
+FAILED: test_update_prerelease.sh
+FAILED: test_cli_codex.sh
+FAILED: test_cli_copilot.sh
+FAILED: test_cli_hermes.sh
+FAILED: test_cli_openclaw.sh
+FAILED: test_cli_opencode.sh
+FAILED: test_snapshot.sh
+FAILED: test_forecast.py
+SUITE-RESULT 11 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-605
+credentials: GH_TOKEN written nowhere new
+[04:00:45] cleanup: winsma clean (no hx-605, lock released, no run task or process)
+[04:00:45] run: OK
