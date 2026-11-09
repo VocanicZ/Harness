@@ -1004,6 +1004,19 @@ def test_usage_line_is_split_only_on_newline_and_a_bom_on_a_later_line_is_stripp
             os.environ["HARNESS_USAGE_CMD"] = saved
 
 
+def test_a_usage_hold_file_with_a_leading_bom_names_the_account_without_it():   # #807
+    rdir = tempfile.mkdtemp(prefix="hold-bom-")
+    try:
+        os.makedirs(os.path.join(rdir, "usage-holds"))
+        with open(os.path.join(rdir, "usage-holds", "acct1.hold"), "wb") as fh:
+            fh.write(b"\xef\xbb\xbfacct1\tseven_day\t95\t0\n")
+        with open(os.path.join(rdir, "usage-holds", "acct2.hold"), "wb") as fh:
+            fh.write(b"\xef\xbb\xbf")   # BOM only: the account falls back to the file name
+        assert bench_run.held_accounts(rdir) == [("acct1", "seven_day", "95"), ("acct2", "", "")]
+    finally:
+        shutil.rmtree(rdir, ignore_errors=True)
+
+
 def test_guard_text_escapes_line_separators_and_controls_in_an_account_name():   # #756
     bad = "ac\u2028ct\u2029\x85\x0c\x01"
     want = "ac\\u2028ct\\u2029\\u0085\\u000c\\u0001"
