@@ -76,8 +76,9 @@ def engine_skills(root=ROOT):
     if os.path.isfile(os.path.join(src, "SKILL.md")):
         out["harness"] = os.path.join(src, "SKILL.md")
     for d in sorted(glob.glob(os.path.join(src, "*", ""))):
+        d = d.rstrip("/\\")     # #686: the trailing separator glob keeps is a backslash on Windows, and basename of "…\\x\\" is ""
         if os.path.isfile(os.path.join(d, "SKILL.md")):
-            out[os.path.basename(d.rstrip("/"))] = d.rstrip("/")
+            out[os.path.basename(d)] = d
     return out
 
 

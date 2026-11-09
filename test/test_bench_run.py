@@ -654,13 +654,15 @@ def test_figures_check_fails_when_an_arms_logs_do_not_reproduce_its_results(e):
 
 def test_the_disk_guard_measures_only_the_temp_dir_not_the_checkout():
     seen, real_tmp, real_du = [], bench_run.tempfile.gettempdir, bench_run.shutil.disk_usage
-    bench_run.tempfile.gettempdir = lambda: "/tmp"
+    fake_tmp = tempfile.mkdtemp()           # a directory that exists on every OS ("/tmp" is nothing on Windows) and is not the checkout
+    bench_run.tempfile.gettempdir = lambda: fake_tmp
     bench_run.shutil.disk_usage = lambda p: seen.append(p) or real_du(p)
     try:
         out = bench_run.disk_free()
     finally:
         bench_run.tempfile.gettempdir, bench_run.shutil.disk_usage = real_tmp, real_du
-    assert seen == ["/tmp"] and [x["path"] for x in out] == ["/tmp"], (seen, out)
+        shutil.rmtree(fake_tmp, ignore_errors=True)
+    assert seen == [fake_tmp] and [x["path"] for x in out] == [fake_tmp], (seen, out)
 
 
 def test_aggregate_summarises_own_test_coverage_and_ignores_skipped_ones():

@@ -216,6 +216,8 @@ cat >"$WINFAKE/cygpath" <<'EOF'
 echo "${2#C:}"   # the drive goes: this tree lives under /tmp, not /c
 EOF
 chmod +x "$WINFAKE/git" "$WINFAKE/cygpath"
+# a real Windows host has no need of the fakes — real git.exe answers C:/… and the real cygpath reads it back — and they would only mangle its /c/… tree (#686)
+real_windows_host && rm -f "$WINFAKE/git" "$WINFAKE/cygpath"
 ensure_safe(){ :; }; session_live(){ return 1; }
 WD="$WORKTREES_DIR/bug-acme_widget-i5"; NESTED="$WD/.claude/worktrees/agent-x"
 export HARNESS_PLATFORM=windows
