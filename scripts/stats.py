@@ -1220,6 +1220,23 @@ def repo_arg(v):
     return v
 
 
+def _explicit_log_error(path):
+    """Why an explicitly passed events file cannot be read, or None (#758). None path = the default file: its
+    absence on a fresh install stays "no events". A missing path, a directory or an unreadable file names the path."""
+    if path is None:
+        return None
+    if os.path.isdir(path):
+        return f"{path!r} is a directory, not an events file"
+    try:
+        with open(path, "rb"):
+            pass
+    except FileNotFoundError:
+        return f"{path!r} does not exist"
+    except OSError as e:
+        return f"{path!r} is not readable ({e.strerror or e})"
+    return None
+
+
 def cmd_report(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="harness stats", description="Harness event-log report (#185)")
@@ -1250,6 +1267,11 @@ def cmd_report(argv):
     except ValueError as e:
         print(f"harness stats: {e}", file=sys.stderr)
         return 2
+    for flag, path in (("--events", a.events), ("--rtdd-events", a.rtdd_events)):
+        err = _explicit_log_error(path)   # #758: a typo'd path is not an empty fleet
+        if err:
+            print(f"harness stats: {flag} {err}", file=sys.stderr)
+            return 2
     bad = [0]
     every = load_events(a.events, bad)
     evs = filter_events(every, since, a.fleet, a.repo)

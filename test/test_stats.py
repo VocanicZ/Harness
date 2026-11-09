@@ -400,6 +400,29 @@ def test_report_cli_text_and_json():
         with contextlib.redirect_stderr(io.StringIO()):
             assert run(["report", "--since", "whenever"])[0] == 2
 
+def test_report_explicit_events_path_missing_or_directory_is_exit_2():
+    """#758: --events at a missing file or a directory is an error naming the path, exit 2; the default
+    events file being absent (a fresh install) stays "no events in range", exit 0."""
+    with host() as d:
+        assert not os.path.exists(os.path.join(d, "events.jsonl"))
+        rc, out = run(["report", "--since", "2026-01-01"])
+        assert rc == 0 and "no events in range" in out, (rc, out)
+        script = os.path.join(HERE, "..", "scripts", "stats.py")
+        for flag in ("--events", "--rtdd-events"):
+            for bad in (os.path.join(d, "does", "not", "exist"), d):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    rc, out = run(["report", flag, bad])
+                assert rc == 2 and out == "" and bad in err.getvalue() and flag in err.getvalue(), (flag, bad, rc, out, err.getvalue())
+        r = subprocess.run([sys.executable, script, "report", "--events", os.path.join(d, "typo.jsonl")],
+                           capture_output=True, text=True)
+        assert r.returncode == 2 and r.stdout == "" and "typo.jsonl" in r.stderr, (r.returncode, r.stdout, r.stderr)
+        p = os.path.join(d, "empty.jsonl")
+        open(p, "w").close()   # an existing, empty file is a real (empty) log
+        rc, out = run(["report", "--events", p, "--since", "2026-01-01"])
+        assert rc == 0 and "no events in range" in out, (rc, out)
+
+
 def test_report_issue_below_one_is_a_usage_error():
     """#675: no issue is numbered 0 or below -> exit 2 with a message, not a report headed "issue #-5"."""
     with host() as d:
