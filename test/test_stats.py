@@ -188,6 +188,32 @@ def test_launch_failed_lane_is_not_a_session():
     assert [x["session"] for x in st.sessions(evs)] == ["ok1"]
     assert st.fleet_summary(evs)["hz"]["sessions"] == 1
 
+def test_launch_failed_lane_that_reported_usage_is_still_a_session():
+    # #720: a lane gone within 30s of its launch logs launch_failed before its session_end; when that
+    # session_end reports usage the lane ran, and its spend stays in the stats
+    real = _u(1_000_000)
+    evs = [
+        _ev("launch", session="short1", prefix="hz", issue=4, kind="impl"),
+        _ev("launch_failed", session="short1", prefix="hz", issue=4, kind="impl", reason="session_gone"),
+        _ev("session_end", session="short1", prefix="hz", issue=4, kind="impl", wall_s=9, usage=real),
+        _ev("launch", session="dead3", prefix="hz", issue=5, kind="impl"),
+        _ev("launch_failed", session="dead3", prefix="hz", issue=5, kind="impl", reason="session_gone"),
+        _ev("session_end", session="dead3", prefix="hz", issue=5, kind="impl", wall_s=1, usage={}),
+    ]
+    out = st.sessions(evs)
+    assert [x["session"] for x in out] == ["short1"], out
+    assert out[0]["usage"]["claude-opus-5-5"]["output"] == 1_000_000, out
+    assert st.fleet_summary(evs)["hz"]["sessions"] == 1
+    assert st.fleet_summary(evs)["hz"]["tokens"]["claude-opus-5-5"]["output"] == 1_000_000
+
+def test_ran_command_reads_logged_usage(tmp_path, monkeypatch):
+    # #720: `stats.py ran <session>` is rc 0 only for a session whose logged session_end holds tokens
+    p = tmp_path / "events.jsonl"
+    p.write_text("\n".join(json.dumps(e) for e in [
+        _ev("session_end", session="a", usage=_u(5)), _ev("session_end", session="b", usage={})]) + "\n")
+    monkeypatch.setenv("HARNESS_EVENTS_FILE", str(p))
+    assert st.main(["ran", "a"]) == 0 and st.main(["ran", "b"]) == 1 and st.main(["ran", "zz"]) == 1
+
 def test_failed_relaunch_under_same_session_keeps_the_earlier_run():
     # #679: a relaunch under a session id that already ran, dead within 30s, drops only itself
     real = _u(5)

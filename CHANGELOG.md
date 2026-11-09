@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A lane that ran but ended within 30s of launch keeps its spend in `harness stats` (#720)
+
+- The reap logged `launch_failed` for any lane gone under 30s after launch, before the session's `session_end` was
+  written, and `harness stats` then dropped the whole session, tokens included. A lane that reports usage ran, whatever its
+  age: stats keeps it with its tokens and cost, and the reap no longer logs `launch_failed` or backs the lane off for it. A
+  launch that really failed (no session, no usage) is still logged as `launch_failed`, backed off and left out of the count.
+
 ### `bench/run.py --run-id` accepts only one short, safe path component (#717)
 
 - `--run-id=.` wrote the results into the `--results-dir` root itself, and `--run-id=-x`, `--run-id=--flag` and a 5000-character

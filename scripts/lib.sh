@@ -468,14 +468,20 @@ backoff_keys(){ local f k out=(); shopt -s nullglob
 launch_fail(){ local sess="$1" uuid="$2" reason="$3" key; key="$(launch_key_of_sess "$sess")"
   harness_event launch_failed session="$uuid" tmux="$sess" goal="${GOAL:-}" prd="${STAT_PRD:-}" reason="$reason"
   log "launch of $sess failed ($reason)"; [[ -n "$key" ]] && launch_backoff_mark "$key"; return 0; }
+# launch_ran_usage <sess> <uuid> — #720: the gone session really ran: its session_end is already logged with usage, or
+# its pending .stats context still reaches a transcript that holds some (the reap can come before the sweep).
+launch_ran_usage(){ local sess="$1" uuid="$2"
+  [[ -n "$uuid" ]] && python3 "$STATS_PY" ran "$uuid" 2>/dev/null && return 0
+  [[ -f "$RUN_DIR/$sess.stats" && -n "$(_stats_cli_usage "$RUN_DIR/$sess.stats")" ]]; }
 # launch_gone_check <sess> <kind> [issue|prd args…] — <sess> has just been found gone. A lane launched under
-# HARNESS_LAUNCH_FAIL_SECS ago never ran: log launch_failed and back off its claim key. One that ran its course
-# clears the backoff. No-op for a session launch_agent did not record.
+# HARNESS_LAUNCH_FAIL_SECS ago that reported no usage never ran: log launch_failed and back off its claim key. One
+# that ran its course, or reported usage whatever its age (#720), clears the backoff. No-op for a session
+# launch_agent did not record.
 launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid key age; shift 2
   [[ -f "$f" ]] || return 0; read -r t uuid < "$f"; rm -f "$f"; key="$(launch_key_of_sess "$sess")"
   [[ "$t" =~ ^[0-9]+$ ]] || return 0
   age=$(( $(date +%s) - t ))
-  if (( age < ${HARNESS_LAUNCH_FAIL_SECS:-30} )); then
+  if (( age < ${HARNESS_LAUNCH_FAIL_SECS:-30} )) && ! launch_ran_usage "$sess" "$uuid"; then
     harness_event launch_failed session="$uuid" tmux="$sess" kind="$kind" "$@" reason=session_gone age_s="$age"
     log "session $sess was gone ${age}s after launch — launch_failed, backing off"
     [[ -n "$key" ]] && launch_backoff_mark "$key"

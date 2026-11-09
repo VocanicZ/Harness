@@ -129,4 +129,20 @@ reap_impl_lane 9
 assert_eq "$(evs | grep -c launch_failed)" "0" "a lane that ran 400s is not a launch_failed"
 assert_ok "…and its stale backoff is cleared" test ! -f "$RUN_DIR/launchfail.impl-9"
 
+echo "== 6. a lane gone within 30s that reported usage is not a launch_failed (#720) =="
+setup
+SESS5="$(sess_impl "$UNIT" 5)"; echo "$((NOW - 3)) uuid-5" > "$RUN_DIR/$SESS5.launched"
+python3 - "$HARNESS_EVENTS_FILE" <<'PY'
+import json, sys
+open(sys.argv[1], "a").write(json.dumps({"event": "session_end", "session": "uuid-5", "usage": {"claude-opus-5-5": {"input": 1000000, "output": 0, "cache_read": 0, "cache_write": 0}}}) + "\n")
+PY
+session_live(){ return 1; }
+reap_impl_lane 5
+assert_eq "$(evs | grep -c launch_failed)" "0" "a lane gone 3s after launch whose session_end has usage logs no launch_failed"
+assert_ok "…and arms no backoff" not launch_backoff_active impl-5
+SESS6="$(sess_impl "$UNIT" 6)"; echo "$((NOW - 3)) uuid-6" > "$RUN_DIR/$SESS6.launched"
+reap_impl_lane 6
+assert_eq "$(evs | grep -c launch_failed)" "1" "…while a lane gone 3s after launch with no usage still logs launch_failed"
+assert_ok "…and is backed off" launch_backoff_active impl-6
+
 finish
