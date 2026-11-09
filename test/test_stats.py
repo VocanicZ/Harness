@@ -303,6 +303,20 @@ def test_report_issue_below_one_is_a_usage_error():
         assert rc == 0 and "issue #1:" in out, out
 
 
+def test_report_prd_below_one_is_a_usage_error():
+    """#711: --prd 0 or below -> exit 2 with a message (like --issue), not "PRD #-5" or a silent 7d default."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        st.append_event(_ev("claim", issue=11), p)
+        for bad in ("-5", "0", "-1"):
+            for argv in (["report", "--prd", bad], ["report", f"--prd={bad}"], ["report", "--by-role", "--prd", bad]):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    rc, out = run(argv)
+                assert rc == 2 and out == "" and f"--prd must be 1 or greater, got {bad}" in err.getvalue(), (argv, rc, out, err.getvalue())
+        rc, out = run(["report", "--prd", "1", "-R", "acme/widget"])
+        assert rc == 0 and "PRD #1:" in out, out
+
 def test_backfill_attributes_transcripts_and_is_idempotent():
     with host() as d:
         fleets = os.path.join(d, "fleets"); os.makedirs(fleets)
