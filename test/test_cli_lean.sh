@@ -105,6 +105,41 @@ for n in $wanted; do
 done
 assert_ok "this check sees a skill the engine lacks" bash -c '! test -f "$1/../skill/no-such-skill/SKILL.md"' _ "$HERE"
 
+# --- …and so is every skill THOSE skills require (#669) ----------------------------------------------
+# A lean lane (--setting-sources project,local) has the engine's skill/<name> and rtdd, no plugin: a skill that
+# says "REQUIRED SUB-SKILL: superpowers:executing-plans" leaves the lane with a name it cannot invoke.
+# skill_refs <dir> — the skills a skill's files name, one per line: `plugin:name` on a line that speaks of a
+# skill (-> name), the skill after `REQUIRED SUB-SKILL:` / `REQUIRED BACKGROUND:`, and a backticked `name` skill.
+skill_refs(){ local t; t="$(cat "$1"/*.md 2>/dev/null | sed -E '/^<!--/d')"
+  { grep -i 'skill' <<<"$t" | grep -ohE '\b[a-z][a-z0-9]+:[a-z][a-z0-9-]*[a-z0-9]\b' | grep -vE '^(https?|file|path|docs?):' | sed 's/^[^:]*://'
+    grep -ohE 'REQUIRED (SUB-SKILL|BACKGROUND):\*{0,2} Use [a-z][a-z0-9:-]*' <<<"$t" | sed -E 's/.* Use //' | grep -v :
+    grep -ohE '`[a-z][a-z0-9-]*` skill' <<<"$t" | sed -E 's/^`//; s/` skill$//'; } | sort -u; }
+# lean_walk <skill>… — every skill reachable from those, each one the engine's
+# skill/<name> and rtdd resolve, anything else is printed as UNRESOLVED.
+lean_walk(){ local todo=("$@") seen=" " n r
+  while ((${#todo[@]})); do n="${todo[0]}"; todo=("${todo[@]:1}")
+    [[ $seen == *" $n "* ]] && continue; seen+="$n "
+    [[ $n == rtdd ]] && continue
+    [[ -f "$LEAN_SKILLS/$n/SKILL.md" ]] || { echo "UNRESOLVED $n"; continue; }
+    for r in $(skill_refs "$LEAN_SKILLS/$n"); do
+      [[ $r == "$n" ]] && continue
+      [[ -f "$LEAN_SKILLS/$r/SKILL.md" || $r == rtdd ]] && { todo+=("$r"); continue; }
+      echo "UNRESOLVED $r (required by $n)"; done
+  done; }
+LEAN_SKILLS="$HERE/../skill"
+unresolved="$(lean_walk $wanted | grep '^UNRESOLVED' || true)"
+assert_eq "$unresolved" "" "every skill the prompts name, and every skill those require, resolves in a lean lane"
+# The walk itself: a skill requiring an absent plugin skill is caught, a present one and rtdd are not.
+LEAN_SKILLS="$RUN_DIR/walk"; mkdir -p "$LEAN_SKILLS"/{a,b}
+printf -- '---\nname: a\n---\n> REQUIRED SUB-SKILL: Use superpowers:executing-plans\n' > "$LEAN_SKILLS/a/SKILL.md"
+assert_eq "$(lean_walk a)" "UNRESOLVED executing-plans (required by a)" "a plugin skill a lean lane lacks is reported"
+printf -- '---\nname: a\n---\nsee superpowers:b, harness-x:rtdd and `b` skill\n' > "$LEAN_SKILLS/a/SKILL.md"
+printf -- '---\nname: b\n---\nplain\n' > "$LEAN_SKILLS/b/SKILL.md"
+assert_eq "$(lean_walk a)" "" "an engine skill, and rtdd, resolve"
+printf -- '---\nname: b\n---\n**REQUIRED SUB-SKILL:** Use using-git-worktrees\n' > "$LEAN_SKILLS/b/SKILL.md"
+assert_eq "$(lean_walk a)" "UNRESOLVED using-git-worktrees (required by b)" "a skill reached through another skill is walked too"
+LEAN_SKILLS="$HERE/../skill"
+
 # --- the other backends: listed with the reason in the docs ----------------------------------------------
 DOC="$HERE/../docs/cli-capabilities.md"
 sect="$(awk '/^## Lean lane/{on=1;next} /^## /{on=0} on' "$DOC")"
