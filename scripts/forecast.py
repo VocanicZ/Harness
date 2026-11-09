@@ -577,6 +577,7 @@ def config_value(state_dir, name):
     return m.group(1) if m else None
 
 
+USD_PER_PCT_RE = re.compile(r"(?:[0-9]+\.?[0-9]*|\.[0-9]+)")   # ASCII digits, an optional single dot (#834)
 MIN_USD_PER_PCT = 0.01   # $ per 1% of a window: 100% of a window is then $1, below any real plan (#746)
 
 
@@ -587,10 +588,13 @@ def usd_per_pct_raw(state_dir):
 
 def usd_per_pct_parse(raw):
     """(value, None) for a usable $ per 1%: a finite number of at least MIN_USD_PER_PCT; else (None, why)
-    (#746). inf, nan, 0, a negative, a tiny value (1e-300) and non-numeric text are all "not usable"."""
+    (#746). inf, nan, 0, a negative, a tiny value (1e-300) and non-numeric text are all "not usable".
+    Only an ASCII decimal number counts: not 1_0, +5 or full-width digits, which float() takes (#834)."""
+    if not isinstance(raw, str) or not USD_PER_PCT_RE.fullmatch(raw):
+        return None, "not a number"
     try:
         v = float(raw)
-    except (TypeError, ValueError):
+    except ValueError:
         return None, "not a number"
     if not math.isfinite(v):
         return None, "not finite"
