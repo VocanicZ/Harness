@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `bench/run.py` usage guard reads its settings and usage readings as ASCII decimal numbers only (#835)
+
+- `HARNESS_ONE_STOP_PCT`, `HARNESS_ONE_RESERVE_PCT`, `BENCH_MIN_FREE_GB` and the percentage in each usage reading went through plain
+  `float()`, which also takes `1_0`, `+5` and full-width digits (`HARNESS_ONE_STOP_PCT=9_0` was read as 90%). A setting in one of
+  those forms is now reported invalid and the guard refuses; a usage reading with such a percentage is no reading. As a side effect an
+  exponent (`1e2`) in these places is no longer accepted.
+
 ### Cost figures use the list price of each model version, not one price per family (#832)
 
 - `PRICE` in `scripts/forecast.py` priced a family at one row, but the list price differs between versions. Sonnet 5.5 reads
