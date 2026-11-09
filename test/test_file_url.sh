@@ -29,4 +29,12 @@ export HARNESS_PLATFORM=windows
 rel_server "$T/c/hx-608/srv"
 assert_eq "$HARNESS_API_URL" "file:///C:/hx-608/srv/latest.json" "rel_server: the releases/latest endpoint is a native URL"
 assert_eq "$HARNESS_BASE_URL" "file:///C:/hx-608/srv/download" "rel_server: the download base is a native URL"
+
+echo "=== sys_path: the system PATH keeps the dirs of curl and git on Git for Windows ==="
+assert_eq "$(sys_path)" "/usr/bin:/bin" "Linux: /usr/bin:/bin, nothing added"
+mkdir -p "$T/ucrt/bin"; for t in curl git; do printf '#!/bin/sh\n' > "$T/ucrt/bin/$t"; chmod +x "$T/ucrt/bin/$t"; done
+uname(){ [[ ${1:-} == -s ]] && echo MINGW64_NT-10.0 || command uname "$@"; }
+assert_eq "$(PATH="$T/ucrt/bin:$PATH" sys_path)" "/usr/bin:/bin:$T/ucrt/bin" "MINGW: the dir that holds curl and git (here a UCRT64-like tree) is appended once"
+assert_eq "$(PATH="/usr/bin:/bin" sys_path)" "/usr/bin:/bin" "MINGW: curl and git already in /usr/bin: nothing is doubled"
+unset -f uname
 finish
