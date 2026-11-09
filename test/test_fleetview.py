@@ -3,7 +3,7 @@
 Every external probe (tmux, ps, gh) goes through fv.run_cmd, so each test installs a fake that
 answers from a table; the filesystem side (registry, run dirs, pid files, logs) is a real tmpdir.
 """
-import contextlib, importlib.util, io, json, os, subprocess, sys, tempfile, time, types
+import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time, types
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from pidfix import live_pid
@@ -323,24 +323,37 @@ def test_headless_lanes_are_listed_with_model_and_state_beside_tmux_sessions():
 
 
 def test_run_cmd_resolves_the_program_through_path_on_windows():
-    """#607: CreateProcess searches System32 before PATH (a bare `bash` is WSL's) and only appends `.exe` (a `gh.cmd` shim is
-    never found), so on native Windows run_cmd hands subprocess the path shutil.which finds. Elsewhere argv is untouched."""
-    real_plat, real_which, real_run = fv.sys.platform, fv.shutil.which, fv.subprocess.run
+    """#607, #686: CreateProcess searches System32 before PATH (a bare `bash` is WSL's) and only appends `.exe` (a `gh.cmd` shim
+    is never found, nor an extensionless bash script), so on native Windows run_cmd hands subprocess what portable.resolve_argv
+    finds walking PATH and PATHEXT. Elsewhere argv is untouched."""
+    d = tempfile.mkdtemp()
+    for name, body in (("bash.EXE", ""), ("gh.CMD", ""), ("tmux", "#!/usr/bin/env bash\nexit 0\n"), ("plain", "not a script\n")):
+        with open(os.path.join(d, name), "w") as fh:
+            fh.write(body)
+    saved = {k: os.environ.get(k) for k in ("PATH", "PATHEXT", "HARNESS_BASH")}
+    real_plat, real_run = fv.sys.platform, fv.subprocess.run
     seen = []
-    fv.shutil.which = lambda name: {"bash": "C:\\Git\\bin\\bash.exe", "gh": "C:\\shims\\gh.cmd"}.get(name)
     fv.subprocess.run = lambda argv, **kw: seen.append(list(argv)) or types.SimpleNamespace(returncode=0, stdout="ok")
     try:
+        os.environ.update({"PATH": d, "PATHEXT": ".EXE;.CMD", "HARNESS_BASH": os.path.join(d, "bash.EXE")})
         fv.sys.platform = "win32"
-        assert fv.run_cmd(["bash", "-c", "x"]) == (0, "ok") and seen[-1] == ["C:\\Git\\bin\\bash.exe", "-c", "x"], seen
+        assert fv.run_cmd(["bash", "-c", "x"]) == (0, "ok") and seen[-1] == [os.path.join(d, "bash.EXE"), "-c", "x"], seen
         fv.run_cmd(["gh", "issue", "list"])
-        assert seen[-1] == ["C:\\shims\\gh.cmd", "issue", "list"], seen
+        assert seen[-1] == [os.path.join(d, "gh.CMD"), "issue", "list"], seen
+        fv.run_cmd(["tmux", "ls"])
+        assert seen[-1] == [os.path.join(d, "bash.EXE"), os.path.join(d, "tmux"), "ls"], seen    # a bash script runs under bash
+        fv.run_cmd(["plain", "a"])
+        assert seen[-1] == ["plain", "a"], seen             # no shebang: not a program a shell would start
         fv.run_cmd(["nosuch", "a"])
         assert seen[-1] == ["nosuch", "a"], seen            # not on PATH: left for the OS to fail on
         fv.sys.platform = "linux"
         fv.run_cmd(["bash", "-c", "x"])
         assert seen[-1] == ["bash", "-c", "x"], seen        # POSIX: untouched
     finally:
-        fv.sys.platform, fv.shutil.which, fv.subprocess.run = real_plat, real_which, real_run
+        fv.sys.platform, fv.subprocess.run = real_plat, real_run
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        shutil.rmtree(d, ignore_errors=True)
 
 
 if __name__ == "__main__":

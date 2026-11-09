@@ -1607,7 +1607,9 @@ render(){ local tmpl="$1" n; shift
   local -a sk=()
   for n in $(grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$tmpl" "$(dirname "$tmpl")"/_*.md 2>/dev/null | sort -u); do
     n="${n#\{\{skill:}"; n="${n%\}\}}"; sk+=("skill:$n=$(cli_skill "$n")"); done
-  python3 - "$tmpl" "$@" "${sk[@]}" <<'PY'
+  # MSYS2_ARG_CONV_EXCL (#686): Git Bash rewrites a KEY=/posix/path argument handed to a native python3 into KEY=C:\path, so a
+  # rendered prompt would not carry the path it was given (a POSIX one on Windows is /c/…, or /s/p7 in a test).
+  MSYS2_ARG_CONV_EXCL='*' python3 - "$(native_path "$tmpl")" "$@" "${sk[@]}" <<'PY'
 import sys, re, os
 tmpl = open(sys.argv[1]).read()
 # {{> _part.md}} — a partial from the template's own dir, shared by several prompts so its text has

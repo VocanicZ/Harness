@@ -14,7 +14,7 @@ POSIX keeps what the engine did before: `os.kill(pid, 0)` and `fcntl.flock`. Win
 `msvcrt.locking` on byte 0. HARNESS_PLATFORM=windows forces the Windows paths (the suite runs them on
 Linux with fakes), HARNESS_PROC_ROOT points the /proc reads at a fake tree, and HARNESS_BASH names the
 bash that reads MSYS's /proc (default: the first `bash` on PATH)."""
-import os, shutil, subprocess, sys
+import os, re, shutil, subprocess, sys
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 STILL_ACTIVE = 259
@@ -26,6 +26,64 @@ def is_windows():
     if forced in ("windows", "posix"):
         return forced == "windows"
     return sys.platform == "win32"
+
+
+def _script_kind(f):
+    """"sh" for a file starting with a bash/sh shebang, "py" for a python one (the interpreter may be named by a Windows path, or
+    through /usr/bin/env), else None."""
+    try:
+        with open(f, "rb") as fh:
+            head = fh.read(256)
+    except OSError:
+        return None
+    if not head.startswith(b"#!"):
+        return None
+    line = head[2:].split(b"\n", 1)[0].decode("latin-1").strip()
+    if ".exe" in line.lower():           # a Windows interpreter path may hold spaces: it ends at its .exe
+        line = line[:line.lower().index(".exe") + 4]
+    words = line.split() if ".exe" not in line.lower() else [line]
+    if words and re.split(r"[/\\]", words[0])[-1] == "env" and len(words) > 1:
+        words = words[1:]
+    prog = re.split(r"[/\\]", words[0])[-1].lower() if words else ""
+    prog = prog[:-4] if prog.endswith(".exe") else prog
+    if prog in ("sh", "bash"):
+        return "sh"
+    return "py" if re.fullmatch(r"python[0-9.]*", prog) else None
+
+
+def _path_program(name):
+    """The first thing on PATH a shell would run as `name`, as (path, script kind): a PATHEXT match (gh.exe, gh.cmd) or, as Git
+    Bash does, an extensionless file with a bash/sh/python shebang. A name with a directory is looked at as it stands."""
+    if os.path.dirname(name):
+        return (name, _script_kind(name)) if os.path.isfile(name) and _script_kind(name) else None
+    exts = [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";") if e]
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d:
+            continue
+        for e in exts:
+            f = os.path.join(d, name + e)
+            if os.path.isfile(f):
+                return f, None
+        f = os.path.join(d, name)
+        if os.path.isfile(f) and _script_kind(f):
+            return f, _script_kind(f)
+    return None
+
+
+def resolve_argv(argv):
+    """argv with its program resolved through PATH on native Windows, as a shell would (#607, #686). CreateProcess searches
+    System32 before PATH (so a bare `bash` is WSL's, not Git's) and appends only `.exe`, so a `gh.cmd` shim is never found, and
+    a script (a fake `gh` a test or a wrapper puts first on PATH, or names by path) is never started: the REAL gh.exe further
+    down PATH answered instead. This walks PATH and PATHEXT in order and runs a bash/sh script under Git's bash and a python
+    one under this interpreter, as Git Bash itself would by the shebang (a .cmd shim is no way round it: cmd.exe splits an
+    argument at its `&`). Elsewhere, and for a program it cannot find, argv is returned as it was."""
+    if sys.platform != "win32" or not argv:
+        return argv
+    found = _path_program(argv[0])
+    if not found:
+        return argv
+    exe, kind = found
+    return [{"sh": bash_exe, "py": lambda: sys.executable}[kind](), exe, *argv[1:]] if kind else [exe, *argv[1:]]
 
 
 def bash_exe():

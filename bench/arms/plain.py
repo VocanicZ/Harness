@@ -48,7 +48,7 @@ IsolationError = armlib.IsolationError
 
 def launch_argv(claude, session=None):
     """The whole claude command line of a turn. No --bare, no key, no config dir: the CLI login as it is."""
-    return shlex.split(claude) + FLAGS + (["--resume", session] if session else [])
+    return armlib.split_cmd(claude) + FLAGS + (["--resume", session] if session else [])
 
 
 def child_env(base=None, config_dir=None):
@@ -85,7 +85,7 @@ def _stats():
 
 
 def _git(clone, *args):
-    p = subprocess.run(["git", "-C", clone] + list(args), capture_output=True, text=True, stdin=subprocess.DEVNULL,
+    p = subprocess.run(armlib.resolve(["git", "-C", clone] + list(args)), capture_output=True, text=True, stdin=subprocess.DEVNULL,
                        timeout=120)
     return p.returncode, p.stdout.strip()
 

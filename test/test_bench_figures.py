@@ -43,7 +43,7 @@ def put(d, *parts, data):
 
 def readme_with_markers(d):
     p = os.path.join(d, "README.md")
-    with open(p, "w") as fh:
+    with open(p, "w", newline="\n") as fh:   # #686: LF on Windows too — the generator keeps the README's own line ends
         fh.write("# T\n\nintro by hand\n\n## Benchmark\n\n<!-- bench:begin — x -->\nOLD\n<!-- bench:end -->\n\ntail by hand\n")
     return p
 

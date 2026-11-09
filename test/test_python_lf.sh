@@ -43,14 +43,15 @@ shimrun(){ ( unset PYTHONPATH; export HARNESS_HOME="$H" HARNESS_PLATFORM=windows
 shimrun; shimrun
 assert_ok "the shim is written"                                   test -x "$H/bin/python3"
 assert_ok "… with its pylf sitecustomize beside it"               test -f "$H/bin/pylf/sitecustomize.py"
-pp="$("$H/bin/python3" -c 'import os; print(os.environ["PYTHONPATH"])')"
-assert_eq "$pp" "$H/bin/pylf" "the interpreter gets the pylf dir as PYTHONPATH"
-pp="$(PYTHONPATH="/opt/mine" "$H/bin/python3" -c 'import os; print(os.environ["PYTHONPATH"])')"
-assert_eq "$pp" "$H/bin/pylf;/opt/mine" "… ahead of a PYTHONPATH the caller already had"
-pp="$(PYTHONPATH="$H/bin/pylf" "$H/bin/python3" -c 'import os; print(os.environ["PYTHONPATH"])')"
-assert_eq "$pp" "$H/bin/pylf" "… and once, when a shim run already named it (a python3 that starts a python3)"
-assert_eq "$("$H/bin/python3" -c 'import sys; print(sys.modules["sitecustomize"].__file__)')" "$H/bin/pylf/sitecustomize.py" "the interpreter imported that sitecustomize"
-
+# the shim names the pylf dir the way a native program reads it (cygpath -w, C:\\…) on a real Windows host, and the suite stage
+# exports its own PYTHONPATH (its pylf) to everything it runs: the shim cells start from none (#686)
+LFD="$H/bin/pylf"; real_windows_host && LFD="$(cygpath -w "$LFD")"
+shimpy(){ ( unset PYTHONPATH; [[ $# -gt 0 ]] && export PYTHONPATH="$1"; "$H/bin/python3" -c 'import os; print(os.environ["PYTHONPATH"])' ); }
+assert_eq "$(shimpy)" "$LFD" "the interpreter gets the pylf dir as PYTHONPATH"
+assert_eq "$(shimpy /opt/mine)" "$LFD;/opt/mine" "… ahead of a PYTHONPATH the caller already had"
+assert_eq "$(shimpy "$LFD")" "$LFD" "… and once, when a shim run already named it (a python3 that starts a python3)"
+SC="$H/bin/pylf/sitecustomize.py"; real_windows_host && SC="$(cygpath -w "$SC")"
+assert_eq "$(unset PYTHONPATH; "$H/bin/python3" -c 'import sys; print(sys.modules["sitecustomize"].__file__)')" "$SC" "the interpreter imported that sitecustomize"
 echo "=== Linux writes neither ==="
 H2="$T/home2"
 ( unset PYTHONPATH; export HARNESS_HOME="$H2" HARNESS_PLATFORM=posix; HARNESS_INSTALL_NOMAIN=1 source "$R/install.sh"; install_python_shim ) >/dev/null 2>&1
