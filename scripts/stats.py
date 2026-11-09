@@ -1031,7 +1031,7 @@ def _usage_cost(usage):
             "forecast", os.path.join(os.path.dirname(os.path.abspath(__file__)), "forecast.py"))
         _FORECAST = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_FORECAST)
-    return _FORECAST.usage_cost(usage)
+    return _FORECAST.usage_cost_split(usage)
 
 
 _FORECAST = None
@@ -1042,7 +1042,12 @@ def _role_row(sess, model=None):
     for s in sess:
         add_usage(tokens, s["usage"], model)
     totals = {k: sum(u[k] for u in tokens.values()) for _, k in USAGE_KEYS}
-    return {"sessions": len(sess), **totals, "usd": round(_usage_cost(tokens), 4), "tokens": tokens}
+    usd, est, unpriced = _usage_cost(tokens)
+    row = {"sessions": len(sess), **totals, "usd": round(usd, 4), "tokens": tokens}
+    if unpriced:   # #750: no price row for these models (codex, agy, opencode) → that part is an estimate
+        row["usd_estimated"] = round(est, 4)
+        row["unpriced_models"] = sorted(unpriced)
+    return row
 
 
 def role_rollup(events, model=None, prd=None, issue=None):
@@ -1135,6 +1140,9 @@ def render_text(kind, data):
         for role, r in rows:
             out.append(f"{role:<12} sessions {r['sessions']}  in {r['input']:,}  out {r['output']:,}  "
                        f"cache_create {r['cache_create']:,}  cache_read {r['cache_read']:,}  ${r['usd']:,.2f}")
+            if r.get("unpriced_models"):
+                out.append(f"  ≤ estimate: ${r['usd_estimated']:,.2f} of that is "
+                           f"{', '.join(r['unpriced_models'])} at the dearest list rate (no price row for the model)")
             if role != "total" and r["tokens"]:
                 out.append(f"  tokens  {_tok(r['tokens'])}")
     elif kind == "issue":

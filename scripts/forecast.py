@@ -99,6 +99,14 @@ def price(model):
     return PRICE[fam]
 
 
+def is_fallback_priced(model):
+    """True when `price` has no row for this model — no Claude family in its name (codex, agy, opencode
+    lanes: "gpt-5-codex"), or none at all — so it takes the dearest row. The budget gate keeps that
+    conservative price (#723); a spend report (`harness stats`) marks the figure as an estimate (#750)."""
+    m = (model or "").lower()
+    return not any(k in m for k in ("opus", "sonnet", "haiku"))
+
+
 def raw_cost(u, model):
     """$ for one message's raw Claude usage block (cache writes split 5m / 1h when it says so)."""
     pi, po, pw5, pw1, pr = price(model)
@@ -115,14 +123,26 @@ def usage_cost(usage):
     usage_tsv). `cache_create_1h` (#710) is the 1-hour share of `cache_create`, priced at the 1h write rate;
     the rest of `cache_create` is priced at the 5m rate. A usage without it (an event logged before #710,
     another CLI's) is priced as all 5m: the documented default, the lower list rate."""
-    tot = 0.0
+    return usage_cost_split(usage)[0]
+
+
+def usage_cost_split(usage):
+    """(total $, the part of it priced by fallback, [models priced by fallback]) for a folded usage. The
+    total is `usage_cost`; the rest says how much of it is the dearest-row estimate for a model the table
+    has no row for (#750), so a report can mark it rather than present it as real spend."""
+    tot = est = 0.0
+    unpriced = []
     for model, u in (usage or {}).items():
         pi, po, pw5, pw1, pr = price(model)
         cc = int(u.get("cache_create") or 0)
         w1 = min(max(int(u.get("cache_create_1h") or 0), 0), cc)
-        tot += (int(u.get("input") or 0) * pi + int(u.get("output") or 0) * po
-                + (cc - w1) * pw5 + w1 * pw1 + int(u.get("cache_read") or 0) * pr) / 1e6
-    return tot
+        c = (int(u.get("input") or 0) * pi + int(u.get("output") or 0) * po
+             + (cc - w1) * pw5 + w1 * pw1 + int(u.get("cache_read") or 0) * pr) / 1e6
+        tot += c
+        if is_fallback_priced(model):
+            est += c
+            unpriced.append(model or "(no model)")
+    return tot, est, unpriced
 
 
 # --- phase attribution -------------------------------------------------------
