@@ -63,9 +63,21 @@ fi
 [[ ${#FILES[@]} -gt 0 ]] || unavailable "no test files to shard"
 # #618: a small suite is faster run here than queued, shipped and merged as a swarm job (61 s on swarm,
 # about 2 s locally, and a false red, in run-20261106). Estimate = files x secs-per-file; below the
-# ceiling → exit 3 before any swarm call. A non-numeric knob falls back to its default.
-max_local="${HARNESS_SWARM_LOCAL_MAX_SECS:-60}"; per_file="${HARNESS_SWARM_SECS_PER_FILE:-2}"
-[[ "$max_local" =~ ^[0-9]+$ ]] || max_local=60; [[ "$per_file" =~ ^[0-9]+$ ]] || per_file=2
+# ceiling → exit 3 before any swarm call. A knob that is not a non-negative integer falls back to its default with a one-time warning; a leading zero is decimal (#801).
+# #801: read as DECIMAL (10#: a leading zero is not octal, `08` / `060`); not a non-negative integer (or more than 6
+# significant digits, which could wrap) → the default, with a one-time warning (a marker per knob and value in $RUN_DIR).
+if [[ -z "${RUN_DIR:-}" ]]; then
+  RUN_DIR="${STATE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/run"
+fi
+# swarm_knob <NAME> <default> — prints the value.
+swarm_knob(){ local name="$1" def="$2" v n m; v="${!name:-}"
+  if [[ -z "$v" ]]; then echo "$def"; return 0; fi
+  if [[ "$v" =~ ^[0-9]+$ ]]; then n="${v#"${v%%[!0]*}"}"; (( ${#n} <= 6 )) && { echo "$((10#${n:-0}))"; return 0; }; fi
+  m="$RUN_DIR/swarmknob.$name.$(printf %s "$v" | cksum | cut -d' ' -f1)"
+  if [[ ! -e "$m" ]]; then mkdir -p "$RUN_DIR" 2>/dev/null; : > "$m" 2>/dev/null || true
+    echo "swarm-suite: WARN $name='$v' is not a non-negative integer — using the default $def" >&2; fi
+  echo "$def"; }
+max_local="$(swarm_knob HARNESS_SWARM_LOCAL_MAX_SECS 60)"; per_file="$(swarm_knob HARNESS_SWARM_SECS_PER_FILE 2)"
 est=$(( ${#FILES[@]} * per_file ))
 (( est < max_local )) && unavailable "small suite (${#FILES[@]} files, ~${est}s locally, under ${max_local}s)"
 if [[ -z "$TEST_CMD" ]]; then
