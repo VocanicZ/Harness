@@ -704,6 +704,28 @@ def test_unit_and_account_names_with_line_separators_print_escaped():   # #833
             assert all(ln.startswith(" ") or ln.startswith("forecast") for ln in text.splitlines()), repr(text)
 
 
+def test_crlf_and_lone_cr_body_forecasts_the_same_as_its_lf_copy():   # #838
+    """A CRLF or lone-CR line break counts as one character, in the issue's body and in the pool's bodies."""
+    with tmp() as d:
+        cfg, events, _ = fixture(d)
+        line = "word " * 19 + "end"                       # 99 chars + a break per line
+        lf = "\n".join([line] * 15) + "\n"                 # 1500 chars
+        pool = [{"number": n, "body": "x" * 1000} for n in (1, 2, 3, 4, 5, 6)]
+        res = {}
+        for name, eol in (("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")):
+            body = lf.replace("\n", eol)
+            pool_b = [dict(p, body="\n".join(["x" * 99] * 10)[:1000].replace("\n", eol)) for p in pool]
+            path = os.path.join(d, f"bodies-{name}.json")
+            with open(path, "w") as fh:
+                json.dump(pool_b + [{"number": 50, "body": body}], fh)
+            rc, js, _ = run_cli(["50", "-R", W, "--events", events, "--bodies", path, "--json"], cfg)
+            assert rc == 0, (name, rc)
+            res[name] = json.loads(js)
+        assert res["lf"]["size"]["body"] == len(lf), res["lf"]["size"]
+        assert res["crlf"] == res["lf"] and res["cr"] == res["lf"], (res["lf"]["size"], res["crlf"]["size"], res["cr"]["size"])
+    assert fc.body_len_of("a\r\nb\rc\nd") == 7
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

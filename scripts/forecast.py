@@ -304,6 +304,11 @@ def median_len(lens):
     return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
 
 
+def body_len_of(text):
+    """An issue body's size in characters, CRLF and lone CR counted as one line break (#838)."""
+    return len(text.replace("\r\n", "\n").replace("\r", "\n"))
+
+
 def size_scale(body_len, pool_lens):
     """(scale, median): body length over the pool's median body, clamped; 1.0 when either is unknown."""
     med = median_len(pool_lens)
@@ -468,11 +473,11 @@ def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None, 
     tier, pool, notes = choose_pool(all_lanes, repo, issue, prd)
     if not own:
         notes.insert(0, f"#{issue} has no history")
-    pool_lens = [len(bodies[ln["issue"]]) for ln in pool
+    pool_lens = [body_len_of(bodies[ln["issue"]]) for ln in pool
                  if ln["issue"] in bodies and (ln["repo"] or "").lower() == rl]
     if not pool_lens:   # a host-wide pool, or no body known for its issues: the repo's issues at large
-        pool_lens = [len(b) for n, b in bodies.items() if n != issue]
-    body_len = len(body) if body is not None else None
+        pool_lens = [body_len_of(b) for n, b in bodies.items() if n != issue]
+    body_len = body_len_of(body) if body is not None else None
     scale, med = size_scale(body_len, pool_lens)
     per = spread(pool)
     phases = {p: {q: round(quantile([x[p] for x in per], v) * scale, 2) for q, v in QUANTILES} for p in PHASES}
