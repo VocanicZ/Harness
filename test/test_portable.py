@@ -149,7 +149,8 @@ def main():
 
     # ---- bash_exe (#609): never the bare name when a bash can be found on PATH (on Windows the bare name is WSL's)
     bindir = os.path.join(tmp, "bashbin"); os.makedirs(bindir)
-    onpath = os.path.join(bindir, "bash")
+    fakebash = os.path.join(tmp, "fakebash")   # (#686: only the POSIX branch above makes the file; the name is all these cells need)
+    onpath = os.path.join(bindir, "bash.exe" if REAL_WINDOWS else "bash")   # a Windows PATH search needs the extension
     with open(onpath, "w") as fh:
         fh.write("#!/bin/sh\n")
     os.chmod(onpath, 0o755)
