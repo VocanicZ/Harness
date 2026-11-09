@@ -689,8 +689,8 @@ def gh_bodies(repo, issue):
 def unit_arg(v):
     """argparse type for --unit: a name that does not start with `-` (a usage error, exit 2, with or without -R)."""
     import argparse
-    if v.startswith("-"):
-        raise argparse.ArgumentTypeError(f"{v!r} is not a unit name — it must not start with '-'")
+    if not v or v.startswith("-"):   # #862: an empty --unit is no unit name, not "no --unit"
+        raise argparse.ArgumentTypeError(f"{v!r} is not a unit name — it must be non-empty and not start with '-'")
     return v
 
 
@@ -737,7 +737,7 @@ def main(argv=None):
     ap.add_argument("--unit", type=unit_arg, help="unit of the current project (multi-unit projects)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--events", help=argparse.SUPPRESS)
-    ap.add_argument("--bodies", help=argparse.SUPPRESS)   # test seam: gh `issue list --json number,body` output
+    ap.add_argument("--bodies", type=st.nonempty_arg("--bodies"), help=argparse.SUPPRESS)   # test seam: gh `issue list --json number,body` output
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
     err = st._explicit_log_error(a.events)   # #785: a typo'd path is not an empty fleet (as `harness stats`, #758)
     if err:

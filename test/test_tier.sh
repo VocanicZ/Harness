@@ -367,7 +367,7 @@ cat > "$BIN/gh" <<'SH'
 case "$1 $2" in "issue list") echo '[{"number":5}]';; *) echo '[]';; esac
 SH
 export GIT_LOG="$T/git.log"; : > "$GIT_LOG"; rm -f "$T/x"
-for bad in "--output=$T/x" -x -; do
+for bad in "--output=$T/x" -x - ""; do   # "" (#862): not HEAD
   err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --repo-dir "$R" --base="$bad" 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "--base=$bad -> usage error, exit 2"
   assert_ok "--base=$bad: names --base" grep -qF -- '--base' <<<"$err"

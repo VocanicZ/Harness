@@ -388,8 +388,8 @@ def main(argv=None):
         except TierConfigError as e:   # #856: an estimate that overflows to inf is a config error, not output
             print(f"harness tier: {e}", file=sys.stderr); return 2
         print(json.dumps(r) if a.json else render(r)); return 0
-    if a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git
-        o.error(f"argument --base: {a.base!r} is not a branch — it must not start with '-'")
+    if not a.base or a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git; #862: an empty one is not "HEAD"
+        o.error(f"argument --base: {a.base!r} is not a branch — it must be non-empty and not start with '-'")
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")

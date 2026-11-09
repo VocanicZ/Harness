@@ -422,6 +422,20 @@ def test_an_owner_must_be_a_valid_github_owner_name_before_any_gh_call(e):   # #
 
 
 @with_env()
+def test_results_dir_must_be_non_empty_and_not_dash_leading(e):   # #862
+    for bad in ("", "-x", "-", "--flag"):
+        for extra in ((), ("--optional",), ("--dry-run",)):
+            p = e.run("stub", "--results-dir=" + bad, *extra)
+            assert p.returncode == 2 and "--results-dir" in p.stderr, (bad, extra, p.returncode, p.stderr)
+    assert not os.path.exists(e.results), os.listdir(e.d)
+    assert e.calls() == []
+    p = e.run("stub", "--results-dir", "-")
+    assert p.returncode == 2 and "--results-dir" in p.stderr, (p.returncode, p.stderr)
+    p = e.run("stub", "--results-dir=" + e.results, "--dry-run")
+    assert p.returncode == 0, (p.returncode, p.stderr)
+
+
+@with_env()
 def test_the_real_grader_scores_the_seeded_repo_zero(e):
     # nothing but the brief was seeded: the hidden tests all fail, and the grader does not crash
     p = e.run("stub", grader=False, extra_env={"BENCH_FUZZ_CASES": "20"})

@@ -1414,3 +1414,23 @@ if __name__ == "__main__":
             except Exception as e: print(f"  FAIL: {name} — {type(e).__name__}: {e}"); fails += 1   # any error is this test's, the run goes on (#744)
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
+
+
+def test_report_since_and_model_must_not_be_empty():
+    """#862: --since= and --model= -> exit 2 like --fleet= (#839), not a silently dropped filter (exit 0)."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        st.append_event(_ev("claim", issue=11), p)
+        for flag in ("--since", "--model"):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                try:
+                    rc, out = run(["report", f"{flag}=", "--events", p])
+                except SystemExit as e:
+                    rc, out = e.code, ""
+            assert rc == 2 and out == "" and f"{flag} must not be empty" in err.getvalue(), (flag, rc, out, err.getvalue())
+            r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), "report", f"{flag}=",
+                                "--events", p], capture_output=True, text=True)
+            assert r.returncode == 2 and r.stdout == "" and "must not be empty" in r.stderr, (flag, r.returncode, r.stdout, r.stderr)
+        rc, out = run(["report", "--since=7d", "--model=opus", "--events", p])
+        assert rc == 0, (rc, out)

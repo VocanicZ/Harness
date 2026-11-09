@@ -853,6 +853,9 @@ def main(argv=None):
         print(f"bench: bad --run-id {a.run_id[:40]!r} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
               "and not be '.' or '..': it names one directory under --results-dir)", file=sys.stderr)
         return EXIT_USAGE
+    if not a.results_dir or a.results_dir.startswith("-"):   # #862: an empty one wrote <cwd>/<run-id>/, a dash-leading one ./-x/
+        print(f"bench: bad --results-dir {a.results_dir[:40]!r} (must be non-empty and not start with '-')", file=sys.stderr)
+        return EXIT_USAGE
     if a.owner is not None and not OWNER_RE.fullmatch(a.owner):
         print(f"bench: bad --owner {a.owner[:40]!r} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
               "not starting or ending with '-')", file=sys.stderr)

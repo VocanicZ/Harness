@@ -1243,6 +1243,18 @@ def fleet_arg(v):
     return v
 
 
+def nonempty_arg(flag):
+    """argparse type factory for a value option that has no meaning when empty (`--since=`, `--model=`): an empty
+    value is a usage error (exit 2) as `--fleet=` is (#839), not a silently dropped filter (#862)."""
+    import argparse
+
+    def check(v):
+        if not v:
+            raise argparse.ArgumentTypeError(f"{flag} must not be empty")
+        return v
+    return check
+
+
 def _explicit_log_error(path):
     """Why an explicitly passed events file cannot be read, or None (#758). None path = the default file: its
     absence on a fresh install stays "no events". A missing path, a directory or an unreadable file names the path."""
@@ -1268,9 +1280,10 @@ def cmd_report(argv):
     g.add_argument("--issue", type=int_arg)
     g.add_argument("--backfill", action="store_true", help="rebuild session_end for past sessions")
     ap.add_argument("-R", "--repo", type=repo_arg)
-    ap.add_argument("--since", help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")
+    ap.add_argument("--since", type=nonempty_arg("--since"),
+                    help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")
     ap.add_argument("--fleet", type=fleet_arg, help="session prefix")
-    ap.add_argument("--model", help="substring of a model id")
+    ap.add_argument("--model", type=nonempty_arg("--model"), help="substring of a model id")
     ap.add_argument("--by-role", action="store_true",
                     help="tokens and list-price $ per role (manager / implementer / other), #378")
     ap.add_argument("--json", action="store_true")
