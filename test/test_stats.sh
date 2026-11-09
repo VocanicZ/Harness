@@ -106,19 +106,21 @@ if PATH=$SYS_PATH command -v rtdd >/dev/null; then   # rtdd installed system-wid
 fi
 # start.sh refuses a host whose python3 is not a Python 3 (#405): on a real Windows host the venv's must stay on its PATH (#686)
 real_windows_host && SYS_PATH="$SYS_PATH:$(dirname "$(command -v python3)")"
+# …and refuses native Windows' tmux backend before it ever looks for rtdd, so the checks under test run on the headless one
+START_ENV=(); real_windows_host && START_ENV=(HARNESS_SESSION_BACKEND=headless)
 mkdir -p "$STATE_DIR/run"; : > "$EVENTS"
 # portable.sh's lock (a flock on Linux, an owned mkdir lock on Windows, where Git Bash has no flock): held by a background shell (#686)
 hold_start_lock(){ ( lock_acquire "$STATE_DIR/run/start.lock" _SLH; exec sleep 30 ) & HOLDER=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do lock_free "$STATE_DIR/run/start.lock" || break; command sleep 0.1; done; }
 # a held start.lock makes start.sh exit 0 right after its prerequisite checks: nothing is launched
 hold_start_lock
-out="$(PATH="$FAKE_BIN:$SYS_PATH" bash "$HERE/../scripts/start.sh" 2>&1)"
+out="$(env PATH="$FAKE_BIN:$SYS_PATH" "${START_ENV[@]}" bash "$HERE/../scripts/start.sh" 2>&1)"
 kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
 assert_ok "start.sh still only warns" grep -q 'rtdd not found' <<<"$out"
 assert_eq "$(ev 1 "e['event'],e['prefix']")" "('rtdd_missing', 'hz')" "start.sh emits rtdd_missing"
 printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/rtdd"; chmod +x "$FAKE_BIN/rtdd"; : > "$EVENTS"
 hold_start_lock
-PATH="$FAKE_BIN:$SYS_PATH" bash "$HERE/../scripts/start.sh" >/dev/null 2>&1
+env PATH="$FAKE_BIN:$SYS_PATH" "${START_ENV[@]}" bash "$HERE/../scripts/start.sh" >/dev/null 2>&1
 kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
 assert_eq "$(nev)" 0 "rtdd on PATH: no rtdd_missing event"
 

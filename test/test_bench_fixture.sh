@@ -18,8 +18,9 @@ W="$(mktemp -d)"; tmp_track "$W"
 export BENCH_FUZZ_CASES=48
 
 # frag <field> <json> — one field of the grader's JSON fragment
-frag(){ python3 -c 'import json,sys; print(json.loads(sys.argv[2])[sys.argv[1]])' "$1" "$2"; }
-detail(){ python3 -c 'import json,sys; print(json.loads(sys.argv[2])["details"][sys.argv[1]])' "$1" "$2"; }
+# the fragment goes in on stdin: an empty repo's carries every test's stderr, past Windows' 32 KB command line (#686)
+frag(){ python3 -c 'import json,sys; print(json.loads(sys.stdin.read())[sys.argv[1]])' "$1" <<<"$2"; }
+detail(){ python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["details"][sys.argv[1]])' "$1" <<<"$2"; }
 score(){ echo "$(frag passed "$1")/$(frag total "$1") failed=$(frag failed "$1")"; }
 
 echo "=== the fixture ships its four parts ==="
