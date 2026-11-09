@@ -113,9 +113,10 @@ assert_ok "this check sees a skill the engine lacks" bash -c '! test -f "$1/../s
 skill_refs(){ local t; t="$(cat "$1"/*.md 2>/dev/null | sed -E '/^<!--/d')"
   { grep -i 'skill' <<<"$t" | grep -ohE '\b[a-z][a-z0-9]+:[a-z][a-z0-9-]*[a-z0-9]\b' | grep -vE '^(https?|file|path|docs?):' | sed 's/^[^:]*://'
     grep -ohE 'REQUIRED (SUB-SKILL|BACKGROUND):\*{0,2} Use [a-z][a-z0-9:-]*' <<<"$t" | sed -E 's/.* Use //' | grep -v :
-    grep -ohE '`[a-z][a-z0-9-]*` skill' <<<"$t" | sed -E 's/^`//; s/` skill$//'; } | sort -u; }
+    grep -ohE '`[a-z][a-z0-9-]*` skill' <<<"$t" | sed -E 's/^`//; s/` skill$//'
+    grep -ohE '(^|[ `(])/[a-z][a-z0-9-]*[a-z0-9]\b' <<<"$t" | grep -vE '/(home|tmp|usr|etc|dev|bin|var|opt|mnt|c|d)$' | sed -E 's/^[ `(]?\///'; } | sort -u; }
 # lean_walk <skill>… — every skill reachable from those, each one the engine's
-# skill/<name> and rtdd resolve, anything else is printed as UNRESOLVED.
+# skill/<name> and rtdd resolve (a `/skill-name` slash reference counts, #722), anything else is printed as UNRESOLVED.
 lean_walk(){ local todo=("$@") seen=" " n r
   while ((${#todo[@]})); do n="${todo[0]}"; todo=("${todo[@]:1}")
     [[ $seen == *" $n "* ]] && continue; seen+="$n "
@@ -139,6 +140,20 @@ assert_eq "$(lean_walk a)" "" "an engine skill, and rtdd, resolve"
 printf -- '---\nname: b\n---\n**REQUIRED SUB-SKILL:** Use using-git-worktrees\n' > "$LEAN_SKILLS/b/SKILL.md"
 assert_eq "$(lean_walk a)" "UNRESOLVED using-git-worktrees (required by b)" "a skill reached through another skill is walked too"
 LEAN_SKILLS="$HERE/../skill"
+# #722: a slash-command reference to a skill the lane lacks is caught.
+LEAN_SKILLS="$RUN_DIR/walk"
+printf -- '---\nname: a\n---\nrun `/setup-matt-pocock-skills` if not.\n' > "$LEAN_SKILLS/a/SKILL.md"
+assert_eq "$(lean_walk a)" "UNRESOLVED setup-matt-pocock-skills (required by a)" "a /slash-command skill a lean lane lacks is reported"
+printf -- '---\nname: a\n---\nrun `/b` and see /tmp and /home/x\n' > "$LEAN_SKILLS/a/SKILL.md"
+assert_eq "$(lean_walk a)" "" "a /slash reference to an engine skill resolves; plain paths are not skills"
+LEAN_SKILLS="$HERE/../skill"
+
+# --- #722: a skill a lane needs but cannot find is warned about, not skipped silently
+WW="$RUN_DIR/ww"; git init -q "$WW"
+warned="$(HARNESS_USER_SKILLS="$RUN_DIR/no-user-skills" cli_lean_setup "$WW" 2>&1 >/dev/null)"
+assert_ok "a missing rtdd skill is logged as a warning naming it" has "WARN lean lane: skill rtdd not found" "$warned"
+assert_no "an engine skill that is present is not warned about" has "skill handoff" "$warned"
+assert_eq "$(cli_lean_setup "$WD" 2>&1 >/dev/null)" "" "no warning when every skill resolves"
 
 # --- the other backends: listed with the reason in the docs ----------------------------------------------
 DOC="$HERE/../docs/cli-capabilities.md"

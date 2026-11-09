@@ -95,7 +95,10 @@ claude_lean_setup(){ local wd="$1" n src dst
   [[ -n "$(claude_lean_flags)" ]] || return 0
   for n in $(cli_prompt_skills); do
     src="$(cli_engine_skill_root)/$n"; [[ -f "$src/SKILL.md" ]] || src="$(claude_user_skills_dir)/$n"
-    [[ -f "$src/SKILL.md" ]] || continue
+    if [[ ! -f "$src/SKILL.md" ]]; then
+      log "WARN lean lane: skill $n not found ($src) — this lane starts without it$([[ $n == rtdd ]] && echo '; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)')" >&2
+      continue
+    fi
     dst="$wd/.claude/skills/$n"
     if [[ -L $dst ]]; then rm -f "$dst"; elif [[ -e $dst ]]; then continue; fi
     mkdir -p "$wd/.claude/skills" && ln -s "$src" "$dst" || continue
