@@ -317,6 +317,20 @@ def test_parent_prd_cli():
             sys.stdin = real
         assert rc == 0 and out.strip() == want, (body, out)
 
+def test_events_log_raw_control_char_in_a_field_is_counted():
+    """#673: a raw form feed / tab / VT inside a field value made strict json.loads drop the line with no word."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        with open(p, "wb") as fh:
+            for ch in ("\x0c", "\t", "\x0b"):
+                line = json.dumps(_ev("note", session="s" + str(ord(ch)), msg="a#b")).replace("a#b", "a" + ch + "b")
+                assert ch in line
+                fh.write(line.encode() + b"\n")
+        bad = [0]
+        evs = st.load_events(p, bad)
+        assert [e["msg"] for e in evs] == ["a\x0cb", "a\tb", "a\x0bb"], evs
+        assert bad == [0], bad
+
 def test_edge_paths_degrade_quietly():
     d = tempfile.mkdtemp()
     try:
