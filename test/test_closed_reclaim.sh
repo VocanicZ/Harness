@@ -9,6 +9,8 @@
 #      and arms no backoff; its session_end carries goal_met=1. A lane that dies young WITHOUT a DONE check still fails.
 #   5. OPEN issue: claimed and launched as before, with exactly ONE `gh issue view` in prepare_impl (#618).
 #   6. a live-state read that fails (gh error / empty answer) does not block the claim.
+#   7. #745: a closed-but-listed #6 beside an open claimable #7: worker_step returns 7 with NO sleep, and the next step
+#      launches #7 (no POLL wait). A REAL spawn failure (spawn_impl rc 1) still returns 6 and sleeps POLL (#539).
 # Real git (a bare origin + a clone) and the real issuelib.py over a snapshot; gh, tmux and the launch are stubbed.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -147,5 +149,27 @@ setup; snapshot 6; echo EMPTY > "$LIVESTATE"
 worker_tick W1
 assert_ok "launched on a failed read" grep -q 'launch hz-main-i6' "$CALLS"
 assert_eq "$(ev launch_skipped)" "0" "no launch_skipped"
+
+echo "=== 7. #745: a skipped closed issue is not a failed spawn — claim again at once; a real failure still sleeps POLL ==="
+setup; snapshot 6 7; POLL=300
+step_stubs(){ snapshot_gate(){ return 0; }; roots_check(){ :; }; gc_orphan_goals(){ :; }; worker_chores(){ :; }; worker_tend(){ :; }; }
+step_stubs
+sleep(){ echo "sleep $1" >> "$CALLS"; }
+worker_step W1 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "7" "closed #6 skipped: worker_step rc 7 (not 6)"
+assert_eq "$(grep -c '^sleep ' "$CALLS")" "0" "... no POLL sleep after the skip"
+assert_no "... claim dropped" test -e "$CLAIMS_DIR/impl-6.claim"
+worker_step W1 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "0" "the very next step claims the open #7"
+assert_ok "... and launches it" grep -q 'launch hz-main-i7' "$CALLS"
+assert_eq "$(grep -c '^sleep ' "$CALLS")" "0" "... still no sleep before the launch"
+assert_eq "$(ev launch_failed)" "0" "no launch_failed event"
+echo "-- a real spawn failure keeps the POLL sleep"
+setup; snapshot 7; POLL=300; step_stubs
+sleep(){ echo "sleep $1" >> "$CALLS"; }
+spawn_impl(){ return 1; }
+worker_step W1 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "6" "failed spawn: rc 6"
+assert_eq "$(grep -c '^sleep 300$' "$CALLS")" "1" "... sleeps POLL (#539)"
 
 finish

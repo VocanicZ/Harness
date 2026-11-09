@@ -459,7 +459,7 @@ closed_issue_unlabel(){ local issue="$1" names args=()
 
 # prepare_impl_closed <issue> <worktree> <branch> — #730: the issue is closed (live): the board snapshot lagged its close.
 # Nothing is stamped or launched; a worktree pre-built for it (#644) goes; the issue is marked so the next tick does not offer
-# it again; the caller's claim is dropped by its non-zero return.
+# it again; the caller's claim is dropped by its non-zero return. rc 3 (not 1: a real failure) says "skipped, not failed" (#745).
 prepare_impl_closed(){ local issue="$1" wd="$2" branch="$3" ijson="$4" f; f="$(prebuilt_file "$UNIT" "$issue")"
   log "prepare #$issue: the issue is already closed (the board snapshot lags) — not launching (#730)"
   if [[ -e "$f" ]] && ! prebuilt_building "$UNIT" "$issue"; then
@@ -468,7 +468,7 @@ prepare_impl_closed(){ local issue="$1" wd="$2" branch="$3" ijson="$4" f; f="$(p
   closed_live_mark "$issue"
   closed_issue_unlabel "$issue" "$ijson"
   harness_event launch_skipped kind=impl issue="$issue" reason=issue_closed
-  return 1; }
+  return 3; }
 
 # prepare_impl <ISSUE> <PROMISE> — claim the issue (agent-working), set up its worktree on
 # issue/<n> and render impl.md — resume.md for a force-paused issue or one whose branch is already
@@ -538,7 +538,7 @@ prepared_parent_prd(){ if [[ -n "${IMPL_IJSON_OK:-}" ]]; then printf '%s' "${TC_
 
 spawn_impl(){   # <ISSUE> <PROMISE>
   local issue="$1"; MAXITER="$IMPL_MAXITER"; GOAL="ISSUE:$issue"; STAT_PRD=""
-  prepare_impl "$issue" "$2" || return 1
+  prepare_impl "$issue" "$2" || return $?   # #745: 3 = a closed issue skipped (not a failed spawn); else 1
   STAT_PRD="$(prepared_parent_prd "$issue")"   # #185: attribute the session to its PRD for `stats --prd`
   launch_claude "$(sess_impl "$UNIT" "$issue")" "$WORKTREES_DIR/$UNIT-i$issue"
 }
