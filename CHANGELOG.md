@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Every call of the tmux backend targets the server the lane was created on (#670)
+
+- #596 dropped the caller's `TMUX` for `tmux_sess_start` only. A worker holding a live `TMUX` on a server other than the
+  default one under `TMUX_TMPDIR` (`tmux -L` / `-S`, or a different `TMUX_TMPDIR`) therefore created its lane on the default
+  server and then looked for, typed into and killed it on its own: the lane was treated as dead, logged `launch_failed`, and
+  its session was left running. Now every call in `scripts/session/tmux.sh` (find, list, type, capture, pane pid, kill, sweep,
+  attach) runs with `TMUX` dropped, so the server is always the default one under `TMUX_TMPDIR`. A stale `TMUX` is ignored the
+  same way; a start that leaves no session still fails loudly and logs `launch_failed`. `test/test_tmux_one_server.sh` covers
+  it with two private tmux servers.
+
 ### Lean PLAN lanes can resolve every skill `writing-plans` requires (#669)
 
 - `skill/writing-plans` named `superpowers:using-git-worktrees`, `superpowers:subagent-driven-development` and

@@ -2,11 +2,17 @@
 # on the host's default server, named by the fleet's session grammar (sess_impl / sess_orch / …). The
 # ONE engine file that runs `tmux`; the contract of each function is in scripts/session/dispatch.sh.
 # Sourced by dispatch.sh; defines functions only.
+# #670: ONE server for every call. #596 dropped the caller's TMUX for the launch only, so a worker holding a live
+# TMUX on another server (tmux -L / -S, a different TMUX_TMPDIR) created its lane on the default server under
+# TMUX_TMPDIR and then looked for it, typed into it and killed it on its own. Every call now goes through _tmx,
+# which runs tmux with TMUX dropped: the server is always the default one under TMUX_TMPDIR (the caller's own
+# TMUX, live or stale, is never consulted). A `tmux` FUNCTION stub (a test) is called directly, as before.
+_tmx(){ if declare -F tmux >/dev/null; then tmux "$@"; else env -u TMUX tmux "$@"; fi; }
 tmux_sess_bins(){ echo tmux; }
-tmux_sess_list(){ tmux ls -F '#S' 2>/dev/null; }
-tmux_sess_list_paths(){ tmux ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null; }
-tmux_sess_panes(){ tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}' 2>/dev/null; }
-tmux_sess_live(){ tmux has-session -t "$1" 2>/dev/null; }
+tmux_sess_list(){ _tmx ls -F '#S' 2>/dev/null; }
+tmux_sess_list_paths(){ _tmx ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null; }
+tmux_sess_panes(){ _tmx list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}' 2>/dev/null; }
+tmux_sess_live(){ _tmx has-session -t "$1" 2>/dev/null; }
 # Typing and kill leave their stderr to the caller, as `tmux send-keys` / `kill-session` did before the
 # seam: an adapter silences it, supervise logs it.
 # <name> <dir> [-e K=V …] [command…] — the -e pairs are the session's environment (session_env).
@@ -17,7 +23,7 @@ tmux_sess_live(){ tmux has-session -t "$1" 2>/dev/null; }
 # and restoring them here promoted a caller's temporary `HARNESS_CLI=agy f` or `local STATE_DIR` to an exported
 # global). A `tmux` FUNCTION stub (a test) is called directly, so it runs in THIS shell and keeps its side
 # effects. The lane gets its own values from the -e pairs. TMUX_TMPDIR, PATH and HOME stay.
-# #596: the caller's TMUX is dropped too — a stale inherited `TMUX=` (the socket directory gone) made tmux print
+# #596 (all calls: #670): the caller's TMUX is dropped too — a stale inherited `TMUX=` (the socket directory gone) made tmux print
 # `error creating …` yet exit 0, and the lane was logged as launched. The server is the default one under
 # TMUX_TMPDIR, never the caller's own. And a start counts only if the session exists: has-session confirms it,
 # so a tmux that exits 0 without creating one (or whose command died at once) is a failed start, rc 1.
@@ -29,35 +35,35 @@ tmux_sess_start(){ local v unset_args=(-u TMUX) rc
   fi
   (( rc == 0 )) || return "$rc"
   declare -F tmux >/dev/null && return 0   # a test's stub does not model a session coming alive
-  env -u TMUX tmux has-session -t "=$1" 2>/dev/null; }
+  _tmx has-session -t "=$1" 2>/dev/null; }
 # tmux_env_sanitize — a pool worker started from a stale tmux client (TMUX names a socket that is gone) would have
 # every tmux call fail, not only the launch: drop TMUX / TMUX_PANE then. A live one is left alone (#596).
 tmux_env_sanitize(){ [[ -n "${TMUX:-}" && ! -S "${TMUX%%,*}" ]] && unset TMUX TMUX_PANE; return 0; }
-tmux_sess_send_line(){ tmux send-keys -t "$1" "$2" Enter; }
-tmux_sess_type(){ tmux send-keys -t "$1" -l "$2"; }
-tmux_sess_enter(){ tmux send-keys -t "$1" Enter; }
-tmux_sess_clear_line(){ tmux send-keys -t "$1" C-u; }
-tmux_sess_interrupt(){ tmux send-keys -t "$1" Escape; }
-tmux_sess_capture(){ tmux capture-pane -p ${2:+-S "-$2"} -t "$1" 2>/dev/null; }
-tmux_sess_pane_pid(){ tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null; }
+tmux_sess_send_line(){ _tmx send-keys -t "$1" "$2" Enter; }
+tmux_sess_type(){ _tmx send-keys -t "$1" -l "$2"; }
+tmux_sess_enter(){ _tmx send-keys -t "$1" Enter; }
+tmux_sess_clear_line(){ _tmx send-keys -t "$1" C-u; }
+tmux_sess_interrupt(){ _tmx send-keys -t "$1" Escape; }
+tmux_sess_capture(){ _tmx capture-pane -p ${2:+-S "-$2"} -t "$1" 2>/dev/null; }
+tmux_sess_pane_pid(){ _tmx display-message -p -t "$1" '#{pane_pid}' 2>/dev/null; }
 # kill-session SIGHUPs only the pane's own process group: a detached background job (setsid — a test
 # server, `tail -F`, a watcher) outlived the lane forever, re-parented to init (#418). So read the
 # session's HARNESS_SESSION and its panes' process trees FIRST (after the kill the tree is re-parented
 # and unreachable by ppid), kill the session, then sweep both (proc_sweep_session) — never the tmux
 # server. The result is kill-session's: false when there was none.
 tmux_sess_kill(){ local u pids rc srv
-  u="$(tmux show-environment -t "$1" HARNESS_SESSION 2>/dev/null)"
+  u="$(_tmx show-environment -t "$1" HARNESS_SESSION 2>/dev/null)"
   [[ $u == HARNESS_SESSION=?* ]] && u="${u#HARNESS_SESSION=}" || u=""
-  pids="$(tmux list-panes -s -t "$1" -F '#{pane_pid}' 2>/dev/null | grep -E '^[0-9]+$')"
+  pids="$(_tmx list-panes -s -t "$1" -F '#{pane_pid}' 2>/dev/null | grep -E '^[0-9]+$')"
   [[ -n $pids ]] && pids="$pids $(proc_descendants $pids)"
   srv="$(_tmux_server_pid)"
-  tmux kill-session -t "$1"; rc=$?
+  _tmx kill-session -t "$1"; rc=$?
   [[ -n $u || -n $pids ]] && SWEEP_KEEP="$srv" proc_sweep_session "$u" $pids
   return $rc; }
 # A lane that ended on its own (no kill): what still carries its HARNESS_SESSION (stats_sweep_ended).
 tmux_sess_sweep(){ [[ -n ${1:-} ]] || return 0; SWEEP_KEEP="$(_tmux_server_pid)" proc_sweep_session "$1"; }
 # The server's own pid: started by a lane's descendant, it would carry that lane's HARNESS_SESSION.
-_tmux_server_pid(){ tmux ls -F '#{pid}' 2>/dev/null | head -n1; }
+_tmux_server_pid(){ _tmx ls -F '#{pid}' 2>/dev/null | head -n1; }
 # Everything a pane does is on its screen: no mark beyond what sess_capture shows.
 tmux_sess_activity(){ return 0; }
 tmux_sess_turns(){ return 0; }
@@ -66,7 +72,7 @@ tmux_sess_state(){ return 0; }
 tmux_sess_turn_ended(){ return 1; }
 # A pane keeps no record of the claude session it ran: a relaunched tmux lane starts a new one.
 tmux_sess_resume_id(){ return 0; }
-tmux_sess_attach(){ exec tmux attach -t "$1"; }
+tmux_sess_attach(){ if declare -F tmux >/dev/null; then exec tmux attach -t "$1"; fi; exec env -u TMUX tmux attach -t "$1"; }
 tmux_sess_attach_hint(){ echo "tmux attach -t $1"; }
 # tmux_sess_describe <fn> <target> [args…] — the tmux command line <fn> runs (sess_describe).
 tmux_sess_describe(){ local fn="$1" t="$2"; shift 2

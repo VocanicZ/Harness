@@ -16,3 +16,4 @@ test_supervise_autoupdate.sh	test_supervise_autoupdate_headless.sh
 test_tmux_env_leak.sh	test_env_leak_headless.sh
 test_unit_tmux_safe.sh	test_session_names_headless.sh
 test_watchdog.sh	test_watchdog_headless.sh
+test_tmux_one_server.sh	test_one_server_headless.sh
