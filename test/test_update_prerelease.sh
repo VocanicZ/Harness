@@ -8,6 +8,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
+# Git for Windows's system config sets core.autocrlf=true: the fixture repos below would check out CRLF files, and the byte-for-byte cmp against fixtures/update.sh read false (#608).
+real_windows_host && export GIT_CONFIG_NOSYSTEM=1
 gc(){ git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"
 # #439: every `harness update` links the engine's skills into the dirs under HOME the CLIs read — a throwaway HOME.

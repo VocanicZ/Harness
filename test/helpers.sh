@@ -46,6 +46,9 @@ real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ret
 # It is not a way out of a Windows cell: the Windows branch is never skipped (windows_skip, on an n/a matrix row, is the
 # only skip of a feature).
 skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, no counterpart to run on a Windows host): ${1:-}"; return 0; }
+# any_spelling <path> — an ERE group matching <path> in both spellings a Windows host prints it in (/c/x and C:/x); on Linux the path itself.
+# The engine echoes HARNESS_HOME / unit lines in the native spelling while a test builds its fixtures in the MSYS one (#608).
+any_spelling(){ local n; n="$(native_path "$1")"; if [[ $n == "$1" ]]; then printf '%s' "$1"; else printf '(%s|%s)' "$1" "$n"; fi; }
 # On a real Windows host `ln -s` copies unless MSYS says winsymlinks:nativestrict, so every fixture that builds a link (a PATH link,
 # the engine symlink, a skill link) and then asserts `-L` read false (#608). install.sh sets it for itself; a test that builds its
 # fixtures with a bare `ln -s` needs it too, so it is set once here for every test (test_windows_update.sh/test_install_prereqs.sh do the same).
@@ -57,9 +60,9 @@ file_url(){ local p; p="$(native_path "$1")"; case "$p" in /*) printf 'file://%s
 # sys_path — the PATH a test hands a process it keeps "system tools only" (#608): /usr/bin:/bin on Linux. On Git for Windows curl and
 # git are not in /usr/bin: they live in the MSYSTEM's own tree (/ucrt64/bin on winsma, /mingw64/bin elsewhere), so a PATH of
 # /usr/bin:/bin alone read "curl: command not found" and install.sh could not resolve the latest release. There the directories of
-# the curl and git on the CALLER's PATH are appended (call it where PATH is still whole: PATH="$STUB:$(sys_path)"). Always real dirs.
+# the curl, git and python3 on the CALLER's PATH are appended (call it where PATH is still whole: PATH="$STUB:$(sys_path)"). Always real dirs.
 sys_path(){ local p=/usr/bin:/bin t d
-  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*) for t in curl git; do d="$(command -v "$t" 2>/dev/null)"; d="${d%/*}"
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*) for t in curl git python3; do d="$(command -v "$t" 2>/dev/null)"; d="${d%/*}"
     [[ -n $d && $d != "$t" && :$p: != *":$d:"* ]] && p="$p:$d"; done;; esac
   printf '%s' "$p"; }
 
