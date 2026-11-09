@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats --since` with a huge count is a usage error (#879)
+
+- A `--since` count of about 307 digits or more raised `OverflowError` and printed a traceback; above 4300 digits Python's own integer-conversion
+  message reached the user. A count too large to turn into a date is now a one-line usage error naming `--since` (exit 2) that does not echo the digits.
+  Counts that still fit, such as `999999999d`, work as before. `test_stats.py` covers 307 and 5000 digits.
+
 ### `bench/run.py` refuses a time option above `threading.TIMEOUT_MAX` (#858)
 
 - `--poll-secs`, `--grace-secs` and `--progress-poll-secs` (and `--wall-cap-secs`) passed the dry run with any finite value, then a live run

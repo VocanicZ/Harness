@@ -727,7 +727,14 @@ def parse_since(s, now=None):
     if not m and re.fullmatch(r"\d+[dhm]", s or ""):   # #804: \d also matches full-width / Arabic-Indic digits
         raise ValueError(f"bad --since: {s!r} (use ASCII digits only)")
     if m:
-        return now - int(m.group(1)) * {"d": 86400, "h": 3600, "m": 60}[m.group(2)]
+        too_big = ValueError("bad --since: the count is too large to turn into a date (use a smaller number, e.g. 7d)")   # #879
+        digits = m.group(1).lstrip("0")
+        if len(digits) > 300:   # before int(): past 4300 digits int() itself raises, in Python's wording
+            raise too_big
+        try:
+            return now - int(digits or "0") * {"d": 86400, "h": 3600, "m": 60}[m.group(2)]
+        except OverflowError:   # about 307 digits: int too large to convert to float
+            raise too_big from None
     t = parse_ts(s if "T" in (s or "") else f"{s}T00:00:00+00:00")
     if t is None:
         raise ValueError(f"bad --since: {s!r} (want 7d, 24h, 30m or YYYY-MM-DD)")
