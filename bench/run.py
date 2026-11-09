@@ -183,7 +183,7 @@ def held_accounts(rdir):
     out = []
     for f in sorted(glob.glob(os.path.join(rdir, "usage-holds", "*.hold"))):
         try:
-            with open(f, encoding="utf-8") as fh:
+            with open(f, encoding="utf-8-sig") as fh:   # #807: a leading BOM is not part of the account name
                 parts = fh.read().rstrip("\n").split("\t")
         except OSError:
             parts = []
