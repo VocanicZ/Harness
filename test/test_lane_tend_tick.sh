@@ -289,4 +289,25 @@ setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; busy
 HARNESS_TEND_TICK=9223372036854775808; worker_step W1 >/dev/null 2>&1
 assert_eq "$(tail -1 "$CALLS")" "sleep 300" "TEND_TICK=2^63: sleeps POLL, not a negative number"
 
+echo "=== 12. #883: a reap found by the FULL step does not sleep POLL before the next step ==="
+# The full step runs chores, then tend: a lane its tend reaps frees a slotless chore (CLOSE_PRD) that those chores already missed.
+setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle; touch "$RUN_DIR/$S.satisfied"
+worker_step W1 >/dev/null   # first step is full: chores, tend reaps (the goal check is not idle-gated), tick finds nothing (rc 1)
+assert_ok "the full step's tend reaped the lane" grep -q "^reap impl-5" "$CALLS"
+assert_eq "$(grep -c "^sleep 300$" "$CALLS")" "0" "no POLL sleep after the reap"
+REAP_AT="$NOW"; C0="$(count chores)"
+worker_step W1 >/dev/null   # the follow-up: a full step at once, running the chores again
+assert_eq "$(( $(count chores) - C0 ))" "1" "the follow-up step ran the chores again"
+LAST_CH="$(grep '^chores@' "$CALLS" | tail -1)"; LAST_CH="${LAST_CH#chores@}"
+assert_ok "... within 30s of the reap, so a slotless CLOSE_PRD lands in time ($((LAST_CH - REAP_AT))s after)" test "$((LAST_CH - REAP_AT))" -le 30
+assert_eq "$(tail -1 "$CALLS")" "sleep 300" "nothing to do after the follow-up: an idle worker sleeps POLL as before"
+C1="$(count chores)"; worker_step W1 >/dev/null
+assert_eq "$(grep -c "^sleep 300$" "$CALLS")" "2" "no back-to-back loop: each further idle step sleeps POLL"
+assert_eq "$(( $(count chores) - C1 ))" "1" "... one full step each"
+echo "-- a reap while the worker still owns another lane keeps the short tick"
+setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle; touch "$RUN_DIR/$S.satisfied"
+S2=hz-main-i6; own impl-6 "$S2" IMPL:6; busy_one(){ :; }
+worker_step W1 >/dev/null
+assert_eq "$(tail -1 "$CALLS")" "sleep 15" "another lane live: tends it on the short tick, no POLL"
+
 finish

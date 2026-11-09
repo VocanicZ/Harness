@@ -387,7 +387,7 @@ tend_knobs(){ local k def v n
       if [[ "$k" == HARNESS_TEND_TICK ]]; then printf -v "$k" %s "$((10#$v))"; continue; fi
       (( ${#n} <= 6 )) && (( 10#${n:-0} <= 86400 )) && { printf -v "$k" %s "$((10#${n:-0}))"; continue; }; fi
     log "WARN $k='$v' is not a non-negative integer — using the default $def" >&2; printf -v "$k" %s "$def"; done; }
-worker_step(){ local wid="$1" rc
+worker_step(){ local wid="$1" rc reaped=1
   _WORKER_ID="$wid"
   tend_knobs
   worker_short_due "$wid" && { worker_short_step "$wid"; return $?; }   # #594: own a live lane → tend it on the short tick
@@ -404,7 +404,7 @@ worker_step(){ local wid="$1" rc
   usage_watch   # #194: read usage before claiming, so a crossing checkpoints + holds before this claim
   _LAST_FULL="$(date +%s)"
   worker_chores "$wid"
-  worker_tend "$wid"
+  worker_tend "$wid" && reaped=0   # #883: a reap here ran after this step's chores, so a slotless chore it unblocked needs another step
   worker_tick "$wid"; rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
@@ -413,7 +413,10 @@ worker_step(){ local wid="$1" rc
     5) sleep "$(( POLL * 2 ))" ;;
     6) sleep "$POLL" ;;
     7) ;;   # #745: a closed issue skipped, not a failed spawn — claim again at once
-    *) worker_owns_lane "$wid" && (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL" ;;   # #594; #799: 0 / overflow = POLL, never sleep 0
+    *) if worker_owns_lane "$wid"; then
+         (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL"   # #594; #799: 0 / overflow = POLL, never sleep 0
+       elif (( reaped == 0 )); then :   # #883: no lane left after a reap in the full step → the next step is full and at once (CLOSE_PRD etc.); it sleeps POLL itself if it reaps nothing
+       else sleep "$POLL"; fi ;;
   esac
   return "$rc"; }
 
