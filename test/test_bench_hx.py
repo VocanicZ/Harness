@@ -40,8 +40,10 @@ env = {k: v for k, v in os.environ.items() if k.startswith("HARNESS_") or k in (
 with open(os.path.join(d, "calls.jsonl"), "a") as f:
     f.write(json.dumps({"args": argv, "cwd": os.getcwd(), "env": env}) + "\n")
 board = os.environ["FAKE_GH_HOME"]
-def put(name, data):
-    with open(os.path.join(board, name), "w") as f: json.dump(data, f)
+def put(name, data):   # atomic (#814): the fake gh `cat`s these while they are rewritten, never a torn file
+    tmp = os.path.join(board, ".%s.%d.tmp" % (name, os.getpid()))
+    with open(tmp, "w") as f: json.dump(data, f)
+    os.replace(tmp, os.path.join(board, name))
 state = os.path.join(os.getcwd(), ".hx")
 cmd = argv[0]
 if cmd == "init":
@@ -253,6 +255,42 @@ def test_the_real_pin_is_a_full_commit_sha_and_the_arm_is_loadable_by_the_runner
     assert len(hx_arm.HX_COMMIT) == 40 and set(hx_arm.HX_COMMIT) <= set("0123456789abcdef")
     mod = tb.bench_run.load_arm("hx", os.path.join(tb.ROOT, "bench", "arms"))
     assert callable(mod.run)
+
+
+def _board_put_is_atomic(script, label):
+    """#814: the fake gh `cat`s a board file while the fake rewrites it; an in-place write ("w" truncates, then
+    fills) lets a reader see an empty or torn file. Run the fake's own put() against a reader and demand every
+    read parses."""
+    import re, threading
+    m = re.search(r"^def put\(name, data\):.*\n(?:    .*\n)+", script, re.M)
+    assert m, label + ": no put() in the fake"
+    d = tempfile.mkdtemp()
+    ns = {"json": json, "os": os, "board": d}
+    exec(m.group(0), ns)
+    put, stop, bad = ns["put"], threading.Event(), []
+    put("prds.json", [{"number": 1, "state": "OPEN"}])
+    def reader():
+        p = os.path.join(d, "prds.json")
+        while not stop.is_set():
+            try:
+                with open(p) as f: s = f.read()
+                json.loads(s)
+            except ValueError as e: bad.append(repr(s)); return
+    ts = [threading.Thread(target=reader) for _ in range(3)]
+    for t in ts: t.start()
+    try:
+        for i in range(3000):
+            put("prds.json", [{"number": 1, "state": "CLOSED" if i % 2 else "OPEN"}])
+            if bad: break
+    finally:
+        stop.set()
+        for t in ts: t.join()
+        shutil.rmtree(d, ignore_errors=True)
+    assert not bad, label + ": a reader saw a torn board file: " + bad[0]
+
+
+def test_the_fake_hx_board_writes_are_atomic():
+    _board_put_is_atomic(FAKE_HX, "FAKE_HX")
 
 
 if __name__ == "__main__":
