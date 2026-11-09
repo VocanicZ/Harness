@@ -649,10 +649,7 @@ def unit_arg(v):
 def issue_arg(v):
     """argparse type for the issue positional: an integer of 1 or greater (a usage error, exit 2, below that)."""
     import argparse
-    try:
-        n = int(v)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"invalid int value: {v!r}")
+    n = st.int_arg(v)   # ASCII digits only (#784)
     if n < 1:
         raise argparse.ArgumentTypeError(f"issue number must be 1 or greater, got {n}")
     return n

@@ -1212,6 +1212,18 @@ def render_text(kind, data):
 REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.][\w.-]*")
 
 
+INT_RE = re.compile(r"-?[0-9]+")   # ASCII digits only: int() also takes 1_1, +5 and full-width digits (#784)
+
+
+def int_arg(v):
+    """argparse type for a whole-number option: ASCII decimal digits with an optional `-` sign. `1_1`, `+5` and
+    full-width digits are usage errors (exit 2), never a different number than the one typed (#784)."""
+    import argparse
+    if not INT_RE.fullmatch(v):
+        raise argparse.ArgumentTypeError(f"invalid int value: {v!r} (use ASCII digits only)")
+    return int(v)
+
+
 def repo_arg(v):
     """argparse type for -R / --repo in every form (`-R x`, `--repo x`, `--repo=x`): must be owner/name."""
     import argparse
@@ -1241,8 +1253,8 @@ def cmd_report(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="harness stats", description="Harness event-log report (#185)")
     g = ap.add_mutually_exclusive_group()
-    g.add_argument("--prd", type=int)
-    g.add_argument("--issue", type=int)
+    g.add_argument("--prd", type=int_arg)
+    g.add_argument("--issue", type=int_arg)
     g.add_argument("--backfill", action="store_true", help="rebuild session_end for past sessions")
     ap.add_argument("-R", "--repo", type=repo_arg)
     ap.add_argument("--since", help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")

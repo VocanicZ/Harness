@@ -116,6 +116,14 @@ def _finite(v):
     return isinstance(v, (int, float)) and math.isfinite(v)
 
 
+def _int_arg(text):
+    """argparse type for a whole-number option: ASCII decimal digits with an optional `-` sign. `1_1`, `+5` and
+    full-width digits are usage errors (exit 2), never a different number than the one typed (#784)."""
+    if not re.fullmatch(r"-?[0-9]+", text):
+        raise argparse.ArgumentTypeError(f"invalid int value: {text!r} (use ASCII digits only)")
+    return int(text)
+
+
 def _usd_arg(text):
     """argparse type for a dollar amount: a finite number, zero or more. nan, inf, a negative and a word are
     usage errors (exit 2), never a budget the guard's comparisons let through (#709)."""
@@ -776,7 +784,7 @@ def write_json(path, data):
 def parse_args(argv):
     ap = argparse.ArgumentParser(prog="bench/run.py", description="run one benchmark arm (#381)")
     ap.add_argument("arm")
-    ap.add_argument("--runs", type=int, default=RUNS_DEFAULT, metavar="N",
+    ap.add_argument("--runs", type=_int_arg, default=RUNS_DEFAULT, metavar="N",
                     help=f"runs per arm, each in its own repo (default {RUNS_DEFAULT}); the batch records an aggregate "
                          "(median, min-max) and stops early, recording why, when the budget runs out. --runs 1 is n=1")
     ap.add_argument("--dry-run", action="store_true", help="print the guard decision; spend and create nothing")
@@ -787,7 +795,7 @@ def parse_args(argv):
     ap.add_argument("--optional", action="store_true",
                     help="an optional arm: when the guard refuses, record `skipped: <cause>` (the cause(s) the guard "
                          "refused on: disk, held, no-usage-reading, no-calibration, budget, no-delete-repo, bad-setting; with its numbers) as <arm>.json and exit 0, instead of refusing")
-    ap.add_argument("--workers", type=int, default=None, metavar="N",
+    ap.add_argument("--workers", type=_int_arg, default=None, metavar="N",
                     help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
     ap.add_argument("--fixture", default=fixtures().DEFAULT, choices=fixtures().names(),
                     help="which fixture the arms build (default pennywise, a 4.7 KB brief; large is the 20-page brief "

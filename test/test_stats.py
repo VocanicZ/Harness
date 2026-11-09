@@ -475,6 +475,23 @@ def test_report_prd_below_one_is_a_usage_error():
         rc, out = run(["report", "--prd", "1", "-R", "acme/widget"])
         assert rc == 0 and "PRD #1:" in out, out
 
+def test_report_issue_and_prd_are_ascii_digits_only():
+    """#784: 1_1, +5 and full-width digits are a usage error (exit 2) naming the option and the value, not issue #11."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        st.append_event(_ev("claim", issue=11), p)
+        for flag in ("--issue", "--prd"):
+            for bad in ("1_1", "+5", "\uff12\uff10"):
+                for argv in (["report", flag, bad], ["report", f"{flag}={bad}"]):
+                    err = io.StringIO()
+                    with contextlib.redirect_stderr(err):
+                        try:
+                            rc, out = run(argv)
+                        except SystemExit as e:
+                            rc, out = e.code, ""
+                    assert rc == 2 and out == "" and flag in err.getvalue() and repr(bad) in err.getvalue(), (argv, rc, out, err.getvalue())
+
+
 def test_backfill_attributes_transcripts_and_is_idempotent():
     with host() as d:
         fleets = os.path.join(d, "fleets"); os.makedirs(fleets)

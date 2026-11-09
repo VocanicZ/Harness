@@ -307,10 +307,9 @@ def overlap(files, slug, base, repo_dir, label):
 
 def count(v):
     """argparse type for a count option (--criteria, --lines, --pool, …): an integer >= 0."""
-    try:
-        n = int(v)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"invalid int value: {v!r}")
+    if not re.fullmatch(r"-?[0-9]+", v):   # ASCII digits only: not 1_1, +5 or full-width digits (#784)
+        raise argparse.ArgumentTypeError(f"invalid int value: {v!r} (use ASCII digits only)")
+    n = int(v)
     if n < 0:
         raise argparse.ArgumentTypeError(f"{n} is negative — a count must be 0 or more")
     return n
