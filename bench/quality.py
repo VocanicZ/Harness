@@ -63,9 +63,18 @@ def skipped(reason):
     return {"quality": "skipped (" + " ".join(str(reason).split())[:300] + ")"}
 
 
+def _resolve(argv):
+    """#686: on native Windows a fake `docker` script first on PATH is run under its shebang, not skipped for the real docker.exe."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bench_portable", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "portable.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.resolve_argv(list(argv))
+
+
 def _docker(args, timeout, check=True):
     try:
-        p = subprocess.run(["docker"] + args, capture_output=True, text=True, timeout=timeout,
+        p = subprocess.run(_resolve(["docker"] + args), capture_output=True, text=True, timeout=timeout,
                            stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise Skip(f"docker {args[0]} timed out after {timeout:g}s")
@@ -122,7 +131,7 @@ def scan(repo_dir, startup_secs=600.0, analysis_secs=900.0, log=lambda m: None):
     """The sonarqube object for repo_dir; raises Skip with the reason when it cannot be had."""
     if not os.path.isdir(repo_dir):
         raise Skip(f"no repo to scan at {repo_dir}")
-    if not shutil.which("docker"):
+    if not shutil.which("docker") and _resolve(["docker"]) == ["docker"]:
         raise Skip("docker is not installed")
     p = _docker(["info", "--format", "{{.ServerVersion}}"], 30, check=False)
     if p.returncode != 0:

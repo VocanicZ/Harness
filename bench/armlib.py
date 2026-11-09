@@ -14,10 +14,28 @@ engine's, is a problem; the arm then stops before it does any work. (Skills are 
 bundles some of its own, and the host user's cannot load from a config dir that does not hold them.)
 
 Loaded by the arms and the runner with importlib (this directory is not a package)."""
-import glob, hashlib, json, os, re, shlex, subprocess
+import glob, hashlib, importlib.util, json, os, re, shlex, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+
+
+def _portable():
+    spec = importlib.util.spec_from_file_location("bench_portable", os.path.join(ROOT, "scripts", "portable.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def resolve(argv):
+    """argv with its program found as a shell would find it (#686): on native Windows a fake `gh` or `claude` that is a script on
+    PATH, or named by path, is run under its shebang's interpreter instead of the real gh.exe further down PATH (or nothing)."""
+    return _portable().resolve_argv(list(argv))
+
+
+def split_cmd(cmd):
+    """shlex.split of a command line the operator wrote, safe for a Windows path: posix shlex eats the backslashes of C:\\x\\y."""
+    return shlex.split(cmd.replace("\\", "/") if os.name == "nt" else cmd)
 LOGIN_FILES = (".credentials.json",)
 ENGINE_PLUGINS = ("ralph-loop", "superpowers")
 MARKETPLACE = "anthropics/claude-plugins-official"
@@ -85,8 +103,8 @@ def install_engine_plugins(cfg, claude, env, log):
     steps = [["plugin", "marketplace", "add", MARKETPLACE]] + \
             [["plugin", "install", f"{p}@{MARKETPLACE_NAME}", "--scope", "user"] for p in ENGINE_PLUGINS]
     for i, step in enumerate(steps):
-        argv = shlex.split(claude) + step
-        p = subprocess.run(argv, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
+        argv = split_cmd(claude) + step
+        p = subprocess.run(resolve(argv), env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
         log(f"$ {shlex.join(argv)} -> {p.returncode}")
         if p.returncode != 0 and i > 0:   # an already-added marketplace is fine; a plugin that will not install is not
             raise RuntimeError(f"installing the engine's plugin failed: {shlex.join(step)}: "
@@ -136,7 +154,7 @@ def write_init_proof(logs, init, view_extra=None):
 # --- provenance and effort -----------------------------------------------------------------------
 def _run(argv, cwd=None):
     try:
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        p = subprocess.run(resolve(argv), cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     return p.stdout.strip() if p.returncode == 0 else None
@@ -177,7 +195,7 @@ def skill_version(root=ROOT):
 
 def cli_version(claude):
     """`claude --version` as printed (e.g. `2.1.319 (Claude Code)`), or None."""
-    out = _run(shlex.split(claude or "claude") + ["--version"])
+    out = _run(split_cmd(claude or "claude") + ["--version"])
     return out.splitlines()[0].strip() if out else None
 
 

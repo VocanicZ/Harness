@@ -250,7 +250,7 @@ def gh_scopes():
     """The gh token's OAuth scopes (a list), or None when they cannot be known: gh is missing or fails, or the
     token is fine-grained and the API sends no `X-OAuth-Scopes` header. Only a KNOWN list can refuse a run (#578)."""
     try:
-        p = subprocess.run(["gh", "api", "-i", "user"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        p = subprocess.run(armlib().resolve(["gh", "api", "-i", "user"]), capture_output=True, text=True, stdin=subprocess.DEVNULL,
                            timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -345,7 +345,7 @@ class Gh:
         self.log = log
 
     def _run(self, argv, cwd=None, check=True):
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
+        p = subprocess.run(armlib().resolve(argv), cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
         self.log(f"$ {' '.join(argv)} -> {p.returncode}")
         if check and p.returncode != 0:
             raise RuntimeError(f"{' '.join(argv[:3])} failed: {(p.stderr or p.stdout).strip()[:300]}")
@@ -414,7 +414,7 @@ class Ctx:
 
     def spawn(self, argv, **kw):
         """subprocess.Popen, tracked: the runner terminates it (by its own handle) at a cap."""
-        p = subprocess.Popen(argv, **kw)
+        p = subprocess.Popen(armlib().resolve(argv), **kw)
         with self._lock:
             self._procs.append(p)
         return p

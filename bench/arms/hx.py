@@ -43,6 +43,14 @@ WIPE_ENV = ("STATE_DIR", "RUN_DIR", "HARNESS_DIR")
 NODE_FLAGS = ["--disable-warning=ExperimentalWarning"]
 
 
+def _resolve(argv):
+    """#686: on native Windows a script first on PATH (a fake `gh`) is run under its shebang, not skipped for the real gh.exe."""
+    spec = importlib.util.spec_from_file_location("bench_portable", os.path.join(ROOT, "scripts", "portable.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.resolve_argv(list(argv))
+
+
 def _stats():
     spec = importlib.util.spec_from_file_location("bench_hx_stats", os.path.join(ROOT, "scripts", "stats.py"))
     mod = importlib.util.module_from_spec(spec)
@@ -71,7 +79,7 @@ def child_env(base=None):
 
 
 def _sh(argv, cwd=None, env=None, timeout=600):
-    return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+    return subprocess.run(_resolve(argv), cwd=cwd, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL,
                           timeout=timeout)
 
 
@@ -142,7 +150,7 @@ class Hx:
 
 
 def gh_json(args):
-    p = subprocess.run(["gh"] + args, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+    p = subprocess.run(_resolve(["gh"] + args), capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     if p.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args[:3])} failed: {(p.stderr or p.stdout).strip()[:200]}")
     return json.loads(p.stdout or "[]")

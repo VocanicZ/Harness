@@ -28,11 +28,24 @@ def is_windows():
     return sys.platform == "win32"
 
 
-def _path_program(name):
-    """The first thing on PATH a shell would run as `name`, as (path, is_script): a PATHEXT match (gh.exe, gh.cmd) or, as Git
-    Bash does, an extensionless file that starts with a bash/sh shebang. None when nothing is."""
-    if os.path.dirname(name):
+_SHEBANG = re.compile(rb"#![ \t]*(?:/usr/bin/env[ \t]+)?(?:\S*/)?(ba)?sh\b|#![ \t]*(?:/usr/bin/env[ \t]+)?(?:\S*/)?(python)[0-9.]*\b")
+
+
+def _script_kind(f):
+    """"sh" for a file starting with a bash/sh shebang, "py" for a python one, else None."""
+    try:
+        with open(f, "rb") as fh:
+            m = _SHEBANG.match(fh.read(64))
+    except OSError:
         return None
+    return None if not m else ("py" if m.group(2) else "sh")
+
+
+def _path_program(name):
+    """The first thing on PATH a shell would run as `name`, as (path, script kind): a PATHEXT match (gh.exe, gh.cmd) or, as Git
+    Bash does, an extensionless file with a bash/sh/python shebang. A name with a directory is looked at as it stands."""
+    if os.path.dirname(name):
+        return (name, _script_kind(name)) if os.path.isfile(name) and _script_kind(name) else None
     exts = [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";") if e]
     for d in os.environ.get("PATH", "").split(os.pathsep):
         if not d:
@@ -40,33 +53,27 @@ def _path_program(name):
         for e in exts:
             f = os.path.join(d, name + e)
             if os.path.isfile(f):
-                return f, False
+                return f, None
         f = os.path.join(d, name)
-        if os.path.isfile(f):
-            try:
-                with open(f, "rb") as fh:
-                    head = fh.read(64)
-            except OSError:
-                continue
-            if re.match(rb"#!\s*(/usr/bin/env\s+)?(\S*/)?(ba)?sh\b", head):
-                return f, True
+        if os.path.isfile(f) and _script_kind(f):
+            return f, _script_kind(f)
     return None
 
 
 def resolve_argv(argv):
     """argv with its program resolved through PATH on native Windows, as a shell would (#607, #686). CreateProcess searches
     System32 before PATH (so a bare `bash` is WSL's, not Git's) and appends only `.exe`, so a `gh.cmd` shim is never found, and
-    an extensionless bash script (a fake `gh` a test or a wrapper puts first on PATH) is never started: the REAL gh.exe further
-    down PATH answered instead. This walks PATH and PATHEXT in order and runs a bash/sh shebang script through Git's bash, as
-    Git Bash itself would (a .cmd shim is no way round it: cmd.exe splits an argument at its `&`). Elsewhere, and for a program
-    it cannot find, argv is returned as it was."""
+    a script (a fake `gh` a test or a wrapper puts first on PATH, or names by path) is never started: the REAL gh.exe further
+    down PATH answered instead. This walks PATH and PATHEXT in order and runs a bash/sh script under Git's bash and a python
+    one under this interpreter, as Git Bash itself would by the shebang (a .cmd shim is no way round it: cmd.exe splits an
+    argument at its `&`). Elsewhere, and for a program it cannot find, argv is returned as it was."""
     if sys.platform != "win32" or not argv:
         return argv
     found = _path_program(argv[0])
     if not found:
         return argv
-    exe, is_script = found
-    return [bash_exe(), exe, *argv[1:]] if is_script else [exe, *argv[1:]]
+    exe, kind = found
+    return [{"sh": bash_exe, "py": lambda: sys.executable}[kind](), exe, *argv[1:]] if kind else [exe, *argv[1:]]
 
 
 def bash_exe():

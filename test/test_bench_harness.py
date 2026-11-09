@@ -192,7 +192,10 @@ class Arm:
 
     def close(self):
         try:
-            os.killpg(self.decoy.pid, signal.SIGKILL)
+            if hasattr(os, "killpg"):
+                os.killpg(self.decoy.pid, signal.SIGKILL)
+            else:
+                self.decoy.kill()   # #686: native Windows has no process groups to signal
         except OSError:
             pass
         self.decoy.wait()

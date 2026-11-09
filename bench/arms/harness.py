@@ -114,15 +114,15 @@ class Fleet:
         env.update(HARNESS_HOME=self.home, HARNESS_MODE="prd", HARNESS_OWNER=self.owner,
                    HARNESS_REPO=self.ctx.repo, HARNESS_AUTONOMOUS="true", HARNESS_POOL=str(self.workers),
                    HARNESS_SESS_PREFIX=self.prefix, HARNESS_USE_POLLER="0")
-        bindir = os.path.dirname(shlex.split(self.harness)[0])
-        if bindir and os.path.basename(shlex.split(self.harness)[0]) == "harness":
+        bindir = os.path.dirname(armlib.split_cmd(self.harness)[0])
+        if bindir and os.path.basename(armlib.split_cmd(self.harness)[0]) == "harness":
             env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
         return env
 
     def cmd(self, *args, timeout=300):
         """Run `harness <args> --state-dir <ours>`, always against this arm's own state dir."""
-        argv = shlex.split(self.harness) + list(args) + ["--state-dir", self.state]
-        p = subprocess.run(argv, cwd=self.ctx.clone, env=self.env(), capture_output=True, text=True,
+        argv = armlib.split_cmd(self.harness) + list(args) + ["--state-dir", self.state]
+        p = subprocess.run(armlib.resolve(argv), cwd=self.ctx.clone, env=self.env(), capture_output=True, text=True,
                            stdin=subprocess.DEVNULL, timeout=timeout)
         self.ctx.log(f"$ {shlex.join(argv)} -> {p.returncode}")
         return p
@@ -217,7 +217,7 @@ def logged_restarts(logs):
 
 
 def gh_json(args):
-    p = subprocess.run(["gh"] + args, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+    p = subprocess.run(armlib.resolve(["gh"] + args), capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     if p.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args[:3])} failed: {(p.stderr or p.stdout).strip()[:200]}")
     return json.loads(p.stdout or "[]")
@@ -253,7 +253,7 @@ def register_lane_transcripts(ctx, fleet, st, seen):
 
 def front_turn(ctx, fleet, claude, prompt, session, n, st, registered):
     """One `claude -p` turn of the front door. Returns {"session", "result"}."""
-    argv = (shlex.split(claude) + FRONT_FLAGS + (["--model", fleet.model] if fleet.model else [])
+    argv = (armlib.split_cmd(claude) + FRONT_FLAGS + (["--model", fleet.model] if fleet.model else [])
             + (["--effort", fleet.effort] if fleet.effort else []) + (["--resume", session] if session else []))
     with open(os.path.join(ctx.logs, "launch.txt"), "a", encoding="utf-8") as fh:
         fh.write(shlex.join(argv) + "\n")
