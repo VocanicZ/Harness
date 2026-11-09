@@ -324,13 +324,21 @@ def pool_size(v):
     return n
 
 
+def workstream_count(v):
+    """argparse type for --workstreams: an integer >= 1. A PRD with zero workstreams is not a real PRD."""
+    n = count(v)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"{n} workstreams is not a PRD — --workstreams must be 1 or more")
+    return n
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="harness tier", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("decide")
     for k in ("criteria", "lines", "files", "subsystems"):
         d.add_argument(f"--{k}", type=count, required=True)
-    d.add_argument("--workstreams", type=count, default=1)
+    d.add_argument("--workstreams", type=workstream_count, default=1)
     d.add_argument("--pool", type=pool_size, default=1)
     d.add_argument("--minutes", type=count)
     g = d.add_mutually_exclusive_group()
