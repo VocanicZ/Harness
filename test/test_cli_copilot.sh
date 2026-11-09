@@ -36,13 +36,15 @@ assert_eq "$(grep -oE -- '--(model|effort|reasoning-effort)=' <<<"$line" | sort 
   "the lane's model and effort replace the configured ones (--reasoning-effort is effort's alias)"
 
 # --- workspace trust in config.json (JSON behind // comment lines) ------------------------------
-cat > "$COPILOT_HOME/config.json" <<'EOF'
+# A real directory, not a bare /elsewhere: MSYS rewrites that env value to C:/Program Files/Git/elsewhere for a native python (#605).
+ELSEWHERE="$RUN_DIR/elsewhere"; mkdir -p "$ELSEWHERE"
+cat > "$COPILOT_HOME/config.json" <<EOF
 // User settings belong in settings.json.
 // This file is managed automatically.
 {
   "firstLaunchAt": "2026-10-28T02:27:01.208Z",
   "trustedFolders": [
-    "/elsewhere"
+    "$ELSEWHERE"
   ]
 }
 EOF
@@ -53,12 +55,14 @@ assert_ok "cli_trusted reads it back" cli_trusted "$WD"
 assert_no "another dir is not trusted by it" cli_trusted "$RUN_DIR/other"
 assert_ok "the comment header is kept" grep -qx '// This file is managed automatically.' "$COPILOT_HOME/config.json"
 assert_ok "every other key is kept" grep -qF '"firstLaunchAt": "2026-10-28T02:27:01.208Z"' "$COPILOT_HOME/config.json"
-assert_ok "…and every other folder" cli_trusted /elsewhere
+assert_ok "…and every other folder" cli_trusted "$ELSEWHERE"
 cli_trust "$WD"
 assert_eq "$(grep -cF -e "\"$WD\"" -e "\"$(native_path "$WD")\"" "$COPILOT_HOME/config.json")" 1 "trusting twice writes one entry"
 rm -f "$COPILOT_HOME/config.json"; cli_trust "$WD"
 assert_ok "a fresh home gets a config.json with the entry" cli_trusted "$WD"
-assert_ok "trust takes the lock file the CLI keeps beside config.json" test -f "$COPILOT_HOME/config.json.trusted-folders.lock"
+# POSIX: a flock on a file the CLI keeps beside config.json. Windows: lock_acquire's mkdir mutex, `<file>.d`, gone once trust returns.
+if host_is_windows; then assert_no "trust takes the lock beside config.json and leaves none held" test -d "$COPILOT_HOME/config.json.trusted-folders.lock.d"
+else assert_ok "trust takes the lock file the CLI keeps beside config.json" test -f "$COPILOT_HOME/config.json.trusted-folders.lock"; fi
 not_prompt(){ ! cli_pane_prompt "$1"; }
 assert_ok "the trust dialog is not the prompt" not_prompt "$(pane trust)"
 
