@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `bench/run.py --run-id` accepts only one short, safe path component (#717)
+
+- `--run-id=.` wrote the results into the `--results-dir` root itself, and `--run-id=-x`, `--run-id=--flag` and a 5000-character
+  id exited 0. A run id now matches `[A-Za-z0-9._-]`, is at most 128 characters, does not start with a dash and is not `.` or
+  `..` (nor contains `..`, as since #674). Anything else is a usage error, exit 2. Ids such as `run-20261106` work as before.
+
 ### `harness stats` and `forecast.py` validate `-R` / `--repo` the same way (#716)
 
 - `harness stats --repo=-x` exited 0 with "no events in range", and `forecast.py -R owner/-x` was accepted. Both now share

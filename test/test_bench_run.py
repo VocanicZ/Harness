@@ -322,6 +322,19 @@ def test_a_run_id_that_would_leave_the_results_dir_is_a_usage_error_and_writes_n
 
 
 @with_env()
+def test_a_run_id_must_be_one_safe_component_of_bounded_length(e):   # #717
+    for bad in (".", "-x", "--flag", "x" * 129, "5000".join(["y"] * 1250), "a b", "a:b", "a\nb", "ünï", "x\n"):
+        for extra in ((), ("--optional",)):
+            p = e.run("stub", "--run-id=" + bad, *extra)
+            assert p.returncode == 2 and "--run-id" in p.stderr, (bad[:20], extra, p.returncode, p.stderr)
+    assert not os.path.exists(e.results), os.listdir(e.d)
+    assert e.calls() == []
+    for ok in ("run-20261106", "x" * 128, "a.b_c-d", ".hidden", "r1"):
+        p = e.run("stub", "--run-id=" + ok, "--dry-run")
+        assert p.returncode == 0, (ok[:20], p.returncode, p.stderr)
+
+
+@with_env()
 def test_the_real_grader_scores_the_seeded_repo_zero(e):
     # nothing but the brief was seeded: the hidden tests all fail, and the grader does not crash
     p = e.run("stub", grader=False, extra_env={"BENCH_FUZZ_CASES": "20"})
