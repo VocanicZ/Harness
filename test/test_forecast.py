@@ -475,6 +475,58 @@ def test_fallback_alone_and_the_setting_from_config():
             if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
 
 
+def test_usd_per_pct_rejects_non_finite_tiny_and_bad_values_and_names_them():   # #746
+    for raw in ("inf", "-inf", "Infinity", "nan", "1e999", "0", "0.0", "-5", "1e-300", "0.001", "nope", "1,5"):
+        v, why = fc.usd_per_pct_parse(raw)
+        assert v is None and why, (raw, v, why)
+    for raw, want in (("0.01", 0.01), ("20", 20.0), ("55.5", 55.5)):
+        assert fc.usd_per_pct_parse(raw) == (want, None), raw
+    saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+    try:
+        assert fc.usd_per_pct_invalid(None) is None, "unset is not invalid"
+        os.environ[fc.FALLBACK_SETTING] = ""
+        assert fc.usd_per_pct_invalid(None) is None, "empty is unset"
+        for bad in ("inf", "nan", "0", "-3", "1e-300", "nope"):
+            os.environ[fc.FALLBACK_SETTING] = bad
+            assert fc.usd_per_pct_setting(None) is None and fc.usd_per_pct_invalid(None) == bad, bad
+        os.environ[fc.FALLBACK_SETTING] = "20"
+        assert fc.usd_per_pct_setting(None) == 20.0 and fc.usd_per_pct_invalid(None) is None
+    finally:
+        os.environ.pop(fc.FALLBACK_SETTING, None)
+        if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
+
+
+def test_a_bad_usd_per_pct_gives_no_fallback_valid_json_and_a_named_message():   # #746
+    with tmp() as d:
+        events = os.path.join(d, "events.jsonl")
+        with open(events, "w") as fh:
+            for e in lane_events(W, 1, "s1", usage={"claude-opus-5-5": {"input": 0, "output": 50000, "cache_create": 0, "cache_read": 0}}):
+                fh.write(json.dumps(e) + "\n")
+        bodies = os.path.join(d, "bodies.json")
+        with open(bodies, "w") as fh:
+            json.dump([], fh)
+        cfgs = os.path.join(d, "cfg")
+        os.makedirs(cfgs)
+        saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+        try:
+            for bad in ("inf", "nan", "1e-300", "0", "-4", "nope"):
+                os.environ[fc.FALLBACK_SETTING] = bad
+                _, js, err = run_cli(["3", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfgs)
+                assert "Infinity" not in js and "NaN" not in js, (bad, js)
+                f = json.loads(js, parse_constant=lambda c: (_ for _ in ()).throw(AssertionError(c)))
+                assert f["calibration"]["fallback"] is None and f["calibration"]["invalid"] == bad, (bad, f["calibration"])
+                assert f["pct"] is None, (bad, f["pct"])
+                assert f"HARNESS_ONE_USD_PER_PCT={bad} is invalid" in err, (bad, err)
+                _, text, _ = run_cli(["3", "-R", W, "--events", events, "--bodies", bodies], cfgs)
+                assert f"HARNESS_ONE_USD_PER_PCT={bad} invalid" in text and "unset" not in text, (bad, text)
+            os.environ.pop(fc.FALLBACK_SETTING)
+            _, js, err = run_cli(["3", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfgs)
+            assert json.loads(js)["calibration"]["invalid"] is None and "invalid" not in err, (js, err)
+        finally:
+            os.environ.pop(fc.FALLBACK_SETTING, None)
+            if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
+
+
 def test_repo_value_must_be_owner_name_in_every_form():
     with tmp() as d:
         cfg, events, bodies = fixture(d)

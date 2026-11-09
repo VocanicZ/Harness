@@ -112,6 +112,9 @@ def p80_pct(fc, account, window):
     p80 = (fc.get("total") or {}).get("p80")
     if usd and p80 is not None:
         return round(float(p80) / float(usd), 2), "fallback"
+    bad = (fc.get("calibration") or {}).get("invalid")   # set but unusable (#746): name it, not "unset"
+    if bad is not None:
+        return None, f"no $-per-% calibration and HARNESS_ONE_USD_PER_PCT={bad} invalid"
     return None, "no $-per-% calibration and HARNESS_ONE_USD_PER_PCT unset"
 
 

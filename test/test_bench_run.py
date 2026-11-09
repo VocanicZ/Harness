@@ -284,6 +284,11 @@ def test_a_non_finite_usage_reading_or_usd_per_pct_refuses(e):   # #709
     for bad in ("inf", "nan"):
         p = e.run("stub", "--dry-run", "--expected-usd", "5", extra_env={"HARNESS_ONE_USD_PER_PCT": bad})
         assert p.returncode == 3 and "REFUSED" in p.stderr, (bad, p.stdout, p.stderr)
+    # a set but unusable value is "invalid" and named, never "unset" (#746); a tiny one is refused too
+    for bad in ("inf", "nan", "1e-300", "0", "-2", "nope"):
+        p = e.run("stub", "--dry-run", "--expected-usd", "5", extra_env={"HARNESS_ONE_USD_PER_PCT": bad})
+        assert p.returncode == 3 and f"HARNESS_ONE_USD_PER_PCT={bad} invalid" in p.stderr, (bad, p.stdout, p.stderr)
+        assert "unset" not in p.stderr, (bad, p.stderr)
 
 
 @with_env(usage_pct=None)

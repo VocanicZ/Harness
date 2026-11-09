@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `HARNESS_ONE_USD_PER_PCT=inf` (or a tiny value) no longer makes the forecast read 0% and the one gate approve (#746)
+
+- `inf` priced every window at 0.00%, put `Infinity` (not valid JSON) in `harness forecast --json` and let `harness one gate`
+  approve with "p80 0% (fallback)". The setting must now be a finite number of at least `0.01` $ per 1%; `inf`, `nan`, `0`,
+  a negative, a tiny value such as `1e-300` and non-numeric text are all invalid. An invalid value is ignored, warned about on
+  stderr by `harness forecast`, recorded as `calibration.invalid` in its JSON, and named as `HARNESS_ONE_USD_PER_PCT=<value>
+  invalid` by the forecast text, the one gate and the `bench/run.py` guard, which used to call a bad value "unset".
+
 ### An idle lane whose goal stays pending no longer calls gh every 15s (#721)
 
 - Since #594 the short tend tick made one live `gh issue view` per idle lane per tick while the goal stayed pending
