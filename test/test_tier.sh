@@ -135,6 +135,55 @@ SH
 assert_eq "$(H tier overlap -R acme/widget --base main --repo-dir "$R" --files src/a.py >/dev/null; echo $?)" 0 "no open lane or PR -> clear even for a file a closed lane touched"
 assert_eq "$(H tier overlap --files src/a.py >/dev/null 2>&1; echo $?)" 2 "no repo -> exit 2, not a silent clear"
 
+# ── a gh or git call that fails is "could not check" (exit 3), never "clear" (#708) ─────────────
+# FAIL names the gh subcommand that fails ("pr list", "issue list", "pr diff", or "all"); the rest answer as before.
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+sub="$1 $2"
+if [[ "$FAIL" == all || "$FAIL" == "$sub" ]]; then echo "API rate limit exceeded" >&2; exit 1; fi
+case "$sub" in
+  "issue list") echo '[{"number":7}]';;
+  "pr list")    echo '[{"number":3,"headRefName":"other"}]';;
+  "pr diff")    echo docs/c.md;;
+  *) exit 1;;
+esac
+SH
+unchecked(){   # unchecked <label> <expected command text> <overlap args…>: text + --json both report "could not check"
+  local label="$1" want="$2"; shift 2
+  local err rc out
+  err="$(H tier overlap "$@" 2>&1 >"$T/out.txt")"; rc=$?; out="$(cat "$T/out.txt")"
+  assert_eq "$rc" 3 "$label -> exit 3 (not 0 clear, not 1 overlap)"
+  assert_ok "$label: stderr names the failed command" grep -qF -- "$want" <<<"$err"
+  assert_no "$label: never says the direct path is clear" grep -qi 'is clear' <<<"$out$err"
+  err="$(H tier overlap "$@" --json 2>/dev/null)"; rc=$?
+  assert_eq "$rc" 3 "$label --json -> exit 3"
+  assert_ok "$label --json: an error field, overlap is not false" \
+    test "$(jq_ '("error" in d) and d["overlap"] is not False and d["hits"]==[]' <<<"$err")" = True
+}
+ovargs=(-R acme/widget --base main --repo-dir "$R" --files src/z.py)
+FAIL="pr list"    unchecked "gh pr list fails"    'gh pr list'    "${ovargs[@]}"
+FAIL="issue list" unchecked "gh issue list fails" 'gh issue list' "${ovargs[@]}"
+FAIL="pr diff"    unchecked "gh pr diff fails"    'gh pr diff'    "${ovargs[@]}"
+FAIL=all          unchecked "every gh call fails" 'gh pr list'    "${ovargs[@]}"
+FAIL=none         unchecked "git worktree list fails (not a git dir)" 'git worktree list' \
+                  -R acme/widget --base main --repo-dir "$T" --files src/z.py
+FAIL=none         unchecked "git diff fails (base ref missing)" 'git diff' \
+                  -R acme/widget --base nosuchbase --repo-dir "$R" --files src/z.py
+FAIL=none assert_eq "$(H tier overlap "${ovargs[@]}" >/dev/null 2>&1; echo $?)" 0 "the same stub, nothing failing -> clear, exit 0"
+# a lane whose branch does not exist yet owns no files — that is not a failure
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in "issue list") echo '[{"number":99}]';; *) echo '[]';; esac
+SH
+assert_eq "$(H tier overlap "${ovargs[@]}" >/dev/null 2>&1; echo $?)" 0 "agent-working issue with no branch yet -> clear, not an error"
+# -R must be owner/name in every form
+for bad in -x =-x x a/ /b 'a b/c' 'a/b/c'; do
+  assert_eq "$(H tier overlap --files a -R="$bad" >/dev/null 2>&1; echo $?)" 2 "-R=$bad -> usage error, exit 2"
+done
+assert_eq "$(H tier overlap --files a -R -x >/dev/null 2>&1; echo $?)" 2 "-R -x -> usage error, exit 2"
+assert_eq "$(H tier overlap --files a -R nonsense >/dev/null 2>&1; echo $?)" 2 "-R nonsense -> usage error, exit 2"
+assert_eq "$(HARNESS_REPO=nonsense H tier overlap --files a >/dev/null 2>&1; echo $?)" 2 "HARNESS_REPO=nonsense -> exit 2"
+
 # ── the skills run the check first ──────────────────────────────────────────────────────────────
 S="$ROOT/skill/SKILL.md"
 SEC="$(awk '/^## When to use Harness/{f=1;next} f&&/^## /{exit} f' "$S")"
