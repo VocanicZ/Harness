@@ -289,4 +289,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import pipesafe   # #713: a closed stdout ends the command quietly
+    sys.exit(pipesafe.run(main))

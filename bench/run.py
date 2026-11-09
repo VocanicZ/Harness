@@ -1151,4 +1151,4 @@ def verify_logs(fc, st, doc, logs):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_load("pipesafe").run(main))   # #713: a closed stdout ends the command quietly

@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `forecast.py`, `tier.py` and `bench/run.py` end quietly when the reader closes the pipe (#713)
+
+- `harness forecast … | true`, `harness tier decide … | true`, `tier.py thresholds | true` and `bench/run.py … --dry-run | true`
+  printed `Exception ignored on flushing sys.stdout: BrokenPipeError` on stderr and exited 120 (`| head -1` only passed
+  because the output fit in the pipe buffer). All three now run through one shared helper, `scripts/pipesafe.py`, the same
+  way `harness stats` already did (#671): a closed stdout ends the command with no message and the status `main` returned.
+
 ### `harness stats` prices 1-hour cache writes at the 1-hour rate (#710)
 
 - `usage_cost` priced every folded `cache_create` token at the 5-minute write rate (1.25× input), so a session that wrote
