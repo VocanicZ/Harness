@@ -178,9 +178,10 @@ def held_accounts(rdir):
     return out
 
 
-def usage_readings():
+def usage_readings(rejected=None):
     """[(account, window, pct, resets_at)] from the fleet's usage seam: HARNESS_USAGE_CMD if set, else
-    the CLI adapter's cli_limit_usage. [] when usage is unavailable."""
+    the CLI adapter's cli_limit_usage. [] when usage is unavailable. A percentage outside 0-100 is no reading
+    (#757): it is left out, and appended to `rejected` as (account, window, text) when a list is passed."""
     cmd = os.environ.get("HARNESS_USAGE_CMD")
     bash = _load("portable").bash_exe()   # #609: not the bare name — on Windows that is WSL's bash
     argv = [bash, "-c", cmd] if cmd else [
@@ -195,6 +196,10 @@ def usage_readings():
     for line in p.stdout.split("\n"):   # #714: only \n ends a line; splitlines() also cut at \f, U+2028 and friends
         f = line.removesuffix("\r").removeprefix("﻿").split("\t")   # CRLF; #678: a BOM at any line start is not part of the account name
         if len(f) >= 3 and f[0] and _finite(_num(f[2])):   # nan/inf is no reading (#709)
+            if not 0 <= _num(f[2]) <= 100:   # -5 or 140 is no percentage of a window (#757)
+                if rejected is not None:
+                    rejected.append((f[0], f[1], f[2].strip()))
+                continue
             out.append((f[0], f[1], _num(f[2]), f[3] if len(f) > 3 else ""))
     return out
 
@@ -288,7 +293,12 @@ def guard(a, fc, st):
         d["reasons"].append(f"account {acct} is usage-HELD ({win or '?'} window at {pct or '?'}%): "
                             "the fleet claims nothing until it resets")
         d["causes"].append("held")
-    reads = [r for r in usage_readings() if WEEKLY.search(r[1] or "")]
+    bad_reads = []
+    reads = [r for r in usage_readings(bad_reads) if WEEKLY.search(r[1] or "")]
+    for acct, win, text in bad_reads:
+        if WEEKLY.search(win or ""):
+            d["reasons"].append(f"usage reading {text} for {acct} {win} is outside 0-100%: refused as no reading")
+            d["causes"].append("no-usage-reading")
     if not reads:
         d["reasons"].append("no weekly usage reading: cannot show the run fits the window")
         d["causes"].append("no-usage-reading")

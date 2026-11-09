@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The bench usage guard refuses a usage reading outside 0-100 (#757)
+
+- A usage command reporting `-5`% was accepted and the guard did its arithmetic with it (`-5% + 16% ...`), as it would
+  with `140`%. A weekly reading below 0 or above 100 is now refused like an unparseable one (exit 3, or
+  `skipped: no-usage-reading` for an `--optional` arm), and the guard names it: `usage reading -5 for acct seven_day is
+  outside 0-100%`. `test/test_bench_run.py` covers a negative and an over-100 reading.
+
 ### `harness stats` and the bench usage guard escape line separators and control characters in names (#756)
 
 - A U+2028 (or U+2029, U+0085, a form feed or another control character) inside a fleet prefix, a repo name or an account

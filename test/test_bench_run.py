@@ -291,6 +291,21 @@ def test_a_non_finite_usage_reading_or_usd_per_pct_refuses(e):   # #709
         assert "unset" not in p.stderr, (bad, p.stderr)
 
 
+@with_env(usage_pct="10")
+def test_a_usage_reading_outside_0_100_is_refused_naming_the_value(e):   # #757
+    for bad in ("-5", "-0.5", "100.5", "140"):
+        e.env["HARNESS_USAGE_CMD"] = f"printf 'acct\\tseven_day\\t{bad}\\t0\\n'"
+        p = e.run("stub", "--dry-run")
+        assert p.returncode == 3 and "REFUSED" in p.stderr, (bad, p.stdout, p.stderr)
+        assert f"usage reading {bad} for acct seven_day is outside 0-100%" in p.stderr, (bad, p.stderr)
+        assert "-5% +" not in p.stderr and "% now" not in p.stderr, (bad, p.stderr)   # no arithmetic on it
+    # the bounds themselves are readings
+    for ok in ("0", "100"):
+        e.env["HARNESS_USAGE_CMD"] = f"printf 'acct\\tseven_day\\t{ok}\\t0\\n'"
+        p = e.run("stub", "--dry-run")
+        assert "outside 0-100" not in p.stderr, (ok, p.stderr)
+
+
 @with_env(usage_pct=None)
 def test_guard_refuses_without_a_usage_reading(e):
     e.env["HARNESS_USAGE_CMD"] = "exit 1"
