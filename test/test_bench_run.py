@@ -230,6 +230,52 @@ def test_guard_refuses_when_forecast_headroom_is_short(e):
     assert e.run("stub", "--dry-run", "--expected-usd", "47").returncode == 3
 
 
+@with_env(usage_pct="97")
+def test_a_negative_nan_inf_or_non_numeric_budget_is_a_usage_error_never_a_pass(e):   # #709
+    for opt in ("--expected-usd", "--cost-cap-usd"):
+        for bad in ("-50", "-0.01", "nan", "NaN", "inf", "-inf", "1e999", "ten", ""):
+            p = e.run("stub", "--dry-run", opt + "=" + bad)
+            assert p.returncode == 2 and opt in p.stderr and "bench guard" not in p.stdout, (opt, bad, p.returncode, p.stdout, p.stderr)
+    assert e.calls() == [] and not os.path.exists(e.results)
+    # a real overspend is still a guard refusal (exit 3), not a usage error
+    assert e.run("stub", "--dry-run", "--expected-usd=10").returncode == 3
+
+
+@with_env(usage_pct="50")
+def test_a_zero_expected_budget_is_accepted(e):   # #709
+    assert e.run("stub", "--dry-run", "--expected-usd", "0").returncode == 0
+
+
+@with_env(usage_pct="10")
+def test_a_bad_numeric_env_knob_refuses_the_run(e):   # #709
+    assert e.run("stub", "--dry-run").returncode == 0
+    for name, bad in (("HARNESS_ONE_STOP_PCT", "nan"), ("HARNESS_ONE_STOP_PCT", "inf"), ("HARNESS_ONE_STOP_PCT", "-5"),
+                      ("HARNESS_ONE_STOP_PCT", "250"), ("HARNESS_ONE_STOP_PCT", "high"),
+                      ("HARNESS_ONE_RESERVE_PCT", "nan"), ("HARNESS_ONE_RESERVE_PCT", "-50"),
+                      ("HARNESS_ONE_RESERVE_PCT", "inf"), ("BENCH_MIN_FREE_GB", "nan"), ("BENCH_MIN_FREE_GB", "-1")):
+        p = e.run("stub", "--dry-run", extra_env={name: bad})
+        assert p.returncode == 3 and "REFUSED" in p.stderr and name in p.stderr, (name, bad, p.returncode, p.stdout, p.stderr)
+        assert e.calls() == [] and not os.path.exists(e.results)
+    # an optional arm records the refusal as a skip, with the cause
+    p = e.run("stub", "--optional", extra_env={"HARNESS_ONE_STOP_PCT": "nan"})
+    assert p.returncode == 0 and e.result()["status"] == "skipped" and e.result()["reason"] == "bad-setting", (p.stdout, p.stderr)
+    assert bench_run.validate(e.result()) == []
+    # a valid value is still honoured, an empty one is the default
+    assert e.run("stub", "--dry-run", extra_env={"HARNESS_ONE_STOP_PCT": "100"}).returncode == 0
+    assert e.run("stub", "--dry-run", extra_env={"HARNESS_ONE_STOP_PCT": ""}).returncode == 0
+
+
+@with_env(usage_pct="97")
+def test_a_non_finite_usage_reading_or_usd_per_pct_refuses(e):   # #709
+    e.env["HARNESS_USAGE_CMD"] = "printf 'acct\\tseven_day\\tnan\\t0\\n'"
+    p = e.run("stub", "--dry-run")
+    assert p.returncode == 3 and "no weekly usage reading" in p.stderr, (p.stdout, p.stderr)
+    e.env["HARNESS_USAGE_CMD"] = "printf 'acct\\tseven_day\\t10\\t0\\n'"
+    for bad in ("inf", "nan"):
+        p = e.run("stub", "--dry-run", "--expected-usd", "5", extra_env={"HARNESS_ONE_USD_PER_PCT": bad})
+        assert p.returncode == 3 and "REFUSED" in p.stderr, (bad, p.stdout, p.stderr)
+
+
 @with_env(usage_pct=None)
 def test_guard_refuses_without_a_usage_reading(e):
     e.env["HARNESS_USAGE_CMD"] = "exit 1"
