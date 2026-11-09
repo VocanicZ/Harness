@@ -79,6 +79,11 @@ def test_list_price_per_model_and_cache_split():
     # the folded usage stats.py / a CLI adapter's usage_tsv writes (#188)
     assert fc.usage_cost({"claude-sonnet-5-5": {"input": MTOK, "output": MTOK, "cache_create": MTOK,
                                                 "cache_read": MTOK}}) == 2 + 10 + 2.5 + 0.2
+    # #710: `cache_create_1h` is the 1h share of cache_create, priced at the 1h rate; the rest at 5m
+    assert fc.usage_cost({"opus": {"cache_create": 2 * MTOK, "cache_create_1h": MTOK}}) == 5 + 8
+    assert fc.usage_cost({"opus": {"cache_create": MTOK, "cache_create_1h": MTOK}}) == 8
+    assert fc.usage_cost({"opus": {"cache_create": MTOK}}) == 5, "no split: all 5m (documented default)"
+    assert fc.usage_cost({"opus": {"cache_create": MTOK, "cache_create_1h": 3 * MTOK}}) == 8, "1h capped at the total"
 
 
 def test_price_table_per_family_and_generation_pinned():
