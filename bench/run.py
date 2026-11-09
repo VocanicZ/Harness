@@ -107,10 +107,16 @@ def now_iso(t=None):
 
 
 def _num(v, default=None):
-    try:
-        return float(v)
-    except (TypeError, ValueError):
+    """float of `v` only when it is ASCII decimal digits with an optional `-` sign and decimal point (surrounding
+    whitespace is fine), else `default`. float() alone also takes `1_0`, `+5` and full-width digits, so a
+    setting or usage reading could be a different number than the one typed (#835). nan, inf and exponents are
+    not decimal numbers here: they are `default`, which every caller already treats as unusable."""
+    if not isinstance(v, str):
         return default
+    s = v.strip()
+    if not _ASCII_DECIMAL.fullmatch(s):
+        return default
+    return float(s)
 
 
 def _finite(v):

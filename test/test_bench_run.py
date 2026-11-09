@@ -286,6 +286,25 @@ def test_a_bad_numeric_env_knob_refuses_the_run(e):   # #709
     assert e.run("stub", "--dry-run", extra_env={"HARNESS_ONE_STOP_PCT": ""}).returncode == 0
 
 
+@with_env(usage_pct="10")
+def test_the_env_knobs_and_usage_pct_take_only_ascii_decimal_numbers(e):   # #835
+    forms = ("1_0", "+5", "\uff15", "\uff15\uff10", "1\uff10")
+    for name in ("HARNESS_ONE_STOP_PCT", "HARNESS_ONE_RESERVE_PCT", "BENCH_MIN_FREE_GB"):
+        for bad in forms:
+            p = e.run("stub", "--dry-run", extra_env={name: bad})
+            assert p.returncode == 3 and "REFUSED" in p.stderr and f"{name}=" in p.stderr, (name, bad, p.returncode, p.stderr)
+            assert e.calls() == [] and not os.path.exists(e.results)
+    # a plain ASCII value still works
+    assert e.run("stub", "--dry-run", extra_env={"HARNESS_ONE_STOP_PCT": "99.5"}).returncode == 0
+    # a usage pct in those forms is no reading: the guard has nothing to go on and refuses
+    for bad in forms:
+        e.env["HARNESS_USAGE_CMD"] = f"printf 'acct\\tseven_day\\t{bad}\\t0\\n'"
+        p = e.run("stub", "--dry-run")
+        assert p.returncode == 3 and "no weekly usage reading" in p.stderr, (bad, p.returncode, p.stderr)
+    assert bench_run._num("1_0") is None and bench_run._num("+5") is None and bench_run._num("\uff15") is None
+    assert bench_run._num(" 12.5 ") == 12.5 and bench_run._num("-3") == -3 and bench_run._num(".5") == 0.5
+
+
 @with_env(usage_pct="97")
 def test_a_non_finite_usage_reading_or_usd_per_pct_refuses(e):   # #709
     e.env["HARNESS_USAGE_CMD"] = "printf 'acct\\tseven_day\\tnan\\t0\\n'"
