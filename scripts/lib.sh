@@ -457,9 +457,10 @@ launch_backoff_clear(){ rm -f "$(_launchfail_file "$1")"; }
 # launch_backoff_active <key> — the lane failed to launch and its backoff has not run out.
 # _launch_knob <NAME> <default> — #759: the knob's value when it is a non-negative integer, else the default, with a
 # one-time warning (a marker per knob and value in $RUN_DIR, as this runs in $(…) subshells; on stderr, stdout is captured).
-_launch_knob(){ local name="$1" def="$2" v m; v="${!name:-}"
+_launch_knob(){ local name="$1" def="$2" v m n; v="${!name:-}"
   if [[ -z "$v" ]]; then echo "$def"; return 0; fi
-  if [[ "$v" =~ ^[0-9]+$ ]]; then echo "$((10#$v))"; return 0; fi
+  # #800: at most 6 significant digits and <= 86400 (one day): a longer value wrapped in $((10#v)) / base<<n and inverted the setting.
+  if [[ "$v" =~ ^[0-9]+$ ]]; then n="${v#"${v%%[!0]*}"}"; (( ${#n} <= 6 )) && (( 10#${n:-0} <= 86400 )) && { echo "$((10#${n:-0}))"; return 0; }; fi
   m="$RUN_DIR/launchknob.$name.$(printf %s "$v" | cksum | cut -d' ' -f1)"
   if [[ ! -e "$m" ]]; then : > "$m" 2>/dev/null || true
     log "WARN $name='$v' is not a non-negative integer — using the default $def" >&2; fi

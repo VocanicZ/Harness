@@ -380,9 +380,12 @@ worker_short_step(){ local wid="$1" UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_
 # tend_knobs — #782: HARNESS_TEND_TICK / HARNESS_TEND_IDLE_TICKS feed bash arithmetic, so a value that is not a
 # non-negative integer (abc, 15s, -5, empty) is replaced in place by its default (15 / 3) with a warning naming the
 # knob and value. In place -> the warning comes once per process; a valid value (0 included) is left as it is.
-tend_knobs(){ local k def v
+tend_knobs(){ local k def v n
   for k in "HARNESS_TEND_TICK 15" "HARNESS_TEND_IDLE_TICKS 3"; do set -- $k; k="$1"; def="$2"; v="${!k-}"
-    [[ "$v" =~ ^[0-9]+$ ]] && { printf -v "$k" %s "$((10#$v))"; continue; }
+    # #800: IDLE_TICKS above 86400 (or over 6 significant digits) wrapped in $((10#v)) and turned the idle guard off; TEND_TICK keeps its #799 overflow meaning
+    if [[ "$v" =~ ^[0-9]+$ ]]; then n="${v#"${v%%[!0]*}"}"
+      if [[ "$k" == HARNESS_TEND_TICK ]]; then printf -v "$k" %s "$((10#$v))"; continue; fi
+      (( ${#n} <= 6 )) && (( 10#${n:-0} <= 86400 )) && { printf -v "$k" %s "$((10#${n:-0}))"; continue; }; fi
     log "WARN $k='$v' is not a non-negative integer — using the default $def" >&2; printf -v "$k" %s "$def"; done; }
 worker_step(){ local wid="$1" rc
   _WORKER_ID="$wid"

@@ -168,6 +168,38 @@ setup; NOW="$(command date +%s)"; touch -d "2 minutes ago" "$T/gr"
 HARNESS_LAUNCH_FAIL_SECS=0 launch_grace_live "$T/gr"; assert_eq "$?" "1" "FAIL_SECS=0 is a valid number: no grace at all"
 HARNESS_LAUNCH_FAIL_SECS=010 launch_grace_live "$T/gr"; assert_eq "$?" "1" "FAIL_SECS=010 reads as decimal 10, not octal: a 2-minute-old worktree is out of grace"
 
+echo "== 4d. #800: an oversized HARNESS_LAUNCH_BACKOFF / _MAX / _FAIL_SECS no longer wraps in bash arithmetic; it falls back to the default and warns once =="
+setup; log(){ echo "LOG $*"; }
+for big in 9223372036854775807 9223372036854775808 99999999999999999999 18446744073709551616 86401 0000000000000000000000000000090; do
+  rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; t0=$NOW
+  NOW=$((t0 + 1)); err="$( HARNESS_LAUNCH_BACKOFF="$big" launch_backoff_active impl-7 2>&1 >/dev/null )"
+  HARNESS_LAUNCH_BACKOFF="$big" launch_backoff_active impl-7 2>/dev/null; rc=$?
+  if [[ "$big" == 0000000000000000000000000000090 ]]; then
+    assert_eq "$rc" "0" "BACKOFF='$big': leading zeros are not digits that count; reads as 90, still held back at 1s"
+    assert_eq "$err" "" "…and no warning"
+    NOW=$((t0 + 91)); HARNESS_LAUNCH_BACKOFF="$big" launch_backoff_active impl-7 2>/dev/null; assert_eq "$?" "1" "…over after 90s"
+    continue
+  fi
+  assert_eq "$rc" "0" "BACKOFF='$big': a launch that failed 1s ago is still held back (default 60s)"
+  assert_ok "…with a warning naming the knob and value" grep -q "WARN HARNESS_LAUNCH_BACKOFF='$big' is not a non-negative integer — using the default 60" <<<"$err"
+  assert_eq "$(HARNESS_LAUNCH_BACKOFF="$big" launch_backoff_active impl-7 2>&1 >/dev/null)" "" "…the warning is logged once"
+  NOW=$((t0 + 61)); HARNESS_LAUNCH_BACKOFF="$big" launch_backoff_active impl-7 2>/dev/null; assert_eq "$?" "1" "…and it is over after the default 60s"
+  rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; launch_backoff_mark impl-7; launch_backoff_mark impl-7; launch_backoff_mark impl-7; t0=$NOW
+  NOW=$((t0 + 400)); err="$( HARNESS_LAUNCH_BACKOFF_MAX="$big" launch_backoff_active impl-7 2>&1 >/dev/null )"
+  HARNESS_LAUNCH_BACKOFF_MAX="$big" launch_backoff_active impl-7 2>/dev/null; assert_eq "$?" "0" "BACKOFF_MAX='$big': falls back to 900; the 480s wait still holds at 400s"
+  assert_ok "…with a warning naming the knob" grep -q "WARN HARNESS_LAUNCH_BACKOFF_MAX='$big' is not a non-negative integer — using the default 900" <<<"$err"
+  setup; log(){ echo "LOG $*"; }
+  SESSF="$(sess_impl "$UNIT" 7)"; session_live(){ return 1; }
+  echo "$((NOW - 2)) uuid-f" > "$RUN_DIR/$SESSF.launched"
+  err="$( HARNESS_LAUNCH_FAIL_SECS="$big" launch_gone_check "$SESSF" impl issue=7 2>&1 >/dev/null )"
+  assert_eq "$(evs | grep -c launch_failed)" "1" "FAIL_SECS='$big': a lane gone 2s after launch is still launch_failed"
+  assert_ok "…with one warning naming the knob" grep -q "WARN HARNESS_LAUNCH_FAIL_SECS='$big' is not a non-negative integer — using the default 30" <<<"$err"
+  echo "$((NOW - 40)) uuid-f" > "$RUN_DIR/$SESSF.launched"; rm -f "$RUN_DIR/launchfail.impl-7"
+  HARNESS_LAUNCH_FAIL_SECS="$big" launch_gone_check "$SESSF" impl issue=7 2>/dev/null
+  assert_no "…and a lane that ran 40s is no launch failure (default 30)" test -e "$RUN_DIR/launchfail.impl-7"
+done
+assert_eq "$(HARNESS_LAUNCH_FAIL_SECS=86400 _launch_knob HARNESS_LAUNCH_FAIL_SECS 30 2>&1)" "86400" "the cap itself (one day) is accepted"
+
 echo "== 5. a lane that ran past 30s is a plain reap =="
 setup
 SESS9="$(sess_impl "$UNIT" 9)"; echo "$((NOW - 400)) uuid-9" > "$RUN_DIR/$SESS9.launched"
