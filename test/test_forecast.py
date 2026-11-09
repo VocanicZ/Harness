@@ -464,6 +464,25 @@ def test_fallback_alone_and_the_setting_from_config():
             if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
 
 
+def test_repo_value_must_be_owner_name_in_every_form():
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for argv in (["--repo=-x"], ["--repo=x"], ["--repo="], ["-R", "-x"], ["--repo", "x"], ["-R=x"], ["-Rx"]):
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    run_cli(["5"] + argv + ["--events", events, "--bodies", bodies], cfg)
+                rc = None
+            except SystemExit as e:
+                rc = e.code
+            assert rc == 2, (argv, rc)
+        for v in ("-x", "x", ""):   # the message, from the real script
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "5", "--repo=" + v,
+                                "--events", events, "--bodies", bodies], capture_output=True, text=True)
+            assert r.returncode == 2 and "expected owner/name" in r.stderr, (v, r.returncode, r.stderr)
+        rc, _, _ = run_cli(["50", "--repo=" + W, "--events", events, "--bodies", bodies, "--json"], cfg)
+        assert rc == 0, rc
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
