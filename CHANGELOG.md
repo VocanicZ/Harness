@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `bench/run.py` refuses a time option above `threading.TIMEOUT_MAX` (#858)
+
+- `--poll-secs`, `--grace-secs` and `--progress-poll-secs` (and `--wall-cap-secs`) passed the dry run with any finite value, then a live run
+  crashed mid-arm when `Thread.join` raised `OverflowError`. A value above `threading.TIMEOUT_MAX` (about 9.2e9 seconds) is now a usage error
+  (exit 2) that names the limit. `test_bench_run.py` covers each option.
+
 ### `harness tier decide` rejects tier.toml amounts whose estimate overflows to infinity (#856)
 
 - Each `[estimate]` amount was checked alone, so `direct_usd_base = 1e308` plus `direct_usd_per_criterion = 1e308` passed, summed to infinity, and printed

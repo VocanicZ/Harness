@@ -155,10 +155,13 @@ def _usd_arg(text):
 def _secs_arg(text):
     """argparse type for a time option in seconds: a finite number above zero. nan, inf, zero, a negative and a word
     are usage errors (exit 2): nan or inf would keep the wall cap from ever firing, nan makes Thread.join raise
-    mid-run, and a zero or negative poll busy-polls (#747)."""
+    mid-run, and a zero or negative poll busy-polls (#747). A value above threading.TIMEOUT_MAX (about 9.2e9, 292
+    years) passes the dry run but makes Thread.join raise OverflowError mid-run, so it is a usage error too (#858)."""
     v = _ascii_float(text)
     if not math.isfinite(v) or v <= 0:
         raise argparse.ArgumentTypeError(f"{text!r} must be a finite number above zero")
+    if v > threading.TIMEOUT_MAX:
+        raise argparse.ArgumentTypeError(f"{text!r} is too large: at most {threading.TIMEOUT_MAX:g} seconds")
     return v
 
 
