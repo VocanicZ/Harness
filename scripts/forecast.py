@@ -694,7 +694,15 @@ def main(argv=None):
     ap.add_argument("--events", help=argparse.SUPPRESS)
     ap.add_argument("--bodies", help=argparse.SUPPRESS)   # test seam: gh `issue list --json number,body` output
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
-    events = st.load_events(a.events)
+    err = st._explicit_log_error(a.events)   # #785: a typo'd path is not an empty fleet (as `harness stats`, #758)
+    if err:
+        print(f"harness forecast: --events {err}", file=sys.stderr)
+        return 2
+    bad = [0]
+    events = st.load_events(a.events, bad)
+    if bad[0]:   # #785: spend in an unparseable line is missing from the forecast's basis — say so, on stderr
+        print(f"harness forecast: skipped {bad[0]} event line(s) that could not be parsed; the forecast excludes them",
+              file=sys.stderr)
     try:
         repo, unit = resolve_repo(a.issue, a.repo, a.unit, events, os.environ.get("STATE_DIR"))
     except ValueError as e:

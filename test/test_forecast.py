@@ -604,6 +604,37 @@ def test_issue_number_below_one_is_a_usage_error():
         assert rc == 0, rc
 
 
+def test_explicit_events_path_that_is_missing_or_a_directory_is_an_error_not_no_events():   # #785
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for name, path in (("missing", os.path.join(d, "nope.jsonl")), ("directory", d)):
+            rc, out, err = run_cli(["50", "-R", W, "--events", path, "--bodies", bodies], cfg)
+            assert rc == 2 and out == "" and path in err and err.count("\n") == 1, (name, rc, out, err)
+            assert err.startswith("harness forecast: --events "), (name, err)
+        rc, _, err = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfg)
+        assert rc == 0 and err == "", (rc, err)
+        saved = os.environ.get("HARNESS_EVENTS_FILE")   # the default file, absent: still "no events", not an error
+        os.environ["HARNESS_EVENTS_FILE"] = os.path.join(d, "default-absent.jsonl")
+        try:
+            rc, _, err = run_cli(["50", "-R", W, "--bodies", bodies, "--json"], cfg)
+        finally:
+            if saved is None: os.environ.pop("HARNESS_EVENTS_FILE", None)
+            else: os.environ["HARNESS_EVENTS_FILE"] = saved
+        assert rc == 1 and "no past lanes" in err and "--events" not in err, (rc, err)
+
+
+def test_unparseable_event_lines_are_counted_on_stderr():   # #785
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        rc, js, err = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfg)
+        assert rc == 0 and "skipped" not in err, (rc, err)
+        with open(events, "a") as fh:
+            fh.write("{torn\n")
+        rc2, js2, err2 = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfg)
+        assert rc2 == 0 and "skipped 1 event line(s)" in err2 and err2.count("\n") == 1, (rc2, err2)
+        assert json.loads(js2) == json.loads(js), "the forecast itself is unchanged"
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
