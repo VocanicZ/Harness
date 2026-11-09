@@ -537,6 +537,33 @@ def test_config_value_ignores_a_leading_utf8_bom():   # #859
         assert fc.config_value(d, "HARNESS_ONE_USD_PER_PCT") == "43"
 
 
+def test_config_value_reads_every_assignment_form_and_the_last_wins():   # #877
+    N = "HARNESS_ONE_USD_PER_PCT"
+    cases = (
+        (f'{N}=0.5\n', "0.5"),
+        (f'export {N}=0.5\n', "0.5"),
+        (f': "${{{N}:=0.5}}"\n', "0.5"),
+        (f'{N}="0.5"\n', "0.5"),
+        (f"{N}='0.5'\n", "0.5"),
+        (f'export {N}="0.5"\n', "0.5"),
+        (f'  {N}=0.5   # note\n', "0.5"),
+        (f'{N}=1\nexport {N}=2\n: "${{{N}:=3}}"\n{N}=0.5\n', "0.5"),
+        (f': "${{{N}:=3}}"\n{N}=0.5\n', "0.5"),
+        ('OTHER=9\n', None),
+    )
+    for text, want in cases:
+        with tmp() as d:
+            with open(os.path.join(d, "config"), "w") as fh:
+                fh.write(text)
+            assert fc.config_value(d, N) == want, (text, want, fc.config_value(d, N))
+            saved = os.environ.pop(N, None)
+            try:
+                got = fc.usd_per_pct_setting(d)
+            finally:
+                if saved is not None: os.environ[N] = saved
+            assert got == (float(want) if want else None), (text, got)
+
+
 def test_usd_per_pct_rejects_non_finite_tiny_and_bad_values_and_names_them():   # #746
     for raw in ("inf", "-inf", "Infinity", "nan", "1e999", "0", "0.0", "-5", "1e-300", "0.001", "nope", "1,5",
                 "1_0", "+5", "\uff15", "\uff11\uff10", "\u0665", "1__0", "1.2.3", "5 ", "1e3", "."):   # #834

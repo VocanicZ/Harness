@@ -582,13 +582,10 @@ def render_pct(f):
 
 
 def config_value(state_dir, name):
-    """A `: "${NAME:=value}"` setting from the project's .harness/config, or None."""
-    try:
-        with open(os.path.join(state_dir, "config"), encoding="utf-8-sig", errors="replace") as fh:   # #859
-            m = re.search(r'\b' + re.escape(name) + r':=([^}"]*)', fh.read())
-    except (OSError, TypeError):
-        return None
-    return m.group(1) if m else None
+    """A `NAME=value`, `export NAME=value` or `: "${NAME:=value}"` setting from the project's .harness/config
+    (quoted or not; the last assignment wins, as when bash sources it), or None (#877). Same reader as
+    stats.read_config (#466, #859)."""
+    return st.read_config(state_dir, (re.escape(name),)).get(name)
 
 
 USD_PER_PCT_RE = re.compile(r"(?:[0-9]+\.?[0-9]*|\.[0-9]+)")   # ASCII digits, an optional single dot (#834)
