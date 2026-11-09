@@ -35,6 +35,9 @@ environment, else the project config), and the output says so; with neither, % i
 """
 import bisect, importlib.util, json, math, os, re, subprocess, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import portable  # noqa: E402  #686: resolve_argv — a gh script first on a native Windows PATH is the one that runs
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -616,7 +619,7 @@ def gh_bodies(repo, issue):
     """(body of `issue` or None, {number: body} of the repo's issues) from gh; ({} / None) on failure."""
     def gh(args):
         try:
-            return subprocess.run(["gh"] + args, capture_output=True, text=True, timeout=60).stdout
+            return subprocess.run(portable.resolve_argv(["gh"] + args), capture_output=True, text=True, timeout=60).stdout
         except Exception:
             return ""
     bodies = {}
