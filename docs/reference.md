@@ -1167,6 +1167,15 @@ scripts/swarm-suite.sh <worktree> <job-name> [test files...]
   A `.py` file with a `__main__` block runs with the worktree root on `PYTHONPATH`, so a project's
   own `from tests import …` resolves (#601: without it, `python3 tests/test_x.py` saw only `tests/`
   and failed with `No module named 'tests'`, a false red).
+- Every shard isolates its test itself (#793): swarm runs a shard as the submitting user, and on a host that is also a
+  fleet host that is the same user, `/tmp` and tmux server as the live fleets. The shard makes a private `TMUX_TMPDIR`
+  under `$_CONDOR_SCRATCH_DIR` (else `$TMPDIR`, else `/tmp`; never in the transferred `{out}`), unsets `TMUX` / `TMUX_PANE`
+  (an inherited `TMUX_TMPDIR` is overridden) and removes the dir, and stops any tmux server in it, when the test ends. When
+  `bwrap` is on the worker's `PATH` **and** a trial run works (`bwrap --dev-bind / / --unshare-pid --proc /proc -- true`; checked in
+  the shard, on whichever worker it landed on), the test runs under `bwrap --unshare-pid` with an empty tmpfs over
+  `/tmp/tmux-<uid>` (the dir tmux falls back to) and over an inherited `TMUX_TMPDIR`'s `tmux-<uid>`, so it cannot reach the
+  host's tmux server or its pids. No usable `bwrap` → the test runs unwrapped, with the private `TMUX_TMPDIR`.
+  `HARNESS_SWARM_SANDBOX=off` skips `bwrap` (default `auto`). This covers the default command and `HARNESS_SWARM_TEST_CMD`.
 - Only files git sees are packed (tracked + untracked-not-ignored); `.swarmignore` trims more,
   `HARNESS_SWARM_PACK=all` packs everything. The job tarball is deleted when the job ends.
 - `HARNESS_SWARM_TIMEOUT` (default `1800`) is the wait budget in seconds.

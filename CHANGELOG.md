@@ -12,6 +12,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   digits now falls back to the default (60, 900, 30, 3) with the same one-time warning as a non-numeric value, so the backoff shift cannot overflow either.
   `test_launch_failed.sh` and `test_lane_tend_tick.sh` cover an oversized value for each knob.
 
+### swarm-suite shards can no longer reach the host's tmux server (#793)
+
+- `scripts/swarm-suite.sh` shards ran `bash test/test_x.sh` as the submitting user with no `TMUX_TMPDIR`, no `unset TMUX`, no `bwrap`: on a fleet host they
+  shared its `/tmp/tmux-$UID` server, and on 2026-11-09 the PRD #587 review's shards took the shared tmux server down (the #649 failure, back through the swarm
+  path). Each shard now makes a private `TMUX_TMPDIR` (under the condor scratch dir, removed with its tmux server afterwards), unsets `TMUX` / `TMUX_PANE`, and
+  runs the test under `bwrap --unshare-pid` with a tmpfs over `/tmp/tmux-<uid>` when the worker has a working `bwrap` (trial run first, otherwise unwrapped with the
+  private dir). `HARNESS_SWARM_SANDBOX=off` skips `bwrap`. `test/test_swarm.sh` runs a test that `tmux kill-server`s against a sentinel server standing in for the host's.
+
 ### Number arguments take ASCII digits only: `1_1`, `+5` and full-width digits are refused (#784)
 
 - `harness forecast`, `harness stats --issue/--prd`, `harness tier decide` (every count) and `bench/run.py --runs/--workers` parsed numbers with Python's
