@@ -109,6 +109,22 @@ def test_closed_stdout_is_quiet_for_stats_tier_and_forecast():
                 assert err == "" and rc == 0, (argv, rc, err)
 
 
+def test_help_with_a_closed_stdout_prints_nothing_on_stderr():
+    """#837: argparse falls back to stderr when sys.stdout is None; the help is dropped like any other output."""
+    py = sys.executable
+    cmds = [[py, os.path.join(ROOT, "scripts", "stats.py"), "--help"],
+            [py, os.path.join(ROOT, "scripts", "stats.py"), "report", "--help"],
+            [py, os.path.join(ROOT, "scripts", "forecast.py"), "--help"],
+            [py, os.path.join(ROOT, "scripts", "tier.py"), "--help"],
+            [py, os.path.join(ROOT, "scripts", "tier.py"), "decide", "--help"],
+            [py, os.path.join(ROOT, "bench", "run.py"), "--help"],
+            ["bash", os.path.join(ROOT, "bin", "harness"), "stats", "--help"],
+            ["bash", os.path.join(ROOT, "bin", "harness"), "tier", "decide", "--help"]]
+    for argv in cmds:
+        rc, err = closed_stdout(argv)
+        assert err == "" and rc == 0, (argv, rc, err)
+
+
 def test_help_still_prints_and_a_usage_error_still_exits_2():
     tier = [sys.executable, os.path.join(ROOT, "scripts", "tier.py")]
     r = subprocess.run(tier + ["decide", "--help"], capture_output=True, text=True)
