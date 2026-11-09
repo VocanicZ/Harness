@@ -376,6 +376,21 @@ def test_a_run_id_must_be_one_safe_component_of_bounded_length(e):   # #717
 
 
 @with_env()
+def test_an_owner_must_be_a_valid_github_owner_name_before_any_gh_call(e):   # #836
+    for bad in ("-x", "-", "--flag", "a--b", "x-", "", "a b", "a/b", "a_b", "a.b", "x\n", "ünï", "x" * 40):
+        for extra in ((), ("--optional",), ("--dry-run",)):
+            p = e.run("stub", "--owner=" + bad, *extra)
+            assert p.returncode == 2 and "--owner" in p.stderr, (bad[:20], extra, p.returncode, p.stderr)
+    p = e.run("stub", "--owner", "-")
+    assert p.returncode == 2 and "--owner" in p.stderr, (p.returncode, p.stderr)
+    assert not os.path.exists(e.results), os.listdir(e.d)
+    assert e.calls() == []
+    for ok in ("octocat", "a", "a-b", "A1-b2", "x" * 39, "7up"):
+        p = e.run("stub", "--owner=" + ok, "--dry-run")
+        assert p.returncode == 0, (ok[:20], p.returncode, p.stderr)
+
+
+@with_env()
 def test_the_real_grader_scores_the_seeded_repo_zero(e):
     # nothing but the brief was seeded: the hidden tests all fail, and the grader does not crash
     p = e.run("stub", grader=False, extra_env={"BENCH_FUZZ_CASES": "20"})
