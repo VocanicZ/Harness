@@ -633,6 +633,22 @@ def test_no_rtdd_events_still_render_with_empty_rtdd_columns():
         rc, out = run(["report", "--since", "2026-01-01"])
         assert "fleet hz: sessions 6" in out and "rtdd    -" in out, out
 
+def test_text_output_escapes_line_separators_and_controls_in_names():   # #756
+    """A fleet prefix, repo or session name with U+2028 / U+2029 / U+0085 / form feed / a C0 control is printed as
+    \\uXXXX, so one record stays on one line; --json (json.dumps) already did."""
+    bad = "bn4e\u202853c\u2029\x85\x0c\x01\x7f"
+    want = "bn4e\\u202853c\\u2029\\u0085\\u000c\\u0001\\u007f"
+    f = st.fleet_summary([_ev("session_start", prefix=bad), _ev("claim", prefix=bad, repo="o/r\u2028x", worker="w")])
+    text = st.render_text("fleet", f)
+    assert text.startswith("fleet " + want + ":"), text
+    assert "o/r\\u2028x" in text, text
+    assert not any(c in text for c in "\u2028\u2029\x85\x0c\x01\x7f"), repr(text)
+    mm = {"event": "model_mismatch", "repo": "o/r\u2028x", "issue": 1, "session": "s\x0c1", "intended": "a", "actual": "b"}
+    line = st._mismatch_line(mm)
+    assert "o/r\\u2028x" in line and "s\\u000c1" in line and "\u2028" not in line and "\x0c" not in line, repr(line)
+    assert st.vis("plain ⚠ é — name") == "plain ⚠ é — name"
+
+
 def test_fleet_rtdd_selective_share_and_rtdd_missing():
     rtdd = st.join_rtdd([
         _which("s1"), _which("s2"),

@@ -35,7 +35,7 @@ The report joins each line to its session on ctx.HARNESS_SESSION.
 `emit` never raises: any failure exits 1 having printed nothing, and the bash caller (lib.sh
 harness_event) swallows it — logging must never block or fail dispatch.
 """
-import glob, json, math, os, re, sys, time
+import glob, json, math, os, re, sys, time, unicodedata
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -821,11 +821,18 @@ def mismatches(events):
     return sorted((e for e in events if e.get("event") == "model_mismatch"), key=lambda e: e.get("ts") or "")
 
 
+def vis(s):
+    """A name for human-readable output (#756): a line or paragraph separator (U+2028, U+2029, U+0085), a form
+    feed, any C0 or C1 control character and DEL become \\uXXXX, as json.dumps writes them, so a fleet prefix, repo
+    or account name never splits one record across two lines in a terminal or log viewer."""
+    return "".join(f"\\u{ord(c):04x}" if unicodedata.category(c) in ("Cc", "Zl", "Zp") else c for c in str(s))
+
+
 def _mismatch_line(e):
     who = f"#{e['issue']}" if e.get("issue") is not None else (f"PRD #{e['prd']}" if e.get("prd") is not None else "")
     where = " ".join(x for x in (e.get("repo") or "", who) if x)
-    return (f"MODEL MISMATCH {where + ' ' if where else ''}session {e.get('session') or '?'}: "
-            f"intended {e.get('intended')} ran {e.get('actual')} ({e.get('ts') or '?'})")
+    return vis(f"MODEL MISMATCH {where + ' ' if where else ''}session {e.get('session') or '?'}: "
+               f"intended {e.get('intended')} ran {e.get('actual')} ({e.get('ts') or '?'})")
 
 
 def _sess_matches(s, model):
@@ -1196,7 +1203,7 @@ def render_text(kind, data):
         out.append(f"  rtdd  {_rtdd(data['rtdd'])}")
         if _coding_testing(data):
             out.append(f"  time  {_coding_testing(data)}")
-    return "\n".join(out)
+    return "\n".join(vis(line) for line in out)   # #756: every line is one record, whatever a name holds
 
 
 # A GitHub owner/name: each half starts with a letter, digit or underscore (a name may also start with a dot,

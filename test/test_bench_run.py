@@ -965,3 +965,15 @@ def test_usage_line_is_split_only_on_newline_and_a_bom_on_a_later_line_is_stripp
             os.environ.pop("HARNESS_USAGE_CMD", None)
         else:
             os.environ["HARNESS_USAGE_CMD"] = saved
+
+
+def test_guard_text_escapes_line_separators_and_controls_in_an_account_name():   # #756
+    bad = "ac\u2028ct\u2029\x85\x0c\x01"
+    want = "ac\\u2028ct\\u2029\\u0085\\u000c\\u0001"
+    ok = {"ok": True, "reserve_pct": 2, "stop_pct": 98, "windows": [
+        {"account": bad, "window": "seven_day", "now_pct": 1, "need_pct": 2, "total_pct": 5}]}
+    refused = {"ok": False, "reasons": [f"account {bad} is usage-HELD (seven_day window at 95%): x", "second"]}
+    for text in (bench_run.render_guard(ok), bench_run.render_guard(refused)):
+        assert want in text, repr(text)
+        assert not any(c in text for c in "\u2028\u2029\x85\x0c\x01"), repr(text)
+    assert bench_run.render_guard(refused).count("\n") == 2   # the guard's own newlines stay: header + 2 reasons
