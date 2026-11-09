@@ -648,10 +648,12 @@ def _loads(raw):
 def utf8_stdio():
     """#406: stdin/stdout/stderr in UTF-8 whatever the console code page. A piped stdio on native
     Windows is the ANSI code page (cp1252): `pane` could not print ✻ ❯ ─, and `send … -` read the
-    engine's UTF-8 as cp1252. The lane files are UTF-8 already; this makes the pipes match."""
-    for s in (sys.stdin, sys.stdout, sys.stderr):
+    engine's UTF-8 as cp1252. The lane files are UTF-8 already; this makes the pipes match.
+    Output is LF too (#606): Windows text mode turns every printed "\n" into "\r\n", and the bash that reads `state`,
+    `pane` and `watch` through `$(…)` kept the "\r" (a reply that never equalled the one it was compared with)."""
+    for s, kw in ((sys.stdin, {}), (sys.stdout, {"newline": "\n"}), (sys.stderr, {"newline": "\n"})):
         try:
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", **kw)
         except (AttributeError, ValueError, OSError):   # not a TextIOWrapper (a test's StringIO), or closed
             pass
 

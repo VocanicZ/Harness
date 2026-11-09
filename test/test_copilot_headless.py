@@ -8,6 +8,8 @@ reads, and a quota reading in the stream), a limit → `limit`, a transient erro
 and stop leaving no child process behind."""
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "copilot_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "copilot", "stream-json")
@@ -48,8 +50,8 @@ class Lane:
         if hold:
             self.hold()
         self.env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, COPILOT_HOME=self.home)
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}", *extra]
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+               "--bin", f"{RUNNER_PY} {FAKE}", f"--flags={flags}", *extra]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -96,18 +98,6 @@ class Lane:
         r = subprocess.run([sys.executable, RUNNER, "stop", "--lane", self.lane, "--timeout", "15"])
         self.proc.wait(timeout=15)
         return r.returncode
-
-
-def gone(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return True
-    try:   # reaped-later zombies count as gone
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().rsplit(")", 1)[-1].split()[0] == "Z"
-    except OSError:
-        return True
 
 
 # --- the argv of one turn -------------------------------------------------------------------------
@@ -328,7 +318,7 @@ def _hang_then(stop):
             lane.proc.kill()
         for p in (cop, grandchild):
             if p and not gone(p):
-                os.kill(p, signal.SIGKILL)
+                kill_tree(p)
 
 
 def test_stop_request_leaves_no_child_behind():
@@ -339,7 +329,10 @@ def test_stop_request_leaves_no_child_behind():
 
 def test_sigterm_leaves_no_child_behind():
     def term(lane):
-        lane.proc.send_signal(signal.SIGTERM); lane.proc.wait(timeout=15)
+        if WINDOWS:   # no signal reaches a Windows process from outside (it would be TerminateProcess): its termination request is the stop file
+            assert lane.stop() == 0, "the runner did not report ended"
+        else:
+            lane.proc.send_signal(signal.SIGTERM); lane.proc.wait(timeout=15)
     _hang_then(term)
 
 
@@ -364,7 +357,7 @@ def test_interrupt_ends_the_turn_not_the_runner():
         lane.stop()
         for p in (cop, grandchild):
             if p and not gone(p):
-                os.kill(p, signal.SIGKILL)
+                kill_tree(p)
 
 
 def test_restart_and_resume_carry_the_same_session():
@@ -372,8 +365,8 @@ def test_restart_and_resume_carry_the_same_session():
     lane = Lane(["normal", "normal", "normal"], session_id=sid)
     lane.send("before restart"); lane.wait_turn(1, "idle"); lane.stop()
     # a relaunch: a new runner on the same session id, told it exists (--resume, #350)
-    p = subprocess.Popen([sys.executable, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd, "--session-id", sid,
-                          "--resume", "--bin", f"{sys.executable} {FAKE}"], env=lane.env)
+    p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd, "--session-id", sid,
+                          "--resume", "--bin", f"{RUNNER_PY} {FAKE}"], env=lane.env)
     try:
         wait_for(lambda: ch.read_state(lane.lane).get("runner_pid") == p.pid, "the restarted runner")
         lane.send("after restart"); lane.wait_turn(2, "idle")
@@ -411,7 +404,7 @@ def test_model_and_effort_reach_the_command_line():
 
 def test_missing_copilot_fails_the_turn_not_the_runner():
     tmp = tempfile.mkdtemp(); lane = os.path.join(tmp, "lane")
-    p = subprocess.Popen([sys.executable, RUNNER, "run", "--lane", lane, "--cwd", tmp,
+    p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane, "--cwd", tmp,
                           "--bin", os.path.join(tmp, "no-such-copilot"), "--message", "hello"])
     try:
         st = wait_for(lambda: (lambda s: s if s.get("turn") == 1 and s.get("state") == "transient" else None)(

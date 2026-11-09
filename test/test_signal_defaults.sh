@@ -9,6 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 T="$(mktemp -d)"; tmp_track "$T"
 IGN=(env --ignore-signal=INT,HUP,QUIT)
+SLOW=1; host_is_windows && SLOW=4   # a fork costs ten times as much in Git Bash: the attach test's startup alone is tens of seconds (#606)
 if ! "${IGN[@]}" true 2>/dev/null; then echo "  SKIP: env --ignore-signal unavailable"; finish; exit; fi
 
 # SigIgn mask of a process, as a hex string (Linux); empty where /proc is not there.
@@ -44,16 +45,16 @@ assert_no "…and does not lose it" grep -qF "probe-int-lost" <<<"$out"
 
 echo "== test_headless_attach.sh under ignored signals =="
 SECONDS=0
-out="$(timeout -k 5 90 "${IGN[@]}" bash "$HERE/test_headless_attach.sh" 2>&1)"; rc=$?
+out="$(timeout -k 5 $((90 * SLOW)) "${IGN[@]}" bash "$HERE/test_headless_attach.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 0 "it passes, rather than hanging until the timeout kills it (rc 124)"
 assert_no "…with no FAIL line" grep -qF "FAIL:" <<<"$out"
 
 echo "== …and when the attach really cannot take SIGINT, it fails bounded =="
 SECONDS=0
-out="$(HAT_ATTACH_IGNORE_INT=1 timeout -k 5 90 bash "$HERE/test_headless_attach.sh" 2>&1)"; rc=$?
+out="$(HAT_ATTACH_IGNORE_INT=1 timeout -k 5 $((90 * SLOW)) bash "$HERE/test_headless_attach.sh" 2>&1)"; rc=$?
 took=$SECONDS
 assert_eq "$([[ $rc -ne 0 && $rc -ne 124 && $rc -ne 137 ]] && echo failed || echo "rc=$rc")" failed "it reports FAIL (rc $rc) instead of hanging"
 assert_ok "…naming the attach that did not exit" grep -qF "FAIL: the attach process exits" <<<"$out"
 assert_ok "…and the attach it started is gone" grep -qF "ok: …and no attach is left alive" <<<"$out"
-assert_ok "…within 40 s (took ${took}s)" test "$took" -lt 40
+assert_ok "…within $((40 * SLOW)) s (took ${took}s)" test "$took" -lt $((40 * SLOW))
 finish

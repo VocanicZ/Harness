@@ -17,13 +17,13 @@ export HARNESS_AGY_TRUST_FILE="$RUN_DIR/agy-settings.json"
 rm -f "$HARNESS_AGY_TRUST_FILE"
 cli_with agy cli_trust "/path/to/repo1"
 assert_ok "trust file created" test -f "$HARNESS_AGY_TRUST_FILE"
-assert_ok "repo1 trusted" grep -q '"/path/to/repo1"' "$HARNESS_AGY_TRUST_FILE"
+assert_ok "repo1 trusted" grep -qF "\"$(native_path /path/to/repo1)\"" "$HARNESS_AGY_TRUST_FILE"
 assert_ok "trust is a trustedWorkspaces entry" cli_with agy cli_trusted "/path/to/repo1"
 
 # Add second path, ensure both exist
 cli_with agy cli_trust "/path/to/repo2"
-assert_ok "repo1 still trusted" grep -q '"/path/to/repo1"' "$HARNESS_AGY_TRUST_FILE"
-assert_ok "repo2 trusted" grep -q '"/path/to/repo2"' "$HARNESS_AGY_TRUST_FILE"
+assert_ok "repo1 still trusted" grep -qF "\"$(native_path /path/to/repo1)\"" "$HARNESS_AGY_TRUST_FILE"
+assert_ok "repo2 trusted" grep -qF "\"$(native_path /path/to/repo2)\"" "$HARNESS_AGY_TRUST_FILE"
 
 # ensure_trusted routes to agy when HARNESS_CLI=agy
 rm -f "$HARNESS_AGY_TRUST_FILE"
@@ -32,7 +32,7 @@ rm -f "$HARNESS_AGY_TRUST_FILE"
   ensure_trusted "/path/to/repo3"
 )
 assert_ok "ensure_trusted with HARNESS_CLI=agy writes to agy trust file" \
-  grep -q '"/path/to/repo3"' "$HARNESS_AGY_TRUST_FILE"
+  grep -qF "\"$(native_path /path/to/repo3)\"" "$HARNESS_AGY_TRUST_FILE"
 
 # ensure_trusted does NOT write to agy trust file when HARNESS_CLI=claude
 rm -f "$HARNESS_AGY_TRUST_FILE"
@@ -44,7 +44,7 @@ rm -f "$HARNESS_AGY_TRUST_FILE"
 assert_no "ensure_trusted with HARNESS_CLI=claude does not write to agy trust file" \
   test -f "$HARNESS_AGY_TRUST_FILE"
 assert_ok "ensure_trusted with HARNESS_CLI=claude writes to claude config" \
-  grep -q '"/path/to/repo4"' "$RUN_DIR/claude.json"
+  grep -qF "\"$(native_path /path/to/repo4)\"" "$RUN_DIR/claude.json"
 
 echo "=== Group 3: Agent launch ==="
 # Stub tmux send-keys

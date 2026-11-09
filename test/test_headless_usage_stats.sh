@@ -19,7 +19,7 @@ export HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl" HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/no-claude-config"
 export HARNESS_USAGE_CHECKPOINT_PCT=90 HARNESS_USAGE_STATUSLINE=0
 FIX="$HERE/fixtures/cli/claude/stream-json"
-export HARNESS_CLAUDE_BIN="python3 $FIX/fake-claude" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions --model haiku"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FIX/fake-claude")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions --model haiku"
 # The flags name the model (#375: role model keys empty, so the role's opus/sonnet does not replace it).
 export HARNESS_MODEL_MANAGER="" HARNESS_MODEL_IMPLEMENTER=""
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }
@@ -69,7 +69,7 @@ our_pids(){ local d; shopt -s nullglob
   done; shopt -u nullglob; }
 cleanup(){ local p; for p in $(our_pids); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; tmp_cleanup; }
 trap cleanup EXIT
-alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+alive(){ alive_any "$1"; }
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 lane_field(){ python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
 pane_has(){ sess_capture "$1" 2>/dev/null | grep -qF "$2"; }
@@ -139,7 +139,7 @@ assert_ok "…with the handoff comment" grep -qF '<!-- harness-handoff issue=9 b
 usage_watch
 assert_ok "the next usage pass parks the lane" grep -qF "usage: lane parked after its checkpoint: $S (acme/widget#9)" "$LOG"
 assert_no "…it is no longer live" sess_live "$S"
-assert_ok "…its runner has exited" wait_until 10 bash -c "! kill -0 $rpid 2>/dev/null"
+assert_ok "…its runner has exited" wait_until 10 all_gone "$rpid"
 assert_no "…the park is done with" test -f "$RUN_DIR/$S.usagepark"
 assert_ok "claims stay held while the window is over" usage_held
 assert_eq "$(sess_resume_id "$S" "$WD")" "$uuid" "the parked lane leaves its claude session for the resume"
@@ -186,7 +186,7 @@ assert_ok "…carrying on the claude session" grep -qF "session $S carries on ag
 assert_ok "…its first turn resumes it" wait_until 15 turn_idle "$S" 1
 assert_ok "…as --resume $uuid" grep -qF "\"--resume\", \"$uuid\"" <<<"$(calls argv | sed -n 3p)"
 rpid="$(sess_pane_pid "$S")"; sess_kill "$S" >/dev/null 2>&1
-assert_ok "the relaunched lane ends" wait_until 10 bash -c "! kill -0 $rpid 2>/dev/null"
+assert_ok "the relaunched lane ends" wait_until 10 all_gone "$rpid"
 stats_sweep_ended
 assert_eq "$(session_ends)" 2 "a second session_end for the resumed run"
 ends="$(python3 -c 'import json,sys

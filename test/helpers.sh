@@ -47,6 +47,15 @@ real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ret
 # only skip of a feature).
 skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, no counterpart to run on a Windows host): ${1:-}"; return 0; }
 
+# alive_any <pid> — the process is alive and not a zombie, by its MSYS pid OR (Windows) by its native one (#606): a fake agent
+# written in native Python records os.getpid(), a Windows pid, in calls.jsonl / pids, and MSYS `kill -0` does not know it.
+# all_gone <pid…> — none of them is alive (a pid that is empty or not a number counts as gone).
+alive_any(){ [[ ${1:-} =~ ^[0-9]+$ ]] || return 1
+  if kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; then return 0; fi
+  host_is_windows || return 1
+  tasklist //FI "PID eq $1" //NH 2>/dev/null | tr -d '\r' | grep -qE "[[:space:]]$1[[:space:]]"; }
+all_gone(){ local p; for p in "$@"; do ! alive_any "$p" || return 1; done; }
+
 # windows_skip <matrix row> <why> — the ONE way a test skips itself on Windows. A skip is allowed only when the row it
 # names is `n/a` on Windows in the parity matrix (docs/reference.md): Windows physically cannot do that feature.
 #   row n/a on Windows : on Windows prints "SKIP (Windows n/a: row '<row>'): <why>" and returns 0; elsewhere returns 1.

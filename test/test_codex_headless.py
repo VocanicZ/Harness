@@ -6,6 +6,8 @@ on codex's own stream: a turn start (no thread id yet), the resume id (the threa
 thread codex lost → a fresh one, and interrupt and stop leaving no child behind."""
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "codex_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "codex", "stream-json")
@@ -42,8 +44,8 @@ class Lane:
             open(os.path.join(self.fake, "hold"), "w").close()
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake)
         env.pop("CODEX_HOME", None)
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}"]
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+               "--bin", f"{RUNNER_PY} {FAKE}", f"--flags={flags}"]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -80,14 +82,6 @@ class Lane:
             self.proc.wait(timeout=20)
         except subprocess.TimeoutExpired:
             self.proc.kill()
-
-
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()[:1] not in ("", "Z")
 
 
 # --- the turn reader, over each capture -------------------------------------------------------------------
@@ -267,5 +261,11 @@ def test_watch_prints_turns_replies_and_failures():
     assert ch.watch_line({"type": "turn.started"}) is None and ch.watch_line({"type": "item.completed", "item": {"type": "reasoning"}}) is None
 
 
-if __name__ == "__main__":
-    sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-q", __file__] + sys.argv[1:]))
+if __name__ == "__main__":   # no pytest: the Windows suite host installs nothing beyond the standard library (#606)
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)

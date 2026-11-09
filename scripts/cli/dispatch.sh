@@ -102,6 +102,7 @@ _cli_default_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4"
 _cli_headless_last_reply(){ [[ "$(sess_backend)" == headless ]] || return 1
   ROOT="$(_hl_root)" WD="$1" SID="$2" python3 -c '
 import glob, json, os, sys
+sys.stdout.reconfigure(newline="\n")   # LF, not Windows text mode CRLF: bash compares the reply (#606)
 for f in glob.glob(os.path.join(os.environ["ROOT"], "*", "state.json")):
     try:
         st = json.load(open(f, encoding="utf-8"))

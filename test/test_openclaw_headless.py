@@ -7,6 +7,8 @@ the stats sweep reads, the limit and transient states, and `watch`. The lane pro
 stop, pane) is the core's, proved by test_headless_core.py and test_claude_headless.py."""
 import importlib.util, json, os, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 RUNNER = os.path.join(ROOT, "scripts", "cli", "openclaw_headless.py")
 FIX = os.path.join(HERE, "fixtures", "cli", "openclaw", "agent-json")
@@ -41,9 +43,10 @@ class Lane:
         with open(os.path.join(self.fake, "plan"), "w") as f:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, HARNESS_OPENCLAW_CONFIG=os.path.join(self.tmp, "op", "openclaw.json"))
-        flags = f"--config {self.state_dir}/openclaw.json --cwd {self.wd} --state-dir {self.state_dir} --timeout 60"
-        cmd = [sys.executable, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", "--session-id", session_id, "--flags", flags]
+        # flags go through shlex.split: a Windows path's backslashes would be eaten, so they are handed over with slashes
+        flags = f"--config {self.fl(self.state_dir)}/openclaw.json --cwd {self.fl(self.wd)} --state-dir {self.fl(self.state_dir)} --timeout 60"
+        cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
+               "--bin", f"{RUNNER_PY} {FAKE}", "--session-id", session_id, "--flags", flags]
         if model:
             cmd += ["--model", model]
         if effort:
@@ -52,6 +55,10 @@ class Lane:
         wait_for(lambda: self.state().get("runner_pid") == self.proc.pid or self.proc.poll() is not None,
                  "the runner's first state")
         assert self.proc.poll() is None, f"the runner exited {self.proc.returncode} at start"
+
+    @staticmethod
+    def fl(path):
+        return path.replace("\\", "/")
 
     def send(self, text):
         assert subprocess.run([sys.executable, RUNNER, "send", "--lane", self.lane, text]).returncode == 0
@@ -187,7 +194,7 @@ def test_lane_keeps_its_own_id_across_turns_that_are_each_a_new_openclaw_session
         a0, a1 = (c["argv"] for c in lane.calls())
         assert a0 == a1 and a0[:5] == ["agent", "exec", "--json", "--message-file", "-"], (a0, a1)
         assert a0[a0.index("--model") + 1] == "claude-cli/claude-haiku-5-5" and a0[a0.index("--thinking") + 1] == "low", a0
-        assert a0[a0.index("--state-dir") + 1] == lane.state_dir and a0[a0.index("--cwd") + 1] == lane.wd, a0
+        assert a0[a0.index("--state-dir") + 1] == lane.fl(lane.state_dir) and a0[a0.index("--cwd") + 1] == lane.fl(lane.wd), a0
         assert [c["prompt"] for c in lane.calls()] == ["first", "second"]
         assert all(c["cwd"] == lane.wd for c in lane.calls()), "the turn runs in the worktree"
         assert lane.calls()[0]["include_roots"] == os.path.join(lane.tmp, "op"), lane.calls()[0]
@@ -247,7 +254,7 @@ def test_stopping_a_running_turn_ends_it_and_its_child():
         lane.stop()
     assert lane.state()["state"] == "ended"
     for p in pids:
-        wait_for(lambda p=p: subprocess.run(["bash", "-c", f"! kill -0 {p} 2>/dev/null"]).returncode == 0, f"pid {p} to go")
+        wait_for(lambda p=p: gone(int(p)), f"pid {p} to go")
 
 
 def test_watch_prints_turns_tools_replies_and_errors():
