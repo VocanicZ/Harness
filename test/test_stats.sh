@@ -89,7 +89,7 @@ PYEOF
 chmod +x "$CRLF_PY/python3"
 for g in "" "ISSUE:7"; do
   ORIG_PATH="$PATH" PATH="$CRLF_PY:$PATH" GOAL="$g" STAT_PRD=5 session_env u-2
-  assert_eq "$(printf '%s' "${SESSION_ENV[*]}" | grep -c $'\r')" 0 "#509: session_env with goal '${g:-<empty>}' under CRLF python: no pair carries a CR"
+  assert_eq "$(printf '%s' "${SESSION_ENV[*]}" | tr -cd '\r' | wc -c | tr -d ' ')" 0 "#509: session_env with goal '${g:-<empty>}' under CRLF python: no pair carries a CR"
 done
 crlf_env="${SESSION_ENV[*]}"
 crlf_env="${crlf_env% -e FORCE_PROMPT_CACHING_5M=1}"   # #615: a claude lane's own pair ends the list; the pairs under test come just before
