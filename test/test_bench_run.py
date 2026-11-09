@@ -264,6 +264,20 @@ def test_a_time_option_above_threading_timeout_max_is_a_usage_error_naming_the_l
 
 
 @with_env(usage_pct="50")
+def test_a_run_dir_that_is_missing_empty_or_not_a_directory_is_a_usage_error(e):   # #860
+    os.makedirs(os.path.join(e.rundir, "usage-holds"))
+    with open(os.path.join(e.rundir, "usage-holds", "acct.hold"), "w") as fh:
+        fh.write("acct\tseven_day\t99\n")
+    assert e.run("stub", "--dry-run").returncode == 3   # the hold is read from a real run dir
+    afile = os.path.join(e.d, "afile")
+    open(afile, "w").close()
+    for bad in ("/nonexistent/run", "-x", "", afile):
+        p = e.run("stub", "--dry-run", "--run-dir=" + bad)
+        assert p.returncode == 2 and "--run-dir" in p.stderr and "bench guard" not in p.stdout, (bad, p.returncode, p.stdout, p.stderr)
+    assert e.calls() == [] and not os.path.exists(e.results)
+
+
+@with_env(usage_pct="50")
 def test_money_and_seconds_options_are_ascii_decimal_only(e):   # #805
     for opt in ("--cost-cap-usd", "--expected-usd", "--wall-cap-secs", "--poll-secs", "--grace-secs", "--progress-poll-secs"):
         for bad in ("\uff15", "\u0663", "1_0", "+5", "1\uff10", "\u0665.\u0665", "1_0.5", "+0.5"):
