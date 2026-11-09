@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_supervise_headless.sh — #351 / PRD #344: `harness supervise` handles headless lanes
 # (HARNESS_SESSION_BACKEND=headless) with the rules it applies to tmux panes, on real lane runners
 # (scripts/cli/claude_headless.py) driving the fake claude from test/fixtures/cli/claude/stream-json/:
@@ -77,10 +78,11 @@ cli_send "$S" "$WD" "more work"
 assert_ok "a third turn runs and ends" wait_until 15 idle_at "$S" 3
 assert_eq "$(sess_capture "$S")" "$before" "the lane's screen reads exactly as before the turn"
 assert_ok "a headless lane has an activity mark" test -n "$(sess_activity "$S")"
+pass_at="$(date +%s)"   # the clock restarts at this pass, not "within N s of now": a pass costs tens of seconds in Git Bash (#606)
 pass "$S"
 assert_eq "$(typed "$S")" 0 "…so the lane is not quiet and is not nudged"
 read -r _ _ _ t0 nudged _ < "$SUP_STATE/panes/$S"
-assert_ok "…its quiet clock restarted" test "$(( $(date +%s) - t0 ))" -le 5
+assert_ok "…its quiet clock restarted" test "$t0" -ge "$pass_at"
 assert_eq "$(HARNESS_SESSION_BACKEND=tmux sess_activity "$S")" "" "a tmux pane has no mark beyond its screen"
 sess_kill "$S"
 

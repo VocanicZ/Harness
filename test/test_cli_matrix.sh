@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 3600
 # test_cli_matrix.sh — #188 / PRD #189: every feature row for every CLI that has an adapter, run
 # against fixtures captured from the real CLI (test/fixtures/cli/<cli>/, see each README.md). One
 # cell per row, each driving Harness's own code path for the feature (launch_agent, inject.sh, the
@@ -48,7 +49,7 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
   mkdir -p "$HARNESS_CLAUDE_CONFIG_DIRS/projects/fixture" "$HARNESS_AGY_HOME/cache" "$HARNESS_AGY_HOME/conversations"
   case "$cli" in
     claude) cp "$FIX/claude/transcript.jsonl" "$HARNESS_CLAUDE_CONFIG_DIRS/projects/fixture/$sid.jsonl" ;;
-    agy)    sed "s#@WD@#$wd#" "$FIX/agy/last_conversations.json" > "$HARNESS_AGY_HOME/cache/last_conversations.json"
+    agy)    sed "s#@WD@#$(native_path "$wd")#" "$FIX/agy/last_conversations.json" > "$HARNESS_AGY_HOME/cache/last_conversations.json"
             cp "$FIX/agy/transcript.db" "$HARNESS_AGY_HOME/conversations/$sid.db" ;;
     codex)  mkdir -p "$CODEX_HOME/sessions/2026/10/27"
             sed "s#@CWD@#$wd#" "$FIX/codex/transcript.jsonl" > "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$sid.jsonl" ;;

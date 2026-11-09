@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_cli_readme.sh — #188 / PRD #189: HARNESS_CLI is read only by the adapter dispatcher, and the
 # README's "Supported agent CLIs" table is the feature matrix: it lists exactly the CLIs whose matrix
 # column is green, each with its fixtures' version, and exactly the matrix's rows: ✓ where the cell

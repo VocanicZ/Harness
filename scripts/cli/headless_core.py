@@ -87,6 +87,16 @@ def paths(lane):
         ("state", "state.json"), ("stop", "stop"), ("interrupt", "interrupt"))}
 
 
+def flags_model(flags):
+    """The model a claude flag list names (`--model X` or `--model=X`), else None."""
+    for i, f in enumerate(flags):
+        if f.startswith("--model="):
+            return f.split("=", 1)[1] or None
+        if f == "--model" and i + 1 < len(flags):
+            return flags[i + 1]
+    return None
+
+
 def read_state(lane):
     try:
         with open(paths(lane)["state"], encoding="utf-8") as f:
@@ -305,6 +315,9 @@ class Runner:
             "account": adapter.account(),
             "rate_limit_at": prev.get("rate_limit_at"),
             "adapter": adapter.name,
+            # The model the lane runs (--model, else the one in its claude flags): fleetview reads it here where `ps`
+            # cannot show a native process's argv (Git Bash's ps knows only MSYS pids, #606).
+            "model": self.model or flags_model(self.flags),
         }
         if prev.get("state") in ("limit", "transient"):
             self.state["state"] = prev["state"]

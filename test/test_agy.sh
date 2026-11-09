@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_agy.sh — tests for Google Antigravity (agy) CLI support in Harness
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -181,7 +182,7 @@ mkdir -p "$WORK_DIR/.claude"
 TRANSCRIPT="$RUN_DIR/transcript.txt"
 
 # Case A: No loop file -> allow
-res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 1}' "$WORK_DIR" "$TRANSCRIPT" | "$HOOK")"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 1}' "$(native_path "$WORK_DIR")" "$(native_path "$TRANSCRIPT")" | "$HOOK")"
 assert_ok "hook allows when no loop file" grep -q '"decision": "allow"' <<< "$res"
 
 # Case B: Loop file present, no promise -> continue
@@ -195,13 +196,13 @@ prompt: "Do the task"
 ---
 EOF
 echo "Working on task..." > "$TRANSCRIPT"
-res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 1}' "$WORK_DIR" "$TRANSCRIPT" | "$HOOK")"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 1}' "$(native_path "$WORK_DIR")" "$(native_path "$TRANSCRIPT")" | "$HOOK")"
 assert_ok "hook continues when promise not fulfilled" grep -q '"decision": "continue"' <<< "$res"
 assert_ok "loop file still exists" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
 
 # Case C: Promise in transcript -> allow and unlink loop file
 echo "Here is the result: <promise>TASK COMPLETED</promise>" > "$TRANSCRIPT"
-res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 2}' "$WORK_DIR" "$TRANSCRIPT" | "$HOOK")"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 2}' "$(native_path "$WORK_DIR")" "$(native_path "$TRANSCRIPT")" | "$HOOK")"
 assert_ok "hook allows when promise fulfilled" grep -q '"decision": "allow"' <<< "$res"
 assert_no "loop file unlinked after completion" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
 
@@ -216,7 +217,7 @@ prompt: "Do the task"
 ---
 EOF
 echo "Still working..." > "$TRANSCRIPT"
-res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 5}' "$WORK_DIR" "$TRANSCRIPT" | "$HOOK")"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s", "executionNum": 5}' "$(native_path "$WORK_DIR")" "$(native_path "$TRANSCRIPT")" | "$HOOK")"
 assert_ok "hook allows on max iterations" grep -q '"decision": "allow"' <<< "$res"
 assert_no "loop file unlinked after max iterations" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
 
@@ -226,13 +227,13 @@ assert_no "loop file unlinked after max iterations" test -f "$WORK_DIR/.claude/r
 loop_file(){ printf -- '---\nactive: true\niteration: 1\nmax_iterations: 4\ncompletion_promise: "ZEBRA DONE"\n---\n\nOnly on your THIRD reply output <promise>ZEBRA DONE</promise>.\n' > "$WORK_DIR/.claude/ralph-loop.local.md"; }
 loop_file
 AGY_TR="$HERE/fixtures/cli/agy/hook-transcript.jsonl"
-res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$WORK_DIR" "$AGY_TR" | "$HOOK")"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$(native_path "$WORK_DIR")" "$(native_path "$AGY_TR")" | "$HOOK")"
 assert_ok "agy: the promise inside tool output does not end the loop" grep -q '"decision": "continue"' <<< "$res"
 assert_ok "agy: loop file kept while the model has not output the promise" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
 # …and the same transcript with one more reply that DOES output it ends the loop.
 loop_file
 { cat "$AGY_TR"; echo '{"step_index": 9, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "content": "<promise>ZEBRA DONE</promise>"}'; } > "$RUN_DIR/agy-done.jsonl"
-res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$WORK_DIR" "$RUN_DIR/agy-done.jsonl" | "$HOOK")"
+res="$(printf '{"workspacePaths": ["%s"], "transcriptPath": "%s"}' "$(native_path "$WORK_DIR")" "$(native_path "$RUN_DIR/agy-done.jsonl")" | "$HOOK")"
 assert_ok "agy: the model's own promise ends the loop" grep -q '"decision": "allow"' <<< "$res"
 assert_no "agy: loop file removed on the model's promise" test -f "$WORK_DIR/.claude/ralph-loop.local.md"
 
@@ -281,7 +282,7 @@ assert_ok "agy: a directory under a trusted one still shows the trust dialog" gr
 SID_WD="$RUN_DIR/sid-wd"; mkdir -p "$SID_WD"; echo task > "$SID_WD/.harness-task.md"
 sid_conv(){ local t="$HARNESS_AGY_HOME/brain/$1/.system_generated/logs"; mkdir -p "$t" "$HARNESS_AGY_HOME/cache"
   printf '{"step_index":0,"created_at":"%s"}\n' "$2" > "$t/transcript.jsonl"
-  printf '{"%s": "%s"}' "$SID_WD" "$1" > "$HARNESS_AGY_HOME/cache/last_conversations.json"; }
+  printf '{"%s": "%s"}' "$(native_path "$SID_WD")" "$1" > "$HARNESS_AGY_HOME/cache/last_conversations.json"; }
 sid_conv prev-conv 2026-01-01T00:00:00Z
 assert_eq "$(cli_with agy cli_session_id "$SID_WD" u1)" "prev-conv" "agy session id: no launch recorded, the mapped id stands"
 write_state "$SID_WD" "" "" u1

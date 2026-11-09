@@ -43,7 +43,9 @@ agy_session_id(){ WD="$1" H="$(_agy_home)" python3 - 2>/dev/null <<'PY'
 import json, os, re
 from datetime import datetime, timezone
 wd, h = os.environ["WD"], os.environ["H"]
-sid = json.load(open(os.path.join(h, "cache", "last_conversations.json"))).get(wd, "")
+# keys compared as paths, not strings: on Windows agy writes C:\\x or C:/x for what a bash caller names C:/x (#606)
+norm = lambda p: os.path.normcase(os.path.normpath(p))
+sid = {norm(k): v for k, v in json.load(open(os.path.join(h, "cache", "last_conversations.json"))).items()}.get(norm(wd), "")
 def ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 try:
