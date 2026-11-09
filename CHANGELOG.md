@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats` no longer drops an events.jsonl line that starts with a UTF-8 BOM (#672)
+
+- An event log saved with a leading BOM lost its first event without a word: the report showed 1000 output tokens instead of
+  2000. The reader now strips a BOM (as it already folded CRLF and a lone CR), and a line that still cannot be parsed is
+  counted: `harness stats` prints `skipped N event line(s) that could not be parsed; totals exclude them` on stderr, so the
+  report on stdout is unchanged. `test/test_stats.py` covers both.
+
 ### Every call of the tmux backend targets the server the lane was created on (#670)
 
 - #596 dropped the caller's `TMUX` for `tmux_sess_start` only. A worker holding a live `TMUX` on a server other than the

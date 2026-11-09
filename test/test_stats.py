@@ -224,6 +224,31 @@ def test_filters():
     try: st.parse_since("soon"); assert False, "bad --since accepted"
     except ValueError: pass
 
+def test_events_log_leading_bom_is_read_and_unparseable_lines_are_counted():
+    """#672: a BOM-led first line lost its event with no word; now it is read, and a line that still fails is counted."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        lines = [_ev("launch", session="s1"), _ev("session_end", session="s1", usage=_u(1000)),
+                 _ev("launch", session="s2"), _ev("session_end", session="s2", usage=_u(1000))]
+        raw = "\r\n".join(json.dumps(e) for e in lines[:2]) + "\r\n" + "{torn\n[1]\n" + "\n".join(json.dumps(e) for e in lines[2:]) + "\n"
+        with open(p, "wb") as fh:
+            fh.write(b"\xef\xbb\xbf" + raw.encode())
+        bad = [0]
+        evs = st.load_events(p, bad)
+        assert [e["event"] for e in evs] == ["launch", "session_end", "launch", "session_end"], evs
+        assert bad == [2], bad       # "{torn" and the non-object "[1]"; the blank-free BOM line is NOT skipped
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc, out = run(["report", "--since", "2026-01-01", "--json"])
+        assert rc == 0 and json.loads(out)["hz"]["tokens"]["claude-opus-5-5"]["output"] == 2000, out
+        assert "skipped 2 event line(s)" in err.getvalue(), err.getvalue()
+        with open(p, "w") as fh:
+            fh.write("".join(json.dumps(e) + "\n" for e in lines))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            run(["report", "--since", "2026-01-01"])
+        assert err.getvalue() == "", err.getvalue()
+
 def test_report_cli_text_and_json():
     with host() as d:
         p = os.path.join(d, "events.jsonl")

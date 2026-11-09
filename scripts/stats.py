@@ -647,17 +647,25 @@ def cmd_emit(argv):
 
 
 # --- report ------------------------------------------------------------------
-def load_events(path=None):
+def load_events(path=None, skipped=None):
+    """Every JSON-object line of the events log. A leading UTF-8 BOM (a Windows editor's save) is stripped, like the
+    CRLF / lone CR that universal newlines already fold. A line that still does not parse is dropped, but counted:
+    pass a list as `skipped` and its length-1 slot `[0]` is bumped, so the caller can say how much it lost (#672)."""
     out = []
     try:
-        with open(path or events_path()) as fh:
+        with open(path or events_path(), encoding="utf-8", errors="replace") as fh:
             for line in fh:
+                line = line.lstrip("\ufeff")
+                if not line.strip():
+                    continue
                 try:
                     r = json.loads(line)
                 except ValueError:
-                    continue
+                    r = None
                 if isinstance(r, dict):
                     out.append(r)
+                elif skipped is not None:
+                    skipped[0] += 1
     except OSError:
         pass
     return out
@@ -1120,10 +1128,14 @@ def cmd_report(argv):
     except ValueError as e:
         print(f"harness stats: {e}", file=sys.stderr)
         return 2
-    every = load_events(a.events)
+    bad = [0]
+    every = load_events(a.events, bad)
     evs = filter_events(every, since, a.fleet, a.repo)
     # joined against EVERY event: a --since that cuts a session's launch must not orphan its rtdd calls
-    rtdd = filter_events(join_rtdd(load_events(a.rtdd_events or rtdd_events_path()), every), since, a.fleet, a.repo)
+    rtdd = filter_events(join_rtdd(load_events(a.rtdd_events or rtdd_events_path(), bad), every), since, a.fleet, a.repo)
+    if bad[0]:   # #672: spend in an unparseable line is lost from the totals — say so, on stderr (stdout stays the report)
+        print(f"harness stats: skipped {bad[0]} event line(s) that could not be parsed; totals exclude them",
+              file=sys.stderr)
     if a.by_role:
         kind, data = "role", role_rollup(evs, a.model, a.prd, a.issue)
     elif a.prd is not None:
