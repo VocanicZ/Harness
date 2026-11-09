@@ -441,7 +441,7 @@ claimed_issues(){ local f k tok; shopt -s nullglob
     [[ -n "$tok" ]] && is_claimed "$k" && _bug_ref_num "$tok"; done
   shopt -u nullglob; }
 # --- #596: a launch counts only if the lane lives -----------------------------------------------------------
-# A lane whose session is gone within HARNESS_LAUNCH_FAIL_SECS (30s) of its launch never ran: launch_gone_check logs
+# A lane whose session is gone within HARNESS_LAUNCH_FAIL_SECS (30s; #792: a value that is no non-negative integer falls back, as the two below do) of its launch never ran: launch_gone_check logs
 # `launch_failed` (stats.py does not count it as a session) and arms a backoff on that lane's claim key, so
 # claim_lane holds the same issue / PRD action back for HARNESS_LAUNCH_BACKOFF s (60, doubling per consecutive
 # failure, capped at HARNESS_LAUNCH_BACKOFF_MAX 900) instead of re-claiming it at once.
@@ -518,7 +518,7 @@ launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid k
   # #743: a sweep (stats_sweep_ended, from another worker's full step or reap_team) may have consumed .goalmet first: it left .goalswept
   if [[ -f "$RUN_DIR/$sess.goalmet" || -f "$RUN_DIR/$sess.goalswept" ]]; then rm -f "$RUN_DIR/$sess.goalswept"; [[ -n "$key" ]] && launch_backoff_clear "$key"; return 0; fi
   age=$(( $(date +%s) - t ))
-  if (( age < ${HARNESS_LAUNCH_FAIL_SECS:-30} )) && ! launch_ran_usage "$sess" "$uuid"; then
+  if (( age < $(_launch_knob HARNESS_LAUNCH_FAIL_SECS 30) )) && ! launch_ran_usage "$sess" "$uuid"; then
     harness_event launch_failed session="$uuid" tmux="$sess" kind="$kind" "$@" reason=session_gone age_s="$age"
     log "session $sess was gone ${age}s after launch — launch_failed, backing off"
     [[ -n "$key" ]] && launch_backoff_mark "$key"
@@ -528,7 +528,7 @@ launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid k
 # writes no lane claim (the retired unit-claim loop, a hand-run spawn) leaves exactly this between its `git worktree
 # add` and `launch_claude`: no claim, no session yet. The reap spares it for that long. rc 1 for a missing dir.
 launch_grace_live(){ local m; m="$(stat -c %Y "$1" 2>/dev/null)" || return 1
-  (( $(date +%s) - m < ${HARNESS_LAUNCH_FAIL_SECS:-30} )); }
+  (( $(date +%s) - m < $(_launch_knob HARNESS_LAUNCH_FAIL_SECS 30) )); }
 # _csv_union <a,b> <c,d> … — the distinct numbers of the comma lists, ascending, comma-separated.
 _csv_union(){ printf '%s\n' "$@" | tr ',' '\n' | grep -E '^[0-9]+$' | sort -un | paste -sd, -; }
 
