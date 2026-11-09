@@ -583,6 +583,15 @@ def test_repo_value_must_be_owner_name_in_every_form():
         assert rc == 0, rc
 
 
+def test_dash_leading_unit_is_a_usage_error_with_and_without_repo():   # #755
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for extra in ([], ["-R", W], ["--repo=" + W]):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "3", "--unit=-x"] + extra
+                               + ["--events", events, "--bodies", bodies], capture_output=True, text=True)
+            assert r.returncode == 2 and r.stdout == "" and "not a unit name" in r.stderr, (extra, r.returncode, r.stdout, r.stderr)
+
+
 def test_issue_number_below_one_is_a_usage_error():
     with tmp() as d:
         cfg, events, bodies = fixture(d)
