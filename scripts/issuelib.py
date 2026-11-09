@@ -63,6 +63,8 @@ _AC_CHECKBOX = re.compile(r"^[ \t]*[-*][ \t]+\[[ xX]\]", re.MULTILINE)
 _AC_BULLET = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]+\S", re.MULTILINE)
 ENGINE_CHILD_MAX_DEFAULT = 15
 _ENGINE_CHILD_MAX_WARNED = set()   # #810: raw HARNESS_ENGINE_CHILD_MAX values already warned about
+ENGINE_POOL_DEFAULT = 3            # lib.sh's default pool
+_ENGINE_POOL_WARNED = set()        # #861: raw HARNESS_POOL values already warned about
 # States that satisfy a blocked-by ref. "merged" covers a ref pointing at a merged PR: `gh issue
 # view <pr-number>` resolves the PR and returns {"state":"MERGED"}, so a merged PR must NOT block.
 _SATISFIED_STATES = {"closed", "merged"}
@@ -1170,8 +1172,17 @@ def engine_child_max():
     return ENGINE_CHILD_MAX_DEFAULT
 
 def engine_pool():
-    try: return int(os.environ.get("HARNESS_POOL", "") or 3)   # lib.sh's default pool
-    except ValueError: return 3
+    """The pool size the engine plans for. HARNESS_POOL, default 3. Only a positive ASCII integer counts (#861: int()
+    also took 1_0, +1, full-width digits and -1); anything else is the default, with a one-time warning naming it."""
+    raw = os.environ.get("HARNESS_POOL", "")
+    v = raw.strip()
+    if not v: return ENGINE_POOL_DEFAULT
+    if re.fullmatch(r"[0-9]+", v) and int(v) > 0: return int(v)
+    if raw not in _ENGINE_POOL_WARNED:
+        _ENGINE_POOL_WARNED.add(raw)
+        print(f"[issuelib] WARN HARNESS_POOL={raw!r} is not a positive ASCII integer — "
+              f"using the default {ENGINE_POOL_DEFAULT}", file=sys.stderr)
+    return ENGINE_POOL_DEFAULT
 
 def engine_files_child(p):
     """#614: does the engine file this PRD's one child itself, with no decompose session? Only a PRD with no

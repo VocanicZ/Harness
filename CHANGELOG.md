@@ -61,6 +61,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   was killed instead of finishing. A non-finite value (`inf`, `-inf`, `nan`) now falls back to the default 1500 ms and a value over 20000 ms is capped at 20000 ms, each with a one-time
   warning on stderr. `test_ralph_stop_hook.py` covers `inf` and `1e9`.
 
+### `HARNESS_POOL` takes a positive ASCII integer only in the engine (#861)
+
+- The engine read `HARNESS_POOL` with `int()`, so a full-width `１` or `+1` meant 1 (the engine then filed a single child itself even for a 40-criterion PRD), `1_0` meant 10 and `-1`
+  was kept, all without a word in the log. Anything that is not a positive ASCII integer (including `0` and `abc`) now falls back to the default 3 with a one-time warning naming the value.
+  `test_issuelib.py` covers `１`, `+1`, `1_0`, `-1`, `0` and `abc`.
+
 ### `HARNESS_ENGINE_CHILD_MAX` takes a non-negative ASCII integer only (#810)
 
 - The value was read with `int()`, so `1_0` meant 10, a full-width `１５` meant 15, `-1` silently disabled engine-filed children and `abc` silently gave the default,

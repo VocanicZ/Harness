@@ -3033,6 +3033,31 @@ def test_engine_child_max_takes_a_non_negative_ascii_integer_only():
         if saved is None: os.environ.pop("HARNESS_ENGINE_CHILD_MAX", None)
         else: os.environ["HARNESS_ENGINE_CHILD_MAX"] = saved
 
+def test_engine_pool_takes_a_positive_ascii_integer_only():
+    import io, contextlib
+    saved = os.environ.get("HARNESS_POOL")
+    try:
+        for good, want in (("1", 1), ("7", 7), (" 5 ", 5), ("", 3)):
+            os.environ["HARNESS_POOL"] = good
+            assert il.engine_pool() == want, (good, il.engine_pool())
+        os.environ.pop("HARNESS_POOL")
+        assert il.engine_pool() == 3
+        for bad in ("\uff11", "+1", "1_0", "-1", "0", "abc"):
+            il._ENGINE_POOL_WARNED.discard(bad)
+            os.environ["HARNESS_POOL"] = bad
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                assert il.engine_pool() == 3, bad
+                assert il.engine_pool() == 3, bad
+            out = err.getvalue()
+            assert out.count("WARN") == 1 and repr(bad) in out and "default 3" in out, (bad, out)
+        # the repro: a full-width 1 must not make the engine file a 40-criterion PRD's child itself
+        os.environ["HARNESS_POOL"] = "\uff11"
+        assert not il.engine_files_child({"ac_count": 40})
+    finally:
+        if saved is None: os.environ.pop("HARNESS_POOL", None)
+        else: os.environ["HARNESS_POOL"] = saved
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
