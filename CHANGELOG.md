@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### An idle lane whose goal stays pending no longer calls gh every 15s (#721)
+
+- Since #594 the short tend tick made one live `gh issue view` per idle lane per tick while the goal stayed pending
+  (self-park grace, an auto-merge waiting, a usage-limit menu): about 240 calls an hour per lane, enough for several lanes
+  on one account to hit the GitHub rate limit. The first check after the pane goes idle is still on the first idle tick, so
+  `goal_satisfied` still lands within 30s. Each check that finds the goal pending now doubles the wait before the next one,
+  up to `HARNESS_POLL`: about 6 calls in the first 10 idle minutes instead of 40. A busy pane resets the backoff.
+
 ### A lane that ran but ended within 30s of launch keeps its spend in `harness stats` (#720)
 
 - The reap logged `launch_failed` for any lane gone under 30s after launch, before the session's `session_end` was
