@@ -177,8 +177,8 @@ def usage_readings():
     if p.returncode != 0:
         return []
     out = []
-    for line in p.stdout.removeprefix("﻿").splitlines():   # #678: a leading BOM is not part of the account name
-        f = line.split("\t")
+    for line in p.stdout.split("\n"):   # #714: only \n ends a line; splitlines() also cut at \f, U+2028 and friends
+        f = line.removesuffix("\r").removeprefix("﻿").split("\t")   # CRLF; #678: a BOM at any line start is not part of the account name
         if len(f) >= 3 and f[0] and _finite(_num(f[2])):   # nan/inf is no reading (#709)
             out.append((f[0], f[1], _num(f[2]), f[3] if len(f) > 3 else ""))
     return out
