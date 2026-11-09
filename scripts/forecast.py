@@ -635,6 +635,14 @@ def gh_bodies(repo, issue):
     return body, bodies
 
 
+def unit_arg(v):
+    """argparse type for --unit: a name that does not start with `-` (a usage error, exit 2, with or without -R)."""
+    import argparse
+    if v.startswith("-"):
+        raise argparse.ArgumentTypeError(f"{v!r} is not a unit name — it must not start with '-'")
+    return v
+
+
 def issue_arg(v):
     """argparse type for the issue positional: an integer of 1 or greater (a usage error, exit 2, below that)."""
     import argparse
@@ -678,7 +686,7 @@ def main(argv=None):
                                  description="per-phase p50/p80/p95 cost forecast for one issue (#363)")
     ap.add_argument("issue", type=issue_arg)
     ap.add_argument("-R", "--repo", type=st.repo_arg, help="owner/repo (default: the issue's own lanes, else the project's unit)")
-    ap.add_argument("--unit", help="unit of the current project (multi-unit projects)")
+    ap.add_argument("--unit", type=unit_arg, help="unit of the current project (multi-unit projects)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--events", help=argparse.SUPPRESS)
     ap.add_argument("--bodies", help=argparse.SUPPRESS)   # test seam: gh `issue list --json number,body` output
