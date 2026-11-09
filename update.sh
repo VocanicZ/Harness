@@ -2,7 +2,7 @@
 # update.sh [--with-skills] [--rollback] — update the ONE shared engine install (#54, PRD #52). The engine lives
 # at $HARNESS_HOME/engine (resolved here via ENGINE_DIR, set by bin/harness from the realpath of the
 # entrypoint). One update moves every project at once — no per-project re-pull, no skew.
-#   --with-skills  also refresh the superpowers/ralph-loop plugins + matt-pocock skills (host-level).
+#   --with-skills  also refresh the ralph-loop plugin + matt-pocock skills (host-level).
 # rtdd is ensured on EVERY update, with or without that flag: the prompts this update brings call it.
 # So are the engine's own skills, linked into every installed CLI's user-skills dir (#439).
 # Touches NO project .harness/: config + state live in the project, separate from the engine.

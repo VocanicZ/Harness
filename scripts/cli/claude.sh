@@ -392,8 +392,10 @@ PY
 claude_usage_setup(){ usage_statusline_install "$1"; }
 
 # --- prerequisites ------------------------------------------------------------------------------
-# The binary, plus the plugins every lane needs: ralph-loop (the goal loop's Stop hook) and
-# superpowers (the skills the prompts name). --install installs what is missing.
+# The binary, plus the plugin every lane needs: ralph-loop (the goal loop's Stop hook). Not superpowers:
+# no lane can see it (a lean lane launches with --setting-sources project,local, #595) and no skill the
+# prompts name requires it any more (skill/writing-plans names only skills a lean lane has, #669; the
+# prompt-skills check in test_cli_lean.sh walks them). --install installs what is missing.
 # HARNESS_MARKETPLACE / HARNESS_MARKETPLACE_NAME name the marketplace they come from (install.sh).
 claude_prereqs(){ local bin rc=0 p f mk="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
   bin="$(claude_bin)"
@@ -401,7 +403,7 @@ claude_prereqs(){ local bin rc=0 p f mk="${HARNESS_MARKETPLACE_NAME:-claude-plug
   echo "ok      claude binary ($bin)"
   [[ "${1:-}" == --install ]] &&
     _cli_run "$bin" plugin marketplace add "${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}" >/dev/null 2>&1
-  for p in ralph-loop superpowers; do
+  for p in ralph-loop; do
     f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
     if [[ -f "$f" ]] && P="$p" F="$f" python3 -c 'import json,os,sys
 d = json.load(open(os.environ["F"])).get("plugins", {})

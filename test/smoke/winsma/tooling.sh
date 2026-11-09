@@ -64,7 +64,7 @@ if has skills; then
   names="$(grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$E"/prompts/*.md | sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u | grep -vx rtdd)"
   say "prompt-named skills: $(echo $names)"
   for s in $names; do ok "{{skill:$s}} is where the CLI loads skills from" '[[ -e "$HARNESS_USER_SKILLS/$s/SKILL.md" ]]'; done
-  for p in ralph-loop superpowers; do ok "claude plugin $p is registered in the sandbox config" 'grep -q "\"$p@" "$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json" 2>/dev/null'; done
+  for p in ralph-loop; do ok "claude plugin $p is registered in the sandbox config" 'grep -q "\"$p@" "$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json" 2>/dev/null'; done
   ok "the sandbox has no CRLF-converted skill (autocrlf off)" '! grep -rlI $'"'"'\r'"'"' "$HARNESS_USER_SKILLS/to-prd/" 2>/dev/null | grep -q .'
 fi
 

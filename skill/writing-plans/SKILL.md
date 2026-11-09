@@ -3,6 +3,7 @@ name: writing-plans
 description: Use when you have a spec or requirements for a multi-step task, before touching code
 ---
 <!-- harness-skill: vendored by Harness from obra/superpowers@2ce8aa1 (MIT) (skill/writing-plans) -->
+<!-- Changed from upstream (#669): the superpowers:* sub-skill references name skills a lean lane has (subagent-task-tree) or no skill, so none dangles. -->
 
 # Writing Plans
 
@@ -12,7 +13,7 @@ Write implementation plans for an engineer who has not seen this codebase or thi
 
 **Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
 
-**Context:** If working in an isolated worktree, it should have been created via the `superpowers:using-git-worktrees` skill at execution time.
+**Context:** Plan in the working tree you were given; an executor works in its own isolated worktree, which its launcher creates.
 
 **Save plans to:** `docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
@@ -57,7 +58,7 @@ independently testable deliverable.
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Implement this plan task-by-task: the `subagent-task-tree` skill for a sizeable plan (recommended), or in order yourself for a small one. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -199,7 +200,7 @@ them to review the plan and choose an execution method before implementation.
 **"Plan complete and saved to `docs/superpowers/plans/<filename>.md`. Please review the plan. Does it capture what you want?"**
 
 **If Subagent-driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
+- Use the `subagent-task-tree` skill
 
 **If Native chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
+- Work through the plan's tasks in order yourself, committing after each

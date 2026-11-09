@@ -71,7 +71,7 @@ CLI with a headless lane runner (`cli_headless_list`) runs there, so every other
 
 Per-CLI setup (`harness setup --install` handles what it can):
 
-- **`claude`** — default. Needs the `superpowers` and `ralph-loop` plugins (`install.sh` adds them).
+- **`claude`** — default. Needs the `ralph-loop` plugin (`install.sh` adds it). Not `superpowers`: a lean lane cannot see it, and no skill a prompt names requires it (#669).
 - **`agy`** — needs the `harness-ralph` plugin (`plugins/ralph-loop`) for its goal loop; without it a
   lane runs one turn and stops.
 - **`codex`** — needs `harness-ralph@harness` from the local marketplace `plugins/codex`.
@@ -265,7 +265,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_OPENCLAW_AGENTS_SKILLS` | `~/.agents/skills` | The user skill dir the operator's own openclaw reads, where Harness links its skills; an openclaw lane's config adds it as an extra skill dir, after `HARNESS_USER_SKILLS` |
 | `HARNESS_HOME` | `~/.harness` | The host root: the shared engine (`engine`, a link into `releases/<tag>/`), whose `skill/` every CLI's skill links name (#439), and the host's poller, fleet and lane state |
 | `HARNESS_USER_SKILLS` | `~/.claude/skills` | Where Harness links user skills for claude and opencode, and a skill dir a hermes or openclaw lane gets as an external one. Set, it is a sandbox: no other CLI's dir under `HOME` is touched |
-| `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` and `superpowers` plugins |
+| `HARNESS_MARKETPLACE` / `HARNESS_MARKETPLACE_NAME` | `anthropics/claude-plugins-official` / `claude-plugins-official` | The plugin marketplace `harness setup --install` adds to `claude`, and its name, for the `ralph-loop` plugin |
 | `HARNESS_INIT_SEED` | `1` | A non-interactive `harness init` (no terminal — an agent's shell, `/harness <idea>`) seeds the harness labels on `HARNESS_REPO` when `gh` is signed in, so the `prd` issue filed next finds its label; signed out, it says to run `harness setup`. Labels only — disabling the repo's Actions stays with `harness setup`. The interactive wizard always seeds. `0` = skip it |
 | `HARNESS_INSTALL_CLI_BIN` | `1` | `1` = `harness setup --install` installs a missing agent CLI binary by its vendor's non-interactive install (an npm package or a curl release script) when `npm` / `curl` is on `PATH`; signing in stays yours. `0` = only name the command |
 | `HARNESS_COAUTHOR` | `Co-authored-by: Harness <353635118+vocanicz-harness[bot]@users.noreply.github.com>` | The trailer `scripts/lane-bin/git` adds to every `git commit` a lane makes (#642; [The Harness commit trailer](#the-harness-commit-trailer-642)). **Empty turns it off**; unset is the default, so write `HARNESS_COAUTHOR=` in `.harness/config`, not `: "${HARNESS_COAUTHOR:=}"` |

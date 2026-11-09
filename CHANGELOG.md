@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Lean PLAN lanes can resolve every skill `writing-plans` requires (#669)
+
+- `skill/writing-plans` named `superpowers:using-git-worktrees`, `superpowers:subagent-driven-development` and
+  `superpowers:executing-plans`. A lean lane launches with `--setting-sources project,local`, so the user-scope
+  superpowers plugin never loaded and those names dangled. The skill now names only `subagent-task-tree`, which the
+  engine supplies, or no skill. `test/test_cli_lean.sh` walks every skill the prompts name and the skills those
+  require, and fails on a name a lean lane cannot resolve. `claude_prereqs` (`harness setup --install`) no longer
+  installs the `superpowers` plugin, since no lane can see it and nothing the prompts name needs it.
+
 ### With the poller off, `goal_satisfied` no longer waits for the 300s full step (#668)
 
 - In `bench/results/ttl-ab-5m` (no poller) every `goal_satisfied` landed on the 300s full-step grid, 120–221s after the
