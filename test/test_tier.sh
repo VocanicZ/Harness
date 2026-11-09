@@ -195,6 +195,14 @@ assert_ok "…naming the section and the file" grep -q "$T/badsec.toml: \[direct
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 out="$(HARNESS_TIER_TOML="$T/badval.toml" H tier thresholds 2>&1)"; rc=$?
 assert_eq "$rc" 2 "tier thresholds with a bad value -> exit 2 too"
+# a tier.toml path holding U+2028 or a form feed is echoed escaped in the error (#863)
+for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  ch="${pair%%:*}"; esc="${pair#*:}"
+  err="$(HARNESS_TIER_TOML="$T/no${ch}pe.toml" H tier thresholds 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "unreadable tier.toml path with ${esc} -> exit 2"
+  assert_eq "$(printf %s "$err" | grep -c -- "$ch")" 0 "…no raw ${esc} on stderr"
+  assert_ok "…the path shows it as ${esc}" grep -qF "no${esc}pe.toml: cannot read it" <<<"$err"
+done
 printf '[direct]\nmax_criteria = 8\nmax_files = 0.0\n[estimate]\ndirect_usd_base = 0\n' > "$T/okval.toml"
 out="$(dd "$T/okval.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "0.0 is zero too"

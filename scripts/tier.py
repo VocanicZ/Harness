@@ -377,7 +377,8 @@ def main(argv=None):
     try:
         cfg = load()
     except TierConfigError as e:
-        print(f"harness tier: {e}", file=sys.stderr); return 2
+        import stats   # #863: the message names the tier.toml path (HARNESS_TIER_TOML), which can hold U+2028 or a form feed
+        print(stats.vis(f"harness tier: {e}"), file=sys.stderr); return 2
     if a.cmd == "thresholds":
         print(json.dumps(cfg, indent=2)); return 0
     if a.cmd == "decide":
@@ -386,7 +387,8 @@ def main(argv=None):
                        user_around=not a.unattended, wants_review=a.wants_review,
                        multi_step_plan=a.multi_step_plan, prefer=a.prefer)
         except TierConfigError as e:   # #856: an estimate that overflows to inf is a config error, not output
-            print(f"harness tier: {e}", file=sys.stderr); return 2
+            import stats   # #863: as above
+            print(stats.vis(f"harness tier: {e}"), file=sys.stderr); return 2
         print(json.dumps(r) if a.json else render(r)); return 0
     if not a.base or a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git; #862: an empty one is not "HEAD"
         o.error(f"argument --base: {a.base!r} is not a branch — it must be non-empty and not start with '-'")
