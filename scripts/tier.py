@@ -185,15 +185,26 @@ def overlap(files, slug, base, repo_dir, label):
     return hits
 
 
+def count(v):
+    """argparse type for a count option (--criteria, --lines, --pool, …): an integer >= 0."""
+    try:
+        n = int(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid int value: {v!r}")
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"{n} is negative — a count must be 0 or more")
+    return n
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="harness tier", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("decide")
     for k in ("criteria", "lines", "files", "subsystems"):
-        d.add_argument(f"--{k}", type=int, required=True)
-    d.add_argument("--workstreams", type=int, default=1)
-    d.add_argument("--pool", type=int, default=1)
-    d.add_argument("--minutes", type=int)
+        d.add_argument(f"--{k}", type=count, required=True)
+    d.add_argument("--workstreams", type=count, default=1)
+    d.add_argument("--pool", type=count, default=1)
+    d.add_argument("--minutes", type=count)
     g = d.add_mutually_exclusive_group()
     g.add_argument("--user-around", action="store_true", default=True)
     g.add_argument("--unattended", action="store_true")

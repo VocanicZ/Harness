@@ -34,6 +34,19 @@ assert_eq "$(d --criteria 5 --lines 80 --files 3 --subsystems 1 --workstreams 2 
 assert_eq "$(d --criteria 5 --lines 80 --files 3 --subsystems 1 --multi-step-plan | jq_ 'd["tier"]')" fleet "a multi-step plan -> fleet"
 assert_eq "$(d --criteria 5 --lines 80 --files 3 --subsystems 1 --unattended --minutes 240 | jq_ 'd["tier"]')" fleet "hours unattended -> fleet"
 
+# a negative count is a mistake in what was passed, not a small change: usage error, exit 2, no tier (#677)
+for opt in criteria lines files subsystems workstreams pool minutes; do
+  args=(--criteria 3 --lines 80 --files 3 --subsystems 1); args+=("--$opt" -1)
+  out="$(H tier decide "${args[@]}" 2>&1)"; rc=$?
+  assert_eq "$rc" 2 "--$opt -1 -> usage error, exit 2"
+  assert_ok "--$opt -1 names the negative value" grep -q 'negative' <<<"$out"
+  assert_no "--$opt -1 prints no tier" grep -q '^TIER:' <<<"$out"
+done
+out="$(H tier decide --criteria -1 --lines -5 --files 3 --subsystems 1 2>&1)"; rc=$?
+assert_eq "$rc" 2 "--criteria -1 --lines -5 -> exit 2"
+assert_no "…and no TIER line" grep -q '^TIER:' <<<"$out"
+assert_eq "$(d --criteria 0 --lines 0 --files 0 --subsystems 0 | jq_ 'd["tier"]')" direct "zero counts are still fine"
+
 # reason + both estimates, in the text and JSON output
 out="$(H tier decide --criteria 20 --lines 80 --files 3 --subsystems 1)"
 assert_ok "text names the tier"            grep -qx 'TIER: fleet' <<<"$out"
