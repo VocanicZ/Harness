@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats` and the bench usage guard escape line separators and control characters in names (#756)
+
+- A U+2028 (or U+2029, U+0085, a form feed or another control character) inside a fleet prefix, a repo name or an account
+  name was printed raw, so a terminal or log viewer showed one record on two lines (`fleet bn4e<U+2028>53c: ...`). The
+  `harness stats` text output (fleet, PRD, role and issue views, and `stats mismatches`) and the `bench/run.py` guard
+  message now write them as `\u2028`, `\u000c` and so on, as `--json` already did.
+
 ### Claude 3 Haiku and 3.5 Haiku are priced at their own list prices (#751)
 
 - `price()` skipped the legacy split for Haiku, so `claude-3-5-haiku-20241022` and `claude-3-haiku` were priced at the

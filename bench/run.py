@@ -319,11 +319,12 @@ def guard(a, fc, st):
 
 
 def render_guard(d):
+    vis = _load("stats").vis   # #756: names in a line (an account) are escaped, so a record never splits across lines
     if d["ok"]:
-        return "bench guard: OK — " + (", ".join(
+        return "bench guard: OK — " + (", ".join(vis(
             f"{w['account']} {w['window']} {w['now_pct']:g}% + {w['need_pct']:g}% + {d['reserve_pct']:g}% = "
-            f"{w['total_pct']:g}% <= {d['stop_pct']:g}%" for w in d["windows"]) or "no windows")
-    return "bench guard: REFUSED\n" + "\n".join("  - " + r for r in d["reasons"])
+            f"{w['total_pct']:g}% <= {d['stop_pct']:g}%") for w in d["windows"]) or "no windows")
+    return "bench guard: REFUSED\n" + "\n".join("  - " + vis(r) for r in d["reasons"])
 
 
 # --- GitHub / git ----------------------------------------------------------------
