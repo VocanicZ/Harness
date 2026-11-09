@@ -157,8 +157,15 @@ assert_eq "$(py)" "tmux True ['h1', 's1'] ['tmux', 'bash'] tmux attach -t s1" \
   "tmux: the views list tmux sessions through tmux's argv, and headless lanes beside them"
 assert_eq "$(HARNESS_SESSION_BACKEND=headless py)" "headless True ['h1', 's1'] ['tmux', 'bash'] harness attach s1" \
   "headless: the same host-wide listing; a lane's screen is capturable (#351) and watched with harness attach"
-argv="$(HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR=/lanes python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import session_backend as sb; print(" ".join(sb.capture_argv("=hz-main-i1")[1:]))' "$ROOT/scripts")"
-assert_eq "$argv" "$ROOT/scripts/cli/claude_headless.py pane --lane /lanes/hz-main-i1" "headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux"
+# A native Windows python spells its paths C:\x\y and MSYS rewrites a bare /lanes env value to C:/Program Files/Git/lanes (#605):
+# the lanes dir is a real temp dir, and both sides are compared in the one MSYS spelling.
+LANES="$(mktemp -d)"
+argv="$(HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR="$(native_path "$LANES")" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import session_backend as sb; print(" ".join(sb.capture_argv("=hz-main-i1")[1:]))' "$(native_path "$ROOT/scripts")")"
+argv="${argv//\\//}"
+assert_path_eq "${argv%% *}" "$ROOT/scripts/cli/claude_headless.py" "headless: the capture runs claude_headless.py"
+assert_path_eq "${argv##* }" "$LANES/hz-main-i1" "headless: …on the lane's own directory"
+assert_eq "${argv#* }" "pane --lane ${argv##* }" "headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux"
+rm -rf "$LANES"
 
 echo "== harness init writes the key; doctor reports it =="
 proj="$RUN_DIR/proj"; mkdir -p "$proj"

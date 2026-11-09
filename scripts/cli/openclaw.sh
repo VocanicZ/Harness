@@ -34,11 +34,13 @@ _openclaw_config(){ local d; d="$(_openclaw_dir "$1")"
   mkdir -p "$d/runs" 2>/dev/null || return 1
   git_exclude "$1" "/.harness-openclaw/" 2>/dev/null
   OP="$(_openclaw_op_config)" CFG="$(_openclaw_cfg "$1")" SKILLS="${HARNESS_USER_SKILLS:-$HOME/.claude/skills}" \
-    AGENTS="${HARNESS_OPENCLAW_AGENTS_SKILLS:-$HOME/.agents/skills}" python3 -c 'import json, os
+    AGENTS="${HARNESS_OPENCLAW_AGENTS_SKILLS:-$HOME/.agents/skills}" PORTABLE_DIR="$CLI_DIR/.." python3 -c 'import json, os, sys
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+from portable import native_path as np   # the config is read by a native CLI: one spelling, C:/x/y, never C:/x\y (#605)
 op, cfg = os.environ["OP"], os.environ["CFG"]
 c, dirs = {}, []
 if os.path.isfile(op):
-    c["$include"] = op
+    c["$include"] = np(op)
     try:
         dirs = list(json.load(open(op))["skills"]["load"]["extraDirs"])
     except Exception:
@@ -47,9 +49,9 @@ for x in (os.environ["SKILLS"], os.environ["AGENTS"]):
     if not os.path.isdir(x):
         continue
     if os.path.isfile(os.path.join(x, "SKILL.md")):
-        sub = sorted(os.path.join(x, n) for n in os.listdir(x) if os.path.isfile(os.path.join(x, n, "SKILL.md")))
+        sub = sorted(np(os.path.join(x, n)) for n in os.listdir(x) if os.path.isfile(os.path.join(x, n, "SKILL.md")))
     else:
-        sub = [x]
+        sub = [np(x)]
     dirs += [y for y in sub if y not in dirs]
 c["tools"] = {"exec": {"mode": "full"}}
 if dirs:

@@ -758,6 +758,21 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `C:/` spelling on a Windows host, and `test_doctor.sh`, `test_install.sh`, `test_status*.sh`, `test_prefix_guard.sh`, `test_portable.*`
   and the web tests give a Windows host the fixtures it needs (`.cmd` shims for their `tmux` / `gh` stubs, native registry paths, the
   headless backend).
+### Windows: one directory, one spelling — `posix_path` / `native_path` in `portable.sh` and `portable.py`, and the test suite no longer compares `C:/x` with `/c/x` (#605)
+
+- The first full-suite run on the Windows check host (#492) had 96 red files. A large share had one cause: a path built in one spelling
+  (`C:/x`, from `HARNESS_HOME`/`TMPDIR`, from `export_native_paths`, from `os.path.abspath`) compared with, or handed to a tool that
+  wants, the other (`/c/x`, from `pwd`, `realpath`, `mktemp`; a native Python cannot open it, and Git Bash rewrites a bare `/proj/b`
+  to `C:/Program Files/Git/proj/b`).
+- Engine fixes, once, behind the portable helpers: `posix_path` / `same_path` (`portable.sh`) and `native_path` / `posix_path`
+  (`portable.py`; the shell already had `native_path`). A lane's `PATH` entry for `scripts/lane-bin` is now in MSYS form: it held
+  `C:/…`, and a drive colon splits a colon-separated `PATH`, so a Windows lane never found the git trailer wrapper. `fleet_migrate.py`
+  wrote `C:\…` into the config's `HARNESS_CHECKOUT` (bash read the backslashes as escapes). The codex, copilot and openclaw adapters find
+  a trusted folder, a rollout's `cwd` or a `[projects]` table by the directory, not by its spelling, and write one spelling (no
+  `C:/x\y` skill dirs, no backslashes in a transcript path that `read` would eat).
+- Tests: `helpers.sh` gains `posix_path`, `assert_path_eq` and `grep_path`; the tests that compared engine paths with `pwd`/`mktemp` ones,
+  that made a made-up `/proj/b` or `/old/proj` go through a native Python, that embedded a path in a `python3 -c` program, that `ln -s`
+  (a copy on Windows) or `chmod`ed (no effect on NTFS) now do it in a way that holds on both.
 
 ### Windows suite: the headless runner tests start their runner with the real interpreter, so they reach its first state (#606)
 

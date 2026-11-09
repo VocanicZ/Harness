@@ -32,7 +32,10 @@ make_env
 echo "== register / read back / deregister =="
 rm -rf "$HARNESS_FLEETS_DIR"
 ( STATE_DIR=/proj/a RUN_DIR=/proj/a/run HARNESS_SESS_PREFIX=alpha fleet_register )
-( STATE_DIR=/proj/b RUN_DIR=/proj/b/run HARNESS_SESS_PREFIX=beta  fleet_register )
+# beta is a real directory: a made-up /proj/b would be rewritten to C:/Program Files/Git/proj/b by MSYS on its way to
+# the native python, and the registry would hold that (#605). The registry holds the engine's spelling, C:/x on Windows.
+PB="$(mktemp -d)"
+( STATE_DIR=$PB RUN_DIR=$PB/run HARNESS_SESS_PREFIX=beta  fleet_register )
 assert_eq "$(ls "$HARNESS_FLEETS_DIR"/*.json 2>/dev/null | wc -l)" "2" "one file per fleet"
 
 # entries EXCLUDE the caller's own fleet (self must never trip the guard).
@@ -43,7 +46,7 @@ assert_eq "$(printf '%s\n' "$OUT" | grep -c .)" "1" "self-project excluded from 
 # child — a bash -c subshell never sourced lib.sh, so calling the function there would be "command
 # not found" (127), and referencing $OUT there would be empty (never exported). Same discipline as
 # test_prefix_guard.sh's prefixes_collide check.
-assert_ok "the other fleet's prefix is reported"  bash -c 'grep -q "^beta	/proj/b	/proj/b/run" <<<"$1"' _ "$OUT"
+assert_ok "the other fleet's prefix is reported"  bash -c 'grep -qF "beta	$2	$2/run" <<<"$1"' _ "$OUT" "$(native_path "$PB")"
 assert_no "our own prefix is not reported"        bash -c 'grep -q "^alpha" <<<"$1"' _ "$OUT"
 
 # re-registering the same project overwrites in place (idempotent, not additive).
@@ -62,7 +65,8 @@ rm -rf "$HARNESS_FLEETS_DIR"
 assert_eq "$(fleet_registry_entries /proj/a | grep -c . || true)" "0" "absent registry yields no entries"
 assert_ok "absent registry is not an error" fleet_registry_entries /proj/a
 # An UNWRITABLE host root must warn and still return 0 — a fleet must always be startable.
-RO="$(mktemp -d)"; chmod 500 "$RO"
+# (a plain FILE where the host root should be: mkdir -p under it fails on every OS — chmod 500 does not stop root, or NTFS)
+RO="$(mktemp)"
 ( HARNESS_FLEETS_DIR="$RO/fleets" STATE_DIR=/proj/c RUN_DIR=/proj/c/run HARNESS_SESS_PREFIX=gamma fleet_register ) 2>/dev/null
 assert_eq "$?" "0" "unwritable registry still returns 0"
 # fleet_register itself is under test here, so it must run where it's actually defined: a nested `(
@@ -71,7 +75,7 @@ assert_eq "$?" "0" "unwritable registry still returns 0"
 # above.
 _ro_warns(){ ( HARNESS_FLEETS_DIR="$RO/fleets" STATE_DIR=/proj/c RUN_DIR=/proj/c/run HARNESS_SESS_PREFIX=gamma fleet_register ) 2>&1 >/dev/null | grep -qi 'warning'; }
 assert_ok "unwritable registry warns on stderr" _ro_warns
-chmod 700 "$RO"
+rm -f "$RO"
 
 echo "== a malformed entry never breaks the reader =="
 mkdir -p "$HARNESS_FLEETS_DIR"; echo 'not json' > "$HARNESS_FLEETS_DIR/junk.json"

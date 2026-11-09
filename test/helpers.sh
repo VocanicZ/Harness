@@ -83,6 +83,16 @@ sys_path(){ local p=/usr/bin:/bin t d
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*) for t in curl git python3; do d="$(command -v "$t" 2>/dev/null)"; d="${d%/*}"
     [[ -n $d && $d != "$t" && :$p: != *":$d:"* ]] && p="$p:$d"; done;; esac
   printf '%s' "$p"; }
+# posix_path <path> — <path> in MSYS form (`/c/x/y`, cygpath -u) when this host is Windows, unchanged elsewhere (#605).
+# One directory has two spellings in a Windows run: lib.sh's export_native_paths turns ENGINE_DIR, STATE_DIR, HARNESS_HOME
+# ... into `C:/x`, while `pwd`, `realpath` and `mktemp -d` answer `/c/x`. A test that compares two paths, or looks for one in
+# a file the engine wrote, must not care which spelling it got: assert_path_eq compares through this, and
+# grep_path <path> <file> looks for the path in EITHER spelling.
+posix_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; else printf '%s' "$1"; fi; }
+# assert_path_eq <got> <want> <msg> — assert_eq on two paths, in any spelling of one place (C:/x, C:\x, /c/x).
+assert_path_eq(){ assert_eq "$(posix_path "$1")" "$(posix_path "$2")" "$3"; }
+# grep_path <path> <file> — true when <file> holds <path> in its MSYS or its mixed-case Windows spelling (-F, so no regex).
+grep_path(){ grep -qF -e "$(posix_path "$1")" -e "$(native_path "$1")" "$2"; }
 
 # alive_any <pid> — the process is alive and not a zombie, by its MSYS pid OR (Windows) by its native one (#606): a fake agent
 # written in native Python records os.getpid(), a Windows pid, in calls.jsonl / pids, and MSYS `kill -0` does not know it.

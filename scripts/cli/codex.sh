@@ -32,11 +32,13 @@ codex_session_id(){
   # A headless lane (#481) runs `codex exec`, which names its thread in its first event: the lane's
   # state.json has it (headless_lane_session), whatever rollouts the host's other lanes wrote.
   if [[ "$(sess_backend)" == headless ]]; then headless_lane_session "$1"; return 0; fi
-  WD="$1" H="$(_codex_home)" python3 - 2>/dev/null <<'PY'
-import glob, json, os, re
+  WD="$1" H="$(_codex_home)" PORTABLE_DIR="$CLI_DIR/.." python3 - 2>/dev/null <<'PY'
+import glob, json, os, re, sys
 from datetime import datetime
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable  # a rollout's cwd and $WD are one directory in two Windows spellings (#605)
 wd, h = os.environ["WD"], os.environ["H"]
-same_dir = lambda a, b: bool(a) and os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))   # C:\\x = C:/x (#606)
+same_dir = lambda a, b: bool(a) and os.path.normcase(portable.posix_path(a).rstrip("/")) == os.path.normcase(portable.posix_path(b).rstrip("/"))   # C:\\x = C:/x = /c/x (#606, #605)
 def ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 try:
@@ -121,8 +123,10 @@ codex_trust(){
   local dir="$1" cfg lockfd; cfg="$(_codex_home)/config.toml"
   mkdir -p "$(dirname "$cfg")"
   lock_acquire "$cfg.harness-trust.lock" lockfd
-  CFG="$cfg" DIR="$dir" python3 - <<'PY'
-import json, os, re, tempfile, tomllib
+  CFG="$cfg" DIR="$dir" PORTABLE_DIR="$CLI_DIR/.." python3 - <<'PY'
+import json, os, re, sys, tempfile, tomllib
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable  # the key may be on file in another spelling of the directory (#605)
 cfg, d = os.environ["CFG"], os.environ["DIR"]
 try:
     text = open(cfg).read()
@@ -136,15 +140,19 @@ lines = text.splitlines()
 if "check_for_update_on_startup" not in data:
     first = next((i for i, l in enumerate(lines) if re.match(r"\s*\[", l)), len(lines))
     lines[first:first] = ["check_for_update_on_startup = false"] + ([""] if first < len(lines) else [])
-if ((data.get("projects") or {}).get(d) or {}).get("trust_level") != "trusted":
+if not any(portable.posix_path(k) == portable.posix_path(d) and (v or {}).get("trust_level") == "trusted"
+           for k, v in (data.get("projects") or {}).items()):
     header = f"[projects.{json.dumps(d)}]"
-    at = next((i for i, l in enumerate(lines) if l.strip() == header), None)
+    def same_table(l):   # the table may be on file under another spelling of the directory
+        m = re.match(r'\s*\[projects\.("(?:[^"\\]|\\.)*")\]\s*$', l)
+        return bool(m) and portable.posix_path(json.loads(m.group(1))) == portable.posix_path(d)
+    at = next((i for i, l in enumerate(lines) if l.strip() == header or same_table(l)), None)
     if at is None:
         lines += ([""] if lines and lines[-1].strip() else []) + [header, 'trust_level = "trusted"']
     else:
         end = next((i for i in range(at + 1, len(lines)) if re.match(r"\s*\[", lines[i])), len(lines))
         body = [l for l in lines[at + 1:end] if not re.match(r"\s*trust_level\s*=", l)]
-        lines[at:end] = [header, 'trust_level = "trusted"'] + body
+        lines[at:end] = [lines[at].strip(), 'trust_level = "trusted"'] + body
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(cfg)), prefix=".config.toml.harness.")
 try:
     with os.fdopen(fd, "w") as f:
@@ -155,9 +163,13 @@ except BaseException:
     raise
 PY
   lock_release "$lockfd"; }
-codex_trusted(){ CFG="$(_codex_home)/config.toml" DIR="$1" python3 -c 'import os, sys, tomllib
+codex_trusted(){ CFG="$(_codex_home)/config.toml" DIR="$1" PORTABLE_DIR="$CLI_DIR/.." python3 -c 'import os, sys, tomllib
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable
 d = tomllib.load(open(os.environ["CFG"], "rb"))
-sys.exit(0 if ((d.get("projects") or {}).get(os.environ["DIR"]) or {}).get("trust_level") == "trusted" else 1)' 2>/dev/null; }
+want = portable.posix_path(os.environ["DIR"])
+sys.exit(0 if any(portable.posix_path(k) == want and (v or {}).get("trust_level") == "trusted"
+                  for k, v in (d.get("projects") or {}).items()) else 1)' 2>/dev/null; }
 
 # --- permission bypass ----------------------------------------------------------------------------
 # --dangerously-bypass-approvals-and-sandbox is the whole session's policy, and sub-agents inherit
@@ -175,10 +187,12 @@ codex_user_skills_dir(){ echo "${HARNESS_CODEX_USER_SKILLS:-$HOME/.agents/skills
 # sub-agents' rollouts: their session_meta carries the parent's session_id under their own id
 # (bypass-subagent.jsonl). Rollouts 7+ days old are compressed to .jsonl.zst, which this does not read.
 codex_transcripts(){ [[ -n "$2" ]] || return 0
-  SID="$2" H="$(_codex_home)" python3 - 2>/dev/null <<'PY'
-import glob, json, os
+  SID="$2" H="$(_codex_home)" PORTABLE_DIR="$CLI_DIR/.." python3 - 2>/dev/null <<'PY'
+import glob, json, os, sys
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable  # one spelling per path: glob joins with a backslash on Windows, and bash `read` eats it (#605)
 sid, h = os.environ["SID"], os.environ["H"]
-files = sorted(glob.glob(os.path.join(h, "sessions", "*", "*", "*", "rollout-*.jsonl")))
+files = sorted(portable.native_path(f) for f in glob.glob(os.path.join(h, "sessions", "*", "*", "*", "rollout-*.jsonl")))
 own = [f for f in files if f.endswith(f"-{sid}.jsonl")]
 if own:
     print(own[0])

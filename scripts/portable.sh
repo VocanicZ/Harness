@@ -294,9 +294,18 @@ new_uuid(){ local u
   [[ -n $u ]] && printf '%s\n' "$u"; }
 # native_path <path> — the form a native Windows program reads (`cygpath -m`: C:/…); unchanged on POSIX.
 native_path(){ if is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
-# posix_path <path> — the form bash and `case` patterns compare (`cygpath -u`: /c/…); unchanged on POSIX. A native program
-# (git.exe, gh.exe) prints C:/…, which no /c/… pattern, prefix test or `/*` check matches (#609).
-posix_path(){ if is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s\n' "$1"; fi; }
+# posix_path <path> — the MSYS form (`cygpath -u`: /c/…, no backslashes); unchanged on POSIX. The twin of
+# native_path, for the other direction: on Windows ONE directory has two spellings in one run (#605) —
+# `C:/x` in what a Windows environment variable or export_native_paths hands over, `/c/x` in what `pwd`,
+# `realpath` and `mktemp` answer — and a string compare, or a path handed to a tool that wants the other
+# one, silently misses. Anything that compares two paths, or writes one into a file bash reads, goes
+# through this; never grow a private `cygpath -u` beside it.
+posix_path(){ local p="$1"
+  if is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -u "$p" 2>/dev/null || printf '%s\n' "$p"
+  else printf '%s\n' "$p"; fi; }
+# same_path <a> <b> — true when both name the same path in any spelling (C:/x, C:\x, /c/x); a plain string
+# compare elsewhere. Textual: it does not follow symlinks (realpath first for that).
+same_path(){ [[ "$(posix_path "$1")" == "$(posix_path "$2")" ]]; }
 # export_native_paths [VAR…] — on Windows, rewrite each EXPORTED path variable (default: the list
 # below) in mixed form. MSYS converts argv for native programs (python.exe, gh.exe, claude.exe) but not
 # arbitrary environment variables, so a path they read from the environment must already be in their

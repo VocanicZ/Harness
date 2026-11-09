@@ -1316,12 +1316,13 @@ tmux_sessions_with_paths(){ sess_list_paths || true; }
 # refusal, never a missed cross-kill — and is unreachable for a derived prefix, which never
 # contains a dash.
 colliding_sessions(){
-  local name path seg
+  local name path seg pp sd
   while IFS=$'\t' read -r name path; do
     [[ -n "$name" ]] || continue
     seg="${name%%-*}"
     prefixes_collide "$HARNESS_SESS_PREFIX" "$seg" || continue
-    if [[ "$path" == "$STATE_DIR" || "$path" == "$STATE_DIR"/* ]]; then
+    pp="$(posix_path "$path")"; sd="$(posix_path "$STATE_DIR")"   # one spelling, whatever tmux or the registry recorded (#605)
+    if [[ "$pp" == "$sd" || "$pp" == "$sd"/* ]]; then
       printf '%s\t%s\tmine\n' "$name" "$path"
     else
       printf '%s\t%s\ttheirs\n' "$name" "$path"
@@ -1804,8 +1805,10 @@ session_env(){ local kv
 # (remove_session_worktrees) removes it with the worktree, so a test the lane runs cannot leak into /tmp.
 lane_tmp_env(){ local d; d="$(lane_tmpdir "$1")"; mkdir -p "$d" 2>/dev/null || return 0
   SESSION_ENV+=(-e "TMPDIR=$d"); return 0; }
+# The entry is in MSYS form (posix_path, #605): ENGINE_DIR is C:/… on Windows (export_native_paths), and a `C:/x` entry in a
+# colon-separated PATH splits into `C` and `/x`, so the lane would never find lane-bin.
 lane_guard_env(){ [[ -d "$ENGINE_DIR/scripts/lane-bin" ]] || return 0
-  SESSION_ENV+=(-e "PATH=$ENGINE_DIR/scripts/lane-bin:$PATH"); [[ -v HARNESS_COAUTHOR ]] && SESSION_ENV+=(-e "HARNESS_COAUTHOR=$HARNESS_COAUTHOR"); return 0; }
+  SESSION_ENV+=(-e "PATH=$(posix_path "$ENGINE_DIR")/scripts/lane-bin:$PATH"); [[ -v HARNESS_COAUTHOR ]] && SESSION_ENV+=(-e "HARNESS_COAUTHOR=$HARNESS_COAUTHOR"); return 0; }
 # task_context <issue> <issue-json> <worktree> [base-branch] — the blocks a lane's .harness-task.md carries so the lane
 # fetches nothing (#617). <issue-json> is the one `gh issue view --json labels,title,body,comments` answer
 # the caller already has. Sets TC_ISSUE (the issue body + comments), TC_REQUEST (the parent PRD's

@@ -16,9 +16,9 @@ rc=0
   export RUN_DIR="$(mktemp -d)"     # keep lib.sh's mkdir out of the repo
   source "$HERE/../scripts/lib.sh"
   LIBDIR="$(cd "$HERE/.." && pwd)"
-  assert_eq "${ENGINE_DIR:-UNSET}" "$LIBDIR" "ENGINE_DIR defaults to lib.sh's own dir"
-  assert_eq "${STATE_DIR:-UNSET}"  "$LIBDIR" "STATE_DIR defaults to lib.sh's own dir"
-  assert_eq "${ENGINE_DIR:-x}" "${STATE_DIR:-y}" "ENGINE_DIR and STATE_DIR coincide when unseparated"
+  assert_path_eq "${ENGINE_DIR:-UNSET}" "$LIBDIR" "ENGINE_DIR defaults to lib.sh's own dir"
+  assert_path_eq "${STATE_DIR:-UNSET}"  "$LIBDIR" "STATE_DIR defaults to lib.sh's own dir"
+  assert_path_eq "${ENGINE_DIR:-x}" "${STATE_DIR:-y}" "ENGINE_DIR and STATE_DIR coincide when unseparated"
   finish ) || rc=1
 
 # ── separated: ASSET paths resolve under ENGINE_DIR (never STATE_DIR) ──
@@ -68,13 +68,14 @@ rc=0
 #!/usr/bin/env bash
 echo "SENTINEL_ENGINE=$ENGINE_DIR"
 EOF
-  BIN="$(mktemp -d)"; ln -s "$ENG/bin/harness" "$BIN/harness"
+  # MSYS: a plain `ln -s` COPIES on Windows, and a copy resolves ENGINE_DIR to its own dir (#605); the engine installs with nativestrict.
+  BIN="$(mktemp -d)"; MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict" ln -s "$ENG/bin/harness" "$BIN/harness"
   # STATE_DIR is preset so this stays focused on ENGINE_DIR resolution (status now requires a
   # project; a preset STATE_DIR bypasses the cwd-discovery introduced in #55).
   out="$(cd /tmp && STATE_DIR=/tmp "$BIN/harness" status 2>&1)"
   assert_ok "symlinked entrypoint execs the real engine's subcommand" \
     bash -c '[[ "'"$out"'" == SENTINEL_ENGINE=* ]]'
-  assert_eq "${out#SENTINEL_ENGINE=}" "$ENG" "ENGINE_DIR resolves to the symlink target's engine root"
+  assert_path_eq "${out#SENTINEL_ENGINE=}" "$ENG" "ENGINE_DIR resolves to the symlink target's engine root"
   finish ) || rc=1
 
 exit $rc

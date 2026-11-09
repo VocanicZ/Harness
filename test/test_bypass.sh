@@ -25,7 +25,7 @@ HARNESS_AUTONOMOUS=true ensure_bypass "$wd"
 sl="$wd/.claude/settings.local.json"
 assert "A1: settings.local.json created"            "[[ -f '$sl' ]]"
 assert "A1: defaultMode == bypassPermissions"       "[[ \"\$(mode_of '$sl')\" == bypassPermissions ]]"
-assert "A1: valid JSON"                              "python3 -c 'import json;json.load(open(\"$sl\"))'"
+assert "A1: valid JSON"                              "python3 -c 'import json,sys;json.load(open(sys.argv[1]))' '$sl'"
 assert "A1: pattern added to worktree info/exclude"  "grep -qxF '.claude/settings.local.json' \"\$(excl_of '$wd')\""
 
 # ── A2: existing allow rules are PRESERVED (merge, not clobber) ───────────────────────────────
@@ -37,7 +37,7 @@ HARNESS_AUTONOMOUS=true ensure_bypass "$wd2"
 sl2="$wd2/.claude/settings.local.json"
 assert "A2: defaultMode added"                       "[[ \"\$(mode_of '$sl2')\" == bypassPermissions ]]"
 assert "A2: existing allow rule preserved"           "grep -q 'tests_iter' '$sl2'"
-assert "A2: unrelated top-level key preserved"       "python3 -c 'import json;assert json.load(open(\"$sl2\")).get(\"statusLine\")=={\"x\":1}'"
+assert "A2: unrelated top-level key preserved"       "python3 -c 'import json,sys;assert json.load(open(sys.argv[1])).get(\"statusLine\")=={\"x\":1}' '$sl2'"
 
 # ── A3: idempotent — second run keeps one exclude line, mode still set ─────────────────────────
 HARNESS_AUTONOMOUS=true ensure_bypass "$wd"

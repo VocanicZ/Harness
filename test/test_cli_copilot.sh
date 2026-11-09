@@ -55,7 +55,7 @@ assert_ok "the comment header is kept" grep -qx '// This file is managed automat
 assert_ok "every other key is kept" grep -qF '"firstLaunchAt": "2026-10-28T02:27:01.208Z"' "$COPILOT_HOME/config.json"
 assert_ok "…and every other folder" cli_trusted /elsewhere
 cli_trust "$WD"
-assert_eq "$(grep -cF "\"$WD\"" "$COPILOT_HOME/config.json")" 1 "trusting twice writes one entry"
+assert_eq "$(grep -cF -e "\"$WD\"" -e "\"$(native_path "$WD")\"" "$COPILOT_HOME/config.json")" 1 "trusting twice writes one entry"
 rm -f "$COPILOT_HOME/config.json"; cli_trust "$WD"
 assert_ok "a fresh home gets a config.json with the entry" cli_trusted "$WD"
 assert_ok "trust takes the lock file the CLI keeps beside config.json" test -f "$COPILOT_HOME/config.json.trusted-folders.lock"
@@ -201,4 +201,12 @@ assert_eq "$(HARNESS_SESSION_BACKEND=tmux cli_turn_secs "$hl_pane")" "" "…on t
 assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_turn_secs $'────\n❯ \n────')" 0 "…and an idle lane has no turn running"
 assert_ok "copilot is a headless CLI" grep -qx copilot <<<"$(cli_headless_list)"
 assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_backend_check 2>&1; echo $?)" 0 "…and the headless backend does not refuse it as tmux-only"
+# #605: a trusted folder is found by the directory, not its spelling (C:/x from the environment, /c/x from `pwd`).
+SPC="$RUN_DIR/spell"; mkdir -p "$SPC"; printf '// managed\n{"trustedFolders": ["C:/w/proj"]}\n' > "$SPC/config.json"
+( export COPILOT_HOME="$SPC" HARNESS_PLATFORM=windows
+  assert_ok "windows: /c/w/proj is the folder kept as C:/w/proj" cli_trusted /c/w/proj
+  cli_trust /c/w/proj
+  assert_eq "$(grep -c 'w/proj' "$SPC/config.json")" 1 "windows: trusting it again adds no second spelling"
+  assert_no "windows: another folder is not trusted" cli_trusted /c/w/other
+  finish ) || TESTS_FAIL=$((TESTS_FAIL+1))
 finish

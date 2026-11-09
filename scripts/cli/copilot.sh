@@ -78,8 +78,10 @@ copilot_trust(){
   local dir="$1" cfg lockfd; cfg="$(_copilot_home)/config.json"
   mkdir -p "$(dirname "$cfg")"
   lock_acquire "$cfg.trusted-folders.lock" lockfd
-  CFG="$cfg" DIR="$dir" python3 - <<'PY'
-import json, os, tempfile
+  CFG="$cfg" DIR="$dir" PORTABLE_DIR="$CLI_DIR/.." python3 - <<'PY'
+import json, os, sys, tempfile
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable  # a folder may be on file in another spelling of the directory (#605)
 cfg, d = os.environ["CFG"], os.environ["DIR"]
 try:
     lines = open(cfg).read().splitlines()
@@ -92,7 +94,7 @@ try:
 except ValueError:
     raise SystemExit(f"copilot_trust: {cfg} is not valid JSON; left unchanged")
 folders = data.setdefault("trustedFolders", [])
-if d in folders:
+if any(portable.posix_path(f) == portable.posix_path(d) for f in folders):
     raise SystemExit(0)
 folders.append(d)
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(cfg)), prefix=".config.json.harness.")
@@ -105,9 +107,12 @@ except BaseException:
     raise
 PY
   lock_release "$lockfd"; }
-copilot_trusted(){ CFG="$(_copilot_home)/config.json" DIR="$1" python3 -c 'import json, os, sys
+copilot_trusted(){ CFG="$(_copilot_home)/config.json" DIR="$1" PORTABLE_DIR="$CLI_DIR/.." python3 -c 'import json, os, sys
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable
 body = "\n".join(l for l in open(os.environ["CFG"]) if not l.lstrip().startswith("//"))
-sys.exit(0 if os.environ["DIR"] in (json.loads(body).get("trustedFolders") or []) else 1)' 2>/dev/null; }
+want = portable.posix_path(os.environ["DIR"])
+sys.exit(0 if any(portable.posix_path(f) == want for f in (json.loads(body).get("trustedFolders") or [])) else 1)' 2>/dev/null; }
 
 # --- permission bypass ----------------------------------------------------------------------------
 # --yolo is the session's policy, and sub-agents run under it: seen on the host (bypass-subagent.jsonl:

@@ -29,6 +29,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import portable  # noqa: E402  (posix_path: the config is bash's, and os.path.abspath answers C:\x on Windows, #605)
 COLON = re.compile(r'^(\s*:\s+"\$\{)(HARNESS_[A-Z0-9_]+)(:=)(.*?)(\}")(\s*(?:#.*)?)$')
 PLAIN = re.compile(r'^(\s*(?:export\s+)?)(HARNESS_[A-Z0-9_]+)=(.*)$')
 DEFAULT_POOL = DEFAULT_CAP = 3
@@ -248,6 +250,7 @@ def migrate(state, date):
         checkout = checkout or find_checkout(state, slug(new_repo, owner))
     else:
         checkout = checkout or os.path.dirname(state)
+    checkout = portable.posix_path(checkout)   # bash reads it back from the config; abspath(state) is C:\x on Windows (#605)
     unit = unit_safe(unit) or "main"
 
     old_pool = _int(_val(ent, "HARNESS_POOL"), DEFAULT_POOL, "POOL")

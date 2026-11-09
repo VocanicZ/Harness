@@ -44,7 +44,7 @@ assert_ok "no update mid-fleet" has 'OPENCODE_DISABLE_AUTOUPDATE=1 exec opencode
 assert_ok "questions denied, effort as the build agent's variant" \
   python3 -c 'import json,sys; c=json.loads(sys.argv[1]); assert c["permission"]["question"]=="deny" and c["agent"]["build"]["variant"]=="high"' "$(cfg "$line")"
 assert_ok "the goal-loop plugin is loaded from the engine by path" \
-  python3 -c 'import json,sys; assert json.loads(sys.argv[1])["plugin"]==["file://"+sys.argv[2]]' "$(cfg "$line")" "$(cd "$HERE/../scripts/cli" && pwd -P)/opencode-ralph.js"
+  python3 -c 'import json,pathlib,sys; assert json.loads(sys.argv[1])["plugin"]==[pathlib.Path(sys.argv[2]).resolve().as_uri()]' "$(cfg "$line")" "$(cd "$HERE/../scripts/cli" && pwd -P)/opencode-ralph.js"
 assert_ok "…and handed the goal-loop script" has "OPENCODE_HARNESS_LOOP='$GOAL_LOOP_PY' " "$line"
 assert_ok "nothing is written into the worktree: the project's opencode.json is as it was" cmp -s "$WD/opencode.json" "$RUN_DIR/oc.orig"
 assert_no "…and no plugin is copied into it" test -e "$WD/.opencode"
@@ -78,8 +78,10 @@ assert_eq "$(XDG_DATA_HOME="$RUN_DIR/no-data" cli_session_id "$WD" "$UUID")" "" 
 # --- transcripts: the session's, then its sub-agents' ----------------------------------------------
 cp "$F/bypass-subagent.db" "$DB"
 got="$(cli_transcripts "$WD" "$SID")"
-assert_eq "$(sed -n 1p <<<"$got")" "$DB#$SID" "the session's own transcript first"
-assert_eq "$(sed -n 2p <<<"$got")" "$DB#ses_e7eac6cd0ffewAa5ZtAo9g6MCn" "…then its sub-agent's (a child session)"
+# <db>#<session>: the db path is in the engine's spelling (C:/x on Windows), the test's is $DB's (#605)
+tp(){ printf '%s#%s' "$(posix_path "${1%%#*}")" "${1#*#}"; }
+assert_eq "$(tp "$(sed -n 1p <<<"$got")")" "$(tp "$DB#$SID")" "the session's own transcript first"
+assert_eq "$(tp "$(sed -n 2p <<<"$got")")" "$(tp "$DB#ses_e7eac6cd0ffewAa5ZtAo9g6MCn")" "…then its sub-agent's (a child session)"
 assert_eq "$(cli_transcripts "$WD" ses_nope)" "" "an unknown session has none"
 assert_eq "$(cli_usage "$DB#ses_e7eac6cd0ffewAa5ZtAo9g6MCn")" "$(printf 'opencode/big-pickle\t16389\t105\t16502\t0')" \
   "a sub-agent's usage is read from its own messages (reasoning counted as output)"

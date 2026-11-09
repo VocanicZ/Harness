@@ -46,7 +46,7 @@ _usage_stale_dir(){ echo "$RUN_DIR/usage-stale"; }   # one marker per stale acco
 # (never PROJECT_ROOT, where the owner works interactively). HARNESS_USAGE_STATUSLINE=0 turns it off.
 ensure_usage_statusline(){ local dir="$1"
   [[ "${HARNESS_USAGE_STATUSLINE:-1}" == 1 ]] || return 0
-  [[ "$dir" != "$PROJECT_ROOT" ]] || return 0
+  ! same_path "$dir" "$PROJECT_ROOT" || return 0
   cli_usage_setup "$dir"; }
 
 # harness_event <event> [key=value ...] — the host event log writer is lib.sh's (#185, stats.py).

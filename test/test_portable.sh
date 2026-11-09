@@ -209,8 +209,14 @@ assert_ok "[windows] new_uuid falls back to python3 ($u)" grep -Eq '^[0-9a-f]{8}
 # path export: exported path variables in cygpath -m form; an unexported one is left alone
 cat > "$W/bin/cygpath" <<'EOF'
 #!/usr/bin/env bash
-[[ $1 == -m ]] || exit 2
-p="$2"; [[ $p == /c/* ]] && p="C:/${p#/c/}"; echo "$p"
+# a stand-in for Git for Windows' cygpath: -m  /c/x -> C:/x ;  -u  C:/x or C:\x -> /c/x
+p="$2"
+case "$1" in
+  -m) [[ $p == /c/* ]] && p="C:/${p#/c/}";;
+  -u) p="${p//\\//}"; [[ $p =~ ^([A-Za-z]):/(.*)$ ]] && p="/${BASH_REMATCH[1],,}/${BASH_REMATCH[2]}";;
+  *) exit 2;;
+esac
+echo "$p"
 EOF
 chmod +x "$W/bin/cygpath"
 out="$(PATH="$W/bin:$PATH" bash -c "source '$HERE/../scripts/portable.sh'
@@ -227,17 +233,29 @@ assert_eq "$out" "C:/proj/.harness" "[windows] export_native_paths still has its
 cat >"$W/bin/cygpath" <<'EOF'
 #!/usr/bin/env bash
 [[ $1 == -u ]] || exit 2
-p="$2"; [[ $p =~ ^([A-Za-z]):/(.*)$ ]] && p="/${BASH_REMATCH[1],,}/${BASH_REMATCH[2]}"; echo "$p"
+p="${2//\\//}"; [[ $p =~ ^([A-Za-z]):/(.*)$ ]] && p="/${BASH_REMATCH[1],,}/${BASH_REMATCH[2]}"; echo "$p"
 EOF
 assert_eq "$(PATH="$W/bin:$PATH" bash -c "source '$HERE/../scripts/portable.sh'; export HARNESS_PLATFORM=windows; posix_path C:/hx-1/co/.git; posix_path /c/already; posix_path rel/x")" "/c/hx-1/co/.git
 /c/already
 rel/x" "[windows] posix_path turns C:/… into /c/… and leaves the rest"
 
+# one directory, three spellings (#605): posix_path is the MSYS form, same_path compares through it
+win(){ env PATH="$W/bin:$PATH" HARNESS_PLATFORM=windows bash -c "source '$HERE/../scripts/portable.sh'; $*"; }
+assert_eq "$(win "posix_path 'C:/hx/src'")" /c/hx/src "[windows] posix_path: C:/x -> /c/x"
+assert_eq "$(win "posix_path 'C:\\hx\\src'")" /c/hx/src "[windows] posix_path: C:\\x -> /c/x"
+assert_eq "$(win "posix_path /c/hx/src")" /c/hx/src "[windows] posix_path: an MSYS path stays"
+assert_ok "[windows] same_path: C:/x is /c/x" win "same_path C:/hx/src /c/hx/src"
+assert_ok "[windows] same_path: …and C:\\x is" win "same_path 'C:\\hx\\src' /c/hx/src"
+assert_no "[windows] same_path: another directory is another path" win "same_path C:/hx/src /c/hx/other"
+# the lane's PATH entry (lib.sh lane_guard_env) is the MSYS form: a C:/x entry splits at its drive colon
+assert_eq "$(win 'p="$(posix_path C:/hx/src)/scripts/lane-bin:/usr/bin"; IFS=: read -ra e <<<"$p"; echo ${#e[@]} ${e[0]}')" "2 /c/hx/src/scripts/lane-bin" "[windows] a PATH entry built with posix_path is one entry"
+
 # ---- POSIX: unchanged ------------------------------------------------------------------------------
 export HARNESS_PLATFORM=posix
 assert_eq "$(STATE_DIR=/c/x bash -c "source '$HERE/../scripts/portable.sh'; export STATE_DIR; export_native_paths; echo \$STATE_DIR")" /c/x "[posix] export_native_paths changes nothing"
 assert_eq "$(native_path /c/x)" /c/x "[posix] native_path is the identity"
-assert_eq "$(posix_path C:/x)" C:/x "[posix] posix_path is the identity"
+assert_eq "$(posix_path 'C:/x')" 'C:/x' "[posix] posix_path is the identity"
+assert_ok "[posix] same_path is a plain string compare" bash -c "source '$HERE/../scripts/portable.sh'; same_path /a/b /a/b && ! same_path /a/b /a/c"
 if command -v setsid >/dev/null 2>&1; then assert_eq "$(detach_prefix)" setsid "[posix] detach_prefix is setsid where the host has it"; fi
 assert_ok "[posix] new_uuid gives a uuid" grep -Eq '^[0-9a-f-]{36}$' <<< "$(new_uuid)"
 # the POSIX lock is a flock: a raw flock on the file sees it held

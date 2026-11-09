@@ -43,7 +43,7 @@ source = "/opt/harness/plugins/codex"
 trust_level = "trusted"
 EOF
 cli_trust "$WD"
-assert_ok "trust is a [projects] entry in config.toml" grep -qF "[projects.\"$WD\"]" "$CODEX_HOME/config.toml"
+assert_ok "trust is a [projects] entry in config.toml" grep -qF -e "[projects.\"$WD\"]" -e "[projects.\"$(native_path "$WD")\"]" "$CODEX_HOME/config.toml"
 assert_ok "cli_trusted reads it back" cli_trusted "$WD"
 assert_no "another dir is not trusted by it" cli_trusted "$RUN_DIR/other"
 assert_ok "the update modal is turned off" grep -qx 'check_for_update_on_startup = false' "$CODEX_HOME/config.toml"
@@ -55,12 +55,12 @@ ok = (d.get("check_for_update_on_startup") is False and d["model"] == "gpt-5.6-l
 sys.exit(0 if ok else 1)' "$CODEX_HOME/config.toml" "$WD"; }
 assert_ok "update check is top-level, every other key kept" cfg_ok
 cli_trust "$WD"
-assert_eq "$(grep -cF "[projects.\"$WD\"]" "$CODEX_HOME/config.toml")" 1 "trusting twice writes one entry"
+assert_eq "$(grep -cF -e "[projects.\"$WD\"]" -e "[projects.\"$(native_path "$WD")\"]" "$CODEX_HOME/config.toml")" 1 "trusting twice writes one entry"
 assert_eq "$(grep -c 'check_for_update_on_startup' "$CODEX_HOME/config.toml")" 1 "…and one update-check key"
 printf '\n[projects."%s/untrusted"]\ntrust_level = "untrusted"\n' "$RUN_DIR" >> "$CODEX_HOME/config.toml"
 cli_trust "$RUN_DIR/untrusted"
 assert_ok "an untrusted entry is flipped to trusted" cli_trusted "$RUN_DIR/untrusted"
-assert_eq "$(grep -cF "[projects.\"$RUN_DIR/untrusted\"]" "$CODEX_HOME/config.toml")" 1 "…in place, not duplicated"
+assert_eq "$(grep -cF -e "[projects.\"$RUN_DIR/untrusted\"]" -e "[projects.\"$(native_path "$RUN_DIR/untrusted")\"]" "$CODEX_HOME/config.toml")" 1 "…in place, not duplicated"
 rm -f "$CODEX_HOME/config.toml"; cli_trust "$WD"
 assert_ok "trust with no config.toml yet" cli_trusted "$WD"
 
@@ -166,6 +166,16 @@ r = os.path.join(sys.argv[1], p["source"]["path"])
 sys.exit(0 if m["name"] == "harness" and json.load(open(r + "/.codex-plugin/plugin.json"))["name"] == "harness-ralph"
          and "Stop" in json.load(open(r + "/hooks/hooks.json"))["hooks"] else 1)' "$HERE/../plugins/codex"
 
+# #605: one directory has two spellings on Windows (C:/x from the environment, /c/x from `pwd`); trust and the session's
+# rollout are found by the directory, not by its spelling. HARNESS_PLATFORM=windows runs that branch on Linux.
+SP="$RUN_DIR/spell"; mkdir -p "$SP/h"; printf '[projects."C:/w/proj"]\ntrust_level = "untrusted"\n' > "$SP/h/config.toml"
+( export CODEX_HOME="$SP/h" HARNESS_PLATFORM=windows
+  cli_trust /c/w/proj
+  assert_eq "$(grep -c 'w/proj' "$SP/h/config.toml")" 1 "windows: trusting /c/w/proj upgrades the table kept as C:/w/proj in place (no second spelling)"
+  assert_ok "windows: …and /c/w/proj reads as trusted" cli_trusted /c/w/proj
+  assert_ok "windows: …as C:\\w\\proj too" cli_trusted 'C:\w\proj'
+  assert_no "windows: …but another directory is not" cli_trusted /c/w/other
+  finish ) || TESTS_FAIL=$((TESTS_FAIL+1))
 # #353: codex has no headless lane runner, so its headless-* rows read n/a, tmux-only — and only those.
 col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="codex" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only")')"
 assert_eq "$col" "" "every codex matrix cell is ok, but its headless-* rows: n/a, tmux-only"

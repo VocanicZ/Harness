@@ -1,5 +1,6 @@
 import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "scripts")))
 spec = importlib.util.spec_from_file_location("stats", os.path.normpath(os.path.join(HERE, "..", "scripts", "stats.py")))
 st = importlib.util.module_from_spec(spec); spec.loader.exec_module(st)
 
@@ -118,10 +119,10 @@ def test_events_file_override_and_line_shape():
         assert not os.path.exists(os.path.join(d, "events.jsonl"))
 
 def test_emit_drops_event_when_lock_is_held():
-    import fcntl
+    import portable   # the engine's own lock (fcntl on POSIX, msvcrt on Windows, where fcntl does not exist, #605)
     with host() as d:
         p = os.path.join(d, "events.jsonl")
-        holder = open(p, "a"); fcntl.flock(holder, fcntl.LOCK_EX)
+        holder = open(p, "a"); portable.lock_nb(holder)
         real = st.LOCK_WAIT_S; st.LOCK_WAIT_S = 0.1
         try:
             assert st.append_event({"event": "x"}, p) is False

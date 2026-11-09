@@ -41,7 +41,7 @@ other_fleets_depend_on_engine(){
   while read -r pid; do
     [[ -n "$pid" ]] || continue
     sd="$(proc_state_dir "$pid")"
-    [[ -n "$sd" && "$sd" != "$STATE_DIR" ]] && return 0
+    [[ -n "$sd" ]] && ! same_path "$sd" "$STATE_DIR" && return 0   # a worker's STATE_DIR may be C:/x, ours /c/x (#605)
   done < <(_worker_pids)
   [[ -n "$(poller_registry_prefixes "$STATE_DIR" 2>/dev/null)" ]] && return 0
   return 1

@@ -226,7 +226,7 @@ assert_eq "$(read_cfg "$E4" 'echo $(fleet_checkout)')" "$E4/checkouts/oldname" "
 
 # ── harness update's roll: two registered fleets, live old-loop workers ───────────────────────────
 STUB="$ROOT/engine"; mkdir -p "$STUB/bin" "$STUB/scripts"
-cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh,roll.sh} "$STUB/scripts/"
+cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh,portable.py,roll.sh} "$STUB/scripts/"
 START_LOG="$ROOT/start.log"; : > "$START_LOG"
 cat > "$STUB/bin/harness" <<'STUBEOF'
 #!/usr/bin/env bash
