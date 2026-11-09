@@ -369,6 +369,23 @@ assert_eq "$(HARNESS_SESSION=u-1 HARNESS_ISSUE=541 TMUX=/s,1,0 TMUX_PANE=%1 HARN
 assert_eq "$(HARNESS_SESSION=u-1 bash -c 'source "$1"; export HARNESS_SESSION=u-2 TMUX=/s,1,0; pin_host_home /pinned/h; echo "${HARNESS_SESSION-}|${TMUX-}"' _ "$HERE/helpers.sh")" "|" \
   "pin_host_home drops a lane identity set after sourcing"
 
+# #682: pool.sh / priority.sh EXPORT HARNESS_ENGINE_STAMP to the worker they launch (#602), and every child of that
+# worker inherits it — the release_kick job, the gate, and the suite. A `sleep` a test starts as an "unstamped worker"
+# then carries the host's stamp, roll.sh calls it stale and kills it. The seam must drop it, for a gate run and for a
+# direct `bash test_X.sh`; pin_host_home drops it again if a test re-exports it.
+assert_eq "$(HARNESS_ENGINE_STAMP=1234-5678 bash -c 'source "$1"; sleep 30 & p=$!; tr "\0" "\n" </proc/$p/environ | grep -c "^HARNESS_ENGINE_STAMP="; kill $p' _ "$HERE/helpers.sh")" "0" \
+  "a process a test starts does not carry the host's HARNESS_ENGINE_STAMP in its environ"
+assert_eq "$(HARNESS_ENGINE_STAMP=1234-5678 bash -c 'source "$1"; export HARNESS_ENGINE_STAMP=9-9; pin_host_home /pinned/h; echo "${HARNESS_ENGINE_STAMP-}"' _ "$HERE/helpers.sh")" "" \
+  "pin_host_home drops a HARNESS_ENGINE_STAMP set after sourcing"
+# ...and the next variable a worker exports must not leak the same way: scan the worker launchers' exports too.
+worker_missing=""
+for v in $(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$HERE/../scripts/pool.sh" "$HERE/../scripts/priority.sh" |
+    awk '{ for (i = 1; i <= NF; i++) if ($i == "export") for (j = i + 1; j <= NF; j++) {
+             if ($j ~ /^HARNESS_[A-Z0-9_]+(=|$)/) { sub(/=.*/, "", $j); print $j } else if ($j !~ /^-/) break } }' | sort -u); do
+  [[ " $(echo $HARNESS_CONFIG_VARS) $(echo $HARNESS_LANE_IDENTITY_VARS) " == *" $v "* ]] || worker_missing+=" $v"
+done
+assert_eq "$worker_missing" "" "every HARNESS_* variable pool.sh / priority.sh export is dropped at the suite seam"
+
 # One source of truth (Acceptance 4): every path var the engine rewrites for native Windows programs
 # (HARNESS_NATIVE_PATH_VARS) is pinned or dropped by pin_host_home, or exempted in helpers.sh WITH a reason.
 source "$HERE/../scripts/portable.sh" 2>/dev/null
