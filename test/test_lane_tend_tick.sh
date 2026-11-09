@@ -218,4 +218,30 @@ echo "-- the watchdog's dead-session sweep too"
 S2="$(sess_impl "$UNIT" 3)"; stale "$S2"; watchdog_session "$S2" >/dev/null 2>&1
 assert_ok "watchdog_session on a dead session removes its .idleticks" test ! -f "$RUN_DIR/$S2.idleticks"
 
+echo "=== 9. #721: an idle lane whose goal stays pending backs the goal check off ==="
+setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle   # the goal never lands: check_session_goal is only counted
+for i in 1 2 3 4; do TEND_FAST=1 worker_tend W1; [[ $i == 1 ]] && assert_eq "$(count goal)" "1" "the first idle tick still checks (goal_satisfied within 30s)"; done
+assert_eq "$(count goal)" "3" "ticks 1-4 idle: checks on ticks 1, 2 and 4 (doubling gap)"
+for i in $(seq 5 40); do TEND_FAST=1 worker_tend W1; done   # 40 ticks of 15s = 10 minutes idle
+G="$(count goal)"
+assert_ok "10 idle minutes, goal pending: at most 8 checks, not 40 ($G)" test "$G" -le 8
+assert_ok "... but not starved: at least 5 ($G)" test "$G" -ge 5
+for i in $(seq 41 100); do TEND_FAST=1 worker_tend W1; done
+assert_ok "the gap is capped at POLL: 100 ticks never wait more than 20 ticks between checks" test "$(( $(count goal) - G ))" -ge 3
+echo "-- a busy pane resets the backoff: the next idle tick checks at once"
+G="$(count goal)"; busy; TEND_FAST=1 worker_tend W1; idle; TEND_FAST=1 worker_tend W1
+assert_eq "$(( $(count goal) - G ))" "1" "busy then idle: first idle tick checks again"
+TEND_FAST=1 worker_tend W1; assert_eq "$(( $(count goal) - G ))" "2" "... and the second one, the gap restarting at one tick"
+echo "-- DECOMPOSE backs off too, from its first eligible tick"
+setup 300; S=hz-main-p41; own orch-41 "$S" DECOMPOSE:41; touch "$RUN_DIR/$S.d/.loop"; idle
+for i in $(seq 1 12); do TEND_FAST=1 worker_tend W1; done
+assert_eq "$(count goal)" "4" "12 idle ticks: checks on ticks 3, 4, 6, 10 (idle guard, then doubling)"
+echo "-- POLL at the short tick: no backoff room, every tick checks"
+setup 15; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle
+for i in 1 2 3 4; do TEND_FAST=1 worker_tend W1; done
+assert_eq "$(count goal)" "4" "cap is 1 tick when POLL <= the tick"
+echo "-- the backoff state is one file, removed with the idle count"
+setup; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle; TEND_FAST=1 worker_tend W1; busy; TEND_FAST=1 worker_tend W1
+assert_ok "busy tick removes .idleticks (and the backoff with it)" test ! -f "$RUN_DIR/$S.idleticks"
+
 finish

@@ -160,15 +160,27 @@ lane_has_gh(){ local pid; pid="$(sess_pane_pid "$1" 2>/dev/null)"; [[ "$pid" =~ 
 # hit every 15s while the agent works. A DECOMPOSE lane counts as done once the PRD has ANY child
 # (issuelib `check`), so an idle pane between two `gh issue create` calls must not end it: it waits for its
 # completion promise (cli_done), or HARNESS_TEND_IDLE_TICKS consecutive idle ticks with no gh running.
-lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n
+# #721: while the goal stays pending the checks back off (below); idleticks holds `<n> <last> <gap>`.
+lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n=0 last=0 gap=0 cap ok=0
   if lane_pane_active "$s"; then rm -f "$idlef"; return 1; fi
-  n=$(( $(cat "$idlef" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$idlef"
+  [[ -f "$idlef" ]] && { read -r n last gap < "$idlef" || true; }   # idle ticks so far, the tick of the last check, the gap after it
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0; [[ "$last" =~ ^[0-9]+$ ]] || last=0; [[ "$gap" =~ ^[0-9]+$ ]] || gap=0
+  n=$(( n + 1 ))
   goal="$(cat "$RUN_DIR/$s.goal" 2>/dev/null)"
   if [[ "${goal%%:*}" == DECOMPOSE ]]; then
-    cli_done "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" && return 0
-    (( n >= HARNESS_TEND_IDLE_TICKS )) && ! lane_has_gh "$s"; return
+    if cli_done "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)"; then ok=1
+    elif (( n >= HARNESS_TEND_IDLE_TICKS )) && ! lane_has_gh "$s"; then ok=1; fi
+  else ok=1; fi
+  # #721: the first check after the pane goes idle is on the first eligible tick (goal_satisfied within 30s, PRD
+  # #587). A check that finds the goal still pending backs the next one off — 1 tick, 2, 4… doubling up to POLL —
+  # so a lane parked at idle (self-park grace, auto-merge waiting, a usage menu) is not a gh call every 15s. A busy
+  # pane drops idleticks above, which resets the backoff.
+  if (( ok )) && (( last == 0 || n - last >= gap )); then
+    cap=1; (( HARNESS_TEND_TICK > 0 )) && cap=$(( (POLL + HARNESS_TEND_TICK - 1) / HARNESS_TEND_TICK )); (( cap >= 1 )) || cap=1
+    gap=$(( gap == 0 ? 1 : gap * 2 )); (( gap <= cap )) || gap="$cap"
+    echo "$n $n $gap" > "$idlef"; return 0
   fi
-  return 0; }
+  echo "$n $last $gap" > "$idlef"; return 1; }
 # tend_goal / tend_watchdog <sess> — the goal check and watchdog of tend_lane_done. On the short tick
 # (TEND_FAST=1) the goal check is gated and the watchdog is skipped: its stall counter counts POLLs.
 tend_goal(){ if (( ${TEND_FAST:-0} )); then lane_goal_gate "$1" && check_session_goal "$1" live; else check_session_goal "$1"; fi; }
