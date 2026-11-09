@@ -4,7 +4,8 @@
 BrokenPipeError, and python prints "Exception ignored on flushing sys.stdout" and exits 120. `run(main)`
 is the entrypoint wrapper — `sys.exit(pipesafe.run(main))` — that flushes inside the guard, and on a
 closed pipe points stdout at devnull (so the exit-time flush cannot raise again) and exits cleanly.
-stats.py's `_print_report` (#671) does the same for its one print.
+stats.py's `_print_report` (#671) does the same for its one print. A `SystemExit` out of `main` (argparse's
+`--help`, #783) is caught so its output is flushed inside the guard too, and its status is returned.
 
 A closed pipe is not a failure of the command: the status is the one `main` returned (0 when the pipe
 broke before `main` finished). Stdlib only.
@@ -27,6 +28,8 @@ def run(main, *args):
     except BrokenPipeError:
         quiet_stdout()
         return 0
+    except SystemExit as e:   # #783: argparse prints --help / a usage error, then exits inside parse_args
+        rc = e.code
     try:
         sys.stdout.flush()
     except BrokenPipeError:

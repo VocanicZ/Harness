@@ -10,6 +10,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   undefined. A value that is not a non-negative integer (`abc`, `15s`, `-5`, empty) now falls back to the default (15 and 3) with one warning naming
   the knob and value, as `HARNESS_LAUNCH_BACKOFF` does (#759). `0` keeps its meaning. `test/test_lane_tend_tick.sh` covers both knobs.
 
+### `--help` into a closed pipe ends quietly (#783)
+
+- `{ sleep 0.3; harness stats --help; } | true` (also `forecast`, `tier`, `tier decide`, `bench/run.py`) printed `Exception ignored on flushing sys.stdout:
+  BrokenPipeError` and exited 120: argparse prints the help and exits inside `parse_args`, before the closed-pipe guard saw it. `pipesafe.run` now catches that
+  exit, flushes inside the guard and returns its status, and `stats.py` runs through `pipesafe.run` like the others. Help still prints, a usage error still exits 2.
+
 ### The #609 test fixes are confirmed on winsma, and a native Windows Python now finds a fake `gh` (#686)
 
 - The first winsma run of the fake-`gh` / poller / prompt / bench tests found 17 of 20 files red. Causes fixed: a Python `subprocess.run(["gh", …])`
