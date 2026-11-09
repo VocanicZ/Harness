@@ -252,6 +252,18 @@ def test_a_nan_inf_zero_or_negative_time_option_is_a_usage_error_naming_it(e):  
 
 
 @with_env(usage_pct="50")
+def test_a_time_option_above_threading_timeout_max_is_a_usage_error_naming_the_limit(e):   # #858
+    import threading
+    limit = format(threading.TIMEOUT_MAX, "g")
+    for opt in ("--poll-secs", "--grace-secs", "--progress-poll-secs", "--wall-cap-secs"):
+        for bad in ("100000000000000000000", "1" + "0" * 40, str(int(threading.TIMEOUT_MAX) + 1000)):
+            p = e.run("stub", "--dry-run", opt + "=" + bad)
+            assert p.returncode == 2 and opt in p.stderr and limit in p.stderr and "bench guard" not in p.stdout, (opt, bad, p.returncode, p.stdout, p.stderr)
+        assert e.run("stub", "--dry-run", opt + "=" + str(int(threading.TIMEOUT_MAX) - 1000), "--expected-usd=1").returncode == 0, opt
+    assert e.calls() == [] and not os.path.exists(e.results)
+
+
+@with_env(usage_pct="50")
 def test_money_and_seconds_options_are_ascii_decimal_only(e):   # #805
     for opt in ("--cost-cap-usd", "--expected-usd", "--wall-cap-secs", "--poll-secs", "--grace-secs", "--progress-poll-secs"):
         for bad in ("\uff15", "\u0663", "1_0", "+5", "1\uff10", "\u0665.\u0665", "1_0.5", "+0.5"):
