@@ -234,7 +234,8 @@ def _json_list(text, argv):
 
 
 def _names(text):
-    return [l.strip() for l in (text or "").splitlines() if l.strip()]
+    """gh's one-name-per-line output. Split on \\n only: str.splitlines() also breaks at U+2028, U+0085 and \\f, which a file name may contain (#802)."""
+    return [l.rstrip("\r") for l in (text or "").split("\n") if l.rstrip("\r")]
 
 
 def _zlist(text):
