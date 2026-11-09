@@ -171,7 +171,7 @@ lane_has_gh(){ local pid; pid="$(sess_pane_pid "$1" 2>/dev/null)"; [[ "$pid" =~ 
 # (issuelib `check`), so an idle pane between two `gh issue create` calls must not end it: it waits for its
 # completion promise (cli_done), or HARNESS_TEND_IDLE_TICKS consecutive idle ticks with no gh running.
 # #721: while the goal stays pending the checks back off (below); idleticks holds `<n> <last> <gap>`.
-lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n=0 last=0 gap=0 cap ok=0
+lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n=0 last=0 gap=0 maxgap ok=0
   if lane_pane_active "$s"; then rm -f "$idlef"; return 1; fi
   [[ -f "$idlef" ]] && { read -r n last gap < "$idlef" || true; }   # idle ticks so far, the tick of the last check, the gap after it
   [[ "$n" =~ ^[0-9]+$ ]] || n=0; [[ "$last" =~ ^[0-9]+$ ]] || last=0; [[ "$gap" =~ ^[0-9]+$ ]] || gap=0
@@ -186,8 +186,8 @@ lane_goal_gate(){ local s="$1" idlef="$RUN_DIR/$1.idleticks" goal n=0 last=0 gap
   # so a lane parked at idle (self-park grace, auto-merge waiting, a usage menu) is not a gh call every 15s. A busy
   # pane drops idleticks above, which resets the backoff.
   if (( ok )) && (( last == 0 || n - last >= gap )); then
-    cap=1; (( HARNESS_TEND_TICK > 0 )) && cap=$(( (POLL + HARNESS_TEND_TICK - 1) / HARNESS_TEND_TICK )); (( cap >= 1 )) || cap=1
-    gap=$(( gap == 0 ? 1 : gap * 2 )); (( gap <= cap )) || gap="$cap"
+    maxgap=1; (( HARNESS_TEND_TICK > 0 )) && maxgap=$(( (POLL + HARNESS_TEND_TICK - 1) / HARNESS_TEND_TICK )); (( maxgap >= 1 )) || maxgap=1
+    gap=$(( gap == 0 ? 1 : gap * 2 )); (( gap <= maxgap )) || gap="$maxgap"
     echo "$n $n $gap" > "$idlef"; return 0
   fi
   echo "$n $last $gap" > "$idlef"; return 1; }
