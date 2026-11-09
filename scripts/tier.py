@@ -237,6 +237,11 @@ def _names(text):
     return [l.strip() for l in (text or "").splitlines() if l.strip()]
 
 
+def _zlist(text):
+    """NUL-separated git output (-z): paths verbatim, never C-quoted — a non-ASCII or odd name stays the name the user typed."""
+    return [x for x in (text or "").split("\0") if x]
+
+
 def _worktrees(repo_dir):
     """{branch: path} for every checked-out worktree of the repo."""
     out, cur = {}, {}
@@ -273,20 +278,28 @@ def open_work(slug, base, repo_dir, label):
             if rc != 0:
                 raise CheckFailed(f"`git rev-parse --verify {ref}` failed (exit {rc}): "
                                   f"{(err.strip().splitlines() or ['no output'])[0]}")
-            files += _names(_run(["git", "diff", "--name-only", f"{base}...{ref}", "--"], repo_dir)); break
+            files += _zlist(_run(["git", "diff", "--name-only", "-z", f"{base}...{ref}", "--"], repo_dir)); break
         wt = trees.get(br)
         if wt:   # uncommitted work in the lane's own worktree counts too
-            for l in _run(["git", "status", "--porcelain"], wt).splitlines():   # not _names: the XY column's leading space is data
-                files.append(l[3:].split(" -> ")[-1].strip('"'))
+            ents = iter(_zlist(_run(["git", "status", "--porcelain", "-z"], wt)))   # not _names: the XY column's leading space is data
+            for e in ents:
+                files.append(e[3:])
+                if "R" in e[:2] or "C" in e[:2]:
+                    next(ents, None)   # a rename/copy is followed by its source path, which is not this lane's new file
         work.append((f"issue #{n} ({label})", sorted(set(files))))
     return work
 
 
+def _norm(path):
+    """A path as the user wrote it, minus leading `./` prefixes (a prefix, not a character set: `.env` stays `.env`)."""
+    return re.sub(r"^(\./)+", "", path)
+
+
 def overlap(files, slug, base, repo_dir, label):
-    mine = {f.strip().lstrip("./") for f in files if f.strip()}
+    mine = {_norm(f.strip()) for f in files if f.strip()}
     hits = []
     for who, theirs in open_work(slug, base, repo_dir, label):
-        both = sorted(mine & {t.lstrip("./") for t in theirs})
+        both = sorted(mine & {_norm(t) for t in theirs})
         if both:
             hits.append({"owner": who, "files": both})
     return hits
