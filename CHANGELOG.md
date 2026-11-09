@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier overlap --base=-x` and `-R=-x` print the overlap usage (#809)
+
+- A dash-leading `--base` or a malformed `-R` given in the `=` form exited 2 but printed the usage of the top-level `harness tier` command, so the user did not see
+  which subcommand's option was wrong. Both now print the `overlap` usage and an error naming the option, as the space-separated forms already did. `test_tier.sh` covers all four forms.
+
 ### `harness tier overlap` escapes control characters in the file names it prints (#803)
 
 - The text output of `harness tier overlap` echoed a file name held by an open lane or PR as it was, so a name with U+2028 or a form feed reached the terminal raw

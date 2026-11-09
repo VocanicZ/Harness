@@ -327,6 +327,14 @@ for bad in "--output=$T/x" -x -; do
   assert_eq "$rc" 2 "--base=$bad -> usage error, exit 2"
   assert_ok "--base=$bad: names --base" grep -qF -- '--base' <<<"$err"
 done
+# …and every form prints the overlap usage, not the top-level `harness tier` one (#809)
+for form in "--base=-x" "-R=-x" "--base -x" "-R -x"; do
+  # shellcheck disable=SC2086
+  err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --repo-dir "$R" $form 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "overlap $form -> exit 2"
+  assert_ok "overlap $form: prints the overlap usage" grep -qF 'usage: harness tier overlap' <<<"$err"
+  assert_ok "overlap $form: error names the option" grep -qE 'argument (--base|-R)' <<<"$err"
+done
 PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --repo-dir "$R" --base - >/dev/null 2>&1; rc=$?
 assert_eq "$rc" 2 "--base - -> usage error, exit 2"
 assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "a dash-leading --base never runs git"

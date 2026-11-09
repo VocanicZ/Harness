@@ -360,12 +360,12 @@ def main(argv=None):
                    multi_step_plan=a.multi_step_plan, prefer=a.prefer)
         print(json.dumps(r) if a.json else render(r)); return 0
     if a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git
-        ap.error(f"argument --base: {a.base!r} is not a branch — it must not start with '-'")
+        o.error(f"argument --base: {a.base!r} is not a branch — it must not start with '-'")
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
     if not REPO_RE.fullmatch(a.repo):
-        ap.error(f"argument -R: {a.repo!r} is not a repository — expected owner/name")
+        o.error(f"argument -R: {a.repo!r} is not a repository — expected owner/name")
     files = [f for f in a.files.split(",") if f.strip()]
     if not files:
         print("harness tier overlap: no files to check — pass --files a,b,c", file=sys.stderr); return 2
