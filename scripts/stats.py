@@ -694,14 +694,38 @@ def add_usage(into, usage, model_filter=None):
     return into
 
 
-def sessions(events):
-    """One record per session id, merged from its launch + session_end (+ the rest). A session whose launch
-    failed (`launch_failed`, #596) never ran and is left out."""
-    by = {}
+def _live_events(events):
+    """The events of `events` that belong to a launch that ran (#679). A session id can be launched again (a
+    relaunch, a resume), so its events fall into segments, one per `launch`. A `launch_failed` drops only the
+    segment it ends: the launch it follows and anything after it up to the next `launch`. It cannot reach back
+    into a segment that already ended (a real run), nor one that never opened with a `launch` (a `start_failed`
+    emits no `launch`); that failure is a segment of its own, and so is dropped alone."""
+    segs, cur = [], {}   # every segment; session id -> its open segment
     for e in events:
         sid = e.get("session")
         if not sid:
             continue
+        ev = e.get("event")
+        seg = cur.get(sid)
+        if ev == "launch" or seg is None or (
+                ev == "launch_failed" and (seg["ended"] or seg["failed"] or not seg["launched"])):
+            seg = cur[sid] = {"evs": [], "launched": ev == "launch", "ended": False, "failed": False}
+            segs.append(seg)
+        if ev == "launch_failed":   # #596: it never ran
+            seg["failed"] = True
+        elif ev == "session_end":
+            seg["ended"] = True
+        seg["evs"].append(e)
+    dead = {id(e) for seg in segs if seg["failed"] for e in seg["evs"]}
+    return [e for e in events if e.get("session") and id(e) not in dead]
+
+
+def sessions(events):
+    """One record per session id, merged from its launch + session_end (+ the rest). A launch that failed
+    (`launch_failed`, #596) never ran and is left out; an earlier run under the same session id stays (#679)."""
+    by = {}
+    for e in _live_events(events):
+        sid = e.get("session")
         s = by.setdefault(sid, {"session": sid, "usage": {}, "watchdog_kills": 0, "nudges": 0,
                                 "turn_interrupts": 0})
         ev = e.get("event")
@@ -714,8 +738,6 @@ def sessions(events):
             s["usage"] = fold_session_end(s["usage"], e)
             s["wall_s"] = ((s.get("wall_s") or 0) + (e.get("wall_s") or 0)) if e.get("resumed") else e.get("wall_s")
             s["ended"] = e.get("ts")
-        elif ev == "launch_failed":   # #596: it never ran — not a session
-            s["launch_failed"] = True
         elif ev == "watchdog_kill":
             s["watchdog_kills"] += 1
         elif ev == "nudge":
@@ -724,7 +746,7 @@ def sessions(events):
             s["turn_interrupts"] += 1
         elif ev == "model_mismatch":
             s["model_mismatch"] = {"intended": e.get("intended"), "actual": e.get("actual")}
-    return [s for s in by.values() if not s.get("launch_failed")]
+    return list(by.values())
 
 
 def mismatches(events):
