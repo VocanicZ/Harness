@@ -234,13 +234,21 @@ def test_launch_failed_after_the_sweeps_empty_session_end_is_still_not_a_session
              _ev("launch_failed", session="u2", prefix="hz", issue=4, kind="impl", reason="start_failed")]
     assert [x["session"] for x in st.sessions(quiet)] == ["u2"]
 
-def test_ran_command_reads_logged_usage(tmp_path, monkeypatch):
+def test_ran_command_reads_logged_usage():
     # #720: `stats.py ran <session>` is rc 0 only for a session whose logged session_end holds tokens
-    p = tmp_path / "events.jsonl"
-    p.write_text("\n".join(json.dumps(e) for e in [
-        _ev("session_end", session="a", usage=_u(5)), _ev("session_end", session="b", usage={})]) + "\n")
-    monkeypatch.setenv("HARNESS_EVENTS_FILE", str(p))
-    assert st.main(["ran", "a"]) == 0 and st.main(["ran", "b"]) == 1 and st.main(["ran", "zz"]) == 1
+    # (no pytest fixtures: the file's own __main__ runner calls every test with no arguments, #744)
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        with open(p, "w") as fh:
+            fh.write("\n".join(json.dumps(e) for e in [
+                _ev("session_end", session="a", usage=_u(5)), _ev("session_end", session="b", usage={})]) + "\n")
+        saved = os.environ.get("HARNESS_EVENTS_FILE")
+        os.environ["HARNESS_EVENTS_FILE"] = p
+        try:
+            assert st.main(["ran", "a"]) == 0 and st.main(["ran", "b"]) == 1 and st.main(["ran", "zz"]) == 1
+        finally:
+            if saved is None: os.environ.pop("HARNESS_EVENTS_FILE", None)
+            else: os.environ["HARNESS_EVENTS_FILE"] = saved
 
 def test_failed_relaunch_under_same_session_keeps_the_earlier_run():
     # #679: a relaunch under a session id that already ran, dead within 30s, drops only itself
@@ -1233,6 +1241,6 @@ if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             try: fn(); print(f"  ok: {name}")
-            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
+            except Exception as e: print(f"  FAIL: {name} — {type(e).__name__}: {e}"); fails += 1   # any error is this test's, the run goes on (#744)
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
