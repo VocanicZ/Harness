@@ -267,4 +267,18 @@ HARNESS_TEND_TICK=007; HARNESS_TEND_IDLE_TICKS=20; tend_knobs
 assert_eq "$HARNESS_TEND_TICK/$HARNESS_TEND_IDLE_TICKS" "7/20" "valid values kept (leading zeros read as decimal)"
 assert_eq "$(count log)" "0" "...no warning"
 
+echo "=== 11. #799: TEND_TICK=0 (or an overflow to <= 0) is 'tend every POLL': an owner of a live lane sleeps POLL, never sleep 0 ==="
+for v in 0 18446744073709551616; do
+  setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; busy
+  HARNESS_TEND_TICK="$v"; for i in 1 2 3; do worker_step W1 >/dev/null 2>&1; done
+  assert_eq "$(grep -c "^sleep 300$" "$CALLS")" "3" "TEND_TICK=$v: three idle steps sleep POLL each"
+  assert_eq "$(grep -Ec "^sleep (0|-)" "$CALLS")" "0" "TEND_TICK=$v: no sleep 0 / negative sleep"
+  assert_eq "$(count chores)" "3" "TEND_TICK=$v: full steps, one per POLL"
+  assert_eq "$NOW" "1900" "TEND_TICK=$v: the clock advances POLL per step"
+done
+echo "-- an overflow to a negative: the first step sleeps POLL (no failing negative sleep); #782 then replaces it with 15"
+setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; busy
+HARNESS_TEND_TICK=9223372036854775808; worker_step W1 >/dev/null 2>&1
+assert_eq "$(tail -1 "$CALLS")" "sleep 300" "TEND_TICK=2^63: sleeps POLL, not a negative number"
+
 finish

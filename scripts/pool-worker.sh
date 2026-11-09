@@ -410,7 +410,7 @@ worker_step(){ local wid="$1" rc
     5) sleep "$(( POLL * 2 ))" ;;
     6) sleep "$POLL" ;;
     7) ;;   # #745: a closed issue skipped, not a failed spawn — claim again at once
-    *) worker_owns_lane "$wid" && (( HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL" ;;   # #594
+    *) worker_owns_lane "$wid" && (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL" ;;   # #594; #799: 0 / overflow = POLL, never sleep 0
   esac
   return "$rc"; }
 
