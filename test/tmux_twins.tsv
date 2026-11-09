@@ -6,12 +6,13 @@
 # Format: <tmux test, in test/> TAB <twin>
 #   <twin> = a test file in test/ (headless backend, no tmux) | self:<row> (a headless-<row> cell of the same test_cli_matrix.sh,
 #   which also stands in for its tmux cells on a host without tmux) | na:<matrix row> (the test skips through windows_skip on a
-#   row that is n/a on Windows; none today — only swarm submission is n/a, and test_swarm.sh is no tmux test).
+#   row that is n/a on Windows; today only test_swarm.sh: swarm submission is n/a, and its #793 sentinel starts a real tmux).
 test_bug_session_tmux_safe.sh	test_session_names_headless.sh
 test_cli_matrix.sh	self:headless-supervisor-frozen-session
 test_fleet_migrate.sh	test_fleet_migrate_headless.sh
 test_sess_sweep.sh	test_sess_sweep_headless.sh
 test_supervise.sh	test_supervise_headless.sh
+test_swarm.sh	na:swarm submission
 test_supervise_autoupdate.sh	test_supervise_autoupdate_headless.sh
 test_tmux_env_leak.sh	test_env_leak_headless.sh
 test_unit_tmux_safe.sh	test_session_names_headless.sh
