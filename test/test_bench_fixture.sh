@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 3000
 # test_bench_fixture.sh — #380 (PRD #345): the benchmark's fixture. One end-user brief, hidden tests
 # the agents never see, bench/grade.py to score a checkout against them, and a reference solution
 # proving the hidden tests are passable. Covered here: the reference scores 100% (pip build, and the
@@ -140,13 +141,26 @@ sed -i 's|^def round_div(n, d):|def round_div(n, d):\n    return n // d|' "$W/lg
 wait
 # 981 results are too big for an argument list: read the graders' JSON from files
 fragf(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[2]))[sys.argv[1]])' "$1" "$2"; }
+# The reference is a program for a POSIX host: four of its hidden tests read the exit status of a process whose pipe was closed or
+# that was sent SIGINT/SIGTERM, which Windows does not have (a native Python cannot even send signal 2). On a real Windows host
+# exactly those four fail, nothing else (#686); anywhere else none does.
+LG_WIN_ONLY="M15CommandLine.test_a_closed_reader_ends_quietly M15Serve.test_serve_announces_and_stops_cleanly M16Server.test_a_failing_request_prints_nothing M16Server.test_stops_cleanly_on_sigterm_and_sigint"
+LG_WANT_FAIL=""; LG_WANT_MODS="True"
+real_windows_host && { LG_WANT_FAIL="$LG_WIN_ONLY"; LG_WANT_MODS="True"; }
+failed_ids(){ python3 -c 'import json,sys; print(" ".join(sorted(t["id"] for t in json.load(open(sys.argv[1]))["details"]["tests"] if t["status"] != "passed")))' "$1"; }
+# modules_ok <json> <failing ids> — every module is scored, and every one without a listed failure passed in full
+modules_ok(){ python3 -c '
+import json,sys,re
+m=json.load(open(sys.argv[1]))["modules"]; ids=sys.argv[2].split()
+bad={re.match(r"M(\d\d)",i).group(1) for i in ids}
+print(sorted(m)==["%02d"%i for i in range(1,17)] and all((v["passed"]==v["total"]>0) == (k not in bad) for k,v in m.items()))' "$1" "$2"; }
 LGP="$W/lg-post.json"
-assert_eq "$(fragf failed "$LGP")" "0" "large reference, post-change: nothing failed"
+assert_eq "$(failed_ids "$LGP")" "$LG_WANT_FAIL" "large reference, post-change: nothing failed (on Windows: only the POSIX-signal tests)"
 assert_ok "large reference: about a thousand hidden tests" test "$(fragf total "$LGP")" -ge 900
 assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["details"]["install"])' "$LGP")" "pip" "large reference is built and installed with pip"
-assert_eq "$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["modules"]; print(sorted(m)==["%02d"%i for i in range(1,17)], all(v["passed"]==v["total"]>0 for v in m.values()))' "$LGP")" "True True" "every one of the 16 modules is scored, all passed"
+assert_eq "$(modules_ok "$LGP" "$LG_WANT_FAIL")" "True" "every one of the 16 modules is scored, all passed (bar the modules of the Windows-only failures)"
 assert_eq "$(python3 -c 'import json,sys; f=json.load(open(sys.argv[1]))["fuzz"]; print(f["fuzz_cases"], f["fuzz_divergences"], f["fuzz_seed"])' "$LGP")" "$LARGE_FUZZ 0 592" "large reference: the fuzz ran its cases and found 0 divergences against itself"
-assert_eq "$(fragf failed "$W/lg-pre.json")" "0" "large reference with TALLYBOOK_PHASE=pre: every pre-change test passes"
+assert_eq "$(failed_ids "$W/lg-pre.json")" "$(real_windows_host && echo "$LG_WIN_ONLY")" "large reference with TALLYBOOK_PHASE=pre: every pre-change test passes (on Windows: bar the POSIX-signal ones)"
 assert_ok "the post-change test set is not the pre-change one" test "$(fragf total "$W/lg-pre.json")" -ne "$(fragf total "$LGP")"
 assert_ok "the post-change reference fails some pre-change tests: the change request changes behaviour" test "$(fragf failed "$W/lg-pre-on-post.json")" -gt 0
 assert_eq "$(fragf passed "$W/lg-empty.json")" "0" "large: an empty repo scores 0"

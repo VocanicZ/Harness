@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1500
 # test_one_run.sh — #366: `harness one start | phase | release`, the /harness-one execution, on a real
 # git fixture and a stubbed gh (no live GitHub). start re-checks the precondition, claims agent-working
 # and sets the issue up the way dispatch does (impl.md; resume.md for an agent-paused issue), with a
