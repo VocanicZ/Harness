@@ -270,6 +270,36 @@ def test_ran_command_reads_events_like_load_events():
             if saved is None: os.environ.pop("HARNESS_EVENTS_FILE", None)
             else: os.environ["HARNESS_EVENTS_FILE"] = saved
 
+MALFORMED_USAGES = [{"m": "x"}, [1, 2], "str", 7, None, {"m": None}, {"m": [1]}, {"m": {"output": "x"}},
+                    {"m": {"output": [1], "input": {"a": 1}, "cache_read": True}}, {"m": {"output": -3}}]
+
+def test_malformed_usage_gives_no_traceback_in_report_and_ran():
+    # #753: a non-dict usage, a non-numeric token count, a list or a string usage is skipped: report and ran
+    # exit cleanly, and the good session beside it still counts
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        evs = [_ev("session_end", session="good", usage=_u(5), kind="impl")]
+        for i, bad in enumerate(MALFORMED_USAGES):
+            evs += [_ev("session_end", session=f"bad{i}", usage=bad, kind="impl", resumed=bool(i % 2)),
+                    _ev("session_end", session=f"bad{i}", usage=bad, kind="impl", resumed=True)]
+        with open(p, "w") as fh:
+            fh.write("\n".join(json.dumps(e) for e in evs) + "\n")
+        for argv in (["report"], ["report", "--json"]):
+            r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), *argv,
+                                "--events", p, "--since", "2026-09-01"], capture_output=True, text=True,
+                               env=dict(os.environ, HARNESS_HOME=d))
+            assert r.returncode == 0 and "Traceback" not in r.stderr, (argv, r.returncode, r.stderr)
+        assert st.clean_usage(MALFORMED_USAGES[0]) == {} and st.clean_usage(_u(5)) == _u(5)
+        saved = os.environ.get("HARNESS_EVENTS_FILE")
+        os.environ["HARNESS_EVENTS_FILE"] = p
+        try:
+            assert st.main(["ran", "good"]) == 0
+            for i in range(len(MALFORMED_USAGES)):
+                assert st.main(["ran", f"bad{i}"]) == 1, i
+        finally:
+            if saved is None: os.environ.pop("HARNESS_EVENTS_FILE", None)
+            else: os.environ["HARNESS_EVENTS_FILE"] = saved
+
 def test_failed_relaunch_under_same_session_keeps_the_earlier_run():
     # #679: a relaunch under a session id that already ran, dead within 30s, drops only itself
     real = _u(5)
