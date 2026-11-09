@@ -262,6 +262,14 @@ def count(v):
     return n
 
 
+def pool_size(v):
+    """argparse type for --pool: an integer >= 1. A fleet of zero workers is not a real configuration."""
+    n = count(v)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"{n} workers is not a fleet — --pool must be 1 or more")
+    return n
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="harness tier", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -269,7 +277,7 @@ def main(argv=None):
     for k in ("criteria", "lines", "files", "subsystems"):
         d.add_argument(f"--{k}", type=count, required=True)
     d.add_argument("--workstreams", type=count, default=1)
-    d.add_argument("--pool", type=count, default=1)
+    d.add_argument("--pool", type=pool_size, default=1)
     d.add_argument("--minutes", type=count)
     g = d.add_mutually_exclusive_group()
     g.add_argument("--user-around", action="store_true", default=True)
