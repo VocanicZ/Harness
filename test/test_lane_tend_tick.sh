@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_lane_tend_tick.sh — #594 (PRD #587 §1): a worker that owns a live lane tends it on a ~15s tick, not a POLL.
 #   1. the goal check runs only while the lane's pane is idle; a busy pane, or an idle one with a running
-#      sub-agent (`← 1 agent`), is never checked
+#      sub-agent, is never checked. The footer's `← 1 agent` is on every pane, so it is not that signal (#668)
 #   2. a fake lane replayed on a 15s clock: goal_satisfied within 30s of the pane going idle, and the next
 #      claim within 30s of the reap
 #   3. fleet-wide chores (and the watchdog) keep the POLL cadence, not the short tick
@@ -49,16 +49,19 @@ own(){ # <key> <session> <goal> — the worker W1 holds a claim on a live lane
   echo "$2" >> "$LIVE"; echo "$3" > "$RUN_DIR/$2.goal"; mkdir -p "$RUN_DIR/$2.d/"; echo "$RUN_DIR/$2.d" > "$RUN_DIR/$2.wd"
   lane_claim_write "$1" W1 "${3/#/}" "$2" "-"; }
 count(){ grep -c "^$1" "$CALLS"; }
-busy(){ cp "$FIX/busy-spinner.txt" "$PANE"; }; idle(){ sed '/← 1 agent/d' "$FIX/idle.txt" > "$PANE"; }
-idle_agent(){ cp "$FIX/idle.txt" "$PANE"; }
+# Real captures, unmodified (#668): every Claude Code pane shows `← 1 agent` in its footer, a sub-agent running or not.
+busy(){ cp "$FIX/busy-spinner.txt" "$PANE"; }; idle(){ cp "$FIX/idle.txt" "$PANE"; }
+idle_agent(){ cp "$FIX/idle-subagent-running.txt" "$PANE"; }   # at its prompt, a background sub-agent running
+idle_agent_done(){ cp "$FIX/idle-subagent-done.txt" "$PANE"; }   # the same lane after the sub-agent ended (its old Waiting line is in the scrollback)
 
 echo "=== 1. the goal check runs only while the pane is idle ==="
 setup; S=hz-main-i5; own impl-5 "$S" IMPL:5
 busy;       TEND_FAST=1 worker_tend W1; assert_eq "$(count goal)" "0" "busy pane: check_session_goal not called"
-idle_agent; TEND_FAST=1 worker_tend W1; assert_eq "$(count goal)" "0" "idle prompt + running sub-agent (← 1 agent): not called"
-idle;       TEND_FAST=1 worker_tend W1; assert_eq "$(count goal)" "1" "idle pane, no sub-agent: called"
+idle_agent; TEND_FAST=1 worker_tend W1; assert_eq "$(count goal)" "0" "idle prompt + running sub-agent: not called"
+idle;       TEND_FAST=1 worker_tend W1; assert_eq "$(count goal)" "1" "real idle.txt (footer still says ← 1 agent), no sub-agent: called (#668)"
+idle_agent_done; TEND_FAST=1 worker_tend W1; assert_eq "$(count goal)" "2" "sub-agent finished (old Waiting line in scrollback, footer unchanged): called (#668)"
 assert_eq "$(count watchdog)" "0" "the short tick does not run the stall watchdog (its counter counts POLLs)"
-TEND_FAST=0 worker_tend W1; assert_eq "$(count goal)" "2" "a full tend checks the goal unconditionally (unchanged)"
+TEND_FAST=0 worker_tend W1; assert_eq "$(count goal)" "3" "a full tend checks the goal unconditionally (unchanged)"
 assert_eq "$(count watchdog)" "1" "... and runs the watchdog"
 
 echo "=== 2. a fake lane on the worker clock: goal_satisfied ≤30s after idle, next claim ≤30s after the reap ==="
@@ -183,5 +186,36 @@ printf '#!/bin/sh\necho "gh $*" >> "$GHLOG"; echo "HTTP 502" >&2; exit 1\n' > "$
 idle; TEND_FAST=1 worker_tend W1
 assert_ok "lane still live after a transient gh failure" sess_live "$S"
 PATH="$OLDPATH"; unset HARNESS_SNAPSHOT_FILE HARNESS_SNAPSHOT_DIR HARNESS_PRIORITY_POLL GHLOG
+
+echo "=== 8. #668: <sess>.idleticks does not outlive the session (reap, kill, launch) ==="
+# A later session of the same name inherits the idle count and would pass the DECOMPOSE idle guard early.
+setup; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle
+remove_worktree(){ :; }; unlock_issue(){ :; }; one_lease_live(){ return 1; }; gh(){ echo '{"state":"OPEN","labels":[]}'; }
+unset -f reap_impl_lane reap_orch_lane watchdog_session check_session_goal
+source "$HERE/../scripts/lib.sh"; source "$HERE/../scripts/drive.sh"; _HARNESS_LIB_SOURCED=1 _HARNESS_DRIVE_SOURCED=1
+log(){ :; }; stats_sess_event(){ echo "event $1 $2" >> "$CALLS"; }; sess_live(){ grep -qxF "$1" "$LIVE"; }; session_live(){ sess_live "$1"; }
+HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"; export HARNESS_EVENTS_FILE
+stale(){ echo 2 > "$RUN_DIR/$1.idleticks"; }
+S5="$(sess_impl "$UNIT" 5)"; stale "$S5"; : > "$LIVE"
+reap_impl_lane 5
+assert_ok "reaping an impl lane removes its .idleticks" test ! -f "$RUN_DIR/$S5.idleticks"
+SP41="$(sess_orch "$UNIT" 41)"; stale "$SP41"; orch_worktree(){ echo "$RUN_DIR/wt/orch41"; }
+reap_orch_lane 41
+assert_ok "reaping an orch lane removes its .idleticks" test ! -f "$RUN_DIR/$SP41.idleticks"
+echo "$SP41" >> "$LIVE"; echo "ISSUE:5" > "$RUN_DIR/$SP41.goal"; stale "$SP41"
+python3(){ if [[ "${1:-}" == "$ISSUELIB" ]]; then echo DONE; else command python3 "$@"; fi; }
+check_session_goal "$SP41"
+unset -f python3
+assert_ok "the lane was killed on its satisfied goal" test ! -f "$RUN_DIR/$SP41.goal"
+assert_ok "... and a goal-satisfied kill removes its .idleticks" test ! -f "$RUN_DIR/$SP41.idleticks"
+echo "-- a fresh launch of the same name starts at 0"
+SL="$(sess_impl "$UNIT" 9)"; stale "$SL"; WD="$RUN_DIR/wd"; mkdir -p "$WD"; GOAL="ISSUE:9"; PROMISE=X; MAXITER=1
+session_live(){ return 1; }; sess_start(){ return 1; }; sess_backend(){ echo tmux; }
+ensure_trusted(){ :; }; write_state(){ :; }; lane_guard_env(){ :; }; lane_tmp_env(){ :; }; sess_resume_id(){ :; }
+launch_agent "$SL" "$WD" >/dev/null 2>&1
+assert_ok "launch_agent removes a stale .idleticks before the session starts" test ! -f "$RUN_DIR/$SL.idleticks"
+echo "-- the watchdog's dead-session sweep too"
+S2="$(sess_impl "$UNIT" 3)"; stale "$S2"; watchdog_session "$S2" >/dev/null 2>&1
+assert_ok "watchdog_session on a dead session removes its .idleticks" test ! -f "$RUN_DIR/$S2.idleticks"
 
 finish

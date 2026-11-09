@@ -1109,7 +1109,7 @@ _goal_loop_step(){ local sess="$1" wd="$2" uuid sid out pid reply
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
-  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock" "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"; return 0; }
+  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock" "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.idleticks"; return 0; }
   pane="$(sess_capture "$sess")" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
@@ -1792,7 +1792,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   # write_state (don't clobber the running agent's state file), no new-session, and above all no
   # send-keys typing a second `exec claude …` into the live pane. This guard MUST be first.
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
-  rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: a new session has been sent no checkpoint
+  rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.idleticks"   # #417: a new session has been sent no checkpoint; #668: nor has it idled
   [[ "$sess" =~ ^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$ ]] && uuid="$(sess_resume_id "$sess" "$wd")"
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
   else uuid="$(new_uuid)"; fi

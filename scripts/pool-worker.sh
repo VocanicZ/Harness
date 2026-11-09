@@ -137,10 +137,22 @@ tend_lane_done(){ local f="$1" key tok sess n prd slug
 
 # --- #594: the short tick ---------------------------------------------------------------------------------
 # lane_pane_active <sess> — the lane is working: a turn is running (cli_pane_busy), or a sub-agent it started
-# still runs (the status line shows `← 1 agent`). A review lane sits at its prompt while its sub-agent works.
-LANE_AGENT_RE='← [0-9]+ agents?'
+# still runs. A review lane sits at its prompt while its sub-agent works.
+# The footer's `← 1 agent` is NOT that signal (#668): Claude Code draws it on every pane, a fresh one with nothing
+# typed included (idle.txt), and with one sub-agent running or none it reads the same. A running sub-agent shows
+# as `✻ Waiting for N background agent(s) to finish` right above the input box, and as `◯ <type> <task>` rows
+# under the footer (idle-subagent-running.txt). Only the live bottom of the pane counts: a finished agent's
+# `Waiting for…` line stays in the scrollback (idle-subagent-done.txt).
+lane_subagent_running(){ awk '
+    /^(─)+$/ { rule[++r]=NR }                                  # the input box top and bottom rules
+    { line[NR]=$0 }
+    /^ +⏵⏵ / { foot=NR }                                     # the footer (bypass-permissions line)
+    END { if (foot) for (i=foot+1;i<=NR;i++) if (line[i] ~ /^ +◯ /) exit 0     # a sub-agent row under the footer
+          if (r>=2) { for (i=rule[r-1]-1;i>0;i--) if (line[i] ~ /[^ ]/) break
+                      if (i>0 && line[i] ~ /Waiting for [0-9]+ background agents? to finish/) exit 0 }
+          exit 1 }' <<<"$1"; }
 lane_pane_active(){ local pane; pane="$(sess_capture "$1" 2>/dev/null)" || return 1
-  cli_pane_busy "$pane" || grep -qE -- "$LANE_AGENT_RE" <<<"$pane"; }
+  cli_pane_busy "$pane" || lane_subagent_running "$pane"; }
 # lane_has_gh <sess> — a `gh` process runs under the lane's pane (it is mid-filing: issue create, edit…).
 lane_has_gh(){ local pid; pid="$(sess_pane_pid "$1" 2>/dev/null)"; [[ "$pid" =~ ^[0-9]+$ ]] || return 1
   proc_tree_has_comm "$pid" gh; }   # scripts/portable.sh: the process-table walk, Windows-safe (#653)

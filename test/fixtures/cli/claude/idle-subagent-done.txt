@@ -1,0 +1,43 @@
+
+❯ Use the Agent tool with run_in_background true to start one sub-agent whose only job is to run the shell command 'sleep 50' and then reply ok. After starting
+  it, end your turn with the word started.
+
+● Agent(Run sleep 50 and reply ok)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● started
+
+✻ Waiting for 1 background agent to finish
+
+● Agent "Run sleep 50 and reply ok" finished · 5s
+
+● The background agent did not run sleep 50. Its Bash call was blocked: the tool rejects standalone sleeps and suggests Monitor or a background run instead. The
+  agent stopped there without trying a workaround, so it never replied "ok."
+
+  I haven't retried it myself. If you want the wait, I can run it with Monitor, or you can run sleep 50 yourself.
+
+✻ Baked for 10s · done 10:16 PM
+
+❯ Use the Agent tool with run_in_background true to start one sub-agent whose only job is to run the foreground shell command python3 -c 'import time;
+  time.sleep(45)' and then reply ok. After starting it, end your turn immediately with just the word started and do not wait for it.
+
+● Agent(Run python sleep 45 and reply ok)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● started
+
+✻ Waiting for 1 background agent to finish
+
+● Agent "Run python sleep 45 and reply ok" finished · 47s
+
+● The background agent finished and replied "ok." Its python3 -c 'import time; time.sleep(45)' ran to completion this time, unlike the earlier sleep 50 attempt,
+  which the Bash tool blocked.
+
+✻ Churned for 50s · done 10:18 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  57.6k ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ (38%|6%)                                                                     7d ░░░░░░░░ 6% 6d
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+

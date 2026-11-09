@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### With the poller off, `goal_satisfied` no longer waits for the 300s full step (#668)
+
+- In `bench/results/ttl-ab-5m` (no poller) every `goal_satisfied` landed on the 300s full-step grid, 120–221s after the
+  lane's last message, and the short tick never ended a lane early. Cause: the short tick read an idle pane as busy because
+  its footer says `← 1 agent`. Claude Code draws that on every pane, a fresh session with nothing typed included, whether a
+  sub-agent runs or not (real captures: `test/fixtures/cli/claude/idle.txt`, `idle-subagent-running.txt`,
+  `idle-subagent-done.txt`), so the busy check always matched. The test hid it by deleting that line from `idle.txt`. A
+  running sub-agent is now read from the `✻ Waiting for N background agent to finish` line above the input box, or the `◯`
+  agent row under the footer; a finished agent's old `Waiting` line in the scrollback does not count.
+- `<session>.idleticks` is removed when a lane is reaped, ended on its goal, found dead by the watchdog, or launched, so a
+  later session with the same name no longer inherits the idle count and passes the `DECOMPOSE` idle guard early.
+
 ### The short tend tick no longer waits for the poller's snapshot to see a closed issue (#667)
 
 - On a fleet with the poller on, the #594 short tick checked an issue lane's goal against the poller's snapshot, which is

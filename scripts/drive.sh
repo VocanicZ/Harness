@@ -63,7 +63,7 @@ check_session_goal(){ local s="$1" live="${2:-}" goal res
       log "session $s goal '$goal' satisfied → advancing"
       stats_sess_event "$s" goal_satisfied
       cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
-      rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.wd" "$RUN_DIR/$s.selfpark";;
+      rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.wd" "$RUN_DIR/$s.selfpark" "$RUN_DIR/$s.idleticks";;
     PAUSED)  selfpark_tend "$s" "${goal#ISSUE:}";;
     PENDING) rm -f "$RUN_DIR/$s.selfpark";;   # #417: back on agent-working — a later park starts afresh
   esac   # no answer (a transient gh failure): keep whatever state there is
@@ -138,7 +138,7 @@ reap_impl_lane(){ local issue="$1" unowned="${2:-}" wd="$WORKTREES_DIR/$UNIT-i$1
   if [[ -n "$unowned" ]]; then lock_acquire "$POOL_LOCK" lockfd
     if is_claimed "impl-$issue"; then lock_release "$lockfd"; return 1; fi; fi
   launch_gone_check "$sess" impl issue="$issue"   # #596: gone within 30s of its launch → launch_failed + backoff
-  rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark"   # #417: they lived as long as the session
+  rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.idleticks"   # #417: they lived as long as the session; #668: so did the idle count
   if one_lease_live "$UNIT" "$issue"; then [[ -n "$unowned" ]] && lock_release "$lockfd"; return 1; fi   # #366: a /harness-one session is working it
   rm -f "$(one_lease_file "$UNIT" "$issue")" "$(one_start_file "$UNIT" "$issue")"
   log "reaping issue #$issue worktree"
@@ -193,6 +193,7 @@ busy_prds_for(){
 reap_orch_lane(){ local prd="$1" wd; wd="$(orch_worktree "$SLUG" "$prd")"
   session_live "$(sess_orch "$UNIT" "$prd")" && return 1
   launch_gone_check "$(sess_orch "$UNIT" "$prd")" orch prd="$prd"   # #596
+  rm -f "$RUN_DIR/$(sess_orch "$UNIT" "$prd").idleticks"   # #668: a later session of this name starts its idle count at 0
   log "reaping orch worktree for PRD #$prd"
   harness_event reap kind=orch prd="$prd" reason=session_gone
   remove_worktree "$CHECKOUT" "$wd" "agent/orch-$prd"
