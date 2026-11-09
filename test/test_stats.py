@@ -188,6 +188,25 @@ def test_launch_failed_lane_is_not_a_session():
     assert [x["session"] for x in st.sessions(evs)] == ["ok1"]
     assert st.fleet_summary(evs)["hz"]["sessions"] == 1
 
+def test_failed_relaunch_under_same_session_keeps_the_earlier_run():
+    # #679: a relaunch under a session id that already ran, dead within 30s, drops only itself
+    real = _u(5)
+    evs = [
+        _ev("launch", session="s1", prefix="hz", issue=7, kind="impl"),
+        _ev("session_end", session="s1", prefix="hz", issue=7, kind="impl", wall_s=600, usage=real),
+        _ev("launch", session="s1", prefix="hz", issue=7, kind="impl"),
+        _ev("launch_failed", session="s1", prefix="hz", issue=7, kind="impl", reason="session_gone"),
+        _ev("session_end", session="s1", prefix="hz", issue=7, kind="impl", wall_s=1),
+    ]
+    out = st.sessions(evs)
+    assert [x["session"] for x in out] == ["s1"], out
+    assert out[0]["wall_s"] == 600 and out[0]["usage"]["claude-opus-5-5"]["output"] == 5, out
+    # a start_failed relaunch emits no launch event of its own: still only itself is dropped
+    evs2 = evs[:2] + [_ev("launch_failed", session="s1", prefix="hz", issue=7, kind="impl", reason="start_failed")]
+    out2 = st.sessions(evs2)
+    assert len(out2) == 1 and out2[0]["usage"]["claude-opus-5-5"]["output"] == 5, out2
+    assert st.fleet_summary(evs)["hz"]["sessions"] == 1
+
 def test_fleet_summary_reads_old_unit_and_new_repo_worker_events():
     """#472: old claim/release events carry `unit`, new lane_* events carry `repo` + `worker`. The old
     totals do not move; the lanes block attributes a new claim by its repo and an old one by its repo
