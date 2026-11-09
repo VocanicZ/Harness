@@ -62,6 +62,7 @@ _ANY_HEADING = re.compile(r"^#{1,3}[ \t]+\S", re.MULTILINE)
 _AC_CHECKBOX = re.compile(r"^[ \t]*[-*][ \t]+\[[ xX]\]", re.MULTILINE)
 _AC_BULLET = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]+\S", re.MULTILINE)
 ENGINE_CHILD_MAX_DEFAULT = 15
+_ENGINE_CHILD_MAX_WARNED = set()   # #810: raw HARNESS_ENGINE_CHILD_MAX values already warned about
 # States that satisfy a blocked-by ref. "merged" covers a ref pointing at a merged PR: `gh issue
 # view <pr-number>` resolves the PR and returns {"state":"MERGED"}, so a merged PR must NOT block.
 _SATISFIED_STATES = {"closed", "merged"}
@@ -1156,9 +1157,17 @@ def acceptance_count(body):
 
 def engine_child_max():
     """K (#614): a PRD with this many acceptance criteria or fewer is small enough for the engine to file its
-    one child itself. HARNESS_ENGINE_CHILD_MAX, default 15."""
-    try: return int(os.environ.get("HARNESS_ENGINE_CHILD_MAX", "") or ENGINE_CHILD_MAX_DEFAULT)
-    except ValueError: return ENGINE_CHILD_MAX_DEFAULT
+    one child itself. HARNESS_ENGINE_CHILD_MAX, default 15. Only a non-negative ASCII integer counts (#810: int()
+    also took 1_0, full-width digits and -1); anything else is the default, with a one-time warning naming it."""
+    raw = os.environ.get("HARNESS_ENGINE_CHILD_MAX", "")
+    v = raw.strip()
+    if not v: return ENGINE_CHILD_MAX_DEFAULT
+    if re.fullmatch(r"[0-9]+", v): return int(v)
+    if raw not in _ENGINE_CHILD_MAX_WARNED:
+        _ENGINE_CHILD_MAX_WARNED.add(raw)
+        print(f"[issuelib] WARN HARNESS_ENGINE_CHILD_MAX={raw!r} is not a non-negative ASCII integer — "
+              f"using the default {ENGINE_CHILD_MAX_DEFAULT}", file=sys.stderr)
+    return ENGINE_CHILD_MAX_DEFAULT
 
 def engine_pool():
     try: return int(os.environ.get("HARNESS_POOL", "") or 3)   # lib.sh's default pool
