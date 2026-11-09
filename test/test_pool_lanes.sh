@@ -119,6 +119,20 @@ assert_eq "$(launches)" "3" "three lanes from three simultaneous claimers"
 assert_eq "$(sort "$LIVE" | uniq | wc -l | tr -d ' ')" "3" "three distinct sessions"
 assert_eq "$(for k in impl-5 impl-6 impl-7; do claim_wid $k; done | sort | tr '\n' ' ')" "W1 W2 W3 " "three different owners"
 
+echo "=== 1c2. #684: every write of a lane's claim holds pool.lock — start_lane's rewrite included ==="
+# On a Windows host a rename over the claim file is not atomic: a claimer reading it (under pool.lock) in the gap sees no
+# claim and takes the same issue. So a claim file is only ever replaced while pool.lock is held, by every writer.
+setup 3; snap "5:ready-for-agent" "6:ready-for-agent"
+WRITES="$RUN_DIR/claim-writes"; : > "$WRITES"
+eval "$(declare -f lane_claim_write | sed '1s/^lane_claim_write/real_lane_claim_write/')"
+lane_claim_write(){ if lock_free "$POOL_LOCK"; then echo "$1 UNLOCKED" >> "$WRITES"; else echo "$1 locked" >> "$WRITES"; fi
+  real_lane_claim_write "$@"; }
+worker_tick W1; worker_tick W2
+assert_eq "$(launches)" "2" "two lanes launched"
+assert_eq "$(sort "$WRITES" | uniq -c | tr -s ' ' | tr '\n' ';')" " 2 impl-5 locked; 2 impl-6 locked;" "each claim written twice (claim, then the pane pid), both under pool.lock"
+assert_no "no claim write outside pool.lock" grep -q UNLOCKED "$WRITES"
+assert_eq "$(awk '{print NF}' "$CLAIMS_DIR/impl-5.claim")" "5" "the rewritten claim is whole"
+
 echo "=== 1d. a PRD's single DECOMPOSE item, two workers at once: claimed once ==="
 setup 3; export HARNESS_MODE=prd; snap "41:prd"
 for w in W1 W2 W3; do ( worker_tick "$w" ) & done; wait
