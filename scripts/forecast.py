@@ -33,7 +33,7 @@ environment, else the project config), and the output says so; with neither, % i
 
     forecast.py <issue> [-R owner/repo] [--unit U] [--json]
 """
-import bisect, importlib.util, json, os, re, subprocess, sys
+import bisect, importlib.util, json, math, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -388,10 +388,11 @@ def window_pct(cal, phases, total, fallback):
     return out
 
 
-def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None, fallback=None):
+def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None, fallback=None, invalid=None):
     """The forecast dict for `issue` of `repo`. body: the issue's body text (None = unknown); bodies:
     {issue number: body} for `repo`, used for the pool's median body length and the issue's PRD;
-    fallback: the operator's $ per 1% (HARNESS_ONE_USD_PER_PCT) for a window with no calibration."""
+    fallback: the operator's $ per 1% (HARNESS_ONE_USD_PER_PCT) for a window with no calibration;
+    invalid: that setting's text when it is set but unusable (#746), named in the render."""
     bodies = bodies or {}
     all_lanes = lanes(events, find)
     rl = (repo or "").lower()
@@ -428,7 +429,7 @@ def forecast(events, repo, issue, body=None, bodies=None, unit=None, find=None, 
         "pct": [{k: w[k] for k in ("account", "window", "source", "usd_per_pct", "phases", "total")}
                 for w in windows] if any(w["usd_per_pct"] for w in windows) else None,
         "calibration": {"windows": [{k: v for k, v in w.items() if k not in ("phases", "total")} for w in windows],
-                        "fallback": fallback, "setting": FALLBACK_SETTING, "bound_q": BOUND_Q},
+                        "fallback": fallback, "setting": FALLBACK_SETTING, "invalid": invalid, "bound_q": BOUND_Q},
         "spent": {"sessions": sum(ln["sessions"] for ln in own), "usd": round(sum(ln["total"] for ln in own), 2)},
     }
 
@@ -467,6 +468,13 @@ def _window_name(w):
     return " ".join(x for x in (w["account"], w["window"]) if x) or "any account"
 
 
+def _setting_state(cal):
+    """`HARNESS_ONE_USD_PER_PCT unset`, or `HARNESS_ONE_USD_PER_PCT=inf invalid (...)` for a set but unusable value (#746)."""
+    if cal.get("invalid") is None:
+        return f"{cal['setting']} unset"
+    return f"{cal['setting']}={cal['invalid']} invalid (need a finite number >= {MIN_USD_PER_PCT:g})"
+
+
 def render_pct(f):
     """The % of each window table (p50/p80/p95 per phase and in total), then one line per window
     naming the fit it used or the fallback."""
@@ -490,9 +498,11 @@ def render_pct(f):
         elif w["source"] == "fallback":
             out.append(f"  calibration {name}: {why}{skipped} — FALLBACK {cal['setting']}=${w['usd_per_pct']:.2f}/1%")
         else:
-            out.append(f"  calibration {name}: {why}{skipped} and {cal['setting']} unset — n/a")
+            out.append(f"  calibration {name}: {why}{skipped} and {_setting_state(cal)} — n/a")
     if not f["pct"]:
-        out.append(f"  % of each usage window: n/a until a $-per-% calibration exists or {cal['setting']} is set")
+        out.append(f"  % of each usage window: n/a until a $-per-% calibration exists or {cal['setting']} is set"
+                   if cal.get("invalid") is None else
+                   f"  % of each usage window: n/a until a $-per-% calibration exists or {_setting_state(cal)}")
     return out
 
 
@@ -506,14 +516,39 @@ def config_value(state_dir, name):
     return m.group(1) if m else None
 
 
-def usd_per_pct_setting(state_dir):
-    """HARNESS_ONE_USD_PER_PCT from the environment, else the project config; None unless a positive number."""
-    v = os.environ.get(FALLBACK_SETTING) or config_value(state_dir, FALLBACK_SETTING)
+MIN_USD_PER_PCT = 0.01   # $ per 1% of a window: 100% of a window is then $1, below any real plan (#746)
+
+
+def usd_per_pct_raw(state_dir):
+    """The HARNESS_ONE_USD_PER_PCT text as set (environment, else the project config); None when unset or empty."""
+    return os.environ.get(FALLBACK_SETTING) or config_value(state_dir, FALLBACK_SETTING) or None
+
+
+def usd_per_pct_parse(raw):
+    """(value, None) for a usable $ per 1%: a finite number of at least MIN_USD_PER_PCT; else (None, why)
+    (#746). inf, nan, 0, a negative, a tiny value (1e-300) and non-numeric text are all "not usable"."""
     try:
-        v = float(v)
+        v = float(raw)
     except (TypeError, ValueError):
-        return None
-    return v if v > 0 else None
+        return None, "not a number"
+    if not math.isfinite(v):
+        return None, "not finite"
+    if v < MIN_USD_PER_PCT:
+        return None, f"below the minimum {MIN_USD_PER_PCT:g}"
+    return v, None
+
+
+def usd_per_pct_setting(state_dir):
+    """HARNESS_ONE_USD_PER_PCT from the environment, else the project config; None unless a finite number of
+    at least MIN_USD_PER_PCT. A set but unusable value is named by usd_per_pct_invalid."""
+    raw = usd_per_pct_raw(state_dir)
+    return usd_per_pct_parse(raw)[0] if raw is not None else None
+
+
+def usd_per_pct_invalid(state_dir):
+    """The setting's text when it is set but not usable (#746), else None (unset, or fine)."""
+    raw = usd_per_pct_raw(state_dir)
+    return raw if raw is not None and usd_per_pct_parse(raw)[0] is None else None
 
 
 # --- project / GitHub --------------------------------------------------------
@@ -607,8 +642,12 @@ def main(argv=None):
         body = bodies.get(a.issue)
     else:
         body, bodies = gh_bodies(repo, a.issue)
-    f = forecast(events, repo, a.issue, body, bodies, unit,
-                 fallback=usd_per_pct_setting(os.environ.get("STATE_DIR")))
+    sd = os.environ.get("STATE_DIR")
+    bad = usd_per_pct_invalid(sd)
+    if bad is not None:
+        print(f"harness forecast: {FALLBACK_SETTING}={bad} is invalid (need a finite number >= {MIN_USD_PER_PCT:g}): "
+              "ignored", file=sys.stderr)
+    f = forecast(events, repo, a.issue, body, bodies, unit, fallback=usd_per_pct_setting(sd), invalid=bad)
     print(json.dumps(f, indent=2) if a.json else render(f))
     if f["basis"]["tier"] == "none":
         print("harness forecast: no past lanes on this host to forecast from", file=sys.stderr)

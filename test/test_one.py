@@ -107,6 +107,30 @@ def test_cli_on_a_real_forecast_prints_the_arithmetic():
         assert g["verdict"] == "DENY" and g["forecast"]["issue"] == 7, g
 
 
+def test_a_bad_usd_per_pct_setting_never_approves_and_is_named():   # #746
+    # forecast.py with HARNESS_ONE_USD_PER_PCT=inf used to price every window at 0% and APPROVE
+    with tempfile.TemporaryDirectory() as d:
+        events, rp, fp, bodies = (os.path.join(d, n) for n in ("events.jsonl", "r.tsv", "f.json", "bodies.json"))
+        with open(bodies, "w") as fh: fh.write("[]")
+        base = {"prefix": "hz", "repo": "acme/widget", "unit": "main", "kind": "impl", "issue": 7, "session": "s1"}
+        with open(events, "w") as fh:
+            fh.write(json.dumps(dict(base, event="launch", ts="2026-10-01T00:00:00Z")) + "\n")
+            fh.write(json.dumps(dict(base, event="session_end", ts="2026-10-01T01:00:00Z",
+                                     usage={"claude-opus-5-5": {"input": 0, "output": 50000, "cache_create": 0, "cache_read": 0}})) + "\n")
+        with open(rp, "w") as fh: fh.write("main\tseven_day\t40\t0\t60\n")
+        for bad in ("inf", "nan", "1e-300"):
+            env = dict(os.environ, HARNESS_ONE_USD_PER_PCT=bad, HARNESS_CLAUDE_CONFIG_DIRS=d)
+            env.pop("STATE_DIR", None)
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "7", "-R", "acme/widget",
+                                "--events", events, "--bodies", bodies, "--json"], capture_output=True, text=True, env=env)
+            assert "Infinity" not in r.stdout and "NaN" not in r.stdout, (bad, r.stdout)
+            with open(fp, "w") as fh: fh.write(r.stdout)
+            g = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "one.py"), "gate", "--forecast", fp,
+                                "--readings", rp], capture_output=True, text=True)
+            assert g.returncode == 1 and "RECOMMEND: DENY" in g.stdout, (bad, g.stdout)
+            assert f"HARNESS_ONE_USD_PER_PCT={bad} invalid" in g.stdout and "unset" not in g.stdout, (bad, g.stdout)
+
+
 def fc_split(per_phase=2.0, total=8.0, account="main", window="seven_day"):
     """A forecast with a per-phase split: each of the 5 phases p80 = `per_phase` % of the window, the
     whole issue's p80 = `total` % (under the 10 % the five sum to); $ likewise at 5 $ per 1 %."""

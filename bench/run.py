@@ -297,8 +297,11 @@ def guard(a, fc, st):
         per, src = usd_per_pct(fc, events, run_account())
         d["usd_per_pct"], d["usd_per_pct_source"] = per, src
         if not per or not _finite(per) or per < 0:
-            d["reasons"].append("no $ per 1% (no calibration in the event log and HARNESS_ONE_USD_PER_PCT "
-                                "unset): cannot turn the expected spend into a % of the window")
+            bad = fc.usd_per_pct_invalid(os.environ.get("STATE_DIR"))   # set but unusable: say so, not "unset" (#746)
+            state = (f"HARNESS_ONE_USD_PER_PCT={bad} invalid, need a finite number >= {fc.MIN_USD_PER_PCT:g}"
+                     if bad is not None else "HARNESS_ONE_USD_PER_PCT unset")
+            d["reasons"].append(f"no $ per 1% (no calibration in the event log and {state}): "
+                                "cannot turn the expected spend into a % of the window")
             d["causes"].append("no-calibration")
         else:
             need = round(expected / per, 2)
