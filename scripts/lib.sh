@@ -446,7 +446,9 @@ claimed_issues(){ local f k tok; shopt -s nullglob
 # claim_lane holds the same issue / PRD action back for HARNESS_LAUNCH_BACKOFF s (60, doubling per consecutive
 # failure, capped at HARNESS_LAUNCH_BACKOFF_MAX 900) instead of re-claiming it at once.
 # launch_key_of_sess <sess> — the claim key of an issue (-i<N>) or PRD (-p<N>) lane's session; empty for others.
-launch_key_of_sess(){ case "$1" in *-i[0-9]*) echo "impl-${1##*-i}";; *-p[0-9]*) echo "orch-${1##*-p}";; esac; }
+# #780: only the TRAILING -i<N> / -p<N> counts — a unit name may hold `-i18n` or `-p2b` (web-i18n, a-p2b).
+launch_key_of_sess(){ if [[ "$1" =~ -i([0-9]+)$ ]]; then echo "impl-${BASH_REMATCH[1]}"
+  elif [[ "$1" =~ -p([0-9]+)$ ]]; then echo "orch-${BASH_REMATCH[1]}"; fi; }
 _launchfail_file(){ echo "$RUN_DIR/launchfail.$1"; }
 launch_backoff_mark(){ local key="$1" f n=0 t; f="$(_launchfail_file "$key")"
   read -r t n 2>/dev/null < "$f"; [[ "${n:-}" =~ ^[0-9]+$ ]] || n=0
