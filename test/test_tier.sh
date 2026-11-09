@@ -211,6 +211,13 @@ done
 assert_eq "$(H tier overlap --files a -R -x >/dev/null 2>&1; echo $?)" 2 "-R -x -> usage error, exit 2"
 assert_eq "$(H tier overlap --files a -R nonsense >/dev/null 2>&1; echo $?)" 2 "-R nonsense -> usage error, exit 2"
 assert_eq "$(HARNESS_REPO=nonsense H tier overlap --files a >/dev/null 2>&1; echo $?)" 2 "HARNESS_REPO=nonsense -> exit 2"
+# an empty or blank --files list checks nothing -> usage error, never "clear"
+for blank in '' ' ' ',' ' , '; do
+  err="$(H tier overlap -R acme/widget --base main --repo-dir "$R" --files "$blank" 2>&1 >"$T/out.txt")"; rc=$?
+  assert_eq "$rc" 2 "--files '$blank' -> usage error, exit 2"
+  assert_ok "--files '$blank': says no files to check, never 'clear'" \
+    bash -c '[[ "$1" == *"no files to check"* && "$2" != *clear* ]]' _ "$err" "$(cat "$T/out.txt")"
+done
 
 # ── the skills run the check first ──────────────────────────────────────────────────────────────
 S="$ROOT/skill/SKILL.md"

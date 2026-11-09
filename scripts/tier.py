@@ -302,8 +302,11 @@ def main(argv=None):
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
     if not REPO_RE.fullmatch(a.repo):
         ap.error(f"argument -R: {a.repo!r} is not a repository — expected owner/name")
+    files = [f for f in a.files.split(",") if f.strip()]
+    if not files:
+        print("harness tier overlap: no files to check — pass --files a,b,c", file=sys.stderr); return 2
     try:
-        hits = overlap(a.files.split(","), a.repo, a.base, a.repo_dir, label)
+        hits = overlap(files, a.repo, a.base, a.repo_dir, label)
     except CheckFailed as e:
         msg = f"could not check for overlap: {e}"
         print(f"harness tier overlap: {msg}", file=sys.stderr)
