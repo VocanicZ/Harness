@@ -1120,6 +1120,9 @@ def cmd_report(argv):
     ap.add_argument("--events", help=argparse.SUPPRESS)
     ap.add_argument("--rtdd-events", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
+    if a.issue is not None and a.issue < 1:
+        print(f"harness stats: --issue must be 1 or greater, got {a.issue}", file=sys.stderr)
+        return 2
     if a.backfill:
         n, calls = backfill(a.events), backfill_rtdd(a.rtdd_events)
         print(f"backfilled {n} session(s), {calls} rtdd call(s)")

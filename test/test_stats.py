@@ -269,6 +269,21 @@ def test_report_cli_text_and_json():
         with contextlib.redirect_stderr(io.StringIO()):
             assert run(["report", "--since", "whenever"])[0] == 2
 
+def test_report_issue_below_one_is_a_usage_error():
+    """#675: no issue is numbered 0 or below -> exit 2 with a message, not a report headed "issue #-5"."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        st.append_event(_ev("claim", issue=11), p)
+        for bad in ("-5", "0", "-1"):
+            for argv in (["report", "--issue", bad], ["report", f"--issue={bad}"]):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    rc, out = run(argv)
+                assert rc == 2 and out == "" and "--issue" in err.getvalue(), (argv, rc, out, err.getvalue())
+        rc, out = run(["report", "--issue", "1", "-R", "acme/widget"])
+        assert rc == 0 and "issue #1:" in out, out
+
+
 def test_backfill_attributes_transcripts_and_is_idempotent():
     with host() as d:
         fleets = os.path.join(d, "fleets"); os.makedirs(fleets)
