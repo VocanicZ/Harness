@@ -768,3 +768,13 @@ if __name__ == "__main__":
             except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
+
+
+def test_empty_unit_and_bodies_are_usage_errors():   # #862: neither is "not given" (--bodies= fell back to the real gh)
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for flag, other in (("--unit=", ["--bodies", bodies]), ("--bodies=", [])):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "3", flag, "-R", W,
+                                "--events", events] + other, capture_output=True, text=True)
+            assert r.returncode == 2 and r.stdout == "" and (
+                "non-empty" in r.stderr or "must not be empty" in r.stderr), (flag, r.returncode, r.stdout, r.stderr)
