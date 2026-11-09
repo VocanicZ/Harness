@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `tier.toml` thresholds are checked: a string no longer gives a traceback, and nan, inf, negative and zero values are errors (#749)
+
+- `max_criteria = "8"` printed a `TypeError` traceback, while `nan` silently turned that check off and `-5`, `inf` or
+  `max_subsystems = 0` were accepted without a word. Every `tier.toml` threshold must now be a finite number: the limits
+  in `[direct]` and `[fleet]` whole numbers of 1 or more, the time and price figures in `[estimate]` 0 or more. A string,
+  a boolean, `nan`, `inf`, a negative, a fraction for a count, a zero limit and a section that is not a table each give one
+  line naming the file and the key (`tier.toml: direct.max_criteria = nan is not a finite number`) and exit 2, like the
+  existing parse errors, for `decide` and `thresholds` alike.
+
 ### `HARNESS_ONE_USD_PER_PCT=inf` (or a tiny value) no longer makes the forecast read 0% and the one gate approve (#746)
 
 - `inf` priced every window at 0.00%, put `Infinity` (not valid JSON) in `harness forecast --json` and let `harness one gate`
