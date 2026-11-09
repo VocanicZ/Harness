@@ -206,6 +206,34 @@ def test_launch_failed_lane_that_reported_usage_is_still_a_session():
     assert st.fleet_summary(evs)["hz"]["sessions"] == 1
     assert st.fleet_summary(evs)["hz"]["tokens"]["claude-opus-5-5"]["output"] == 1_000_000
 
+def test_launch_failed_after_the_sweeps_empty_session_end_is_still_not_a_session():
+    # #743: another worker's sweep logs the empty session_end before the owner's launch_gone_check logs launch_failed
+    real = _u(5)
+    dead = [
+        _ev("launch", session="u1", prefix="hz", issue=3, kind="impl"),
+        _ev("session_end", session="u1", prefix="hz", issue=3, kind="impl", wall_s=1, usage={}),
+        _ev("launch_failed", session="u1", prefix="hz", issue=3, kind="impl", reason="session_gone"),
+    ]
+    assert st.sessions(dead) == [] and st.fleet_summary(dead)["hz"]["sessions"] == 0
+    # ...whichever order the two are logged in
+    assert st.sessions([dead[0], dead[2], dead[1]]) == []
+    # a real earlier run under the same id (#679) stays, with the failed relaunch dropped whichever order its events came in
+    first = [_ev("launch", session="u2", prefix="hz", issue=4, kind="impl"),
+             _ev("session_end", session="u2", prefix="hz", issue=4, kind="impl", wall_s=600, usage=real)]
+    again = [_ev("launch", session="u2", prefix="hz", issue=4, kind="impl"),
+             _ev("session_end", session="u2", prefix="hz", issue=4, kind="impl", wall_s=1, usage={}),
+             _ev("launch_failed", session="u2", prefix="hz", issue=4, kind="impl", reason="session_gone")]
+    out = st.sessions(first + again)
+    assert len(out) == 1 and out[0]["wall_s"] == 600 and out[0]["usage"]["claude-opus-5-5"]["output"] == 5, out
+    # a failed segment whose session_end reports usage (#720) is a session: here the launch_failed is a start_failed of
+    # a later attempt, which is its own segment and drops alone
+    ran = [first[0], first[1], _ev("launch_failed", session="u2", prefix="hz", issue=4, kind="impl", reason="start_failed")]
+    assert len(st.sessions(ran)) == 1 and st.sessions(ran)[0]["usage"]["claude-opus-5-5"]["output"] == 5
+    # a start_failed after an earlier real run with an empty session_end does not take that run with it
+    quiet = [first[0], _ev("session_end", session="u2", prefix="hz", issue=4, kind="impl", wall_s=600, usage={}),
+             _ev("launch_failed", session="u2", prefix="hz", issue=4, kind="impl", reason="start_failed")]
+    assert [x["session"] for x in st.sessions(quiet)] == ["u2"]
+
 def test_ran_command_reads_logged_usage(tmp_path, monkeypatch):
     # #720: `stats.py ran <session>` is rc 0 only for a session whose logged session_end holds tokens
     p = tmp_path / "events.jsonl"

@@ -500,10 +500,11 @@ launch_ran_usage(){ local sess="$1" uuid="$2"
 # that ran its course, or reported usage whatever its age (#720), clears the backoff. No-op for a session
 # launch_agent did not record.
 launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid key age; shift 2
-  [[ -f "$f" ]] || return 0; read -r t uuid < "$f"; rm -f "$f"; key="$(launch_key_of_sess "$sess")"
+  [[ -f "$f" ]] || { rm -f "$RUN_DIR/$sess.goalswept"; return 0; }; read -r t uuid < "$f"; rm -f "$f"; key="$(launch_key_of_sess "$sess")"
   [[ "$t" =~ ^[0-9]+$ ]] || return 0
   # #730: the goal check read DONE and ended it (check_session_goal): the work was already finished, the launch did not fail
-  if [[ -f "$RUN_DIR/$sess.goalmet" ]]; then [[ -n "$key" ]] && launch_backoff_clear "$key"; return 0; fi
+  # #743: a sweep (stats_sweep_ended, from another worker's full step or reap_team) may have consumed .goalmet first: it left .goalswept
+  if [[ -f "$RUN_DIR/$sess.goalmet" || -f "$RUN_DIR/$sess.goalswept" ]]; then rm -f "$RUN_DIR/$sess.goalswept"; [[ -n "$key" ]] && launch_backoff_clear "$key"; return 0; fi
   age=$(( $(date +%s) - t ))
   if (( age < ${HARNESS_LAUNCH_FAIL_SECS:-30} )) && ! launch_ran_usage "$sess" "$uuid"; then
     harness_event launch_failed session="$uuid" tmux="$sess" kind="$kind" "$@" reason=session_gone age_s="$age"
@@ -1725,7 +1726,9 @@ stats_sweep_ended(){ local f s claim uuid repo issue kind cp
     IFS='|' read -r uuid repo issue kind < <(python3 -c 'import json,sys
 c = json.load(open(sys.argv[1])); print(*[str(c.get(k, "")) for k in ("session", "repo", "issue", "kind")], sep="|")' "$claim" 2>/dev/null) || uuid=""
     cp=(); [[ -f "$RUN_DIR/$s.checkpoint" ]] && cp=(checkpointed=1)   # #545: the engine ended it on purpose — not a crash
-    [[ -f "$RUN_DIR/$s.goalmet" ]] && { cp+=(goal_met=1); rm -f "$RUN_DIR/$s.goalmet"; }   # #730: its goal was already met — not churn
+    [[ -f "$RUN_DIR/$s.goalmet" ]] && { cp+=(goal_met=1); rm -f "$RUN_DIR/$s.goalmet"   # #730: its goal was already met — not churn
+      # #743: ...and launch_gone_check, which may not have run yet, must still read it: hand the mark over while the launch stamp it reads exists
+      [[ -f "$RUN_DIR/$s.launched" ]] && : > "$RUN_DIR/$s.goalswept"; }
     harness_event session_end --ctx "$claim" usage_tsv="$(_stats_cli_usage "$claim")" ${cp[@]+"${cp[@]}"}; rm -f "$claim"
     [[ -n $uuid ]] && ! session_live "$s" && sess_sweep "$uuid"
     churn_check "$repo" "$issue" "$kind" "$uuid" || true   # #545: BEFORE the reaper unlocks the issue
@@ -1857,7 +1860,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   [[ "$line_me" == *$'\t'* ]] || effort=""
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
     worktree="$wd" model="$model" effort="$effort" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
-  rm -f "$RUN_DIR/$sess.goalmet"   # #730: a fresh launch starts with no goal met
+  rm -f "$RUN_DIR/$sess.goalmet" "$RUN_DIR/$sess.goalswept"   # #730: a fresh launch starts with no goal met
   echo "$(date +%s) $uuid" > "$RUN_DIR/$sess.launched"   # #596: launch_gone_check reads when it started
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }

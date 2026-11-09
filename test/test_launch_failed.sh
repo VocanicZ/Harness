@@ -145,4 +145,28 @@ reap_impl_lane 6
 assert_eq "$(evs | grep -c launch_failed)" "1" "…while a lane gone 3s after launch with no usage still logs launch_failed"
 assert_ok "…and is backed off" launch_backoff_active impl-6
 
+echo "== 7. another worker's sweep clears .goalmet before the owner's launch_gone_check (#743) =="
+setup; snap 7
+SESS7="$(sess_impl "$UNIT" 7)"
+echo "$((NOW - 2)) uuid-7" > "$RUN_DIR/$SESS7.launched"; : > "$RUN_DIR/$SESS7.goalmet"
+echo '{"session":"uuid-7","repo":"acme/widget","issue":7,"kind":"impl","goal":"ISSUE:7"}' > "$RUN_DIR/$SESS7.stats"
+session_live(){ return 1; }; churn_check(){ :; }; sess_sweep(){ :; }; _stats_cli_usage(){ :; }
+launch_backoff_mark impl-7
+stats_sweep_ended
+assert_no "the sweep consumed .goalmet" test -e "$RUN_DIR/$SESS7.goalmet"
+assert_ok "... and its session_end carries goal_met" grep -Eq '"session_end".*"goal_met": *"?1|"goal_met": *"?1.*"session_end"' "$HARNESS_EVENTS_FILE"
+reap_impl_lane 7 unowned
+assert_eq "$(evs | grep -c launch_failed)" "0" "the owner's check, after the sweep, logs no launch_failed"
+assert_no "... arms no backoff and clears the old one" test -e "$RUN_DIR/launchfail.impl-7"
+assert_no "... and leaves no hand-over mark" test -e "$RUN_DIR/$SESS7.goalswept"
+# the same sweep for a lane whose goal was NOT met: still a failed launch
+SESS8="$(sess_impl "$UNIT" 8)"; echo "$((NOW - 2)) uuid-8" > "$RUN_DIR/$SESS8.launched"
+echo '{"session":"uuid-8","repo":"acme/widget","issue":8,"kind":"impl"}' > "$RUN_DIR/$SESS8.stats"
+stats_sweep_ended; reap_impl_lane 8 unowned
+assert_eq "$(evs | grep -c launch_failed)" "1" "a swept lane with no goal met still logs launch_failed"
+# a relaunch starts with no goal met: a stale hand-over mark is not read for it
+: > "$RUN_DIR/$SESS8.goalswept"; rm -f "$RUN_DIR/$SESS8.launched"
+launch_gone_check "$SESS8" impl issue=8
+assert_no "a stamp-less check drops a stale hand-over mark" test -e "$RUN_DIR/$SESS8.goalswept"
+
 finish
