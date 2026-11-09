@@ -74,6 +74,41 @@ def test_help_into_a_closed_pipe_is_quiet_and_exits_0():
         assert err == "" and rc == 0, (argv, rc, err)
 
 
+def closed_stdout(argv, env=None):
+    """Run argv with standard output CLOSED (`>&-`), so sys.stdout is None; (returncode, stderr)."""
+    r = subprocess.run(["bash", "-c", '"$@" >&-', "_"] + argv, stdin=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE, env=env)
+    return r.returncode, r.stderr.decode()
+
+
+def test_closed_stdout_is_quiet_for_stats_tier_and_forecast():
+    """#806: `>&-` leaves sys.stdout None; flush() raised AttributeError and a traceback, exit 1. Now: no
+    traceback, the status main returned (0)."""
+    import tempfile
+    py = sys.executable
+    with tempfile.TemporaryDirectory() as d:
+        events = os.path.join(d, "events.jsonl")
+        open(events, "w").close()
+        decide = ["decide", "--criteria", "3", "--lines", "80", "--files", "3", "--subsystems", "1"]
+        cmds = [[py, os.path.join(ROOT, "scripts", "stats.py"), "report", "--events", events],
+                [py, os.path.join(ROOT, "scripts", "stats.py"), "report", "--events", events, "--json"],
+                [py, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"],
+                [py, os.path.join(ROOT, "scripts", "tier.py")] + decide,
+                ["bash", os.path.join(ROOT, "bin", "harness"), "tier", "thresholds"]]
+        for argv in cmds:
+            rc, err = closed_stdout(argv)
+            assert err == "" and rc == 0, (argv, rc, err)
+        tf = _load("test_forecast")
+        with tf.tmp() as fd:
+            cfg, fevents, bodies = tf.fixture(fd)
+            env = dict(os.environ, HARNESS_CLAUDE_CONFIG_DIRS=cfg, STATE_DIR=os.path.join(fd, "none"))
+            base = ["50", "-R", tf.W, "--events", fevents, "--bodies", bodies]
+            for extra in ([], ["--json"]):
+                argv = [py, os.path.join(ROOT, "scripts", "forecast.py")] + base + extra
+                rc, err = closed_stdout(argv, env)
+                assert err == "" and rc == 0, (argv, rc, err)
+
+
 def test_help_still_prints_and_a_usage_error_still_exits_2():
     tier = [sys.executable, os.path.join(ROOT, "scripts", "tier.py")]
     r = subprocess.run(tier + ["decide", "--help"], capture_output=True, text=True)

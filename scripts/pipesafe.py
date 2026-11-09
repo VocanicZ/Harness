@@ -8,7 +8,8 @@ stats.py's `_print_report` (#671) does the same for its one print. A `SystemExit
 `--help`, #783) is caught so its output is flushed inside the guard too, and its status is returned.
 
 A closed pipe is not a failure of the command: the status is the one `main` returned (0 when the pipe
-broke before `main` finished). Stdlib only.
+broke before `main` finished). A closed standard output (`>&-`, sys.stdout None, #806) is the same: output is dropped,
+no traceback, the status `main` returned. Stdlib only.
 """
 import os, sys
 
@@ -30,8 +31,15 @@ def run(main, *args):
         return 0
     except SystemExit as e:   # #783: argparse prints --help / a usage error, then exits inside parse_args
         rc = e.code
+    flush()
+    return rc
+
+
+def flush():
+    """sys.stdout.flush() that ends quietly on a closed pipe, and on a closed stdout (`>&-`: sys.stdout is None, #806)."""
+    if sys.stdout is None:
+        return
     try:
         sys.stdout.flush()
     except BrokenPipeError:
         quiet_stdout()
-    return rc

@@ -27,6 +27,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   and split one overlap across lines (the class #756 fixed for `harness stats`). Names are now escaped with `stats.vis` (`\u2028`, `\u000c`). `test_tier.sh` covers both
   characters; `--json` is unchanged.
 
+### A closed standard output (`>&-`) no longer gives a traceback in `harness stats`, `harness tier` and `forecast.py` (#806)
+
+- With standard output closed, `sys.stdout` is `None`; `pipesafe.run` and `stats.py`'s `_print_report` called `.flush()` on it and died with
+  `AttributeError: 'NoneType' object has no attribute 'flush'` and exit 1. A closed stdout is now handled like a closed pipe: the output is dropped, nothing
+  is printed to stderr, and the status is the one `main` returned (0). `test_pipe_closed.py` covers `>&-` for stats, tier and forecast.
+
 ### `bench/run.py` money and seconds options take ASCII digits only (#805)
 
 - `--cost-cap-usd`, `--expected-usd`, `--wall-cap-secs`, `--poll-secs`, `--grace-secs` and `--progress-poll-secs` were parsed with `float()`, which also takes

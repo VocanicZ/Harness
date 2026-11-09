@@ -1307,7 +1307,10 @@ def cmd_report(argv):
 
 
 def _print_report(text):
-    """print(), but a reader that closed the pipe early (`| head -1`) ends the command quietly (#671)."""
+    """print(), but a reader that closed the pipe early (`| head -1`) ends the command quietly (#671), and so
+    does a closed stdout (`>&-`, sys.stdout None: print() drops the text, the flush must not raise, #806)."""
+    if sys.stdout is None:
+        return
     try:
         print(text)
         sys.stdout.flush()
