@@ -1139,6 +1139,20 @@ def render_text(kind, data):
     return "\n".join(out)
 
 
+# A GitHub owner/name: each half starts with a letter, digit or underscore (a name may also start with a dot,
+# as in `.github`), never a dash — `-x/name` and `owner/-x` would be read as a flag by `gh -R`. One check for
+# `harness stats` and `forecast.py` (#716).
+REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.][\w.-]*")
+
+
+def repo_arg(v):
+    """argparse type for -R / --repo in every form (`-R x`, `--repo x`, `--repo=x`): must be owner/name."""
+    import argparse
+    if not REPO_RE.fullmatch(v):
+        raise argparse.ArgumentTypeError(f"{v!r} is not a repository — expected owner/name")
+    return v
+
+
 def cmd_report(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="harness stats", description="Harness event-log report (#185)")
@@ -1146,7 +1160,7 @@ def cmd_report(argv):
     g.add_argument("--prd", type=int)
     g.add_argument("--issue", type=int)
     g.add_argument("--backfill", action="store_true", help="rebuild session_end for past sessions")
-    ap.add_argument("-R", "--repo")
+    ap.add_argument("-R", "--repo", type=repo_arg)
     ap.add_argument("--since", help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")
     ap.add_argument("--fleet", help="session prefix")
     ap.add_argument("--model", help="substring of a model id")

@@ -1,4 +1,4 @@
-import contextlib, importlib.util, io, json, os, shutil, sys, tempfile
+import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("stats", os.path.normpath(os.path.join(HERE, "..", "scripts", "stats.py")))
 st = importlib.util.module_from_spec(spec); spec.loader.exec_module(st)
@@ -301,6 +301,29 @@ def test_report_issue_below_one_is_a_usage_error():
                 assert rc == 2 and out == "" and "--issue" in err.getvalue(), (argv, rc, out, err.getvalue())
         rc, out = run(["report", "--issue", "1", "-R", "acme/widget"])
         assert rc == 0 and "issue #1:" in out, out
+
+
+def test_report_repo_must_be_owner_name_with_no_leading_dash():
+    """#716: --repo=-x (and owner/-x, -x/name) -> exit 2, like forecast.py; not "no events in range", exit 0."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        st.append_event(_ev("claim", issue=11), p)
+        for bad in ("-x", "owner/-x", "-x/name", "x", "", "a/", "/b", "a b/c", "a/b/c"):
+            for argv in (["report", f"--repo={bad}"], ["report", "-R", bad], ["report", f"-R={bad}"]):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    try:
+                        rc, out = run(argv)
+                    except SystemExit as e:   # argparse: a usage error ends the command with exit 2
+                        rc, out = e.code, ""
+                # `-R -x` (two words): argparse reads -x as a flag, so its own "expected one argument" fires
+                assert rc == 2 and out == "" and ("expected owner/name" in err.getvalue() or argv[1:2] == ["-R"]), (argv, rc, out, err.getvalue())
+        r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), "report", "--repo=-x",
+                            "--events", p], capture_output=True, text=True)
+        assert r.returncode == 2 and r.stdout == "" and "expected owner/name" in r.stderr, (r.returncode, r.stdout, r.stderr)
+        for ok in ("acme/widget", "a/b", "my-org/my.repo_1", "acme/.github", "a_b/c-d"):
+            rc, out = run(["report", f"--repo={ok}"])
+            assert rc == 0, (ok, rc, out)
 
 
 def test_report_prd_below_one_is_a_usage_error():
