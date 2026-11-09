@@ -1078,6 +1078,33 @@ def test_usage_line_is_split_only_on_newline_and_a_bom_on_a_later_line_is_stripp
             os.environ["HARNESS_USAGE_CMD"] = saved
 
 
+def test_usage_output_with_lone_cr_line_endings_reads_the_same_rows_as_lf():   # #864
+    class _Done:
+        returncode = 0
+        def __init__(self, out):
+            self.stdout = out
+    lf = "a\tseven_day\t42\t0\nb\tfive_hour\t7\t0\n"
+    saved_run, saved_cmd = bench_run.subprocess.run, os.environ.get("HARNESS_USAGE_CMD")
+    try:
+        os.environ["HARNESS_USAGE_CMD"] = "true"
+        got = {}
+        for name, text in (("lf", lf), ("crlf", lf.replace("\n", "\r\n")), ("cr", lf.replace("\n", "\r")),
+                           ("cr_bom", lf.replace("\n", "\r﻿"))):
+            # the parser must not lean on subprocess's own newline translation: hand it the raw text
+            bench_run.subprocess.run = lambda *a, _t=text, **k: _Done(_t)
+            got[name] = bench_run.usage_readings()
+        want = [("a", "seven_day", 42.0, "0"), ("b", "five_hour", 7.0, "0")]
+        assert got["lf"] == want, got
+        assert got["crlf"] == want and got["cr"] == want, got
+        assert got["cr_bom"] == want, got
+    finally:
+        bench_run.subprocess.run = saved_run
+        if saved_cmd is None:
+            os.environ.pop("HARNESS_USAGE_CMD", None)
+        else:
+            os.environ["HARNESS_USAGE_CMD"] = saved_cmd
+
+
 def test_a_usage_hold_file_with_a_leading_bom_names_the_account_without_it():   # #807
     rdir = tempfile.mkdtemp(prefix="hold-bom-")
     try:
