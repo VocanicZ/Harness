@@ -212,6 +212,11 @@ class CheckFailed(Exception):
     """A gh or git call the overlap answer needs failed — the answer is unknown, never "clear"."""
 
 
+def _first_line(text, default):
+    """The first line of a tool's stderr, split on \\n or \\r\\n only: str.splitlines() also breaks at U+2028, U+0085 and \\f, which would cut git's message short (#857)."""
+    return (text.strip().split("\n")[0].rstrip("\r")) or default
+
+
 def _call(argv, cwd=None):
     """(returncode, stdout, stderr); an unrunnable command raises CheckFailed."""
     try:
@@ -224,7 +229,7 @@ def _call(argv, cwd=None):
 def _run(argv, cwd=None):
     rc, out, err = _call(argv, cwd)
     if rc != 0:
-        why = (err.strip().splitlines() or [f"exit {rc}"])[0]
+        why = _first_line(err, f"exit {rc}")
         raise CheckFailed(f"`{' '.join(argv)}` failed (exit {rc}): {why}")
     return out
 
@@ -284,7 +289,7 @@ def open_work(slug, base, repo_dir, label):
                 continue
             if rc != 0:
                 raise CheckFailed(f"`git rev-parse --verify {ref}` failed (exit {rc}): "
-                                  f"{(err.strip().splitlines() or ['no output'])[0]}")
+                                  f"{_first_line(err, 'no output')}")
             files += _zlist(_run(["git", "diff", "--name-only", "-z", f"{base}...{ref}", "--"], repo_dir)); break
         wt = trees.get(br)
         if wt:   # uncommitted work in the lane's own worktree counts too
@@ -397,7 +402,8 @@ def main(argv=None):
         hits = overlap(files, a.repo, a.base, a.repo_dir, label)
     except CheckFailed as e:
         msg = f"could not check for overlap: {e}"
-        print(f"harness tier overlap: {msg}", file=sys.stderr)
+        import stats   # #857: the command and git's message can hold U+2028 or a control character from --base; stats.vis escapes them
+        print(stats.vis(f"harness tier overlap: {msg}"), file=sys.stderr)
         if a.json:
             print(json.dumps({"overlap": None, "hits": [], "error": msg}))
         return EXIT_UNCHECKED

@@ -336,6 +336,16 @@ FAIL=none         unchecked "git worktree list fails (not a git dir)" 'git workt
 FAIL=none         unchecked "git diff fails (base ref missing)" 'git diff' \
                   -R acme/widget --base nosuchbase --repo-dir "$R" --files src/z.py
 FAIL=none assert_eq "$(H tier overlap "${ovargs[@]}" >/dev/null 2>&1; echo $?)" 0 "the same stub, nothing failing -> clear, exit 0"
+# a --base holding U+2028 is echoed escaped, and git's first line is not cut at it (#857)
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in "issue list") echo '[{"number":7}]';; "pr list") echo '[]';; *) exit 1;; esac
+SH
+err="$(H tier overlap -R acme/widget --repo-dir "$R" --files src/z.py --base="$(printf 'ma\xe2\x80\xa8in')" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 3 "--base with U+2028 -> exit 3 (git diff cannot resolve it)"
+assert_eq "$(printf %s "$err" | grep -c $'\xe2\x80\xa8')" 0 "…no raw U+2028 on stderr"
+assert_ok "…the command shows it as \\u2028" grep -qF 'ma\u2028in...' <<<"$err"
+assert_ok "…git's whole first line is kept, past the U+2028" grep -q "bad revision 'ma.*in\.\.\." <<<"$err"
 # a lane whose branch does not exist yet owns no files — that is not a failure
 cat > "$BIN/gh" <<'SH'
 #!/usr/bin/env bash

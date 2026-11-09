@@ -10,6 +10,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `~$inf` (and `"usd": Infinity`, which is not valid JSON, with `--json`). A non-finite estimate is now an error: one line on stderr naming the amounts, exit 2, nothing on stdout.
   `test_tier.sh` covers it.
 
+### `harness tier overlap` escapes the command in its failure message and keeps git's whole first line (#857)
+
+- When the `git diff` call failed, a `--base` holding U+2028 was echoed raw in the message, and git's error was cut at that character because it was read with `splitlines()`. The message now escapes line separators and control characters (`\u2028`), and git's first line is split only at `\n` or `\r\n`. `test_tier.sh` covers it.
+
 ### `harness tier decide` refuses a huge count with a usage error, not an OverflowError traceback (#855)
 
 - `--criteria 999…9` (400 digits) got past `count()` and `estimate()` then failed to turn the int into a float: a traceback and exit 1. A count is now
