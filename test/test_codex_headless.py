@@ -45,7 +45,7 @@ class Lane:
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake)
         env.pop("CODEX_HOME", None)
         cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}"]
+               "--bin", f"{RUNNER_PY} {FAKE}", f"--flags={flags}"]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -261,5 +261,11 @@ def test_watch_prints_turns_replies_and_failures():
     assert ch.watch_line({"type": "turn.started"}) is None and ch.watch_line({"type": "item.completed", "item": {"type": "reasoning"}}) is None
 
 
-if __name__ == "__main__":
-    sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-q", __file__] + sys.argv[1:]))
+if __name__ == "__main__":   # no pytest: the Windows suite host installs nothing beyond the standard library (#606)
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)

@@ -95,6 +95,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   and the web tests give a Windows host the fixtures it needs (`.cmd` shims for their `tmux` / `gh` stubs, native registry paths, the
   headless backend).
 
+### Windows suite: the headless runner tests start their runner with the real interpreter, so they reach its first state (#606)
+
+- Cause: on winsma `python3` is a venv `python.exe`, and a Windows venv's `python.exe` is a launcher that starts the base interpreter as a
+  child. The runner tests waited for `runner_pid == Popen.pid`, but the runner's own `os.getpid()` is the child's, so the first state
+  never matched and every `test_*_headless.py` timed out ("timed out waiting for the runner's first state"). A `proc.kill()` ended only
+  the launcher, which also left the runner behind.
+- The tests now start a runner with `test/hlproc.py`'s `RUNNER_PY` (the base interpreter on Windows, `sys.executable` elsewhere), probe a
+  process with `OpenProcess` instead of `os.kill(pid, 0)` (which ends a process on Windows), and end one with `taskkill /T /F`. The
+  SIGTERM test uses the stop file on Windows, where no signal reaches a process from outside.
+
 ### While a lane runs, the pool builds the next claimable issue's worktree ahead, so a lane switch skips the `worktree add` and the hook (#644)
 
 - The last item of #618: a lane switch still paid `git worktree add`, the worktree hook and the `ensure_*` setup after the claim, about 10 s

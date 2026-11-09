@@ -41,7 +41,7 @@ class Lane:
         with open(os.path.join(self.fake, "plan"), "w") as f:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLI_DIR=self.fake)
-        cmd = [RUNNER_PY, ENTRY, "run", "--lane", self.lane, "--cwd", self.wd, "--bin", f"{sys.executable} {FAKE}"]
+        cmd = [RUNNER_PY, ENTRY, "run", "--lane", self.lane, "--cwd", self.wd, "--bin", f"{RUNNER_PY} {FAKE}"]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -248,7 +248,7 @@ def test_restart_resumes_the_session_and_inbox_position():
     env = dict(os.environ, FAKE_CLI_DIR=L.fake)
     with open(os.path.join(L.fake, "plan"), "a") as f:
         f.write("ok two\n")
-    p = subprocess.Popen([RUNNER_PY, ENTRY, "run", "--lane", L.lane, "--cwd", L.wd, "--bin", f"{sys.executable} {FAKE}"], env=env)
+    p = subprocess.Popen([RUNNER_PY, ENTRY, "run", "--lane", L.lane, "--cwd", L.wd, "--bin", f"{RUNNER_PY} {FAKE}"], env=env)
     try:
         wait_for(lambda: L.state().get("runner_pid") == p.pid, "the restarted runner")
         L.send("b"); L.wait_turn(2, "idle")
@@ -264,3 +264,31 @@ def test_the_core_loads_an_adapter_by_cli_name_and_refuses_a_missing_one():
     r = subprocess.run([sys.executable, CORE, "run", "--adapter", "nosuchcli", "--lane", tempfile.mkdtemp(), "--cwd", "."],
                        capture_output=True, text=True)
     assert r.returncode != 0 and "no headless adapter for 'nosuchcli'" in r.stderr, r
+
+
+def test_stdio_prints_utf8_and_lf_whatever_the_platform_text_mode():
+    """#606: Windows text mode turns every printed "\\n" into "\\r\\n", which a bash reader of `state` / `pane` kept as a
+    "\\r" in the value it compared. utf8_stdio() makes the output LF (and UTF-8) on every platform."""
+    import io
+    saved = sys.stdin, sys.stdout, sys.stderr
+    out, err = io.BytesIO(), io.BytesIO()
+    sys.stdout = io.TextIOWrapper(out, encoding="cp1252", newline="\r\n", write_through=True)
+    sys.stderr = io.TextIOWrapper(err, encoding="cp1252", newline="\r\n", write_through=True)
+    try:
+        core.utf8_stdio()
+        print("a ✻\nb"); print("oops\n", file=sys.stderr)
+        got_out, got_err = out.getvalue(), err.getvalue()
+    finally:
+        sys.stdin, sys.stdout, sys.stderr = saved
+    assert got_out == "a ✻\nb\n".encode("utf-8"), got_out
+    assert got_err == b"oops\n\n", got_err
+
+
+if __name__ == "__main__":   # no pytest: the Windows suite host installs nothing beyond the standard library (#606)
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)

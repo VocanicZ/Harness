@@ -15,7 +15,7 @@ make_env
 export RUN_DIR PAUSE_FLAG HARNESS_SESS_PREFIX=hlc HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
 export HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=30
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $FAKE" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }
 
 # A fake gh over files in $FAKE_GH_DIR: labels-<n> (one label per line), comments-<n>.json. Enough of

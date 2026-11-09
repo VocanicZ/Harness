@@ -51,7 +51,7 @@ class Lane:
             self.hold()
         self.env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, COPILOT_HOME=self.home)
         cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}", *extra]
+               "--bin", f"{RUNNER_PY} {FAKE}", f"--flags={flags}", *extra]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -366,7 +366,7 @@ def test_restart_and_resume_carry_the_same_session():
     lane.send("before restart"); lane.wait_turn(1, "idle"); lane.stop()
     # a relaunch: a new runner on the same session id, told it exists (--resume, #350)
     p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd, "--session-id", sid,
-                          "--resume", "--bin", f"{sys.executable} {FAKE}"], env=lane.env)
+                          "--resume", "--bin", f"{RUNNER_PY} {FAKE}"], env=lane.env)
     try:
         wait_for(lambda: ch.read_state(lane.lane).get("runner_pid") == p.pid, "the restarted runner")
         lane.send("after restart"); lane.wait_turn(2, "idle")

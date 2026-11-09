@@ -44,7 +44,7 @@ class Lane:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, XDG_DATA_HOME=self.xdg)
         cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", f"--flags={flags}"]
+               "--bin", f"{RUNNER_PY} {FAKE}", f"--flags={flags}"]
         for flag, val in (("--session-id", session_id), ("--effort", effort), ("--model", model)):
             if val:
                 cmd += [flag, val]

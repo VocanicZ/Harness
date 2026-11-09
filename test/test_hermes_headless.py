@@ -5,7 +5,7 @@ capture, the command a turn runs (`-c <session> --create-if-missing`, the messag
 HERMES_HOME), the limit and transient states, the gateway stopped after a killed turn, and `watch`. The lane
 protocol itself (inbox, interrupt, stop, pane) is the core's, proved by test_headless_core.py and
 test_claude_headless.py."""
-import importlib.util, json, os, subprocess, sys, tempfile, time
+import hashlib, importlib.util, json, os, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from hlproc import RUNNER_PY, WINDOWS, alive, gone, kill_tree  # noqa: E402,F401
@@ -44,7 +44,7 @@ class Lane:
             f.write("\n".join(plan) + "\n")
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake, HARNESS_HERMES_HOME=self.op)
         cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", "--session-id", session_id]
+               "--bin", f"{RUNNER_PY} {FAKE}", "--session-id", session_id]
         if resume:
             cmd += ["--resume"]
         self.proc = subprocess.Popen(cmd, env=env)
@@ -145,11 +145,11 @@ def test_argv_names_the_session_the_same_way_every_turn():
 def test_turn_runs_in_the_lane_profile_hermes_sh_seeds():
     wd = "/work/tree"
     # scripts/cli/hermes.sh `_hermes_home`: <operator home>/profiles/harness<sha1 of the worktree, 12 hex>
-    sha = subprocess.run(["bash", "-c", "printf '%s' \"$1\" | sha1sum | cut -c1-12", "x", wd], capture_output=True, text=True).stdout.strip()
+    sha = hashlib.sha1(wd.encode()).hexdigest()[:12]   # (not `bash`: on Windows a Python subprocess finds WSL's bash.exe first)
     old = os.environ.get("HARNESS_HERMES_HOME")
     os.environ["HARNESS_HERMES_HOME"] = "/op"
     try:
-        assert hh.ADAPTER.env(wd) == {"HERMES_HOME": f"/op/profiles/harness{sha}"}, hh.ADAPTER.env(wd)
+        assert hh.ADAPTER.env(wd) == {"HERMES_HOME": os.path.join("/op", "profiles", f"harness{sha}")}, hh.ADAPTER.env(wd)
         os.environ.pop("HARNESS_HERMES_HOME")
         assert hh.ADAPTER.env(wd)["HERMES_HOME"] == os.path.join(os.path.expanduser("~"), ".hermes", "profiles", f"harness{sha}")
     finally:

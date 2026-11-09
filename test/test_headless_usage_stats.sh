@@ -19,7 +19,7 @@ export HARNESS_REPO=acme/widget HARNESS_OWNER=acme
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl" HARNESS_CLAUDE_CONFIG_DIRS="$RUN_DIR/no-claude-config"
 export HARNESS_USAGE_CHECKPOINT_PCT=90 HARNESS_USAGE_STATUSLINE=0
 FIX="$HERE/fixtures/cli/claude/stream-json"
-export HARNESS_CLAUDE_BIN="python3 $FIX/fake-claude" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions --model haiku"
+export HARNESS_CLAUDE_BIN="python3 $(native_path "$FIX/fake-claude")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions --model haiku"
 # The flags name the model (#375: role model keys empty, so the role's opus/sonnet does not replace it).
 export HARNESS_MODEL_MANAGER="" HARNESS_MODEL_IMPLEMENTER=""
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }

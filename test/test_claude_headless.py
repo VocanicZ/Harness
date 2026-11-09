@@ -43,7 +43,7 @@ class Lane:
             self.hold()
         env = dict(os.environ, FAKE_CLAUDE_DIR=self.fake)
         cmd = [RUNNER_PY, RUNNER, "run", "--lane", self.lane, "--cwd", self.wd,
-               "--bin", f"{sys.executable} {FAKE}", "--flags=--dangerously-skip-permissions"]
+               "--bin", f"{RUNNER_PY} {FAKE}", "--flags=--dangerously-skip-permissions"]
         if session_id:
             cmd += ["--session-id", session_id]
         if resume:
@@ -262,7 +262,7 @@ def test_restart_resumes_session_and_inbox_position():
     lane.send("before restart"); lane.wait_turn(1, "idle"); lane.stop()
     env = dict(os.environ, FAKE_CLAUDE_DIR=lane.fake)
     p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd,
-                          "--bin", f"{sys.executable} {FAKE}"], env=env)
+                          "--bin", f"{RUNNER_PY} {FAKE}"], env=env)
     try:
         wait_for(lambda: ch.read_state(lane.lane).get("runner_pid") == p.pid, "the restarted runner")
         lane.send("after restart"); lane.wait_turn(2, "idle")
@@ -283,7 +283,7 @@ def test_killed_runner_redelivers_queued_not_delivered():
     lane.release()
     env = dict(os.environ, FAKE_CLAUDE_DIR=lane.fake)
     p = subprocess.Popen([RUNNER_PY, RUNNER, "run", "--lane", lane.lane, "--cwd", lane.wd,
-                          "--bin", f"{sys.executable} {FAKE}"], env=env)
+                          "--bin", f"{RUNNER_PY} {FAKE}"], env=env)
     try:
         lane.wait_turn(2, "idle")
         assert [c["prompt"] for c in lane.calls()] == ["delivered", "queued"], lane.calls()
