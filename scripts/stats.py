@@ -1132,8 +1132,21 @@ def cmd_report(argv):
         kind, data = "issue", issue_timeline(evs, a.issue, rtdd, session_time_split)
     else:
         kind, data = "fleet", fleet_summary(evs, a.model, rtdd)
-    print(json.dumps(data, indent=2) if a.json else render_text(kind, data))
+    _print_report(json.dumps(data, indent=2) if a.json else render_text(kind, data))
     return 0
+
+
+def _print_report(text):
+    """print(), but a reader that closed the pipe early (`| head -1`) ends the command quietly (#671)."""
+    try:
+        print(text)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # the unflushed rest would raise again at interpreter exit: point stdout at devnull first
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
 
 
 def cmd_mismatches(argv):

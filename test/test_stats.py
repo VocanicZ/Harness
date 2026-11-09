@@ -976,6 +976,29 @@ def test_time_split_cli_subcommand():
         assert run(["time-split", os.path.join(d, "none.jsonl")])[0] == 1
 
 
+def test_report_into_a_reader_that_stops_early_is_quiet():   # #671: `harness stats | head -1`
+    import subprocess
+    script = os.path.join(HERE, "..", "scripts", "stats.py")
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        with open(p, "w") as fh:
+            for i in range(3000):
+                for e in (_ev("launch", session=f"f{i}-s", prefix=f"fleet{i}", issue=i, prd=1, kind="impl", model="sonnet"),
+                          _ev("session_end", session=f"f{i}-s", prefix=f"fleet{i}", issue=i, prd=1, kind="impl",
+                              usage=_u(100, "claude-sonnet-5-5"))):
+                    fh.write(json.dumps(e) + "\n")
+        for extra in ([], ["--json"]):
+            argv = [sys.executable, script, "report", "--events", p, "--since", "2026-01-01"] + extra
+            full = subprocess.run(argv, capture_output=True, text=True)
+            assert full.returncode == 0 and len(full.stdout) > 200_000, (extra, len(full.stdout), full.stderr)
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            first = proc.stdout.readline()
+            proc.stdout.close()                      # head -1 has read its line and exited
+            err = proc.stderr.read().decode()
+            rc = proc.wait()
+            assert first and err == "" and rc in (0, 141), (extra, rc, err)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
