@@ -708,12 +708,24 @@ def add_usage(into, usage, model_filter=None):
     return into
 
 
+def _has_tokens(usage):
+    return any(int(v or 0) for u in (usage or {}).values() for v in (u or {}).values()
+               if isinstance(v, (int, float)))
+
+
+def _reported_usage(events):
+    """True when one of `events` is a session_end that reports token usage: the session ran (#720)."""
+    return any(e.get("event") == "session_end" and _has_tokens(e.get("usage")) for e in events)
+
+
 def _live_events(events):
     """The events of `events` that belong to a launch that ran (#679). A session id can be launched again (a
     relaunch, a resume), so its events fall into segments, one per `launch`. A `launch_failed` drops only the
     segment it ends: the launch it follows and anything after it up to the next `launch`. It cannot reach back
     into a segment that already ended (a real run), nor one that never opened with a `launch` (a `start_failed`
-    emits no `launch`); that failure is a segment of its own, and so is dropped alone."""
+    emits no `launch`); that failure is a segment of its own, and so is dropped alone. A failed segment whose
+    `session_end` reports usage did run (#720: a lane gone within 30s of its launch, its `launch_failed` logged
+    before the sweep's `session_end`): it keeps its events and its spend."""
     segs, cur = [], {}   # every segment; session id -> its open segment
     for e in events:
         sid = e.get("session")
@@ -730,7 +742,7 @@ def _live_events(events):
         elif ev == "session_end":
             seg["ended"] = True
         seg["evs"].append(e)
-    dead = {id(e) for seg in segs if seg["failed"] for e in seg["evs"]}
+    dead = {id(e) for seg in segs if seg["failed"] and not _reported_usage(seg["evs"]) for e in seg["evs"]}
     return [e for e in events if e.get("session") and id(e) not in dead]
 
 
@@ -1446,6 +1458,8 @@ def main(argv=None):
             return 1
         print(json.dumps(r))
         return 0
+    if cmd == "ran":           # rc 0 when the event log holds usage for session <uuid> (#720)
+        return 0 if rest and _has_tokens(logged_session_usage(rest[0])) else 1
     if cmd == "mismatches":    # `harness status`' model-mismatch flags (#376)
         return cmd_mismatches(rest)
     if cmd == "backfill":
