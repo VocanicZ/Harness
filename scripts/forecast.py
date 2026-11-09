@@ -647,6 +647,31 @@ def issue_arg(v):
     return n
 
 
+def read_bodies(path):
+    """{issue number: body} from a `gh issue list --json number,body` file (#754). A leading UTF-8 BOM is
+    dropped; a file that cannot be read or is not that shape is a ValueError naming it, never a traceback."""
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+    except OSError as e:
+        raise ValueError(f"{path}: cannot read it: {e.strerror or e}")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
+    except ValueError as e:   # json.JSONDecodeError
+        raise ValueError(f"{path}: not valid JSON: {e}")
+    if not isinstance(data, list):
+        raise ValueError(f"{path}: expected a JSON list of {{number, body}} objects")
+    bodies = {}
+    for it in data:
+        if not isinstance(it, dict) or isinstance(it.get("number"), bool) or not isinstance(it.get("number"), int):
+            raise ValueError(f"{path}: every item needs an integer \"number\"")
+        body = it.get("body") or ""
+        if not isinstance(body, str):
+            raise ValueError(f"{path}: issue {it['number']}: \"body\" must be a string")
+        bodies[it["number"]] = body
+    return bodies
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="harness forecast",
@@ -665,8 +690,11 @@ def main(argv=None):
         print(f"harness forecast: {e}", file=sys.stderr)
         return 2
     if a.bodies:
-        with open(a.bodies) as fh:
-            bodies = {it["number"]: it.get("body") or "" for it in json.load(fh)}
+        try:
+            bodies = read_bodies(a.bodies)
+        except ValueError as e:
+            print(f"harness forecast: {e}", file=sys.stderr)
+            return 2
         body = bodies.get(a.issue)
     else:
         body, bodies = gh_bodies(repo, a.issue)

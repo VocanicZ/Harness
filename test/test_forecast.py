@@ -537,6 +537,33 @@ def test_a_bad_usd_per_pct_gives_no_fallback_valid_json_and_a_named_message():  
             if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
 
 
+def test_a_bodies_file_with_a_bom_reads_like_one_without_and_a_malformed_one_is_a_line_not_a_traceback():   # #754
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        args = ["50", "-R", W, "--events", events, "--json"]
+        rc, want, _ = run_cli(args + ["--bodies", bodies], cfg)
+        assert rc == 0
+        with open(bodies, "rb") as fh:
+            raw = fh.read()
+        bom = os.path.join(d, "bom.json")
+        with open(bom, "wb") as fh:
+            fh.write(b"\xef\xbb\xbf" + raw)
+        rc, got, err = run_cli(args + ["--bodies", bom], cfg)
+        assert rc == 0 and got == want and err == "", (rc, err)
+        bad = {"empty": b"", "not json": b"{nope", "bad utf-8": b"[\xff\xfe]", "not a list": b'{"number": 1}',
+               "item not an object": b"[1]", "no number": b'[{"body": "x"}]', "str number": b'[{"number": "1"}]',
+               "body not a string": b'[{"number": 1, "body": 5}]'}
+        for name, content in bad.items():
+            path = os.path.join(d, "bad.json")
+            with open(path, "wb") as fh:
+                fh.write(content)
+            rc, out, err = run_cli(args + ["--bodies", path], cfg)
+            assert rc == 2 and out == "", (name, rc, out)
+            assert err.startswith("harness forecast: ") and path in err and err.count("\n") == 1, (name, err)
+        rc, out, err = run_cli(args + ["--bodies", os.path.join(d, "missing.json")], cfg)
+        assert rc == 2 and "cannot read it" in err and err.count("\n") == 1, (rc, err)
+
+
 def test_repo_value_must_be_owner_name_in_every_form():
     with tmp() as d:
         cfg, events, bodies = fixture(d)
