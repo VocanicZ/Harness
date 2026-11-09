@@ -99,6 +99,8 @@ class Env:
         self.env = {"PATH": self.bin, "FAKE_DOCKER_HOME": self.d,
                     "FAKE_DOCKER_MODE": mode, "FAKE_SONAR_PORT": str(self.srv.server_address[1]),
                     "PYTHONDONTWRITEBYTECODE": "1", "HOME": self.d}
+        # native Windows: a process without SYSTEMROOT cannot load the socket provider, so quality.py never reached the fake SonarQube (#686)
+        self.env.update({k: os.environ[k] for k in ("SYSTEMROOT", "SystemRoot") if k in os.environ})
 
     def run(self, *args):
         return subprocess.run([sys.executable, "-I", QUALITY, self.repo, "--startup-secs", "3",
