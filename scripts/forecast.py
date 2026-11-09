@@ -573,11 +573,23 @@ def repo_arg(v):
     return v
 
 
+def issue_arg(v):
+    """argparse type for the issue positional: an integer of 1 or greater (a usage error, exit 2, below that)."""
+    import argparse
+    try:
+        n = int(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid int value: {v!r}")
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"issue number must be 1 or greater, got {n}")
+    return n
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="harness forecast",
                                  description="per-phase p50/p80/p95 cost forecast for one issue (#363)")
-    ap.add_argument("issue", type=int)
+    ap.add_argument("issue", type=issue_arg)
     ap.add_argument("-R", "--repo", type=repo_arg, help="owner/repo (default: the issue's own lanes, else the project's unit)")
     ap.add_argument("--unit", help="unit of the current project (multi-unit projects)")
     ap.add_argument("--json", action="store_true")

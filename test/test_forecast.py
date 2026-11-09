@@ -488,6 +488,18 @@ def test_repo_value_must_be_owner_name_in_every_form():
         assert rc == 0, rc
 
 
+def test_issue_number_below_one_is_a_usage_error():
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for n in ("-5", "0"):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), n, "-R", W,
+                                "--events", events, "--bodies", bodies], capture_output=True, text=True)
+            assert r.returncode == 2 and "issue number must be 1 or greater" in r.stderr, (n, r.returncode, r.stderr)
+            assert "forecast #" not in r.stdout, (n, r.stdout)
+        rc, _, _ = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfg)
+        assert rc == 0, rc
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
