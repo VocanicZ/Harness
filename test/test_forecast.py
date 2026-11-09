@@ -108,6 +108,12 @@ def test_price_table_per_family_and_generation_pinned():
     for m in ("claude-sonnet-4-5", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet"):
         assert fc.price(m) == old_sonnet, m
     assert fc.price("claude-haiku-5-5") == fc.price("claude-haiku-4-5") == (1, 5, 1.25, 2, 0.1)
+    # #751: Claude 3.5 Haiku ($0.80 / $4) and Claude 3 Haiku ($0.25 / $1.25) are priced at their own list prices
+    for m in ("claude-3-5-haiku-20241022", "claude-3-5-haiku", "claude-3.5-haiku", "CLAUDE-3-5-HAIKU-20241022"):
+        assert fc.price(m) == (0.8, 4, 1.0, 1.6, 0.08), m
+    for m in ("claude-3-haiku", "claude-3-haiku-20240307"):
+        assert fc.price(m) == (0.25, 1.25, 0.3125, 0.5, 0.025), m
+    assert fc.price("claude-haiku-4-5-20251001") == fc.price("haiku") == (1, 5, 1.25, 2, 0.1)
     assert fc.price(None) == fc.price("") == fc.price("gpt-5-codex") == opus4, "no family: the dearest row"
     assert opus4 == max(fc.PRICE.values(), key=lambda r: r[1]), "the unknown-model fallback is the table's top row"
     # the invariant the prices follow: writes at 1.25x / 2x input
