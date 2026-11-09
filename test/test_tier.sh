@@ -227,6 +227,26 @@ assert_ok "json: overlap flag + hits" \
   test "$(H tier overlap -R acme/widget --base main --repo-dir "$R" --files src/a.py --json | jq_ 'd["overlap"] and d["hits"][0]["files"]==["src/a.py"]')" = True
 assert_ok "it asked gh for the agent-working issues" grep -q 'issue list.*--label agent-working' "$GH_LOG"
 assert_ok "it read each open PR's files with gh pr diff --name-only" grep -q 'pr diff 3.*--name-only' "$GH_LOG"
+
+# a PR file whose name holds U+2028, U+0085 or a form feed is one file, not several (#802: str.splitlines() split it)
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "issue list") echo '[]';;
+  "pr list")    echo '[{"number":3,"headRefName":"other"}]';;
+  "pr diff")    printf 'docs/c.md\ndocs/a\xe2\x80\xa8b.md\ndocs/n\xc2\x85l.md\ndocs/f\fg.md\n';;
+  *) exit 1;;
+esac
+SH
+for f in $'docs/a b.md' $'docs/n\u0085l.md' $'docs/f\fg.md'; do
+  out="$(ov "$f")"; rc=$?
+  assert_eq "$rc" 1 "PR #3 changes $(printf %q "$f") -> overlap, not a clear direct path"
+  assert_ok "…names PR #3" has 'PR #3' "$out"
+done
+for f in docs/a b.md docs/n docs/f g.md; do
+  out="$(ov "$f")"; rc=$?
+  assert_eq "$rc" 0 "$f is only a fragment of a PR file name -> clear"
+done
 cd "$HERE"
 echo '[]' > /dev/null
 # no open work at all -> clear

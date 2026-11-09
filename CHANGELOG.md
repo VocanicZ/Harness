@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier overlap` reads a PR's file name whole when it holds U+2028, U+0085 or a form feed (#802)
+
+- `harness tier overlap` read the files an open PR changes from `gh pr diff --name-only` with `str.splitlines()`, which also breaks a line at U+2028, U+0085
+  and form feed, so a PR changing `docs/a<U+2028>b.md` was recorded as `docs/a` and `b.md` and the real name reported the direct path as clear (#781 fixed the
+  git side only). The `gh` output is now split on newline only. `test_tier.sh` covers a name with each of the three characters, and that its fragments stay clear.
+
 ### An oversized launch or idle-tick knob no longer wraps around and inverts the setting (#800)
 
 - `HARNESS_LAUNCH_BACKOFF`, `HARNESS_LAUNCH_BACKOFF_MAX`, `HARNESS_LAUNCH_FAIL_SECS` and `HARNESS_TEND_IDLE_TICKS` accepted any string of digits and read it with
