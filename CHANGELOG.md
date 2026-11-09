@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats --since` takes ASCII digits only (#804)
+
+- `parse_since` matched `7d` / `24h` / `30m` with `\d`, which also matches full-width and Arabic-Indic digits, so `--since ７d` and `--since ٣h` were read as 7 days
+  and 3 hours and exited 0 (#784 covered the integer options only). They now exit 2 with `bad --since: '７d' (use ASCII digits only)`.
+  `test_stats.py` covers both, through `parse_since` and through `harness stats report`.
+
 ### `HARNESS_SWARM_LOCAL_MAX_SECS` and `HARNESS_SWARM_SECS_PER_FILE` with a leading zero are read as decimal (#801)
 
 - `scripts/swarm-suite.sh` used both knobs in bash arithmetic without `10#`, so `HARNESS_SWARM_LOCAL_MAX_SECS=08` or `09` printed `value too great for base`,

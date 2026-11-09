@@ -492,6 +492,19 @@ def test_report_issue_and_prd_are_ascii_digits_only():
                     assert rc == 2 and out == "" and flag in err.getvalue() and repr(bad) in err.getvalue(), (argv, rc, out, err.getvalue())
 
 
+def test_report_since_is_ascii_digits_only():
+    """#804: --since \uff17d (full-width) and \u0663h (Arabic-Indic) are a usage error (exit 2), not 7 days / 3 hours."""
+    for bad in ("\uff17d", "\u0663h"):
+        try: st.parse_since(bad); assert False, f"{bad!r} accepted"
+        except ValueError as e: assert "ASCII digits only" in str(e), e
+        for argv in (["report", "--since", bad], ["report", f"--since={bad}"]):
+            err = io.StringIO()
+            with host(), contextlib.redirect_stderr(err):
+                rc, out = run(argv)
+            assert rc == 2 and out == "" and "ASCII digits only" in err.getvalue() and repr(bad) in err.getvalue(), (argv, rc, out, err.getvalue())
+    assert st.parse_since("7d", now=1000000) == 1000000 - 7 * 86400
+
+
 def test_backfill_attributes_transcripts_and_is_idempotent():
     with host() as d:
         fleets = os.path.join(d, "fleets"); os.makedirs(fleets)
