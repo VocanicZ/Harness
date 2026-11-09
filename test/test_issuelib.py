@@ -3011,6 +3011,28 @@ def test_cli_child_body_prints_the_body_and_fails_for_a_missing_prd():
         except SystemExit as e: assert e.code == 1
     finally: sys.argv = real_argv; _file_child_cleanup()
 
+def test_engine_child_max_takes_a_non_negative_ascii_integer_only():
+    import io, contextlib
+    saved = os.environ.get("HARNESS_ENGINE_CHILD_MAX")
+    try:
+        for good, want in (("7", 7), ("0", 0), (" 12 ", 12), ("", 15)):
+            os.environ["HARNESS_ENGINE_CHILD_MAX"] = good
+            assert il.engine_child_max() == want, (good, il.engine_child_max())
+        os.environ.pop("HARNESS_ENGINE_CHILD_MAX")
+        assert il.engine_child_max() == 15
+        for bad in ("1_0", "１５", "-1", "abc", "+5", "1.5"):
+            il._ENGINE_CHILD_MAX_WARNED.discard(bad)
+            os.environ["HARNESS_ENGINE_CHILD_MAX"] = bad
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                assert il.engine_child_max() == 15, bad
+                assert il.engine_child_max() == 15, bad
+            out = err.getvalue()
+            assert out.count("WARN") == 1 and repr(bad) in out and "default 15" in out, (bad, out)
+    finally:
+        if saved is None: os.environ.pop("HARNESS_ENGINE_CHILD_MAX", None)
+        else: os.environ["HARNESS_ENGINE_CHILD_MAX"] = saved
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

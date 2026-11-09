@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `HARNESS_ENGINE_CHILD_MAX` takes a non-negative ASCII integer only (#810)
+
+- The value was read with `int()`, so `1_0` meant 10, a full-width `１５` meant 15, `-1` silently disabled engine-filed children and `abc` silently gave the default,
+  all without a word in the log. Anything that is not a non-negative ASCII integer now falls back to the default 15 with a one-time warning naming the value.
+  `test_issuelib.py` covers `1_0`, a full-width value, `-1`, `abc`, `+5` and `1.5`.
+
 ### `harness tier overlap --base=-x` and `-R=-x` print the overlap usage (#809)
 
 - A dash-leading `--base` or a malformed `-R` given in the `=` form exited 2 but printed the usage of the top-level `harness tier` command, so the user did not see
