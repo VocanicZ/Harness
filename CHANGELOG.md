@@ -9,6 +9,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `--criteria 999…9` (400 digits) got past `count()` and `estimate()` then failed to turn the int into a float: a traceback and exit 1. A count is now
   0 to 1,000,000,000; a larger value, however many digits, is a usage error (exit 2) saying it is too large, for every count option. `test_tier.sh` covers it.
 
+### `forecast.py` escapes an invalid `HARNESS_ONE_USD_PER_PCT` in its stderr warning (#854)
+
+- The warning that names an unusable `HARNESS_ONE_USD_PER_PCT` printed the value raw, so a U+2028 or a form feed in it reached
+  stderr as a raw byte. It now goes through `st.vis`, the same escaping as the stdout render (#833): `\u2028`, `\u000c`.
+
 ### `bench/run.py` usage guard reads its settings and usage readings as ASCII decimal numbers only (#835)
 
 - `HARNESS_ONE_STOP_PCT`, `HARNESS_ONE_RESERVE_PCT`, `BENCH_MIN_FREE_GB` and the percentage in each usage reading went through plain
