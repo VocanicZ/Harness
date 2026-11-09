@@ -1156,15 +1156,16 @@ def cmd_report(argv):
     ap.add_argument("--events", help=argparse.SUPPRESS)
     ap.add_argument("--rtdd-events", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
-    if a.issue is not None and a.issue < 1:
-        print(f"harness stats: --issue must be 1 or greater, got {a.issue}", file=sys.stderr)
-        return 2
+    for flag, num in (("--prd", a.prd), ("--issue", a.issue)):
+        if num is not None and num < 1:
+            print(f"harness stats: {flag} must be 1 or greater, got {num}", file=sys.stderr)
+            return 2
     if a.backfill:
         n, calls = backfill(a.events), backfill_rtdd(a.rtdd_events)
         print(f"backfilled {n} session(s), {calls} rtdd call(s)")
         return 0
     try:
-        since = parse_since(a.since) if a.since else (None if (a.prd or a.issue) else parse_since("7d"))
+        since = parse_since(a.since) if a.since else (None if (a.prd is not None or a.issue is not None) else parse_since("7d"))
     except ValueError as e:
         print(f"harness stats: {e}", file=sys.stderr)
         return 2
