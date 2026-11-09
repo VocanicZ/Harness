@@ -725,7 +725,10 @@ def _live_events(events):
     into a segment that already ended (a real run), nor one that never opened with a `launch` (a `start_failed`
     emits no `launch`); that failure is a segment of its own, and so is dropped alone. A failed segment whose
     `session_end` reports usage did run (#720: a lane gone within 30s of its launch, its `launch_failed` logged
-    before the sweep's `session_end`): it keeps its events and its spend."""
+    before the sweep's `session_end`): it keeps its events and its spend. The other order (#743: another
+    worker's sweep logs the empty `session_end` before the owner's `launch_gone_check` logs `launch_failed`)
+    fails the same segment: a `launch_failed` follows an ended segment that reported no usage into it, unless it
+    is a `start_failed` (that launch never emitted a `launch`, so it is never the ended segment's)."""
     segs, cur = [], {}   # every segment; session id -> its open segment
     for e in events:
         sid = e.get("session")
@@ -734,7 +737,8 @@ def _live_events(events):
         ev = e.get("event")
         seg = cur.get(sid)
         if ev == "launch" or seg is None or (
-                ev == "launch_failed" and (seg["ended"] or seg["failed"] or not seg["launched"])):
+                ev == "launch_failed" and (seg["failed"] or not seg["launched"] or e.get("reason") == "start_failed"
+                                           or (seg["ended"] and _reported_usage(seg["evs"])))):
             seg = cur[sid] = {"evs": [], "launched": ev == "launch", "ended": False, "failed": False}
             segs.append(seg)
         if ev == "launch_failed":   # #596: it never ran
