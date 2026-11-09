@@ -165,9 +165,11 @@ git init -q -b main . && git config user.email t@t && git config user.name t
 for f in src/a.py src/b.py src/z.py docs/c.md; do echo base > "$f"; done
 git add -A && git commit -qm base
 git worktree add -q -b issue/7 "$T/wt7" main
-echo lane > "$T/wt7/src/a.py"; git -C "$T/wt7" commit -qam "lane 7 edits a"
+echo lane > "$T/wt7/src/a.py"; echo lane > "$T/wt7/café.py"; git -C "$T/wt7" add café.py; git -C "$T/wt7" commit -qam "lane 7 edits a"
+echo lane > "$T/wt7/env"; git -C "$T/wt7" add env; git -C "$T/wt7" commit -qm "lane 7 adds env"
 git worktree add -q -b issue/8 "$T/wt8" main
 echo wip > "$T/wt8/src/b.py"                       # uncommitted work in lane 8's worktree
+echo wip > "$T/wt8/naïve.txt"                      # …and an untracked non-ASCII path
 BIN="$T/bin"; mkdir -p "$BIN"
 cat > "$BIN/gh" <<'SH'
 #!/usr/bin/env bash
@@ -199,6 +201,18 @@ out="$(ov src/z.py,src/a.py,docs/c.md)"; rc=$?
 assert_eq "$rc" 1 "one overlapping file among clear ones still refuses"
 assert_ok "…lists the lane owner" has 'issue #7' "$out"
 assert_ok "…and the PR owner" has 'PR #3' "$out"
+out="$(ov café.py)"; rc=$?
+assert_eq "$rc" 1 "café.py (non-ASCII) is in open issue #7's branch diff -> refuses, as for an ASCII path"
+assert_ok "…names issue #7" has 'issue #7' "$out"
+out="$(ov naïve.txt)"; rc=$?
+assert_eq "$rc" 1 "naïve.txt (non-ASCII, untracked) is in open issue #8's worktree -> refuses"
+assert_ok "…names issue #8" has 'issue #8' "$out"
+out="$(ov ./café.py)"; rc=$?
+assert_eq "$rc" 1 "./café.py -> the leading ./ is dropped, still refuses"
+out="$(ov .env)"; rc=$?
+assert_eq "$rc" 0 "lane 7 owns env, not .env -> .env is clear (lstrip('./') used to equate them)"
+out="$(ov env)"; rc=$?
+assert_eq "$rc" 1 "env itself is owned by lane 7 -> refuses"
 assert_ok "json: overlap flag + hits" \
   test "$(H tier overlap -R acme/widget --base main --repo-dir "$R" --files src/a.py --json | jq_ 'd["overlap"] and d["hits"][0]["files"]==["src/a.py"]')" = True
 assert_ok "it asked gh for the agent-working issues" grep -q 'issue list.*--label agent-working' "$GH_LOG"
