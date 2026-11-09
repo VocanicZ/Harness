@@ -1437,8 +1437,11 @@ one issue at a time while the fleet is paused or HELD (#362).
   `impl`; a test or gate runner (`test/run.sh`, `ci-local`, `swarm-suite`, `rtdd which`, `pytest`, …)
   is `gate`; `gh pr`, `git push` and `gh issue close|edit|comment` are `ship`. A message counts once,
   in the phase its own tool calls leave the lane in.
-- **Cost** is list price per model (Opus, Sonnet, Haiku; Opus and Sonnet 4.x and older keep their older, dearer
-  prices; Opus 4, Opus 4.1 and Claude 3 Opus have their own $15 / $75 row; any other model is priced at the
+- **Cost** is list price per model version (Opus, Sonnet, Haiku, Fable; where a family's list price changed between
+  versions each has its own row — Opus 5.0 $5 / $25 against 5.5 $4 / $20, Sonnet 5.5 cache read $0.10 against $0.20,
+  Haiku 5.5 $0.10 / $0.50 against Haiku 4.5 $1 / $5, Fable 5.2 $8 / $40 against 5 and 5.1 $10 / $50; a version no row
+  names takes the nearest row below it, a newer one the newest; Haiku 5.5's dearer above-100K-prompt tier is not
+  modelled; Opus and Sonnet 4.x and older keep their older, dearer prices; Opus 4, Opus 4.1 and Claude 3 Opus have their own $15 / $75 row; any other model is priced at the
   most expensive row in the table, the conservative end). The one `PRICE` table in `forecast.py` also
   drives `harness stats`, the `harness one` budget gate and `bench/run.py`. A lane with no Claude transcript — another CLI, whose adapter folded its usage
   into `session_end` — adds its priced total, spread over the phases by the other lanes' mix. A lane

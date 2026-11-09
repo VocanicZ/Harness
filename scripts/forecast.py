@@ -61,19 +61,39 @@ BOUND_Q = 0.2            # the conservative $-per-1% bound: this quantile of the
 RESET_SLACK = 300        # two readings whose resets_at differ by more than this straddle a window reset
 
 # $ per Mtok at list price: input, output, 5-minute cache write (1.25x input), 1-hour cache write (2x input),
-# cache read. Opus / Sonnet 4.x and older (the "-legacy" rows) keep their own, dearer prices; every other
-# Opus / Sonnet — the 5.x generation and anything newer or unversioned — takes the current row.
+# cache read. Source: Anthropic's first-party price list (platform.claude.com/docs/en/about-claude/pricing), #832.
+# A price is per model VERSION where the list price differs inside a family (_VERSIONS): Opus 5.0 is $5 / $25 and
+# Opus 5.5 $4 / $20; Sonnet 5.5 reads cache at $0.10 (0.05x input), Sonnet 5.0 at $0.20; Haiku 5.5 is $0.10 / $0.50
+# against Haiku 4.5's $1 / $5; Fable 5.2 is $8 / $40 (cache read 0.025x input), Fable 5 and 5.1 are $10 / $50.
+# Cache writes are 1.25x / 2x input everywhere; cache reads are 0.1x input except where the list says otherwise.
+# Which row a version takes: its own row; a version no row names (opus 5.3, a future fable 5.3 or opus 6.0) takes the
+# nearest row BELOW it, so a newer version than every known one takes the newest known row; an id with no version
+# ("opus", "claude-sonnet", the Claude Code aliases) takes the newest row. Between two rows that is the dearer one.
+# Opus / Sonnet 4.x and older (the "-legacy" rows) keep their own, dearer prices.
 # Opus 4, Opus 4.1 and Claude 3 Opus were listed at $15 / $75 ("opus-4"): the dearest row.
-# Claude 3.5 Haiku ($0.80 / $4) and Claude 3 Haiku ($0.25 / $1.25) keep their own, cheaper rows (#751); Haiku 4.x
-# and later take the "haiku" row. Cache prices follow the 1.25x / 2x / 0.1x multipliers of the input price.
-# A model no family matches is priced at the most expensive row in the table (see `price`) — the
-# conservative end, for a budget gate.
+# Claude 3.5 Haiku ($0.80 / $4) and Claude 3 Haiku ($0.25 / $1.25) keep their own, cheaper rows (#751).
+# Haiku 5.5's list price is higher above 100K prompt tokens ($0.50 / $2.50); the table holds the up-to-100K row.
+# Mythos (priced as Fable) has no row. A model no family matches is priced at the most expensive row in the table
+# (see `price`) — the conservative end, for a budget gate.
 PRICE = {
-    "opus": (4, 20, 5, 8, 0.2), "sonnet": (2, 10, 2.5, 4, 0.2), "haiku": (1, 5, 1.25, 2, 0.1),
+    "opus": (4, 20, 5, 8, 0.2), "opus-5": (5, 25, 6.25, 10, 0.5),
+    "sonnet": (2, 10, 2.5, 4, 0.1), "sonnet-5": (2, 10, 2.5, 4, 0.2),
+    "haiku": (0.1, 0.5, 0.125, 0.2, 0.01), "haiku-4-5": (1, 5, 1.25, 2, 0.1),
+    "fable": (8, 40, 10, 16, 0.2), "fable-5-1": (10, 50, 12.5, 20, 0.25), "fable-5": (10, 50, 12.5, 20, 1.0),
     "opus-legacy": (5, 25, 6.25, 10, 0.5), "sonnet-legacy": (3, 15, 3.75, 6, 0.3),
     "opus-4": (15, 75, 18.75, 30, 1.5),
     "haiku-3-5": (0.8, 4, 1.0, 1.6, 0.08), "haiku-3": (0.25, 1.25, 0.3125, 0.5, 0.025),
 }
+# family -> ascending (major, minor, PRICE key): the versions whose list price differs
+_VERSIONS = {
+    "opus": ((5, 0, "opus-5"), (5, 5, "opus")),
+    "sonnet": ((5, 0, "sonnet-5"), (5, 5, "sonnet")),
+    "haiku": ((4, 5, "haiku-4-5"), (5, 5, "haiku")),
+    "fable": ((5, 0, "fable-5"), (5, 1, "fable-5-1"), (5, 2, "fable")),
+}
+# The version in a family-first Claude model id: "claude-opus-5" (5.0), "claude-sonnet-5-5[1m]", "claude-fable-5.2".
+# A dated id ("claude-opus-5-20261001") has no minor: \d{1,2} must not be the front of an 8-digit date.
+_VER = re.compile(r"(?:opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d{1,2})(?!\d))?")
 # The major version in a Claude model id: "claude-opus-4-1" / "claude-sonnet-5-5" (family first), or the
 # older "claude-3-opus-20240229" / "claude-3-5-sonnet" (version first).
 _GEN = re.compile(r"(?:opus|sonnet)-(\d+)|claude-(\d+)(?:-\d+)?-(?:opus|sonnet)")
@@ -93,21 +113,31 @@ GATE_CMD = re.compile(r"test/run\.sh|ci-local|swarm-suite|\brtdd\s+(run|which)\b
 SHIP_CMD = re.compile(r"\b(gh pr|git push|gh issue (close|edit|comment))\b")
 
 
+def _versioned(fam, m):
+    """The PRICE key of `fam`'s row for the version in model id `m` (see the comment above PRICE)."""
+    rows = _VERSIONS[fam]
+    v = _VER.search(m)
+    if not v:
+        return rows[-1][2]
+    ver = (int(v.group(1)), int(v.group(2) or 0))
+    return next((k for mj, mn, k in reversed(rows) if (mj, mn) <= ver), rows[0][2])
+
+
 def price(model):
     m = (model or "").lower()
-    fam = next((k for k in ("opus", "sonnet", "haiku") if k in m), None)
+    fam = next((k for k in ("opus", "sonnet", "haiku", "fable") if k in m), None)
     if fam is None:
         return max(PRICE.values(), key=lambda r: (r[1], r[0]))
     if fam == "haiku":
         h = _HAIKU_OLD.search(m)
-        return PRICE["haiku"] if not h else PRICE["haiku-3-5" if h.group(1) else "haiku-3"]
+        return PRICE[_versioned("haiku", m)] if not h else PRICE["haiku-3-5" if h.group(1) else "haiku-3"]
     if fam == "opus" and _OPUS_DEAR.search(m):
         return PRICE["opus-4"]
-    g = _GEN.search(m)
-    gen = int(g.group(1) or g.group(2)) if g else FIRST_CURRENT_GEN
-    if gen < FIRST_CURRENT_GEN:
-        fam += "-legacy"
-    return PRICE[fam]
+    if fam != "fable":
+        g = _GEN.search(m)
+        if g and int(g.group(1) or g.group(2)) < FIRST_CURRENT_GEN:
+            return PRICE[fam + "-legacy"]
+    return PRICE[_versioned(fam, m)]
 
 
 def is_fallback_priced(model):
@@ -115,7 +145,7 @@ def is_fallback_priced(model):
     lanes: "gpt-5-codex"), or none at all — so it takes the dearest row. The budget gate keeps that
     conservative price (#723); a spend report (`harness stats`) marks the figure as an estimate (#750)."""
     m = (model or "").lower()
-    return not any(k in m for k in ("opus", "sonnet", "haiku"))
+    return not any(k in m for k in ("opus", "sonnet", "haiku", "fable"))
 
 
 def raw_cost(u, model):

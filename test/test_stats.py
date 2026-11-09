@@ -1106,8 +1106,8 @@ def test_role_rollup_tokens_and_list_price_per_role():
     assert (mgr["sessions"], imp["sessions"], oth["sessions"]) == (4, 3, 2), r
     assert imp["input"] == M and imp["output"] == 3 * M and imp["cache_read"] == M, imp
     assert mgr["input"] == 4 and mgr["output"] == 4 * M and mgr["cache_create"] == 40 and mgr["cache_read"] == 400, mgr
-    # list price: sonnet $2 in / $10 out / $0.20 cache read per Mtok; opus $4 / $20 / $5 write / $0.20 read
-    assert imp["usd"] == round(2 + 10 * 3 + 0.2, 4), imp["usd"]
+    # list price: sonnet $2 in / $10 out / $0.10 cache read per Mtok (#832); opus $4 / $20 / $5 write / $0.20 read
+    assert imp["usd"] == round(2 + 10 * 3 + 0.1, 4), imp["usd"]
     opus_one = (1 * 4 + M * 20 + 10 * 5 + 100 * 0.2) / M
     assert abs(mgr["usd"] - 4 * opus_one) < 1e-3 and abs(oth["usd"] - 2 * opus_one) < 1e-3, (mgr, oth)
     t = r["total"]
@@ -1135,11 +1135,11 @@ def test_report_cli_by_role_text_and_json():
         assert rc == 0, out
         lines = {l.split()[0]: l for l in out.splitlines() if l and not l.startswith(" ")}
         assert set(lines) == {"manager", "implementer", "other", "total"}, out
-        assert "sessions 3  in 1,000,000  out 3,000,000" in lines["implementer"] and "$32.20" in lines["implementer"], out
+        assert "sessions 3  in 1,000,000  out 3,000,000" in lines["implementer"] and "$32.10" in lines["implementer"], out
         assert "sessions 9" in lines["total"] and "claude-sonnet-5-5: out 3,000,000" in out, out
         rc, out = run(["report", "--by-role", "--since", "2026-01-01", "--json"])
         j = json.loads(out)
-        assert j["roles"]["implementer"]["usd"] == 32.2 and j["roles"]["other"]["sessions"] == 2, j
+        assert j["roles"]["implementer"]["usd"] == 32.1 and j["roles"]["other"]["sessions"] == 2, j
         rc, out = run(["report", "--by-role", "--prd", "9", "--json"])
         assert rc == 0 and json.loads(out)["total"]["sessions"] == 3, out
         rc, out = run(["report", "--by-role", "--issue", "30", "--json"])
@@ -1358,13 +1358,13 @@ def test_add_and_minus_usage_carry_the_1h_share():
 
 def test_stats_cost_for_run_20261106_matches_the_bench_recompute():
     """#710: `harness stats` priced every cache write at 5m: $5.07 for run-20261106 against the bench's
-    $6.86. Priced by TTL, its fleet sessions cost what the bench recomputes from their transcripts. The bench
+    $6.86 (at the $0.20 Sonnet 5.5 cache-read price that was wrong, #832; $6.26 at list). Priced by TTL, its fleet sessions cost what the bench recomputes from their transcripts. The bench
     figure also holds the front-door session (transcript 0-…, $0.70), the operator's own claude outside the
     fleet: it has no launch / session_end, so no events and no stats."""
     evs, bench = _run_20261106_events()
     front = sum(v for k, v in bench.items() if k.startswith("78d74eb3"))
     fleet = sum(bench.values()) - front
-    assert abs(sum(bench.values()) - 6.8559) < 1e-3 and abs(front - 0.699) < 2e-3, (bench, front)
+    assert abs(sum(bench.values()) - 6.2626) < 1e-3 and abs(front - 0.699) < 2e-3, (bench, front)
     got = st.role_rollup(evs)["total"]["usd"]
     assert abs(got - fleet) / fleet < 0.01, (got, fleet)
     # the same events with the split dropped price at the 5m default: the old, low figure
@@ -1372,7 +1372,7 @@ def test_stats_cost_for_run_20261106_matches_the_bench_recompute():
         for u in (e.get("usage") or {}).values():
             u.pop("cache_create_1h", None)
     old = st.role_rollup(evs)["total"]["usd"]
-    assert 5.0 < old < 5.3 and got - old > 0.8, (old, got)
+    assert 4.3 < old < 4.6 and got - old > 0.8, (old, got)
 
 
 if __name__ == "__main__":
