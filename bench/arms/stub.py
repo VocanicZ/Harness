@@ -17,7 +17,7 @@ def write_transcript(path, usd, mid="m1", effort=None):
     t0 = time.time() - 3
     lines = [
         {"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0)),
-         "message": {"id": mid, "model": "claude-opus-4-1", "usage": {"input_tokens": 10, "output_tokens": int(usd / 25 * 1e6)},
+         "message": {"id": mid, "model": "claude-opus-4-5", "usage": {"input_tokens": 10, "output_tokens": int(usd / 25 * 1e6)},
                      "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "pytest -q"}}]}},
         {"type": "user", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0 + 1)),
          "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}},

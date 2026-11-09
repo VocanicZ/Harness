@@ -1426,7 +1426,8 @@ one issue at a time while the fleet is paused or HELD (#362).
   is `gate`; `gh pr`, `git push` and `gh issue close|edit|comment` are `ship`. A message counts once,
   in the phase its own tool calls leave the lane in.
 - **Cost** is list price per model (Opus, Sonnet, Haiku; Opus and Sonnet 4.x and older keep their older, dearer
-  prices; any other model is priced as Opus, the conservative end). The one `PRICE` table in `forecast.py` also
+  prices; Opus 4, Opus 4.1 and Claude 3 Opus have their own $15 / $75 row; any other model is priced at the
+  most expensive row in the table, the conservative end). The one `PRICE` table in `forecast.py` also
   drives `harness stats`, the `harness one` budget gate and `bench/run.py`. A lane with no Claude transcript — another CLI, whose adapter folded its usage
   into `session_end` — adds its priced total, spread over the phases by the other lanes' mix. A lane
   that spent under $0.50 died at its first turn and is skipped.

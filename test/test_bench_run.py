@@ -122,7 +122,7 @@ def test_stub_run_records_a_valid_result_and_deletes_the_repo(e):
     assert (r["hidden_tests"]["passed"], r["hidden_tests"]["total"]) == (3, 4)
     # measured from the transcript: tokens, models, $ at list price, coding vs testing, counts
     assert r["tokens"]["output"] == 80000 and r["tokens"]["input"] == 10, r["tokens"]
-    assert list(r["models"]) == ["claude-opus-4-1"] and abs(r["cost_usd"] - 2.0) < 0.01, (r["models"], r["cost_usd"])
+    assert list(r["models"]) == ["claude-opus-4-5"] and abs(r["cost_usd"] - 2.0) < 0.01, (r["models"], r["cost_usd"])
     assert r["testing_s"] == 1 and r["coding_s"] == 2 and r["test_calls"] == 1, r
     assert r["counts"] == {"commits": 1, "stub": 1}, r["counts"]
     assert abs(r["weekly_window_pct"] - 2.0) < 0.01 and r["usd_per_pct_source"] == "fallback", r
@@ -847,7 +847,7 @@ def _ttl_transcript(path, turns):
             u["cache_creation_input_tokens"] = sum(cc.values())
             u["cache_creation"] = {"ephemeral_5m_input_tokens": cc.get("5m", 0), "ephemeral_1h_input_tokens": cc.get("1h", 0)}
         rows.append({"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(1794304800 + t)),
-                     "message": {"id": f"m{i}", "model": "claude-opus-4-1", "usage": u, "content": []}})
+                     "message": {"id": f"m{i}", "model": "claude-opus-4-5", "usage": u, "content": []}})
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("".join(json.dumps(r) + "\n" for r in rows))
 
@@ -860,13 +860,13 @@ def test_measure_splits_cache_writes_by_ttl_and_prices_the_cache_at_each(tmp_pat
         _ttl_transcript(tr, [(0, {"5m": 1000}, 0), (10, {"1h": 400}, 5000), (20, None, 0)])
         with open(tr, "a") as fh:
             fh.write(json.dumps({"type": "assistant", "timestamp": "2026-11-07T10:00:30Z", "message": {
-                "id": "legacy", "model": "claude-opus-4-1", "content": [],
+                "id": "legacy", "model": "claude-opus-4-5", "content": [],
                 "usage": {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 200}}}) + "\n")
         fc, st = bench_run._load("forecast"), bench_run._load("stats")
         m = bench_run.measure(fc, st, [tr])
         assert (m["cache_write_5m"], m["cache_write_1h"]) == (1200, 400), m
         assert m["tokens"]["cache_write"] == 1600 == m["cache_write_5m"] + m["cache_write_1h"], m["tokens"]
-        _, _, pw5, pw1, pr = fc.price("claude-opus-4-1")
+        _, _, pw5, pw1, pr = fc.price("claude-opus-4-5")
         assert abs(m["cache_cost_usd"] - (1200 * pw5 + 400 * pw1 + 5000 * pr) / 1e6) < 1e-4, m["cache_cost_usd"]
         assert pw1 > pw5, "the 1h write costs more than the 5m one: that is the saving"
     finally:
