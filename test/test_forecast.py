@@ -66,8 +66,10 @@ def test_list_price_per_model_and_cache_split():
     assert fc.raw_cost({"input_tokens": MTOK}, "claude-opus-5-5") == 4
     assert fc.raw_cost({"input_tokens": MTOK, "output_tokens": MTOK}, "claude-sonnet-5-5") == 12
     assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-opus-5-5") == 0.2
-    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-sonnet-5-5") == 0.2
-    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-haiku-5-5") == 0.1
+    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-sonnet-5-5") == 0.1, "0.05x input (#832)"
+    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-sonnet-5") == 0.2
+    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-haiku-5-5") == 0.01
+    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-haiku-4-5") == 0.1
     # cache writes: 5-minute at 1.25x input, 1-hour at 2x; the total with no split is all 5-minute
     assert fc.raw_cost({"cache_creation_input_tokens": 2 * MTOK,
                         "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "opus") == 5 + 8
@@ -82,7 +84,7 @@ def test_list_price_per_model_and_cache_split():
     assert [fc.is_fallback_priced(m) for m in ("gpt-5-codex", None, "", "claude-opus-4-1", "haiku")] == [True, True, True, False, False]
     # the folded usage stats.py / a CLI adapter's usage_tsv writes (#188)
     assert fc.usage_cost({"claude-sonnet-5-5": {"input": MTOK, "output": MTOK, "cache_create": MTOK,
-                                                "cache_read": MTOK}}) == 2 + 10 + 2.5 + 0.2
+                                                "cache_read": MTOK}}) == 2 + 10 + 2.5 + 0.1
     # #710: `cache_create_1h` is the 1h share of cache_create, priced at the 1h rate; the rest at 5m
     assert fc.usage_cost({"opus": {"cache_create": 2 * MTOK, "cache_create_1h": MTOK}}) == 5 + 8
     assert fc.usage_cost({"opus": {"cache_create": MTOK, "cache_create_1h": MTOK}}) == 8
@@ -93,13 +95,22 @@ def test_list_price_per_model_and_cache_split():
 def test_price_table_per_family_and_generation_pinned():
     """(input, output, 5m write, 1h write, cache read) $ per Mtok — the one table behind the forecast, the
     `harness one` budget gate, `harness stats` and bench/run.py (#597)."""
-    cur_opus, cur_sonnet = (4, 20, 5, 8, 0.2), (2, 10, 2.5, 4, 0.2)
+    cur_opus, cur_sonnet = (4, 20, 5, 8, 0.2), (2, 10, 2.5, 4, 0.1)
+    opus5, sonnet5 = (5, 25, 6.25, 10, 0.5), (2, 10, 2.5, 4, 0.2)   # Opus 5.0 and Sonnet 5.0 list prices (#832)
+    haiku55, haiku45 = (0.1, 0.5, 0.125, 0.2, 0.01), (1, 5, 1.25, 2, 0.1)
+    fable52, fable51, fable5 = (8, 40, 10, 16, 0.2), (10, 50, 12.5, 20, 0.25), (10, 50, 12.5, 20, 1.0)
     old_opus, old_sonnet = (5, 25, 6.25, 10, 0.5), (3, 15, 3.75, 6, 0.3)
     opus4 = (15, 75, 18.75, 30, 1.5)   # Opus 4 / 4.1 and Claude 3 Opus list at $15 / $75 (#723)
-    for m in ("claude-opus-5-5", "claude-opus-5", "claude-opus-6-0", "opus", "CLAUDE-OPUS-5-5"):
+    for m in ("claude-opus-5-5", "claude-opus-5-5-20261101", "claude-opus-6-0", "claude-opus-5-6", "opus", "CLAUDE-OPUS-5-5"):
         assert fc.price(m) == cur_opus, m
-    for m in ("claude-sonnet-5-5", "claude-sonnet-5", "sonnet", "claude-sonnet-5-5[1m]"):
+    for m in ("claude-opus-5", "claude-opus-5-20261001", "claude-opus-5-0"):
+        assert fc.price(m) == opus5, m
+    # a version no row names takes the nearest row below it: the dearer one between two rows (#832)
+    assert fc.price("claude-opus-5-3") == opus5 and fc.price("claude-sonnet-5-4") == sonnet5
+    for m in ("claude-sonnet-5-5", "sonnet", "claude-sonnet-5-5[1m]", "claude-sonnet-5-6", "claude-sonnet-6-0"):
         assert fc.price(m) == cur_sonnet, m
+    for m in ("claude-sonnet-5", "claude-sonnet-5-20261001"):
+        assert fc.price(m) == sonnet5, m
     for m in ("claude-opus-4-5", "claude-opus-4-5-20251101", "claude-opus-4-6", "claude-opus-4-10"):
         assert fc.price(m) == old_opus, m
     for m in ("claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-1-20250805", "claude-opus-4-20250514",
@@ -107,18 +118,43 @@ def test_price_table_per_family_and_generation_pinned():
         assert fc.price(m) == opus4, m
     for m in ("claude-sonnet-4-5", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet"):
         assert fc.price(m) == old_sonnet, m
-    assert fc.price("claude-haiku-5-5") == fc.price("claude-haiku-4-5") == (1, 5, 1.25, 2, 0.1)
+    # #832: Haiku 5.5 lists at $0.10 / $0.50 (up to 100K prompt tokens), Haiku 4.5 at $1 / $5
+    for m in ("claude-haiku-5-5", "claude-haiku-5-5-20261101", "haiku", "claude-haiku-5-6"):
+        assert fc.price(m) == haiku55, m
+    assert fc.price("claude-haiku-4-5") == haiku45
+    # Fable (#832): 5.2 $8 / $40 (cache read 0.025x), 5.1 $10 / $50 (0.025x), 5 $10 / $50 (cache read $1); a newer one takes 5.2
+    for m, row in (("claude-fable-5-2", fable52), ("claude-fable-5-1", fable51), ("claude-fable-5", fable5),
+                   ("claude-fable-5-3", fable52), ("fable", fable52), ("claude-fable-5-20261001", fable5)):
+        assert fc.price(m) == row, m
+    assert not fc.is_fallback_priced("claude-fable-5-2")
     # #751: Claude 3.5 Haiku ($0.80 / $4) and Claude 3 Haiku ($0.25 / $1.25) are priced at their own list prices
     for m in ("claude-3-5-haiku-20241022", "claude-3-5-haiku", "claude-3.5-haiku", "CLAUDE-3-5-HAIKU-20241022"):
         assert fc.price(m) == (0.8, 4, 1.0, 1.6, 0.08), m
     for m in ("claude-3-haiku", "claude-3-haiku-20240307"):
         assert fc.price(m) == (0.25, 1.25, 0.3125, 0.5, 0.025), m
-    assert fc.price("claude-haiku-4-5-20251001") == fc.price("haiku") == (1, 5, 1.25, 2, 0.1)
+    assert fc.price("claude-haiku-4-5-20251001") == haiku45
     assert fc.price(None) == fc.price("") == fc.price("gpt-5-codex") == opus4, "no family: the dearest row"
     assert opus4 == max(fc.PRICE.values(), key=lambda r: r[1]), "the unknown-model fallback is the table's top row"
     # the invariant the prices follow: writes at 1.25x / 2x input
     for k, row in fc.PRICE.items():
         assert row[2] == row[0] * 1.25 and row[3] == row[0] * 2, k
+
+
+def test_run_20261106_recomputes_at_list_prices():
+    """#832: the bench cost of run-20261106 at true list prices — Harness $6.26, plain Claude Code $0.64. The PRD
+    quoted $6.86 / $6.9, worked out from a $0.20 Sonnet 5.5 cache-read price; the list price is $0.10."""
+    import glob, importlib.util
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    spec = importlib.util.spec_from_file_location("bench_run", os.path.join(root, "bench", "run.py"))
+    br = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(br)
+    st = fc.st
+    for arm, want in (("harness", 6.2625), ("plain", 0.6428)):
+        d = os.path.join(root, "bench", "results", "run-20261106", arm + ".logs", "transcripts")
+        got = br.measure(fc, st, sorted(glob.glob(os.path.join(d, "*.jsonl"))))["cost_usd"]
+        assert abs(got - want) < 1e-3, (arm, got)
+        committed = json.load(open(os.path.join(root, "bench", "results", "run-20261106", arm + ".json")))
+        assert abs(committed["cost_usd"] - got) < 1e-3, (arm, "committed result is stale", committed["cost_usd"])
 
 
 # --- phase attribution -------------------------------------------------------

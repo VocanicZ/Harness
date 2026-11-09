@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Cost figures use the list price of each model version, not one price per family (#832)
+
+- `PRICE` in `scripts/forecast.py` priced a family at one row, but the list price differs between versions. Sonnet 5.5 reads
+  cache at $0.10 per Mtok (the table had $0.20), Opus 5.0 is $5 / $25 (it was priced as Opus 5.5 at $4 / $20), and Haiku 5.5 is
+  $0.10 / $0.50 (it was priced as Haiku 4.5 at $1 / $5, ten times too high). `price()` now picks a row by version: Opus 5.0 and
+  5.5, Sonnet 5.0 and 5.5, Haiku 4.5 and 5.5, and new Fable rows (5.2 $8 / $40, 5.1 and 5 $10 / $50) instead of the $15 / $75
+  fallback. A version no row names takes the nearest row below it, a newer one the newest row; the rule is written above
+  `PRICE`. Haiku 5.5's higher price above 100K prompt tokens is not modelled.
+- `run-20261106` recomputes to **$6.26** for Harness (the $6.86 earlier quoted came from the wrong $0.20 Sonnet cache-read
+  price) and still $0.64 for plain Claude Code. `bench/results/run-20261106/harness.json`, the README benchmark table and
+  figure carry the corrected figure; `test_forecast.py` pins both arms. The earlier $6.86 entries below stay as written.
+
 ### `HARNESS_RALPH_FLUSH_MS=inf` or `1e9` no longer makes the ralph Stop hook overrun its timeout (#811)
 
 - The Stop hook re-reads the transcript for the promise for `HARNESS_RALPH_FLUSH_MS`, but `inf` or a huge value such as `1e9` made it wait past the hook's 30s timeout, so it
