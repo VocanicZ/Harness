@@ -133,6 +133,29 @@ assert_eq "$(sort "$WRITES" | uniq -c | tr -s ' ' | tr '\n' ';')" " 2 impl-5 loc
 assert_no "no claim write outside pool.lock" grep -q UNLOCKED "$WRITES"
 assert_eq "$(awk '{print NF}' "$CLAIMS_DIR/impl-5.claim")" "5" "the rewritten claim is whole"
 
+echo "=== 1c3. #763: a claim write whose rename fails never leaves the claim missing ==="
+# Windows: a rename over a file another process has open (a lock-free reader's awk) can remove the target and then fail,
+# leaving <key>.claim.tmp and NO claim — a launched lane nobody owns, its issue free to take again. The write retries the
+# rename, and as a last resort copies the content in; a claim that was there is still there, whole, with no .tmp left.
+setup 3; mkdir -p "$CLAIMS_DIR"
+lane_claim_write impl-5 W1 IMPL:5 hz-main-i5
+MVFAILS="$RUN_DIR/mv-fails"; echo 2 > "$MVFAILS"
+mv(){ local n; n="$(cat "$MVFAILS")"
+  if [[ "$*" == *".claim.tmp"* ]] && (( n > 0 )); then echo $((n-1)) > "$MVFAILS"; rm -f "${@: -1}"; return 1; fi   # Windows: target gone, rename failed
+  command mv "$@"; }
+lane_claim_write impl-5 W1 IMPL:5 hz-main-i5 4242; wrc=$?
+unset -f mv
+assert_eq "$wrc" "0" "the write succeeds after two failed renames"
+assert_eq "$(cat "$CLAIMS_DIR/impl-5.claim" 2>/dev/null | awk '{print $1, $3, $4, $5}')" "W1 IMPL:5 hz-main-i5 4242" "the claim is there, whole"
+assert_no "no claim .tmp left behind" test -e "$CLAIMS_DIR/impl-5.claim.tmp"
+echo 3 > "$MVFAILS"; mv(){ local n; n="$(cat "$MVFAILS")"
+  if [[ "$*" == *".claim.tmp"* ]] && (( n > 0 )); then echo $((n-1)) > "$MVFAILS"; rm -f "${@: -1}"; return 1; fi; command mv "$@"; }
+HARNESS_CLAIM_MV_TRIES=2 lane_claim_write impl-6 W2 IMPL:6 hz-main-i6; wrc=$?
+unset -f mv
+assert_eq "$wrc" "0" "even when every rename fails, the claim is copied in"
+assert_eq "$(awk '{print $1, $3, $4}' "$CLAIMS_DIR/impl-6.claim" 2>/dev/null)" "W2 IMPL:6 hz-main-i6" "…whole"
+assert_no "…and no .tmp left" test -e "$CLAIMS_DIR/impl-6.claim.tmp"
+
 echo "=== 1d. a PRD's single DECOMPOSE item, two workers at once: claimed once ==="
 setup 3; export HARNESS_MODE=prd; snap "41:prd"
 for w in W1 W2 W3; do ( worker_tick "$w" ) & done; wait

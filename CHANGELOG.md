@@ -55,6 +55,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   Every forecast text line now passes through `stats.vis`, as `harness stats` and `harness tier` do (#756, #803), so such a character prints as `\u000c` or `\u2028`.
   `test_forecast.py` covers a form feed and U+2028 in the unit and in the account.
 
+### A failed rename of a lane's claim file no longer leaves the lane without a claim (#763)
+
+- On Windows, renaming the claim file over an existing one while another process has it open can remove the old file and then fail, which left a launched lane with no claim and its issue free to be taken
+  again; the winsma check of `test_pool_lanes.sh` section 1c caught it once in about 110 loops, after the #684 fix. `lane_claim_write` now retries a failed rename (`HARNESS_CLAIM_MV_TRIES` times, default 5)
+  and as a last resort copies the claim in, so a claim that was written is never missing afterwards. `test_pool_lanes.sh` section 1c3 covers a rename that fails twice and one that always fails.
+
 ### `HARNESS_RALPH_FLUSH_MS=inf` or `1e9` no longer makes the ralph Stop hook overrun its timeout (#811)
 
 - The Stop hook re-reads the transcript for the promise for `HARNESS_RALPH_FLUSH_MS`, but `inf` or a huge value such as `1e9` made it wait past the hook's 30s timeout, so it
