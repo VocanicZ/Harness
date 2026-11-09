@@ -244,4 +244,27 @@ echo "-- the backoff state is one file, removed with the idle count"
 setup; S=hz-main-i5; own impl-5 "$S" IMPL:5; idle; TEND_FAST=1 worker_tend W1; busy; TEND_FAST=1 worker_tend W1
 assert_ok "busy tick removes .idleticks (and the backoff with it)" test ! -f "$RUN_DIR/$S.idleticks"
 
+echo "=== 10. #782: a HARNESS_TEND_TICK / HARNESS_TEND_IDLE_TICKS that is not a number falls back to the default and warns once ==="
+for bad in abc 15s -5 ""; do
+  setup 300; S=hz-main-i5; own impl-5 "$S" IMPL:5; busy
+  log(){ echo "log $*" >> "$CALLS"; }
+  HARNESS_TEND_TICK="$bad"; worker_step W1 >/dev/null 2>&1; rc=$?; worker_step W1 >/dev/null 2>&1
+  assert_eq "$rc" "1" "TEND_TICK='$bad': the first step runs through to the (stubbed idle) claim step — the worker survives"
+  assert_eq "$HARNESS_TEND_TICK" "15" "TEND_TICK='$bad': falls back to 15"
+  assert_eq "$(grep -c "^log WARN HARNESS_TEND_TICK='$bad' is not a non-negative integer" "$CALLS")" "1" "TEND_TICK='$bad': one warning naming knob and value"
+  assert_eq "$(grep -c "^sleep 15$" "$CALLS")" "2" "TEND_TICK='$bad': an owner of a live lane tends on the 15s tick"
+  setup; S=hz-main-p41; own orch-41 "$S" DECOMPOSE:41; touch "$RUN_DIR/$S.satisfied" "$RUN_DIR/$S.d/.loop"; idle
+  log(){ echo "log $*" >> "$CALLS"; }
+  HARNESS_TEND_IDLE_TICKS="$bad"; worker_step W1 >/dev/null 2>&1; worker_step W1 >/dev/null 2>&1
+  assert_eq "$HARNESS_TEND_IDLE_TICKS" "3" "IDLE_TICKS='$bad': falls back to 3"
+  assert_eq "$(grep -c "^log WARN HARNESS_TEND_IDLE_TICKS='$bad' is not a non-negative integer" "$CALLS")" "1" "IDLE_TICKS='$bad': one warning naming knob and value"
+done
+echo "-- 0 and valid values are kept, silently"
+setup; log(){ echo "log $*" >> "$CALLS"; }
+HARNESS_TEND_TICK=0; HARNESS_TEND_IDLE_TICKS=0; tend_knobs
+assert_eq "$HARNESS_TEND_TICK/$HARNESS_TEND_IDLE_TICKS" "0/0" "0 keeps its meaning"
+HARNESS_TEND_TICK=007; HARNESS_TEND_IDLE_TICKS=20; tend_knobs
+assert_eq "$HARNESS_TEND_TICK/$HARNESS_TEND_IDLE_TICKS" "7/20" "valid values kept (leading zeros read as decimal)"
+assert_eq "$(count log)" "0" "...no warning"
+
 finish

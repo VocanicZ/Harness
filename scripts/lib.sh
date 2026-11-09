@@ -38,8 +38,8 @@ CHECKOUTS_DIR="$STATE_DIR/checkouts"
 : "${HARNESS_POOL:=3}"
 : "${HARNESS_POLL:=300}"               # resident pool: slow idle/steady-state poll
 : "${HARNESS_PREBUILD:=1}"              # #644: 1 = while a lane runs, pre-build the next claimable issue's worktree; 0 = off
-: "${HARNESS_TEND_TICK:=15}"            # #594: a worker that owns a live lane tends it this often (s), not every POLL
-: "${HARNESS_TEND_IDLE_TICKS:=3}"      # #594: idle ticks a DECOMPOSE lane must show, with no gh running, before its goal is checked
+: "${HARNESS_TEND_TICK=15}"             # #594: a worker that owns a live lane tends it this often (s), not every POLL
+: "${HARNESS_TEND_IDLE_TICKS=3}"       # #594: idle ticks a DECOMPOSE lane must show, with no gh running, before its goal is checked (#782: `=` not `:=` — an empty value reaches tend_knobs, which warns)
 : "${HARNESS_PRIORITY_POLL:=60}"       # fast cadence for the priority bug lane (#23)
 : "${HARNESS_IMPL_MAXITER:=30}"
 : "${HARNESS_ORCH_MAXITER:=8}"
