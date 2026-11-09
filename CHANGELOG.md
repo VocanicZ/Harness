@@ -86,6 +86,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   again; the winsma check of `test_pool_lanes.sh` section 1c caught it once in about 110 loops, after the #684 fix. `lane_claim_write` now retries a failed rename (`HARNESS_CLAIM_MV_TRIES` times, default 5)
   and as a last resort copies the claim in, so a claim that was written is never missing afterwards. `test_pool_lanes.sh` section 1c3 covers a rename that fails twice and one that always fails.
 
+### Windows suite: a headless lane's model is read from its state, and the agy and fork-heavy tests fit a Windows host (#606)
+
+- `scripts/cli/headless_core.py` writes the lane's `model` (`--model`, else the one in its claude flags) to `state.json`, and `fleetview.session_models` reads it
+  where `ps` shows no argv: Git Bash's `ps` does not list a native Windows runner, so `harness status` showed no model for a Windows lane. `agy_session_id`
+  compares the workspace keys of `last_conversations.json` as paths (`C:\x` and `C:/x` name one workspace).
+- Test-side only: the fake `gh` of `test_headless_checkpoint.sh` and `test_headless_usage_stats.sh` writes its label files with LF (a CRLF made `paste -sd,`
+  return `ready-for-agent\r,agent-working\r`); `test_agy.sh` and the matrix hand agy's hook and conversation map Windows paths; the quiet-clock cell of
+  `test_supervise_headless.sh` compares with the pass's own start, not "within 5 s"; `test_supervise_headless.sh`, `test_cli_readme.sh`, `test_agy.sh`,
+  `test_cli_matrix.sh` and `test_cli_matrix_guard.sh` carry a longer `harness-test-timeout-windows` cap, because each is many Git Bash forks and the 600 s
+  cap ended the matrix at its first CLI.
+
 ### `HARNESS_RALPH_FLUSH_MS=inf` or `1e9` no longer makes the ralph Stop hook overrun its timeout (#811)
 
 - The Stop hook re-reads the transcript for the promise for `HARNESS_RALPH_FLUSH_MS`, but `inf` or a huge value such as `1e9` made it wait past the hook's 30s timeout, so it
