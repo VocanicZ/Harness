@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier decide` refuses a huge count with a usage error, not an OverflowError traceback (#855)
+
+- `--criteria 999…9` (400 digits) got past `count()` and `estimate()` then failed to turn the int into a float: a traceback and exit 1. A count is now
+  0 to 1,000,000,000; a larger value, however many digits, is a usage error (exit 2) saying it is too large, for every count option. `test_tier.sh` covers it.
+
 ### `bench/run.py` usage guard reads its settings and usage readings as ASCII decimal numbers only (#835)
 
 - `HARNESS_ONE_STOP_PCT`, `HARNESS_ONE_RESERVE_PCT`, `BENCH_MIN_FREE_GB` and the percentage in each usage reading went through plain

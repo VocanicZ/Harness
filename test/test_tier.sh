@@ -56,6 +56,19 @@ for opt in criteria lines files subsystems workstreams pool minutes; do
   done
 done
 assert_eq "$(d --criteria 0 --lines 0 --files 0 --subsystems 0 | jq_ 'd["tier"]')" direct "zero counts are still fine"
+# a count above 10**9 (400 nines overflowed estimate()'s float; 5000 digits tripped int()) is a usage error, exit 2, no traceback (#855)
+big400="$(python3 -c "print('9'*400)")"; big5000="$(python3 -c "print('9'*5000)")"
+for opt in criteria lines files subsystems workstreams pool minutes; do
+  for big in 1000000001 "$big400" "$big5000"; do
+    args=(--criteria 3 --lines 80 --files 3 --subsystems 1); args+=("--$opt" "$big")
+    out="$(H tier decide "${args[@]}" 2>&1)"; rc=$?
+    assert_eq "$rc" 2 "--$opt ${big:0:12}(${#big} digits) -> usage error, exit 2"
+    assert_ok "--$opt ${#big} digits says too large" grep -q 'too large' <<<"$out"
+    assert_no "--$opt ${#big} digits prints no traceback" grep -q 'Traceback' <<<"$out"
+    assert_no "--$opt ${#big} digits prints no tier" grep -q '^TIER:' <<<"$out"
+  done
+done
+assert_eq "$(d --criteria 1000000000 --lines 1 --files 1 --subsystems 1 | jq_ 'd["tier"]')" fleet "the largest count, 10**9, is still accepted"
 # --pool is a worker count and --workstreams a PRD's stream count: 0 (and -0) is not a fleet / not a PRD
 # -> usage error, exit 2, no tier (#719, #840); other counts keep 0
 for opt in pool workstreams; do

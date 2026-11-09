@@ -306,13 +306,20 @@ def overlap(files, slug, base, repo_dir, label):
     return hits
 
 
+MAX_COUNT = 10**9   # a count above this is a typo, not a task; a huge one overflowed estimate()'s int -> float (#855)
+
+
 def count(v):
-    """argparse type for a count option (--criteria, --lines, --pool, …): an integer >= 0."""
+    """argparse type for a count option (--criteria, --lines, --pool, …): an integer from 0 to MAX_COUNT."""
     if not re.fullmatch(r"-?[0-9]+", v):   # ASCII digits only: not 1_1, +5 or full-width digits (#784)
         raise argparse.ArgumentTypeError(f"invalid int value: {v!r} (use ASCII digits only)")
+    if len(v.lstrip("-").lstrip("0")) > len(str(MAX_COUNT)):   # before int(): a 5000-digit string is a ValueError there
+        raise argparse.ArgumentTypeError(f"{v[:20]}… is too large — a count must be at most {MAX_COUNT}")
     n = int(v)
     if n < 0:
         raise argparse.ArgumentTypeError(f"{n} is negative — a count must be 0 or more")
+    if n > MAX_COUNT:
+        raise argparse.ArgumentTypeError(f"{n} is too large — a count must be at most {MAX_COUNT}")
     return n
 
 
