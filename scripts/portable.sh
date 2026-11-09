@@ -159,6 +159,15 @@ proc_kill_tree(){ local w
     kill -KILL "$1" 2>/dev/null; return 0
   fi
   kill -KILL -- "-$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; return 0; }
+# winpid_alive / winpid_cmdline / winpid_kill_tree <winpid> — a process by its WINDOWS pid (#606): what a native program (a Python
+# runner, the agent CLI) reports for itself, e.g. state.json's claude_pid. MSYS `kill -0`, /proc and `proc_kill_tree` know only
+# MSYS pids, so a native turn a dead runner left behind was neither seen nor ended.
+winpid_alive(){ [[ ${1:-} =~ ^[0-9]+$ ]] || return 1
+  "${HARNESS_TASKLIST:-tasklist}" //FI "PID eq $1" //NH 2>/dev/null | tr -d '\r' | grep -qE "[[:space:]]$1[[:space:]]"; }
+winpid_cmdline(){ [[ ${1:-} =~ ^[0-9]+$ ]] || return 0
+  powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=$1').CommandLine" 2>/dev/null | tr -d '\r'; return 0; }
+winpid_kill_tree(){ [[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 > 1 )) || return 1
+  "${HARNESS_TASKKILL:-taskkill}" //T //F //PID "$1" >/dev/null 2>&1; return 0; }
 # proc_ppid <pid> — the parent's pid (empty when it is gone).
 proc_ppid(){ local k v
   while read -r k v; do [[ $k == PPid: ]] && { printf '%s\n' "$v"; return 0; }; done \

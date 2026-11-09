@@ -44,6 +44,9 @@ _hl_runner(){ local pid lane; lane="$(headless_lane_dir "$1")"; pid="$(_hl_pid "
 _hl_reap_turn(){ local lane="$1" cpid sid
   cpid="$(python3 "$HEADLESS_LANE_PY" state --lane "$lane" --field claude_pid 2>/dev/null)"
   sid="$(python3 "$HEADLESS_LANE_PY" state --lane "$lane" --field session_id 2>/dev/null)"
+  if is_windows && [[ $cpid =~ ^[0-9]+$ && -n $sid ]] && ! _hl_alive "$cpid"; then   # a native pid (#606): MSYS does not know it
+    winpid_alive "$cpid" && [[ "$(winpid_cmdline "$cpid")" == *"$sid"* ]] && winpid_kill_tree "$cpid"; return 0
+  fi
   [[ $cpid =~ ^[0-9]+$ && -n $sid ]] && _hl_alive "$cpid" || return 0
   [[ "$(proc_args "$cpid")" == *"$sid"* ]] || return 0
   proc_kill_tree "$cpid"; return 0; }
