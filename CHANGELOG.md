@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A `HARNESS_TEND_TICK` or `HARNESS_TEND_IDLE_TICKS` that is not a number no longer kills the pool worker (#782)
+
+- Both knobs feed bash arithmetic unchecked: `HARNESS_TEND_TICK=abc` stopped the worker on its first step (`abc: unbound variable`), `15s` left the tick
+  undefined. A value that is not a non-negative integer (`abc`, `15s`, `-5`, empty) now falls back to the default (15 and 3) with one warning naming
+  the knob and value, as `HARNESS_LAUNCH_BACKOFF` does (#759). `0` keeps its meaning. `test/test_lane_tend_tick.sh` covers both knobs.
+
 ### The #609 test fixes are confirmed on winsma, and a native Windows Python now finds a fake `gh` (#686)
 
 - The first winsma run of the fake-`gh` / poller / prompt / bench tests found 17 of 20 files red. Causes fixed: a Python `subprocess.run(["gh", …])`

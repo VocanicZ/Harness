@@ -377,8 +377,16 @@ worker_short_step(){ local wid="$1" UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_
 # spawn (#539 — sleeps POLL like idle, so the same item is not re-claimed at once), 7 a closed issue was skipped
 # (#745 — no sleep: the next step claims again at once). Workers only end on stop (kill)
 # or once their roots are deleted (#419).
+# tend_knobs — #782: HARNESS_TEND_TICK / HARNESS_TEND_IDLE_TICKS feed bash arithmetic, so a value that is not a
+# non-negative integer (abc, 15s, -5, empty) is replaced in place by its default (15 / 3) with a warning naming the
+# knob and value. In place -> the warning comes once per process; a valid value (0 included) is left as it is.
+tend_knobs(){ local k def v
+  for k in "HARNESS_TEND_TICK 15" "HARNESS_TEND_IDLE_TICKS 3"; do set -- $k; k="$1"; def="$2"; v="${!k-}"
+    [[ "$v" =~ ^[0-9]+$ ]] && { printf -v "$k" %s "$((10#$v))"; continue; }
+    log "WARN $k='$v' is not a non-negative integer — using the default $def" >&2; printf -v "$k" %s "$def"; done; }
 worker_step(){ local wid="$1" rc
   _WORKER_ID="$wid"
+  tend_knobs
   worker_short_due "$wid" && { worker_short_step "$wid"; return $?; }   # #594: own a live lane → tend it on the short tick
   roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
