@@ -56,15 +56,18 @@ for opt in criteria lines files subsystems workstreams pool minutes; do
   done
 done
 assert_eq "$(d --criteria 0 --lines 0 --files 0 --subsystems 0 | jq_ 'd["tier"]')" direct "zero counts are still fine"
-# --pool is a worker count: 0 (and -0) is not a fleet -> usage error, exit 2, no tier (#719); other counts keep 0
-for zero in 0 -0 00; do
-  out="$(H tier decide --criteria 3 --lines 80 --files 3 --subsystems 1 --pool "$zero" 2>&1)"; rc=$?
-  assert_eq "$rc" 2 "--pool $zero -> usage error, exit 2"
-  assert_ok "--pool $zero says it must be 1 or more" grep -q '1 or more' <<<"$out"
-  assert_no "--pool $zero prints no tier" grep -q '^TIER:' <<<"$out"
+# --pool is a worker count and --workstreams a PRD's stream count: 0 (and -0) is not a fleet / not a PRD
+# -> usage error, exit 2, no tier (#719, #840); other counts keep 0
+for opt in pool workstreams; do
+  for zero in 0 -0 00; do
+    out="$(H tier decide --criteria 3 --lines 80 --files 3 --subsystems 1 --"$opt" "$zero" 2>&1)"; rc=$?
+    assert_eq "$rc" 2 "--$opt $zero -> usage error, exit 2"
+    assert_ok "--$opt $zero says it must be 1 or more" grep -q '1 or more' <<<"$out"
+    assert_no "--$opt $zero prints no tier" grep -q '^TIER:' <<<"$out"
+  done
+  assert_eq "$(d --criteria 3 --lines 80 --files 3 --subsystems 1 --"$opt" 1 | jq_ 'd["tier"]')" direct "--$opt 1 is accepted"
 done
-assert_eq "$(d --criteria 3 --lines 80 --files 3 --subsystems 1 --pool 1 | jq_ 'd["tier"]')" direct "--pool 1 is accepted"
-for opt in criteria lines files subsystems workstreams minutes; do
+for opt in criteria lines files subsystems minutes; do
   args=(--criteria 3 --lines 80 --files 3 --subsystems 1); args+=("--$opt" 0)
   H tier decide "${args[@]}" >/dev/null 2>&1; rc=$?
   assert_eq "$rc" 0 "--$opt 0 is still accepted"
