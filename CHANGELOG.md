@@ -276,6 +276,8 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `start_lane` also rewrote a lane's claim file (to add the pane pid) without `pool.lock`. A rename over an existing file is not
   atomic on Windows (a reader polling `[[ -f ]]` saw it missing in 6 of 1730 reads on winsma), so a claimer could read the gap as
   "no claim". The rewrite now holds `pool.lock`, as `claim_lane` and `adopt_lanes` already did (`test_pool_lanes.sh` § 1c2).
+- Checked on the real Windows host (#831): `main` at the #830 fix, `test_pool_lanes.sh` § 1c (setup plus the 1c cell, suite isolation, venv python
+  first on PATH) run as 4 parallel streams of 30 loops each, 120 loops in all, every one green (31 minutes).
 
 ### The short tend tick no longer waits for the poller's snapshot to see a closed issue (#667)
 
