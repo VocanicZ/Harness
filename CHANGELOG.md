@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `bench/run.py` money and seconds options take ASCII digits only (#805)
+
+- `--cost-cap-usd`, `--expected-usd`, `--wall-cap-secs`, `--poll-secs`, `--grace-secs` and `--progress-poll-secs` were parsed with `float()`, which also takes
+  full-width and Arabic-Indic digits, `1_0` and `+5` (#784 covered the integer options only). They now accept ASCII digits with an optional decimal point and
+  exit 2 naming the option otherwise. `test_bench_run.py` covers each form.
+
 ### `harness stats --since` takes ASCII digits only (#804)
 
 - `parse_since` matched `7d` / `24h` / `30m` with `\d`, which also matches full-width and Arabic-Indic digits, so `--since ７d` and `--since ٣h` were read as 7 days
