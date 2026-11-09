@@ -138,7 +138,9 @@ if action.startswith("start"):   # start, start-error, start-restart
     def sh(*args):   # a Bash call of the front-door session: in the stream as a tool_use, then run for real
         print(json.dumps({"type": "assistant", "session_id": sid, "message": {"content": [
             {"type": "tool_use", "name": "Bash", "input": {"command": "harness " + " ".join(args) + " 2>&1 | tail -5"}}]}}), flush=True)
-        subprocess.run(["harness", *args], check=True, stdout=subprocess.DEVNULL)
+        # native Windows cannot start the extensionless fake the PATH names: run its python by path (#686)
+        prog = [sys.executable, os.path.join(os.environ.get("FAKE_HARNESS_DIR", d), "bin", "harness")] if sys.platform == "win32" else ["harness"]
+        subprocess.run([*prog, *args], check=True, stdout=subprocess.DEVNULL)
     sh("init")
     sh("start")
     if action == "start-restart":   # the front door repairs the fleet by hand and starts it again
