@@ -54,9 +54,40 @@ def _parse(text):
         return out
 
 
+DEFAULT_TOML = os.path.join(HERE, "tier.toml")   # the shipped thresholds: what a missing key falls back to
+
+
+class TierConfigError(Exception):
+    """tier.toml could not be read or parsed — one line, naming the file (#715), never a traceback."""
+
+
+def _read(path):
+    """The parsed file; a leading UTF-8 BOM is dropped, and any failure is a TierConfigError naming `path`."""
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read()
+        return _parse(text)
+    except OSError as e:
+        raise TierConfigError(f"{path}: cannot read it: {e.strerror or e}")
+    except UnicodeDecodeError as e:
+        raise TierConfigError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
+    except ValueError as e:   # tomllib.TOMLDecodeError, or the flat fallback parser's bad number
+        raise TierConfigError(f"{path}: cannot parse it: {e}")
+
+
 def load(path=None):
-    with open(path or TOML, encoding="utf-8") as f:
-        return _parse(f.read())
+    """The thresholds in `path` (default tier.toml), each missing section or key filled from the shipped file."""
+    path = path or TOML
+    cfg = _read(path)
+    if os.path.abspath(path) == DEFAULT_TOML:
+        return cfg
+    out = _read(DEFAULT_TOML)
+    for sec, vals in cfg.items():
+        if isinstance(vals, dict) and isinstance(out.get(sec), dict):
+            out[sec].update(vals)
+        else:
+            out[sec] = vals
+    return out
 
 
 def estimate(cfg, criteria):
@@ -255,7 +286,10 @@ def main(argv=None):
     o.add_argument("--json", action="store_true")
     sub.add_parser("thresholds")
     a = ap.parse_args(argv)
-    cfg = load()
+    try:
+        cfg = load()
+    except TierConfigError as e:
+        print(f"harness tier: {e}", file=sys.stderr); return 2
     if a.cmd == "thresholds":
         print(json.dumps(cfg, indent=2)); return 0
     if a.cmd == "decide":

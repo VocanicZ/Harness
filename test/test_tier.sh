@@ -78,6 +78,34 @@ assert_ok "tier.toml points at #621" has '#621' "$(cat "$ROOT/scripts/tier.toml"
 sed 's/^max_criteria .*/max_criteria     = 2/' "$ROOT/scripts/tier.toml" > "$T/tier.toml"
 assert_eq "$(HARNESS_TIER_TOML="$T/tier.toml" H tier decide --json --criteria 3 --lines 10 --files 1 --subsystems 1 | jq_ 'd["tier"]')" lane \
   "a changed number in the one file changes the verdict"
+
+# a hand-edited tier.toml: a BOM, an empty file, a partial file and a broken file never print a traceback (#715)
+dd(){ HARNESS_TIER_TOML="$1" H tier decide --json --criteria 3 --lines 10 --files 1 --subsystems 1; }
+printf '\xef\xbb\xbf' > "$T/bom.toml"; cat "$ROOT/scripts/tier.toml" >> "$T/bom.toml"
+assert_eq "$(dd "$T/bom.toml" | jq_ 'd["tier"]')" direct "a BOM-prefixed tier.toml loads"
+printf '\xef\xbb\xbf' > "$T/bom2.toml"; sed 's/^max_criteria .*/max_criteria     = 2/' "$ROOT/scripts/tier.toml" >> "$T/bom2.toml"
+assert_eq "$(dd "$T/bom2.toml" | jq_ 'd["tier"]')" lane "…and its numbers are the ones read"
+: > "$T/empty.toml"
+assert_eq "$(dd "$T/empty.toml" | jq_ 'd["tier"]')" direct "an empty tier.toml uses the defaults"
+printf '[direct]\nmax_criteria = 2\n' > "$T/partial.toml"
+out="$(dd "$T/partial.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 0 "a partial tier.toml exits 0"
+assert_eq "$(jq_ 'd["tier"]' <<<"$out")" lane "…the keys it has are used"
+assert_eq "$(HARNESS_TIER_TOML="$T/partial.toml" H tier thresholds | jq_ 'd["fleet"]["min_criteria"]')" 16 "…and the keys it lacks fall back to the defaults"
+printf '[direct\nmax_criteria = = 2\n' > "$T/bad.toml"
+out="$(dd "$T/bad.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "an unparsable tier.toml -> exit 2"
+assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
+assert_ok "…naming the file" grep -q "$T/bad.toml" <<<"$out"
+assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
+printf '\xff\xfe[direct]\n' > "$T/bin.toml"
+out="$(dd "$T/bin.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "a tier.toml that is not UTF-8 -> exit 2"
+assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
+out="$(dd "$T/missing.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "a missing tier.toml -> exit 2"
+assert_ok "…naming the file" grep -q "$T/missing.toml" <<<"$out"
+assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 assert_no "no prompt repeats a threshold number outside the file" \
   grep -rnE 'max_changed_lines|max_criteria' "$ROOT/skill" "$ROOT/prompts"
 
