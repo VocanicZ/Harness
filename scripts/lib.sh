@@ -453,8 +453,18 @@ launch_backoff_mark(){ local key="$1" f n=0 t; f="$(_launchfail_file "$key")"
   echo "$(date +%s) $(( n + 1 ))" > "$f"; }
 launch_backoff_clear(){ rm -f "$(_launchfail_file "$1")"; }
 # launch_backoff_active <key> — the lane failed to launch and its backoff has not run out.
-launch_backoff_active(){ local f t n wait base="${HARNESS_LAUNCH_BACKOFF:-60}" max="${HARNESS_LAUNCH_BACKOFF_MAX:-900}"
+# _launch_knob <NAME> <default> — #759: the knob's value when it is a non-negative integer, else the default, with a
+# one-time warning (a marker per knob and value in $RUN_DIR, as this runs in $(…) subshells; on stderr, stdout is captured).
+_launch_knob(){ local name="$1" def="$2" v m; v="${!name:-}"
+  if [[ -z "$v" ]]; then echo "$def"; return 0; fi
+  if [[ "$v" =~ ^[0-9]+$ ]]; then echo "$((10#$v))"; return 0; fi
+  m="$RUN_DIR/launchknob.$name.$(printf %s "$v" | cksum | cut -d' ' -f1)"
+  if [[ ! -e "$m" ]]; then : > "$m" 2>/dev/null || true
+    log "WARN $name='$v' is not a non-negative integer — using the default $def" >&2; fi
+  echo "$def"; }
+launch_backoff_active(){ local f t n wait base max
   f="$(_launchfail_file "$1")"; read -r t n 2>/dev/null < "$f" || return 1
+  base="$(_launch_knob HARNESS_LAUNCH_BACKOFF 60)"; max="$(_launch_knob HARNESS_LAUNCH_BACKOFF_MAX 900)"
   [[ "$t" =~ ^[0-9]+$ && "${n:-}" =~ ^[0-9]+$ ]] || return 1
   wait=$(( base << (n > 1 ? (n > 8 ? 7 : n - 1) : 0) )); (( wait > max )) && wait="$max"
   (( $(date +%s) - t < wait )); }

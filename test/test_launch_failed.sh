@@ -120,6 +120,27 @@ assert_ok "the backoff doubles per consecutive failure: still held 100s after th
 NOW=$((NOW + 150))
 assert_ok "…and over after 250s (60s << 2 = 240s)" not launch_backoff_active impl-7
 
+echo "== 4b. #759: a HARNESS_LAUNCH_BACKOFF / _MAX that is not a number falls back to the default and warns once =="
+setup; log(){ echo "LOG $*"; }
+for bad in abc 30s -1 1.5; do
+  rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; t0=$NOW
+  NOW=$((t0 + 10)); err="$( HARNESS_LAUNCH_BACKOFF="$bad" launch_backoff_active impl-7 2>&1 >/dev/null )"
+  HARNESS_LAUNCH_BACKOFF="$bad" launch_backoff_active impl-7 2>/dev/null; rc=$?
+  assert_eq "$rc" "0" "BACKOFF='$bad': the backoff still applies 10s after the failure (default 60s)"
+  assert_ok "…and logs a warning naming the knob and value" grep -q "WARN HARNESS_LAUNCH_BACKOFF='$bad' is not a non-negative integer" <<<"$err"
+  assert_eq "$(HARNESS_LAUNCH_BACKOFF="$bad" launch_backoff_active impl-7 2>&1 >/dev/null)" "" "…the warning is logged once"
+  assert_eq "$(HARNESS_LAUNCH_BACKOFF="$bad" launch_backoff_active impl-7 2>&1)" "" "…and nothing leaks to stdout or as an arithmetic error"
+  NOW=$((t0 + 61)); HARNESS_LAUNCH_BACKOFF="$bad" launch_backoff_active impl-7 2>/dev/null; assert_eq "$?" "1" "…and it is over after the default 60s"
+done
+rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; launch_backoff_mark impl-7; launch_backoff_mark impl-7; launch_backoff_mark impl-7; t0=$NOW
+NOW=$((t0 + 400)); err="$( HARNESS_LAUNCH_BACKOFF_MAX=xyz launch_backoff_active impl-7 2>&1 >/dev/null )"
+HARNESS_LAUNCH_BACKOFF_MAX=xyz launch_backoff_active impl-7 2>/dev/null; assert_eq "$?" "0" "BACKOFF_MAX='xyz': falls back to 900; the 480s wait (60<<3) still holds at 400s"
+assert_ok "…with a warning naming the knob" grep -q "WARN HARNESS_LAUNCH_BACKOFF_MAX='xyz'" <<<"$err"
+NOW=$((t0 + 500)); HARNESS_LAUNCH_BACKOFF_MAX=xyz launch_backoff_active impl-7 2>/dev/null; assert_eq "$?" "1" "…and it is over at 500s"
+rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; NOW=$((NOW + 4))
+assert_eq "$(HARNESS_LAUNCH_BACKOFF=5 HARNESS_LAUNCH_BACKOFF_MAX=7 launch_backoff_active impl-7 2>&1; echo rc=$?)" "rc=0" "valid numbers are used as is, no warning"
+NOW=$((NOW + 2)); HARNESS_LAUNCH_BACKOFF=5 launch_backoff_active impl-7; assert_eq "$?" "1" "…BACKOFF=5 is over after 6s"
+
 echo "== 5. a lane that ran past 30s is a plain reap =="
 setup
 SESS9="$(sess_impl "$UNIT" 9)"; echo "$((NOW - 400)) uuid-9" > "$RUN_DIR/$SESS9.launched"

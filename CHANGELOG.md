@@ -18,6 +18,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `harness stats` text output (fleet, PRD, role and issue views, and `stats mismatches`) and the `bench/run.py` guard
   message now write them as `\u2028`, `\u000c` and so on, as `--json` already did.
 
+### `HARNESS_LAUNCH_BACKOFF` and `HARNESS_LAUNCH_BACKOFF_MAX` are checked to be numbers (#759)
+
+- A value such as `30s`, `abc`, `-1` or `1.5` gave a bash arithmetic error or a wrong backoff after a failed launch. Each knob
+  must now be a non-negative integer; anything else falls back to its default (60 and 900) with a one-time warning in the
+  log, and the backoff still applies.
+
 ### Claude 3 Haiku and 3.5 Haiku are priced at their own list prices (#751)
 
 - `price()` skipped the legacy split for Haiku, so `claude-3-5-haiku-20241022` and `claude-3-haiku` were priced at the
