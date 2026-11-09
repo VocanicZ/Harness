@@ -46,6 +46,10 @@ real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ret
 # It is not a way out of a Windows cell: the Windows branch is never skipped (windows_skip, on an n/a matrix row, is the
 # only skip of a feature).
 skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, no counterpart to run on a Windows host): ${1:-}"; return 0; }
+# On a real Windows host `ln -s` copies unless MSYS says winsymlinks:nativestrict, so every fixture that builds a link (a PATH link,
+# the engine symlink, a skill link) and then asserts `-L` read false (#608). install.sh sets it for itself; a test that builds its
+# fixtures with a bare `ln -s` needs it too, so it is set once here for every test (test_windows_update.sh/test_install_prereqs.sh do the same).
+real_windows_host && [[ " ${MSYS:-} " != *" winsymlinks:nativestrict "* ]] && export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
 # file_url <path> — a file:// URL native curl can read (#608). Git for Windows' curl is a native exe: `file:///c/x` (the MSYS
 # spelling of C:/x) reads C:\c\x, so every fixture that served a fake release from $T/srv got "could not resolve" on winsma and
 # install.sh / update.sh / harness update exited 1 or 3. Windows: file:///C:/x/y; elsewhere file:///x/y, as before.
