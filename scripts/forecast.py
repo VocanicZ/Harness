@@ -72,18 +72,22 @@ RESET_SLACK = 300        # two readings whose resets_at differ by more than this
 # Opus / Sonnet 4.x and older (the "-legacy" rows) keep their own, dearer prices.
 # Opus 4, Opus 4.1 and Claude 3 Opus were listed at $15 / $75 ("opus-4"): the dearest row.
 # Claude 3.5 Haiku ($0.80 / $4) and Claude 3 Haiku ($0.25 / $1.25) keep their own, cheaper rows (#751).
-# Haiku 5.5's list price is higher above 100K prompt tokens ($0.50 / $2.50); the table holds the up-to-100K row.
+# Haiku 5.5's list price is higher above 100K prompt tokens ($0.50 / $2.50, cache write 5m $0.625, 1h $1, read $0.05):
+# "haiku" is the up-to-100K row, "haiku-long" the long-prompt one (#843). The prompt length counts every input token,
+# cache reads and writes included, and each request is priced on its own: `raw_cost` (one message) switches rows
+# on it. A folded usage (`usage_cost`) has no per-request length, so it is always priced at the up-to-100K row.
 # Mythos (priced as Fable) has no row. A model no family matches is priced at the most expensive row in the table
 # (see `price`) — the conservative end, for a budget gate.
 PRICE = {
     "opus": (4, 20, 5, 8, 0.2), "opus-5": (5, 25, 6.25, 10, 0.5),
     "sonnet": (2, 10, 2.5, 4, 0.1), "sonnet-5": (2, 10, 2.5, 4, 0.2),
-    "haiku": (0.1, 0.5, 0.125, 0.2, 0.01), "haiku-4-5": (1, 5, 1.25, 2, 0.1),
+    "haiku": (0.1, 0.5, 0.125, 0.2, 0.01), "haiku-long": (0.5, 2.5, 0.625, 1, 0.05), "haiku-4-5": (1, 5, 1.25, 2, 0.1),
     "fable": (8, 40, 10, 16, 0.2), "fable-5-1": (10, 50, 12.5, 20, 0.25), "fable-5": (10, 50, 12.5, 20, 1.0),
     "opus-legacy": (5, 25, 6.25, 10, 0.5), "sonnet-legacy": (3, 15, 3.75, 6, 0.3),
     "opus-4": (15, 75, 18.75, 30, 1.5),
     "haiku-3-5": (0.8, 4, 1.0, 1.6, 0.08), "haiku-3": (0.25, 1.25, 0.3125, 0.5, 0.025),
 }
+HAIKU_LONG_PROMPT = 100_000   # Haiku 5.5 prompt tokens above which a request is priced at PRICE["haiku-long"]
 # family -> ascending (major, minor, PRICE key): the versions whose list price differs
 _VERSIONS = {
     "opus": ((5, 0, "opus-5"), (5, 5, "opus")),
@@ -150,11 +154,16 @@ def is_fallback_priced(model):
 
 def raw_cost(u, model):
     """$ for one message's raw Claude usage block (cache writes split 5m / 1h when it says so)."""
-    pi, po, pw5, pw1, pr = price(model)
+    row = price(model)
     cc = u.get("cache_creation") or {}
     w1 = int(cc.get("ephemeral_1h_input_tokens") or 0)
     w5 = cc.get("ephemeral_5m_input_tokens")
     w5 = int(u.get("cache_creation_input_tokens") or 0) - w1 if w5 is None else int(w5)
+    if row == PRICE["haiku"]:   # Haiku 5.5: a prompt over 100K tokens (input + cache read + cache write) costs more (#843)
+        prompt = int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0) + w5 + w1
+        if prompt > HAIKU_LONG_PROMPT:
+            row = PRICE["haiku-long"]
+    pi, po, pw5, pw1, pr = row
     return (int(u.get("input_tokens") or 0) * pi + int(u.get("output_tokens") or 0) * po + w5 * pw5
             + w1 * pw1 + int(u.get("cache_read_input_tokens") or 0) * pr) / 1e6
 

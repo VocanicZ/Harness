@@ -68,7 +68,7 @@ def test_list_price_per_model_and_cache_split():
     assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-opus-5-5") == 0.2
     assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-sonnet-5-5") == 0.1, "0.05x input (#832)"
     assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-sonnet-5") == 0.2
-    assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-haiku-5-5") == 0.01
+    assert abs(fc.raw_cost({"cache_read_input_tokens": 100_000}, "claude-haiku-5-5") - 0.001) < 1e-12
     assert fc.raw_cost({"cache_read_input_tokens": MTOK}, "claude-haiku-4-5") == 0.1
     # cache writes: 5-minute at 1.25x input, 1-hour at 2x; the total with no split is all 5-minute
     assert fc.raw_cost({"cache_creation_input_tokens": 2 * MTOK,
@@ -77,6 +77,15 @@ def test_list_price_per_model_and_cache_split():
     assert fc.raw_cost({"cache_creation_input_tokens": MTOK}, "claude-sonnet-5-5") == 2.5
     assert fc.raw_cost({"cache_creation_input_tokens": MTOK,
                         "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "claude-sonnet-5-5") == 4
+    # #843: Haiku 5.5 lists higher above 100K prompt tokens (input + cache read + cache write, per request)
+    long_in = {"input_tokens": 100_001, "output_tokens": MTOK}
+    assert abs(fc.raw_cost(long_in, "claude-haiku-5-5") - (100_001 * 0.5 + 2.5 * MTOK) / MTOK) < 1e-9
+    assert abs(fc.raw_cost({"input_tokens": 100_000, "output_tokens": MTOK}, "claude-haiku-5-5") - (100_000 * 0.1 + 0.5 * MTOK) / MTOK) < 1e-9, "100K itself is the short row"
+    assert abs(fc.raw_cost({"input_tokens": 1, "cache_read_input_tokens": 100_000}, "haiku") - (1 * 0.5 + 100_000 * 0.05) / MTOK) < 1e-9, "reads count toward the length"
+    assert abs(fc.raw_cost({"cache_creation_input_tokens": 100_001}, "haiku") - 100_001 * 0.625 / MTOK) < 1e-9
+    assert abs(fc.raw_cost({"cache_creation_input_tokens": 100_001, "cache_creation": {"ephemeral_1h_input_tokens": 100_001}}, "haiku") - 100_001 * 1 / MTOK) < 1e-9
+    assert abs(fc.raw_cost({"input_tokens": 200_000}, "claude-haiku-4-5") - 0.2) < 1e-9, "only Haiku 5.5 has a long-prompt tier"
+    assert abs(fc.usage_cost({"haiku": {"input": 200_000}}) - 200_000 * 0.1 / MTOK) < 1e-9, "folded usage: up-to-100K row"
     assert fc.raw_cost({"output_tokens": MTOK}, "gpt-5-codex") == 75, "an unknown model prices at the dearest row"
     # #750: the gate keeps that price; a report asks which part of a figure came from it
     assert fc.usage_cost_split({"gpt-5-codex": {"output": MTOK}, "claude-sonnet-5-5": {"output": MTOK}}) == (85, 75, ["gpt-5-codex"])
