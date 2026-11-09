@@ -522,17 +522,18 @@ def test_fallback_alone_and_the_setting_from_config():
 
 
 def test_usd_per_pct_rejects_non_finite_tiny_and_bad_values_and_names_them():   # #746
-    for raw in ("inf", "-inf", "Infinity", "nan", "1e999", "0", "0.0", "-5", "1e-300", "0.001", "nope", "1,5"):
+    for raw in ("inf", "-inf", "Infinity", "nan", "1e999", "0", "0.0", "-5", "1e-300", "0.001", "nope", "1,5",
+                "1_0", "+5", "\uff15", "\uff11\uff10", "\u0665", "1__0", "1.2.3", "5 ", "1e3", "."):   # #834
         v, why = fc.usd_per_pct_parse(raw)
         assert v is None and why, (raw, v, why)
-    for raw, want in (("0.01", 0.01), ("20", 20.0), ("55.5", 55.5)):
+    for raw, want in (("0.01", 0.01), ("20", 20.0), ("55.5", 55.5), ("5.", 5.0), (".5", 0.5)):
         assert fc.usd_per_pct_parse(raw) == (want, None), raw
     saved = os.environ.pop(fc.FALLBACK_SETTING, None)
     try:
         assert fc.usd_per_pct_invalid(None) is None, "unset is not invalid"
         os.environ[fc.FALLBACK_SETTING] = ""
         assert fc.usd_per_pct_invalid(None) is None, "empty is unset"
-        for bad in ("inf", "nan", "0", "-3", "1e-300", "nope"):
+        for bad in ("inf", "nan", "0", "-3", "1e-300", "nope", "1_0", "+5", "\uff15"):   # #834
             os.environ[fc.FALLBACK_SETTING] = bad
             assert fc.usd_per_pct_setting(None) is None and fc.usd_per_pct_invalid(None) == bad, bad
         os.environ[fc.FALLBACK_SETTING] = "20"
@@ -555,7 +556,7 @@ def test_a_bad_usd_per_pct_gives_no_fallback_valid_json_and_a_named_message():  
         os.makedirs(cfgs)
         saved = os.environ.pop(fc.FALLBACK_SETTING, None)
         try:
-            for bad in ("inf", "nan", "1e-300", "0", "-4", "nope"):
+            for bad in ("inf", "nan", "1e-300", "0", "-4", "nope", "1_0", "+5", "\uff15"):   # #834
                 os.environ[fc.FALLBACK_SETTING] = bad
                 _, js, err = run_cli(["3", "-R", W, "--events", events, "--bodies", bodies, "--json"], cfgs)
                 assert "Infinity" not in js and "NaN" not in js, (bad, js)
