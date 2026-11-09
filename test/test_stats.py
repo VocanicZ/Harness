@@ -250,6 +250,26 @@ def test_ran_command_reads_logged_usage():
             if saved is None: os.environ.pop("HARNESS_EVENTS_FILE", None)
             else: os.environ["HARNESS_EVENTS_FILE"] = saved
 
+def test_ran_command_reads_events_like_load_events():
+    # #752: `stats.py ran` shares load_events' line parser: a BOM or a raw form feed in a field still reads as ran
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        ff = json.dumps(_ev("session_end", session="ff", usage=_u(5), note="x@@y")).replace("@@", "\x0c")
+        assert "\x0c" in ff
+        bom = json.dumps(_ev("session_end", session="bom", usage=_u(5)))
+        with open(p, "wb") as fh:
+            fh.write(b"\xef\xbb\xbf" + bom.encode() + b"\r\n" + ff.encode() + b"\n")
+        assert st.parse_event_line("\ufeff" + bom)["session"] == "bom" and st.parse_event_line(ff)["session"] == "ff"
+        assert st.parse_event_line("{torn") is None and st.parse_event_line("[1]") is None and st.parse_event_line("\n") is None
+        assert [e["session"] for e in st.load_events(p)] == ["bom", "ff"]
+        saved = os.environ.get("HARNESS_EVENTS_FILE")
+        os.environ["HARNESS_EVENTS_FILE"] = p
+        try:
+            assert st.main(["ran", "bom"]) == 0 and st.main(["ran", "ff"]) == 0 and st.main(["ran", "zz"]) == 1
+        finally:
+            if saved is None: os.environ.pop("HARNESS_EVENTS_FILE", None)
+            else: os.environ["HARNESS_EVENTS_FILE"] = saved
+
 def test_failed_relaunch_under_same_session_keeps_the_earlier_run():
     # #679: a relaunch under a session id that already ran, dead within 30s, drops only itself
     real = _u(5)
