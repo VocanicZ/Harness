@@ -252,6 +252,17 @@ def test_a_nan_inf_zero_or_negative_time_option_is_a_usage_error_naming_it(e):  
 
 
 @with_env(usage_pct="50")
+def test_money_and_seconds_options_are_ascii_decimal_only(e):   # #805
+    for opt in ("--cost-cap-usd", "--expected-usd", "--wall-cap-secs", "--poll-secs", "--grace-secs", "--progress-poll-secs"):
+        for bad in ("\uff15", "\u0663", "1_0", "+5", "1\uff10", "\u0665.\u0665", "1_0.5", "+0.5"):
+            p = e.run("stub", "--dry-run", opt + "=" + bad)
+            assert p.returncode == 2 and opt in p.stderr and "bench guard" not in p.stdout, (opt, bad, p.returncode, p.stdout, p.stderr)
+        for good in ("5", "0.5", "5.", ".5"):
+            assert e.run("stub", "--dry-run", opt + "=" + good, "--expected-usd=1").returncode == 0, (opt, good)
+    assert e.calls() == [] and not os.path.exists(e.results)
+
+
+@with_env(usage_pct="50")
 def test_a_zero_expected_budget_is_accepted(e):   # #709
     assert e.run("stub", "--dry-run", "--expected-usd", "0").returncode == 0
 

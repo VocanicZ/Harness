@@ -124,13 +124,22 @@ def _int_arg(text):
     return int(text)
 
 
+_ASCII_DECIMAL = re.compile(r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
+
+
+def _ascii_float(text):
+    """float() of `text` only when it is ASCII digits with an optional `-` sign and decimal point. float() alone also
+    takes full-width and other non-ASCII digits, `1_0` and `+5`: usage errors (exit 2), never a number other
+    than the one typed (#805). nan, inf and exponents fall through to the callers' own message."""
+    if not _ASCII_DECIMAL.fullmatch(text):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number (use ASCII digits and an optional decimal point only)")
+    return float(text)
+
+
 def _usd_arg(text):
     """argparse type for a dollar amount: a finite number, zero or more. nan, inf, a negative and a word are
     usage errors (exit 2), never a budget the guard's comparisons let through (#709)."""
-    try:
-        v = float(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    v = _ascii_float(text)
     if not math.isfinite(v) or v < 0:
         raise argparse.ArgumentTypeError(f"{text!r} must be a finite number, zero or more")
     return v
@@ -140,10 +149,7 @@ def _secs_arg(text):
     """argparse type for a time option in seconds: a finite number above zero. nan, inf, zero, a negative and a word
     are usage errors (exit 2): nan or inf would keep the wall cap from ever firing, nan makes Thread.join raise
     mid-run, and a zero or negative poll busy-polls (#747)."""
-    try:
-        v = float(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    v = _ascii_float(text)
     if not math.isfinite(v) or v <= 0:
         raise argparse.ArgumentTypeError(f"{text!r} must be a finite number above zero")
     return v
