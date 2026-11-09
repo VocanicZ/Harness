@@ -16,6 +16,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   price) and still $0.64 for plain Claude Code. `bench/results/run-20261106/harness.json`, the README benchmark table and
   figure carry the corrected figure; `test_forecast.py` pins both arms. The earlier $6.86 entries below stay as written.
 
+### `harness forecast` escapes line separators in the unit and account names (#833)
+
+- A form feed, U+2028 or another line separator in the unit (`--unit` or an event's) or in a `usage_reading` account split the header, basis and `calibration` lines of the forecast.
+  Every forecast text line now passes through `stats.vis`, as `harness stats` and `harness tier` do (#756, #803), so such a character prints as `\u000c` or `\u2028`.
+  `test_forecast.py` covers a form feed and U+2028 in the unit and in the account.
+
 ### `HARNESS_RALPH_FLUSH_MS=inf` or `1e9` no longer makes the ralph Stop hook overrun its timeout (#811)
 
 - The Stop hook re-reads the transcript for the promise for `HARNESS_RALPH_FLUSH_MS`, but `inf` or a huge value such as `1e9` made it wait past the hook's 30s timeout, so it
