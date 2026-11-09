@@ -242,6 +242,16 @@ def test_a_negative_nan_inf_or_non_numeric_budget_is_a_usage_error_never_a_pass(
 
 
 @with_env(usage_pct="50")
+def test_a_nan_inf_zero_or_negative_time_option_is_a_usage_error_naming_it(e):   # #747
+    for opt in ("--wall-cap-secs", "--poll-secs", "--grace-secs", "--progress-poll-secs"):
+        for bad in ("nan", "NaN", "inf", "-inf", "1e999", "0", "-1", "-0.5", "ten", ""):
+            p = e.run("stub", "--dry-run", opt + "=" + bad)
+            assert p.returncode == 2 and opt in p.stderr and "bench guard" not in p.stdout, (opt, bad, p.returncode, p.stdout, p.stderr)
+        assert e.run("stub", "--dry-run", opt + "=0.5", "--expected-usd=1").returncode == 0, opt
+    assert e.calls() == [] and not os.path.exists(e.results)
+
+
+@with_env(usage_pct="50")
 def test_a_zero_expected_budget_is_accepted(e):   # #709
     assert e.run("stub", "--dry-run", "--expected-usd", "0").returncode == 0
 
