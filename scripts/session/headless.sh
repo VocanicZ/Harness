@@ -123,7 +123,9 @@ headless_sess_kill(){ local lane pid i u
   headless_sess_live "$1" || { [[ -d $lane ]] && { _hl_reap_turn "$lane"; _hl_sweep "$u"; }; return 1; }
   pid="$(_hl_runner "$1")"
   [[ -n $u ]] || u="$(proc_env "$pid" HARNESS_SESSION)"   # a lane started before #427 kept no session file
-  : > "$lane/stop"; kill -TERM "$pid" 2>/dev/null
+  # Windows (#606): a TERM to a native process is TerminateProcess, so the runner would never write `ended` or end its
+  # turn's tree; its stop file (polled) is the request there.
+  : > "$lane/stop"; is_windows || kill -TERM "$pid" 2>/dev/null
   for (( i = 0; i < HARNESS_HEADLESS_STOP_WAIT * 10; i++ )); do _hl_alive "$pid" || break; sleep 0.1; done
   if [[ "$(_hl_runner "$1")" == "$pid" ]]; then proc_kill_tree "$pid"; fi
   _hl_reap_turn "$lane"; _hl_sweep "$u"; return 0; }

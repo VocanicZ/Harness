@@ -77,7 +77,7 @@ our_pids(){ local d; shopt -s nullglob
   done; shopt -u nullglob; }
 cleanup(){ local p; for p in $(our_pids) ${worker:-}; do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; tmp_cleanup; }
 trap cleanup EXIT
-alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+alive(){ alive_any "$1"; }
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 calls(){ python3 -c 'import json,sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
   "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }

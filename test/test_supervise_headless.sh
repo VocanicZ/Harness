@@ -38,7 +38,7 @@ our_pids(){ local d; shopt -s nullglob
   done; shopt -u nullglob; }
 cleanup(){ local p; for p in $(our_pids) ${LIVE:-}; do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; tmp_cleanup; }
 trap cleanup EXIT
-alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+alive(){ alive_any "$1"; }
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 # lane <session> <plan…> — a worktree, a fake-claude dir replaying <plan>, and the lane launched on it.
 lane(){ local s="$1"; shift
@@ -112,7 +112,7 @@ pass "$S"
 assert_ok "the turn is logged as endless with input queued" grep -q "turn: $S has run one turn for [0-9]*s with input queued" "$LOG"
 assert_ok "…and interrupted" grep -q "ACT headless interrupt $S" "$LOG"
 assert_no "…which it reports (Interrupted)" grep -q "did not report Interrupted" "$LOG"
-assert_ok "…its process tree ended" wait_until 10 bash -c "! kill -0 $fpid 2>/dev/null && ! kill -0 $gpid 2>/dev/null"
+assert_ok "…its process tree ended" wait_until 10 all_gone "$fpid" "$gpid"
 assert_ok "a turn_interrupted event is recorded for stats" grep -q "^$S turn_interrupted turn_s=[0-9]* queued_nudges=1" "$SEV"
 rm -f "$FAKE_CLAUDE_DIR/hold"
 assert_ok "the queued nudge is delivered as the next turn" wait_until 15 idle_at "$S" 2

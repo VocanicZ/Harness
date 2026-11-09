@@ -30,7 +30,7 @@ our_pids(){ local d; shopt -s nullglob
   done; shopt -u nullglob; }
 cleanup(){ local p; for p in $(our_pids); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; tmp_cleanup; }
 trap cleanup EXIT
-alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+alive(){ alive_any "$1"; }
 # wait_until <seconds> <command…> — true once <command> is.
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 # lane <name> <plan…> — a worktree and a fake-claude dir replaying <plan> (one fixture per turn).
@@ -85,7 +85,7 @@ assert_ok "the lane stays live, idle" pane_idle "$S"
 
 echo "== attach follows the lane read-only =="
 assert_eq "$(sess_attach_hint "$S")" "harness attach $S" "attach hint"
-out="$(timeout 3 bash "$ROOT/scripts/attach.sh" "$S" 2>&1)"
+out="$(timeout "$(host_is_windows && echo 20 || echo 3)" bash "$ROOT/scripts/attach.sh" "$S" 2>&1)"   # a Windows fork is slow: the attach needs seconds to start
 assert_ok "harness attach <session> watches the headless lane" grep -qF "watching headless lane $S" <<<"$out"
 assert_ok "…showing its turns" grep -qF "── turn 1 (bootstrap)" <<<"$out"
 assert_ok "…and its replies" grep -qF "← <promise>ISSUE 9 DONE</promise>" <<<"$out"
@@ -101,7 +101,7 @@ assert_ok "the queued nudge shows in the input box" grep -qF "❯ Please continu
 # `Interrupted` line while the next turn runs (the TUI's scrollback keeps it the same way).
 touch "$FAKE_CLAUDE_DIR/hold"
 assert_ok "turn_interrupt ends the turn (it prints Interrupted)" turn_interrupt "$S"
-assert_ok "…its process tree is gone" wait_until 10 bash -c "! kill -0 $fpid 2>/dev/null && ! kill -0 $gpid 2>/dev/null"
+assert_ok "…its process tree is gone" wait_until 10 all_gone "$fpid" "$gpid"
 assert_ok "the runner is still up" alive "$pid"
 assert_ok "…and delivers the queued nudge next" wait_until 10 bash -c "grep -qF 'after the interrupt' '$FAKE_CLAUDE_DIR/calls.jsonl'"
 assert_no "the goal loop reads no reply off an interrupted turn" claude_last_reply "$WD" "$uuid"
@@ -182,7 +182,7 @@ assert_ok "harness doctor flags it" grep -qF "session backend: agent CLI 'fakecl
 assert_eq "$rc" 1 "…as a problem"
 # #574: the auto-release gate runs with SIGPIPE inherited as ignored. Then a writer into a pipe `head -1` has closed
 # gets EPIPE, and bash prints "write error: Broken pipe" to stderr — which doctor folds into its `session backend:` line.
-sigpipe_ignored(){ python3 -c 'import signal,os,sys; signal.signal(signal.SIGPIPE, signal.SIG_IGN); os.execvp(sys.argv[1], sys.argv[1:])' "$@"; }
+sigpipe_ignored(){ ( trap '' PIPE; exec "$@" ); }   # bash, not python: Python on Windows has no signal.SIGPIPE (#606)
 probe574='source "$1/scripts/lib.sh"; _DOCTOR_SOURCED=1 source "$1/scripts/doctor.sh"
   case "$2" in check) cli_backend_check ;; doctor) DOCTOR_FIX=0 doctor_main 2>&1 ;; esac'
 errout="$(HARNESS_CLI=fakecli sigpipe_ignored bash -c "$probe574" _ "$ROOT" check 2>&1 >/dev/null)"; rc=$?
