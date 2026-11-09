@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `HARNESS_RALPH_FLUSH_MS=inf` or `1e9` no longer makes the ralph Stop hook overrun its timeout (#811)
+
+- The Stop hook re-reads the transcript for the promise for `HARNESS_RALPH_FLUSH_MS`, but `inf` or a huge value such as `1e9` made it wait past the hook's 30s timeout, so it
+  was killed instead of finishing. A non-finite value (`inf`, `-inf`, `nan`) now falls back to the default 1500 ms and a value over 20000 ms is capped at 20000 ms, each with a one-time
+  warning on stderr. `test_ralph_stop_hook.py` covers `inf` and `1e9`.
+
 ### `HARNESS_ENGINE_CHILD_MAX` takes a non-negative ASCII integer only (#810)
 
 - The value was read with `int()`, so `1_0` meant 10, a full-width `１５` meant 15, `-1` silently disabled engine-filed children and `abc` silently gave the default,

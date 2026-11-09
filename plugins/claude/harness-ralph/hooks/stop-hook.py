@@ -5,7 +5,7 @@
 # (run-20261106: 15 re-feeds, ~45k tokens) and misjudged three cases this hook handles:
 #   * the promise-flush race: Stop fires before the final message is flushed to the transcript, so the
 #     promise was missed and the task re-sent. Before nudging, the transcript is re-read for up to
-#     HARNESS_RALPH_FLUSH_MS (default 1500) and the hook's own `last_assistant_message`, when Claude Code
+#     HARNESS_RALPH_FLUSH_MS (default 1500, capped at 20000; inf / nan use the default) and the hook's own `last_assistant_message`, when Claude Code
 #     sends one, counts too.
 #   * a lane waiting on its own background sub-agent was re-fed every time it said "still waiting". A Stop
 #     with a sub-agent running (launched async, no completed `<task-notification>` yet) gets no nudge: the
@@ -19,7 +19,7 @@
 # the other CLIs: frontmatter iteration / max_iterations / completion_promise / session_id, then the task. The hook
 # adds one key, `compactions_fed`, to remember how many compactions it has re-sent the task for.
 # Input: the Stop hook JSON on stdin. Output: nothing (allow the stop), or {"decision":"block","reason":…}.
-import json, os, re, sys, time
+import json, math, os, re, sys, time
 
 STATE_REL = os.path.join(".claude", "ralph-loop.local.md")
 
@@ -29,6 +29,26 @@ def env_num(name, default):
         return float(os.environ.get(name, default))
     except ValueError:
         return float(default)
+
+
+FLUSH_DEFAULT_MS = 1500
+FLUSH_MAX_MS = 20000      # hooks.json gives the hook 30s; the flush wait must leave room to finish
+
+
+def flush_wait_s():
+    """HARNESS_RALPH_FLUSH_MS in seconds. inf / nan fall back to the default, a value past FLUSH_MAX_MS is capped
+    there (one warning on stderr each), so the wait never outlives the hook's timeout."""
+    raw = os.environ.get("HARNESS_RALPH_FLUSH_MS")
+    ms = env_num("HARNESS_RALPH_FLUSH_MS", FLUSH_DEFAULT_MS)
+    if not math.isfinite(ms):
+        print(f"harness-ralph: HARNESS_RALPH_FLUSH_MS={raw!r} is not a finite number; using {FLUSH_DEFAULT_MS}",
+              file=sys.stderr)
+        ms = FLUSH_DEFAULT_MS
+    elif ms > FLUSH_MAX_MS:
+        print(f"harness-ralph: HARNESS_RALPH_FLUSH_MS={raw!r} is over {FLUSH_MAX_MS}; capped at {FLUSH_MAX_MS} "
+              f"(the hook times out at 30s)", file=sys.stderr)
+        ms = FLUSH_MAX_MS
+    return ms / 1000.0
 
 
 def read_rows(path):
@@ -220,7 +240,7 @@ def main():
         return
 
     # The flush race: Stop can fire before the final message reaches the transcript. Look again, briefly.
-    deadline = time.time() + env_num("HARNESS_RALPH_FLUSH_MS", 1500) / 1000.0
+    deadline = time.time() + flush_wait_s()
     while time.time() < deadline:
         time.sleep(0.05)
         rows = read_rows(transcript)

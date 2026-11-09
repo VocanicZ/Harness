@@ -109,6 +109,44 @@ def test_the_flush_race_is_real_without_the_wait():
     time.sleep(0.4)
 
 
+def _hook_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ralph_stop_hook", HOOK)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_flush_ms_inf_falls_back_to_the_default_and_the_hook_finishes_in_time():
+    # Unfixed, inf waits forever -> the hook runs into its 30s timeout instead of nudging.
+    L = lane()
+    L.say("working"); L.write()
+    env = dict(os.environ, HARNESS_RALPH_FLUSH_MS="inf")
+    t0 = time.time()
+    p = subprocess.run([sys.executable, HOOK], input=json.dumps(L.stop_input()), capture_output=True, text=True,
+                       env=env, timeout=10)
+    assert p.returncode == 0, p.stderr
+    assert json.loads(p.stdout)["decision"] == "block"
+    assert time.time() - t0 < 8
+    assert "HARNESS_RALPH_FLUSH_MS='inf'" in p.stderr
+
+
+def test_flush_wait_is_capped_below_the_hook_timeout_for_1e9_and_non_finite_values():
+    m = _hook_module()
+    saved = os.environ.get("HARNESS_RALPH_FLUSH_MS")
+    try:
+        for raw, want in [("1e9", 20.0), ("20001", 20.0), ("20000", 20.0), ("inf", 1.5), ("-inf", 1.5), ("nan", 1.5),
+                          ("abc", 1.5), ("1500", 1.5), ("0", 0.0)]:
+            os.environ["HARNESS_RALPH_FLUSH_MS"] = raw
+            assert m.flush_wait_s() == want, raw
+        os.environ.pop("HARNESS_RALPH_FLUSH_MS")
+        assert m.flush_wait_s() == 1.5
+    finally:
+        if saved is not None:
+            os.environ["HARNESS_RALPH_FLUSH_MS"] = saved
+    assert m.flush_wait_s() * 1000 < 30000
+
+
 def test_the_hooks_own_last_assistant_message_counts_when_the_transcript_lags():
     L = lane()
     L.say("working"); L.write()
