@@ -68,6 +68,16 @@ for opt in criteria lines files subsystems workstreams pool minutes; do
     assert_no "--$opt ${#big} digits prints no tier" grep -q '^TIER:' <<<"$out"
   done
 done
+# 5000 zeros then 1 slips past the too-large check (its stripped length is 1) but int() refuses it: a one-line usage error (#880)
+zeros5000="$(python3 -c "print('0'*5000+'1')")"
+for opt in criteria lines files subsystems workstreams pool minutes; do
+  args=(--criteria 3 --lines 80 --files 3 --subsystems 1); args+=("--$opt" "$zeros5000")
+  out="$(H tier decide "${args[@]}" 2>&1)"; rc=$?
+  assert_eq "$rc" 2 "--$opt 5000 zeros then 1 -> usage error, exit 2"
+  assert_ok "--$opt names the option and says too long" grep -q -- "--$opt.*too long" <<<"$out"
+  assert_no "--$opt echoes no more than a prefix" grep -q '000000000000000000000000' <<<"$out"
+  assert_no "--$opt prints no 'invalid count value'" grep -q 'invalid count' <<<"$out"
+done
 assert_eq "$(d --criteria 1000000000 --lines 1 --files 1 --subsystems 1 | jq_ 'd["tier"]')" fleet "the largest count, 10**9, is still accepted"
 # --pool is a worker count and --workstreams a PRD's stream count: 0 (and -0) is not a fleet / not a PRD
 # -> usage error, exit 2, no tier (#719, #840); other counts keep 0
