@@ -380,9 +380,10 @@ def main(argv=None):
     if a.json:
         print(json.dumps({"overlap": bool(hits), "hits": hits}))
     elif hits:
+        import stats   # #803: stats.vis escapes U+2028, U+0085, form feed and other control characters, as #756 did for stats
         print("OVERLAP: the direct fix touches files an open lane or PR owns:")
         for h in hits:
-            print(f"  {h['owner']}: " + ", ".join(h["files"]))
+            print(stats.vis(f"  {h['owner']}: " + ", ".join(h["files"])))
         print("route it through /harness-issue instead of fixing it here")
     else:
         print("no overlap: no open agent-working issue or PR touches these files — the direct path is clear")

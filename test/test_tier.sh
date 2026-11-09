@@ -247,6 +247,15 @@ for f in docs/a b.md docs/n docs/f g.md; do
   out="$(ov "$f")"; rc=$?
   assert_eq "$rc" 0 "$f is only a fragment of a PR file name -> clear"
 done
+
+# the text output escapes those names the way stats.vis does, so each overlap stays on one line (#803)
+out="$(ov $'docs/a\u2028b.md,docs/f\fg.md')"; rc=$?
+assert_eq "$rc" 1 "PR #3 owns both names -> overlap"
+assert_eq "$(printf %s "$out" | grep -c $'\xe2\x80\xa8')" 0 "no raw U+2028 in the text output"
+assert_eq "$(printf %s "$out" | grep -c $'\f')" 0 "no raw form feed in the text output"
+assert_ok "…U+2028 shows as \\u2028" has 'docs/a\\u2028b.md' "$out"
+assert_ok "…form feed shows as \\u000c" has 'docs/f\\u000cg.md' "$out"
+assert_eq "$(printf '%s\n' "$out" | grep -c '^  PR #3: ')" 1 "…and the overlap is one line"
 cd "$HERE"
 echo '[]' > /dev/null
 # no open work at all -> clear
