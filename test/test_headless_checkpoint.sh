@@ -13,7 +13,7 @@ source "$HERE/helpers.sh"; unset_inherited_config
 source "$ROOT/scripts/lib.sh"; source "$ROOT/scripts/drive.sh"
 make_env
 export RUN_DIR PAUSE_FLAG HARNESS_SESS_PREFIX=hlc HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude
-export HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=30
+export HARNESS_REPO=acme/widget HARNESS_OWNER=acme HARNESS_PAUSE_GRACE=$(host_is_windows && echo 240 || echo 30)
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
 export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }
@@ -190,7 +190,7 @@ touch "$FAKE_CLAUDE_DIR/hold"
 LS_REMOTE=none spawn_impl 15 "ISSUE 15 DONE" >/dev/null 2>&1
 rpid="$(sess_pane_pid "$S")"
 assert_ok "the lane is mid-turn" wait_until 10 test "$(lane_field "$S" state)" = busy
-HARNESS_PAUSE_GRACE=60 bash "$ROOT/scripts/pause.sh" --force > "$RUN_DIR/pause15.out" 2>&1 & ppid=$!
+HARNESS_PAUSE_GRACE=$(host_is_windows && echo 240 || echo 60) bash "$ROOT/scripts/pause.sh" --force > "$RUN_DIR/pause15.out" 2>&1 & ppid=$!
 assert_ok "the checkpoint is queued behind the turn" wait_until 10 pane_has "$S" "❯ HARNESS CHECKPOINT"
 { kill -KILL "$rpid"; wait "$rpid"; } 2>/dev/null; rm -f "$FAKE_CLAUDE_DIR/hold"   # the lane finishes and is reaped first
 assert_no "the lane is gone" sess_live "$S"
