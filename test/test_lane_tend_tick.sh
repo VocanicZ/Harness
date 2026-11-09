@@ -266,6 +266,14 @@ assert_eq "$HARNESS_TEND_TICK/$HARNESS_TEND_IDLE_TICKS" "0/0" "0 keeps its meani
 HARNESS_TEND_TICK=007; HARNESS_TEND_IDLE_TICKS=20; tend_knobs
 assert_eq "$HARNESS_TEND_TICK/$HARNESS_TEND_IDLE_TICKS" "7/20" "valid values kept (leading zeros read as decimal)"
 assert_eq "$(count log)" "0" "...no warning"
+for big in 9223372036854775807 9223372036854775808 99999999999999999999 18446744073709551616 86401; do
+  setup; S=hz-main-p41; own orch-41 "$S" DECOMPOSE:41; touch "$RUN_DIR/$S.satisfied" "$RUN_DIR/$S.d/.loop"; idle
+  log(){ echo "log $*" >> "$CALLS"; }
+  HARNESS_TEND_IDLE_TICKS="$big"; tend_knobs
+  assert_eq "$HARNESS_TEND_IDLE_TICKS" "3" "#800: IDLE_TICKS='$big' is too large: falls back to 3 (no wrap to 0 / negative)"
+  assert_eq "$(grep -c "^log WARN HARNESS_TEND_IDLE_TICKS='$big' is not a non-negative integer" "$CALLS")" "1" "#800: IDLE_TICKS='$big': one warning naming knob and value"
+done
+HARNESS_TEND_IDLE_TICKS=86400; tend_knobs; assert_eq "$HARNESS_TEND_IDLE_TICKS" "86400" "#800: the cap itself is kept"
 
 echo "=== 11. #799: TEND_TICK=0 (or an overflow to <= 0) is 'tend every POLL': an owner of a live lane sleeps POLL, never sleep 0 ==="
 for v in 0 18446744073709551616; do

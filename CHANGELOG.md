@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### An oversized launch or idle-tick knob no longer wraps around and inverts the setting (#800)
+
+- `HARNESS_LAUNCH_BACKOFF`, `HARNESS_LAUNCH_BACKOFF_MAX`, `HARNESS_LAUNCH_FAIL_SECS` and `HARNESS_TEND_IDLE_TICKS` accepted any string of digits and read it with
+  `$((10#v))`, so a value of 2^63 or more (`9223372036854775808`, `99999999999999999999`) wrapped to a negative number or 0: a launch that failed a second ago
+  was not held back, no launch counted as failed, and the decompose idle guard (#594) was off. A value above 86400 (one day) or with more than 6 significant
+  digits now falls back to the default (60, 900, 30, 3) with the same one-time warning as a non-numeric value, so the backoff shift cannot overflow either.
+  `test_launch_failed.sh` and `test_lane_tend_tick.sh` cover an oversized value for each knob.
+
 ### Number arguments take ASCII digits only: `1_1`, `+5` and full-width digits are refused (#784)
 
 - `harness forecast`, `harness stats --issue/--prd`, `harness tier decide` (every count) and `bench/run.py --runs/--workers` parsed numbers with Python's
