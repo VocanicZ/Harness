@@ -35,7 +35,7 @@ The report joins each line to its session on ctx.HARNESS_SESSION.
 `emit` never raises: any failure exits 1 having printed nothing, and the bash caller (lib.sh
 harness_event) swallows it — logging must never block or fail dispatch.
 """
-import glob, json, os, re, sys, time
+import glob, json, math, os, re, sys, time
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -465,11 +465,35 @@ def fold_session_end(into, end):
     return add_usage(into, usage) if end.get("resumed") else add_usage({}, usage)
 
 
+def clean_usage(usage):
+    """A logged event's `usage` as a well-formed {model: {key: int}} (#753). A usage that is not a dict, a model
+    whose entry is not a dict, and a count that is not a finite, non-negative number (a string, a bool, null,
+    a list, nan, inf) are dropped, so no reader of the log meets a value it cannot add. A model left with no
+    count is dropped too."""
+    if not isinstance(usage, dict):
+        return {}
+    out = {}
+    for model, u in usage.items():
+        if not isinstance(u, dict):
+            continue
+        d = {}
+        for k, v in u.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            if isinstance(v, float) and not math.isfinite(v):
+                continue
+            if v >= 0:
+                d[k] = int(v)
+        if d:
+            out[model] = d
+    return out
+
+
 def parse_event_line(line):
     """One events.jsonl line as a dict, or None when it is blank, torn or not a JSON object. The one reader
     both load_events and logged_session_usage share (#752): a UTF-8 BOM (a Windows editor's save) is stripped
     (#672), and the parse is non-strict so a raw control character (form feed, tab, VT) inside a field
-    value is accepted (#673)."""
+    value is accepted (#673). A malformed `usage` is cleaned (clean_usage, #753)."""
     line = line.lstrip("\ufeff")
     if not line.strip():
         return None
@@ -477,7 +501,11 @@ def parse_event_line(line):
         r = json.loads(line, strict=False)
     except ValueError:
         return None
-    return r if isinstance(r, dict) else None
+    if not isinstance(r, dict):
+        return None
+    if "usage" in r:
+        r["usage"] = clean_usage(r["usage"])
+    return r
 
 
 def logged_session_usage(session, path=None):
