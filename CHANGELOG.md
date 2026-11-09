@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats` and `forecast.py` validate `-R` / `--repo` the same way (#716)
+
+- `harness stats --repo=-x` exited 0 with "no events in range", and `forecast.py -R owner/-x` was accepted. Both now share
+  one check (`stats.repo_arg`): each half of `owner/name` must be a valid GitHub name, which cannot start with a dash. Anything
+  else is a usage error, exit 2. `tier.py overlap -R` uses the same pattern.
+
 ### `forecast.py`, `tier.py` and `bench/run.py` end quietly when the reader closes the pipe (#713)
 
 - `harness forecast … | true`, `harness tier decide … | true`, `tier.py thresholds | true` and `bench/run.py … --dry-run | true`

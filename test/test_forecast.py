@@ -472,7 +472,7 @@ def test_fallback_alone_and_the_setting_from_config():
 def test_repo_value_must_be_owner_name_in_every_form():
     with tmp() as d:
         cfg, events, bodies = fixture(d)
-        for argv in (["--repo=-x"], ["--repo=x"], ["--repo="], ["-R", "-x"], ["--repo", "x"], ["-R=x"], ["-Rx"]):
+        for argv in (["--repo=-x"], ["--repo=owner/-x"], ["-R", "owner/-x"], ["-R", "-x/name"], ["--repo=x"], ["--repo="], ["-R", "-x"], ["--repo", "x"], ["-R=x"], ["-Rx"]):
             try:
                 with contextlib.redirect_stderr(io.StringIO()):
                     run_cli(["5"] + argv + ["--events", events, "--bodies", bodies], cfg)
@@ -480,7 +480,7 @@ def test_repo_value_must_be_owner_name_in_every_form():
             except SystemExit as e:
                 rc = e.code
             assert rc == 2, (argv, rc)
-        for v in ("-x", "x", ""):   # the message, from the real script
+        for v in ("-x", "owner/-x", "-x/name", "x", ""):   # the message, from the real script
             r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "5", "--repo=" + v,
                                 "--events", events, "--bodies", bodies], capture_output=True, text=True)
             assert r.returncode == 2 and "expected owner/name" in r.stderr, (v, r.returncode, r.stderr)

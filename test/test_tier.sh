@@ -205,7 +205,7 @@ case "$1 $2" in "issue list") echo '[{"number":99}]';; *) echo '[]';; esac
 SH
 assert_eq "$(H tier overlap "${ovargs[@]}" >/dev/null 2>&1; echo $?)" 0 "agent-working issue with no branch yet -> clear, not an error"
 # -R must be owner/name in every form
-for bad in -x =-x x a/ /b 'a b/c' 'a/b/c'; do
+for bad in -x =-x x a/ /b a/-x -a/b 'a b/c' 'a/b/c'; do
   assert_eq "$(H tier overlap --files a -R="$bad" >/dev/null 2>&1; echo $?)" 2 "-R=$bad -> usage error, exit 2"
 done
 assert_eq "$(H tier overlap --files a -R -x >/dev/null 2>&1; echo $?)" 2 "-R -x -> usage error, exit 2"

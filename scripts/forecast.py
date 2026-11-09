@@ -562,17 +562,6 @@ def gh_bodies(repo, issue):
     return body, bodies
 
 
-REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.-]+")
-
-
-def repo_arg(v):
-    """argparse type for -R / --repo in every form (`-R x`, `--repo x`, `--repo=x`): must be owner/name."""
-    import argparse
-    if not REPO_RE.fullmatch(v):
-        raise argparse.ArgumentTypeError(f"{v!r} is not a repository — expected owner/name")
-    return v
-
-
 def issue_arg(v):
     """argparse type for the issue positional: an integer of 1 or greater (a usage error, exit 2, below that)."""
     import argparse
@@ -590,7 +579,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="harness forecast",
                                  description="per-phase p50/p80/p95 cost forecast for one issue (#363)")
     ap.add_argument("issue", type=issue_arg)
-    ap.add_argument("-R", "--repo", type=repo_arg, help="owner/repo (default: the issue's own lanes, else the project's unit)")
+    ap.add_argument("-R", "--repo", type=st.repo_arg, help="owner/repo (default: the issue's own lanes, else the project's unit)")
     ap.add_argument("--unit", help="unit of the current project (multi-unit projects)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--events", help=argparse.SUPPRESS)

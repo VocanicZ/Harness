@@ -158,7 +158,7 @@ def render(r):
 
 # ── overlap ──────────────────────────────────────────────────────────────────────────────────────
 EXIT_UNCHECKED = 3   # overlap could not be answered: distinct from 0 (clear), 1 (overlap) and 2 (usage)
-REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.-]+")
+REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.][\w.-]*")   # same rule as stats.REPO_RE (#716)
 
 
 class CheckFailed(Exception):
