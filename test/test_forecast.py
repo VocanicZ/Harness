@@ -691,6 +691,24 @@ def test_issue_number_is_ascii_digits_only():   # #784
             assert r.stdout == "", (n, r.stdout)
 
 
+def test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators():   # #854
+    """A U+2028 or form feed in an invalid HARNESS_ONE_USD_PER_PCT prints as \\uXXXX in the stderr warning, as on stdout."""
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+        try:
+            for ch, esc in (("\f", "\\u000c"), ("\u2028", "\\u2028")):
+                os.environ[fc.FALLBACK_SETTING] = f"5 {ch} x{ch}y"
+                rc, text, err = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies], cfg)
+                assert rc == 0, (rc, err)
+                assert f"{fc.FALLBACK_SETTING}=5 {esc} x{esc}y is invalid" in err, repr(err)
+                assert ch not in err and ch not in text, (repr(err), repr(text))
+        finally:
+            os.environ.pop(fc.FALLBACK_SETTING, None)
+            if saved is not None:
+                os.environ[fc.FALLBACK_SETTING] = saved
+
+
 def test_unit_and_account_names_with_line_separators_print_escaped():   # #833
     """A form feed or U+2028 in the unit (--unit or an event's) or in a usage_reading account never splits a
     forecast line: each prints as \\uXXXX, the way stats.vis writes it."""

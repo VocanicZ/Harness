@@ -765,8 +765,8 @@ def main(argv=None):
     sd = os.environ.get("STATE_DIR")
     bad = usd_per_pct_invalid(sd)
     if bad is not None:
-        print(f"harness forecast: {FALLBACK_SETTING}={bad} is invalid (need a finite number >= {MIN_USD_PER_PCT:g}): "
-              "ignored", file=sys.stderr)
+        print(f"harness forecast: {FALLBACK_SETTING}={st.vis(bad)} is invalid "   # #854: no raw U+2028 / form feed on stderr
+              f"(need a finite number >= {MIN_USD_PER_PCT:g}): ignored", file=sys.stderr)
     f = forecast(events, repo, a.issue, body, bodies, unit, fallback=usd_per_pct_setting(sd), invalid=bad)
     print(json.dumps(f, indent=2) if a.json else render(f))
     if f["basis"]["tier"] == "none":
