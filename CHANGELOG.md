@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier overlap` escapes control characters in the file names it prints (#803)
+
+- The text output of `harness tier overlap` echoed a file name held by an open lane or PR as it was, so a name with U+2028 or a form feed reached the terminal raw
+  and split one overlap across lines (the class #756 fixed for `harness stats`). Names are now escaped with `stats.vis` (`\u2028`, `\u000c`). `test_tier.sh` covers both
+  characters; `--json` is unchanged.
 ### `bench/run.py` money and seconds options take ASCII digits only (#805)
 
 - `--cost-cap-usd`, `--expected-usd`, `--wall-cap-secs`, `--poll-secs`, `--grace-secs` and `--progress-poll-secs` were parsed with `float()`, which also takes
