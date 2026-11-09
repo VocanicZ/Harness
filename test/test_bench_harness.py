@@ -41,8 +41,10 @@ with open(os.path.join(d, "engine.jsonl"), "a") as f:
     f.write(json.dumps({"args": argv, "state_dir": state, "cwd": os.getcwd(), "env": env}) + "\n")
 cmd = argv[0] if argv else ""
 board = os.environ["FAKE_GH_HOME"]
-def put(name, data):
-    with open(os.path.join(board, name), "w") as f: json.dump(data, f)
+def put(name, data):   # atomic (#814): the fake gh `cat`s these while they are rewritten, never a torn file
+    tmp = os.path.join(board, ".%s.%d.tmp" % (name, os.getpid()))
+    with open(tmp, "w") as f: json.dump(data, f)
+    os.replace(tmp, os.path.join(board, name))
 if cmd == "init":
     os.makedirs(os.path.join(state, "run"), exist_ok=True)
     with open(os.path.join(state, "config"), "w") as f:
@@ -134,7 +136,9 @@ with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "a") as t:
                         "message": {"id": "front%d" % n, "model": "claude-opus-5-5",
                                     "usage": {"input_tokens": 100, "output_tokens": 1000}, "content": []}}) + "\n")
 if action.startswith("start"):   # start, start-error, start-restart
-    with open(os.path.join(os.environ["FAKE_GH_HOME"], "prds.json"), "w") as f: json.dump([{"number": 1, "state": "OPEN"}], f)
+    tmp = os.path.join(os.environ["FAKE_GH_HOME"], ".prds.json.%d.tmp" % os.getpid())   # atomic (#814), as put() above
+    with open(tmp, "w") as f: json.dump([{"number": 1, "state": "OPEN"}], f)
+    os.replace(tmp, os.path.join(os.environ["FAKE_GH_HOME"], "prds.json"))
     def sh(*args):   # a Bash call of the front-door session: in the stream as a tool_use, then run for real
         print(json.dumps({"type": "assistant", "session_id": sid, "message": {"content": [
             {"type": "tool_use", "name": "Bash", "input": {"command": "harness " + " ".join(args) + " 2>&1 | tail -5"}}]}}), flush=True)
@@ -571,6 +575,44 @@ def test_harness_3_delegates_to_the_harness_arm_with_three_workers_unless_told_o
     assert h3.run(Ctx({})) == "ran" and seen[-1] == {"workers": "3"}
     h3.run(Ctx({"workers": "2"}))
     assert seen[-1] == {"workers": "2"}, "an explicit --workers wins"
+
+
+def _board_put_is_atomic(script, label):
+    """#814: the fake gh `cat`s a board file while the fake rewrites it; an in-place write ("w" truncates, then
+    fills) lets a reader see an empty or torn file. Run the fake's own put() against a reader and demand every
+    read parses."""
+    import re, threading
+    m = re.search(r"^def put\(name, data\):.*\n(?:    .*\n)+", script, re.M)
+    assert m, label + ": no put() in the fake"
+    d = __import__('tempfile').mkdtemp()
+    ns = {"json": json, "os": os, "board": d}
+    exec(m.group(0), ns)
+    put, stop, bad = ns["put"], threading.Event(), []
+    put("prds.json", [{"number": 1, "state": "OPEN"}])
+    def reader():
+        p = os.path.join(d, "prds.json")
+        while not stop.is_set():
+            try:
+                with open(p) as f: s = f.read()
+                json.loads(s)
+            except ValueError as e: bad.append(repr(s)); return
+    ts = [threading.Thread(target=reader) for _ in range(3)]
+    for t in ts: t.start()
+    try:
+        for i in range(3000):
+            put("prds.json", [{"number": 1, "state": "CLOSED" if i % 2 else "OPEN"}])
+            if bad: break
+    finally:
+        stop.set()
+        for t in ts: t.join()
+        __import__('shutil').rmtree(d, ignore_errors=True)
+    assert not bad, label + ": a reader saw a torn board file: " + bad[0]
+
+
+def test_the_fake_harness_board_writes_are_atomic():
+    _board_put_is_atomic(FAKE_HARNESS, "FAKE_HARNESS")
+    # the fake claude rewrites prds.json too, outside put(): no direct truncating open of a board file left
+    assert not re.search(r'open\(.*"(prds|closed|prs)\.json".*"w"', FAKE_CLAUDE + FAKE_HARNESS), "in-place board write"
 
 
 if __name__ == "__main__":
