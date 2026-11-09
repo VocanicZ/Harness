@@ -367,11 +367,16 @@ for (acct, win), (pct, reset, at) in sorted(best.items()):
     print(f"{acct}\t{win}\t{pct}\t{reset}\t{int(at)}")
 PY
 }
-# usage_statusline_install <dir> — point a claude worktree's status line at usage-statusline.sh,
-# only when no statusLine is set there already.
-usage_statusline_install(){ local dir="$1"
+# usage_statusline_install <dir> [existing-only] — point a claude tree's status line at usage-statusline.sh.
+# The command names the stable engine link ($HARNESS_ENGINE_LINK, else $ENGINE_DIR), never a pinned release
+# dir a prune would delete (#695). A statusLine is written when none is set, or when Harness wrote it itself
+# (a `command` naming usage-statusline.sh) and it differs from the command we would write now; any other
+# statusLine is the user's and is left alone. The file is written only on a change. With existing-only a
+# missing settings file is not created (healing a base checkout that has none needs nothing).
+usage_statusline_install(){ local dir="$1" only="${2:-}" link="${HARNESS_ENGINE_LINK:-$ENGINE_DIR}"
+  [[ "$only" == existing-only && ! -f "$dir/.claude/settings.local.json" ]] && return 0
   mkdir -p "$dir/.claude" "$(_usage_dir)"
-  F="$dir/.claude/settings.local.json" CMD="bash '$ENGINE_DIR/scripts/usage-statusline.sh' '$(_usage_dir)'" python3 - <<'PY'
+  F="$dir/.claude/settings.local.json" CMD="bash '$link/scripts/usage-statusline.sh' '$(_usage_dir)'" python3 - <<'PY'
 import json, os, tempfile
 f = os.environ["F"]
 try:
@@ -381,7 +386,9 @@ try:
         data = {}
 except (FileNotFoundError, ValueError):
     data = {}
-if "statusLine" not in data:
+cur = data.get("statusLine")
+ours = isinstance(cur, dict) and isinstance(cur.get("command"), str) and "usage-statusline.sh" in cur["command"]
+if "statusLine" not in data or (ours and cur["command"] != os.environ["CMD"]):
     data["statusLine"] = {"type": "command", "command": os.environ["CMD"]}
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".settings.harness.")
     with os.fdopen(fd, "w") as fh:
@@ -389,7 +396,15 @@ if "statusLine" not in data:
     os.replace(tmp, f)
 PY
 }
-claude_usage_setup(){ usage_statusline_install "$1"; }
+# usage_statusline_heal_checkout <dir> — Claude Code applies a base checkout's settings.local.json statusLine to
+# its worktrees, and an ordinary lane only ever launches in a worktree, so heal the checkout (under
+# $CHECKOUTS_DIR) of a git worktree <dir> too — existing file only, Harness-owned statusLine only (#695).
+usage_statusline_heal_checkout(){ local common main
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  main="$(dirname "$common")"
+  [[ -n "${CHECKOUTS_DIR:-}" && "$main" == "$CHECKOUTS_DIR"/* && "$main" != "$1" && "$main" != "$PROJECT_ROOT" ]] || return 0
+  usage_statusline_install "$main" existing-only; }
+claude_usage_setup(){ usage_statusline_install "$1"; usage_statusline_heal_checkout "$1" || true; }
 
 # --- prerequisites ------------------------------------------------------------------------------
 # The binary, plus the plugin every lane needs: ralph-loop (the goal loop's Stop hook). Not superpowers:
