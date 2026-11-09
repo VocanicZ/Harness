@@ -41,7 +41,7 @@ INVALID: bench/figures.py marks it "invalid: rerun" and run.py says so on stderr
 line and branch coverage, subprocesses counted (bench/testcov.py), is recorded as `coverage`.
 Stdlib only; reuses scripts/forecast.py and scripts/stats.py.
 """
-import argparse, glob, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, threading, time
+import argparse, glob, importlib.util, json, math, os, re, shutil, subprocess, sys, tempfile, threading, time
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -110,6 +110,36 @@ def _num(v, default=None):
         return default
 
 
+def _finite(v):
+    return isinstance(v, (int, float)) and math.isfinite(v)
+
+
+def _usd_arg(text):
+    """argparse type for a dollar amount: a finite number, zero or more. nan, inf, a negative and a word are
+    usage errors (exit 2), never a budget the guard's comparisons let through (#709)."""
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not math.isfinite(v) or v < 0:
+        raise argparse.ArgumentTypeError(f"{text!r} must be a finite number, zero or more")
+    return v
+
+
+def _env_num(name, default, hi=None):
+    """(value, problem) of a numeric env knob the guard reads. Unset or empty is the default. Anything else must
+    be a finite number from 0 up to `hi`; if not, the default stands in and `problem` says why: the guard
+    refuses on it, so a typo can neither open nor silently loosen the gate (#709)."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default, None
+    v = _num(raw)
+    if v is None or not math.isfinite(v) or v < 0 or (hi is not None and v > hi):
+        want = "a finite number from 0 to " + format(hi, "g") if hi is not None else "a finite number, zero or more"
+        return default, f"{name}={raw!r} is not valid: it must be {want}"
+    return v, None
+
+
 # --- guard ---------------------------------------------------------------------
 def run_dir(override=None):
     if override:
@@ -149,7 +179,7 @@ def usage_readings():
     out = []
     for line in p.stdout.removeprefix("﻿").splitlines():   # #678: a leading BOM is not part of the account name
         f = line.split("\t")
-        if len(f) >= 3 and f[0] and _num(f[2]) is not None:
+        if len(f) >= 3 and f[0] and _finite(_num(f[2])):   # nan/inf is no reading (#709)
             out.append((f[0], f[1], _num(f[2]), f[3] if len(f) > 3 else ""))
     return out
 
@@ -176,7 +206,7 @@ def usd_per_pct(fc, events, account):
 
 
 # why a guard refuses; a skipped optional arm records exactly the causes it was refused on (#577)
-CAUSES = ("disk", "held", "no-usage-reading", "no-calibration", "budget", "no-delete-repo")
+CAUSES = ("disk", "held", "no-usage-reading", "no-calibration", "budget", "no-delete-repo", "bad-setting")
 
 
 def disk_free(paths=None):
@@ -217,13 +247,17 @@ def gh_scopes():
 
 def guard(a, fc, st):
     """{"ok", "reasons", ...the numbers}: whether a run may start. Spends nothing."""
-    stop = _num(os.environ.get("HARNESS_ONE_STOP_PCT"), 98.0)
-    reserve = _num(os.environ.get("HARNESS_ONE_RESERVE_PCT"), 2.0)
+    stop, bad_stop = _env_num("HARNESS_ONE_STOP_PCT", 98.0, hi=100)
+    reserve, bad_reserve = _env_num("HARNESS_ONE_RESERVE_PCT", 2.0, hi=100)
+    min_gb, bad_gb = _env_num("BENCH_MIN_FREE_GB", 4.0)
     expected = a.expected_usd if a.expected_usd is not None else a.cost_cap_usd
-    min_gb = _num(os.environ.get("BENCH_MIN_FREE_GB"), 4.0)
     d = {"ok": True, "reasons": [], "causes": [], "held": [], "expected_usd": expected, "stop_pct": stop,
          "reserve_pct": reserve, "usd_per_pct": None, "usd_per_pct_source": "none", "windows": [],
          "min_free_gb": min_gb, "disk": disk_free(), "gh_scopes": gh_scopes()}
+    for bad in (bad_stop, bad_reserve, bad_gb):
+        if bad:
+            d["reasons"].append(bad)
+            d["causes"].append("bad-setting")
     if d["gh_scopes"] is not None and "delete_repo" not in d["gh_scopes"]:
         d["reasons"].append("the gh token lacks the delete_repo scope (scopes: " + (", ".join(d["gh_scopes"]) or "none")
                             + "): a run could not delete its repo afterwards. Run: gh auth refresh -s delete_repo")
@@ -247,7 +281,7 @@ def guard(a, fc, st):
         events = st.load_events(a.events)
         per, src = usd_per_pct(fc, events, run_account())
         d["usd_per_pct"], d["usd_per_pct_source"] = per, src
-        if not per:
+        if not per or not _finite(per) or per < 0:
             d["reasons"].append("no $ per 1% (no calibration in the event log and HARNESS_ONE_USD_PER_PCT "
                                 "unset): cannot turn the expected spend into a % of the window")
             d["causes"].append("no-calibration")
@@ -723,7 +757,7 @@ def parse_args(argv):
     ap.add_argument("--arm-opt", action="append", default=[], metavar="K=V", help="passed to the arm as ctx.opts")
     ap.add_argument("--optional", action="store_true",
                     help="an optional arm: when the guard refuses, record `skipped: <cause>` (the cause(s) the guard "
-                         "refused on: disk, held, no-usage-reading, no-calibration, budget; with its numbers) as <arm>.json and exit 0, instead of refusing")
+                         "refused on: disk, held, no-usage-reading, no-calibration, budget, no-delete-repo, bad-setting; with its numbers) as <arm>.json and exit 0, instead of refusing")
     ap.add_argument("--workers", type=int, default=None, metavar="N",
                     help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
     ap.add_argument("--fixture", default=fixtures().DEFAULT, choices=fixtures().names(),
@@ -732,8 +766,8 @@ def parse_args(argv):
     ap.add_argument("--progress-poll-secs", type=float, default=progresslib().POLL_S,
                     help="a fixture with milestones: how often the repo is graded while the arm works (default 300)")
     ap.add_argument("--wall-cap-secs", type=float, default=WALL_CAP_S)
-    ap.add_argument("--cost-cap-usd", type=float, default=COST_CAP_USD)
-    ap.add_argument("--expected-usd", type=float, default=None, help="expected spend for the guard (default: the cap)")
+    ap.add_argument("--cost-cap-usd", type=_usd_arg, default=COST_CAP_USD)
+    ap.add_argument("--expected-usd", type=_usd_arg, default=None, help="expected spend for the guard (default: the cap)")
     ap.add_argument("--run-dir", default=None, help="the fleet run dir holding usage-holds/ (default: $RUN_DIR)")
     ap.add_argument("--poll-secs", type=float, default=5.0)
     ap.add_argument("--grace-secs", type=float, default=30.0, help="how long a stopped arm has to return")

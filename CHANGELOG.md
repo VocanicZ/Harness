@@ -4,6 +4,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The bench usage guard refuses negative, `nan` and `inf` budgets instead of passing them (#709)
+
+- The guard only refused when `total > stop`, which is never true for `nan`, and a negative estimate lowers the total, so
+  `--expected-usd -50`, `--expected-usd nan`, `--cost-cap-usd nan` (the cost cap then never fired) and
+  `HARNESS_ONE_STOP_PCT=nan` all passed with exit 0 at a 97% window. Now `--expected-usd` and `--cost-cap-usd` accept only a
+  finite number of zero or more (anything else is a usage error, exit 2), and a set but non-finite or out-of-range
+  `HARNESS_ONE_STOP_PCT`, `HARNESS_ONE_RESERVE_PCT` or `BENCH_MIN_FREE_GB` refuses the run with a message naming it
+  (cause `bad-setting`). A `nan`/`inf` usage reading or `$ per 1%` no longer counts.
+
 ### `harness tier overlap` no longer says "the direct path is clear" when it could not check (#708)
 
 - A rate limit, an auth failure, a network error or a bad `-R` made every `gh` and `git` call in `overlap` look like "no
