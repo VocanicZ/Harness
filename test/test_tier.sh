@@ -119,6 +119,43 @@ out="$(dd "$T/missing.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "a missing tier.toml -> exit 2"
 assert_ok "…naming the file" grep -q "$T/missing.toml" <<<"$out"
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
+# a bad threshold value: a string, nan, inf, a negative and a zero where zero is meaningless -> exit 2 naming the key (#749)
+badval(){   # badval <section> <key> <toml-value> <label>
+  printf '[%s]\n%s = %s\n' "$1" "$2" "$3" > "$T/badval.toml"
+  out="$(dd "$T/badval.toml" 2>&1)"; rc=$?
+  assert_eq "$rc" 2 "$4: $2 = $3 -> exit 2"
+  assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
+  assert_ok "…naming the key" grep -q "$1.$2" <<<"$out"
+  assert_ok "…and the file" grep -q "$T/badval.toml" <<<"$out"
+  assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
+}
+badval direct max_criteria '"8"' "a string"
+badval direct max_criteria nan "nan"
+badval direct max_criteria inf "inf"
+badval direct max_criteria -inf "-inf"
+badval direct max_criteria -5 "a negative"
+badval direct max_subsystems 0 "zero"
+badval direct max_files 2.5 "a fraction"
+badval direct max_files true "a boolean"
+badval fleet min_pool 0 "zero"
+badval fleet min_criteria '"16"' "a string"
+badval fleet min_unattended_minutes nan "nan"
+badval estimate fleet_usd_base inf "inf"
+badval estimate direct_usd_base -0.5 "a negative"
+badval estimate direct_minutes_per_criterion '"1.5"' "a string"
+printf 'direct = 3\n' > "$T/badsec.toml"
+out="$(dd "$T/badsec.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "a section that is not a table -> exit 2"
+assert_ok "…naming the section and the file" grep -q "$T/badsec.toml: \[direct\]" <<<"$out"
+assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
+out="$(HARNESS_TIER_TOML="$T/badval.toml" H tier thresholds 2>&1)"; rc=$?
+assert_eq "$rc" 2 "tier thresholds with a bad value -> exit 2 too"
+printf '[direct]\nmax_criteria = 8\nmax_files = 0.0\n[estimate]\ndirect_usd_base = 0\n' > "$T/okval.toml"
+out="$(dd "$T/okval.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "0.0 is zero too"
+printf '[direct]\nmax_criteria = 8\nmax_files = 12.0\n[estimate]\ndirect_usd_base = 0\n' > "$T/okval.toml"
+out="$(dd "$T/okval.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 0 "a whole-number float and a zero base amount are fine"
 assert_no "no prompt repeats a threshold number outside the file" \
   grep -rnE 'max_changed_lines|max_criteria' "$ROOT/skill" "$ROOT/prompts"
 

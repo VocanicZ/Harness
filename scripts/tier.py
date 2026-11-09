@@ -25,7 +25,7 @@ if the direct fix would touch any of them, 0 if none (go ahead). gh and git are 
 call it needs fails, it exits 3 with the failed command on stderr (`--json`: an `error` field, `overlap`
 null) — "could not check" is never reported as clear.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, json, math, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOML = os.environ.get("HARNESS_TIER_TOML") or os.path.join(HERE, "tier.toml")
@@ -50,7 +50,12 @@ def _parse(text):
             k, _, v = line.partition("=")
             if sec is not None and v.strip():
                 v = v.strip()
-                sec[k.strip()] = float(v) if "." in v else int(v)
+                if v[:1] in "\"'":   # a quoted string: kept as one, so the value check below names the key
+                    sec[k.strip()] = v.strip("\"'")
+                elif v.lower().lstrip("+-") in ("nan", "inf"):
+                    sec[k.strip()] = float(v)
+                else:
+                    sec[k.strip()] = float(v) if "." in v else int(v)
         return out
 
 
@@ -75,10 +80,46 @@ def _read(path):
         raise TierConfigError(f"{path}: cannot parse it: {e}")
 
 
+# Every threshold tier.py reads: (section, key) -> "count" (an integer >= 1: a limit of 0 would be crossed by
+# every piece of work, or never) or "amount" (a finite number >= 0: a time or a price, where 0 is a fair base).
+COUNTS = {"direct": ("max_criteria", "max_changed_lines", "max_files", "max_subsystems", "max_unattended_minutes"),
+          "fleet": ("min_criteria", "min_subsystems", "min_workstreams", "min_pool", "min_unattended_minutes")}
+AMOUNTS = {"estimate": ("direct_minutes_base", "direct_minutes_per_criterion", "direct_usd_base",
+                        "direct_usd_per_criterion", "fleet_minutes_base", "fleet_minutes_per_criterion",
+                        "fleet_usd_base", "fleet_usd_per_criterion")}
+
+
+def _check(cfg, path):
+    """Raise TierConfigError naming `path` and the key if a threshold in `cfg` has the wrong type or range (#749)."""
+    for sec, keys, kind in [(s, k, "count") for s, k in COUNTS.items()] + [(s, k, "amount") for s, k in AMOUNTS.items()]:
+        vals = cfg.get(sec)
+        if vals is None:
+            continue
+        if not isinstance(vals, dict):
+            raise TierConfigError(f"{path}: [{sec}] must be a table of thresholds, not {vals!r}")
+        for key in keys:
+            if key not in vals:
+                continue
+            v = vals[key]
+            where = f"{path}: {sec}.{key} = {v!r}"
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise TierConfigError(f"{where} is not a number")
+            if isinstance(v, float) and not math.isfinite(v):
+                raise TierConfigError(f"{where} is not a finite number")
+            if kind == "count":
+                if isinstance(v, float) and not v.is_integer():
+                    raise TierConfigError(f"{where} is not a whole number")
+                if v < 1:
+                    raise TierConfigError(f"{where} must be 1 or more" if v == 0 else f"{where} is negative — it must be 1 or more")
+            elif v < 0:
+                raise TierConfigError(f"{where} is negative — it must be 0 or more")
+
+
 def load(path=None):
     """The thresholds in `path` (default tier.toml), each missing section or key filled from the shipped file."""
     path = path or TOML
     cfg = _read(path)
+    _check(cfg, path)
     if os.path.abspath(path) == DEFAULT_TOML:
         return cfg
     out = _read(DEFAULT_TOML)
