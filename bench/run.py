@@ -762,6 +762,10 @@ def main(argv=None):
     if a.runs < 1:
         print("bench: --runs must be at least 1", file=sys.stderr)
         return EXIT_USAGE
+    if a.run_id is not None and (not a.run_id or "/" in a.run_id or "\\" in a.run_id or ".." in a.run_id):
+        print(f"bench: bad --run-id {a.run_id!r} (must be non-empty, with no '/', '\\' or '..': it names a directory under --results-dir)",
+              file=sys.stderr)
+        return EXIT_USAGE
     if a.wall_cap_secs <= 0 or a.cost_cap_usd <= 0:
         print("bench: the caps must be positive", file=sys.stderr)
         return EXIT_USAGE

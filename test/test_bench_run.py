@@ -266,6 +266,16 @@ def test_unknown_arm_and_bad_options_are_usage_errors(e):
 
 
 @with_env()
+def test_a_run_id_that_would_leave_the_results_dir_is_a_usage_error_and_writes_nothing(e):   # #674
+    for bad in ("../escaped", "a/b", "a\\b", "..", "x..y", "/abs", ""):
+        for extra in ((), ("--optional",)):
+            p = e.run("stub", "--run-id=" + bad, *extra)
+            assert p.returncode == 2 and "--run-id" in p.stderr, (bad, extra, p.returncode, p.stderr)
+    assert not os.path.exists(os.path.join(e.d, "escaped")) and not os.path.exists(e.results), os.listdir(e.d)
+    assert e.calls() == []
+
+
+@with_env()
 def test_the_real_grader_scores_the_seeded_repo_zero(e):
     # nothing but the brief was seeded: the hidden tests all fail, and the grader does not crash
     p = e.run("stub", grader=False, extra_env={"BENCH_FUZZ_CASES": "20"})
