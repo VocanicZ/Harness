@@ -75,7 +75,7 @@ def test_list_price_per_model_and_cache_split():
     assert fc.raw_cost({"cache_creation_input_tokens": MTOK}, "claude-sonnet-5-5") == 2.5
     assert fc.raw_cost({"cache_creation_input_tokens": MTOK,
                         "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "claude-sonnet-5-5") == 4
-    assert fc.raw_cost({"output_tokens": MTOK}, "gpt-5-codex") == 20, "an unknown model prices as Opus"
+    assert fc.raw_cost({"output_tokens": MTOK}, "gpt-5-codex") == 75, "an unknown model prices at the dearest row"
     # the folded usage stats.py / a CLI adapter's usage_tsv writes (#188)
     assert fc.usage_cost({"claude-sonnet-5-5": {"input": MTOK, "output": MTOK, "cache_create": MTOK,
                                                 "cache_read": MTOK}}) == 2 + 10 + 2.5 + 0.2
@@ -91,16 +91,21 @@ def test_price_table_per_family_and_generation_pinned():
     `harness one` budget gate, `harness stats` and bench/run.py (#597)."""
     cur_opus, cur_sonnet = (4, 20, 5, 8, 0.2), (2, 10, 2.5, 4, 0.2)
     old_opus, old_sonnet = (5, 25, 6.25, 10, 0.5), (3, 15, 3.75, 6, 0.3)
+    opus4 = (15, 75, 18.75, 30, 1.5)   # Opus 4 / 4.1 and Claude 3 Opus list at $15 / $75 (#723)
     for m in ("claude-opus-5-5", "claude-opus-5", "claude-opus-6-0", "opus", "CLAUDE-OPUS-5-5"):
         assert fc.price(m) == cur_opus, m
     for m in ("claude-sonnet-5-5", "claude-sonnet-5", "sonnet", "claude-sonnet-5-5[1m]"):
         assert fc.price(m) == cur_sonnet, m
-    for m in ("claude-opus-4-1", "claude-opus-4-5-20251101", "claude-opus-4-20250514", "claude-3-opus-20240229"):
+    for m in ("claude-opus-4-5", "claude-opus-4-5-20251101", "claude-opus-4-6", "claude-opus-4-10"):
         assert fc.price(m) == old_opus, m
+    for m in ("claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-1-20250805", "claude-opus-4-20250514",
+              "claude-3-opus", "claude-3-opus-20240229", "CLAUDE-OPUS-4-1"):
+        assert fc.price(m) == opus4, m
     for m in ("claude-sonnet-4-5", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet"):
         assert fc.price(m) == old_sonnet, m
     assert fc.price("claude-haiku-5-5") == fc.price("claude-haiku-4-5") == (1, 5, 1.25, 2, 0.1)
-    assert fc.price(None) == fc.price("") == fc.price("gpt-5-codex") == cur_opus, "no family: conservative Opus"
+    assert fc.price(None) == fc.price("") == fc.price("gpt-5-codex") == opus4, "no family: the dearest row"
+    assert opus4 == max(fc.PRICE.values(), key=lambda r: r[1]), "the unknown-model fallback is the table's top row"
     # the invariant the prices follow: writes at 1.25x / 2x input
     for k, row in fc.PRICE.items():
         assert row[2] == row[0] * 1.25 and row[3] == row[0] * 2, k
@@ -214,7 +219,8 @@ def fixture(d):
                               msg(f"{sid}i", EDIT_SRC, out=OPUS_OUT * rest // 2),
                               msg(f"{sid}g", GATE, out=OPUS_OUT * (rest - rest // 2 - 1)), msg(f"{sid}s", SHIP)])
         evs += lane_events(W, n, sid, prd=3)
-    evs += lane_events(W, 5, "codex-5", usage={"gpt-5-codex": {"input": 0, "output": 10 * OPUS_OUT, "cache_create": 0,
+    # folded usage priced at $20/Mtok so the lane costs $10: an unknown model id would price at the dearest row (#723)
+    evs += lane_events(W, 5, "codex-5", usage={"claude-opus-5-5": {"input": 0, "output": 10 * OPUS_OUT, "cache_create": 0,
                                                                 "cache_read": 0}})
     evs += lane_events(W, 6, "s6")
     transcript(cfg, "s6", [msg("s6e", READ, out=400)])   # $0.01: died at turn 1

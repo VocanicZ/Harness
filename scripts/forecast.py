@@ -60,15 +60,21 @@ RESET_SLACK = 300        # two readings whose resets_at differ by more than this
 # $ per Mtok at list price: input, output, 5-minute cache write (1.25x input), 1-hour cache write (2x input),
 # cache read. Opus / Sonnet 4.x and older (the "-legacy" rows) keep their own, dearer prices; every other
 # Opus / Sonnet — the 5.x generation and anything newer or unversioned — takes the current row.
-# A model no family matches is priced as Opus — the conservative end, for a budget gate.
+# Opus 4, Opus 4.1 and Claude 3 Opus were listed at $15 / $75 ("opus-4"): the dearest row.
+# A model no family matches is priced at the most expensive row in the table (see `price`) — the
+# conservative end, for a budget gate.
 PRICE = {
     "opus": (4, 20, 5, 8, 0.2), "sonnet": (2, 10, 2.5, 4, 0.2), "haiku": (1, 5, 1.25, 2, 0.1),
     "opus-legacy": (5, 25, 6.25, 10, 0.5), "sonnet-legacy": (3, 15, 3.75, 6, 0.3),
+    "opus-4": (15, 75, 18.75, 30, 1.5),
 }
 # The major version in a Claude model id: "claude-opus-4-1" / "claude-sonnet-5-5" (family first), or the
 # older "claude-3-opus-20240229" / "claude-3-5-sonnet" (version first).
 _GEN = re.compile(r"(?:opus|sonnet)-(\d+)|claude-(\d+)(?:-\d+)?-(?:opus|sonnet)")
 FIRST_CURRENT_GEN = 5
+# The Opus ids listed at $15 / $75: "claude-3-opus*", and Opus 4 / 4.1 — "claude-opus-4-0", "claude-opus-4-1",
+# the dated "claude-opus-4-20250514" (no minor version). Opus 4.5 and later ("claude-opus-4-5") are not.
+_OPUS_DEAR = re.compile(r"claude-3-opus|opus-4(?:[-.]([01]))?(?![\d.])(?!-\d{1,2}(?!\d))")
 
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
@@ -81,7 +87,11 @@ SHIP_CMD = re.compile(r"\b(gh pr|git push|gh issue (close|edit|comment))\b")
 
 def price(model):
     m = (model or "").lower()
-    fam = next((k for k in ("opus", "sonnet", "haiku") if k in m), "opus")
+    fam = next((k for k in ("opus", "sonnet", "haiku") if k in m), None)
+    if fam is None:
+        return max(PRICE.values(), key=lambda r: (r[1], r[0]))
+    if fam == "opus" and _OPUS_DEAR.search(m):
+        return PRICE["opus-4"]
     g = _GEN.search(m)
     gen = int(g.group(1) or g.group(2)) if g else FIRST_CURRENT_GEN
     if fam != "haiku" and gen < FIRST_CURRENT_GEN:
