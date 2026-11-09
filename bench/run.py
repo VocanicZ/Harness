@@ -147,7 +147,7 @@ def usage_readings():
     if p.returncode != 0:
         return []
     out = []
-    for line in p.stdout.splitlines():
+    for line in p.stdout.removeprefix("﻿").splitlines():   # #678: a leading BOM is not part of the account name
         f = line.split("\t")
         if len(f) >= 3 and f[0] and _num(f[2]) is not None:
             out.append((f[0], f[1], _num(f[2]), f[3] if len(f) > 3 else ""))

@@ -854,3 +854,19 @@ def test_the_ttl_measures_aggregate_and_the_bench_fleet_env_carries_the_setting(
     spec = importlib.util.spec_from_file_location("bench_arm_h615", os.path.join(ROOT, "bench", "arms", "harness.py"))
     assert "HARNESS_CACHE_TTL" in [l for l in open(spec.origin) if l.startswith("PASS_ENV")][0]
 
+
+
+def test_usage_output_that_starts_with_a_bom_reads_the_same_account_and_usage():   # #678
+    saved = os.environ.get("HARNESS_USAGE_CMD")
+    try:
+        got = {}
+        for name, bom in (("plain", ""), ("bom", "\\357\\273\\277")):
+            os.environ["HARNESS_USAGE_CMD"] = "printf '%sdefault\\tseven_day\\t42\\t0\\r\\nother\\tfive_hour\\t7\\t0\\r\\n'" % bom
+            got[name] = bench_run.usage_readings()
+        assert got["plain"] == [("default", "seven_day", 42.0, "0"), ("other", "five_hour", 7.0, "0")], got
+        assert got["bom"] == got["plain"], got
+    finally:
+        if saved is None:
+            os.environ.pop("HARNESS_USAGE_CMD", None)
+        else:
+            os.environ["HARNESS_USAGE_CMD"] = saved
