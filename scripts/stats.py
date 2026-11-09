@@ -465,20 +465,32 @@ def fold_session_end(into, end):
     return add_usage(into, usage) if end.get("resumed") else add_usage({}, usage)
 
 
+def parse_event_line(line):
+    """One events.jsonl line as a dict, or None when it is blank, torn or not a JSON object. The one reader
+    both load_events and logged_session_usage share (#752): a UTF-8 BOM (a Windows editor's save) is stripped
+    (#672), and the parse is non-strict so a raw control character (form feed, tab, VT) inside a field
+    value is accepted (#673)."""
+    line = line.lstrip("\ufeff")
+    if not line.strip():
+        return None
+    try:
+        r = json.loads(line, strict=False)
+    except ValueError:
+        return None
+    return r if isinstance(r, dict) else None
+
+
 def logged_session_usage(session, path=None):
     """What the event log's session_ends for claude session <session> already report, folded as
     sessions() folds them; None when it has none."""
     acc = None
     try:
-        with open(path or events_path()) as fh:
+        with open(path or events_path(), encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if session not in line:
                     continue
-                try:
-                    e = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(e, dict) and e.get("event") == "session_end" and e.get("session") == session:
+                e = parse_event_line(line)
+                if e and e.get("event") == "session_end" and e.get("session") == session:
                     acc = fold_session_end(acc or {}, e)
     except OSError:
         pass
@@ -668,14 +680,10 @@ def load_events(path=None, skipped=None):
     try:
         with open(path or events_path(), encoding="utf-8", errors="replace") as fh:
             for line in fh:
-                line = line.lstrip("\ufeff")
-                if not line.strip():
+                if not line.lstrip("\ufeff").strip():
                     continue
-                try:
-                    r = json.loads(line, strict=False)
-                except ValueError:
-                    r = None
-                if isinstance(r, dict):
+                r = parse_event_line(line)
+                if r is not None:
                     out.append(r)
                 elif skipped is not None:
                     skipped[0] += 1
