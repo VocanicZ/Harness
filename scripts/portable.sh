@@ -268,6 +268,9 @@ new_uuid(){ local u
   [[ -n $u ]] && printf '%s\n' "$u"; }
 # native_path <path> — the form a native Windows program reads (`cygpath -m`: C:/…); unchanged on POSIX.
 native_path(){ if is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+# posix_path <path> — the form bash and `case` patterns compare (`cygpath -u`: /c/…); unchanged on POSIX. A native program
+# (git.exe, gh.exe) prints C:/…, which no /c/… pattern, prefix test or `/*` check matches (#609).
+posix_path(){ if is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s\n' "$1"; fi; }
 # export_native_paths [VAR…] — on Windows, rewrite each EXPORTED path variable (default: the list
 # below) in mixed form. MSYS converts argv for native programs (python.exe, gh.exe, claude.exe) but not
 # arbitrary environment variables, so a path they read from the environment must already be in their

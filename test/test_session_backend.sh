@@ -147,7 +147,7 @@ import session_backend as sb, fleetview as fv
 calls = []
 # A tmux server answers s1, the headless lane probe (headless.sh headless_lane_rows) h1.
 fv.run_cmd = lambda argv, timeout=20: (calls.append(argv), (0, "s1\t100\n" if argv[0] == "tmux" else "h1\t200\n"))[1]
-print(sb.backend(), sb.capture_argv("s1") is not None, sorted(fv.host_sessions()), [a[0] for a in calls], sb.attach_hint("s1"))
+print(sb.backend(), sb.capture_argv("s1") is not None, sorted(fv.host_sessions()), [os.path.basename(a[0]).split(".")[0] for a in calls], sb.attach_hint("s1"))   # bash, whatever its path or .exe (#609)
 PY
 }
 # #352: the host views (fleetview, harness web) are every fleet's, and fleets on one host may run on

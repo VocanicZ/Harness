@@ -12,6 +12,9 @@ so a lane is live here exactly when the engine's sess_live says so; its screen i
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import portable  # noqa: E402  #609: bash_exe — the bash to run the headless probes with
+
 BACKENDS = ("tmux", "headless")
 
 
@@ -34,7 +37,7 @@ def lane_rows_argv():
     """Prints `<name>\\t<created epoch>\\t<runner pid>\\t<state>` per live headless lane
     (headless.sh headless_lane_rows): every headless probe below is this one command, so a caller that
     wants several columns runs it once (fleetview.host_probe)."""
-    return ["bash", "-c", 'source "$1" && HARNESS_SESSION_BACKEND=headless headless_lane_rows',
+    return [portable.bash_exe(), "-c", 'source "$1" && HARNESS_SESSION_BACKEND=headless headless_lane_rows',
             "_", SESSION_DISPATCH]
 
 

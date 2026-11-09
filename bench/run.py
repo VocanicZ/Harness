@@ -137,8 +137,9 @@ def usage_readings():
     """[(account, window, pct, resets_at)] from the fleet's usage seam: HARNESS_USAGE_CMD if set, else
     the CLI adapter's cli_limit_usage. [] when usage is unavailable."""
     cmd = os.environ.get("HARNESS_USAGE_CMD")
-    argv = ["bash", "-c", cmd] if cmd else [
-        "bash", "-c", 'source "$1/lib.sh" >/dev/null 2>&1 && cli_limit_usage', "bench-usage", SCRIPTS]
+    bash = _load("portable").bash_exe()   # #609: not the bare name — on Windows that is WSL's bash
+    argv = [bash, "-c", cmd] if cmd else [
+        bash, "-c", 'source "$1/lib.sh" >/dev/null 2>&1 && cli_limit_usage', "bench-usage", SCRIPTS]
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):

@@ -28,6 +28,12 @@ def is_windows():
     return sys.platform == "win32"
 
 
+def bash_exe():
+    """The bash the engine's Python runs scripts with (#609): HARNESS_BASH, else the first `bash` on PATH. Never the bare name
+    "bash": CreateProcess looks in System32 before PATH, and there `bash` is WSL's launcher (a Linux userland, no Harness)."""
+    return os.environ.get("HARNESS_BASH") or shutil.which("bash") or "bash"
+
+
 def winpid_of(pid):
     """The Windows pid behind an MSYS pid, or None when MSYS no longer knows it."""
     root = os.environ.get("HARNESS_PROC_ROOT")
@@ -37,9 +43,7 @@ def winpid_of(pid):
                 return int(fh.read().strip())
         except (OSError, ValueError):
             return None
-    bash = os.environ.get("HARNESS_BASH") or shutil.which("bash")
-    if not bash:
-        return None
+    bash = bash_exe()
     try:
         out = subprocess.run([bash, "-c", 'cat "/proc/$1/winpid"', "_", str(pid)],
                              capture_output=True, text=True, timeout=10).stdout.strip()

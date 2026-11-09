@@ -306,7 +306,7 @@ def test_headless_lanes_are_listed_with_model_and_state_beside_tmux_sessions():
         assert sb.list_created_argv("headless") == sb.pane_pids_argv("headless") == sb.states_argv("headless")
         calls = []
         real = fv.run_cmd
-        fv.run_cmd = lambda argv, timeout=20: (calls.append(argv[0]), real(argv))[1]
+        fv.run_cmd = lambda argv, timeout=20: (calls.append(os.path.basename(argv[0]).split(".")[0]), real(argv))[1]   # bash is a full path now (#609)
         assert fv.host_probe()[2] == {"alpha-main-i2": "busy"}
         assert calls.count("bash") == 1, calls   # one lane-rows call serves sessions, models and states
         fv.run_cmd = real

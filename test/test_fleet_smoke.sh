@@ -67,9 +67,11 @@ EOF
 
 # run_smoke [env…] — the script against the current stubs; sets RC and OUT (its log).
 run_smoke(){ run_smoke_cli codex "$@"; }
+# SMOKE_PLATFORM=posix first (#609): the smoke picks its platform from `uname -s`, so on a Windows host the tmux flows below would
+# run as the Windows (headless, doctor) flow; the cases that want Windows pass SMOKE_PLATFORM=windows after it, and the last wins.
 run_smoke_cli(){ local cli="$1"; shift; OUT="$D/smoke.log"
   env PATH="$D/bin:$PATH" SMOKE_HARNESS="$D/bin/harness" SMOKE_REMOTE="$D/remote.git" SMOKE_LOG="$OUT" \
-      SMOKE_POLL=0 TMPDIR="$D" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t \
+      SMOKE_POLL=0 SMOKE_PLATFORM=posix TMPDIR="$D" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t \
       "$@" bash "$SMOKE" "$cli" >/dev/null 2>&1; RC=$?; }
 
 # fake_lane <name> — a live headless lane on the host's lane root as the smoke sees it ($HOME=$D):

@@ -83,7 +83,7 @@ CRLF_PY="$RUN_DIR/crlf-bin"; mkdir -p "$CRLF_PY"
 cat > "$CRLF_PY/python3" <<'PYEOF'
 #!/usr/bin/env bash
 # fake native-Windows python: run the real one, end every output line with CRLF
-out="$(/usr/bin/env -i PATH="$ORIG_PATH" python3 "$@")" || exit $?
+out="$(PATH="$ORIG_PATH" python3 "$@")" || exit $?   # not `env -i`: a native Windows python will not start without SYSTEMROOT (#609)
 while IFS= read -r l; do printf '%s\r\n' "$l"; done <<<"$out"
 PYEOF
 chmod +x "$CRLF_PY/python3"

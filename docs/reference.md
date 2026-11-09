@@ -603,7 +603,8 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
   on its checkout and every lane worktree), never `--global` or `--system`. It makes every link it creates a real
   symlink (`MSYS=winsymlinks:nativestrict`; enable Developer Mode or run as an administrator), writes
   a `python3` shim in `$HARNESS_HOME/bin` (the `python3` on a stock host's PATH is the Microsoft Store
-  stub) that runs `HARNESS_PYTHON` (default: the first of `python3`, `python`, `py -3` that runs), and
+  stub) that runs `HARNESS_PYTHON` (default: the first of `python3`, `python`, `py -3` that runs) with a `pylf/sitecustomize.py`
+  on `PYTHONPATH` so its stdout and stderr end lines with LF, not the CRLF a native Windows Python writes (#609), and
   a `harness.cmd` next to the `harness` link that runs it through Git's `bash.exe` by path (the
   `bash.exe` on the cmd PATH is WSL's). `harness update` rewrites the shim. `.gitattributes` keeps a
   git-checkout engine LF under Git's default `core.autocrlf=true`.

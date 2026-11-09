@@ -71,6 +71,7 @@ mkdir -p "$I/skills/to-prd"; : >"$I/skills/to-prd/SKILL.md"     # an unrelated s
 created_tasks="$(tasks)"
 assert_eq "$(wc -l <<<"$created_tasks")" 2 "the install registered the supervise and web tasks"
 assert_ok "the install wrote the python3 shim"                 test -x "$I/home/bin/python3"
+assert_ok "… and its LF-stdio sitecustomize (#609)"            test -f "$I/home/bin/pylf/sitecustomize.py"
 assert_ok "… and harness.cmd"                                  test -f "$I/bin/harness.cmd"
 assert_ok "… and the task launchers"                           test -n "$(ls "$I"/home/tasks/*.sh 2>/dev/null)"
 before="$(snapshot "$I/home" "$I/bin" "$I/skills")"
@@ -82,6 +83,7 @@ assert_no "the engine is gone"                                 test -e "$I/home/
 assert_no "harness is gone from the bin dir"                   test -e "$I/bin/harness" -o -L "$I/bin/harness"
 assert_no "harness.cmd is gone"                                test -e "$I/bin/harness.cmd"
 assert_no "the python3 shim is gone"                           test -e "$I/home/bin/python3"
+assert_no "… and the sitecustomize beside it (#609)"           test -e "$I/home/bin/pylf"
 assert_no "the task launchers are gone"                        test -e "$I/home/tasks"
 assert_no "the poller dir is gone"                             test -e "$I/home/poller"
 assert_no "the poller process is gone"                         kill -0 "$POLLER_SLEEP" 2>/dev/null

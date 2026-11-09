@@ -20,7 +20,7 @@ gh(){
   local q="" a
   case "$1 $2" in "api user") echo "Fleet-Bot"; return;; esac
   for a in "$@"; do [[ "$a" == comments ]] && { while (($#)); do [[ "$1" == -q ]] && { q="$2"; break; }; shift; done
-    jq -r "$q" "$FIXTURE"; return; }; done
+    jq -r "$q" "$FIXTURE" | tr -d '\r'; return; }; done   # #609: jq.exe ends lines CRLF, gh's own -q does not
   for a in "$@"; do [[ "$a" == labels* ]] && { echo '["agent-paused"]'; return; }; done
   return 0; }
 cat > "$FIXTURE" <<'EOF'

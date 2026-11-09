@@ -147,6 +147,19 @@ def main():
             check(portable.winpid_of(42) == 777, "[windows] winpid_of asks bash for /proc/<pid>/winpid")
             check(portable.winpid_of(43) is None, "[windows] … and gets None for a pid MSYS does not know")
 
+    # ---- bash_exe (#609): never the bare name when a bash can be found on PATH (on Windows the bare name is WSL's)
+    bindir = os.path.join(tmp, "bashbin"); os.makedirs(bindir)
+    onpath = os.path.join(bindir, "bash")
+    with open(onpath, "w") as fh:
+        fh.write("#!/bin/sh\n")
+    os.chmod(onpath, 0o755)
+    with env(HARNESS_BASH=None, PATH=bindir):
+        check(portable.bash_exe() == onpath, "bash_exe is the first bash on PATH, as a full path")
+    with env(HARNESS_BASH=fakebash, PATH=bindir):
+        check(portable.bash_exe() == fakebash, "… and HARNESS_BASH wins over PATH")
+    with env(HARNESS_BASH=None, PATH=os.path.join(tmp, "empty")):
+        check(portable.bash_exe() == "bash", "… and falls back to the bare name when there is none")
+
     # ---- lock_nb / unlock
     path = os.path.join(tmp, "events.jsonl")
     if REAL_WINDOWS:

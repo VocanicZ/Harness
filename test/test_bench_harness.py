@@ -91,7 +91,7 @@ elif cmd == "_worker":
 # PRD and runs `harness init` + `harness start` off PATH as the skill would; `start-error` does that and then
 # reports an error; `none` does nothing. Past the plan: `none|still going`.
 FAKE_CLAUDE = r'''#!/usr/bin/env python3
-import json, os, subprocess, sys
+import json, os, subprocess, sys, time
 d = os.environ["FAKE_CLAUDE_DIR"]
 argv = sys.argv[1:]
 cfg = os.environ["CLAUDE_CONFIG_DIR"]
@@ -125,6 +125,8 @@ print(json.dumps({"type": "system", "subtype": "init", "session_id": sid, "model
                   "skills": ["init", "review"] + (sorted(os.listdir(sk)) if os.path.isdir(sk) else []) + extra_skills,
                   "plugins": plugins + [{"name": "cc-plugin-telemetry", "path": "builtin", "source": "cc-plugin-telemetry@builtin"}],
                   "mcp_servers": [{"name": x} for x in os.environ.get("FAKE_MCP", "").split(",") if x]}), flush=True)
+if os.environ.get("FAKE_MCP"):   # #609: a leaked MCP server must end the session at its init; wait for the arm's terminate
+    time.sleep(60)   # instead of racing it to `harness init` (a loaded host lost that race one run in two)
 os.makedirs(os.path.join(cfg, "projects", "p"), exist_ok=True)
 with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "a") as t:
     t.write(json.dumps({"type": "assistant", "timestamp": "2026-11-04T10:00:0%dZ" % (n % 10),

@@ -32,7 +32,7 @@ gh(){
   case "$1 $2" in
     "api user") echo "Fleet-Bot";;
     "issue view") local q="" a; while (($#)); do [[ "$1" == -q ]] && { q="$2"; break; }; shift; done
-                  jq -r "$q" "$FIXTURE";;
+                  jq -r "$q" "$FIXTURE" | tr -d '\r';;  # #609: jq.exe ends lines CRLF, gh's own -q does not
   esac; }
 cat > "$FIXTURE" <<'EOF'
 {"comments":[
