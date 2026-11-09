@@ -243,6 +243,30 @@ def main():
     finally:
         wd.portable.pid_alive = real
 
+    # resolve_argv (#686): a native Windows subprocess finds what a shell would, in PATH order — a fake `gh` ahead of the real gh.exe
+    d = tempfile.mkdtemp(); d2 = tempfile.mkdtemp()
+    for dd, name, body in ((d, "gh", "#!/usr/bin/env bash\necho fake\n"), (d, "jq.CMD", ""), (d, "notes", "plain text\n"),
+                           (d2, "gh.EXE", ""), (d2, "jq.EXE", ""), (d2, "bash.EXE", "")):
+        with open(os.path.join(dd, name), "w") as fh:
+            fh.write(body)
+    saved = {k: os.environ.get(k) for k in ("PATH", "PATHEXT", "HARNESS_BASH")}
+    real_plat = portable.sys.platform
+    try:
+        os.environ.update({"PATH": os.pathsep.join([d, d2]), "PATHEXT": ".EXE;.CMD", "HARNESS_BASH": os.path.join(d2, "bash.EXE")})
+        portable.sys.platform = "win32"
+        check(portable.resolve_argv(["gh", "api", "x?a=1&b=2"]) == [os.path.join(d2, "bash.EXE"), os.path.join(d, "gh"), "api", "x?a=1&b=2"],
+              "resolve_argv: a bash script first on PATH runs under bash, ahead of the real gh.EXE after it")
+        check(portable.resolve_argv(["jq", "-r", "."]) == [os.path.join(d, "jq.CMD"), "-r", "."], "resolve_argv: a PATHEXT shim in an earlier dir wins")
+        check(portable.resolve_argv(["notes"]) == ["notes"] and portable.resolve_argv(["nosuch", "a"]) == ["nosuch", "a"],
+              "resolve_argv: no shebang / not on PATH is left as it was")
+        portable.sys.platform = "linux"
+        check(portable.resolve_argv(["gh", "x"]) == ["gh", "x"], "resolve_argv: POSIX argv is untouched")
+    finally:
+        portable.sys.platform = real_plat
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        shutil.rmtree(d, ignore_errors=True); shutil.rmtree(d2, ignore_errors=True)
+
     print(f"── {'FAILED' if fails else 'passed'} ({fails} failure(s))")
     return 1 if fails else 0
 

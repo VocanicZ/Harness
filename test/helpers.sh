@@ -38,17 +38,6 @@ native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cy
 # a test that forces HARNESS_PLATFORM=posix on Linux still has flock and fcntl; one that does it on winsma does not (#607).
 real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
 
-# stub_exe <script>… — chmod +x each stub; on a real Windows host also write <script>.cmd beside it (#686). A native program
-# (a Python subprocess.run(["gh", …])) cannot start an extensionless script: CreateProcess appends only `.exe`, so the REAL
-# gh.exe further down PATH answered instead of the fake. The .cmd shim hands the stub to Git's bash; the engine's Python finds
-# it through PATH and PATHEXT (portable.resolve_argv). Bash itself still runs the extensionless script.
-stub_exe(){ local f b
-  for f in "$@"; do chmod +x "$f"
-    real_windows_host || continue
-    b="$(cygpath -w "$(command -v bash)")"
-    printf '@"%s" "%%~dp0%s" %%*\r\n' "$b" "$(basename "$f")" > "$f.cmd"
-  done; }
-
 # skip_posix_branch <what> — for a cell that exercises the POSIX implementation of a primitive (flock, fcntl, a fd inherited
 # by a child, procps `ps -o`) forced with HARNESS_PLATFORM=posix. On a real Windows host that implementation cannot run
 # (Git Bash has no flock, Python no fcntl), and the Windows branch of the same primitive is asserted by the file's own

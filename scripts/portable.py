@@ -14,7 +14,7 @@ POSIX keeps what the engine did before: `os.kill(pid, 0)` and `fcntl.flock`. Win
 `msvcrt.locking` on byte 0. HARNESS_PLATFORM=windows forces the Windows paths (the suite runs them on
 Linux with fakes), HARNESS_PROC_ROOT points the /proc reads at a fake tree, and HARNESS_BASH names the
 bash that reads MSYS's /proc (default: the first `bash` on PATH)."""
-import os, shutil, subprocess, sys
+import os, re, shutil, subprocess, sys
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 STILL_ACTIVE = 259
@@ -28,15 +28,45 @@ def is_windows():
     return sys.platform == "win32"
 
 
+def _path_program(name):
+    """The first thing on PATH a shell would run as `name`, as (path, is_script): a PATHEXT match (gh.exe, gh.cmd) or, as Git
+    Bash does, an extensionless file that starts with a bash/sh shebang. None when nothing is."""
+    if os.path.dirname(name):
+        return None
+    exts = [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";") if e]
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d:
+            continue
+        for e in exts:
+            f = os.path.join(d, name + e)
+            if os.path.isfile(f):
+                return f, False
+        f = os.path.join(d, name)
+        if os.path.isfile(f):
+            try:
+                with open(f, "rb") as fh:
+                    head = fh.read(64)
+            except OSError:
+                continue
+            if re.match(rb"#!\s*(/usr/bin/env\s+)?(\S*/)?(ba)?sh\b", head):
+                return f, True
+    return None
+
+
 def resolve_argv(argv):
     """argv with its program resolved through PATH on native Windows, as a shell would (#607, #686). CreateProcess searches
-    System32 before PATH (so a bare `bash` is WSL's, not Git's) and appends only `.exe`, so a `gh.cmd` or `tmux.cmd` shim is
-    never found and the REAL gh.exe further down PATH answers instead. shutil.which follows PATH and PATHEXT. Elsewhere, and
-    for a program it cannot find, argv is returned as it was."""
+    System32 before PATH (so a bare `bash` is WSL's, not Git's) and appends only `.exe`, so a `gh.cmd` shim is never found, and
+    an extensionless bash script (a fake `gh` a test or a wrapper puts first on PATH) is never started: the REAL gh.exe further
+    down PATH answered instead. This walks PATH and PATHEXT in order and runs a bash/sh shebang script through Git's bash, as
+    Git Bash itself would (a .cmd shim is no way round it: cmd.exe splits an argument at its `&`). Elsewhere, and for a program
+    it cannot find, argv is returned as it was."""
     if sys.platform != "win32" or not argv:
         return argv
-    exe = shutil.which(argv[0])
-    return [exe, *argv[1:]] if exe else argv
+    found = _path_program(argv[0])
+    if not found:
+        return argv
+    exe, is_script = found
+    return [bash_exe(), exe, *argv[1:]] if is_script else [exe, *argv[1:]]
 
 
 def bash_exe():

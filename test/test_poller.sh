@@ -73,7 +73,7 @@ case "$sub" in
   *) exit 1;;
 esac
 STUB
-stub_exe "$GHBIN/gh"
+chmod +x "$GHBIN/gh"
 
 poller_register acme/widget 60 hz "$PA"
 poller_register acme/lib    60 hz "$PA"
