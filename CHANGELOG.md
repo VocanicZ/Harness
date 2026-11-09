@@ -119,14 +119,20 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `<session>.idleticks` is removed when a lane is reaped, ended on its goal, found dead by the watchdog, or launched, so a
   later session with the same name no longer inherits the idle count and passes the `DECOMPOSE` idle guard early.
 
-### Two pool workers no longer take the same issue on a Windows host (#684)
+### Two takers of one lock no longer both get it on a Windows host, so two pool workers no longer take the same issue (#684)
 
-- `start_lane` rewrote a lane's claim file (to add the pane pid) without `pool.lock`, while another worker's `claim_lane` reads the
-  claims under it to learn what is taken. On Linux a rename over a file is atomic, so a reader never saw the gap; on Windows (Git Bash)
-  it is not, and a claimer reading in the gap saw no claim, took the issue the first worker was starting, and its claim file overwrote
-  the first (two lane sessions, one owner: `test_pool_lanes.sh` § 1c failed about 1 run in 14 on winsma). The rewrite now holds
-  `pool.lock`, as `claim_lane` and `adopt_lanes` already did. The liveness checks (`is_claimed`'s `kill -0`, the lock owner's) were not at
-  fault. `test/test_pool_lanes.sh` § 1c2 asserts that every claim write holds the lock.
+- On Git Bash the lock is a `mkdir`'d directory (`scripts/portable.sh`). A taker whose `mkdir` failed asked `_mlock_stale` about the
+  holder's lock, but if the holder had released in the meantime the directory was gone, and a missing directory counted as stale.
+  The taker then "stole" it: it moved aside whatever lock stood there, which by then was the next taker's brand-new one (no owner
+  file yet, so indistinguishable from the one judged stale), deleted it and took its place. Two takers were inside `pool.lock`
+  together, both claimed the same issue, and the second claim file overwrote the first (`test_pool_lanes.sh` § 1c failed about 1
+  run in 14 on winsma). A lock that is gone is now simply taken by `mkdir`; a lock moved aside for a steal is judged stale again
+  and put back unless it is; and a taker whose owner file cannot be written (its directory was moved away) no longer believes it
+  holds the lock. The liveness checks (`is_claimed`'s `kill -0`, the owner's `proc_alive`) were not at fault.
+  `test/test_portable.sh` covers both races.
+- `start_lane` also rewrote a lane's claim file (to add the pane pid) without `pool.lock`. A rename over an existing file is not
+  atomic on Windows (a reader polling `[[ -f ]]` saw it missing in 6 of 1730 reads on winsma), so a claimer could read the gap as
+  "no claim". The rewrite now holds `pool.lock`, as `claim_lane` and `adopt_lanes` already did (`test_pool_lanes.sh` § 1c2).
 
 ### The short tend tick no longer waits for the poller's snapshot to see a closed issue (#667)
 

@@ -81,23 +81,27 @@ _mlock_stale(){ local d="$1" o m now
   [[ -d $d ]] || return 0
   m="$(stat -c %Y "$d" 2>/dev/null)" || return 1; now="$(date +%s)"
   (( now - m >= HARNESS_LOCK_STALE_S )); }
+# _mlock_own <dir> — write the owner file into a lock dir this process just made. rc 1 when the dir is gone, i.e. a
+# taker that judged the lock stale moved it away before the owner landed: the lock is not ours, so the caller must not
+# believe it holds it (#684: that was two takers inside the critical section at once).
+_mlock_own(){ local d="$1" me="$BASHPID"
+  printf '%s\t%s\t%s\n' "$me" "$(proc_winpid "$me")" "$(proc_cmdline "$me")" 2>/dev/null > "$d/.owner.$me" \
+    && mv -f "$d/.owner.$me" "$d/owner" 2>/dev/null; }
 _mlock_try(){ local f="$1" d="$1.d" me="$BASHPID" seen aside
-  if mkdir "$d" 2>/dev/null; then
-    printf '%s\t%s\t%s\n' "$me" "$(proc_winpid "$me")" "$(proc_cmdline "$me")" > "$d/.owner.$me" \
-      && mv -f "$d/.owner.$me" "$d/owner"
-    return 0
-  fi
+  if mkdir "$d" 2>/dev/null; then _mlock_own "$d"; return; fi
+  # #684: the holder may have released between the mkdir above and here. A lock that is GONE is free, not stale:
+  # `_mlock_stale` says "stale" for a missing dir, and the steal below would then move aside whatever lock the next taker
+  # has made in the meantime (it has no owner file yet, so it looks the same as the one judged stale) and take its place.
+  if [[ ! -d $d ]]; then mkdir "$d" 2>/dev/null || return 1; _mlock_own "$d"; return; fi
   _mlock_stale "$d" || return 1
   # Steal: rename the stale lock aside (atomic: of two waiters that both saw it stale, one moves it),
   # then check it IS the one judged stale — if a third taker re-made it in between, put it back.
   seen="$(_mlock_owner "$d")"; aside="$d.stale.$me"
   mv -T "$d" "$aside" 2>/dev/null || return 1
-  if [[ "$(_mlock_owner "$aside")" != "$seen" ]]; then mv -T "$aside" "$d" 2>/dev/null || rm -rf "$aside"; return 1; fi
+  if [[ "$(_mlock_owner "$aside")" != "$seen" ]] || ! _mlock_stale "$aside"; then mv -T "$aside" "$d" 2>/dev/null || rm -rf "$aside"; return 1; fi
   rm -rf "$aside"
   mkdir "$d" 2>/dev/null || return 1
-  printf '%s\t%s\t%s\n' "$me" "$(proc_winpid "$me")" "$(proc_cmdline "$me")" > "$d/.owner.$me" \
-    && mv -f "$d/.owner.$me" "$d/owner"
-  return 0; }
+  _mlock_own "$d"; }
 
 # ------------------------------------------------------------------------------------ processes ---
 # MSYS emulates /proc for its own processes (the engine's bash workers): cmdline, environ, ppid and

@@ -100,6 +100,40 @@ assert_no "[windows] a fresh owner-less lock is held (its taker is still writing
 touch -d '@1' "$L.d"
 assert_ok "[windows] an old owner-less lock is stolen" lock_try "$L" hx
 lock_release "$hx"
+# #684: two takers at once never both hold the lock. The holder releases between a taker's failed mkdir and its staleness
+# check; a lock that is gone is FREE (mkdir it), not "stale" (stealing then moved aside the next taker's brand-new lock — which
+# has no owner file yet, so it looked just like the one judged stale — and both ran the critical section: pool_lanes § 1c on winsma).
+real_stale_def="$(declare -f _mlock_stale)"; stale_calls=0
+mkdir(){ if [[ "${1:-}" == "$L.d" && -z "${mk_failed:-}" ]]; then mk_failed=1; return 1; fi; command mkdir "$@"; }
+eval "$(printf '%s\n' "$real_stale_def" | sed '1s/^_mlock_stale/_mlock_stale_real/')"
+_mlock_stale(){ stale_calls=$((stale_calls+1))
+  _mlock_stale_real "$@"; local rc=$?
+  if [[ -n "${third_taker:-}" && $stale_calls -eq 1 ]]; then command mkdir "$L.d"; fi   # the next taker makes its lock right after
+  return $rc; }
+third_taker=1; mk_failed=""; rm -rf "$L.d"
+lock_try "$L" hv; rc=$?
+assert_eq "$rc" "0" "[windows] a lock released since the failed mkdir is taken by mkdir"
+assert_eq "$stale_calls" "0" "[windows] ... without asking whether a lock that is gone is stale (nothing to steal)"
+assert_eq "$(cut -f1 "$L.d/owner")" "$$" "[windows] ... and it is ours, with its owner file"
+assert_eq "$(ls -d "$L".d.stale.* 2>/dev/null)" "" "[windows] ... leaving nothing aside"
+lock_release "$hv"
+# a lock judged stale, then replaced by the next taker's fresh one before the steal's rename: the rename moved the
+# fresh lock, and the old check (owner before == owner after, both empty) let the steal go on. It is put back instead.
+stale_calls=0; mk_failed=1; third_taker=""
+command mkdir -p "$L.d"; printf '999999999\t\tgone\n' > "$L.d/owner"
+_mlock_stale(){ stale_calls=$((stale_calls+1))
+  _mlock_stale_real "$@"; local rc=$?
+  if (( stale_calls == 1 )); then rm -rf "$L.d"; command mkdir "$L.d"; fi   # replaced right after the verdict
+  return $rc; }
+assert_no "[windows] a fresh lock that replaced the stale one before the steal is not stolen" lock_try "$L" hv
+assert_ok "[windows] ... it is still there" test -d "$L.d"
+assert_no "[windows] ... still ownerless: not ours" test -e "$L.d/owner"
+assert_eq "$(ls -d "$L".d.stale.* 2>/dev/null)" "" "[windows] ... and nothing is left aside"
+rm -rf "$L.d"
+unset -f mkdir _mlock_stale _mlock_stale_real; eval "$real_stale_def"
+# a taker whose lock dir was moved away before its owner file landed does not believe it holds the lock
+assert_no "[windows] _mlock_own on a lock dir that is gone is not a hold" _mlock_own "$L.d"
+
 # no flock anywhere on the Windows branch: run it with flock unavailable
 assert_ok "[windows] the lock works with no flock on PATH" bash -c "
   flock(){ echo FLOCK-CALLED >&2; return 99; }; export -f flock
