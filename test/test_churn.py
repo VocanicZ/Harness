@@ -56,6 +56,14 @@ check(trips([end(1, 0, kind="bug-triage"), end(2, 20), end(3, 40)]) == [], "a sh
 check(trips([end(1, 0), end(2, 20), end(3, 40, issue=7)]) == [], "another issue does not count")
 check(trips([end(1, 0), end(2, 20), end(3, 40, repo="acme/other")]) == [], "another repo does not count")
 check(trips([end(1, 0), end(2, 20), end(3, 40, checkpointed=1)]) == [], "a checkpointed session does not count")
+# #730: a lane launched on an issue that had just closed (stale board snapshot) is ended by its first goal check after 2-3 s
+gm = [end(i, i * 5, wall=3, kind="impl", issue=711, goal_met=1) for i in (1, 2, 3)]
+check(trips(gm) == [], "three young session_ends carrying goal_met do not trip (#730)")
+gs = [end(i, i * 5, wall=3, kind="impl", issue=711) for i in (1, 2, 3)]
+ev = gs + [{"ts": iso(T0 + i * 5 * 60), "event": "goal_satisfied", "session": f"sess-711-{i}", "issue": 711} for i in (1, 2, 3)]
+check(trips(ev) == [], "three young session_ends whose sessions each have a goal_satisfied event do not trip (#730)")
+check(trips(gs) == [(711, "impl")], "three young ones without either still trip")
+check(trips(gm[:2] + [end(3, 15, wall=3, kind="impl", issue=711)]) == [], "two goal-met and one plain young session are only one counted: no trip")
 for ev in ("watchdog_kill", "checkpoint", "paused"):
     log = three + [{"ts": iso(T0 + 19 * 60), "event": ev, "session": "sess-541-2", "issue": 541}]
     check(trips(log) == [], f"a session with a {ev} event does not count")

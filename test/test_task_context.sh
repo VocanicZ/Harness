@@ -97,7 +97,7 @@ echo "-- the task file, as prepare_impl renders it (stubbed gh)"
   assert_ok "the lint warning rides in the task file" grep -q "splitlines.*neither" "$F"
   nview="$(grep -c '^gh issue view 7 ' "$GHLOG")"
   assert_eq "$nview" 1 "ONE gh issue view for the issue (no extra call)"
-  assert_ok "the issue view asks for labels,title,body,comments" grep -q '^gh issue view 7 -R acme/widget --json labels,title,body,comments' "$GHLOG"
+  assert_ok "the issue view asks for state,labels,title,body,comments" grep -q '^gh issue view 7 -R acme/widget --json state,labels,title,body,comments' "$GHLOG"
   assert_no "no unrendered token left" grep -qE '{{(ORIGINAL_REQUEST|ISSUE_BLOCK|PRD_BLOCK|TASK_LINT)}}' "$F"
 
   git -C "$CHECKOUT" worktree remove --force "$WORKTREES_DIR/main-i7"
