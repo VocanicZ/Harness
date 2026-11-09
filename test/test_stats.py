@@ -512,6 +512,23 @@ def test_report_issue_and_prd_are_ascii_digits_only():
                     assert rc == 2 and out == "" and flag in err.getvalue() and repr(bad) in err.getvalue(), (argv, rc, out, err.getvalue())
 
 
+def test_report_issue_and_prd_over_long_number_is_a_one_line_usage_error():
+    """#880: 5000 digits (past int()'s 4300 limit) is a usage error naming the option, 'too large', a truncated echo."""
+    with host():
+        for flag in ("--issue", "--prd"):
+            for bad, word in (("9" * 5000, "too large"), ("0" * 5000 + "1", "too long")):
+                for argv in (["report", flag, bad], ["report", f"{flag}={bad}"]):
+                    err = io.StringIO()
+                    with contextlib.redirect_stderr(err):
+                        try:
+                            rc, out = run(argv)
+                        except SystemExit as e:
+                            rc, out = e.code, ""
+                    msg = err.getvalue()
+                    assert rc == 2 and out == "" and flag in msg and word in msg, (flag, word, rc, msg[:300])
+                    assert "invalid int_arg" not in msg and len(msg) < 400 and bad not in msg, (flag, len(msg))
+
+
 def test_report_since_is_ascii_digits_only():
     """#804: --since \uff17d (full-width) and \u0663h (Arabic-Indic) are a usage error (exit 2), not 7 days / 3 hours."""
     for bad in ("\uff17d", "\u0663h"):

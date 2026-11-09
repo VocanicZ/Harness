@@ -831,6 +831,19 @@ def test_runs_and_workers_are_ascii_digits_only(e):   # #784
 
 
 @with_env()
+def test_over_long_numbers_are_one_line_usage_errors(e):   # #880
+    cases = [(opt, bad, word) for opt in ("--runs", "--workers")
+             for bad, word in (("9" * 5000, "too large"), ("0" * 5000 + "1", "too long"))]
+    cases += [(opt, "9" * 5000, "too large") for opt in ("--cost-cap-usd", "--wall-cap-secs")]
+    for opt, bad, word in cases:
+        p = e.run("stub", "--dry-run", f"{opt}={bad}")
+        line = p.stderr.rstrip("\n").rsplit("\n", 1)[-1]   # argparse's one-line error, after the usage block
+        assert p.returncode == 2 and opt in line and word in line, (opt, word, p.returncode, p.stderr[-300:])
+        assert bad not in p.stderr and "invalid _int_arg" not in line and "finite number" not in line and len(line) < 200, (opt, len(line))
+    assert e.calls() == []
+
+
+@with_env()
 def test_runs_n_records_n_results_per_arm_plus_an_aggregate(e):
     p = e.run("stub", "--runs", "3", "--arm-opt", "cost=1,3,2", "--expected-usd", "5")
     assert p.returncode == 0, (p.stdout, p.stderr)

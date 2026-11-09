@@ -123,11 +123,25 @@ def _finite(v):
     return isinstance(v, (int, float)) and math.isfinite(v)
 
 
+INT_MAX_DIGITS = 1000   # a whole-number option longer than this is refused before int(), which itself refuses 4300+ digits
+
+
+def _short(text, keep=20):
+    """repr() of `text` for a usage error, cut to `keep` characters so a multi-KB input is never echoed (#880)."""
+    return repr(text) if len(text) <= keep else repr(text[:keep]) + "\u2026"
+
+
 def _int_arg(text):
     """argparse type for a whole-number option: ASCII decimal digits with an optional `-` sign. `1_1`, `+5` and
-    full-width digits are usage errors (exit 2), never a different number than the one typed (#784)."""
+    full-width digits are usage errors (exit 2), never a different number than the one typed (#784). More than
+    INT_MAX_DIGITS digits is one too, refused before int() (which raises past 4300) with a truncated echo (#880)."""
     if not re.fullmatch(r"-?[0-9]+", text):
-        raise argparse.ArgumentTypeError(f"invalid int value: {text!r} (use ASCII digits only)")
+        raise argparse.ArgumentTypeError(f"invalid int value: {_short(text)} (use ASCII digits only)")
+    digits = text.lstrip("-")
+    if len(digits.lstrip("0")) > INT_MAX_DIGITS:
+        raise argparse.ArgumentTypeError(f"{_short(text)} is too large (more than {INT_MAX_DIGITS} digits)")
+    if len(digits) > INT_MAX_DIGITS:
+        raise argparse.ArgumentTypeError(f"{_short(text)} is too long (more than {INT_MAX_DIGITS} digits; drop the leading zeros)")
     return int(text)
 
 
@@ -137,10 +151,14 @@ _ASCII_DECIMAL = re.compile(r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
 def _ascii_float(text):
     """float() of `text` only when it is ASCII digits with an optional `-` sign and decimal point. float() alone also
     takes full-width and other non-ASCII digits, `1_0` and `+5`: usage errors (exit 2), never a number other
-    than the one typed (#805). nan, inf and exponents fall through to the callers' own message."""
+    than the one typed (#805). nan, inf and exponents fall through to the callers' own message. Digits too many
+    for a float (a 400-digit value) come back as inf: a usage error saying so, with a truncated echo (#880)."""
     if not _ASCII_DECIMAL.fullmatch(text):
-        raise argparse.ArgumentTypeError(f"{text!r} is not a number (use ASCII digits and an optional decimal point only)")
-    return float(text)
+        raise argparse.ArgumentTypeError(f"{_short(text)} is not a number (use ASCII digits and an optional decimal point only)")
+    v = float(text)
+    if math.isinf(v):
+        raise argparse.ArgumentTypeError(f"{_short(text)} is too large: it does not fit a number")
+    return v
 
 
 def _usd_arg(text):
@@ -148,7 +166,7 @@ def _usd_arg(text):
     usage errors (exit 2), never a budget the guard's comparisons let through (#709)."""
     v = _ascii_float(text)
     if not math.isfinite(v) or v < 0:
-        raise argparse.ArgumentTypeError(f"{text!r} must be a finite number, zero or more")
+        raise argparse.ArgumentTypeError(f"{_short(text)} must be a finite number, zero or more")
     return v
 
 
@@ -159,9 +177,9 @@ def _secs_arg(text):
     years) passes the dry run but makes Thread.join raise OverflowError mid-run, so it is a usage error too (#858)."""
     v = _ascii_float(text)
     if not math.isfinite(v) or v <= 0:
-        raise argparse.ArgumentTypeError(f"{text!r} must be a finite number above zero")
+        raise argparse.ArgumentTypeError(f"{_short(text)} must be a finite number above zero")
     if v > threading.TIMEOUT_MAX:
-        raise argparse.ArgumentTypeError(f"{text!r} is too large: at most {threading.TIMEOUT_MAX:g} seconds")
+        raise argparse.ArgumentTypeError(f"{_short(text)} is too large: at most {threading.TIMEOUT_MAX:g} seconds")
     return v
 
 

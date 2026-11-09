@@ -320,12 +320,23 @@ def overlap(files, slug, base, repo_dir, label):
 MAX_COUNT = 10**9   # a count above this is a typo, not a task; a huge one overflowed estimate()'s int -> float (#855)
 
 
+MAX_DIGITS = 1000   # a count written with more digits than this (leading zeros included) is refused before int()
+
+
+def _short(v, keep=20):
+    """repr() of `v` for a usage error, cut to `keep` characters so a multi-KB input is never echoed (#880)."""
+    return repr(v) if len(v) <= keep else repr(v[:keep]) + "\u2026"
+
+
 def count(v):
     """argparse type for a count option (--criteria, --lines, --pool, …): an integer from 0 to MAX_COUNT."""
     if not re.fullmatch(r"-?[0-9]+", v):   # ASCII digits only: not 1_1, +5 or full-width digits (#784)
-        raise argparse.ArgumentTypeError(f"invalid int value: {v!r} (use ASCII digits only)")
-    if len(v.lstrip("-").lstrip("0")) > len(str(MAX_COUNT)):   # before int(): a 5000-digit string is a ValueError there
-        raise argparse.ArgumentTypeError(f"{v[:20]}… is too large — a count must be at most {MAX_COUNT}")
+        raise argparse.ArgumentTypeError(f"invalid int value: {_short(v)} (use ASCII digits only)")
+    digits = v.lstrip("-")
+    if len(digits.lstrip("0")) > len(str(MAX_COUNT)):   # before int(): a 5000-digit string is a ValueError there
+        raise argparse.ArgumentTypeError(f"{v[:20]}\u2026 is too large \u2014 a count must be at most {MAX_COUNT}")
+    if len(digits) > MAX_DIGITS:   # 5000 zeros then 1 is small to int() but still a ValueError past 4300 (#880)
+        raise argparse.ArgumentTypeError(f"{_short(v)} is too long \u2014 at most {MAX_DIGITS} digits (drop the leading zeros)")
     n = int(v)
     if n < 0:
         raise argparse.ArgumentTypeError(f"{n} is negative — a count must be 0 or more")

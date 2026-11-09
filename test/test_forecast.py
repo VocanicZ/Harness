@@ -750,6 +750,17 @@ def test_issue_number_is_ascii_digits_only():   # #784
             assert r.stdout == "", (n, r.stdout)
 
 
+def test_issue_number_over_long_is_a_one_line_usage_error():   # #880
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for n, word in (("9" * 5000, "too large"), ("0" * 5000 + "1", "too long")):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), n, "-R", W,
+                                "--events", events, "--bodies", bodies], capture_output=True, text=True)
+            assert r.returncode == 2 and word in r.stderr and "issue" in r.stderr, (word, r.returncode, r.stderr[:300])
+            assert "invalid int_arg" not in r.stderr and n not in r.stderr and len(r.stderr) < 600, len(r.stderr)
+            assert r.stdout == "", r.stdout
+
+
 def test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators():   # #854
     """A U+2028 or form feed in an invalid HARNESS_ONE_USD_PER_PCT prints as \\uXXXX in the stderr warning, as on stdout."""
     with tmp() as d:

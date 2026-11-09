@@ -1217,12 +1217,28 @@ REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.][\w.-]*")
 INT_RE = re.compile(r"-?[0-9]+")   # ASCII digits only: int() also takes 1_1, +5 and full-width digits (#784)
 
 
+INT_MAX_DIGITS = 1000   # a whole-number option longer than this is refused before int(), which itself refuses 4300+ digits
+
+
+def short_repr(v, keep=20):
+    """repr() of `v` for a usage error: a long value is cut to `keep` characters and an ellipsis, so one line
+    never carries the multi-KB input back (#880)."""
+    return repr(v) if len(v) <= keep else repr(v[:keep]) + "\u2026"
+
+
 def int_arg(v):
     """argparse type for a whole-number option: ASCII decimal digits with an optional `-` sign. `1_1`, `+5` and
-    full-width digits are usage errors (exit 2), never a different number than the one typed (#784)."""
+    full-width digits are usage errors (exit 2), never a different number than the one typed (#784). A value of
+    more than INT_MAX_DIGITS digits is one too, refused before int() (which raises past 4300) with the option's
+    own message and a truncated echo (#880)."""
     import argparse
     if not INT_RE.fullmatch(v):
-        raise argparse.ArgumentTypeError(f"invalid int value: {v!r} (use ASCII digits only)")
+        raise argparse.ArgumentTypeError(f"invalid int value: {short_repr(v)} (use ASCII digits only)")
+    digits = v.lstrip("-")
+    if len(digits.lstrip("0")) > INT_MAX_DIGITS:
+        raise argparse.ArgumentTypeError(f"{short_repr(v)} is too large (more than {INT_MAX_DIGITS} digits)")
+    if len(digits) > INT_MAX_DIGITS:
+        raise argparse.ArgumentTypeError(f"{short_repr(v)} is too long (more than {INT_MAX_DIGITS} digits; drop the leading zeros)")
     return int(v)
 
 
