@@ -76,6 +76,10 @@ def test_list_price_per_model_and_cache_split():
     assert fc.raw_cost({"cache_creation_input_tokens": MTOK,
                         "cache_creation": {"ephemeral_1h_input_tokens": MTOK}}, "claude-sonnet-5-5") == 4
     assert fc.raw_cost({"output_tokens": MTOK}, "gpt-5-codex") == 75, "an unknown model prices at the dearest row"
+    # #750: the gate keeps that price; a report asks which part of a figure came from it
+    assert fc.usage_cost_split({"gpt-5-codex": {"output": MTOK}, "claude-sonnet-5-5": {"output": MTOK}}) == (85, 75, ["gpt-5-codex"])
+    assert fc.usage_cost_split({"opus": {"output": MTOK}}) == (20, 0, [])
+    assert [fc.is_fallback_priced(m) for m in ("gpt-5-codex", None, "", "claude-opus-4-1", "haiku")] == [True, True, True, False, False]
     # the folded usage stats.py / a CLI adapter's usage_tsv writes (#188)
     assert fc.usage_cost({"claude-sonnet-5-5": {"input": MTOK, "output": MTOK, "cache_create": MTOK,
                                                 "cache_read": MTOK}}) == 2 + 10 + 2.5 + 0.2

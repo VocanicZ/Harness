@@ -1030,6 +1030,26 @@ def test_report_cli_by_role_text_and_json():
                                              "cache_read": 0, "usd": 0, "tokens": {}}, out
 
 
+def test_report_marks_a_codex_lane_as_a_fallback_price_estimate():   # #750
+    """A model with no price row (codex, agy, opencode) is priced at the dearest row for the budget gate, but
+    a spend report says so instead of presenting $75 per Mtok of output as real spend."""
+    evs = [_ev("session_end", session="c1", kind="impl", usage={"gpt-5-codex": {"input": 0, "output": M, "cache_create": 0, "cache_read": 0}}),
+           _ev("session_end", session="c2", kind="impl", usage={"claude-sonnet-5-5": {"input": 0, "output": M, "cache_create": 0, "cache_read": 0}})]
+    imp = st.role_rollup(evs)["roles"]["implementer"]
+    assert imp["usd"] == 75 + 10 and imp["usd_estimated"] == 75 and imp["unpriced_models"] == ["gpt-5-codex"], imp
+    assert "usd_estimated" not in st.role_rollup(ROLE_EVENTS)["roles"]["implementer"], "all-Claude: no estimate"
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        for e in evs:
+            st.append_event(e, p)
+        rc, out = run(["report", "--by-role", "--since", "2026-01-01"])
+        assert rc == 0, out
+        assert "estimate" in out and "$75.00" in out and "gpt-5-codex" in out and "dearest" in out, out
+        rc, out = run(["report", "--by-role", "--since", "2026-01-01", "--json"])
+        j = json.loads(out)["total"]
+        assert j["usd_estimated"] == 75 and j["unpriced_models"] == ["gpt-5-codex"], j
+
+
 # --- coding vs testing time (#379) ---------------------------------------------------
 def _tx(path, *lines):
     os.makedirs(os.path.dirname(path), exist_ok=True)
