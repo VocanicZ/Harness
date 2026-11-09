@@ -1234,6 +1234,15 @@ def repo_arg(v):
     return v
 
 
+def fleet_arg(v):
+    """argparse type for --fleet (session prefix): non-empty and never dash-leading, so `--fleet=-x` is a usage
+    error (exit 2) as `--repo=-x` is (#839), not "no events in range"."""
+    import argparse
+    if not v or v.startswith("-"):
+        raise argparse.ArgumentTypeError(f"{v!r} is not a fleet prefix — it must be non-empty and not start with '-'")
+    return v
+
+
 def _explicit_log_error(path):
     """Why an explicitly passed events file cannot be read, or None (#758). None path = the default file: its
     absence on a fresh install stays "no events". A missing path, a directory or an unreadable file names the path."""
@@ -1260,7 +1269,7 @@ def cmd_report(argv):
     g.add_argument("--backfill", action="store_true", help="rebuild session_end for past sessions")
     ap.add_argument("-R", "--repo", type=repo_arg)
     ap.add_argument("--since", help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")
-    ap.add_argument("--fleet", help="session prefix")
+    ap.add_argument("--fleet", type=fleet_arg, help="session prefix")
     ap.add_argument("--model", help="substring of a model id")
     ap.add_argument("--by-role", action="store_true",
                     help="tokens and list-price $ per role (manager / implementer / other), #378")
