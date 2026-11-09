@@ -72,7 +72,7 @@ claim_lane(){ local wid="$1" lockfd live allow busy owned actions rc errf action
 
 # start_lane <wid> <action> <payload> <promise> — spawn the lane claim_lane just claimed, outside pool.lock.
 # A spawn that fails drops the claim; whatever it left (a worktree) has no session, so the chores reap it.
-start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0 pid phase kind=orch tok f
+start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0 pid phase kind=orch tok f lockfd
   local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
   key="$(lane_claim_key "$action" "$payload")"; f="$CLAIMS_DIR/$key.claim"; tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
   case "$action" in
@@ -93,7 +93,12 @@ start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0
   if (( rc != 0 )); then
     log "worker $wid: could not start $action $payload — claim dropped"; lane_release "$key" "$wid"; return 1; fi
   pid="$(sess_pane_pid "$sess")"
+  # #684: this rewrite replaces the claim file another worker's claim_lane reads (under pool.lock) to learn the issue is taken.
+  # A Windows rename over a file is not atomic — a reader in that gap sees no claim and takes the same issue — so the
+  # rewrite holds pool.lock too, which is what every reader of a claim for claiming purposes already holds.
+  lock_acquire "$POOL_LOCK" lockfd
   [[ -f "$f" ]] && lane_claim_write "$key" "$(awk '{print $1; exit}' "$f")" "$tok" "$sess" "${pid:--}"
+  lock_release "$lockfd"
   return 0; }
 
 # worker_tick [wid] — the claim step (4). rc 0 = claimed + spawned a lane, 1 = nothing to claim (or this

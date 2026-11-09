@@ -119,6 +119,15 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `<session>.idleticks` is removed when a lane is reaped, ended on its goal, found dead by the watchdog, or launched, so a
   later session with the same name no longer inherits the idle count and passes the `DECOMPOSE` idle guard early.
 
+### Two pool workers no longer take the same issue on a Windows host (#684)
+
+- `start_lane` rewrote a lane's claim file (to add the pane pid) without `pool.lock`, while another worker's `claim_lane` reads the
+  claims under it to learn what is taken. On Linux a rename over a file is atomic, so a reader never saw the gap; on Windows (Git Bash)
+  it is not, and a claimer reading in the gap saw no claim, took the issue the first worker was starting, and its claim file overwrote
+  the first (two lane sessions, one owner: `test_pool_lanes.sh` § 1c failed about 1 run in 14 on winsma). The rewrite now holds
+  `pool.lock`, as `claim_lane` and `adopt_lanes` already did. The liveness checks (`is_claimed`'s `kill -0`, the lock owner's) were not at
+  fault. `test/test_pool_lanes.sh` § 1c2 asserts that every claim write holds the lock.
+
 ### The short tend tick no longer waits for the poller's snapshot to see a closed issue (#667)
 
 - On a fleet with the poller on, the #594 short tick checked an issue lane's goal against the poller's snapshot, which is
