@@ -75,10 +75,13 @@ lock_holders(){ local lf="$1" rl fd tgt pid seen=" " p="${HARNESS_PROC_ROOT:-/pr
     printf '%s\t%s\n' "$pid" "$(proc_cmdline "$pid")"
   done; }
 : "${HARNESS_LOCK_STALE_S:=30}"
-_mlock_owner(){ local o; [[ -s "$1/owner" ]] && IFS= read -r o < "$1/owner" && printf '%s\n' "$o"; }
+_mlock_owner(){ local o; [[ -s "$1/owner" ]] && { IFS= read -r o < "$1/owner"; } 2>/dev/null && printf '%s\n' "$o"; }
+# _mlock_stale <dir> — can <dir>'s lock be taken from its holder? A holder that is dead, or no holder at all for
+# HARNESS_LOCK_STALE_S seconds. A lock dir that is GONE is not stale (#828): it is free, and a caller that saw it a moment
+# ago has nothing to take from — saying "stale" there sent the stealer after whatever lock the next taker had just made.
 _mlock_stale(){ local d="$1" o m now
   if o="$(_mlock_owner "$d")"; then ! proc_alive "${o%%$'\t'*}"; return; fi
-  [[ -d $d ]] || return 0
+  [[ -d $d ]] || return 1
   m="$(stat -c %Y "$d" 2>/dev/null)" || return 1; now="$(date +%s)"
   (( now - m >= HARNESS_LOCK_STALE_S )); }
 # _mlock_own <dir> — write the owner file into a lock dir this process just made. rc 1 when the dir is gone, i.e. a
@@ -87,20 +90,30 @@ _mlock_stale(){ local d="$1" o m now
 _mlock_own(){ local d="$1" me="$BASHPID"
   printf '%s\t%s\t%s\n' "$me" "$(proc_winpid "$me")" "$(proc_cmdline "$me")" 2>/dev/null > "$d/.owner.$me" \
     && mv -f "$d/.owner.$me" "$d/owner" 2>/dev/null; }
-_mlock_try(){ local f="$1" d="$1.d" me="$BASHPID" seen aside
+_mlock_try(){ local f="$1" d="$1.d" me="$BASHPID" seen aside got
   if mkdir "$d" 2>/dev/null; then _mlock_own "$d"; return; fi
-  # #684: the holder may have released between the mkdir above and here. A lock that is GONE is free, not stale:
-  # `_mlock_stale` says "stale" for a missing dir, and the steal below would then move aside whatever lock the next taker
-  # has made in the meantime (it has no owner file yet, so it looks the same as the one judged stale) and take its place.
+  # #684: the holder may have released between the mkdir above and here. A lock that is GONE is free, not stale.
   if [[ ! -d $d ]]; then mkdir "$d" 2>/dev/null || return 1; _mlock_own "$d"; return; fi
-  _mlock_stale "$d" || return 1
-  # Steal: rename the stale lock aside (atomic: of two waiters that both saw it stale, one moves it),
-  # then check it IS the one judged stale — if a third taker re-made it in between, put it back.
-  seen="$(_mlock_owner "$d")"; aside="$d.stale.$me"
-  mv -T "$d" "$aside" 2>/dev/null || return 1
-  if [[ "$(_mlock_owner "$aside")" != "$seen" ]] || ! _mlock_stale "$aside"; then mv -T "$aside" "$d" 2>/dev/null || rm -rf "$aside"; return 1; fi
-  rm -rf "$aside"
-  mkdir "$d" 2>/dev/null || return 1
+  seen="$(_mlock_owner "$d")"
+  if [[ -z $seen ]]; then
+    # No owner file: a taker between its mkdir and its owner write, or one that died there. Only an old dir is the second;
+    # an empty one is removed by rmdir, which refuses a dir that has anything in it, and the dir's age is read last.
+    _mlock_stale "$d" || return 1
+    rm -f "$d"/.owner.* 2>/dev/null; rmdir "$d" 2>/dev/null || return 1
+    mkdir "$d" 2>/dev/null || return 1
+    _mlock_own "$d"; return; fi
+  # A named holder that is dead. #828: what is judged dead is the owner FILE read above, and what is taken is that same
+  # file: renaming it away is atomic, so of two waiters that both saw it dead one wins, and a lock the holder released and
+  # the next taker re-made in between has a different owner file — which the check after the rename notices and puts back.
+  # The lock DIR is never renamed: it stays in place the whole time, so no third taker's mkdir can succeed while the lock
+  # is being judged, and a mistaken steal costs the live holder nothing but a brief look of having no owner file.
+  proc_alive "${seen%%$'\t'*}" && return 1
+  aside="$d.dead.$me"
+  mv -T "$d/owner" "$aside" 2>/dev/null || return 1
+  got=""; { IFS= read -r got < "$aside"; } 2>/dev/null
+  if [[ $got != "$seen" ]]; then
+    [[ -d $d && ! -e $d/owner ]] && mv -n "$aside" "$d/owner" 2>/dev/null; rm -f "$aside"; return 1; fi
+  rm -f "$aside"
   _mlock_own "$d"; }
 
 # ------------------------------------------------------------------------------------ processes ---

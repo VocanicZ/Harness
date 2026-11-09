@@ -92,7 +92,7 @@ assert_eq "$(lock_holders "$L")" "" "[windows] lock_holders ignores a dead owner
 assert_ok "[windows] a dead owner's lock is free" lock_free "$L"
 assert_ok "[windows] and lock_try steals it" lock_try "$L" hs
 assert_eq "$(cut -f1 "$L.d/owner")" "$$" "[windows] the stolen lock is ours"
-assert_eq "$(ls -d "$L".d.stale.* 2>/dev/null)" "" "[windows] the stale lock left nothing behind"
+assert_eq "$(ls -d "$L".d.* 2>/dev/null)" "" "[windows] the stale lock left nothing behind"
 lock_release "$hs"
 # an owner-less lock (its taker died between mkdir and owner) is stale only after HARNESS_LOCK_STALE_S
 mkdir -p "$L.d"
@@ -115,22 +115,47 @@ lock_try "$L" hv; rc=$?
 assert_eq "$rc" "0" "[windows] a lock released since the failed mkdir is taken by mkdir"
 assert_eq "$stale_calls" "0" "[windows] ... without asking whether a lock that is gone is stale (nothing to steal)"
 assert_eq "$(cut -f1 "$L.d/owner")" "$$" "[windows] ... and it is ours, with its owner file"
-assert_eq "$(ls -d "$L".d.stale.* 2>/dev/null)" "" "[windows] ... leaving nothing aside"
+assert_eq "$(ls -d "$L".d.* 2>/dev/null)" "" "[windows] ... leaving nothing aside"
 lock_release "$hv"
-# a lock judged stale, then replaced by the next taker's fresh one before the steal's rename: the rename moved the
-# fresh lock, and the old check (owner before == owner after, both empty) let the steal go on. It is put back instead.
-stale_calls=0; mk_failed=1; third_taker=""
-command mkdir -p "$L.d"; printf '999999999\t\tgone\n' > "$L.d/owner"
-_mlock_stale(){ stale_calls=$((stale_calls+1))
-  _mlock_stale_real "$@"; local rc=$?
-  if (( stale_calls == 1 )); then rm -rf "$L.d"; command mkdir "$L.d"; fi   # replaced right after the verdict
+# A lock judged dead, then replaced by the next taker's before the steal acts (#684, #828). The lock DIR is never renamed and
+# only the owner file judged dead is taken, so the replacement — fresh and ownerless, or already owned by a live taker —
+# is left as it was, and its owner file is put back whole.
+mk_failed=1; real_alive_def="$(declare -f proc_alive)"; alive_calls=0
+eval "$(printf '%s\n' "$real_alive_def" | sed '1s/^proc_alive/proc_alive_real/')"
+replace_with=""
+proc_alive(){ proc_alive_real "$@"; local rc=$?; alive_calls=$((alive_calls+1))
+  if (( alive_calls == 1 )); then rm -rf "$L.d"; command mkdir "$L.d"; [[ -n "$replace_with" ]] && printf '%s\n' "$replace_with" > "$L.d/owner"; fi   # replaced right after the verdict
   return $rc; }
-assert_no "[windows] a fresh lock that replaced the stale one before the steal is not stolen" lock_try "$L" hv
+command mkdir -p "$L.d"; printf '999999999\t\tgone\n' > "$L.d/owner"
+assert_no "[windows] a fresh lock that replaced the dead one before the steal is not stolen" lock_try "$L" hv
 assert_ok "[windows] ... it is still there" test -d "$L.d"
 assert_no "[windows] ... still ownerless: not ours" test -e "$L.d/owner"
-assert_eq "$(ls -d "$L".d.stale.* 2>/dev/null)" "" "[windows] ... and nothing is left aside"
+rm -rf "$L.d"; alive_calls=0; replace_with="$$"$'\t\tlive-taker'
+command mkdir -p "$L.d"; printf '999999999\t\tgone\n' > "$L.d/owner"
+assert_no "[windows] a live taker's lock that replaced the dead one before the steal is not stolen" lock_try "$L" hv
+assert_eq "$(cat "$L.d/owner")" "$$"$'\t\tlive-taker' "[windows] ... its owner file is put back whole"
+assert_eq "$(ls -d "$L".d.* 2>/dev/null)" "" "[windows] ... and nothing is left aside"
 rm -rf "$L.d"
+unset -f proc_alive; eval "$real_alive_def"
 unset -f mkdir _mlock_stale _mlock_stale_real; eval "$real_stale_def"
+# #828: a lock dir that is gone is not stale, whatever its age: there is nothing to take
+assert_no "[windows] _mlock_stale on a lock dir that is gone is not stale" _mlock_stale "$W/gone.lock.d"
+# #828: takers in a crowd. A taker that saw the lock held, then gone, judged the NEXT taker's brand-new lock stale
+# (a gone dir read as stale) and renamed it aside: for as long as it was aside a third taker's mkdir succeeded, and two
+# workers were in the critical section at once (pool_lanes § 1c on winsma, ~1 run in 100). Four workers, a marker dir
+# only the lock's holder may make: it must never already exist.
+STRESS="$W/stress"; mkdir -p "$STRESS"; : > "$STRESS/viol"
+stress_worker(){ local i h
+  for ((i=0;i<25;i++)); do
+    lock_acquire "$STRESS/pool.lock" h
+    if command mkdir "$STRESS/in" 2>/dev/null; then sleep 0.00$((RANDOM%4)); rmdir "$STRESS/in"; else echo "w$1 i$i" >> "$STRESS/viol"; fi
+    lock_release "$h"
+  done; }
+( export HARNESS_LOCK_POLL=0.005 HARNESS_LOCK_STALE_S=5
+  for n in 1 2 3 4; do stress_worker "$n" & done; wait )
+assert_eq "$(wc -l < "$STRESS/viol" | tr -d ' ')" "0" "[windows] four takers in a crowd: never two in the critical section at once"
+assert_no "[windows] ... and the lock is released at the end" test -e "$STRESS/pool.lock.d"
+
 # a taker whose lock dir was moved away before its owner file landed does not believe it holds the lock
 assert_no "[windows] _mlock_own on a lock dir that is gone is not a hold" _mlock_own "$L.d"
 
