@@ -132,12 +132,18 @@ def load(path=None):
 
 
 def estimate(cfg, criteria):
+    """Minutes and USD for both paths. Each amount is finite alone (_check), but base + per_criterion * criteria
+    can still overflow to inf (1e308 + 1e308), which prints as ~$inf and as `Infinity` in --json: an error (#856)."""
     e = cfg["estimate"]
+    raw = {(path, unit): e[f"{path}_{key}_base"] + e[f"{path}_{key}_per_criterion"] * criteria
+           for path in ("direct", "fleet") for unit, key in (("minutes", "minutes"), ("usd", "usd"))}
+    for (path, unit), v in raw.items():
+        if not math.isfinite(v):
+            raise TierConfigError(f"estimate.{path}_{unit}_base + estimate.{path}_{unit}_per_criterion * {criteria} "
+                                  f"is not a finite number — lower the {path} {unit} amounts in tier.toml")
     return {
-        "direct": {"minutes": round(e["direct_minutes_base"] + e["direct_minutes_per_criterion"] * criteria),
-                   "usd": round(e["direct_usd_base"] + e["direct_usd_per_criterion"] * criteria, 2)},
-        "fleet": {"minutes": round(e["fleet_minutes_base"] + e["fleet_minutes_per_criterion"] * criteria),
-                  "usd": round(e["fleet_usd_base"] + e["fleet_usd_per_criterion"] * criteria, 2)},
+        "direct": {"minutes": round(raw["direct", "minutes"]), "usd": round(raw["direct", "usd"], 2)},
+        "fleet": {"minutes": round(raw["fleet", "minutes"]), "usd": round(raw["fleet", "usd"], 2)},
     }
 
 
@@ -370,9 +376,12 @@ def main(argv=None):
     if a.cmd == "thresholds":
         print(json.dumps(cfg, indent=2)); return 0
     if a.cmd == "decide":
-        r = decide(cfg, a.criteria, a.lines, a.files, a.subsystems, a.workstreams, a.pool, a.minutes,
-                   user_around=not a.unattended, wants_review=a.wants_review,
-                   multi_step_plan=a.multi_step_plan, prefer=a.prefer)
+        try:
+            r = decide(cfg, a.criteria, a.lines, a.files, a.subsystems, a.workstreams, a.pool, a.minutes,
+                       user_around=not a.unattended, wants_review=a.wants_review,
+                       multi_step_plan=a.multi_step_plan, prefer=a.prefer)
+        except TierConfigError as e:   # #856: an estimate that overflows to inf is a config error, not output
+            print(f"harness tier: {e}", file=sys.stderr); return 2
         print(json.dumps(r) if a.json else render(r)); return 0
     if a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git
         o.error(f"argument --base: {a.base!r} is not a branch — it must not start with '-'")

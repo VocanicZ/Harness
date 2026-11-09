@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier decide` rejects tier.toml amounts whose estimate overflows to infinity (#856)
+
+- Each `[estimate]` amount was checked alone, so `direct_usd_base = 1e308` plus `direct_usd_per_criterion = 1e308` passed, summed to infinity, and printed
+  `~$inf` (and `"usd": Infinity`, which is not valid JSON, with `--json`). A non-finite estimate is now an error: one line on stderr naming the amounts, exit 2, nothing on stdout.
+  `test_tier.sh` covers it.
+
 ### `harness tier decide` refuses a huge count with a usage error, not an OverflowError traceback (#855)
 
 - `--criteria 999…9` (400 digits) got past `count()` and `estimate()` then failed to turn the int into a float: a traceback and exit 1. A count is now

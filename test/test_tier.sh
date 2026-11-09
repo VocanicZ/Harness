@@ -169,6 +169,25 @@ badval fleet min_unattended_minutes nan "nan"
 badval estimate fleet_usd_base inf "inf"
 badval estimate direct_usd_base -0.5 "a negative"
 badval estimate direct_minutes_per_criterion '"1.5"' "a string"
+# finite amounts whose estimate overflows to inf: 1e308 + 1e308 * 3 -> exit 2, no ~$inf, no `Infinity` in --json (#856)
+for key in direct_usd direct_minutes fleet_usd fleet_minutes; do
+  printf '[estimate]\n%s_base = 1e308\n%s_per_criterion = 1e308\n' "$key" "$key" > "$T/overflow.toml"
+  for mode in --json ""; do
+    out="$(HARNESS_TIER_TOML="$T/overflow.toml" H tier decide $mode --criteria 3 --lines 1 --files 1 --subsystems 1 2>"$T/err")"; rc=$?
+    assert_eq "$rc" 2 "$key overflow ${mode:-text} -> exit 2"
+    assert_eq "$out" "" "…prints nothing on stdout"
+    assert_ok "…one-line error naming the amounts" grep -q "estimate.${key}_base.*not a finite number" "$T/err"
+    assert_no "…no traceback" grep -q 'Traceback' "$T/err"
+  done
+done
+# a small config with a huge (but allowed) count overflows too, and a normal run is strict JSON
+printf '[estimate]\ndirect_usd_per_criterion = 1e300\n' > "$T/overflow2.toml"
+HARNESS_TIER_TOML="$T/overflow2.toml" H tier decide --json --criteria 1000000000 --lines 1 --files 1 --subsystems 1 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" 2 "1e300 per criterion x 10**9 criteria -> exit 2"
+assert_ok "a normal --json run parses as strict JSON" python3 -c '
+import json,sys
+def bad(c): raise ValueError(c)
+json.loads(sys.argv[1], parse_constant=bad)' "$(d --criteria 3 --lines 10 --files 1 --subsystems 1)"
 printf 'direct = 3\n' > "$T/badsec.toml"
 out="$(dd "$T/badsec.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "a section that is not a table -> exit 2"
