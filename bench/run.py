@@ -58,6 +58,7 @@ COST_CAP_USD = 80.0
 WEEKLY = re.compile(r"seven|week|7d", re.I)
 EXIT_OK, EXIT_ARM_FAILED, EXIT_USAGE, EXIT_REFUSED, EXIT_LEAKED = 0, 1, 2, 3, 4
 RUN_ID_MAX = 128   # #717: a run id is one path component (and part of a repo name), so it is short and of a bounded alphabet
+OWNER_RE = re.compile(r"[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}")   # #836: a GitHub owner: letters, digits, single hyphens, no leading or trailing '-', 39 at most
 RUN_ID_RE = re.compile(r"(?!\.\.?\Z)(?!.*\.\.)[A-Za-z0-9._][A-Za-z0-9._-]{0,%d}" % (RUN_ID_MAX - 1))   # no '.', no '..' anywhere, no leading '-'
 
 
@@ -842,6 +843,10 @@ def main(argv=None):
     if a.run_id is not None and not RUN_ID_RE.fullmatch(a.run_id):
         print(f"bench: bad --run-id {a.run_id[:40]!r} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
               "and not be '.' or '..': it names one directory under --results-dir)", file=sys.stderr)
+        return EXIT_USAGE
+    if a.owner is not None and not OWNER_RE.fullmatch(a.owner):
+        print(f"bench: bad --owner {a.owner[:40]!r} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
+              "not starting or ending with '-')", file=sys.stderr)
         return EXIT_USAGE
     if a.wall_cap_secs <= 0 or a.cost_cap_usd <= 0:
         print("bench: the caps must be positive", file=sys.stderr)
