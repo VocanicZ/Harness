@@ -69,6 +69,8 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `test_handoff.sh` strip it); `test_stats.sh`'s CRLF python no longer starts through `env -i`, which a native Windows python will not
   survive; `test_fleet_smoke.sh` pins `SMOKE_PLATFORM=posix` for its tmux flows. The suite stage installs `setuptools` into its venv
   (the bench grader's `pip install --no-build-isolation` needs it). New: `test_python_lf.sh`.
+  `test_bench_harness.py`'s MCP-isolation case no longer races the arm: the fake front door waits to be terminated at its init
+  instead of running `harness init` first (it failed about one run in two on a loaded host, on main too).
 
 ### The Windows test suite no longer asserts POSIX-only mechanisms on a Windows host (#607)
 
