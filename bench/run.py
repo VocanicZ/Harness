@@ -128,6 +128,19 @@ def _usd_arg(text):
     return v
 
 
+def _secs_arg(text):
+    """argparse type for a time option in seconds: a finite number above zero. nan, inf, zero, a negative and a word
+    are usage errors (exit 2): nan or inf would keep the wall cap from ever firing, nan makes Thread.join raise
+    mid-run, and a zero or negative poll busy-polls (#747)."""
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not math.isfinite(v) or v <= 0:
+        raise argparse.ArgumentTypeError(f"{text!r} must be a finite number above zero")
+    return v
+
+
 def _env_num(name, default, hi=None):
     """(value, problem) of a numeric env knob the guard reads. Unset or empty is the default. Anything else must
     be a finite number from 0 up to `hi`; if not, the default stands in and `problem` says why: the guard
@@ -765,14 +778,14 @@ def parse_args(argv):
     ap.add_argument("--fixture", default=fixtures().DEFAULT, choices=fixtures().names(),
                     help="which fixture the arms build (default pennywise, a 4.7 KB brief; large is the 20-page brief "
                          "with a mid-run requirement change, graded at milestones; bench/fixtures.py)")
-    ap.add_argument("--progress-poll-secs", type=float, default=progresslib().POLL_S,
+    ap.add_argument("--progress-poll-secs", type=_secs_arg, default=progresslib().POLL_S,
                     help="a fixture with milestones: how often the repo is graded while the arm works (default 300)")
-    ap.add_argument("--wall-cap-secs", type=float, default=WALL_CAP_S)
+    ap.add_argument("--wall-cap-secs", type=_secs_arg, default=WALL_CAP_S)
     ap.add_argument("--cost-cap-usd", type=_usd_arg, default=COST_CAP_USD)
     ap.add_argument("--expected-usd", type=_usd_arg, default=None, help="expected spend for the guard (default: the cap)")
     ap.add_argument("--run-dir", default=None, help="the fleet run dir holding usage-holds/ (default: $RUN_DIR)")
-    ap.add_argument("--poll-secs", type=float, default=5.0)
-    ap.add_argument("--grace-secs", type=float, default=30.0, help="how long a stopped arm has to return")
+    ap.add_argument("--poll-secs", type=_secs_arg, default=5.0)
+    ap.add_argument("--grace-secs", type=_secs_arg, default=30.0, help="how long a stopped arm has to return")
     ap.add_argument("--arms-dir", default=os.path.join(HERE, "arms"), help=argparse.SUPPRESS)
     ap.add_argument("--events", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--grader", default=GRADER, help=argparse.SUPPRESS)
