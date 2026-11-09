@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `HARNESS_SWARM_LOCAL_MAX_SECS` and `HARNESS_SWARM_SECS_PER_FILE` with a leading zero are read as decimal (#801)
+
+- `scripts/swarm-suite.sh` used both knobs in bash arithmetic without `10#`, so `HARNESS_SWARM_LOCAL_MAX_SECS=08` or `09` printed `value too great for base`,
+  skipped the small-suite check and submitted to swarm anyway, `HARNESS_SWARM_SECS_PER_FILE=09` ended with `est: unbound variable` and exit 1, and `060` was read
+  as 48. Both are now read as decimal, and a value that is not a non-negative integer (or has more than 6 significant digits) falls back to the default
+  (60 and 2) with a one-time warning naming the knob, like the launch knobs. `test_swarm.sh` covers `08`, `09`, `060`, `070`, a negative and an oversized value.
+
 ### `harness tier overlap` reads a PR's file name whole when it holds U+2028, U+0085 or a form feed (#802)
 
 - `harness tier overlap` read the files an open PR changes from `gh pr diff --name-only` with `str.splitlines()`, which also breaks a line at U+2028, U+0085

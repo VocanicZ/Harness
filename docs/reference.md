@@ -1182,7 +1182,7 @@ scripts/swarm-suite.sh <worktree> <job-name> [test files...]
 - A small suite runs locally (#618): the helper estimates the local run as files × `HARNESS_SWARM_SECS_PER_FILE`
   (default `2`) and exits `3` before any swarm call when that is under `HARNESS_SWARM_LOCAL_MAX_SECS` (default `60`,
   so fewer than 30 files). In bench run-20261106 a swarm job for a tiny suite took 61 s and gave a false red; locally
-  it took about 2 s. `HARNESS_SWARM_LOCAL_MAX_SECS=0` always uses swarm.
+  it took about 2 s. `HARNESS_SWARM_LOCAL_MAX_SECS=0` always uses swarm. Both knobs are read as decimal (`08` is 8, `060` is 60); a value that is not a non-negative integer falls back to the default with a one-time warning (#801).
 - The PRD review prompt starts its review sub-agent before the suite run, so the two overlap.
 
 ## Commands
