@@ -190,4 +190,27 @@ assert_eq "$(evs | grep -c launch_failed)" "1" "a swept lane with no goal met st
 launch_gone_check "$SESS8" impl issue=8
 assert_no "a stamp-less check drops a stale hand-over mark" test -e "$RUN_DIR/$SESS8.goalswept"
 
+echo "== 8. #780: a unit name holding -i<digit> or -p<digit> does not turn a PRD lane into an issue lane =="
+setup
+for u in web-i18n i18n a-p2b; do
+  assert_eq "$(launch_key_of_sess "$(sess_orch "$u" 4)")" "orch-4" "unit '$u': the PRD lane's claim key is orch-4"
+  assert_eq "$(launch_key_of_sess "$(sess_impl "$u" 7)")" "impl-7" "unit '$u': the issue lane's claim key is impl-7"
+done
+assert_eq "$(launch_key_of_sess "$(sess_orch web-i18n 0)")" "orch-0" "…and a PLAN/PRD lane (p0) is orch-0"
+assert_eq "$(launch_key_of_sess "hz-main-x")" "" "…and a session of neither shape has no key"
+HARNESS_UNIT=web-i18n; UNIT="$(fleet_unit)"; snap 8
+SESS4="$(sess_orch "$UNIT" 4)"; echo "$((NOW - 2)) uuid-4" > "$RUN_DIR/$SESS4.launched"
+session_live(){ return 1; }
+orch_worktree(){ echo "$RUN_DIR/wt/orch4"; }
+reap_orch_lane 4
+assert_eq "$(evs | grep -o launch_failed)" "launch_failed" "a PRD lane of unit web-i18n gone 2s after launch logs launch_failed"
+assert_ok "…and arms orch-4" launch_backoff_active orch-4
+assert_no "…and no impl-18n-p4 key" test -e "$RUN_DIR/launchfail.impl-18n-p4"
+assert_eq "$(backoff_keys orch)" "4" "…backoff_keys sees PRD 4"
+dispatch_actions(){ case ",$4," in *,4,*) ;; *) printf 'DECOMPOSE\t4\tP\n';; esac; printf 'IMPL\t8\tP\n'; }
+assert_eq "$(claim_lane W1 | cut -f1,2)" "IMPL	8" "claim_lane holds DECOMPOSE #4 back during the backoff and takes IMPL #8"
+rm -f "$CLAIMS_DIR/impl-8.claim"
+NOW=$((NOW + 61))
+assert_eq "$(claim_lane W1 | cut -f1,2)" "DECOMPOSE	4" "after the backoff ran out PRD 4 is claimed again"
+
 finish
