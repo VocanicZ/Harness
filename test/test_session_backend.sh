@@ -18,6 +18,7 @@ declare -A ALLOW=(
   [scripts/session/tmux.sh]="the tmux backend itself"
   [scripts/session_backend.py]="the Python views' half of the seam: the tmux argv they run"
   [install.sh]="the installer checks the host's prerequisites before any engine (or config) exists"
+  [scripts/swarm-suite.sh]="a swarm shard kills only its own private tmux server (TMUX_TMPDIR = its mktemp dir) on exit, #793; it runs on an HTCondor worker against a snapshot that may not be Harness, so it cannot source scripts/session/tmux.sh"
 )
 # tmux_calls <file> — each line of <file> that runs tmux: a tmux subcommand after the word `tmux`
 # (comments dropped), `command -v tmux`, or — in Python — "tmux" as an argv element.

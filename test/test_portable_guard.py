@@ -65,6 +65,9 @@ ALLOW = {
         "session_models reads each lane's `--model` off its process tree (`ps -eo`); where ps has no "
         "-o (Git Bash) it returns non-zero and the status model column is simply empty — a cosmetic "
         "column, no liveness or lock decision rides on it",
+    ("scripts/swarm-suite.sh", "/proc"):
+        "bwrap --proc /proc mounts a fresh procfs in the shard sandbox (#793); swarm runs on Linux "
+        "HTCondor workers only, n/a on Windows",
     ("scripts/cli/hermes.sh", "py os.kill"):
         "hermes is a tmux-only CLI (no headless lane, n/a on Windows); its lease check runs inside "
         "hermes's own python, against hermes's own recorded pids",
