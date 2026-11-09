@@ -622,6 +622,10 @@ session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Lin
   `harness start` launches the workers, the priority lane and the host poller with `detach_launch`,
   so they keep running after the ssh session that started them ends. `harness stop` stops them by
   their pid files, as on Linux.
+- **Ending a turn:** Windows has no process groups and `taskkill /T` follows only live parents. The headless runner puts each turn's
+  process in a Job Object (`headless_core.py`, #627), so a stop or an interrupt ends the turn's whole tree, background jobs whose parent
+  already exited included. A turn that ends on its own leaves what it started running, as on Linux; `sess_kill` and the session sweep
+  end it through the lane's `HARNESS_SESSION`.
 - **Services:** `harness supervise --install` and `harness web --install` register Task Scheduler
   tasks in place of the systemd user units. The task runs `$HARNESS_HOME/tasks/<name>.sh`, which reruns
   the command after each exit (60s for supervise, 5s for web). It starts at logon only, in your

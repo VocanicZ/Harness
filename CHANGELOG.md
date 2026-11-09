@@ -92,6 +92,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   CLI live so the failure comes with the cell's own output. `test_cli_matrix_cache.sh` covers it, and `test_cli_matrix_guard.sh` still runs every cell it checks live. Without `HARNESS_MATRIX_CACHE`
   (a direct `bash test/test_cli_codex.sh`) nothing changes.
 
+### On Windows, ending a headless lane's turn also ends the background jobs its parent had already left behind (#627)
+
+- Windows has no process groups, and `taskkill /T` follows only live parents, so a background job whose parent had already exited
+  (a command a turn started, then the shell that started it ended) survived `sess_kill`, `harness interrupt` and a stop. The headless
+  runner (`scripts/cli/headless_core.py`) now puts each turn's process in a Windows Job Object and `kill_tree` ends the job after
+  `taskkill`, so every process the turn started goes, orphans included. A turn that ends on its own only lets go of its job: what it
+  left running stays up, as on Linux, until the lane is killed or swept.
+
 ### `harness --version`, `harness version` and `harness help` reject an unknown extra argument (#994)
 
 - `harness --version -x`, `harness version --bogus` and `harness help -x` exited 0 and ignored the extra argument, so a typo went unnoticed. Only `--verbose` is valid after `--version`/`version`,
