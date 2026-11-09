@@ -72,7 +72,7 @@ def read_config(state_dir):
     """The `: "${HARNESS_X:=val}"` lines of a project's config, parsed — never sourced."""
     cfg = {}
     try:
-        with open(os.path.join(state_dir, "config")) as fh:
+        with open(os.path.join(state_dir, "config"), encoding="utf-8-sig", errors="replace") as fh:   # #859: skip a leading BOM
             for line in fh:
                 m = CONFIG_RE.match(line)
                 if m:

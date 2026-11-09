@@ -356,6 +356,16 @@ def test_run_cmd_resolves_the_program_through_path_on_windows():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_read_config_ignores_a_leading_utf8_bom():   # #859
+    d = tempfile.mkdtemp()
+    try:
+        with open(os.path.join(d, "config"), "wb") as fh:
+            fh.write(b'\xef\xbb\xbf: "${HARNESS_REPO:=VocanicZ/bom}"\n: "${HARNESS_UNIT:=u1}"\n')
+        assert fv.read_config(d) == {"HARNESS_REPO": "VocanicZ/bom", "HARNESS_UNIT": "u1"}, fv.read_config(d)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
