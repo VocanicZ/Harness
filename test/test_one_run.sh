@@ -20,6 +20,7 @@ ONE=(bash "$HERE/../scripts/one.sh")
 # ── fixture: the project checkout (PROJECT_ROOT = RUN_DIR) with a bare origin ───────────────────
 git init -q --bare -b main "$RUN_DIR/origin.git"
 git -C "$RUN_DIR" init -q -b main
+git -C "$RUN_DIR" config core.autocrlf false   # Git for Windows defaults to true: its LF fixtures then show as modified, and release refuses (#686)
 printf 'state/\nhost/\n*.stub\n' > "$RUN_DIR/.gitignore"; echo hi > "$RUN_DIR/README"
 git -C "$RUN_DIR" add README .gitignore; git -C "$RUN_DIR" commit -qm init
 git -C "$RUN_DIR" remote add origin "$RUN_DIR/origin.git"; git -C "$RUN_DIR" push -q origin main
