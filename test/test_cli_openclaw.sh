@@ -52,9 +52,12 @@ assert_ok "the bootstrap is the first message" has "\"$HARNESS_BOOTSTRAP_PROMPT\
 assert_ok "…never the task" lacks UNIQUE_TASK_MARKER "$line"
 assert_ok "the lane config may include the operator's from outside its dir" has "OPENCLAW_INCLUDE_ROOTS=$(printf '%q' "${OP%/*}") " "$line"
 assert_ok "the turn runs on the lane config" has "--config $(printf '%q' "$CFG")" "$line"
-assert_eq "$(cfg '$include')" "\"$OP\"" "the lane config includes the operator's (model, auth, plugins)"
+# paths in the lane config are the engine's spelling (C:/x on Windows), the test's are pwd's (/c/x): compare in one (#605)
+cfgp(){ cfg "$@" | sed -E 's#"([A-Za-z]):/#"/\L\1/#g'; }
+US="$(posix_path "$HARNESS_USER_SKILLS")"
+assert_eq "$(cfgp '$include')" "\"$(posix_path "$OP")\"" "the lane config includes the operator's (model, auth, plugins)"
 assert_eq "$(cfg tools.exec)" '{"mode": "full"}' "…with host exec running unasked over it"
-assert_eq "$(cfg skills.load.extraDirs)" "[\"/opt/team-skills\", \"$HARNESS_USER_SKILLS/handoff\", \"$HARNESS_USER_SKILLS/rtdd\"]" \
+assert_eq "$(cfgp skills.load.extraDirs)" "[\"/opt/team-skills\", \"$US/handoff\", \"$US/rtdd\"]" \
   "the operator's extra skill dirs, then each user skill Harness installs (a dir with its own SKILL.md reads as one skill)"
 assert_ok "the lane is bypassed" cli_bypassed "$WD"
 nolane="$(cli_launch "$WD" "$UUID" "" "")"
@@ -62,7 +65,7 @@ assert_ok "no lane model: the operator config's default" lacks '--model' "$nolan
 assert_ok "no lane effort: no --thinking" lacks '--thinking' "$nolane"
 assert_eq "$(git -C "$WD" status --porcelain | grep -v harness-task)" "" "the lane's run state is kept out of its commits"
 printf '{\n  // JSON5\n  agents: {}\n}\n' > "$OP"; cli_launch "$WD" "$UUID" "" "" >/dev/null
-assert_eq "$(cfg skills.load.extraDirs)" "[\"$HARNESS_USER_SKILLS/handoff\", \"$HARNESS_USER_SKILLS/rtdd\"]" "an operator config that is JSON5 is still included, its own extra dirs unread"
+assert_eq "$(cfgp skills.load.extraDirs)" "[\"$US/handoff\", \"$US/rtdd\"]" "an operator config that is JSON5 is still included, its own extra dirs unread"
 rm -f "$OP"; cli_launch "$WD" "$UUID" "" "" >/dev/null
 assert_eq "$(cfg '$include')" "" "no operator config: nothing to include"
 assert_ok "…and the lane still bypassed" cli_bypassed "$WD"

@@ -116,7 +116,9 @@ if command -v node >/dev/null; then
 // each event (`idle`, `error`, `busy`, `idle-child`); print each prompt it sends, with the agent and
 // model it names.
 const [plugin, dir, reply, ...evs] = process.argv.slice(2)
-const { HarnessRalph } = await import(plugin)
+// a file: URL: node refuses a bare C:\x path as an ESM specifier on Windows (#605)
+import { pathToFileURL } from "node:url"
+const { HarnessRalph } = await import(pathToFileURL(plugin).href)
 const client = {
   session: {
     get: async ({ path }) => ({ data: { id: path.id, parentID: path.id === "child" ? "lane" : undefined } }),
