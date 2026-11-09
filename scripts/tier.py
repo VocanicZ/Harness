@@ -21,7 +21,9 @@ user's override in either direction; the recommendation stays in the output.
 
 `overlap` is the direct path's guard on a LIVE fleet: it lists the files the open `agent-working`
 issues' branches and worktrees, and the open PRs, touch, and exits 1 (route through /harness-issue)
-if the direct fix would touch any of them, 0 if none (go ahead). gh and git are the only inputs.
+if the direct fix would touch any of them, 0 if none (go ahead). gh and git are the only inputs; if any
+call it needs fails, it exits 3 with the failed command on stderr (`--json`: an `error` field, `overlap`
+null) — "could not check" is never reported as clear.
 """
 import argparse, json, os, re, subprocess, sys
 
@@ -124,12 +126,39 @@ def render(r):
 
 
 # ── overlap ──────────────────────────────────────────────────────────────────────────────────────
-def _run(argv, cwd=None):
+EXIT_UNCHECKED = 3   # overlap could not be answered: distinct from 0 (clear), 1 (overlap) and 2 (usage)
+REPO_RE = re.compile(r"[A-Za-z0-9_][\w.-]*/[\w.-]+")
+
+
+class CheckFailed(Exception):
+    """A gh or git call the overlap answer needs failed — the answer is unknown, never "clear"."""
+
+
+def _call(argv, cwd=None):
+    """(returncode, stdout, stderr); an unrunnable command raises CheckFailed."""
     try:
         p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return p.stdout if p.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError) as e:
+        raise CheckFailed(f"`{' '.join(argv)}` could not run: {e}")
+    return p.returncode, p.stdout, p.stderr
+
+
+def _run(argv, cwd=None):
+    rc, out, err = _call(argv, cwd)
+    if rc != 0:
+        why = (err.strip().splitlines() or [f"exit {rc}"])[0]
+        raise CheckFailed(f"`{' '.join(argv)}` failed (exit {rc}): {why}")
+    return out
+
+
+def _json_list(text, argv):
+    try:
+        v = json.loads(text)
+    except ValueError:
+        v = None
+    if not isinstance(v, list):
+        raise CheckFailed(f"`{' '.join(argv)}` printed something other than a JSON list")
+    return v
 
 
 def _names(text):
@@ -139,7 +168,7 @@ def _names(text):
 def _worktrees(repo_dir):
     """{branch: path} for every checked-out worktree of the repo."""
     out, cur = {}, {}
-    for line in (_run(["git", "worktree", "list", "--porcelain"], repo_dir) or "").splitlines() + [""]:
+    for line in _run(["git", "worktree", "list", "--porcelain"], repo_dir).splitlines() + [""]:
         if not line:
             if cur.get("branch"):
                 out[cur["branch"]] = cur["path"]
@@ -154,9 +183,10 @@ def _worktrees(repo_dir):
 def open_work(slug, base, repo_dir, label):
     """[(who, [files])] — every open agent-working issue (its branch and worktree) and open PR."""
     work = []
-    prs = json.loads(_run(["gh", "pr", "list", "-R", slug, "--state", "open", "--json", "number,headRefName"]) or "[]")
-    issues = json.loads(_run(["gh", "issue", "list", "-R", slug, "--state", "open", "--label", label,
-                              "--json", "number"]) or "[]")
+    pr_cmd = ["gh", "pr", "list", "-R", slug, "--state", "open", "--json", "number,headRefName"]
+    is_cmd = ["gh", "issue", "list", "-R", slug, "--state", "open", "--label", label, "--json", "number"]
+    prs = _json_list(_run(pr_cmd), pr_cmd)
+    issues = _json_list(_run(is_cmd), is_cmd)
     trees = _worktrees(repo_dir)
     for pr in prs:
         files = _names(_run(["gh", "pr", "diff", str(pr["number"]), "-R", slug, "--name-only"]))
@@ -164,12 +194,17 @@ def open_work(slug, base, repo_dir, label):
     for it in issues:
         n = it["number"]; br = f"issue/{n}"; files = []
         for ref in (f"origin/{br}", br):
-            got = _run(["git", "diff", "--name-only", f"{base}...{ref}"], repo_dir)
-            if got is not None:
-                files += _names(got); break
+            # a branch that does not exist yet (rev-parse exit 1) owns no files; any other failure is unknown
+            rc, _, err = _call(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], repo_dir)
+            if rc == 1:
+                continue
+            if rc != 0:
+                raise CheckFailed(f"`git rev-parse --verify {ref}` failed (exit {rc}): "
+                                  f"{(err.strip().splitlines() or ['no output'])[0]}")
+            files += _names(_run(["git", "diff", "--name-only", f"{base}...{ref}"], repo_dir)); break
         wt = trees.get(br)
         if wt:   # uncommitted work in the lane's own worktree counts too
-            for l in (_run(["git", "status", "--porcelain"], wt) or "").splitlines():   # not _names: the XY column's leading space is data
+            for l in _run(["git", "status", "--porcelain"], wt).splitlines():   # not _names: the XY column's leading space is data
                 files.append(l[3:].split(" -> ")[-1].strip('"'))
         work.append((f"issue #{n} ({label})", sorted(set(files))))
     return work
@@ -231,7 +266,16 @@ def main(argv=None):
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
-    hits = overlap(a.files.split(","), a.repo, a.base, a.repo_dir, label)
+    if not REPO_RE.fullmatch(a.repo):
+        ap.error(f"argument -R: {a.repo!r} is not a repository — expected owner/name")
+    try:
+        hits = overlap(a.files.split(","), a.repo, a.base, a.repo_dir, label)
+    except CheckFailed as e:
+        msg = f"could not check for overlap: {e}"
+        print(f"harness tier overlap: {msg}", file=sys.stderr)
+        if a.json:
+            print(json.dumps({"overlap": None, "hits": [], "error": msg}))
+        return EXIT_UNCHECKED
     if a.json:
         print(json.dumps({"overlap": bool(hits), "hits": hits}))
     elif hits:

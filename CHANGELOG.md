@@ -4,6 +4,16 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier overlap` no longer says "the direct path is clear" when it could not check (#708)
+
+- A rate limit, an auth failure, a network error or a bad `-R` made every `gh` and `git` call in `overlap` look like "no
+  files", so it printed the "clear" message with exit 0 (`--json`: `"overlap": false`) at exactly the moment it could not
+  look. Now a failing `gh pr list`, `gh issue list`, `gh pr diff`, `git worktree list`, `git diff` or `git status` makes
+  `overlap` print `could not check for overlap` and the failed command on stderr and exit 3 (not 0 for clear, not 1 for an
+  overlap); `--json` prints `{"overlap": null, "hits": [], "error": …}`. An `agent-working` issue whose branch does not exist
+  yet still owns no files. A `-R` value that is not `owner/name` (`-x`, `=-x`, `a/`, …) is a usage error, exit 2.
+  `test/test_tier.sh` covers each failing call, in text and `--json`, with a stub `gh` that fails.
+
 ### `harness stats` no longer drops an events.jsonl line that starts with a UTF-8 BOM (#672)
 
 - An event log saved with a leading BOM lost its first event without a word: the report showed 1000 output tokens instead of
