@@ -1395,6 +1395,17 @@ def test_stats_cost_for_run_20261106_matches_the_bench_recompute():
     assert 4.3 < old < 4.6 and got - old > 0.8, (old, got)
 
 
+def test_read_config_ignores_a_leading_utf8_bom():   # #859
+    for first in (': "${HARNESS_REPO:=VocanicZ/bom}"\n', 'HARNESS_REPO=VocanicZ/bom\n', 'export HARNESS_REPO="VocanicZ/bom"\n'):
+        d = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(d, "config"), "wb") as fh:
+                fh.write(b"\xef\xbb\xbf" + first.encode() + b': "${HARNESS_UNIT:=u1}"\r\n')
+            assert st.read_config(d) == {"HARNESS_REPO": "VocanicZ/bom", "HARNESS_UNIT": "u1"}, (first, st.read_config(d))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

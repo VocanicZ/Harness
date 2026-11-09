@@ -584,7 +584,7 @@ def render_pct(f):
 def config_value(state_dir, name):
     """A `: "${NAME:=value}"` setting from the project's .harness/config, or None."""
     try:
-        with open(os.path.join(state_dir, "config")) as fh:
+        with open(os.path.join(state_dir, "config"), encoding="utf-8-sig", errors="replace") as fh:   # #859
             m = re.search(r'\b' + re.escape(name) + r':=([^}"]*)', fh.read())
     except (OSError, TypeError):
         return None

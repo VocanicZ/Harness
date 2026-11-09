@@ -205,7 +205,7 @@ def migrate(state, date):
     state = os.path.abspath(state)
     cfg = os.path.join(state, "config")
     try:
-        with open(cfg) as fh:
+        with open(cfg, encoding="utf-8-sig", errors="replace") as fh:   # #859: a BOM would hide the first key
             text = fh.read()
     except OSError as e:
         sys.stderr.write("fleet-migrate: cannot read %s: %s\n" % (cfg, e))

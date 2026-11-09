@@ -530,6 +530,13 @@ def test_fallback_alone_and_the_setting_from_config():
             if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
 
 
+def test_config_value_ignores_a_leading_utf8_bom():   # #859
+    with tmp() as d:
+        with open(os.path.join(d, "config"), "wb") as fh:
+            fh.write(b'\xef\xbb\xbf: "${HARNESS_ONE_USD_PER_PCT:=43}"\n')
+        assert fc.config_value(d, "HARNESS_ONE_USD_PER_PCT") == "43"
+
+
 def test_usd_per_pct_rejects_non_finite_tiny_and_bad_values_and_names_them():   # #746
     for raw in ("inf", "-inf", "Infinity", "nan", "1e999", "0", "0.0", "-5", "1e-300", "0.001", "nope", "1,5",
                 "1_0", "+5", "\uff15", "\uff11\uff10", "\u0665", "1__0", "1.2.3", "5 ", "1e3", "."):   # #834

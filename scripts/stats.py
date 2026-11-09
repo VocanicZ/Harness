@@ -1376,7 +1376,7 @@ def read_config(state_dir, keys=None):
     session exports its own HARNESS_REPO (#186). The last assignment wins, as when sourced."""
     cfg = {}
     try:
-        with open(os.path.join(state_dir, "config")) as fh:
+        with open(os.path.join(state_dir, "config"), encoding="utf-8-sig", errors="replace") as fh:   # #859: a BOM is not part of the first key
             text = fh.read()
     except (OSError, TypeError):
         return cfg
