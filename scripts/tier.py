@@ -392,6 +392,8 @@ def main(argv=None):
         print(json.dumps(r) if a.json else render(r)); return 0
     if not a.base or a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git; #862: an empty one is not "HEAD"
         o.error(f"argument --base: {a.base!r} is not a branch — it must be non-empty and not start with '-'")
+    if not a.repo_dir:   # #881: an empty path is not "."; it would reach `git worktree list` and exit 3
+        o.error("argument --repo-dir: '' is not a directory — it must be non-empty")
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")

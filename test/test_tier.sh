@@ -380,6 +380,18 @@ for bad in "--output=$T/x" -x - ""; do   # "" (#862): not HEAD
   assert_eq "$rc" 2 "--base=$bad -> usage error, exit 2"
   assert_ok "--base=$bad: names --base" grep -qF -- '--base' <<<"$err"
 done
+# an empty --repo-dir is a usage error naming --repo-dir, both spellings; git is never run (#881)
+for form in sep eq; do
+  : > "$GIT_LOG"
+  if [ "$form" = sep ]; then
+    err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --base main --repo-dir '' 2>&1 >/dev/null)"; rc=$?
+  else
+    err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --base main --repo-dir= 2>&1 >/dev/null)"; rc=$?
+  fi
+  assert_eq "$rc" 2 "overlap --repo-dir ($form) empty -> usage error, exit 2"
+  assert_ok "overlap --repo-dir ($form) empty: names --repo-dir" grep -qF -- '--repo-dir' <<<"$err"
+  assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) empty never runs git"
+done
 # …and every form prints the overlap usage, not the top-level `harness tier` one (#809)
 for form in "--base=-x" "-R=-x" "--base -x" "-R -x"; do
   # shellcheck disable=SC2086
