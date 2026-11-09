@@ -28,17 +28,27 @@ def is_windows():
     return sys.platform == "win32"
 
 
-_SHEBANG = re.compile(rb"#![ \t]*(?:/usr/bin/env[ \t]+)?(?:\S*/)?(ba)?sh\b|#![ \t]*(?:/usr/bin/env[ \t]+)?(?:\S*/)?(python)[0-9.]*\b")
-
-
 def _script_kind(f):
-    """"sh" for a file starting with a bash/sh shebang, "py" for a python one, else None."""
+    """"sh" for a file starting with a bash/sh shebang, "py" for a python one (the interpreter may be named by a Windows path, or
+    through /usr/bin/env), else None."""
     try:
         with open(f, "rb") as fh:
-            m = _SHEBANG.match(fh.read(64))
+            head = fh.read(256)
     except OSError:
         return None
-    return None if not m else ("py" if m.group(2) else "sh")
+    if not head.startswith(b"#!"):
+        return None
+    line = head[2:].split(b"\n", 1)[0].decode("latin-1").strip()
+    if ".exe" in line.lower():           # a Windows interpreter path may hold spaces: it ends at its .exe
+        line = line[:line.lower().index(".exe") + 4]
+    words = line.split() if ".exe" not in line.lower() else [line]
+    if words and re.split(r"[/\\]", words[0])[-1] == "env" and len(words) > 1:
+        words = words[1:]
+    prog = re.split(r"[/\\]", words[0])[-1].lower() if words else ""
+    prog = prog[:-4] if prog.endswith(".exe") else prog
+    if prog in ("sh", "bash"):
+        return "sh"
+    return "py" if re.fullmatch(r"python[0-9.]*", prog) else None
 
 
 def _path_program(name):

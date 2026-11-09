@@ -155,7 +155,7 @@ def main():
         fh.write("#!/bin/sh\n")
     os.chmod(onpath, 0o755)
     with env(HARNESS_BASH=None, PATH=bindir):
-        check(portable.bash_exe() == onpath, "bash_exe is the first bash on PATH, as a full path")
+        check(os.path.normcase(portable.bash_exe()) == os.path.normcase(onpath), "bash_exe is the first bash on PATH, as a full path")
     with env(HARNESS_BASH=fakebash, PATH=bindir):
         check(portable.bash_exe() == fakebash, "… and HARNESS_BASH wins over PATH")
     with env(HARNESS_BASH=None, PATH=os.path.join(tmp, "empty")):

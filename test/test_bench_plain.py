@@ -219,7 +219,7 @@ def test_every_turn_runs_on_the_isolated_config_not_the_hosts(p):
     calls = p.calls()
     assert len(calls) == 2
     for c in calls:
-        assert c["config"] != host and c["config"].endswith("/claude-config"), (c["config"], host)
+        assert c["config"] != host and os.path.basename(c["config"]) == "claude-config", (c["config"], host)
         assert c["config"] == calls[0]["config"], "the same dir every turn"
     # before the first turn the dir holds the login and nothing else of the host's (later turns add the session's own projects/)
     assert calls[0]["config_files"] == [".claude.json", ".credentials.json"], calls[0]["config_files"]
