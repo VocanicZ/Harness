@@ -63,7 +63,7 @@ out="$(printf '{"cwd":"%s"}' "$WT" | bash "$HERE/../scripts/usage-statusline.sh"
 assert_eq "$out" "harness · usage n/a" "statusline with no rate_limits says usage n/a"
 rm -rf "$(_usage_dir)"
 
-# ensure_usage_statusline wires Harness-owned claude trees only, and never overwrites
+# ensure_usage_statusline wires Harness-owned claude trees only; it rewrites only a statusLine Harness wrote (#695)
 WT2="$RUN_DIR/wt2"; mkdir -p "$WT2"
 ensure_usage_statusline "$WT2"
 assert_ok "worktree status line points at usage-statusline.sh" grep -q 'usage-statusline.sh' "$WT2/.claude/settings.local.json"
@@ -79,6 +79,44 @@ assert_no "agy / HARNESS_USAGE_STATUSLINE=0: no status line wired" test -f "$WT3
 printf 'not json' > "$WT3/s.json"; mkdir -p "$WT3/.claude"; mv "$WT3/s.json" "$WT3/.claude/settings.local.json"
 ensure_usage_statusline "$WT3"
 assert_ok "a corrupt settings file is replaced, not crashed on" grep -q 'usage-statusline.sh' "$WT3/.claude/settings.local.json"
+
+# ── #695: the command names the stable engine link, a Harness-written statusLine is rewritten, the base checkout heals ──
+settings_cmd(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["statusLine"]["command"])' "$1"; }
+STALE="bash '/nonexistent/releases/v0.1.1/scripts/usage-statusline.sh' '$(_usage_dir)'"
+W4="$RUN_DIR/wt4"; mkdir -p "$W4"
+HARNESS_ENGINE_LINK=/stable/engine ensure_usage_statusline "$W4"
+assert_eq "$(settings_cmd "$W4/.claude/settings.local.json")" "bash '/stable/engine/scripts/usage-statusline.sh' '$(_usage_dir)'" \
+  "the status line names HARNESS_ENGINE_LINK, not the resolved release"
+W5="$RUN_DIR/wt5"; mkdir -p "$W5"
+( unset HARNESS_ENGINE_LINK; ensure_usage_statusline "$W5" )
+assert_eq "$(settings_cmd "$W5/.claude/settings.local.json")" "bash '$ENGINE_DIR/scripts/usage-statusline.sh' '$(_usage_dir)'" \
+  "HARNESS_ENGINE_LINK unset falls back to ENGINE_DIR"
+mkdir -p "$W5/.claude"
+printf '{"permissions":{"defaultMode":"bypassPermissions"},"statusLine":{"type":"command","command":"%s"}}' "$STALE" > "$W5/.claude/settings.local.json"
+HARNESS_ENGINE_LINK=/stable/engine ensure_usage_statusline "$W5"
+assert_eq "$(settings_cmd "$W5/.claude/settings.local.json")" "bash '/stable/engine/scripts/usage-statusline.sh' '$(_usage_dir)'" \
+  "a stale Harness-written release path is rewritten to the stable one"
+assert_ok "the rewrite keeps the other keys" grep -q bypassPermissions "$W5/.claude/settings.local.json"
+cp "$W5/.claude/settings.local.json" "$RUN_DIR/w5.before"; touch -d '2020-01-01' "$W5/.claude/settings.local.json"
+HARNESS_ENGINE_LINK=/stable/engine ensure_usage_statusline "$W5"
+assert_ok "a second install leaves the file byte-identical" cmp -s "$RUN_DIR/w5.before" "$W5/.claude/settings.local.json"
+assert_ok "a second install does not rewrite (mtime kept)" test "$(stat -c %Y "$W5/.claude/settings.local.json")" = "$(date -d 2020-01-01 +%s)"
+
+# the base checkout under CHECKOUTS_DIR is healed by a launch in one of its worktrees
+CK="$CHECKOUTS_DIR/proj"; mkdir -p "$CK"
+git -C "$CK" init -q -b main && git -C "$CK" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$CK" worktree add -q "$RUN_DIR/ckwt" -b ckbranch
+mkdir -p "$CK/.claude"; printf '{"permissions":{"defaultMode":"bypassPermissions"},"statusLine":{"type":"command","command":"%s"}}' "$STALE" > "$CK/.claude/settings.local.json"
+HARNESS_ENGINE_LINK=/stable/engine ensure_usage_statusline "$RUN_DIR/ckwt"
+assert_eq "$(settings_cmd "$CK/.claude/settings.local.json")" "bash '/stable/engine/scripts/usage-statusline.sh' '$(_usage_dir)'" \
+  "a worktree launch heals the base checkout's stale command"
+assert_ok "the checkout keeps its other keys" grep -q bypassPermissions "$CK/.claude/settings.local.json"
+printf '{"statusLine":{"type":"command","command":"mine"}}' > "$CK/.claude/settings.local.json"
+HARNESS_ENGINE_LINK=/stable/engine ensure_usage_statusline "$RUN_DIR/ckwt"
+assert_ok "a checkout's foreign statusLine is not touched" grep -q '"mine"' "$CK/.claude/settings.local.json"
+rm -f "$CK/.claude/settings.local.json"
+HARNESS_ENGINE_LINK=/stable/engine ensure_usage_statusline "$RUN_DIR/ckwt"
+assert_no "a checkout with no settings file gets none" test -f "$CK/.claude/settings.local.json"
 
 # ── B2 (#364): each new reading lands in the event log, once per account/window ──
 n_readings(){ grep -c '"event": "usage_reading"' "$HARNESS_EVENTS_FILE" 2>/dev/null || true; }
