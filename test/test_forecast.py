@@ -681,6 +681,28 @@ def test_issue_number_is_ascii_digits_only():   # #784
             assert r.stdout == "", (n, r.stdout)
 
 
+def test_unit_and_account_names_with_line_separators_print_escaped():   # #833
+    """A form feed or U+2028 in the unit (--unit or an event's) or in a usage_reading account never splits a
+    forecast line: each prints as \\uXXXX, the way stats.vis writes it."""
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for ch, esc in (("\f", "\\u000c"), ("\u2028", "\\u2028")):
+            rc, text, _ = run_cli(["50", "-R", W, "--unit", f"u{ch}x", "--events", events, "--bodies", bodies], cfg)
+            assert rc == 0 and text.splitlines()[0] == f"forecast #50 {W} (unit u{esc}x)", (rc, text)
+            assert ch not in text, repr(text)
+        # the unit from the events (no --unit): lane #50's siblings carry it
+        evs = [e for e in fc.st.load_events(events)]
+        for ch, esc in (("\f", "\\u000c"), ("\u2028", "\\u2028")):
+            ev2 = os.path.join(d, "ev2.jsonl")
+            write_lines(ev2, [dict(e, unit=f"m{ch}n") if e.get("unit") == "main" else e for e in evs]
+                        + [reading(f"ac{ch}ct", "seven_day", "01:00", 10, 1_800_000_000),
+                           reading(f"ac{ch}ct", "seven_day", "02:00", 11, 1_800_000_000)])
+            rc, text, _ = run_cli(["50", "-R", W, "--events", ev2, "--bodies", bodies], cfg)
+            assert rc == 0 and f"(unit m{esc}n)" in text and f"ac{esc}ct" in text, text
+            assert ch not in text, repr(text)
+            assert all(ln.startswith(" ") or ln.startswith("forecast") for ln in text.splitlines()), repr(text)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

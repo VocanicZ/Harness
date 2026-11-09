@@ -522,11 +522,11 @@ def render(f):
     out += render_pct(f)
     if f["spent"]["sessions"]:
         out.append(f"  already spent on #{f['issue']}: ${f['spent']['usd']:.2f} over {f['spent']['sessions']} session(s)")
-    return "\n".join(out)
+    return "\n".join(st.vis(x) for x in out)   # #833: a unit / account name never splits a line
 
 
 def _window_name(w):
-    return " ".join(x for x in (w["account"], w["window"]) if x) or "any account"
+    return st.vis(" ".join(x for x in (w["account"], w["window"]) if x) or "any account")
 
 
 def _setting_state(cal):
