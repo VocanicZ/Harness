@@ -461,6 +461,26 @@ def test_report_repo_must_be_owner_name_with_no_leading_dash():
             assert rc == 0, (ok, rc, out)
 
 
+def test_report_fleet_must_be_non_empty_with_no_leading_dash():
+    """#839: --fleet=-x and --fleet= -> exit 2, like --repo=-x (#716); not "no events in range", exit 0."""
+    with host() as d:
+        p = os.path.join(d, "events.jsonl")
+        st.append_event(_ev("claim", issue=11), p)
+        for bad in ("-x", "-", "--x", ""):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                try:
+                    rc, out = run(["report", f"--fleet={bad}"])
+                except SystemExit as e:
+                    rc, out = e.code, ""
+            assert rc == 2 and out == "" and "not a fleet prefix" in err.getvalue(), (bad, rc, out, err.getvalue())
+        r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), "report", "--fleet=-x",
+                            "--events", p], capture_output=True, text=True)
+        assert r.returncode == 2 and r.stdout == "" and "not a fleet prefix" in r.stderr, (r.returncode, r.stdout, r.stderr)
+        rc, out = run(["report", "--fleet=acme"])
+        assert rc == 0, (rc, out)
+
+
 def test_report_prd_below_one_is_a_usage_error():
     """#711: --prd 0 or below -> exit 2 with a message (like --issue), not "PRD #-5" or a silent 7d default."""
     with host() as d:
