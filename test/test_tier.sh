@@ -224,6 +224,25 @@ done
 assert_eq "$(H tier overlap --files a -R -x >/dev/null 2>&1; echo $?)" 2 "-R -x -> usage error, exit 2"
 assert_eq "$(H tier overlap --files a -R nonsense >/dev/null 2>&1; echo $?)" 2 "-R nonsense -> usage error, exit 2"
 assert_eq "$(HARNESS_REPO=nonsense H tier overlap --files a >/dev/null 2>&1; echo $?)" 2 "HARNESS_REPO=nonsense -> exit 2"
+# --base must not start with '-': git would read it as an option (#748); git is never run
+GBIN="$T/gitbin"; mkdir -p "$GBIN"; REAL_GIT="$(command -v git)"
+printf '#!/usr/bin/env bash\necho "$*" >> "$GIT_LOG"\nexec "%s" "$@"\n' "$REAL_GIT" > "$GBIN/git"; chmod +x "$GBIN/git"
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in "issue list") echo '[{"number":5}]';; *) echo '[]';; esac
+SH
+export GIT_LOG="$T/git.log"; : > "$GIT_LOG"; rm -f "$T/x"
+for bad in "--output=$T/x" -x -; do
+  err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --repo-dir "$R" --base="$bad" 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "--base=$bad -> usage error, exit 2"
+  assert_ok "--base=$bad: names --base" grep -qF -- '--base' <<<"$err"
+done
+PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --repo-dir "$R" --base - >/dev/null 2>&1; rc=$?
+assert_eq "$rc" 2 "--base - -> usage error, exit 2"
+assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "a dash-leading --base never runs git"
+assert_no "…and git never wrote the --output path" test -e "$T/x"
+PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --repo-dir "$R" --base main >/dev/null 2>&1
+assert_ok "a good --base still runs git (the shim is live)" test -s "$GIT_LOG"
 # an empty or blank --files list checks nothing -> usage error, never "clear"
 for blank in '' ' ' ',' ' , '; do
   err="$(H tier overlap -R acme/widget --base main --repo-dir "$R" --files "$blank" 2>&1 >"$T/out.txt")"; rc=$?

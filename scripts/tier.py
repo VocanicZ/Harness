@@ -232,7 +232,7 @@ def open_work(slug, base, repo_dir, label):
             if rc != 0:
                 raise CheckFailed(f"`git rev-parse --verify {ref}` failed (exit {rc}): "
                                   f"{(err.strip().splitlines() or ['no output'])[0]}")
-            files += _names(_run(["git", "diff", "--name-only", f"{base}...{ref}"], repo_dir)); break
+            files += _names(_run(["git", "diff", "--name-only", f"{base}...{ref}", "--"], repo_dir)); break
         wt = trees.get(br)
         if wt:   # uncommitted work in the lane's own worktree counts too
             for l in _run(["git", "status", "--porcelain"], wt).splitlines():   # not _names: the XY column's leading space is data
@@ -305,6 +305,8 @@ def main(argv=None):
                    user_around=not a.unattended, wants_review=a.wants_review,
                    multi_step_plan=a.multi_step_plan, prefer=a.prefer)
         print(json.dumps(r) if a.json else render(r)); return 0
+    if a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git
+        ap.error(f"argument --base: {a.base!r} is not a branch — it must not start with '-'")
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
