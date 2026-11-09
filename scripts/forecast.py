@@ -751,13 +751,13 @@ def main(argv=None):
     try:
         repo, unit = resolve_repo(a.issue, a.repo, a.unit, events, os.environ.get("STATE_DIR"))
     except ValueError as e:
-        print(f"harness forecast: {e}", file=sys.stderr)
+        print(f"harness forecast: {st.vis(str(e))}", file=sys.stderr)
         return 2
     if a.bodies:
         try:
             bodies = read_bodies(a.bodies)
-        except ValueError as e:
-            print(f"harness forecast: {e}", file=sys.stderr)
+        except ValueError as e:   # #863: the message names --bodies' path, which can hold U+2028 or a form feed
+            print(f"harness forecast: {st.vis(str(e))}", file=sys.stderr)
             return 2
         body = bodies.get(a.issue)
     else:

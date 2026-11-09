@@ -716,6 +716,19 @@ def test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators():   # #8
                 os.environ[fc.FALLBACK_SETTING] = saved
 
 
+def test_unreadable_bodies_path_with_line_separators_prints_escaped():   # #863
+    """A U+2028 or form feed in the --bodies path prints as \\uXXXX in the 'cannot read it' error on stderr."""
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for ch, esc in (("\f", "\\u000c"), ("\u2028", "\\u2028")):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "50", "-R", W,
+                                "--events", events, "--bodies", os.path.join(d, f"no{ch}pe")],
+                               capture_output=True, text=True)
+            assert r.returncode == 2, (r.returncode, r.stderr)
+            assert f"no{esc}pe: cannot read it" in r.stderr, repr(r.stderr)
+            assert ch not in r.stderr and ch not in r.stdout, (repr(r.stderr), repr(r.stdout))
+
+
 def test_unit_and_account_names_with_line_separators_print_escaped():   # #833
     """A form feed or U+2028 in the unit (--unit or an event's) or in a usage_reading account never splits a
     forecast line: each prints as \\uXXXX, the way stats.vis writes it."""
