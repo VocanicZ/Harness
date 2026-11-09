@@ -650,7 +650,8 @@ def cmd_emit(argv):
 def load_events(path=None, skipped=None):
     """Every JSON-object line of the events log. A leading UTF-8 BOM (a Windows editor's save) is stripped, like the
     CRLF / lone CR that universal newlines already fold. A line that still does not parse is dropped, but counted:
-    pass a list as `skipped` and its length-1 slot `[0]` is bumped, so the caller can say how much it lost (#672)."""
+    pass a list as `skipped` and its length-1 slot `[0]` is bumped, so the caller can say how much it lost (#672).
+    Parsed non-strict, so a raw control character (form feed, tab, VT) inside a field value is accepted (#673)."""
     out = []
     try:
         with open(path or events_path(), encoding="utf-8", errors="replace") as fh:
@@ -659,7 +660,7 @@ def load_events(path=None, skipped=None):
                 if not line.strip():
                     continue
                 try:
-                    r = json.loads(line)
+                    r = json.loads(line, strict=False)
                 except ValueError:
                     r = None
                 if isinstance(r, dict):
