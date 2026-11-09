@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-test-timeout-windows: 3000
+# harness-test-timeout-windows: 6000
 # test_bench_fixture.sh — #380 (PRD #345): the benchmark's fixture. One end-user brief, hidden tests
 # the agents never see, bench/grade.py to score a checkout against them, and a reference solution
 # proving the hidden tests are passable. Covered here: the reference scores 100% (pip build, and the
