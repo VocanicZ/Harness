@@ -9,7 +9,7 @@ stats.py's `_print_report` (#671) does the same for its one print. A `SystemExit
 
 A closed pipe is not a failure of the command: the status is the one `main` returned (0 when the pipe
 broke before `main` finished). A closed standard output (`>&-`, sys.stdout None, #806) is the same: output is dropped,
-no traceback, the status `main` returned. Stdlib only.
+no traceback, the status `main` returned, and --help is dropped too (#837). Stdlib only.
 """
 import os, sys
 
@@ -24,6 +24,8 @@ def quiet_stdout():
 
 def run(main, *args):
     """main(*args)'s exit status; a reader that closed stdout early ends the command quietly instead."""
+    if sys.stdout is None:   # #837: `>&-`; argparse would print --help on stderr, so drop output like the rest
+        sys.stdout = open(os.devnull, "w")
     try:
         rc = main(*args)
     except BrokenPipeError:
