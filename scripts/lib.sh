@@ -380,8 +380,17 @@ lane_claim_key(){ case "$1" in
   BUG) _bug_claim_key "$SLUG#$2";;
   esac; }
 # lane_claim_write <key> <wid> <token> <session> [<pane-pid>] — atomic, so a reader never sees half a claim.
-lane_claim_write(){ local f="$CLAIMS_DIR/$1.claim"
-  printf '%s %s %s %s %s\n' "$2" "$$" "$3" "${4:--}" "${5:--}" > "$f.tmp" && mv -f "$f.tmp" "$f"; }
+# #763: on Windows a rename over a file another process has open (a lock-free reader's awk) can remove the target and
+# then fail, which left <key>.claim.tmp and NO claim: a launched lane nobody owns, its issue free to take again. So a
+# failed rename is retried (HARNESS_CLAIM_MV_TRIES times, default 5, 50 ms apart), and the last resort copies the content
+# in, so a claim that was written is never missing afterwards.
+lane_claim_write(){ local f="$CLAIMS_DIR/$1.claim" n
+  printf '%s %s %s %s %s\n' "$2" "$$" "$3" "${4:--}" "${5:--}" > "$f.tmp" || return 1
+  for (( n = 0; n < ${HARNESS_CLAIM_MV_TRIES:-5}; n++ )); do
+    mv -f "$f.tmp" "$f" 2>/dev/null && return 0
+    sleep 0.05
+  done
+  cat "$f.tmp" > "$f" && rm -f "$f.tmp"; }
 # worker_claims_of <wid> — every claim file written under this worker id, whichever process wrote it: for a
 # reader that is not the worker (status.sh). The worker itself uses worker_claims.
 worker_claims_of(){ local f w; shopt -s nullglob
