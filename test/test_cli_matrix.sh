@@ -131,13 +131,19 @@ session_end_usage_ok(){ local ctx="$RUN_DIR/ctx.json"
   printf '{"worktree": "%s", "session": "%s", "kind": "impl"}' "$1" "$2" > "$ctx"
   rm -f "$HARNESS_EVENTS_FILE"
   harness_event session_end --ctx "$ctx" usage_tsv="$(_stats_cli_usage "$ctx")"
-  python3 - "$HARNESS_EVENTS_FILE" "$FIX/$(cli_name)/usage.expected" <<'PY'
-import json, sys
+  python3 - "$HARNESS_EVENTS_FILE" "$FIX/$(cli_name)/usage.expected" "$FIX/$(cli_name)/usage-1h.expected" <<'PY'
+import json, os, sys
 ev = [json.loads(l) for l in open(sys.argv[1])][-1]
 want = {}
 for line in open(sys.argv[2]):
     m, i, o, cr, cw = line.rstrip("\n").split("\t")
     want[m] = {"input": int(i), "output": int(o), "cache_read": int(cr), "cache_create": int(cw)}
+# #710: a CLI whose transcript has 1h cache writes (usage-1h.expected: model<TAB>cache_create_1h) carries that share
+# under cache_create_1h; one without the file must carry no such key.
+if os.path.exists(sys.argv[3]):
+    for line in open(sys.argv[3]):
+        m, w1 = line.rstrip("\n").split("\t")
+        want[m]["cache_create_1h"] = int(w1)
 sys.exit(0 if ev.get("usage") == want else 1)
 PY
 }

@@ -21,7 +21,9 @@ gh(){
   case "$1 $2" in "api user") echo "Fleet-Bot"; return;; esac
   for a in "$@"; do [[ "$a" == comments ]] && { while (($#)); do [[ "$1" == -q ]] && { q="$2"; break; }; shift; done
     jq -r "$q" "$FIXTURE" | tr -d '\r'; return; }; done   # #609: jq.exe ends lines CRLF, gh's own -q does not
-  for a in "$@"; do [[ "$a" == labels* ]] && { echo '["agent-paused"]'; return; }; done
+  # prepare_impl's one issue fetch (--json state,labels,title,body,comments, #730): match the field list by
+  # containing `labels`, so another field added to it does not silently break the stub again.
+  for a in "$@"; do [[ "$a" == *labels* ]] && { echo '{"state":"OPEN","labels":[{"name":"agent-paused"}],"title":"T","body":"B"}'; return; }; done
   return 0; }
 cat > "$FIXTURE" <<'EOF'
 {"comments":[
