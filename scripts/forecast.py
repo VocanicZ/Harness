@@ -101,12 +101,17 @@ def raw_cost(u, model):
 
 
 def usage_cost(usage):
-    """$ for a folded {model: {input, output, cache_create, cache_read}} (stats.py / usage_tsv)."""
+    """$ for a folded {model: {input, output, cache_create, cache_read[, cache_create_1h]}} (stats.py /
+    usage_tsv). `cache_create_1h` (#710) is the 1-hour share of `cache_create`, priced at the 1h write rate;
+    the rest of `cache_create` is priced at the 5m rate. A usage without it (an event logged before #710,
+    another CLI's) is priced as all 5m: the documented default, the lower list rate."""
     tot = 0.0
     for model, u in (usage or {}).items():
-        pi, po, pw5, _, pr = price(model)
+        pi, po, pw5, pw1, pr = price(model)
+        cc = int(u.get("cache_create") or 0)
+        w1 = min(max(int(u.get("cache_create_1h") or 0), 0), cc)
         tot += (int(u.get("input") or 0) * pi + int(u.get("output") or 0) * po
-                + int(u.get("cache_create") or 0) * pw5 + int(u.get("cache_read") or 0) * pr) / 1e6
+                + (cc - w1) * pw5 + w1 * pw1 + int(u.get("cache_read") or 0) * pr) / 1e6
     return tot
 
 

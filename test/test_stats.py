@@ -1072,6 +1072,71 @@ def test_report_into_a_reader_that_stops_early_is_quiet():   # #671: `harness st
             assert first and err == "" and rc in (0, 141), (extra, rc, err)
 
 
+RUN_DIR = os.path.join(HERE, "..", "bench", "results", "run-20261106", "harness.logs")
+
+def _run_20261106_events():
+    """The run's committed events with each claude session_end's usage re-folded from its committed
+    transcript (the events predate the 5m / 1h split, #710), plus the bench's recompute over the same
+    transcripts: ([events], bench_usd_per_transcript_session)."""
+    import glob
+    sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+    import forecast as fc
+    trs = {os.path.basename(p).split("-", 1)[1][:-len(".jsonl")]: p
+           for p in glob.glob(os.path.join(RUN_DIR, "transcripts", "*.jsonl"))}
+    evs = []
+    for line in open(os.path.join(RUN_DIR, "events.jsonl")):
+        e = json.loads(line)
+        if e.get("event") == "session_end" and e.get("session") in trs and e.get("usage"):
+            e["usage"] = st.session_usage(trs[e["session"]])[0]
+        evs.append(e)
+    bench = {}
+    for sid, p in trs.items():
+        seen = {}
+        for f in st.transcript_files(p):
+            for key, model, u, _, _ in fc._messages(f):
+                seen[key] = (model, u)
+        bench[sid] = sum(fc.raw_cost(u, m) for m, u in seen.values())
+    return evs, bench
+
+def test_session_usage_keeps_the_1h_cache_writes_apart_and_counts_subagents():
+    """#710: the folded usage carries the 1h share of cache_create; a sub-agent's turns are in the session."""
+    tr = os.path.join(RUN_DIR, "transcripts", "8-b19488a1-eb39-44f5-b974-1f09845540ac.jsonl")
+    (u,) = st.session_usage(tr)[0].values()
+    # the main transcript wrote 109,500 tokens at 1h; the sub-agent's 59,855 are 5m (no 1h in its usage)
+    assert u["cache_create"] == 169355 and u["cache_create_1h"] == 109500, u
+    only_main = {}
+    st._file_usage(tr, only_main, [None, None])
+    assert next(iter(only_main.values()))["cache_create"] == 109500, "the sub-agent's writes are on top"
+    # no TTL split recorded -> no key: old transcripts and other CLIs price as 5m
+    assert all("cache_create_1h" not in u for u in st.session_usage(
+        st.find_transcript(FIXTURE_SID, [FIXTURE_CFG]))[0].values())
+
+def test_add_and_minus_usage_carry_the_1h_share():
+    a = st.add_usage({}, {"m": {"input": 1, "output": 1, "cache_create": 10, "cache_read": 1, "cache_create_1h": 4}})
+    a = st.add_usage(a, {"m": {"input": 1, "output": 1, "cache_create": 5, "cache_read": 1}})
+    assert a["m"]["cache_create"] == 15 and a["m"]["cache_create_1h"] == 4, a
+    d = st.usage_minus(a, {"m": {"cache_create": 5, "cache_create_1h": 1}})
+    assert d["m"]["cache_create"] == 10 and d["m"]["cache_create_1h"] == 3, d
+
+def test_stats_cost_for_run_20261106_matches_the_bench_recompute():
+    """#710: `harness stats` priced every cache write at 5m: $5.07 for run-20261106 against the bench's
+    $6.86. Priced by TTL, its fleet sessions cost what the bench recomputes from their transcripts. The bench
+    figure also holds the front-door session (transcript 0-…, $0.70), the operator's own claude outside the
+    fleet: it has no launch / session_end, so no events and no stats."""
+    evs, bench = _run_20261106_events()
+    front = sum(v for k, v in bench.items() if k.startswith("78d74eb3"))
+    fleet = sum(bench.values()) - front
+    assert abs(sum(bench.values()) - 6.8559) < 1e-3 and abs(front - 0.699) < 2e-3, (bench, front)
+    got = st.role_rollup(evs)["total"]["usd"]
+    assert abs(got - fleet) / fleet < 0.01, (got, fleet)
+    # the same events with the split dropped price at the 5m default: the old, low figure
+    for e in evs:
+        for u in (e.get("usage") or {}).values():
+            u.pop("cache_create_1h", None)
+    old = st.role_rollup(evs)["total"]["usd"]
+    assert 5.0 < old < 5.3 and got - old > 0.8, (old, got)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

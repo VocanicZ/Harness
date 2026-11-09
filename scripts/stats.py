@@ -43,6 +43,12 @@ import portable  # noqa: E402  #355: flock / msvcrt.locking
 
 USAGE_KEYS = (("input_tokens", "input"), ("output_tokens", "output"),
               ("cache_creation_input_tokens", "cache_create"), ("cache_read_input_tokens", "cache_read"))
+# The 1-hour share of `cache_create` (#710), kept apart because a 1h cache write costs 2x input, not the 5m
+# write's 1.25x. A SPARSE key: present only when a folded transcript recorded the TTL split
+# (usage.cache_creation.ephemeral_1h_input_tokens), absent otherwise. `cache_create` stays the whole of the
+# cache writes, so the 5m share is cache_create less this. A usage without the key (an event logged before
+# #710, a stream-json `result`'s modelUsage, another CLI's adapter) prices every cache write at the 5m rate.
+CACHE_1H = "cache_create_1h"
 # The context a session's later events inherit (nudge, watchdog_kill, session_end, …).
 CTX_KEYS = ("prefix", "project", "repo", "unit", "issue", "prd", "kind", "session",
             "model", "effort", "worktree", "launched")
@@ -273,6 +279,9 @@ def _file_usage(path, acc, span):
             tot = acc.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
             for src, dst in USAGE_KEYS:
                 tot[dst] += int(u.get(src) or 0)
+            w1 = int((u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0)
+            if w1:
+                tot[CACHE_1H] = tot.get(CACHE_1H, 0) + w1
 
 
 def transcript_files(transcript):
@@ -482,6 +491,9 @@ def usage_minus(usage, prior):
     for model, u in (usage or {}).items():
         p = (prior or {}).get(model) or {}
         d = {k: max(0, int(u.get(k) or 0) - int(p.get(k) or 0)) for _, k in USAGE_KEYS}
+        w1 = max(0, int(u.get(CACHE_1H) or 0) - int(p.get(CACHE_1H) or 0))
+        if w1:
+            d[CACHE_1H] = w1
         if any(d.values()):
             out[model] = d
     return out
@@ -691,6 +703,8 @@ def add_usage(into, usage, model_filter=None):
         tot = into.setdefault(model, {k: 0 for _, k in USAGE_KEYS})
         for _, k in USAGE_KEYS:
             tot[k] += int(u.get(k) or 0)
+        if u.get(CACHE_1H):
+            tot[CACHE_1H] = tot.get(CACHE_1H, 0) + int(u[CACHE_1H])
     return into
 
 

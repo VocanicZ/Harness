@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats` prices 1-hour cache writes at the 1-hour rate (#710)
+
+- `usage_cost` priced every folded `cache_create` token at the 5-minute write rate (1.25× input), so a session that wrote
+  at the 1-hour TTL (2× input) came out low: `harness stats --by-role --since 2020-01-01` showed about $5.07 for
+  `run-20261106` while the bench recompute of the same transcripts gave $6.86. The folded usage now carries
+  `cache_create_1h`, the 1-hour part of `cache_create` (sub-agent transcripts included), and `usage_cost` prices it at the
+  1-hour rate and the rest at the 5-minute rate. An event without the key (logged before this, a headless lane's `result`
+  usage, another CLI) still prices all its cache writes at the 5-minute rate. Fleet sessions of `run-20261106` now price
+  within 1% of the bench recompute; the rest of the bench's $6.86 (about $0.70) is the front-door session, the operator's own
+  claude outside the fleet, which never logged a launch or session_end. `test/test_stats.py` pins it.
+
 ### The bench usage guard refuses negative, `nan` and `inf` budgets instead of passing them (#709)
 
 - The guard only refused when `total > stop`, which is never true for `nan`, and a negative estimate lowers the total, so

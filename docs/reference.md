@@ -985,7 +985,7 @@ runner only mentioned in an `echo` or a `gh issue comment` does not count. The d
 **Measuring the saving (#378).** `harness stats --by-role` reports, per role, the sessions, input /
 output / cache-write / cache-read tokens (by model too) and their list-price $ (the `forecast.py` price
 table: Opus 5.x $4 / $20, Sonnet 5.x $2 / $10, Haiku $1 / $5 per Mtok in / out, and Opus / Sonnet 4.x and older at
-their own $5 / $25 and $3 / $15; cache writes at the 5-minute rate, reads $0.20 for Opus and Sonnet 5.x), plus the total. A session's role is read from the `kind` its
+their own $5 / $25 and $3 / $15; cache writes at the 5-minute rate (1.25× input) or, for the share a transcript records as written at the 1-hour TTL, the 1-hour rate (2× input); reads $0.20 for Opus and Sonnet 5.x), plus the total. The folded usage keeps that 1-hour share in `cache_create_1h` (a part of `cache_create`, present only when a transcript recorded the split); an event logged before it, a headless lane's `result` usage and another CLI's adapter carry none, so all their cache writes price at the 5-minute rate, the lower one (#710). A session's role is read from the `kind` its
 `launch` logged — `impl` and `bug-fix` are Implementer; `orch` (PLAN / PRD / DECOMPOSE), `review` (and
 its gauntlet), `bug-triage` and `inject` are Manager — or, for an event from before kinds, from its
 worktree's name (`<unit>-i<n>` and `bug-…-i<n>` Implementer, `orch-…-p<n>` and `triage-…-i<n>` Manager). Anything else is `other`, shown, never dropped. It reads the
