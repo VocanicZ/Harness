@@ -165,6 +165,19 @@ def _secs_arg(text):
     return v
 
 
+def _dir_arg(text):
+    """argparse type for --run-dir: a directory that exists. An empty value, a path that does not exist and a path
+    that is not a directory are usage errors (exit 2): held_accounts finds no hold files under any of them, so a
+    typo would pass the usage-hold guard without saying so, and an empty value would quietly fall back to
+    $RUN_DIR (#860)."""
+    if not text:
+        raise argparse.ArgumentTypeError("must not be empty: name the fleet run dir, or leave the option out for $RUN_DIR")
+    if not os.path.isdir(text):
+        what = "is not a directory" if os.path.exists(text) else "does not exist"
+        raise argparse.ArgumentTypeError(f"{text!r} {what}: the usage-hold check reads <run dir>/usage-holds")
+    return text
+
+
 def _env_num(name, default, hi=None):
     """(value, problem) of a numeric env knob the guard reads. Unset or empty is the default. Anything else must
     be a finite number from 0 up to `hi`; if not, the default stands in and `problem` says why: the guard
@@ -821,7 +834,7 @@ def parse_args(argv):
     ap.add_argument("--wall-cap-secs", type=_secs_arg, default=WALL_CAP_S)
     ap.add_argument("--cost-cap-usd", type=_usd_arg, default=COST_CAP_USD)
     ap.add_argument("--expected-usd", type=_usd_arg, default=None, help="expected spend for the guard (default: the cap)")
-    ap.add_argument("--run-dir", default=None, help="the fleet run dir holding usage-holds/ (default: $RUN_DIR)")
+    ap.add_argument("--run-dir", type=_dir_arg, default=None, help="the fleet run dir holding usage-holds/ (default: $RUN_DIR)")
     ap.add_argument("--poll-secs", type=_secs_arg, default=5.0)
     ap.add_argument("--grace-secs", type=_secs_arg, default=30.0, help="how long a stopped arm has to return")
     ap.add_argument("--arms-dir", default=os.path.join(HERE, "arms"), help=argparse.SUPPRESS)
