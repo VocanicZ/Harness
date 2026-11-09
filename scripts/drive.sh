@@ -62,6 +62,7 @@ check_session_goal(){ local s="$1" live="${2:-}" goal res
     DONE)
       log "session $s goal '$goal' satisfied → advancing"
       stats_sess_event "$s" goal_satisfied
+      : > "$RUN_DIR/$s.goalmet"   # #730: launch_gone_check is no launch failure, stats_sweep_ended flags the session_end goal_met=1
       cli_kill "$s" "$(cat "$RUN_DIR/$s.wd" 2>/dev/null)" || true
       rm -f "$RUN_DIR/$s.goal" "$RUN_DIR/$s.wd" "$RUN_DIR/$s.selfpark" "$RUN_DIR/$s.idleticks";;
     PAUSED)  selfpark_tend "$s" "${goal#ISSUE:}";;
@@ -159,6 +160,8 @@ reap_impl_lane(){ local issue="$1" unowned="${2:-}" wd="$WORKTREES_DIR/$UNIT-i$1
     # issue closed ⇒ its PR squash-merged; drop the now-orphaned local feature branch.
     # (the remote branch is auto-deleted on merge by delete_branch_on_merge + --delete-branch.)
     harness_event merged kind=impl issue="$issue"
+    closed_live_mark "$issue"   # #730: the board snapshot lags this close: do not offer the issue again meanwhile
+    closed_issue_unlabel "$issue" "$state"
     # #283: a merged bug fix in the Harness repo is queued for the next throttled patch release.
     grep -qiE "\"name\":\"($HARNESS_LABEL_BUG|$HARNESS_LABEL_BUG_TRIAGED)\"" <<<"$state" && release_on_bug_merge "$issue"
     git -C "$CHECKOUT" branch -D "issue/$issue" 2>/dev/null || true
@@ -366,7 +369,7 @@ prebuilt_take(){ local issue="$1" wd="$2" branch="$3" base="$4" f; f="$(prebuilt
 # DECOMPOSE) comes first — the caller then neither builds nor drops anything.
 prebuild_candidates(){ local busy owned errf actions rc act pl pr
   busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)")"
-  owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)")"
+  owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)" "$(closed_live_keys)")"   # #730
   errf="$RUN_DIR/$UNIT.prebuild.err"
   actions="$(dispatch_actions "$REPO" 99 0 "$busy" "$owned" 2>"$errf")"; rc=$?
   (( rc == 0 )) || return 1
@@ -403,7 +406,12 @@ prebuild_sweep(){ local f n cands="" known=0; shopt -s nullglob
 
 # prebuild_build <issue> — build the worktree under a `building` marker written under pool.lock (the claim path reads the
 # marker through busy_issues_for, so nobody claims the issue mid-add). Never stamps agent-working. rc 1 = not built.
-prebuild_build(){ local n="$1" wd="$WORKTREES_DIR/$UNIT-i$1" branch="issue/$1" f base lockfd; f="$(prebuilt_file "$UNIT" "$n")"
+prebuild_build(){ local n="$1" wd="$WORKTREES_DIR/$UNIT-i$1" branch="issue/$1" f base lockfd ijson; f="$(prebuilt_file "$UNIT" "$n")"
+  # #730: the snapshot candidates came from lags a close — read the issue's live state first; a closed one gets no worktree
+  ijson="$(gh issue view "$n" -R "$SLUG" --json state,labels 2>/dev/null || echo '')"
+  if [[ "$(issue_json_state "$ijson")" == CLOSED ]]; then
+    log "prebuild: #$n is already closed (the board snapshot lags) — no worktree (#730)"
+    closed_live_mark "$n"; closed_issue_unlabel "$n" "$ijson"; return 1; fi
   lock_acquire "$POOL_LOCK" lockfd
   if is_claimed "impl-$n" || [[ -e "$wd" ]]; then lock_release "$lockfd"; return 1; fi
   mkdir -p "$RUN_DIR/prebuilt"; printf 'building %s %s\n' "$(date +%s)" "$$" > "$f"
@@ -440,6 +448,28 @@ prebuild_tick(){ local lockfd f n cands head skip
   fi
   lock_release "$lockfd"; return 0; }
 
+# closed_issue_unlabel <issue> <issue-json> — #730: closing an issue through its PR leaves ready-for-agent / agent-working on it,
+# so any snapshot that lags the close offers it again. Best-effort: one `gh issue edit`, only when one of them is there.
+closed_issue_unlabel(){ local issue="$1" names args=()
+  names="$(python3 "$TASKCTX_PY" labels <<<"$2" 2>/dev/null || echo '')"
+  [[ "$names" == *"\"$HARNESS_LABEL_READY\""* ]] && args+=(--remove-label "$HARNESS_LABEL_READY")
+  [[ "$names" == *"\"$HARNESS_LABEL_WORKING\""* ]] && args+=(--remove-label "$HARNESS_LABEL_WORKING")
+  (( ${#args[@]} )) && { gh issue edit "$issue" -R "$SLUG" "${args[@]}" >/dev/null 2>&1 || true; }
+  return 0; }
+
+# prepare_impl_closed <issue> <worktree> <branch> — #730: the issue is closed (live): the board snapshot lagged its close.
+# Nothing is stamped or launched; a worktree pre-built for it (#644) goes; the issue is marked so the next tick does not offer
+# it again; the caller's claim is dropped by its non-zero return.
+prepare_impl_closed(){ local issue="$1" wd="$2" branch="$3" ijson="$4" f; f="$(prebuilt_file "$UNIT" "$issue")"
+  log "prepare #$issue: the issue is already closed (the board snapshot lags) — not launching (#730)"
+  if [[ -e "$f" ]] && ! prebuilt_building "$UNIT" "$issue"; then
+    remove_worktree "$CHECKOUT" "$wd" "$branch"; rm -f "$f"
+    harness_event prebuilt_dropped kind=impl issue="$issue" reason="#$issue is closed"; fi
+  closed_live_mark "$issue"
+  closed_issue_unlabel "$issue" "$ijson"
+  harness_event launch_skipped kind=impl issue="$issue" reason=issue_closed
+  return 1; }
+
 # prepare_impl <ISSUE> <PROMISE> — claim the issue (agent-working), set up its worktree on
 # issue/<n> and render impl.md — resume.md for a force-paused issue or one whose branch is already
 # pushed — into <worktree>/.harness-task.md. Everything spawn_impl does short of the launch, so
@@ -448,6 +478,15 @@ prebuild_tick(){ local lockfd f n cands head skip
 prepare_impl(){   # <ISSUE> <PROMISE>
   local issue="$1"; PROMISE="$2"
   local wd="$WORKTREES_DIR/$UNIT-i$issue" branch="issue/$issue" base; base="$(default_branch)"
+  # #617: ONE call serves the labels and the issue text the task file inlines.
+  # #618: this is the lane switch's ONLY `gh issue view` — the state, the labels, the issue text and the parent PRD (stats
+  # attribution) all come off this one answer. IMPL_IJSON_OK says spawn_impl may trust TC_PARENT instead of asking GitHub again.
+  # #730: it is made FIRST, before the worktree and the agent-working stamp: the board snapshot dispatch claimed from lags a
+  # close, and a closed issue gets no worktree, no label and no session. An empty answer (a gh hiccup) keeps today's path.
+  local ijson ist; ijson="$(gh issue view "$issue" -R "$SLUG" --json state,labels,title,body,comments 2>/dev/null || echo '')"
+  ist="$(issue_json_state "$ijson")"
+  if [[ -n "$ist" && "$ist" != OPEN ]]; then prepare_impl_closed "$issue" "$wd" "$branch" "$ijson"; return $?; fi
+  closed_live_clear "$issue"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   # #644: a worktree pre-built for this issue while another lane ran is reused — no add, no hook, no ensure_*.
   if ! prebuilt_take "$issue" "$wd" "$branch" "$base"; then
@@ -465,10 +504,6 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   # Resume detection: a force-paused issue (agent-paused label) OR an existing remote branch
   # means a prior agent checkpointed WIP to GitHub — continue it instead of starting fresh.
   local tmpl="impl.md" labels handoff=""
-  # #617: ONE call serves the labels and the issue text the task file inlines.
-  # #618: this is the lane switch's ONLY `gh issue view` — the labels, the issue text and the parent PRD (stats attribution)
-  # all come off this one answer. IMPL_IJSON_OK says spawn_impl may trust TC_PARENT instead of asking GitHub again.
-  local ijson; ijson="$(gh issue view "$issue" -R "$SLUG" --json labels,title,body,comments 2>/dev/null || echo '')"
   IMPL_IJSON_OK=""; [[ -n "$ijson" ]] && IMPL_IJSON_OK=1
   labels="$(python3 "$TASKCTX_PY" labels <<<"$ijson" 2>/dev/null || echo '')"
   task_context "$issue" "$ijson" "$wd" "$base"

@@ -44,7 +44,7 @@ claim_lane(){ local wid="$1" lockfd live allow busy owned actions rc errf action
     allow=0; (( live == 0 )) && allow=1
     # #596: an issue / PRD whose last launch failed is held back (like a busy one) until its backoff runs out
     busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)")"
-    owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)")"
+    owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)" "$(closed_live_keys)")"   # #730
     errf="$RUN_DIR/$UNIT.dispatch.err"
     actions="$(dispatch_actions "$REPO" 1 "$allow" "$busy" "$owned" 2>"$errf")"; rc=$?
     [[ -s "$errf" ]] && cat "$errf" >&2

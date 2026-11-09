@@ -25,7 +25,9 @@ import stats  # noqa: E402
 DEFAULT_COUNT, DEFAULT_MAX_WALL_S, DEFAULT_WINDOW_MIN = 3, 900, 180
 KINDS = ("impl", "bug-triage", "bug-fix")
 # An event of one of these names for a session means the engine ended (or was about to end) it itself.
-ON_PURPOSE = ("watchdog_kill", "checkpoint", "paused", "usage_checkpoint")
+# goal_satisfied (#730): the goal check read the issue as done and ended the session — a lane the pool launched on an issue
+# that had just closed (stale board snapshot) lives 2-3 s and is not a crash.
+ON_PURPOSE = ("watchdog_kill", "checkpoint", "paused", "usage_checkpoint", "goal_satisfied")
 TOOL_CALLS = 5          # last tool calls shown per session
 CALL_CHARS, RESULT_CHARS = 200, 300
 
@@ -70,7 +72,7 @@ def find_churn(events, repo, issue, kind, session=None, count=None, max_wall=Non
         wall = e.get("wall_s")
         if not isinstance(wall, int) or isinstance(wall, bool) or wall >= max_wall:
             continue
-        if e.get("checkpointed") or e.get("session") in purposeful:
+        if e.get("checkpointed") or e.get("goal_met") or e.get("session") in purposeful:
             continue
         if _ts(e) - wall < since:   # launched before the last trip: not counted after the park lifts
             continue

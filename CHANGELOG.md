@@ -19,6 +19,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   age: stats keeps it with its tokens and cost, and the reap no longer logs `launch_failed` or backs the lane off for it. A
   launch that really failed (no session, no usage) is still logged as `launch_failed`, backed off and left out of the count.
 
+### The pool no longer re-claims an issue that just closed, and a goal met at launch is not a failed launch (#730)
+
+- After a lane's PR merged and closed its issue, dispatch (which reads the lagging board snapshot) could claim the closed issue
+  again, build or reuse a worktree, stamp `agent-working` and launch a session that the first goal check killed 2-3 s later. The reap
+  logged `launch_failed, backing off`, and each such session raised a false CHURN alert. `prepare_impl` now makes its one
+  `gh issue view` first (it asks for `state` too, so there is still one call per lane switch) and, when the issue is closed, adds no
+  worktree, no label and no session: it drops any pre-built worktree (`prebuilt_dropped`), emits `launch_skipped reason=issue_closed`
+  and releases the claim. A closed issue is then held out of `claim_lane` and the pre-build for `HARNESS_CLOSED_LIVE_SECS`
+  (default `HARNESS_PRIORITY_POLL` + 600) so the next tick does not read it again, and the pre-build checks the live state before it
+  builds. A failed read keeps the old behaviour. The reap of a closed issue also removes its stale `ready-for-agent` / `agent-working`.
+- A session ended by a `DONE` goal check is marked, so its quick reap logs no `launch_failed` and arms no backoff, and its
+  `session_end` carries `goal_met=1`. `churn.py` treats `goal_met` and `goal_satisfied` sessions as ended on purpose.
+
 ### `bench/run.py --run-id` accepts only one short, safe path component (#717)
 
 - `--run-id=.` wrote the results into the `--results-dir` root itself, and `--run-id=-x`, `--run-id=--flag` and a 5000-character

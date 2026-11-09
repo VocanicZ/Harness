@@ -464,6 +464,28 @@ backoff_keys(){ local f k out=(); shopt -s nullglob
   for f in "$RUN_DIR"/launchfail."$1"-*; do k="${f##*/launchfail.}"; [[ "${k#"$1"-}" =~ ^[0-9]+$ ]] || continue
     launch_backoff_active "$k" && out+=("${k#"$1"-}"); done
   shopt -u nullglob; local IFS=,; echo "${out[*]-}"; }
+# --- #730: a claim skipped because the issue is closed LIVE --------------------------------------------------
+# The board snapshot lags a close by up to HARNESS_PRIORITY_POLL and more (minutes in practice), so dispatch keeps offering a
+# just-closed issue. prepare_impl reads the issue's live state before any side effect; a closed one is marked here, and
+# claim_lane / prebuild_candidates add the marked issues to dispatch's `owned` list (as backoff_keys impl is) until the mark
+# ages out (HARNESS_CLOSED_LIVE_SECS, default HARNESS_PRIORITY_POLL + 600): by then the snapshot reads CLOSED.
+# issue_json_state <json> — the `state` of a `gh issue view --json state,…` answer, upper-cased (OPEN, CLOSED); nothing for an empty or unreadable one.
+issue_json_state(){ python3 -c 'import json,sys
+try: d = json.loads(sys.argv[1])
+except ValueError: d = {}
+st = d.get("state") if isinstance(d, dict) else ""
+print(st.upper() if isinstance(st, str) else "")' "$1" 2>/dev/null; }
+closed_live_file(){ echo "$RUN_DIR/closedlive.$1"; }
+closed_live_mark(){ date +%s > "$(closed_live_file "$1")" 2>/dev/null || true; }
+closed_live_clear(){ rm -f "$(closed_live_file "$1")"; }
+closed_live_active(){ local t; read -r t 2>/dev/null < "$(closed_live_file "$1")" || return 1
+  [[ "$t" =~ ^[0-9]+$ ]] || return 1
+  (( $(date +%s) - t < ${HARNESS_CLOSED_LIVE_SECS:-$(( ${HARNESS_PRIORITY_POLL:-60} + 600 ))} )); }
+# closed_live_keys — the issue numbers with an active mark, comma-separated; an expired mark is removed.
+closed_live_keys(){ local f n out=(); shopt -s nullglob
+  for f in "$RUN_DIR"/closedlive.*; do n="${f##*/closedlive.}"; [[ "$n" =~ ^[0-9]+$ ]] || continue
+    if closed_live_active "$n"; then out+=("$n"); else rm -f "$f"; fi; done
+  shopt -u nullglob; local IFS=,; echo "${out[*]-}"; }
 # launch_fail <sess> <uuid> <reason> — the launch itself failed (the backend could not start the session).
 launch_fail(){ local sess="$1" uuid="$2" reason="$3" key; key="$(launch_key_of_sess "$sess")"
   harness_event launch_failed session="$uuid" tmux="$sess" goal="${GOAL:-}" prd="${STAT_PRD:-}" reason="$reason"
@@ -480,6 +502,8 @@ launch_ran_usage(){ local sess="$1" uuid="$2"
 launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid key age; shift 2
   [[ -f "$f" ]] || return 0; read -r t uuid < "$f"; rm -f "$f"; key="$(launch_key_of_sess "$sess")"
   [[ "$t" =~ ^[0-9]+$ ]] || return 0
+  # #730: the goal check read DONE and ended it (check_session_goal): the work was already finished, the launch did not fail
+  if [[ -f "$RUN_DIR/$sess.goalmet" ]]; then [[ -n "$key" ]] && launch_backoff_clear "$key"; return 0; fi
   age=$(( $(date +%s) - t ))
   if (( age < ${HARNESS_LAUNCH_FAIL_SECS:-30} )) && ! launch_ran_usage "$sess" "$uuid"; then
     harness_event launch_failed session="$uuid" tmux="$sess" kind="$kind" "$@" reason=session_gone age_s="$age"
@@ -1701,6 +1725,7 @@ stats_sweep_ended(){ local f s claim uuid repo issue kind cp
     IFS='|' read -r uuid repo issue kind < <(python3 -c 'import json,sys
 c = json.load(open(sys.argv[1])); print(*[str(c.get(k, "")) for k in ("session", "repo", "issue", "kind")], sep="|")' "$claim" 2>/dev/null) || uuid=""
     cp=(); [[ -f "$RUN_DIR/$s.checkpoint" ]] && cp=(checkpointed=1)   # #545: the engine ended it on purpose — not a crash
+    [[ -f "$RUN_DIR/$s.goalmet" ]] && { cp+=(goal_met=1); rm -f "$RUN_DIR/$s.goalmet"; }   # #730: its goal was already met — not churn
     harness_event session_end --ctx "$claim" usage_tsv="$(_stats_cli_usage "$claim")" ${cp[@]+"${cp[@]}"}; rm -f "$claim"
     [[ -n $uuid ]] && ! session_live "$s" && sess_sweep "$uuid"
     churn_check "$repo" "$issue" "$kind" "$uuid" || true   # #545: BEFORE the reaper unlocks the issue
@@ -1832,6 +1857,7 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   [[ "$line_me" == *$'\t'* ]] || effort=""
   harness_event launch --write-ctx "$RUN_DIR/$sess.stats" session="$uuid" goal="${GOAL:-}" prd="${STAT_PRD:-}" \
     worktree="$wd" model="$model" effort="$effort" lane="$(cli_lane_settings "$wd" | paste -sd' ')" ralph_iter=1 tmux="$sess"
+  rm -f "$RUN_DIR/$sess.goalmet"   # #730: a fresh launch starts with no goal met
   echo "$(date +%s) $uuid" > "$RUN_DIR/$sess.launched"   # #596: launch_gone_check reads when it started
   log "launched session $sess (cwd $wd)"; }
 launch_claude(){ launch_agent "$@"; }

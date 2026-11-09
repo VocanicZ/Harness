@@ -58,7 +58,7 @@ echo "-- lane prompts as scripts/drive.sh renders them"
   launch_claude(){ :; }; ensure_checkout(){ :; }; ensure_safe(){ :; }; run_worktree_hook(){ :; }
   remove_worktree(){ :; }; default_branch(){ echo main; }; session_live(){ return 1; }
   issue_parent_prd(){ :; }; resume_handoff(){ :; }
-  PAUSED=""; gh(){ [[ "$*" == *"--json labels"* && -n "$PAUSED" ]] && { echo "[\"$HARNESS_LABEL_PAUSED\"]"; return 0; }; return 1; }
+  PAUSED=""; gh(){ [[ "$*" == *"--json state,labels"* && -n "$PAUSED" ]] && { echo "[\"$HARNESS_LABEL_PAUSED\"]"; return 0; }; return 1; }
   git(){ local a; case "$*" in *"worktree add"*) for a in "$@"; do [[ "$a" == "$WORKTREES_DIR"/* ]] && mkdir -p "$a"; done;; esac; return 0; }
   UNIT=main; SLUG=acme/widget; PROJECT=w; DESC=d; CHECKOUT="$T/checkout"; mkdir -p "$CHECKOUT"
   spawn_impl 7 "ISSUE 7 DONE"
