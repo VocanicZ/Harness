@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Claude 3 Haiku and 3.5 Haiku are priced at their own list prices (#751)
+
+- `price()` skipped the legacy split for Haiku, so `claude-3-5-haiku-20241022` and `claude-3-haiku` were priced at the
+  current Haiku row ($1 / $5), overstating their spend in `harness stats` and the forecast. Claude 3.5 Haiku now has its
+  own row ($0.80 / $4) and Claude 3 Haiku too ($0.25 / $1.25); Haiku 4.x and later keep the current row. Cache writes and
+  reads follow the table's usual 1.25x / 2x / 0.1x multipliers of the input price.
+
 ### `tier.toml` thresholds are checked: a string no longer gives a traceback, and nan, inf, negative and zero values are errors (#749)
 
 - `max_criteria = "8"` printed a `TypeError` traceback, while `nan` silently turned that check off and `-5`, `inf` or
