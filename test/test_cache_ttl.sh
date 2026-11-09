@@ -23,6 +23,19 @@ HARNESS_CACHE_TTL=5m session_env u-1;  assert_ok "HARNESS_CACHE_TTL=5m: set" has
 HARNESS_CACHE_TTL=1h session_env u-1;  assert_no "HARNESS_CACHE_TTL=1h: not set (the CLI's own 1h default)" has "$(pairs)"
 HARNESS_CACHE_TTL=bogus session_env u-1; assert_ok "an unknown value is the 5m default" has "$(pairs)"
 HARNESS_CACHE_TTL= session_env u-1;    assert_ok "an empty value is the 5m default" has "$(pairs)"
+echo "== an unrecognised value warns once, case and spaces are ignored (#808) =="
+HARNESS_CACHE_TTL=1H session_env u-1 2>"$RUN_DIR/w1"; assert_no "1H: read as 1h (no 5m pair)" has "$(pairs)"
+assert_eq "$(cat "$RUN_DIR/w1")" "" "1H: no warning"
+HARNESS_CACHE_TTL=" 1h " session_env u-1 2>"$RUN_DIR/w2"; assert_no " 1h : read as 1h" has "$(pairs)"
+assert_eq "$(cat "$RUN_DIR/w2")" "" " 1h : no warning"
+HARNESS_CACHE_TTL=5M session_env u-1 2>"$RUN_DIR/w3"; assert_ok "5M: read as 5m" has "$(pairs)"
+assert_eq "$(cat "$RUN_DIR/w3")" "" "5M: no warning"
+HARNESS_CACHE_TTL= session_env u-1 2>"$RUN_DIR/w4"; assert_eq "$(cat "$RUN_DIR/w4")" "" "empty: no warning"
+for bad in 60m abc 0; do
+  HARNESS_CACHE_TTL=$bad session_env u-1 2>"$RUN_DIR/wb"; assert_ok "$bad: 5m" has "$(pairs)"
+  assert_ok "$bad: warned, naming the value" grep -qF "WARN HARNESS_CACHE_TTL='$bad' is not 5m or 1h" "$RUN_DIR/wb"
+  HARNESS_CACHE_TTL=$bad session_env u-1 2>"$RUN_DIR/wb2"; assert_eq "$(cat "$RUN_DIR/wb2")" "" "$bad: the second launch does not warn again"
+done
 for cli in agy codex; do
   [[ -f "$ROOT/scripts/cli/$cli.sh" ]] || continue
   HARNESS_CLI=$cli session_env u-1; assert_no "$cli lane: no claude cache variable" has "$(pairs)"

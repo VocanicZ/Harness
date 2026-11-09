@@ -110,8 +110,16 @@ claude_lean_setup(){ local wd="$1" n src dst
 # lane launches with the 5m TTL: FORCE_PROMPT_CACHING_5M=1 in its environment (a local test switched
 # every write to 5m with it). The cost is a gap over 5 minutes between turns (a long suite, a wait),
 # after which the cache is written again; bench/run.py records the gap distribution next to the write split.
-# HARNESS_CACHE_TTL=5m|1h picks it (default 5m); 1h leaves the CLI's own default. Anything else is 5m.
-claude_cache_ttl(){ case "${HARNESS_CACHE_TTL:-5m}" in 1h) echo 1h;; *) echo 5m;; esac; }
+# HARNESS_CACHE_TTL=5m|1h picks it (default 5m); 1h leaves the CLI's own default. Case and surrounding
+# whitespace are ignored (1H, " 1h" = 1h). Anything else is 5m, with a one-time warning naming the value (#808:
+# a marker per value in $RUN_DIR, as this runs in $(…) subshells; on stderr, stdout is captured).
+claude_cache_ttl(){ local v="${HARNESS_CACHE_TTL-}" m
+  v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; v="${v,,}"
+  case "$v" in 1h) echo 1h; return 0;; 5m|"") echo 5m; return 0;; esac
+  m="${RUN_DIR:-${TMPDIR:-/tmp}}/cachettl.$(printf %s "${HARNESS_CACHE_TTL-}" | cksum | cut -d' ' -f1)"
+  if [[ ! -e "$m" ]]; then : > "$m" 2>/dev/null || true
+    log "WARN HARNESS_CACHE_TTL='${HARNESS_CACHE_TTL-}' is not 5m or 1h — using the default 5m" >&2; fi
+  echo 5m; }
 # claude_lane_env — the `NAME=value` lines a lane's environment gets from this adapter (session_env, lib.sh).
 claude_lane_env(){ [[ "$(claude_cache_ttl)" == 5m ]] && echo "FORCE_PROMPT_CACHING_5M=1"; return 0; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).

@@ -1774,7 +1774,7 @@ session_env(){ local kv
     [[ -n "$kv" ]] && SESSION_ENV+=(-e "HARNESS_$kv"); done \
     < <(timeout 10 python3 "$STATS_PY" goal-env "${GOAL:-}" "${STAT_PRD:-}" 2>/dev/null)
   while read -r kv; do kv="${kv%$'\r'}"   # #615: the CLI's own lane env (claude: the 5m prompt-cache TTL)
-    [[ -n "$kv" ]] && SESSION_ENV+=(-e "$kv"); done < <(cli_lane_env 2>/dev/null)
+    [[ -n "$kv" ]] && SESSION_ENV+=(-e "$kv"); done < <(cli_lane_env)   # #808: stderr stays, so the TTL warning reaches the log
   return 0; }
 # lane_guard_env <wd> — append to SESSION_ENV the PATH that puts scripts/lane-bin first, for EVERY lane (#642):
 # `lane-bin/git` adds the Harness `Co-authored-by` trailer (HARNESS_COAUTHOR, passed on as a pair, so an empty
