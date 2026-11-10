@@ -48,6 +48,15 @@ assert_ok "request-block carries the user's words verbatim" grep -q 'I want a ti
 assert_ok "request-block stops at the next section" bash -c '! grep -q "Acceptance criteria" <<<"$1"' _ "$rb"
 assert_ok "request-block carries the precedence rule" grep -q 'original request outranks the PRD, which outranks the issue' <<<"$rb"
 assert_eq "$(python3 "$TC" request-block <<<'{"body":"## Problem\nx"}')" "" "no section -> no block"
+# #950: only LF, CRLF and lone CR end a line; a form feed or U+2028 inside the request stays, and a `## ` after one is not a heading
+got="$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1]); import taskctx as t
+print(repr(t.original_request({'body': '## Original request\nadd a cmd\fthat prints ## Notes is literal ## Fake\nmore\n## Other\nx'})))" "$HERE/../scripts")"
+assert_eq "$got" "'add a cmd\\x0cthat prints ## Notes is literal\\u2028## Fake\nmore'" "a form feed and U+2028 inside ## Original request are kept; the request runs up to the next real heading"
+got="$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1]); import taskctx as t
+print(repr(t.section('## A\r\nx\ry\n## B\r\nz', 'A')), repr(t.section('## A\rx\r## B\ry', 'B')))" "$HERE/../scripts")"
+assert_eq "$got" "'x\ny' 'y'" "CRLF and lone CR still end a line"
 
 echo "-- lint"
 LREPO="$(mktemp -d)"; tmp_track "$LREPO"
