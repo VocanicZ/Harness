@@ -33,8 +33,8 @@ bench/run.py plain --fixture large      # the large fixture (below): a 20-page b
    `--optional` arm) before any repo is created; run `gh auth refresh -s delete_repo`. A fine-grained token has no
    scope header and is not refused on that alone. `bench/figures.py` lists any run repo left undeleted in the README.
 
-The guard fails closed on numbers it cannot trust (#709). `--expected-usd` and `--cost-cap-usd` take only a finite
-number of zero or more: a negative, `nan`, `inf` or a word is a usage error (exit 2). `HARNESS_ONE_STOP_PCT` and
+The guard fails closed on numbers it cannot trust (#709). `--expected-usd` takes only a finite
+number of zero or more and `--cost-cap-usd` only a finite number above zero: a negative (or zero, for the cap), `nan`, `inf` or a word is a usage error (exit 2). `HARNESS_ONE_STOP_PCT` and
 `HARNESS_ONE_RESERVE_PCT` must be a finite percentage from 0 to 100 and `BENCH_MIN_FREE_GB` a finite number of zero or
 more; a set but bad value refuses the run (exit 3, or `skipped: bad-setting` for an `--optional` arm). A `nan` or `inf`
 usage reading or `$ per 1%` counts as no reading, and a usage reading below 0 or above 100 is refused with its value named (#757).
