@@ -66,8 +66,6 @@ WT="$1"; NAME="$2"; shift 2
 for a in "$@"; do
   [[ -n "$a" ]] || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...] — empty test-file argument ('')" >&2; exit 2; }
 done
-[[ "${HARNESS_SWARM:-auto}" == auto ]] || unavailable "HARNESS_SWARM=$(vis "${HARNESS_SWARM}")"
-command -v "$SWARM_BIN" >/dev/null 2>&1 || unavailable "swarm not on PATH"
 [[ -d "$WT" ]] || { echo "swarm-suite: no such worktree: $(vis "$WT")" >&2; exit 2; }
 # #995: a path starting with `-` is a directory, not a cd option: `--` ends options, but bash's `cd -- -` still means $OLDPWD, so spell it ./-.
 [[ "$WT" != -* ]] || WT="./$WT"
@@ -80,6 +78,11 @@ NAME="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[^A-Za-z0-9]*//
 # ("File name too long"), and the job dir holds `workdir.tar.gz.prev` beside it — so cap at 200, and show the value cut short (#911).
 MAX_NAME=200
 (( ${#NAME} <= MAX_NAME )) || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...] — job name too long (max $MAX_NAME characters): '${NAME:0:20}'…" >&2; exit 2; }
+
+# #997: the argument and worktree checks above come first: a missing worktree is a usage error (exit 2) whether or not swarm is
+# available — "run the suite locally" must never point at a path that does not exist.
+[[ "${HARNESS_SWARM:-auto}" == auto ]] || unavailable "HARNESS_SWARM=$(vis "${HARNESS_SWARM}")"
+command -v "$SWARM_BIN" >/dev/null 2>&1 || unavailable "swarm not on PATH"
 
 SANDBOX="${HARNESS_SWARM_SANDBOX:-auto}"; [[ "$SANDBOX" == off ]] || SANDBOX=auto
 TEST_CMD="${HARNESS_SWARM_TEST_CMD:-}"
