@@ -258,3 +258,16 @@ def test_the_plugin_is_wired_for_claude_code():
     hooks = json.load(open(os.path.join(PLUGIN, "hooks", "hooks.json")))["hooks"]["Stop"][0]["hooks"][0]
     assert hooks["type"] == "command" and "${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.py" in hooks["command"]
     assert json.load(open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")))["name"] == "harness-ralph"
+
+
+if __name__ == "__main__":
+    # test/run.sh runs this file as `python3 <file>` (#892): without a runner here it would define the tests and exit 0.
+    import traceback
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except Exception:
+                print(f"  FAIL: {name}"); traceback.print_exc(); fails += 1
+    print(f"-- {'all pass' if not fails else str(fails) + ' FAILED'}")
+    sys.exit(1 if fails else 0)

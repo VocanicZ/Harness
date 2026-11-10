@@ -22,6 +22,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A too-large count such as `--criteria 99999999999` was echoed whole but followed by `…`, as if part of it had been cut. The ellipsis now
   appears only when the echo was shortened to 20 characters. `test_tier.sh` covers a short and a long value.
 
+### `test/run.sh` no longer passes a Python test file that runs no tests (#892)
+
+- `test/run.sh` runs each `*.py` test as `python3 <file>`, so `test_ralph_stop_hook.py` (19 tests) and `test_bench_refeeds.py` (4) — which had no
+  `if __name__ == "__main__":` runner — defined their tests, ran none and exited 0. Both now have a runner, and `run.sh` fails any Python test file
+  that defines `test_` functions without one, naming the file. `test_py_runner_guard.sh` covers it, including that a failing test fails the run.
+
 ### `harness stats --since` with a huge count is a usage error (#879)
 
 - A `--since` count of about 307 digits or more raised `OverflowError` and printed a traceback; above 4300 digits Python's own integer-conversion

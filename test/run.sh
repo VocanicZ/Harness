@@ -89,6 +89,12 @@ for t in "${TESTS[@]}"; do
     tw="$(sed -n 's/^# harness-test-timeout-windows: *\([1-9][0-9]*\).*$/\1/p' "$t" | head -1)"
     if [[ -n $tw ]] && (( tw > HARNESS_TEST_TIMEOUT )); then tcap=(timeout -k 10 "$tw"); tlim="$tw"; fi
   fi
+  # #892: `python3 <file>` on a Python test file with test_ functions but no `__main__` runner only defines them and exits 0 —
+  # zero tests run, reported as passed. Refuse it by name rather than pass silently.
+  if [[ $t == *.py ]] && grep -qE '^[[:space:]]*def test_' "$t" && ! grep -q '__main__' "$t"; then
+    echo "FAIL: $t defines test_ functions but has no if __name__ == \"__main__\": runner, so python3 would run none of them"
+    FAILED+=("$t"); rc=1; rm -rf "${TMPROOT:?}/$t"; continue
+  fi
   case "$t" in *.py) "${tcap[@]}" "${DEFSIG[@]}" python3 "$t";; *) "${tcap[@]}" "${DEFSIG[@]}" bash "$t";; esac
   trc=$?
   if (( trc != 0 )); then rc=1; FAILED+=("$t"); (( trc == 124 )) && echo "TIMEOUT: $t ran past HARNESS_TEST_TIMEOUT=${tlim}s"; fi
