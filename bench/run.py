@@ -53,6 +53,8 @@ QUALITY = os.path.join(HERE, "quality.py")
 TESTCOV = os.path.join(HERE, "testcov.py")
 SCHEMA = 1
 RUNS_DEFAULT = 5
+RUNS_MAX = 1000       # #897: `--runs` above this is a usage error, not a plan for that many guarded runs
+WORKERS_MAX = 1000    # #897: likewise `--workers`: the fleet's pool size
 WALL_CAP_S = 6 * 3600
 COST_CAP_USD = 80.0
 WEEKLY = re.compile(r"seven|week|7d", re.I)
@@ -877,9 +879,15 @@ def main(argv=None):
         if a.workers < 1:
             print("bench: --workers must be at least 1", file=sys.stderr)
             return EXIT_USAGE
+        if a.workers > WORKERS_MAX:
+            print(f"bench: --workers must be at most {WORKERS_MAX}", file=sys.stderr)
+            return EXIT_USAGE
         opts["workers"] = str(a.workers)
     if a.runs < 1:
         print("bench: --runs must be at least 1", file=sys.stderr)
+        return EXIT_USAGE
+    if a.runs > RUNS_MAX:
+        print(f"bench: --runs must be at most {RUNS_MAX}", file=sys.stderr)
         return EXIT_USAGE
     if a.run_id is not None and not RUN_ID_RE.fullmatch(a.run_id):
         print(f"bench: bad --run-id {_load("stats").vrepr(a.run_id[:40])} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
