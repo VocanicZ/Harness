@@ -26,7 +26,16 @@ WORKTREES_DIR="$STATE_DIR/worktrees"
 CHECKOUTS_DIR="$STATE_DIR/checkouts"
 
 # config lines are `: "${KEY:=val}"` so pre-existing env overrides the file.
-[[ -f "$CONFIG" ]] && source "$CONFIG"
+# #1002: read the file as stats.read_config does (utf-8-sig, universal newlines): a leading BOM would glue
+# onto the first key (`\ufeffHARNESS_REPO=o/r` is "No such file or directory") and a lone CR would join lines
+# into one assignment. Clean files are sourced in place; only a BOM or a CR sends them through a cleaned copy.
+if [[ -f "$CONFIG" ]]; then
+  if LC_ALL=C grep -q -e $'^\xef\xbb\xbf' -e $'\r' "$CONFIG" 2>/dev/null; then
+    source <(LC_ALL=C sed -e $'1s/^\xef\xbb\xbf//' -e $'s/\r$//' "$CONFIG" | LC_ALL=C tr '\r' '\n')
+  else
+    source "$CONFIG"
+  fi
+fi
 
 : "${HARNESS_MODE:=issue-only}"        # issue-only | prd | planned
 : "${HARNESS_OWNER:=}"
