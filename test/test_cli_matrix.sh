@@ -733,14 +733,16 @@ for f in glob.glob(sys.argv[1] + "/*.jsonl"):
                 w["resetsAt"] = int(time.time()) + 3600
     open(f, "w").write("".join(json.dumps(r) + "\n" for r in rows))
 PY
-  export "HARNESS_${HARNESS_CLI^^}_BIN=python3 $HL/fake/fake-$HARNESS_CLI"
+  export "HARNESS_${HARNESS_CLI^^}_BIN=python3 $(native_path "$HL/fake/fake-$HARNESS_CLI")"   # a native Python cannot open /c/...
   log(){ printf '%s\n' "$*" >> "$HL/harness.log"; }; limit_checkpoint_once(){ :; }
   trap hl_cleanup EXIT; }
 hl_cleanup(){ local d p; shopt -s nullglob
   for d in "$HL"/lanes/*/; do p="$(cat "$d/pid" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done
   for d in "$HL"/fake-*/; do
     for p in $(python3 -c 'import json, sys; [print(json.loads(l)["pid"]) for l in open(sys.argv[1])]' "$d/calls.jsonl" 2>/dev/null) \
-        $(cat "$d/pids" 2>/dev/null); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done
+        $(cat "$d/pids" 2>/dev/null); do [[ $p =~ ^[0-9]+$ ]] || continue
+      # a fake agent's pids are the native ones it printed (os.getpid()): only taskkill reaches them on Windows (#606)
+      kill -KILL "$p" 2>/dev/null; host_is_windows && [[ $p -gt 1 ]] && winpid_kill_tree "$p"; done
   done; shopt -u nullglob; }
 # hl_lane <name> <plan…> — a fresh worktree $WD and the fake's dir for the lane on it, replaying <plan>
 # (one stream-json fixture per turn: normal, tool-use, limit, transient, hang; text after it replaces
@@ -748,7 +750,7 @@ hl_cleanup(){ local d p; shopt -s nullglob
 hl_lane(){ WD="$HL/wd-$1"; new_wd "$WD"; export FAKE_CLAUDE_DIR="$HL/fake-$1"; mkdir -p "$FAKE_CLAUDE_DIR"; shift
   printf '%s\n' "$@" > "$FAKE_CLAUDE_DIR/plan"; }
 hl_wait(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; command sleep 0.1; done; return 1; }
-hl_alive(){ kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1" 2>/dev/null)" != Z* ]]; }
+hl_alive(){ alive_any "$1"; }   # by its MSYS pid or (Windows) the native one a fake agent records (#606)
 # hl_calls <field> — that field of each turn the fake ran (argv, prompt), one JSON value per line.
 hl_calls(){ python3 -c 'import json, sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
   "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }
@@ -819,7 +821,7 @@ headless_interrupt_ok(){ ( hl_env; local s=hz-main-i27 fpid gpid rpid; hl_lane i
   sess_type "$s" "Please continue — after the interrupt"; sess_enter "$s"
   touch "$FAKE_CLAUDE_DIR/hold"   # the queued turn is held: turn_interrupt reads `Interrupted` while it runs
   turn_interrupt "$s" || exit 1
-  hl_wait 10 bash -c "! kill -0 $fpid 2>/dev/null && ! kill -0 $gpid 2>/dev/null" && hl_alive "$rpid" &&
+  hl_wait 10 all_gone "$fpid" "$gpid" && hl_alive "$rpid" &&
     hl_wait 10 grep -qF "after the interrupt" "$FAKE_CLAUDE_DIR/calls.jsonl" ); }
 # hl_checkpoint — an impl lane (spawn_impl) on issue 17 mid-turn; `pause --force` sends it the
 # checkpoint, which waits behind the turn, then waits on the lane's state for the checkpoint turn and

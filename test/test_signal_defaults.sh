@@ -23,7 +23,9 @@ if [[ -r /proc/self/status ]]; then
   assert_eq "$(( 16#$got & 7 ))" 0 "a child through DEFSIG has HUP, INT and QUIT at default"
 fi
 # #574: SIGPIPE (signal 13 = bit 0x1000) too — ignored, a closed pipe is an EPIPE "write error" on stderr, not a quiet death.
-if [[ -r /proc/self/status ]]; then
+# MSYS has no SIG_DFL to give back: `env --default-signal=PIPE` leaves the emulated SigIgn bit set (seen on winsma, #606), and a native
+# process has no inherited ignore to begin with, so there is nothing for DEFSIG to restore there.
+if [[ -r /proc/self/status ]] && ! skip_posix_branch "SIGPIPE default disposition (MSYS cannot reset an inherited ignore)"; then
   IGNP=(env --ignore-signal=PIPE)
   masked="$("${IGNP[@]}" bash -c "$sigign_probe")"
   assert_eq "$(( 16#$masked & 16#1000 ))" 4096 "(precondition) the probe shell starts with SIGPIPE ignored"

@@ -297,6 +297,7 @@ class Runner:
             self.bin[0] = found
         self.model, self.effort, self.flags = model, effort, shlex.split(flags or "")
         self.stopping = False
+        self.state_seen = False   # state.json written by this runner (lane_gone)
         self.queue = []      # read from the inbox, not yet delivered
         prev = read_state(lane)
         self.state = {
@@ -336,6 +337,7 @@ class Runner:
             return
         try:
             write_json_atomic(self.p["state"], self.state)
+            self.state_seen = True
         except FileNotFoundError:
             if not self.lane_gone():
                 raise
@@ -354,7 +356,11 @@ class Runner:
     # stop file lives IN that dir, so no stop can ever reach the runner again: it stops itself, and
     # writes nothing more — a write would raise, and recreating the dir would resurrect a dead lane.
     def lane_gone(self):
-        return not os.path.isdir(self.lane)
+        if not os.path.isdir(self.lane):
+            return True
+        # Windows refuses to remove a directory while the turn's process holds stderr.log open: the dir stays and its
+        # other files go. A runner that wrote its state and finds it gone is as deleted as one whose dir is (#606).
+        return WINDOWS and self.state_seen and not os.path.exists(self.p["state"])
 
     def poll_inbox(self):
         msgs, self.read_offset = read_inbox(self.lane, self.read_offset)

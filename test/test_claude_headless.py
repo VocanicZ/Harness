@@ -514,13 +514,16 @@ def test_lane_dir_deleted_mid_turn_kills_the_turn_and_ends_the_runner():
             claude, grandchild = map(int, pids)
             assert lane.state()["state"] == "busy" and lane.state()["claude_pid"] == claude
             import shutil
-            shutil.rmtree(lane.lane)
+            # Windows cannot remove a directory while the hung turn holds its stderr.log open: the rest goes, and the
+            # runner treats a lane whose state.json is gone as deleted (#606)
+            shutil.rmtree(lane.lane, ignore_errors=WINDOWS)
             rc = _exits(lane.proc, 10)
             out = _gone_run(log)
             assert rc == 0, (rc, out)
             assert "Traceback" not in out, out
             wait_for(lambda: gone(claude) and gone(grandchild), "the turn's whole tree to end", timeout=10)
-            assert not os.path.exists(lane.lane), "the runner recreated its deleted lane dir"
+            assert not os.path.exists(os.path.join(lane.lane, "state.json") if WINDOWS else lane.lane), \
+                "the runner recreated its deleted lane dir"
         finally:
             if lane.proc.poll() is None:
                 lane.proc.kill()
