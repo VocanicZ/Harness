@@ -1,0 +1,1 @@
+claude's goal-loop plugin is the engine's own plugins/claude/harness-ralph, loaded by each lane with --plugin-dir; only the claude binary is installed by harness setup
