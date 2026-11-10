@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier overlap` names `HARNESS_REPO` or `HARNESS_DEFAULT_BRANCH` when that is the bad value (#1000)
+
+- `HARNESS_REPO=bad harness tier overlap --files a` reported `argument -R: 'bad' is not a repository`, and `HARNESS_DEFAULT_BRANCH=-x … -R o/r` reported `argument --base: …`, blaming an argument
+  the user never gave. A bad value from the environment is now reported under the variable's name (`harness tier: HARNESS_REPO='bad' is not a repository — expected owner/name`) with exit 2;
+  an explicit `-R` or `--base` keeps its message.
+
 ### `swarm-suite.sh --help` prints the usage and exits 0 (#998)
 
 - `scripts/swarm-suite.sh --help` printed the usage on standard error and exited 2, and `-h x` was read as a worktree (`no such worktree: -h`). `-h` and `--help` as the first argument now print

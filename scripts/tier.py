@@ -425,7 +425,7 @@ def main(argv=None):
     o = sub.add_parser("overlap")
     o.add_argument("--files", required=True, help="comma-separated paths the direct fix would touch")
     o.add_argument("-R", dest="repo", default=None)   # #914: None = not given (fall back to HARNESS_REPO); an explicit '' is a bad value
-    o.add_argument("--base", default=os.environ.get("HARNESS_DEFAULT_BRANCH", "main"))
+    o.add_argument("--base", default=None)   # #1000: None = not given (fall back to HARNESS_DEFAULT_BRANCH, then main), so a bad env value is not blamed on --base
     o.add_argument("--repo-dir", default=".")
     o.add_argument("--json", action="store_true")
     t = sub.add_parser("thresholds")
@@ -448,18 +448,28 @@ def main(argv=None):
             import stats   # #863: as above
             print(stats.vis(f"harness tier: {e}"), file=sys.stderr); return 2
         print(json.dumps(r) if a.json else render(r)); return 0
+    base_env = a.base is None
+    if base_env:
+        a.base = os.environ.get("HARNESS_DEFAULT_BRANCH", "main")
     if not a.base or a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git; #862: an empty one is not "HEAD"
+        if base_env:   # #1000: the value came from the environment, so the message names the variable, not an argument the user never gave
+            import stats
+            print(stats.vis(f"harness tier: HARNESS_DEFAULT_BRANCH={_short(a.base)} is not a branch — it must be non-empty and not start with '-'"), file=sys.stderr); return 2
         o.error(f"argument --base: {_short(a.base)} is not a branch — it must be non-empty and not start with '-'")
     if not a.repo_dir:   # #881: an empty path is not "."; it would reach `git worktree list` and exit 3
         o.error("argument --repo-dir: '' is not a directory — it must be non-empty")
     if not os.path.isdir(a.repo_dir):   # #898: a missing path, or a file, is a usage error caught before any gh or git call, not exit 3
         o.error(f"argument --repo-dir: {_short(a.repo_dir)} is not a directory — it must be an existing directory")
-    if a.repo is None:
+    repo_env = a.repo is None
+    if repo_env:
         a.repo = os.environ.get("HARNESS_REPO", "")
         if not a.repo:
             print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
     if not REPO_RE.fullmatch(a.repo):
+        if repo_env:   # #1000: as for the branch above, name HARNESS_REPO
+            import stats
+            print(stats.vis(f"harness tier: HARNESS_REPO={_short(a.repo)} is not a repository — expected owner/name"), file=sys.stderr); return 2
         o.error(f"argument -R: {_short(a.repo)} is not a repository — expected owner/name")
     files = [f for f in a.files.split(",") if f.strip()]
     if not files:
