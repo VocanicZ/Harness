@@ -82,6 +82,7 @@ wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" &
 calls(){ python3 -c 'import json,sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
   "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }
 lane_field(){ python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
+lane_field_is(){ [[ "$(lane_field "$1" "$2")" == "$3" ]]; }   # polled: `wait_until … test "$(lane_field …)" = x` reads once, before it waits (#606)
 pane_has(){ sess_capture "$1" 2>/dev/null | grep -qF "$2"; }
 turn_idle(){ [[ "$(lane_field "$1" turn)" == "$2" && "$(lane_field "$1" state)" == idle ]]; }
 # fake_claude <name> <plan…> — the fake claude's dir for a lane, replaying <plan> (one fixture per turn).
@@ -112,7 +113,7 @@ LS_REMOTE=none spawn_impl 9 "ISSUE 9 DONE" >/dev/null 2>&1
 assert_ok "the headless impl lane is live" sess_live "$S"
 uuid="$(sed -n 's/^session_id: //p' "$WD/.claude/ralph-loop.local.md")"
 rpid="$(sess_pane_pid "$S")"
-assert_ok "…its bootstrap turn running" wait_until 10 test "$(lane_field "$S" state)" = busy
+assert_ok "…its bootstrap turn running" wait_until 10 lane_field_is "$S" state busy
 bash "$ROOT/scripts/pause.sh" --force > "$RUN_DIR/pause.out" 2>&1 & ppid=$!
 assert_ok "the checkpoint waits behind the running turn" wait_until 10 pane_has "$S" "❯ HARNESS CHECKPOINT"
 assert_ok "…and the pause waits on it" alive "$ppid"
@@ -189,7 +190,7 @@ fake_claude i15 "normal working on it" "normal never runs"
 touch "$FAKE_CLAUDE_DIR/hold"
 LS_REMOTE=none spawn_impl 15 "ISSUE 15 DONE" >/dev/null 2>&1
 rpid="$(sess_pane_pid "$S")"
-assert_ok "the lane is mid-turn" wait_until 10 test "$(lane_field "$S" state)" = busy
+assert_ok "the lane is mid-turn" wait_until 10 lane_field_is "$S" state busy
 HARNESS_PAUSE_GRACE=$(host_is_windows && echo 240 || echo 60) bash "$ROOT/scripts/pause.sh" --force > "$RUN_DIR/pause15.out" 2>&1 & ppid=$!
 assert_ok "the checkpoint is queued behind the turn" wait_until 10 pane_has "$S" "❯ HARNESS CHECKPOINT"
 { kill -KILL "$rpid"; wait "$rpid"; } 2>/dev/null; rm -f "$FAKE_CLAUDE_DIR/hold"   # the lane finishes and is reaped first

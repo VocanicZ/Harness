@@ -198,6 +198,11 @@ assert_no "…types nothing into the session that never started" test -f "$RUN_D
 assert_no "…and records no goal for it" test -f "$RUN_DIR/hz-main-i9.goal"
 assert_ok "…and says why" grep -q "hz-main-i9 could not be started (backend headless)" "$RUN_DIR/launch.log"
 
+echo "== a headless lane gets longer to write its first state on Windows (#606) =="
+source "$ROOT/scripts/session/headless.sh"
+assert_eq "$(HARNESS_PLATFORM=posix _hl_start_tries)" 100 "10 s on POSIX"
+assert_eq "$(HARNESS_PLATFORM=windows _hl_start_tries)" 600 "60 s on Windows: a native Python runner starts slowly on a loaded host"
+
 echo "== docs =="
 assert_ok "docs/reference.md documents HARNESS_SESSION_BACKEND and its values" \
   grep -qE '^\| `HARNESS_SESSION_BACKEND` \| `tmux` \|.*`headless`' "$ROOT/docs/reference.md"

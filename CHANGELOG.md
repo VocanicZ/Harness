@@ -4,6 +4,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Windows: supervise's fleet checks run again, and a headless lane's runner gets 60 s for its first state (#606)
+
+- `harness supervise` scrubs every `HARNESS_*` variable before it sources a fleet's `lib.sh`; on Windows that also dropped `HARNESS_NATIVE_PATH_VARS`, and
+  under `set -u` the next `export_native_paths` ended that `lib.sh` silently, so a fleet check did nothing (no orphan-lock clearing, no frozen-lane nudge,
+  no `harness start` for a dead worker). The default list now lives in `_NATIVE_PATH_VARS_DEFAULT`, which the scrub does not touch (`test_portable.sh`).
+- `headless_sess_start` waited 10 s for the runner's first `state.json`; on a loaded Windows host a native Python runner takes longer, so a lane "did not
+  start". It waits 60 s there (`_hl_start_tries`, `test_session_backend.sh`).
+- Test-side only: `wait_until N test "$(…)" = x` read its value once, before waiting, in `test_headless_checkpoint.sh`, `test_headless_usage_stats.sh` and
+  `test_headless_attach.sh` (now polled); `test_supervise_headless.sh` uses native paths for its rules stub and the state-dir spelling, and the scheduled-task
+  launcher on Windows; `test_claude_headless.py` deletes a lane dir a running turn holds open the way Windows allows (a runner whose `state.json` is gone ends
+  like one whose dir is).
+
 ### The bench Harness arms no longer install `ralph-loop` and `superpowers` (#924)
 
 - `bench/armlib.py` installed the user-scope `ralph-loop` and `superpowers` plugins into a Harness arm's isolated config as the plugins its lanes

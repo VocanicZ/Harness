@@ -218,6 +218,11 @@ out="$(PATH="$W/bin:$PATH" bash -c "source '$HERE/../scripts/portable.sh'
   export_native_paths; printf '%s|%s|%s' \"\$STATE_DIR\" \"\$HARNESS_HOME\" \"\$RUN_DIR\"
   python3 -c 'import os; print(\"|\" + os.environ[\"STATE_DIR\"])'")"
 assert_eq "$out" "C:/proj/.harness|C:/Users/me/.harness|/c/proj/.harness/run|C:/proj/.harness" "[windows] export_native_paths puts exported paths in mixed form for native children"
+# #606: supervise's sup_clean_env unsets every HARNESS_* variable; under `set -u` the unbound list ended a Windows fleet check's lib.sh silently
+out="$(PATH="$W/bin:$PATH" bash -c "set -u; source '$HERE/../scripts/portable.sh'
+  export HARNESS_PLATFORM=windows STATE_DIR=/c/proj/.harness; unset HARNESS_NATIVE_PATH_VARS
+  export_native_paths && echo \$STATE_DIR" 2>&1)"
+assert_eq "$out" "C:/proj/.harness" "[windows] export_native_paths still has its list after the HARNESS_* scrub, under set -u"
 # #609: git.exe and gh.exe print C:/…; bash's case patterns and `/*` checks need /c/…
 cat >"$W/bin/cygpath" <<'EOF'
 #!/usr/bin/env bash

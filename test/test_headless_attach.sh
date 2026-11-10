@@ -36,6 +36,7 @@ wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" &
 calls(){ python3 -c 'import json,sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
   "$FAKE_CLAUDE_DIR/calls.jsonl" "$1" 2>/dev/null; }
 lane_state(){ python3 "$HL" state --lane "$(headless_lane_dir "$S")" --field state; }
+lane_state_is(){ [[ "$(lane_state)" == "$1" ]]; }   # polled: `wait_until … test "$(lane_state)" = x` reads once, before it waits (#606)
 turn_is(){ [[ "$(python3 "$HL" state --lane "$(headless_lane_dir "$S")" --field turn)" == "$1" && "$(lane_state)" == idle ]]; }
 out_has(){ grep -qF -- "$1" "$OUT" 2>/dev/null; }
 
@@ -48,7 +49,7 @@ launch_out="$(PROMISE="ISSUE 1 DONE" MAXITER=10 GOAL=ISSUE:1 launch_agent "$S" "
 assert_eq "$launch_rc" 0 "launch_agent starts the lane${launch_out:+ ($launch_out)}"
 assert_ok "the lane is live" sess_live "$S"
 RUNNER="$(sess_pane_pid "$S")"
-assert_ok "the bootstrap turn is running" wait_until 10 test "$(lane_state)" = busy
+assert_ok "the bootstrap turn is running" wait_until 10 lane_state_is busy
 INBOX="$(headless_lane_dir "$S")/inbox.jsonl"
 BEFORE_INBOX="$(wc -l < "$INBOX")"
 
