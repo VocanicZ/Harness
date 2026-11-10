@@ -184,7 +184,7 @@ cap="$(HARNESS_SESSION_BACKEND=headless python3 -c 'import sys; sys.path.insert(
 assert_ok "the arc rules read the lane's screen (its drawn state)" grep -q "^❯" <<<"$cap"
 kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
 SUP_DRY=0 NUDGE_MIN=0 sup_check_fleet "$F/.harness"
-assert_ok "a dead worker → harness start for the headless fleet" grep -q -- "--state-dir $F/.harness start" "$T/harness.calls"
+assert_ok "a dead worker → harness start for the headless fleet" grep -qF -- "--state-dir $(native_path "$F/.harness") start" "$T/harness.calls"
 sess_kill "$S"
 
 echo "== the supervisor's own preflight needs no tmux =="
@@ -193,7 +193,7 @@ for b in claude gh rtdd python3 git; do ln -sf "$(command -v "$b" 2>/dev/null ||
 ln -sf "$(command -v bash)" "$T/tools/bash"
 printf '#!/bin/sh\n' > "$T/tools/systemctl"; chmod +x "$T/tools/systemctl"; cp "$T/tools/systemctl" "$T/tools/loginctl"
 # a Windows host installs a scheduled task whose launcher is <dir>/<name>.sh (win_task_install; run.sh stubs schtasks), not a systemd unit (#606)
-tp="$T/tools:/usr/bin:/bin"; unitf="$U/harness-supervise.service"; if host_is_windows; then tp="$T/tools:$PATH"; unitf="$U/harness-supervise.sh"; fi
+tp="$T/tools:/usr/bin:/bin"; unitf="$U/harness-supervise.service"; if host_is_windows; then tp="$PATH:$T/tools"; unitf="$U/harness-supervise.sh"; fi
 out="$(PATH="$tp" SUP_UNIT_DIR="$U" SUP_SYSTEMCTL="$T/tools/systemctl" SUP_LOGINCTL="$T/tools/loginctl" sup_install 2>&1)"
 assert_no "--install warns about nothing missing" grep -qi "warning" <<<"$out"
 assert_ok "…and writes the unit" test -f "$unitf"
