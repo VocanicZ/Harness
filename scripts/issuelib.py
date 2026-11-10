@@ -360,6 +360,11 @@ def _snapshot_for_slug(slug):
     return None
 
 
+def _lf(body):
+    """body with CRLF and lone CR line endings turned into LF, so the `^`/`$` heading patterns see them (#932)."""
+    return body.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def parse_blocked_by(body, self_repo):
     """Return [(repo_slug, issue_number)] from the `## Blocked by` section. Bare `#N`
     resolves against self_repo. Returns [] when the section is absent, or when its first
@@ -367,6 +372,7 @@ def parse_blocked_by(body, self_repo):
     `None` section (e.g. "None — #214/#215 already merged …") is NOT harvested as a dependency."""
     if not body:
         return []
+    body = _lf(body)
     m = _BLOCKED_BY_HEADING.search(body)
     if not m:
         return []
@@ -394,6 +400,7 @@ def parse_parent(body, self_repo):
     A `## Blocked by` ref is never harvested — only the forms above."""
     if not body:
         return None
+    body = _lf(body)
     m = _PARENT_HEADING.search(body)
     if m:
         rest = body[m.end():]

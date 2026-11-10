@@ -1232,6 +1232,15 @@ def test_parse_parent_absent_and_empty():
     assert il.parse_parent("", "acme/widget") is None
     assert il.parse_parent(None, "acme/widget") is None
 
+def test_parent_and_blocked_by_read_lone_cr_crlf_and_lf_alike():   # #932
+    lf = "Do the thing.\n\n## Blocked by\n#7\n\n## Parent\n#41\n"
+    for eol in ("\n", "\r\n", "\r"):
+        b = lf.replace("\n", eol)
+        assert il.parse_parent(b, "acme/widget") == ("acme/widget", 41), repr(eol)
+        assert il.parse_blocked_by(b, "acme/widget") == [("acme/widget", 7)], repr(eol)
+        assert il.parse_parent("x" + eol + "## Parent" + eol + "None" + eol, "acme/widget") is None, repr(eol)
+    assert il.parse_parent("x\r## Parent\r#9\r", "a/b") == ("a/b", 9)
+
 def test_parse_parent_does_not_harvest_blocked_by():
     # a `## Blocked by` ref must NEVER be mistaken for a parent
     b = "## Blocked by\n#99\n"
