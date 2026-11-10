@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/helpers.sh"
 CALLS="$(mktemp)"; : > "$CALLS"; export CALLS
 # stub the tools setup checks + seeds; single topology, one unit "main"
 export HARNESS_REPO=acme/widget HARNESS_OWNER=acme
@@ -10,7 +11,8 @@ export -f gh
 BIN="$(mktemp -d)"; for t in tmux claude; do printf '#!/bin/sh\nexit 0\n' > "$BIN/$t"; chmod +x "$BIN/$t"; done
 # …and a fake v0.3 rtdd: setup installs rtdd's user-level skill (#187), which must never reach the
 # real ~/.claude from a test.
-printf '#!/bin/sh\necho "rtdd $*" >> "$CALLS"\n[ "$1" = --help ] && echo "rtdd uninstall [--legacy-files]"\nexit 0\n' > "$BIN/rtdd"; chmod +x "$BIN/rtdd"
+RTDD_FAKE="$BIN/$(fake_rtdd_name)"   # Windows: rtdd.exe, or the host's real one wins (rtdd_exe asks for it first)
+printf '#!/bin/sh\necho "rtdd $*" >> "$CALLS"\n[ "$1" = --help ] && echo "rtdd uninstall [--legacy-files]"\nexit 0\n' > "$RTDD_FAKE"; chmod +x "$RTDD_FAKE"
 export PATH="$BIN:$PATH"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 bash "$HERE/../scripts/setup.sh" >/dev/null 2>&1

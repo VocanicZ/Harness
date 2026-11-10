@@ -78,7 +78,7 @@ echo "-- rtdd_skill_install, per CLI"
 # A fake rtdd: --help shows (or hides) the v0.3-only --legacy-files; `skill install` logs and exits
 # $FAKE_SKILL_RC; `skill prompt` prints upstream's shape — prose, then the skill in a fenced block.
 FB="$RUN_DIR/fakebin"; mkdir -p "$FB"
-cat > "$FB/rtdd" <<'EOF'
+cat > "$FB/$(fake_rtdd_name)" <<'EOF'
 #!/usr/bin/env bash
 echo "rtdd $*" >> "$FAKE_LOG"
 case "$1 ${2:-}" in
@@ -87,7 +87,7 @@ case "$1 ${2:-}" in
   "skill prompt") printf 'Save the document below.\n\n````markdown\n---\nname: rtdd\n---\nbody\n````\n' ;;
 esac
 EOF
-chmod +x "$FB/rtdd"
+chmod +x "$FB/$(fake_rtdd_name)"
 export FAKE_LOG="$RUN_DIR/rtdd.log"
 for cli in claude agy; do
   export HARNESS_AGY_USER_SKILLS="$RUN_DIR/agy-skills-$cli"
