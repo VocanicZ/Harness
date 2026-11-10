@@ -10,13 +10,17 @@
 #     cuts one patch release once the oldest queued fix is $HARNESS_RELEASE_THROTTLE seconds old, so
 #     a burst of fixes is one release covering all of them and a late fix waits, never drops
 # A red release gate (`harness release` rc 4) files one `bug` issue for that commit and is never
-# re-run on it: the fix for that bug is a new commit, which is released like any other.
+# re-run on it. Nor is any other commit gated while that bug is open (#1029): release_tick holds every
+# release until the bug is closed (its fix PR closes it), then gates the current head as usual.
 # State lives host-wide in $HARNESS_AUTORELEASE_DIR (release.sh writes its gate logs there too):
 #   prd-<n>             a release was triggered for PRD <n> (CLOSE_PRD is re-emitted every poll)
 #   bootstrap           the no-release-yet check ran to an answer: a bootstrap was queued, or a tag exists
 #   pending             "<epoch>\t<issue>" per merged fix, "<epoch>\tprd:<n>" per PRD close,
 #                       "<epoch>\tbootstrap" for the first release, not yet released
-#   gate-failed-<sha>   the gate failed at <sha>; holds the bug issue filed for it, once filed
+#   gate-failed-<sha>   the gate failed at <sha>; holds the bug issue filed for it, once filed. While
+#                       that bug is open (or unfiled, or its state unreadable) no release starts
+#   gate-resolved-<sha> that bug was seen CLOSED: release_tick stops asking GitHub about it. The
+#                       gate-failed marker stays, so <sha> itself is still never re-gated
 #   retry-after         epoch before which release_tick does not retry a release that errored
 #   release.pid/.log    the background release job, stopped only by this PID
 
@@ -64,9 +68,9 @@ release_bootstrap(){ local d tags lockfd; d="$(release_dir)"; [[ -e "$d/bootstra
   printf '%s\tbootstrap\n' "$(release_now)" >> "$d/pending"
   lock_release "$lockfd"; }
 
-# release_tick — once per poll: a release when a PRD close or the bootstrap is queued (no throttle),
+# release_tick — once per poll (held while a red gate's bug is open, #1029): a release when a PRD close or the bootstrap is queued (no throttle),
 # or a patch release when the oldest queued fix has waited the throttle; never before `retry-after`.
-release_tick(){ local d now oldest prds nums after; release_repo_is_engine "${SLUG:-}" || return 0
+release_tick(){ local d now oldest prds nums after reason; release_repo_is_engine "${SLUG:-}" || return 0
   release_bootstrap
   d="$(release_dir)"; [[ -s "$d/pending" ]] || return 0
   now="$(release_now)"
@@ -77,7 +81,32 @@ release_tick(){ local d now oldest prds nums after; release_repo_is_engine "${SL
     oldest="$(awk -F'\t' 'NR==1||$1<m{m=$1} END{print m}' "$d/pending")"
     [[ -n "$oldest" ]] && (( now - oldest >= ${HARNESS_RELEASE_THROTTLE:-3600} )) || return 0
   fi
-  release_kick "$prds${prds:+${nums:+ }}${nums:+bug:$nums}"; }
+  reason="$prds${prds:+${nums:+ }}${nums:+bug:$nums}"
+  release_gate_held "$reason" && return 0
+  release_kick "$reason"; }
+
+# release_gate_held <reason> — rc 0 iff a red gate's bug (a gate-failed-<sha> marker not yet resolved)
+# is still open, so a release due now must wait (#1029): a new head would fail the same gate for the
+# same defect. An unfiled marker is held and its filing retried; a gh error counts as still open. A
+# bug seen CLOSED (fixed, or closed invalid/flake) is recorded as gate-resolved-<sha>: no further gh
+# call for it. Asked only when a release is due, and not while a release job runs (release_kick no-ops).
+release_gate_held(){ local reason="$1" d m sha n state pid; d="$(release_dir)"
+  pid="$(cat "$d/release.pid" 2>/dev/null)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && return 1
+  for m in "$d"/gate-failed-*; do
+    [[ -f "$m" ]] || continue
+    sha="${m##*/gate-failed-}"; [[ -e "$d/gate-resolved-$sha" ]] && continue
+    n="$(head -n1 "$m" 2>/dev/null)"
+    if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+      release_gate_bug "$sha" "$reason"; n="$_GATE_BUG"
+      [[ "$n" =~ ^[0-9]+$ ]] || { log "auto-release: gate bug for the red gate at ${sha:0:7} is not filed yet — holding $reason"; return 0; }
+    fi
+    state="$(gh issue view "$n" -R "$SLUG" --json state --jq .state 2>/dev/null)" || state=""
+    if [[ "$state" == CLOSED ]]; then : > "$d/gate-resolved-$sha"; continue; fi
+    if [[ "$state" == OPEN ]]; then log "auto-release: gate bug #$n (red gate at ${sha:0:7}) still open — holding $reason"
+    else log "auto-release: cannot read the state of gate bug #$n (red gate at ${sha:0:7}) — holding $reason"; fi
+    return 0
+  done
+  return 1; }
 
 # release_tick_lane — the priority lane's release_tick: the bug lane outlives a completed unit, so
 # the fixes it merges are released even when no pool worker tick is running for the Harness repo.
@@ -147,7 +176,7 @@ release_clear_pending(){ local d tmp lockfd; d="$(release_dir)"; [[ -f "$d/pendi
 # marker records the issue once filed, and an open bug with the same title is never duplicated.
 # Sets _GATE_BUG to the issue number (empty while it is not filed yet).
 release_gate_bug(){ local sha="$1" reason="$2" d m short title open url n body log
-  d="$(release_dir)"; m="$d/gate-failed-$sha"; short="${sha:0:7}"; _GATE_BUG="$(cat "$m" 2>/dev/null)"
+  d="$(release_dir)"; m="$d/gate-failed-$sha"; short="${sha:0:7}"; _GATE_BUG="$(head -n1 "$m" 2>/dev/null)"
   [[ -n "$_GATE_BUG" ]] && return 0
   title="release gate failed at $short"
   open="$(gh issue list -R "$SLUG" --label "$HARNESS_LABEL_BUG" --state open \
