@@ -425,6 +425,15 @@ for bad in -x =-x x a/ /b a/-x -a/b 'a b/c' 'a/b/c'; do
 done
 assert_eq "$(H tier overlap --files a -R -x >/dev/null 2>&1; echo $?)" 2 "-R -x -> usage error, exit 2"
 assert_eq "$(H tier overlap --files a -R nonsense >/dev/null 2>&1; echo $?)" 2 "-R nonsense -> usage error, exit 2"
+# #936: an unrecognized trailing argument is reported by the subcommand, so the usage is its own, not `harness tier`'s
+for sc in "decide --criteria 3 --lines 50 --files 2 --subsystems 1" "overlap --files a" "thresholds"; do
+  for stray in -x -; do
+    out="$(H tier $sc "$stray" 2>&1 >/dev/null)"; rc=$?
+    assert_eq "$rc" 2 "tier ${sc%% *} $stray -> exit 2"
+    assert_eq "$(grep -c "^usage: harness tier ${sc%% *} " <<<"$out")" 1 "tier ${sc%% *} $stray -> its own usage"
+    assert_eq "$(grep -cx "harness tier ${sc%% *}: error: unrecognized arguments: $stray" <<<"$out")" 1 "tier ${sc%% *} $stray -> its own error"
+  done
+done
 assert_eq "$(HARNESS_REPO=nonsense H tier overlap --files a >/dev/null 2>&1; echo $?)" 2 "HARNESS_REPO=nonsense -> exit 2"
 # --base must not start with '-': git would read it as an option (#748); git is never run
 GBIN="$T/gitbin"; mkdir -p "$GBIN"; REAL_GIT="$(command -v git)"

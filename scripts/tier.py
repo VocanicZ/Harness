@@ -422,8 +422,10 @@ def main(argv=None):
     o.add_argument("--base", default=os.environ.get("HARNESS_DEFAULT_BRANCH", "main"))
     o.add_argument("--repo-dir", default=".")
     o.add_argument("--json", action="store_true")
-    sub.add_parser("thresholds")
-    a = ap.parse_args(argv)
+    t = sub.add_parser("thresholds")
+    a, extra = ap.parse_known_args(argv)
+    if extra:   # #936: the subcommand names the stray argument, so the usage shown is its own, as for -R/--base (#809)
+        {"decide": d, "overlap": o, "thresholds": t}[a.cmd].error("unrecognized arguments: " + " ".join(extra))
     try:
         cfg = load()
     except TierConfigError as e:

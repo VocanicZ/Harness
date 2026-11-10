@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### An unrecognized trailing argument to `harness tier decide`, `overlap` or `thresholds` shows that subcommand's usage (#936)
+
+- `harness tier decide … -x` (and a trailing `-`) was reported by the top-level parser, so the user saw the usage for `harness tier`. The usage and
+  error now come from the subcommand (`usage: harness tier decide …`, `harness tier decide: error: unrecognized arguments: -x`), exit 2, the same for
+  `overlap` and `thresholds`. `test_tier.sh` covers all three.
+
 ### The config reader ends an unquoted value where bash does, and a repository from config is checked like `-R` (#933)
 
 - `stats.read_config` matched an unquoted value with `[^\s#]*`, and Python's `\s` is Unicode-aware, so `HARNESS_REPO=acme/wid<U+2028>get` read as
