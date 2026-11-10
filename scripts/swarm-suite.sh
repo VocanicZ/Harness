@@ -69,7 +69,9 @@ done
 [[ "${HARNESS_SWARM:-auto}" == auto ]] || unavailable "HARNESS_SWARM=$(vis "${HARNESS_SWARM}")"
 command -v "$SWARM_BIN" >/dev/null 2>&1 || unavailable "swarm not on PATH"
 [[ -d "$WT" ]] || { echo "swarm-suite: no such worktree: $(vis "$WT")" >&2; exit 2; }
-WT="$(cd "$WT" && pwd)"
+# #995: a path starting with `-` is a directory, not a cd option: `--` ends options, but bash's `cd -- -` still means $OLDPWD, so spell it ./-.
+[[ "$WT" != -* ]] || WT="./$WT"
+WT="$(cd -- "$WT" && pwd)"
 
 # swarm job names must match [A-Za-z0-9][A-Za-z0-9._-]* and must not end in .prev.
 NAME="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[^A-Za-z0-9]*//; s/\.prev$/-prev/')"
