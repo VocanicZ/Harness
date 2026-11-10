@@ -72,6 +72,7 @@ trap cleanup EXIT
 alive(){ alive_any "$1"; }
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 lane_field(){ python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
+lane_field_is(){ [[ "$(lane_field "$1" "$2")" == "$3" ]]; }   # polled: `wait_until … test "$(lane_field …)" = x` reads once, before it waits (#606)
 pane_has(){ sess_capture "$1" 2>/dev/null | grep -qF "$2"; }
 turn_idle(){ [[ "$(lane_field "$1" turn)" == "$2" && "$(lane_field "$1" state)" == idle ]]; }
 calls(){ python3 -c 'import json,sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
@@ -106,7 +107,7 @@ touch "$FAKE_CLAUDE_DIR/hold"   # the lane is mid-turn on the issue when the usa
 spawn_impl 9 "ISSUE 9 DONE" >/dev/null 2>&1
 assert_ok "the headless impl lane is live" sess_live "$S"
 uuid="$(sed -n 's/^session_id: //p' "$WD/.claude/ralph-loop.local.md")"
-assert_ok "…its first turn running" wait_until 10 test "$(lane_field "$S" state)" = busy
+assert_ok "…its first turn running" wait_until 10 lane_field_is "$S" state busy
 usage_stub default 42; usage_watch
 assert_no "below the threshold: no hold" usage_held
 assert_no "…no checkpoint queued for the lane" pane_has "$S" "HARNESS CHECKPOINT"
@@ -231,8 +232,10 @@ L="$RUN_DIR/lane-acct"; export FAKE_CLAUDE_DIR="$RUN_DIR/fake-acct"; mkdir -p "$
 CLAUDE_CONFIG_DIR=/x/accounts/team/ HARNESS_LANE_DIR="$L" python3 "$ROOT/scripts/cli/claude_headless.py" run \
   --cwd "$RUN_DIR" --bin "python3 $FIX/fake-claude" --session-id 11111111-2222-3333-4444-555555555555 --message hi \
   >/dev/null 2>&1 & lpid=$!
-wait_until 15 test "$(python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$L" --field turn 2>/dev/null)" = 1
-wait_until 15 test "$(python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$L" --field state 2>/dev/null)" = idle
+# (polled: `wait_until … test "$(…)" = 1` would read the field once, before waiting — a slow Windows host read it too early, #606)
+lane_is(){ [[ "$(python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$L" --field "$1" 2>/dev/null)" == "$2" ]]; }
+wait_until 15 lane_is turn 1
+wait_until 15 lane_is state idle
 st="$(cat "$L/state.json")"
 python3 "$ROOT/scripts/cli/claude_headless.py" stop --lane "$L" >/dev/null 2>&1; wait "$lpid" 2>/dev/null
 assert_eq "$(jq -r .account <<<"$st")" team "the account is the lane's config dir, as the status line names it"
@@ -243,7 +246,7 @@ S="$(sess_impl main 11)"; WD="$WORKTREES_DIR/main-i11"; mkdir -p "$WD"; : > "$WD
 printf 'ready-for-agent\n' > "$FAKE_GH_DIR/labels-11"
 fake_claude i11 "normal working"; touch "$FAKE_CLAUDE_DIR/hold"
 spawn_impl 11 "ISSUE 11 DONE" >/dev/null 2>&1
-assert_ok "the lane is busy" wait_until 10 test "$(lane_field "$S" state)" = busy
+assert_ok "the lane is busy" wait_until 10 lane_field_is "$S" state busy
 assert_eq "$(sess_state "$S")" busy "sess_state reads the lane's state"
 source "$ROOT/scripts/status.sh"
 assert_ok "harness status's session row shows the lane's state" grep -qE "⟳ $S +ralph-iter=1  headless: busy" <<<"$(session_row "$S" "$WD")"
