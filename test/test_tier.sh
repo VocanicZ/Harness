@@ -435,6 +435,21 @@ for sc in "decide --criteria 3 --lines 50 --files 2 --subsystems 1" "overlap --f
   done
 done
 assert_eq "$(HARNESS_REPO=nonsense H tier overlap --files a >/dev/null 2>&1; echo $?)" 2 "HARNESS_REPO=nonsense -> exit 2"
+# #1000: a bad value from the environment is reported under the variable's name, not as an -R/--base the user never gave
+err="$(HARNESS_REPO=bad H tier overlap --files a 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 2 "HARNESS_REPO=bad, no -R -> exit 2"
+assert_eq "$err" "harness tier: HARNESS_REPO='bad' is not a repository — expected owner/name" "HARNESS_REPO=bad -> blames the variable"
+assert_eq "$(grep -c 'argument -R' <<<"$err")" 0 "HARNESS_REPO=bad -> no 'argument -R' in the message"
+err="$(HARNESS_REPO=bad H tier overlap --files a -R nope 2>&1 >/dev/null)"
+assert_ok "explicit -R keeps its message even with HARNESS_REPO set" grep -qF "argument -R: 'nope' is not a repository" <<<"$err"
+err="$(HARNESS_DEFAULT_BRANCH=-x H tier overlap --files a -R o/r 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 2 "HARNESS_DEFAULT_BRANCH=-x, no --base -> exit 2"
+assert_eq "$err" "harness tier: HARNESS_DEFAULT_BRANCH='-x' is not a branch — it must be non-empty and not start with '-'" "HARNESS_DEFAULT_BRANCH=-x -> blames the variable"
+assert_eq "$(grep -c 'argument --base' <<<"$err")" 0 "HARNESS_DEFAULT_BRANCH=-x -> no 'argument --base' in the message"
+err="$(HARNESS_DEFAULT_BRANCH= H tier overlap --files a -R o/r 2>&1 >/dev/null)"
+assert_ok "empty HARNESS_DEFAULT_BRANCH blames the variable" grep -qF "HARNESS_DEFAULT_BRANCH='' is not a branch" <<<"$err"
+err="$(HARNESS_DEFAULT_BRANCH=-x H tier overlap --files a -R o/r --base=-y 2>&1 >/dev/null)"
+assert_ok "explicit --base keeps its message even with HARNESS_DEFAULT_BRANCH set" grep -qF "argument --base: '-y' is not a branch" <<<"$err"
 # --base must not start with '-': git would read it as an option (#748); git is never run
 GBIN="$T/gitbin"; mkdir -p "$GBIN"; REAL_GIT="$(command -v git)"
 printf '#!/usr/bin/env bash\necho "$*" >> "$GIT_LOG"\nexec "%s" "$@"\n' "$REAL_GIT" > "$GBIN/git"; chmod +x "$GBIN/git"
