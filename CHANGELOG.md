@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The internal `stats.py` subcommands reject a wrong argument count with a usage line, not a traceback (#1006)
+
+- `python3 scripts/stats.py goal-env` with no arguments ended in `TypeError: goal_env() missing 1 required positional argument` and exit 1, and `goal-env a b c` silently dropped the extras. `goal-env`,
+  `transcripts`, `usage`, `time-split`, `ran` and `parent-prd` now print one line (`stats.py goal-env: missing argument; usage: stats.py goal-env <goal> [prd]`) to stderr and exit 2 on a missing or extra argument.
+
 ### `harness`'s unknown-command error has the `harness:` prefix and always quotes the name (#1004)
 
 - `harness -x` printed `unknown command: -x` and `harness ''` printed `unknown command: ''`, unlike the other `harness` errors (`harness: --state-dir '-x': …`). Both now read

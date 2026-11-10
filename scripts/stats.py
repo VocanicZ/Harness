@@ -1694,9 +1694,37 @@ def cmd_parent_prd(argv):
     return 0
 
 
+# The internal subcommands that take positional arguments: (usage text, min, max) — max None = variadic.
+# A wrong count is a one-line usage error and rc 2, never a TypeError traceback or a silently dropped extra (#1006).
+_POSITIONAL_ARITY = {
+    "goal-env": ("<goal> [prd]", 1, 2),
+    "transcripts": ("<session>", 1, 1),
+    "usage": ("<transcript>...", 1, None),
+    "time-split": ("<transcript>", 1, 1),
+    "ran": ("<session>", 1, 1),
+    "parent-prd": ("[slug]", 0, 1),
+}
+
+
+def _arity_error(cmd, rest):
+    """The one-line usage error for a wrong positional count to an internal subcommand, else None."""
+    spec = _POSITIONAL_ARITY.get(cmd)
+    if spec is None:
+        return None
+    usage, lo, hi = spec
+    if len(rest) >= lo and (hi is None or len(rest) <= hi):
+        return None
+    why = "missing argument" if len(rest) < lo else "too many arguments"
+    return f"stats.py {cmd}: {why}; usage: stats.py {cmd} {usage}"
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     cmd, rest = (argv[0], argv[1:]) if argv else ("report", [])
+    err = _arity_error(cmd, rest)
+    if err:
+        print(err, file=sys.stderr)
+        return 2
     if cmd == "emit":
         try:
             return cmd_emit(rest)
@@ -1705,7 +1733,7 @@ def main(argv=None):
     if cmd == "parent-prd":
         return cmd_parent_prd(rest)
     if cmd == "goal-env":
-        print("\n".join(goal_env(*rest[:2])))
+        print("\n".join(goal_env(*rest)))
         return 0
     if cmd == "transcripts":   # the claude adapter's cli_transcripts (#188)
         tr = find_transcript(rest[0]) if rest else None

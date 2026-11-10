@@ -1358,6 +1358,23 @@ def test_time_split_cli_subcommand():
         assert run(["time-split", os.path.join(d, "none.jsonl")])[0] == 1
 
 
+def test_internal_subcommand_wrong_arg_count_is_a_usage_error_not_a_traceback():   # #1006
+    import subprocess
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "stats.py")
+    cases = [["goal-env"], ["goal-env", "ISSUE:1", "2", "3"], ["transcripts"], ["transcripts", "a", "b"],
+             ["usage"], ["time-split"], ["time-split", "a", "b"], ["ran"], ["ran", "a", "b"],
+             ["parent-prd", "a", "b"]]
+    for argv in cases:
+        p = subprocess.run([sys.executable, script] + argv, capture_output=True, text=True, input="")
+        assert p.returncode == 2, (argv, p.returncode, p.stderr)
+        assert "Traceback" not in p.stderr and p.stdout == "", (argv, p.stdout, p.stderr)
+        lines = p.stderr.strip().splitlines()
+        assert len(lines) == 1 and lines[0].startswith(f"stats.py {argv[0]}: ") and "usage: stats.py " + argv[0] in lines[0], (argv, p.stderr)
+    # the valid counts still run
+    assert run(["goal-env", "ISSUE:12"])[0] == 0
+    assert run(["goal-env", "ISSUE:12", "5"])[0] == 0
+
+
 def test_report_into_a_reader_that_stops_early_is_quiet():   # #671: `harness stats | head -1`
     import subprocess
     script = os.path.join(HERE, "..", "scripts", "stats.py")
