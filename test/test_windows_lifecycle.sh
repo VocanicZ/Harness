@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_windows_lifecycle.sh — #356 (ADR 0001 §5, §6): the fleet's lifecycle without systemd on native
 # Windows, forced on Linux with HARNESS_PLATFORM=windows. Windows' own tools are fakes that log argv:
 #   powershell — runs the Win32_Process.Create command line it is handed, detached, in an EMPTY
@@ -108,9 +109,9 @@ assert_ok "[windows] … and says so"                           grep -q "Win32_P
 
 echo "=== pool.sh / priority.sh / the poller launch through detach_launch ==="
 FE="$T/engine"; mkdir -p "$FE/scripts"
-printf '#!/usr/bin/env bash\necho "worker $1 MARK=$HARNESS_TEST_MARKER"; exec sleep 30\n' >"$FE/scripts/pool-worker.sh"
-printf '#!/usr/bin/env bash\necho "priority $1"; exec sleep 30\n' >"$FE/scripts/priority-worker.sh"
-printf '#!/usr/bin/env bash\necho poller; exec sleep 30\n' >"$FE/scripts/poller.sh"
+printf '#!/usr/bin/env bash\necho "worker $1 MARK=$HARNESS_TEST_MARKER"; exec sleep 600\n' >"$FE/scripts/pool-worker.sh"
+printf '#!/usr/bin/env bash\necho "priority $1"; exec sleep 600\n' >"$FE/scripts/priority-worker.sh"
+printf '#!/usr/bin/env bash\necho poller; exec sleep 600\n' >"$FE/scripts/poller.sh"
 mkdir -p "$STATE_DIR/run"; printf 'HARNESS_POOL=2\n' >"$STATE_DIR/config"
 : >"$T/powershell.calls"
 out="$(HARNESS_PLATFORM=windows HARNESS_TEST_MARKER=m1 ENGINE_DIR="$FE" bash "$R/scripts/pool.sh" 2>&1)"

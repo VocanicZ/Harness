@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_operator_skills.sh — #439: the engine's skills reach EVERY supported CLI installed on the host,
 # in the user-skills dir that CLI reads (cli_user_skills_dir; hermes: ~/.hermes/skills), as symlinks
 # into the engine through its stable link ($HARNESS_HOME/engine/skill/<name>), and every

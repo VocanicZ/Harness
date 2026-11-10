@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_windows_installer.sh — #488 (PRD #475, Solution 4): install.sh on Windows offers each missing
 # prerequisite through winget, checks Developer Mode and the git identity, and Harness repos get
 # per-repo longpaths + line-ending config; `harness doctor` reports the same. Forced on Linux with

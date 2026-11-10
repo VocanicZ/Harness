@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_windows_lane_tooling.sh — #495 (PRD #475, Solution 7): lane tooling and skills on native Windows, forced on Linux
 # with HARNESS_PLATFORM=windows. Everything runs under a root whose name holds a space ("Win Home", as in
 # C:\Users\Some User): HOME, HARNESS_HOME, the skills dir, the project and its lane worktree. Windows' own tools are fakes:

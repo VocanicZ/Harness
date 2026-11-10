@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_uninstall.sh — `harness uninstall [--force]` (#61, PRD #52): tear down a Harness
 # install/project. Removes the shared host engine (~/.harness/engine) + its PATH symlink, this
 # project's state-only .harness/ + the project .gitignore '.harness/' entry, and the deployed
