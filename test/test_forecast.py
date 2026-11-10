@@ -666,7 +666,10 @@ def test_a_bodies_file_with_a_bom_reads_like_one_without_and_a_malformed_one_is_
             assert rc == 2 and out == "", (name, rc, out)
             assert err.startswith("harness forecast: ") and path in err and err.count("\n") == 1, (name, err)
         rc, out, err = run_cli(args + ["--bodies", os.path.join(d, "missing.json")], cfg)
-        assert rc == 2 and "cannot read it" in err and err.count("\n") == 1, (rc, err)
+        missing = os.path.join(d, "missing.json")
+        assert rc == 2 and err == f"harness forecast: --bodies {fc.st.vrepr(missing)} does not exist\n", (rc, err)   # #935
+        rc, out, err = run_cli(args + ["--bodies", d], cfg)
+        assert rc == 2 and err == f"harness forecast: --bodies {fc.st.vrepr(d)} is a directory, not a bodies file\n", (rc, err)
 
 
 def test_repo_value_must_be_owner_name_in_every_form():
@@ -818,7 +821,7 @@ def test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators():   # #8
 
 
 def test_unreadable_bodies_path_with_line_separators_prints_escaped():   # #863
-    """A U+2028 or form feed in the --bodies path prints as \\uXXXX in the 'cannot read it' error on stderr."""
+    """A U+2028 or form feed in the --bodies path prints as \\uXXXX in the --bodies 'does not exist' error on stderr."""
     with tmp() as d:
         cfg, events, bodies = fixture(d)
         for ch, esc in (("\f", "\\u000c"), ("\u2028", "\\u2028")):
@@ -826,7 +829,7 @@ def test_unreadable_bodies_path_with_line_separators_prints_escaped():   # #863
                                 "--events", events, "--bodies", os.path.join(d, f"no{ch}pe")],
                                capture_output=True, text=True)
             assert r.returncode == 2, (r.returncode, r.stderr)
-            assert f"no{esc}pe: cannot read it" in r.stderr, repr(r.stderr)
+            assert f"no{esc}pe" in r.stderr and "--bodies" in r.stderr and "does not exist" in r.stderr, repr(r.stderr)
             assert ch not in r.stderr and ch not in r.stdout, (repr(r.stderr), repr(r.stdout))
 
 

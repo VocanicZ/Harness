@@ -1302,13 +1302,13 @@ def nonempty_arg(flag):
     return check
 
 
-def _explicit_log_error(path):
-    """Why an explicitly passed events file cannot be read, or None (#758). None path = the default file: its
+def _explicit_log_error(path, kind="an events file"):
+    """Why an explicitly passed events file (or, with `kind`, another input file) cannot be read, or None (#758, #935). None path = the default file: its
     absence on a fresh install stays "no events". A missing path, a directory or an unreadable file names the path."""
     if path is None:
         return None
     if os.path.isdir(path):
-        return f"{vrepr(path)} is a directory, not an events file"
+        return f"{vrepr(path)} is a directory, not {kind}"
     try:
         with open(path, "rb"):
             pass
