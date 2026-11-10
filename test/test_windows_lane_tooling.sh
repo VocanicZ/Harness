@@ -77,7 +77,7 @@ assert_ok "windows: the engine's own skills are linked in (/harness, handoff)" \
 assert_no "windows: nothing was written to the HOME's own ~/.claude/skills" test -e "$T/windows/home/.claude/skills"
 assert_eq "$(cat "$T/windows/skills.list")" "$(cat "$T/linux/skills.list")" "the skills dir holds the same set as on Linux"
 assert_eq "$(cat "$T/windows/plugin.calls")" "$(cat "$T/linux/plugin.calls")" "the same plugin calls are made as on Linux"
-assert_ok "claude's ralph-loop plugin is installed" grep -q 'plugin install ralph-loop@' "$T/windows/claude.calls"
+assert_no "claude's user-level ralph-loop plugin is not installed (the engine's harness-ralph is, #915)" grep -q 'plugin install ralph-loop@' "$T/windows/claude.calls"
 assert_no "…and superpowers is not (no lane can see it, #669)" grep -q 'plugin install superpowers@' "$T/windows/claude.calls"
 
 echo "=== update.sh --with-skills on Windows installs into the pinned skills dir ==="
@@ -94,7 +94,7 @@ assert_eq "$(readlink "$T/upd/hh/engine")" releases/v0.2.0 "the engine flipped t
 assert_ok "to-prd and subagent-task-tree land in the pinned skills dir" \
   bash -c "test -f '$T/upd/Claude Data/skills/to-prd/SKILL.md' && test -f '$T/upd/Claude Data/skills/subagent-task-tree/SKILL.md'"
 assert_no "… not in the HOME's ~/.claude/skills" test -e "$T/upd/home/.claude/skills"
-assert_ok "the plugins were refreshed through claude" grep -q 'plugin install ralph-loop@' "$T/upd/claude.calls"
+assert_no "the update does not install the user's ralph-loop plugin either (#915)" grep -q 'plugin install ralph-loop@' "$T/upd/claude.calls"
 
 echo "=== the {{skill:…}} check finds the prompt-named skills in the Windows skills dir ==="
 ( host_env windows "$T/chk"; export HARNESS_INSTALL_NOMAIN=1 HARNESS_SKILL_SRC="$R/skill"

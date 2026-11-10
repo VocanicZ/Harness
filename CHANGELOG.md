@@ -105,7 +105,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   what bare `rtdd` resolves to under Git's bash; the mixed-form `TMPDIR` and launcher `<Arguments>` cases use real Windows spellings; the
   lifecycle test's fake workers sleep 600 s, not 30, so a slow host does not see them exit before the re-run.
 - Slow files carry `# harness-test-timeout-windows` (1800 s; 14400 s for `test_hermetic_heavy_1.sh`, which runs `test_cli_matrix.sh`):
-  `test_hermetic_heavy_1.sh`, `test_winsma.sh`, `test_operator_skills.sh`, `test_uninstall.sh`, `test_windows_installer.sh`,
+  `test_hermetic_heavy_1.sh`, `test_winsma.sh` (3600 s), `test_operator_skills.sh`, `test_uninstall.sh`, `test_windows_installer.sh`,
   `test_windows_lane_tooling.sh` and `test_windows_lifecycle.sh`.
 
 ### `bench/run.py` write-error message starts `bench:`, like its other messages (#900)
