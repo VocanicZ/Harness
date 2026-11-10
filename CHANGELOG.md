@@ -15,6 +15,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `harness --help >&-` (and `harness help >&-`, `harness -h >&-`, bare `harness >&-`) printed `cat: standard output: Bad file descriptor` and exited 1. The usage text is now dropped
   quietly with exit 0, as `harness stats`, `tier`, `forecast` and `bench/run.py` already do (#837); `harness --help | head -1` is unchanged.
 
+### `swarm-suite.sh` keeps its exit status when its output is cut off (#983)
+
+- Into a reader that stops early (`bash scripts/swarm-suite.sh <worktree> job | head -1` under default SIGPIPE handling) a red suite exited 141 instead of 1, and with standard output
+  closed (`>&-`) it leaked `echo: write error: Bad file descriptor` and `cat: standard output: Bad file descriptor` on stderr. The verdict is now written so a failed write is dropped
+  silently: green stays 0, red 1, not run 3.
+
 ### `harness stats --since` rejects every count that cannot be turned into a date (#974)
 
 - `--since 99999999999999999999d` and `--since 1000000000d` silently reported over all time, while a count past 4300 digits was a usage error. A count that reaches back past year 1

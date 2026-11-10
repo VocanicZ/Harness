@@ -375,6 +375,29 @@ rc="$(HARNESS_SWARM=auto run_suite "$WT" ctlgit test/test_ok.sh)"
 assert_eq "$rc" 0 "RUN_DIR with a form feed (staged workdir path) -> swarm runs (exit 0)"
 assert_eq "$(toml_workdir "$RUN_DIR/swarm/ctlgit/swarm.toml"; echo x)" "$RUN_DIR/swarm/ctlgit/workdir"x "…the staged workdir path round-trips"
 export RUN_DIR="$OLD_RUN_DIR"
+echo "-- #983: the verdict keeps its exit status (0 / 1 / 3) when a reader stops early or stdout is closed"
+# piped_suite <reader…> -- args: the helper under DEFAULT SIGPIPE handling (a fleet host ignores it and hides the bug) into a reader.
+piped_suite(){ local -a reader=(); while [[ "$1" != -- ]]; do reader+=("$1"); shift; done; shift
+  env --default-signal=PIPE PATH="$FAKEBIN:$PATH" bash "$SUITE" "$@" 2> "$T/err" | "${reader[@]}" > /dev/null; echo "${PIPESTATUS[0]}"; }
+closed_suite(){ PATH="$FAKEBIN:$PATH" bash "$SUITE" "$@" >&- 2> "$T/err"; echo $?; }
+no_shell_noise(){ assert_no "$1: no write error / Bad file descriptor / Broken pipe on stderr" grep -qiE 'write error|Bad file descriptor|Broken pipe|Terminated' "$T/err"; }
+for reader in "head -1" "head -c0"; do   # head -c0 quits before the first byte: the broken pipe is certain, not a race
+  read -ra rd <<< "$reader"; n="${reader// /}"
+  rc="$(piped_suite "${rd[@]}" -- "$WT" "pipered$n" test/test_ok.sh test/test_red.sh)"
+  assert_eq "$rc" 1 "red suite | $reader, default SIGPIPE -> 1 (not 141)"; no_shell_noise "red | $reader"
+  rc="$(piped_suite "${rd[@]}" -- "$WT" "pipegreen$n" test/test_ok.sh)"
+  assert_eq "$rc" 0 "green suite | $reader -> 0"; no_shell_noise "green | $reader"
+  rc="$(HARNESS_SWARM=off piped_suite "${rd[@]}" -- "$WT" "pipeoff$n" test/test_ok.sh)"
+  assert_eq "$rc" 3 "unavailable swarm | $reader -> 3"; no_shell_noise "unavailable | $reader"
+done
+rc="$(closed_suite "$WT" closedred test/test_ok.sh test/test_red.sh)"
+assert_eq "$rc" 1 "red suite with stdout closed -> 1"; no_shell_noise "red >&-"
+rc="$(closed_suite "$WT" closedgreen test/test_ok.sh)"
+assert_eq "$rc" 0 "green suite with stdout closed -> 0"; no_shell_noise "green >&-"
+rc="$(HARNESS_SWARM=off closed_suite "$WT" closedoff test/test_ok.sh)"
+assert_eq "$rc" 3 "unavailable swarm with stdout closed -> 3"; no_shell_noise "unavailable >&-"
+rc="$(run_suite "$WT" stillred test/test_ok.sh test/test_red.sh)"
+assert_ok "an open stdout still gets the failing-file list" grep -q $'^test/test_red.sh\tfail\t' "$T/out"
 
 echo "-- config + prompts"
 ( unset_inherited_config; source "$HERE/../scripts/lib.sh" >/dev/null 2>&1; [[ "$HARNESS_SWARM" == auto ]] )
