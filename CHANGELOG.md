@@ -15,6 +15,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `python3 scripts/stats.py goal-env` with no arguments ended in `TypeError: goal_env() missing 1 required positional argument` and exit 1, and `goal-env a b c` silently dropped the extras. `goal-env`,
   `transcripts`, `usage`, `time-split`, `ran` and `parent-prd` now print one line (`stats.py goal-env: missing argument; usage: stats.py goal-env <goal> [prd]`) to stderr and exit 2 on a missing or extra argument.
 
+### Every `harness stats` usage error has one shape (#1005)
+
+- `harness stats --since=-x` printed a bare `harness stats: bad --since: '-x' (want …)` line, while `harness stats --prd=-x` printed the usage block and then `harness stats: error: argument --prd: …`.
+  `--since`, `--prd`/`--issue` below 1 and a missing `--events`/`--rtdd-events` file now all print the usage block, then `harness stats: error: argument --X: …`; exit status stays 2 and control
+  characters stay escaped. `--since -x` (a space) now gets the same real reason as `--since=-x`, not advice to write the `=` form.
+
 ### `harness`'s unknown-command error has the `harness:` prefix and always quotes the name (#1004)
 
 - `harness -x` printed `unknown command: -x` and `harness ''` printed `unknown command: ''`, unlike the other `harness` errors (`harness: --state-dir '-x': …`). Both now read

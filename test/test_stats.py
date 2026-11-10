@@ -41,6 +41,14 @@ def run(argv):
     return rc, buf.getvalue()
 
 
+def run_usage_error(argv):
+    """run(), for a command line argparse refuses (#1005): it exits 2 itself, so (rc, stdout) as run() gives them."""
+    try:
+        return run(argv)
+    except SystemExit as e:
+        return e.code, ""
+
+
 def test_session_usage_sums_main_and_subagents_once_per_message():
     tr = st.find_transcript(FIXTURE_SID, [FIXTURE_CFG])
     assert tr and tr.endswith(FIXTURE_SID + ".jsonl"), tr
@@ -398,7 +406,7 @@ def test_report_cli_text_and_json():
         rc, out = run(["--fleet", "nope", "--since", "2026-01-01", "--json"])
         assert rc == 0 and json.loads(out) == {}
         with contextlib.redirect_stderr(io.StringIO()):
-            assert run(["report", "--since", "whenever"])[0] == 2
+            assert run_usage_error(["report", "--since", "whenever"])[0] == 2
 
 def test_report_explicit_events_path_missing_or_directory_is_exit_2():
     """#758: --events at a missing file or a directory is an error naming the path, exit 2; the default
@@ -412,7 +420,7 @@ def test_report_explicit_events_path_missing_or_directory_is_exit_2():
             for bad in (os.path.join(d, "does", "not", "exist"), d):
                 err = io.StringIO()
                 with contextlib.redirect_stderr(err):
-                    rc, out = run(["report", flag, bad])
+                    rc, out = run_usage_error(["report", flag, bad])
                 assert rc == 2 and out == "" and bad in err.getvalue() and flag in err.getvalue(), (flag, bad, rc, out, err.getvalue())
         r = subprocess.run([sys.executable, script, "report", "--events", os.path.join(d, "typo.jsonl")],
                            capture_output=True, text=True)
@@ -432,7 +440,7 @@ def test_report_issue_below_one_is_a_usage_error():
             for argv in (["report", "--issue", bad], ["report", f"--issue={bad}"]):
                 err = io.StringIO()
                 with contextlib.redirect_stderr(err):
-                    rc, out = run(argv)
+                    rc, out = run_usage_error(argv)
                 assert rc == 2 and out == "" and "--issue" in err.getvalue(), (argv, rc, out, err.getvalue())
         rc, out = run(["report", "--issue", "1", "-R", "acme/widget"])
         assert rc == 0 and "issue #1:" in out, out
@@ -490,7 +498,10 @@ def test_report_prd_below_one_is_a_usage_error():
             for argv in (["report", "--prd", bad], ["report", f"--prd={bad}"], ["report", "--by-role", "--prd", bad]):
                 err = io.StringIO()
                 with contextlib.redirect_stderr(err):
-                    rc, out = run(argv)
+                    try:
+                        rc, out = run(argv)
+                    except SystemExit as e:   # #1005: reported through argparse, which exits 2
+                        rc, out = e.code, ""
                 assert rc == 2 and out == "" and f"--prd must be 1 or greater, got {bad}" in err.getvalue(), (argv, rc, out, err.getvalue())
         rc, out = run(["report", "--prd", "1", "-R", "acme/widget"])
         assert rc == 0 and "PRD #1:" in out, out
@@ -537,7 +548,7 @@ def test_report_since_is_ascii_digits_only():
         for argv in (["report", "--since", bad], ["report", f"--since={bad}"]):
             err = io.StringIO()
             with host(), contextlib.redirect_stderr(err):
-                rc, out = run(argv)
+                rc, out = run_usage_error(argv)
             assert rc == 2 and out == "" and "ASCII digits only" in err.getvalue() and repr(bad) in err.getvalue(), (argv, rc, out, err.getvalue())
     assert st.parse_since("7d", now=1000000) == 1000000 - 7 * 86400
 
@@ -551,9 +562,9 @@ def test_report_since_count_too_large_for_a_date_is_a_usage_error():
             except ValueError as e: assert "--since" in str(e) and "9999" not in str(e), e
             err = io.StringIO()
             with host(), contextlib.redirect_stderr(err):
-                rc, out = run(["report", "--since", bad])
-            msg = err.getvalue()
-            assert rc == 2 and out == "" and "--since" in msg and msg.count("\n") == 1 and len(msg) < 200 and "Traceback" not in msg, (n, rc, out, msg)
+                rc, out = run_usage_error(["report", "--since", bad])
+            msg = err.getvalue().rstrip("\n").rsplit("\n", 1)[-1]   # #1005: the error is the last line, after the usage block
+            assert rc == 2 and out == "" and "--since" in msg and len(msg) < 200 and "Traceback" not in msg, (n, rc, out, msg)
     assert st.parse_since("0" * 5000 + "7d", now=1000000) == 1000000 - 7 * 86400
     assert st.parse_since("719162d", now=0) == -719162 * 86400   # #974: the last count that still lands on a date
 
@@ -571,9 +582,9 @@ def test_report_since_one_rule_for_every_count_that_is_not_a_date():
         except ValueError as e: assert "too large to turn into a date" in str(e) and "9999" not in str(e), e
         err = io.StringIO()
         with host(), contextlib.redirect_stderr(err):
-            rc, out = run(["report", "--since", bad])
-        msg = err.getvalue()
-        assert rc == 2 and out == "" and "too large to turn into a date" in msg and msg.count("\n") == 1 and "Traceback" not in msg, (bad[:30], rc, out, msg)
+            rc, out = run_usage_error(["report", "--since", bad])
+        msg = err.getvalue().rstrip("\n").rsplit("\n", 1)[-1]   # #1005: the error is the last line, after the usage block
+        assert rc == 2 and out == "" and "too large to turn into a date" in msg and "Traceback" not in msg, (bad[:30], rc, out, msg)
 
 
 def test_backfill_attributes_transcripts_and_is_idempotent():
@@ -1577,6 +1588,24 @@ def test_report_since_and_model_must_not_be_empty():
         assert rc == 0, (rc, out)
 
 
+def test_every_stats_usage_error_has_the_one_argparse_shape():   # #1005
+    """--since and --prd (argparse-checked), --prd=0 and --events (checked after parsing) all fail the same way:
+    exit 2, the usage line, then `harness stats: error: argument --X: ...`; control characters stay escaped."""
+    script = os.path.join(HERE, "..", "scripts", "stats.py")
+    for argv, want in ((["--since=-x"], "argument --since: bad --since: '-x' (want 7d"),
+                       (["--since", "zz"], "argument --since: bad --since: 'zz' (want 7d"),
+                       (["--since=3\x0cd"], "argument --since: bad --since: '3\\u000cd'"),
+                       (["--prd=-x"], "argument --prd: invalid int value: '-x'"),
+                       (["--prd=0"], "argument --prd: --prd must be 1 or greater, got 0"),
+                       (["--events=nope.jsonl"], "argument --events: 'nope.jsonl' does not exist")):
+        r = subprocess.run([sys.executable, script, "report"] + argv, capture_output=True, text=True)
+        lines = r.stderr.rstrip("\n").split("\n")
+        assert r.returncode == 2 and r.stdout == "", (argv, r.returncode, r.stderr)
+        assert lines[0].startswith("usage: harness stats"), (argv, r.stderr)
+        assert lines[-1].startswith("harness stats: error: " + want), (argv, r.stderr)
+        assert "\x0c" not in r.stderr, repr(r.stderr)
+
+
 def test_long_string_option_values_are_clipped_in_stats_errors():   # #911
     """A 5000-character --since / --repo / --fleet value is echoed as 20 characters and an ellipsis, on a short line."""
     x = "a" * 5000
@@ -1598,7 +1627,8 @@ def test_long_string_option_values_are_clipped_in_stats_errors():   # #911
 
 def test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_advice():   # #1001
     stats = os.path.join(HERE, "..", "scripts", "stats.py")
-    for opt, why in (("--fleet", "is not a fleet prefix"), ("-R", "is not a repository"), ("--prd", "invalid int value"), ("--issue", "invalid int value")):
+    for opt, why in (("--fleet", "is not a fleet prefix"), ("-R", "is not a repository"), ("--prd", "invalid int value"), ("--issue", "invalid int value"),
+                     ("--since", "bad --since")):   # #1005: a --since no dash-led value can satisfy is checked while parsing
         space = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, opt, "-x"], capture_output=True, text=True)
         equals = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, f"{opt}=-x"], capture_output=True, text=True)
         assert space.returncode == 2 and why in space.stderr and "looks like an option" not in space.stderr, (opt, space.stderr)
@@ -1607,7 +1637,7 @@ def test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_
 
 def test_dash_led_option_value_after_a_space_is_named_and_the_equals_form_suggested():   # #973
     stats = os.path.join(HERE, "..", "scripts", "stats.py")
-    for opt, val in (("--model", "-5-5"), ("--since", "-1d")):   # a value the = form takes keeps the advice
+    for opt, val in (("--model", "-5-5"),):   # a value the = form takes keeps the advice (--since takes none: #1005)
         r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, opt, val], capture_output=True, text=True)
         assert r.returncode == 2 and f"'{val}' looks like an option; write {opt}={val}" in r.stderr, (opt, r.returncode, r.stderr)
     r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, "--model"], capture_output=True, text=True)
