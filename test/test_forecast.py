@@ -904,6 +904,19 @@ def test_a_repo_read_from_config_is_checked_like_dash_r():   # #933
         assert fc.resolve_repo(3, None, None, events=[], state_dir=d) == ("acme/widget", "main")
 
 
+def test_lone_cr_and_crlf_body_keeps_its_parent_prd():   # #932
+    """`## Parent` is found in a body whatever its line endings, so the forecast pools the PRD's siblings."""
+    with tmp() as d:
+        cfg, events, _ = fixture(d)
+        for name, eol in (("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")):
+            path = os.path.join(d, f"bodies-{name}.json")
+            with open(path, "w") as fh:
+                json.dump([{"number": 50, "body": ("y" * 100 + "\n## Parent\n#3\n").replace("\n", eol)}], fh)
+            rc, js, text = run_cli(["50", "-R", W, "--events", events, "--bodies", path, "--json"], cfg)
+            b = json.loads(js)["basis"]
+            assert rc == 0 and (b["tier"], b["fallback"]) == ("prd", False), (name, b)
+
+
 def test_unit_name_error_spells_a_form_feed_and_u2028_as_vis_does():   # #899
     """--unit and the 'no unit' error echo the value with quotes, a control character shown as \\uXXXX, not repr's \\x0c."""
     with tmp() as d:
