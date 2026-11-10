@@ -361,8 +361,9 @@ def _snapshot_for_slug(slug):
 
 
 def _lf(body):
-    """body with CRLF and lone CR line endings turned into LF, so the `^`/`$` heading patterns see them (#932)."""
-    return body.replace("\r\n", "\n").replace("\r", "\n")
+    """body with CRLF and lone CR line endings turned into LF and a leading UTF-8 BOM dropped, so the `^`/`$`
+    heading patterns see every heading (#932, #948)."""
+    return body.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def parse_blocked_by(body, self_repo):
@@ -1152,7 +1153,7 @@ def _prd_list(issues):
 def acceptance_section(body):
     """The text under a PRD's `## Acceptance criteria` heading, up to the next heading — verbatim, minus
     surrounding blank lines. "" when the PRD has no such section (#614)."""
-    body = body or ""
+    body = _lf(body or "")
     m = _AC_HEADING.search(body)
     if not m: return ""
     rest = body[m.end():]
@@ -1309,12 +1310,12 @@ def compute_state(repo):
                      "children_exist": bool(kids) or bool(hitl_nums),
                      # #221: a `## Task 1` section with no child titled for it — a pre-filed child
                      # must not stop DECOMPOSE filing the plan-first task.
-                     "needs_task1": bool(_TASK1_HEADING.search(p.get("body") or ""))
+                     "needs_task1": bool(_TASK1_HEADING.search(_lf(p.get("body") or "")))
                                     and not any(_TASK1_TITLE.search(k.get("title") or "") for k in kids),
                      "children_all_closed": all_closed,
                      # #614: the size test that lets the engine file the one child itself
                      "ac_count": acceptance_count(p.get("body")),
-                     "has_task1": bool(_TASK1_HEADING.search(p.get("body") or "")),
+                     "has_task1": bool(_TASK1_HEADING.search(_lf(p.get("body") or ""))),
                      # #287: open issues naming this PRD outside its ready children; `unlabelled` is
                      # the subset dispatch labels ready
                      "stray": [i["number"] for i in stray],

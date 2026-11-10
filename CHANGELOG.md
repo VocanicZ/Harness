@@ -10,6 +10,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   reason line now uses the singular for exactly 1 and the plural for every other value, 0 included: `1 criterion, ~1 line, ~1 file, 1 subsystem` and `0 subsystems`.
   The "over the direct limits" and "will not fit one session" reasons follow the same rule.
 
+### A PRD body with CRLF or lone-CR line endings, or a leading BOM, keeps its acceptance criteria and `## Task 1` (closes #948)
+
+- A body typed in GitHub's web UI is often stored with CRLF line endings. The engine did not find its `## Acceptance criteria`, so it never filed the PRD's one child itself
+  and dispatch fell back to `DECOMPOSE`; with `POOL=1` the child said "Everything PRD #N asks for" instead of copying the criteria. A `## Task 1` after a lone CR was missed the same way.
+  A body that started with a UTF-8 BOM lost its first heading, so `parse_parent` returned nothing for `\ufeff## Parent`.
+- Every heading match now sees the body with LF line endings and no leading BOM, the same normalisation #932 gave `## Parent` and `## Blocked by`.
+
 ### Windows suite: the headless runner tests and the CLI matrix run on a native host (closes #606)
 
 - The cause of the original symptom ("timed out waiting for the runner's first state") is in #606's first comment: a Windows venv `python.exe` is a launcher, so
