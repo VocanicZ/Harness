@@ -52,7 +52,7 @@ plant_cli_home(){ local cli="$1" wd="$2" sid; sid="$(cat "$FIX/$cli/session")"
     agy)    sed "s#@WD@#$(native_path "$wd")#" "$FIX/agy/last_conversations.json" > "$HARNESS_AGY_HOME/cache/last_conversations.json"
             cp "$FIX/agy/transcript.db" "$HARNESS_AGY_HOME/conversations/$sid.db" ;;
     codex)  mkdir -p "$CODEX_HOME/sessions/2026/10/27"
-            sed "s#@CWD@#$wd#" "$FIX/codex/transcript.jsonl" > "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$sid.jsonl" ;;
+            sed "s#@CWD@#$(native_path "$wd")#" "$FIX/codex/transcript.jsonl" > "$CODEX_HOME/sessions/2026/10/27/rollout-2026-10-27T22-47-16-$sid.jsonl" ;;
     copilot) mkdir -p "$COPILOT_HOME/session-state/$sid"
             sed "s#@CWD@#$wd#" "$FIX/copilot/transcript.jsonl" > "$COPILOT_HOME/session-state/$sid/events.jsonl" ;;
     opencode) mkdir -p "$XDG_DATA_HOME/opencode"; cp "$FIX/opencode/transcript.db" "$XDG_DATA_HOME/opencode/opencode.db"
@@ -553,7 +553,8 @@ prereqs_ok(){ ( local d="$RUN_DIR/prereqs-$HARNESS_CLI" bin out missing p
   printf '#!/bin/sh\necho "npm $*" >> %q\n%q %q %q\n' "$d/fetched" "$(command -v cp)" "$d/stub" "$d/fetch/$bin" > "$d/fetch/npm"
   printf '#!/bin/sh\necho "curl $*" >> %q\necho "%q %q %q"\n' "$d/fetched" "$(command -v cp)" "$d/stub" "$d/fetch/$bin" > "$d/fetch/curl"
   chmod +x "$d/fetch/npm" "$d/fetch/curl"
-  out="$(PATH="$d/fetch" HARNESS_INSTALL_CLI_BIN=1 _cli_call prereqs --install 2>&1)"
+  fp="$d/fetch"; host_is_windows && fp="$d/fetch:/usr/bin"   # ln -s COPIES an exe in Git Bash, and a copied bash lacks msys-2.0.dll: use the real tools (#606)
+  out="$(PATH="$fp" HARNESS_INSTALL_CLI_BIN=1 _cli_call prereqs --install 2>&1)"
   grep -qxF "ok      $HARNESS_CLI binary ($bin)" <<<"$out" || grep -qF "ok      $HARNESS_CLI binary ($bin," <<<"$out" || exit 1
   grep -qF -- "${fetch##* }" "$d/fetched" && [[ $(cut -d' ' -f1 "$d/fetched" | sort -u) == "${fetch%% *}" ]] || exit 1
   rm -f "$d/fetch/$bin"; : > "$d/calls"; cp "$d/stub" "$d/bin/$bin"; export PATH="$d/bin:$PATH"

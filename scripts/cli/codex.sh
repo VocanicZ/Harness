@@ -36,6 +36,7 @@ codex_session_id(){
 import glob, json, os, re
 from datetime import datetime
 wd, h = os.environ["WD"], os.environ["H"]
+same_dir = lambda a, b: bool(a) and os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))   # C:\\x = C:/x (#606)
 def ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 try:
@@ -49,7 +50,7 @@ for f in sorted(glob.glob(os.path.join(h, "sessions", "*", "*", "*", "rollout-*.
         with open(f) as fh:
             meta = json.loads(fh.readline())
         p = meta["payload"]
-        if meta.get("type") != "session_meta" or p.get("cwd") != wd or p.get("parent_thread_id"):
+        if meta.get("type") != "session_meta" or not same_dir(p.get("cwd"), wd) or p.get("parent_thread_id"):
             continue
         if launched is not None and ts(p["timestamp"]) < launched:
             break
