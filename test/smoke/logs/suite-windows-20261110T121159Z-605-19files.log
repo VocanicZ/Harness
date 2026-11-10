@@ -1703,7 +1703,3 @@ FAILED: test_cli_opencode.sh
 FAILED: test_stats.py
 FAILED: test_forecast.py
 SUITE-RESULT 8 failed
-guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-605
-credentials: GH_TOKEN written nowhere new
-[15:21:37] cleanup: winsma clean (no hx-605, lock released, no run task or process)
-[15:21:37] run: OK

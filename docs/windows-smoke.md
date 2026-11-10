@@ -264,6 +264,12 @@ one-spelling-per-directory fix): **8 of 19 pass**; test_path_split, test_submodu
 test_spawn, test_stats.py and test_supervise_rules.py are green. The other 11 were read from that log and fixed in the tests or the hermes
 liveness check afterwards (the opencode plugin driver `import()`s a file URL, copilot's lock is the `mkdir` mutex, hermes' `os.kill(pid, 0)`
 is `portable.pid_alive`, forecast runs Git's bash, the pre-release fixture keeps `.gitattributes`); they are not re-run on winsma yet.
+The full 19-file run, `test/smoke/logs/suite-windows-20261110T121159Z-605-19files.log` (1500 s cap): **11 of 19 pass**. The red ones: the five adapter files
+(codex, copilot, hermes, openclaw, opencode) pass every assertion of their own and then time out in the closing `test_cli_matrix.sh --tsv`
+call for their CLI, which takes more than 25 minutes on this host (`HARNESS_MATRIX_TIMING=1` prints each cell's seconds); `test_fleet_migrate.sh`
+hung once at a `harness start` in its last third (it passed in the run before); openclaw's hangup-ends-the-tree case is still red; and two tests
+main added since (`test_stats.py`, `test_forecast.py`: Git's bash instead of WSL's, and the Windows "Invalid argument" for a form feed in a file name)
+were fixed afterwards. Those fixes are not re-run on winsma.
 `HX_VERBOSE=1` makes `suite.sh` print run.sh's whole output (`| `-prefixed) after the summary, to read why a red file is red.
 
 The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
