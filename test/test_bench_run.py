@@ -1205,6 +1205,14 @@ def test_long_string_option_values_are_clipped_in_bench_errors(e):   # #911
     assert e.calls() == []
 
 
+def test_dash_led_stray_as_the_only_positional_is_named():   # #956
+    for argv in (["-x"], ["--nope"]):
+        r = subprocess.run([sys.executable, RUN] + argv, capture_output=True, text=True)
+        assert r.returncode == 2 and f"unrecognized arguments: {argv[0]}" in r.stderr, (argv, r.returncode, r.stderr)
+    r = subprocess.run([sys.executable, RUN], capture_output=True, text=True)
+    assert r.returncode == 2 and "unrecognized" not in r.stderr and "required: arm" in r.stderr, r.stderr
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

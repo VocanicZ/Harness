@@ -960,6 +960,14 @@ def test_long_string_option_values_are_clipped_in_forecast_errors():   # #911
             assert r.returncode == 2 and want in line and len(line) < 200 and "a" * 21 not in r.stderr, (argv[0][:10], r.returncode, len(line), line[:200])
 
 
+def test_dash_led_stray_as_the_only_positional_is_named():   # #956
+    for argv in (["-x"], ["--nope"], ["-x", "--json"]):
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py")] + argv, capture_output=True, text=True)
+        assert r.returncode == 2 and f"unrecognized arguments: {argv[0]}" in r.stderr, (argv, r.returncode, r.stderr)
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py")], capture_output=True, text=True)
+    assert r.returncode == 2 and "unrecognized" not in r.stderr and "required: issue" in r.stderr, r.stderr
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

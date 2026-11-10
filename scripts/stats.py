@@ -861,6 +861,48 @@ def choice_type(choices):
     return check
 
 
+def arg_parser(*a, **kw):
+    """An argparse.ArgumentParser that names a dash-led stray when it reports a missing positional (#956).
+    argparse checks the required positionals before it lists the arguments it did not recognise, so `prog -x` with
+    one required positional says only "the following arguments are required: issue" and never names `-x`. Here that
+    error leads with `unrecognized arguments: -x`; every other error is argparse's own. Exit status stays 2."""
+    import argparse
+
+    class Parser(argparse.ArgumentParser):
+        _seen = ()
+
+        def parse_known_args(self, args=None, namespace=None):
+            self._seen = tuple(sys.argv[1:] if args is None else args)
+            return super().parse_known_args(args, namespace)
+
+        def _is_stray(self, tok):
+            if len(tok) < 2 or tok[0] != "-" or tok == "--":
+                return False
+            try:
+                float(tok)   # a negative number is a positional value (this parser has no number-like option): its type reports it
+                return False
+            except ValueError:
+                pass
+            known = list(self._option_string_actions)
+            if tok.startswith("--"):
+                name = tok.split("=", 1)[0]
+                return not any(k.startswith(name) for k in known if k.startswith("--"))
+            return not any(tok.startswith(k) for k in known if len(k) == 2)
+
+        def error(self, message):
+            if message.startswith("the following arguments are required"):
+                stray = []
+                for tok in self._seen:
+                    if tok == "--":
+                        break
+                    if self._is_stray(tok):
+                        stray.append(tok)
+                if stray:
+                    message = "unrecognized arguments: " + " ".join(short_repr(t) if t != vis(t) else t for t in stray) + "; " + message
+            super().error(message)
+    return Parser(*a, **kw)
+
+
 def _mismatch_line(e):
     who = f"#{e['issue']}" if e.get("issue") is not None else (f"PRD #{e['prd']}" if e.get("prd") is not None else "")
     where = " ".join(x for x in (e.get("repo") or "", who) if x)

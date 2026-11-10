@@ -840,7 +840,7 @@ def write_json(path, data):
 
 
 def parse_args(argv):
-    ap = argparse.ArgumentParser(prog="bench", description="run one benchmark arm (#381)")
+    ap = _load("stats").arg_parser(prog="bench", description="run one benchmark arm (#381)")
     ap.add_argument("arm")
     ap.add_argument("--runs", type=_int_arg, default=RUNS_DEFAULT, metavar="N",
                     help=f"runs per arm, each in its own repo (default {RUNS_DEFAULT}); the batch records an aggregate "

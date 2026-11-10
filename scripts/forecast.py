@@ -752,7 +752,7 @@ def read_bodies(path):
 
 def main(argv=None):
     import argparse
-    ap = argparse.ArgumentParser(prog="harness forecast",
+    ap = st.arg_parser(prog="harness forecast",
                                  description="per-phase p50/p80/p95 cost forecast for one issue (#363)")
     ap.add_argument("issue", type=issue_arg)
     ap.add_argument("-R", "--repo", type=st.repo_arg, help="owner/repo (default: the issue's own lanes, else the project's unit)")
