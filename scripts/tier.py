@@ -66,6 +66,13 @@ class TierConfigError(Exception):
     """tier.toml could not be read or parsed — one line, naming the file (#715), never a traceback."""
 
 
+def _src(path):
+    """How an error names the file it read: HARNESS_TIER_TOML and the quoted path when that variable chose it, else the quoted path (#1003)."""
+    import stats
+    env = os.environ.get("HARNESS_TIER_TOML")
+    return ("HARNESS_TIER_TOML " if env and path == env else "") + stats.vrepr(path)
+
+
 def _read(path):
     """The parsed file; a leading UTF-8 BOM is dropped, and any failure is a TierConfigError naming `path`."""
     try:
@@ -75,12 +82,12 @@ def _read(path):
     except OSError as e:
         raise TierConfigError(f"{path}: cannot read it: {e.strerror or e}")
     except UnicodeDecodeError as e:
-        raise TierConfigError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
+        raise TierConfigError(f"{_src(path)}: not valid UTF-8: {e.reason} at byte {e.start}")
     except ValueError as e:   # tomllib.TOMLDecodeError, or the flat fallback parser's bad number
         huge = _huge_number(text, e)
         # #912: tomllib spells a control character repr-style (\x0c) — "Illegal character" in a value, "Found invalid character" in a comment (#971); the rest of the tools write it as stats.vis does (\u000c)
         why = re.sub(r"((?:Illegal|Found invalid) character '\\)x([0-9a-f]{2})'", r"\1u00\2'", str(e))
-        raise TierConfigError(huge and f"{path}: {huge}" or f"{path}: cannot parse it: {why}")
+        raise TierConfigError(huge and f"{_src(path)}: {huge}" or f"{_src(path)}: cannot parse it: {why}")
 
 
 def _huge_number(text, err):

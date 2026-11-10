@@ -157,6 +157,14 @@ out="$(dd "$T/bad.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "an unparsable tier.toml -> exit 2"
 assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
 assert_ok "…naming the file" grep -q "$T/bad.toml" <<<"$out"
+assert_ok "…naming HARNESS_TIER_TOML and quoting the path like a not-found error (#1003)" grep -qF "harness tier: HARNESS_TIER_TOML '$T/bad.toml': cannot parse it: " <<<"$out"
+for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  ch="${pair%%:*}"; esc="${pair#*:}"
+  printf '[direct\n' > "$T/bad${ch}.toml"
+  err="$(HARNESS_TIER_TOML="$T/bad${ch}.toml" H tier thresholds 2>&1 >/dev/null)"
+  assert_ok "#1003: a parse error quotes the path with ${esc} escaped" grep -qF "HARNESS_TIER_TOML '$T/bad${esc}.toml': cannot parse it: " <<<"$err"
+  assert_eq "$(printf %s "$err" | grep -c -- "$ch")" 0 "…no raw ${esc} on stderr"
+done
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 # #895: a number of more than 4300 digits is one line naming the file and key, not Python's set_int_max_str_digits() advice
 python3 -c "print('[direct]\nmax_criteria = ' + '9'*5000)" > "$T/huge.toml"
