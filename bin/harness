@@ -100,8 +100,10 @@ try_state_dir(){ [[ -n "${STATE_DIR:-}" ]] || STATE_DIR="$(discover_state_dir 2>
 # line 2 the full commit it was built from. A git checkout of the engine has none, so it reports
 # `git describe` marked as a dev build — but only when ENGINE_DIR is that repo's own top level, so an
 # engine merely nested in some other repo (a dotfiles $HOME) never borrows its describe. Never fails.
+# Standard output closed (`>&-`): print nothing and succeed, as usage() does (#984, #992).
 print_version(){
   local tag sha top
+  ( exec 3>&1 ) 2>/dev/null || return 0
   if [[ -r "$ENGINE_DIR/VERSION" ]]; then
     tag="$(sed -n 1p "$ENGINE_DIR/VERSION")"; sha="$(sed -n 2p "$ENGINE_DIR/VERSION" | cut -c1-7)"
     echo "harness $tag ($sha)"

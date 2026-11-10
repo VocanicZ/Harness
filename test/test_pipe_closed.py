@@ -137,6 +137,16 @@ def test_harness_help_with_a_closed_stdout_or_pipe_is_quiet_and_exits_0():
     assert out.returncode == 0 and out.stdout.startswith("usage: harness") and out.stderr == ""
 
 
+def test_harness_version_with_a_closed_stdout_is_quiet_and_exits_0():
+    """#992: print_version used `echo`, which printed 'echo: write error: Bad file descriptor' under `>&-`."""
+    h = ["bash", os.path.join(ROOT, "bin", "harness")]
+    for argv in (h + ["--version"], h + ["--version", "--verbose"], h + ["version"]):
+        rc, err = closed_stdout(argv)
+        assert err == "" and rc == 0, (argv, rc, err)
+    out = subprocess.run(h + ["--version"], capture_output=True, text=True)
+    assert out.returncode == 0 and out.stdout.startswith("harness ") and out.stderr == ""
+
+
 def test_a_full_disk_on_stdout_is_one_stderr_line_and_exit_1():
     """#882: ENOSPC on stdout (/dev/full) escaped as an OSError traceback, "Exception ignored", exit 120. Now: one
     `<cmd>: cannot write output: ...` line on stderr, exit 1 (#900: `bench/run.py` says `bench:` like its other messages)."""

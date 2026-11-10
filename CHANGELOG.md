@@ -16,6 +16,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   could not parse (`Illegal character '\x0c'`). The submit failed, the helper exited 3 and the swarm run was silently lost. It now writes every control character (U+0000–U+001F, U+007F)
   as `\b`, `\t`, `\n`, `\f`, `\r` or `\uXXXX`.
 
+### `harness --version` with standard output closed is quiet and exits 0 (#992)
+
+- `harness --version >&-` printed `echo: write error: Bad file descriptor` (three times with `--verbose`). It now prints nothing and exits 0, the same as `harness --help >&-` (#984).
+
 ### `harness --help` with standard output closed is quiet and exits 0 (#984)
 
 - `harness --help >&-` (and `harness help >&-`, `harness -h >&-`, bare `harness >&-`) printed `cat: standard output: Bad file descriptor` and exited 1. The usage text is now dropped
