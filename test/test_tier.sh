@@ -153,6 +153,16 @@ assert_eq "$rc" 2 "an unparsable tier.toml -> exit 2"
 assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
 assert_ok "…naming the file" grep -q "$T/bad.toml" <<<"$out"
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
+# #895: a number of more than 4300 digits is one line naming the file and key, not Python's set_int_max_str_digits() advice
+python3 -c "print('[direct]\nmax_criteria = ' + '9'*5000)" > "$T/huge.toml"
+out="$(dd "$T/huge.toml" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "a 5000-digit number in tier.toml -> exit 2"
+assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
+assert_ok "…naming the file" grep -q "$T/huge.toml" <<<"$out"
+assert_ok "…and the key" grep -q "direct.max_criteria" <<<"$out"
+assert_ok "…saying it is too large" grep -q "too large" <<<"$out"
+assert_no "…without Python's set_int_max_str_digits advice" grep -q 'set_int_max_str_digits' <<<"$out"
+assert_no "…or a traceback" grep -q 'Traceback' <<<"$out"
 printf '\xff\xfe[direct]\n' > "$T/bin.toml"
 out="$(dd "$T/bin.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "a tier.toml that is not UTF-8 -> exit 2"
