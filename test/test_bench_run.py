@@ -1213,6 +1213,12 @@ def test_dash_led_stray_as_the_only_positional_is_named():   # #956
     assert r.returncode == 2 and "unrecognized" not in r.stderr and "required: arm" in r.stderr, r.stderr
 
 
+def test_dash_led_option_value_after_a_space_is_named_and_the_equals_form_suggested():   # #973
+    for opt, val in (("--results-dir", "-x"), ("--run-id", "-x"), ("--runs", "-x")):
+        r = subprocess.run([sys.executable, RUN, "x", opt, val], capture_output=True, text=True)
+        assert r.returncode == 2 and f"'{val}' looks like an option; write {opt}={val}" in r.stderr, (opt, r.returncode, r.stderr)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

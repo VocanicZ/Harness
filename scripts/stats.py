@@ -902,7 +902,32 @@ def arg_parser(*a, **kw):
                 raise argparse.ArgumentError(action, f"invalid choice: {short_repr(value)} (choose from {names})")
             super()._check_value(action, value)
 
+        def _dash_led_value(self, message):
+            """#973: `--model -5-5` is argparse's bare "expected one argument", which never names the value. Return the
+            message that quotes it and suggests the `=` form, or None when the next token is no dash-led value."""
+            m = re.match(r"argument (\S+): expected one argument$", message)
+            if not m:
+                return None
+            names = m.group(1).split("/")
+            for i, tok in enumerate(self._seen[:-1]):
+                if tok == "--":
+                    break
+                nxt = self._seen[i + 1]
+                if nxt == "--" or len(nxt) < 2 or nxt[0] != "-" or " " in nxt:
+                    continue
+                try:
+                    float(nxt)   # a negative number is accepted as a value: its type reports it
+                    continue
+                except ValueError:
+                    pass
+                if tok in names or (tok.startswith("--") and "=" not in tok and any(n.startswith(tok) for n in names if n.startswith("--"))):
+                    name = next((n for n in names if n.startswith(tok)), tok)
+                    quoted = short_repr(nxt) if nxt != vis(nxt) else f"'{nxt}'"
+                    return f"argument {m.group(1)}: {quoted} looks like an option; write {name}={vis(nxt)}"
+            return None
+
         def error(self, message):
+            message = self._dash_led_value(message) or message
             if message.startswith("the following arguments are required"):
                 stray = []
                 for tok in self._seen:
@@ -1376,7 +1401,7 @@ def _explicit_log_error(path, kind="an events file"):
 
 def cmd_report(argv):
     import argparse
-    ap = argparse.ArgumentParser(prog="harness stats", description="Harness event-log report (#185)")
+    ap = arg_parser(prog="harness stats", description="Harness event-log report (#185)")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--prd", type=int_arg)
     g.add_argument("--issue", type=int_arg)

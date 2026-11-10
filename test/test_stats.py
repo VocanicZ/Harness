@@ -1540,6 +1540,17 @@ def test_long_string_option_values_are_clipped_in_stats_errors():   # #911
         raise AssertionError("expected ArgumentTypeError")
 
 
+def test_dash_led_option_value_after_a_space_is_named_and_the_equals_form_suggested():   # #973
+    stats = os.path.join(HERE, "..", "scripts", "stats.py")
+    for opt, val in (("--model", "-5-5"), ("--since", "-1d"), ("--fleet", "-x"), ("-R", "-x"), ("--prd", "-x")):
+        r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, opt, val], capture_output=True, text=True)
+        assert r.returncode == 2 and f"'{val}' looks like an option; write {opt}={val}" in r.stderr, (opt, r.returncode, r.stderr)
+    r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, "--model"], capture_output=True, text=True)
+    assert r.returncode == 2 and "expected one argument" in r.stderr and "looks like" not in r.stderr, r.stderr
+    r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, "--model=-5-5"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

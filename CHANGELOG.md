@@ -9,6 +9,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `--since 99999999999999999999d` and `--since 1000000000d` silently reported over all time, while a count past 4300 digits was a usage error. A count that reaches back past year 1
   is now always `bad --since: the count is too large to turn into a date` (exit 2), however many digits it has; the `--since` help says so.
 
+### A dash-led option value after a space is named in the error (#973)
+
+- `harness stats --model -5-5` (also `--since`, `--fleet`, `-R`, `--prd`), `harness forecast --unit -x` (`-R`, `--bodies`), `harness tier decide --criteria -x` (`--prefer`),
+  `tier overlap --files -x` (`-R`) and `bench/run.py --results-dir -x` (`--run-id`, `--runs`) said only `expected one argument`. They now say
+  `argument --model: '-5-5' looks like an option; write --model=-5-5`. The `=` form already worked, and the exit status stays 2.
+
 ### A form feed in a tier.toml comment is spelled `\u000c` in the error (#971)
 
 - A form feed in a `tier.toml` comment was reported as `Found invalid character '\x0c'`: the #912 rewrite matched only tomllib's `Illegal character` message, which it gives for a string value.
