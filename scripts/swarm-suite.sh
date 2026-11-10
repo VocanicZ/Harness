@@ -158,8 +158,22 @@ for f in "${FILES[@]}"; do
   printf '%s\t%s\n' "$id" "$f" >> "$JOB/shards.tsv"; printf '%s\n' "$id" >> "$JOB/shards.ids"
 done
 
-# toml_str — a TOML basic string (the workdir is the only value that comes from outside).
-toml_str(){ local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }
+# toml_str — a TOML basic string (the workdir is the only value that comes from outside). TOML rejects every raw control
+# character in one (U+0000–U+001F, U+007F), so those are escaped too (#982): \b \t \n \f \r, any other as \uXXXX.
+# Byte-level under LC_ALL=C, so no locale matters (a control character is one byte; UTF-8 bytes are all >= 0x80).
+toml_str(){
+  local LC_ALL=C s="${1//\\/\\\\}" out="" i=0 n c v
+  s="${s//\"/\\\"}"; n=${#s}
+  while (( i < n )); do
+    c="${s:i:1}"; printf -v v '%d' "'$c"
+    case $v in
+      8) c='\b' ;; 9) c='\t' ;; 10) c='\n' ;; 12) c='\f' ;; 13) c='\r' ;;
+      *) if (( v < 32 || v == 127 )); then printf -v c '\\u%04X' "$v"; fi ;;
+    esac
+    out+="$c"; i=$((i+1))
+  done
+  printf '"%s"' "$out"
+}
 
 # The test command one shard runs, as POSIX sh with the file in "$f" and the JUnit target in a temp
 # name the shard moves into place.
