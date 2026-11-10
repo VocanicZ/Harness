@@ -1181,6 +1181,20 @@ def test_guard_text_escapes_line_separators_and_controls_in_an_account_name():  
     assert bench_run.render_guard(refused).count("\n") == 2   # the guard's own newlines stay: header + 2 reasons
 
 
+@with_env()
+def test_long_string_option_values_are_clipped_in_bench_errors(e):   # #911
+    """A 5000-character arm, --arm-opt, --run-dir, --fixture, --run-id, --owner or --results-dir is echoed as 20 characters and an ellipsis."""
+    x = "a" * 5000
+    clip = "'" + "a" * 20 + "'\u2026"
+    for args, want in (([x], clip), (["stub", "--arm-opt", x], clip), (["stub", "--run-dir", x], clip),
+                       (["stub", "--fixture", x], clip), (["stub", "--run-id=-" + x], "'-" + "a" * 19 + "'\u2026"),
+                       (["stub", "--owner", x], clip), (["stub", "--results-dir=-" + x], "'-" + "a" * 19 + "'\u2026")):
+        p = e.run(*args, "--dry-run")
+        line = next((ln for ln in p.stderr.splitlines() if want in ln), "")   # the one error line, after any usage block
+        assert p.returncode == 2 and want in line and len(line) < 250 and "a" * 21 not in p.stderr, (args[-2:], p.returncode, p.stderr[-300:])
+    assert e.calls() == []
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

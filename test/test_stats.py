@@ -1476,6 +1476,25 @@ def test_report_since_and_model_must_not_be_empty():
         assert rc == 0, (rc, out)
 
 
+def test_long_string_option_values_are_clipped_in_stats_errors():   # #911
+    """A 5000-character --since / --repo / --fleet value is echoed as 20 characters and an ellipsis, on a short line."""
+    x = "a" * 5000
+    for argv, want in ((["--since", x], "bad --since: '" + "a" * 20 + "'\u2026"),
+                       ([f"--repo={x}"], "'" + "a" * 20 + "'\u2026 is not a repository"),
+                       ([f"--fleet=-{x}"], "'-" + "a" * 19 + "'\u2026 is not a fleet prefix")):
+        r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), "report"] + argv,
+                           capture_output=True, text=True)
+        line = r.stderr.rstrip("\n").rsplit("\n", 1)[-1]
+        assert r.returncode == 2 and want in line and len(line) < 200 and "a" * 21 not in r.stderr, (argv[0], r.returncode, len(line), line[:200])
+    assert st.choice_type(("x", "y"))("x") == "x"
+    try:
+        st.choice_type(("x", "y"))(x)
+    except Exception as e:
+        assert "invalid choice" in str(e) and "choose from x, y" in str(e) and len(str(e)) < 100, str(e)
+    else:
+        raise AssertionError("expected ArgumentTypeError")
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

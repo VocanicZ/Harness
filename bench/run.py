@@ -130,8 +130,7 @@ INT_MAX_DIGITS = 1000   # a whole-number option longer than this is refused befo
 
 def _short(text, keep=20):
     """repr() of `text` for a usage error, cut to `keep` characters so a multi-KB input is never echoed (#880)."""
-    vrepr = _load("stats").vrepr   # #899: a control character is spelled as stats.vis spells it
-    return vrepr(text) if len(text) <= keep else vrepr(text[:keep]) + "\u2026"
+    return _load("stats").short_repr(text, keep)   # #899: a control character is spelled as stats.vis spells it
 
 
 def _int_arg(text):
@@ -195,7 +194,7 @@ def _dir_arg(text):
         raise argparse.ArgumentTypeError("must not be empty: name the fleet run dir, or leave the option out for $RUN_DIR")
     if not os.path.isdir(text):
         what = "is not a directory" if os.path.exists(text) else "does not exist"
-        raise argparse.ArgumentTypeError(f"{_load("stats").vrepr(text)} {what}: the usage-hold check reads <run dir>/usage-holds")
+        raise argparse.ArgumentTypeError(f"{_short(text)} {what}: the usage-hold check reads <run dir>/usage-holds")
     return text
 
 
@@ -209,7 +208,7 @@ def _env_num(name, default, hi=None):
     v = _num(raw)
     if v is None or not math.isfinite(v) or v < 0 or (hi is not None and v > hi):
         want = "a finite number from 0 to " + format(hi, "g") if hi is not None else "a finite number, zero or more"
-        return default, f"{name}={_load("stats").vrepr(raw)} is not valid: it must be {want}"
+        return default, f"{name}={_short(raw)} is not valid: it must be {want}"
     return v, None
 
 
@@ -493,11 +492,11 @@ class Ctx:
 
 def load_arm(name, arms_dir):
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name or ""):
-        raise ValueError(f"bad arm name {_load("stats").vrepr(name)}")
+        raise ValueError(f"bad arm name {_short(name)}")
     path = os.path.join(arms_dir, f"{name}.py")
     if not os.path.isfile(path):
         have = sorted(os.path.basename(f)[:-3] for f in glob.glob(os.path.join(arms_dir, "*.py")))
-        raise ValueError(f"no arm {_load("stats").vrepr(name)} in {arms_dir} (have: {', '.join(have) or 'none'})")
+        raise ValueError(f"no arm {_short(name)} in {arms_dir} (have: {', '.join(have) or 'none'})")
     spec = importlib.util.spec_from_file_location(f"bench_arm_{name}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -873,7 +872,7 @@ def main(argv=None):
     for kv in a.arm_opt:
         k, sep, v = kv.partition("=")
         if not sep or not k:
-            print(f"bench: bad --arm-opt {_load("stats").vrepr(kv)} (want K=V)", file=sys.stderr)
+            print(f"bench: bad --arm-opt {_short(kv)} (want K=V)", file=sys.stderr)
             return EXIT_USAGE
         opts[k] = v
     if a.workers is not None:
@@ -891,14 +890,14 @@ def main(argv=None):
         print(f"bench: --runs must be at most {RUNS_MAX}", file=sys.stderr)
         return EXIT_USAGE
     if a.run_id is not None and not RUN_ID_RE.fullmatch(a.run_id):
-        print(f"bench: bad --run-id {_load("stats").vrepr(a.run_id[:40])} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
+        print(f"bench: bad --run-id {_short(a.run_id)} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
               "and not be '.' or '..': it names one directory under --results-dir)", file=sys.stderr)
         return EXIT_USAGE
     if not a.results_dir or a.results_dir.startswith("-"):   # #862: an empty one wrote <cwd>/<run-id>/, a dash-leading one ./-x/
-        print(f"bench: bad --results-dir {_load("stats").vrepr(a.results_dir[:40])} (must be non-empty and not start with '-')", file=sys.stderr)
+        print(f"bench: bad --results-dir {_short(a.results_dir)} (must be non-empty and not start with '-')", file=sys.stderr)
         return EXIT_USAGE
     if a.owner is not None and not OWNER_RE.fullmatch(a.owner):
-        print(f"bench: bad --owner {_load("stats").vrepr(a.owner[:40])} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
+        print(f"bench: bad --owner {_short(a.owner)} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
               "not starting or ending with '-')", file=sys.stderr)
         return EXIT_USAGE
     if a.wall_cap_secs <= 0 or a.cost_cap_usd <= 0:

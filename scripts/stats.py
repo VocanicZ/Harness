@@ -725,7 +725,7 @@ def parse_since(s, now=None):
     now = time.time() if now is None else now
     m = re.fullmatch(r"([0-9]+)([dhm])", s or "")
     if not m and re.fullmatch(r"\d+[dhm]", s or ""):   # #804: \d also matches full-width / Arabic-Indic digits
-        raise ValueError(f"bad --since: {vrepr(s)} (use ASCII digits only)")
+        raise ValueError(f"bad --since: {short_repr(s)} (use ASCII digits only)")
     if m:
         too_big = ValueError("bad --since: the count is too large to turn into a date (use a smaller number, e.g. 7d)")   # #879
         digits = m.group(1).lstrip("0")
@@ -737,7 +737,7 @@ def parse_since(s, now=None):
             raise too_big from None
     t = parse_ts(s if "T" in (s or "") else f"{s}T00:00:00+00:00")
     if t is None:
-        raise ValueError(f"bad --since: {vrepr(s)} (want 7d, 24h, 30m or YYYY-MM-DD)")
+        raise ValueError(f"bad --since: {short_repr(s)} (want 7d, 24h, 30m or YYYY-MM-DD)")
     return t
 
 
@@ -856,7 +856,7 @@ def choice_type(choices):
 
     def check(v):
         if v not in names:
-            raise argparse.ArgumentTypeError(f"invalid choice: {vrepr(v)} (choose from {', '.join(names)})")
+            raise argparse.ArgumentTypeError(f"invalid choice: {short_repr(v)} (choose from {', '.join(names)})")
         return v
     return check
 
@@ -1277,7 +1277,7 @@ def repo_arg(v):
     """argparse type for -R / --repo in every form (`-R x`, `--repo x`, `--repo=x`): must be owner/name."""
     import argparse
     if not REPO_RE.fullmatch(v):
-        raise argparse.ArgumentTypeError(f"{vrepr(v)} is not a repository — expected owner/name")
+        raise argparse.ArgumentTypeError(f"{short_repr(v)} is not a repository — expected owner/name")
     return v
 
 
@@ -1286,7 +1286,7 @@ def fleet_arg(v):
     error (exit 2) as `--repo=-x` is (#839), not "no events in range"."""
     import argparse
     if not v or v.startswith("-"):
-        raise argparse.ArgumentTypeError(f"{vrepr(v)} is not a fleet prefix — it must be non-empty and not start with '-'")
+        raise argparse.ArgumentTypeError(f"{short_repr(v)} is not a fleet prefix — it must be non-empty and not start with '-'")
     return v
 
 
