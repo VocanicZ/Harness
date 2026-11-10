@@ -121,7 +121,7 @@ RP="$BIN:$RBIN:$SYS"
 rtdd_in(){ local plat="$1"; shift; ( export HARNESS_PLATFORM="$plat" PATH="$RP"; source "$R/scripts/portable.sh"; "$@" ); }
 assert_eq "$(rtdd_in windows rtdd_exe)" "$RBIN/rtdd.exe" "windows: rtdd_exe is the rtdd.exe on PATH"
 # On a real Windows host Git's bash finds `rtdd.exe` for the bare name `rtdd` itself, so there a lone rtdd.exe IS what `command -v rtdd` names.
-if real_windows_host; then assert_eq "$(rtdd_in posix rtdd_exe)" "$RBIN/rtdd.exe" "windows bash: the bare name rtdd already resolves to the lone rtdd.exe"
+if real_windows_host; then assert_eq "$(rtdd_in posix rtdd_exe).exe" "$RBIN/rtdd.exe" "windows bash: the bare name rtdd already resolves to the lone rtdd.exe"
 else assert_no "linux: a lone rtdd.exe is not an rtdd" rtdd_in posix rtdd_exe; fi
 printf '#!/bin/sh\nexit 0\n' >"$BIN/rtdd"; chmod +x "$BIN/rtdd"
 assert_eq "$(rtdd_in windows rtdd_exe)" "$RBIN/rtdd.exe" "windows: with both on PATH, rtdd.exe wins"

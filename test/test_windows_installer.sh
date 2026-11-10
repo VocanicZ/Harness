@@ -121,8 +121,10 @@ assert_no "an identity set: nothing printed"              grep -q 'git has no' <
 echo "=== a release extracts when TMPDIR is in Windows mixed form (C:/…) ==="
 source "$HERE/release_fixture.sh"
 SRV="$T/srv"; rel_server "$SRV"; rel_publish "$SRV" v9.9.9; rel_latest "$SRV" v9.9.9
-mkdir -p "$T/cwd/C:/tmp"
-out="$( cd "$T/cwd" && export TMPDIR="C:/tmp" HARNESS_HOME="$T/hh" HARNESS_PLATFORM=windows PATH="$SYS:$PATH"; hash -r; source "$R/install.sh" 2>/dev/null; REL_CMD="harness install"; rel_install v9.9.9 2>&1 )"; rc=$?
+# Linux: a directory literally named C: under cwd stands in for the drive. A Windows host has a real mixed-form spelling of a real directory.
+mkdir -p "$T/cwd/C:/tmp"; MIXED_TMP="C:/tmp"
+if real_windows_host; then mkdir -p "$T/mixed-tmp"; MIXED_TMP="$(cygpath -m "$T/mixed-tmp")"; fi
+out="$( cd "$T/cwd" && export TMPDIR="$MIXED_TMP" HARNESS_HOME="$T/hh" HARNESS_PLATFORM=windows PATH="$SYS:$PATH"; hash -r; source "$R/install.sh" 2>/dev/null; REL_CMD="harness install"; rel_install v9.9.9 2>&1 )"; rc=$?
 assert_eq "$rc" 0                                         "rel_install with TMPDIR=C:/tmp succeeds (tar is not told C: is a host)"
 assert_ok "… and the release is in place"                 test -f "$T/hh/releases/v9.9.9/VERSION"
 

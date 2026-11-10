@@ -196,7 +196,7 @@ assert_ok "the task starts at logon"                          grep -q '<LogonTri
 assert_no "… and never at boot"                               grep -q 'BootTrigger' "$T/last-task.xml"
 assert_ok "… in the user's interactive session"               grep -q "<LogonType>InteractiveToken</LogonType>" "$T/last-task.xml"
 assert_ok "… with no run-time limit (the default kills it after 72h)" grep -q "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>" "$T/last-task.xml"
-assert_ok "… running Git's bash on the launcher"              grep -q "<Command>bash</Command><Arguments>\"$L\"</Arguments>" "$T/last-task.xml"
+assert_ok "… running Git's bash on the launcher"              grep -q "<Command>bash</Command><Arguments>\"$(native_path "$L")\"</Arguments>" "$T/last-task.xml"
 assert_ok "the task is (re)started"                           bash -c "grep -qxF '/End /TN $SUP_TN' '$T/schtasks.calls' && grep -qxF '/Run /TN $SUP_TN' '$T/schtasks.calls'"
 assert_ok "no systemctl / loginctl"                           no_systemd
 assert_ok "installed from this engine"                        sup_installed
