@@ -1,0 +1,1709 @@
+[10:58:30] run: #605 on winsma, mode suite: export HX_BRANCH=issue/605 HX_VERBOSE=1 HX_TESTS="test_path_split.sh test_cli_seam.sh test_session_backend.sh test_submodule.sh test_worker.sh test_fleet_migrate.sh test_update_prerelease.sh test_cli_codex.sh test_cli_copilot.sh test_cli_hermes.sh test_cli_openclaw.sh test_cli_opencode.sh test_fleet_registry.sh test_bypass.sh test_snapshot.sh test_spawn.sh test_stats.py test_supervise_rules.py test_forecast.py" HARNESS_TEST_TIMEOUT=1500
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[10:58:40] lock: held by #921 (lane-921), heartbeat 147s old; waiting 300s
+[11:03:51] lock: held by #921 (lane-921), heartbeat 157s old; waiting 300s
+[11:09:03] lock: held by #921 (lane-921), heartbeat 168s old; waiting 300s
+[11:14:18] lock: held by #921 (lane-921), heartbeat 181s old; waiting 300s
+[11:19:37] lock: held by #921 (lane-921), heartbeat 199s old; waiting 300s
+[11:24:46] lock: held by #921 (lane-921), heartbeat 208s old; waiting 300s
+[11:30:02] lock: held by #921 (lane-921), heartbeat 222s old; waiting 300s
+[11:35:19] lock: held by #921 (lane-921), heartbeat 238s old; waiting 300s
+[11:40:34] lock: held by #921 (lane-921), heartbeat 251s old; waiting 300s
+[11:45:45] lock: held by #921 (lane-921), heartbeat 261s old; waiting 300s
+[11:50:56] lock: held by #921 (lane-921), heartbeat 272s old; waiting 300s
+[11:56:08] lock: held by #921 (lane-921), heartbeat 282s old; waiting 300s
+[12:01:34] lock: held by #921 (lane-921), heartbeat 6s old; waiting 300s
+[12:06:46] lock: held by #921 (lane-921), heartbeat 16s old; waiting 300s
+[12:11:59] lock: hx-lock taken by #605 (lane-605)
+[12:12:54] guard: before recorded
+[12:14:50] credentials: before scan recorded
+[12:14:51] exec: export HX_BRANCH=issue/605 HX_VERBOSE=1 HX_TESTS="test_path_split.sh test_cli_seam.sh test_session_backend.sh test_submodule.sh test_worker.sh test_fleet_migrate.sh test_update_prerelease.sh test_cli_codex.sh test_cli_copilot.sh test_cli_hermes.sh test_cli_openclaw.sh test_cli_opencode.sh test_fleet_registry.sh test_bypass.sh test_snapshot.sh test_spawn.sh test_stats.py test_supervise_rules.py test_forecast.py" HARNESS_TEST_TIMEOUT=1500
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[12:14:54] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-605/home | USERPROFILE=C:\hx-605\home | TMPDIR=C:/hx-605/tmp
+[12:14:55] == clone issue/605
+[12:15:07] src at 3af8a83
+[12:15:08] == venv
+[12:16:17] jq = /c/hx-605/jqbin/jq: jq-1.8.1
+[12:16:20] python3 = /c/hx-605/venv/Scripts/python3: Python 3.13.5
+[12:16:20] ######## test/run.sh (per-test cap 1500s)
+[15:19:40] run.sh finished rc=1 after 11000s
+  [test_fleet_migrate.sh] TIMEOUT: test_fleet_migrate.sh ran past HARNESS_TEST_TIMEOUT=1500s
+  [test_cli_codex.sh] TIMEOUT: test_cli_codex.sh ran past HARNESS_TEST_TIMEOUT=1500s
+  [test_cli_copilot.sh] TIMEOUT: test_cli_copilot.sh ran past HARNESS_TEST_TIMEOUT=1500s
+  [test_cli_hermes.sh] TIMEOUT: test_cli_hermes.sh ran past HARNESS_TEST_TIMEOUT=1500s
+  [test_cli_openclaw.sh]   FAIL: a hangup of the pane's loop stops the turn's whole tree — expected failure from: kill -0 3069141
+  [test_cli_openclaw.sh] TIMEOUT: test_cli_openclaw.sh ran past HARNESS_TEST_TIMEOUT=1500s
+  [test_cli_opencode.sh] TIMEOUT: test_cli_opencode.sh ran past HARNESS_TEST_TIMEOUT=1500s
+  [test_stats.py]   FAIL: test_read_config_ends_an_unquoted_value_where_bash_does — AssertionError: ("'HARNESS_REPO=acme/wid\\u2028get\\n'", '"W\\x00i\\x00n\\x00d\\x00o\\x00w\\x00s\\x00 \\x00S\\x00u\\x00b\\x00s\\x00y\\x00s\\x00t\\x00e\\x00m\\x00 \\x00f\\x00o\\x00r\\x00 \\x00L\\x00i\\x00n\\x00u\\x00x\\x00 \\x00h\\x00a\\x00s\\x00 \\x00n\\x00o\\x00 \\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00e\\x00d\\x00 \\x00d\\x00i\\x00s\\x00t\\x00r\\x00i\\x00b\\x00u\\x00t\\x00i\\x00o\\x00n\\x00s\\x00.\\x00\\n\\x00\\n\\x00Y\\x00o\\x00u\\x00 \\x00c\\x00a\\x00n\\x00 \\x00r\\x00e\\x00s\\x00o\\x00l\\x00v\\x00e\\x00 \\x00t\\x00h\\x00i\\x00s\\x00 \\x00b\\x00y\\x00 \\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00i\\x00n\\x00g\\x00 \\x00a\\x00 \\x00d\\x00i\\x00s\\x00t\\x00r\\x00i\\x00b\\x00u\\x00t\\x00i\\x00o\\x00n\\x00 \\x00w\\x00i\\x00t\\x00h\\x00 \\x00t\\x00h\\x00e\\x00 \\x00i\\x00n\\x00s\\x00t\\x00r\\x00u\\x00c\\x00t\\x00i\\x00o\\x00n\\x00s\\x00 \\x00b\\x00e\\x00l\\x00o\\x00w\\x00:\\x00\\n\\x00\\n\\x00\\n\\x00\\n\\x00U\\x00s\\x00e\\x00 \\x00\'\\x00w\\x00s\\x00l\\x00.\\x00e\\x00x\\x00e\\x00 \\x00-\\x00-\\x00l\\x00i\\x00s\\x00t\\x00 \\x00-\\x00-\\x00o\\x00n\\x00l\\x00i\\x00n\\x00e\\x00\'\\x00 \\x00t\\x00o\\x00 \\x00l\\x00i\\x00s\\x00t\\x00 \\x00a\\x00v\\x00a\\x00i\\x00l\\x00a\\x00b\\x00l\\x00e\\x00 \\x00d\\x00i\\x00s\\x00t\\x00r\\x00i\\x00b\\x00u\\x00t\\x00i\\x00o\\x00n\\x00s\\x00\\n\\x00\\n\\x00a\\x00n\\x00d\\x00 \\x00\'\\x00w\\x00s\\x00l\\x00.\\x00e\\x00x\\x00e\\x00 \\x00-\\x00-\\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00 \\x00<\\x00D\\x00i\\x00s\\x00t\\x00r\\x00o\\x00>\\x00\'\\x00 \\x00t\\x00o\\x00 \\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00.\\x00\\n\\x00\\n\\x00"')
+  [test_stats.py]   FAIL: test_repr_style_error_sites_spell_a_form_feed_and_u2028_as_vis_does — AssertionError: (['--events=no\x0cpe.jsonl'], 2, "harness stats: --events 'no\\u000cpe.jsonl' is not readable (Invalid argument)\n")
+  [test_forecast.py]   FAIL: test_unreadable_bodies_path_with_line_separators_prints_escaped — "harness forecast: --bodies 'C:\\hx-605\\tmp\\tmp.5ZQZg7Ck7O\\test_forecast.py\\tmp\\tmp62thd2_x\\no\\u000cpe' is not readable (Invalid argument)\n"
+######## full run.sh output
+| == test_path_split.sh ==
+|   ok: ENGINE_DIR defaults to lib.sh's own dir
+|   ok: STATE_DIR defaults to lib.sh's own dir
+|   ok: ENGINE_DIR and STATE_DIR coincide when unseparated
+| ── 3/3 passed
+| /c/hx-605/src/test/../scripts/lib.sh: line 21: /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_path_split.sh/tmp/tmp.4Henxd3OU9/scripts/submodule.sh: No such file or directory
+|   ok: PROMPTS_DIR resolves under ENGINE_DIR
+|   ok: ISSUELIB (issuelib.py path) resolves under ENGINE_DIR
+| ── 2/2 passed
+| /c/hx-605/src/test/../scripts/lib.sh: line 21: /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_path_split.sh/tmp/tmp.zkTNaSwWuG/scripts/submodule.sh: No such file or directory
+|   ok: CONFIG resolves under STATE_DIR
+|   ok: RUN_DIR resolves under STATE_DIR
+|   ok: WORKTREES_DIR resolves under STATE_DIR
+|   ok: CHECKOUTS_DIR resolves under STATE_DIR
+|   ok: CLAIMS_DIR resolves under STATE_DIR
+|   ok: POOL_LOCK resolves under STATE_DIR
+|   ok: PROJECT_ROOT is the parent of STATE_DIR
+| ── 7/7 passed
+| /c/hx-605/src/test/../scripts/lib.sh: line 21: /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_path_split.sh/tmp/tmp.MFHUSPnJIm/scripts/submodule.sh: No such file or directory
+|   ok: no run/ written into ENGINE_DIR
+|   ok: no worktrees/ written into ENGINE_DIR
+|   ok: no checkouts/ written into ENGINE_DIR
+|   ok: run/ created under STATE_DIR
+|   ok: worktrees/ created under STATE_DIR
+|   ok: PROMPTS_DIR is not under STATE_DIR
+|   ok: ISSUELIB is not under STATE_DIR
+| ── 7/7 passed
+|   ok: symlinked entrypoint execs the real engine's subcommand
+|   ok: ENGINE_DIR resolves to the symlink target's engine root
+| ── 2/2 passed
+| == test_cli_seam.sh ==
+| === 1: no CLI-specific string outside scripts/cli/ ===
+|   ok: no TUI string, binary check or config path of a CLI in scripts/*.sh
+|   ok: the grep catches a planted prompt glyph and binary checks
+| === 2: turn.sh reads an agy pane through the agy adapter ===
+|   ok: fixture: the agy busy pane holds an earlier prompt at column 0
+|   ok: agy draws no turn timer: turn_secs is unavailable (empty)
+|   ok: agy: the echoed earlier prompt is not queued input
+|   ok: agy: turn_queued reads the live input box
+|   ok: agy: a nudge queued for the first time gets one poll to land
+|   ok: agy: the same nudge still queued a poll later must be interrupted
+|   ok: agy: text in an idle pane's box is not a stuck turn
+|   ok: claude's adapter does not read agy's input box
+|   ok: agy: turn_interrupt succeeds once the busy line goes away
+|   ok: agy: Escape, then Enter
+|   ok: agy: a turn still busy after Escape is not reported ended
+|   ok: agy: still busy → Enter withheld
+| === 3: the supervisor's frozen/busy checks on agy panes ===
+|   ok: agy: text streaming above the live box is activity, never a nudge
+|   ok: agy: a moving footer token count is activity
+|   ok: agy: a quiet idle prompt is nudged
+|   ok: agy: the trust dialog is never typed into
+|   ok: agy: …but a quiet trust dialog is logged as a stuck lane (#660)
+|   ok: agy: a pane parked on agy's quota message is left alone
+|   ok: agy: a nudge stuck behind a running turn gets Escape…
+|   ok: …then Enter
+|   ok: sup_cli: agy resolves to agy while cli_list is still writing
+|   ok: sup_cli: agy's quota regex is in sup_limit_re while cli_list is still writing
+|   ok: sup_cli: every adapter in cli_list resolves to itself
+|   ok: sup_cli: a name with no adapter falls back to the fleet's CLI
+|   ok: sup_cli: dispatch.sh is no adapter
+|   ok: _cli_re_hits: a hit on line 1 of a >64 KiB input is reported
+| === 4: harness setup installs missing prerequisites ===
+|   ok: setup succeeds once it has installed the missing plugin
+|   ok: setup ran the adapter's install for the missing plugin
+|   ok: setup reports it installed
+|   ok: setup fails when a prerequisite still cannot be installed
+|   ok: …and names what is missing
+| === 5: harness init rejects a CLI with no adapter ===
+|   ok: init with an unknown CLI exits non-zero
+|   ok: …and writes no config
+|   ok: …and lists the CLIs it has
+|   ok: init accepts a CLI that has an adapter
+|   ok: …and writes it
+| === 6: a lane's own model and effort reach the launch line, on every CLI ===
+| 19:22:27 [harness] launched session hz-lane-agy (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-agy)
+|   ok: agy: the launch carries the lane's model
+|   ok: agy: the model is given once
+|   ok: agy: the launch carries the lane's effort
+|   ok: agy: the configured effort is replaced, not repeated
+|   ok: agy: .harness-lane is kept out of the lane's commits
+| 19:22:44 [harness] launched session hz-lane2-agy (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-agy)
+|   ok: agy: no .harness-lane, no lane model on the launch line
+| 19:22:53 [harness] WARN lean lane: skill rtdd not found (/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+| 19:23:14 [harness] launched session hz-lane-claude (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-claude)
+|   ok: claude: the launch carries the lane's model
+|   ok: claude: the model is given once
+|   ok: claude: the launch carries the lane's effort
+|   ok: claude: the configured effort is replaced, not repeated
+|   ok: claude: .harness-lane is kept out of the lane's commits
+| 19:23:27 [harness] WARN lean lane: skill rtdd not found (/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+| 19:23:46 [harness] launched session hz-lane2-claude (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-claude)
+|   ok: claude: no .harness-lane, no lane model on the launch line
+| 19:24:04 [harness] launched session hz-lane-codex (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-codex)
+|   ok: codex: the launch carries the lane's model
+|   ok: codex: the model is given once
+|   ok: codex: the launch carries the lane's effort
+|   ok: codex: the configured effort is replaced, not repeated
+|   ok: codex: .harness-lane is kept out of the lane's commits
+| 19:24:20 [harness] launched session hz-lane2-codex (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-codex)
+|   ok: codex: no .harness-lane, no lane model on the launch line
+| 19:24:45 [harness] launched session hz-lane-copilot (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-copilot)
+|   ok: copilot: the launch carries the lane's model
+|   ok: copilot: the model is given once
+|   ok: copilot: the launch carries the lane's effort
+|   ok: copilot: the configured effort is replaced, not repeated
+|   ok: copilot: .harness-lane is kept out of the lane's commits
+| 19:24:56 [harness] launched session hz-lane2-copilot (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-copilot)
+|   ok: copilot: no .harness-lane, no lane model on the launch line
+| 19:25:17 [harness] launched session hz-lane-hermes (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-hermes)
+|   ok: hermes: the launch carries the lane's model
+|   ok: hermes: the model is given once
+|   ok: hermes: the launch carries the lane's effort
+|   ok: hermes: the configured effort is replaced, not repeated
+|   ok: hermes: .harness-lane is kept out of the lane's commits
+| 19:25:34 [harness] launched session hz-lane2-hermes (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-hermes)
+|   ok: hermes: no .harness-lane, no lane model on the launch line
+| 19:25:53 [harness] launched session hz-lane-openclaw (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-openclaw)
+|   ok: openclaw: the launch carries the lane's model
+|   ok: openclaw: the model is given once
+|   ok: openclaw: the launch carries the lane's effort
+|   ok: openclaw: the configured effort is replaced, not repeated
+|   ok: openclaw: .harness-lane is kept out of the lane's commits
+| 19:26:10 [harness] launched session hz-lane2-openclaw (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-openclaw)
+|   ok: openclaw: no .harness-lane, no lane model on the launch line
+| 19:26:20 [harness] launched session hz-lane-opencode (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-opencode)
+|   ok: opencode: the launch carries the lane's model
+|   ok: opencode: the model is given once
+|   ok: opencode: the launch carries the lane's effort
+|   ok: opencode: the configured effort is replaced, not repeated
+|   ok: opencode: .harness-lane is kept out of the lane's commits
+| 19:26:38 [harness] launched session hz-lane2-opencode (cwd /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_seam.sh/tmp/tmp.irY6qFQKLm/lane-opencode)
+|   ok: opencode: no .harness-lane, no lane model on the launch line
+| === 7: a launch's model and effort come from the adapter (#307) ===
+|   ok: claude: --model=/--effort on the line
+|   ok: claude: no --model → the worktree's settings.json
+|   ok: claude: …settings.local.json (a worktree hook's pin) over settings.json
+|   ok: claude: the line's --model wins
+|   ok: codex: -m and the -c model_reasoning_effort= override, quotes dropped
+|   ok: copilot: --reasoning-effort= is its effort too
+|   ok: a line that names neither: both empty (the CLI's default)
+| === 8: the goal-loop script lives at a CLI-neutral path (#307) ===
+|   ok: no top-level script reaches into plugins/codex
+|   ok: the driven loop runs scripts/goal_loop.py
+|   ok: Codex's Stop hook is a byte-for-byte copy of it (Codex copies a plugin into its cache)
+| ── 90/90 passed
+| == test_session_backend.sh ==
+| == guard: only the tmux backend runs tmux ==
+|   ok: the guard catches: x(){ tmux send-keys -t "$1" Enter; }
+|   ok: the guard catches: y=$(tmux ls -F "#S" 2>/dev/null)
+|   ok: the guard catches: sup_act tmux kill-session -t "=$s"
+|   ok: the guard catches: "$@" tmux send-keys -t "$t" Escape
+|   ok: the guard catches: command -v tmux >/dev/null || die nope
+|   ok: the guard catches: exec tmux attach -t "$sess"
+|   ok: the guard catches: sh(["tmux", "capture-pane", "-p"])
+|   ok: a comment, a message and a prompt naming tmux are not calls
+|   ok: a docstring naming tmux is not a call
+|   ok: bin/harness runs no tmux of its own
+|   ok: bin/harness-install.js runs no tmux of its own
+|   ok: scripts/attach.sh runs no tmux of its own
+|   ok: scripts/autorelease.sh runs no tmux of its own
+|   ok: scripts/churn.py runs no tmux of its own
+|   ok: scripts/cli/agy.sh runs no tmux of its own
+|   ok: scripts/cli/agy_headless.py runs no tmux of its own
+|   ok: scripts/cli/agy_usage.py runs no tmux of its own
+|   ok: scripts/cli/claude.sh runs no tmux of its own
+|   ok: scripts/cli/claude_headless.py runs no tmux of its own
+|   ok: scripts/cli/codex.sh runs no tmux of its own
+|   ok: scripts/cli/codex_headless.py runs no tmux of its own
+|   ok: scripts/cli/copilot.sh runs no tmux of its own
+|   ok: scripts/cli/copilot_headless.py runs no tmux of its own
+|   ok: scripts/cli/dispatch.sh runs no tmux of its own
+|   ok: scripts/cli/headless_core.py runs no tmux of its own
+|   ok: scripts/cli/hermes.sh runs no tmux of its own
+|   ok: scripts/cli/hermes_headless.py runs no tmux of its own
+|   ok: scripts/cli/openclaw-loop.sh runs no tmux of its own
+|   ok: scripts/cli/openclaw.sh runs no tmux of its own
+|   ok: scripts/cli/openclaw_headless.py runs no tmux of its own
+|   ok: scripts/cli/opencode-ralph.js runs no tmux of its own
+|   ok: scripts/cli/opencode.sh runs no tmux of its own
+|   ok: scripts/cli/opencode_headless.py runs no tmux of its own
+|   ok: scripts/doctor.sh runs no tmux of its own
+|   ok: scripts/drive.sh runs no tmux of its own
+|   ok: scripts/fleet-migrate.sh runs no tmux of its own
+|   ok: scripts/fleet_migrate.py runs no tmux of its own
+|   ok: scripts/fleetview.py runs no tmux of its own
+|   ok: scripts/forecast.py runs no tmux of its own
+|   ok: scripts/ghrate.sh runs no tmux of its own
+|   ok: scripts/gitlink-guard.sh runs no tmux of its own
+|   ok: scripts/goal_loop.py runs no tmux of its own
+|   ok: scripts/init.sh runs no tmux of its own
+|   ok: scripts/inject.sh runs no tmux of its own
+|   ok: scripts/issuelib.py runs no tmux of its own
+|   ok: scripts/lib.sh runs no tmux of its own
+|   ok: scripts/migrate.sh runs no tmux of its own
+|   ok: scripts/one.py runs no tmux of its own
+|   ok: scripts/one.sh runs no tmux of its own
+|   ok: scripts/one_auto.sh runs no tmux of its own
+|   ok: scripts/pause.sh runs no tmux of its own
+|   ok: scripts/pipesafe.py runs no tmux of its own
+|   ok: scripts/poller.sh runs no tmux of its own
+|   ok: scripts/pool-worker.sh runs no tmux of its own
+|   ok: scripts/pool.sh runs no tmux of its own
+|   ok: scripts/portable.py runs no tmux of its own
+|   ok: scripts/portable.sh runs no tmux of its own
+|   ok: scripts/priority-worker.sh runs no tmux of its own
+|   ok: scripts/priority.sh runs no tmux of its own
+|   ok: scripts/release.sh runs no tmux of its own
+|   ok: scripts/resume.sh runs no tmux of its own
+|   ok: scripts/roll.sh runs no tmux of its own
+|   ok: scripts/seed.sh runs no tmux of its own
+|   ok: scripts/session/dispatch.sh runs no tmux of its own
+|   ok: scripts/session/headless.sh runs no tmux of its own
+|   ok: scripts/setup.sh runs no tmux of its own
+|   ok: scripts/start.sh runs no tmux of its own
+|   ok: scripts/stats.py runs no tmux of its own
+|   ok: scripts/status.sh runs no tmux of its own
+|   ok: scripts/stop.sh runs no tmux of its own
+|   ok: scripts/submodule.sh runs no tmux of its own
+|   ok: scripts/supervise.sh runs no tmux of its own
+|   ok: scripts/supervise_rules.py runs no tmux of its own
+|   ok: scripts/taskctx.py runs no tmux of its own
+|   ok: scripts/tier.py runs no tmux of its own
+|   ok: scripts/turn.sh runs no tmux of its own
+|   ok: scripts/uninstall.sh runs no tmux of its own
+|   ok: scripts/usage-statusline.sh runs no tmux of its own
+|   ok: scripts/usage.sh runs no tmux of its own
+|   ok: scripts/web.py runs no tmux of its own
+|   ok: scripts/web.sh runs no tmux of its own
+|   ok: scripts/web_dag.py runs no tmux of its own
+|   ok: scripts/web_data.py runs no tmux of its own
+|   ok: scripts/web_render.py runs no tmux of its own
+|   ok: scripts/windows-relevant.sh runs no tmux of its own
+|   ok: update.sh runs no tmux of its own
+|   ok: the guard read the engine's files (77)
+|   ok: allowlisted scripts/swarm-suite.sh exists (a swarm shard kills only its own private tmux server (TMUX_TMPDIR = its mktemp dir) on exit, #793; it runs on an HTCondor worker against a snapshot that may not be Harness, so it cannot source scripts/session/tmux.sh)
+|   ok: allowlisted scripts/session_backend.py exists (the Python views' half of the seam: the tmux argv they run)
+|   ok: allowlisted scripts/session/tmux.sh exists (the tmux backend itself)
+|   ok: allowlisted install.sh exists (the installer checks the host's prerequisites before any engine (or config) exists)
+|   ok: the tmux backend does run tmux (the allowlist is not stale)
+| == the key is read in one place ==
+|   ok: only the seam names HARNESS_SESSION_BACKEND (init and doctor go through $SESS_CONFIG_VAR / sess_backend)
+| == config: default, valid values, refusal ==
+|   ok: HARNESS_SESSION_BACKEND defaults to tmux
+|   ok: the backends: one file each under scripts/session/
+|   ok: tmux is valid
+|   ok: headless is valid
+|   ok: dispatch is not a backend
+|   ok: an unknown backend is refused
+|   ok: …with a message naming the valid ones
+|   ok: a session call under an unknown backend fails…
+|   ok: …naming the valid backends
+| == the tmux backend: every operation, the tmux command it runs ==
+|   ok: sess_capture returns the screen
+|   ok: sess_pane_pid returns the pane's pid
+|   ok: each sess_* runs exactly today's tmux command
+|   ok: the tmux backend needs tmux on PATH
+|   ok: attach hint
+|   ok: a dry run logs Escape as tmux's command
+|   ok: …a typed line
+|   ok: …a kill
+|   ok: anything not a session call logs as itself
+|   ok: session_live / team_sessions / tmux_sessions_with_paths route through sess_*
+| == every backend implements the whole interface ==
+|   ok: the interface is read off dispatch.sh (activity attach attach_hint bins capture clear_line enter interrupt kill list list_paths live pane_pid panes resume_id send_line start state sweep turn_ended turns type)
+|   ok: scripts/session/tmux.sh defines tmux_sess_<fn> for every interface function
+|   ok: scripts/session/headless.sh defines headless_sess_<fn> for every interface function
+| == the headless backend: no tmux; a lane needs its runner's command (#349: test_headless_lane.sh) ==
+|   ok: headless starts no lane without the runner's command
+|   ok: …and says so
+|   ok: headless lists no session while no lane runs
+|   ok: headless: nothing is live
+|   ok: headless needs python3 (its lane runner), no multiplexer binary
+|   ok: no tmux ran under headless
+| == python: session_backend ==
+|   ok: tmux: the views list tmux sessions through tmux's argv, and headless lanes beside them
+|   ok: headless: the same host-wide listing; a lane's screen is capturable (#351) and watched with harness attach
+|   ok: headless: the capture runs claude_headless.py
+|   ok: headless: …on the lane's own directory
+|   ok: headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux
+| == harness init writes the key; doctor reports it ==
+|   ok: init writes HARNESS_SESSION_BACKEND (tmux)
+|   ok: init writes the backend the environment names
+|   ok: init refuses an unknown backend
+|   ok: …naming the valid ones
+|   ok: …and writes no config
+|   ok: doctor reports the session backend
+|   ok: …and a known one is healthy
+|   ok: doctor flags an unknown backend, naming the valid ones
+|   ok: …as a problem
+| == harness start refuses an unknown backend ==
+|   ok: start exits non-zero
+|   ok: …with start's own refusal, naming the valid backends
+| == launch_agent stops when the backend cannot start the session ==
+|   ok: launch_agent fails when sess_start does
+|   ok: …types nothing into the session that never started
+|   ok: …and records no goal for it
+|   ok: …and says why
+| == a headless lane gets longer to write its first state on Windows (#606) ==
+|   ok: 10 s on POSIX
+|   ok: 60 s on Windows: a native Python runner starts slowly on a loaded host
+| == docs ==
+|   ok: docs/reference.md documents HARNESS_SESSION_BACKEND and its values
+| ── 144/144 passed
+| == test_submodule.sh ==
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+|   ok: precondition: worktree add leaves the submodule empty
+|   ok: submodule is checked out in the lane worktree
+|   ok: submodule sits at the gitlink commit
+|   ok: the hook already saw the checked-out submodule
+|   ok: no hook configured: submodules still initialised
+| ── 5/5 passed
+| warning: in the working copy of 'a', LF will be replaced by CRLF the next time Git touches it
+|   ok: no .gitmodules: run_worktree_hook succeeds
+|   ok: no .gitmodules: git submodule is never invoked
+| ── 2/2 passed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+|   ok: branch = x in .gitmodules -> x
+|   ok: unset, gitlink on main and rebuild -> main (default)
+|   ok: unset, gitlink only on rebuild -> rebuild
+| submodule_base_branch: nope is not a submodule of /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_submodule.sh/tmp/tmp.jupEvyjGhB/g3/main
+|   ok: unknown path fails
+| ── 4/4 passed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+|   ok: no gitlink change passes
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+|   ok: merged descendant of the current gitlink is allowed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| gitlink-guard: REFUSED engine: gitlink 9f0f8b4a45490e99b02356329ef3bbd4612204c2 is not reachable from origin/main — merge it into the submodule's base branch first
+|   ok: gitlink to an unmerged commit is refused
+|   ok: refusal names the submodule path
+| gitlink-guard: REFUSED engine: gitlink 25f29984c11732d034b72c7dedab74c43716c1a2 does not descend from the current gitlink 94a3edaa58e72a8305623ecf5f934044442b5841
+|   ok: merged but non-descendant (older) gitlink is refused
+| ── 5/5 passed
+| warning: in the working copy of 'a', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'a', LF will be replaced by CRLF the next time Git touches it
+|   ok: no-submodule repo passes the guard
+| ── 1/1 passed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+|   ok: lane-bin/gh shim exists and is executable
+|   ok: shim refuses gh pr merge over a bad gitlink
+|   ok: real gh is not reached on refusal
+|   ok: other gh commands pass straight through
+|   ok: clean merge reaches real gh
+| ── 5/5 passed
+|   ok: no .gitmodules: scripts/lane-bin is on the lane PATH too (#642: the git trailer wrapper)
+|   ok: with .gitmodules: scripts/lane-bin is first on the lane PATH
+|   ok: launch_agent applies it
+|   ok: windows: the lane PATH entry for lane-bin is the engine dir in MSYS form (a C:/x entry splits at its colon)
+| ── 4/4 passed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+|   ok: the resolver names the submodule's base branch
+|   ok: precondition: a squash merge changed the SHA
+| gitlink-guard: REFUSED engine: gitlink 048c82036a5d8feb72e9f2aebfc5e09a6cacb752 is not reachable from origin/main — merge it into the submodule's base branch first
+|   ok: gitlink at the pre-merge branch commit is refused
+|   ok: the bump pins the merged commit on origin/<base>
+|   ok: the bump to the merged commit passes the guard
+| ── 5/5 passed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+| warning: in the working copy of 'README', LF will be replaced by CRLF the next time Git touches it
+|   ok: no branch anywhere: not pushed
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+|   ok: branch only in the submodule: found
+|   ok: another branch name does not match
+|   ok: a repo without .gitmodules never matches
+| warning: in the working copy of 'f', LF will be replaced by CRLF the next time Git touches it
+|   ok: submodule-only branch: resume.md is rendered
+|   ok: no branch anywhere: impl.md is rendered
+|   ok: no branch anywhere: not resume.md
+| ── 7/7 passed
+|   ok: decompose.md asks for a ## Code location section naming the submodule path
+|   ok: bug-triage.md asks for a ## Code location section naming the submodule path
+|   ok: inject.md asks for a ## Code location section naming the submodule path
+|   ok: decompose.md: issues stay in the main repo
+|   ok: impl: submodule branch is issue/<unit>-<n>, rendered
+|   ok: impl: rtdd which runs inside the submodule too
+|   ok: impl: merge into the submodule base branch first
+|   ok: impl: gitlink points at the MERGED commit on origin/<base>
+|   ok: impl: lanes never claim issues from a submodule repo
+|   ok: bug-fix: submodule branch is issue/<unit>-<n>, rendered
+|   ok: bug-fix: rtdd which runs inside the submodule too
+|   ok: bug-fix: merge into the submodule base branch first
+|   ok: bug-fix: gitlink points at the MERGED commit on origin/<base>
+|   ok: bug-fix: lanes never claim issues from a submodule repo
+|   ok: resume: submodule branch is issue/<unit>-<n>, rendered
+|   ok: resume: rtdd which runs inside the submodule too
+|   ok: resume: merge into the submodule base branch first
+|   ok: resume: gitlink points at the MERGED commit on origin/<base>
+|   ok: resume: lanes never claim issues from a submodule repo
+|   ok: _rtdd.md points at the submodule rule
+|   ok: resume.md checks a submodule-only branch
+| ── 21/21 passed
+| == test_worker.sh ==
+|   ok: worker_step: COMPLETE -> rc 2 and resident, banner once, work resets the dedup
+|   ok: ensure_snapshot_fresh: fresh snapshot
+|   ok: ensure_snapshot_fresh: stale (generated_at too old)
+|   ok: ensure_snapshot_fresh: missing snapshot
+|   ok: ensure_snapshot_fresh: unknown/newer schema_version
+|   ok: snapshot_gate: flag OFF (=0) -> 0 (direct-gh path)
+|   ok: snapshot_gate: flag OFF launches no poller
+|   ok: snapshot_gate: flag ON + fresh -> 0 (serve)
+|   ok: snapshot_gate: fresh exports HARNESS_SNAPSHOT_FILE
+|   ok: snapshot_gate: fresh exports HARNESS_SNAPSHOT_DIR
+|   ok: snapshot_gate: ensured a poller is alive (self-heal every tick)
+|   ok: snapshot_gate: relaunched the dead poller
+|   ok: snapshot_gate: relaunched poller has a NEW pid
+|   ok: snapshot_gate: flag ON + stale -> 1 (hold)
+|   ok: worker_step: stale snapshot HOLDS dispatch (rc 4)
+|   ok: worker_step: held tick made NO claim
+|   ok: worker_step: held tick made NO gh read
+|   ok: worker_step: held tick left the in-flight claim untouched
+|   ok: worker_step: hold banner logged once (deduped)
+|   ok: worker_step: fresh snapshot lets dispatch proceed (claim consulted)
+|   ok: worker_step: fresh dispatch read served from the snapshot (no gh)
+|   ok: #419 pool-worker.sh: roots intact -> still polling after 3 polls
+|   ok: #419 pool-worker.sh: STATE_DIR deleted -> exits rc 0 within ~1 poll
+|   ok: #419 pool-worker.sh: its log names the missing STATE_DIR
+|   ok: #419 pool-worker.sh: HARNESS_HOME deleted -> exits rc 0 within ~1 poll
+|   ok: #419 pool-worker.sh: its log names the missing HARNESS_HOME
+|   ok: #419 pool-worker.sh: HARNESS_HOME/poller not recreated after the exit
+|   ok: #419 priority-worker.sh: roots intact -> still polling after 3 polls
+|   ok: #419 priority-worker.sh: STATE_DIR deleted -> exits rc 0 within ~1 poll
+|   ok: #419 priority-worker.sh: its log names the missing STATE_DIR
+|   ok: #419 priority-worker.sh: HARNESS_HOME deleted -> exits rc 0 within ~1 poll
+|   ok: #419 priority-worker.sh: its log names the missing HARNESS_HOME
+|   ok: #419 priority-worker.sh: HARNESS_HOME/poller not recreated after the exit
+| ── 33/33 passed
+| == test_fleet_migrate.sh ==
+|   ok: harness-dev: UNIT is harness
+|   ok: harness-dev: REPO is VocanicZ/Harness
+|   ok: harness-dev: POOL is 2
+|   ok: harness-dev: the HARNESS_CAP line is gone (CAP was 1, #469)
+|   ok: harness-dev: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/harness-dev/.harness/checkouts/Harness
+|   ok: harness-dev: that CHECKOUT exists
+|   ok: harness-dev: HARNESS_TOPOLOGY is gone from the config
+|   ok: harness-dev: session name stays hzhn-harness-i7
+|   ok: harness-dev: unit_slug is the repo
+|   ok: harness-dev: the old config is kept as config.bak-<date>
+|   ok: ImPrint: UNIT is imprint
+|   ok: ImPrint: REPO is VocanicZ/Imprinted
+|   ok: ImPrint: POOL is 2
+|   ok: ImPrint: the HARNESS_CAP line is gone (CAP was 2, #469)
+|   ok: ImPrint: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/ImPrint/.harness/checkouts/Imprinted
+|   ok: ImPrint: that CHECKOUT exists
+|   ok: ImPrint: HARNESS_TOPOLOGY is gone from the config
+|   ok: ImPrint: session name stays hzip-imprint-i7
+|   ok: ImPrint: unit_slug is the repo
+|   ok: ImPrint: the old config is kept as config.bak-<date>
+|   ok: ORGE: UNIT is orge
+|   ok: ORGE: REPO is RainBowCreation/ORGE
+|   ok: ORGE: POOL is 2
+|   ok: ORGE: the HARNESS_CAP line is gone (CAP was 2, #469)
+|   ok: ORGE: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/ORGE/.harness/checkouts/ORGE
+|   ok: ORGE: that CHECKOUT exists
+|   ok: ORGE: HARNESS_TOPOLOGY is gone from the config
+|   ok: ORGE: session name stays hzor-orge-i7
+|   ok: ORGE: unit_slug is the repo
+|   ok: ORGE: the old config is kept as config.bak-<date>
+|   ok: bangwa-client: UNIT is ui
+|   ok: bangwa-client: REPO is RainBowCreation/bangwa-client
+|   ok: bangwa-client: POOL is 3
+|   ok: bangwa-client: the HARNESS_CAP line is gone (CAP was 3, #469)
+|   ok: bangwa-client: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/bangwa-client/.harness/checkouts/bangwa-client
+|   ok: bangwa-client: that CHECKOUT exists
+|   ok: bangwa-client: HARNESS_TOPOLOGY is gone from the config
+|   ok: bangwa-client: session name stays bw-ui-i7
+|   ok: bangwa-client: unit_slug is the repo
+|   ok: bangwa-client: the old config is kept as config.bak-<date>
+|   ok: hardcore-gacha-2: UNIT is neuro
+|   ok: hardcore-gacha-2: REPO is VocanicZ/hardcore-gacha-2
+|   ok: hardcore-gacha-2: POOL is 2
+|   ok: hardcore-gacha-2: the HARNESS_CAP line is gone (CAP was 2, #469)
+|   ok: hardcore-gacha-2: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/hardcore-gacha-2/.harness/checkouts/hardcore-gacha-2
+|   ok: hardcore-gacha-2: that CHECKOUT exists
+|   ok: hardcore-gacha-2: HARNESS_TOPOLOGY is gone from the config
+|   ok: hardcore-gacha-2: session name stays hzg2-neuro-i7
+|   ok: hardcore-gacha-2: unit_slug is the repo
+|   ok: hardcore-gacha-2: the old config is kept as config.bak-<date>
+|   ok: swarm: UNIT is swarm
+|   ok: swarm: REPO is VocanicZ/swarm
+|   ok: swarm: POOL is 2
+|   ok: swarm: the HARNESS_CAP line is gone (CAP was 2, #469)
+|   ok: swarm: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/swarm/.harness/checkouts/swarm
+|   ok: swarm: that CHECKOUT exists
+|   ok: swarm: HARNESS_TOPOLOGY is gone from the config
+|   ok: swarm: session name stays hzsw-swarm-i7
+|   ok: swarm: unit_slug is the repo
+|   ok: swarm: the old config is kept as config.bak-<date>
+|   ok: bangwa: UNIT is main
+|   ok: bangwa: REPO is RainBowCreation/bangwa
+|   ok: bangwa: POOL is 4
+|   ok: bangwa: the HARNESS_CAP line is gone (CAP was 4, #469)
+|   ok: bangwa: CHECKOUT is /c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_fleet_migrate.sh/tmp/tmp.ryk7IfvJ6x/bangwa
+|   ok: bangwa: that CHECKOUT exists
+|   ok: bangwa: HARNESS_TOPOLOGY is gone from the config
+|   ok: bangwa: session name stays hzbw-main-i7
+|   ok: bangwa: unit_slug is the repo
+|   ok: bangwa: the old config is kept as config.bak-<date>
+|   ok: inline comments on edited lines survive
+|   ok: the account pin line survives
+|   ok: plain-form quoted values survive
+|   ok: a plain-form config gets plain-form keys
+|   ok: a := config gets := keys
+|   ok: ImPrint: the target's repo REPLACES the config's (still one HARNESS_REPO line)
+|   ok: ImPrint: the renamed repo is the target's
+|   ok: the backup is the config as it was
+|   ok: ...CAP line included
+|   ok: an inline comment next to the dropped CAP line does not eat the POOL line
+|   ok: rtdd's row is in targets.tsv.migrated
+|   ok: rtdd's row is out of targets.tsv
+|   ok: harness's row stays in targets.tsv
+|   ok: a one-row fleet writes no targets.tsv.migrated
+|   ok: a fleet_migrated event for harness-dev
+|   ok: ...naming the dropped unit
+|   ok: one fleet_migrated event per fleet
+|   ok: a second run leaves every config, backup and targets file byte-identical
+|   ok: ...and logs no second event
+|   ok: ...and takes no second backup
+|   ok: #467-migrated: HARNESS_CAP is gone
+|   ok: #467-migrated: POOL is kept
+|   ok: #467-migrated: the unit is kept
+|   ok: #467-migrated: the sess prefix line survives
+|   ok: #467-migrated: the old config is backed up with its CAP line
+|   ok: #467-migrated (plain form): HARNESS_CAP is gone
+|   ok: ...and only that line went
+|   ok: #467-migrated (plain form): POOL is kept
+|   ok: un-migrated config: no HARNESS_CAP after ONE pass
+|   ok: ...POOL is the table's max
+|   ok: running it twice changes nothing (configs and backups byte-identical)
+|   ok: ...and logs no second event
+|   ok: ...and takes no second backup
+|   ok: a one-repo config with no CAP line is untouched
+|   ok: ...and reports nothing to do
+|   ok: no POOL line: POOL is written as max(default 3, CAP 5)
+|   ok: a multi config with no targets.tsv still migrates
+|   ok: ...to unit main
+|   ok: ...and the clone that exists on disk
+|   ok: the row whose repo matches HARNESS_REPO is kept, not the first
+|   ok: #554: a dotted unit id is written tmux-safe (next_js)
+|   ok: #554: ...and the session name has no dot
+|   ok: no clone named after the repo: the one whose origin is the repo
+|   ok: update: fleet A (multi) is migrated
+|   ok: update: fleet B (plain KEY=val) is migrated
+|   ok: update: fleet A POOL is max(1,3)
+|   ok: update: fleet B POOL is max(2,1)
+|   ok: update: A's old worker + priority pids are dead
+|   ok: update: B's old worker + priority pids are dead
+|   ok: update: the bystander process is untouched
+|   ok: update: an already-migrated fleet's workers on an older release are killed (#537)
+|   ok: update: ...and relaunched, without --recover
+|   ok: update: ...onto new pids that are running
+|   ok: update: ...started from the current engine
+|   ok: update: an already-migrated fleet's workers on the current engine are left running
+|   ok: update: ...and not restarted
+|   ok: update: ...no harness start for it
+|   ok: update: harness start ran for exactly the fleets with a worker to roll (A, B, D and the unregistered current folder's C — not G, already current)
+|   ok: update: ...for fleet A, without --recover
+|   ok: update: ...for fleet B, without --recover
+|   ok: update: the start inherits no other fleet's environment
+|   ok: update: A's workers are running again (3 workers + priority)
+|   ok: update: A relaunched POOL=3 workers
+|   ok: update: B's workers are running again
+|   ok: update: A's pids are new ones
+|   ok: update: the unregistered current-folder fleet is migrated too
+|   ok: update: ...and rolled, since it had worker pid files
+|   ok: update: ...onto new pids
+|   ok: update: a migrated fleet's kept HARNESS_CAP line is dropped
+|   ok: update: ...and its POOL is kept
+|   ok: update: ...its old-release workers are killed (#537)
+|   ok: update: ...and relaunched without --recover
+|   ok: update: ...by exactly one harness start (the other registered fleets are current)
+|   ok: update: ...the new workers run
+|   ok: update: ...the old config is backed up
+|   ok: update: a CAP-line fleet on the current engine: the line is dropped
+|   ok: update: ...its workers are left running
+|   ok: update: ...and no harness start for it
+|   ok: update: a stopped, unregistered fleet is migrated
+|   ok: update: ...and not started
+|   ok: update twice: no second start
+|   ok: update twice: the workers are the same processes
+|   ok: update twice: ...an already-migrated (rc 10) fleet's rolled workers too (#537)
+|   ok: update twice: ...an rc 11 fleet's
+|   ok: update twice: ...and the fleets that were current all along
+|   ok: update twice: nothing was killed
+|   ok: paused fleet: migrated
+|   ok: paused fleet: old workers stopped
+|   ok: paused fleet: relaunched with the pause kept
+|   ok: paused fleet: the pause flag is still there
+|   ok: start: migrated its own fleet's config (UNIT)
+|   ok: start: ...and POOL = max(1,2)
+|   ok: start: ...and stopped the old workers
+|   ok: start: HARNESS_TOPOLOGY gone
+|   ok: start: HARNESS_CAP gone (#469)
+|   ok: start: a config's HARNESS_CAP is ignored with the warning printed exactly once
+|   ok: start: HARNESS_CAP=5 in the environment: one warning
+|   ok: start: no HARNESS_CAP anywhere: no warning
+|   ok: start: a config's HARNESS_CAP the migration did not run on: one warning
+|   ok: start #566: the leftover HARNESS_CAP line is gone
+|   ok: start #566: ...the old-engine workers and priority lane are stopped
+|   ok: start #566: ...with the fleet's lane session still up
+|   ok: start #566: workers already on this engine are left running
+|   ok: start #566: ...and keep their pids
+| TIMEOUT: test_fleet_migrate.sh ran past HARNESS_TEST_TIMEOUT=1500s
+| == test_update_prerelease.sh ==
+|   ok: the host engine starts on the pre-release updater
+|   ok: the first update (the pre-release updater) exits 0
+|   ok: the engine is still a git checkout
+|   ok: not a symlink
+|   ok: now at main's commit
+|   ok: with main's release-aware update.sh
+|   ok: the second update with no release exits 0
+|   ok: it prints 'named no release'
+|   ok: the engine is still a git checkout
+|   ok: and no releases/ dir appears
+|   ok: the migrating update exits 0
+|   ok: engine is now a symlink
+|   ok: pointing at releases/v0.1.0
+|   ok: the old tree is kept under releases/git-<sha>
+|   ok: harness --version prints v0.1.0
+| ── 15/15 passed
+| == test_cli_codex.sh ==
+|   ok: effort is a config override, not a flag
+|   ok: the lane's effort replaces the default one
+|   ok: model is -m
+|   ok: scrollback kept for capture-pane
+|   ok: approvals and sandbox bypassed
+|   ok: Harness's own Stop hook may run untrusted
+|   ok: codex cannot take a caller-set id
+|   ok: no caller-set id anywhere on the line
+|   ok: the prompt is the positional bootstrap
+|   ok: no lane model/effort: the configured flags as they are
+|   ok: trust is a [projects] entry in config.toml
+|   ok: cli_trusted reads it back
+|   ok: another dir is not trusted by it
+|   ok: the update modal is turned off
+|   ok: update check is top-level, every other key kept
+|   ok: trusting twice writes one entry
+|   ok: …and one update-check key
+|   ok: an untrusted entry is flipped to trusted
+|   ok: …in place, not duplicated
+|   ok: trust with no config.toml yet
+|   ok: session id read from the worktree's rollout
+|   ok: a rollout of another cwd is not this worktree's
+|   ok: a rollout from before this launch is the previous session's
+|   ok: a newer sub-agent rollout in the worktree is not the session
+|   ok: transcripts: the session's rollout first, then its sub-agents'
+|   ok: no session id, no transcripts
+|   ok: usage folds token_count per turn_context model, cached input as cache reads
+|   ok: the 30-day primary window, its used percent
+| 
+|   ok: a window whose reset has passed is not reported
+|   ok: idle: the composer is the prompt
+|   ok: the live composer, not a submitted prompt echoed above it
+|   ok: the trust dialog's › option is not a prompt
+|   ok: the status row's timer is the turn's seconds
+|   ok: no status row, no turn
+|   ok: minutes and seconds
+|   ok: Escape prints the interrupt line
+|   ok: an interrupted turn is not busy
+|   ok: an interrupted turn leaves the prompt
+|   ok: the free-plan reset banner is no usage limit
+|   ok: a 400 error cell is no transient stall
+|   ok: …and no usage limit
+|   ok: Codex's Stop hook drives the loop
+|   ok: a skill is invoked as $<name>
+|   ok: no promise: the hook blocks with the task as the next prompt
+|   ok: …and counts the iteration
+|   ok: max_iterations reached: the hook lets the turn end
+|   ok: …and ends the loop
+|   ok: a different promise does not end the loop
+|   ok: the promise in the reply ends the loop
+|   ok: no state file: another session's turn is left alone
+|   ok: the marketplace is named with its add command
+|   ok: the plugin is named with its add command
+|   ok: the handoff skill is named where codex loads skills (#303)
+|   ok: an installed plugin passes
+|   ok: the marketplace it names holds the plugin
+|   ok: windows: trusting /c/w/proj upgrades the table kept as C:/w/proj in place (no second spelling)
+|   ok: windows: …and /c/w/proj reads as trusted
+|   ok: windows: …as C:\w\proj too
+|   ok: windows: …but another directory is not
+| ── 59/59 passed
+| TIMEOUT: test_cli_codex.sh ran past HARNESS_TEST_TIMEOUT=1500s
+| rm: fts_read failed: No such file or directory
+| == test_cli_copilot.sh ==
+| Terminated                 ( cli_load "$cli" || exit 1; matrix_stub; F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q; printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"; SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"; plant_cli_home "$cli" "$WD"; cell "$cli" fixtures-recorded test -s "$F/VERSION"; line="$(cli_launch "$WD" "$SID" "$MODEL" high)"; cell "$cli" launch-bootstrap-prompt has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"; cell "$cli" launch-no-task-text lacks UNIQUE_TASK_MARKER "$line"; lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"; cell "$cli" launch-model has "$MODEL" "$lane"; cell "$cli" launch-effort-once effort_once_ok "$lane" low; cell "$cli" launch-role-model role_launch_ok "$MODEL" low; cell "$cli" session-id session_id_ok; cell "$cli" idle-is-prompt cli_pane_prompt "$(pane "$cli" idle)"; cell "$cli" idle-is-not-busy not cli_pane_busy "$(pane "$cli" idle)"; cell "$cli" busy-is-busy every_busy_is_busy "$cli"; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)";
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" trust-dialog-is-not-prompt false;
+|     fi;
+| fi; cell "$cli" transient-stalls session_stalled "$(pane "$cli" transient)"; cell "$cli" idle-never-stalls not session_stalled "$(pane "$cli" idle)"; cell "$cli" busy-never-stalls no_busy_stalls "$cli"; cell "$cli" limit-parks session_limit_idle "$(pane "$cli" limit)"; cell "$cli" transient-is-not-limit not session_limit_idle "$(pane "$cli" transient)"; if [[ -s "$F/trust.na" ]] && trust_noop; then
+|     na "$cli" trust-pre-accepted "$(cat "$F/trust.na")";
+| else
+|     cell "$cli" trust-pre-accepted trust_ok;
+| fi; cli_trust "$WD"; if [[ -s "$F/bypass-subagent.na" ]]; then
+|     na "$cli" bypass-covers-subagents "$(cat "$F/bypass-subagent.na")";
+| else
+|     cell "$cli" bypass-covers-subagents bypass_ok;
+| fi; cell "$cli" done-signal done_signal_ok "$WD"; cell "$cli" loop-mode loop_ok; cell "$cli" transcripts-found test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"; cell "$cli" usage-from-transcript same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"; cell "$cli" stats-launch-model-effort launch_event_ok "$MODEL" low; cell "$cli" stats-session-end-usage session_end_usage_ok "$WD" "$SID"; if [[ -s "$F/usage-windows.na" ]]; then
+|     na "$cli" usage-windows "$(cat "$F/usage-windows.na")";
+| else
+|     cell "$cli" usage-windows usage_windows_ok "$cli";
+| fi; cell "$cli" checkpoint-skill checkpoint_skill_ok; cell "$cli" handoff-skill-installed handoff_skill_ok; cell "$cli" prompt-skills-installed prompt_skills_ok; cell "$cli" operator-skills operator_skills_ok; cell "$cli" pause-force-resume-other-host pause_resume_ok; cell "$cli" send-and-kill send_and_kill_ok; cell "$cli" inject-sessions inject_ok; cell "$cli" bug-lane-triage-fix bug_lane_ok; cell "$cli" review-gauntlet review_ok; cell "$cli" supervisor-frozen-session frozen_ok limit; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" supervisor-skips-trust-dialog frozen_ok trust;
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" supervisor-skips-trust-dialog "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" supervisor-skips-trust-dialog false;
+|     fi;
+| fi; cell "$cli" rtdd-event-context rtdd_event_ok; cell "$cli" prereqs-named prereqs_ok; cell "$cli" init-wizard-choice init_choice_ok; headless_rows "$cli"; (( TSV )) || finish )
+|   ok: caller-set session id
+|   ok: effort flag
+|   ok: model flag
+|   ok: everything allowed
+|   ok: the agent may not stop on a question
+|   ok: no update mid-fleet
+|   ok: the bootstrap is the -i prompt
+|   ok: an operator's COPILOT_HOME reaches the pane
+|   ok: no COPILOT_HOME, no lane model/effort: the configured flags as they are
+|   ok: the lane's model and effort replace the configured ones (--reasoning-effort is effort's alias)
+|   ok: trust is a trustedFolders entry
+|   ok: cli_trusted reads it back
+|   ok: another dir is not trusted by it
+|   ok: the comment header is kept
+|   ok: every other key is kept
+|   ok: …and every other folder
+|   ok: trusting twice writes one entry
+|   ok: a fresh home gets a config.json with the entry
+|   ok: trust takes the lock beside config.json and leaves none held
+|   ok: the trust dialog is not the prompt
+|   ok: busy fixture is busy
+|   ok: a turn before its first tool call is busy
+|   ok: the first Escape's hint is still busy
+|   ok: an interrupted turn prints its line
+|   ok: …and is back at the prompt
+|   ok: the prompt line is the box's, not the echo above it
+|   ok: text typed mid-turn is steered into it, never queued in the box
+|   ok: the rate-limit menu is a limit menu
+|   ok: …and a dialog, never a prompt
+|   ok: copilot draws no turn timer
+|   ok: a skill is a slash command (skill.txt)
+|   ok: …as the matrix's handoff-skill fixture says
+|   ok: …as the capture ran one
+|   ok: agentStop caps at 8 blocks, below HARNESS_IMPL_MAXITER: Harness drives
+|   ok: the session id is the one the launch set
+|   ok: the captured session id is the loop run's session.start
+|   ok: no transcript before the session wrote one
+|   ok: transcript path from the id
+|   ok: usage: input without the cache reads/writes, per model
+|   ok: the reply to the last prompt (the loop run's second turn)
+|   ok: …keyed by that prompt's event id
+|   ok: a sub-agent's own prompt and replies are not the session's
+|   ok: the sub-agent ran its shell with no prompt
+|   ok: no reply while the last prompt's turn runs
+|   ok: an aborted turn has ended, with an empty reply
+|   ok: a prompt's first model call ended but its next one runs: no reply yet
+| 20:34:47 [harness] goal loop: hz-max-i8 ended a turn without its promise — 🔄 Ralph iteration 2
+| 20:35:04 [harness] goal loop: hz-max-i8 ended its loop (promise or max iterations)
+|   ok: max_iterations ends the driven loop after one re-prompt
+| 20:35:24 [harness] watchdog: hz-busy-i9 parked at its idle prompt by the usage limit (poll 1) — nudging to resume (#120)
+|   ok: a busy or limit-parked pane is not re-prompted
+|   ok: an injector parked at a limit is not re-prompted
+| 20:35:57 [harness] goal loop: hz-inject-main ended its loop (promise or max iterations)
+| 20:35:57 [harness] reaped finished inject session hz-inject-main (ralph loop ended)
+|   ok: an injector's promise ends its loop and the injector is reaped
+| 20:36:16 [harness] goal loop: hz-mid-i10 ended a turn without its promise — 🔄 Ralph iteration 2
+|   ok: a promise announced before the turn's last message does not end the loop
+| 20:36:28 [harness] goal loop: hz-err-i11 ended a turn without its promise — 🔄 Ralph iteration 2
+| 20:36:44 [harness] goal loop: hz-err-i11 ended its loop (promise or max iterations)
+|   ok: a promise given with the transient-error line still on screen ends the loop
+|   ok: a paused bug lane drains a driven goal loop by polling its watchdog until the session ends
+|   ok: the chat quota is the window; completions (editors only) and a no-entitlement quota are not
+| 
+|   ok: a passed reset is no window
+|   ok: the binary is the only prerequisite
+|   ok: …beside the handoff skill, where copilot loads skills (#303)
+|   ok: init offers copilot
+| TIMEOUT: test_cli_copilot.sh ran past HARNESS_TEST_TIMEOUT=1500s
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/handoff-copilot/wd/.git/description': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/handoff-copilot/wd/.git/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/handoff-copilot/wd/.git/objects/pack': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/copilot-home/session-state/8c2253d7-396b-4f2a-8898-7b5589b6fe66': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/harness.log': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/run/hz-main-i29.launched': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/wd-sup-idle/.git/hooks/pre-rebase.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/wd-sup-idle/.git/hooks/prepare-commit-msg.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/wd-sup-limit/.git/hooks/commit-msg.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/wd-sup-limit/.git/hooks/fsmonitor-watchman.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/wd-sup-limit/.git/hooks/pre-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/hl-copilot-3048931/wd-sup-limit/.git/refs/tags': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/host-b-copilot/state/subagent/main-i7': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/launch-ev-copilot/.git/info/exclude': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_copilot.sh/tmp/tmp.AHDZG7Znih/operator-skills-copilot/home/.copilot/skills/harness-stop': Permission denied
+| rm: fts_read failed: No such file or directory
+| == test_cli_hermes.sh ==
+| Terminated                 ( cli_load "$cli" || exit 1; matrix_stub; F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q; printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"; SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"; plant_cli_home "$cli" "$WD"; cell "$cli" fixtures-recorded test -s "$F/VERSION"; line="$(cli_launch "$WD" "$SID" "$MODEL" high)"; cell "$cli" launch-bootstrap-prompt has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"; cell "$cli" launch-no-task-text lacks UNIQUE_TASK_MARKER "$line"; lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"; cell "$cli" launch-model has "$MODEL" "$lane"; cell "$cli" launch-effort-once effort_once_ok "$lane" low; cell "$cli" launch-role-model role_launch_ok "$MODEL" low; cell "$cli" session-id session_id_ok; cell "$cli" idle-is-prompt cli_pane_prompt "$(pane "$cli" idle)"; cell "$cli" idle-is-not-busy not cli_pane_busy "$(pane "$cli" idle)"; cell "$cli" busy-is-busy every_busy_is_busy "$cli"; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)";
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" trust-dialog-is-not-prompt false;
+|     fi;
+| fi; cell "$cli" transient-stalls session_stalled "$(pane "$cli" transient)"; cell "$cli" idle-never-stalls not session_stalled "$(pane "$cli" idle)"; cell "$cli" busy-never-stalls no_busy_stalls "$cli"; cell "$cli" limit-parks session_limit_idle "$(pane "$cli" limit)"; cell "$cli" transient-is-not-limit not session_limit_idle "$(pane "$cli" transient)"; if [[ -s "$F/trust.na" ]] && trust_noop; then
+|     na "$cli" trust-pre-accepted "$(cat "$F/trust.na")";
+| else
+|     cell "$cli" trust-pre-accepted trust_ok;
+| fi; cli_trust "$WD"; if [[ -s "$F/bypass-subagent.na" ]]; then
+|     na "$cli" bypass-covers-subagents "$(cat "$F/bypass-subagent.na")";
+| else
+|     cell "$cli" bypass-covers-subagents bypass_ok;
+| fi; cell "$cli" done-signal done_signal_ok "$WD"; cell "$cli" loop-mode loop_ok; cell "$cli" transcripts-found test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"; cell "$cli" usage-from-transcript same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"; cell "$cli" stats-launch-model-effort launch_event_ok "$MODEL" low; cell "$cli" stats-session-end-usage session_end_usage_ok "$WD" "$SID"; if [[ -s "$F/usage-windows.na" ]]; then
+|     na "$cli" usage-windows "$(cat "$F/usage-windows.na")";
+| else
+|     cell "$cli" usage-windows usage_windows_ok "$cli";
+| fi; cell "$cli" checkpoint-skill checkpoint_skill_ok; cell "$cli" handoff-skill-installed handoff_skill_ok; cell "$cli" prompt-skills-installed prompt_skills_ok; cell "$cli" operator-skills operator_skills_ok; cell "$cli" pause-force-resume-other-host pause_resume_ok; cell "$cli" send-and-kill send_and_kill_ok; cell "$cli" inject-sessions inject_ok; cell "$cli" bug-lane-triage-fix bug_lane_ok; cell "$cli" review-gauntlet review_ok; cell "$cli" supervisor-frozen-session frozen_ok limit; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" supervisor-skips-trust-dialog frozen_ok trust;
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" supervisor-skips-trust-dialog "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" supervisor-skips-trust-dialog false;
+|     fi;
+| fi; cell "$cli" rtdd-event-context rtdd_event_ok; cell "$cli" prereqs-named prereqs_ok; cell "$cli" init-wizard-choice init_choice_ok; headless_rows "$cli"; (( TSV )) || finish )
+|   ok: a lane's home is a profile of the operator's, its name the worktree's
+|   ok: …a profile name Hermes takes (lowercase letters and digits)
+|   ok: …another worktree gets another
+|   ok: the launch runs on that home
+|   ok: addressed by title, created if missing
+|   ok: yolo and hooks accepted at launch
+|   ok: first turn submitted with -q
+|   ok: no -m on the line (refused beside -c <title> --create-if-missing)
+|   ok: no --reasoning on the line (refused the same way)
+|   ok: the lane's model is in its config
+|   ok: …the operator's provider kept
+|   ok: the lane's effort is in its config
+|   ok: approvals off for the whole lane profile
+|   ok: the clarify toolset is off, beside the operator's
+|   ok: …the operator's other agent keys kept
+|   ok: …and its comments
+|   ok: no update checks in a lane
+|   ok: the operator's skills and Harness's user skills are external skill dirs
+|   ok: the lane settings the launch event records
+|   ok: the operator's stored login is copied
+|   ok: …its .env (messaging-bot tokens) is not
+|   ok: the runtime is the profile root's: nothing linked in (a linked tools/ repoints the host's launcher)
+|   ok: nothing is written into the worktree
+|   ok: a relaunch with no model takes the operator's again
+|   ok: …and records no lane settings
+|   ok: a lane profile whose worktree is gone is removed
+|   ok: …not while its gateway runs
+|   ok: …nor while its worktree is there
+|   ok: …and no profile of the operator's own
+|   ok: the worktree's skills are trusted
+|   ok: …once
+|   ok: …and still after a relaunch
+|   ok: another worktree is not
+|   ok: every lane variable passed to the lane's commands, after the operator's own, once each
+|   ok: …the operator's other terminal keys kept
+|   ok: …and still once each after a relaunch
+|   ok: LANE_ENV_NAMES names every variable session_env gives a lane
+|   ok: …a lane with an issue, a PRD and a repo gets all seven
+|   ok: the real CLI: a passed lane variable reaches the lane's command (env-passthrough.txt)
+|   ok: …its own event log, not the gateway's
+|   ok: unpassed, the command saw the log of the lane that started the gateway (env-no-passthrough.txt)
+|   ok: the Enter waits for the text to land (a same-burst Enter is a newline in the composer)
+|   ok: kill stops the lane's gateway, which outlives the pane
+|   ok: …once the pane is gone (a live TUI starts a new gateway)
+|   ok: a session with no lane home stops no gateway
+|   ok: reap_done_sessions stops the met lane's gateway
+|   ok: no Stop hook Harness can block: Harness drives
+|   ok: a skill is named, not slashed (Hermes's own /handoff shadows it)
+|   ok: turn time off the busy top rule
+|   ok: …or the status bar's ⏱ when the rule is truncated
+|   ok: no turn at the idle prompt
+|   ok: hours and minutes
+|   ok: minutes
+|   ok: an echoed prompt in the scrollback is no prompt
+|   ok: text typed under a running turn is not queued (Enter redirects the turn: steer.txt)
+|   ok: the busy composer is busy
+|   ok: a limit that names its reset parks
+|   ok: a 503 after every retry stalls
+|   ok: the interrupted turn's pane is idle
+|   ok: …and not busy
+|   ok: the session is found by its title
+|   ok: the reply that ended the last prompt's turn
+|   ok: …after the id of that prompt (here the message a finished delegation injected)
+|   ok: no reply while the gateway holds the turn's lease
+|   ok: …a lapsed lease holds nothing
+|   ok: no reply while a background delegation it dispatched still runs
+|   ok: …nor while its finished result is not yet delivered to the session
+|   ok: …one whose owner died holds nothing
+|   ok: a prompt not yet answered has no reply
+|   ok: a failed turn is the watchdog's
+|   ok: …so is an interrupted one
+|   ok: a compressed session keeps its id, the title moved onto its continuation
+|   ok: …and its reply is read from that continuation
+|   ok: …while the gateway holds the lease it keys on the first session
+|   ok: the session and its sub-agent
+|   ok: usage sums every transcript's session_model_usage
+|   ok: every window the provider reports: <provider> <label> <pct used> <reset epoch>
+|   ok: …fetched in the newest lane's profile
+|   ok: …the NEWEST lane's profile
+|   ok: …or the operator's home before any lane has one
+|   ok: a second poll within HARNESS_HERMES_USAGE_TTL reads the cache
+|   ok: …the windows, cached in the usage dir
+|   ok: a window with no percent is skipped; one with no reset reads 0
+|   ok: a passed reset is no window: rc 1
+|   ok: a provider with no usage endpoint (usage-none.txt): rc 1
+| Terminated                 ( cli_load "$cli" || exit 1; matrix_stub; F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q; printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"; SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"; plant_cli_home "$cli" "$WD"; cell "$cli" fixtures-recorded test -s "$F/VERSION"; line="$(cli_launch "$WD" "$SID" "$MODEL" high)"; cell "$cli" launch-bootstrap-prompt has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"; cell "$cli" launch-no-task-text lacks UNIQUE_TASK_MARKER "$line"; lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"; cell "$cli" launch-model has "$MODEL" "$lane"; cell "$cli" launch-effort-once effort_once_ok "$lane" low; cell "$cli" launch-role-model role_launch_ok "$MODEL" low; cell "$cli" session-id session_id_ok; cell "$cli" idle-is-prompt cli_pane_prompt "$(pane "$cli" idle)"; cell "$cli" idle-is-not-busy not cli_pane_busy "$(pane "$cli" idle)"; cell "$cli" busy-is-busy every_busy_is_busy "$cli"; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)";
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" trust-dialog-is-not-prompt false;
+|     fi;
+| fi; cell "$cli" transient-stalls session_stalled "$(pane "$cli" transient)"; cell "$cli" idle-never-stalls not session_stalled "$(pane "$cli" idle)"; cell "$cli" busy-never-stalls no_busy_stalls "$cli"; cell "$cli" limit-parks session_limit_idle "$(pane "$cli" limit)"; cell "$cli" transient-is-not-limit not session_limit_idle "$(pane "$cli" transient)"; if [[ -s "$F/trust.na" ]] && trust_noop; then
+|     na "$cli" trust-pre-accepted "$(cat "$F/trust.na")";
+| else
+|     cell "$cli" trust-pre-accepted trust_ok;
+| fi; cli_trust "$WD"; if [[ -s "$F/bypass-subagent.na" ]]; then
+|     na "$cli" bypass-covers-subagents "$(cat "$F/bypass-subagent.na")";
+| else
+|     cell "$cli" bypass-covers-subagents bypass_ok;
+| fi; cell "$cli" done-signal done_signal_ok "$WD"; cell "$cli" loop-mode loop_ok; cell "$cli" transcripts-found test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"; cell "$cli" usage-from-transcript same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"; cell "$cli" stats-launch-model-effort launch_event_ok "$MODEL" low; cell "$cli" stats-session-end-usage session_end_usage_ok "$WD" "$SID"; if [[ -s "$F/usage-windows.na" ]]; then
+|     na "$cli" usage-windows "$(cat "$F/usage-windows.na")";
+| else
+|     cell "$cli" usage-windows usage_windows_ok "$cli";
+| fi; cell "$cli" checkpoint-skill checkpoint_skill_ok; cell "$cli" handoff-skill-installed handoff_skill_ok; cell "$cli" prompt-skills-installed prompt_skills_ok; cell "$cli" operator-skills operator_skills_ok; cell "$cli" pause-force-resume-other-host pause_resume_ok; cell "$cli" send-and-kill send_and_kill_ok; cell "$cli" inject-sessions inject_ok; cell "$cli" bug-lane-triage-fix bug_lane_ok; cell "$cli" review-gauntlet review_ok; cell "$cli" supervisor-frozen-session frozen_ok limit; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" supervisor-skips-trust-dialog frozen_ok trust;
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" supervisor-skips-trust-dialog "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" supervisor-skips-trust-dialog false;
+|     fi;
+| fi; cell "$cli" rtdd-event-context rtdd_event_ok; cell "$cli" prereqs-named prereqs_ok; cell "$cli" init-wizard-choice init_choice_ok; headless_rows "$cli"; (( TSV )) || finish )
+| TIMEOUT: test_cli_hermes.sh ran past HARNESS_TEST_TIMEOUT=1500s
+| == test_cli_openclaw.sh ==
+|   ok: the pane runs Harness's loop, not the TUI
+|   ok: …in the worktree
+|   ok: …its session the launch's own id
+|   ok: the lane's model
+|   ok: the lane's effort as --thinking
+|   ok: …spelled as the matrix's effort-flag fixture says
+|   ok: a turn may run for hours (agent exec's own default is 600s)
+|   ok: the bootstrap is the first message
+|   ok: …never the task
+|   ok: the lane config may include the operator's from outside its dir
+|   ok: the turn runs on the lane config
+|   ok: the lane config includes the operator's (model, auth, plugins)
+|   ok: …with host exec running unasked over it
+|   ok: the operator's extra skill dirs, then each user skill Harness installs (a dir with its own SKILL.md reads as one skill)
+|   ok: the lane is bypassed
+|   ok: no lane model: the operator config's default
+|   ok: no lane effort: no --thinking
+|   ok: the lane's run state is kept out of its commits
+|   ok: an operator config that is JSON5 is still included, its own extra dirs unread
+|   ok: no operator config: nothing to include
+|   ok: …and the lane still bypassed
+|   ok: a lane config that asks is not bypassed
+|   ok: …until cli_bypass rewrites it
+|   ok: a sub-agent is not spawned: sessions_spawn fails in an agent exec turn (bypass-subagent.txt)
+|   ok: …its brief goes to the file the prompt names
+|   ok: the command runs agent exec on the lane config
+|   ok: …on a new state dir, not the lane's (its running turn holds that)
+|   ok: …its brief from the file
+|   ok: …the brief alone is its message
+|   ok: …its reply the plain stdout, no envelope
+|   ok: the lane config may include the operator's
+|   ok: HARNESS_OPENCLAW_SUBAGENT_TIMEOUT sets its deadline
+|   ok: impl.md starts its sub-agents through cli_subagent
+|   ok: …and never tells an openclaw lane to spawn one
+|   ok: review.md starts its sub-agents through cli_subagent
+|   ok: …and never tells an openclaw lane to spawn one
+|   ok: one agent exec per message: the bootstrap, then each line typed (a blank one is none)
+|   ok: each is scoped to the worktree
+|   ok: …keeps its state in the worktree's run dir
+|   ok: …runs on the lane config, model, effort and timeout
+|   ok: …and prints its JSON envelope
+|   ok: a message goes in a file, never in argv
+|   ok: …the bootstrap, then each line as typed
+|   ok: each turn's envelope is a line of the session's transcript
+|   ok: …which cli_transcripts finds by the launch's id
+|   ok: the prompt after each turn, and once more before the input ends
+|   ok: the reply is shown above it
+|   ok: …on a screen the busy line is gone from
+|   ok: no turn left running
+|   ok: a limit-failed turn prints OpenClaw's own copy where cli_limit_re reads it
+|   ok: a turn with no envelope prints why
+|   ok: …and is recorded all the same
+|   ok: --bin is a command line (HARNESS_OPENCLAW_BIN, #272)
+|   FAIL: a hangup of the pane's loop stops the turn's whole tree — expected failure from: kill -0 3069141
+|   ok: [windows] a hangup of the pane's loop has taskkill end the turn's tree by its winpid
+|   ok: no reply before the first turn ends
+|   ok: the reply that ended the last turn
+|   ok: …after an id unique to that turn
+|   ok: no reply while a turn runs
+|   ok: …a dead turn's pid holds nothing
+|   ok: a limit-failed turn is the watchdog's
+|   ok: …so is a transient one
+|   ok: any other failure is the turn's reply: the loop counts it and goes on (max-iter ends it)
+|   ok: a checkpoint is typed at the loop's prompt: the next turn's message
+| ps: unknown option -- o
+| Try `ps --help' for more information.
+| ps: unknown option -- o
+| Try `ps --help' for more information.
+|   ok: kill ends the pane
+|   ok: …and the turn it was running
+|   ok: …with every process under it (the CLI backend, the turn's commands)
+|   ok: Harness drives every turn
+|   ok: a skill is named (skill.txt)
+|   ok: …as the matrix's handoff-skill fixture says
+|   ok: the loop draws no turn timer
+|   ok: text typed under a running turn: still busy (busy-typed.txt)
+|   ok: …nothing queued in an input box (the terminal holds it for the next turn)
+|   ok: a 429 that names a usage limit parks (limit.txt)
+|   ok: a 429 with OpenClaw's own copy parks too (limit-short-break.txt)
+|   ok: …and never stalls
+|   ok: a 503 after OpenClaw's retries stalls (transient.txt)
+|   ok: a reply quoting an error is no error
+|   ok: …not even OpenClaw's own copy at column 0
+|   ok: usage folds the transcript's envelopes
+|   ok: …a failed turn has none
+|   ok: …under the model the matrix launches with, as --model names it
+|   ok: the session fixture is a run id as --run takes it (a uuid)
+|   ok: …and an id with no run file finds no transcript
+|   ok: the session id is the launch's own (the matrix's session fixture)
+|   ok: …whose transcript cli_transcripts finds and cli_usage folds
+|   ok: every window a provider reports: <provider> <label> <pct used> <reset epoch>
+|   ok: …read from status --usage --json
+|   ok: a second poll within HARNESS_OPENCLAW_USAGE_TTL reads the cache
+|   ok: every provider's windows: a failed provider adds none, a group labels its window, no reset reads 0, a bad row is skipped
+|   ok: a passed reset is no window: rc 1
+|   ok: no provider usage (usage-none.json): rc 1
+| TIMEOUT: test_cli_openclaw.sh ran past HARNESS_TEST_TIMEOUT=1500s
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/openclaw-wd/.git/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/operator-skills-openclaw/home/.agents/skills/harness-resume': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/operator-skills-openclaw/home/.hermes/skills/writing-plans': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/prompt-skills-openclaw/bin': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/prompt-skills-openclaw/home/.agents/skills/handoff': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/prompt-skills-openclaw/home/.agents/skills/harness-issue': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/prompt-skills-openclaw/home/.agents/skills/harness-plan': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/prompt-skills-openclaw/home/.agents/skills/harness-start': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/prompt-skills-openclaw/home/.agents/skills/subagent-task-tree': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/role-openclaw-hz-role-i7/.claude': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/role-openclaw-hz-role-i7/.git/config': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/role-openclaw-hz-role-i7/.git/description': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/role-openclaw-hz-role-i7/.git/hooks/applypatch-msg.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/role-openclaw-hz-role-i7/.git/hooks/pre-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.git/hooks/pre-applypatch.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.git/hooks/pre-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.git/hooks/pre-merge-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.git/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.git/refs/heads': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.harness-openclaw/last.json': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/sid-openclaw/.harness-openclaw/last.txt': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/bug-acme_widget-i9/.git/info/exclude': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/main-i7/.git/hooks/pre-rebase.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/main-i7/.git/hooks/pre-receive.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/main-i7/.git/info/exclude': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/main-i7/.harness-openclaw/runs/a98b9875-b9d1-4206-921b-449ceb416b28.jsonl': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/orch-acme_widget-p7/.claude/ralph-loop.local.md': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_openclaw.sh/tmp/tmp.F0AfpTl48i/state/worktrees/orch-acme_widget-p7/.git/refs/heads': Permission denied
+| Terminated                 ( cli_load "$cli" || exit 1; matrix_stub; F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q; printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"; SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"; plant_cli_home "$cli" "$WD"; cell "$cli" fixtures-recorded test -s "$F/VERSION"; line="$(cli_launch "$WD" "$SID" "$MODEL" high)"; cell "$cli" launch-bootstrap-prompt has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"; cell "$cli" launch-no-task-text lacks UNIQUE_TASK_MARKER "$line"; lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"; cell "$cli" launch-model has "$MODEL" "$lane"; cell "$cli" launch-effort-once effort_once_ok "$lane" low; cell "$cli" launch-role-model role_launch_ok "$MODEL" low; cell "$cli" session-id session_id_ok; cell "$cli" idle-is-prompt cli_pane_prompt "$(pane "$cli" idle)"; cell "$cli" idle-is-not-busy not cli_pane_busy "$(pane "$cli" idle)"; cell "$cli" busy-is-busy every_busy_is_busy "$cli"; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)";
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" trust-dialog-is-not-prompt false;
+|     fi;
+| fi; cell "$cli" transient-stalls session_stalled "$(pane "$cli" transient)"; cell "$cli" idle-never-stalls not session_stalled "$(pane "$cli" idle)"; cell "$cli" busy-never-stalls no_busy_stalls "$cli"; cell "$cli" limit-parks session_limit_idle "$(pane "$cli" limit)"; cell "$cli" transient-is-not-limit not session_limit_idle "$(pane "$cli" transient)"; if [[ -s "$F/trust.na" ]] && trust_noop; then
+|     na "$cli" trust-pre-accepted "$(cat "$F/trust.na")";
+| else
+|     cell "$cli" trust-pre-accepted trust_ok;
+| fi; cli_trust "$WD"; if [[ -s "$F/bypass-subagent.na" ]]; then
+|     na "$cli" bypass-covers-subagents "$(cat "$F/bypass-subagent.na")";
+| else
+|     cell "$cli" bypass-covers-subagents bypass_ok;
+| fi; cell "$cli" done-signal done_signal_ok "$WD"; cell "$cli" loop-mode loop_ok; cell "$cli" transcripts-found test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"; cell "$cli" usage-from-transcript same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"; cell "$cli" stats-launch-model-effort launch_event_ok "$MODEL" low; cell "$cli" stats-session-end-usage session_end_usage_ok "$WD" "$SID"; if [[ -s "$F/usage-windows.na" ]]; then
+|     na "$cli" usage-windows "$(cat "$F/usage-windows.na")";
+| else
+|     cell "$cli" usage-windows usage_windows_ok "$cli";
+| fi; cell "$cli" checkpoint-skill checkpoint_skill_ok; cell "$cli" handoff-skill-installed handoff_skill_ok; cell "$cli" prompt-skills-installed prompt_skills_ok; cell "$cli" operator-skills operator_skills_ok; cell "$cli" pause-force-resume-other-host pause_resume_ok; cell "$cli" send-and-kill send_and_kill_ok; cell "$cli" inject-sessions inject_ok; cell "$cli" bug-lane-triage-fix bug_lane_ok; cell "$cli" review-gauntlet review_ok; cell "$cli" supervisor-frozen-session frozen_ok limit; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" supervisor-skips-trust-dialog frozen_ok trust;
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" supervisor-skips-trust-dialog "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" supervisor-skips-trust-dialog false;
+|     fi;
+| fi; cell "$cli" rtdd-event-context rtdd_event_ok; cell "$cli" prereqs-named prereqs_ok; cell "$cli" init-wizard-choice init_choice_ok; headless_rows "$cli"; (( TSV )) || finish )
+| == test_cli_opencode.sh ==
+|   ok: OpenCode 2 is refused
+|   ok: …and fails
+|   ok: the handoff skill is named where opencode loads skills (#303)
+|   ok: OpenCode 1 passes on the binary alone
+|   ok: …naming its version
+|   ok: auto-approve
+|   ok: prompt via --prompt
+|   ok: provider/model
+|   ok: no update mid-fleet
+|   ok: questions denied, effort as the build agent's variant
+|   ok: the goal-loop plugin is loaded from the engine by path
+|   ok: …and handed the goal-loop script
+|   ok: nothing is written into the worktree: the project's opencode.json is as it was
+|   ok: …and no plugin is copied into it
+|   ok: no lane settings live outside the launch line
+|   ok: a lane with no effort names no variant (the model's default)
+|   ok: the lane's model replaces the configured one
+|   ok: a quote in the engine's path survives the pane's shell
+|   ok: …and in the loop script's
+|   ok: bypassed: --auto on the line, questions denied in its config
+|   ok: …not without the deny
+|   ok: …nor without --auto
+|   ok: the session id is the newest top-level session in the worktree
+|   ok: …never one of another worktree
+|   ok: …nor one started before this launch (a relaunch in the same worktree)
+|   ok: no database yet: no id
+|   ok: the session's own transcript first
+|   ok: …then its sub-agent's (a child session)
+|   ok: an unknown session has none
+|   ok: a sub-agent's usage is read from its own messages (reasoning counted as output)
+|   ok: a permission panel reads as busy, not idle
+|   ok: …and as a dialog nothing is typed into
+|   ok: …so never as the prompt
+|   ok: the busy hint quoted in a tool call above the prompt is no running turn
+|   ok: …nor a dialog
+|   ok: …nor a limit park
+|   ok: OpenCode's own retries are a running turn
+|   ok: …never a stall
+|   ok: a limit OpenCode is still retrying is not parked yet
+|   ok: the agent line holds no typed text
+|   ok: a queued nudge is its own message, the box is empty
+|   ok: …so nothing reads as queued in the box
+|   ok: an interrupted turn says so
+|   ok: …a finished one does not
+|   ok: no turn timer
+|   ok: a skill is invoked by name (its skill tool), not as a slash command
+|   ok: …as skill.txt shows
+|   ok: the session.idle plugin drives the loop
+|   ok: plugin: an idle lane without the promise is re-prompted with the next iteration
+|   ok: …as the agent and model its last prompt ran with, and the state file counts it
+|   ok: plugin: a turn that ended in an error is not re-prompted, nor is a sub-agent's session
+|   ok: …and neither counts an iteration
+|   ok: plugin: an error is forgotten once the session runs a turn again
+|   ok: plugin: a session Harness did not launch (no loop script named) is left alone
+|   ok: plugin: the promise ends the loop with no prompt
+|   ok: …and removes the state file (cli_done)
+|   ok: plugin: a worktree with no goal loop is left alone
+| TIMEOUT: test_cli_opencode.sh ran past HARNESS_TEST_TIMEOUT=1500s
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3101140/run': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3101140/wd-send/.git/hooks/fsmonitor-watchman.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3101778/wd-busy/.git/hooks/push-to-checkout.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3102428/wd-limit/.git/config': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3102428/wd-limit/.git/description': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3102428/wd-limit/.git/hooks/applypatch-msg.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3102428/wd-limit/.git/hooks/pre-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3102428/wd-limit/.git/info/exclude': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3102428/xdg-data': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3103280/fake-transient': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3103280/wd-transient/.git/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3104485/fake/limit.jsonl': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3104485/lanes/hz-main-i26/created': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3104485/lanes/hz-main-i26/session': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3104485/lanes/hz-main-i26/started': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3104485/wd-loop/.git/objects/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/run/checkout-opencode/.git/hooks/pre-merge-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/run/checkout-opencode/.git/hooks/pre-push.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/wd-cp/.git/hooks/sendemail-validate.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/wd-cp/.git/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/wd-cp/.git/objects/pack': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/wd-cp/.git/refs/tags': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.claude': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.git/config': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.git/HEAD': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.git/hooks/post-update.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.git/hooks/pre-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.git/objects/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106195/worktrees/main-i17/.git/refs/heads': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106484/wd-cp/.git/objects/info': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106484/worktrees/main-i17/.git/hooks/commit-msg.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106484/worktrees/main-i17/.git/hooks/pre-merge-commit.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/hl-opencode-3106484/worktrees/main-i17/.git/hooks/pre-receive.sample': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/host-a-opencode/bin-opencode/rtdd': Permission denied
+| rm: cannot remove '/c/hx-605/tmp/tmp.5ZQZg7Ck7O/test_cli_opencode.sh/tmp/tmp.5IgFLH83bd/host-a-opencode/checkout-opencode/.git/info': Permission denied
+| rm: fts_read failed: No such file or directory
+| Terminated                 ( cli_load "$cli" || exit 1; matrix_stub; F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q; printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"; SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"; plant_cli_home "$cli" "$WD"; cell "$cli" fixtures-recorded test -s "$F/VERSION"; line="$(cli_launch "$WD" "$SID" "$MODEL" high)"; cell "$cli" launch-bootstrap-prompt has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"; cell "$cli" launch-no-task-text lacks UNIQUE_TASK_MARKER "$line"; lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"; cell "$cli" launch-model has "$MODEL" "$lane"; cell "$cli" launch-effort-once effort_once_ok "$lane" low; cell "$cli" launch-role-model role_launch_ok "$MODEL" low; cell "$cli" session-id session_id_ok; cell "$cli" idle-is-prompt cli_pane_prompt "$(pane "$cli" idle)"; cell "$cli" idle-is-not-busy not cli_pane_busy "$(pane "$cli" idle)"; cell "$cli" busy-is-busy every_busy_is_busy "$cli"; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" trust-dialog-is-not-prompt not cli_pane_prompt "$(pane "$cli" trust)";
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" trust-dialog-is-not-prompt "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" trust-dialog-is-not-prompt false;
+|     fi;
+| fi; cell "$cli" transient-stalls session_stalled "$(pane "$cli" transient)"; cell "$cli" idle-never-stalls not session_stalled "$(pane "$cli" idle)"; cell "$cli" busy-never-stalls no_busy_stalls "$cli"; cell "$cli" limit-parks session_limit_idle "$(pane "$cli" limit)"; cell "$cli" transient-is-not-limit not session_limit_idle "$(pane "$cli" transient)"; if [[ -s "$F/trust.na" ]] && trust_noop; then
+|     na "$cli" trust-pre-accepted "$(cat "$F/trust.na")";
+| else
+|     cell "$cli" trust-pre-accepted trust_ok;
+| fi; cli_trust "$WD"; if [[ -s "$F/bypass-subagent.na" ]]; then
+|     na "$cli" bypass-covers-subagents "$(cat "$F/bypass-subagent.na")";
+| else
+|     cell "$cli" bypass-covers-subagents bypass_ok;
+| fi; cell "$cli" done-signal done_signal_ok "$WD"; cell "$cli" loop-mode loop_ok; cell "$cli" transcripts-found test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"; cell "$cli" usage-from-transcript same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"; cell "$cli" stats-launch-model-effort launch_event_ok "$MODEL" low; cell "$cli" stats-session-end-usage session_end_usage_ok "$WD" "$SID"; if [[ -s "$F/usage-windows.na" ]]; then
+|     na "$cli" usage-windows "$(cat "$F/usage-windows.na")";
+| else
+|     cell "$cli" usage-windows usage_windows_ok "$cli";
+| fi; cell "$cli" checkpoint-skill checkpoint_skill_ok; cell "$cli" handoff-skill-installed handoff_skill_ok; cell "$cli" prompt-skills-installed prompt_skills_ok; cell "$cli" operator-skills operator_skills_ok; cell "$cli" pause-force-resume-other-host pause_resume_ok; cell "$cli" send-and-kill send_and_kill_ok; cell "$cli" inject-sessions inject_ok; cell "$cli" bug-lane-triage-fix bug_lane_ok; cell "$cli" review-gauntlet review_ok; cell "$cli" supervisor-frozen-session frozen_ok limit; if [[ -f "$F/trust.txt" ]]; then
+|     cell "$cli" supervisor-skips-trust-dialog frozen_ok trust;
+| else
+|     if [[ -s "$F/trust.na" ]]; then
+|         na "$cli" supervisor-skips-trust-dialog "$(cat "$F/trust.na")";
+|     else
+|         cell "$cli" supervisor-skips-trust-dialog false;
+|     fi;
+| fi; cell "$cli" rtdd-event-context rtdd_event_ok; cell "$cli" prereqs-named prereqs_ok; cell "$cli" init-wizard-choice init_choice_ok; headless_rows "$cli"; (( TSV )) || finish )
+| == test_fleet_registry.sh ==
+| == the registry dir is separate from the poller's ==
+|   ok: HARNESS_FLEETS_DIR is under HARNESS_HOME
+|   ok: it is NOT the poller registry
+| == register / read back / deregister ==
+|   ok: one file per fleet
+|   ok: self-project excluded from entries
+|   ok: the other fleet's prefix is reported
+|   ok: our own prefix is not reported
+|   ok: re-register is idempotent
+|   ok: re-register updates the prefix
+|   ok: deregister removes only its own entry
+|   ok: the sibling survives
+| == best-effort: the registry is an aid, never a gate ==
+|   ok: absent registry yields no entries
+|   ok: absent registry is not an error
+|   ok: unwritable registry still returns 0
+|   ok: unwritable registry warns on stderr
+| == a malformed entry never breaks the reader ==
+|   ok: malformed entries are skipped, valid ones still read
+| == start.sh registers UNCONDITIONALLY (static: it can't run in this harness) ==
+|   ok: start.sh calls fleet_register
+|   ok: found the fleet_register line
+|   ok: found the HARNESS_USE_POLLER block
+|   ok: found the check_prefix_collision line
+|   ok: registration precedes the poller block (not nested inside it)
+|   ok: registration happens AFTER the collision guard passes
+| == stop.sh deregisters unconditionally (behavioural) ==
+|   ok: two fleets registered before stop
+|   ok: stop removed exactly one entry
+|   ok: the sibling fleet's entry survives stop
+| ── 24/24 passed
+| == test_bypass.sh ==
+|   ok: A1: settings.local.json created
+|   ok: A1: defaultMode == bypassPermissions
+|   ok: A1: valid JSON
+|   ok: A1: pattern added to worktree info/exclude
+|   ok: A2: defaultMode added
+|   ok: A2: existing allow rule preserved
+|   ok: A2: unrelated top-level key preserved
+|   ok: A3: exclude line not duplicated
+|   ok: A3: mode still bypassPermissions
+|   ok: A4: no settings.local.json written when supervised
+|   ok: A5: target's info/exclude gets the pattern
+|   ok: A5: cwd repo's info/exclude untouched
+| ── 12/12 passed
+| == test_snapshot.sh ==
+|   ok: snapshot is valid JSON with required fields
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+|   ok: snapshot == direct for: dispatch acme/widget 3
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+|   ok: snapshot == direct for: complete acme/widget
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+|   ok: snapshot == direct for: bugs acme/widget
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+|   ok: snapshot == direct for: working-bugs acme/widget
+|   ok: snapshot mode made ZERO gh calls
+| [issuelib] skip issue #99 from disallowed author 'stranger' (allowlist: self-only unless HARNESS_AUTHOR_ALLOWLIST set)
+|   ok: cross-repo dep (lib#42 closed) → #5 dispatched
+|   ok: free issue #8 dispatched
+|   ok: unsnapshotted dep (other/ghost#1) → #9 blocked
+|   ok: full snapshot caches the issue/13 PR (not feature/x, not a fork's issue/14)
+|   ok: …and its head's combined status
+|   ok: incremental refresh keeps pulls + checks
+|   ok: an unchanged PR list and status cost one 304 each
+|   ok: …and nothing charged
+|   ok: a failed PR read never fails the snapshot
+|   ok: …and keeps the previous pulls + checks
+|   ok: never read: no pulls / checks keys (the drawer says unknown)
+|   ok: no issue/<n> branch: no PR, and…
+|   ok: …no PR or status call at all
+| ── 19/19 passed
+| == test_spawn.sh ==
+| === C1: SPEC unbound variable ===
+|   ok: spawn_impl: no unbound-var crash (C1)
+|   ok: spawn_orch: no unbound-var crash (C1)
+| === #67: ensure_trusted pre-accepts the workspace-trust dialog ===
+|   ok: fresh dir trusted; config created from absent (A1)
+|   ok: config is valid JSON after creating from absent (A1)
+|   ok: config still valid JSON after merge (A2)
+|   ok: new path trusted (A2)
+|   ok: top-level key 'userID' preserved (A2)
+|   ok: top-level key 'numStartups' preserved (A2)
+|   ok: existing project entry preserved (A2)
+|   ok: existing project's other fields preserved (A2)
+|   ok: re-trust adds no duplicate project entry (A3)
+|   ok: re-trust leaves the flag true (A3)
+|   ok: config still valid JSON after idempotent re-trust (A3)
+|   ok: config valid JSON after 12 concurrent ensure_trusted (A4 race-safe)
+|   ok: all 12 concurrently-trusted paths present (A4 no lost update)
+|   ok: supervised (HARNESS_AUTONOMOUS=false) does NOT auto-trust (A5)
+|   ok: launch_claude pre-trusts its launch dir (A6 integration)
+| === #67b: ensure_trusted seeds every config Claude Code might read ===
+|   ok: ~/.claude.json trusted (B1)
+|   ok: account 'main' config trusted (B1)
+|   ok: account 'sub' config trusted (B1)
+|   ok: account config still valid JSON after merge (B2)
+|   ok: new path trusted in account config (B2)
+|   ok: account identity/top-level keys preserved (B2)
+|   ok: existing account project entry preserved (B2)
+|   ok: existing project's other fields preserved (B2)
+|   ok: plain $HOME still trusted with no switcher (B3)
+|   ok: unmatched account glob creates nothing (B3)
+|   ok: $CLAUDE_CONFIG_DIR config trusted (B4)
+|   ok: seam config trusted (B5)
+|   ok: seam does not write $HOME/.claude.json (B5)
+|   ok: seam does not write account configs (B5)
+| === #108: launch_claude is a no-op for an already-live session ===
+|   ok: launch_claude returns 0 for an already-live session (#108)
+|   ok: no tmux new-session for a live session (#108)
+|   ok: no tmux send-keys into a live session's pane (#108)
+|   ok: write_state not run; state file untouched (#108)
+|   ok: goal file untouched for a live session (#108)
+|   ok: fresh spawn still calls tmux new-session (#108)
+|   ok: fresh spawn still send-keys exec claude (#108)
+|   ok: fresh spawn writes the goal file (#108)
+|   ok: REVIEW launches the PRD-qualified session
+|   ok: REVIEW runs in its own orch worktree
+|   ok: REVIEW worktree is on a throwaway branch
+|   ok: REVIEW task file written into the worktree
+|   ok: gauntlet dir is PRD-scoped
+|   ok: PLAN still runs in the shared checkout
+|   ok: PLAN uses the p0 session
+|   ok: orch GOAL is PRD-qualified
+|   ok: unit-level GOAL stays bare
+| ── 48/48 passed
+| == test_stats.py ==
+|   ok: test_add_and_minus_usage_carry_the_1h_share
+|   ok: test_backfill_attributes_transcripts_and_is_idempotent
+|   ok: test_backfill_rtdd_counts_bash_calls_once_and_is_idempotent
+|   ok: test_checkpointed_and_resumed_lane_session_ends_sum_to_the_transcript_total
+|   ok: test_classify_dir
+|   ok: test_dominant_model_is_by_output_tokens
+|   ok: test_dominant_model_not_intended_emits_one_model_mismatch_event
+|   ok: test_edge_paths_degrade_quietly
+|   ok: test_emit_drops_event_when_lock_is_held
+|   ok: test_emit_failure_returns_nonzero_and_never_raises
+|   ok: test_emit_swallows_unexpected_errors_and_runs_as_a_script
+|   ok: test_events_file_override_and_line_shape
+|   ok: test_events_log_leading_bom_is_read_and_unparseable_lines_are_counted
+|   ok: test_events_log_raw_control_char_in_a_field_is_counted
+|   ok: test_failed_relaunch_under_same_session_keeps_the_earlier_run
+|   ok: test_file_usage_over_resumed_turns_with_cumulative_model_usage_is_the_real_total
+|   ok: test_filters
+|   ok: test_fleet_rtdd_selective_share_and_rtdd_missing
+|   ok: test_fleet_summary
+|   ok: test_fleet_summary_reads_old_unit_and_new_repo_worker_events
+|   ok: test_goal_env_matches_the_launch_parse
+|   ok: test_goal_fields
+|   ok: test_headless_lane_events_fold_result_model_usage_when_no_transcript
+|   ok: test_launch_failed_after_the_sweeps_empty_session_end_is_still_not_a_session
+|   ok: test_launch_failed_lane_is_not_a_session
+|   ok: test_launch_failed_lane_that_reported_usage_is_still_a_session
+|   ok: test_launch_model_and_effort_are_the_callers_never_parsed_from_flags
+|   ok: test_launch_then_session_end_writes_usage_totals_including_subagents
+|   ok: test_long_string_option_values_are_clipped_in_stats_errors
+|   ok: test_main_transcript_on_another_family_still_trips_model_mismatch_despite_subagents
+|   ok: test_malformed_usage_gives_no_traceback_in_report_and_ran
+|   ok: test_matching_dominant_model_with_a_side_call_emits_nothing
+|   ok: test_model_family_alias_vs_full_id
+|   ok: test_no_rtdd_events_still_render_with_empty_rtdd_columns
+|   ok: test_parent_prd_cli
+|   ok: test_prd_rollup_equals_sum_of_children_sessions
+|   ok: test_ran_command_reads_events_like_load_events
+|   ok: test_ran_command_reads_logged_usage
+|   FAIL: test_read_config_ends_an_unquoted_value_where_bash_does — AssertionError: ("'HARNESS_REPO=acme/wid\\u2028get\\n'", '"W\\x00i\\x00n\\x00d\\x00o\\x00w\\x00s\\x00 \\x00S\\x00u\\x00b\\x00s\\x00y\\x00s\\x00t\\x00e\\x00m\\x00 \\x00f\\x00o\\x00r\\x00 \\x00L\\x00i\\x00n\\x00u\\x00x\\x00 \\x00h\\x00a\\x00s\\x00 \\x00n\\x00o\\x00 \\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00e\\x00d\\x00 \\x00d\\x00i\\x00s\\x00t\\x00r\\x00i\\x00b\\x00u\\x00t\\x00i\\x00o\\x00n\\x00s\\x00.\\x00\\n\\x00\\n\\x00Y\\x00o\\x00u\\x00 \\x00c\\x00a\\x00n\\x00 \\x00r\\x00e\\x00s\\x00o\\x00l\\x00v\\x00e\\x00 \\x00t\\x00h\\x00i\\x00s\\x00 \\x00b\\x00y\\x00 \\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00i\\x00n\\x00g\\x00 \\x00a\\x00 \\x00d\\x00i\\x00s\\x00t\\x00r\\x00i\\x00b\\x00u\\x00t\\x00i\\x00o\\x00n\\x00 \\x00w\\x00i\\x00t\\x00h\\x00 \\x00t\\x00h\\x00e\\x00 \\x00i\\x00n\\x00s\\x00t\\x00r\\x00u\\x00c\\x00t\\x00i\\x00o\\x00n\\x00s\\x00 \\x00b\\x00e\\x00l\\x00o\\x00w\\x00:\\x00\\n\\x00\\n\\x00\\n\\x00\\n\\x00U\\x00s\\x00e\\x00 \\x00\'\\x00w\\x00s\\x00l\\x00.\\x00e\\x00x\\x00e\\x00 \\x00-\\x00-\\x00l\\x00i\\x00s\\x00t\\x00 \\x00-\\x00-\\x00o\\x00n\\x00l\\x00i\\x00n\\x00e\\x00\'\\x00 \\x00t\\x00o\\x00 \\x00l\\x00i\\x00s\\x00t\\x00 \\x00a\\x00v\\x00a\\x00i\\x00l\\x00a\\x00b\\x00l\\x00e\\x00 \\x00d\\x00i\\x00s\\x00t\\x00r\\x00i\\x00b\\x00u\\x00t\\x00i\\x00o\\x00n\\x00s\\x00\\n\\x00\\n\\x00a\\x00n\\x00d\\x00 \\x00\'\\x00w\\x00s\\x00l\\x00.\\x00e\\x00x\\x00e\\x00 \\x00-\\x00-\\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00 \\x00<\\x00D\\x00i\\x00s\\x00t\\x00r\\x00o\\x00>\\x00\'\\x00 \\x00t\\x00o\\x00 \\x00i\\x00n\\x00s\\x00t\\x00a\\x00l\\x00l\\x00.\\x00\\n\\x00\\n\\x00"')
+|   ok: test_read_config_ignores_a_leading_utf8_bom
+|   ok: test_report_cli_by_role_text_and_json
+|   ok: test_report_cli_text_and_json
+|   ok: test_report_explicit_events_path_missing_or_directory_is_exit_2
+|   ok: test_report_fleet_must_be_non_empty_with_no_leading_dash
+|   ok: test_report_into_a_reader_that_stops_early_is_quiet
+|   ok: test_report_issue_and_prd_are_ascii_digits_only
+|   ok: test_report_issue_and_prd_over_long_number_is_a_one_line_usage_error
+|   ok: test_report_issue_below_one_is_a_usage_error
+|   ok: test_report_marks_a_codex_lane_as_a_fallback_price_estimate
+|   ok: test_report_prd_below_one_is_a_usage_error
+|   ok: test_report_repo_must_be_owner_name_with_no_leading_dash
+|   ok: test_report_since_and_model_must_not_be_empty
+|   ok: test_report_since_count_too_large_for_a_date_is_a_usage_error
+|   ok: test_report_since_is_ascii_digits_only
+|   FAIL: test_repr_style_error_sites_spell_a_form_feed_and_u2028_as_vis_does — AssertionError: (['--events=no\x0cpe.jsonl'], 2, "harness stats: --events 'no\\u000cpe.jsonl' is not readable (Invalid argument)\n")
+|   ok: test_role_rollup_respects_filters_and_omits_empty_other
+|   ok: test_role_rollup_tokens_and_list_price_per_role
+|   ok: test_rtdd_event_joins_to_its_issue_and_session_in_issue_json
+|   ok: test_session_end_without_main_model_falls_back_to_merged_usage
+|   ok: test_session_end_without_resumed_replaces_and_a_tmux_lane_is_unchanged
+|   ok: test_session_kind_to_role_for_every_kind
+|   ok: test_session_usage_keeps_the_1h_cache_writes_apart_and_counts_subagents
+|   ok: test_session_usage_sums_main_and_subagents_once_per_message
+|   ok: test_stats_cost_for_run_20261106_matches_the_bench_recompute
+|   ok: test_subagents_on_another_family_never_trip_model_mismatch
+|   ok: test_text_output_escapes_line_separators_and_controls_in_names
+|   ok: test_time_split_cli_subcommand
+|   ok: test_time_split_command_patterns
+|   ok: test_time_split_exact_on_a_fixture_transcript
+|   ok: test_time_split_no_transcript_or_calls
+|   ok: test_time_split_pattern_is_overridable_by_env_and_config
+|   ok: test_time_split_reaches_prd_and_issue_reports
+| ── 2 FAILED
+| == test_supervise_rules.py ==
+|   ok: test_an_unreadable_repo_holds_its_strikes
+|   ok: test_cli_entry_exits_with_mains_code
+|   ok: test_decompose_stalled_counts_a_prd_missing_its_task1_child
+|   ok: test_decompose_stalled_needs_three_quiet_passes_and_no_session
+|   ok: test_deep_context_alarms_once_then_resolves
+|   ok: test_gather_reads_every_slug_and_holds_an_unreadable_one
+|   ok: test_healthy_pane_is_left_alone
+|   ok: test_hitl_child_is_not_an_unclaimable_blocker
+|   ok: test_hitl_leak
+|   ok: test_issue_missing_from_listing_is_unknown_not_zombie
+|   ok: test_main_end_to_end_and_alarms_listing
+|   ok: test_main_reads_the_reconciled_allowlist
+|   ok: test_missing_parent_only_outside_issue_only_mode_and_honours_exemptions
+|   ok: test_no_frontier
+|   ok: test_orch_and_bug_sessions_are_not_judged_on_the_lock
+|   ok: test_parse_sessions_skips_malformed_rows
+|   ok: test_review_loop_counts_gate_rounds_and_survives_a_restart
+|   ok: test_sh_and_capture_never_raise
+|   ok: test_strikes_of_an_ended_session_are_forgotten
+|   ok: test_unclaimable_blocker_alarms_and_names_the_issue
+|   ok: test_unfiled_plans_greps_the_default_branch
+|   ok: test_unfiled_plans_honour_the_reconciled_allowlist
+|   ok: test_unlocked_work_is_relabelled_after_three_passes
+|   ok: test_wayfinder_leak
+|   ok: test_wedged_session_is_fixed_after_two_passes_not_one
+|   ok: test_zombie_session_fix_needs_three_passes
+| ── all pass
+| == test_forecast.py ==
+|   ok: test_a_bad_usd_per_pct_gives_no_fallback_valid_json_and_a_named_message
+|   ok: test_a_bodies_file_with_a_bom_reads_like_one_without_and_a_malformed_one_is_a_line_not_a_traceback
+|   ok: test_a_repo_read_from_config_is_checked_like_dash_r
+|   ok: test_bodies_number_past_4300_digits_is_a_one_line_error_without_pythons_advice
+|   ok: test_calibration_fits_usd_per_pct_skips_reset_pairs_and_lists_accounts_without_readings
+|   ok: test_config_value_ignores_a_leading_utf8_bom
+|   ok: test_config_value_never_reads_a_commented_out_setting
+|   ok: test_config_value_reads_every_assignment_form_and_the_last_wins
+|   ok: test_crlf_and_lone_cr_body_forecasts_the_same_as_its_lf_copy
+|   ok: test_dash_leading_unit_is_a_usage_error_with_and_without_repo
+|   ok: test_empty_unit_and_bodies_are_usage_errors
+|   ok: test_explicit_events_path_that_is_missing_or_a_directory_is_an_error_not_no_events
+|   ok: test_fallback_alone_and_the_setting_from_config
+|   ok: test_forecast_host_fallback_and_no_history_at_all
+|   ok: test_forecast_prints_pct_of_each_window_from_the_bound_or_the_fallback
+|   ok: test_forecast_uses_prd_siblings_reports_spend_and_resolves_the_repo
+|   ok: test_forecast_without_history_falls_back_to_unit_and_says_so
+|   ok: test_harness_forecast_cli_dispatch
+|   ok: test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators
+|   ok: test_issue_number_below_one_is_a_usage_error
+|   ok: test_issue_number_is_ascii_digits_only
+|   ok: test_issue_number_over_long_is_a_one_line_usage_error
+|   ok: test_lane_without_transcript_is_spread_by_the_pool_phase_mix
+|   ok: test_list_price_per_model_and_cache_split
+|   ok: test_long_string_option_values_are_clipped_in_forecast_errors
+|   ok: test_oversized_usd_per_pct_is_echoed_truncated_on_stderr
+|   ok: test_phase_attribution_dedupes_streamed_messages_and_includes_subagents
+|   ok: test_phase_rules
+|   ok: test_pool_falls_back_prd_then_unit_then_host_and_skips_turn1_lanes
+|   ok: test_price_table_per_family_and_generation_pinned
+|   ok: test_quantiles_are_nearest_rank
+|   ok: test_repo_resolution_from_the_project
+|   ok: test_repo_value_must_be_owner_name_in_every_form
+|   ok: test_run_20261106_recomputes_at_list_prices
+|   ok: test_size_scale_is_clamped_and_neutral_when_unknown
+|   ok: test_unit_and_account_names_with_line_separators_print_escaped
+|   ok: test_unit_name_error_spells_a_form_feed_and_u2028_as_vis_does
+|   ok: test_unparseable_event_lines_are_counted_on_stderr
+|   FAIL: test_unreadable_bodies_path_with_line_separators_prints_escaped — "harness forecast: --bodies 'C:\\hx-605\\tmp\\tmp.5ZQZg7Ck7O\\test_forecast.py\\tmp\\tmp62thd2_x\\no\\u000cpe' is not readable (Invalid argument)\n"
+|   ok: test_usd_per_pct_rejects_non_finite_tiny_and_bad_values_and_names_them
+| ── 1 FAILED
+| == run.sh: 11/19 test files passed ==
+| FAILED: test_fleet_migrate.sh
+| FAILED: test_cli_codex.sh
+| FAILED: test_cli_copilot.sh
+| FAILED: test_cli_hermes.sh
+| FAILED: test_cli_openclaw.sh
+| FAILED: test_cli_opencode.sh
+| FAILED: test_stats.py
+| FAILED: test_forecast.py
+######## end of run.sh output
+== run.sh: 11/19 test files passed ==
+FAILED: test_fleet_migrate.sh
+FAILED: test_cli_codex.sh
+FAILED: test_cli_copilot.sh
+FAILED: test_cli_hermes.sh
+FAILED: test_cli_openclaw.sh
+FAILED: test_cli_opencode.sh
+FAILED: test_stats.py
+FAILED: test_forecast.py
+SUITE-RESULT 8 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-605
+credentials: GH_TOKEN written nowhere new
+[15:21:37] cleanup: winsma clean (no hx-605, lock released, no run task or process)
+[15:21:37] run: OK

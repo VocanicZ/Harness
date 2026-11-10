@@ -833,7 +833,9 @@ def test_unreadable_bodies_path_with_line_separators_prints_escaped():   # #863
                                 "--events", events, "--bodies", os.path.join(d, f"no{ch}pe")],
                                capture_output=True, text=True)
             assert r.returncode == 2, (r.returncode, r.stderr)
-            assert f"no{esc}pe" in r.stderr and "--bodies" in r.stderr and "does not exist" in r.stderr, repr(r.stderr)
+            # a form feed cannot be in a Windows file name: "Invalid argument", not "does not exist" (#605)
+            gone = ("does not exist", "is not readable") if portable.is_windows() else ("does not exist",)
+            assert f"no{esc}pe" in r.stderr and "--bodies" in r.stderr and any(g in r.stderr for g in gone), repr(r.stderr)
             assert ch not in r.stderr and ch not in r.stdout, (repr(r.stderr), repr(r.stdout))
 
 

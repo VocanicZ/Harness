@@ -23,11 +23,14 @@ TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 # HARNESS_MATRIX_ROWS=<ERE> runs only the rows it matches (a headless-only run: '^headless-'), for a slow or
 # platform-specific run; the headless-* rows alone take HARNESS_MATRIX_HEADLESS_PLATFORM=windows to run on
 # the Windows code paths (hl_env), on Linux or on a Windows host.
-cell(){ local cli="$1" row="$2"; shift 2
+# HARNESS_MATRIX_TIMING=1 prints each cell's seconds on stderr (`matrix-timing <cli> <row> <n>s`): how a lane reads where a slow host
+# (a Windows one, where every process start costs ten times a Linux one) spends the matrix (#605).
+cell(){ local cli="$1" row="$2" t0=$SECONDS; shift 2
   [[ -z "${HARNESS_MATRIX_ROWS:-}" || $row =~ $HARNESS_MATRIX_ROWS ]] || return 0
   if (( TSV )); then
     if "$@" >/dev/null 2>&1; then printf '%s\t%s\tok\n' "$cli" "$row"; else printf '%s\t%s\tFAIL\n' "$cli" "$row"; fi
-  else assert_ok "$cli: $row" "$@"; fi; }
+  else assert_ok "$cli: $row" "$@"; fi
+  [[ -z "${HARNESS_MATRIX_TIMING:-}" ]] || echo "matrix-timing $cli $row $((SECONDS - t0))s" >&2; }
 # na <cli> <row> <reason> — a row that cannot exist for this CLI; the README cell shows the reason.
 na(){ [[ -z "${HARNESS_MATRIX_ROWS:-}" || $2 =~ $HARNESS_MATRIX_ROWS ]] || return 0
   if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi; }
