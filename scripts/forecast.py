@@ -652,7 +652,7 @@ def resolve_repo(issue, repo, unit, events, state_dir):
     if unit and not repo:
         repo = next((r for u, r in units if u == unit), None)
         if not repo:
-            raise ValueError(f"no unit {unit!r} in this project")
+            raise ValueError(f"no unit {st.vrepr(unit)} in this project")
     if not repo:
         mine = {s.get("repo") for s in st.sessions(events)
                 if s.get("issue") == issue and s.get("kind") in LANE_KINDS and s.get("repo")}
@@ -693,7 +693,7 @@ def unit_arg(v):
     """argparse type for --unit: a name that does not start with `-` (a usage error, exit 2, with or without -R)."""
     import argparse
     if not v or v.startswith("-"):   # #862: an empty --unit is no unit name, not "no --unit"
-        raise argparse.ArgumentTypeError(f"{v!r} is not a unit name — it must be non-empty and not start with '-'")
+        raise argparse.ArgumentTypeError(f"{st.vrepr(v)} is not a unit name — it must be non-empty and not start with '-'")
     return v
 
 

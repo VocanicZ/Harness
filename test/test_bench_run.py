@@ -782,6 +782,20 @@ def re_commit(v):
     return bool(v) and re.fullmatch(r"[0-9a-f]{40,64}(-dirty)?", v) is not None
 
 
+def test_usage_errors_spell_a_form_feed_and_u2028_as_vis_does():   # #899
+    for ch, esc in (("\x0c", "\\u000c"), ("\u2028", "\\u2028")):
+        r = subprocess.run([sys.executable, RUN, "stub", "--run-id", f"a{ch}b"], capture_output=True, text=True)
+        assert r.returncode != 0 and f"'a{esc}b'" in r.stderr, (r.returncode, r.stderr)
+        assert ch not in r.stderr and "\\x0c" not in r.stderr, repr(r.stderr)
+        assert bench_run._short(f"a{ch}b") == f"'a{esc}b'"
+        try:
+            bench_run.load_arm(f"a{ch}b", ROOT)
+        except ValueError as e:
+            assert f"'a{esc}b'" in str(e) and "\\x0c" not in str(e), str(e)
+        else:
+            raise AssertionError("expected ValueError")
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
