@@ -542,6 +542,22 @@ def test_report_since_is_ascii_digits_only():
     assert st.parse_since("7d", now=1000000) == 1000000 - 7 * 86400
 
 
+def test_report_since_count_too_large_for_a_date_is_a_usage_error():
+    """#879: a 307-digit and a 5000-digit --since count are a usage error (exit 2), one line naming --since, no traceback, no digits echoed."""
+    for n in (307, 5000):
+        for unit in "dhm":
+            bad = "9" * n + unit
+            try: st.parse_since(bad); assert False, f"{n} digits accepted"
+            except ValueError as e: assert "--since" in str(e) and "9999" not in str(e), e
+            err = io.StringIO()
+            with host(), contextlib.redirect_stderr(err):
+                rc, out = run(["report", "--since", bad])
+            msg = err.getvalue()
+            assert rc == 2 and out == "" and "--since" in msg and msg.count("\n") == 1 and len(msg) < 200 and "Traceback" not in msg, (n, rc, out, msg)
+    assert st.parse_since("0" * 5000 + "7d", now=1000000) == 1000000 - 7 * 86400
+    assert st.parse_since("999999999d", now=0) == -999999999 * 86400
+
+
 def test_backfill_attributes_transcripts_and_is_idempotent():
     with host() as d:
         fleets = os.path.join(d, "fleets"); os.makedirs(fleets)
