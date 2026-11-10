@@ -229,6 +229,7 @@ assert_no "a passed reset is no window: rc 1" hu
 rm -f "$HU_OUT"
 assert_no "a provider with no usage endpoint (usage-none.txt): rc 1" hu
 
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="hermes" && $3!="ok" && $3 !~ /^n\/a:/')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+col="$(HARNESS_MATRIX_CLIS=hermes bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="hermes" && $3!="ok" && $3 !~ /^n\/a:/')"
 assert_eq "$col" "" "every hermes matrix cell is ok or n/a"
 finish

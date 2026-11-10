@@ -177,6 +177,7 @@ SP="$RUN_DIR/spell"; mkdir -p "$SP/h"; printf '[projects."C:/w/proj"]\ntrust_lev
   assert_no "windows: …but another directory is not" cli_trusted /c/w/other
   finish ) || TESTS_FAIL=$((TESTS_FAIL+1))
 # #353: codex has no headless lane runner, so its headless-* rows read n/a, tmux-only — and only those.
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="codex" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only")')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+col="$(HARNESS_MATRIX_CLIS=codex bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="codex" && $3!="ok" && !($2 ~ /^headless-/ && $3 == "n/a:tmux-only")')"
 assert_eq "$col" "" "every codex matrix cell is ok, but its headless-* rows: n/a, tmux-only"
 finish

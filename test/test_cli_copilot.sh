@@ -185,7 +185,8 @@ assert_ok "init offers copilot" grep -qx copilot <<<"$(cli_list)"
 
 # #483: copilot has a headless lane runner (scripts/cli/copilot_headless.py), so its headless-* rows run on
 # the fixture replay (fake-copilot) like claude's: every copilot matrix cell is ok, those rows included.
-cells="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot"')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+cells="$(HARNESS_MATRIX_CLIS=copilot bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot"')"
 assert_eq "$(awk -F'\t' '$3!="ok"' <<<"$cells")" "" "every copilot matrix cell is ok, its headless-* rows included"
 assert_eq "$(awk -F'\t' '$2 ~ /^headless-/' <<<"$cells" | wc -l)" 14 "…and it has all 14 of them"
 # …and on the Windows code paths (HARNESS_PLATFORM=windows forced on this host, an flock-backed msvcrt for

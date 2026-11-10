@@ -137,17 +137,20 @@ for (const e of evs) {
   await hooks.event({ event: { type: ev[e], properties } })
 }
 JS
+  # The prompt's 🔄 is the one byte sequence a Windows node's captured stdout does not return intact (#605): the line is matched from the
+  # lane/agent/model it names to the text after the emoji, so the agent, model and iteration are still asserted.
+  has_prompt(){ grep -qE -- "PROMPT lane build/acme/m-9 .* $(sed 's/[][\.*^$|?+(){}\/]/\\&/g' <<<"$1")" <<<"$2"; }
   drive(){ OPENCODE_HARNESS_LOOP="$GOAL_LOOP_PY" node "$P/drive.mjs" "$P/harness-ralph.mjs" "$P/wd" "$@" 2>&1; }
   write_state "$P/wd" "PLUGIN DONE" 5 x
   out="$(drive "STILL WORKING" idle)"
   assert_ok "plugin: an idle lane without the promise is re-prompted with the next iteration" \
-    has 'PROMPT lane build/acme/m-9 🔄 Ralph iteration 2 | To stop: output <promise>PLUGIN DONE</promise>' "$out"
+    has_prompt 'Ralph iteration 2 | To stop: output <promise>PLUGIN DONE</promise>' "$out"
   assert_ok "…as the agent and model its last prompt ran with, and the state file counts it" grep -qx 'iteration: 2' "$P/wd/.claude/ralph-loop.local.md"
   out="$(drive "STILL WORKING" error idle idle-child)"
   assert_eq "$out" "" "plugin: a turn that ended in an error is not re-prompted, nor is a sub-agent's session"
   assert_ok "…and neither counts an iteration" grep -qx 'iteration: 2' "$P/wd/.claude/ralph-loop.local.md"
   out="$(drive "STILL WORKING" error busy idle)"
-  assert_ok "plugin: an error is forgotten once the session runs a turn again" has 'PROMPT lane build/acme/m-9 🔄 Ralph iteration 3' "$out"
+  assert_ok "plugin: an error is forgotten once the session runs a turn again" has_prompt 'Ralph iteration 3' "$out"
   out="$(OPENCODE_HARNESS_LOOP= node "$P/drive.mjs" "$P/harness-ralph.mjs" "$P/wd" "STILL WORKING" idle 2>&1)"
   assert_eq "$out" "" "plugin: a session Harness did not launch (no loop script named) is left alone"
   out="$(drive "done <promise>PLUGIN DONE</promise>" idle)"
@@ -161,7 +164,8 @@ fi
 
 # #482: opencode has a headless lane runner, so its headless-* rows run; only headless-usage-windows is n/a (no
 # quota meter), like usage-windows.
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" { print $2, substr($3, 1, 4) }')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+col="$(HARNESS_MATRIX_CLIS=opencode bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" { print $2, substr($3, 1, 4) }')"
 assert_eq "$col" "$(printf 'trust-dialog-is-not-prompt n/a:\ntrust-pre-accepted n/a:\nusage-windows n/a:\nsupervisor-skips-trust-dialog n/a:\nheadless-usage-windows n/a:')" \
   "every opencode matrix cell is ok, but the rows that cannot exist for it (n/a with a reason), headless-* rows included"
 finish

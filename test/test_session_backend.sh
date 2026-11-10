@@ -181,7 +181,9 @@ assert_ok "…naming the valid ones" grep -qF "unknown HARNESS_SESSION_BACKEND: 
 assert_no "…and writes no config" test -f "$proj/.harness/config"
 
 tmux(){ return 1; }
-out="$(DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
+# On a Windows host doctor_main also audits the machine (prereqs, engine, leftover tasks: test_doctor's subject, and the host's own state);
+# this assertion is about the backend check alone, so those four report nothing here (#605).
+out="$(doctor_windows(){ :; }; doctor_windows_prereqs(){ :; }; doctor_engine_windows(){ :; }; doctor_leftovers(){ :; }; DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
 assert_ok "doctor reports the session backend" grep -qxF "session backend: tmux" <<<"$out"
 assert_eq "$rc" 0 "…and a known one is healthy"
 out="$(HARNESS_SESSION_BACKEND=screen DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?

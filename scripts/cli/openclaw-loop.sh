@@ -41,8 +41,11 @@ read -ra cmd <<<"$bin"
 tree(){ ps -e -o pid=,ppid= | awk -v r="$1" '{ up[$1] = $2 } END { s[r] = 1
   do { n = 0; for (k in up) if (!(k in s) && (up[k] in s)) { s[k] = 1; n++ } } while (n)
   for (k in s) print k }'; }
+# On Windows MSYS `ps` has no -o: portable.sh's proc_kill_tree (taskkill /T on the turn's winpid) ends the tree instead (#605).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../portable.sh" 2>/dev/null
 stop_turn(){ local p; p="$(cat "$st/running" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] || return 0
-  kill $(tree "$p") 2>/dev/null; rm -f "$st/running"; }
+  if declare -F is_windows >/dev/null && is_windows; then proc_kill_tree "$p"; else kill $(tree "$p") 2>/dev/null; fi
+  rm -f "$st/running"; }
 trap 'stop_turn; exit 129' HUP
 trap 'stop_turn; exit 143' TERM
 
