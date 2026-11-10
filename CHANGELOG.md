@@ -71,6 +71,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - Not covered: `test_cli_matrix_guard.sh` and `test_cli_readme.sh` have not finished on winsma (the guard reruns the matrix ~10 times); a few matrix cells
   (agy `headless-resume`, hermes and openclaw `stats-session-end-usage`) pass or fail by host load. Both are tracked in follow-up issues.
 
+### Windows suite: `test_cli_readme.sh` and `test_cli_matrix_guard.sh` finish in a lane-sized time (#943)
+
+- One matrix is ~8 min on Linux and ~100 min on winsma (every cell is many Git Bash forks), and the readme test ran it once, the guard about ten times,
+  so neither finished under any cap. `test_cli_matrix.sh` over several CLIs (`--tsv` or asserting) is now one child run per CLI, each with a RUN_DIR of its
+  own, up to `HARNESS_MATRIX_JOBS` at a time (default: the host's cores, at most 4; 1 = one after the other); the cells print in the CLIs' order, so the
+  readme test reads the same table. `HARNESS_MATRIX_ROWS` now also skips the expensive arguments of a row it does not select (the lane launch, the
+  transcript parse), not just the cell.
+- `test_cli_matrix_guard.sh` starts its eighteen matrix runs together, each on only the rows its assertions read (the stubbed-trust run reads one row per
+  CLI, not the whole matrix), and checks them once all have ended. Every assertion is unchanged; a new one checks that a 3-job run gives the 1-job run's
+  cells in order and that its children overlap.
+
 ### An unrecognized trailing argument to `harness tier decide`, `overlap` or `thresholds` shows that subcommand's usage (#936)
 
 - `harness tier decide … -x` (and a trailing `-`) was reported by the top-level parser, so the user saw the usage for `harness tier`. The usage and
