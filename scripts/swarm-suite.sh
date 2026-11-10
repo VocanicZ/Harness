@@ -186,7 +186,8 @@ toml_str(){
 if [[ -n "$TEST_CMD" ]]; then
   cmd="${TEST_CMD//\{file\}/\"\$f\"}"; cmd="${cmd//\{junit\}/\"\$o/.junit.tmp\"}"
 else
-  cmd='case "$f" in
+  cmd='case "$f" in -*) f="./$f" ;; esac   # a dash-led name is a file, not an option (#996)
+case "$f" in
   *.py) if grep -q __main__ "$f"; then PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" python3 "$f"; else python3 -m pytest -q "$f" --junitxml="$o/.junit.tmp"; fi ;;
   *) bash "$f" ;;
 esac'
