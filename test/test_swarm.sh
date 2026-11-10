@@ -363,6 +363,17 @@ rc="$(run_suite '' empty3 test/test_ok.sh)"
 assert_eq "$rc" 2 "an empty worktree -> 2"
 assert_ok "…shown as ''" grep -qxF "swarm-suite: no such worktree: ''" "$T/err"
 
+echo "-- #985: a job name too long for a directory name is a usage error from the helper, shown cut short"
+: > "$FAKE_SWARM_STATE/calls"
+LONGNAME="$(printf 'x%.0s' {1..300})"
+rc="$(run_suite "$WT" "$LONGNAME" test/test_ok.sh)"
+assert_eq "$rc" 2 "a 300-character job name -> usage error, exit 2"
+assert_eq "$(cat "$T/err")" "usage: swarm-suite.sh <worktree> <job-name> [test files...] — job name too long (max 200 characters): 'xxxxxxxxxxxxxxxxxxxx'…" "…names the limit and shows the first 20 characters and an ellipsis"
+assert_no "…no raw mkdir error" grep -q "mkdir\|File name too long" "$T/err"
+assert_eq "$(cat "$FAKE_SWARM_STATE/calls")" "" "…swarm never touched"
+rc="$(run_suite "$WT" "$(printf 'y%.0s' {1..200})" test/test_ok.sh)"
+assert_eq "$rc" 0 "a 200-character job name is still fine"
+
 echo "-- #982: swarm.toml stays valid TOML (and round-trips the workdir) when the workdir path holds control characters"
 toml_workdir(){ python3 -c 'import sys,tomllib; sys.stdout.write(tomllib.load(open(sys.argv[1],"rb"))["workdir"])' "$1"; }
 CWT="$T/c"$'\f'"w"$'\n'"t"$'\x01\x7f\b\t\r'"\\\"d"; cp -a "$WT" "$CWT"
