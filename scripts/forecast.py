@@ -662,6 +662,8 @@ def resolve_repo(issue, repo, unit, events, state_dir):
             repo, unit = units[0][1], unit or units[0][0]
         else:
             raise ValueError(f"cannot tell which repo #{issue} is in — pass -R owner/repo or --unit")
+    if not st.REPO_RE.fullmatch(repo):   # #933: a repo from the config goes through the check -R does
+        raise ValueError(f"{st.short_repr(repo)} is not a repository — expected owner/name")
     unit = unit or next((u for u, r in units if r.lower() == repo.lower()), None)
     return repo, unit
 

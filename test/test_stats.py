@@ -1439,6 +1439,33 @@ def test_read_config_ignores_a_leading_utf8_bom():   # #859
             shutil.rmtree(d, ignore_errors=True)
 
 
+def test_read_config_ends_an_unquoted_value_where_bash_does():   # #933
+    """An unquoted value ends at ASCII space, tab, newline or `#` only: a form feed, U+2028 and other Unicode spaces stay in it,
+    as when bash sources the file. Python's \\s ended it at the first of them."""
+    for ch in ("\u2028", "\u2029", "\x0c", "\x0b", "\u00a0", "\u3000", "\x85"):
+        for line, want in ((f"HARNESS_REPO=acme/wid{ch}get\n", f"acme/wid{ch}get"),
+                           (f"export HARNESS_REPO=acme/wid{ch}get # note\n", f"acme/wid{ch}get"),
+                           (f"HARNESS_REPO=acme/widget{ch}HARNESS_UNIT=u1\n", f"acme/widget{ch}HARNESS_UNIT=u1")):
+            d = tempfile.mkdtemp()
+            try:
+                with open(os.path.join(d, "config"), "w", encoding="utf-8", newline="") as fh:
+                    fh.write(line)
+                assert st.read_config(d) == {"HARNESS_REPO": want}, (ascii(line), st.read_config(d))
+                if shutil.which("bash"):   # the shell is the reference
+                    out = subprocess.run(["bash", "-c", 'source "$1"; printf %s "$HARNESS_REPO"', "x", os.path.join(d, "config")],
+                                         capture_output=True, text=True, encoding="utf-8").stdout
+                    assert out == want, (ascii(line), ascii(out))
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
+    d = tempfile.mkdtemp()
+    try:
+        with open(os.path.join(d, "config"), "w") as fh:
+            fh.write("HARNESS_REPO=a/b\tHARNESS_UNIT=u1\nHARNESS_OWNER=o # c\n")
+        assert st.read_config(d) == {"HARNESS_REPO": "a/b", "HARNESS_OWNER": "o"}, st.read_config(d)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_repr_style_error_sites_spell_a_form_feed_and_u2028_as_vis_does():   # #899
     """An option value echoed in a usage error with quotes (the repr style) shows U+000C / U+2028 as \\u000c / \\u2028,
     the way `vis` does, never as repr's \\x0c: stats.vrepr, and the -R / --fleet / --since / --events errors."""

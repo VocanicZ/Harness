@@ -1441,8 +1441,9 @@ def read_config(state_dir, keys=None):
     except (OSError, TypeError):
         return cfg
     keys = "|".join(keys or _CFG_KEYS)
-    pat = (r'^\s*:\s*"\$\{(' + keys + r'):=([^}"]*)\}"'
-           r'|^\s*(?:export\s+)?(' + keys + r')=(?:"([^"]*)"|\'([^\']*)\'|([^\s#]*))')
+    # ASCII blanks only, as bash splits words (#933): \s is Unicode-aware, so a form feed or U+2028 in a value ended it early.
+    pat = (r'^[ \t]*:[ \t]*"\$\{(' + keys + r'):=([^}"]*)\}"'
+           r'|^[ \t]*(?:export[ \t]+)?(' + keys + r')=(?:"([^"]*)"|\'([^\']*)\'|([^ \t\n#]*))')
     for m in re.finditer(pat, text, re.M):
         if m.group(1):
             cfg[m.group(1)] = m.group(2)

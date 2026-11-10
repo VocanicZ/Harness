@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The config reader ends an unquoted value where bash does, and a repository from config is checked like `-R` (#933)
+
+- `stats.read_config` matched an unquoted value with `[^\s#]*`, and Python's `\s` is Unicode-aware, so `HARNESS_REPO=acme/wid<U+2028>get` read as
+  `acme/wid` (bash keeps the whole value), and `KEY=a<FF>OTHER=2` split one value in two. An unquoted value now ends only at an ASCII space, tab or
+  newline, or at `#`, and a line's leading blanks and the blanks around `export` and `:` are ASCII too.
+- `harness forecast` used a `HARNESS_REPO` from `.harness/config` without the owner/name check `-R` gets, so a quoted `"acme/wid<U+2028>get"` printed
+  `forecast #50 acme/wid get`. It is now refused with `… is not a repository — expected owner/name` (exit 2). `test_stats.py`, `test_forecast.py` cover both.
+
 ### Windows: agy's usage lookup and codex's session lookup work on a native host (#606)
 
 - `agy_limit_usage` ran `agy -p /usage`; Git Bash rewrote the lone `/usage` argument into `C:/Program Files/Git/usage` for a native agy, so no usage

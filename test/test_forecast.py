@@ -874,6 +874,33 @@ def test_crlf_and_lone_cr_body_forecasts_the_same_as_its_lf_copy():   # #838
     assert fc.body_len_of("a\r\nb\rc\nd") == 7
 
 
+def test_a_repo_read_from_config_is_checked_like_dash_r():   # #933
+    """A HARNESS_REPO from .harness/config that is not owner/name is refused with -R's message, never used as the repo."""
+    for ch, esc in (("\u2028", "\\u2028"), ("\f", "\\u000c"), (" ", " ")):
+        for quoted in ('"acme/wid%sget"', "'acme/wid%sget'"):
+            with tmp() as d:
+                with open(os.path.join(d, "config"), "w", encoding="utf-8", newline="") as fh:
+                    fh.write("HARNESS_REPO=" + quoted % ch + "\n")
+                try:
+                    fc.resolve_repo(3, None, None, events=[], state_dir=d)
+                except ValueError as e:
+                    assert f"'acme/wid{esc}get' is not a repository" in str(e), str(e)
+                else:
+                    raise AssertionError("expected ValueError")
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        with open(os.path.join(d, "config"), "w", encoding="utf-8", newline="") as fh:
+            fh.write('HARNESS_REPO="acme/wid\u2028get"\n')
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "99", "--events", events, "--bodies", bodies],
+                           capture_output=True, text=True, env=dict(os.environ, HARNESS_CLAUDE_CONFIG_DIRS=cfg, STATE_DIR=d))
+        assert r.returncode == 2 and "not a repository" in r.stderr and "\u2028" not in r.stderr, (r.returncode, r.stderr)
+        assert "forecast #" not in r.stdout, r.stdout
+    with tmp() as d:
+        with open(os.path.join(d, "config"), "w") as fh:
+            fh.write("HARNESS_REPO=acme/widget\n")
+        assert fc.resolve_repo(3, None, None, events=[], state_dir=d) == ("acme/widget", "main")
+
+
 def test_unit_name_error_spells_a_form_feed_and_u2028_as_vis_does():   # #899
     """--unit and the 'no unit' error echo the value with quotes, a control character shown as \\uXXXX, not repr's \\x0c."""
     with tmp() as d:
