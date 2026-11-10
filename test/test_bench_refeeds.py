@@ -79,3 +79,16 @@ def test_the_aggregate_reports_refeeds_per_run():
                                {"status": "ok", "capped": None, "refeeds": 3, "refeed_tokens": 400}])
     assert agg["metrics"]["refeeds"]["max"] == 15 and agg["metrics"]["refeeds"]["min"] == 3
     assert agg["metrics"]["refeed_tokens"]["median"] == (39572 + 400) / 2
+
+
+if __name__ == "__main__":
+    # test/run.sh runs this file as `python3 <file>` (#892): without a runner here it would define the tests and exit 0.
+    import traceback
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except Exception:
+                print(f"  FAIL: {name}"); traceback.print_exc(); fails += 1
+    print(f"-- {'all pass' if not fails else str(fails) + ' FAILED'}")
+    sys.exit(1 if fails else 0)
