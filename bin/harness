@@ -175,28 +175,6 @@ global options:
                        HARNESS_STATE_DIR_OK=1 waives that check for a whole shell.
 EOF
 }
-# Global option scan, before dispatch: --state-dir <path> | --state-dir=<path> marks a DELIBERATE
-# target, the escape hatch from the inherited-STATE_DIR refusal above (#168). Consumed here, never
-# forwarded to the subcommand script. Only an exact token matches, so a quoted brief is untouched.
-STATE_DIR_EXPLICIT=0
-_argv=()
-while (($#)); do
-  case "$1" in
-    --state-dir)
-      shift; [[ $# -gt 0 && -n "$1" ]] || { echo "harness: --state-dir requires a path" >&2; exit 2; }
-      STATE_DIR="$1"; STATE_DIR_EXPLICIT=1; export STATE_DIR;;
-    --state-dir=*)
-      STATE_DIR="${1#--state-dir=}"
-      [[ -n "$STATE_DIR" ]] || { echo "harness: --state-dir requires a path" >&2; exit 2; }
-      STATE_DIR_EXPLICIT=1; export STATE_DIR;;
-    *) _argv+=("$1");;
-  esac
-  shift
-done
-set -- ${_argv[@]+"${_argv[@]}"}
-# An empty command NAME ("") is a command, not an absent one (#953): only no argument at all prints the usage and exits 0.
-_have_cmd=$#
-cmd="${1:-}"; shift || true
 # vis_arg STR — STR for a human-readable message (#952), spelled as scripts/stats.py `vis` does (#756): a C0 or C1
 # control character, DEL, U+2028 and U+2029 become \uXXXX, so an unknown command's name never splits the error over
 # several lines or reaches the terminal raw. Byte-level under LC_ALL=C, so no locale matters.
@@ -218,6 +196,36 @@ vis_arg(){
   done
   printf '%s' "$out"
 }
+# Global option scan, before dispatch: --state-dir <path> | --state-dir=<path> marks a DELIBERATE
+# target, the escape hatch from the inherited-STATE_DIR refusal above (#168). Consumed here, never
+# forwarded to the subcommand script. Only an exact token matches, so a quoted brief is untouched.
+STATE_DIR_EXPLICIT=0
+_argv=()
+while (($#)); do
+  case "$1" in
+    --state-dir)
+      shift; [[ $# -gt 0 && -n "$1" ]] || { echo "harness: --state-dir requires a path" >&2; exit 2; }
+      # A dash-led value after a space is most likely a forgotten path, as for the other options (#973): say so, and name the = form.
+      [[ "$1" != -* ]] || { echo "harness: --state-dir '$(vis_arg "$1")' looks like an option; write --state-dir=$(vis_arg "$1")" >&2; exit 2; }
+      STATE_DIR="$1"; STATE_DIR_EXPLICIT=1; export STATE_DIR;;
+    --state-dir=*)
+      STATE_DIR="${1#--state-dir=}"
+      [[ -n "$STATE_DIR" ]] || { echo "harness: --state-dir requires a path" >&2; exit 2; }
+      STATE_DIR_EXPLICIT=1; export STATE_DIR;;
+    *) _argv+=("$1");;
+  esac
+  shift
+done
+set -- ${_argv[@]+"${_argv[@]}"}
+# An explicit --state-dir is a DELIBERATE choice of project (#168): a path that is not a directory is a typo, not a project, so it is a
+# usage error (#986) rather than being ignored or failing deep in lib.sh. `init` is exempt: it creates the directory.
+if (( STATE_DIR_EXPLICIT )) && [[ "${1:-}" != init && ! -d "$STATE_DIR" ]]; then
+  if [[ -e "$STATE_DIR" ]]; then _why="not a directory"; else _why="no such directory"; fi
+  echo "harness: --state-dir '$(vis_arg "$STATE_DIR")': $_why" >&2; exit 2
+fi
+# An empty command NAME ("") is a command, not an absent one (#953): only no argument at all prints the usage and exits 0.
+_have_cmd=$#
+cmd="${1:-}"; shift || true
 case "$cmd" in
   # engine-level: no project state needed. install bootstraps the host engine; update installs the latest release
   # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
