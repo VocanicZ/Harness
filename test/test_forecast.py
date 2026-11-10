@@ -969,9 +969,18 @@ def test_dash_led_stray_as_the_only_positional_is_named():   # #956
 
 
 def test_dash_led_option_value_after_a_space_is_named_and_the_equals_form_suggested():   # #973
-    for opt, val in (("--unit", "-x"), ("-R", "-x"), ("--bodies", "-x")):
+    for opt, val in (("--bodies", "-x"),):   # a value the = form takes keeps the advice
         r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "5", opt, val], capture_output=True, text=True)
         assert r.returncode == 2 and f"'{val}' looks like an option; write {opt}={val}" in r.stderr, (opt, r.returncode, r.stderr)
+
+
+def test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_advice():   # #1001
+    for opt, why in (("--unit", "is not a unit name"), ("-R", "is not a repository")):
+        cmd = [sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "5"]
+        space = subprocess.run(cmd + [opt, "-x"], capture_output=True, text=True)
+        equals = subprocess.run(cmd + [f"{opt}=-x"], capture_output=True, text=True)
+        assert space.returncode == 2 and why in space.stderr and "looks like an option" not in space.stderr, (opt, space.stderr)
+        assert space.stderr == equals.stderr, (opt, space.stderr, equals.stderr)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A dash-led option value that is never valid gets its real reason, not "write --X=-x" (#1001)
+
+- `harness forecast 3 --unit -x` said `'-x' looks like an option; write --unit=-x`, and the `--unit=-x` form it pointed to was then refused (`'-x' is not a unit name`). For an option that can never take a
+  dash-led value the space form now gives the `=` form's message at once: `harness stats` `--fleet`, `-R`, `--prd`, `--issue`; `harness forecast` `-R`, `--unit`; `harness tier` the count options, `--prefer`, `--base`,
+  `--repo-dir` (unless that directory exists), `-R`; and `bench/run.py` `--runs`, `--run-id`, `--results-dir`, `--owner`. An option that can take such a value (`--model`, `--files`, `--grader`) keeps the advice.
+
 ### `harness tier overlap` names `HARNESS_REPO` or `HARNESS_DEFAULT_BRANCH` when that is the bad value (#1000)
 
 - `HARNESS_REPO=bad harness tier overlap --files a` reported `argument -R: 'bad' is not a repository`, and `HARNESS_DEFAULT_BRANCH=-x … -R o/r` reported `argument --base: …`, blaming an argument
