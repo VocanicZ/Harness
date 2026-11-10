@@ -198,6 +198,18 @@ vis_arg(){
   done
   printf '%s' "$out"
 }
+# no_extra_args CMD ALLOWED ARG... — the engine-level read-only commands take no (or one) argument; a stray one is a typo, so it is a
+# usage error (#994) naming the argument, escaped as the unknown-command error does (#952). ALLOWED is the one option accepted ("" for none).
+no_extra_args(){
+  local allowed="$1"; shift
+  local a
+  for a in "$@"; do
+    [[ -n "$allowed" && "$a" == "$allowed" ]] && continue
+    if [[ "$a" == -* ]]; then echo "harness: unknown option '$(vis_arg "$a")'" >&2
+    else echo "harness: unexpected argument '$(vis_arg "$a")'" >&2; fi
+    exit 2
+  done
+}
 # Global option scan, before dispatch: --state-dir <path> | --state-dir=<path> marks a DELIBERATE
 # target, the escape hatch from the inherited-STATE_DIR refusal above (#168). Consumed here, never
 # forwarded to the subcommand script. Only an exact token matches, so a quoted brief is untouched.
@@ -233,7 +245,7 @@ case "$cmd" in
   # (best-effort STATE_DIR so its "pool still running" warning is accurate when run in a project).
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   # --version is engine-level too: it reads only ENGINE_DIR, never a project .harness/ (#277).
-  --version|version) print_version "$@"; exit 0;;
+  --version|version) no_extra_args --verbose "$@"; print_version "$@"; exit 0;;
   update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
   # release is engine-level: it acts on the git checkout it is run in, never a project .harness/ (#278).
   release) exec bash "$ENGINE_DIR/scripts/release.sh" "$@";;
@@ -281,7 +293,7 @@ case "$cmd" in
   uninstall) try_state_dir; assert_state_dir_deliberate; exec bash "$ENGINE_DIR/scripts/uninstall.sh" "$@";;
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
   resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
-  help|-h|--help) usage;;
+  help|-h|--help) no_extra_args "" "$@"; usage;;
   "") if (( _have_cmd )); then echo "harness: unknown command ''" >&2; usage >&2; exit 2; else usage; fi;;
   *) echo "harness: unknown command '$(vis_arg "$cmd")'" >&2; usage >&2; exit 2;;
 esac

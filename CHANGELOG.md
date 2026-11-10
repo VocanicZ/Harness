@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness --version`, `harness version` and `harness help` reject an unknown extra argument (#994)
+
+- `harness --version -x`, `harness version --bogus` and `harness help -x` exited 0 and ignored the extra argument, so a typo went unnoticed. Only `--verbose` is valid after `--version`/`version`,
+  and `help` (also `-h`, `--help`) takes no argument; anything else is a usage error (exit 2) such as `harness: unknown option '-x'`, with control characters escaped as for an unknown command.
+
 ### `harness stats --events X --backfill` stays inside X's fleets, and the report on X no longer reads the default rtdd log (#1007)
 
 - `--backfill` appended a `session_end` for every Harness transcript on the host (about 1,000 unrelated sessions in one check) into the file given with `--events`, and wrote the default `rtdd-events.jsonl`.
