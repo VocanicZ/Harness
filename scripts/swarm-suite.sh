@@ -272,11 +272,20 @@ EOF
 # Merged, failed or cancelled → no shard will fetch the input again. Any other wait exit leaves the
 # job's state unknown (it may still be running), so its tarball stays.
 case $rc in 0|1) drop_tarball ;; 124) "$SWARM_BIN" cancel "$NAME" >&2 && drop_tarball ;; esac
+# #983: the verdict goes to stdout, and a reader that stops early (`| head -1`) or a closed stdout must not change the exit
+# status: under default SIGPIPE handling the write would kill the shell with 141, and with stdout closed echo/cat print
+# "write error" / "Bad file descriptor" to stderr. The prints run in a subshell that ignores SIGPIPE (cat inherits it) with
+# stderr muted, so a failed write is dropped silently and the exit status stays 0 / 1 / 3.
+verdict_out(){ ( trap '' PIPE; "$@" ) 2>/dev/null; return 0; }
+print_green(){ cat "$JOB/summary.txt" 2>/dev/null || echo "swarm job $NAME merged green"; }
+print_red(){
+  cat "$JOB/summary.txt" 2>/dev/null; echo "failing files (file, status, shard out dir with output.log):"
+  cat "$JOB/failures.txt"
+}
 case $rc in
-  0) cat "$JOB/summary.txt" 2>/dev/null || echo "swarm job $NAME merged green"; exit 0 ;;
+  0) verdict_out print_green; exit 0 ;;
   1) if [[ -s "$JOB/failures.txt" ]]; then
-       cat "$JOB/summary.txt" 2>/dev/null; echo "failing files (file, status, shard out dir with output.log):"
-       cat "$JOB/failures.txt"; exit 1
+       verdict_out print_red; exit 1
      fi
      # Failed with no failing file listed: a shard ran out of retries or the merge never ran —
      # an infrastructure failure, not a test verdict.
