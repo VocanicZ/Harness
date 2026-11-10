@@ -78,8 +78,8 @@ def _read(path):
         raise TierConfigError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
     except ValueError as e:   # tomllib.TOMLDecodeError, or the flat fallback parser's bad number
         huge = _huge_number(text, e)
-        # #912: tomllib spells a control character repr-style (\x0c); the rest of the tools write it as stats.vis does (\u000c)
-        why = re.sub(r"(Illegal character '\\)x([0-9a-f]{2})'", r"\1u00\2'", str(e))
+        # #912: tomllib spells a control character repr-style (\x0c) — "Illegal character" in a value, "Found invalid character" in a comment (#971); the rest of the tools write it as stats.vis does (\u000c)
+        why = re.sub(r"((?:Illegal|Found invalid) character '\\)x([0-9a-f]{2})'", r"\1u00\2'", str(e))
         raise TierConfigError(huge and f"{path}: {huge}" or f"{path}: cannot parse it: {why}")
 
 
