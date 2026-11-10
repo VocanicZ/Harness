@@ -555,6 +555,15 @@ for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
   assert_ok "…-R shows 'a${esc}b'" grep -qF "'a${esc}b' is not a repository" <<<"$err"
   assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c"
 done
+# an unknown subcommand name is echoed escaped, as vis does, not repr-style \x0c (#970)
+for pair in $'\f:\\u000c' $'\xe2\x80\xa8:\\u2028' $'\x01:\\u0001'; do
+  ch="${pair%%:*}"; esc="${pair#*:}"
+  err="$(H tier "de${ch}cide " 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "tier with an unknown subcommand holding ${esc} -> exit 2"
+  assert_ok "…it shows 'de${esc}cide '" grep -qF "invalid choice: 'de${esc}cide ' (choose from decide, overlap, thresholds)" <<<"$err"
+  assert_eq "$(printf %s "$err" | grep -c -- "$ch")" 0 "…no raw ${esc} on stderr (subcommand)"
+  assert_eq "$(printf %s "$err" | grep -c 'x0c\|x01')" 0 "…no repr-style escape (subcommand)"
+done
 # --prefer's choice error, a tier.toml string value and a tier.toml parse error echo U+2028 / a form feed escaped, as vis does (#912)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
   ch="${pair%%:*}"; esc="${pair#*:}"

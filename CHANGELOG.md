@@ -9,6 +9,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A form feed in a `tier.toml` comment was reported as `Found invalid character '\x0c'`: the #912 rewrite matched only tomllib's `Illegal character` message, which it gives for a string value.
   Both messages now spell the character as `harness stats` does, `\u000c`. The exit status stays 2.
 
+### `harness tier` with an unknown subcommand escapes control characters in its error (#970)
+
+- `harness tier $'de\fcide '` said `invalid choice: 'de\x0ccide '`, spelling a form feed (and tab, `\x01`, `\x7f`, `\x85`) the way Python's repr does, unlike every other message in the
+  tool. The name is now spelled as `stats.vis` spells it: `\u000c` for a form feed, `\u2028` for U+2028. The exit status stays 2.
+
 ### A dash-led non-number as the only positional is named in the error (#956)
 
 - `harness forecast -x`, `bench/run.py -x` and `harness tier -x` said only `the following arguments are required: issue` (`arm`, `cmd`) and never named `-x`. The error now

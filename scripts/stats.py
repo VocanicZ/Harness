@@ -889,6 +889,14 @@ def arg_parser(*a, **kw):
                 return not any(k.startswith(name) for k in known if k.startswith("--"))
             return not any(tok.startswith(k) for k in known if len(k) == 2)
 
+        def _check_value(self, action, value):
+            # #970: argparse repr()s a subcommand name that is not one of the choices, so a form feed reads \x0c; this
+            # words the same error with short_repr, so it reads as vis writes it (the subparsers' choices are the names)
+            if action.choices is not None and value not in action.choices:
+                names = ", ".join(map(str, action.choices))
+                raise argparse.ArgumentError(action, f"invalid choice: {short_repr(value)} (choose from {names})")
+            super()._check_value(action, value)
+
         def error(self, message):
             if message.startswith("the following arguments are required"):
                 stray = []
