@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A dash-led non-number as the only positional is named in the error (#956)
+
+- `harness forecast -x`, `bench/run.py -x` and `harness tier -x` said only `the following arguments are required: issue` (`arm`, `cmd`) and never named `-x`. The error now
+  leads with `unrecognized arguments: -x`, and the exit status stays 2. `forecast -5` still names the bad number as before.
+
 ### `bench --cost-cap-usd` refuses zero in its own validation (#955)
 
 - `bench/run.py --cost-cap-usd=-1` said the value must be "zero or more", and then `--cost-cap-usd 0` was refused later with `bench: the caps must be positive`. The option now

@@ -406,7 +406,8 @@ def workstream_count(v):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="harness tier", description=__doc__.split("\n\n")[0])
+    import stats   # #956: its parser names a dash-led stray the missing-subcommand error would hide
+    ap = stats.arg_parser(prog="harness tier", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("decide")
     for k in ("criteria", "lines", "files", "subsystems"):

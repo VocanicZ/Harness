@@ -598,4 +598,11 @@ assert_eq "$(reason_of --criteria 1 --lines 1 --files 1 --subsystems 1)" "fits o
 assert_eq "$(reason_of --criteria 0 --lines 0 --files 0 --subsystems 0)" "fits one session: 0 criteria, ~0 lines, ~0 files, 0 subsystems, user around" "counts of 0 -> plural"
 assert_eq "$(reason_of --criteria 2 --lines 2 --files 2 --subsystems 1)" "fits one session: 2 criteria, ~2 lines, ~2 files, 1 subsystem, user around" "counts of 2 -> plural"
 assert_eq "$(reason_of --criteria 2 --lines 2 --files 2 --subsystems 2)" "fits one session but is over the direct limits: 2 subsystems (> 1)" "2 subsystems over the limit -> plural"
+# a dash-led non-number as the only argument is named, not hidden behind "arguments are required" (#956)
+for stray in -x --nope; do
+  out="$(H tier "$stray" 2>&1)"; rc=$?
+  assert_eq "$rc" 2 "tier $stray -> usage error, exit 2"
+  assert_ok "…names $stray" grep -qF -- "unrecognized arguments: $stray" <<<"$out"
+done
+out="$(H tier 2>&1)"; assert_no "tier with no argument names no stray" grep -q unrecognized <<<"$out"
 finish
