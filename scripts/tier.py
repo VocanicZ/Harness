@@ -365,8 +365,9 @@ def _short(v, keep=20):
     return stats.short_repr(v, keep)
 
 
-def count(v):
-    """argparse type for a count option (--criteria, --lines, --pool, …): an integer from 0 to MAX_COUNT."""
+def count(v, floor_msg=None):
+    """argparse type for a count option (--criteria, --lines, --pool, …): an integer from 0 to MAX_COUNT.
+    `floor_msg` is what a negative value is told when the option's own floor is above 0 (#934)."""
     if not re.fullmatch(r"-?[0-9]+", v):   # ASCII digits only: not 1_1, +5 or full-width digits (#784)
         raise argparse.ArgumentTypeError(f"invalid int value: {_short(v)} (use ASCII digits only)")
     digits = v.lstrip("-")
@@ -377,7 +378,7 @@ def count(v):
         raise argparse.ArgumentTypeError(f"{_short(v)} is too long \u2014 at most {MAX_DIGITS} digits (drop the leading zeros)")
     n = int(v)
     if n < 0:
-        raise argparse.ArgumentTypeError(f"{n} is negative — a count must be 0 or more")
+        raise argparse.ArgumentTypeError(f"{n} is negative — {floor_msg or 'a count must be 0 or more'}")
     if n > MAX_COUNT:
         raise argparse.ArgumentTypeError(f"{n} is too large — a count must be at most {MAX_COUNT}")
     return n
@@ -385,7 +386,7 @@ def count(v):
 
 def pool_size(v):
     """argparse type for --pool: an integer >= 1. A fleet of zero workers is not a real configuration."""
-    n = count(v)
+    n = count(v, "--pool must be 1 or more")
     if n < 1:
         raise argparse.ArgumentTypeError(f"{n} workers is not a fleet — --pool must be 1 or more")
     return n
@@ -393,7 +394,7 @@ def pool_size(v):
 
 def workstream_count(v):
     """argparse type for --workstreams: an integer >= 1. A PRD with zero workstreams is not a real PRD."""
-    n = count(v)
+    n = count(v, "--workstreams must be 1 or more")
     if n < 1:
         raise argparse.ArgumentTypeError(f"{n} workstreams is not a PRD — --workstreams must be 1 or more")
     return n
