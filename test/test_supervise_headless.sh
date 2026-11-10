@@ -164,7 +164,7 @@ esac
 EOF
 cat > "$T/rules-stub" <<EOF
 import sys
-open("$T/rules.stdin", "w").write(sys.stdin.read())
+open("$(native_path "$T")/rules.stdin", "w").write(sys.stdin.read())
 EOF
 SUP_RULES="$T/rules-stub"
 printf '#!/bin/sh\necho "$@" >> %s/harness.calls\n' "$T" > "$T/harness-stub"; chmod +x "$T/harness-stub"; SUP_HARNESS="$T/harness-stub"
@@ -192,11 +192,13 @@ U="$T/unit"; mkdir -p "$T/tools"
 for b in claude gh rtdd python3 git; do ln -sf "$(command -v "$b" 2>/dev/null || echo /bin/true)" "$T/tools/$b"; done
 ln -sf "$(command -v bash)" "$T/tools/bash"
 printf '#!/bin/sh\n' > "$T/tools/systemctl"; chmod +x "$T/tools/systemctl"; cp "$T/tools/systemctl" "$T/tools/loginctl"
-out="$(PATH="$T/tools:/usr/bin:/bin" SUP_UNIT_DIR="$U" SUP_SYSTEMCTL="$T/tools/systemctl" SUP_LOGINCTL="$T/tools/loginctl" sup_install 2>&1)"
+# a Windows host installs a scheduled task whose launcher is <dir>/<name>.sh (win_task_install; run.sh stubs schtasks), not a systemd unit (#606)
+tp="$T/tools:/usr/bin:/bin"; unitf="$U/harness-supervise.service"; if host_is_windows; then tp="$T/tools:$PATH"; unitf="$U/harness-supervise.sh"; fi
+out="$(PATH="$tp" SUP_UNIT_DIR="$U" SUP_SYSTEMCTL="$T/tools/systemctl" SUP_LOGINCTL="$T/tools/loginctl" sup_install 2>&1)"
 assert_no "--install warns about nothing missing" grep -qi "warning" <<<"$out"
-assert_ok "…and writes the unit" test -f "$U/harness-supervise.service"
+assert_ok "…and writes the unit" test -f "$unitf"
 assert_ok "the unit's PATH reaches every session backend's binaries the host has (python3)" \
-  grep -q "^Environment=PATH=.*$(dirname "$(command -v python3)")" "$U/harness-supervise.service"
+  grep -qE "^(Environment=PATH|export PATH)=.*$(dirname "$(command -v python3)")" "$unitf"
 out="$(DOCTOR_FIX=0 doctor_main 2>&1)"
 assert_ok "harness doctor reports the headless backend" grep -qF "session backend: headless" <<<"$out"
 assert_eq "$(cat "$T/tmux.calls" 2>/dev/null)" "" "no tmux ran anywhere in this test"
