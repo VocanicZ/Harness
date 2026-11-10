@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness` with an empty command name is a usage error (#953)
+
+- `harness ""` printed the usage and exited 0, so a script running `harness "$cmd"` with an empty `$cmd` looked like it succeeded. An empty command name now prints
+  `unknown command: ` and the usage on standard error and exits 2, like any other unknown command. `harness` with no arguments at all still prints the usage on standard output
+  and exits 0.
+
 ### `harness` with an unknown command escapes control characters in its error (#952)
 
 - `harness $'st\fats x'` echoed the unknown command's name to standard error with the raw form feed (or U+2028, U+2029, a C1 or other control character), so the message could

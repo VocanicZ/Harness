@@ -189,6 +189,8 @@ while (($#)); do
   shift
 done
 set -- ${_argv[@]+"${_argv[@]}"}
+# An empty command NAME ("") is a command, not an absent one (#953): only no argument at all prints the usage and exits 0.
+_have_cmd=$#
 cmd="${1:-}"; shift || true
 # vis_arg STR — STR for a human-readable message (#952), spelled as scripts/stats.py `vis` does (#756): a C0 or C1
 # control character, DEL, U+2028 and U+2029 become \uXXXX, so an unknown command's name never splits the error over
@@ -265,6 +267,6 @@ case "$cmd" in
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
   resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
   help|-h|--help) usage;;
-  "") usage;;
+  "") if (( _have_cmd )); then echo "unknown command: " >&2; usage >&2; exit 2; else usage; fi;;
   *) echo "unknown command: $(vis_arg "$cmd")" >&2; usage >&2; exit 2;;
 esac
