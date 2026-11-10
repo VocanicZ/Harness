@@ -19,6 +19,7 @@ gh(){ echo "$*" >> "$GH_LOG"
   case "$1 $2" in
     "issue list")   cat "$RUN_DIR/open-bugs" 2>/dev/null || echo '[]';;
     "issue create") echo '[{"number":99}]' > "$RUN_DIR/open-bugs"; echo "https://github.com/acme/harness/issues/99";;
+    "issue view")   [[ -e "$RUN_DIR/gh-down" ]] && return 1; cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;;  # #1029
   esac; return 0; }
 harness_event(){ echo "$*" >> "$EV"; }
 release_kick(){ release_run "$@"; }               # a background job in production; synchronous here
@@ -56,9 +57,50 @@ assert_eq "$(grep -c '^issue create' "$GH_LOG")" 1 "a red gate files one bug iss
 assert_eq "$(grep -c '^issue list' "$GH_LOG")" 1 "the next poll on that commit asks GitHub nothing"
 assert_ok "labelled bug" grep -qE '^issue create .*--label bug' "$GH_LOG"
 assert_ok "the gate failure is an event" grep -q '^release_gate_failed ' "$EV"
-echo ccccccc3 > "$RUN_DIR/head"; STUB_RC=0 release_run prd:275
-assert_eq "$(grep -c . "$RLOG")" 2 "a new commit (the fix) is released"
+# #1029: the red gate's entries stay queued, and while its bug is open no new head is gated.
+D="$HARNESS_AUTORELEASE_DIR"; rm -f "$D/pending" "$D/retry-after"; printf '%s\tprd:275\n' "$t0" > "$D/pending"
+echo 99 > "$RUN_DIR/state-99"; echo OPEN > "$RUN_DIR/state-99"; : > "$GH_LOG"
+echo ccccccc3 > "$RUN_DIR/head"; HARNESS_NOW=$t0 release_tick >> "$RUN_DIR/tick.log" 2>&1
+assert_eq "$(grep -c . "$RLOG")" 1 "an unrelated merge while the gate bug is open runs no release (prd entry)"
+assert_ok "the prd entry stays queued" grep -qP '\tprd:275$' "$D/pending"
+assert_ok "the hold is logged" grep -q 'gate bug #99 (red gate at bbbbbbb) still open' "$RUN_DIR/tick.log"
+printf '%s\t41\n' "$t0" >> "$D/pending"; sed -i '/prd:275/d' "$D/pending"
+HARNESS_NOW=$((t0+7200)) release_tick >/dev/null 2>&1
+assert_eq "$(grep -c . "$RLOG")" 1 "...nor a throttled bug entry past the throttle"
+assert_ok "the bug entry stays queued" grep -qP '\t41$' "$D/pending"
+printf '%s\tprd:275\n' "$t0" >> "$D/pending"
+echo CLOSED > "$RUN_DIR/state-99"; : > "$GH_LOG"
+HARNESS_NOW=$((t0+7200)) release_tick >/dev/null 2>&1
+assert_eq "$(grep -c . "$RLOG")" 2 "once the gate bug is closed the next tick releases the current head"
+assert_eq "$(tail -1 "$REFS")" ccccccc3 "at the new head"
 assert_ok "the release is an event" grep -q '^release_published ' "$EV"
+assert_eq "$(grep -c . "$D/pending")" 0 "and clears the queued prd and bug entries it covered"
+: > "$GH_LOG"; printf '%s\tprd:275\n' "$t0" > "$D/pending"; echo dddddd0 > "$RUN_DIR/head"
+HARNESS_NOW=$((t0+7200)) release_tick >/dev/null 2>&1
+assert_eq "$(grep -c '^issue view' "$GH_LOG")" 0 "a marker whose bug is known closed costs no later gh call"
+assert_eq "$(grep -c . "$RLOG")" 3 "and does not hold later releases"
+echo bbbbbbb2 > "$RUN_DIR/head"; : > "$GH_LOG"
+release_run prd:275
+assert_eq "$(grep -c . "$RLOG")" 3 "a commit with a gate-failed marker is never re-gated, even once its bug closed"
+rm -f "$D/pending"
+
+# #1029: a gh error while checking the gate bug holds the release; an unfiled marker holds it and is re-filed
+echo eeeeee9 > "$RUN_DIR/head"; STUB_RC=4 release_run prd:290; echo fffff10 > "$RUN_DIR/head"
+n_rl="$(grep -c . "$RLOG")"; printf '%s\tprd:290\n' "$t0" > "$D/pending"; : > "$RUN_DIR/tick.log"
+echo OPEN > "$RUN_DIR/state-99"; : > "$RUN_DIR/gh-down"
+HARNESS_NOW=$((t0+7200)) release_tick >> "$RUN_DIR/tick.log" 2>&1; rm -f "$RUN_DIR/gh-down"
+assert_eq "$(grep -c . "$RLOG")" "$n_rl" "a gh error checking the gate bug holds the release"
+assert_ok "prd stays queued" grep -qP '\tprd:290$' "$D/pending"
+: > "$D/gate-failed-eeeeee9"; rm -f "$RUN_DIR/open-bugs"; : > "$GH_LOG"; echo CLOSED > "$RUN_DIR/state-99"
+echo OPEN > "$RUN_DIR/state-99"
+HARNESS_NOW=$((t0+7200)) release_tick >> "$RUN_DIR/tick.log" 2>&1
+assert_eq "$(grep -c . "$RLOG")" "$n_rl" "an unfiled marker holds the release"
+assert_ok "and the tick retries filing its bug" grep -q '^issue create' "$GH_LOG"
+assert_eq "$(cat "$D/gate-failed-eeeeee9")" 99 "recorded for the stranded sha"
+echo CLOSED > "$RUN_DIR/state-99"
+HARNESS_NOW=$((t0+7200)) release_tick >/dev/null 2>&1
+assert_eq "$(grep -c . "$RLOG")" "$((n_rl+1))" "and releases once that bug is closed"
+rm -f "$D/pending" "$D/retry-after"
 
 # ── a failed close is no close: nothing is released until the close lands ──
 SLUG=acme/harness; : > "$RLOG"
@@ -71,7 +113,8 @@ assert_ok "the retried close that lands releases" grep -qx 'prd:276' "$RLOG"
 # ── a red gate while a bug for it is already open: no duplicate ──
 : > "$GH_LOG"; echo '[{"number":77}]' > "$RUN_DIR/open-bugs"; echo ddddddd4 > "$RUN_DIR/head"
 gh(){ echo "$*" >> "$GH_LOG"
-  case "$1 $2" in "issue list") cat "$RUN_DIR/open-bugs";; "issue create") echo "https://github.com/acme/harness/issues/100";; esac; return 0; }
+  case "$1 $2" in "issue list") cat "$RUN_DIR/open-bugs";; "issue create") echo "https://github.com/acme/harness/issues/100";;
+    "issue view") cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;; esac; return 0; }
 STUB_RC=4 release_run prd:277
 assert_eq "$(grep -c '^issue create' "$GH_LOG")" 0 "an open bug for the same commit is not filed twice"
 assert_eq "$(cat "$HARNESS_AUTORELEASE_DIR/gate-failed-ddddddd4")" 77 "the open bug is recorded for that commit"
