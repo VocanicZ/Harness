@@ -43,7 +43,9 @@ def labels(d):
 def section(body, title):
     """The text under a level-2 `## <title>` heading, up to the next level-2 heading ('' when absent)."""
     out, on = [], False
-    for line in (body or "").splitlines():
+    # only LF, CRLF and lone CR end a line: str.splitlines() also breaks at \f, \v, \x1c-\x1e, \x85, U+2028 and
+    # U+2029, which would cut the user's request short at one of them (#950)
+    for line in re.split(r"\r\n|\r|\n", body or ""):
         m = re.match(r"##\s+(.*?)\s*#*\s*$", line)
         if m and not line.startswith("###"):
             if on:
