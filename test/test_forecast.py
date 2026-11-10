@@ -903,6 +903,20 @@ def test_empty_unit_and_bodies_are_usage_errors():   # #862: neither is "not giv
                 "non-empty" in r.stderr or "must not be empty" in r.stderr), (flag, r.returncode, r.stdout, r.stderr)
 
 
+def test_long_string_option_values_are_clipped_in_forecast_errors():   # #911
+    """A 5000-character --unit / --repo value is echoed as 20 characters and an ellipsis, on a short line."""
+    x = "a" * 5000
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for argv, want in (([f"--unit=-{x}"], "'-" + "a" * 19 + "'\u2026 is not a unit name"),
+                           ([f"--unit={x}"], "no unit '" + "a" * 20 + "'\u2026 in this project"),
+                           ([f"--repo={x}"], "'" + "a" * 20 + "'\u2026 is not a repository")):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "3"] + argv + ["--events", events, "--bodies", bodies],
+                               capture_output=True, text=True, env=dict(os.environ, STATE_DIR=d))
+            line = r.stderr.rstrip("\n").rsplit("\n", 1)[-1]
+            assert r.returncode == 2 and want in line and len(line) < 200 and "a" * 21 not in r.stderr, (argv[0][:10], r.returncode, len(line), line[:200])
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

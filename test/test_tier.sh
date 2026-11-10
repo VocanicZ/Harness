@@ -442,7 +442,7 @@ for p in "$T/nonexistent-dir" "$T/afile"; do
     fi
     assert_eq "$rc" 2 "overlap --repo-dir ($form) $p not a directory -> usage error, exit 2"
     assert_ok "overlap --repo-dir ($form) $p: names --repo-dir" grep -qF -- '--repo-dir' <<<"$err"
-    assert_ok "overlap --repo-dir ($form) $p: names the path" grep -qF -- "$p" <<<"$err"
+    assert_ok "overlap --repo-dir ($form) $p: names the path (its first 20 characters, #911)" grep -qF -- "${p:0:20}" <<<"$err"
     assert_eq "$(grep -c "error:" <<<"$err")" 1 "overlap --repo-dir ($form) $p: one error line"
     assert_eq "$(wc -c < "$GH_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs gh"
     assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs git"
@@ -542,4 +542,19 @@ assert_eq "$(printf %s "$err" | grep -c $'\f')" 0 "…no raw form feed on stderr
 assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c (parse error)"
 H tier decide --help | grep -qF -- '--prefer {direct,lane,fleet}'; assert_eq "$?" 0 "--prefer still lists its choices in --help"
 assert_eq "$(d --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer fleet | jq_ 'd["tier"]')" fleet "--prefer fleet still overrides"
+# a 5000-character string option is echoed as 20 characters and an ellipsis, on one short line (#911)
+x5000="$(python3 -c "print('a'*5000)")"
+for spec in "overlap --files a -R $x5000|'aaaaaaaaaaaaaaaaaaaa'…" "overlap --files a --repo-dir $x5000|'aaaaaaaaaaaaaaaaaaaa'…" \
+            "overlap --files a --base=-$x5000|'-aaaaaaaaaaaaaaaaaaa'…" \
+            "decide --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer $x5000|'aaaaaaaaaaaaaaaaaaaa'…"; do
+  want="${spec##*|}"; read -ra targs <<<"${spec%|*}"
+  out="$(H tier "${targs[@]}" 2>&1)"; rc=$?
+  line="$(tail -n 1 <<<"$out")"
+  assert_eq "$rc" 2 "${targs[*]:0:3}: 5000-character value -> usage error, exit 2"
+  assert_ok "…echoes ${want}" grep -qF -- "$want" <<<"$line"
+  assert_ok "…the error line is short" test "${#line}" -lt 200
+  assert_no "…no 21 a's" grep -q 'aaaaaaaaaaaaaaaaaaaaa' <<<"$out"
+done
+out="$(H tier decide --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer zz 2>&1)"
+assert_ok "--prefer zz still says which values are valid" grep -qF "invalid choice: 'zz' (choose from direct, lane, fleet)" <<<"$out"
 finish
