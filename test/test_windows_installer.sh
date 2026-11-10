@@ -19,7 +19,7 @@ printf '[user]\n\tname = Test User\n\temail = test@example.com\n' >"$GIT_CONFIG_
 
 SYS="$T/sys"; mkdir -p "$SYS"
 for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename mkdir chmod ln git awk cut sort uname id rmdir; do
-  p="$(command -v "$t")" && ln -s "$p" "$SYS/$t"; done
+  link_tool "$t" "$SYS"; done
 LOG="$T/log"
 stub(){ mkdir -p "$1"; printf '#!/bin/sh\necho "%s $*" >> %q\n%s\n' "$2" "$LOG" "${3:-exit 0}" > "$1/$2"; chmod +x "$1/$2"; }
 STORE='echo "Python was not found; run without arguments to install from the Microsoft Store" >&2; exit 9009'

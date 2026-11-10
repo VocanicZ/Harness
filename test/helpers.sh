@@ -53,6 +53,11 @@ any_spelling(){ local n; n="$(native_path "$1")"; if [[ $n == "$1" ]]; then prin
 # the engine symlink, a skill link) and then asserts `-L` read false (#608). install.sh sets it for itself; a test that builds its
 # fixtures with a bare `ln -s` needs it too, so it is set once here for every test (test_windows_update.sh/test_install_prereqs.sh do the same).
 real_windows_host && [[ " ${MSYS:-} " != *" winsymlinks:nativestrict "* ]] && export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+# link_tool <name> <dir> — put a link to the PATH's <name> in <dir>, for a fixture PATH of "just these tools" (#921). `command -v` names an MSYS
+# tool without its .exe (`/usr/bin/dirname`), and a native symlink to that literal path dangles: the tool is then "not found" on a PATH the test
+# built to hold it (install.sh's own `dirname` came back empty and no adapter loaded). readlink -f appends the .exe, so a Windows host links that.
+link_tool(){ local t="$1" d="$2" p; p="$(command -v "$t")" || return 1
+  real_windows_host && p="$(readlink -f "$p")"; ln -sf "$p" "$d/$t"; }
 # file_url <path> — a file:// URL native curl can read (#608). Git for Windows' curl is a native exe: `file:///c/x` (the MSYS
 # spelling of C:/x) reads C:\c\x, so every fixture that served a fake release from $T/srv got "could not resolve" on winsma and
 # install.sh / update.sh / harness update exited 1 or 3. Windows: file:///C:/x/y; elsewhere file:///x/y, as before.

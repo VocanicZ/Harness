@@ -330,7 +330,7 @@ assert_eq "$(env -u PYTHONUTF8 PATH="$IH/home/bin:$IH:/usr/bin:/bin" HARNESS_PYT
 # A PATH with the usual tools but no Python on it (the CI host's own python3 would answer otherwise).
 NB="$T/nopy"; mkdir -p "$NB"
 for b in bash sh env dirname basename sed cat grep tr awk head mkdir chmod ls readlink realpath uname id cut sort; do
-  p="$(command -v "$b")" && ln -sf "$p" "$NB/$b"
+  link_tool "$b" "$NB"
 done
 out="$(PATH="$IH/home/bin:$NB" HARNESS_PYTHON=python3 "$S" x 2>&1)"; rc=$?
 assert_eq "$rc" 127 "a HARNESS_PYTHON that only the shim answers to fails instead of looping"

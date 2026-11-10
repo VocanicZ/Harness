@@ -76,8 +76,13 @@ fi
 if command -v node >/dev/null && command -v npm >/dev/null; then
   NG="$T/nogit"; mkdir -p "$NG/bin" "$NG/home"
   for c in node npm bash sh env; do ln -s "$(readlink -f "$(command -v "$c")")" "$NG/bin/$c"; done
+  NGPATH="$NG/bin"
+  # Windows: npm is a shell script that finds node_modules/npm beside its own path ($0, a link's dir, not its target's), so a linked npm
+  # cannot run. Node's own folder (node, npm, npx: no git) and Git's /usr/bin (bash, env, uname, dirname: no git either) are the git-less PATH.
+  if real_windows_host; then NGPATH="$(dirname "$(command -v node)"):/usr/bin"; fi
   assert_ok "the git-less PATH has no git" test ! -e "$NG/bin/git"
-  out="$(cd "$NG" && env -i HOME="$NG/home" PATH="$NG/bin" npm_config_cache="$NG/cache" \
+  assert_no "...nor anywhere on it" env PATH="$NGPATH" bash -c 'command -v git'
+  out="$(cd "$NG" && env -i HOME="$NG/home" PATH="$NGPATH" npm_config_cache="$NG/cache" \
     npm_config_offline=true npm_config_update_notifier=false \
     npm pack --dry-run github:VocanicZ/Harness 2>&1)"; rc=$?
   assert_ok "npm cannot fetch github:VocanicZ/Harness without git" test "$rc" -ne 0
