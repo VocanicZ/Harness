@@ -165,6 +165,19 @@ echo "-- custom per-file command"
 rc="$(HARNESS_SWARM_TEST_CMD='test -f {file}' run_suite "$WT" custom test/test_ok.sh test/test_red.sh)"
 assert_eq "$rc" 0 "HARNESS_SWARM_TEST_CMD replaces the default command"
 
+echo "-- #996: a test file whose name starts with a dash runs as a file, not as an option"
+DW="$T/dashwt"; mkdir -p "$DW"
+printf 'exit 0\n' > "$DW/-x.sh"
+printf 'import sys\nif __name__ == "__main__":\n    sys.exit(0)\n' > "$DW/-m.py"
+printf 'def test_dash():\n    assert True\n' > "$DW/-c.py"
+git -C "$DW" init -q && git -C "$DW" add -A
+rc="$(run_suite "$DW" dash ./-x.sh ./-m.py ./-c.py)"
+assert_eq "$rc" 0 "dash-led .sh, .py with __main__ and .py without it → all pass, exit 0"
+for f in -x.sh -m.py -c.py; do
+  o="$FAKE_SWARM_STATE/dash/outs/$(grep -F -- "$f" "$RUN_DIR/swarm/dash/shards.tsv" | cut -f1)"
+  assert_eq "$(cat "$o/status")" pass "$f: reported as passing"
+done
+
 echo "-- #793: every shard runs with a private tmux dir, and cannot reach a server outside it"
 UIDN="$(id -u)"
 SHARD_OUTS(){ echo "$FAKE_SWARM_STATE/$1/outs"; }

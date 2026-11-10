@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `swarm-suite.sh` runs a test file whose name starts with a dash (#996)
+
+- A test file such as `-x.sh`, `-m.py` or `-c.py` was handed to `bash`, `grep` and `python3` as an option, so the shard failed (`bash: -.: invalid option`, or pytest exiting 5 with
+  "no tests ran") even though the file passes. The default shard command now runs it as `./<name>`, so a dash-led `.sh`, a `.py` with `__main__` and a `.py` without it all report as passing.
+
 ### `harness --version` keeps exit 0 when its output is cut off (#993)
 
 - `harness --version | head -0` exited 141 (SIGPIPE), and `harness --version --verbose | head -1` did so in about 1 of 5 runs. The report is now written in one go with SIGPIPE ignored
