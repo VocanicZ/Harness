@@ -4,6 +4,17 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The suite computes a CLI's matrix cells once per run, so the five adapter tests no longer time out on Windows (#1024)
+
+- On winsma, `test_cli_codex.sh`, `test_cli_copilot.sh`, `test_cli_hermes.sh`, `test_cli_openclaw.sh` and `test_cli_opencode.sh` passed every assertion of their own and then hit the 1500 s cap in their closing
+  `test_cli_matrix.sh --tsv` call: one CLI's cells take over 25 minutes there (about a minute on Linux), and the same cells were run again for `test_cli_matrix.sh`, `test_cli_readme.sh` and the next file that wanted them.
+- `test/run.sh` now gives every test a `HARNESS_MATRIX_CACHE` for the run, and `test_cli_matrix.sh` keeps a CLI's finished cells there: a later run over the same fixtures, rows and environment prints them (`--tsv`) or replays
+  them as passed assertions instead of running a cell. When two or more CLIs' cells are wanted (the adapter files named above, `test_cli_matrix.sh`, `test_cli_readme.sh`), `run.sh` first computes them together, in parallel,
+  as a step of its own, so none of the files waits out the matrix under its own cap. A prefetch that fails changes nothing: the files run their cells themselves, as before.
+- Sharing does not lower what a cell asserts and does not hide a red one: a failed cell stays `FAIL` in the cache and in every `--tsv` that reads it, and an assertion run never replays a CLI that has a red cell, it runs that
+  CLI live so the failure comes with the cell's own output. `test_cli_matrix_cache.sh` covers it, and `test_cli_matrix_guard.sh` still runs every cell it checks live. Without `HARNESS_MATRIX_CACHE`
+  (a direct `bash test/test_cli_codex.sh`) nothing changes.
+
 ### `harness --version`, `harness version` and `harness help` reject an unknown extra argument (#994)
 
 - `harness --version -x`, `harness version --bogus` and `harness help -x` exited 0 and ignored the extra argument, so a typo went unnoticed. Only `--verbose` is valid after `--version`/`version`,

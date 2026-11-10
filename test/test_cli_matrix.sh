@@ -11,6 +11,9 @@
 # test_cli_matrix_guard.sh reruns it on a cut-down fixture tree (HARNESS_MATRIX_FIX), for some CLIs
 # (HARNESS_MATRIX_CLIS), with adapter functions stubbed to `:` (HARNESS_MATRIX_STUB="trust trusted").
 set -uo pipefail
+# The PATH the run was given (a child run of matrix_parallel is handed its parent's, not the one make_env changed): make_env puts the run's own
+# stub dir on PATH, which is not part of the cache key (mcache_key).
+: "${MATRIX_START_PATH:=$PATH}"; export MATRIX_START_PATH
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
@@ -25,15 +28,40 @@ TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 # the Windows code paths (hl_env), on Linux or on a Windows host.
 # HARNESS_MATRIX_TIMING=1 prints each cell's seconds on stderr (`matrix-timing <cli> <row> <n>s`): how a lane reads where a slow host
 # (a Windows one, where every process start costs ten times a Linux one) spends the matrix (#605).
-cell(){ local cli="$1" row="$2" t0=$SECONDS; shift 2
+# HARNESS_MATRIX_CACHE=<dir> (#1024: run.sh sets it) shares a CLI's finished cells between the runs of one suite run: the five adapter tests, this
+# test, test_cli_readme.sh and the run.sh prefetch all want the same CLI's cells, and on a Windows host one CLI's cells take over 25 minutes.
+# A CLI that ran to its end publishes its cells (<key>.<cli>.tsv: the TSV lines, whichever mode ran them); a later run with the same key
+# (this script, fixtures, PATH and every HARNESS_MATRIX_* but the knobs below) reads them instead of running a cell: --tsv prints them, an
+# assertion run replays its `ok:` lines. A CLI with a red cell is never replayed by an assertion run: it runs live, so the failure comes with
+# the cell's own output. No cache variable: every run is live, as before.
+mcache_key(){ local v s="$HERE|$FIX|$MATRIX_START_PATH|${HARNESS_PLATFORM:-}|${_HARNESS_OS:-}"
+  for v in $(compgen -v HARNESS_MATRIX_); do case $v in HARNESS_MATRIX_JOBS|HARNESS_MATRIX_TRACE|HARNESS_MATRIX_TIMING|HARNESS_MATRIX_CACHE|HARNESS_MATRIX_CLIS) continue;; esac; s+="|$v=${!v}"; done
+  printf '%s' "$s" | cksum | cut -d' ' -f1; }
+MCACHE=""; [[ -n "${HARNESS_MATRIX_CACHE:-}" ]] && { MCACHE="$HARNESS_MATRIX_CACHE"; mkdir -p "$MCACHE" 2>/dev/null && MKEY="$(mcache_key)" || MCACHE=""; }
+# mcache_record <cli> <row> <result> — one finished cell, into the CLI's cell log (CELLS, set per CLI below).
+mcache_record(){ [[ -z "${CELLS:-}" ]] || printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$CELLS"; }
+# mcache_publish <cli> — the CLI ran to its end: its cells become the cache entry (atomically: a run that reads it sees all or none).
+mcache_publish(){ [[ -n "${CELLS:-}" && -n $MCACHE ]] || return 0
+  cp "$CELLS" "$MCACHE/$MKEY.$1.tsv.$$" 2>/dev/null && mv -f "$MCACHE/$MKEY.$1.tsv.$$" "$MCACHE/$MKEY.$1.tsv"; }
+# mcache_hit <cli> — whether this run can take the CLI's cells from the cache (it prints them, or replays them as passed assertions).
+mcache_hit(){ local f="$MCACHE/$MKEY.$1.tsv" c r s; [[ -n $MCACHE && -s $f ]] || return 1
+  if (( TSV )); then cat "$f"; return 0; fi
+  grep -q "$(printf '\tFAIL$')" "$f" && return 1
+  while IFS=$'\t' read -r c r s; do
+    if [[ $s == ok ]]; then TESTS_RUN=$((TESTS_RUN+1)); echo "  ok: $c: $r"; else echo "  n/a: $c: $r — ${s#n/a:}"; fi
+  done < "$f"
+  finish; }
+cell(){ local cli="$1" row="$2" t0=$SECONDS f0=$TESTS_FAIL res=ok; shift 2
   [[ -z "${HARNESS_MATRIX_ROWS:-}" || $row =~ $HARNESS_MATRIX_ROWS ]] || return 0
   if (( TSV )); then
-    if "$@" >/dev/null 2>&1; then printf '%s\t%s\tok\n' "$cli" "$row"; else printf '%s\t%s\tFAIL\n' "$cli" "$row"; fi
-  else assert_ok "$cli: $row" "$@"; fi
+    if "$@" >/dev/null 2>&1; then res=ok; else res=FAIL; fi; printf '%s\t%s\t%s\n' "$cli" "$row" "$res"
+  else assert_ok "$cli: $row" "$@"; (( TESTS_FAIL == f0 )) || res=FAIL; fi
+  mcache_record "$cli" "$row" "$res"
   [[ -z "${HARNESS_MATRIX_TIMING:-}" ]] || echo "matrix-timing $cli $row $((SECONDS - t0))s" >&2; }
 # na <cli> <row> <reason> — a row that cannot exist for this CLI; the README cell shows the reason.
 na(){ [[ -z "${HARNESS_MATRIX_ROWS:-}" || $2 =~ $HARNESS_MATRIX_ROWS ]] || return 0
-  if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi; }
+  if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi
+  mcache_record "$1" "$2" "n/a:$3"; }
 # want <row…> — whether any of those rows is selected (HARNESS_MATRIX_ROWS). A cell's arguments are expanded before `cell` can skip
 # it, so a row with an expensive argument ($(cli_launch …), a lane launch, a transcript parse) is guarded `want <row> && cell …`:
 # a run on a few rows (test_cli_matrix_guard.sh's) then pays for those rows alone (#943).
@@ -1022,7 +1050,9 @@ rc=0
 clis=(${HARNESS_MATRIX_CLIS:-$(cli_list)}); par="$(matrix_jobs)"
 if (( ${#clis[@]} > 1 && par > 1 )); then matrix_parallel "$par" "$@"; exit; fi
 for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
+  if [[ -n $MCACHE ]] && ( mcache_hit "$cli" ); then continue; fi   # #1024: this CLI's cells were already run by this suite run
   ( cli_load "$cli" || exit 1
+    [[ -z $MCACHE ]] || { CELLS="$RUN_DIR/$cli.cells"; : > "$CELLS"; }
     matrix_stub
     F="$FIX/$cli"; WD="$RUN_DIR/$cli-wd"; mkdir -p "$WD"; git -C "$WD" init -q
     printf 'GOAL: UNIQUE_TASK_MARKER\n' > "$WD/.harness-task.md"
@@ -1079,6 +1109,7 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     cell "$cli" prereqs-named              prereqs_ok
     cell "$cli" init-wizard-choice         init_choice_ok
     headless_rows "$cli"
+    mcache_publish "$cli"
     (( TSV )) || finish ) || rc=1
 done
 exit "$rc"
