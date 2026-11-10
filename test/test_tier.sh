@@ -418,6 +418,29 @@ for form in sep eq; do
   assert_ok "overlap --repo-dir ($form) empty: names --repo-dir" grep -qF -- '--repo-dir' <<<"$err"
   assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) empty never runs git"
 done
+# a missing --repo-dir, or one that is a file, is a usage error naming --repo-dir and the path; neither gh nor git runs (#898)
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$GH_LOG"
+echo '[]'
+SH
+printf 'x' > "$T/afile"
+for p in "$T/nonexistent-dir" "$T/afile"; do
+  for form in sep eq; do
+    : > "$GIT_LOG"; : > "$GH_LOG"
+    if [ "$form" = sep ]; then
+      err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --base main --repo-dir "$p" 2>&1 >/dev/null)"; rc=$?
+    else
+      err="$(PATH="$GBIN:$PATH" H tier overlap --files a -R a/b --base main --repo-dir="$p" 2>&1 >/dev/null)"; rc=$?
+    fi
+    assert_eq "$rc" 2 "overlap --repo-dir ($form) $p not a directory -> usage error, exit 2"
+    assert_ok "overlap --repo-dir ($form) $p: names --repo-dir" grep -qF -- '--repo-dir' <<<"$err"
+    assert_ok "overlap --repo-dir ($form) $p: names the path" grep -qF -- "$p" <<<"$err"
+    assert_eq "$(grep -c "error:" <<<"$err")" 1 "overlap --repo-dir ($form) $p: one error line"
+    assert_eq "$(wc -c < "$GH_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs gh"
+    assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs git"
+  done
+done
 # …and every form prints the overlap usage, not the top-level `harness tier` one (#809)
 for form in "--base=-x" "-R=-x" "--base -x" "-R -x"; do
   # shellcheck disable=SC2086
