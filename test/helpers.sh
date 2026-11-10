@@ -57,12 +57,20 @@ real_windows_host && [[ " ${MSYS:-} " != *" winsymlinks:nativestrict "* ]] && ex
 # loses to the host's REAL rtdd.exe further down PATH (winsma has one) and the test runs the real binary. A shebang script named rtdd.exe
 # runs under Git's bash, and the bare name `rtdd` resolves to it too.
 fake_rtdd_name(){ if real_windows_host; then echo rtdd.exe; else echo rtdd; fi; }
-# link_tool <name> <dir> — put a link to the PATH's <name> in <dir>, for a fixture PATH of "just these tools" (#921). `command -v` names an MSYS
-# tool without its .exe (`/usr/bin/dirname`), and a native symlink to that literal path dangles: the tool is then "not found" on a PATH the test
-# built to hold it (install.sh's own `dirname` came back empty and no adapter loaded). readlink -f appends the .exe, so a Windows host links that,
-# with nativestrict forced here: a test may unset MSYS (the installer's does), and a COPY of an MSYS exe has no msys-2.0.dll beside it.
-link_tool(){ local t="$1" d="$2" p; p="$(command -v "$t")" || return 1
-  real_windows_host && p="$(readlink -f "$p")"; MSYS=winsymlinks:nativestrict ln -sf "$p" "$d/$t"; }
+# link_tool <name> <dir> — put the PATH's <name> into <dir>, for a fixture PATH of "just these tools" (#921). On Linux a symlink. On a Windows
+# host a symlink does not work: `command -v` names an MSYS tool without its .exe, and even a nativestrict link to the .exe cannot be run from a
+# PATH that lacks Git's /usr/bin (the link's target is a POSIX path Windows cannot follow, so bash reports 127; install.sh's `dirname` came back
+# empty and no CLI adapter loaded). An MSYS exe also needs msys-2.0.dll (and its siblings) beside it, so there the tool is HARD-linked (a copy
+# if the volumes differ) as <name>.exe next to hard links of Git's msys-*.dll, once per dir. Tools outside /usr/bin (git) get their own dir's dlls.
+link_tool(){ local t="$1" d="$2" p f src; p="$(command -v "$t")" || return 1
+  if ! real_windows_host; then ln -sf "$p" "$d/$t"; return; fi
+  p="$(readlink -f "$p")"; src="${p%/*}"
+  if [[ ! -e $d/.dlls-${src//\//_} ]]; then
+    for f in "$src"/*.dll; do [[ -e $f ]] && { ln -f "$f" "$d/" 2>/dev/null || cp "$f" "$d/"; }; done
+    [[ $src == /usr/bin ]] || for f in /usr/bin/msys-*.dll; do [[ -e $d/${f##*/} ]] || ln -f "$f" "$d/" 2>/dev/null || cp "$f" "$d/"; done
+    : > "$d/.dlls-${src//\//_}"
+  fi
+  ln -f "$p" "$d/${p##*/}" 2>/dev/null || cp "$p" "$d/${p##*/}"; }
 # file_url <path> — a file:// URL native curl can read (#608). Git for Windows' curl is a native exe: `file:///c/x` (the MSYS
 # spelling of C:/x) reads C:\c\x, so every fixture that served a fake release from $T/srv got "could not resolve" on winsma and
 # install.sh / update.sh / harness update exited 1 or 3. Windows: file:///C:/x/y; elsewhere file:///x/y, as before.
