@@ -9,6 +9,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A test file such as `-x.sh`, `-m.py` or `-c.py` was handed to `bash`, `grep` and `python3` as an option, so the shard failed (`bash: -.: invalid option`, or pytest exiting 5 with
   "no tests ran") even though the file passes. The default shard command now runs it as `./<name>`, so a dash-led `.sh`, a `.py` with `__main__` and a `.py` without it all report as passing.
 
+### `swarm-suite.sh` reports a missing worktree as a usage error even without swarm (#997)
+
+- With swarm off (`HARNESS_SWARM=off`) or missing from `PATH`, `swarm-suite.sh /nonexistent job` exited 3 with "run the suite locally", sending the caller to a path that does not exist.
+  The argument and worktree checks now run first: a missing worktree exits 2 with `swarm-suite: no such worktree: …` whether or not swarm is available.
+
 ### `harness --version` keeps exit 0 when its output is cut off (#993)
 
 - `harness --version | head -0` exited 141 (SIGPIPE), and `harness --version --verbose | head -1` did so in about 1 of 5 runs. The report is now written in one go with SIGPIPE ignored
