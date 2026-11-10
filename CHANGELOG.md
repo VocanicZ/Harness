@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness`'s unknown-command error has the `harness:` prefix and always quotes the name (#1004)
+
+- `harness -x` printed `unknown command: -x` and `harness ''` printed `unknown command: ''`, unlike the other `harness` errors (`harness: --state-dir '-x': …`). Both now read
+  `harness: unknown command '<name>'`, quoted the same way for every name including the empty one, with control characters still escaped and exit status 2.
+
 ### A bodies or tier.toml parse error names its source and quotes the path like a not-found error (#1003)
 
 - `harness forecast 3 -R o/r --bodies bad.json` reported `/p/bad.json: not valid JSON: …` and `HARNESS_TIER_TOML=bad.toml harness tier decide …` reported `/p/bad.toml: cannot parse it: …`, while a missing file
