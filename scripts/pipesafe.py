@@ -11,7 +11,8 @@ A closed pipe is not a failure of the command: the status is the one `main` retu
 broke before `main` finished). Any other stdout write error (a full disk, ENOSPC; EIO) is a failure (#882): one line on
 stderr, `harness <cmd>: cannot write output: No space left on device`, status 1, no traceback and no "Exception ignored".
 A closed standard output (`>&-`, sys.stdout None, #806) is the same: output is dropped,
-no traceback, the status `main` returned, and --help is dropped too (#837). Stdlib only.
+no traceback, the status `main` returned, and --help is dropped too (#837). A stderr that cannot be written (`2>&-`,
+#896) is the same: the usage message is lost and a usage error is still 2, not the 120 of the failed exit-time flush. Stdlib only.
 """
 import os, sys
 
@@ -25,7 +26,28 @@ def quiet_stdout():
 
 
 def run(main, *args):
-    """main(*args)'s exit status; a reader that closed stdout early ends the command quietly instead."""
+    """main(*args)'s exit status; a reader that closed stdout early ends the command quietly instead. A stderr that
+    cannot be written (closed, read-only: `2>&-` under bash leaves fd 2 on its script) never changes the status (#896)."""
+    try:
+        return _run(main, *args)
+    finally:
+        quiet_stderr()
+
+
+def quiet_stderr():
+    """Flush stderr; if that fails, point fd 2 at devnull so the flush at interpreter exit cannot fail too (exit 120)."""
+    if sys.stderr is None:
+        return
+    try:
+        sys.stderr.flush()
+    except (OSError, ValueError):
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stderr.fileno())
+        except (OSError, ValueError, AttributeError):
+            pass
+
+
+def _run(main, *args):
     if sys.stdout is None:   # #837: `>&-`; argparse would print --help on stderr, so drop output like the rest
         sys.stdout = open(os.devnull, "w")
     try:
