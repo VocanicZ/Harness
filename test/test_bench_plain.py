@@ -251,12 +251,12 @@ def test_both_arms_init_the_same_isolated_config_apart_from_what_the_engine_inst
         assert a.run("harness").returncode == 0
         pv = json.load(open(p.logs("init.json")))["view"]
         hv = json.load(open(os.path.join(a.e.results, "t1", "harness.logs", "init.json")))["view"]
-        engine_skills, engine_plugins = set(th.armlib.engine_skills()), set(th.armlib.ENGINE_PLUGINS)
+        engine_skills = set(th.armlib.engine_skills())
         bundled = {"init", "review"}        # the CLI's own, which the harness fake lists and plain's `--disable-slash-commands` hides
         rest = {"skills": sorted(set(hv["skills"]) - engine_skills - bundled), "mcp_servers": hv["mcp_servers"],
-                "plugins": sorted(set(hv["plugins"]) - engine_plugins)}
+                "plugins": sorted(hv["plugins"])}
         assert rest == pv == {"skills": [], "plugins": [], "mcp_servers": []}, (rest, pv)
-        assert set(hv["skills"]) >= engine_skills and set(hv["plugins"]) == engine_plugins, hv
+        assert set(hv["skills"]) >= engine_skills and hv["plugins"] == [], hv
         assert "host-only-skill" not in hv["skills"] + pv["skills"]
     finally:
         p.close(); a.close()

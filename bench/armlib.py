@@ -7,10 +7,11 @@ plugins, MCP servers, hooks or settings. The only thing that reaches it is the l
 symlinked, never a copied directory; a token from the environment passes as it always did) and a minimal
 `.claude.json` that marks onboarding done. The plain arm runs on exactly that. The Harness arms run on it
 too, plus what the Harness engine itself installs there for any user: its own skills (`skill/`, the `/harness`
-front door among them) and the two plugins its lanes need (ralph-loop, superpowers), nothing else.
+front door among them), nothing else. No plugin: since #616 a lane loads the engine's own harness-ralph through
+`--plugin-dir`, and lean lanes (#669, #595) cannot see user-scope plugins, so ralph-loop and superpowers are not needed.
 
-THE CHECK. `isolation_problems` reads a session's init event: an MCP server, or a plugin that is not one of the
-engine's, is a problem; the arm then stops before it does any work. (Skills are not checked by name: the CLI
+THE CHECK. `isolation_problems` reads a session's init event: an MCP server, or any plugin (the engine installs none), is
+a problem; the arm then stops before it does any work. (Skills are not checked by name: the CLI
 bundles some of its own, and the host user's cannot load from a config dir that does not hold them.)
 
 Loaded by the arms and the runner with importlib (this directory is not a package)."""
@@ -37,9 +38,9 @@ def split_cmd(cmd):
     """shlex.split of a command line the operator wrote, safe for a Windows path: posix shlex eats the backslashes of C:\\x\\y."""
     return shlex.split(cmd.replace("\\", "/") if os.name == "nt" else cmd)
 LOGIN_FILES = (".credentials.json",)
-ENGINE_PLUGINS = ("ralph-loop", "superpowers")
-MARKETPLACE = "anthropics/claude-plugins-official"
-MARKETPLACE_NAME = "claude-plugins-official"
+# The user-scope plugins the engine installs into the arm's config: none (#924). The goal loop is the engine's own
+# harness-ralph (#616, loaded by --plugin-dir, not installed), so a plugin in an arm's init is a leak from the host.
+ENGINE_PLUGINS = ()
 
 
 class IsolationError(RuntimeError):
@@ -94,23 +95,6 @@ def install_engine_skills(cfg, root=ROOT):
         if not os.path.lexists(link):
             os.symlink(src, link)
     return sorted(engine_skills(root))
-
-
-def install_engine_plugins(cfg, claude, env, log):
-    """Install the plugins the engine's lanes need into <cfg>, as the engine's prerequisite check does for a
-    user (`claude plugin install <p>@<marketplace> --scope user`). A failure is an error: a fleet without them
-    would be a different measurement."""
-    env = dict(env, CLAUDE_CONFIG_DIR=cfg)
-    steps = [["plugin", "marketplace", "add", MARKETPLACE]] + \
-            [["plugin", "install", f"{p}@{MARKETPLACE_NAME}", "--scope", "user"] for p in ENGINE_PLUGINS]
-    for i, step in enumerate(steps):
-        argv = split_cmd(claude) + step
-        p = subprocess.run(resolve(argv), env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
-        log(f"$ {shlex.join(argv)} -> {p.returncode}")
-        if p.returncode != 0 and i > 0:   # an already-added marketplace is fine; a plugin that will not install is not
-            raise RuntimeError(f"installing the engine's plugin failed: {shlex.join(step)}: "
-                               f"{(p.stderr or p.stdout).strip()[:200]}")
-    return list(ENGINE_PLUGINS)
 
 
 def _name(x):

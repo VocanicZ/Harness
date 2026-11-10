@@ -315,13 +315,13 @@ def _plugin_calls(a):
 
 
 @with_arm(["start|The fleet is running."])
-def test_the_front_door_and_the_fleet_run_on_an_isolated_config_with_only_the_engines_skills_and_plugins(a):
+def test_the_front_door_and_the_fleet_run_on_an_isolated_config_with_only_the_engines_skills_and_no_plugins(a):
     host = _host_config(a)
     p = a.run("harness")
     assert p.returncode == 0, (p.stdout, p.stderr)
     r = a.result()
     assert tb.bench_run.validate(r) == [] and r["status"] == "ok", r
-    iso = {c["env"]["CLAUDE_CONFIG_DIR"] for c in a.front_calls()} | {c["config"] for c in _plugin_calls(a)}
+    iso = {c["env"]["CLAUDE_CONFIG_DIR"] for c in a.front_calls()} | {c["config"] for c in _plugin_calls(a)}   # none: no plugin call
     assert len(iso) == 1 and iso != {host} and list(iso)[0].endswith("/claude-config"), (iso, host)
     iso = iso.pop()
     for c in a.front_calls():   # the user-skills dir the engine links into is the isolated one's too
@@ -334,13 +334,11 @@ def test_the_front_door_and_the_fleet_run_on_an_isolated_config_with_only_the_en
     view = init["view"]
     engine = sorted(armlib.engine_skills())
     assert view["skills"] == ["init", "review"] + engine, view          # two the CLI bundles, then the engine's own
-    assert view["plugins"] == ["ralph-loop", "superpowers"] and view["mcp_servers"] == [], view
+    assert view["plugins"] == [] and view["mcp_servers"] == [], view
     assert "host-only-skill" not in view["skills"] and "host-plugin" not in view["plugins"]
-    assert r["isolation"] == {"config": "isolated", "engine_skills": engine, "engine_plugins": ["ralph-loop", "superpowers"]}, r["isolation"]
-    # the plugins went in through claude itself, into the isolated dir, at user scope
-    installs = [c["argv"] for c in _plugin_calls(a) if c["argv"][1:2] == ["install"]]
-    assert installs == [["plugin", "install", "ralph-loop@claude-plugins-official", "--scope", "user"],
-                        ["plugin", "install", "superpowers@claude-plugins-official", "--scope", "user"]], installs
+    assert r["isolation"] == {"config": "isolated", "engine_skills": engine, "engine_plugins": []}, r["isolation"]
+    # #924: lanes load the engine's own harness-ralph; the arm runs no `claude plugin` command at all
+    assert _plugin_calls(a) == [] and armlib.ENGINE_PLUGINS == () and not hasattr(armlib, "install_engine_plugins")
     assert os.listdir(os.path.join(host, "skills")) == ["host-only-skill"], "the host's own config is untouched"
 
 
@@ -374,13 +372,16 @@ def test_the_isolated_config_links_only_the_login_and_installs_the_engines_skill
         shutil.rmtree(d, ignore_errors=True)
 
 
-def test_isolation_problems_name_foreign_plugins_and_mcp_servers_and_leave_builtins_and_skills_alone():
-    ok = {"skills": ["a", "b"], "plugins": [{"name": "ralph-loop", "path": "/p"}, {"name": "t", "path": "builtin"}], "mcp_servers": []}
+def test_isolation_problems_name_any_plugin_and_mcp_servers_and_leave_builtins_and_skills_alone():
+    ok = {"skills": ["a", "b"], "plugins": [{"name": "t", "path": "builtin"}], "mcp_servers": []}
     assert armlib.isolation_problems(ok, armlib.ENGINE_PLUGINS) == []
     bad = dict(ok, plugins=ok["plugins"] + [{"name": "caveman", "source": "caveman@m", "path": "/x"}],
                mcp_servers=[{"name": "m1"}])
     got = armlib.isolation_problems(bad, armlib.ENGINE_PLUGINS)
     assert len(got) == 2 and "1 mcp servers" in got[0] and "1 plugins" in got[1] and "caveman" in got[1], got
+    # #924: the user's ralph-loop is no longer the engine's, so it is a leak like any other
+    leak = armlib.isolation_problems(dict(ok, plugins=[{"name": "ralph-loop", "path": "/p"}]), armlib.ENGINE_PLUGINS)
+    assert len(leak) == 1 and "ralph-loop" in leak[0], leak
     assert armlib.isolation_problems({"skills": 7, "plugins": 2, "mcp_servers": 0}, armlib.ENGINE_PLUGINS) == [], "bare counts have no names"
 
 
@@ -519,7 +520,7 @@ def test_restarts_the_front_door_made_by_hand_are_counted_and_the_loaded_config_
     assert tb.bench_run.validate(r) == [] and r["status"] == "ok", r
     assert r["counts"]["fleet_restarts"] == 1, r["counts"]          # init+start, then stop+start --recover by hand
     n = len(armlib.engine_skills())
-    assert r["claude_config"] == {"source": "front-door init", "skills": 2 + n, "plugins": 2, "mcp_servers": 0}, r.get("claude_config")
+    assert r["claude_config"] == {"source": "front-door init", "skills": 2 + n, "plugins": 0, "mcp_servers": 0}, r.get("claude_config")
     logs = os.path.join(a.e.results, "t1", "harness.logs")
     assert harness_arm.front_restarts(logs) == 1 and harness_arm.logged_restarts(logs) == 1
 

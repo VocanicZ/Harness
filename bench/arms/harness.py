@@ -24,9 +24,9 @@ most 5; counts.continue_replies).
 ISOLATED CLAUDE CONFIG (#590). Every session here runs on a throwaway CLAUDE_CONFIG_DIR (bench/armlib.py), the
 config the plain arm runs on: the login linked in, no user skills, plugins, MCP servers, hooks or settings of the
 host user's. The arm installs into it only what the Harness engine installs for any user: its own skills (the
-`/harness` front door among them, linked from this checkout's skill/) and the plugins its lanes need (ralph-loop,
-superpowers, through `claude plugin install`). The front door's init is checked against that: an MCP server, a
-plugin that is not the engine's stops the arm before it
+`/harness` front door among them, linked from this checkout's skill/). No plugin (#924): lanes load the engine's own
+harness-ralph by --plugin-dir (#616) and lean lanes cannot see user plugins. The front door's init is checked against
+that: an MCP server or any plugin stops the arm before it
 does any work (`init.json` in the logs keeps the init). Results `isolation` names what was installed.
 
 ISOLATION. The run fleet shares nothing with the host's fleets: its own HARNESS_HOME (event log, fleet
@@ -336,8 +336,7 @@ def run(ctx):
     skills = armlib.install_engine_skills(fleet.config)
     ctx.log(f"isolated claude config {cfg['path']} (login: {cfg['login'] or 'none found; the environment must carry it'}); "
             f"engine skills {len(skills)}")
-    plugins = armlib.install_engine_plugins(fleet.config, claude, fleet.env(), ctx.log)
-    ctx.extra["isolation"] = {"config": "isolated", "engine_skills": skills, "engine_plugins": plugins}
+    ctx.extra["isolation"] = {"config": "isolated", "engine_skills": skills, "engine_plugins": list(armlib.ENGINE_PLUGINS)}
     ctx.extra["configured"] = {"model": model, "effort": effort}   # None: the engine's role defaults (#373, #375)
     with open(os.path.join(ctx.logs, "fleet.json"), "w", encoding="utf-8") as fh:   # how to stop it by hand
         json.dump({"state_dir": fleet.state, "harness_home": fleet.home, "prefix": fleet.prefix,

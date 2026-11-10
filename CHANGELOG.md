@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The bench Harness arms no longer install `ralph-loop` and `superpowers` (#924)
+
+- `bench/armlib.py` installed the user-scope `ralph-loop` and `superpowers` plugins into a Harness arm's isolated config as the plugins its lanes
+  need. Since #616 lanes load the engine's own `harness-ralph`, and lean lanes (#669, #595) cannot see user plugins, so neither is needed. The arm
+  now installs only the engine's skills and records `isolation.engine_plugins: []`; any plugin in the front door's init stops the arm, the user's
+  `ralph-loop` included. `bench/README.md` says so.
+
 ### `harness setup` no longer asks for the user's `ralph-loop` plugin (#915)
 
 - Since #616 every `claude` lane loads the engine's own `plugins/claude/harness-ralph` and a full-config launch switches an installed `ralph-loop`

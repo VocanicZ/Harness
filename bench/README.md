@@ -311,15 +311,15 @@ every arm runs with `CLAUDE_CONFIG_DIR` set to a throwaway `claude-config` direc
   MCP servers, hooks or settings of the host user's. The run log names the directory and the login it linked.
 - **Plain arm.** Runs on exactly that, with its existing flags and its existing isolation proof.
 - **Harness arms.** Add only what the Harness engine installs for any user: its own skills, linked from this checkout's
-  `skill/` the way `install.sh` links them (the umbrella `skill/SKILL.md` as `harness`, and each `skill/<name>/`), and the
-  plugins its lanes need, `ralph-loop` and `superpowers`, through `claude plugin install … --scope user` into that
-  directory. The fleet sees the same directory (`CLAUDE_CONFIG_DIR`, `HARNESS_USER_SKILLS`, the transcript search list).
-  A plugin that will not install fails the arm: a fleet without them is a different measurement.
+  `skill/` the way `install.sh` links them (the umbrella `skill/SKILL.md` as `harness`, and each `skill/<name>/`). No plugins
+  (#924): since #616 every lane loads the engine's own `harness-ralph` through `--plugin-dir`, and lean lanes (#669, #595)
+  cannot see user-scope plugins, so `ralph-loop` and `superpowers` are neither installed nor required, and the arm records
+  `engine_plugins: []`. The fleet sees the same directory (`CLAUDE_CONFIG_DIR`, `HARNESS_USER_SKILLS`, the transcript search list).
 - **The check.** The front door's init event is kept in `<arm>.logs/init.json` (`view` = the names it listed) and checked
-  before any work: an MCP server, or a plugin that is not the engine's, stops the arm (`status: error`, "isolation check
+  before any work: an MCP server, or any plugin, stops the arm (`status: error`, "isolation check
   failed"). Skills are not checked by name, because the CLI bundles some of its own. `test/test_bench_plain.py` runs both
   arms against a host config that has a skill, a plugin, an MCP server and a login of its own and asserts the two inits
-  match apart from the engine's skills and plugins.
+  match apart from the engine's skills.
 
 ## Plain arm
 
