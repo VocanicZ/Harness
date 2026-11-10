@@ -2929,6 +2929,42 @@ def test_acceptance_count_counts_checkboxes_under_the_heading_only():
     assert il.acceptance_count("## Acceptance criteria\n1. one\n2. two\n") == 2   # plain list falls back to items
     assert il.acceptance_section(body) == "- [ ] a\n- [x] b\n* [ ] c"
 
+def test_prd_acceptance_criteria_read_lf_crlf_lone_cr_and_bom_alike():   # #948
+    lf = "## Acceptance criteria\n- [ ] a\n- [ ] b\n\n## Notes\nx\n"
+    for eol in ("\n", "\r\n", "\r"):
+        for bom in ("", "\ufeff"):
+            b = bom + lf.replace("\n", eol)
+            assert il.acceptance_count(b) == 2, (repr(eol), repr(bom))
+            assert il.acceptance_section(b) == "- [ ] a\n- [ ] b", (repr(eol), repr(bom))
+    assert il.acceptance_count("## Acceptance criteria\r\n- [ ] a\r\n- [ ] b\r\n") == 2
+
+def test_parse_parent_and_blocked_by_find_a_heading_right_after_a_bom():   # #948
+    assert il.parse_parent("\ufeff## Parent\n#5\n", "a/b") == ("a/b", 5)
+    assert il.parse_blocked_by("\ufeff## Blocked by\n#5\n", "a/b") == [("a/b", 5)]
+
+def test_crlf_and_lone_cr_prd_still_gets_file_child_with_its_criteria_copied():   # #948
+    for eol in ("\n", "\r\n", "\r"):
+        prd = _ac_prd(41, 5)
+        prd["body"] = prd["body"].replace("\n", eol)
+        _file_child_env()
+        _stub_repo([prd])
+        try:
+            acts = il.dispatch("acme/widget", 3, True)
+            assert ("FILE_CHILD", "41", "-") in acts, (repr(eol), acts)
+            assert all(a[0] != "DECOMPOSE" for a in acts), (repr(eol), acts)
+            assert "criterion 3 says exactly this" in il.engine_child_body(prd, 41), repr(eol)
+            assert "read its body" not in il.engine_child_body(prd, 41), repr(eol)
+        finally: _file_child_cleanup()
+
+def test_task1_heading_after_a_lone_cr_or_bom_is_seen():   # #948
+    for body in ("## Acceptance criteria\r- [ ] a\r\r## Task 1\rplan\r", "\ufeff## Task 1\nplan\n"):
+        prd = _issue(41, labels=["prd"], body=body)
+        _file_child_env(); _stub_repo([prd])
+        try:
+            st = il.compute_state("acme/widget")
+            assert st["prds"][0]["has_task1"] is True, repr(body)
+        finally: _file_child_cleanup()
+
 def test_small_prd_gets_file_child_and_no_decompose():
     _file_child_env()
     _stub_repo([_ac_prd(41, 5)])
