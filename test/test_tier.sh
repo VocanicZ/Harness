@@ -334,6 +334,13 @@ echo '[]'
 SH
 assert_eq "$(H tier overlap -R acme/widget --base main --repo-dir "$R" --files src/a.py >/dev/null; echo $?)" 0 "no open lane or PR -> clear even for a file a closed lane touched"
 assert_eq "$(H tier overlap --files src/a.py >/dev/null 2>&1; echo $?)" 2 "no repo -> exit 2, not a silent clear"
+# #914: an explicit empty -R is a bad value, not a missing one — same message as stats and forecast, even when HARNESS_REPO is set
+err="$(HARNESS_REPO=acme/widget H tier overlap --files src/a.py -R '' 2>&1 >/dev/null)"; rc=$?
+assert_eq "$(HARNESS_REPO=acme/widget H tier overlap --files src/a.py -R '' >/dev/null 2>&1; echo $?)" 2 "-R '' with HARNESS_REPO set -> exit 2"
+assert_ok "-R '' says it is not a repository" grep -qF "'' is not a repository" <<<"$err"
+err="$(env -u HARNESS_REPO bash "$ROOT/bin/harness" tier overlap --files src/a.py 2>&1 >/dev/null)"
+assert_ok "no -R, no HARNESS_REPO -> still the 'no repo' message" grep -qF "no repo — pass -R" <<<"$err"
+assert_eq "$(HARNESS_REPO=acme/widget H tier overlap --base main --repo-dir "$R" --files src/a.py >/dev/null 2>&1; echo $?)" 0 "no -R still falls back to HARNESS_REPO"
 
 # ── a gh or git call that fails is "could not check" (exit 3), never "clear" (#708) ─────────────
 # FAIL names the gh subcommand that fails ("pr list", "issue list", "pr diff", or "all"); the rest answer as before.

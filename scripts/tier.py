@@ -417,7 +417,7 @@ def main(argv=None):
     d.add_argument("--json", action="store_true")
     o = sub.add_parser("overlap")
     o.add_argument("--files", required=True, help="comma-separated paths the direct fix would touch")
-    o.add_argument("-R", dest="repo", default=os.environ.get("HARNESS_REPO", ""))
+    o.add_argument("-R", dest="repo", default=None)   # #914: None = not given (fall back to HARNESS_REPO); an explicit '' is a bad value
     o.add_argument("--base", default=os.environ.get("HARNESS_DEFAULT_BRANCH", "main"))
     o.add_argument("--repo-dir", default=".")
     o.add_argument("--json", action="store_true")
@@ -445,8 +445,10 @@ def main(argv=None):
         o.error("argument --repo-dir: '' is not a directory — it must be non-empty")
     if not os.path.isdir(a.repo_dir):   # #898: a missing path, or a file, is a usage error caught before any gh or git call, not exit 3
         o.error(f"argument --repo-dir: {_vr(a.repo_dir)} is not a directory — it must be an existing directory")
-    if not a.repo:
-        print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
+    if a.repo is None:
+        a.repo = os.environ.get("HARNESS_REPO", "")
+        if not a.repo:
+            print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
     if not REPO_RE.fullmatch(a.repo):
         o.error(f"argument -R: {_vr(a.repo)} is not a repository — expected owner/name")
