@@ -776,6 +776,10 @@ def main(argv=None):
         print(f"harness forecast: {st.vis(str(e))}", file=sys.stderr)
         return 2
     if a.bodies:
+        err = st._explicit_log_error(a.bodies, "a bodies file")   # #935: named and quoted like --events
+        if err:
+            print(f"harness forecast: --bodies {st.vis(err)}", file=sys.stderr)
+            return 2
         try:
             bodies = read_bodies(a.bodies)
         except ValueError as e:   # #863: the message names --bodies' path, which can hold U+2028 or a form feed
