@@ -16,6 +16,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   dash-led value the space form now gives the `=` form's message at once: `harness stats` `--fleet`, `-R`, `--prd`, `--issue`; `harness forecast` `-R`, `--unit`; `harness tier` the count options, `--prefer`, `--base`,
   `--repo-dir` (unless that directory exists), `-R`; and `bench/run.py` `--runs`, `--run-id`, `--results-dir`, `--owner`. An option that can take such a value (`--model`, `--files`, `--grader`) keeps the advice.
 
+### The engine reads a `.harness/config` with a BOM or lone-CR line endings the way `harness stats` and `harness forecast` do (#1002)
+
+- With a leading UTF-8 BOM the engine printed `config: line 1: HARNESS_REPO=o/r: No such file or directory` and left `HARNESS_REPO` unset, while stats and forecast resolved `o/r`; with lone-CR line endings
+  it read the whole file as one assignment while stats and forecast read two keys. The engine now strips a leading BOM and folds CRLF and a lone CR to LF before sourcing, so both sides agree on every key.
+  A config without either is still sourced in place. `test/test_config_encoding.sh` covers LF, BOM, CRLF and lone CR on both sides.
+
 ### `harness tier overlap` names `HARNESS_REPO` or `HARNESS_DEFAULT_BRANCH` when that is the bad value (#1000)
 
 - `HARNESS_REPO=bad harness tier overlap --files a` reported `argument -R: 'bad' is not a repository`, and `HARNESS_DEFAULT_BRANCH=-x … -R o/r` reported `argument --base: …`, blaming an argument
