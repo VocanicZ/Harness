@@ -989,16 +989,6 @@ def test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_
         assert space.stderr == equals.stderr, (opt, space.stderr, equals.stderr)
 
 
-if __name__ == "__main__":
-    fails = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try: fn(); print(f"  ok: {name}")
-            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
-    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
-    sys.exit(1 if fails else 0)
-
-
 def test_a_bodies_parse_error_names_the_option_and_quotes_the_path_with_control_characters_escaped():   # #1003
     with tmp() as d:
         cfg, events, _ = fixture(d)
@@ -1010,3 +1000,13 @@ def test_a_bodies_parse_error_names_the_option_and_quotes_the_path_with_control_
             assert rc == 2 and out == "", (rc, out)
             assert err.startswith(f"harness forecast: --bodies '{d}/bad{esc}.json': not valid JSON: "), err
             assert ch not in err and err.count("\n") == 1, err
+
+
+if __name__ == "__main__":
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)
