@@ -428,6 +428,8 @@ def main(argv=None):
         o.error(f"argument --base: {a.base!r} is not a branch — it must be non-empty and not start with '-'")
     if not a.repo_dir:   # #881: an empty path is not "."; it would reach `git worktree list` and exit 3
         o.error("argument --repo-dir: '' is not a directory — it must be non-empty")
+    if not os.path.isdir(a.repo_dir):   # #898: a missing path, or a file, is a usage error caught before any gh or git call, not exit 3
+        o.error(f"argument --repo-dir: {a.repo_dir!r} is not a directory — it must be an existing directory")
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
