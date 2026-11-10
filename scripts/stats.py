@@ -1402,6 +1402,17 @@ def nonempty_arg(flag):
     return check
 
 
+def since_arg(v):
+    """argparse type for --since (#1005): a bad value is an argparse usage error like every other option's, not a
+    bare `harness stats: bad --since` line. Returns the epoch the value stands for."""
+    import argparse
+    nonempty_arg("--since")(v)
+    try:
+        return parse_since(v)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def _explicit_log_error(path, kind="an events file"):
     """Why an explicitly passed events file (or, with `kind`, another input file) cannot be read, or None (#758, #935). None path = the default file: its
     absence on a fresh install stays "no events". A missing path, a directory or an unreadable file names the path."""
@@ -1427,7 +1438,7 @@ def cmd_report(argv):
     g.add_argument("--issue", type=int_arg)
     g.add_argument("--backfill", action="store_true", help="rebuild session_end for past sessions")
     ap.add_argument("-R", "--repo", type=repo_arg)
-    ap.add_argument("--since", type=nonempty_arg("--since"),
+    ap.add_argument("--since", type=since_arg,
                     help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary); a count that reaches back past year 1 "
                          "is too large to turn into a date and is rejected (exit 2), however many digits it has")
     ap.add_argument("--fleet", type=fleet_arg, help="session prefix")
@@ -1440,8 +1451,7 @@ def cmd_report(argv):
     a = ap.parse_args(argv)
     for flag, num in (("--prd", a.prd), ("--issue", a.issue)):
         if num is not None and num < 1:
-            print(f"harness stats: {flag} must be 1 or greater, got {num}", file=sys.stderr)
-            return 2
+            ap.error(f"argument {flag}: {flag} must be 1 or greater, got {num}")   # #1005: one usage-error shape
     if a.backfill:
         # #1007: backfill writes host-wide records. An explicit --events X describes some fleets only, so X
         # gets just those fleets' sessions, and the default rtdd log (which does not belong with X) is not written.
@@ -1462,16 +1472,11 @@ def cmd_report(argv):
                   f"{'left alone (pass --rtdd-events to backfill one)' if rtdd_skipped else 'limited the same way'}",
                   file=sys.stderr)
         return 0
-    try:
-        since = parse_since(a.since) if a.since else (None if (a.prd is not None or a.issue is not None) else parse_since("7d"))
-    except ValueError as e:
-        print(f"harness stats: {e}", file=sys.stderr)
-        return 2
+    since = a.since if a.since is not None else (None if (a.prd is not None or a.issue is not None) else parse_since("7d"))
     for flag, path in (("--events", a.events), ("--rtdd-events", a.rtdd_events)):
         err = _explicit_log_error(path)   # #758: a typo'd path is not an empty fleet
         if err:
-            print(f"harness stats: {flag} {err}", file=sys.stderr)
-            return 2
+            ap.error(f"argument {flag}: {err}")   # #1005: one usage-error shape
     bad = [0]
     every = load_events(a.events, bad)
     evs = filter_events(every, since, a.fleet, a.repo)
