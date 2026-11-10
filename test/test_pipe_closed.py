@@ -203,6 +203,42 @@ def test_a_hand_written_usage_error_with_stderr_closed_or_full_still_exits_2():
             assert r.returncode == 2, ("stderr full", argv, r.returncode)
 
 
+def direct_closed_stderr(argv, env=None):
+    """Run argv under python3 DIRECTLY with fd 2 closed (`exec 2>&-` then exec: no bash script on fd 2, so
+    sys.stderr is None); (returncode, stdout)."""
+    r = subprocess.run(["bash", "-c", 'exec 2>&-; exec "$@"', "_"] + argv, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, env=env)
+    return r.returncode, r.stdout.decode()
+
+
+def test_diagnostics_and_usage_are_dropped_not_sent_to_stdout_when_stderr_is_closed():
+    """#930: with fd 2 closed sys.stderr is None, so print(file=sys.stderr) and argparse's usage fell back to stdout:
+    `forecast.py --json 2>&-` printed "skipped 1 event line(s)" before the JSON (invalid), exit 0."""
+    import tempfile
+    py = sys.executable
+    stats, forecast = os.path.join(ROOT, "scripts", "stats.py"), os.path.join(ROOT, "scripts", "forecast.py")
+    tier, bench = os.path.join(ROOT, "scripts", "tier.py"), os.path.join(ROOT, "bench", "run.py")
+    with tempfile.TemporaryDirectory() as d:
+        events, bodies = os.path.join(d, "events.jsonl"), os.path.join(d, "bodies.json")
+        with open(events, "w") as f: f.write("not json\n")
+        with open(bodies, "w") as f: f.write("[]")
+        for argv in ([py, forecast, "1", "-R", "a/b", "--json", "--events", events, "--bodies", bodies],
+                     [py, stats, "report", "--events", events, "--prd", "3", "--json"]):
+            want = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True).returncode
+            rc, out = direct_closed_stderr(argv)
+            assert rc == want, (argv, rc, want)   # the exit status is the one stderr-open gives
+            try: json.loads(out)   # stdout is only the JSON
+            except ValueError: raise AssertionError(("stdout is not only JSON", argv, out))
+        rc, out = direct_closed_stderr([py, stats, "report", "--events", os.path.join(d, "missing")])
+        assert out == "", (rc, out)
+        rc, out = direct_closed_stderr([py, bench, "--dry-run", "stub"], dict(os.environ, HARNESS_USAGE_CMD="true"))
+        assert out == "", (rc, out)
+    for argv, want in (([py, tier, "decide", "--criteria", "x"], 2), ([py, bench, "--runs", "x", "stub"], 2),
+                       ([py, forecast, "x"], 2), ([py, tier, "-x"], 2), ([py, forecast, "-x"], 2)):
+        rc, out = direct_closed_stderr(argv)
+        assert rc == want and out == "", (argv, rc, out)
+
+
 def test_a_successful_run_with_stderr_closed_still_exits_0():
     harness = ["bash", os.path.join(ROOT, "bin", "harness")]
     for argv in (harness + ["tier", "thresholds"], [sys.executable, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"]):

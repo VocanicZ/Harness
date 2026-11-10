@@ -12,7 +12,9 @@ broke before `main` finished). Any other stdout write error (a full disk, ENOSPC
 stderr, `harness <cmd>: cannot write output: No space left on device`, status 1, no traceback and no "Exception ignored".
 A closed standard output (`>&-`, sys.stdout None, #806) is the same: output is dropped,
 no traceback, the status `main` returned, and --help is dropped too (#837). A stderr that cannot be written (`2>&-`,
-#896) is the same: the usage message is lost and a usage error is still 2, not the 120 of the failed exit-time flush. Stdlib only.
+#896) is the same: the usage message is lost and a usage error is still 2, not the 120 of the failed exit-time flush.
+With fd 2 closed under a direct python3 run, sys.stderr is None and print(file=sys.stderr) / argparse's usage would fall back to
+stdout (invalid --json output, #930): run() points sys.stderr at devnull while main runs, so diagnostics are dropped. Stdlib only.
 """
 import os, sys
 
@@ -32,9 +34,13 @@ def run(main, *args):
     real = sys.stderr
     if real is not None:
         sys.stderr = _TolerantStderr(real)
+    else:   # #930: `2>&-` leaves sys.stderr None, and print(file=None) / argparse's usage fall back to STDOUT: drop them
+        sys.stderr = open(os.devnull, "w")
     try:
         return _run(main, *args)
     finally:
+        if real is None:
+            sys.stderr.close()
         sys.stderr = real
         quiet_stderr()
 
