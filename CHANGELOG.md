@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats --events X --backfill` stays inside X's fleets, and the report on X no longer reads the default rtdd log (#1007)
+
+- `--backfill` appended a `session_end` for every Harness transcript on the host (about 1,000 unrelated sessions in one check) into the file given with `--events`, and wrote the default `rtdd-events.jsonl`.
+  With an explicit `--events X` it now adds only the sessions of the fleet prefix(es) X already holds, and leaves the default rtdd log alone unless `--rtdd-events` names one.
+- A report on an explicit `--events X` showed an rtdd block from the default `$HARNESS_HOME/rtdd-events.jsonl` that had nothing to do with X. It now reads an rtdd log only when `--rtdd-events` names one.
+
 ### The internal `stats.py` subcommands reject a wrong argument count with a usage line, not a traceback (#1006)
 
 - `python3 scripts/stats.py goal-env` with no arguments ended in `TypeError: goal_env() missing 1 required positional argument` and exit 1, and `goal-env a b c` silently dropped the extras. `goal-env`,

@@ -601,6 +601,45 @@ def test_backfill_attributes_transcripts_and_is_idempotent():
         finally:
             st._unit_repo = real
 
+def test_explicit_events_backfill_stays_in_its_fleets_and_ignores_the_default_rtdd_log():
+    """#1007: --events X --backfill adds only the sessions of the fleet(s) X describes, never touches the
+    host's default rtdd log, and the report on X reads no rtdd block unless --rtdd-events names one."""
+    with host() as d:
+        fleets = os.path.join(d, "fleets"); os.makedirs(fleets)
+        json.dump({"prefix": "hz", "project": "/tmp/proj/.harness", "slugs": ["acme/widget"]},
+                  open(os.path.join(fleets, "a.json"), "w"))
+        os.environ["HARNESS_FLEETS_DIR"] = fleets
+        default_rtdd = os.path.join(d, "rtdd-events.jsonl")
+        _write(default_rtdd, [_which("elsewhere", ctx={"HARNESS_PREFIX": "hz"})])
+        before = open(default_rtdd).read()
+        other = os.path.join(d, "other.jsonl")      # describes fleet zz: the fixture transcript is fleet hz's
+        _write(other, [_ev("launch", session="z1", prefix="zz", issue=1, kind="impl", ts="2026-10-01T01:00:00Z")])
+        rc, out = run(["backfill", "--events", other])
+        assert rc == 0 and out.strip() == "backfilled 0 session(s), 0 rtdd call(s)", out
+        assert len(open(other).readlines()) == 1, "a foreign fleet's session was written into the explicit log"
+        assert not os.path.exists(os.path.join(d, "events.jsonl")), "the default events log was written"
+        assert open(default_rtdd).read() == before, "the default rtdd log was written"
+        mine = os.path.join(d, "mine.jsonl")        # describes fleet hz: its session is added
+        _write(mine, [_ev("launch", session="h1", prefix="hz", issue=1, kind="impl", ts="2026-10-01T01:00:00Z")])
+        rc, out = run(["backfill", "--events", mine])
+        assert rc == 0 and out.startswith("backfilled 1 session(s), 0 rtdd call(s)"), out
+        assert [json.loads(l).get("session") for l in open(mine)][-1] == FIXTURE_SID
+        assert open(default_rtdd).read() == before
+        # the report: the default rtdd log has no part in a report on an explicit --events file
+        _write(mine, PRD_EVENTS)
+        rc, out = run(["report", "--events", mine, "--since", "2020-01-01", "--json"])
+        assert rc == 0, out
+        assert all(f["rtdd"] == {} for f in json.loads(out).values()), out
+        rc, out = run(["report", "--since", "2020-01-01", "--json"])      # the default events log still reads it
+        assert rc == 0
+        _write(os.path.join(d, "events.jsonl"), [_ev("launch", session="elsewhere", prefix="hz", ts="2026-10-01T01:00:00Z")])
+        rc, out = run(["report", "--since", "2020-01-01", "--json"])
+        assert json.loads(out)["hz"]["rtdd"].get("which") == 1, out
+        # an explicit --rtdd-events still opts in
+        rc, out = run(["report", "--events", os.path.join(d, "events.jsonl"), "--rtdd-events", default_rtdd,
+                       "--since", "2020-01-01", "--json"])
+        assert json.loads(out)["hz"]["rtdd"].get("which") == 1, out
+
 def test_classify_dir():
     fl = [{"prefix": "hz", "project": "/home/u/proj/.harness", "slugs": ["Org/my-repo"]}]
     lead = "-home-u-proj--harness-worktrees-"
