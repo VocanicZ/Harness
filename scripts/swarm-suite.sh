@@ -35,11 +35,40 @@ SWARM_BIN="${SWARM_BIN:-swarm}"
 SWARM_JOBS_DIR="${SWARM_JOBS_DIR:-$HOME/.swarm/jobs}"   # swarm's own state root (one dir per job)
 unavailable(){ echo "swarm-suite: $* — run the suite locally" >&2; exit 3; }
 
+# vis STR — STR for a one-line message (#972), spelled as bin/harness vis_arg does (#952): a newline is \n, a tab \t, any
+# other C0 or C1 control character, DEL, U+2028 and U+2029 become \uXXXX, and an empty STR is '' (so it can be seen).
+# Byte-level under LC_ALL=C, so no locale matters.
+vis(){
+  local LC_ALL=C s="$1" out="" i=0 n c d e v
+  n=${#s}
+  [[ $n -gt 0 ]] || { printf "''"; return 0; }
+  while (( i < n )); do
+    c="${s:i:1}"; printf -v v '%d' "'$c"
+    if (( v == 10 )); then c='\n'
+    elif (( v == 9 )); then c='\t'
+    elif (( v < 32 || v == 127 )); then printf -v c '\\u%04x' "$v"
+    elif (( v == 194 && i + 1 < n )); then
+      d="${s:i+1:1}"; printf -v e '%d' "'$d"
+      if (( e >= 128 && e <= 159 )); then printf -v c '\\u%04x' "$e"; i=$((i+1)); fi
+    elif (( v == 226 && i + 2 < n )); then
+      d="${s:i+1:2}"
+      if [[ "$d" == $'\x80\xa8' ]]; then c='\u2028'; i=$((i+2))
+      elif [[ "$d" == $'\x80\xa9' ]]; then c='\u2029'; i=$((i+2)); fi
+    fi
+    out+="$c"; i=$((i+1))
+  done
+  printf '%s' "$out"
+}
+
 [[ $# -ge 2 ]] || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...]" >&2; exit 2; }
 WT="$1"; NAME="$2"; shift 2
-[[ "${HARNESS_SWARM:-auto}" == auto ]] || unavailable "HARNESS_SWARM=${HARNESS_SWARM}"
+# #972: an empty test-file argument names nothing — a usage error, shown as ''.
+for a in "$@"; do
+  [[ -n "$a" ]] || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...] — empty test-file argument ('')" >&2; exit 2; }
+done
+[[ "${HARNESS_SWARM:-auto}" == auto ]] || unavailable "HARNESS_SWARM=$(vis "${HARNESS_SWARM}")"
 command -v "$SWARM_BIN" >/dev/null 2>&1 || unavailable "swarm not on PATH"
-[[ -d "$WT" ]] || { echo "swarm-suite: no such worktree: $WT" >&2; exit 2; }
+[[ -d "$WT" ]] || { echo "swarm-suite: no such worktree: $(vis "$WT")" >&2; exit 2; }
 WT="$(cd "$WT" && pwd)"
 
 # swarm job names must match [A-Za-z0-9][A-Za-z0-9._-]* and must not end in .prev.
@@ -75,14 +104,14 @@ swarm_knob(){ local name="$1" def="$2" v n m; v="${!name:-}"
   if [[ "$v" =~ ^[0-9]+$ ]]; then n="${v#"${v%%[!0]*}"}"; (( ${#n} <= 6 )) && { echo "$((10#${n:-0}))"; return 0; }; fi
   m="$RUN_DIR/swarmknob.$name.$(printf %s "$v" | cksum | cut -d' ' -f1)"
   if [[ ! -e "$m" ]]; then mkdir -p "$RUN_DIR" 2>/dev/null; : > "$m" 2>/dev/null || true
-    echo "swarm-suite: WARN $name='$v' is not a non-negative integer — using the default $def" >&2; fi
+    echo "swarm-suite: WARN $name='$(vis "$v")' is not a non-negative integer — using the default $def" >&2; fi
   echo "$def"; }
 max_local="$(swarm_knob HARNESS_SWARM_LOCAL_MAX_SECS 60)"; per_file="$(swarm_knob HARNESS_SWARM_SECS_PER_FILE 2)"
 est=$(( ${#FILES[@]} * per_file ))
 (( est < max_local )) && unavailable "small suite (${#FILES[@]} files, ~${est}s locally, under ${max_local}s)"
 if [[ -z "$TEST_CMD" ]]; then
   for f in "${FILES[@]}"; do
-    case "$f" in *.sh|*.bash|*.py) ;; *) unavailable "no default command for $f (set HARNESS_SWARM_TEST_CMD)";; esac
+    case "$f" in *.sh|*.bash|*.py) ;; *) unavailable "no default command for $(vis "$f") (set HARNESS_SWARM_TEST_CMD)";; esac
   done
 fi
 
@@ -99,7 +128,7 @@ if [[ -z "${RUN_DIR:-}" ]]; then
   RUN_DIR="${STATE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/run"
 fi
 JOB="$RUN_DIR/swarm/$NAME"
-rm -rf "$JOB"; mkdir -p "$JOB" || unavailable "cannot create job dir $JOB"
+rm -rf "$JOB"; mkdir -p "$JOB" || unavailable "cannot create job dir $(vis "$JOB")"
 
 # stage_workdir <dir> — the snapshot swarm packs: every path git lists that still exists, hardlinked
 # (a copy across filesystems). The worktree's `.git` pointer file rides along as it always did.
@@ -123,7 +152,7 @@ drop_tarball(){ rm -f "$SWARM_JOBS_DIR/$NAME/workdir.tar.gz" "$SWARM_JOBS_DIR/$N
 declare -A seen=()
 : > "$JOB/shards.tsv"; : > "$JOB/shards.ids"
 for f in "${FILES[@]}"; do
-  [[ "$f" == *$'\n'* || "$f" == *$'\t'* ]] && unavailable "test path with a tab/newline: $f"
+  [[ "$f" == *$'\n'* || "$f" == *$'\t'* ]] && unavailable "test path with a tab/newline: $(vis "$f")"
   f="${f#./}"; [[ -n "${seen[$f]:-}" ]] && continue; seen[$f]=1
   id="$(shard_id "$f")"
   printf '%s\t%s\n' "$id" "$f" >> "$JOB/shards.tsv"; printf '%s\n' "$id" >> "$JOB/shards.ids"
@@ -155,7 +184,7 @@ fi
 WORKDIR="$WT"
 if [[ "${HARNESS_SWARM_PACK:-git}" != all ]] && git -C "$WT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   WORKDIR="$JOB/workdir"
-  stage_workdir "$WORKDIR" || unavailable "cannot stage the worktree snapshot in $WORKDIR"
+  stage_workdir "$WORKDIR" || unavailable "cannot stage the worktree snapshot in $(vis "$WORKDIR")"
 fi
 cat > "$JOB/swarm.toml" <<EOF
 name    = $(toml_str "$NAME")
@@ -224,7 +253,7 @@ EOF
 
 "$SWARM_BIN" submit "$JOB" >&2; src=$?
 [[ "$WORKDIR" == "$WT" ]] || rm -rf "$WORKDIR"   # packed at submit; the snapshot is done with
-[[ $src -eq 0 ]] || unavailable "swarm submit $JOB failed"
+[[ $src -eq 0 ]] || unavailable "swarm submit $(vis "$JOB") failed"
 "$SWARM_BIN" wait "$NAME" --timeout "${HARNESS_SWARM_TIMEOUT:-1800}" >&2; rc=$?
 # Merged, failed or cancelled → no shard will fetch the input again. Any other wait exit leaves the
 # job's state unknown (it may still be running), so its tarball stays.
