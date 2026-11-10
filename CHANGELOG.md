@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness stats --since` rejects every count that cannot be turned into a date (#974)
+
+- `--since 99999999999999999999d` and `--since 1000000000d` silently reported over all time, while a count past 4300 digits was a usage error. A count that reaches back past year 1
+  is now always `bad --since: the count is too large to turn into a date` (exit 2), however many digits it has; the `--since` help says so.
+
 ### A form feed in a tier.toml comment is spelled `\u000c` in the error (#971)
 
 - A form feed in a `tier.toml` comment was reported as `Found invalid character '\x0c'`: the #912 rewrite matched only tomllib's `Illegal character` message, which it gives for a string value.

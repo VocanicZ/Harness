@@ -720,6 +720,9 @@ def load_events(path=None, skipped=None):
     return out
 
 
+EARLIEST_DATE_EPOCH = -62135596800   # 0001-01-01T00:00:00Z, the earliest date datetime can hold (#974)
+
+
 def parse_since(s, now=None):
     """'7d' / '24h' / '30m' / an ISO date → epoch seconds."""
     now = time.time() if now is None else now
@@ -731,10 +734,12 @@ def parse_since(s, now=None):
         digits = m.group(1).lstrip("0")
         if len(digits) > 300:   # before int(): past 4300 digits int() itself raises, in Python's wording
             raise too_big
-        try:
-            return now - int(digits or "0") * {"d": 86400, "h": 3600, "m": 60}[m.group(2)]
-        except OverflowError:   # about 307 digits: int too large to convert to float
-            raise too_big from None
+        # #974: one rule for every count — it must land on a real date (year 1 or later), else it is rejected,
+        # not silently "all time"; compared as ints so no float overflow is possible
+        secs = int(digits or "0") * {"d": 86400, "h": 3600, "m": 60}[m.group(2)]
+        if secs > int(now - EARLIEST_DATE_EPOCH):
+            raise too_big
+        return now - secs
     t = parse_ts(s if "T" in (s or "") else f"{s}T00:00:00+00:00")
     if t is None:
         raise ValueError(f"bad --since: {short_repr(s)} (want 7d, 24h, 30m or YYYY-MM-DD)")
@@ -1378,7 +1383,8 @@ def cmd_report(argv):
     g.add_argument("--backfill", action="store_true", help="rebuild session_end for past sessions")
     ap.add_argument("-R", "--repo", type=repo_arg)
     ap.add_argument("--since", type=nonempty_arg("--since"),
-                    help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary)")
+                    help="7d, 24h, 30m or YYYY-MM-DD (default: 7d for the fleet summary); a count that reaches back past year 1 "
+                         "is too large to turn into a date and is rejected (exit 2), however many digits it has")
     ap.add_argument("--fleet", type=fleet_arg, help="session prefix")
     ap.add_argument("--model", type=nonempty_arg("--model"), help="substring of a model id")
     ap.add_argument("--by-role", action="store_true",
