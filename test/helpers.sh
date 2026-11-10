@@ -185,6 +185,10 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # and kills it (test_engine_roll.sh red at the e902e61 gate). A test that wants a stamped process sets it inline on that process.
 HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX HARNESS_ENGINE_STAMP RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
+# …and the user skill dirs a sandboxed host pins (#921). A winsma suite run exports HARNESS_USER_SKILLS (and a lane may export the agy/codex
+# ones) so nothing reaches the real home; a test that points HOME at its own fixture then installs skills into the host's pinned dir and reads
+# its own empty ~/.claude/skills (setup, rtdd, update, ensure_skills). make_env and each test that wants one re-export its own after this.
+unset HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS
 # ENGINE_DIR is re-pointed, not just dropped: most tests source lib.sh BEFORE this file, and lib.sh has already
 # exported ENGINE_DIR (the lane's, if it was inherited). Unsetting it left them with none ("ENGINE_DIR: unbound
 # variable" in cli/claude.sh). The repo under test is its own engine; a test that sources no lib.sh has none.
