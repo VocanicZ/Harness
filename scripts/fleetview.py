@@ -195,6 +195,15 @@ def session_models(cache=None):
                 models[name] = m.group(1)
                 break
             todo.extend(kids.get(pid, []))
+    for name in panes:   # no argv to read (a native runner on Windows is no `ps` pid): the model its runner recorded
+        if name not in models:
+            try:
+                with open(os.path.join(session_backend.headless_lane_dir(name), "state.json"), encoding="utf-8") as f:
+                    m = json.load(f).get("model")
+            except (OSError, ValueError, AttributeError):
+                m = None
+            if isinstance(m, str) and m:
+                models[name] = m
     return models
 
 

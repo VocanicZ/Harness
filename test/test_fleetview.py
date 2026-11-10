@@ -197,6 +197,25 @@ def test_session_models_walks_the_pane_tree():
         fv.run_cmd = _REAL_RUN_CMD
 
 
+def test_session_models_falls_back_to_the_lane_state_where_ps_shows_no_argv():
+    # a native headless runner on Windows is no pid of Git Bash's ps (#606): its runner recorded the model in state.json
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "s")); os.makedirs(os.path.join(d, "t"))
+        with open(os.path.join(d, "s", "state.json"), "w") as f:
+            json.dump({"model": "haiku"}, f)
+        with open(os.path.join(d, "t", "state.json"), "w") as f:
+            f.write("not json")
+        old = os.environ.get("HARNESS_HEADLESS_DIR"); os.environ["HARNESS_HEADLESS_DIR"] = d
+        fv.run_cmd = fake_cmds({("tmux", "list-panes"): (0, "s\t10\nt\t20\nu\t30\n"), ("ps",): (1, "")})
+        try:
+            assert fv.session_models() == {"s": "haiku"}
+        finally:
+            fv.run_cmd = _REAL_RUN_CMD
+            if old is None: os.environ.pop("HARNESS_HEADLESS_DIR", None)
+            else: os.environ["HARNESS_HEADLESS_DIR"] = old
+
+
 def test_fmt_age_and_config_and_registry_dir():
     assert [fv.fmt_age(s) for s in (-5, 5, 600, 7200, 3 * 86400)] == ["0s", "5s", "10m", "2h", "3d"]
     assert fv.read_config("/nonexistent") == {}

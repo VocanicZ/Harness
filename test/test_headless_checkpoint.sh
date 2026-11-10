@@ -51,7 +51,7 @@ elif cmd == "issue edit":
     for i, w in enumerate(a):
         if w == "--remove-label": ls = [l for l in ls if l not in a[i + 1].split(",")]
         if w == "--add-label": ls += [l for l in a[i + 1].split(",") if l not in ls]
-    open(os.path.join(d, f"labels-{n}"), "w").write("".join(l + "\n" for l in ls))
+    open(os.path.join(d, f"labels-{n}"), "w", newline="\n").write("".join(l + "\n" for l in ls))
 elif cmd == "issue comment":
     n = a[2]; body = opt("--body")
     if body is None: body = open(opt("--body-file")).read()

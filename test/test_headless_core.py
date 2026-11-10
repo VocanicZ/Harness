@@ -146,6 +146,17 @@ def test_events_are_parsed_into_events_jsonl_and_state():
         L.stop()
 
 
+def test_the_lane_state_records_its_model_for_a_viewer_that_cannot_read_argv():
+    L = Lane(["ok"], model="haiku")                 # (#606: Git Bash's ps knows no native pid, so fleetview reads state.json)
+    try:
+        assert L.state()["model"] == "haiku", L.state()
+    finally:
+        L.stop()
+    assert core.flags_model(["--dangerously-skip-permissions", "--model", "opus"]) == "opus"
+    assert core.flags_model(["--model=sonnet"]) == "sonnet"
+    assert core.flags_model(["--model"]) is None and core.flags_model([]) is None
+
+
 def test_usage_the_adapter_reports_lands_in_state():
     L = Lane(["ok a", "ok b"])
     try:

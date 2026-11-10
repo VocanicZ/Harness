@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 43200
 # test_cli_matrix_guard.sh — #305 / PRD #189: no matrix cell is trivially true. A cell whose predicate
 # still holds with the adapter's functions stubbed to `:`, or with its fixture gone, proves nothing: it
 # must read n/a (the row cannot exist for the CLI) or FAIL, never ok.
