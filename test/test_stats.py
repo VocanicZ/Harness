@@ -1,4 +1,4 @@
-import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile
+import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("stats", os.path.normpath(os.path.join(HERE, "..", "scripts", "stats.py")))
 st = importlib.util.module_from_spec(spec); spec.loader.exec_module(st)
@@ -555,7 +555,25 @@ def test_report_since_count_too_large_for_a_date_is_a_usage_error():
             msg = err.getvalue()
             assert rc == 2 and out == "" and "--since" in msg and msg.count("\n") == 1 and len(msg) < 200 and "Traceback" not in msg, (n, rc, out, msg)
     assert st.parse_since("0" * 5000 + "7d", now=1000000) == 1000000 - 7 * 86400
-    assert st.parse_since("999999999d", now=0) == -999999999 * 86400
+    assert st.parse_since("719162d", now=0) == -719162 * 86400   # #974: the last count that still lands on a date
+
+
+def test_report_since_one_rule_for_every_count_that_is_not_a_date():
+    """#974: a 20-digit count, a count just past year 1, and one over 4300 digits are all the same usage error (exit 2), for d and h."""
+    assert st.parse_since("719162d", now=0) == -62135596800 and st.parse_since("17259888h", now=0) == -62135596800
+    for bad in ("719163d", "17259889h"):   # one unit past year 1 at now=0
+        try: st.parse_since(bad, now=0); assert False, f"{bad!r} accepted"
+        except ValueError as e: assert "too large to turn into a date" in str(e), e
+    span = int(time.time() - st.EARLIEST_DATE_EPOCH)   # the same edge against the clock the CLI reads
+    assert st.parse_since(f"{span // 86400 - 1}d") < 0 and st.parse_since(f"{span // 3600 - 1}h") < 0
+    for bad in ("9" * 20 + "d", "9" * 20 + "h", f"{span // 86400 + 1}d", f"{span // 3600 + 1}h", "1000000000d", "9" * 4400 + "d", "9" * 4400 + "h"):
+        try: st.parse_since(bad); assert False, f"{bad[:30]!r} accepted"
+        except ValueError as e: assert "too large to turn into a date" in str(e) and "9999" not in str(e), e
+        err = io.StringIO()
+        with host(), contextlib.redirect_stderr(err):
+            rc, out = run(["report", "--since", bad])
+        msg = err.getvalue()
+        assert rc == 2 and out == "" and "too large to turn into a date" in msg and msg.count("\n") == 1 and "Traceback" not in msg, (bad[:30], rc, out, msg)
 
 
 def test_backfill_attributes_transcripts_and_is_idempotent():
