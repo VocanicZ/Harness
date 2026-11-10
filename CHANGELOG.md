@@ -10,6 +10,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   could not parse (`Illegal character '\x0c'`). The submit failed, the helper exited 3 and the swarm run was silently lost. It now writes every control character (U+0000–U+001F, U+007F)
   as `\b`, `\t`, `\n`, `\f`, `\r` or `\uXXXX`.
 
+### `harness --help` with standard output closed is quiet and exits 0 (#984)
+
+- `harness --help >&-` (and `harness help >&-`, `harness -h >&-`, bare `harness >&-`) printed `cat: standard output: Bad file descriptor` and exited 1. The usage text is now dropped
+  quietly with exit 0, as `harness stats`, `tier`, `forecast` and `bench/run.py` already do (#837); `harness --help | head -1` is unchanged.
+
 ### `harness stats --since` rejects every count that cannot be turned into a date (#974)
 
 - `--since 99999999999999999999d` and `--since 1000000000d` silently reported over all time, while a count past 4300 digits was a usage error. A count that reaches back past year 1
