@@ -31,6 +31,10 @@ cell(){ local cli="$1" row="$2"; shift 2
 # na <cli> <row> <reason> — a row that cannot exist for this CLI; the README cell shows the reason.
 na(){ [[ -z "${HARNESS_MATRIX_ROWS:-}" || $2 =~ $HARNESS_MATRIX_ROWS ]] || return 0
   if (( TSV )); then printf '%s\t%s\tn/a:%s\n' "$1" "$2" "$3"; else echo "  n/a: $1: $2 — $3"; fi; }
+# want <row…> — whether any of those rows is selected (HARNESS_MATRIX_ROWS). A cell's arguments are expanded before `cell` can skip
+# it, so a row with an expensive argument ($(cli_launch …), a lane launch, a transcript parse) is guarded `want <row> && cell …`:
+# a run on a few rows (test_cli_matrix_guard.sh's) then pays for those rows alone (#943).
+want(){ local r; [[ -z "${HARNESS_MATRIX_ROWS:-}" ]] && return 0; for r; do [[ $r =~ $HARNESS_MATRIX_ROWS ]] && return 0; done; return 1; }
 pane(){ cat "$FIX/$1/$2.txt"; }
 has(){ grep -qF -- "$1" <<<"$2"; }
 lacks(){ ! grep -qF -- "$1" <<<"$2"; }
@@ -983,7 +987,37 @@ headless_rows(){ local cli="$1" r
   cell "$cli" headless-stop                    headless_stop_ok
   cell "$cli" headless-sweep-detached-jobs     headless_sweep_ok; }
 
+# matrix_jobs — how many CLIs run at once (#943). Each CLI's cells touch nothing of another's, so a run over several CLIs is one child
+# run per CLI, each with a RUN_DIR of its own, up to HARNESS_MATRIX_JOBS at a time (default: the host's cores, at most 4; 1 = one
+# after the other, in this shell). Git Bash forks ~10x slower than Linux, so the matrix is ~100 min there, and the cores are what it can use.
+matrix_jobs(){ local n="${HARNESS_MATRIX_JOBS:-}"
+  [[ $n =~ ^[1-9][0-9]*$ ]] || { n="$(nproc 2>/dev/null)"; [[ $n =~ ^[1-9][0-9]*$ ]] || n=1; (( n > 4 )) && n=4; }
+  echo "$n"; }
+# matrix_child <cli> <out> — one CLI's run, as a child of this script: its stdout, stderr and status land in <out>.{out,err,rc}.
+# HARNESS_MATRIX_TRACE=<file> gets a `start <cli>` and an `end <cli>` line per child (test_cli_matrix_guard.sh: the runs overlap).
+matrix_child(){ local cli="$1" o="$2" t="${HARNESS_MATRIX_TRACE:-/dev/null}"
+  echo "start $cli" >> "$t"
+  HARNESS_MATRIX_CLIS="$cli" HARNESS_MATRIX_JOBS=1 bash "${BASH_SOURCE[0]}" "${@:3}" > "$o.out" 2> "$o.err"; echo $? > "$o.rc"
+  echo "end $cli" >> "$t"; }
+# matrix_parallel <n> <flags…> — the CLIs of HARNESS_MATRIX_CLIS (else every CLI) as child runs, <n> at a time; then each CLI's
+# output in the CLIs' order, so the result reads as the one-after-the-other run would: a --tsv's cells in order, an assertion run's
+# `ok:` lines and its `── n/m passed` per CLI. Status 1 if any child's was.
+matrix_parallel(){ local par="$1" cli o running=0 rc=0; shift
+  o="$RUN_DIR/par"; mkdir -p "$o"
+  for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
+    (( running < par )) || { wait -n; running=$((running - 1)); }
+    matrix_child "$cli" "$o/$cli" "$@" & running=$((running + 1))
+  done
+  wait
+  for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
+    cat "$o/$cli.out"; cat "$o/$cli.err" >&2
+    [[ "$(cat "$o/$cli.rc" 2>/dev/null)" == 0 ]] || rc=1
+  done
+  return "$rc"; }
+
 rc=0
+clis=(${HARNESS_MATRIX_CLIS:-$(cli_list)}); par="$(matrix_jobs)"
+if (( ${#clis[@]} > 1 && par > 1 )); then matrix_parallel "$par" "$@"; exit; fi
 for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
   ( cli_load "$cli" || exit 1
     matrix_stub
@@ -992,10 +1026,11 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     SID="$(cat "$F/session")"; MODEL="$(cat "$F/model")"
     plant_cli_home "$cli" "$WD"
     cell "$cli" fixtures-recorded          test -s "$F/VERSION"
-    line="$(cli_launch "$WD" "$SID" "$MODEL" high)"
-    cell "$cli" launch-bootstrap-prompt    has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"
+    line=""; lane=""
+    want launch-bootstrap-prompt launch-no-task-text && line="$(cli_launch "$WD" "$SID" "$MODEL" high)"
+    want launch-bootstrap-prompt && cell "$cli" launch-bootstrap-prompt has "$HARNESS_BOOTSTRAP_PROMPT" "$line$(cli_first_input high)"
     cell "$cli" launch-no-task-text        lacks UNIQUE_TASK_MARKER "$line"
-    lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"
+    want launch-model launch-effort-once && lane="$(lane_launch "$RUN_DIR/$cli-lane" "$MODEL" low)"
     cell "$cli" launch-model               has "$MODEL" "$lane"
     cell "$cli" launch-effort-once         effort_once_ok "$lane" low
     cell "$cli" launch-role-model          role_launch_ok "$MODEL" low
@@ -1018,8 +1053,8 @@ for cli in ${HARNESS_MATRIX_CLIS:-$(cli_list)}; do
     else cell "$cli" bypass-covers-subagents    bypass_ok; fi
     cell "$cli" done-signal                done_signal_ok "$WD"
     cell "$cli" loop-mode                  loop_ok
-    cell "$cli" transcripts-found          test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"
-    cell "$cli" usage-from-transcript      same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"
+    want transcripts-found && cell "$cli" transcripts-found test -n "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")")"
+    want usage-from-transcript && cell "$cli" usage-from-transcript same "$(cli_usage "$(cli_transcripts "$WD" "$(cli_session_id "$WD" "$SID")" | head -1)" | sort)" "$(sort "$F/usage.expected")"
     cell "$cli" stats-launch-model-effort  launch_event_ok "$MODEL" low
     cell "$cli" stats-session-end-usage    session_end_usage_ok "$WD" "$SID"
     if [[ -s "$F/usage-windows.na" ]]; then na "$cli" usage-windows "$(cat "$F/usage-windows.na")"
