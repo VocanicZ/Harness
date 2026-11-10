@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier decide` adds `…` only to a value it cut (#894)
+
+- A too-large count such as `--criteria 99999999999` was echoed whole but followed by `…`, as if part of it had been cut. The ellipsis now
+  appears only when the echo was shortened to 20 characters. `test_tier.sh` covers a short and a long value.
+
 ### `harness stats --since` with a huge count is a usage error (#879)
 
 - A `--since` count of about 307 digits or more raised `OverflowError` and printed a traceback; above 4300 digits Python's own integer-conversion
