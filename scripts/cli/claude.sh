@@ -418,28 +418,19 @@ usage_statusline_heal_checkout(){ local common main
 claude_usage_setup(){ usage_statusline_install "$1"; usage_statusline_heal_checkout "$1" || true; }
 
 # --- prerequisites ------------------------------------------------------------------------------
-# The binary, plus the plugin every lane needs: ralph-loop (the goal loop's Stop hook). Not superpowers:
+# The binary, plus the goal loop's Stop hook: the engine's own plugins/claude/harness-ralph, which every lane
+# loads through --plugin-dir (#616). It ships with the engine, so nothing is installed for it; the check only
+# says so when the directory is gone. The user-scope `ralph-loop` plugin is NOT a prerequisite: no lane loads
+# it, and a full-config launch switches an installed one off (claude_ralph_off_flag). Not superpowers either:
 # no lane can see it (a lean lane launches with --setting-sources project,local, #595) and no skill the
 # prompts name requires it any more (skill/writing-plans names only skills a lean lane has, #669; the
-# prompt-skills check in test_cli_lean.sh walks them). --install installs what is missing.
-# HARNESS_MARKETPLACE / HARNESS_MARKETPLACE_NAME name the marketplace they come from (install.sh).
-claude_prereqs(){ local bin rc=0 p f mk="${HARNESS_MARKETPLACE_NAME:-claude-plugins-official}"
+# prompt-skills check in test_cli_lean.sh walks them). --install therefore installs only the binary.
+claude_prereqs(){ local bin rc=0 d
   bin="$(claude_bin)"
   _cli_bin_ensure claude "$bin" "${1:-}" 'curl -fsSL https://claude.ai/install.sh | bash' || return 1
   echo "ok      claude binary ($bin)"
-  [[ "${1:-}" == --install ]] &&
-    _cli_run "$bin" plugin marketplace add "${HARNESS_MARKETPLACE:-anthropics/claude-plugins-official}" >/dev/null 2>&1
-  for p in ralph-loop; do
-    f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
-    if [[ -f "$f" ]] && P="$p" F="$f" python3 -c 'import json,os,sys
-d = json.load(open(os.environ["F"])).get("plugins", {})
-sys.exit(0 if any(k.split("@")[0] == os.environ["P"] for k in d) else 1)' 2>/dev/null; then
-      echo "ok      claude plugin $p"
-    elif [[ "${1:-}" == --install ]] && _cli_run "$bin" plugin install "$p@$mk" --scope user >/dev/null 2>&1; then
-      echo "ok      claude plugin $p (installed)"
-    else echo "MISSING claude plugin $p: $bin plugin install $p@$mk"; rc=1; fi
-  done
-  # ralph-loop's Stop hook must be executable, or the goal loop never re-feeds the task.
-  [[ "${1:-}" == --install ]] && find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache" \
-    -path '*/ralph-loop/*/hooks/*.sh' -exec chmod +x {} \; 2>/dev/null
+  d="$(claude_ralph_plugin_dir)"
+  if [[ -f "$d/.claude-plugin/plugin.json" && -f "$d/hooks/hooks.json" && -f "$d/hooks/stop-hook.py" ]]; then
+    echo "ok      claude plugin harness-ralph ($d)"
+  else echo "MISSING claude plugin harness-ralph: $d is incomplete: re-run install.sh or 'harness update'"; rc=1; fi
   return $rc; }

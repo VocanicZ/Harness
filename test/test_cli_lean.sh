@@ -75,6 +75,21 @@ assert_eq "$(claude_ralph_plugin_dir() { echo "$SPE/plugins/claude/harness-ralph
   python3 -c 'import shlex, sys; print([w for w in shlex.split(sys.stdin.read()) if w.startswith("--plugin-dir=")][0])')" \
   "--plugin-dir=$SPE/plugins/claude/harness-ralph" "…and a headless lane's flags split back to the same path"
 
+# --- setup's prerequisite check (#915): the engine's own harness-ralph plugin, not the user's ralph-loop ----------
+# A host with no ralph-loop plugin (empty config dir, empty HOME) passes; nothing is installed for the loop.
+PB="$RUN_DIR/prereq-bin"; mkdir -p "$PB"; printf '#!/bin/sh\necho "$*" >> "%s/calls"\nexit 0\n' "$RUN_DIR" > "$PB/claude"; chmod +x "$PB/claude"
+pre(){ PATH="$PB:$PATH" CLAUDE_CONFIG_DIR="$RUN_DIR/empty" HOME="$RUN_DIR/nohome" claude_prereqs "$@" 2>&1; }
+out="$(pre)"; rc=$?
+assert_eq "$rc" 0 "the prerequisite check passes with no user ralph-loop plugin installed"
+assert_ok "…naming the engine's harness-ralph plugin as ok" has "ok      claude plugin harness-ralph ($RALPH)" "$out"
+assert_no "…and never mentioning ralph-loop" has "ralph-loop" "$out"
+: > "$RUN_DIR/calls"; out="$(pre --install)"; rc=$?
+assert_eq "$rc" 0 "--install passes too"
+assert_eq "$(cat "$RUN_DIR/calls")" "" "…and runs no 'claude plugin' command: nothing is installed for the loop"
+out="$(claude_ralph_plugin_dir() { echo "$RUN_DIR/no-engine/plugins/claude/harness-ralph"; }; pre)"; rc=$?
+assert_eq "$rc" 1 "an engine without its harness-ralph plugin fails the check"
+assert_ok "…naming harness-ralph as missing" has "MISSING claude plugin harness-ralph" "$out"
+
 # --- the skills a lean lane finds in its worktree ----------------------------------------------------
 USK="$RUN_DIR/user-skills"; export HARNESS_USER_SKILLS="$USK"; mkdir -p "$USK/rtdd"; echo rtdd > "$USK/rtdd/SKILL.md"
 wanted="$(cli_prompt_skills)"

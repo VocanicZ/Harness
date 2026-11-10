@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness setup` no longer asks for the user's `ralph-loop` plugin (#915)
+
+- Since #616 every `claude` lane loads the engine's own `plugins/claude/harness-ralph` and a full-config launch switches an installed `ralph-loop`
+  off, yet `harness setup` still reported `MISSING claude plugin ralph-loop` or installed it. The `claude` check now needs the binary and the
+  engine's `harness-ralph` directory, and `--install` installs only the binary. `HARNESS_MARKETPLACE` and `HARNESS_MARKETPLACE_NAME` are unused.
+
 ### `bench/run.py` write-error message starts `bench:`, like its other messages (#900)
 
 - The full-disk message added in #882 said `harness bench: cannot write output: ...` while every other `bench/run.py` message starts `bench:`, so
