@@ -325,6 +325,27 @@ assert_eq "$(printf %s "$out" | grep -c $'\f')" 0 "no raw form feed in the text 
 assert_ok "…U+2028 shows as \\u2028" has 'docs/a\\u2028b.md' "$out"
 assert_ok "…form feed shows as \\u000c" has 'docs/f\\u000cg.md' "$out"
 assert_eq "$(printf '%s\n' "$out" | grep -c '^  PR #3: ')" 1 "…and the overlap is one line"
+# a worktree whose path holds a form feed or U+2028 is found at its real path (#931: str.splitlines() cut the path)
+cat > "$BIN/gh" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "issue list") echo '[{"number":9},{"number":10}]';;
+  "pr list")    echo '[]';;
+  *) exit 1;;
+esac
+SH
+git worktree add -q -b issue/9 "$T/wt9"$'\f'"ff" main
+echo wip > "$T/wt9"$'\f'"ff/src/a.py"
+git worktree add -q -b issue/10 "$T/wt10"$'\xe2\x80\xa8'"ff" main
+echo wip > "$T/wt10"$'\xe2\x80\xa8'"ff/src/b.py"
+for pair in 9:src/a.py 10:src/b.py; do
+  n="${pair%%:*}"; f="${pair#*:}"
+  out="$(ov "$f")"; rc=$?
+  assert_eq "$rc" 1 "$f is uncommitted in issue #$n's worktree, whose path holds a control character -> overlap"
+  assert_ok "…names issue #$n" has "issue #$n" "$out"
+done
+out="$(ov src/z.py)"; rc=$?
+assert_eq "$rc" 0 "src/z.py is owned by neither odd-path worktree -> clear"
 cd "$HERE"
 echo '[]' > /dev/null
 # no open work at all -> clear

@@ -279,9 +279,9 @@ def _zlist(text):
 
 
 def _worktrees(repo_dir):
-    """{branch: path} for every checked-out worktree of the repo."""
+    """{branch: path} for every checked-out worktree of the repo. Split on \\n only: str.splitlines() also breaks at \\f, U+2028 and U+0085, which a path may contain (#931)."""
     out, cur = {}, {}
-    for line in _run(["git", "worktree", "list", "--porcelain"], repo_dir).splitlines() + [""]:
+    for line in [l.rstrip("\r") for l in _run(["git", "worktree", "list", "--porcelain"], repo_dir).split("\n")] + [""]:
         if not line:
             if cur.get("branch"):
                 out[cur["branch"]] = cur["path"]
