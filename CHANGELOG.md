@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `swarm-suite.sh --help` prints the usage and exits 0 (#998)
+
+- `scripts/swarm-suite.sh --help` printed the usage on standard error and exited 2, and `-h x` was read as a worktree (`no such worktree: -h`). `-h` and `--help` as the first argument now print
+  the usage on standard output and exit 0, quietly when standard output is closed or the reader stops early (`| head -1`).
+
 ### `swarm-suite.sh` runs a test file whose name starts with a dash (#996)
 
 - A test file such as `-x.sh`, `-m.py` or `-c.py` was handed to `bash`, `grep` and `python3` as an option, so the shard failed (`bash: -.: invalid option`, or pytest exiting 5 with

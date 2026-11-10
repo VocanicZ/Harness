@@ -60,6 +60,15 @@ vis(){
   printf '%s' "$out"
 }
 
+# #998: -h / --help as the FIRST argument is a request, not a mistake: the usage on standard output, exit 0. A reader that stops early
+# (`| head -1`) or standard output closed (`>&-`) must not turn it into exit 141 or a "write error": SIGPIPE is ignored for the one write
+# and its failure dropped.
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  ( trap '' PIPE; printf '%s\n' "usage: swarm-suite.sh <worktree> <job-name> [test files...]" \
+      "  run a lane's full suite as a swarm job; exit 0 green, 1 red, 3 not run here (run it locally)" \
+      "  -h, --help   print this usage and exit 0" ) 2>/dev/null || true
+  exit 0
+fi
 [[ $# -ge 2 ]] || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...]" >&2; exit 2; }
 WT="$1"; NAME="$2"; shift 2
 # #972: an empty test-file argument names nothing — a usage error, shown as ''.
