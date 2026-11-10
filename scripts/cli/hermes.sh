@@ -184,7 +184,7 @@ hermes_kill(){ local home rc; home="$(_hermes_home "${2:-}")"
 hermes_session_id(){ [[ -n "${2:-}" ]] || return 0
   SID="$2" DB="$(_hermes_db "$1")" python3 - 2>/dev/null <<'PY'
 import os, sqlite3
-c = sqlite3.connect(f"file:{os.environ['DB']}?mode=ro", uri=True)
+c = sqlite3.connect("file:" + os.environ["DB"].replace("\\", "/") + "?mode=ro", uri=True)   # an env path arrives as C:\\x on Windows; a URI wants C:/x (#606)
 r = c.execute("SELECT id, parent_session_id FROM sessions WHERE title = ? ORDER BY started_at DESC LIMIT 1", (os.environ["SID"],)).fetchone()
 while r and r[1]:
     up = c.execute("SELECT id, parent_session_id FROM sessions WHERE id = ? AND end_reason = 'compression'", (r[1],)).fetchone()

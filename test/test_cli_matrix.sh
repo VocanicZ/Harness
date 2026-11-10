@@ -416,7 +416,7 @@ subagent_named(){ local t g="$STATE_DIR/gauntlet/main/p7/r1"; t="$(cat "$2/.harn
 # lane's config, a cwd of <dir>, a new empty state dir and the brief, and prints what the real critic
 # answered (fake-cli, subagent-critic.out).
 subagent_substitute_ok(){ ( local cmd d="$RUN_DIR/bin-$HARNESS_CLI" args="$RUN_DIR/subagent-args" bin cfg
-  cmd="$(BRIEF="$4" python3 -c 'import os, sys
+  cmd="$(BRIEF="$(native_path "$4")" python3 -c 'import os, sys
 t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % os.environ["BRIEF"]
 i = t.find(b)
 sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2")" || exit 1
@@ -588,7 +588,7 @@ handoff_skill_ok(){ ( local d="$RUN_DIR/handoff-$HARNESS_CLI" bin out want src="
   cmp -s "$src" "$want/SKILL.md" || exit 1
   wd="$d/wd"; mkdir -p "$wd"; git -C "$wd" init -q
   case "$HARNESS_CLI" in
-    hermes) _hermes_seed "$wd" >/dev/null 2>&1; grep -qF "${want%/handoff}" "$(_hermes_home "$wd")/config.yaml" || exit 1 ;;
+    hermes) _hermes_seed "$wd" >/dev/null 2>&1; { grep -qF "${want%/handoff}" "$(_hermes_home "$wd")/config.yaml" || grep -qF "$(native_path "${want%/handoff}")" "$(_hermes_home "$wd")/config.yaml"; } || exit 1 ;;   # (a native Python writes the path as C:/x, #606)
     openclaw) _openclaw_config "$wd" >/dev/null 2>&1; WANT="${want%/handoff}" python3 -c 'import json, os, sys
 sys.exit(0 if os.environ["WANT"] in json.load(open(sys.argv[1]))["skills"]["load"]["extraDirs"] else 1)' "$(_openclaw_cfg "$wd")" || exit 1 ;;
   esac
