@@ -785,7 +785,9 @@ hl_cleanup(){ local d p; shopt -s nullglob
 # the reply).
 hl_lane(){ WD="$HL/wd-$1"; new_wd "$WD"; export FAKE_CLAUDE_DIR="$HL/fake-$1"; mkdir -p "$FAKE_CLAUDE_DIR"; shift
   printf '%s\n' "$@" > "$FAKE_CLAUDE_DIR/plan"; }
-hl_wait(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; command sleep 0.1; done; return 1; }
+# A Windows host forks ~10x slower and the matrix runs its CLIs side by side there, so a headless lane's turn can take far longer than
+# the Linux timings below (#969): every wait is scaled up. It returns as soon as its condition holds, so a green cell pays nothing.
+hl_wait(){ local t="$1" i; shift; host_is_windows && t=$(( t * 8 )); for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; command sleep 0.1; done; return 1; }
 hl_alive(){ alive_any "$1"; }   # by its MSYS pid or (Windows) the native one a fake agent records (#606)
 # hl_calls <field> — that field of each turn the fake ran (argv, prompt), one JSON value per line.
 hl_calls(){ python3 -c 'import json, sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
@@ -863,7 +865,7 @@ headless_interrupt_ok(){ ( hl_env; local s=hz-main-i27 fpid gpid rpid; hl_lane i
 # checkpoint, which waits behind the turn, then waits on the lane's state for the checkpoint turn and
 # ends the lane. Leaves $S, $UUID (the lane's), $SID (the agent session it ran), $PAUSE_OUT.
 hl_checkpoint(){ local ppid
-  source "$HERE/../scripts/drive.sh"; matrix_stub; hl_env; lane_env; export HARNESS_PAUSE_GRACE=30
+  source "$HERE/../scripts/drive.sh"; matrix_stub; hl_env; lane_env; export HARNESS_PAUSE_GRACE=30; host_is_windows && HARNESS_PAUSE_GRACE=240   # (#969)
   log(){ printf '%s\n' "$*" >> "$HL/harness.log"; }
   hl_lane cp "normal working on it" "normal checkpointed" "normal resumed"; touch "$FAKE_CLAUDE_DIR/hold"
   spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 || return 1
