@@ -893,16 +893,6 @@ def test_unit_name_error_spells_a_form_feed_and_u2028_as_vis_does():   # #899
                 raise AssertionError("expected ValueError")
 
 
-if __name__ == "__main__":
-    fails = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try: fn(); print(f"  ok: {name}")
-            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
-    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
-    sys.exit(1 if fails else 0)
-
-
 def test_empty_unit_and_bodies_are_usage_errors():   # #862: neither is "not given" (--bodies= fell back to the real gh)
     with tmp() as d:
         cfg, events, bodies = fixture(d)
@@ -911,3 +901,13 @@ def test_empty_unit_and_bodies_are_usage_errors():   # #862: neither is "not giv
                                 "--events", events] + other, capture_output=True, text=True)
             assert r.returncode == 2 and r.stdout == "" and (
                 "non-empty" in r.stderr or "must not be empty" in r.stderr), (flag, r.returncode, r.stdout, r.stderr)
+
+
+if __name__ == "__main__":
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)
