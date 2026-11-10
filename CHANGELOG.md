@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness --version` keeps exit 0 when its output is cut off (#993)
+
+- `harness --version | head -0` exited 141 (SIGPIPE), and `harness --version --verbose | head -1` did so in about 1 of 5 runs. The report is now written in one go with SIGPIPE ignored
+  and a failed write dropped silently, so both forms exit 0 whether the reader stops early or standard output is closed.
+
 ### `harness --state-dir` rejects a missing path and a dash-led value (#986)
 
 - `harness --state-dir /nonexistent/xyz stats` and `harness --state-dir -x stats` exited 0 and reported every fleet on the host, as if the option had not been given. A path that is not an

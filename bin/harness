@@ -101,21 +101,23 @@ try_state_dir(){ [[ -n "${STATE_DIR:-}" ]] || STATE_DIR="$(discover_state_dir 2>
 # `git describe` marked as a dev build — but only when ENGINE_DIR is that repo's own top level, so an
 # engine merely nested in some other repo (a dotfiles $HOME) never borrows its describe. Never fails.
 print_version(){
-  local tag sha top
+  local tag sha top out
   if [[ -r "$ENGINE_DIR/VERSION" ]]; then
     tag="$(sed -n 1p "$ENGINE_DIR/VERSION")"; sha="$(sed -n 2p "$ENGINE_DIR/VERSION" | cut -c1-7)"
-    echo "harness $tag ($sha)"
+    out="harness $tag ($sha)"
   elif top="$(git -C "$ENGINE_DIR" rev-parse --show-toplevel 2>/dev/null)" \
        && [[ "$(cd "$top" && pwd -P)" == "$(cd "$ENGINE_DIR" && pwd -P)" ]]; then
-    echo "harness $(git -C "$ENGINE_DIR" describe --tags --always --dirty 2>/dev/null) (dev checkout)"
+    out="harness $(git -C "$ENGINE_DIR" describe --tags --always --dirty 2>/dev/null) (dev checkout)"
   else
-    echo "harness unknown (no VERSION file)"
+    out="harness unknown (no VERSION file)"
   fi
   # --verbose: where this engine runs from, and the stable path units reach it through (#281).
   if [[ "${1:-}" == --verbose ]]; then
-    echo "engine: $ENGINE_DIR"
-    echo "stable: $HARNESS_ENGINE_LINK"
+    out+=$'\n'"engine: $ENGINE_DIR"$'\n'"stable: $HARNESS_ENGINE_LINK"
   fi
+  # A reader that stops early (`| head -0`) or standard output closed (`>&-`) must not turn a successful version report
+  # into exit 141 or a "write error" on stderr: ignore SIGPIPE for the one write and drop its failure (#993).
+  ( trap '' PIPE; printf '%s\n' "$out" ) 2>/dev/null || true
 }
 # Standard output closed (`>&-`): drop the text quietly and succeed, as the Python subcommands do (#837, #984).
 usage(){ ( exec 3>&1 ) 2>/dev/null || return 0
