@@ -1443,8 +1443,24 @@ def cmd_report(argv):
             print(f"harness stats: {flag} must be 1 or greater, got {num}", file=sys.stderr)
             return 2
     if a.backfill:
-        n, calls = backfill(a.events), backfill_rtdd(a.rtdd_events)
+        # #1007: backfill writes host-wide records. An explicit --events X describes some fleets only, so X
+        # gets just those fleets' sessions, and the default rtdd log (which does not belong with X) is not written.
+        prefixes, rtdd_skipped = None, False
+        if a.events is not None:
+            err = _explicit_log_error(a.events)
+            if err:
+                print(f"harness stats: --events {err}", file=sys.stderr)
+                return 2
+            prefixes = {e.get("prefix") for e in load_events(a.events) if e.get("prefix")}
+            rtdd_skipped = a.rtdd_events is None
+        n = backfill(a.events, prefixes)
+        calls = 0 if rtdd_skipped else backfill_rtdd(a.rtdd_events, prefixes)
         print(f"backfilled {n} session(s), {calls} rtdd call(s)")
+        if prefixes is not None:
+            print(f"harness stats: --backfill with --events only adds sessions of the fleet(s) in that file "
+                  f"({', '.join(sorted(prefixes)) or 'none'}); the host-wide rtdd log was "
+                  f"{'left alone (pass --rtdd-events to backfill one)' if rtdd_skipped else 'limited the same way'}",
+                  file=sys.stderr)
         return 0
     try:
         since = parse_since(a.since) if a.since else (None if (a.prd is not None or a.issue is not None) else parse_since("7d"))
@@ -1460,7 +1476,9 @@ def cmd_report(argv):
     every = load_events(a.events, bad)
     evs = filter_events(every, since, a.fleet, a.repo)
     # joined against EVERY event: a --since that cuts a session's launch must not orphan its rtdd calls
-    rtdd = filter_events(join_rtdd(load_events(a.rtdd_events or rtdd_events_path(), bad), every), since, a.fleet, a.repo)
+    # #1007: an explicit --events X reads no rtdd log unless --rtdd-events names one; the default log is the host's, not X's
+    rtdd_src = a.rtdd_events or (None if a.events is not None else rtdd_events_path())
+    rtdd = filter_events(join_rtdd(load_events(rtdd_src, bad), every), since, a.fleet, a.repo) if rtdd_src else []
     if bad[0]:   # #672: spend in an unparseable line is lost from the totals — say so, on stderr (stdout stays the report)
         print(f"harness stats: skipped {bad[0]} event line(s) that could not be parsed; totals exclude them",
               file=sys.stderr)
@@ -1630,24 +1648,26 @@ def rtdd_calls(transcript):
     return out
 
 
-def _harness_transcripts():
-    """(attribution, session id, transcript) for every Harness-worktree main transcript on the host."""
+def _harness_transcripts(prefixes=None):
+    """(attribution, session id, transcript) for every Harness-worktree main transcript on the host.
+    `prefixes` (a set) keeps only the fleets whose session prefix is in it (#1007)."""
     fleets = _fleets()
     for d in config_dirs():
         for pdir in sorted(glob.glob(os.path.join(d, "projects", "*"))):
             attr = classify_dir(os.path.basename(pdir), fleets)
-            if attr is None:
+            if attr is None or (prefixes is not None and attr.get("prefix") not in prefixes):
                 continue
             for tr in sorted(glob.glob(os.path.join(pdir, "*.jsonl"))):
                 yield attr, os.path.basename(tr)[:-len(".jsonl")], tr
 
 
-def backfill(path=None):
+def backfill(path=None, prefixes=None):
     """Write a session_end (backfill: true) for every Harness-worktree transcript the log has none for.
-    Worker logs carry only HH:MM:SS, no date, so lifecycle events are not reconstructed from them."""
+    Worker logs carry only HH:MM:SS, no date, so lifecycle events are not reconstructed from them.
+    `prefixes` limits it to those fleets' transcripts (an explicit --events file, #1007)."""
     have = {e.get("session") for e in load_events(path) if e.get("event") == "session_end"}
     n = 0
-    for attr, sid, tr in _harness_transcripts():
+    for attr, sid, tr in _harness_transcripts(prefixes):
         if sid in have:
             continue
         usage, first, last = session_usage(tr)
@@ -1663,14 +1683,14 @@ def backfill(path=None):
     return n
 
 
-def backfill_rtdd(path=None):
+def backfill_rtdd(path=None, prefixes=None):
     """For every Harness session with no rtdd events (one from before RTDD_EVENT_LOG was exported),
     write one backfilled rtdd line per `rtdd` Bash call in its transcripts — counts only, no
-    selection data (#186). Returns the number of calls written."""
+    selection data (#186). `prefixes` limits it to those fleets (#1007). Returns the number of calls written."""
     path = path or rtdd_events_path()
     have = {e["ctx"].get("HARNESS_SESSION") for e in load_events(path) if isinstance(e.get("ctx"), dict)}
     n = 0
-    for attr, sid, tr in _harness_transcripts():
+    for attr, sid, tr in _harness_transcripts(prefixes):
         if sid in have:
             continue
         ctx = {f"HARNESS_{k.upper()}": str(attr[k]) for k in ("prefix", "repo", "issue", "prd", "kind") if k in attr}
