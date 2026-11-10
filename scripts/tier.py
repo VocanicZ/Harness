@@ -78,7 +78,9 @@ def _read(path):
         raise TierConfigError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
     except ValueError as e:   # tomllib.TOMLDecodeError, or the flat fallback parser's bad number
         huge = _huge_number(text, e)
-        raise TierConfigError(huge and f"{path}: {huge}" or f"{path}: cannot parse it: {e}")
+        # #912: tomllib spells a control character repr-style (\x0c); the rest of the tools write it as stats.vis does (\u000c)
+        why = re.sub(r"(Illegal character '\\)x([0-9a-f]{2})'", r"\1u00\2'", str(e))
+        raise TierConfigError(huge and f"{path}: {huge}" or f"{path}: cannot parse it: {why}")
 
 
 def _huge_number(text, err):
@@ -118,12 +120,12 @@ def _check(cfg, path):
         if vals is None:
             continue
         if not isinstance(vals, dict):
-            raise TierConfigError(f"{path}: [{sec}] must be a table of thresholds, not {vals!r}")
+            raise TierConfigError(f"{path}: [{sec}] must be a table of thresholds, not {_vr(vals)}")
         for key in keys:
             if key not in vals:
                 continue
             v = vals[key]
-            where = f"{path}: {sec}.{key} = {v!r}"
+            where = f"{path}: {sec}.{key} = {_vr(v)}"
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise TierConfigError(f"{where} is not a number")
             if isinstance(v, float) and not math.isfinite(v):
@@ -350,6 +352,13 @@ def _vr(v):
     return stats.vrepr(v)
 
 
+def _choice(choices):
+    """argparse type for an option with a fixed set of values (#912): argparse's own `choices` error repr()s the
+    value, which spells a form feed \\x0c; this one writes it as stats.vis does."""
+    import stats
+    return stats.choice_type(choices)
+
+
 def _short(v, keep=20):
     """repr() of `v` for a usage error, cut to `keep` characters so a multi-KB input is never echoed (#880)."""
     import stats   # #899: stats.vrepr spells a control character the way stats.vis does
@@ -404,7 +413,7 @@ def main(argv=None):
     g.add_argument("--unattended", action="store_true")
     d.add_argument("--wants-review", action="store_true")
     d.add_argument("--multi-step-plan", action="store_true")
-    d.add_argument("--prefer", choices=TIERS)
+    d.add_argument("--prefer", type=_choice(TIERS), metavar="{" + ",".join(TIERS) + "}")
     d.add_argument("--json", action="store_true")
     o = sub.add_parser("overlap")
     o.add_argument("--files", required=True, help="comma-separated paths the direct fix would touch")

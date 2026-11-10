@@ -847,7 +847,8 @@ def parse_args(argv):
                          "refused on: disk, held, no-usage-reading, no-calibration, budget, no-delete-repo, bad-setting; with its numbers) as <arm>.json and exit 0, instead of refusing")
     ap.add_argument("--workers", type=_int_arg, default=None, metavar="N",
                     help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
-    ap.add_argument("--fixture", default=fixtures().DEFAULT, choices=fixtures().names(),
+    ap.add_argument("--fixture", default=fixtures().DEFAULT, type=_load("stats").choice_type(fixtures().names()),
+                    metavar="{" + ",".join(fixtures().names()) + "}",   # #912: argparse's choices error repr()s a form feed as \\x0c
                     help="which fixture the arms build (default pennywise, a 4.7 KB brief; large is the 20-page brief "
                          "with a mid-run requirement change, graded at milestones; bench/fixtures.py)")
     ap.add_argument("--progress-poll-secs", type=_secs_arg, default=progresslib().POLL_S,

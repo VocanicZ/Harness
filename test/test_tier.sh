@@ -513,4 +513,26 @@ for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
   assert_ok "…-R shows 'a${esc}b'" grep -qF "'a${esc}b' is not a repository" <<<"$err"
   assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c"
 done
+# --prefer's choice error, a tier.toml string value and a tier.toml parse error echo U+2028 / a form feed escaped, as vis does (#912)
+for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  ch="${pair%%:*}"; esc="${pair#*:}"
+  err="$(H tier decide --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer "p${ch}" 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "tier decide --prefer with ${esc} -> exit 2"
+  assert_ok "…--prefer shows 'p${esc}'" grep -qF "invalid choice: 'p${esc}' (choose from direct, lane, fleet)" <<<"$err"
+  assert_eq "$(printf %s "$err" | grep -c -- "$ch")" 0 "…no raw ${esc} on stderr"
+  assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c (--prefer)"
+  printf '[direct]\nmax_criteria = "x\\%sy"\n' "${esc#\\}" > "$T/ctlval.toml"   # the TOML escape \u2028 / \u000c: a value holding the character
+  err="$(HARNESS_TIER_TOML="$T/ctlval.toml" H tier thresholds 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "tier.toml string value with ${esc} -> exit 2"
+  assert_ok "…the value shows as 'x${esc}y'" grep -qF "'x${esc}y' is not a number" <<<"$err"
+  assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c (value)"
+done
+printf '[direct]\nmax_criteria = "x\fy"\n' > "$T/ctlparse.toml"
+err="$(HARNESS_TIER_TOML="$T/ctlparse.toml" H tier thresholds 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 2 "tier.toml with a raw form feed in a string -> exit 2"
+assert_ok "…the parse error spells it \\u000c" grep -qF "Illegal character '\\u000c'" <<<"$err"
+assert_eq "$(printf %s "$err" | grep -c $'\f')" 0 "…no raw form feed on stderr"
+assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c (parse error)"
+H tier decide --help | grep -qF -- '--prefer {direct,lane,fleet}'; assert_eq "$?" 0 "--prefer still lists its choices in --help"
+assert_eq "$(d --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer fleet | jq_ 'd["tier"]')" fleet "--prefer fleet still overrides"
 finish

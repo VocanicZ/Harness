@@ -847,6 +847,20 @@ def vrepr(v):
     return q + body.replace(q, "\\" + q) + q
 
 
+def choice_type(choices):
+    """argparse `type=` for an option with a fixed set of values (#912). argparse's own `choices` error repr()s the
+    value, so a form feed reads \\x0c there; this raises the same message with vrepr, so it reads as vis writes it.
+    Pair it with `metavar="{a,b}"`, which is what `choices` would have shown in usage."""
+    import argparse
+    names = tuple(choices)
+
+    def check(v):
+        if v not in names:
+            raise argparse.ArgumentTypeError(f"invalid choice: {vrepr(v)} (choose from {', '.join(names)})")
+        return v
+    return check
+
+
 def _mismatch_line(e):
     who = f"#{e['issue']}" if e.get("issue") is not None else (f"PRD #{e['prd']}" if e.get("prd") is not None else "")
     where = " ".join(x for x in (e.get("repo") or "", who) if x)
