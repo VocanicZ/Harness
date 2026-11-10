@@ -171,29 +171,34 @@ def estimate(cfg, criteria):
     }
 
 
+def noun(n, one, many=None):
+    """'1 criterion', '0 criteria', '2 criteria': the singular for exactly 1, the plural for every other count."""
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
 def decide(cfg, criteria, lines, files, subsystems, workstreams=1, pool=1, minutes=None,
            user_around=True, wants_review=False, multi_step_plan=False, prefer=None):
     d, f = cfg["direct"], cfg["fleet"]
     fleet_why = []
     if criteria >= f["min_criteria"]:
-        fleet_why.append(f"{criteria} acceptance criteria (>= {f['min_criteria']})")
+        fleet_why.append(f"{noun(criteria, 'acceptance criterion', 'acceptance criteria')} (>= {f['min_criteria']})")
     if subsystems >= f["min_subsystems"]:
-        fleet_why.append(f"{subsystems} subsystems (>= {f['min_subsystems']})")
+        fleet_why.append(f"{noun(subsystems, 'subsystem')} (>= {f['min_subsystems']})")
     if workstreams >= f["min_workstreams"] and pool >= f["min_pool"]:
-        fleet_why.append(f"{workstreams} independent workstreams with POOL={pool}")
+        fleet_why.append(f"{noun(workstreams, 'independent workstream')} with POOL={pool}")
     if minutes is not None and not user_around and minutes >= f["min_unattended_minutes"]:
         fleet_why.append(f"~{minutes} min unattended (>= {f['min_unattended_minutes']})")
     if multi_step_plan:
         fleet_why.append("a multi-step plan")
     over = []   # the direct limits crossed
     if criteria > d["max_criteria"]:
-        over.append(f"{criteria} criteria (> {d['max_criteria']})")
+        over.append(f"{noun(criteria, 'criterion', 'criteria')} (> {d['max_criteria']})")
     if lines > d["max_changed_lines"]:
-        over.append(f"~{lines} changed lines (> {d['max_changed_lines']})")
+        over.append(f"~{noun(lines, 'changed line')} (> {d['max_changed_lines']})")
     if files > d["max_files"]:
-        over.append(f"~{files} files (> {d['max_files']})")
+        over.append(f"~{noun(files, 'file')} (> {d['max_files']})")
     if subsystems > d["max_subsystems"]:
-        over.append(f"{subsystems} subsystems (> {d['max_subsystems']})")
+        over.append(f"{noun(subsystems, 'subsystem')} (> {d['max_subsystems']})")
     quick = user_around or (minutes is not None and minutes < d["max_unattended_minutes"])
     if fleet_why:
         tier, why = "fleet", "will not fit one session: " + "; ".join(fleet_why)
@@ -206,8 +211,8 @@ def decide(cfg, criteria, lines, files, subsystems, workstreams=1, pool=1, minut
             f" (~{minutes} min, direct is for the user around or under {d['max_unattended_minutes']} min)"
             if minutes is not None else " and its length is unknown")
     else:
-        tier, why = "direct", (f"fits one session: {criteria} criteria, ~{lines} lines, ~{files} files, "
-                               f"{subsystems} subsystem, " + ("user around" if user_around else f"~{minutes} min"))
+        tier, why = "direct", (f"fits one session: {noun(criteria, 'criterion', 'criteria')}, ~{noun(lines, 'line')}, "
+                               f"~{noun(files, 'file')}, {noun(subsystems, 'subsystem')}, " + ("user around" if user_around else f"~{minutes} min"))
     out = {"tier": tier, "recommended": tier, "reason": why, "override": None,
            "estimate": estimate(cfg, criteria), "provisional": "thresholds are provisional until #621 recalibrates them"}
     if prefer and prefer != tier:
