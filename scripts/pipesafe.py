@@ -27,11 +27,39 @@ def quiet_stdout():
 
 def run(main, *args):
     """main(*args)'s exit status; a reader that closed stdout early ends the command quietly instead. A stderr that
-    cannot be written (closed, read-only: `2>&-` under bash leaves fd 2 on its script) never changes the status (#896)."""
+    cannot be written (closed, read-only: `2>&-` under bash leaves fd 2 on its script, full: `2>/dev/full`) never changes
+    the status (#896, #910): main's own usage-error print to stderr is not a failed write to stdout."""
+    real = sys.stderr
+    if real is not None:
+        sys.stderr = _TolerantStderr(real)
     try:
         return _run(main, *args)
     finally:
+        sys.stderr = real
         quiet_stderr()
+
+
+class _TolerantStderr:
+    """sys.stderr while main runs: a write or flush that fails is dropped (the message is lost, nothing else changes),
+    so the OSError of `print(msg, file=sys.stderr)` (EBADF, ENOSPC) is not mistaken for a failed stdout write (#910)."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def write(self, s):
+        try:
+            return self._real.write(s)
+        except (OSError, ValueError):
+            return len(s)
+
+    def flush(self):
+        try:
+            self._real.flush()
+        except (OSError, ValueError):
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
 
 
 def quiet_stderr():

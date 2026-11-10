@@ -173,6 +173,36 @@ def test_a_usage_error_with_stderr_closed_still_exits_2():
         assert r.returncode == 2, (argv, r.returncode)
 
 
+def test_a_hand_written_usage_error_with_stderr_closed_or_full_still_exits_2():
+    """#910: `harness stats --since=-x 2>&-` and `stats.py --prd 0 2>/dev/full` exited 1: the tool's own
+    `print(msg, file=sys.stderr)` raised EBADF/ENOSPC, and pipesafe took any file-less OSError for a failed stdout write.
+    A stderr that cannot be written never changes the status: 2, as with stderr open."""
+    py = sys.executable
+    harness = ["bash", os.path.join(ROOT, "bin", "harness")]
+    stats, forecast = os.path.join(ROOT, "scripts", "stats.py"), os.path.join(ROOT, "scripts", "forecast.py")
+    tier, bench = os.path.join(ROOT, "scripts", "tier.py"), os.path.join(ROOT, "bench", "run.py")
+    cases = [(harness + ["stats", "--since=-x"], {}), ([py, stats, "--prd", "0"], {}),
+             (harness + ["stats", "--events", "nope"], {}),
+             (harness + ["forecast", "3", "--events", "nope"], {}),
+             (harness + ["forecast", "3", "-R", "a/b", "--bodies", "nope"], {}),
+             ([py, forecast, "3", "--events", "nope"], {}),
+             (harness + ["tier", "overlap", "--files", ",", "-R", "a/b"], {}),
+             ([py, tier, "overlap", "--files", ",", "-R", "a/b"], {}),
+             (harness + ["tier", "thresholds"], {"HARNESS_TIER_TOML": "nope"}),
+             ([py, tier, "thresholds"], {"HARNESS_TIER_TOML": "nope"}),
+             ([py, bench, "x", "--runs", "0"], {}), ([py, bench, "x", "--workers", "0"], {})]
+    for argv, extra in cases:
+        env = dict(os.environ, **extra)
+        r = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, env=env)
+        assert r.returncode == 2 and r.stderr, ("stderr open", argv, r.returncode, r.stderr)
+        rc, out = closed_stderr(argv, env)
+        assert rc == 2, ("stderr closed", argv, rc, out)
+        if os.path.exists("/dev/full"):
+            with open("/dev/full", "wb") as full:
+                r = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=full, env=env)
+            assert r.returncode == 2, ("stderr full", argv, r.returncode)
+
+
 def test_a_successful_run_with_stderr_closed_still_exits_0():
     harness = ["bash", os.path.join(ROOT, "bin", "harness")]
     for argv in (harness + ["tier", "thresholds"], [sys.executable, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"]):
