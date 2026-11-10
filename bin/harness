@@ -270,6 +270,6 @@ case "$cmd" in
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
   resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
   help|-h|--help) usage;;
-  "") if (( _have_cmd )); then echo "unknown command: " >&2; usage >&2; exit 2; else usage; fi;;
+  "") if (( _have_cmd )); then echo "unknown command: ''" >&2; usage >&2; exit 2; else usage; fi;;
   *) echo "unknown command: $(vis_arg "$cmd")" >&2; usage >&2; exit 2;;
 esac
