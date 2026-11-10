@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness tier decide` matches singular and plural to the count in its reason line (#949)
+
+- `--criteria 1 --lines 1 --files 1 --subsystems 1` printed `1 criteria, ~1 lines, ~1 files, 1 subsystem`, and `--subsystems 0` printed `0 subsystem`. Each count in the
+  reason line now uses the singular for exactly 1 and the plural for every other value, 0 included: `1 criterion, ~1 line, ~1 file, 1 subsystem` and `0 subsystems`.
+  The "over the direct limits" and "will not fit one session" reasons follow the same rule.
+
 ### Windows suite: the headless runner tests and the CLI matrix run on a native host (closes #606)
 
 - The cause of the original symptom ("timed out waiting for the runner's first state") is in #606's first comment: a Windows venv `python.exe` is a launcher, so
