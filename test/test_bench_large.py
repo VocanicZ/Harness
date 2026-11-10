@@ -283,7 +283,7 @@ def test_the_default_fixture_is_graded_once_and_records_no_milestones():
 def test_the_large_run_has_its_own_run_id_and_directory():
     e = large_env("5")
     try:
-        argv = [sys.executable, tb.RUN, "--results-dir", e.results, "--run-dir", e.rundir, "--events", os.path.join(e.d, "none"),
+        argv = [sys.executable, tb.RUN, "--results-dir", e.results, "--run-dir", e.rundir, "--events", e.events,
                 "--poll-secs", "0.05", "--grace-secs", "2", "--grader", e.grader, "--runs", "1", "--fixture", "large", "stub"]
         p = subprocess.run(argv, env=e.env, capture_output=True, text=True, timeout=300)
         assert p.returncode == 0, (p.stdout, p.stderr)
