@@ -75,7 +75,7 @@ class Env:
         argv = [sys.executable, RUN, "--results-dir", self.results, "--run-dir", self.rundir,
                 "--events", os.path.join(self.d, "no-events.jsonl"), "--poll-secs", "0.05", "--grace-secs", "2",
                 "--run-id", "t1"] + (["--grader", self.grader] if grader else []) + list(args)
-        if "--runs" not in args:
+        if not any(a == "--runs" or a.startswith("--runs=") for a in args):
             argv += ["--runs", "1"]   # most tests are about one run; the default of 5 has its own (#591)
         return subprocess.run(argv, env=dict(self.env, **(extra_env or {})), capture_output=True, text=True, timeout=300)
 
@@ -804,6 +804,19 @@ def test_fixture_choice_error_spells_a_form_feed_and_u2028_as_vis_does():   # #9
     r = subprocess.run([sys.executable, RUN, "stub", "-h"], capture_output=True, text=True)
     assert "--fixture {pennywise,large}" in r.stdout, r.stdout
     assert bench_run.parse_args(["stub", "--fixture", "large"]).fixture == "large"
+
+
+@with_env()
+def test_argparse_and_bench_usage_errors_share_the_bench_prefix(e):   # #913
+    argparse_err = e.run("stub", "--runs=-x")      # argparse's own error
+    bench_err = e.run("stub", "--runs=-1")         # bench's own check
+    for p in (argparse_err, bench_err):
+        assert p.returncode == 2, (p.returncode, p.stderr)
+        last = p.stderr.strip().splitlines()[-1]
+        assert last.startswith("bench: "), last
+        assert "bench/run.py:" not in p.stderr, p.stderr
+    assert "error: argument --runs" in argparse_err.stderr and "--runs must be at least 1" in bench_err.stderr
+    assert e.calls() == []
 
 
 if __name__ == "__main__":
