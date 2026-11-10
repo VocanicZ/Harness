@@ -152,7 +152,8 @@ agy_usage(){ (( $# )) && python3 "$CLI_DIR/agy_usage.py" "$@"; }
 agy_limit_usage(){ _cli_usage_cached agy "${HARNESS_AGY_USAGE_TTL:-120}" _agy_limit_usage_fetch; }
 _agy_limit_usage_fetch(){ local -a cmd
   read -ra cmd <<<"$(agy_bin)"   # a command line (#272): timeout runs its words, not a function
-  timeout 90 "${cmd[@]}" -p "/usage" --output-format json 2>/dev/null | python3 -c 'import json,sys
+  # (MSYS2_ARG_CONV_EXCL: Git Bash rewrites a lone "/usage" argument into C:/Program Files/Git/usage for a native agy, #606)
+  MSYS2_ARG_CONV_EXCL='*' timeout 90 "${cmd[@]}" -p "/usage" --output-format json 2>/dev/null | python3 -c 'import json,sys
 from datetime import datetime
 for g in json.load(sys.stdin)["command"]["data"]["groups"]:
     for b in g.get("buckets") or []:
