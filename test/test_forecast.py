@@ -665,6 +665,7 @@ def test_a_bodies_file_with_a_bom_reads_like_one_without_and_a_malformed_one_is_
             rc, out, err = run_cli(args + ["--bodies", path], cfg)
             assert rc == 2 and out == "", (name, rc, out)
             assert err.startswith("harness forecast: ") and path in err and err.count("\n") == 1, (name, err)
+            assert err.startswith(f"harness forecast: --bodies {fc.st.vrepr(path)}: "), (name, err)   # #1003: source named, path quoted like the not-found error
         rc, out, err = run_cli(args + ["--bodies", os.path.join(d, "missing.json")], cfg)
         missing = os.path.join(d, "missing.json")
         assert rc == 2 and err == f"harness forecast: --bodies {fc.st.vrepr(missing)} does not exist\n", (rc, err)   # #935
@@ -991,3 +992,16 @@ if __name__ == "__main__":
             except AssertionError as e: print(f"  FAIL: {name} — {e}"); fails += 1
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
+
+
+def test_a_bodies_parse_error_names_the_option_and_quotes_the_path_with_control_characters_escaped():   # #1003
+    with tmp() as d:
+        cfg, events, _ = fixture(d)
+        for ch, esc in (("\u2028", "\\u2028"), ("\f", "\\u000c")):
+            path = os.path.join(d, f"bad{ch}.json")
+            with open(path, "w") as fh:
+                fh.write("{nope")
+            rc, out, err = run_cli(["3", "-R", W, "--events", events, "--bodies", path], cfg)
+            assert rc == 2 and out == "", (rc, out)
+            assert err.startswith(f"harness forecast: --bodies '{d}/bad{esc}.json': not valid JSON: "), err
+            assert ch not in err and err.count("\n") == 1, err

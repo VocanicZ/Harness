@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A bodies or tier.toml parse error names its source and quotes the path like a not-found error (#1003)
+
+- `harness forecast 3 -R o/r --bodies bad.json` reported `/p/bad.json: not valid JSON: …` and `HARNESS_TIER_TOML=bad.toml harness tier decide …` reported `/p/bad.toml: cannot parse it: …`, while a missing file
+  said `--bodies '/p' does not exist`. They now read `harness forecast: --bodies '/p/bad.json': not valid JSON: …` and `harness tier: HARNESS_TIER_TOML '/p/bad.toml': cannot parse it: …` (also for a file that is not UTF-8
+  or holds a number too large to read). A control character in the path stays escaped.
+
 ### A dash-led option value that is never valid gets its real reason, not "write --X=-x" (#1001)
 
 - `harness forecast 3 --unit -x` said `'-x' looks like an option; write --unit=-x`, and the `--unit=-x` form it pointed to was then refused (`'-x' is not a unit name`). For an option that can never take a

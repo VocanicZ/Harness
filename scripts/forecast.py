@@ -724,28 +724,29 @@ def _json_int(text):
 def read_bodies(path):
     """{issue number: body} from a `gh issue list --json number,body` file (#754). A leading UTF-8 BOM is
     dropped; a file that cannot be read or is not that shape is a ValueError naming it, never a traceback."""
+    src = f"--bodies {st.vrepr(path)}"   # #1003: named and quoted like the not-found errors
     try:
         with open(path, encoding="utf-8-sig") as fh:
             data = json.load(fh, parse_int=_json_int)
     except OSError as e:
-        raise ValueError(f"{path}: cannot read it: {e.strerror or e}")
+        raise ValueError(f"{src}: cannot read it: {e.strerror or e}")
     except UnicodeDecodeError as e:
-        raise ValueError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
+        raise ValueError(f"{src}: not valid UTF-8: {e.reason} at byte {e.start}")
     except ValueError as e:   # json.JSONDecodeError
-        raise ValueError(f"{path}: not valid JSON: {e}")
+        raise ValueError(f"{src}: not valid JSON: {e}")
     if not isinstance(data, list):
-        raise ValueError(f"{path}: expected a JSON list of {{number, body}} objects")
+        raise ValueError(f"{src}: expected a JSON list of {{number, body}} objects")
     bodies = {}
     for it in data:
         if isinstance(it, dict) and isinstance(it.get("number"), _HugeInt):
             t = it["number"].text
             shown = t if len(t) <= 20 else t[:20] + "\u2026"   # the ellipsis only when the echo was cut
-            raise ValueError(f"{path}: \"number\" {shown} is too large \u2014 it must be an issue number")
+            raise ValueError(f"{src}: \"number\" {shown} is too large \u2014 it must be an issue number")
         if not isinstance(it, dict) or isinstance(it.get("number"), bool) or not isinstance(it.get("number"), int):
-            raise ValueError(f"{path}: every item needs an integer \"number\"")
+            raise ValueError(f"{src}: every item needs an integer \"number\"")
         body = it.get("body") or ""
         if not isinstance(body, str):
-            raise ValueError(f"{path}: issue {it['number']}: \"body\" must be a string")
+            raise ValueError(f"{src}: issue {it['number']}: \"body\" must be a string")
         bodies[it["number"]] = body
     return bodies
 
