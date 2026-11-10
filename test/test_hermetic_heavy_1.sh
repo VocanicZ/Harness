@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 14400
 # test_hermetic_heavy_1.sh — heavy slice 1 of 3 of the generalised decoy of test_hermetic.sh (#608: split out of it, so each file finishes under the per-test
 # cap on Windows): a LIVE worker in a registered fleet must survive every test that updates, supervises or starts a fleet.# that updates, supervises, or starts a fleet — handed ONLY the fleet/poller/snapshot pins, which is all a
 # lane inherits of the real host. The decoy is the incident in miniature: a registered fleet whose worker

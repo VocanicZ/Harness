@@ -89,6 +89,25 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   off, yet `harness setup` still reported `MISSING claude plugin ralph-loop` or installed it. The `claude` check now needs the binary and the
   engine's `harness-ralph` directory, and `--install` installs only the binary. `HARNESS_MARKETPLACE` and `HARNESS_MARKETPLACE_NAME` are unused.
 
+### The #608 Windows fixtures are green on winsma (#921)
+
+- Harness fixes: `harness uninstall` keeps a release a live worker runs from when `HARNESS_HOME` is spelled `C:/x` and the worker's
+  `ENGINE_DIR` `/c/x` (it removed it); `bin/harness`'s inherited-`STATE_DIR` guard and `skills_heal` compare the two spellings of one directory
+  as equal instead of refusing (`harness uninstall` from inside a project exited 4); `harness doctor` finds a CRLF engine on Windows (`grep -U`:
+  Git's grep strips the CR before matching, so the check never fired).
+- Test fixes, each a Linux-only assumption: a fixture `PATH` of "just these tools" now holds real tools on Windows (`link_tool` in
+  `test/helpers.sh` hard-links the `.exe` and Git's `msys-*.dll`; a symlink to an MSYS tool cannot be run from a `PATH` without `/usr/bin`, so
+  install.sh's `dirname` came back empty and no CLI adapter loaded, which hid every Claude Code offer); a fake `rtdd` is named `rtdd.exe` on
+  Windows (`rtdd_exe` asks for that first and found the host's real one); `helpers.sh` drops the host's pinned `HARNESS_USER_SKILLS`,
+  `HARNESS_AGY_USER_SKILLS` and `HARNESS_CODEX_USER_SKILLS` (a winsma suite run pins them, so tests that set their own `HOME` installed skills
+  into the pinned dir); `test_install_npx.sh` runs npm from Node's own folder on Windows (a linked `npm` cannot find its modules);
+  `test_uninstall.sh` pins POSIX for the `--force-engine` override (Windows refuses it while another fleet runs, #490); a lone `rtdd.exe` is
+  what bare `rtdd` resolves to under Git's bash; the mixed-form `TMPDIR` and launcher `<Arguments>` cases use real Windows spellings; the
+  lifecycle test's fake workers sleep 600 s, not 30, so a slow host does not see them exit before the re-run.
+- Slow files carry `# harness-test-timeout-windows` (1800 s; 14400 s for `test_hermetic_heavy_1.sh`, which runs `test_cli_matrix.sh`):
+  `test_hermetic_heavy_1.sh`, `test_winsma.sh` (3600 s), `test_operator_skills.sh`, `test_uninstall.sh`, `test_windows_installer.sh`,
+  `test_windows_lane_tooling.sh` and `test_windows_lifecycle.sh`.
+
 ### `bench/run.py` write-error message starts `bench:`, like its other messages (#900)
 
 - The full-disk message added in #882 said `harness bench: cannot write output: ...` while every other `bench/run.py` message starts `bench:`, so

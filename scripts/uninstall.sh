@@ -55,10 +55,13 @@ declare -F proc_engine_dir >/dev/null || \
 release_in_use(){
   local want pid e
   want="$(realpath -m "$1" 2>/dev/null)" || want="$1"
+  # Windows (#921): HARNESS_HOME may be spelled C:/x and a worker's environ /c/x; realpath keeps the spelling it is given, so compare in one.
+  declare -F posix_path >/dev/null && want="$(posix_path "$want")"
   while read -r pid; do
     [[ -n "$pid" ]] || continue
     e="$(proc_engine_dir "$pid")"; [[ -n "$e" ]] || continue
     e="$(realpath -m "$e" 2>/dev/null)" || continue
+    declare -F posix_path >/dev/null && e="$(posix_path "$e")"
     [[ "$e" == "$want" || "$e" == "$want"/* ]] && return 0
   done < <(_worker_pids)
   return 1

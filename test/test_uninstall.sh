@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_uninstall.sh — `harness uninstall [--force]` (#61, PRD #52): tear down a Harness
 # install/project. Removes the shared host engine (~/.harness/engine) + its PATH symlink, this
 # project's state-only .harness/ + the project .gitignore '.harness/' entry, and the deployed
@@ -157,9 +158,10 @@ assert "guard: still removes /harness skills"        "[[ ! -e '$R8/.claude/skill
 assert "guard: emits a warning about other fleets"   "grep -qi 'other fleets' <<< \"\$out8\""
 assert "guard: warning mentions --force-engine"      "grep -q -- '--force-engine' <<< \"\$out8\""
 
-# guard TRUE + --force-engine → engine + PATH link ARE removed (override)
+# guard TRUE + --force-engine → engine + PATH link ARE removed (override). POSIX only: on Windows a running worker holds its scripts
+# open, so --force-engine is refused while another fleet runs (#490, test_windows_uninstall.sh), whatever host this suite runs on.
 R9="$(mktemp -d)"; mk_layout "$R9"
-out9="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_UNINSTALL_YES=1 \
+out9="$(HARNESS_PLATFORM=posix HARNESS_UNINSTALL_NOMAIN=1 HARNESS_UNINSTALL_YES=1 \
         HARNESS_HOME="$R9/.harness" HARNESS_BIN_DIR="$R9/bin" \
         HARNESS_USER_SKILLS="$R9/.claude/skills" STATE_DIR="$R9/proj/.harness" \
         bash -c 'source "$1"; other_fleets_depend_on_engine(){ return 0; }; main --force-engine' _ "$UNINSTALL" 2>&1)"; rc9=$?

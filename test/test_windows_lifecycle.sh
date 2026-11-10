@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_windows_lifecycle.sh — #356 (ADR 0001 §5, §6): the fleet's lifecycle without systemd on native
 # Windows, forced on Linux with HARNESS_PLATFORM=windows. Windows' own tools are fakes that log argv:
 #   powershell — runs the Win32_Process.Create command line it is handed, detached, in an EMPTY
@@ -108,9 +109,9 @@ assert_ok "[windows] … and says so"                           grep -q "Win32_P
 
 echo "=== pool.sh / priority.sh / the poller launch through detach_launch ==="
 FE="$T/engine"; mkdir -p "$FE/scripts"
-printf '#!/usr/bin/env bash\necho "worker $1 MARK=$HARNESS_TEST_MARKER"; exec sleep 30\n' >"$FE/scripts/pool-worker.sh"
-printf '#!/usr/bin/env bash\necho "priority $1"; exec sleep 30\n' >"$FE/scripts/priority-worker.sh"
-printf '#!/usr/bin/env bash\necho poller; exec sleep 30\n' >"$FE/scripts/poller.sh"
+printf '#!/usr/bin/env bash\necho "worker $1 MARK=$HARNESS_TEST_MARKER"; exec sleep 600\n' >"$FE/scripts/pool-worker.sh"
+printf '#!/usr/bin/env bash\necho "priority $1"; exec sleep 600\n' >"$FE/scripts/priority-worker.sh"
+printf '#!/usr/bin/env bash\necho poller; exec sleep 600\n' >"$FE/scripts/poller.sh"
 mkdir -p "$STATE_DIR/run"; printf 'HARNESS_POOL=2\n' >"$STATE_DIR/config"
 : >"$T/powershell.calls"
 out="$(HARNESS_PLATFORM=windows HARNESS_TEST_MARKER=m1 ENGINE_DIR="$FE" bash "$R/scripts/pool.sh" 2>&1)"
@@ -196,7 +197,7 @@ assert_ok "the task starts at logon"                          grep -q '<LogonTri
 assert_no "… and never at boot"                               grep -q 'BootTrigger' "$T/last-task.xml"
 assert_ok "… in the user's interactive session"               grep -q "<LogonType>InteractiveToken</LogonType>" "$T/last-task.xml"
 assert_ok "… with no run-time limit (the default kills it after 72h)" grep -q "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>" "$T/last-task.xml"
-assert_ok "… running Git's bash on the launcher"              grep -q "<Command>bash</Command><Arguments>\"$L\"</Arguments>" "$T/last-task.xml"
+assert_ok "… running Git's bash on the launcher"              grep -q "<Command>bash</Command><Arguments>\"$(native_path "$L")\"</Arguments>" "$T/last-task.xml"
 assert_ok "the task is (re)started"                           bash -c "grep -qxF '/End /TN $SUP_TN' '$T/schtasks.calls' && grep -qxF '/Run /TN $SUP_TN' '$T/schtasks.calls'"
 assert_ok "no systemctl / loginctl"                           no_systemd
 assert_ok "installed from this engine"                        sup_installed
@@ -330,7 +331,7 @@ assert_eq "$(env -u PYTHONUTF8 PATH="$IH/home/bin:$IH:/usr/bin:/bin" HARNESS_PYT
 # A PATH with the usual tools but no Python on it (the CI host's own python3 would answer otherwise).
 NB="$T/nopy"; mkdir -p "$NB"
 for b in bash sh env dirname basename sed cat grep tr awk head mkdir chmod ls readlink realpath uname id cut sort; do
-  p="$(command -v "$b")" && ln -sf "$p" "$NB/$b"
+  link_tool "$b" "$NB"
 done
 out="$(PATH="$IH/home/bin:$NB" HARNESS_PYTHON=python3 "$S" x 2>&1)"; rc=$?
 assert_eq "$rc" 127 "a HARNESS_PYTHON that only the shim answers to fails instead of looping"

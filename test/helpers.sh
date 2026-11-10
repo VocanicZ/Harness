@@ -53,6 +53,24 @@ any_spelling(){ local n; n="$(native_path "$1")"; if [[ $n == "$1" ]]; then prin
 # the engine symlink, a skill link) and then asserts `-L` read false (#608). install.sh sets it for itself; a test that builds its
 # fixtures with a bare `ln -s` needs it too, so it is set once here for every test (test_windows_update.sh/test_install_prereqs.sh do the same).
 real_windows_host && [[ " ${MSYS:-} " != *" winsymlinks:nativestrict "* ]] && export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+# fake_rtdd_name — the file name a test gives its fake rtdd (#921). On Windows rtdd_exe asks for `rtdd.exe` first, so a fake named bare `rtdd`
+# loses to the host's REAL rtdd.exe further down PATH (winsma has one) and the test runs the real binary. A shebang script named rtdd.exe
+# runs under Git's bash, and the bare name `rtdd` resolves to it too.
+fake_rtdd_name(){ if real_windows_host; then echo rtdd.exe; else echo rtdd; fi; }
+# link_tool <name> <dir> — put the PATH's <name> into <dir>, for a fixture PATH of "just these tools" (#921). On Linux a symlink. On a Windows
+# host a symlink does not work: `command -v` names an MSYS tool without its .exe, and even a nativestrict link to the .exe cannot be run from a
+# PATH that lacks Git's /usr/bin (the link's target is a POSIX path Windows cannot follow, so bash reports 127; install.sh's `dirname` came back
+# empty and no CLI adapter loaded). An MSYS exe also needs msys-2.0.dll (and its siblings) beside it, so there the tool is HARD-linked (a copy
+# if the volumes differ) as <name>.exe next to hard links of Git's msys-*.dll, once per dir. Tools outside /usr/bin (git) get their own dir's dlls.
+link_tool(){ local t="$1" d="$2" p f src; p="$(command -v "$t")" || return 1
+  if ! real_windows_host; then ln -sf "$p" "$d/$t"; return; fi
+  p="$(readlink -f "$p")"; src="${p%/*}"
+  if [[ ! -e $d/.dlls-${src//\//_} ]]; then
+    for f in "$src"/*.dll; do [[ -e $f ]] && { ln -f "$f" "$d/" 2>/dev/null || cp "$f" "$d/"; }; done
+    [[ $src == /usr/bin ]] || for f in /usr/bin/msys-*.dll; do [[ -e $d/${f##*/} ]] || ln -f "$f" "$d/" 2>/dev/null || cp "$f" "$d/"; done
+    : > "$d/.dlls-${src//\//_}"
+  fi
+  ln -f "$p" "$d/${p##*/}" 2>/dev/null || cp "$p" "$d/${p##*/}"; }
 # file_url <path> — a file:// URL native curl can read (#608). Git for Windows' curl is a native exe: `file:///c/x` (the MSYS
 # spelling of C:/x) reads C:\c\x, so every fixture that served a fake release from $T/srv got "could not resolve" on winsma and
 # install.sh / update.sh / harness update exited 1 or 3. Windows: file:///C:/x/y; elsewhere file:///x/y, as before.
@@ -185,6 +203,10 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # and kills it (test_engine_roll.sh red at the e902e61 gate). A test that wants a stamped process sets it inline on that process.
 HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX HARNESS_ENGINE_STAMP RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
+# …and the user skill dirs a sandboxed host pins (#921). A winsma suite run exports HARNESS_USER_SKILLS (and a lane may export the agy/codex
+# ones) so nothing reaches the real home; a test that points HOME at its own fixture then installs skills into the host's pinned dir and reads
+# its own empty ~/.claude/skills (setup, rtdd, update, ensure_skills). make_env and each test that wants one re-export its own after this.
+unset HARNESS_USER_SKILLS HARNESS_AGY_USER_SKILLS HARNESS_CODEX_USER_SKILLS
 # ENGINE_DIR is re-pointed, not just dropped: most tests source lib.sh BEFORE this file, and lib.sh has already
 # exported ENGINE_DIR (the lane's, if it was inherited). Unsetting it left them with none ("ENGINE_DIR: unbound
 # variable" in cli/claude.sh). The repo under test is its own engine; a test that sources no lib.sh has none.

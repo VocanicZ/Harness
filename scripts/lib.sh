@@ -1601,8 +1601,10 @@ rtdd_skill_install(){ local d r
 # $HARNESS_HOME/engine (bin/harness's HARNESS_ENGINE_LINK) — never a dev clone or a test sandbox, so
 # neither repoints the operator's links. Says only what it changed; never fatal.
 skills_heal(){ local link="${HARNESS_ENGINE_LINK:-}"
-  [[ -n $link && $link == "${HARNESS_HOME:-$HOME/.harness}/engine" ]] || return 0
-  [[ "$(realpath "$link" 2>/dev/null)" == "$(realpath "$ENGINE_DIR" 2>/dev/null)" && -f "$ENGINE_DIR/install.sh" ]] || return 0
+  # Windows (#921): the same directory can be spelled C:/x or /c/x (HARNESS_HOME from the environment, the link from a caller), and neither
+  # string nor realpath compare equal across spellings, so both sides go through posix_path (identity off Windows).
+  [[ -n $link && "$(posix_path "$link")" == "$(posix_path "${HARNESS_HOME:-$HOME/.harness}/engine")" ]] || return 0
+  [[ "$(posix_path "$(realpath "$link" 2>/dev/null)")" == "$(posix_path "$(realpath "$ENGINE_DIR" 2>/dev/null)")" && -f "$ENGINE_DIR/install.sh" ]] || return 0
   ( HARNESS_INSTALL_NOMAIN=1 source "$ENGINE_DIR/install.sh" >/dev/null 2>&1 || exit 0
     HARNESS_SKILLS_QUIET=1 HARNESS_SKILL_SRC="$link/skill" install_harness_skills ) 2>/dev/null
   return 0; }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_windows_installer.sh — #488 (PRD #475, Solution 4): install.sh on Windows offers each missing
 # prerequisite through winget, checks Developer Mode and the git identity, and Harness repos get
 # per-repo longpaths + line-ending config; `harness doctor` reports the same. Forced on Linux with
@@ -19,7 +20,7 @@ printf '[user]\n\tname = Test User\n\temail = test@example.com\n' >"$GIT_CONFIG_
 
 SYS="$T/sys"; mkdir -p "$SYS"
 for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename mkdir chmod ln git awk cut sort uname id rmdir; do
-  p="$(command -v "$t")" && ln -s "$p" "$SYS/$t"; done
+  link_tool "$t" "$SYS"; done
 LOG="$T/log"
 stub(){ mkdir -p "$1"; printf '#!/bin/sh\necho "%s $*" >> %q\n%s\n' "$2" "$LOG" "${3:-exit 0}" > "$1/$2"; chmod +x "$1/$2"; }
 STORE='echo "Python was not found; run without arguments to install from the Microsoft Store" >&2; exit 9009'
@@ -121,8 +122,10 @@ assert_no "an identity set: nothing printed"              grep -q 'git has no' <
 echo "=== a release extracts when TMPDIR is in Windows mixed form (C:/…) ==="
 source "$HERE/release_fixture.sh"
 SRV="$T/srv"; rel_server "$SRV"; rel_publish "$SRV" v9.9.9; rel_latest "$SRV" v9.9.9
-mkdir -p "$T/cwd/C:/tmp"
-out="$( cd "$T/cwd" && export TMPDIR="C:/tmp" HARNESS_HOME="$T/hh" HARNESS_PLATFORM=windows PATH="$SYS:$PATH"; hash -r; source "$R/install.sh" 2>/dev/null; REL_CMD="harness install"; rel_install v9.9.9 2>&1 )"; rc=$?
+# Linux: a directory literally named C: under cwd stands in for the drive. A Windows host has a real mixed-form spelling of a real directory.
+mkdir -p "$T/cwd/C:/tmp"; MIXED_TMP="C:/tmp"
+if real_windows_host; then mkdir -p "$T/mixed-tmp"; MIXED_TMP="$(cygpath -m "$T/mixed-tmp")"; fi
+out="$( cd "$T/cwd" && export TMPDIR="$MIXED_TMP" HARNESS_HOME="$T/hh" HARNESS_PLATFORM=windows PATH="$SYS:$PATH"; hash -r; source "$R/install.sh" 2>/dev/null; REL_CMD="harness install"; rel_install v9.9.9 2>&1 )"; rc=$?
 assert_eq "$rc" 0                                         "rel_install with TMPDIR=C:/tmp succeeds (tar is not told C: is a host)"
 assert_ok "… and the release is in place"                 test -f "$T/hh/releases/v9.9.9/VERSION"
 

@@ -136,7 +136,7 @@ doctor_windows(){ local problems=0 u bx py t d
   if ( cd "$d" && mkdir t && MSYS=winsymlinks:nativestrict ln -s t l 2>/dev/null && [[ -L l ]] ); then echo "  symlinks: can create ✓"
   else echo "  symlinks: cannot create one — enable Developer Mode (Settings → For developers) or run as an administrator"; problems=$((problems+1)); fi
   rm -rf "$d"
-  if grep -q $'\r' "$ENGINE_DIR/bin/harness" "$ENGINE_DIR/scripts/lib.sh" 2>/dev/null; then
+  if grep -qU $'\r' "$ENGINE_DIR/bin/harness" "$ENGINE_DIR/scripts/lib.sh" 2>/dev/null; then
     echo "  line endings: CRLF in the engine ($ENGINE_DIR) — bash cannot run it; reinstall it from a release, or clone with core.autocrlf=false"; problems=$((problems+1))
   else echo "  line endings: LF ✓"; fi
   for t in "${HARNESS_SCHTASKS:-schtasks}" "${HARNESS_POWERSHELL:-powershell}" "${HARNESS_TASKKILL:-taskkill}"; do

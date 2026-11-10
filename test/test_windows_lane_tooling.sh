@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_windows_lane_tooling.sh — #495 (PRD #475, Solution 7): lane tooling and skills on native Windows, forced on Linux
 # with HARNESS_PLATFORM=windows. Everything runs under a root whose name holds a space ("Win Home", as in
 # C:\Users\Some User): HOME, HARNESS_HOME, the skills dir, the project and its lane worktree. Windows' own tools are fakes:
@@ -76,7 +77,7 @@ assert_ok "windows: the engine's own skills are linked in (/harness, handoff)" \
 assert_no "windows: nothing was written to the HOME's own ~/.claude/skills" test -e "$T/windows/home/.claude/skills"
 assert_eq "$(cat "$T/windows/skills.list")" "$(cat "$T/linux/skills.list")" "the skills dir holds the same set as on Linux"
 assert_eq "$(cat "$T/windows/plugin.calls")" "$(cat "$T/linux/plugin.calls")" "the same plugin calls are made as on Linux"
-assert_ok "claude's ralph-loop plugin is installed" grep -q 'plugin install ralph-loop@' "$T/windows/claude.calls"
+assert_no "claude's user-level ralph-loop plugin is not installed (the engine's harness-ralph is, #915)" grep -q 'plugin install ralph-loop@' "$T/windows/claude.calls"
 assert_no "…and superpowers is not (no lane can see it, #669)" grep -q 'plugin install superpowers@' "$T/windows/claude.calls"
 
 echo "=== update.sh --with-skills on Windows installs into the pinned skills dir ==="
@@ -93,7 +94,7 @@ assert_eq "$(readlink "$T/upd/hh/engine")" releases/v0.2.0 "the engine flipped t
 assert_ok "to-prd and subagent-task-tree land in the pinned skills dir" \
   bash -c "test -f '$T/upd/Claude Data/skills/to-prd/SKILL.md' && test -f '$T/upd/Claude Data/skills/subagent-task-tree/SKILL.md'"
 assert_no "… not in the HOME's ~/.claude/skills" test -e "$T/upd/home/.claude/skills"
-assert_ok "the plugins were refreshed through claude" grep -q 'plugin install ralph-loop@' "$T/upd/claude.calls"
+assert_no "the update does not install the user's ralph-loop plugin either (#915)" grep -q 'plugin install ralph-loop@' "$T/upd/claude.calls"
 
 echo "=== the {{skill:…}} check finds the prompt-named skills in the Windows skills dir ==="
 ( host_env windows "$T/chk"; export HARNESS_INSTALL_NOMAIN=1 HARNESS_SKILL_SRC="$R/skill"
@@ -120,7 +121,9 @@ echo "=== rtdd resolves to rtdd.exe ==="
 RP="$BIN:$RBIN:$SYS"
 rtdd_in(){ local plat="$1"; shift; ( export HARNESS_PLATFORM="$plat" PATH="$RP"; source "$R/scripts/portable.sh"; "$@" ); }
 assert_eq "$(rtdd_in windows rtdd_exe)" "$RBIN/rtdd.exe" "windows: rtdd_exe is the rtdd.exe on PATH"
-assert_no "linux: a lone rtdd.exe is not an rtdd" rtdd_in posix rtdd_exe
+# On a real Windows host Git's bash finds `rtdd.exe` for the bare name `rtdd` itself, so there a lone rtdd.exe IS what `command -v rtdd` names.
+if real_windows_host; then assert_eq "$(rtdd_in posix rtdd_exe).exe" "$RBIN/rtdd.exe" "windows bash: the bare name rtdd already resolves to the lone rtdd.exe"
+else assert_no "linux: a lone rtdd.exe is not an rtdd" rtdd_in posix rtdd_exe; fi
 printf '#!/bin/sh\nexit 0\n' >"$BIN/rtdd"; chmod +x "$BIN/rtdd"
 assert_eq "$(rtdd_in windows rtdd_exe)" "$RBIN/rtdd.exe" "windows: with both on PATH, rtdd.exe wins"
 assert_eq "$(rtdd_in posix rtdd_exe)" "$BIN/rtdd" "linux: rtdd is rtdd"

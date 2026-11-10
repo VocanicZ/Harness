@@ -46,7 +46,10 @@ discover_state_dir(){
 }
 # canon — normalise a path for comparison (trailing slash, ./, symlinks). -m so a not-yet-created
 # path still normalises; every fallback degrades to the literal string rather than empty.
-canon(){ realpath -m "$1" 2>/dev/null || readlink -f "$1" 2>/dev/null || printf '%s\n' "$1"; }
+# On Windows (#921) realpath keeps the spelling it is given, and a path can arrive as C:/x or /c/x: both go to the /c/x form (cygpath -u) so
+# the same directory compares equal. cygpath exists only under MSYS/Cygwin.
+canon(){ local c; c="$(realpath -m "$1" 2>/dev/null || readlink -f "$1" 2>/dev/null || printf '%s\n' "$1")"
+  if command -v cygpath >/dev/null 2>&1; then cygpath -u "$c" 2>/dev/null || printf '%s\n' "$c"; else printf '%s\n' "$c"; fi; }
 # assert_state_dir_deliberate — refuse an INHERITED STATE_DIR that points at ANOTHER project (#168).
 #
 # A Claude session launched inside a fleet inherits that fleet's exported STATE_DIR, so `cd`-ing to

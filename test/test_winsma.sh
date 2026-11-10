@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 3600
 # test_winsma.sh — the winsma helpers (#479, PRD #475) on Linux: a fake ssh that runs the remote script locally,
 # a fake C: drive, a fake Task Scheduler, a fake process list. Covers HARNESS_WINDOWS_HOST, the lock (taken,
 # waiter waits on a live heartbeat, the stale breaker needs old heartbeat AND a gone owner lane), isolation,
