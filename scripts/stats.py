@@ -725,7 +725,7 @@ def parse_since(s, now=None):
     now = time.time() if now is None else now
     m = re.fullmatch(r"([0-9]+)([dhm])", s or "")
     if not m and re.fullmatch(r"\d+[dhm]", s or ""):   # #804: \d also matches full-width / Arabic-Indic digits
-        raise ValueError(f"bad --since: {s!r} (use ASCII digits only)")
+        raise ValueError(f"bad --since: {vrepr(s)} (use ASCII digits only)")
     if m:
         too_big = ValueError("bad --since: the count is too large to turn into a date (use a smaller number, e.g. 7d)")   # #879
         digits = m.group(1).lstrip("0")
@@ -737,7 +737,7 @@ def parse_since(s, now=None):
             raise too_big from None
     t = parse_ts(s if "T" in (s or "") else f"{s}T00:00:00+00:00")
     if t is None:
-        raise ValueError(f"bad --since: {s!r} (want 7d, 24h, 30m or YYYY-MM-DD)")
+        raise ValueError(f"bad --since: {vrepr(s)} (want 7d, 24h, 30m or YYYY-MM-DD)")
     return t
 
 
@@ -835,6 +835,16 @@ def vis(s):
     feed, any C0 or C1 control character and DEL become \\uXXXX, as json.dumps writes them, so a fleet prefix, repo
     or account name never splits one record across two lines in a terminal or log viewer."""
     return "".join(f"\\u{ord(c):04x}" if unicodedata.category(c) in ("Cc", "Zl", "Zp") else c for c in str(s))
+
+
+def vrepr(v):
+    """repr() of `v` for an error message (#899), its control characters spelled as `vis` does: a form feed is
+    \\u000c, never repr's \\x0c, so one character reads one way whichever option echoed it. A non-string is repr()'d."""
+    if not isinstance(v, str):
+        return repr(v)
+    body = vis(v)
+    q = '"' if "'" in body and '"' not in body else "'"
+    return q + body.replace(q, "\\" + q) + q
 
 
 def _mismatch_line(e):
@@ -1230,7 +1240,7 @@ INT_MAX_DIGITS = 1000   # a whole-number option longer than this is refused befo
 def short_repr(v, keep=20):
     """repr() of `v` for a usage error: a long value is cut to `keep` characters and an ellipsis, so one line
     never carries the multi-KB input back (#880)."""
-    return repr(v) if len(v) <= keep else repr(v[:keep]) + "\u2026"
+    return vrepr(v) if len(v) <= keep else vrepr(v[:keep]) + "\u2026"
 
 
 def int_arg(v):
@@ -1253,7 +1263,7 @@ def repo_arg(v):
     """argparse type for -R / --repo in every form (`-R x`, `--repo x`, `--repo=x`): must be owner/name."""
     import argparse
     if not REPO_RE.fullmatch(v):
-        raise argparse.ArgumentTypeError(f"{v!r} is not a repository — expected owner/name")
+        raise argparse.ArgumentTypeError(f"{vrepr(v)} is not a repository — expected owner/name")
     return v
 
 
@@ -1262,7 +1272,7 @@ def fleet_arg(v):
     error (exit 2) as `--repo=-x` is (#839), not "no events in range"."""
     import argparse
     if not v or v.startswith("-"):
-        raise argparse.ArgumentTypeError(f"{v!r} is not a fleet prefix — it must be non-empty and not start with '-'")
+        raise argparse.ArgumentTypeError(f"{vrepr(v)} is not a fleet prefix — it must be non-empty and not start with '-'")
     return v
 
 
@@ -1284,14 +1294,14 @@ def _explicit_log_error(path):
     if path is None:
         return None
     if os.path.isdir(path):
-        return f"{path!r} is a directory, not an events file"
+        return f"{vrepr(path)} is a directory, not an events file"
     try:
         with open(path, "rb"):
             pass
     except FileNotFoundError:
-        return f"{path!r} does not exist"
+        return f"{vrepr(path)} does not exist"
     except OSError as e:
-        return f"{path!r} is not readable ({e.strerror or e})"
+        return f"{vrepr(path)} is not readable ({e.strerror or e})"
     return None
 
 

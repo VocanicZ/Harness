@@ -874,6 +874,25 @@ def test_crlf_and_lone_cr_body_forecasts_the_same_as_its_lf_copy():   # #838
     assert fc.body_len_of("a\r\nb\rc\nd") == 7
 
 
+def test_unit_name_error_spells_a_form_feed_and_u2028_as_vis_does():   # #899
+    """--unit and the 'no unit' error echo the value with quotes, a control character shown as \\uXXXX, not repr's \\x0c."""
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        for ch, esc in (("\f", "\\u000c"), ("\u2028", "\\u2028")):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "3", f"--unit=-a{ch}b", "-R", W,
+                                "--events", events, "--bodies", bodies], capture_output=True, text=True,
+                               env=dict(os.environ, HARNESS_CLAUDE_CONFIG_DIRS=cfg))
+            rc, err = r.returncode, r.stderr
+            assert rc == 2 and f"'-a{esc}b' is not a unit name" in err, (rc, err)
+            assert ch not in err and "\\x0c" not in err, repr(err)
+            try:
+                fc.resolve_repo(3, None, f"a{ch}b", events=[], state_dir=d)
+            except ValueError as e:
+                assert f"no unit 'a{esc}b' in this project" in str(e), str(e)
+            else:
+                raise AssertionError("expected ValueError")
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

@@ -1439,6 +1439,23 @@ def test_read_config_ignores_a_leading_utf8_bom():   # #859
             shutil.rmtree(d, ignore_errors=True)
 
 
+def test_repr_style_error_sites_spell_a_form_feed_and_u2028_as_vis_does():   # #899
+    """An option value echoed in a usage error with quotes (the repr style) shows U+000C / U+2028 as \\u000c / \\u2028,
+    the way `vis` does, never as repr's \\x0c: stats.vrepr, and the -R / --fleet / --since / --events errors."""
+    assert st.vrepr("a\x0cb") == "'a\\u000cb'" and st.vrepr("a\u2028b") == "'a\\u2028b'"
+    assert st.vrepr("plain") == "'plain'" and st.vrepr(7) == "7" and st.vrepr("it's") == '"it\'s"'
+    assert st.short_repr("a\x0c" + "b" * 40) == "'a\\u000c" + "b" * 18 + "'" + "\u2026"
+    for ch, esc in (("\x0c", "\\u000c"), ("\u2028", "\\u2028")):
+        for argv, want in ((["-R", f"a{ch}b"], f"'a{esc}b' is not a repository"),
+                           ([f"--fleet=-a{ch}b"], f"'-a{esc}b' is not a fleet prefix"),
+                           ([f"--since=3{ch}d"], f"bad --since: '3{esc}d'"),
+                           ([f"--events=no{ch}pe.jsonl"], f"'no{esc}pe.jsonl' does not exist")):
+            r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), "report"] + argv,
+                               capture_output=True, text=True)
+            assert r.returncode == 2 and want in r.stderr, (argv, r.returncode, r.stderr)
+            assert ch not in r.stderr and "\\x0c" not in r.stderr, repr(r.stderr)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

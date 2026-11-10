@@ -345,9 +345,15 @@ MAX_COUNT = 10**9   # a count above this is a typo, not a task; a huge one overf
 MAX_DIGITS = 1000   # a count written with more digits than this (leading zeros included) is refused before int()
 
 
+def _vr(v):
+    import stats   # #899
+    return stats.vrepr(v)
+
+
 def _short(v, keep=20):
     """repr() of `v` for a usage error, cut to `keep` characters so a multi-KB input is never echoed (#880)."""
-    return repr(v) if len(v) <= keep else repr(v[:keep]) + "\u2026"
+    import stats   # #899: stats.vrepr spells a control character the way stats.vis does
+    return stats.vrepr(v) if len(v) <= keep else stats.vrepr(v[:keep]) + "\u2026"
 
 
 def count(v):
@@ -425,16 +431,16 @@ def main(argv=None):
             print(stats.vis(f"harness tier: {e}"), file=sys.stderr); return 2
         print(json.dumps(r) if a.json else render(r)); return 0
     if not a.base or a.base.startswith("-"):   # #748: a revision git could read as an option (--output=…) never reaches git; #862: an empty one is not "HEAD"
-        o.error(f"argument --base: {a.base!r} is not a branch — it must be non-empty and not start with '-'")
+        o.error(f"argument --base: {_vr(a.base)} is not a branch — it must be non-empty and not start with '-'")
     if not a.repo_dir:   # #881: an empty path is not "."; it would reach `git worktree list` and exit 3
         o.error("argument --repo-dir: '' is not a directory — it must be non-empty")
     if not os.path.isdir(a.repo_dir):   # #898: a missing path, or a file, is a usage error caught before any gh or git call, not exit 3
-        o.error(f"argument --repo-dir: {a.repo_dir!r} is not a directory — it must be an existing directory")
+        o.error(f"argument --repo-dir: {_vr(a.repo_dir)} is not a directory — it must be an existing directory")
     if not a.repo:
         print("harness tier overlap: no repo — pass -R owner/repo (or set HARNESS_REPO)", file=sys.stderr); return 2
     label = os.environ.get("HARNESS_LABEL_WORKING", "agent-working")
     if not REPO_RE.fullmatch(a.repo):
-        o.error(f"argument -R: {a.repo!r} is not a repository — expected owner/name")
+        o.error(f"argument -R: {_vr(a.repo)} is not a repository — expected owner/name")
     files = [f for f in a.files.split(",") if f.strip()]
     if not files:
         print("harness tier overlap: no files to check — pass --files a,b,c", file=sys.stderr); return 2

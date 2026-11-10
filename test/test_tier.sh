@@ -500,4 +500,17 @@ for sk in harness-prd harness-issue harness-arc; do
   t="$(grep -n '^## 0\. Tier' "$F" | cut -d: -f1)"; g="$(grep -n '^## 1\.' "$F" | head -1 | cut -d: -f1)"
   assert_ok "$sk: step 0 precedes step 1"            test "$t" -lt "$g"
 done
+# a --base / -R / --repo-dir value with U+2028 or a form feed is echoed escaped, in the same \uXXXX style as every other tool (#899)
+for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  ch="${pair%%:*}"; esc="${pair#*:}"
+  err="$(H tier overlap --files a --base="-a${ch}b" 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "tier overlap --base with ${esc} -> exit 2"
+  assert_ok "…--base shows '-a${esc}b'" grep -qF -- "'-a${esc}b' is not a branch" <<<"$err"
+  assert_eq "$(printf %s "$err" | grep -c -- "$ch")" 0 "…no raw ${esc} on stderr"
+  err="$(H tier overlap --files a --repo-dir "no${ch}pe" 2>&1 >/dev/null)"
+  assert_ok "…--repo-dir shows 'no${esc}pe'" grep -qF "'no${esc}pe' is not a directory" <<<"$err"
+  err="$(H tier overlap --files a -R "a${ch}b" 2>&1 >/dev/null)"
+  assert_ok "…-R shows 'a${esc}b'" grep -qF "'a${esc}b' is not a repository" <<<"$err"
+  assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c"
+done
 finish
