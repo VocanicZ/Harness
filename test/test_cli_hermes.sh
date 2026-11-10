@@ -47,8 +47,10 @@ assert_ok "the clarify toolset is off, beside the operator's" grep -qxF '  disab
 assert_ok "…the operator's other agent keys kept" grep -qx '  max_turns: 90' <(block agent)
 assert_ok "…and its comments" grep -qx '  # keep this comment' <(block agent)
 assert_ok "no update checks in a lane" grep -qx '  check: false' <(block updates)
-assert_ok "the operator's skills and Harness's user skills are external skill dirs" \
-  grep -qxF "  external_dirs: [\"$OP/skills\", \"$HARNESS_USER_SKILLS\"]" <(block skills)
+# the dirs reach the YAML through the engine's env (C:/x on Windows) and the test's pwd-style paths (/c/x): compare in one spelling (#605)
+ext_dirs="$(block skills | grep -x '  external_dirs:.*' | sed -E 's#"([A-Za-z]):/#"/\L\1/#g')"
+assert_eq "$ext_dirs" "  external_dirs: [\"$(posix_path "$OP/skills")\", \"$(posix_path "$HARNESS_USER_SKILLS")\"]" \
+  "the operator's skills and Harness's user skills are external skill dirs"
 assert_eq "$(cli_lane_settings "$WD")" $'model.default=anthropic/claude-sonnet-5.5\nagent.reasoning_effort=high' "the lane settings the launch event records"
 assert_ok "the operator's stored login is copied" cmp -s "$OP/auth.json" "$H/auth.json"
 assert_no "…its .env (messaging-bot tokens) is not" test -e "$H/.env"
@@ -227,6 +229,7 @@ assert_no "a passed reset is no window: rc 1" hu
 rm -f "$HU_OUT"
 assert_no "a provider with no usage endpoint (usage-none.txt): rc 1" hu
 
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="hermes" && $3!="ok" && $3 !~ /^n\/a:/')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+col="$(HARNESS_MATRIX_CLIS=hermes bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="hermes" && $3!="ok" && $3 !~ /^n\/a:/')"
 assert_eq "$col" "" "every hermes matrix cell is ok or n/a"
 finish

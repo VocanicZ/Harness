@@ -194,7 +194,7 @@ assert_eq "$(cli_with agy cli_model_effort 'exec agy -i "go"' "$WD")" $'\t' "a l
 
 echo "=== 8: the goal-loop script lives at a CLI-neutral path (#307) ==="
 assert_eq "$(cd "$ROOT" && grep -n 'plugins/codex' scripts/*.sh scripts/*.py)" "" "no top-level script reaches into plugins/codex"
-assert_eq "$GOAL_LOOP_PY" "$ENGINE_DIR/scripts/goal_loop.py" "the driven loop runs scripts/goal_loop.py"
+assert_path_eq "$GOAL_LOOP_PY" "$ENGINE_DIR/scripts/goal_loop.py" "the driven loop runs scripts/goal_loop.py"
 assert_ok "Codex's Stop hook is a byte-for-byte copy of it (Codex copies a plugin into its cache)" \
   cmp -s "$ROOT/scripts/goal_loop.py" "$ROOT/plugins/codex/harness-ralph/hooks/stop-hook.py"
 

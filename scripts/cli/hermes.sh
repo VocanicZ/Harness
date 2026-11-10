@@ -354,8 +354,10 @@ for w in d.get("windows") or []:
 # those are the watchdog's.
 hermes_last_reply(){ _hermes_headless && { _cli_headless_last_reply "$@"; return; }
   [[ -n "${2:-}" ]] || return 1
-  SID="$2" DB="$(_hermes_db "$1")" python3 - 2>/dev/null <<'PY'
+  SID="$2" DB="$(_hermes_db "$1")" PORTABLE_DIR="$CLI_DIR/.." python3 - 2>/dev/null <<'PY'
 import os, sqlite3, sys, time
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable  # os.kill(pid, 0) ends the process on Windows or raises for a pid it cannot open (#605)
 sid, db = os.environ["SID"], os.environ["DB"]
 c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 chain = [sid]
@@ -368,13 +370,11 @@ while True:
     chain.append(nxt[0])
 marks = ",".join("?" * len(chain))
 def alive(pid):
+    # the owner is Hermes's own process: a pid the engine knows (MSYS) or, on Windows, a native one
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (TypeError, ValueError, ProcessLookupError):
+        return portable.pid_alive(pid) or (portable.is_windows() and portable.win_process_alive(int(pid)))
+    except (TypeError, ValueError, OverflowError):
         return False
-    except PermissionError:
-        return True
 try:
     if c.execute(f"SELECT 1 FROM session_turn_leases WHERE conversation_id IN ({marks}) AND expires_at > ?", (*chain, time.time())).fetchone():
         sys.exit(1)

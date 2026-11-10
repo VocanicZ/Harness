@@ -44,7 +44,7 @@ assert_ok "no update mid-fleet" has 'OPENCODE_DISABLE_AUTOUPDATE=1 exec opencode
 assert_ok "questions denied, effort as the build agent's variant" \
   python3 -c 'import json,sys; c=json.loads(sys.argv[1]); assert c["permission"]["question"]=="deny" and c["agent"]["build"]["variant"]=="high"' "$(cfg "$line")"
 assert_ok "the goal-loop plugin is loaded from the engine by path" \
-  python3 -c 'import json,sys; assert json.loads(sys.argv[1])["plugin"]==["file://"+sys.argv[2]]' "$(cfg "$line")" "$(cd "$HERE/../scripts/cli" && pwd -P)/opencode-ralph.js"
+  python3 -c 'import json,pathlib,sys; assert json.loads(sys.argv[1])["plugin"]==[pathlib.Path(sys.argv[2]).resolve().as_uri()]' "$(cfg "$line")" "$(cd "$HERE/../scripts/cli" && pwd -P)/opencode-ralph.js"
 assert_ok "…and handed the goal-loop script" has "OPENCODE_HARNESS_LOOP='$GOAL_LOOP_PY' " "$line"
 assert_ok "nothing is written into the worktree: the project's opencode.json is as it was" cmp -s "$WD/opencode.json" "$RUN_DIR/oc.orig"
 assert_no "…and no plugin is copied into it" test -e "$WD/.opencode"
@@ -78,8 +78,10 @@ assert_eq "$(XDG_DATA_HOME="$RUN_DIR/no-data" cli_session_id "$WD" "$UUID")" "" 
 # --- transcripts: the session's, then its sub-agents' ----------------------------------------------
 cp "$F/bypass-subagent.db" "$DB"
 got="$(cli_transcripts "$WD" "$SID")"
-assert_eq "$(sed -n 1p <<<"$got")" "$DB#$SID" "the session's own transcript first"
-assert_eq "$(sed -n 2p <<<"$got")" "$DB#ses_e7eac6cd0ffewAa5ZtAo9g6MCn" "…then its sub-agent's (a child session)"
+# <db>#<session>: the db path is in the engine's spelling (C:/x on Windows), the test's is $DB's (#605)
+tp(){ printf '%s#%s' "$(posix_path "${1%%#*}")" "${1#*#}"; }
+assert_eq "$(tp "$(sed -n 1p <<<"$got")")" "$(tp "$DB#$SID")" "the session's own transcript first"
+assert_eq "$(tp "$(sed -n 2p <<<"$got")")" "$(tp "$DB#ses_e7eac6cd0ffewAa5ZtAo9g6MCn")" "…then its sub-agent's (a child session)"
 assert_eq "$(cli_transcripts "$WD" ses_nope)" "" "an unknown session has none"
 assert_eq "$(cli_usage "$DB#ses_e7eac6cd0ffewAa5ZtAo9g6MCn")" "$(printf 'opencode/big-pickle\t16389\t105\t16502\t0')" \
   "a sub-agent's usage is read from its own messages (reasoning counted as output)"
@@ -114,7 +116,9 @@ if command -v node >/dev/null; then
 // each event (`idle`, `error`, `busy`, `idle-child`); print each prompt it sends, with the agent and
 // model it names.
 const [plugin, dir, reply, ...evs] = process.argv.slice(2)
-const { HarnessRalph } = await import(plugin)
+// a file: URL: node refuses a bare C:\x path as an ESM specifier on Windows (#605)
+import { pathToFileURL } from "node:url"
+const { HarnessRalph } = await import(pathToFileURL(plugin).href)
 const client = {
   session: {
     get: async ({ path }) => ({ data: { id: path.id, parentID: path.id === "child" ? "lane" : undefined } }),
@@ -133,17 +137,20 @@ for (const e of evs) {
   await hooks.event({ event: { type: ev[e], properties } })
 }
 JS
+  # The prompt's 🔄 is the one byte sequence a Windows node's captured stdout does not return intact (#605): the line is matched from the
+  # lane/agent/model it names to the text after the emoji, so the agent, model and iteration are still asserted.
+  has_prompt(){ grep -qE -- "PROMPT lane build/acme/m-9 .* $(sed 's/[][\.*^$|?+(){}\/]/\\&/g' <<<"$1")" <<<"$2"; }
   drive(){ OPENCODE_HARNESS_LOOP="$GOAL_LOOP_PY" node "$P/drive.mjs" "$P/harness-ralph.mjs" "$P/wd" "$@" 2>&1; }
   write_state "$P/wd" "PLUGIN DONE" 5 x
   out="$(drive "STILL WORKING" idle)"
   assert_ok "plugin: an idle lane without the promise is re-prompted with the next iteration" \
-    has 'PROMPT lane build/acme/m-9 🔄 Ralph iteration 2 | To stop: output <promise>PLUGIN DONE</promise>' "$out"
+    has_prompt 'Ralph iteration 2 | To stop: output <promise>PLUGIN DONE</promise>' "$out"
   assert_ok "…as the agent and model its last prompt ran with, and the state file counts it" grep -qx 'iteration: 2' "$P/wd/.claude/ralph-loop.local.md"
   out="$(drive "STILL WORKING" error idle idle-child)"
   assert_eq "$out" "" "plugin: a turn that ended in an error is not re-prompted, nor is a sub-agent's session"
   assert_ok "…and neither counts an iteration" grep -qx 'iteration: 2' "$P/wd/.claude/ralph-loop.local.md"
   out="$(drive "STILL WORKING" error busy idle)"
-  assert_ok "plugin: an error is forgotten once the session runs a turn again" has 'PROMPT lane build/acme/m-9 🔄 Ralph iteration 3' "$out"
+  assert_ok "plugin: an error is forgotten once the session runs a turn again" has_prompt 'Ralph iteration 3' "$out"
   out="$(OPENCODE_HARNESS_LOOP= node "$P/drive.mjs" "$P/harness-ralph.mjs" "$P/wd" "STILL WORKING" idle 2>&1)"
   assert_eq "$out" "" "plugin: a session Harness did not launch (no loop script named) is left alone"
   out="$(drive "done <promise>PLUGIN DONE</promise>" idle)"
@@ -157,7 +164,8 @@ fi
 
 # #482: opencode has a headless lane runner, so its headless-* rows run; only headless-usage-windows is n/a (no
 # quota meter), like usage-windows.
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" { print $2, substr($3, 1, 4) }')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+col="$(HARNESS_MATRIX_CLIS=opencode bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="opencode" && $3!="ok" { print $2, substr($3, 1, 4) }')"
 assert_eq "$col" "$(printf 'trust-dialog-is-not-prompt n/a:\ntrust-pre-accepted n/a:\nusage-windows n/a:\nsupervisor-skips-trust-dialog n/a:\nheadless-usage-windows n/a:')" \
   "every opencode matrix cell is ok, but the rows that cannot exist for it (n/a with a reason), headless-* rows included"
 finish

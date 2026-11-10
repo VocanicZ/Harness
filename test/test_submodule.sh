@@ -161,6 +161,12 @@ guard(){ bash "$GUARD" --repo "$1" --base "${2:-origin/main}" --head "${3:-HEAD}
   assert_ok "with .gitmodules: scripts/lane-bin is first on the lane PATH" \
     grep -qF -- "PATH=$ROOT/scripts/lane-bin:" <<<"${SESSION_ENV[*]}"
   assert_ok "launch_agent applies it" grep -q 'lane_guard_env "\$wd"' "$ROOT/scripts/lib.sh"
+  # On Windows ENGINE_DIR is C:/x (export_native_paths) and a drive colon splits a colon-separated PATH: the entry is the MSYS
+  # form (#605). A fake cygpath (-u: /posix<path>) stands in for Git for Windows' on Linux.
+  mkdir -p "$D/fakebin"; printf '#!/usr/bin/env bash\n[[ $1 == -u ]] && echo "/posix$2"\n' > "$D/fakebin/cygpath"; chmod +x "$D/fakebin/cygpath"
+  session_env sess-1; ( PATH="$D/fakebin:$PATH" HARNESS_PLATFORM=windows; lane_guard_env "$D/without"; printf '%s\n' "${SESSION_ENV[@]}" ) > "$D/winenv"
+  assert_ok "windows: the lane PATH entry for lane-bin is the engine dir in MSYS form (a C:/x entry splits at its colon)" \
+    grep -qxF "PATH=/posix$ENGINE_DIR/scripts/lane-bin:$D/fakebin:$PATH" "$D/winenv"
   finish
 ) || rc=1
 

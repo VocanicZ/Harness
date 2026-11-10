@@ -36,13 +36,15 @@ assert_eq "$(grep -oE -- '--(model|effort|reasoning-effort)=' <<<"$line" | sort 
   "the lane's model and effort replace the configured ones (--reasoning-effort is effort's alias)"
 
 # --- workspace trust in config.json (JSON behind // comment lines) ------------------------------
-cat > "$COPILOT_HOME/config.json" <<'EOF'
+# A real directory, not a bare /elsewhere: MSYS rewrites that env value to C:/Program Files/Git/elsewhere for a native python (#605).
+ELSEWHERE="$RUN_DIR/elsewhere"; mkdir -p "$ELSEWHERE"
+cat > "$COPILOT_HOME/config.json" <<EOF
 // User settings belong in settings.json.
 // This file is managed automatically.
 {
   "firstLaunchAt": "2026-10-28T02:27:01.208Z",
   "trustedFolders": [
-    "/elsewhere"
+    "$ELSEWHERE"
   ]
 }
 EOF
@@ -53,12 +55,14 @@ assert_ok "cli_trusted reads it back" cli_trusted "$WD"
 assert_no "another dir is not trusted by it" cli_trusted "$RUN_DIR/other"
 assert_ok "the comment header is kept" grep -qx '// This file is managed automatically.' "$COPILOT_HOME/config.json"
 assert_ok "every other key is kept" grep -qF '"firstLaunchAt": "2026-10-28T02:27:01.208Z"' "$COPILOT_HOME/config.json"
-assert_ok "…and every other folder" cli_trusted /elsewhere
+assert_ok "…and every other folder" cli_trusted "$ELSEWHERE"
 cli_trust "$WD"
-assert_eq "$(grep -cF "\"$WD\"" "$COPILOT_HOME/config.json")" 1 "trusting twice writes one entry"
+assert_eq "$(grep -cF -e "\"$WD\"" -e "\"$(native_path "$WD")\"" "$COPILOT_HOME/config.json")" 1 "trusting twice writes one entry"
 rm -f "$COPILOT_HOME/config.json"; cli_trust "$WD"
 assert_ok "a fresh home gets a config.json with the entry" cli_trusted "$WD"
-assert_ok "trust takes the lock file the CLI keeps beside config.json" test -f "$COPILOT_HOME/config.json.trusted-folders.lock"
+# POSIX: a flock on a file the CLI keeps beside config.json. Windows: lock_acquire's mkdir mutex, `<file>.d`, gone once trust returns.
+if host_is_windows; then assert_no "trust takes the lock beside config.json and leaves none held" test -d "$COPILOT_HOME/config.json.trusted-folders.lock.d"
+else assert_ok "trust takes the lock file the CLI keeps beside config.json" test -f "$COPILOT_HOME/config.json.trusted-folders.lock"; fi
 not_prompt(){ ! cli_pane_prompt "$1"; }
 assert_ok "the trust dialog is not the prompt" not_prompt "$(pane trust)"
 
@@ -181,7 +185,8 @@ assert_ok "init offers copilot" grep -qx copilot <<<"$(cli_list)"
 
 # #483: copilot has a headless lane runner (scripts/cli/copilot_headless.py), so its headless-* rows run on
 # the fixture replay (fake-copilot) like claude's: every copilot matrix cell is ok, those rows included.
-cells="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot"')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+cells="$(HARNESS_MATRIX_CLIS=copilot bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="copilot"')"
 assert_eq "$(awk -F'\t' '$3!="ok"' <<<"$cells")" "" "every copilot matrix cell is ok, its headless-* rows included"
 assert_eq "$(awk -F'\t' '$2 ~ /^headless-/' <<<"$cells" | wc -l)" 14 "…and it has all 14 of them"
 # …and on the Windows code paths (HARNESS_PLATFORM=windows forced on this host, an flock-backed msvcrt for
@@ -201,4 +206,12 @@ assert_eq "$(HARNESS_SESSION_BACKEND=tmux cli_turn_secs "$hl_pane")" "" "…on t
 assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_turn_secs $'────\n❯ \n────')" 0 "…and an idle lane has no turn running"
 assert_ok "copilot is a headless CLI" grep -qx copilot <<<"$(cli_headless_list)"
 assert_eq "$(HARNESS_SESSION_BACKEND=headless cli_backend_check 2>&1; echo $?)" 0 "…and the headless backend does not refuse it as tmux-only"
+# #605: a trusted folder is found by the directory, not its spelling (C:/x from the environment, /c/x from `pwd`).
+SPC="$RUN_DIR/spell"; mkdir -p "$SPC"; printf '// managed\n{"trustedFolders": ["C:/w/proj"]}\n' > "$SPC/config.json"
+( export COPILOT_HOME="$SPC" HARNESS_PLATFORM=windows
+  assert_ok "windows: /c/w/proj is the folder kept as C:/w/proj" cli_trusted /c/w/proj
+  cli_trust /c/w/proj
+  assert_eq "$(grep -c 'w/proj' "$SPC/config.json")" 1 "windows: trusting it again adds no second spelling"
+  assert_no "windows: another folder is not trusted" cli_trusted /c/w/other
+  finish ) || TESTS_FAIL=$((TESTS_FAIL+1))
 finish

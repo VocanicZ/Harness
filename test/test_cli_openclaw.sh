@@ -52,9 +52,12 @@ assert_ok "the bootstrap is the first message" has "\"$HARNESS_BOOTSTRAP_PROMPT\
 assert_ok "…never the task" lacks UNIQUE_TASK_MARKER "$line"
 assert_ok "the lane config may include the operator's from outside its dir" has "OPENCLAW_INCLUDE_ROOTS=$(printf '%q' "${OP%/*}") " "$line"
 assert_ok "the turn runs on the lane config" has "--config $(printf '%q' "$CFG")" "$line"
-assert_eq "$(cfg '$include')" "\"$OP\"" "the lane config includes the operator's (model, auth, plugins)"
+# paths in the lane config are the engine's spelling (C:/x on Windows), the test's are pwd's (/c/x): compare in one (#605)
+cfgp(){ cfg "$@" | sed -E 's#"([A-Za-z]):/#"/\L\1/#g'; }
+US="$(posix_path "$HARNESS_USER_SKILLS")"
+assert_eq "$(cfgp '$include')" "\"$(posix_path "$OP")\"" "the lane config includes the operator's (model, auth, plugins)"
 assert_eq "$(cfg tools.exec)" '{"mode": "full"}' "…with host exec running unasked over it"
-assert_eq "$(cfg skills.load.extraDirs)" "[\"/opt/team-skills\", \"$HARNESS_USER_SKILLS/handoff\", \"$HARNESS_USER_SKILLS/rtdd\"]" \
+assert_eq "$(cfgp skills.load.extraDirs)" "[\"/opt/team-skills\", \"$US/handoff\", \"$US/rtdd\"]" \
   "the operator's extra skill dirs, then each user skill Harness installs (a dir with its own SKILL.md reads as one skill)"
 assert_ok "the lane is bypassed" cli_bypassed "$WD"
 nolane="$(cli_launch "$WD" "$UUID" "" "")"
@@ -62,7 +65,7 @@ assert_ok "no lane model: the operator config's default" lacks '--model' "$nolan
 assert_ok "no lane effort: no --thinking" lacks '--thinking' "$nolane"
 assert_eq "$(git -C "$WD" status --porcelain | grep -v harness-task)" "" "the lane's run state is kept out of its commits"
 printf '{\n  // JSON5\n  agents: {}\n}\n' > "$OP"; cli_launch "$WD" "$UUID" "" "" >/dev/null
-assert_eq "$(cfg skills.load.extraDirs)" "[\"$HARNESS_USER_SKILLS/handoff\", \"$HARNESS_USER_SKILLS/rtdd\"]" "an operator config that is JSON5 is still included, its own extra dirs unread"
+assert_eq "$(cfgp skills.load.extraDirs)" "[\"$US/handoff\", \"$US/rtdd\"]" "an operator config that is JSON5 is still included, its own extra dirs unread"
 rm -f "$OP"; cli_launch "$WD" "$UUID" "" "" >/dev/null
 assert_eq "$(cfg '$include')" "" "no operator config: nothing to include"
 assert_ok "…and the lane still bypassed" cli_bypassed "$WD"
@@ -132,6 +135,22 @@ bash "$LOOP" --bin openclaw-slow --cwd "$WD" --run r3 go </dev/null >/dev/null 2
 for i in $(seq 50); do [[ -s $OC_KID ]] && break; sleep 0.1; done
 kill -HUP "$LP"; wait "$LP" 2>/dev/null; sleep 0.3
 assert_no "a hangup of the pane's loop stops the turn's whole tree" kill -0 "$(cat "$OC_KID")"
+# Forced Windows (#605): MSYS `ps` has no -o, so the tree is not read from ps — the loop asks taskkill to end the turn's tree by its
+# winpid (portable.sh proc_kill_tree). A `ps` that refuses -o and a taskkill that records what it was asked stand in for the host's.
+PROC="$RUN_DIR/proc"; TK="$RUN_DIR/taskkill.log"; mkdir -p "$PROC" "$RUN_DIR/psbin"; : > "$TK"
+printf '#!/usr/bin/env bash\necho "ps: illegal option -- o" >&2; exit 1\n' > "$RUN_DIR/psbin/ps"; chmod +x "$RUN_DIR/psbin/ps"
+printf '#!/usr/bin/env bash\necho "$*" >> "%s"\n' "$TK" > "$RUN_DIR/psbin/taskkill"; chmod +x "$RUN_DIR/psbin/taskkill"
+cat > "$RUN_DIR/bin/openclaw-win" <<'STUB'
+#!/usr/bin/env bash
+mkdir -p "$OC_PROC/$$"; echo 4242 > "$OC_PROC/$$/winpid"; echo $$ > "$OC_TURN"; sleep 20
+STUB
+chmod +x "$RUN_DIR/bin/openclaw-win"; export OC_PROC="$PROC" OC_TURN="$RUN_DIR/oc.turn"; rm -f "$OC_TURN"
+PATH="$RUN_DIR/psbin:$RUN_DIR/bin:$PATH" HARNESS_PLATFORM=windows HARNESS_PROC_ROOT="$PROC" HARNESS_TASKKILL="$RUN_DIR/psbin/taskkill" \
+  bash "$LOOP" --bin openclaw-win --cwd "$WD" --run r4 go </dev/null >/dev/null 2>&1 & LP=$!
+for i in $(seq 50); do [[ -s $OC_TURN ]] && break; sleep 0.1; done
+kill -HUP "$LP"; wait "$LP" 2>/dev/null; sleep 0.3
+assert_ok "[windows] a hangup of the pane's loop has taskkill end the turn's tree by its winpid" grep -qx '//T //F //PID 4242' "$TK"
+kill "$(cat "$OC_TURN")" 2>/dev/null
 
 # --- the driven loop's reply (runs/<id>.jsonl) -------------------------------------------------------
 rm -f "$RUNS"
@@ -237,6 +256,7 @@ assert_no "a passed reset is no window: rc 1" ou
 cp "$F/usage-none.json" "$OU_OUT"
 assert_no "no provider usage (usage-none.json): rc 1" ou
 
-col="$(bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="openclaw" && $3!="ok" && $3 !~ /^n\/a:/')"
+# only this CLI's cells are read, so only this CLI's are computed: the whole matrix is ~10x slower on a Windows host than the 600 s cap (#605)
+col="$(HARNESS_MATRIX_CLIS=openclaw bash "$HERE/test_cli_matrix.sh" --tsv | awk -F'\t' '$1=="openclaw" && $3!="ok" && $3 !~ /^n\/a:/')"
 assert_eq "$col" "" "every openclaw matrix cell is ok or n/a"
 finish

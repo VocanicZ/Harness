@@ -95,7 +95,9 @@ assert_ok "spawn_orch: no unbound-var crash (C1)" bash -c '
 # ensure_safe. Tests point HARNESS_CLAUDE_CONFIG at a temp fixture so the real ~/.claude.json is untouched.
 echo "=== #67: ensure_trusted pre-accepts the workspace-trust dialog ==="
 
-# tiny JSON probes (python3 is a hard dep of the harness already)
+# tiny JSON probes (python3 is a hard dep of the harness already). /old/proj is a made-up key: Git Bash would rewrite
+# it to C:/Program Files/Git/old/proj on its way to a native python, so the probes ask MSYS to leave /old/… alone (#605).
+export MSYS2_ARG_CONV_EXCL="/old/"
 trusted_of(){ python3 -c 'import json,sys
 d=json.load(open(sys.argv[1])); print(d.get("projects",{}).get(sys.argv[2],{}).get("hasTrustDialogAccepted"))' "$1" "$2" 2>/dev/null; }
 json_ok(){ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$1" 2>/dev/null; }

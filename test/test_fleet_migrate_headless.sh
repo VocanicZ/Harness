@@ -44,7 +44,7 @@ read_cfg(){ ( unset_inherited_config; export STATE_DIR="$1" HARNESS_HOME="$ROOT/
 
 # ── the stub engine and the stand-in workers (copied from test_fleet_migrate.sh) ──────────────────
 STUB="$ROOT/engine"; mkdir -p "$STUB/bin" "$STUB/scripts"
-cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh,roll.sh} "$STUB/scripts/"
+cp "$ENGINE"/scripts/{fleet-migrate.sh,fleet_migrate.py,stats.py,portable.sh,portable.py,roll.sh} "$STUB/scripts/"
 START_LOG="$ROOT/start.log"; : > "$START_LOG"
 cat > "$STUB/bin/harness" <<'STUBEOF'
 #!/usr/bin/env bash

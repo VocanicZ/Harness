@@ -157,8 +157,15 @@ assert_eq "$(py)" "tmux True ['h1', 's1'] ['tmux', 'bash'] tmux attach -t s1" \
   "tmux: the views list tmux sessions through tmux's argv, and headless lanes beside them"
 assert_eq "$(HARNESS_SESSION_BACKEND=headless py)" "headless True ['h1', 's1'] ['tmux', 'bash'] harness attach s1" \
   "headless: the same host-wide listing; a lane's screen is capturable (#351) and watched with harness attach"
-argv="$(HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR=/lanes python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import session_backend as sb; print(" ".join(sb.capture_argv("=hz-main-i1")[1:]))' "$ROOT/scripts")"
-assert_eq "$argv" "$ROOT/scripts/cli/claude_headless.py pane --lane /lanes/hz-main-i1" "headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux"
+# A native Windows python spells its paths C:\x\y and MSYS rewrites a bare /lanes env value to C:/Program Files/Git/lanes (#605):
+# the lanes dir is a real temp dir, and both sides are compared in the one MSYS spelling.
+LANES="$(mktemp -d)"
+argv="$(HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR="$(native_path "$LANES")" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import session_backend as sb; print(" ".join(sb.capture_argv("=hz-main-i1")[1:]))' "$(native_path "$ROOT/scripts")")"
+argv="${argv//\\//}"
+assert_path_eq "${argv%% *}" "$ROOT/scripts/cli/claude_headless.py" "headless: the capture runs claude_headless.py"
+assert_path_eq "${argv##* }" "$LANES/hz-main-i1" "headless: …on the lane's own directory"
+assert_eq "${argv#* }" "pane --lane ${argv##* }" "headless: the capture is the lane's drawn screen (claude_headless.py pane), never tmux"
+rm -rf "$LANES"
 
 echo "== harness init writes the key; doctor reports it =="
 proj="$RUN_DIR/proj"; mkdir -p "$proj"
@@ -174,7 +181,9 @@ assert_ok "…naming the valid ones" grep -qF "unknown HARNESS_SESSION_BACKEND: 
 assert_no "…and writes no config" test -f "$proj/.harness/config"
 
 tmux(){ return 1; }
-out="$(DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
+# On a Windows host doctor_main also audits the machine (prereqs, engine, leftover tasks: test_doctor's subject, and the host's own state);
+# this assertion is about the backend check alone, so those four report nothing here (#605).
+out="$(doctor_windows(){ :; }; doctor_windows_prereqs(){ :; }; doctor_engine_windows(){ :; }; doctor_leftovers(){ :; }; DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?
 assert_ok "doctor reports the session backend" grep -qxF "session backend: tmux" <<<"$out"
 assert_eq "$rc" 0 "…and a known one is healthy"
 out="$(HARNESS_SESSION_BACKEND=screen DOCTOR_FIX=0 doctor_main 2>&1)"; rc=$?

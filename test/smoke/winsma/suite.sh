@@ -6,6 +6,8 @@
 #   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
 #   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
 #   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
 #   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
 #                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
 # Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
@@ -60,6 +62,7 @@ say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
 # What a reader needs: every red assertion with its file, then the summary run.sh ends with.
 awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
 sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
 if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
 n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"

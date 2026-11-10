@@ -268,6 +268,27 @@ def main():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
         shutil.rmtree(d, ignore_errors=True); shutil.rmtree(d2, ignore_errors=True)
 
+    # --- #605: one directory, two spellings. native_path is what native CPython opens, posix_path what bash holds.
+    os.environ["HARNESS_PLATFORM"] = "windows"
+    try:
+        check(portable.native_path("/c/hx-1/src/a.json") == "C:/hx-1/src/a.json", "[windows] native_path: /c/x -> C:/x")
+        check(portable.native_path("C:\\hx-1\\src") == "C:/hx-1/src", "[windows] native_path: C:\\x -> C:/x (one spelling, no backslash)")
+        check(portable.native_path("C:/hx-1/src") == "C:/hx-1/src", "[windows] native_path: C:/x stays")
+        check(portable.posix_path("C:\\hx-1\\src\\a") == "/c/hx-1/src/a", "[windows] posix_path: C:\\x\\y -> /c/x/y")
+        check(portable.posix_path("C:/hx-1/src") == "/c/hx-1/src", "[windows] posix_path: C:/x -> /c/x")
+        check(portable.posix_path("/c/hx-1/src") == "/c/hx-1/src", "[windows] posix_path: an MSYS path stays")
+        check(portable.posix_path("C:") == "/c" and portable.native_path("/c") == "C:/", "[windows] a bare drive both ways")
+        check(portable.native_path("rel\\x") == "rel/x" and portable.posix_path("rel\\x") == "rel/x", "[windows] a relative path only loses its backslashes")
+        # /tmp-style roots have no drive letter: cygpath (here a stand-in on HARNESS_CYGPATH) knows the mount table
+        fake = os.path.join(tmp, "cygpath"); open(fake, "w").write("#!/bin/sh\necho \"C:/msys64$2\"\n"); os.chmod(fake, 0o755)
+        os.environ["HARNESS_CYGPATH"] = fake
+        check(portable.native_path("/tmp/x") == "C:/msys64/tmp/x", "[windows] native_path: /tmp/x goes through cygpath -m")
+        os.environ.pop("HARNESS_CYGPATH")
+        os.environ["HARNESS_PLATFORM"] = "posix"
+        check(portable.native_path("/c/x") == "/c/x" and portable.posix_path("C:\\x") == "C:\\x", "[posix] both are the identity")
+    finally:
+        os.environ.pop("HARNESS_PLATFORM", None)
+
     print(f"── {'FAILED' if fails else 'passed'} ({fails} failure(s))")
     return 1 if fails else 0
 

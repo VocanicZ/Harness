@@ -134,12 +134,12 @@ for w419 in pool-worker.sh:1 priority-worker.sh:P1; do
   D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; w419_held "$D"
   rm -rf "$D/proj/.harness"
   w419_exit "$W419_PID" 4; assert_eq "$W419_RC" "0" "#419 $script: STATE_DIR deleted -> exits rc 0 within ~1 poll"
-  assert_ok "#419 $script: its log names the missing STATE_DIR" grep -qF "$D/proj/.harness" "$D/worker.log"
+  assert_ok "#419 $script: its log names the missing STATE_DIR" grep_path "$D/proj/.harness" "$D/worker.log"
   # HARNESS_HOME removed, STATE_DIR kept
   D="$(mktemp -d)"; tmp_track "$D"; w419_start "$script" "$wid" "$D"; w419_held "$D"
   rm -rf "$D/host"
   w419_exit "$W419_PID" 4; assert_eq "$W419_RC" "0" "#419 $script: HARNESS_HOME deleted -> exits rc 0 within ~1 poll"
-  assert_ok "#419 $script: its log names the missing HARNESS_HOME" grep -qF "$D/host" "$D/worker.log"
+  assert_ok "#419 $script: its log names the missing HARNESS_HOME" grep_path "$D/host" "$D/worker.log"
   sleep 1.2
   assert_no "#419 $script: HARNESS_HOME/poller not recreated after the exit" test -e "$D/host/poller"
 done

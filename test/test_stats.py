@@ -1,5 +1,7 @@
 import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "scripts")))
+import portable  # bash_exe / is_windows for the cases that run Git's bash or differ on NTFS (#605)
 spec = importlib.util.spec_from_file_location("stats", os.path.normpath(os.path.join(HERE, "..", "scripts", "stats.py")))
 st = importlib.util.module_from_spec(spec); spec.loader.exec_module(st)
 
@@ -118,10 +120,10 @@ def test_events_file_override_and_line_shape():
         assert not os.path.exists(os.path.join(d, "events.jsonl"))
 
 def test_emit_drops_event_when_lock_is_held():
-    import fcntl
+    import portable   # the engine's own lock (fcntl on POSIX, msvcrt on Windows, where fcntl does not exist, #605)
     with host() as d:
         p = os.path.join(d, "events.jsonl")
-        holder = open(p, "a"); fcntl.flock(holder, fcntl.LOCK_EX)
+        holder = open(p, "a"); portable.lock_nb(holder)
         real = st.LOCK_WAIT_S; st.LOCK_WAIT_S = 0.1
         try:
             assert st.append_event({"event": "x"}, p) is False
@@ -1536,8 +1538,8 @@ def test_read_config_ends_an_unquoted_value_where_bash_does():   # #933
                 with open(os.path.join(d, "config"), "w", encoding="utf-8", newline="") as fh:
                     fh.write(line)
                 assert st.read_config(d) == {"HARNESS_REPO": want}, (ascii(line), st.read_config(d))
-                if shutil.which("bash"):   # the shell is the reference
-                    out = subprocess.run(["bash", "-c", 'source "$1"; printf %s "$HARNESS_REPO"', "x", os.path.join(d, "config")],
+                if shutil.which("bash"):   # the shell is the reference (Git's bash on Windows, never WSL's launcher: #605)
+                    out = subprocess.run([portable.bash_exe(), "-c", 'source "$1"; printf %s "$HARNESS_REPO"', "x", os.path.join(d, "config")],
                                          capture_output=True, text=True, encoding="utf-8").stdout
                     assert out == want, (ascii(line), ascii(out))
             finally:
@@ -1558,13 +1560,16 @@ def test_repr_style_error_sites_spell_a_form_feed_and_u2028_as_vis_does():   # #
     assert st.vrepr("plain") == "'plain'" and st.vrepr(7) == "7" and st.vrepr("it's") == '"it\'s"'
     assert st.short_repr("a\x0c" + "b" * 40) == "'a\\u000c" + "b" * 18 + "'" + "\u2026"
     for ch, esc in (("\x0c", "\\u000c"), ("\u2028", "\\u2028")):
-        for argv, want in ((["-R", f"a{ch}b"], f"'a{esc}b' is not a repository"),
-                           ([f"--fleet=-a{ch}b"], f"'-a{esc}b' is not a fleet prefix"),
-                           ([f"--since=3{ch}d"], f"bad --since: '3{esc}d'"),
-                           ([f"--events=no{ch}pe.jsonl"], f"'no{esc}pe.jsonl' does not exist")):
+        # A form feed cannot be in a Windows file name: opening such a path says "Invalid argument", not "does not exist" (#605).
+        # The escaped name in the message is what this test is about, so either wording is read on a Windows host.
+        gone = ("does not exist", "is not readable") if portable.is_windows() else ("does not exist",)
+        for argv, wants in ((["-R", f"a{ch}b"], (f"'a{esc}b' is not a repository",)),
+                            ([f"--fleet=-a{ch}b"], (f"'-a{esc}b' is not a fleet prefix",)),
+                            ([f"--since=3{ch}d"], (f"bad --since: '3{esc}d'",)),
+                            ([f"--events=no{ch}pe.jsonl"], tuple(f"'no{esc}pe.jsonl' {g}" for g in gone))):
             r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "stats.py"), "report"] + argv,
                                capture_output=True, text=True)
-            assert r.returncode == 2 and want in r.stderr, (argv, r.returncode, r.stderr)
+            assert r.returncode == 2 and any(w in r.stderr for w in wants), (argv, r.returncode, r.stderr)
             assert ch not in r.stderr and "\\x0c" not in r.stderr, repr(r.stderr)
 
 

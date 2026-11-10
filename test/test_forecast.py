@@ -6,6 +6,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 spec = importlib.util.spec_from_file_location("forecast", os.path.join(ROOT, "scripts", "forecast.py"))
 fc = importlib.util.module_from_spec(spec); spec.loader.exec_module(fc)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import portable  # bash_exe: a bare "bash" is WSL's launcher on Windows, not Git's (#605, #609)
+BASH = portable.bash_exe()
 
 MTOK = 1_000_000
 OPUS_OUT = 50_000   # output tokens that cost exactly $1.00 on Opus ($20/Mtok)
@@ -395,11 +398,11 @@ def test_harness_forecast_cli_dispatch():
     with tmp() as d:
         cfg, events, bodies = fixture(d)
         env = dict(os.environ, HARNESS_CLAUDE_CONFIG_DIRS=cfg, STATE_DIR=os.path.join(d, "none"))
-        r = subprocess.run(["bash", os.path.join(ROOT, "bin", "harness"), "forecast", "50", "-R", W,
+        r = subprocess.run([BASH, os.path.join(ROOT, "bin", "harness"), "forecast", "50", "-R", W,
                             "--events", events, "--bodies", bodies, "--json"], capture_output=True, text=True, env=env)
         assert r.returncode == 0, r.stderr
         assert json.loads(r.stdout)["total"]["p50"] == 15.0
-        r = subprocess.run(["bash", os.path.join(ROOT, "bin", "harness"), "help"], capture_output=True, text=True, env=env)
+        r = subprocess.run([BASH, os.path.join(ROOT, "bin", "harness"), "help"], capture_output=True, text=True, env=env)
         assert "\n  forecast <issue>" in r.stdout, r.stdout
 
 
@@ -830,7 +833,9 @@ def test_unreadable_bodies_path_with_line_separators_prints_escaped():   # #863
                                 "--events", events, "--bodies", os.path.join(d, f"no{ch}pe")],
                                capture_output=True, text=True)
             assert r.returncode == 2, (r.returncode, r.stderr)
-            assert f"no{esc}pe" in r.stderr and "--bodies" in r.stderr and "does not exist" in r.stderr, repr(r.stderr)
+            # a form feed cannot be in a Windows file name: "Invalid argument", not "does not exist" (#605)
+            gone = ("does not exist", "is not readable") if portable.is_windows() else ("does not exist",)
+            assert f"no{esc}pe" in r.stderr and "--bodies" in r.stderr and any(g in r.stderr for g in gone), repr(r.stderr)
             assert ch not in r.stderr and ch not in r.stdout, (repr(r.stderr), repr(r.stdout))
 
 

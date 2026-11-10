@@ -11,6 +11,13 @@ il = sr.issuelib
 SLUG = "owner/repo"
 
 
+def rm_rf(d):
+    """shutil.rmtree that also removes git's read-only object files (Windows refuses a read-only unlink, #605)."""
+    def rw(fn, path, _exc):
+        os.chmod(path, 0o700); fn(path)
+    shutil.rmtree(d, **({"onexc": rw} if sys.version_info >= (3, 12) else {"onerror": rw}))
+
+
 def issue(n, state="OPEN", labels=(), body=""):
     return il._normalize_issues([{"number": n, "state": state, "body": body,
                                   "labels": [{"name": l} for l in labels]}])[0]
@@ -118,7 +125,7 @@ def test_review_loop_counts_gate_rounds_and_survives_a_restart():
         assert len(loops) == 1 and "4x" in loops[0], out
         assert "RESOLVED review-loop:owner/repo#5" in out, out
     finally:
-        shutil.rmtree(d)
+        rm_rf(d)
 
 
 def test_decompose_stalled_needs_three_quiet_passes_and_no_session():
@@ -240,7 +247,7 @@ def test_unfiled_plans_greps_the_default_branch():
         assert sr.unfiled_plans(os.path.join(d, "src")) == ["docs/superpowers/plans/p1.md"]
         assert sr.unfiled_plans(os.path.join(d, "nope")) is None
     finally:
-        shutil.rmtree(d)
+        rm_rf(d)
 
 
 def test_main_end_to_end_and_alarms_listing():
@@ -272,7 +279,7 @@ def test_main_end_to_end_and_alarms_listing():
         assert buf.getvalue() == "no arc alarms firing\n", buf.getvalue()
     finally:
         sr.gather = saved
-        shutil.rmtree(d)
+        rm_rf(d)
 
 
 def test_sh_and_capture_never_raise():
@@ -305,7 +312,7 @@ def test_main_reads_the_reconciled_allowlist():
         assert buf.getvalue().startswith("ALARM unfiled"), buf.getvalue()
     finally:
         sr.gather = saved
-        shutil.rmtree(d)
+        rm_rf(d)
 
 
 def test_cli_entry_exits_with_mains_code():

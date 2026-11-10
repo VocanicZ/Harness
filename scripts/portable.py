@@ -195,3 +195,56 @@ def unlock(fh, msvcrt_mod=None):
         return
     import fcntl
     fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+# ------------------------------------------------------------------------------------------ paths ---
+# One directory has two spellings in one Windows run (#605): `C:/x` (a Windows environment variable,
+# export_native_paths) and `/c/x` (bash's `pwd`, `realpath`, `mktemp`, and every path a bash-written config
+# or table holds). Native CPython opens only the first; bash compares and sources only the second.
+#
+#     native_path(p)   the form this Python opens: C:/x   (`cygpath -m`); unchanged on POSIX
+#     posix_path(p)    the form bash holds:        /c/x   (`cygpath -u`); unchanged on POSIX
+#
+# A path read out of a file or an argument bash wrote goes through native_path before open(); a path
+# Python writes where bash will read it goes through posix_path (os.path.abspath answers C:\x, which a
+# bash `source`d config turns into C:x). Mirrors portable.sh native_path / posix_path.
+_DRIVE_MSYS = re.compile(r"^/([A-Za-z])(?:/(.*))?$")
+_DRIVE_WIN = re.compile(r"^([A-Za-z]):(?:[\\/](.*))?$")
+
+
+def _cygpath(flag, p):
+    exe = os.environ.get("HARNESS_CYGPATH") or shutil.which("cygpath")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, flag, p], capture_output=True, text=True, timeout=10).stdout.strip()
+        return out or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def native_path(p):
+    """C:/x for /c/x (and for C:\\x); the drive-less MSYS roots (/tmp, /usr) need cygpath, which asks the mount table."""
+    p = os.fspath(p)
+    if not is_windows() or not p:
+        return p
+    m = _DRIVE_MSYS.match(p)
+    if m:
+        return "%s:/%s" % (m.group(1).upper(), m.group(2) or "")
+    if _DRIVE_WIN.match(p):
+        return p.replace("\\", "/")
+    if p.startswith("/"):
+        return _cygpath("-m", p) or p
+    return p.replace("\\", "/")
+
+
+def posix_path(p):
+    """/c/x for C:/x and C:\\x; unchanged when it is already MSYS form (or relative)."""
+    p = os.fspath(p)
+    if not is_windows() or not p:
+        return p
+    m = _DRIVE_WIN.match(p)
+    if m:
+        rest = (m.group(2) or "").replace("\\", "/")
+        return "/%s/%s" % (m.group(1).lower(), rest) if rest else "/" + m.group(1).lower()
+    return p.replace("\\", "/")

@@ -464,7 +464,7 @@ sup_au_clear(){ (( SUP_DRY )) || rm -f "$SUP_AU_STATE"; }
 sup_rel(){ ( export HARNESS_HOME; HARNESS_INSTALL_NOMAIN=1 source "$SUP_ENGINE_DIR/install.sh" || exit 3; "$@" ); }
 # sup_au_enabled — this supervisor is a release engine of THIS host and the operator left it on.
 sup_au_enabled(){ [[ ${HARNESS_AUTO_UPDATE:-1} != 0 && -z ${HARNESS_REF:-} && -L $HARNESS_HOME/engine ]] || return 1
-  [[ "$(realpath -m "$SUP_ENGINE_DIR" 2>/dev/null)" == "$(realpath -m "$HARNESS_HOME/releases" 2>/dev/null)"/* ]]; }
+  [[ "$(posix_path "$(realpath -m "$SUP_ENGINE_DIR" 2>/dev/null)")" == "$(posix_path "$(realpath -m "$HARNESS_HOME/releases" 2>/dev/null)")"/* ]]; }
 # sup_au_harness <args> — `harness <args>` through the stable engine link, in the clean env bin/harness
 # expects. TERM is held while it runs: `harness update` restarts THIS unit, and the supervisor must
 # survive that long enough to start the roll (the state file covers a hard kill).

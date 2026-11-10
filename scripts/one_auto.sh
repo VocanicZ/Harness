@@ -177,7 +177,7 @@ one_auto_tend(){ local f fsd funit fslug issue sess acct rest st
   shopt -s nullglob
   for f in "$(one_auto_dir)"/*.lane; do
     IFS=$'\t' read -r fsd funit fslug issue sess acct rest < "$f" || continue
-    [[ "$fsd" == "$STATE_DIR" && "$funit" == "${UNIT:-}" ]] || continue
+    [[ "$funit" == "${UNIT:-}" ]] && same_path "$fsd" "$STATE_DIR" || continue   # the record may hold the other spelling (#605)
     if session_live "$sess"; then
       st="$(gh issue view "$issue" -R "$fslug" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null)" \
         || { touch "$f"; continue; }
