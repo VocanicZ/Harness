@@ -620,5 +620,11 @@ for stray in -x --nope; do
   assert_eq "$rc" 2 "tier $stray -> usage error, exit 2"
   assert_ok "…names $stray" grep -qF -- "unrecognized arguments: $stray" <<<"$out"
 done
-out="$(H tier 2>&1)"; assert_no "tier with no argument names no stray" grep -q unrecognized <<<"$out"
+out="$(H tier 2>&1)"; assert_no "tier with no argument names no stray" grep -q unrecognized <<<"$out"# a dash-led option value after a space is named, with the = form suggested (#973)
+for spec in "decide --criteria -x" "decide --prefer -x" "overlap --files -x" "overlap -R -x"; do
+  read -r sub opt val <<<"$spec"
+  out="$(H tier "$sub" "$opt" "$val" 2>&1)"; rc=$?
+  assert_eq "$rc" 2 "tier $spec -> usage error, exit 2"
+  assert_ok "…names $val and suggests $opt=$val" grep -qF -- "'$val' looks like an option; write $opt=$val" <<<"$out"
+done
 finish
