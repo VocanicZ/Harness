@@ -839,6 +839,30 @@ def write_json(path, data):
     os.replace(tmp, path)
 
 
+def _run_id_problem(v):
+    if not RUN_ID_RE.fullmatch(v):
+        return (f"bench: bad --run-id {_short(v)} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
+                "and not be '.' or '..': it names one directory under --results-dir)")
+
+
+def _results_dir_problem(v):
+    if not v or v.startswith("-"):   # #862: an empty one wrote <cwd>/<run-id>/, a dash-leading one ./-x/
+        return f"bench: bad --results-dir {_short(v)} (must be non-empty and not start with '-')"
+
+
+def _owner_problem(v):
+    if not OWNER_RE.fullmatch(v):
+        return (f"bench: bad --owner {_short(v)} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
+                "not starting or ending with '-')")
+
+
+def _usage_exit(problem):
+    """Report `problem` (a whole message line) and exit as a usage error; None means the value is fine."""
+    if problem:
+        print(problem, file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
 def parse_args(argv):
     ap = _load("stats").arg_parser(prog="bench", description="run one benchmark arm (#381)")
     ap.add_argument("arm")
@@ -846,9 +870,12 @@ def parse_args(argv):
                     help=f"runs per arm, each in its own repo (default {RUNS_DEFAULT}); the batch records an aggregate "
                          "(median, min-max) and stops early, recording why, when the budget runs out. --runs 1 is n=1")
     ap.add_argument("--dry-run", action="store_true", help="print the guard decision; spend and create nothing")
-    ap.add_argument("--run-id", default=None, help="default: a UTC timestamp")
-    ap.add_argument("--results-dir", default=os.path.join(HERE, "results"))
-    ap.add_argument("--owner", default=None, help="GitHub owner for the run repo (default: the gh login)")
+    rid = ap.add_argument("--run-id", default=None, help="default: a UTC timestamp")
+    rdir = ap.add_argument("--results-dir", default=os.path.join(HERE, "results"))
+    own = ap.add_argument("--owner", default=None, help="GitHub owner for the run repo (default: the gh login)")
+    # #1001: a value after a space gets the reason the = form gets (main prints it, exit 2), not advice to write the = form
+    for act, problem in ((rid, _run_id_problem), (rdir, _results_dir_problem), (own, _owner_problem)):
+        act.dash_reason = lambda v, problem=problem: _usage_exit(problem(v))
     ap.add_argument("--arm-opt", action="append", default=[], metavar="K=V", help="passed to the arm as ctx.opts")
     ap.add_argument("--optional", action="store_true",
                     help="an optional arm: when the guard refuses, record `skipped: <cause>` (the cause(s) the guard "
@@ -898,17 +925,11 @@ def main(argv=None):
     if a.runs > RUNS_MAX:
         print(f"bench: --runs must be at most {RUNS_MAX}", file=sys.stderr)
         return EXIT_USAGE
-    if a.run_id is not None and not RUN_ID_RE.fullmatch(a.run_id):
-        print(f"bench: bad --run-id {_short(a.run_id)} (must be 1-{RUN_ID_MAX} characters from [A-Za-z0-9._-], not start with '-' "
-              "and not be '.' or '..': it names one directory under --results-dir)", file=sys.stderr)
-        return EXIT_USAGE
-    if not a.results_dir or a.results_dir.startswith("-"):   # #862: an empty one wrote <cwd>/<run-id>/, a dash-leading one ./-x/
-        print(f"bench: bad --results-dir {_short(a.results_dir)} (must be non-empty and not start with '-')", file=sys.stderr)
-        return EXIT_USAGE
-    if a.owner is not None and not OWNER_RE.fullmatch(a.owner):
-        print(f"bench: bad --owner {_short(a.owner)} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
-              "not starting or ending with '-')", file=sys.stderr)
-        return EXIT_USAGE
+    for problem in (a.run_id is not None and _run_id_problem(a.run_id), _results_dir_problem(a.results_dir),
+                    a.owner is not None and _owner_problem(a.owner)):
+        if problem:
+            print(problem, file=sys.stderr)
+            return EXIT_USAGE
     try:
         arm = load_arm(a.arm, a.arms_dir)
     except ValueError as e:

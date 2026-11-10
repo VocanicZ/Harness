@@ -1540,9 +1540,18 @@ def test_long_string_option_values_are_clipped_in_stats_errors():   # #911
         raise AssertionError("expected ArgumentTypeError")
 
 
+def test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_advice():   # #1001
+    stats = os.path.join(HERE, "..", "scripts", "stats.py")
+    for opt, why in (("--fleet", "is not a fleet prefix"), ("-R", "is not a repository"), ("--prd", "invalid int value"), ("--issue", "invalid int value")):
+        space = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, opt, "-x"], capture_output=True, text=True)
+        equals = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, f"{opt}=-x"], capture_output=True, text=True)
+        assert space.returncode == 2 and why in space.stderr and "looks like an option" not in space.stderr, (opt, space.stderr)
+        assert space.stderr == equals.stderr, (opt, space.stderr, equals.stderr)
+
+
 def test_dash_led_option_value_after_a_space_is_named_and_the_equals_form_suggested():   # #973
     stats = os.path.join(HERE, "..", "scripts", "stats.py")
-    for opt, val in (("--model", "-5-5"), ("--since", "-1d"), ("--fleet", "-x"), ("-R", "-x"), ("--prd", "-x")):
+    for opt, val in (("--model", "-5-5"), ("--since", "-1d")):   # a value the = form takes keeps the advice
         r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, opt, val], capture_output=True, text=True)
         assert r.returncode == 2 and f"'{val}' looks like an option; write {opt}={val}" in r.stderr, (opt, r.returncode, r.stderr)
     r = subprocess.run([sys.executable, stats, "report", "--events", os.devnull, "--model"], capture_output=True, text=True)

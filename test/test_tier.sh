@@ -637,10 +637,21 @@ for stray in -x --nope; do
 done
 out="$(H tier 2>&1)"; assert_no "tier with no argument names no stray" grep -q unrecognized <<<"$out"
 # a dash-led option value after a space is named, with the = form suggested (#973)
-for spec in "decide --criteria -x" "decide --prefer -x" "overlap --files -x" "overlap -R -x"; do
+for spec in "overlap --files -x"; do   # a value the = form takes keeps the advice
   read -r sub opt val <<<"$spec"
   out="$(H tier "$sub" "$opt" "$val" 2>&1)"; rc=$?
   assert_eq "$rc" 2 "tier $spec -> usage error, exit 2"
   assert_ok "…names $val and suggests $opt=$val" grep -qF -- "'$val' looks like an option; write $opt=$val" <<<"$out"
+done
+# a value an option can never take gets the = form's reason, not advice to write the = form (#1001)
+for spec in "decide --criteria" "decide --lines" "decide --prefer" "overlap --files=a --base" "overlap --files=a --repo-dir" "overlap --files=a -R"; do
+  opt="${spec##* }"; pre="${spec% *}"
+  # shellcheck disable=SC2086
+  space="$(H tier $pre "$opt" -x 2>&1)"; rc=$?
+  # shellcheck disable=SC2086
+  equals="$(H tier $pre "$opt=-x" 2>&1)"
+  assert_eq "$rc" 2 "tier $pre $opt -x -> usage error, exit 2"
+  assert_no "…gives no write-$opt=-x advice" grep -qF "looks like an option" <<<"$space"
+  assert_eq "$space" "$equals" "…and the = form's own message"
 done
 finish

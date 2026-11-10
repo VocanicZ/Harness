@@ -405,6 +405,26 @@ def workstream_count(v):
     return n
 
 
+def _base_problem(v):
+    """why `v` is no --base (#748, #862), or None. A revision git could read as an option never reaches git."""
+    if not v or v.startswith("-"):
+        return f"argument --base: {_short(v)} is not a branch — it must be non-empty and not start with '-'"
+
+
+def _repo_dir_problem(v):
+    """why `v` is no --repo-dir (#881, #898), or None: an empty path is not "."; a missing path or a file is no directory."""
+    if not v:
+        return "argument --repo-dir: '' is not a directory — it must be non-empty"
+    if not os.path.isdir(v):
+        return f"argument --repo-dir: {_short(v)} is not a directory — it must be an existing directory"
+
+
+def _repo_problem(v):
+    """why `v` is no -R, or None."""
+    if not REPO_RE.fullmatch(v):
+        return f"argument -R: {_short(v)} is not a repository — expected owner/name"
+
+
 def main(argv=None):
     import stats   # #956: its parser names a dash-led stray the missing-subcommand error would hide
     ap = stats.arg_parser(prog="harness tier", description=__doc__.split("\n\n")[0])
@@ -424,11 +444,13 @@ def main(argv=None):
     d.add_argument("--json", action="store_true")
     o = sub.add_parser("overlap")
     o.add_argument("--files", required=True, help="comma-separated paths the direct fix would touch")
-    o.add_argument("-R", dest="repo", default=None)   # #914: None = not given (fall back to HARNESS_REPO); an explicit '' is a bad value
-    o.add_argument("--base", default=None)   # #1000: None = not given (fall back to HARNESS_DEFAULT_BRANCH, then main), so a bad env value is not blamed on --base
-    o.add_argument("--repo-dir", default=".")
+    r_act = o.add_argument("-R", dest="repo", default=None)   # #914: None = not given (fall back to HARNESS_REPO); an explicit '' is a bad value
+    b_act = o.add_argument("--base", default=None)   # #1000: None = not given (fall back to HARNESS_DEFAULT_BRANCH, then main), so a bad env value is not blamed on --base
+    rd_act = o.add_argument("--repo-dir", default=".")
     o.add_argument("--json", action="store_true")
     t = sub.add_parser("thresholds")
+    # #1001: a value that follows its option after a space gets the reason the = form gets, not advice to write the = form
+    b_act.dash_reason, rd_act.dash_reason, r_act.dash_reason = _base_problem, _repo_dir_problem, _repo_problem
     a, extra = ap.parse_known_args(argv)
     if extra:   # #936: the subcommand names the stray argument, so the usage shown is its own, as for -R/--base (#809)
         {"decide": d, "overlap": o, "thresholds": t}[a.cmd].error("unrecognized arguments: " + " ".join(extra))
@@ -455,11 +477,10 @@ def main(argv=None):
         if base_env:   # #1000: the value came from the environment, so the message names the variable, not an argument the user never gave
             import stats
             print(stats.vis(f"harness tier: HARNESS_DEFAULT_BRANCH={_short(a.base)} is not a branch — it must be non-empty and not start with '-'"), file=sys.stderr); return 2
-        o.error(f"argument --base: {_short(a.base)} is not a branch — it must be non-empty and not start with '-'")
-    if not a.repo_dir:   # #881: an empty path is not "."; it would reach `git worktree list` and exit 3
-        o.error("argument --repo-dir: '' is not a directory — it must be non-empty")
-    if not os.path.isdir(a.repo_dir):   # #898: a missing path, or a file, is a usage error caught before any gh or git call, not exit 3
-        o.error(f"argument --repo-dir: {_short(a.repo_dir)} is not a directory — it must be an existing directory")
+        o.error(_base_problem(a.base))
+    problem = _repo_dir_problem(a.repo_dir)   # #881, #898: a usage error caught before any gh or git call, not exit 3
+    if problem:
+        o.error(problem)
     repo_env = a.repo is None
     if repo_env:
         a.repo = os.environ.get("HARNESS_REPO", "")
@@ -470,7 +491,7 @@ def main(argv=None):
         if repo_env:   # #1000: as for the branch above, name HARNESS_REPO
             import stats
             print(stats.vis(f"harness tier: HARNESS_REPO={_short(a.repo)} is not a repository — expected owner/name"), file=sys.stderr); return 2
-        o.error(f"argument -R: {_short(a.repo)} is not a repository — expected owner/name")
+        o.error(_repo_problem(a.repo))
     files = [f for f in a.files.split(",") if f.strip()]
     if not files:
         print("harness tier overlap: no files to check — pass --files a,b,c", file=sys.stderr); return 2

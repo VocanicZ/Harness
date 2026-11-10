@@ -922,8 +922,28 @@ def arg_parser(*a, **kw):
                     pass
                 if tok in names or (tok.startswith("--") and "=" not in tok and any(n.startswith(tok) for n in names if n.startswith("--"))):
                     name = next((n for n in names if n.startswith(tok)), tok)
+                    reason = self._dash_led_reason(names, nxt)
+                    if reason:   # #1001: the = form would be refused too, so give its reason now, not advice that leads to a second error
+                        return reason
                     quoted = short_repr(nxt) if nxt != vis(nxt) else f"'{nxt}'"
                     return f"argument {m.group(1)}: {quoted} looks like an option; write {name}={vis(nxt)}"
+            return None
+
+        def _dash_led_reason(self, names, value):
+            """#1001: the message the `=` form gives for `value`, or None when that form would take it (a path, a model
+            name). An action's `dash_reason`, set after add_argument, is a callable for a check that runs after parsing:
+            value -> the argparse error text (None when the value is fine), or it reports and exits itself; any other
+            action is asked its type and choices."""
+            act = next((a for a in self._actions if a.option_strings and set(a.option_strings) & set(names)), None)
+            if act is None:
+                return None
+            hook = getattr(act, "dash_reason", None)
+            if hook is not None:
+                return hook(value)
+            try:
+                self._get_values(act, [value])
+            except argparse.ArgumentError as e:
+                return str(e)
             return None
 
         def error(self, message):
