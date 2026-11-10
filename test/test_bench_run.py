@@ -836,6 +836,18 @@ def test_runs_below_one_is_a_usage_error(e):
 
 
 @with_env()
+def test_runs_and_workers_above_the_cap_are_one_line_usage_errors(e):   # #897
+    for opt, cap in (("--runs", bench_run.RUNS_MAX), ("--workers", bench_run.WORKERS_MAX)):
+        for bad in (str(cap + 1), "99999999999999999999"):
+            p = e.run("stub", "--dry-run", opt, bad)
+            lines = p.stderr.strip().splitlines()
+            assert p.returncode == 2 and len(lines) == 1 and opt in lines[0] and str(cap) in lines[0], (opt, bad, p.returncode, p.stderr)
+            assert "would run" not in p.stdout and "bench guard" not in p.stdout, (opt, bad, p.stdout)
+        assert e.run("stub", "--dry-run", opt, str(cap), "--expected-usd", "1").returncode in (0, 3), opt   # the cap itself is in range
+    assert e.calls() == []
+
+
+@with_env()
 def test_runs_and_workers_are_ascii_digits_only(e):   # #784
     for opt in ("--runs", "--workers"):
         for bad in ("1_1", "+5", "\uff12\uff10"):
