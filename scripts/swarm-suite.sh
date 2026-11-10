@@ -74,6 +74,10 @@ WT="$(cd "$WT" && pwd)"
 # swarm job names must match [A-Za-z0-9][A-Za-z0-9._-]* and must not end in .prev.
 NAME="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[^A-Za-z0-9]*//; s/\.prev$/-prev/')"
 [[ -n "$NAME" ]] || { echo "swarm-suite: job name has no usable characters" >&2; exit 2; }
+# #985: the name is a directory name under $RUN_DIR/swarm and swarm's jobs dir; a filesystem refuses one past 255 bytes
+# ("File name too long"), and the job dir holds `workdir.tar.gz.prev` beside it — so cap at 200, and show the value cut short (#911).
+MAX_NAME=200
+(( ${#NAME} <= MAX_NAME )) || { echo "usage: swarm-suite.sh <worktree> <job-name> [test files...] — job name too long (max $MAX_NAME characters): '${NAME:0:20}'…" >&2; exit 2; }
 
 SANDBOX="${HARNESS_SWARM_SANDBOX:-auto}"; [[ "$SANDBOX" == off ]] || SANDBOX=auto
 TEST_CMD="${HARNESS_SWARM_TEST_CMD:-}"
