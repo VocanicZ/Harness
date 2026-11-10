@@ -363,6 +363,19 @@ rc="$(run_suite '' empty3 test/test_ok.sh)"
 assert_eq "$rc" 2 "an empty worktree -> 2"
 assert_ok "…shown as ''" grep -qxF "swarm-suite: no such worktree: ''" "$T/err"
 
+echo "-- #982: swarm.toml stays valid TOML (and round-trips the workdir) when the workdir path holds control characters"
+toml_workdir(){ python3 -c 'import sys,tomllib; sys.stdout.write(tomllib.load(open(sys.argv[1],"rb"))["workdir"])' "$1"; }
+CWT="$T/c"$'\f'"w"$'\n'"t"$'\x01\x7f\b\t\r'"\\\"d"; cp -a "$WT" "$CWT"
+rc="$(HARNESS_SWARM_PACK=all run_suite "$CWT" ctlall test/test_ok.sh)"
+assert_eq "$rc" 0 "HARNESS_SWARM_PACK=all, worktree path with control characters -> swarm runs (exit 0)"
+assert_eq "$(toml_workdir "$RUN_DIR/swarm/ctlall/swarm.toml"; echo x)" "${CWT}x" "…swarm.toml parses; workdir round-trips (form feed, newline, \\x01, DEL, backspace, tab, CR, backslash, quote)"
+assert_no "…no raw control character in the generated swarm.toml's workdir line" grep -q $'^workdir.*[\x01-\x08\x0b-\x1f\x7f]' "$RUN_DIR/swarm/ctlall/swarm.toml"
+OLD_RUN_DIR="$RUN_DIR"; export RUN_DIR="$T/r"$'\f'"un"
+rc="$(HARNESS_SWARM=auto run_suite "$WT" ctlgit test/test_ok.sh)"
+assert_eq "$rc" 0 "RUN_DIR with a form feed (staged workdir path) -> swarm runs (exit 0)"
+assert_eq "$(toml_workdir "$RUN_DIR/swarm/ctlgit/swarm.toml"; echo x)" "$RUN_DIR/swarm/ctlgit/workdir"x "…the staged workdir path round-trips"
+export RUN_DIR="$OLD_RUN_DIR"
+
 echo "-- config + prompts"
 ( unset_inherited_config; source "$HERE/../scripts/lib.sh" >/dev/null 2>&1; [[ "$HARNESS_SWARM" == auto ]] )
 assert_eq "$?" 0 "HARNESS_SWARM defaults to auto"

@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### swarm-suite.sh writes a valid swarm.toml when the workdir path has a control character (#982)
+
+- `scripts/swarm-suite.sh` escaped only `\` and `"` in the `workdir` it writes to `swarm.toml`, so a path holding a form feed, newline or any other control character gave a file swarm
+  could not parse (`Illegal character '\x0c'`). The submit failed, the helper exited 3 and the swarm run was silently lost. It now writes every control character (U+0000–U+001F, U+007F)
+  as `\b`, `\t`, `\n`, `\f`, `\r` or `\uXXXX`.
+
 ### `harness stats --since` rejects every count that cannot be turned into a date (#974)
 
 - `--since 99999999999999999999d` and `--since 1000000000d` silently reported over all time, while a count past 4300 digits was a usage error. A count that reaches back past year 1
