@@ -575,6 +575,13 @@ assert_eq "$rc" 2 "tier.toml with a raw form feed in a string -> exit 2"
 assert_ok "…the parse error spells it \\u000c" grep -qF "Illegal character '\\u000c'" <<<"$err"
 assert_eq "$(printf %s "$err" | grep -c $'\f')" 0 "…no raw form feed on stderr"
 assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c (parse error)"
+# the same in a comment: tomllib says "Found invalid character", not "Illegal character" (#971)
+printf '[direct]\n# a\fb\nmax_criteria = 8\n' > "$T/ctlcomment.toml"
+err="$(HARNESS_TIER_TOML="$T/ctlcomment.toml" H tier thresholds 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 2 "tier.toml with a raw form feed in a comment -> exit 2"
+assert_ok "…the parse error spells it \\u000c" grep -qF "invalid character '\\u000c'" <<<"$err"
+assert_eq "$(printf %s "$err" | grep -c $'\f')" 0 "…no raw form feed on stderr (comment)"
+assert_eq "$(printf %s "$err" | grep -c 'x0c')" 0 "…no repr-style \\x0c (comment)"
 H tier decide --help | grep -qF -- '--prefer {direct,lane,fleet}'; assert_eq "$?" 0 "--prefer still lists its choices in --help"
 assert_eq "$(d --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer fleet | jq_ 'd["tier"]')" fleet "--prefer fleet still overrides"
 # a 5000-character string option is echoed as 20 characters and an ellipsis, on one short line (#911)
