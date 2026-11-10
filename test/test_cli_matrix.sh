@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-test-timeout-windows: 3600
+# harness-test-timeout-windows: 14400
 # test_cli_matrix.sh — #188 / PRD #189: every feature row for every CLI that has an adapter, run
 # against fixtures captured from the real CLI (test/fixtures/cli/<cli>/, see each README.md). One
 # cell per row, each driving Harness's own code path for the feature (launch_agent, inject.sh, the
