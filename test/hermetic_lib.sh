@@ -59,10 +59,20 @@ make_live_fleet(){   # LIVE_ROOT: a host root holding ONE registered fleet with 
 # re-run them with the inherited lane env — recursively, killing the lane (#541).
 # A test that alone runs past the slice budget (test_cli_matrix.sh and the two test_supervise_autoupdate*.sh: 175-250+ s on Linux) moves from fleet_tests to heavy_tests, which
 # test_hermetic_heavy_<k>.sh runs one apiece, so a slow test never stretches a slice of the others.
+# test_cli_matrix.sh is heavy in itself — one loop over every CLI, hours on Windows (#963) — and its CLIs do not touch each other (each runs in its own
+# subshell), so it is not one heavy unit but one per CLI, `test_cli_matrix.sh@<cli>` (run with HARNESS_MATRIX_CLIS=<cli>): the slices share the CLIs out.
 HEAVY_TESTS=" test_cli_matrix.sh test_supervise_autoupdate.sh test_supervise_autoupdate_headless.sh "
-hermetic_scan(){ local f b; update_tests=(); fleet_tests=(); heavy_tests=()
+SHARDED_TESTS=" test_cli_matrix.sh "
+# matrix_clis — the adapters under scripts/cli/ (what cli_list prints, without sourcing the engine)
+matrix_clis(){ local f; for f in "$HERE"/../scripts/cli/*.sh; do f="${f##*/}"; [[ $f == dispatch.sh || $f == *-loop.sh ]] || echo "${f%.sh}"; done; }
+hermetic_scan(){ local f b c; update_tests=(); fleet_tests=(); heavy_tests=()
   for f in "$HERE"/test_*.sh; do b="$(basename "$f")"; [[ $b == test_hermetic*.sh ]] && continue
     runs_update "$f" && update_tests+=("$b")
-    if runs_fleets "$f"; then if [[ $HEAVY_TESTS == *" $b "* ]]; then heavy_tests+=("$b"); else fleet_tests+=("$b"); fi; fi; done; }
+    if runs_fleets "$f"; then
+      if [[ $SHARDED_TESTS == *" $b "* ]]; then while read -r c; do heavy_tests+=("$b@$c"); done < <(matrix_clis)
+      elif [[ $HEAVY_TESTS == *" $b "* ]]; then heavy_tests+=("$b"); else fleet_tests+=("$b"); fi; fi; done; }
+# heavy_env <unit> — the extra env a heavy unit runs with: `test_cli_matrix.sh@claude` runs only claude's cells. heavy_file <unit> — the test file it runs.
+heavy_env(){ [[ $1 == *@* ]] && echo "HARNESS_MATRIX_CLIS=${1#*@}"; return 0; }
+heavy_file(){ echo "${1%%@*}"; }
 # hermetic_slice <k> <n> <name…> — the names at positions k, k+n, k+2n… (k counts from 1)
 hermetic_slice(){ local k="$1" n="$2" i=0; shift 2; for x in "$@"; do (( i % n == k - 1 )) && echo "$x"; i=$((i+1)); done; }
