@@ -242,6 +242,16 @@ def test_a_negative_nan_inf_or_non_numeric_budget_is_a_usage_error_never_a_pass(
 
 
 @with_env(usage_pct="50")
+def test_a_zero_or_negative_cost_cap_is_a_usage_error_saying_above_zero(e):   # #955
+    for argv in (["--cost-cap-usd", "0"], ["--cost-cap-usd=0"], ["--cost-cap-usd=0.0"], ["--cost-cap-usd=-1"], ["--cost-cap-usd=-0.5"]):
+        p = e.run("stub", "--dry-run", *argv)
+        assert p.returncode == 2 and "--cost-cap-usd" in p.stderr and "must be a finite number above zero" in p.stderr, (argv, p.returncode, p.stderr)
+        assert "zero or more" not in p.stderr and "caps must be positive" not in p.stderr, (argv, p.stderr)
+    assert e.calls() == [] and not os.path.exists(e.results)
+    assert e.run("stub", "--dry-run", "--cost-cap-usd=0.5", "--expected-usd=0.1").returncode == 0
+
+
+@with_env(usage_pct="50")
 def test_a_nan_inf_zero_or_negative_time_option_is_a_usage_error_naming_it(e):   # #747
     for opt in ("--wall-cap-secs", "--poll-secs", "--grace-secs", "--progress-poll-secs"):
         for bad in ("nan", "NaN", "inf", "-inf", "1e999", "0", "-1", "-0.5", "ten", ""):

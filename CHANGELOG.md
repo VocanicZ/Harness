@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `bench --cost-cap-usd` refuses zero in its own validation (#955)
+
+- `bench/run.py --cost-cap-usd=-1` said the value must be "zero or more", and then `--cost-cap-usd 0` was refused later with `bench: the caps must be positive`. The option now
+  rejects zero and negative values itself, with `must be a finite number above zero` (as `--wall-cap-secs` does) and exit status 2. `--expected-usd` still accepts zero.
+
 ### `harness` with an empty command name is a usage error (#953)
 
 - `harness ""` printed the usage and exited 0, so a script running `harness "$cmd"` with an empty `$cmd` looked like it succeeded. An empty command name now prints

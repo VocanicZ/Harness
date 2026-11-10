@@ -172,6 +172,15 @@ def _usd_arg(text):
     return v
 
 
+def _cap_usd_arg(text):
+    """argparse type for the dollar cap: a finite number above zero, as _secs_arg is for the time options. A zero cap
+    would stop the arm before it spends anything, so 0 and a negative are usage errors (exit 2) saying so (#955)."""
+    v = _ascii_float(text)
+    if not math.isfinite(v) or v <= 0:
+        raise argparse.ArgumentTypeError(f"{_short(text)} must be a finite number above zero")
+    return v
+
+
 def _secs_arg(text):
     """argparse type for a time option in seconds: a finite number above zero. nan, inf, zero, a negative and a word
     are usage errors (exit 2): nan or inf would keep the wall cap from ever firing, nan makes Thread.join raise
@@ -853,7 +862,7 @@ def parse_args(argv):
     ap.add_argument("--progress-poll-secs", type=_secs_arg, default=progresslib().POLL_S,
                     help="a fixture with milestones: how often the repo is graded while the arm works (default 300)")
     ap.add_argument("--wall-cap-secs", type=_secs_arg, default=WALL_CAP_S)
-    ap.add_argument("--cost-cap-usd", type=_usd_arg, default=COST_CAP_USD)
+    ap.add_argument("--cost-cap-usd", type=_cap_usd_arg, default=COST_CAP_USD)
     ap.add_argument("--expected-usd", type=_usd_arg, default=None, help="expected spend for the guard (default: the cap)")
     ap.add_argument("--run-dir", type=_dir_arg, default=None, help="the fleet run dir holding usage-holds/ (default: $RUN_DIR)")
     ap.add_argument("--poll-secs", type=_secs_arg, default=5.0)
@@ -899,9 +908,6 @@ def main(argv=None):
     if a.owner is not None and not OWNER_RE.fullmatch(a.owner):
         print(f"bench: bad --owner {_short(a.owner)} (must be a GitHub owner name: 1-39 letters, digits and single hyphens, "
               "not starting or ending with '-')", file=sys.stderr)
-        return EXIT_USAGE
-    if a.wall_cap_secs <= 0 or a.cost_cap_usd <= 0:
-        print("bench: the caps must be positive", file=sys.stderr)
         return EXIT_USAGE
     try:
         arm = load_arm(a.arm, a.arms_dir)
