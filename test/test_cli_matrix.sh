@@ -868,7 +868,7 @@ hl_checkpoint(){ local ppid
   source "$HERE/../scripts/drive.sh"; matrix_stub; hl_env; lane_env; export HARNESS_PAUSE_GRACE=30; host_is_windows && HARNESS_PAUSE_GRACE=240   # (#969)
   log(){ printf '%s\n' "$*" >> "$HL/harness.log"; }
   hl_lane cp "normal working on it" "normal checkpointed" "normal resumed"; touch "$FAKE_CLAUDE_DIR/hold"
-  spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 || return 1
+  spawn_impl 17 "ISSUE 17 DONE" >"$HL/spawn.out" 2>&1 || return 1
   S="$(sess_impl main 17)"; WD="$WORKTREES_DIR/main-i17"; UUID="$(state_uuid "$WD")"
   sess_live "$S" && hl_wait 10 hl_busy "$S" || return 1
   PAUSE_OUT="$HL/pause.out"
@@ -887,7 +887,7 @@ headless_checkpoint_ok(){ ( hl_checkpoint || exit 1; local msg
 headless_resume_ok(){ ( hl_checkpoint || exit 1
   rm -f "$PAUSE_FLAG"; same "$(sess_resume_id "$S" "$WD")" "$SID" || exit 1
   FAKE_LABELS='["agent-paused"]' FAKE_REMOTE_BRANCH=issue/17 FAKE_HANDOFF=$'<!-- harness-handoff issue=17 branch=issue/17 -->\nLEFT OFF HERE'
-  spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 && sess_live "$S" && hl_wait 15 hl_turn "$S" 1 || exit 1
+  spawn_impl 17 "ISSUE 17 DONE" >"$HL/spawn.out" 2>&1 && sess_live "$S" && hl_wait 15 hl_turn "$S" 1 || exit 1
   grep -qF "LEFT OFF HERE" "$WD/.harness-task.md" && same "$(state_uuid "$WD")" "$SID" &&
     same "$(hl_calls prompt | sed -n 3p)" "\"$HARNESS_BOOTSTRAP_PROMPT\"" &&
     hl_resumes "$(hl_calls argv | sed -n 3p)" "$SID" ); }
