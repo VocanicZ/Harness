@@ -4,6 +4,19 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Windows suite: the headless runner tests and the CLI matrix run on a native host (closes #606)
+
+- The cause of the original symptom ("timed out waiting for the runner's first state") is in #606's first comment: a Windows venv `python.exe` is a launcher, so
+  `Popen.pid` is not the runner's `os.getpid()`. Across PRs #689, #690, #868, #927, #928 and this one the rest of the class was fixed: the matrix's headless
+  cells started the fake agent by an MSYS path a native Python cannot open; `ps` cannot see a native runner (its model is now read from `state.json`); `agy -p /usage`
+  was rewritten by Git Bash; codex's and agy's session lookups compared Windows and MSYS spellings of one directory as different; `harness supervise`'s
+  fleet checks died silently on an unbound `HARNESS_NATIVE_PATH_VARS`; a headless runner gets 60 s on Windows for its first state; hermes's session lookup
+  opens its db by a forward-slash URI.
+- Test-side only: `wait_until N test "$(…)" = x` read once before waiting; fake `gh` label files are LF; `prereqs_ok` and the hermes/openclaw cells use native spellings;
+  the fork-heavy files carry `harness-test-timeout-windows` caps (matrix 4 h, guard 12 h).
+- Not covered: `test_cli_matrix_guard.sh` and `test_cli_readme.sh` have not finished on winsma (the guard reruns the matrix ~10 times); a few matrix cells
+  (agy `headless-resume`, hermes and openclaw `stats-session-end-usage`) pass or fail by host load. Both are tracked in follow-up issues.
+
 ### An unrecognized trailing argument to `harness tier decide`, `overlap` or `thresholds` shows that subcommand's usage (#936)
 
 - `harness tier decide … -x` (and a trailing `-`) was reported by the top-level parser, so the user saw the usage for `harness tier`. The usage and
