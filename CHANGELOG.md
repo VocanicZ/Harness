@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A usage error with standard error closed exits 2, not 120 (#896)
+
+- `harness stats -x 2>&-` (and `forecast`, `tier`) exited 120: under bash a closed fd 2 is taken by the script itself, so the usage message
+  could not be written and the flush of stderr at shutdown replaced the exit status. `scripts/pipesafe.py` now flushes stderr inside its guard and,
+  if that fails, points it at devnull: a usage error is 2 and a successful run is 0 whether or not stderr is open. `test_pipe_closed.py` covers
+  stats, forecast, tier and `bench/run.py`.
+
 ### `harness tier decide` adds `…` only to a value it cut (#894)
 
 - A too-large count such as `--criteria 99999999999` was echoed whole but followed by `…`, as if part of it had been cut. The ellipsis now

@@ -147,6 +147,39 @@ def test_a_full_disk_on_stdout_is_one_stderr_line_and_exit_1():
         assert err == f"harness {name}: cannot write output: No space left on device\n", (argv, err)
 
 
+def closed_stderr(argv, env=None):
+    """Run argv with standard error CLOSED (`2>&-`); (returncode, stdout). Under `bin/harness` bash itself then
+    opens its script on fd 2, so python inherits a read-only stderr rather than none."""
+    r = subprocess.run(["bash", "-c", '"$@" 2>&-', "_"] + argv, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, env=env)
+    return r.returncode, r.stdout.decode()
+
+
+def test_a_usage_error_with_stderr_closed_still_exits_2():
+    """#896: `harness stats -x 2>&-` exited 120: bash opens the script on the closed fd 2, the usage message could not
+    be written, and the flush of stderr at shutdown turned the status into 120. Now: 2, as with stderr open."""
+    py = sys.executable
+    harness = ["bash", os.path.join(ROOT, "bin", "harness")]
+    cmds = [harness + ["stats", "-x"], harness + ["forecast", "-x"], harness + ["tier", "-x"],
+            [py, os.path.join(ROOT, "scripts", "stats.py"), "report", "-x"],
+            [py, os.path.join(ROOT, "scripts", "forecast.py"), "-x"],
+            [py, os.path.join(ROOT, "scripts", "tier.py"), "-x"],
+            [py, os.path.join(ROOT, "bench", "run.py"), "-x"]]
+    for argv in cmds:
+        rc, out = closed_stderr(argv)
+        assert rc == 2, (argv, rc, out)
+        with open(os.devnull, "rb") as ro:   # the same fd state without bash: stderr open for reading only
+            r = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=ro)
+        assert r.returncode == 2, (argv, r.returncode)
+
+
+def test_a_successful_run_with_stderr_closed_still_exits_0():
+    harness = ["bash", os.path.join(ROOT, "bin", "harness")]
+    for argv in (harness + ["tier", "thresholds"], [sys.executable, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"]):
+        rc, out = closed_stderr(argv)
+        assert rc == 0 and out, (argv, rc, out)
+
+
 def test_help_still_prints_and_a_usage_error_still_exits_2():
     tier = [sys.executable, os.path.join(ROOT, "scripts", "tier.py")]
     r = subprocess.run(tier + ["decide", "--help"], capture_output=True, text=True)
