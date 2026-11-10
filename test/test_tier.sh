@@ -94,6 +94,11 @@ for opt in pool workstreams; do
     assert_ok "--$opt $zero says it must be 1 or more" grep -q '1 or more' <<<"$out"
     assert_no "--$opt $zero prints no tier" grep -q '^TIER:' <<<"$out"
   done
+  # a negative value gets the same floor as 0, not the generic "0 or more" (#934)
+  out="$(H tier decide --criteria 3 --lines 80 --files 3 --subsystems 1 --"$opt"=-1 2>&1)"; rc=$?
+  assert_eq "$rc" 2 "--$opt -1 -> usage error, exit 2"
+  assert_ok "--$opt -1 says it must be 1 or more" grep -q "$opt must be 1 or more" <<<"$out"
+  assert_no "--$opt -1 does not say 0 or more" grep -q '0 or more' <<<"$out"
   assert_eq "$(d --criteria 3 --lines 80 --files 3 --subsystems 1 --"$opt" 1 | jq_ 'd["tier"]')" direct "--$opt 1 is accepted"
 done
 for opt in criteria lines files subsystems minutes; do
