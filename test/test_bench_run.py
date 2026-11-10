@@ -819,16 +819,6 @@ def test_argparse_and_bench_usage_errors_share_the_bench_prefix(e):   # #913
     assert e.calls() == []
 
 
-if __name__ == "__main__":
-    fails = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try: fn(); print(f"  ok: {name}")
-            except AssertionError as ex: print(f"  FAIL: {name} — {ex}"); fails += 1
-    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
-    sys.exit(1 if fails else 0)
-
-
 # --- --runs N: median and range over repeated runs (#591) ---------------------------------------------
 def counter_usage(step, start=10):
     """A HARNESS_USAGE_CMD whose weekly reading climbs `step` points at every call: each guard sees what the earlier runs used."""
@@ -953,7 +943,7 @@ def test_a_failing_arm_stops_the_batch_and_is_recorded(e):
     agg, runs = batch(e)
     assert bench_run.validate(agg) == [] and [r["status"] for r in runs] == ["error"]
     assert (agg["runs_completed"], agg["stopped"]["reason"]) == (0, "arm-error") and "told to fail" in agg["stopped"]["detail"]
-    assert agg["aggregate"] == {"n": 0, "metrics": {}} and len(creates(e)) == 1
+    assert agg["aggregate"] == {"n": 0, "metrics": {}, "cap_hits": {"runs": 0, "of": 0, "wall": 0, "cost": 0}} and len(creates(e)) == 1
 
 
 @with_env()
@@ -1102,7 +1092,6 @@ def test_the_ttl_measures_aggregate_and_the_bench_fleet_env_carries_the_setting(
     assert "HARNESS_CACHE_TTL" in [l for l in open(spec.origin) if l.startswith("PASS_ENV")][0]
 
 
-
 def test_usage_output_that_starts_with_a_bom_reads_the_same_account_and_usage():   # #678
     saved = os.environ.get("HARNESS_USAGE_CMD")
     try:
@@ -1190,3 +1179,13 @@ def test_guard_text_escapes_line_separators_and_controls_in_an_account_name():  
         assert want in text, repr(text)
         assert not any(c in text for c in "\u2028\u2029\x85\x0c\x01"), repr(text)
     assert bench_run.render_guard(refused).count("\n") == 2   # the guard's own newlines stay: header + 2 reasons
+
+
+if __name__ == "__main__":
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as ex: print(f"  FAIL: {name} — {ex}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)

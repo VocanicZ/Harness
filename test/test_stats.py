@@ -1456,16 +1456,6 @@ def test_repr_style_error_sites_spell_a_form_feed_and_u2028_as_vis_does():   # #
             assert ch not in r.stderr and "\\x0c" not in r.stderr, repr(r.stderr)
 
 
-if __name__ == "__main__":
-    fails = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try: fn(); print(f"  ok: {name}")
-            except Exception as e: print(f"  FAIL: {name} — {type(e).__name__}: {e}"); fails += 1   # any error is this test's, the run goes on (#744)
-    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
-    sys.exit(1 if fails else 0)
-
-
 def test_report_since_and_model_must_not_be_empty():
     """#862: --since= and --model= -> exit 2 like --fleet= (#839), not a silently dropped filter (exit 0)."""
     with host() as d:
@@ -1484,3 +1474,13 @@ def test_report_since_and_model_must_not_be_empty():
             assert r.returncode == 2 and r.stdout == "" and "must not be empty" in r.stderr, (flag, r.returncode, r.stdout, r.stderr)
         rc, out = run(["report", "--since=7d", "--model=opus", "--events", p])
         assert rc == 0, (rc, out)
+
+
+if __name__ == "__main__":
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except Exception as e: print(f"  FAIL: {name} — {type(e).__name__}: {e}"); fails += 1   # any error is this test's, the run goes on (#744)
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)

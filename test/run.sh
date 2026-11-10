@@ -95,6 +95,12 @@ for t in "${TESTS[@]}"; do
     echo "FAIL: $t defines test_ functions but has no if __name__ == \"__main__\": runner, so python3 would run none of them"
     FAILED+=("$t"); rc=1; rm -rf "${TMPROOT:?}/$t"; continue
   fi
+  # #917: the runner walks globals() when it executes, so a top-level test_ function defined BELOW the `if __name__ == "__main__":`
+  # line is not registered yet and never runs, while the file still reports "all pass". Refuse it by name, with the first such test.
+  if [[ $t == *.py ]] && late="$(awk '/^if __name__ == "__main__":/ {m=1; next} m && /^(async )?def test_/ {sub(/\(.*/, ""); print $NF; exit}' "$t")" && [[ -n $late ]]; then
+    echo "FAIL: $t defines $late after its if __name__ == \"__main__\": runner, so python3 would never run it: move the runner to the end of the file"
+    FAILED+=("$t"); rc=1; rm -rf "${TMPROOT:?}/$t"; continue
+  fi
   case "$t" in *.py) "${tcap[@]}" "${DEFSIG[@]}" python3 "$t";; *) "${tcap[@]}" "${DEFSIG[@]}" bash "$t";; esac
   trc=$?
   if (( trc != 0 )); then rc=1; FAILED+=("$t"); (( trc == 124 )) && echo "TIMEOUT: $t ran past HARNESS_TEST_TIMEOUT=${tlim}s"; fi
