@@ -915,6 +915,10 @@ def main(argv=None):
         print(f"bench: {e}", file=sys.stderr)
         return EXIT_USAGE
     fc, st = _load("forecast"), _load("stats")
+    err = st._explicit_log_error(a.events)   # #999: a typo'd path is not an empty event log (as `harness stats`, #758)
+    if err:
+        print(f"bench: --events {err}", file=sys.stderr)
+        return EXIT_USAGE
 
     g = guard(a, fc, st)
     print(render_guard(g), file=sys.stderr if not g["ok"] and not a.optional else sys.stdout)

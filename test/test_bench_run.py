@@ -64,6 +64,8 @@ class Env:
         if per_pct is not None:
             self.env["HARNESS_ONE_USD_PER_PCT"] = per_pct
         os.makedirs(os.path.join(self.d, "acct"))
+        self.events = os.path.join(self.d, "no-events.jsonl")
+        open(self.events, "w").close()   # #999: an --events path must exist; an empty file is "no events"
 
     @staticmethod
     def write_exe(path, text):
@@ -73,7 +75,7 @@ class Env:
 
     def run(self, *args, grader=True, extra_env=None):
         argv = [sys.executable, RUN, "--results-dir", self.results, "--run-dir", self.rundir,
-                "--events", os.path.join(self.d, "no-events.jsonl"), "--poll-secs", "0.05", "--grace-secs", "2",
+                "--events", self.events, "--poll-secs", "0.05", "--grace-secs", "2",
                 "--run-id", "t1"] + (["--grader", self.grader] if grader else []) + list(args)
         if not any(a == "--runs" or a.startswith("--runs=") for a in args):
             argv += ["--runs", "1"]   # most tests are about one run; the default of 5 has its own (#591)
@@ -456,6 +458,20 @@ def test_results_dir_must_be_non_empty_and_not_dash_leading(e):   # #862
     p = e.run("stub", "--results-dir", "-")
     assert p.returncode == 2 and "--results-dir" in p.stderr, (p.returncode, p.stderr)
     p = e.run("stub", "--results-dir=" + e.results, "--dry-run")
+    assert p.returncode == 0, (p.returncode, p.stderr)
+
+
+@with_env()
+def test_events_must_be_an_existing_file_not_a_missing_path_or_a_directory(e):   # #999
+    missing = os.path.join(e.d, "no", "such", "file")
+    for path, why in ((missing, "does not exist"), (e.d, "is a directory")):
+        for extra in ((), ("--optional",), ("--dry-run",)):
+            p = e.run("stub", *extra, "--events", path)
+            assert p.returncode == 2 and f"bench: --events {path!r} {why}" in p.stderr, (path, extra, p.returncode, p.stderr)
+            assert "bench guard" not in p.stdout + p.stderr and "no weekly usage reading" not in p.stderr, (p.stdout, p.stderr)
+    assert not os.path.exists(e.results), os.listdir(e.d)
+    assert e.calls() == []
+    p = e.run("stub", "--dry-run", "--events", e.events)   # an existing, empty file is still "no events"
     assert p.returncode == 0, (p.returncode, p.stderr)
 
 
