@@ -761,6 +761,24 @@ def test_issue_number_over_long_is_a_one_line_usage_error():   # #880
             assert r.stdout == "", r.stdout
 
 
+def test_oversized_usd_per_pct_is_echoed_truncated_on_stderr():   # #893
+    """A 5000-digit HARNESS_ONE_USD_PER_PCT is one bounded stderr line that still names the setting."""
+    with tmp() as d:
+        cfg, events, bodies = fixture(d)
+        saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+        try:
+            os.environ[fc.FALLBACK_SETTING] = "x" * 5000
+            rc, text, err = run_cli(["50", "-R", W, "--events", events, "--bodies", bodies], cfg)
+            assert rc == 0, (rc, err)
+            warn = [l for l in err.splitlines() if fc.FALLBACK_SETTING in l]
+            assert len(warn) == 1 and "\u2026" in warn[0] and "x" * 100 not in warn[0] and len(warn[0]) < 300, warn
+            assert "x" * 100 not in text and fc.FALLBACK_SETTING in text, text
+        finally:
+            os.environ.pop(fc.FALLBACK_SETTING, None)
+            if saved is not None:
+                os.environ[fc.FALLBACK_SETTING] = saved
+
+
 def test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators():   # #854
     """A U+2028 or form feed in an invalid HARNESS_ONE_USD_PER_PCT prints as \\uXXXX in the stderr warning, as on stdout."""
     with tmp() as d:
