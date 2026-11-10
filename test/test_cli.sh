@@ -15,6 +15,7 @@ assert "unknown cmd: plain UTF-8 name kept (#952)" "err=\$(\"$CLI\" 'héllo' 2>&
 assert "empty command: exit status 2 (#953)"      "\"$CLI\" '' >/dev/null 2>&1; [ \$? -eq 2 ]"
 assert "empty command: stdout empty (#953)"       "[ -z \"\$(\"$CLI\" '' 2>/dev/null)\" ]"
 assert "empty command: error + usage on stderr (#953)" "err=\$(\"$CLI\" '' 2>&1 >/dev/null); grep -q '^unknown command: ' <<<\"\$err\" && grep -q '^usage: harness' <<<\"\$err\""
+assert "empty command: name shown as '' on the first stderr line (#975)" "err=\$(\"$CLI\" '' 2>&1 >/dev/null | head -1); [ \"\$err\" = \"unknown command: ''\" ]"
 assert "no args still exit 0 with usage on stdout (#953)" "out=\$(\"$CLI\" 2>/dev/null); rc=\$?; [ \$rc -eq 0 ] && grep -q '^usage: harness' <<<\"\$out\""
 assert "unknown flag -x: stdout empty" "[ -z \"\$(\"$CLI\" -x 2>/dev/null)\" ]"
 assert "--help usage on stdout, exit 0" "out=\$(\"$CLI\" --help 2>/dev/null); rc=\$?; [ \$rc -eq 0 ] && grep -q '^usage: harness' <<<\"\$out\""
