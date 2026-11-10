@@ -9,6 +9,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `harness forecast -x`, `bench/run.py -x` and `harness tier -x` said only `the following arguments are required: issue` (`arm`, `cmd`) and never named `-x`. The error now
   leads with `unrecognized arguments: -x`, and the exit status stays 2. `forecast -5` still names the bad number as before.
 
+### The hermetic heavy slices no longer need hours on Windows (#963)
+
+- `test_hermetic_heavy_1.sh` ran the whole of `test_cli_matrix.sh` under the live-fleet decoy, and on winsma it did not finish within 5400 s (the file carried a 14400 s Windows
+  cap). The matrix is now cut per adapter: the decoy scan finds one `test_cli_matrix.sh@<cli>` unit for each CLI under `scripts/cli/` and runs it with `HARNESS_MATRIX_CLIS=<cli>`
+  (each CLI already ran in its own subshell, so the cells are the same), and the heavy tests are shared out over four slice files, `test_hermetic_heavy_1..4.sh`, instead of three.
+  No slice holds more than two CLIs' cells, about 2 minutes of matrix on Linux, and each slice carries a 7200 s Windows cap instead of 14400 s on one. `test_hermetic.sh` checks that
+  every CLI has its unit and that the slices together run every unit exactly once. This was not run on winsma: it is the split, not a measured green run there.
+
 ### `bench --cost-cap-usd` refuses zero in its own validation (#955)
 
 - `bench/run.py --cost-cap-usd=-1` said the value must be "zero or more", and then `--cost-cap-usd 0` was refused later with `bench: the caps must be positive`. The option now

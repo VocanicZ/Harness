@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# harness-test-timeout-windows: 14400
-# test_hermetic_heavy_1.sh — heavy slice 1 of 3 of the generalised decoy of test_hermetic.sh (#608: split out of it, so each file finishes under the per-test
+# harness-test-timeout-windows: 7200
+# test_hermetic_heavy_1.sh — heavy slice 1 of 4 of the generalised decoy of test_hermetic.sh (#608: split out of it, so each file finishes under the per-test
 # cap on Windows): a LIVE worker in a registered fleet must survive every test that updates, supervises or starts a fleet.# that updates, supervises, or starts a fleet — handed ONLY the fleet/poller/snapshot pins, which is all a
 # lane inherits of the real host. The decoy is the incident in miniature: a registered fleet whose worker
 # runs a foreign ENGINE_DIR, which fleet_roll kills and relaunches from the sandbox engine.
@@ -12,17 +12,17 @@ source "$HERE/helpers.sh"; source "$HERE/hermetic_lib.sh"
 PRIVATE_TMP="$(mktemp -d)"; tmp_track "$PRIVATE_TMP"; export TMPDIR="$PRIVATE_TMP"
 unset_inherited_config   # a direct run from inside a live lane (#541): its HARNESS_* config must not reach the probes below
 
-hermetic_scan; mine=(); while read -r x; do [[ -n $x ]] && mine+=("$x"); done < <(hermetic_slice 1 3 ${heavy_tests[@]+"${heavy_tests[@]}"})
-echo "-- heavy slice 1 of 3: ${mine[*]:-nothing}"
+hermetic_scan; mine=(); while read -r x; do [[ -n $x ]] && mine+=("$x"); done < <(hermetic_slice 1 4 ${heavy_tests[@]+"${heavy_tests[@]}"})
+echo "-- heavy slice 1 of 4: ${mine[*]:-nothing}"
 DECOY_PID=""
 for t in ${mine[@]+"${mine[@]}"}; do
-  make_live_fleet
+  make_live_fleet; extra="$(heavy_env "$t")"
   # Only the fleet/poller/snapshot pins reach the test — and a PRIVATE tmux server, never the lane's identity
   # (STATE_DIR, HARNESS_SESSION, TMUX…): the decoy guards the registry, it must not hand a test the lane's own
   # session to sweep (#541, the lane ran this block and died with 137).
   env -u STATE_DIR -u HARNESS_SESSION -u HARNESS_ISSUE -u HARNESS_PRD -u HARNESS_KIND -u HARNESS_PREFIX -u TMUX -u TMUX_PANE \
       TMUX_TMPDIR="$(mktemp -d)" HARNESS_FLEETS_DIR="$LIVE_ROOT/fleets" HARNESS_POLLER_DIR="$LIVE_ROOT/poller" \
-      HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" bash "$HERE/$t" >/dev/null 2>&1
+      HARNESS_SNAPSHOTS_DIR="$LIVE_ROOT/snapshots" ${extra:+"$extra"} bash "$HERE/$(heavy_file "$t")" >/dev/null 2>&1
   assert_ok "$t: the registered fleet's live worker is not killed" kill -0 "$DECOY_PID"
   assert_eq "$(ls "$LIVE_ROOT/fleets")" "decoy.json" "$t: the fleet registry holds only its one original entry"
   assert_eq "$(ls "$LIVE_ROOT/decoy/proj/.harness/run")" "worker-1.pid" "$t: no worker / priority pid file was relaunched into the live fleet"

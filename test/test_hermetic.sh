@@ -57,9 +57,30 @@ for kind in engine roll heavy; do
   assert_eq "$ok" 1 "test_hermetic_${kind}_1..$n: every file runs its own slice $k of $n, so together they run every scanned test"
 done
 # The heavy tests (each alone fills a slice) run in test_hermetic_heavy_*.sh, never in a roll slice: each must be found by the scan and be in no roll slice.
+# test_cli_matrix.sh is cut per CLI (#963: whole, it ran for hours on Windows): it is found as one unit for each adapter under scripts/cli/, never as a whole.
 for t in $HEAVY_TESTS; do
-  assert_ok "heavy test $t is found by the fleet scan" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${heavy_tests[*]}" "$t"
+  if [[ $SHARDED_TESTS == *" $t "* ]]; then
+    for c in $(matrix_clis); do
+      assert_ok "heavy test $t: the fleet scan finds the $c unit" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${heavy_tests[*]}" "$t@$c"
+    done
+    assert_no "heavy test $t is cut per CLI: the scan holds no whole-file unit for it" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${heavy_tests[*]}" "$t"
+  else
+    assert_ok "heavy test $t is found by the fleet scan" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${heavy_tests[*]}" "$t"
+  fi
   assert_no "heavy test $t is in no roll slice (it would run twice)" bash -c '[[ " $1 " == *" $2 "* ]]' _ "${fleet_tests[*]}" "$t"
+done
+assert_eq "$(heavy_env test_cli_matrix.sh@claude)" "HARNESS_MATRIX_CLIS=claude" "a matrix unit runs only its own CLI's cells"
+assert_eq "$(heavy_env test_supervise_autoupdate.sh)" "" "a whole-file heavy unit runs with no extra env"
+assert_eq "$(heavy_file test_cli_matrix.sh@claude)" "test_cli_matrix.sh" "a matrix unit runs the matrix file"
+# Every unit lands in exactly one heavy slice: the slices, put together, are the scan.
+nh=$(ls "$HERE"/test_hermetic_heavy_[0-9]*.sh | wc -l); covered=""
+for (( k = 1; k <= nh; k++ )); do covered+="$(hermetic_slice $k $nh ${heavy_tests[@]+"${heavy_tests[@]}"} | tr '\n' ' ')"; done
+assert_eq "$(tr ' ' '\n' <<<"$covered" | grep . | sort | tr '\n' ' ')" "$(printf '%s\n' ${heavy_tests[@]+"${heavy_tests[@]}"} | sort | tr '\n' ' ')" \
+  "the heavy slices together run every heavy unit exactly once"
+# No heavy slice holds more than a share of the matrix CLIs: a slice that held them all would be the hours-long file #963 cut up.
+for (( k = 1; k <= nh; k++ )); do
+  m=$(hermetic_slice $k $nh ${heavy_tests[@]+"${heavy_tests[@]}"} | grep -c '^test_cli_matrix.sh@' || true)
+  assert_ok "heavy slice $k of $nh holds at most 2 matrix CLIs ($m)" test "$m" -le 2
 done
 
 # A test that calls make_env must also be hermetic when run directly with a live STATE_DIR
