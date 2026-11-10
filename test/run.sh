@@ -53,12 +53,8 @@ fi
 # no cap, as before. The run ends with one summary line per failing test and a count, so a long Windows run reads in
 # one place which tests were red (the lane compares that list against the same commit on Linux).
 TCAP=(); if [[ "${HARNESS_TEST_TIMEOUT:-0}" =~ ^[1-9][0-9]*$ ]] && command -v timeout >/dev/null 2>&1; then TCAP=(timeout -k 10 "$HARNESS_TEST_TIMEOUT"); fi
-rc=0; ran=0; FAILED=()
-# `run.sh test_a.sh test_b.sh` runs just those files (#493: the winsma run of the headless twins), each under the same guards.
-if (( $# )); then TESTS=("$@"); else TESTS=(test_*.sh test_*.py); fi
-for t in "${TESTS[@]}"; do
-  [[ -e "$t" ]] || { [[ $# -gt 0 ]] && { echo "== $t =="; echo "FAIL: $t: no such test file"; rc=1; ran=$((ran+1)); FAILED+=("$t"); }; continue; }
-  echo "== $t =="
+# isolate_for <name> — the throwaway state, host root and temp root one test (or the matrix prefetch) runs in; <name> is its folder under $TMPROOT.
+isolate_for(){ local t="$1"
   export HARNESS_TEST_FILE="$t"   # the tmux guard names the test it refuses
   export STATE_DIR="$TMPROOT/$t/.harness"
   mkdir -p "$STATE_DIR/worktrees" "$STATE_DIR/checkouts" "$STATE_DIR/run/claims"
@@ -80,6 +76,42 @@ for t in "${TESTS[@]}"; do
   # forgets its own cleanup leaks into nothing, and peak use is one test's worth, not the suite's.
   export TMPDIR="$TMPROOT/$t/tmp"; mkdir -p "$TMPDIR"
   export HARNESS_TMP_ROOT="$TMPDIR"   # #610: the lane TMPDIR a launch makes (lane_tmpdir) goes with the test too
+}
+rc=0; ran=0; FAILED=()
+# `run.sh test_a.sh test_b.sh` runs just those files (#493: the winsma run of the headless twins), each under the same guards.
+if (( $# )); then TESTS=("$@"); else TESTS=(test_*.sh test_*.py); fi
+# One CLI's matrix cells are the dearest thing the suite computes (#1024: over 25 minutes on a Windows host, where a process start costs ten
+# times a Linux one), and eight files want them: test_cli_<cli>.sh for the five adapters whose own file closes on that CLI's cells,
+# test_cli_matrix.sh and test_cli_readme.sh for every CLI's. HARNESS_MATRIX_CACHE is where test_cli_matrix.sh keeps a finished CLI's cells for
+# the rest of this run, so they are computed once. With two CLIs or more wanted they are computed first, together, as a step of their own (the
+# matrix runs its CLIs in parallel, HARNESS_MATRIX_JOBS) under the cap test_cli_matrix.sh itself has: no one of the files then waits out the
+# others' cells under its own cap. A prefetch that fails changes nothing: the files run their cells live, as they did.
+export HARNESS_MATRIX_CACHE="$TMPROOT/matrix-cache"
+pf_all=0; pf_clis=" "
+for t in "${TESTS[@]}"; do
+  case "$t" in
+    test_cli_matrix.sh|test_cli_readme.sh) pf_all=1;;
+    test_cli_*.sh) [[ -f $t ]] || continue
+      c="$(sed -n 's/.*HARNESS_MATRIX_CLIS=\([a-z0-9-]*\) bash "[^"]*test_cli_matrix\.sh" --tsv.*/\1/p' "$t" | head -1)"
+      [[ -z $c || $pf_clis == *" $c "* ]] || pf_clis+="$c ";;
+  esac
+done
+if (( pf_all )) || (( $(wc -w <<<"$pf_clis") > 1 )); then
+  echo "== matrix cells: $( (( pf_all )) && echo 'every CLI' || echo "$pf_clis") (computed once for the files that read them) =="
+  isolate_for matrix-prefetch
+  pcap=("${TCAP[@]}")
+  if (( ${#TCAP[@]} )) && host_is_windows; then
+    tw="$(sed -n 's/^# harness-test-timeout-windows: *\([1-9][0-9]*\).*$/\1/p' test_cli_matrix.sh | head -1)"
+    if [[ -n $tw ]] && (( tw > HARNESS_TEST_TIMEOUT )); then pcap=(timeout -k 10 "$tw"); fi
+  fi
+  ( (( pf_all )) || export HARNESS_MATRIX_CLIS="$(echo $pf_clis)"; "${pcap[@]}" "${DEFSIG[@]}" bash test_cli_matrix.sh --tsv >/dev/null )
+  prc=$?; (( prc == 0 )) || echo "matrix cells: prefetch ended rc=$prc; the files run their cells themselves"
+  rm -rf "${TMPROOT:?}/matrix-prefetch"
+fi
+for t in "${TESTS[@]}"; do
+  [[ -e "$t" ]] || { [[ $# -gt 0 ]] && { echo "== $t =="; echo "FAIL: $t: no such test file"; rc=1; ran=$((ran+1)); FAILED+=("$t"); }; continue; }
+  echo "== $t =="
+  isolate_for "$t"
   ran=$((ran+1))
   # A fork-heavy test runs several times slower under Git Bash (#607: test_pool_lanes.sh is ~2 min on Linux, ~16 on winsma),
   # so a file may carry `# harness-test-timeout-windows: <seconds>`: on a Windows host, with a cap set, that is its cap when

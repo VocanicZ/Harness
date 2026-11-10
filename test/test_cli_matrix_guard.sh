@@ -11,7 +11,8 @@ make_env
 res(){ awk -F'\t' -v c="$2" -v r="$3" '$1 == c && $2 == r { print $3 }' <<<"$1"; }
 # Each matrix run below is fork-heavy (Git Bash forks ~10x slower than Linux: one full matrix is ~100 min on winsma, and this test
 # made ten of them, #943), so the runs are started together, each on just the rows its assertions read, and read back once all
-# have ended: the same cells and the same assertions, in one wave over the host's cores. The runs share nothing (each
+# have ended: the same cells and the same assertions, in one wave over the host's cores. None takes a cached cell (env -u
+# HARNESS_MATRIX_CACHE, #1024): this test is what proves a cell can fail, test_cli_matrix_cache.sh is what proves a cached one still does. The runs share nothing (each
 # test_cli_matrix.sh makes its own RUN_DIR), so none sees another's files.
 # mrun <name> <VAR=value…> — test_cli_matrix.sh --tsv under those variables, its cells into $RUN_DIR/<name>.tsv; at most $PAR at a
 # time (HARNESS_MATRIX_JOBS, else the host's cores, at most 4). Each run takes its CLIs one after the other (HARNESS_MATRIX_JOBS=1):
@@ -20,7 +21,7 @@ PAR="${HARNESS_MATRIX_JOBS:-}"; [[ $PAR =~ ^[1-9][0-9]*$ ]] || { PAR="$(nproc 2>
 RUNNING=0
 mrun(){ local n="$1"; shift
   (( RUNNING < PAR )) || { wait -n; RUNNING=$((RUNNING - 1)); }
-  ( env HARNESS_MATRIX_JOBS=1 "$@" bash "$HERE/test_cli_matrix.sh" --tsv > "$RUN_DIR/$n.tsv" 2>/dev/null ) & RUNNING=$((RUNNING + 1)); }
+  ( env -u HARNESS_MATRIX_CACHE HARNESS_MATRIX_JOBS=1 "$@" bash "$HERE/test_cli_matrix.sh" --tsv > "$RUN_DIR/$n.tsv" 2>/dev/null ) & RUNNING=$((RUNNING + 1)); }
 tsv(){ cat "$RUN_DIR/$1.tsv"; }
 
 CLIS="claude agy codex copilot opencode hermes openclaw"
@@ -59,7 +60,7 @@ done
 # first one ends (a run of one job starts none).
 par_rows='^(idle-|trust-pre-accepted$)'
 mrun seq HARNESS_MATRIX_CLIS="agy opencode hermes" HARNESS_MATRIX_ROWS="$par_rows"
-( env HARNESS_MATRIX_JOBS=3 HARNESS_MATRIX_TRACE="$RUN_DIR/par.trace" HARNESS_MATRIX_CLIS="agy opencode hermes" HARNESS_MATRIX_ROWS="$par_rows" \
+( env -u HARNESS_MATRIX_CACHE HARNESS_MATRIX_JOBS=3 HARNESS_MATRIX_TRACE="$RUN_DIR/par.trace" HARNESS_MATRIX_CLIS="agy opencode hermes" HARNESS_MATRIX_ROWS="$par_rows" \
     bash "$HERE/test_cli_matrix.sh" --tsv > "$RUN_DIR/par.tsv" 2>/dev/null ) &
 wait
 
