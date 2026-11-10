@@ -10,6 +10,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   message reached the user. A count too large to turn into a date is now a one-line usage error naming `--since` (exit 2) that does not echo the digits.
   Counts that still fit, such as `999999999d`, work as before. `test_stats.py` covers 307 and 5000 digits.
 
+### A full disk on stdout is a one-line error and exit 1, not a traceback and exit 120 (#882)
+
+- `harness stats`, `harness forecast`, `harness tier` and `bench/run.py` ended a closed pipe quietly (#713), but any other stdout write
+  error, such as `ENOSPC` on a full disk (`> /dev/full`), escaped as an `OSError` traceback plus "Exception ignored on flushing sys.stdout"
+  and exit 120 (or 1). `scripts/pipesafe.py` now prints one line, `harness tier: cannot write output: No space left on device`, and exits 1.
+  A closed pipe still ends quietly. `test_pipe_closed.py` writes to `/dev/full` for each command (skipped where it does not exist).
+
 ### `bench/run.py` refuses a time option above `threading.TIMEOUT_MAX` (#858)
 
 - `--poll-secs`, `--grace-secs` and `--progress-poll-secs` (and `--wall-cap-secs`) passed the dry run with any finite value, then a live run
