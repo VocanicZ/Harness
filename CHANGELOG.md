@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `bench/run.py` write-error message starts `bench:`, like its other messages (#900)
+
+- The full-disk message added in #882 said `harness bench: cannot write output: ...` while every other `bench/run.py` message starts `bench:`, so
+  a filter on the prefix missed it. It now reads `bench: cannot write output: No space left on device`. `harness stats`, `forecast` and `tier`
+  keep `harness <cmd>:`. `test_pipe_closed.py` pins the text for each command.
+
 ### A usage error with standard error closed exits 2, not 120 (#896)
 
 - `harness stats -x 2>&-` (and `forecast`, `tier`) exited 120: under bash a closed fd 2 is taken by the script itself, so the usage message

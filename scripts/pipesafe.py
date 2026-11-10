@@ -69,11 +69,11 @@ def _run(main, *args):
 
 
 def prog():
-    """`harness tier` for scripts/tier.py, `harness bench` for bench/run.py: the name an error line starts with."""
+    """`harness tier` for scripts/tier.py, `bench` for bench/run.py (its own messages start `bench:`, #900): the name an error line starts with."""
     path = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else "harness"
     name = os.path.splitext(os.path.basename(path))[0]
     if name == "run":
-        name = os.path.basename(os.path.dirname(path))
+        return os.path.basename(os.path.dirname(path))
     return "harness " + name
 
 
