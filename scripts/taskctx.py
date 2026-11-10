@@ -100,7 +100,9 @@ def prd_block(prd):
 def count_children(issues, prd):
     pat = re.compile(r"(?<![\w.-])Part of\s+(?:[\w.-]+/[\w.-]+)?#%s\b|^##\s+Parent\s*\n+\s*(?:[\w.-]+/[\w.-]+)?#%s\b"
                      % (prd, prd), re.I | re.M)
-    return sum(1 for i in issues if isinstance(i, dict) and pat.search(i.get("body") or ""))
+    def norm(body):  # CRLF and lone CR -> LF, leading BOM dropped, so `^` and `\n` see every body alike (#954)
+        return body.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    return sum(1 for i in issues if isinstance(i, dict) and pat.search(norm(i.get("body") or "")))
 
 
 # --- lint: a primitive the brief never named -------------------------------------------------------------

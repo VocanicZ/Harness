@@ -57,6 +57,9 @@ got="$(python3 -c "
 import sys; sys.path.insert(0, sys.argv[1]); import taskctx as t
 print(repr(t.section('## A\r\nx\ry\n## B\r\nz', 'A')), repr(t.section('## A\rx\r## B\ry', 'B')))" "$HERE/../scripts")"
 assert_eq "$got" "'x\ny' 'y'" "CRLF and lone CR still end a line"
+for nm in 'LF:## Parent\n\n#5\n' 'CRLF:## Parent\r\n\r\n#5\r\n' 'lone CR:## Parent\r#5\r' 'BOM:\ufeff## Parent\n#5\n' 'BOM+lone CR:\ufeff## Parent\r#5\r'; do
+  assert_eq "$(NM="${nm#*:}" python3 -c 'import sys,os,json;sys.path.insert(0,sys.argv[1]);import taskctx as t;print(t.count_children([{"body":json.loads(chr(34)+os.environ["NM"]+chr(34))}],5))' "$HERE/../scripts")" 1 "count-children counts a ## Parent #5 body: ${nm%%:*}"
+done
 
 echo "-- lint"
 LREPO="$(mktemp -d)"; tmp_track "$LREPO"
