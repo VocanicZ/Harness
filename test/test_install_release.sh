@@ -59,7 +59,7 @@ for t in tmux claude; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$t"; chmod +x "$S
 printf '#!/bin/sh\ncase "$1" in auth) exit 0;; esac\nexit 0\n' > "$STUB/gh"; chmod +x "$STUB/gh"
 printf '#!/bin/sh\nexit 1\n' > "$STUB/git"; chmod +x "$STUB/git"   # skill clones fail: best-effort
 nope=(); for c in AGY CODEX COPILOT HERMES OPENCLAW OPENCODE; do nope+=("HARNESS_${c}_BIN=$STUB/nope"); done
-out="$(env PATH="$STUB:/usr/bin:/bin" HARNESS_SKIP_RTDD=1 HARNESS_CLAUDE_BIN="$STUB/claude" "${nope[@]}" \
+out="$(env PATH="$STUB:$(sys_path)" HARNESS_SKIP_RTDD=1 HARNESS_CLAUDE_BIN="$STUB/claude" "${nope[@]}" \
   CLAUDE_CONFIG_DIR="$T/home6/.claude" HARNESS_USER_SKILLS="$T/home6/skills" bash "$HERE/../install.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 0 "install.sh's main exits 0 on a clean HOME"
 assert_eq "$(readlink "$HARNESS_HOME/engine")" releases/v0.2.0 "main installs the latest release"
@@ -75,16 +75,16 @@ printf '#!/bin/sh\ncase "$1" in auth) exit 0;; esac\nexit 0\n' > "$STUB/gh"; chm
 printf '#!/bin/sh\nexit 1\n' > "$STUB/git"; chmod +x "$STUB/git"
 printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 9009\n' > "$STUB/python3"
 chmod +x "$STUB/python3"; ln -s "$REALPY" "$STUB/python"
-out="$(env -u HARNESS_PYTHON -u MSYS PATH="$STUB:/usr/bin:/bin" HARNESS_PLATFORM=windows HARNESS_BASH_EXE='C:\Git\bin\bash.exe' \
+out="$(env -u HARNESS_PYTHON -u MSYS PATH="$STUB:$(sys_path)" HARNESS_PLATFORM=windows HARNESS_BASH_EXE='C:\Git\bin\bash.exe' \
   HARNESS_SKIP_RTDD=1 HARNESS_CLAUDE_BIN="$STUB/claude" "${nope[@]}" \
   CLAUDE_CONFIG_DIR="$T/home7/.claude" HARNESS_USER_SKILLS="$T/home7/skills" bash "$HERE/../install.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 0 "Windows: install.sh's main exits 0 with only the Store-stub python3 on PATH"
 assert_no "… never saying the releases/latest response is not JSON" grep -qF 'is not JSON' <<<"$out"
 assert_eq "$(readlink "$HARNESS_HOME/engine")" releases/v0.2.0 "… and installs the latest release"
 assert_ok "… and writes the python3 shim" test -x "$HARNESS_HOME/bin/python3"
-assert_eq "$(PATH="$HARNESS_HOME/bin:$STUB:/usr/bin:/bin" python3 -c 'print(6*7)')" 42 "… which runs the real python, not the stub"
+assert_eq "$(PATH="$HARNESS_HOME/bin:$STUB:$(sys_path)" python3 -c 'print(6*7)')" 42 "… which runs the real python, not the stub"
 assert_ok "… and finishes" grep -qF 'Done. Harness v0.2.0 is installed' <<<"$out"
 # rel_latest_tag on its own (as `harness update` reaches it) reads the JSON through a Python that runs.
-assert_eq "$(env -u HARNESS_PYTHON PATH="$STUB:/usr/bin:/bin" HARNESS_PLATFORM=windows HARNESS_INSTALL_NOMAIN=1 \
+assert_eq "$(env -u HARNESS_PYTHON PATH="$STUB:$(sys_path)" HARNESS_PLATFORM=windows HARNESS_INSTALL_NOMAIN=1 \
   bash -c "source '$HERE/../install.sh'; rel_latest_tag" 2>&1)" v0.2.0 "Windows: rel_latest_tag skips the Store stub"
 finish

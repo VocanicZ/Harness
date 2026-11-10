@@ -4,7 +4,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export HARNESS_INSTALL_NOMAIN=1
 # #610: every mktemp below lands in one private dir that goes with the test, run from run.sh or a plain shell.
 PRIVATE_TMP="$(mktemp -d)"; export TMPDIR="$PRIVATE_TMP"; trap 'rm -rf "$PRIVATE_TMP"' EXIT
-source "$HERE/../install.sh"
+source "$HERE/helpers.sh"; source "$HERE/../install.sh"
 assert(){ if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; exit 1; fi; }
 
 # Fake vat remote: a real git repo carrying the skill dir.
@@ -20,20 +20,20 @@ H="$(mktemp -d)"
 #   - claude CLI absent -> plugin step is skipped
 #   - pre-create to-prd/to-issues -> matt-pocock clone is skipped
 mkdir -p "$H/.claude/skills/to-prd" "$H/.claude/skills/to-issues"
-HOME="$H" PATH="/usr/bin:/bin" VOCANICZ_TOOLS_URL="$SRC" ensure_skills >/dev/null 2>&1
+HOME="$H" PATH="$(sys_path)" VOCANICZ_TOOLS_URL="$SRC" ensure_skills >/dev/null 2>&1
 assert "ensure_skills installs subagent-task-tree" "[[ -f '$H/.claude/skills/subagent-task-tree/SKILL.md' ]]"
 
 # Idempotent / non-clobbering: an existing skill is left untouched.
 H2="$(mktemp -d)"
 mkdir -p "$H2/.claude/skills/to-prd" "$H2/.claude/skills/to-issues" "$H2/.claude/skills/subagent-task-tree"
 printf 'KEEP-ME\n' > "$H2/.claude/skills/subagent-task-tree/SKILL.md"
-HOME="$H2" PATH="/usr/bin:/bin" VOCANICZ_TOOLS_URL="$SRC" ensure_skills >/dev/null 2>&1
+HOME="$H2" PATH="$(sys_path)" VOCANICZ_TOOLS_URL="$SRC" ensure_skills >/dev/null 2>&1
 assert "ensure_skills does not clobber an existing skill" "grep -q KEEP-ME '$H2/.claude/skills/subagent-task-tree/SKILL.md'"
 
 # Best-effort: a clone failure must still return 0 (never fail the install).
 H3="$(mktemp -d)"
 mkdir -p "$H3/.claude/skills/to-prd" "$H3/.claude/skills/to-issues"
-HOME="$H3" PATH="/usr/bin:/bin" VOCANICZ_TOOLS_URL="/nonexistent/not-a-repo.git" ensure_skills >/dev/null 2>&1
+HOME="$H3" PATH="$(sys_path)" VOCANICZ_TOOLS_URL="/nonexistent/not-a-repo.git" ensure_skills >/dev/null 2>&1
 rc=$?
 assert "ensure_skills returns 0 even when clone fails (best-effort)" "[[ $rc -eq 0 ]]"
 

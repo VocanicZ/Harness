@@ -27,7 +27,8 @@ printf '%s\n' "\$*" >> "$T/powershell.calls"
 cmd="\$*"; cl="\${cmd#*CommandLine=\\'}"; cl="\${cl%%\\'\}*}"; cl="\${cl//\\'\\'/\\'}"
 eval "set -- \$cl"
 cd "$T/wmi-cwd"   # WMI starts a process in C:\\Windows\\system32, not the caller's directory
-env -i PATH=/usr/bin:/bin HOME="\$HOME" setsid "\$@" </dev/null >/dev/null 2>&1 &
+# setsid is not shipped with Git for Windows (#608): there the process is a child of this fake anyway, started with no controlling shell
+env -i PATH="$(sys_path)" HOME="\$HOME" \${SYSTEMROOT:+SYSTEMROOT="\$SYSTEMROOT"} \$(command -v setsid) "\$@" </dev/null >/dev/null 2>&1 &
 exit 0
 EOF
 cat >"$T/bin/schtasks" <<EOF
@@ -71,7 +72,7 @@ assert_eq "$rc" 0 "[windows] detach_launch returns 0 once the pid is recorded"
 LAUNCHED+=("$(cat "$W/b.pid" 2>/dev/null)")
 assert_ok "[windows] the launch goes through Invoke-CimMethod Win32_Process Create" \
   grep -q "Invoke-CimMethod -ClassName Win32_Process -MethodName Create" "$T/powershell.calls"
-assert_ok "[windows] … running Git's bash on the launcher script" grep -q "CommandLine='\"bash\" \"$W/b.pid.launch.sh\"'" "$T/powershell.calls"
+assert_ok "[windows] … running Git's bash on the launcher script" grep -q "CommandLine='\"bash\" \"$(native_path "$W/b.pid.launch.sh")\"'" "$T/powershell.calls"
 assert_ok "[windows] the pid file names the live launched process" kill -0 "$(cat "$W/b.pid")"
 assert_ok "[windows] output reaches the log"                  wait_for "grep -q pid: '$W/b.log'"
 assert_eq "$(sed -n 's/^pid:\([0-9]*\).*/\1/p' "$W/b.log")" "$(cat "$W/b.pid")" "[windows] the recorded pid is the command's own (\$\$ survives exec)"
@@ -82,7 +83,13 @@ assert_ok "[windows] the saved environment is deleted once the launcher has rest
 printf '#!/bin/sh\nstat -c %%a "%s/d.pid.env" > "%s/d.mode"\nexit 1\n' "$W" "$W" >"$W/ps-mode"; chmod +x "$W/ps-mode"
 ( export HARNESS_PLATFORM=windows HARNESS_DETACH_WAIT=1 HARNESS_POWERSHELL="$W/ps-mode"
   detach_launch "$W/d.pid" "$W/d.log" true ) 2>/dev/null
-assert_eq "$(cat "$W/d.mode" 2>/dev/null)" 600 "[windows] while it waits to be restored, the saved environment is private (mode 600)"
+# Mode 600 is a POSIX file mode: Git for Windows keeps none (stat says 644 whatever the umask), so there the assertion is made only
+# where this filesystem can hold the mode at all (#608). The env file's lifetime — deleted once restored, never left behind — is
+# asserted either way, and is what keeps a token off the disk there.
+printf x > "$W/mode.probe"; chmod 600 "$W/mode.probe"
+if [[ "$(stat -c %a "$W/mode.probe")" == 600 ]]; then
+  assert_eq "$(cat "$W/d.mode" 2>/dev/null)" 600 "[windows] while it waits to be restored, the saved environment is private (mode 600)"
+else echo "  note: this filesystem keeps no POSIX file modes; the 600 of the saved environment is not checked here"; fi
 assert_no "[windows] a failed launch leaves no saved environment behind" test -e "$W/d.pid.env"
 # A relative pidfile/log (the winsma failure): WMI starts the launcher in another directory, so every
 # path the launch hands it — and every path the launcher reads or writes — must be absolute.
@@ -91,7 +98,7 @@ mkdir -p "$W/run"
   detach_launch run/r.pid run/r.log bash -c 'echo "rel:$$"; exec sleep 30' ) 2>"$W/r.err"; rc=$?
 LAUNCHED+=("$(cat "$W/run/r.pid" 2>/dev/null)")
 assert_eq "$rc" 0 "[windows] a relative pidfile still records the pid (WMI starts in another directory)"
-assert_ok "[windows] … the launcher is handed by absolute path" grep -q "CommandLine='\"bash\" \"$W/run/r.pid.launch.sh\"'" "$T/powershell.calls"
+assert_ok "[windows] … the launcher is handed by absolute path" grep -q "CommandLine='\"bash\" \"$(native_path "$W/run/r.pid.launch.sh")\"'" "$T/powershell.calls"
 assert_ok "[windows] … and the relative log is the caller's"  wait_for "grep -q rel: '$W/run/r.log'"
 assert_ok "[windows] … nothing landed in WMI's directory"     test -z "$(ls -A "$T/wmi-cwd")"
 ( export HARNESS_PLATFORM=windows HARNESS_DETACH_WAIT=1 HARNESS_POWERSHELL=false

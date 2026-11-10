@@ -20,7 +20,7 @@ export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 # them, and a releases API that answers nothing, so no run here ever reaches the real ones. rtdd is
 # skipped as everywhere else in the suite: on a host without it, ensure_rtdd would `npx` it off GitHub.
 SANDBOX_HOME="$(mktemp -d)"
-export HOME="$SANDBOX_HOME" HARNESS_HOME="$SANDBOX_HOME/.harness" HARNESS_API_URL="file://$SANDBOX_HOME/no-releases.json" \
+export HOME="$SANDBOX_HOME" HARNESS_HOME="$SANDBOX_HOME/.harness" HARNESS_API_URL="$(file_url "$SANDBOX_HOME/no-releases.json")" \
   HARNESS_SKIP_RTDD=1
 
 # 1) a real "engine remote" with one commit, then the shared install cloned from it.

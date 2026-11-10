@@ -16,7 +16,7 @@ R="$(cd "$HERE/.." && pwd)"
 source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 T="$(mktemp -d)"; tmp_track "$T"
 pin_host_home "$T/pinned-host"   # (#541)
-SYS=/usr/bin:/bin   # system tools only: the host's own rtdd, claude and gh are not on a test host's PATH
+SYS="$(sys_path)"   # system tools only: the host's own rtdd, claude and gh are not on a test host's PATH
 W="$T/Win Home"; mkdir -p "$W"
 
 # --- the fakes ------------------------------------------------------------------------------------
@@ -157,7 +157,7 @@ LTMP="$T/lane/t"; mkdir -p "$LTMP"          # the short TMPDIR
   unset HARNESS_PYTHON
   # the lane's env: the shim's dir first on PATH (bin/harness does it), the host tools, rtdd.exe, a short TMPDIR
   cd "$WT" && env -i HOME="$LH" TMPDIR="$LTMP" HARNESS_HOME="$HARNESS_HOME" HARNESS_PLATFORM=windows RTDD_EVENT_LOG="$LH/rtdd-events.jsonl" \
-    PATH="$HARNESS_HOME/bin:$BIN:$RBIN:/usr/bin:/bin" FAKE_RTDD_LOG="$T/lane/rtdd.calls" bash -c '
+    PATH="$HARNESS_HOME/bin:$BIN:$RBIN:$(sys_path)" FAKE_RTDD_LOG="$T/lane/rtdd.calls" bash -c '
       echo "pwd=$PWD"
       echo "git=$(git rev-parse --abbrev-ref HEAD)"
       echo "gh=$(gh --version >/dev/null 2>&1; echo $?)"

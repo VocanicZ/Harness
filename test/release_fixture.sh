@@ -1,6 +1,6 @@
 # release_fixture.sh — fake GitHub releases served over file:// for the update/install tests
 # (PRD #274). Sourced after helpers.sh. Nothing here touches the network: curl reads file:// URLs.
-#   rel_server <dir>            point HARNESS_API_URL / HARNESS_BASE_URL at <dir>
+#   rel_server <dir>            point HARNESS_API_URL / HARNESS_BASE_URL at <dir> (file_url, helpers.sh: native curl reads it on Windows, #608)
 #   rel_publish <dir> <tag>     harness-<tag>.tar.gz built from THIS checkout's engine files, plus
 #                               VERSION and scripts/release-marker.sh (prints <tag>), and its SHA256SUMS
 #   rel_latest <dir> <tag|"">   what releases/latest answers; "" = no release published yet
@@ -8,9 +8,8 @@
 # Every file it writes lives under <dir> (the archive is staged in <dir>/.build), so a test that
 # removes its own temp root leaves nothing behind (#294).
 FIXTURE_ENGINE_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# A native curl on a Windows host reads file:///C:/x, not file:///c/x: the dir goes through native_path (helpers.sh; no-op on Linux).
-rel_server(){ mkdir -p "$1/download"; local d; d="$(native_path "$1")"; [[ "$d" == /* ]] || d="/$d"
-  export HARNESS_API_URL="file://$d/latest.json" HARNESS_BASE_URL="file://$d/download"; }
+rel_server(){ mkdir -p "$1/download"
+  export HARNESS_API_URL="$(file_url "$1/latest.json")" HARNESS_BASE_URL="$(file_url "$1/download")"; }
 rel_publish(){ local srv="$1" tag="$2" st; st="$srv/.build/harness-$tag"; rm -rf "$st"; mkdir -p "$st"
   ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$st"
   printf '%s\n%040d\n' "$tag" 0 > "$st/VERSION"

@@ -77,7 +77,7 @@ echo "# lock"
 echo "# lock: waiting and breaking"
 ( fresh_env
   seed_lock 111 lane-b 999999 10
-  export WS_LOCK_TIMEOUT=1 WS_OWNER_LIVE_CMD=false
+  export WS_LOCK_TIMEOUT=$(host_is_windows && [[ "$(uname -s)" == MINGW* ]] && echo 8 || echo 1) WS_OWNER_LIVE_CMD=false   # (#608: a ws_call spawns a bash, ~1 s each on Git Bash)
   out="$(ws_lock 222 lane-c $$ 2>&1)"; rc=$?
   assert_eq "$rc" "1" "a held lock with a live heartbeat: the waiter waits, then gives up at its timeout"
   [[ "$out" == *"held by #111"*"waiting"* ]]; assert_eq "$?" "0" "the waiter says it is waiting on #111"
@@ -163,21 +163,21 @@ echo "# isolation"
 ( fresh_env
   ws_isolate 479; hx="$WS_C/hx-479"
   assert_ok "isolate makes pids, tasks and the work dirs" bash -c "test -f $hx/pids && test -f $hx/tasks && test -d $hx/clone && test -d $hx/tmp"
-  b="$(ws_env 479 base)"
+  b="$(ws_env 479 base)"; nhx="$(native_path "$hx")"   # ws_env hands native tools C:/… (cygpath -m) on a real Windows host (#608)
   for v in HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS TMPDIR npm_config_cache HX_CLONE GIT_CONFIG_GLOBAL; do
-    [[ "$b" == *"export $v=$hx/"* ]]; assert_eq "$?" "0" "base exports $v under C:\\hx-479\\"
+    [[ "$b" == *"export $v=$nhx/"* ]]; assert_eq "$?" "0" "base exports $v under C:\\hx-479\\"
   done
   [[ "$b" != *CLAUDE_CONFIG_DIR* && "$b" != *"export HOME="* && "$b" != *USERPROFILE* ]]; assert_eq "$?" "0" "base sets no CLAUDE_CONFIG_DIR, HOME or USERPROFILE"
-  i="$(ws_env 479 install)"; [[ "$i" == *"export CLAUDE_CONFIG_DIR=$hx/claude-config"* && "$i" == *HARNESS_HOME* ]]; assert_eq "$?" "0" "install adds CLAUDE_CONFIG_DIR"
+  i="$(ws_env 479 install)"; [[ "$i" == *"export CLAUDE_CONFIG_DIR=$nhx/claude-config"* && "$i" == *HARNESS_HOME* ]]; assert_eq "$?" "0" "install adds CLAUDE_CONFIG_DIR"
   [[ "$i" != *"export HOME="* ]]; assert_eq "$?" "0" "install leaves HOME alone"
-  s="$(ws_env 479 suite)"; [[ "$s" == *"export HOME=$hx/home"* && "$s" == *"export USERPROFILE="*hx-479*home* && "$s" == *HARNESS_HOME* ]]; assert_eq "$?" "0" "suite adds HOME and USERPROFILE (= the folder's home)"
+  s="$(ws_env 479 suite)"; [[ "$s" == *"export HOME=$nhx/home"* && "$s" == *"export USERPROFILE="*hx-479*home* && "$s" == *HARNESS_HOME* ]]; assert_eq "$?" "0" "suite adds HOME and USERPROFILE (= the folder's home)"
   [[ "$s" != *CLAUDE_CONFIG_DIR* ]]; assert_eq "$?" "0" "suite is base + HOME/USERPROFILE only"
   assert_no "a bad mode is refused" ws_env 479 everything
   assert_no "a non-numeric issue (C:\\hx-smoke) cannot be named" ws_isolate smoke
   ws_isolate 479 --venv; assert_eq "$?" "0" "isolate --venv succeeds"; assert_ok "a python venv is made under the folder" test -e "$hx/venv/pyvenv.cfg"
-  [[ "$(ws_env 479 base)" == *"export VIRTUAL_ENV=$hx/venv"* ]]; assert_eq "$?" "0" "the venv is on the env"
+  [[ "$(ws_env 479 base)" == *"export VIRTUAL_ENV=$nhx/venv"* ]]; assert_eq "$?" "0" "the venv is on the env"
   out="$(ws_exec 479 install 'printf "%s|%s|%s|%s" "$HARNESS_HOME" "$CLAUDE_CONFIG_DIR" "$PWD" "${GIT_CONFIG_COUNT:-}"' 2>&1)"
-  assert_eq "$out" "$hx/harness-home|$hx/claude-config|$hx|1" "exec runs inside the isolation, cwd = the folder, git auth from GIT_CONFIG_COUNT"
+  assert_eq "$out" "$nhx/harness-home|$nhx/claude-config|$hx|1" "exec runs inside the isolation, cwd = the folder, git auth from GIT_CONFIG_COUNT"
   out="$(ws_exec 479 base 'printf "%s" "${GIT_AUTHOR_NAME}/${GIT_COMMITTER_EMAIL}"' 2>&1)"; [[ -n "$out" && "$out" == */* ]]; assert_eq "$?" "0" "identity comes from GIT_AUTHOR_* / GIT_COMMITTER_*"
   out="$(ws_exec 479 base 'printf "%s" "$GH_TOKEN"' 2>&1)"; assert_eq "$out" "$TOK" "GH_TOKEN arrives in the command's environment (sent on stdin)"
   ws_exec 479 base 'exit 7' >/dev/null 2>&1; assert_eq "$?" "7" "exec returns the command's exit status"

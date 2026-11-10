@@ -31,7 +31,7 @@ out="$(upd 2>&1)"; rc=$?
 assert_eq "$rc" 0 "an update exits 0"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "engine flipped to the new release"
 assert_eq "$(sed -n 1p "$H/engine/VERSION")" v0.2.0 "the new release's VERSION is live"
-assert_ok "names what it did" grep -qF "updated Harness v0.1.0 -> v0.2.0 at $H/releases/v0.2.0" <<<"$out"
+assert_ok "names what it did" grep -qE "updated Harness v0.1.0 -> v0.2.0 at $(any_spelling "$H")/releases/v0.2.0" <<<"$out"
 assert_ok "the redeploy tail ran" grep -qx 'Update complete.' <<<"$out"
 assert_ok "v0.1.0 kept for rollback" test -d "$H/releases/v0.1.0"
 assert_no "no stray flip link left" compgen -G "$H/engine.flip.*"
@@ -59,9 +59,9 @@ rel_latest "$SRV" ""; out="$(upd 2>&1)"; rc=$?
 assert_eq "$rc" 0 "no published release is not an error"
 assert_ok "says the endpoint named no release" grep -qF 'named no release' <<<"$out"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "engine unchanged when nothing is published"
-out="$(HARNESS_API_URL="file://$T/nope.json" upd 2>&1)"; rc=$?
+out="$(HARNESS_API_URL="$(file_url "$T/nope.json")" upd 2>&1)"; rc=$?
 assert_eq "$rc" 3 "an unreachable API exits 3"
-assert_ok "says it could not resolve the latest release" grep -qF "could not resolve the latest release from file://$T/nope.json" <<<"$out"
+assert_ok "says it could not resolve the latest release" grep -qF "could not resolve the latest release from $(file_url "$T/nope.json")" <<<"$out"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "engine unchanged when the API is unreachable"
 
 # ── retention: current + previous 2, plus whatever a live process runs from ──

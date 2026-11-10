@@ -43,17 +43,22 @@ exit 7
 EOF
   export STUB_LOG="$T/stub.log"
   out="$(node "$P/bin/harness-install.js" a 'b c' </dev/null 2>&1)"; rc=$?
-  assert_ok "runs the package's install.sh with bash" grep -qF "ran $P/install.sh " "$STUB_LOG"
+  # node hands bash the script path in the host's spelling (C:\\x\\pkg\\install.sh on Windows): compare in the native, forward-slash one (#608).
+  PN="$(native_path "$P")"; logn(){ tr '\\' / < "$STUB_LOG"; }
+  assert_ok "runs the package's install.sh with bash" grep -qF "ran $PN/install.sh " <(logn)
   assert_ok "...passing its arguments through" grep -qF '[a b c]' "$STUB_LOG"
   assert_ok "...and exits with install.sh's status" test "$rc" = 7
   # Native Windows (#491): the entry runs install.sh under GIT's bash by path (npx's plain `bash` may be WSL's),
   # a bash that is not MINGW/MSYS is refused, and no Git bash at all points at Git for Windows and WSL2.
   : > "$STUB_LOG"
   win_entry(){ node -e 'Object.defineProperty(process, "platform", { value: "win32" }); require(process.argv[1])' "$P/bin/harness-install.js" "$@"; }
+  # A script with a #! line is no executable to node on a Windows host: there the real Git bash plays Git's bash and runs the stub install.sh.
   GB="$T/gitbash"; printf '#!/bin/sh\n[ "$1" = -c ] && { echo MINGW64_NT-10.0-19045; exit 0; }\necho "git-bash ran $*" > "$STUB_LOG"; exit 5\n' > "$GB"; chmod +x "$GB"
+  if real_windows_host; then GB="$(native_path "$(command -v bash)")"; GBRC=7; GBLOG="ran $PN/install.sh with [--flag]"
+  else GBRC=5; GBLOG="git-bash ran $P/install.sh --flag"; fi
   out="$(HARNESS_BASH_EXE="$GB" win_entry --flag 2>&1)"; rc=$?
-  assert_ok "native Windows runs install.sh under Git's bash" grep -qF "git-bash ran $P/install.sh --flag" "$STUB_LOG"
-  assert_ok "...exiting with its status" test "$rc" = 5
+  assert_ok "native Windows runs install.sh under Git's bash" grep -qF "$GBLOG" <(logn)
+  assert_ok "...exiting with its status" test "$rc" = "$GBRC"
   WB="$T/wslbash"; printf '#!/bin/sh\n[ "$1" = -c ] && { echo Linux; exit 0; }\necho "wsl ran" > "$STUB_LOG"; exit 0\n' > "$WB"; chmod +x "$WB"
   : > "$STUB_LOG"
   out="$(env -i PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" HARNESS_BASH_EXE="$WB" node -e 'Object.defineProperty(process, "platform", { value: "win32" }); require(process.argv[1])' "$P/bin/harness-install.js" 2>&1)"; rc=$?
