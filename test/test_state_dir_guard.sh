@@ -128,6 +128,26 @@ else
   echo "  FAIL: --state-dir with no argument errors — rc=$rc out=[$out]"; TESTS_FAIL=$((TESTS_FAIL+1))
 fi
 
+echo "── 4d. --state-dir naming a missing path, a file or a dash-led value is a usage error (#986)"
+out="$(run "$B" bash "$CLI" --state-dir "$TMP/nope" stop)"; rc=$?
+assert_ok "missing path: exit 2"                      test "$rc" -eq 2
+assert_ok "missing path: names the option and the path" grep -qF -- "harness: --state-dir '$TMP/nope': no such directory" <<<"$out"
+assert_no "missing path: the command is not run"      grep -q "RAN stop" <<<"$out"
+out="$(run "$B" bash "$CLI" stop --state-dir "$A/.harness/config")"; rc=$?
+assert_ok "a file: exit 2"                            test "$rc" -eq 2
+assert_ok "a file: says not a directory"              grep -qF -- "--state-dir '$A/.harness/config': not a directory" <<<"$out"
+out="$(run "$B" bash "$CLI" --state-dir $'/no\x0cpe' stop)"; rc=$?
+assert_ok "control character in the path is escaped"  grep -qF -- "--state-dir '/no\u000cpe': no such directory" <<<"$out"
+out="$(run "$B" bash "$CLI" --state-dir -x stop)"; rc=$?
+assert_ok "dash-led value: exit 2"                    test "$rc" -eq 2
+assert_ok "dash-led value: suggests the = form"       grep -qF -- "harness: --state-dir '-x' looks like an option; write --state-dir=-x" <<<"$out"
+assert_no "dash-led value: the command is not run"    grep -q "RAN stop" <<<"$out"
+out="$(run "$B" bash "$CLI" --state-dir=-x stop)"; rc=$?
+assert_ok "--state-dir=-x: checked as a path"         grep -qF -- "--state-dir '-x': no such directory" <<<"$out"
+out="$(run "$B" bash "$CLI" --state-dir "$A/.harness" stop)"; rc=$?
+assert_ok "a valid --state-dir still works"           test "$rc" -eq 0
+assert_ok "a valid --state-dir still targets A"       grep -qF -- "STATE_DIR=$A/.harness" <<<"$out"
+
 echo "── 4c. subcommand arguments survive the flag scan"
 out="$(run "$B" env STATE_DIR="$B/.harness" bash "$CLI" stop --clean)"
 assert_ok "unrelated flags still reach the subcommand" grep -qF "ARGS=--clean" <<<"$out"

@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness --state-dir` rejects a missing path and a dash-led value (#986)
+
+- `harness --state-dir /nonexistent/xyz stats` and `harness --state-dir -x stats` exited 0 and reported every fleet on the host, as if the option had not been given. A path that is not an
+  existing directory is now a usage error (exit 2) naming the option and the escaped path, and a dash-led value after a space is rejected with the `--state-dir=-x` form suggested, as for
+  the other options (#973). `harness init` may still name a directory it will create.
+
 ### swarm-suite.sh writes a valid swarm.toml when the workdir path has a control character (#982)
 
 - `scripts/swarm-suite.sh` escaped only `\` and `"` in the `workdir` it writes to `swarm.toml`, so a path holding a form feed, newline or any other control character gave a file swarm
