@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness` with an unknown command escapes control characters in its error (#952)
+
+- `harness $'st\fats x'` echoed the unknown command's name to standard error with the raw form feed (or U+2028, U+2029, a C1 or other control character), so the message could
+  show up broken over several lines. The name is now spelled as `harness stats`, `forecast` and `tier` spell names: `\u000c` for a form feed, `\u2028` for U+2028. Ordinary
+  names, accented letters included, print unchanged.
+
 ### `harness` with an unknown command prints the usage on standard error (#951)
 
 - `harness -x` (or any unknown command) wrote the full usage text to standard output, so a script that captured the output got it as if it were command output. The usage now
