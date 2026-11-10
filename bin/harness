@@ -117,7 +117,9 @@ print_version(){
     echo "stable: $HARNESS_ENGINE_LINK"
   fi
 }
-usage(){ cat <<EOF
+# Standard output closed (`>&-`): drop the text quietly and succeed, as the Python subcommands do (#837, #984).
+usage(){ ( exec 3>&1 ) 2>/dev/null || return 0
+  cat <<EOF
 usage: harness <command> [args]
   --version [--verbose]  print this engine's release (or dev checkout) and commit
                        (--verbose: also the engine dir and the stable path units use)
