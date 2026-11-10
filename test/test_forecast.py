@@ -761,6 +761,26 @@ def test_issue_number_over_long_is_a_one_line_usage_error():   # #880
             assert r.stdout == "", r.stdout
 
 
+def test_bodies_number_past_4300_digits_is_a_one_line_error_without_pythons_advice():   # #895
+    with tmp() as d:
+        cfg, events, _ = fixture(d)
+        huge = os.path.join(d, "huge.json")
+        with open(huge, "w") as fh:
+            fh.write('[{"number": ' + "9" * 4400 + ', "body": "x"}]')
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "3", "-R", W,
+                            "--events", events, "--bodies", huge], capture_output=True, text=True)
+        assert r.returncode == 2, (r.returncode, r.stderr[:300])
+        assert "set_int_max_str_digits" not in r.stderr and "Traceback" not in r.stderr, r.stderr[:300]
+        assert huge in r.stderr and '"number"' in r.stderr and "too large" in r.stderr, r.stderr[:300]
+        assert len(r.stderr.strip().splitlines()) == 1 and len(r.stderr) < 600, len(r.stderr)
+        assert r.stdout == "", r.stdout
+        with open(huge, "w") as fh:   # a huge number in a field the forecast does not read is not an error
+            fh.write('[{"number": 3, "body": "x", "extra": ' + "9" * 4400 + '}]')
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "forecast.py"), "3", "-R", W,
+                            "--events", events, "--bodies", huge], capture_output=True, text=True)
+        assert "set_int_max_str_digits" not in r.stderr and "Traceback" not in r.stderr, r.stderr[:300]
+
+
 def test_oversized_usd_per_pct_is_echoed_truncated_on_stderr():   # #893
     """A 5000-digit HARNESS_ONE_USD_PER_PCT is one bounded stderr line that still names the setting."""
     with tmp() as d:

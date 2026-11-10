@@ -706,12 +706,25 @@ def issue_arg(v):
     return n
 
 
+class _HugeInt:
+    """Stands in for a JSON integer past int()'s digit limit, so reading the file never reaches int()'s own message (#895)."""
+    def __init__(self, text):
+        self.text = text
+
+
+def _json_int(text):
+    try:
+        return int(text)
+    except ValueError:   # more than sys.get_int_max_str_digits() digits
+        return _HugeInt(text)
+
+
 def read_bodies(path):
     """{issue number: body} from a `gh issue list --json number,body` file (#754). A leading UTF-8 BOM is
     dropped; a file that cannot be read or is not that shape is a ValueError naming it, never a traceback."""
     try:
         with open(path, encoding="utf-8-sig") as fh:
-            data = json.load(fh)
+            data = json.load(fh, parse_int=_json_int)
     except OSError as e:
         raise ValueError(f"{path}: cannot read it: {e.strerror or e}")
     except UnicodeDecodeError as e:
@@ -722,6 +735,10 @@ def read_bodies(path):
         raise ValueError(f"{path}: expected a JSON list of {{number, body}} objects")
     bodies = {}
     for it in data:
+        if isinstance(it, dict) and isinstance(it.get("number"), _HugeInt):
+            t = it["number"].text
+            shown = t if len(t) <= 20 else t[:20] + "\u2026"   # the ellipsis only when the echo was cut
+            raise ValueError(f"{path}: \"number\" {shown} is too large \u2014 it must be an issue number")
         if not isinstance(it, dict) or isinstance(it.get("number"), bool) or not isinstance(it.get("number"), int):
             raise ValueError(f"{path}: every item needs an integer \"number\"")
         body = it.get("body") or ""

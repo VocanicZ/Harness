@@ -77,7 +77,29 @@ def _read(path):
     except UnicodeDecodeError as e:
         raise TierConfigError(f"{path}: not valid UTF-8: {e.reason} at byte {e.start}")
     except ValueError as e:   # tomllib.TOMLDecodeError, or the flat fallback parser's bad number
-        raise TierConfigError(f"{path}: cannot parse it: {e}")
+        huge = _huge_number(text, e)
+        raise TierConfigError(huge and f"{path}: {huge}" or f"{path}: cannot parse it: {e}")
+
+
+def _huge_number(text, err):
+    """A one-line reason when `err` is int() refusing a number of more than 4300 digits, else None (#895).
+    int()'s own message is advice for Python programmers; this names the table.key instead."""
+    limit = getattr(sys, "get_int_max_str_digits", lambda: 4300)() or 4300
+    sec = ""
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        m = re.fullmatch(r"\[\s*([^\[\]]+?)\s*\]", line)
+        if m:
+            sec = m.group(1)
+            continue
+        k, eq, v = line.partition("=")
+        v = v.strip()
+        if eq and re.fullmatch(r"[+-]?[0-9][0-9_]*", v) and len(v.replace("_", "").lstrip("+-")) > limit:
+            shown = v if len(v) <= 20 else v[:20] + "\u2026"
+            return f"{sec + '.' if sec else ''}{k.strip()} = {shown} is too large \u2014 a number may have at most {limit} digits"
+    if "max_str_digits" in str(err):   # an inline table or array: the key is not one line away
+        return f"a number in it is too large \u2014 at most {limit} digits"
+    return None
 
 
 # Every threshold tier.py reads: (section, key) -> "count" (an integer >= 1: a limit of 0 would be crossed by
