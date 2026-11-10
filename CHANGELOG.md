@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Windows: agy's usage lookup and codex's session lookup work on a native host (#606)
+
+- `agy_limit_usage` ran `agy -p /usage`; Git Bash rewrote the lone `/usage` argument into `C:/Program Files/Git/usage` for a native agy, so no usage
+  window was ever read on Windows. The call now passes the argument unconverted (`MSYS2_ARG_CONV_EXCL`).
+- `codex_session_id` compared a rollout's `cwd` with the worktree as strings, so `C:\x` (what codex writes) and `C:/x` never matched; they are compared as
+  paths now. The matrix plants its codex and agy fixtures with native paths, and `prereqs_ok` runs its stub installer with the real tools on `PATH` (a
+  copied `bash.exe` has no `msys-2.0.dll`).
+
 ### Windows: supervise's fleet checks run again, and a headless lane's runner gets 60 s for its first state (#606)
 
 - `harness supervise` scrubs every `HARNESS_*` variable before it sources a fleet's `lib.sh`; on Windows that also dropped `HARNESS_NATIVE_PATH_VARS`, and
