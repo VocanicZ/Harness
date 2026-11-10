@@ -68,6 +68,12 @@ for opt in criteria lines files subsystems workstreams pool minutes; do
     assert_no "--$opt ${#big} digits prints no tier" grep -q '^TIER:' <<<"$out"
   done
 done
+# the ellipsis marks a cut echo: a short too-large value is echoed whole with none, a long one is cut and keeps it (#894)
+out="$(H tier decide --criteria 99999999999 --lines 1 --files 1 --subsystems 1 2>&1)"
+assert_ok "short too-large value is echoed whole" grep -q -- "--criteria: 99999999999 is too large" <<<"$out"
+assert_no "...with no ellipsis, nothing was cut" grep -q '…' <<<"$out"
+out="$(H tier decide --criteria "$big400" --lines 1 --files 1 --subsystems 1 2>&1)"
+assert_ok "long too-large value is cut to 20 digits and keeps the ellipsis" grep -q -- "--criteria: 99999999999999999999… is too large" <<<"$out"
 # 5000 zeros then 1 slips past the too-large check (its stripped length is 1) but int() refuses it: a one-line usage error (#880)
 zeros5000="$(python3 -c "print('0'*5000+'1')")"
 for opt in criteria lines files subsystems workstreams pool minutes; do

@@ -334,7 +334,8 @@ def count(v):
         raise argparse.ArgumentTypeError(f"invalid int value: {_short(v)} (use ASCII digits only)")
     digits = v.lstrip("-")
     if len(digits.lstrip("0")) > len(str(MAX_COUNT)):   # before int(): a 5000-digit string is a ValueError there
-        raise argparse.ArgumentTypeError(f"{v[:20]}\u2026 is too large \u2014 a count must be at most {MAX_COUNT}")
+        shown = v if len(v) <= 20 else v[:20] + "\u2026"   # the ellipsis only when the echo was cut (#894)
+        raise argparse.ArgumentTypeError(f"{shown} is too large \u2014 a count must be at most {MAX_COUNT}")
     if len(digits) > MAX_DIGITS:   # 5000 zeros then 1 is small to int() but still a ValueError past 4300 (#880)
         raise argparse.ArgumentTypeError(f"{_short(v)} is too long \u2014 at most {MAX_DIGITS} digits (drop the leading zeros)")
     n = int(v)
