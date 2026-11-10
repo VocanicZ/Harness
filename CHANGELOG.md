@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness` with an unknown command prints the usage on standard error (#951)
+
+- `harness -x` (or any unknown command) wrote the full usage text to standard output, so a script that captured the output got it as if it were command output. The usage now
+  goes to standard error after the `unknown command` line, standard output stays empty, and the exit status stays 2. `harness help`, `harness --help` and `harness -h` still
+  print the usage on standard output with exit status 0.
+
 ### `harness tier decide` matches singular and plural to the count in its reason line (#949)
 
 - `--criteria 1 --lines 1 --files 1 --subsystems 1` printed `1 criteria, ~1 lines, ~1 files, 1 subsystem`, and `--subsystems 0` printed `0 subsystem`. Each count in the
