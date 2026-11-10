@@ -245,5 +245,5 @@ case "$cmd" in
   resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
   help|-h|--help) usage;;
   "") usage;;
-  *) echo "unknown command: $cmd" >&2; usage; exit 2;;
+  *) echo "unknown command: $cmd" >&2; usage >&2; exit 2;;
 esac
