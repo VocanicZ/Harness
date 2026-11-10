@@ -547,7 +547,7 @@ def _setting_state(cal):
     """`HARNESS_ONE_USD_PER_PCT unset`, or `HARNESS_ONE_USD_PER_PCT=inf invalid (...)` for a set but unusable value (#746)."""
     if cal.get("invalid") is None:
         return f"{cal['setting']} unset"
-    return f"{cal['setting']}={cal['invalid']} invalid (need a finite number >= {MIN_USD_PER_PCT:g})"
+    return f"{cal['setting']}={clip_setting(cal['invalid'])} invalid (need a finite number >= {MIN_USD_PER_PCT:g})"
 
 
 def render_pct(f):
@@ -619,6 +619,12 @@ def usd_per_pct_setting(state_dir):
     at least MIN_USD_PER_PCT. A set but unusable value is named by usd_per_pct_invalid."""
     raw = usd_per_pct_raw(state_dir)
     return usd_per_pct_parse(raw)[0] if raw is not None else None
+
+
+def clip_setting(v, keep=20):
+    """A setting's text for a message: a long value is cut to `keep` characters and an ellipsis, as an oversized
+    argument is (#880), so one line never carries a multi-KB environment or config value back (#893)."""
+    return v if len(v) <= keep else v[:keep] + "\u2026"
 
 
 def usd_per_pct_invalid(state_dir):
@@ -762,7 +768,7 @@ def main(argv=None):
     sd = os.environ.get("STATE_DIR")
     bad = usd_per_pct_invalid(sd)
     if bad is not None:
-        print(f"harness forecast: {FALLBACK_SETTING}={st.vis(bad)} is invalid "   # #854: no raw U+2028 / form feed on stderr
+        print(f"harness forecast: {FALLBACK_SETTING}={st.vis(clip_setting(bad))} is invalid "   # #854: no raw U+2028 / form feed on stderr
               f"(need a finite number >= {MIN_USD_PER_PCT:g}): ignored", file=sys.stderr)
     f = forecast(events, repo, a.issue, body, bodies, unit, fallback=usd_per_pct_setting(sd), invalid=bad)
     print(json.dumps(f, indent=2) if a.json else render(f))
