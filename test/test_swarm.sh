@@ -408,6 +408,23 @@ assert_eq "$rc" 2 "HARNESS_SWARM=off, missing worktree -> usage error, exit 2"
 assert_eq "$(cat "$T/err")" "swarm-suite: no such worktree: /nonexistent" "…same message"
 rc="$(HARNESS_SWARM=off run_suite "$WT" offok test/test_ok.sh)"
 assert_eq "$rc" 3 "HARNESS_SWARM=off with a real worktree is still 'run locally' (exit 3)"
+echo "-- #998: -h / --help as the first argument print the usage on standard output and exit 0, quietly when output is closed or cut off"
+: > "$FAKE_SWARM_STATE/calls"
+for h in --help -h; do
+  out="$("$SUITE" "$h" x 2>"$T/err")"; rc=$?
+  assert_eq "$rc" 0 "$h x -> exit 0"
+  assert_ok "$h -> usage on standard output" grep -q '^usage: swarm-suite.sh <worktree> <job-name>' <<<"$out"
+  assert_eq "$(cat "$T/err")" "" "$h -> nothing on standard error"
+  "$SUITE" "$h" >&- 2>"$T/err"; rc=$?
+  assert_eq "$rc" 0 "$h with standard output closed -> exit 0"
+  assert_eq "$(cat "$T/err")" "" "$h with standard output closed -> quiet"
+  "$SUITE" "$h" 2>"$T/err" | head -1 >/dev/null; rc=${PIPESTATUS[0]}
+  assert_eq "$rc" 0 "$h piped into head -1 -> exit 0"
+  "$SUITE" "$h" 2>"$T/err" | head -0; rc=${PIPESTATUS[0]}
+  assert_eq "$rc" 0 "$h piped into head -0 (early exit) -> exit 0"
+  assert_eq "$(cat "$T/err")" "" "$h piped into an early-exit reader -> quiet"
+done
+assert_eq "$(cat "$FAKE_SWARM_STATE/calls")" "" "…swarm never touched"
 echo "-- #982: swarm.toml stays valid TOML (and round-trips the workdir) when the workdir path holds control characters"
 toml_workdir(){ python3 -c 'import sys,tomllib; sys.stdout.write(tomllib.load(open(sys.argv[1],"rb"))["workdir"])' "$1"; }
 CWT="$T/c"$'\f'"w"$'\n'"t"$'\x01\x7f\b\t\r'"\\\"d"; cp -a "$WT" "$CWT"
