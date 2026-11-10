@@ -127,24 +127,24 @@ def test_help_with_a_closed_stdout_prints_nothing_on_stderr():
 
 def test_a_full_disk_on_stdout_is_one_stderr_line_and_exit_1():
     """#882: ENOSPC on stdout (/dev/full) escaped as an OSError traceback, "Exception ignored", exit 120. Now: one
-    `harness <cmd>: cannot write output: ...` line on stderr, exit 1."""
+    `<cmd>: cannot write output: ...` line on stderr, exit 1 (#900: `bench/run.py` says `bench:` like its other messages)."""
     if not os.path.exists("/dev/full"):
         print("  skip: no /dev/full")
         return
     py = sys.executable
-    cmds = [("stats", [py, os.path.join(ROOT, "scripts", "stats.py"), "report"]),
-            ("stats", [py, os.path.join(ROOT, "scripts", "stats.py"), "--help"]),
-            ("forecast", [py, os.path.join(ROOT, "scripts", "forecast.py"), "--help"]),
-            ("tier", [py, os.path.join(ROOT, "scripts", "tier.py"), "decide", "--criteria", "3", "--lines", "10",
+    cmds = [("harness stats", [py, os.path.join(ROOT, "scripts", "stats.py"), "report"]),
+            ("harness stats", [py, os.path.join(ROOT, "scripts", "stats.py"), "--help"]),
+            ("harness forecast", [py, os.path.join(ROOT, "scripts", "forecast.py"), "--help"]),
+            ("harness tier", [py, os.path.join(ROOT, "scripts", "tier.py"), "decide", "--criteria", "3", "--lines", "10",
                       "--files", "1", "--subsystems", "1"]),
-            ("tier", [py, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"]),
+            ("harness tier", [py, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"]),
             ("bench", [py, os.path.join(ROOT, "bench", "run.py"), "--help"])]
     for name, argv in cmds:
         with open("/dev/full", "wb") as full:
             r = subprocess.run(argv, stdout=full, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
         err = r.stderr.decode()
         assert r.returncode == 1, (argv, r.returncode, err)
-        assert err == f"harness {name}: cannot write output: No space left on device\n", (argv, err)
+        assert err == f"{name}: cannot write output: No space left on device\n", (argv, err)
 
 
 def closed_stderr(argv, env=None):
