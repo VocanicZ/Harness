@@ -229,7 +229,7 @@ printf '#!/usr/bin/env bash\n"%s" "$@" | sed "s/$/\r/"\n' "$REALPY" >"$T/crlf/py
 assert_eq "$(SUP_FLEET_GLOB="" PATH="$T/crlf:$PATH" sup_fleets)" "$(realpath "$F/.harness")" "a CRLF-writing python3 (Windows): the registry alone (no glob) still finds the fleet"
 printf '{"phase": "rolled"}' >"$T/au-crlf.json"
 assert_eq "$(SUP_AU_STATE="$T/au-crlf.json" PATH="$T/crlf:$PATH" sup_au_get phase)" "rolled" "…and the auto-update phase reads back without the CR"
-printf '#!/bin/sh\necho "$@" >> %s/harness.calls\n' "$T" >"$T/harness-stub"; chmod +x "$T/harness-stub"
+printf '#!/bin/sh\necho "$@" >> %s/harness.calls\necho "skills=${HARNESS_USER_SKILLS:-}" >> %s/harness.env\n' "$T" "$T" >"$T/harness-stub"; chmod +x "$T/harness-stub"
 SUP_HARNESS="$T/harness-stub"
 sleep 600 & LIVE=$!
 dead_pid(){ sh -c 'echo $$' ; }
@@ -261,6 +261,11 @@ assert_ok "a dead pool worker → harness start for that fleet" grep -q -- "--st
 fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/worker-2.pid"
 _HARNESS_OS=windows CLAUDE_CONFIG_DIR="$T/cc" SUP_DRY=0 sup_check_fleet "$F/.harness"
 assert_ok "Windows: a dead pool worker is still restarted (lib.sh sources under the cleaned env)" grep -q -- "--state-dir $F/.harness start" "$T/harness.calls"
+# A run that isolates its skills dir (HARNESS_USER_SKILLS, as the winsma runs do) must keep it through the cleanup: the `harness start` the supervisor
+# runs links skills there, and without it linked them into the user's real ~/.claude/skills (#496).
+fleet_reset; rm -f "$T/harness.env"; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/worker-2.pid"
+HARNESS_USER_SKILLS="$T/iso-skills" SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "the harness start of a restart sees the run's HARNESS_USER_SKILLS" grep -qx "skills=$T/iso-skills" "$T/harness.env"
 fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/priority.pid"
 SUP_DRY=0 sup_check_fleet "$F/.harness"
 assert_ok "a dead priority lane → harness start"            test -s "$T/harness.calls"

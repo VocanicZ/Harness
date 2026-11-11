@@ -327,7 +327,7 @@ sup_arc_rules(){ local sessions=$1 slugs sl line s slug num counters fresh=1
 # under `set -u` on Windows: unset, the source died silently and a killed worker was never restarted, #496).
 sup_clean_env(){ local v
   for v in $(compgen -v HARNESS_); do
-    case $v in *_DIR|*_DIRS|*_HOME|*_FILE|*CONFIG*|HARNESS_SUPERVISE_*|HARNESS_NATIVE_PATH_VARS) ;; *) unset "$v" ;; esac
+    case $v in *_DIR|*_DIRS|*_HOME|*_FILE|*CONFIG*|HARNESS_SUPERVISE_*|HARNESS_NATIVE_PATH_VARS|HARNESS_USER_SKILLS) ;; *) unset "$v" ;; esac
   done
   unset STATE_DIR RUN_DIR CLAIMS_DIR POOL_LOCK PAUSE_FLAG; }
 
