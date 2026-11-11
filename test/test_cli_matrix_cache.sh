@@ -32,6 +32,22 @@ fresh="$(mxt)"
 assert_eq "$(res "$fresh" claude trust-dialog-is-not-prompt)" ok "no HARNESS_MATRIX_CACHE: every run is live (the restored evidence makes it ok)"
 rm "$fix/claude/trust.txt"
 
+echo "== scratch stub dirs on PATH are not part of the question (#1028) =="
+# An adapter test puts a new mktemp stub dir under its TMPDIR on PATH before it asks for its CLI's cells: that must not make a new key.
+CS="$RUN_DIR/cacheS"; mkdir -p "$RUN_DIR/tmp-a/tmp.AAA/cli-stubs" "$RUN_DIR/tmp-b/tmp.BBB/bin"
+cp "$RUN_DIR/trust.txt" "$fix/claude/trust.txt"
+a="$(mxt HARNESS_MATRIX_CACHE="$CS" TMPDIR="$RUN_DIR/tmp-a" PATH="$RUN_DIR/tmp-a/tmp.AAA/cli-stubs:$PATH")"
+: > "$fix/claude/idle.txt"   # an idle pane that is no prompt: a live run FAILs idle-is-prompt, only the cache still says ok
+b="$(mxt HARNESS_MATRIX_CACHE="$CS" TMPDIR="$RUN_DIR/tmp-b" PATH="$RUN_DIR/tmp-b/tmp.BBB/bin:$RUN_DIR/tmp-b/tmp.BBB/cli-stubs:$PATH")"
+assert_eq "$(res "$a" claude idle-is-prompt)" ok "first run, stub dir A on PATH: the cell is ok"
+assert_eq "$b" "$a" "second run, other scratch stub dirs under its own TMPDIR: the same cells, from the cache"
+assert_eq "$(ls "$CS" | wc -l | tr -d ' ')" 1 "…one entry for both"
+c="$(mxt HARNESS_MATRIX_CACHE="$CS" PATH="$RUN_DIR/elsewhere:$PATH")"
+assert_eq "$(res "$c" claude idle-is-prompt)" FAIL "a PATH entry outside TMPDIR is still part of the question (live run: the cut pane FAILs)"
+assert_eq "$(ls "$CS" | wc -l | tr -d ' ')" 2 "…and has an entry of its own"
+cp -r "$HERE/fixtures/cli/claude/idle.txt" "$fix/claude/idle.txt" 2>/dev/null || true
+rm -f "$fix/claude/trust.txt"
+
 echo "== another question is another entry =="
 other="$(mxt HARNESS_MATRIX_CACHE="$C1" HARNESS_MATRIX_ROWS='^idle-is-prompt$')"
 assert_eq "$other" "$(printf 'claude\tidle-is-prompt\tok')" "other rows: not answered from the entry of the first rows"

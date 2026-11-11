@@ -336,6 +336,18 @@ an MSYS fork or exec leaves a child whose Windows parent is gone), and `test_for
 (a form feed cannot be in a Windows file name, and the `--bodies` error quotes the path as the caller spelled it). Those runs were cut short several
 times by other lanes releasing an "idle" holder (#1062); copying `suite.out` to the lane's side every 90 s kept the evidence. The adapter files'
 matrix time is the follow-up issue's.
+The five adapter files again, `test/smoke/logs/suite-windows-20261111T164124Z-1028-5adapters.log` (#1028; branch `issue/1028` at `aeb13d2`,
+`HARNESS_MATRIX_TIMING=1`, 1500 s cap): **3 of 5 pass, the whole run 3220 s (54 min), guard clean, winsma clean.** codex, hermes and opencode are
+green. The two reds are not timeouts and were never seen before, because no run reached their last assertions: copilot's `headless-send` matrix
+cell (#1073) and openclaw's hangup-ends-the-tree case, which the `proc_kill_tree` fix above makes green on `main` (this run predates it). What the timing showed:
+the CLIs' cells are computed in the prefetch, in parallel, one CLI per child; a CLI's cells took, serially, codex 1971 s (53 cells), copilot 2143 s
+(61), hermes 2173 s (51), openclaw 1923 s (49) and opencode 887 s (48), so the prefetch is bounded by the slowest CLI, about 50 minutes
+(it ended between 16:34 and 16:39, run.sh started 15:46); the five files together then took under 6 minutes, each well inside the 1500 s cap.
+Before this run the same files recomputed their CLI's cells after the prefetch (codex printed 106 `matrix-timing` lines for its 53 cells, on Linux
+too): `test_cli_matrix.sh`'s cache key carried the starting `PATH`, and every adapter test prepends scratch stub dirs of its own, so none of them ever
+hit the prefetch's entry. The key now leaves out the `PATH` entries under the run's `TMPDIR`. Three earlier runs of these files on this host were cut
+short before a verdict (a pre-#1033 branch against the FIFO lock, then the idle-holder release of a `run`, fixed in #1062): a run that needs more
+than an hour should be started on a branch rebased onto `origin/main`.
 `HX_VERBOSE=1` makes `suite.sh` print run.sh's whole output (`| `-prefixed) after the summary, to read why a red file is red.
 
 The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
