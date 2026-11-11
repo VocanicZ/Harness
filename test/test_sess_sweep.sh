@@ -17,7 +17,7 @@ command -v setsid >/dev/null || { echo "  skip: no setsid"; exit 0; }
 unset HARNESS_SESSION
 export HARNESS_SESSION_BACKEND=tmux HARNESS_SWEEP_GRACE=1
 T="$(mktemp -d)"
-export TMUX_TMPDIR="$T/tmux"; mkdir -p "$TMUX_TMPDIR"; unset TMUX TMUX_PANE   # never the host's server
+tmux_short_dir   # never the host's server (#1077: a short socket path)
 # Every pid a case starts is recorded in $T/*.pid: whatever is still up at the end is this test's to stop.
 reap_all(){ local f p; for f in "$T"/*.pid; do p="$(cat "$f" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; }
 trap 'tmux kill-server 2>/dev/null; reap_all; rm -rf "$T"; tmp_cleanup' EXIT

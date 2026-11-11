@@ -11,8 +11,8 @@ source "$HERE/helpers.sh"
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; exit 0; }
 # The socket path has to be short: /tmp, not a deep scratch directory.
 T="$(mktemp -d /tmp/t547.XXXXXX)"
-export TMUX_TMPDIR="$T"; unset TMUX TMUX_PANE   # never the host's server
-trap 'tmux kill-server 2>/dev/null; rm -rf "$T"' EXIT
+tmux_short_dir   # never the host's server (#1077: a short socket path)
+trap 'tmux kill-server 2>/dev/null; rm -rf "$T"; tmp_cleanup' EXIT
 LEAK='^(STATE_DIR|RTDD_EVENT_LOG|HARNESS_[A-Z0-9_]*)='
 
 echo "== the session that creates the server leaves the global env clean =="
@@ -75,6 +75,6 @@ assert_eq "$(grep '^stub=' "$R")" "stub=yes" "a tmux function stub still runs in
 assert_eq "$(head -n1 "$T/stub.log")" "new-session -d -s s558 -c /tmp" "…and gets the new-session args"
 
 echo "== TMUX_TMPDIR is honoured =="
-assert_ok "the server socket is under the private TMUX_TMPDIR" bash -c 'ls "$1"/tmux-*/default >/dev/null 2>&1' _ "$T"
+assert_ok "the server socket is under the private TMUX_TMPDIR" bash -c 'ls "$1"/tmux-*/default >/dev/null 2>&1' _ "$TMUX_TMPDIR"
 
 finish

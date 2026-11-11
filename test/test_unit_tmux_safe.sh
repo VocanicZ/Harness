@@ -31,8 +31,8 @@ assert_eq "$(sess_impl "$(fleet_unit)" 5)" "hz-next_js-i5" "sess_impl on the dot
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; finish; exit 0; }
 echo "== a lane session for a dotted repo is found live =="
 T="$(mktemp -d /tmp/t554.XXXXXX)"   # the socket path has to be short
-export TMUX_TMPDIR="$T"; unset TMUX TMUX_PANE   # never the host's server
-trap 'tmux kill-server 2>/dev/null; rm -rf "$T"' EXIT
+tmux_short_dir   # never the host's server (#1077: a short socket path)
+trap 'tmux kill-server 2>/dev/null; rm -rf "$T"; tmp_cleanup' EXIT
 export HARNESS_SESSION_BACKEND=tmux
 HARNESS_REPO=vercel/next.js HARNESS_UNIT=next.js HARNESS_SESS_PREFIX=hz
 S="$(sess_impl "$(fleet_unit)" 5)"

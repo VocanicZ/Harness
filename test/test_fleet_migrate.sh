@@ -20,7 +20,7 @@ pin_host_home "$ROOT/host"   # (#541) the host root every fixture below shares
 # The private tmux dir lives BESIDE the host root, not under it (#649): a fixture that clears $ROOT/host would take $TMUX_TMPDIR with it,
 # and tmux then silently falls back to the host's /tmp/tmux-$UID/ — where the `tmux -L lm$$` sockets below landed (~90 strays) and
 # where a kill-server is the host's.
-export TMUX_TMPDIR="$ROOT/tmux"; mkdir -p "$TMUX_TMPDIR"
+tmux_short_dir   # (#1077) …and short: under $ROOT the socket path passed the AF_UNIX limit at the release gate
 export HARNESS_EVENTS_FILE="$ROOT/events.jsonl"
 
 # fleet <name> <config body> [targets.tsv body] [checkout dirs…] — a fixture project; prints its .harness dir
