@@ -343,6 +343,8 @@ tmux_offenders(){ local f code
   for f in "$@"; do
     code="$(grep -v '^[[:space:]]*#' "$f")"
     grep -E "$TMUX_KILL_RE" <<<"$code" | grep -vE "$TMUX_REAL_SKIP" >/dev/null || continue   # no real, default-socket kill
+    # tmux_short_dir (helpers.sh, #1077) sets a private TMUX_TMPDIR and unsets TMUX itself.
+    grep -E '(^|[;&|({[:space:]])tmux_short_dir([^A-Za-z0-9_]|$)' <<<"$code" >/dev/null && continue
     { grep -E '(^|[^A-Za-z0-9_])TMUX_TMPDIR=' <<<"$code" >/dev/null &&
       grep -E '(unset[[:space:]]+([A-Z_]+[[:space:]]+)*TMUX([[:space:]]|$)|env[[:space:]]+-u[[:space:]]+TMUX([[:space:]]|$))' <<<"$code" >/dev/null; } \
       || echo "${f##*/}"
@@ -351,11 +353,12 @@ printf 'trap "%s %s-server" EXIT\n' "$tm" "$kk"                                 
 printf 'mk(){ %s %s-session -t "=$1"; }\n' "$tm" "$kk"                                              > "$LINT/test_tmux_bad_session.sh"
 printf 'export TMUX_TMPDIR="$T/tmux"\n%s %s-server\n' "$tm" "$kk"                                   > "$LINT/test_tmux_bad_no_unset.sh"
 printf 'export TMUX_TMPDIR="$T/tmux"; unset TMUX TMUX_PANE\ntrap "%s %s-server" EXIT\n' "$tm" "$kk" > "$LINT/test_tmux_good_private.sh"
+printf 'tmux_short_dir\ntrap "%s %s-server" EXIT\n' "$tm" "$kk"                                      > "$LINT/test_tmux_good_helper.sh"
 printf '%s -L sock %s-server\n' "$tm" "$kk"                                                         > "$LINT/test_tmux_good_L.sh"
 printf "grep -q '%s %s-session' \"\$CALLS\"\n" "$tm" "$kk"                                          > "$LINT/test_tmux_good_grep.sh"
 assert_eq "$(tmux_offenders "$LINT"/test_tmux_bad_* | tr '\n' ' ')" \
   "test_tmux_bad_no_unset.sh test_tmux_bad_server.sh test_tmux_bad_session.sh " "the tmux lint catches a planted offender"
-assert_eq "$(tmux_offenders "$LINT"/test_tmux_good_*)" "" "...and passes a private TMUX_TMPDIR + unset TMUX, a -L socket, and a grep"
+assert_eq "$(tmux_offenders "$LINT"/test_tmux_good_*)" "" "...and passes a private TMUX_TMPDIR + unset TMUX, tmux_short_dir, a -L socket, and a grep"
 assert_eq "$(tmux_offenders "$HERE"/test_*.sh | tr '\n' ' ')" "" "every test that kills tmux has a private TMUX_TMPDIR and drops TMUX"
 # …and the lint above checks that a private dir is SET, not that it still EXISTS at every call (#649): tmux silently uses the host's
 # /tmp/tmux-$UID/ when TMUX_TMPDIR names a deleted dir. The fail-closed guard (test/guard/tmux) is what covers that; the behaviour is

@@ -10,13 +10,13 @@ source "$HERE/helpers.sh"; source "$HERE/release_fixture.sh"
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; exit 0; }
 T="$(mktemp -d)"; tmp_track "$T"
 trap 'tmux kill-server 2>/dev/null; tmp_cleanup' EXIT
-export TMUX_TMPDIR="$T/tmux"; mkdir -p "$TMUX_TMPDIR"; unset TMUX TMUX_PANE
+unset TMUX TMUX_PANE
 export HOME="$T/home"; mkdir -p "$HOME"
 pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 # …but NOT the tmux dir (#649): pin_host_home puts it under the host, and fresh_host wipes the host. tmux does not fail when TMUX_TMPDIR
 # names a missing dir, it silently uses the host's /tmp/tmux-$UID/default — so every kill-server/new-session after the first wipe
-# went to the real server. The private tmux dir lives beside the host, where nothing deletes it.
-export TMUX_TMPDIR="$T/tmux"; mkdir -p "$TMUX_TMPDIR"
+# went to the real server. The private tmux dir lives beside the host, where nothing deletes it — short, under /tmp (#1077).
+tmux_short_dir
 export HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$T/units" HARNESS_WEB_UNIT_DIR="$T/units"
 export HARNESS_SUPERVISE_LOGINCTL=true HARNESS_WEB_SYSTEMCTL=true HARNESS_WEB_LOGINCTL=true HARNESS_GH_RATE_GUARD=0
 export HARNESS_SUPERVISE_SYSTEMCTL="$T/bin/systemctl"

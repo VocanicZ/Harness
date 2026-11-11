@@ -14,9 +14,9 @@ ROOT="$(cd "$HERE/.." && pwd)"
 source "$HERE/helpers.sh"
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; exit 0; }
 T="$(mktemp -d /tmp/t670.XXXXXX)"        # short: a unix socket path is capped near 100 bytes
-export TMUX_TMPDIR="$T/b"; mkdir -p "$TMUX_TMPDIR"; unset TMUX TMUX_PANE   # never the host's server
+tmux_short_dir   # never the host's server (#1077: a short socket path)
 SA="$T/a.sock"
-trap 'tmux -S "$SA" kill-server 2>/dev/null; tmux kill-server 2>/dev/null; rm -rf "$T"' EXIT
+trap 'tmux -S "$SA" kill-server 2>/dev/null; tmux kill-server 2>/dev/null; rm -rf "$T"; tmp_cleanup' EXIT
 source "$ROOT/scripts/lib.sh" 2>/dev/null; source "$ROOT/scripts/session/tmux.sh"
 on_a(){ tmux -S "$SA" "$@"; }                 # server A, addressed by its socket
 on_b(){ env -u TMUX tmux "$@"; }              # server B: the default under TMUX_TMPDIR

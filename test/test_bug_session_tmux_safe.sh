@@ -37,8 +37,8 @@ assert_eq "$(_bug_claim_key 7)"                "bug-7"                       "ba
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; finish; exit 0; }
 echo "== a bug-lane session for a dotted repo is found live =="
 T="$(mktemp -d /tmp/t557.XXXXXX)"   # the socket path has to be short
-export TMUX_TMPDIR="$T"; unset TMUX TMUX_PANE   # never the host's server
-trap 'tmux kill-server 2>/dev/null; rm -rf "$T"' EXIT
+tmux_short_dir   # never the host's server (#1077: a short socket path)
+trap 'tmux kill-server 2>/dev/null; rm -rf "$T"; tmp_cleanup' EXIT
 export HARNESS_SESSION_BACKEND=tmux
 assert_no "(before) bug_session_live is false" bug_session_live vercel/next.js 7
 sess_start "$(sess_bug vercel/next.js 7 fix)" /tmp >/dev/null 2>&1
