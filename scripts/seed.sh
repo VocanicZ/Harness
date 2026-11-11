@@ -51,6 +51,7 @@ _seed_labels(){
   _seed_add_label "$HARNESS_LABEL_BUG"         d73a4a "Bug-lane work; isolated from the normal pool"
   _seed_add_label "$HARNESS_LABEL_BUG_TRIAGED" d73a4a "Bug-lane work, triaged; still isolated from the pool"
   _seed_add_label "$HARNESS_LABEL_HITL"        5319e7 "Human-in-the-loop — the fleet never claims it"
+  _seed_add_label "$HARNESS_LABEL_WAITING_WINSMA" bfd4f2 "Parked in the winsma lock queue (#1034); redispatched when its ticket is next"
 }
 
 # ---------------------------------------------------------------------------

@@ -202,6 +202,22 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   `winsma.sh status` (and `harness status`, when `HARNESS_WINDOWS_HOST` is set) shows the holder, how long it has held
   the lock, the heartbeat age and the queue in order with each ticket's wait; a host that does not answer within
   `WS_STATUS_TIMEOUT` (default 5 s) shows as one `winsma: unreachable` line.
+- **Parking: a queued lane frees its pool slot** (#1034). Four lanes once sat in their sessions for hours, each holding a pool
+  slot, polling for the lock. An **implementation lane** that has queued and is not next now runs
+  `winsma.sh park <issue> <owner/repo>` (after committing and pushing; it refuses a dirty or unpushed worktree, and refuses
+  when the lane is next with the lock free, in which case it should just take the lock). `park` keeps the issue's queue
+  ticket, posts a `<!-- harness-handoff … -->` comment, and swaps `agent-working` for the **`waiting-winsma`** label
+  (`HARNESS_LABEL_WAITING_WINSMA`) in one edit. That is not `agent-paused`: no HARNESS CHECKPOINT was sent, and the #417
+  self-park nudge never looks at it. The engine reads the issue as done for its session (the session is ended, the slot is
+  free) and does **not** dispatch an issue that carries the label. Each pool chores tick (at most one per
+  `HARNESS_WINSMA_WAKE_S`, default 60 s, and only while an issue is parked) the engine runs `winsma.sh turn <issue>` for every
+  parked issue, under `WS_WAKE_TIMEOUT` (default 20 s). `turn` refreshes the ticket, because no lane is alive to do it, so the
+  place is not lost to the stale-ticket drop; it also takes a fresh ticket at the back if the old one was lost. When the
+  ticket is first in the queue and the lock is free (or its holder's heartbeat is stale and the lane gone), the engine removes
+  the label and the issue is dispatched once, as a resume (`resume.md`, from the pushed branch). That lane's `lock` then
+  succeeds on its first attempt, ahead of any lane that queued after it. A host that cannot be reached leaves the issue parked
+  (one log line per outage); with no `HARNESS_WINDOWS_HOST` configured the label is removed at once. The PRD review lane is not
+  parked by this: it still waits in its session (#1038).
 - **Isolation.** Everything runs in `C:\hx-<issue>\`. `harness`'s own state (`HARNESS_HOME`, `HARNESS_BIN_DIR`,
   `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache`, `GIT_CONFIG_GLOBAL` (a fleet's `ensure_safe` writes `safe.directory` entries to the global git config, which must not be `~/.gitconfig`) and the clone live under it. Install, update and uninstall
   runs also set `CLAUDE_CONFIG_DIR`; the full suite also sets `HOME` and `USERPROFILE` to `C:\hx-<issue>\home`.

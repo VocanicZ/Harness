@@ -9,3 +9,10 @@
    - Follow the "Verification on winsma" rules of PRD #475: wait your turn in the lock's FIFO queue (never agent-paused), one `run` per acquisition and never a lock held across runs (hold cap WS_HOLD_MAX, 90 min, when another lane is queued), write no credential, make no
      machine-wide change, commit that log under test/smoke/logs/. Windows red that Linux Round 1/2 does not also have is YOURS;
      a skipped test must name its `n/a` matrix row (`windows_skip` in test/helpers.sh). A host that is down: note it in an issue comment, go on.
+   - A long wait does not keep your pool slot (#1034). If the `run` log says `queue position N of M` with N > 1 and the wait is not about to
+     end, PARK instead of polling: commit and push your branch, then
+       bash {{WINSMA_DIR}}/winsma.sh park {{ISSUE}} {{SLUG}}
+     It keeps your place in the queue, posts the handoff, and swaps `agent-working` for the `waiting-winsma` label (this is NOT `agent-paused`,
+     and no HARNESS CHECKPOINT is involved). Your session then ends. Harness resumes the issue from this branch once your ticket is next and
+     the lock is free; take the lock again then and it succeeds without queueing behind a lane that queued after you. `park` refuses while
+     you are next with the lock free (take it) or with unpushed work (push, then park). A host that is down: do not park, note it, go on.

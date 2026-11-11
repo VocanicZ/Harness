@@ -332,6 +332,98 @@ echo "# docs: the queue and the cap"
   assert_no "the docs no longer teach iterating in one lock session" grep -qi 'iterate in one lock session' "$D"
   finish ) || rc=1
 
+echo "# park: a waiting lane gives up its pool slot and keeps its place (#1034)"
+# fake_gh — a gh that keeps each issue's labels in $T/labels.<n> and every comment in $T/comments.<n>.
+fake_gh(){ GHLOG="$T/gh.log"; : >"$GHLOG"
+  gh(){ local sub="$1 $2" n="$3" a; echo "gh $*" >>"$GHLOG"; shift 3
+    case "$sub" in
+      "issue comment") while [[ $# -gt 0 ]]; do [[ "$1" == --body ]] && printf '%s\n' "$2" >>"$T/comments.$n"; shift; done;;
+      "issue edit") touch "$T/labels.$n"; while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --add-label) grep -qxF "$2" "$T/labels.$n" || echo "$2" >>"$T/labels.$n";;
+            --remove-label) grep -vxF "$2" "$T/labels.$n" >"$T/labels.$n.x"; mv "$T/labels.$n.x" "$T/labels.$n";;
+          esac; shift; done;;
+    esac; return 0; }
+  labels_of(){ sort "$T/labels.$1" 2>/dev/null | tr '\n' ' '; }; }
+( fresh_env; fake_gh; export WS_PARK_CHECK_PUSHED=0 WS_OWNER_LIVE_CMD=true
+  ws_lock 111 lane-a $$ >/dev/null                      # lane A holds the lock, its heartbeat is live
+  echo "agent-working" >"$T/labels.222"; echo "agent-working" >"$T/labels.333"
+  ws_call r_queue_join 222 lane-b $$ >/dev/null; sleep 0.05; ws_call r_queue_join 333 lane-c $$ >/dev/null   # B queues first, C after
+  out="$(ws_park 222 acme/widget 2>&1)"; rc=$?
+  assert_eq "$rc" "0" "lane B, queued behind A and not next, parks"
+  assert_eq "$(labels_of 222)" "waiting-winsma " "B's issue carries the waiting label and no agent-working"
+  assert_eq "$(grep -c 'issue edit' "$GHLOG")" "1" "the label swap is ONE edit: the issue is never seen with neither label"
+  grep -q -- '--add-label waiting-winsma --remove-label agent-working' "$GHLOG"; assert_eq "$?" "0" "...adding the waiting label and removing agent-working"
+  [[ "$out" != *agent-paused* ]] && ! grep -q 'agent-paused' "$GHLOG"; assert_eq "$?" "0" "parking never touches agent-paused (#417's nudge keys on it)"
+  head -1 "$T/comments.222" | grep -qxF '<!-- harness-handoff issue=222 branch=issue/222 -->' || head -1 "$T/comments.222" | grep -q '^<!-- harness-handoff issue=222 branch='
+  assert_eq "$?" "0" "a handoff comment is posted (the marker the resume path reads)"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "222 333 " "B's ticket survives the park, still ahead of C"
+  ws_turn 222 >/dev/null; assert_eq "$?" "1" "while A holds the lock B is not next"
+  ws_turn 333 >/dev/null; assert_eq "$?" "1" "C is behind B"
+  # the engine's refresh keeps the place while no lane is alive: an old ticket is touched, not dropped
+  tk="$(ls "$WS_C"/hx-queue/*-222)"; touch -d '2 hours ago' "$tk"
+  ws_turn 222 >/dev/null; age=$(( $(date +%s) - $(stat -c %Y "$tk") )); assert_eq "$(( age < 60 ))" "1" "turn refreshes the parked ticket"
+  ws_unlock 111
+  out="$(ws_turn 222)"; assert_eq "$?" "0" "A released: B's ticket is next and the lock is free"; [[ "$out" == ready* ]]; assert_eq "$?" "0" "...and turn says ready"
+  ws_turn 333 >/dev/null; assert_eq "$?" "1" "C is still not next"
+  ws_lock 222 lane-b2 $$ >/dev/null 2>&1; assert_eq "$?" "0" "B's resumed lane takes the lock on its first attempt"
+  assert_eq "$(sed -n 's/^issue=//p' "$WS_C/hx-lock/owner")" "222" "...ahead of C, which queued after B"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "333 " "C is still queued, B's ticket is gone"
+  finish ) || rc=1
+( fresh_env; fake_gh; export WS_PARK_CHECK_PUSHED=0 WS_OWNER_LIVE_CMD=true
+  ws_lock 111 lane-a $$ >/dev/null
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "0" "a lane that never queued takes a ticket when it parks"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "222 " "...at the back"
+  ws_call r_queue_leave 222 >/dev/null; ws_turn 222 >/dev/null; assert_eq "$?" "1" "a lost ticket is re-taken by turn (not stuck for ever)"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "222 " "...so the issue is still in the queue"
+  finish ) || rc=1
+( fresh_env; fake_gh; export WS_PARK_CHECK_PUSHED=0   # next in line with the lock free: park refuses, the lane should take the lock
+  ws_call r_queue_join 222 lane-b $$ >/dev/null
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "4" "next with the lock free: park refuses (take the lock)"
+  assert_eq "$(labels_of 222)" "" "...and changed no label"
+  assert_eq "$(grep -c 'gh ' "$GHLOG")" "0" "...and made no gh call"
+  finish ) || rc=1
+( fresh_env; fake_gh; export WS_PARK_CHECK_PUSHED=0 WS_OWNER_LIVE_CMD=false
+  seed_lock 111 lane-a 999999 2000                      # a holder whose heartbeat is old AND whose lane is gone
+  ws_call r_queue_join 222 parked-222 - >/dev/null
+  ws_turn 222 >/dev/null; assert_eq "$?" "0" "a dead holder: the first parked ticket is woken, the resumed lane breaks the lock"
+  export WS_OWNER_LIVE_CMD=true; ws_turn 222 >/dev/null; assert_eq "$?" "1" "an old heartbeat whose lane is live is not broken, not woken"
+  finish ) || rc=1
+( fresh_env; fake_gh; export WS_PARK_CHECK_PUSHED=0 WS_OWNER_LIVE_CMD=true
+  ws_lock 111 lane-a $$ >/dev/null
+  ws_call r_queue_join 222 lane-b $$ >/dev/null
+  export WINSMA_SSH=false                               # the host cannot be reached
+  out="$(ws_turn 222 2>&1)"; assert_eq "$?" "2" "host unreachable: turn says so (exit 2), the engine leaves the issue parked"
+  echo "agent-working" >"$T/labels.222"; : >"$GHLOG"
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "1" "host unreachable: park refuses"
+  assert_eq "$(labels_of 222)" "agent-working " "...and leaves the lane working"
+  assert_eq "$(grep -c 'gh ' "$GHLOG")" "0" "...with no comment and no label edit"
+  assert_no "turn without a host configured fails" env -u HARNESS_WINDOWS_HOST bash "$W/winsma.sh" turn 5
+  assert_no "a non-numeric issue (hx-lock) cannot be parked" bash "$W/winsma.sh" park hx-lock acme/widget
+  finish ) || rc=1
+( fresh_env; fake_gh                                    # the lane's work must be pushed before the session is ended
+  export WS_OWNER_LIVE_CMD=true; ws_lock 111 lane-a $$ >/dev/null; ws_call r_queue_join 222 lane-b $$ >/dev/null
+  git init -q --bare "$T/origin.git"; git init -q "$T/wt"; cd "$T/wt" || exit 1
+  git config user.email a@b.c; git config user.name t; git remote add origin "$T/origin.git"
+  git checkout -q -b issue/222; echo a >a; git add a; git commit -q -m one
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "1" "an unpushed branch: park refuses"
+  git push -q origin issue/222; echo b >b
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "1" "an uncommitted file: park refuses"
+  git add b; git commit -q -m two
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "1" "a commit not pushed: park refuses"
+  assert_eq "$(labels_of 222)" "" "...and no label changed while it refused"
+  git push -q origin issue/222
+  ws_park 222 acme/widget >/dev/null 2>&1; assert_eq "$?" "0" "clean and pushed: park goes ahead"
+  assert_eq "$(labels_of 222)" "waiting-winsma " "...and swaps the labels"
+  cd "$HERE" || true
+  finish ) || rc=1
+( fresh_env
+  P="$HERE/../prompts/_windows_rtdd.md"
+  grep -q 'winsma.sh park {{ISSUE}} {{SLUG}}' "$P" && grep -q 'waiting-winsma' "$P" && grep -q 'NOT `agent-paused`' "$P"; assert_eq "$?" "0" "the Windows rtdd prompt tells a queued lane how to park"
+  for k in waiting-winsma HARNESS_LABEL_WAITING_WINSMA "winsma.sh park"; do grep -q -- "$k" "$HERE/../docs/windows-smoke.md"; assert_eq "$?" "0" "docs/windows-smoke.md documents $k"; done
+  grep -q 'HARNESS_LABEL_WAITING_WINSMA' "$HERE/../docs/reference.md"; assert_eq "$?" "0" "docs/reference.md documents the label key"
+  finish ) || rc=1
+
 echo "# isolation"
 ( fresh_env
   ws_isolate 479; hx="$WS_C/hx-479"
