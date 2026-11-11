@@ -591,7 +591,10 @@ sup_auto_update(){ local lk
 # Every session backend's binaries, found or not: the unit's fleets may run any backend (#351), and one
 # a host lacks (tmux, on a headless-only host) is simply left out — never required.
 sup_unit_path(){ local b p sb out=()
-  for b in $(sup_agent_bins) gh rtdd $(for sb in $(sess_backend_list); do ( export "$SESS_CONFIG_VAR=$sb"; sess_bins ); done) git python3 curl; do
+  # On Windows the `harness start` a pass runs launches workers through powershell (detach_launch): a task PATH without its directory died with
+  # "powershell: command not found" and a killed worker was never restarted (#496). schtasks and tasklist live beside it in System32.
+  for b in $(sup_agent_bins) gh rtdd $(for sb in $(sess_backend_list); do ( export "$SESS_CONFIG_VAR=$sb"; sess_bins ); done) git python3 curl \
+           $(is_windows && echo powershell schtasks tasklist); do
     if [[ $b == rtdd ]]; then p=$(rtdd_exe 2>/dev/null) || continue; else p=$(command -v "$b" 2>/dev/null) || continue; fi   # rtdd.exe on Windows (#495)
     [[ $p == /* ]] && out+=("$(dirname "$p")")
   done

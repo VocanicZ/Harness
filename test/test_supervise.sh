@@ -391,6 +391,10 @@ assert_ok "--install writes the unit"                       test -f "$U/harness-
 assert_ok "unit restarts always"                            grep -qx "Restart=always" "$U/harness-supervise.service"
 assert_ok "a unit restart never kills the fleets it started" grep -qx "KillMode=process" "$U/harness-supervise.service"
 assert_ok "unit runs this engine's supervise"               grep -qx "ExecStart=/eng/bin/harness supervise" "$U/harness-supervise.service"
+# Windows (#496): the task's PATH must reach powershell, which detach_launch starts workers with, or a killed worker is never restarted.
+mkdir -p "$T/winps"; printf '#!/bin/sh\n' >"$T/winps/powershell"; chmod +x "$T/winps/powershell"
+assert_ok "Windows: the unit PATH holds powershell's dir"   bash -c "! [[ -z \"\$1\" ]] && tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" _HARNESS_OS=windows sup_unit_path)"
+assert_no "a Linux unit PATH does not look for powershell"  bash -c "tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" sup_unit_path)"
 assert_ok "unit PATH holds the claude/gh/rtdd dir"          grep -q "^Environment=PATH=$T/tools:" "$U/harness-supervise.service"
 assert_ok "systemd reloaded + enabled + (re)started"        bash -c "grep -q daemon-reload '$T/systemctl.calls' && grep -q 'enable harness-supervise' '$T/systemctl.calls' && grep -q 'restart harness-supervise' '$T/systemctl.calls'"
 assert_ok "linger enabled"                                  grep -q enable-linger "$T/loginctl.calls"
