@@ -24,6 +24,20 @@ json.dump({"schema_version": 1, "generated_at": time.time(), "slug": "acme/widge
            "plan_marker": None, "self_login": "bot", "ext_deps": {}, "issue_branches": []}, open(path, "w"))
 PY
 }
+# snap_prd <prd-labels> — a PRD (#900) whose one child (#901) is closed: its review is due. HARNESS_MODE=prd.
+snap_prd(){ python3 - "$SNAP" "$1" <<'PY'
+import json, sys, time
+path, labels = sys.argv[1], sys.argv[2]
+def iss(n, state, labs, body):
+    return {"number": n, "title": f"t{n}", "state": state, "body": body, "labels": [{"name": l} for l in labs.split(",") if l],
+            "author": {"login": "bot"}, "updatedAt": "2026-11-11T02:50:00Z"}
+json.dump({"schema_version": 1, "generated_at": time.time(), "slug": "acme/widget", "has_plan": False, "plan_marker": None,
+           "self_login": "bot", "ext_deps": {}, "issue_branches": [],
+           "issues": [iss(900, "OPEN", labels, "## Acceptance criteria\n- x\n"), iss(901, "CLOSED", "ready-for-agent", "## What to build\nx\n\n## Blocked by\nNone\n\n## Parent\n#900\n")]},
+          open(path, "w"))
+PY
+}
+revs(){ HARNESS_MODE=prd python3 "$ISSUELIB" dispatch acme/widget 3 2>/dev/null | cut -f1,2 | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//'; }
 setup(){ make_env
   export HARNESS_AUTONOMOUS=true HARNESS_MODE=issue-only HARNESS_POOL_TAKES_BUGS=0 HARNESS_CLI=claude
   SLUG=acme/widget; REPO=acme/widget; UNIT=main
@@ -129,6 +143,51 @@ assert_eq "$(edits)" "1" "no HARNESS_WINDOWS_HOST: nothing to wait for, the labe
 setup; snap "222:ready-for-agent,waiting-winsma"; ws ws_call r_queue_join 222 lane-b $$ >/dev/null; printf 'waiting-winsma\n' > "$LIVELABELS"
 HARNESS_WINSMA_WAKE_S=3600 winsma_wake_tick; HARNESS_WINSMA_WAKE_S=3600 winsma_wake_tick
 assert_eq "$(edits)" "1" "the tick is throttled to one pass per HARNESS_WINSMA_WAKE_S"
+
+echo "=== 7. the PRD review lane parks too (#1038) ==="
+setup
+snap_prd "prd"
+assert_eq "$(revs)" "REVIEW:900" "(control) a PRD whose children are closed is dispatched a review"
+snap_prd "prd,waiting-winsma"
+assert_eq "$(revs)" "" "a PRD carrying the waiting label is never dispatched a review (no slot taken)"
+assert_no "...and is not reported STUCK" bash -c "HARNESS_MODE=prd python3 '$ISSUELIB' status acme/widget 2>&1 | grep -q STUCK"
+assert_eq "$(HARNESS_MODE=prd python3 "$ISSUELIB" check acme/widget REVIEW:900 2>/dev/null)" "DONE" "check reads the parked review session as done (its slot is freed)"
+snap_prd "prd"
+assert_eq "$(HARNESS_MODE=prd python3 "$ISSUELIB" check acme/widget REVIEW:900 2>/dev/null)" "PENDING" "(control) an unparked, unreviewed PRD: the review is still running"
+snap_prd "prd,waiting-winsma"
+SESS=hz-main-orch-900; echo "REVIEW:900" > "$RUN_DIR/$SESS.goal"; echo "/wt/orch900" > "$RUN_DIR/$SESS.wd"; : > "$CALLS"
+cli_kill(){ echo "kill $1" >> "$CALLS"; }; selfpark_tend(){ echo "selfpark $1" >> "$CALLS"; }; stats_sess_event(){ :; }
+HARNESS_MODE=prd check_session_goal "$SESS"
+assert_eq "$(grep -c '^kill hz-main-orch-900' "$CALLS")" "1" "check_session_goal ends the review's session: it holds no slot"
+assert_eq "$(grep -c '^selfpark' "$CALLS")" "0" "the #417 self-park nudge never touches a parked review"
+assert_no "the session's goal file is gone with it" test -f "$RUN_DIR/$SESS.goal"
+
+echo "=== 8. a review lane queues behind A, parks, is woken when its ticket is next and re-dispatched exactly once ==="
+setup
+export GHLOG="$RUN_DIR/ghpark"; : > "$GHLOG"
+ws ws_lock 111 lane-a $$ >/dev/null                                  # A holds the lock
+ws ws_call r_queue_join 900 review-900 $$ >/dev/null                  # the review lane queues (its issue number is the PRD's)
+( gh(){ echo "gh $*" >> "$GHLOG"; return 0; }; export WS_PARK_CHECK_PUSHED=1   # a throwaway worktree: no pushed branch, and still no refusal
+  cd "$RUN_DIR" || exit 1; ws ws_park 900 acme/widget --review >/dev/null 2>"$RUN_DIR/park.err" ); assert_eq "$?" "0" "the review lane parks with --review from an unpushed throwaway worktree"
+assert_eq "$(grep -c 'issue edit 900 .*--add-label waiting-winsma' "$GHLOG")" "1" "the PRD gets the waiting label, in one edit"
+assert_no "...which neither removes agent-working nor touches agent-paused" grep -Eq 'remove-label|agent-paused' "$GHLOG"
+assert_ok "...and a park comment with the review marker is posted on the PRD" grep -q 'issue comment 900 .*harness-winsma-review-park prd=900' "$GHLOG"
+assert_no "an implementation park (no --review) from the same worktree is still refused for being unpushed" bash -c "cd '$RUN_DIR' && source '$W/winsma.sh' && gh(){ return 0; } && ws_park 900 acme/widget"
+assert_eq "$(ws ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "900 " "its ticket survives the park"
+snap_prd "prd,waiting-winsma"; printf 'prd\nwaiting-winsma\n' > "$LIVELABELS"; : > "$CALLS"
+assert_eq "$(revs)" "" "parked: no REVIEW is dispatched"
+winsma_wake_tick
+assert_eq "$(edits)" "0" "A holds the lock: the review is not woken"
+ws ws_unlock 111
+winsma_wake_tick
+assert_ok "A released: the wake tick removes the label from the PRD" grep -q '^gh issue edit 900 .*--remove-label waiting-winsma' "$CALLS"
+printf 'prd\n' > "$LIVELABELS"; winsma_wake_tick; winsma_wake_tick
+assert_eq "$(edits)" "1" "...exactly once (a laggy snapshot does not wake it again)"
+snap_prd "prd"
+assert_eq "$(revs)" "REVIEW:900" "the PRD is re-dispatched as REVIEW:900, exactly once"
+ws ws_lock 900 review-900b $$ >/dev/null 2>&1; assert_eq "$?" "0" "the re-dispatched review takes the lock on its first attempt"
+assert_ok "the Windows suite prompt tells a queued review how to park" bash -c "grep -q 'winsma.sh park {{PRD}} {{SLUG}} --review' '$ROOT/prompts/_windows_suite.md' && grep -q 'waiting-winsma' '$ROOT/prompts/_windows_suite.md'"
+assert_ok "prepare_orch renders the suite block with the slug" grep -q 'windows_block _windows_suite.md PRD="\$payload" SLUG="\$SLUG"' "$ROOT/scripts/drive.sh"
 
 echo "=== 6. wired into the pool's chores, the label is seeded and configurable ==="
 assert_ok "worker_chores runs winsma_wake_tick" grep -q 'winsma_wake_tick' "$ROOT/scripts/pool-worker.sh"

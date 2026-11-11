@@ -417,6 +417,19 @@ fake_gh(){ GHLOG="$T/gh.log"; : >"$GHLOG"
   assert_eq "$(labels_of 222)" "waiting-winsma " "...and swaps the labels"
   cd "$HERE" || true
   finish ) || rc=1
+( fresh_env; fake_gh; export WS_OWNER_LIVE_CMD=true     # the PRD review lane (#1038): --review, no branch to push
+  ws_lock 111 lane-a $$ >/dev/null; echo "prd" >"$T/labels.900"; ws_call r_queue_join 900 review-900 $$ >/dev/null
+  git init -q "$T/rwt"; cd "$T/rwt" || exit 1            # a worktree with no origin and no pushed branch
+  ws_park 900 acme/widget >/dev/null 2>&1; assert_eq "$?" "1" "without --review an unpushed worktree is refused"
+  ws_park 900 acme/widget --review >/dev/null 2>&1; assert_eq "$?" "0" "--review parks the PRD's review lane with nothing pushed"
+  assert_eq "$(labels_of 900)" "prd waiting-winsma " "...the PRD gains the waiting label and keeps its prd label"
+  head -1 "$T/comments.900" | grep -qxF '<!-- harness-winsma-review-park prd=900 -->'; assert_eq "$?" "0" "...with the review park marker comment"
+  ! grep -q 'agent-paused\|remove-label' "$GHLOG"; assert_eq "$?" "0" "...no agent-paused, no label removed"
+  ws_turn 900 >/dev/null; assert_eq "$?" "1" "while A holds the lock the PRD is not next"
+  ws_unlock 111; ws_turn 900 >/dev/null; assert_eq "$?" "0" "A released: the PRD's ticket is next"
+  ws_park 900 --review acme/widget >/dev/null 2>&1; assert_eq "$?" "4" "--review may come before the repo; next with the lock free: refused (take the lock)"
+  cd "$HERE" || true
+  finish ) || rc=1
 ( fresh_env
   P="$HERE/../prompts/_windows_rtdd.md"
   grep -q 'winsma.sh park {{ISSUE}} {{SLUG}}' "$P" && grep -q 'waiting-winsma' "$P" && grep -q 'NOT a checkpoint' "$P"; assert_eq "$?" "0" "the Windows rtdd prompt tells a queued lane how to park"

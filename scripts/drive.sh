@@ -335,7 +335,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     SECURITY_AUDIT="$HARNESS_SECURITY_AUDIT" SECURITY_AUDIT_ROUNDS="$HARNESS_SECURITY_AUDIT_ROUNDS" \
     SECURITY_AUDIT_ROUND="$saround" SECURITY_AUDIT_DIR="$STATE_DIR/security-audit/$UNIT/p$prd" \
     SECURITY_AUDIT_SKILL="$ENGINE_DIR/vendor/security-audit/SKILL.md" \
-    WINDOWS_SUITE="$(windows_block _windows_suite.md PRD="$payload")" \
+    WINDOWS_SUITE="$(windows_block _windows_suite.md PRD="$payload" SLUG="$SLUG")" \
     SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
   launch_claude "$(sess_orch "$UNIT" "$prd")" "$wd"
 }

@@ -4,10 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
-### A lane waiting for the winsma lock parks and frees its pool slot (#1034)
+### A lane waiting for the winsma lock parks and frees its pool slot (#1034, #1038)
 
 - An implementation lane that has queued for `C:\hx-lock` and is not next can run `winsma.sh park`: it keeps its queue ticket, posts a handoff and swaps `agent-working` for the new `waiting-winsma` label (`HARNESS_LABEL_WAITING_WINSMA`, seeded with the other labels). Its session ends and the slot is free; the label is not `agent-paused`, so the #417 self-park nudge leaves it alone.
 - The pool does not dispatch an issue that carries the label. Each chores tick the engine asks `winsma.sh turn` (bounded by `WS_WAKE_TIMEOUT`) for every parked issue, which also refreshes the ticket so the place is kept; when the ticket is next and the lock is free the label is removed and the issue is resumed from its pushed branch, and its lock attempt succeeds without queueing behind a lane that queued after it. An unreachable host leaves the issue parked.
+- The PRD review lane parks too (#1038): `winsma.sh park <prd> <owner/repo> --review` keeps its ticket and puts `waiting-winsma` on the PRD (no push check, no `agent-working` swap: the review has neither). The PRD is not dispatched a REVIEW while it carries the label, `check` reads the review session as done, and the same wake tick re-dispatches it as `REVIEW:<prd>` once the ticket is next.
 
 ### The winsma lock is a FIFO queue with a hold cap, and `harness status` shows it (#1033)
 

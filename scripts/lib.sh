@@ -1654,7 +1654,7 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
     live="$(gh issue view "$n" -R "$SLUG" --json labels -q '.labels[].name' 2>/dev/null)" || continue   # the snapshot lags: act on the live labels
     grep -qxF "$HARNESS_LABEL_WAITING_WINSMA" <<<"$live" || continue
     if gh issue edit "$n" -R "$SLUG" --remove-label "$HARNESS_LABEL_WAITING_WINSMA" >/dev/null 2>&1; then
-      log "winsma-wake: #$n — ${out##*$'\n'}; $HARNESS_LABEL_WAITING_WINSMA removed, the issue is re-dispatched as a resume (#1034)"
+      log "winsma-wake: #$n — ${out##*$'\n'}; $HARNESS_LABEL_WAITING_WINSMA removed, the issue is re-dispatched (a resume for an implementation issue, a REVIEW for a PRD) (#1034, #1038)"
       harness_event winsma_wake repo="$SLUG" issue="$n"
     fi
   done
