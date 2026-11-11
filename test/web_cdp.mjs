@@ -12,15 +12,32 @@
 // A test tool only (no npm package: Node >= 22's own WebSocket), never shipped to the page.
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 
 const [browser, url] = process.argv.slice(2);
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Chrome's process singleton makes a unix socket at $TMPDIR/org.chromium.Chromium.XXXXXX/SingletonSocket (TMPDIR + 45 bytes) and aborts
+// with "Socket path too long" past the AF_UNIX limit of 107. The caller's TMPDIR is not ours to trust (the release gate's, plus run.sh's
+// per-test nesting, is 66 bytes; --user-data-dir does not help, the socket is still made under TMPDIR), so the browser gets a private
+// dir directly under /tmp (#1080, the browser-side twin of tmux_short_dir, #1077), removed when it exits (#294). Not on Windows (no unix
+// socket there) and not when /tmp is missing: the inherited TMPDIR stays.
+let browserTmp = "";
+if (process.platform !== "win32" && existsSync("/tmp")) {
+  try { browserTmp = mkdtempSync("/tmp/hxcdp."); } catch (e) { browserTmp = ""; }
+}
+function dropTmp() {
+  if (!browserTmp) return;
+  try { rmSync(browserTmp, { recursive: true, force: true }); } catch (e) { /* best effort */ }
+  browserTmp = "";
+}
+process.on("exit", dropTmp);
+
 const proc = spawn(browser, ["--headless=new", "--remote-debugging-port=0", "--no-first-run",
   "--no-default-browser-check", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "about:blank"],
-  { stdio: ["ignore", "ignore", "pipe"] });
+  { stdio: ["ignore", "ignore", "pipe"], env: browserTmp ? { ...process.env, TMPDIR: browserTmp } : process.env });
+proc.once("exit", dropTmp);
 let stopping = false;
 function stop(code) {
   if (stopping) return;
@@ -30,16 +47,22 @@ function stop(code) {
   proc.once("exit", () => process.exit(code));
 }
 
+// What a browser that died on start said: its FATAL / ERROR lines (the register dump after them would push them out of a tail), then the tail.
+function crashReport(buf) {
+  const lines = buf.split("\n").filter((l) => /\b(FATAL|ERROR)\b/.test(l)).slice(0, 5).map((l) => l.slice(0, 300));
+  return (lines.length ? lines.join("\n") + "\n…\n" : "") + buf.slice(-400);
+}
+
 function wsUrl() {
   return new Promise((resolve, reject) => {
     let buf = "";
-    const timer = setTimeout(() => reject(new Error("no DevTools URL in 20s: " + buf.slice(-400))), 20000);
+    const timer = setTimeout(() => reject(new Error("no DevTools URL in 20s: " + crashReport(buf))), 20000);
     proc.stderr.on("data", (d) => {
-      buf += d;
+      buf = (buf + d).slice(-65536);
       const m = buf.match(/DevTools listening on (ws:\/\/\S+)/);
       if (m) { clearTimeout(timer); resolve(m[1]); }
     });
-    proc.once("exit", (c) => reject(new Error("browser exited " + c + ": " + buf.slice(-400))));
+    proc.once("exit", (c) => reject(new Error("browser exited " + c + ": " + crashReport(buf))));
   });
 }
 
