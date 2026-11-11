@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# rtdd: always
 """test_portable_guard.py — #355 / ADR 0001: the engine's process and locking primitives stay behind
 scripts/portable.sh and scripts/portable.py.
 

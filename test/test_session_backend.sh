@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_session_backend.sh — #346 / PRD #344: the session-backend seam. HARNESS_SESSION_BACKEND is read
 # in one place (scripts/session/dispatch.sh), defaults to tmux, is written by `harness init`, reported
 # by `harness doctor` and refused when unknown; every lane-lifecycle operation reaches tmux through
