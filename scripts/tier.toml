@@ -4,7 +4,8 @@
 #
 # PROVISIONAL: these numbers are a first guess from one bench run (run-20261106: a 3-minute
 # single-session job took the fleet 59 minutes and about $7.58 against $0.64 direct). #621 sweeps
-# real runs and recalibrates them; until it reports, treat every value below as a starting point.
+# real runs and recalibrates them (`bench/crossover.py --write-tier` rewrites the numbers below from the results; the
+# medium and large sizes are still to run, #1035); until it reports, treat every value below as a starting point.
 
 [direct]
 # A change fits ONE session — do it in the session itself — when ALL of these hold ...
@@ -28,11 +29,22 @@ min_unattended_minutes = 120   # hours of unattended work
 # Rough time and cost shown for both paths. Minutes and USD at current list prices; the direct
 # figure scales with criteria, the fleet figure is its fixed pipeline (front -> PRD -> lanes -> review)
 # plus the same per-criterion work. Where `harness forecast` has history for the issue, prefer it.
-direct_minutes_base    = 3
-direct_minutes_per_criterion = 1.5
-direct_usd_base        = 0.30
-direct_usd_per_criterion = 0.10
+direct_minutes_base    = 0.0
+direct_minutes_per_criterion = 0.178
+direct_usd_base        = 0.02
+direct_usd_per_criterion = 0.033
 fleet_minutes_base     = 12   # the projection after the fixes in PRD #587 (was 59 in run-20261106)
 fleet_minutes_per_criterion = 2
 fleet_usd_base         = 2.50
 fleet_usd_per_criterion = 0.30
+
+# --- calibration:start (bench/crossover.py writes this block) ---
+# measured by #621 from: small=run-20261110, medium=run-20261111-medium
+# Quality (Harness matches or beats plain): not reached at a size with 5 runs a side.
+# Time (Harness with 3 workers also matches or beats plain): not reached at a size with 5 runs a side.
+# Indicative only (fewer than 5 runs a side): small.
+# no limit moved: no size has a stated verdict (fewer than 5 runs a side, or not run)
+# estimate.direct_minutes_base 3 -> 0.0, direct_minutes_per_criterion 1.5 -> 0.178 (fitted to 2 measured sizes)
+# estimate.direct_usd_base 0.3 -> 0.02, direct_usd_per_criterion 0.1 -> 0.033 (fitted to 2 measured sizes)
+calibrated_from = "small=run-20261110, medium=run-20261111-medium"
+# --- calibration:end ---

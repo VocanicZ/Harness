@@ -1,0 +1,15 @@
+{
+ "about": "The decomposition a planner would naturally arrive at for bench/fixture-medium/brief.md: one issue per row, `needs` the issues that must land first. It is NOT given to any arm; test/test_bench_medium.py checks that its size (6-10), shape (acyclic, at least 2 independent issues at one depth) and the two subsystems stay what the fixture claims.",
+ "subsystems": {"shelves": "the catalogue, the stock movements, what is low", "orders": "prices, discounts, tax, shipping what is in stock, invoices, a report"},
+ "issues": [
+  {"id": "I1", "title": "Project skeleton: packaging, errors, money and date helpers, ledger-style file reading", "subsystem": "shelves", "needs": []},
+  {"id": "I2", "title": "Catalogue parser and parse_catalog", "subsystem": "shelves", "needs": ["I1"]},
+  {"id": "I3", "title": "Movements parser, stock rule (never below zero), stock_levels", "subsystem": "shelves", "needs": ["I1", "I2"]},
+  {"id": "I4", "title": "Shelves CLI: stock, low, history, receive, ship, --json, exit statuses", "subsystem": "shelves", "needs": ["I3"]},
+  {"id": "I5", "title": "Orders parser and parse_orders", "subsystem": "orders", "needs": ["I2"]},
+  {"id": "I6", "title": "Pricing: volume discount, order discount shared by largest remainder, tax per line, price_order", "subsystem": "orders", "needs": ["I2", "I5"]},
+  {"id": "I7", "title": "quote command", "subsystem": "orders", "needs": ["I4", "I6"]},
+  {"id": "I8", "title": "fulfil: what the shelves can cover, earlier shipments, later movements", "subsystem": "orders", "needs": ["I3", "I5", "I7"]},
+  {"id": "I9", "title": "invoice and report (text, csv, json)", "subsystem": "orders", "needs": ["I6", "I8"]}
+ ]
+}

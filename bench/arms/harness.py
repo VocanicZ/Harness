@@ -18,6 +18,8 @@ what it does for any user: `harness init`, the PRD, `harness start`. Out-of-the-
 --model/--effort for the front door (the account's), and no HARNESS_MODEL_*/EFFORT_* in the environment, so
 the fleet runs its role defaults (#373/#375). The models that actually ran come from the transcripts, like
 every arm's: the front door's, and every session the fleet logs in its events.jsonl.
+THE TIER CHECK (#621). The /harness skill's step 0 would send a small job down the direct path and so skip the fleet
+the arm exists to measure; the fixed line (AUTONOMY_NOTE) overrides it to `fleet`, the user's `--prefer fleet`.
 A front door that stops before a fleet is up gets the scripted reply `keep going, decide for yourself` (at
 most 5; counts.continue_replies).
 
@@ -63,7 +65,9 @@ MAX_RESTARTS = 3
 AUTONOMY_NOTE = ("\n\n(Unattended run: nobody is here to answer. Treat every Confirm in the /harness steps as "
                  "a yes, answer your own grilling questions from the brief above, decide anything ambiguous "
                  "yourself and do not stop to ask. The fleet's settings are already in the environment: "
-                 "keep them.)\n")
+                 "keep them. The tier check (step 0, \"When to use Harness\") is already answered: the user "
+                 "chose the fleet, as if you had passed `--prefer fleet` to `harness tier decide`; do the "
+                 "full flow, not the direct path. #621)\n")
 FRONT_FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--dangerously-skip-permissions"]
 SECRET_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # The only HARNESS_* that cross into the run fleet: where usage is read and where transcripts are searched,

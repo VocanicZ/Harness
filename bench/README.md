@@ -343,7 +343,7 @@ that actually ran come from the transcript like every other arm's. `--arm-opt cl
   itself says nothing about git).
 - **Continue replies.** `claude -p` ends a turn when the session stops. It is DONE when the final message
   does not end in a question and the work is delivered (clean clone, HEAD on `origin/main`, a commit past the
-  brief). Otherwise `keep going, decide for yourself` goes in, at most 20 times; at the cap the arm stops and
+  brief). Otherwise the scripted nudge `continue until the brief is fully done` (#621; it was `keep going, decide for yourself` before) goes in, at most 20 times (30 for the medium fixture, 50 for the large one); at the cap the arm stops and
   the run is graded as it stands. A turn that errors (a usage limit, an API failure) fails the arm.
 - **Counts** in the results: `continue_replies` and `commits` (commits on `main` past the brief).
 
@@ -458,6 +458,66 @@ several apply (`guard.causes` holds the same list; `guard.reasons` keeps the hum
 A disk-only refusal on a host whose usage fits is `disk`, a usage refusal is `budget`, and both is
 `disk,budget`. `bench/figures.py` renders a `status: skipped` record as a `skipped: <reason>` row (a
 `skipped.json` map still works for a reason that is not the guard's). `--dry-run` never records.
+
+## Medium fixture and the face-to-face (#621)
+
+`bench/fixture-medium/` is the size between the two: **stockroom**, a stock-and-orders tool for a small shop, with a
+12 KB brief, two subsystems and 6-10 issues of work (`shape.json` is the decomposition a planner would reach, 9 issues; it is
+not given to any arm). It is the same shape as the others: `brief.md`, `reference/` (the oracle the hidden tests and the fuzz
+are proved against), `hidden/` (black-box tests, the CLI from `$STOCKROOM_CMD`), `fuzz.py` (a [blind generator](#blind-generators-620),
+written from the brief and the reference before any arm ran on it) and `fixture.json`.
+
+| | small (`pennywise`) | medium (`medium`) | large (`large`) |
+|---|---|---|---|
+| brief | 4.7 KB | 12 KB | 20 pages |
+| reference code | ~240 lines, 4 files | ~630 lines, 13 files | ~5,300 lines, 37 files |
+| subsystems | 1 | 2 (shelves, orders) | 5 |
+| issues of work | 1-3 | 9 | 30-40 |
+| mid-run change | no | no | yes (`change.md`) |
+
+The reference is smaller than the 1.5-2k lines the issue sketched: the size that matters to the measurement is the brief's
+(37 bullet requirements, against 17 and 232), and the two subsystems are real (orders depend on the shelves).
+
+```
+bench/run.py plain --fixture medium --runs 5
+bench/run.py harness --fixture medium --runs 5          # POOL=1
+bench/run.py harness-3 --fixture medium --runs 5        # POOL=3
+bench/run.py harness-opus --fixture medium --runs 5 --optional   # the matched all-Opus arm, secondary
+```
+
+**The plain arm** is one `claude` session given the brief once. It may use sub-agents and plan mode as it likes. When it stops
+before the work is delivered, the one scripted nudge `continue until the brief is fully done` goes in; the number of nudges is
+`counts.continue_replies` and is reported. The large fixture's requirement change reaches it as one written message at the same
+progress point as the Harness arm (`ctx.next_change`, #592).
+
+**The Harness arms** get `/harness <brief>`; the fixed unattended line also answers the tier check ("When to use Harness",
+step 0 of the skill) as `fleet`, the user's `--prefer fleet`, so the fleet really runs on a small job.
+
+**Interventions** are anything typed into a run by hand. The runner has no input channel, so they are 0 by construction; a run
+whose operator touched it carries a `note`.
+
+### The crossover (`bench/crossover.py`)
+
+```
+bench/crossover.py                                  # size x arm table, crossovers, thresholds
+bench/crossover.py --markdown                       # the README's "When to use Harness" section
+bench/crossover.py --write-readme README.md --write-tier scripts/tier.toml
+bench/crossover.py --check                          # exit 1 when either file disagrees with the results
+```
+
+`bench/results/crossover.inputs.json` names the run behind each size (`{"small": "run-ID", "medium": "run-ID", "large": "run-ID"}`);
+a size without an entry is "not run". The rules are written at the top of `bench/crossover.py` and fixed before a number is
+seen: a verdict needs 5 runs on both sides; Harness **matches or beats** plain on quality when it is no worse on every gate it has
+a number for (hidden-test pass rate, median fuzz classes, blind review within 0.5); the **quality crossover** is the smallest size
+where that holds, the **time crossover** the smallest where the pool-3 arm also matches or beats plain's median wall time.
+`scripts/tier.toml` moves only when a stated size brackets a limit, and its `[estimate]` lines are re-fitted only from two measured
+sizes or more; nothing is moved from one size or from fewer than 5 runs.
+
+**State of the data.** Run `run-20261110` is the small size (plain n=5, Harness n=3). The medium and large sizes need the full
+matrix (3 sizes x 4 arms x 5 runs), which does not fit the weekly window of this host's account: one account-week is about $53 at list
+price, the matrix is several hundred dollars at the medium size and thousands at the large one. Until those runs exist the
+thresholds are the provisional ones from #619 and the crossover reads "not reached at a size with 5 runs a side"; #1035 runs
+them and re-runs `bench/crossover.py`.
 
 ## Large fixture (#592)
 

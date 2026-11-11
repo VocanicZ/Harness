@@ -42,6 +42,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   sweep never looked (`headless-stats-session-end-usage`). The hermes profile name hashes the worktree in native spelling too, as the headless runner does, so a headless hermes lane's `state.db` is found by session lookup
   (`headless-loop-mode`). `test_cli_matrix.sh`'s `review-gauntlet` row reads the brief path as the prompt spells it.
 
+### Bench: a medium fixture, the plain arm's scripted nudge, and `bench/crossover.py` for "when to use Harness" (#621)
+
+- New fixture `medium` (`bench/fixture-medium/`, **stockroom**: a stock-and-orders tool, two subsystems, 9 issues of work, a 12 KB brief) with a reference implementation, hidden tests and a blind differential fuzz written from the brief and the reference before any arm ran on it. `bench/run.py <arm> --fixture medium` runs it like the other two.
+- The plain arm's one scripted nudge is now `continue until the brief is fully done` (it was `keep going, decide for yourself`); its count is reported as `continue_replies`. The Harness arms' fixed unattended line now answers the tier check as `fleet` (the user's `--prefer fleet`), so Harness really runs on a small job. The large fixture's requirement change reaches both arms through the same `ctx.next_change` at the same progress point (#592).
+- `bench/crossover.py` builds the size x arm table (median and range of wall time, cost, hidden tests, fuzz classes, blind review, nudges, interventions), the quality and time crossovers (a verdict needs 5 runs a side), the tier thresholds for `scripts/tier.toml`, and the README's "When to use Harness" section; `--check` fails when either file is stale. The rules are written in the file before any number is read. `bench/results/crossover.inputs.json` names the run behind each size.
+- The medium and large matrices (3 sizes x 4 arms x 5 runs) did not run: one account-week of the host's usage window is about $53 at list price and the matrix costs several hundred dollars at the medium size and thousands at the large one. Only the small size has data, so no tier threshold moved and the crossover reads "not reached at a size with 5 runs a side". The runs are #1035.
+
 ### The suite computes a CLI's matrix cells once per run, so the five adapter tests no longer time out on Windows (#1024)
 
 - On winsma, `test_cli_codex.sh`, `test_cli_copilot.sh`, `test_cli_hermes.sh`, `test_cli_openclaw.sh` and `test_cli_opencode.sh` passed every assertion of their own and then hit the 1500 s cap in their closing

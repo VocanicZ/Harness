@@ -884,7 +884,7 @@ def parse_args(argv):
                     help="the fleet's worker count for an arm that runs one (same as --arm-opt workers=N)")
     ap.add_argument("--fixture", default=fixtures().DEFAULT, type=_load("stats").choice_type(fixtures().names()),
                     metavar="{" + ",".join(fixtures().names()) + "}",   # #912: argparse's choices error repr()s a form feed as \\x0c
-                    help="which fixture the arms build (default pennywise, a 4.7 KB brief; large is the 20-page brief "
+                    help="which fixture the arms build (default pennywise, a 4.7 KB brief; medium is stockroom, two subsystems, #621; large is the 20-page brief "
                          "with a mid-run requirement change, graded at milestones; bench/fixtures.py)")
     ap.add_argument("--progress-poll-secs", type=_secs_arg, default=progresslib().POLL_S,
                     help="a fixture with milestones: how often the repo is graded while the arm works (default 300)")

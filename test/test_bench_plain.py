@@ -120,7 +120,7 @@ def test_a_stopped_session_gets_the_scripted_reply_until_done(p):
     brief = open(os.path.join(tb.ROOT, "bench", "fixture", "brief.md")).read().rstrip("\n")
     assert calls[0]["prompt"].startswith(brief) and "--resume" not in calls[0]["argv"], calls[0]
     sid = open(os.path.join(p.fd, "sid")).read().strip()
-    assert calls[1]["prompt"] == "keep going, decide for yourself", calls[1]
+    assert calls[1]["prompt"] == "continue until the brief is fully done", calls[1]
     assert calls[1]["argv"][-2:] == ["--resume", sid], calls[1]["argv"]
     # measured from the transcript the arm registered: both turns, the model that actually ran
     assert list(res["models"]) == ["claude-opus-5-5"] and res["tokens"]["output"] == 2000, res["models"]
@@ -148,7 +148,7 @@ def test_the_reply_cap_is_20_and_the_count_lands_in_the_results(p):
     assert res["counts"] == {"continue_replies": 20, "commits": 0}, res["counts"]
     calls = p.calls()
     assert len(calls) == 21, len(calls)                      # the brief plus 20 replies, then it stops
-    assert all(c["prompt"] == "keep going, decide for yourself" for c in calls[1:])
+    assert all(c["prompt"] == "continue until the brief is fully done" for c in calls[1:])
 
 
 def _isolation_fails(p, why):

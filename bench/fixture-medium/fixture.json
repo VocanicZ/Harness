@@ -1,0 +1,10 @@
+{
+  "name": "medium",
+  "title": "stockroom",
+  "package": "stockroom",
+  "cmd_env": "STOCKROOM_CMD",
+  "fuzz": "fuzz.py",
+  "plain_max_replies": 30,
+  "subsystems": 2,
+  "shape": "shape.json"
+}
