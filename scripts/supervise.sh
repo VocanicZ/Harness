@@ -146,6 +146,8 @@ sup_watch_pane(){
   local t=$1 f=$2 nudge_min=$3 kill_min=$4 msg=$5 cli=$6 killfn=${7:-}
   local pane n bgre body bg cpu now old= oldbg= oldcpu=0 t0 nudged=0 lastn=0 idle
   pane=$(sess_capture "$t") || return 0
+  # #1066: a lane parked on a wait spec ended its turn on purpose; the engine resumes it. Its quiet pane is not a frozen one.
+  [[ -s "$RUN_DIR/${t%%:*}.wait" || -s "$RUN_DIR/${t%%:*}.wait.msg" ]] && return 0
   cli=$(sup_cli "$cli")
   # #207: one endless turn with input queued behind it. The spinner's timer changes every second, so
   # the activity test below would call it busy forever — it is checked first, through the pane's CLI.

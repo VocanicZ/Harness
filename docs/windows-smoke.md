@@ -232,6 +232,11 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   the label and the issue is dispatched once, as a resume (`resume.md`, from the pushed branch). That lane's `lock` then
   succeeds on its first attempt, ahead of any lane that queued after it. A host that cannot be reached leaves the issue parked
   (one log line per outage); with no `HARNESS_WINDOWS_HOST` configured the label is removed at once.
+  **The park is an engine-owned wait (#1066).** `park` also writes the lane's wait spec (`$HARNESS_WAIT_FILE`: cond `winsma`,
+  `resume=redispatch`, deadline `WS_PARK_DEADLINE_S`, default 12 h): the same spec a lane writes for a long job (`harness-wait`,
+  docs/reference.md "Engine-owned waits"), judged by the same tick. Past the deadline the label is removed even if the ticket is not
+  next, so a stuck queue cannot park an issue for ever; a park with no spec (older lanes) is woken by its ticket alone. The long
+  `winsma.sh run` itself is started with `harness-wait run …`, and the lane ends its turn instead of polling its log.
   **The PRD review lane parks the same way** (#1038): queued and not next, it posts the Linux suite result as a PRD comment, then runs
   `winsma.sh park <prd> <owner/repo> --review`. There is no pushed branch (the review's worktree is a throwaway) and the PRD never
   carries `agent-working`, so `--review` skips the push check and only adds `waiting-winsma` to the PRD, with a

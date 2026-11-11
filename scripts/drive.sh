@@ -632,7 +632,7 @@ bug_lane_tend(){ local slug="$1" n="$2" phase sess SLUG="$1"
   for phase in triage fix; do
     sess="$(sess_bug "$slug" "$n" "$phase")"
     session_live "$sess" || continue
-    watchdog_session "$sess"
+    watchdog_session "$sess"; wait_tend "$sess"   # #1066: a bug lane parked on a long job or the usage limit is resumed once
     if bug_goal_done "$n" "$phase"; then
       log "pool: bug #$n $phase goal met — ending $sess"
       [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge

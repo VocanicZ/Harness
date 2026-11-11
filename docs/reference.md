@@ -320,6 +320,9 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_CHURN_WINDOW_MIN` | `180` | The counted young sessions must all end within this many minutes of the newest |
 | `HARNESS_SELFPARK_GRACE_MIN` | `30` | An autonomous fleet's impl lane may label its issue `agent-paused` only when a `HARNESS CHECKPOINT` was sent to it (`pause --force`, the usage checkpoint, `harness one`; each records `run/<session>.checkpoint`). One that parks itself (`agent-paused`, no `agent-working`, no checkpoint sent) gets one nudge to decide and continue; still parked this many minutes later, it is checkpointed (branch pushed, `harness-handoff` comment) and ended, and the issue is resumed from `resume.md`. A non-autonomous fleet never checks |
 | `HARNESS_SELFPARK_LAUNCH_GRACE_S` | `600` | #660: seconds after a lane's launch during which its issue reading `agent-paused` is no self-park and gets no nudge. A resumed paused issue still carries the label until its lane removes it. A pane a dialog owns is never nudged, whatever this says |
+| `HARNESS_WAIT_STAGGER_S` | `30` | #1066: seconds between two usage-limit resumes across the fleet's workers. A lane parked at the limit (`scripts/wait.sh`) is resumed once its account's usage hold has cleared and its reset time has passed, but not in the same instant as the other parked lanes: one resume per window. `0` = no spacing |
+| `HARNESS_WAIT_JITTER_S` | `60` | #1066: the per-lane spread, in seconds (a hash of the session name below this), added to a limit park's reset time, so lanes parked by one reset do not all become ready in the same second. `0` = none |
+| `HARNESS_LIMIT_PARK_MIN` | `30` | #1066: minutes a lane parked at the usage limit waits before it is tried again when no reset time is known (a pane's "resets 3pm" is not parsed; a headless lane's reset time comes from its CLI's message). The usage hold of its account still has to be clear |
 | `HARNESS_USAGE_STATUSLINE` | `1` | `1` = set the status line of each Harness-owned Claude Code worktree to `scripts/usage-statusline.sh`, which reports the usage windows (an existing `statusLine` there is kept). `0` = off; Claude usage is then unavailable unless `HARNESS_USAGE_CMD` is set |
 | `HARNESS_LABEL_PAUSED` | `agent-paused` | Label on an issue checkpointed by `pause --force` or a usage-limit checkpoint |
 | `HARNESS_PAUSE_GRACE` | `300` | Seconds `pause --force` waits for agents to checkpoint |
@@ -1456,6 +1459,35 @@ The claude adapter reads the status-line drops of every fleet in the host regist
 (`<run_dir>/usage/*.json`), so a fleet whose own panes stopped reporting still sees an account's usage
 through a sibling fleet's. Per account window the newest reading wins, and `harness one` reports the age of
 that reading. An unreadable registry entry or run dir is skipped.
+
+### Engine-owned waits (#1066)
+
+#1042 told lanes to wait in the background; a rule a model must follow is not a guarantee, and 72% of three days' spend ($1110 of $1547)
+still went to wait/poll wake-ups. So the engine waits. A wait is one JSON **wait spec**, `$HARNESS_WAIT_FILE` in the lane's environment
+(`<run_dir>/<session>.wait`), made by `scripts/waitlib.py` (on every lane's PATH as `harness-wait`, from `scripts/lane-bin`):
+
+- **A long job.** The lane runs `harness-wait run --deadline-s <s> --log <file> -- <command…>`: the command starts detached (its own
+  session; output to the log, exit code to `<log>.rc`) and the spec records "its wrapper pid exits" and a deadline (default 6 h, never over
+  24 h). The lane **ends its turn** and makes no more model calls. `harness-wait set` writes a spec for a job the lane started itself: `--pid`,
+  `--path <file>` (appears), `--regex <re> --log <file>` (a line appended from now on matches), `--winsma <issue>` (the ticket is first in the queue).
+- **The worker tick resumes it, once.** `wait_tend` (`scripts/wait.sh`, from the lane tend every `HARNESS_TEND_TICK` / `POLL`, no model call)
+  judges the spec. When the condition holds or the deadline passes it takes the spec atomically (one winner) and sends the lane one message
+  through the CLI adapter's resume path (a headless lane's inbox is its next turn, `--resume <session>`; a tmux lane's pane):
+  `wait done: <condition>, rc=<n>, log tail: …`. A lane still working is not resumed mid-turn (judged when it goes idle). While a spec stands the
+  goal loop (claude's Stop hook, `goal_loop.py` and its Codex copy, opencode's plugin, the driven loop) lets the turn end instead of re-feeding the
+  task, and `harness supervise` leaves the quiet pane alone. A spec whose lane is gone is void (`wait_sweep`).
+- **The usage limit uses the same path, for every CLI.** Only an interactive Claude Code continues by itself after a reset (at most 3 times, never
+  for a reset over 24 h away); codex, copilot, hermes, openclaw, opencode and agy stop, and their headless modes exit non-zero (codex exec 1,
+  hermes -z 2, agy -p 3). A lane the limit froze is parked by the watchdog (`wait_limit_park`) with a `limit` spec: not before its reset time
+  (a headless lane's `limit_resets_at`, else `HARNESS_LIMIT_PARK_MIN`; plus `HARNESS_WAIT_JITTER_S`), and only while its account's usage hold
+  (`usage-holds/<account>.hold`; any hold when the account is unknown) is clear. It is then resumed once, one lane per `HARNESS_WAIT_STAGGER_S`.
+  It is not nudged every few polls any more. A lane that is back at work by itself drops its park.
+- **#1034's winsma park is the same spec** with `resume=redispatch`: `winsma.sh park` writes it (cond `winsma`, deadline `WS_PARK_DEADLINE_S`,
+  default 12 h) next to the `waiting-winsma` label, the lane's session ends, and `winsma_wake_tick` judges it (the ticket is next, or the
+  deadline passed) and wakes it by removing the label so the pool relaunches the issue as a resume. A label with no spec is still woken by its ticket.
+
+Both wakes log `wait: <session> — wait done: …` / `winsma-wake: …` and write a `wait_done` event (`cond`). Acceptance on the claude host: `python3
+~/ops/poll-burn.py 24` shows poll-wake at most 10% of spend over 24 h on a release carrying this.
 
 ### Cost forecast
 

@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The engine waits for a lane: long jobs and usage limits park the lane and resume it once, for every CLI (#1066)
+
+- #1042's rule (`run_in_background`) relied on the model following it, and 72% of three days' spend ($1110 of $1547) still went to wait/poll wake-ups. A lane now starts a long job with `harness-wait run --deadline-s <s> --log <file> -- <command>` (`scripts/waitlib.py`, on every lane's PATH) and ends its turn. The worker tick checks the wait spec it wrote (a pid exits, a file appears, a regex appears in a log, the winsma queue) and, when the condition holds or the deadline passes, resumes the lane's session once through the adapter's resume path with `wait done: <condition>, rc=<n>, log tail: …`. No model call is made in between; the goal loops and the supervisor leave a waiting lane alone. The LONG WAITS rule (`prompts/_long_waits.md`) and the two Windows partials say so.
+- The usage limit takes the same path for every CLI. Only an interactive Claude Code continues by itself after a reset; codex, copilot, hermes, openclaw, opencode and agy stop. A lane the limit freezes is parked instead of nudged every few polls, and resumed once its account's usage hold has cleared and its reset time has passed, one lane per `HARNESS_WAIT_STAGGER_S` (30) so a reset does not wake them all at once (`HARNESS_WAIT_JITTER_S`, `HARNESS_LIMIT_PARK_MIN`).
+- #1034's winsma park is the same mechanism rather than a second one: `winsma.sh park` writes a wait spec (`resume=redispatch`, deadline `WS_PARK_DEADLINE_S`, default 12 h) beside the `waiting-winsma` label, and the pool's wake tick wakes the issue when its ticket is next or the deadline passes.
+
 ### Lanes run an always-run guard set, so a repo-wide guard goes red in the lane, not at the release gate (#1059)
 
 - About half the release-gate reds were repo-wide guard tests (`test_cli_readme.sh`'s config-table row per `HARNESS_*`, `test_portable_guard.py`, `test_session_backend.sh`, `test_tmux_twins.sh`, the prompt-label lint, `test_py_runner_guard.sh`) that rtdd's coverage-based Rounds 1 and 2 never select: a change that only adds a variable, script or label executes none of them. Each red held the release for 30 minutes to 3 hours.

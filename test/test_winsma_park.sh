@@ -189,6 +189,33 @@ ws ws_lock 900 review-900b $$ >/dev/null 2>&1; assert_eq "$?" "0" "the re-dispat
 assert_ok "the Windows suite prompt tells a queued review how to park" bash -c "grep -q 'winsma.sh park {{PRD}} {{SLUG}} --review' '$ROOT/prompts/_windows_suite.md' && grep -q 'waiting-winsma' '$ROOT/prompts/_windows_suite.md'"
 assert_ok "prepare_orch renders the suite block with the slug" grep -q 'windows_block _windows_suite.md PRD="\$payload" SLUG="\$SLUG"' "$ROOT/scripts/drive.sh"
 
+echo "=== 9. the park is an engine-owned wait spec (#1066): written next to the label, woken by its deadline, spent on the wake ==="
+setup
+ws ws_lock 111 lane-a $$ >/dev/null                                  # A holds the lock, so B parks instead of taking it
+ws ws_call r_queue_join 222 lane-b $$ >/dev/null
+export GHLOG="$RUN_DIR/ghpark9"; : > "$GHLOG"; WF="$RUN_DIR/hz-main-i222.wait"
+( gh(){ echo "gh $*" >> "$GHLOG"; return 0; }; export HARNESS_WAIT_FILE="$WF" WS_PARK_CHECK_PUSHED=0
+  cd "$RUN_DIR" || exit 1; ws ws_park 222 acme/widget >/dev/null 2>&1 ); assert_eq "$?" "0" "B parks"
+assert_eq "$(python3 "$ROOT/scripts/waitlib.py" fields --file "$WF" cond resume issue slug label)" $'winsma\tredispatch\t222\tacme/widget\twaiting-winsma' "park wrote the lane's wait spec: cond winsma, resume redispatch, the issue, the label"
+dl=$(python3 "$ROOT/scripts/waitlib.py" fields --file "$WF" deadline | cut -f1); dl=${dl%%.*}
+assert_ok "...with a deadline (12h by default)" test "$dl" -gt "$(( $(date +%s) + 40000 ))"
+snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"; : > "$CALLS"
+WINSMA_SSH=false winsma_wake_tick
+assert_eq "$(edits)" "0" "the host cannot be asked and the deadline is far: B stays parked"
+python3 - "$WF" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["deadline"] = 1; json.dump(d, open(p, "w"))
+PY
+WINSMA_SSH=false winsma_wake_tick
+assert_eq "$(edits)" "1" "its deadline passed: the label is removed without asking the host"
+assert_ok "...the log says why" grep -q 'winsma-wake: #222 — its wait deadline passed' "$LOGF"
+assert_no "...and the spent park is forgotten" test -e "$WF"
+assert_eq "$(grep -c '^event wait_done .*cond=winsma' "$CALLS")" "1" "one wait_done event"
+unset HARNESS_WAIT_FILE
+setup; snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"; ws ws_call r_queue_join 222 lane-b $$ >/dev/null
+winsma_wake_tick
+assert_eq "$(edits)" "1" "(control) a label with no spec, from before #1066, is still woken by the ticket alone"
+
 echo "=== 6. wired into the pool's chores, the label is seeded and configurable ==="
 assert_ok "worker_chores runs winsma_wake_tick" grep -q 'winsma_wake_tick' "$ROOT/scripts/pool-worker.sh"
 assert_eq "$HARNESS_LABEL_WAITING_WINSMA" "waiting-winsma" "the label defaults to waiting-winsma"

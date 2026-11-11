@@ -189,6 +189,11 @@ def main():
         return
     if not isinstance(data, dict):
         return
+    # #1066: the lane ended its turn to wait on a spec (HARNESS_WAIT_FILE, scripts/waitlib.py): the engine resumes it, once, when
+    # the wait is over. Re-feeding the task here would be a model call per Stop, which is what the wait is there to avoid.
+    wait = os.environ.get("HARNESS_WAIT_FILE")
+    if wait and (os.path.exists(wait) or os.path.exists(wait + ".msg")):
+        return
     cwd = data.get("cwd") or os.getcwd()
     state = os.path.join(cwd, STATE_REL)
     try:

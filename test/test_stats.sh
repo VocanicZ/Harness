@@ -69,7 +69,7 @@ for cli in claude agy; do
   done
   assert_ok "$cli: tmux new-session sets -e HARNESS_COAUTHOR (#642)" grep -qxF -- "HARNESS_COAUTHOR=$HARNESS_COAUTHOR" "$NEWSESS"
   assert_ok "$cli: tmux new-session puts scripts/lane-bin first on PATH (#642)" grep -qF -- "PATH=$ENGINE_DIR/scripts/lane-bin:" "$NEWSESS"
-  want=10; [[ $cli == claude ]] && want=11   # #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #642: lane-bin PATH + HARNESS_COAUTHOR
+  want=11; [[ $cli == claude ]] && want=12   # #1066: HARNESS_WAIT_FILE; #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #642: lane-bin PATH + HARNESS_COAUTHOR
   assert_eq "$(grep -cx -- -e "$NEWSESS")" "$want" "$cli: exactly the rtdd env, the lane's TMPDIR (#610), the lane-bin PATH and trailer (#642) and the CLI's own lane env, nothing else"
   assert_eq "$(ev 1 "e['session']")" "$FIXTURE_SID" "$cli: the launch event's session is the HARNESS_SESSION rtdd joins on"
   rm -f "$RUN_DIR/hz-$cli-i7.stats"
@@ -138,8 +138,9 @@ assert_eq "$(ev 2 "e['event'],e['session']")" "('watchdog_kill', 's-9')" "watchd
 : > "$EVENTS"; rm -f "$RUN_DIR/hz-main-i9.limit"
 capture=$'You\'ve hit your session limit · resets 3pm (UTC)\n❯ '
 watchdog_session hz-main-i9 >/dev/null
-assert_eq "$(ev 1 "e['event'],e['reset']")" "('rate_limited', '3pm (UTC)')" "rate_limited event names the reset"
-assert_eq "$(ev 2 "e['event'],e['reason']")" "('nudge', 'rate_limit')" "the limit nudge is a nudge event too"
+assert_eq "$(python3 -c 'import json,sys; print([(e["event"], e["reset"]) for e in map(json.loads, open(sys.argv[1])) if e["event"] == "rate_limited"][0])' "$EVENTS")" "('rate_limited', '3pm (UTC)')" "rate_limited event names the reset (the park's, once; the mechanical checkpoint's own event may come first)"
+assert_eq "$(grep -c '"event": *"nudge"' "$EVENTS")" "0" "a limit park sends no nudge, so no nudge event (#1066: it holds a wait spec until the usage hold clears)"
+assert_ok "...it wrote its limit wait spec" grep -qF '"cond":"limit"' "$RUN_DIR/hz-main-i9.wait"
 : > "$EVENTS"
 capture=$'1. Stop and wait for limit to reset\n2. Add funds'
 watchdog_session hz-main-i9 >/dev/null

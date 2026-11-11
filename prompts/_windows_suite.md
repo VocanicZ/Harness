@@ -15,5 +15,5 @@
    already has a `<!-- harness-winsma-review-park prd={{PRD}} -->` comment, you ARE that re-dispatch: take the Windows
    lock at once (no queueing behind later lanes), run only the Windows suite, and finish the review from the Linux result already posted.
    `park` refuses while you are next with the lock free (take it). A host that is down: do not park, note it, go on.
-   The Windows suite takes far longer than 4 minutes, so the LONG WAITS rule applies (#1042): start the `winsma.sh run` with Bash `run_in_background`, never
-   a foreground `sleep` loop on its log, and let its exit wake you; while it is queued behind another lane, wait by parking where a park exists, not by polling.
+   The Windows suite takes far longer than 4 minutes, so the LONG WAITS rule applies (#1042): start the `winsma.sh run` with `harness-wait run --deadline-s <seconds> --log <log> -- bash {{WINSMA_DIR}}/winsma.sh run …` and end your turn (the engine resumes you once, with its rc and log tail), never
+   a foreground `sleep` loop on its log; while it is queued behind another lane, wait by parking where a park exists, not by polling.

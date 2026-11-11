@@ -32,7 +32,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     # in-flight wedged session — this inner loop is the only per-poll point during the wedge. Run
     # the watchdog so a session parked at idle ❯ by a transient API error is nudged, then killed
     # (loop exits on the next session_live check → reap → re-dispatch frees the lane slot).
-    watchdog_session "$sess"
+    watchdog_session "$sess"; wait_tend "$sess"   # #1066
     usage_watch   # #194: the lane holds here for the whole session — the crossing must reach it too
     if bug_goal_done "$n" "$phase"; then
       cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"

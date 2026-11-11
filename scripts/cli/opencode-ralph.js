@@ -28,6 +28,9 @@ export const HarnessRalph = async ({ client, directory }) => {
       if (event.type === "session.status" && event.properties.status?.type === "busy") errored.delete(id)
       if (event.type !== "session.idle") return
       if (errored.delete(id) || !existsSync(state)) return
+      // #1066: the lane ended its turn to wait on an engine-owned wait spec; the engine resumes it (scripts/waitlib.py)
+      const wait = process.env.HARNESS_WAIT_FILE
+      if (wait && (existsSync(wait) || existsSync(wait + ".msg"))) return
       try {
         const session = (await client.session.get({ path: { id } })).data
         if (!session || session.parentID) return

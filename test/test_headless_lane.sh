@@ -131,8 +131,17 @@ assert_eq "$(limit_reset "$pane")" "12:11pm (UTC)" "…with claude's own reset t
 assert_no "…not as the transient wedge's goal-loop turn" claude_last_reply "$WD" ""
 watchdog_session "$S"
 assert_ok "the watchdog handles it as a limit park" grep -qF "watchdog: $S parked at its idle prompt by the usage limit" "$LOG"
-assert_ok "…and its nudge is the next turn" wait_until 15 turn_is "$S" 2
-assert_ok "…delivered as the limit nudge" grep -qF "the usage limit has reset" <<<"$(calls prompt | sed -n 2p)"
+assert_ok "…writing a wait spec for the usage limit (#1066)" grep -qF '"cond":"limit"' "$RUN_DIR/$S.wait"
+watchdog_session "$S"; wait_tend "$S"; sleep 0.5
+assert_eq "$(calls prompt | wc -l | tr -d ' ')" 1 "…and sends no nudge turn while the limit stands: the lane is parked, not polled"
+python3 - "$RUN_DIR/$S.wait" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["not_before"] = 1; json.dump(d, open(p, "w"))
+PY
+wait_tend "$S"
+assert_ok "once the reset time has passed the next turn resumes it, once" wait_until 15 turn_is "$S" 2
+assert_ok "…delivered as the engine's wait-done message" grep -qF "wait done: usage limit cleared" <<<"$(calls prompt | sed -n 2p)"
+assert_no "…and the park is spent" test -e "$RUN_DIR/$S.wait"
 pane="$(sess_capture "$S")"
 assert_ok "the transient turn reads as the #115 wedge" session_stalled "$pane"
 assert_no "…not as a limit" session_limit_idle "$pane"

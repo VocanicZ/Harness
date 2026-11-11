@@ -16,5 +16,5 @@
      pause: no HARNESS CHECKPOINT is involved, and you never label the issue paused yourself). Your session then ends. Harness resumes the issue from this branch once your ticket is next and
      the lock is free; take the lock again then and it succeeds without queueing behind a lane that queued after you. `park` refuses while
      you are next with the lock free (take it) or with unpushed work (push, then park). A host that is down: do not park, note it, go on.
-   - The `winsma.sh run` outlasts 4 minutes, so the LONG WAITS rule applies (#1042): start it with Bash `run_in_background` and let its exit wake you; never a foreground
+   - The `winsma.sh run` outlasts 4 minutes, so the LONG WAITS rule applies (#1042): start it with `harness-wait run --deadline-s <seconds> --log <log> -- bash {{WINSMA_DIR}}/winsma.sh run …` and end your turn (the engine resumes you once, with its rc and log tail); never a foreground
      `sleep` loop on its log (each 9-10 minute wake rewrites your whole prompt cache). A poll you cannot avoid wakes under 270 seconds.

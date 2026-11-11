@@ -8,6 +8,12 @@ def main():
         print(json.dumps({"decision": "allow"}))
         return
 
+    # #1066: a lane that ended its turn to wait on an engine-owned wait spec is resumed by the engine, not re-fed here
+    wait = os.environ.get("HARNESS_WAIT_FILE")
+    if wait and (os.path.exists(wait) or os.path.exists(wait + ".msg")):
+        print(json.dumps({"decision": "allow"}))
+        return
+
     # 1. Resolve workspace path
     ws_paths = data.get("workspacePaths", [])
     ws = ws_paths[0] if ws_paths else "."
