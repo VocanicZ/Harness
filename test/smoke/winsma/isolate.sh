@@ -10,6 +10,7 @@ ws_pid_add(){ ws_call r_pid_add "$@"; }
 # is one) goes in on stdin, git auth and identity come from the environment, and the command's stdin is empty.
 ws_exec(){ local issue="$1" mode="$2" cmd="$3" tflag=""
   [[ -n "$(ws_token)" ]] && tflag=--token
+  [[ "${WS_CAP_CHECK:-1}" == 0 ]] || ws_hold_gate "$issue" || return $?   # #1033: the hold cap stops a NEW command, never a running one
   { printf 'export HX_REAL_HOME="${HX_REAL_HOME:-$HOME}"\nr_iso_prepare %q || exit 1\neval "$(r_iso_env %q %q)" || exit 1\n' "$issue" "$issue" "$mode"
     [[ -n "$tflag" ]] && echo 'eval "$(r_cred_env)"'
     printf 'cd "$HX_DIR" || exit 1\nbash -c %q </dev/null\nexit $?\n' "$cmd"; } | ws_stream $tflag | _ws_ssh; }

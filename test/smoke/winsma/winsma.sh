@@ -2,8 +2,9 @@
 # winsma.sh — drive the owner's Windows check host from the claude host (#479, PRD #475). See docs/windows-smoke.md.
 #
 #   winsma.sh host                         print HARNESS_WINDOWS_HOST (exit 1 if unset)
-#   winsma.sh lock <issue> [session] [pid] take C:\hx-lock (wait on a live holder), start the heartbeat loop
+#   winsma.sh lock <issue> [session] [pid] take C:\hx-lock (FIFO queue; wait your turn), start the heartbeat loop
 #   winsma.sh unlock <issue>               release it
+#   winsma.sh status                       who holds the lock, for how long, and the queue in order
 #   winsma.sh isolate <issue> [--venv]     create C:\hx-<issue>\ (and a python venv in it)
 #   winsma.sh env <issue> [base|install|suite]   the export lines for that mode
 #   winsma.sh exec <issue> <mode> <command>      run one command inside the isolation (token on stdin)
@@ -24,7 +25,7 @@ ws_run(){ local issue="$1" mode="$2" cmd="$3" rc=0 step=""
   ws_isolate "$issue" || step=isolate
   [[ -z "$step" ]] && { ws_guard "$issue" before || step="guard before"; }
   [[ -z "$step" && -n "$(ws_token)" ]] && { ws_scan "$issue" before || step="scan before"; }
-  if [[ -z "$step" ]]; then ws_log "exec: $cmd"; ws_exec "$issue" "$mode" "$cmd" 2>&1 | tee -a "${WS_LOG:-/dev/null}"
+  if [[ -z "$step" ]]; then ws_log "exec: $cmd"; WS_CAP_CHECK=0 ws_exec "$issue" "$mode" "$cmd" 2>&1 | tee -a "${WS_LOG:-/dev/null}"
     [[ "${PIPESTATUS[0]}" == 0 ]] || step="command"; fi
   [[ "$step" == isolate || "$step" == "guard before" || "$step" == "scan before" ]] || {
     ws_guard "$issue" after || step="${step:+$step, }guard after"
@@ -39,6 +40,7 @@ main(){ local cmd="${1:-}"; shift || true
     host)     ws_need_host && echo;;
     lock)     ws_lock "$@";;
     unlock)   ws_unlock "$@";;
+    status)   ws_status;;
     isolate)  ws_isolate "$@";;
     env)      ws_env "$@";;
     exec)     ws_exec "$@";;

@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The winsma lock is a FIFO queue with a hold cap, and `harness status` shows it (#1033)
+
+- One lane could hold `C:\hx-lock` for about 12 hours while six others waited, and each release went to whichever waiter polled first. A lane that finds the lock held now takes a ticket in `C:\hx-queue` and the lock goes to the oldest live ticket; a lane that releases and asks again goes to the back. A ticket stale for `WS_STALE_SEC` whose lane is gone is dropped.
+- Once a lock has been held longer than `WS_HOLD_MAX` (default 5400 s) and another lane is queued, `winsma.sh exec` refuses to start a new command (`hold cap reached, N lane(s) queued: release and re-queue`); a running command is never killed. `WS_HOLD_HARD` (default three times the cap, 0 = off) lets the first lane in line break a live runaway holder.
+- `winsma.sh status`, and `harness status` when `HARNESS_WINDOWS_HOST` is set, show the holder, how long it has held the lock, the heartbeat age and the queue in order; an unreachable host is one `winsma: unreachable` line.
+
 ### The suite computes a CLI's matrix cells once per run, so the five adapter tests no longer time out on Windows (#1024)
 
 - On winsma, `test_cli_codex.sh`, `test_cli_copilot.sh`, `test_cli_hermes.sh`, `test_cli_openclaw.sh` and `test_cli_opencode.sh` passed every assertion of their own and then hit the 1500 s cap in their closing

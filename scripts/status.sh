@@ -75,6 +75,15 @@ duplicate_workers_report(){ local pid slot n untracked list="" dup=0
   echo "      a pid file names fewer workers than are running, or a slot has more than one — fix: harness start (adopts or stops them)"
   return 0; }
 
+# winsma_report — #1033: who holds the Windows host's lock (C:\hx-lock), for how long, and the queue in order. Prints nothing without
+# HARNESS_WINDOWS_HOST; a host that fails or does not answer within WS_STATUS_TIMEOUT (default 5s) is one `winsma: unreachable`
+# line. The answer goes through a file so a hung ssh's leftover child cannot hold the dashboard open; never fails the dashboard.
+winsma_report(){ [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 0
+  local f; f="$(mktemp 2>/dev/null)" || return 0
+  if timeout "${WS_STATUS_TIMEOUT:-5}" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" status >"$f" 2>/dev/null </dev/null; then cat "$f"
+  else echo "  winsma: unreachable"; fi
+  rm -f "$f"; return 0; }
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -99,6 +108,7 @@ render_once(){
   model_mismatch_report   # #376: a session that ran another model than the one it was launched with
   churn_report            # #545: an issue parked because every session on it died young
   duplicate_workers_report   # #647: a live worker no pid file names, or two on one slot
+  winsma_report              # #1033: the Windows host's lock holder, hold time and queue
   echo "───────────────────────────────────────────────────────────────────"
 
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes

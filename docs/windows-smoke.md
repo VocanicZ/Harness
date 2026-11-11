@@ -177,13 +177,31 @@ environment; see [`docs/reference.md`](reference.md)); unset means there is no W
 The rules the helpers enforce, all from PRD #475's "Verification on winsma":
 
 - **One run at a time: the lock.** `C:\hx-lock` is taken with an atomic `mkdir`; `owner` holds the issue, the lane's
-  session name and its claude-host pid. A background heartbeat loop (started detached through PowerShell, its pid in
-  `pids`, so it survives the ssh session and keeps going while one of your own commands blocks for hours) refreshes
-  `heartbeat` every 5 minutes, and ends when the lock is gone. A held lock with a live heartbeat means **wait**: the
-  helper polls every 5 minutes and never labels the issue `agent-paused`. A lock is stale only when its heartbeat is
-  older than 30 minutes **and** the owner lane is no longer live on the claude host; the breaker then kills the
-  stale run's `pids`, anything whose command line is under `C:\hx-<n>\`, deletes its `tasks` and its
-  `~/.claude.json` project entries and `C:\hx-<n>\`, and takes the lock.
+  session name and its claude-host pid, `taken` the time it was taken. A background heartbeat loop (started detached
+  through PowerShell, its pid in `pids`, so it survives the ssh session and keeps going while one of your own commands
+  blocks for hours) refreshes `heartbeat` every 5 minutes, and ends when the lock is gone. A held lock with a live
+  heartbeat means **wait**: the helper polls every 5 minutes and never labels the issue `agent-paused`. A lock is stale
+  only when its heartbeat is older than 30 minutes **and** the owner lane is no longer live on the claude host; the
+  breaker then kills the stale run's `pids`, anything whose command line is under `C:\hx-<n>\`, deletes its `tasks` and
+  its `~/.claude.json` project entries and `C:\hx-<n>\`, and takes the lock.
+- **Fair and bounded: the queue and the hold cap** (#1033). One lane used to hold the lock for 12 hours while six others
+  waited, and whichever waiter's poll landed first won each release. Now the lock is **FIFO**: a lane that finds it held
+  takes a ticket in `C:\hx-queue\<stamp>-<issue>` (issue, session, host pid; refreshed on every poll; one ticket per
+  issue) and `lock` succeeds only for the oldest ticket, or when the queue is empty. A ticket whose refresh is older
+  than `WS_STALE_SEC` **and** whose lane is gone is dropped by the next waiter, so a dead lane cannot block the line.
+  A lane that releases and asks again goes to the **back**, behind every ticket that already exists.
+  The hold is **capped**: `winsma.sh run` is one acquisition for exactly one command and releases at the end. On the
+  step-by-step path (`lock`, then `exec` …), once the lock has been held longer than `WS_HOLD_MAX` (default 5400 s,
+  90 minutes) **and** another lane is queued, `exec` refuses to start a new command (`hold cap reached, N lane(s)
+  queued: release and re-queue`, exit 3): clean up, `cleanup <issue>`, and `lock` again (you queue at the back). An
+  `exec` that is already running is never killed for this. With nobody queued the cap does not apply. Do not plan to
+  work in one lock session for hours: run one test file or one matrix per acquisition and re-queue between them.
+  As protection against a single runaway command there is a **hard ceiling**, `WS_HOLD_HARD` (default 3 × `WS_HOLD_MAX`,
+  4.5 hours; 0 turns it off): past it the lane **first in the queue** treats even a live holder as breakable, kills its
+  run through the same cleanup the stale breaker uses, and takes the lock.
+  `winsma.sh status` (and `harness status`, when `HARNESS_WINDOWS_HOST` is set) shows the holder, how long it has held
+  the lock, the heartbeat age and the queue in order with each ticket's wait; a host that does not answer within
+  `WS_STATUS_TIMEOUT` (default 5 s) shows as one `winsma: unreachable` line.
 - **Isolation.** Everything runs in `C:\hx-<issue>\`. `harness`'s own state (`HARNESS_HOME`, `HARNESS_BIN_DIR`,
   `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache`, `GIT_CONFIG_GLOBAL` (a fleet's `ensure_safe` writes `safe.directory` entries to the global git config, which must not be `~/.gitconfig`) and the clone live under it. Install, update and uninstall
   runs also set `CLAUDE_CONFIG_DIR`; the full suite also sets `HOME` and `USERPROFILE` to `C:\hx-<issue>\home`.
@@ -204,7 +222,7 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
 
 ```sh
 test/smoke/winsma/winsma.sh run 479 base 'echo hello'   # lock → isolate → guard → command → guard → scan → cleanup
-test/smoke/winsma/winsma.sh lock 479 hz-main-i479 $PID   # or step by step: lock, isolate [--venv], guard before,
+test/smoke/winsma/winsma.sh lock 479 hz-main-i479 $PID   # or step by step (one short session, #1033): lock, isolate [--venv], guard before,
 test/smoke/winsma/winsma.sh exec 479 install 'bash install.sh'   #   exec <issue> <base|install|suite> <cmd>,
 test/smoke/winsma/winsma.sh guard 479 after              #   guard after, scan before|after, cleanup
 test/smoke/winsma/winsma.sh cleanup 479
@@ -288,7 +306,7 @@ process list: the host itself is only touched by a recorded run
 there only because the ssh session is an elevated administrator, so the non-admin path is covered by the
 `HARNESS_PLATFORM=windows` fakes, not by a live run.
 
-Knobs: `WS_POLL` (wait between lock polls, default 300 s), `WS_STALE_SEC` (default 1800), `WS_LOCK_TIMEOUT` (default
+Knobs: `WS_POLL` (wait between lock polls, default 300 s), `WS_STALE_SEC` (default 1800), `WS_HOLD_MAX` (hold cap, default 5400 s), `WS_HOLD_HARD` (hard ceiling, default 3 × `WS_HOLD_MAX`, 0 = off), `WS_STATUS_TIMEOUT` (default 5 s), `WS_LOCK_TIMEOUT` (default
 0 = wait as long as it takes), `WS_HB_INTERVAL` (default 300 s), `WS_LANE_SESSION` / `WS_LANE_PID` (what `lock` records
 as the owner; pid defaults to the caller's parent).
 
