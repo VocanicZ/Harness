@@ -99,6 +99,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   runner (`scripts/cli/headless_core.py`) now puts each turn's process in a Windows Job Object and `kill_tree` ends the job after
   `taskkill`, so every process the turn started goes, orphans included. A turn that ends on its own only lets go of its job: what it
   left running stays up, as on Linux, until the lane is killed or swept.
+- The job also takes in what the turn's launcher had already started: a venv `python3.exe` starts the real interpreter before the
+  runner can assign the job, so that process and the jobs it left behind were outside it (found by a probe on winsma, #627).
+- The headless auto-update twin (`test_supervise_autoupdate_headless.sh`) reads a real file as `ONLINE_URL` (native curl cannot open
+  `file:///etc/hostname`, so the supervisor's network gate held every action, the update included), compares one spelling of a
+  worker's engine path, counts a fake claude's native pids as alive, and carries a Windows time cap. The other headless twins
+  (fleet-migrate, supervise, headless lane) were already green on winsma after #605/#606/#607.
 
 ### `harness --version`, `harness version` and `harness help` reject an unknown extra argument (#994)
 
