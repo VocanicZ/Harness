@@ -134,6 +134,11 @@ chmod +x "$RUN_DIR/bin/openclaw-slow"; export OC_KID="$RUN_DIR/oc.kid"
 bash "$LOOP" --bin openclaw-slow --cwd "$WD" --run r3 go </dev/null >/dev/null 2>&1 & LP=$!
 for i in $(seq 50); do [[ -s $OC_KID ]] && break; sleep 0.1; done
 kill -HUP "$LP"; wait "$LP" 2>/dev/null; sleep 0.3
+if kill -0 "$(cat "$OC_KID")" 2>/dev/null; then K="$(cat "$OC_KID")"   # DIAG-TEMP
+  echo "DIAG alive kid=$K winpid=$(cat /proc/$K/winpid 2>&1) state=$(grep -E '^(State|PPid)' /proc/$K/status 2>&1 | tr '\n' ' ') running=[$(cat "$WD/.harness-openclaw/running" 2>&1)] plat=${HARNESS_PLATFORM:-unset} os=${_HARNESS_OS:-?} ps: $(ps -p "$K" 2>&1 | tail -1)"
+  for i in 1 2 3 4 5 6; do sleep 0.5; kill -0 "$K" 2>/dev/null && echo "DIAG still alive after $i x 0.5s" || { echo "DIAG gone after $i x 0.5s"; break; }; done
+  echo "DIAG tasklist: $(tasklist //FI "PID eq $(cat /proc/$K/winpid 2>/dev/null)" //NH 2>&1 | tr -d '\r' | tr '\n' ' ')"
+fi
 assert_no "a hangup of the pane's loop stops the turn's whole tree" kill -0 "$(cat "$OC_KID")"
 # Forced Windows (#605): MSYS `ps` has no -o, so the tree is not read from ps — the loop asks taskkill to end the turn's tree by its
 # winpid (portable.sh proc_kill_tree). A `ps` that refuses -o and a taskkill that records what it was asked stand in for the host's.
