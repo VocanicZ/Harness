@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# lane-bin/harness-wait — the lane's one command for an engine-owned wait (#1066): `harness-wait run --deadline-s N --log F -- <command…>`
+# starts a long job detached and writes the wait spec ($HARNESS_WAIT_FILE); the lane then ends its turn and the engine resumes its session
+# once when the job exits or the deadline passes. scripts/waitlib.py documents the rest (set, check, show, clear).
+exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../waitlib.py" "$@"

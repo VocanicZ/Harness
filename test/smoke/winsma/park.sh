@@ -34,6 +34,14 @@ ws_park_pushed(){ local br head remote
   remote="$(git ls-remote origin "refs/heads/$br" 2>/dev/null | awk '{print $1}' | head -1)"
   [[ -n "$remote" && "$remote" == "$head" ]] || { ws_die "park: $br is not pushed (HEAD $head, origin ${remote:-has no such branch}) — push first"; return 1; }
   return 0; }
+# ws_park_spec <issue> <slug> — #1066: the park is an engine-owned wait (scripts/waitlib.py): the same spec a lane writes for a long
+# job, here with cond winsma and resume redispatch (the lane's session ends on the label swap, so waking it is removing the label).
+# It gives the park a deadline (WS_PARK_DEADLINE_S, default 12h): past it the engine wakes the issue even if its ticket is not next.
+# Written next to the label, in the lane's own wait file; with no HARNESS_WAIT_FILE (a lane the engine did not start) the label alone parks.
+ws_park_spec(){ local lib="$WSH_DIR/../../../scripts/waitlib.py"
+  [[ -n "${HARNESS_WAIT_FILE:-}" && -f "$lib" ]] || return 0
+  python3 "$lib" set --winsma "$1" --slug "$2" --label "${HARNESS_LABEL_WAITING_WINSMA:-waiting-winsma}" --resume redispatch \
+    --deadline-s "${WS_PARK_DEADLINE_S:-43200}" --what "#$1 is first in the winsma queue" >/dev/null 2>&1 || true; }
 ws_park(){ local issue="$1" slug="" work waiting br rc review=0 a; shift
   for a in "$@"; do case "$a" in --review) review=1;; *) [[ -n "$slug" ]] || slug="$a";; esac; done
   slug="${slug:-${HARNESS_REPO:-}}"
@@ -50,6 +58,7 @@ ws_park(){ local issue="$1" slug="" work waiting br rc review=0 a; shift
   ws_turn "$issue" >/dev/null; rc=$?
   (( rc == 0 )) && { ws_die "park: #$issue is next and hx-lock is free — take the lock instead of parking"; return 4; }
   (( rc == 2 )) && return 1
+  ws_park_spec "$issue" "$slug"
   if (( review )); then
     gh issue comment "$issue" -R "$slug" --body "<!-- harness-winsma-review-park prd=$issue -->
 Parked in the winsma lock queue (#1038): the review of PRD #$issue was waiting for hx-lock and gave up its pool slot. Its ticket in the queue is kept for #$issue, so the place is not lost. Harness re-dispatches the review once the ticket is next and the lock is free. On the re-dispatch: the Linux full-suite result and the other review findings are in the comments above; take the lock with winsma.sh (it succeeds at once, without queueing behind a lane that queued after you), run the Windows suite and finish the review." >/dev/null \

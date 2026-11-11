@@ -1147,6 +1147,7 @@ goal_loop_tick(){ local sess="$1" pane="$2" wd lockfd rc
   [[ "$(cli_loop)" == driven ]] || return 1
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; [[ -n "$wd" ]] || return 1
   cli_done "$wd" && return 1
+  wait_standing "$sess" && return 1       # #1066: the lane ended its turn to wait; the engine resumes it, the loop does not re-prompt it
   cli_pane_prompt "$pane" && ! cli_pane_busy "$pane" || return 1
   session_limit_idle "$pane" && return 1
   lock_try "$RUN_DIR/$sess.loop.lock" lockfd || { return 1; }
@@ -1173,7 +1174,7 @@ _goal_loop_step(){ local sess="$1" wd="$2" uuid sid out pid reply
 # the session is killed so the existing reap → re-dispatch path (reap_team / reap_lane) frees the slot
 # and the next poll re-claims the issue. A non-live session is a no-op (its counter is GC'd).
 watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/$1.limit" pane n
-  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock" "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.idleticks"; return 0; }
+  session_live "$sess" || { rm -f "$stallf" "$limitf" "$RUN_DIR/$sess.limitcp" "$RUN_DIR/$sess.turnq" "$RUN_DIR/$sess.loop" "$RUN_DIR/$sess.loop.lock" "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.idleticks"; wait_forget "$sess"; return 0; }
   pane="$(sess_capture "$sess")" || { rm -f "$stallf" "$limitf"; return 0; }
   # #120 quota park — checked FIRST and never killed; see session_limit_menu/_idle above.
   if session_limit_menu "$pane"; then
@@ -1187,6 +1188,14 @@ watchdog_session(){ local sess="$1" stallf="$RUN_DIR/$1.stall" limitf="$RUN_DIR/
     rm -f "$stallf"
     limit_checkpoint_once "$sess" "$pane"
     n=$(( $(cat "$limitf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$limitf"
+    # #1066: the lane is PARKED, not nudged every Nth poll. Every CLI stops at the limit (only an interactive Claude Code
+    # continues by itself, and only for a reset under 24h away), so the engine resumes it once, after its account's usage
+    # hold has cleared and the reset time has passed (wait_tend). A park that cannot be written falls back to the nudge.
+    if wait_limit_park "$sess" "$pane"; then
+      (( n == 1 )) && { log "watchdog: $sess parked at its idle prompt by the usage limit — resumed once after the usage hold clears and the reset time passes (#1066)"
+                        stats_sess_event "$sess" rate_limited reset="$(limit_reset "$pane")"; }
+      return 0
+    fi
     if (( n == 1 || n % HARNESS_LIMIT_NUDGE_EVERY == 0 )); then
       log "watchdog: $sess parked at its idle prompt by the usage limit (poll $n) — nudging to resume (#120)"
       (( n == 1 )) && stats_sess_event "$sess" rate_limited reset="$(limit_reset "$pane")"
@@ -1627,35 +1636,43 @@ windows_block(){ local part="$1"; shift
   [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 0
   render "${PROMPTS_DIR:-$ENGINE_DIR/prompts}/$part" WINDOWS_HOST="$HARNESS_WINDOWS_HOST" \
     WINDOWS_RELEVANT="$(printf %q "$ENGINE_DIR/scripts/windows-relevant.sh")" WINSMA_DIR="$(printf %q "$ENGINE_DIR/test/smoke/winsma")" "$@"; }
-# winsma_wake_tick — #1034: wake the issues parked in the winsma lock queue (the waiting label, no agent-working). Called from the
-# pool's chores. Per parked issue it asks `winsma.sh turn` (bounded by WS_WAKE_TIMEOUT, default 20s) — that call also refreshes the
-# issue's queue ticket, which is what keeps its place while no lane is alive — and when the ticket is next and the lock is free it
-# removes the label; the issue is then claimable and dispatch resumes it (resume.md, as for agent-paused). A host that cannot be
-# asked leaves the issue parked and says so once per outage. With no HARNESS_WINDOWS_HOST there is nothing to wait for: wake all.
-# Throttled to one pass per HARNESS_WINSMA_WAKE_S (default 60) seconds; no parked issue = no call at all.
-winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc live down="$RUN_DIR/winsma-wake.down"
+# winsma_wake_tick — #1034, generalised by #1066: wake the issues parked in the winsma lock queue (the waiting label, no agent-working).
+# It is the `resume=redispatch` half of the engine-owned waits (scripts/wait.sh): `winsma.sh park` writes the same wait spec a lane
+# writes for a job (cond winsma, deadline) next to the label, this tick judges it, and waking is removing the label — the pool
+# relaunches the issue as a resume (resume.md, as for agent-paused). Called from the pool's chores. Per parked issue it asks
+# `winsma.sh turn` (bounded by WS_WAKE_TIMEOUT, default 20s) — that call also refreshes the issue's queue ticket, which is what
+# keeps its place while no lane is alive — and when the ticket is next and the lock is free, or the spec's deadline has passed,
+# it removes the label. A host that cannot be asked leaves the issue parked and says so once per outage. With no
+# HARNESS_WINDOWS_HOST there is nothing to wait for: wake all. A label with no spec (a park from before #1066) is judged the same
+# way, without a deadline. Throttled to one pass per HARNESS_WINSMA_WAKE_S (default 60) seconds; no parked issue = no call at all.
+winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc live down="$RUN_DIR/winsma-wake.down" dl why
+  local -A deadlines=()
   now="$(date +%s)"; t="$(cat "$f" 2>/dev/null)"
   [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ${HARNESS_WINSMA_WAKE_S:-60} )) && return 0
   waiting="$(timeout 60 python3 "$ISSUELIB" waiting-winsma "$REPO" 2>/dev/null)" || return 0
   [[ -n "$waiting" ]] || { rm -f "$down"; return 0; }
   echo "$now" > "$f"
+  while IFS=$'\t' read -r _ n dl; do [[ "$n" =~ ^[0-9]+$ && "$dl" =~ ^[0-9]+$ ]] && deadlines[$n]="$dl"
+  done < <(python3 "$WAITLIB_PY" parked --dir "$RUN_DIR" 2>/dev/null)
   for n in $waiting; do
     [[ "$n" =~ ^[0-9]+$ ]] || continue
-    if [[ -n "${HARNESS_WINDOWS_HOST:-}" ]]; then
-      out="$(timeout "${WS_WAKE_TIMEOUT:-20}" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$n" 2>&1 </dev/null)"; rc=$?
-    else out="no Windows host is configured"; rc=0; fi
+    dl="${deadlines[$n]:-0}"; why=""
+    if (( dl > 0 && now >= dl )); then out="its wait deadline passed"; rc=0; why=deadline   # the park waits no longer than its deadline
+    else wait_winsma_turn "$n"; rc=$?; out="$WAIT_WINSMA_OUT"; fi
     case "$rc" in
       0) ;;
       1) rm -f "$down.$n"; continue;;
-      *) [[ -f "$down.$n" ]] || log "winsma-wake: #$n stays parked — the Windows host could not be asked (exit $rc): ${out##*$'\n'} (#1034)"
+      *) [[ -f "$down.$n" ]] || log "winsma-wake: #$n stays parked — the Windows host could not be asked (exit $rc): $out (#1034)"
          : > "$down.$n"; continue;;
     esac
     rm -f "$down.$n"
     live="$(gh issue view "$n" -R "$SLUG" --json labels -q '.labels[].name' 2>/dev/null)" || continue   # the snapshot lags: act on the live labels
     grep -qxF "$HARNESS_LABEL_WAITING_WINSMA" <<<"$live" || continue
     if gh issue edit "$n" -R "$SLUG" --remove-label "$HARNESS_LABEL_WAITING_WINSMA" >/dev/null 2>&1; then
-      log "winsma-wake: #$n — ${out##*$'\n'}; $HARNESS_LABEL_WAITING_WINSMA removed, the issue is re-dispatched (a resume for an implementation issue, a REVIEW for a PRD) (#1034, #1038)"
+      log "winsma-wake: #$n — $out; $HARNESS_LABEL_WAITING_WINSMA removed, the issue is re-dispatched (a resume for an implementation issue, a REVIEW for a PRD) (#1034, #1038, #1066)"
+      python3 "$WAITLIB_PY" forget --dir "$RUN_DIR" --issue "$n" 2>/dev/null
       harness_event winsma_wake repo="$SLUG" issue="$n"
+      harness_event wait_done cond=winsma resume=redispatch repo="$SLUG" issue="$n" ${why:+reason=$why}
     fi
   done
   return 0; }
@@ -1858,7 +1875,7 @@ c = json.load(open(sys.argv[1])); print(c.get("worktree", ""), c.get("session", 
   mapfile -t files <<<"$files"; cli_usage "${files[@]}" 2>/dev/null; return 0; }
 # LANE_ENV_NAMES — every name session_env can set: a CLI whose turns' commands do not inherit the
 # pane's environment names them to the CLI (hermes: terminal.client_env_passthrough, #313).
-LANE_ENV_NAMES=(RTDD_EVENT_LOG HARNESS_SESSION HARNESS_PREFIX HARNESS_REPO HARNESS_KIND HARNESS_ISSUE HARNESS_PRD)
+LANE_ENV_NAMES=(RTDD_EVENT_LOG HARNESS_SESSION HARNESS_PREFIX HARNESS_REPO HARNESS_KIND HARNESS_ISSUE HARNESS_PRD HARNESS_WAIT_FILE)
 # session_env <uuid> — fill SESSION_ENV with the `-e K=V` pairs `tmux new-session` gives a lane (#186).
 # RTDD_EVENT_LOG points every rtdd call the session makes at the host-wide rtdd log, and rtdd copies
 # each HARNESS_* var into the event's ctx (VocanicZ/rtdd#503), so `harness stats` can join the call to
@@ -1942,11 +1959,12 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   # send-keys typing a second `exec claude …` into the live pane. This guard MUST be first.
   if session_live "$sess"; then log "session $sess already live — skipping re-dispatch"; return 0; fi
   rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.idleticks"   # #417: a new session has been sent no checkpoint; #668: nor has it idled
+  wait_forget "$sess"   # #1066: a new session waits for nothing
   [[ "$sess" =~ ^$HARNESS_SESS_PREFIX-(.*-i[0-9]+|bug-.+-(triage|fix))$ ]] && uuid="$(sess_resume_id "$sess" "$wd")"
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
   else uuid="$(new_uuid)"; fi
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
-  session_env "$uuid"; lane_guard_env "$wd"; lane_tmp_env "$wd"
+  session_env "$uuid"; lane_guard_env "$wd"; lane_tmp_env "$wd"; wait_env "$sess"
   local model effort line line_me
   if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || { launch_fail "$sess" "$uuid" start_failed; return 1; }
   else
@@ -2380,5 +2398,6 @@ _checkpoint_target(){  # <session>
 
 # #194 usage watch + checkpoint (needs the config above and the helpers in this file).
 source "$(dirname "${BASH_SOURCE[0]}")/usage.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/wait.sh"   # #1066: engine-owned waits (park a lane for a long job or a usage limit, resume it once)
 source "$(dirname "${BASH_SOURCE[0]}")/one_auto.sh"   # #392: HARNESS_ONE_AUTO — the auto harness-one lane
 source "$(dirname "${BASH_SOURCE[0]}")/ghrate.sh"

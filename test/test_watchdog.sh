@@ -207,8 +207,8 @@ assert_eq "$(wc -l < "$PICKED")" "4" "menu-blocked session gets Enter on every p
 assert_eq "$(wc -l < "$KILLED")" "0" "menu-blocked session is never killed"
 assert_no "menu-blocked session accrues no stall counter" test -f "$RUN_DIR/$SESS.stall"
 
-# idle shape: nudged on poll 1, then backed off to every Nth — and killed on NO poll, ever. Ten
-# polls is well past HARNESS_STALL_RETRIES=3, which is exactly the escalation that must not happen.
+# idle shape: PARKED on poll 1 (#1066: a wait spec, not a nudge — the engine resumes it once the usage hold clears), never nudged
+# again, and killed on NO poll, ever. Ten polls is well past HARNESS_STALL_RETRIES=3, which is exactly the escalation that must not happen.
 make_env
 HARNESS_STALL_RETRIES=3; HARNESS_LIMIT_NUDGE_EVERY=5
 PICKED="$RUN_DIR/picked2"; LNUDGED="$RUN_DIR/lnudged2"; KILLED="$RUN_DIR/killed4"
@@ -226,7 +226,8 @@ _watchdog_nudge(){ echo "STALL-NUDGE" >> "$LNUDGED"; }
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do watchdog_session "$SESS"; done
 assert_eq "$(wc -l < "$KILLED")" "0" "quota-parked session is NEVER killed, even past HARNESS_STALL_RETRIES"
-assert_eq "$(wc -l < "$LNUDGED")" "3" "nudged on poll 1 then every 5th (1, 5, 10) — backed off"
+assert_eq "$(wc -l < "$LNUDGED")" "0" "quota-parked session is not nudged on any poll (#1066: parked on a wait spec, resumed by wait_tend)"
+assert_ok "...it holds a limit wait spec instead" grep -qF '"cond":"limit"' "$RUN_DIR/$SESS.wait"
 assert_no "quota park never reaches the #115 stall path" grep -qx "STALL-NUDGE" "$LNUDGED"
 assert_eq "$(cat "$RUN_DIR/$SESS.limit" 2>/dev/null)" "10" "limit poll counter tracks consecutive parks"
 

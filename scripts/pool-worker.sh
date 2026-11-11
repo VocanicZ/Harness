@@ -131,10 +131,10 @@ tend_lane_done(){ local f="$1" key tok sess n prd slug
   key="$(basename "$f" .claim)"; tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
   case "$key" in
     impl-*) n="${key#impl-}"; sess="$(sess_impl "$UNIT" "$n")"
-            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; fi
+            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; wait_tend "$sess"; fi
             reap_impl_lane "$n";;
     orch-*) prd="${key#orch-}"; sess="$(sess_orch "$UNIT" "$prd")"
-            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; fi
+            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; wait_tend "$sess"; fi
             if (( prd == 0 )); then session_live "$sess" && return 1; launch_gone_check "$sess" orch; return 0   # #596
             else reap_orch_lane "$prd"; fi;;
     bug-*)  (( ${TEND_FAST:-0} )) && return 1   # #594: a bug lane has no goal; the full step tends it
@@ -336,6 +336,7 @@ worker_chores(){ local wid="$1" lockfd
   one_auto_tend; reap_ownerless_pool_bugs
   retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
   sweep_stale_lane_claims
+  wait_sweep         # #1066: a wait spec whose lane is gone is void
   winsma_wake_tick   # #1034: a lane parked in the winsma queue is re-dispatched once its ticket is next
   winsma_stale_tick  # #1050: a live lane whose branch predates the winsma protocol check is told to rebase before it queues
   adopt_lanes "$wid"; adopt_bug_sessions "$wid"
@@ -353,7 +354,7 @@ worker_chores(){ local wid="$1" lockfd
 worker_hold_tick(){ local f sess lockfd
   local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
   while read -r f; do
-    sess="$(awk '{print $4; exit}' "$f" 2>/dev/null)"; [[ -n "$sess" && "$sess" != - ]] && watchdog_session "$sess"
+    sess="$(awk '{print $4; exit}' "$f" 2>/dev/null)"; [[ -n "$sess" && "$sess" != - ]] && { watchdog_session "$sess"; wait_tend "$sess"; }
   done < <(worker_claims "${_WORKER_ID:-}")
   lock_try "$RUN_DIR/chores.lock" lockfd || return 0
   watchdog_team; lock_release "$lockfd"; }
