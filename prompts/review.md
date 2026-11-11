@@ -11,7 +11,7 @@ A PID read from a file or variable must be checked as non-empty, all digits and 
 before it reaches `kill` or `pgrep -P`. Never write `pgrep -P ${p:-0}`: a missing or empty pidfile
 becomes PID 0, `pgrep -P 0` lists PID 1's children, and killing them takes down `systemd --user` and
 every fleet on the host. Never signal PID 0, PID 1 or a negative PID.
-
+{{> _long_waits.md}}
 Repo (this working dir): {{SLUG}}
 PRD under review: #{{PRD}}  (all its implementation issues are closed)
 Gauntlet: round {{GAUNTLET_ROUND}} of {{GAUNTLET_ROUNDS}}   Evidence dir: {{GAUNTLET_DIR}}

@@ -81,6 +81,7 @@ These were the arc watchdog's (`watch.py`); `harness supervise` now runs them on
 | **stale lock** | remove `agent-working` | `agent-working` with no live session, older than `LOCK_GRACE`. |
 | **dead worker** | `harness start` | a pool/priority pid file whose process is gone. |
 | **deep context** | alarm | a pane past 250% — deep-context agents degrade; expect a wedge or a dropped cleanup step. Early warning for the above. |
+| **lane spend** | alarm | a lane that spent over `SUPERVISE_SPEND_PER_HOUR` $ (default 10) in the last hour with no commit in it (#1042) — the signature of a foreground sleep-poll that wakes after the 5-minute prompt-cache TTL and rewrites its whole context each time. Read its pane; it should run the wait with `run_in_background`, or park (#1034). Counts Claude lanes only. |
 | **unfiled plan tasks** | alarm | a merged plan naming tasks with no issue. Match a *family* of phrasings, not one sentence — authors word it differently and a narrow grep misses it. Plans already topped up go in `.harness/reconciled-plans`, since the phrase survives in the merged doc. |
 | **decompose stalled** | alarm | an eligible, open PRD with no children and no session. Invisible to every other rule, because a childless PRD contributes no claimable work. |
 | **review loop** | alarm | a PRD reaching the criteria gate 4+ times. The gauntlet has a round cap; **the criteria gate has none**. Ask: still finding *new* defects (working) or re-litigating (needs narrowing / a human)? |
