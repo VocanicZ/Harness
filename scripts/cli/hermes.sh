@@ -23,7 +23,11 @@ _hermes_op_home(){ echo "${HARNESS_HERMES_HOME:-$HOME/.hermes}"; }
 # _hermes_home <wd> — the lane's profile (a profile name is lowercase letters and digits).
 # The name hashes the worktree as a NATIVE program spells it (C:/x on Windows): the headless runner (hermes_headless.py `lane_home`) is
 # handed --cwd that way, and hashing /c/x here named another profile, so the lane's state.db was never found (#969).
-_hermes_home(){ echo "$(_hermes_op_home)/profiles/harness$(printf '%s' "$(native_path "$1")" | sha1sum | cut -c1-12)"; }
+# (A fixture that sources only this file has no native_path: cygpath -m is what it does on a Windows host, and no host without cygpath
+# spells a path another way.)
+_hermes_spelling(){ if declare -F native_path >/dev/null; then native_path "$1"
+  elif command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+_hermes_home(){ echo "$(_hermes_op_home)/profiles/harness$(printf '%s' "$(_hermes_spelling "$1")" | sha1sum | cut -c1-12)"; }
 _hermes_db(){ echo "$(_hermes_home "$1")/state.db"; }
 _hermes_json(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"; }
 _hermes_jlist(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"; }
