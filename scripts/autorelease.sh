@@ -24,6 +24,9 @@
 #   gate-resolved-<sha> that bug was seen CLOSED: release_tick stops asking GitHub about it. The
 #                       gate-failed marker stays, so <sha> itself is still never re-gated
 #   retry-after         epoch before which release_tick does not retry a release that errored
+#   inflight-<sha>      what recording the job needs: start/reason, then the pending entries it covers (#1068)
+#   result-<sha>        release.sh's rc, written by a wrapper that outlives release_run; release_record acts on it once,
+#                       release_tick reconciles one an engine roll orphaned (renamed .claimed while being recorded)
 #   release.pid/.log    the background release job, stopped only by this PID
 
 release_dir(){ echo "${HARNESS_AUTORELEASE_DIR:-${HARNESS_HOME:-$HOME/.harness}/autorelease}"; }
@@ -74,7 +77,8 @@ release_bootstrap(){ local d tags lockfd; d="$(release_dir)"; [[ -e "$d/bootstra
 # or a patch release when the oldest queued fix has waited the throttle; never before `retry-after`.
 release_tick(){ local d now oldest prds nums after reason; release_repo_is_engine "${SLUG:-}" || return 0
   release_bootstrap
-  d="$(release_dir)"; [[ -s "$d/pending" ]] || return 0
+  d="$(release_dir)"; release_reconcile
+  [[ -s "$d/pending" ]] || return 0
   now="$(release_now)"
   after="$(cat "$d/retry-after" 2>/dev/null)"; [[ -n "$after" ]] && (( now < after )) && return 0
   prds="$(cut -f2 "$d/pending" | grep -E '^(prd:|bootstrap$)' | paste -sd' ' -)"
@@ -172,8 +176,32 @@ release_run(){ local reason="$1" d lockfd plock start covered sha rc
     release_gate_bug "$sha" "$reason"
     lock_release "$lockfd"; return 0; fi
   harness_event release_triggered reason="$reason" sha="$sha"
-  ( cd "$CHECKOUT" && HARNESS_RELEASE_REASON="$reason" HARNESS_RELEASE_REPO="$(release_repo)" \
-      HARNESS_AUTORELEASE_DIR="$d" bash "${HARNESS_RELEASE_CMD:-$ENGINE_DIR/scripts/release.sh}" --ref "$sha" ); rc=$?
+  # #1068: what the result needs to be recorded (start, reason, covered entries) is written BEFORE the job runs, and the
+  # job's rc is written by a wrapper that outlives this function — an engine roll that kills it must not lose the result.
+  { printf '%s\t%s\n' "$start" "$reason"; [[ -z "$covered" ]] || printf '%s\n' "$covered"; } > "$d/inflight-$sha"
+  rm -f "$d/result-$sha" "$d/result-$sha.claimed"
+  release_exec "$sha" "$reason"; rc=$?
+  [[ -f "$d/result-$sha" ]] || printf '%s\n' "$rc" > "$d/result-$sha"
+  release_record "$sha"
+  lock_release "$lockfd"; return 0; }
+
+# release_exec <sha> <reason> — run release.sh at <sha> as a process that survives release_run (#1068). An engine roll kills the
+# worker and release_run with it, but release.sh lives on (it holds the flock fd) and nobody was left to act on its rc. The wrapper
+# keeps HUP/TERM as a handler (reset by exec, so release.sh and its gate see default signals) and writes the rc to
+# result-<sha> atomically when release.sh exits; release_record / release_reconcile turn that into the log line, the marker, the
+# bug or retry-after. The path is an argument, not an env var: the gate must see no release variable (#325).
+release_exec(){ local sha="$1" reason="$2" d; d="$(release_dir)"
+  ( cd "$CHECKOUT" && HARNESS_RELEASE_REASON="$reason" HARNESS_RELEASE_REPO="$(release_repo)" HARNESS_AUTORELEASE_DIR="$d" \
+      bash -c 'trap : HUP TERM; res="$1"; shift; "$@"; rc=$?; printf "%s\n" "$rc" > "$res.tmp" && mv -f "$res.tmp" "$res"; exit "$rc"' \
+      _ "$d/result-$sha" bash "${HARNESS_RELEASE_CMD:-$ENGINE_DIR/scripts/release.sh}" --ref "$sha" ); }
+
+# release_record <sha> — act on result-<sha> (release.sh's rc) once: claim it by rename so two ticks never both record it,
+# then clear the pending entries it covered (0), mark the red gate and file its bug (4), or set retry-after (other).
+release_record(){ local sha="$1" d res rc start reason covered; d="$(release_dir)"; res="$d/result-$sha"
+  mv "$res" "$res.claimed" 2>/dev/null || return 0
+  rc="$(head -n1 "$res.claimed" 2>/dev/null)"
+  if [[ ! -f "$d/inflight-$sha" ]]; then rm -f "$res.claimed"; log "auto-release: result for ${sha:0:7} has no record of the job that produced it — ignored"; return 0; fi
+  IFS=$'\t' read -r start reason < "$d/inflight-$sha"; covered="$(tail -n +2 "$d/inflight-$sha")"
   case "$rc" in
     0) release_clear_pending "$covered"; rm -f "$d/retry-after"
        log "auto-release: released ${sha:0:7} ($reason)"
@@ -183,10 +211,18 @@ release_run(){ local reason="$1" d lockfd plock start covered sha rc
        log "auto-release: release gate failed at ${sha:0:7} ($reason) — filing a bug, not retrying this commit"
        release_gate_bug "$sha" "$reason"
        harness_event release_gate_failed reason="$reason" sha="$sha" issue="$_GATE_BUG";;
-    *) echo $(( start + ${HARNESS_RELEASE_THROTTLE:-3600} )) > "$d/retry-after"
-       log "auto-release: harness release exited $rc at ${sha:0:7} ($reason) — retrying after the throttle";;
+    *) echo $(( ${start:-$(release_now)} + ${HARNESS_RELEASE_THROTTLE:-3600} )) > "$d/retry-after"
+       log "auto-release: harness release exited ${rc:-?} at ${sha:0:7} ($reason) — retrying after the throttle";;
   esac
-  lock_release "$lockfd"; return 0; }
+  rm -f "$res.claimed" "$d/inflight-$sha"; return 0; }
+
+# release_reconcile — record every release.sh result nobody has acted on (#1068): its release_run was killed by an engine roll.
+# A result file exists only once release.sh has exited, so a job still running is never touched.
+release_reconcile(){ local d r sha; d="$(release_dir)"
+  for r in "$d"/result-*; do
+    [[ -f "$r" && "$r" != *.tmp && "$r" != *.claimed ]] || continue
+    sha="${r##*/result-}"; log "auto-release: recording the orphaned release result for ${sha:0:7}"; release_record "$sha"
+  done; }
 
 # release_gate_flake <sha> <reason> — a gate that went red on a file and green when that file was re-run alone (#1060) left
 # gate-flake-<sha>; the release went ahead. Record it as ONE comment on the single open "release gate flakes" tracking issue
