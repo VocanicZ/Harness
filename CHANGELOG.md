@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A red release gate no longer files a duplicate of a triaged bug, or releases while its duplicate-closed bug's canonical is open (#1056)
+
+- `release_gate_bug` looked for an open gate bug by label `bug` and by a title that holds the short sha, so a bug the bug lane had triaged (`bug-triaged`), or one filed for an earlier head, was invisible and a second red gate opened a duplicate (7 of the 21 gate issues from #333 to #1055). It now searches open issues by title whatever their label, and when a later head fails the same `FAILED:` test files as an open gate bug it files nothing: the new `gate-failed-<sha>` marker points at that bug and the new sha is commented there. A filed gate bug lists its failing files in a `Failing test files:` block for this comparison.
+- `release_gate_held` no longer treats a gate bug closed as a duplicate as fixed: when the closing comment says `duplicate of #N` it repoints the marker to #N and keeps holding releases while #N is open (#692 closed as a duplicate of the still-open #687, the next gate ran, and it failed the same test again as #698).
+
 ### `stats.py cache-waits` counts cache rewrites after a long gap (#1045)
 
 - `python3 scripts/stats.py cache-waits --since 24h` counts, per session and UTC hour, the calls with 100K or more cache-write tokens that follow a gap of 5 minutes or more, from the Claude transcripts; `--max-per-hour N` exits 1 over the limit. The 2026-11-09 to 2026-11-11 baseline is 1335 such calls, up to 7 per session-hour, so N = 2 (docs/reference.md).

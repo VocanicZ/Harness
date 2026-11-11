@@ -64,6 +64,7 @@ GL="$HARNESS_AUTORELEASE_DIR/gate-deadbeef.log"
   echo "== test_alpha.sh =="; echo "  ok: a1"; echo "  FAIL: alpha broke — want [hz] got [hzhn]"; echo "── 1/2 passed"
   echo "== test_beta.sh =="; echo "  ok: b1 is not ok (FAIL) when stubbed"
   echo "== test_gamma.py =="; echo "not ok 3 - gamma broke"
+  echo "FAILED: test_gamma.py"; echo "FAILED: test_alpha.sh"; echo "FAILED: test_gamma.py"
   for i in $(seq 1 200); do echo "  ok: filler $i"; done; } > "$GL"
 gh(){ local a; echo "$*" >> "$GH_LOG"
   case "$1 $2" in
@@ -80,6 +81,9 @@ assert_ok "the body carries a not ok line" grep -qF 'not ok 3 - gamma broke' <<<
 assert_ok "...under its suite header" grep -qF '== test_gamma.py ==' <<<"$B"
 assert_no "a suite with no failure is not listed" grep -qF '== test_beta.sh ==' <<<"$B"
 assert_ok "what run.sh printed before the first suite is shown" grep -qF 'helpers.sh: No such file or directory' <<<"$B"
+# #1056: the failing files sorted and unique, in a block a later red gate compares against
+assert_eq "$(grep -A5 'Failing test files:' <<<"$B" | grep -c '^FAILED: ')" 2 "the body lists each failing file once, for the next gate to compare"
+assert_eq "$(grep '^FAILED: ' <<<"$B" | head -n2 | paste -sd' ' -)" "FAILED: test_alpha.sh FAILED: test_gamma.py" "in sorted order"
 assert_ok "the tail is still there" grep -qF 'ok: filler 200' <<<"$B"
 unset -f gh
 
