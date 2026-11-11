@@ -166,16 +166,31 @@ proc_args(){ if is_windows; then local c; c="$(proc_cmdline "$1")"; printf '%s\n
 #   POSIX: its process group (a lane runner is its own group leader) and then the pid itself.
 #   Windows: MSYS signals do not reach native children, so `taskkill /T /F` on the winpid ends the
 #            whole Windows tree; the MSYS kill follows for an MSYS process taskkill could not name.
-proc_kill_tree(){ local w
+proc_kill_tree(){ local w kids
   # Refuse what would signal more than one process tree (#543): empty and non-numeric values, 0 (the
   # caller's own process group) and 1 (`kill -- -1` is every process the user owns).
   [[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 > 1 )) || return 1
   if is_windows; then
+    # taskkill /T follows WINDOWS parents; an MSYS fork or exec leaves a child whose Windows parent is gone (a turn's `sleep &`, #605), so
+    # the MSYS descendants are read from /proc (PPid) BEFORE anything dies (killing the root re-parents them) and signalled as well.
+    kids="$(proc_msys_descendants "$1")"
     w="$(proc_winpid "$1")"
     [[ -n $w ]] && "${HARNESS_TASKKILL:-taskkill}" //T //F //PID "$w" >/dev/null 2>&1
+    # shellcheck disable=SC2086
+    [[ -z $kids ]] || kill -KILL $kids 2>/dev/null
     kill -KILL "$1" 2>/dev/null; return 0
   fi
   kill -KILL -- "-$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; return 0; }
+# proc_msys_descendants <pid> — every MSYS descendant of <pid> (one per line, <pid> itself not included), from the PPid lines of /proc/*/status
+# (HARNESS_PROC_ROOT): MSYS `ps` has no -o, so proc_descendants cannot read the table there. Prints nothing when /proc has no such files.
+proc_msys_descendants(){ [[ ${1:-} =~ ^[0-9]+$ ]] || return 0
+  local root="${HARNESS_PROC_ROOT:-/proc}" f pid k v more
+  local -A par=() want=([$1]=1)
+  for f in "$root"/[0-9]*/status; do [[ -f $f ]] || continue; pid="${f#"$root"/}"; pid="${pid%/status}"
+    while read -r k v; do [[ $k == PPid: ]] && { par[$pid]=$v; break; }; done 2>/dev/null < "$f"; done
+  more=1; while (( more )); do more=0
+    for pid in "${!par[@]}"; do [[ -z ${want[$pid]:-} && -n ${want[${par[$pid]}]:-} ]] && { want[$pid]=1; more=1; }; done; done
+  for pid in "${!want[@]}"; do [[ $pid == "$1" ]] || printf '%s\n' "$pid"; done; return 0; }
 # winpid_alive / winpid_cmdline / winpid_kill_tree <winpid> — a process by its WINDOWS pid (#606): what a native program (a Python
 # runner, the agent CLI) reports for itself, e.g. state.json's claude_pid. MSYS `kill -0`, /proc and `proc_kill_tree` know only
 # MSYS pids, so a native turn a dead runner left behind was neither seen nor ended.
