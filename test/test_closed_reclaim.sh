@@ -172,4 +172,14 @@ worker_step W1 >/dev/null 2>&1; rc=$?
 assert_eq "$rc" "6" "failed spawn: rc 6"
 assert_eq "$(grep -c '^sleep 300$' "$CALLS")" "1" "... sleeps POLL (#539)"
 
+echo "=== 8. #593: a closed child keeps ready-for-agent (it is how the PRD counts its children); agent-working goes ==="
+setup; fleet_ctx
+: > "$CALLS"
+closed_issue_unlabel 6 '{"state":"CLOSED","labels":[{"name":"ready-for-agent"},{"name":"agent-working"}]}'
+assert_ok "agent-working is removed from the closed issue" grep -q -- "gh issue edit 6 -R acme/widget --remove-label agent-working" "$CALLS"
+assert_no "ready-for-agent is NOT removed (the PRD would lose its only child and never be reviewed)" grep -q -- "--remove-label ready-for-agent" "$CALLS"
+: > "$CALLS"
+closed_issue_unlabel 6 '{"state":"CLOSED","labels":[{"name":"ready-for-agent"}]}'
+assert_no "a closed issue with only ready-for-agent gets no gh issue edit at all" grep -q "gh issue edit" "$CALLS"
+
 finish

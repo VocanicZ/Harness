@@ -1,0 +1,550 @@
+{
+  "schema": 1,
+  "run_id": "run-20261110",
+  "arm": "harness",
+  "fixture": "pennywise",
+  "repo": "VocanicZ/bench-20261110t202630z-harness-r03",
+  "status": "ok",
+  "capped": null,
+  "error": null,
+  "started_at": "2026-11-11T02:21:18Z",
+  "ended_at": "2026-11-11T03:40:36Z",
+  "wall_s": 4589.145,
+  "coding_s": 6689.304,
+  "testing_s": 249.611,
+  "test_calls": 90,
+  "tokens": {
+    "input": 668,
+    "output": 207820,
+    "cache_read": 10093695,
+    "cache_write": 982838
+  },
+  "cost_usd": 8.3355,
+  "usd_per_pct": 0.53,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 15.73,
+  "models": {
+    "claude-opus-5-5": {
+      "messages": 119,
+      "input": 256,
+      "output": 98845,
+      "cache_read": 4770148,
+      "cache_write": 529432,
+      "cost_usd": 5.5791
+    },
+    "claude-sonnet-5-5": {
+      "messages": 206,
+      "input": 412,
+      "output": 108975,
+      "cache_read": 5323547,
+      "cache_write": 453406,
+      "cost_usd": 2.7564
+    }
+  },
+  "hidden_tests": {
+    "passed": 80,
+    "failed": 0,
+    "total": 80,
+    "details": {
+      "install": "pip",
+      "tests": [
+        {
+          "id": "CliAddTests.test_add_appends_and_prints_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_creates_a_missing_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_refused_entry_does_not_create_the_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_refuses_invalid_entries_and_leaves_the_file_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_to_a_file_without_a_trailing_newline",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_without_a_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_added_entry_shows_up_everywhere",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_has_two_decimals",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_of_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_exits_1_naming_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_on_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_command_without_a_file_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_missing_file_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_no_command_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_unknown_command_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_default_format_is_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_header_only_for_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_is_ordered_like_list",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_quotes_awkward_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_rejects_unknown_format",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_category_filter_ignores_case",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_everything",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_filters_combine",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_json_with_no_match_is_an_empty_array",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_no_match_prints_nothing_and_succeeds",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_oldest_first_and_stable",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_omits_note_without_trailing_space",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_rejects_a_mistyped_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_since_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_since_and_until_include_their_ends",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_until_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_category_explicit",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_defaults_to_category",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_lines_have_name_then_total",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_of_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_rejects_unknown_grouping",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_category_is_case_insensitive",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_filters_combine",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_input_list_is_not_modified",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_no_filters_returns_everything_in_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_order_given_is_kept",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_since_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_since_and_until_include_their_ends",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_unknown_category_matches_nothing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_until_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_bad_amounts",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_date_that_does_not_exist",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_line_number_counts_blank_and_comment_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_malformed_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_not_enough_fields",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_reports_the_first_bad_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_amount_spellings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_categories_lowercased",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_field_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_empty_string_when_missing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_rest_of_line_trimmed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_returns_entries_in_file_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_skips_blank_and_comment_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_tab_separated_fields",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_windows_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_without_trailing_newline",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance_is_exact",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance_of_nothing_is_zero",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_category",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_category_and_month_of_nothing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_month_separates_years",
+          "status": "passed",
+          "message": ""
+        }
+      ]
+    }
+  },
+  "counts": {
+    "workers": 1,
+    "continue_replies": 0,
+    "fleet_restarts": 0,
+    "issues_closed": 17,
+    "prs_merged": 17
+  },
+  "caps": {
+    "wall_s": 21600,
+    "cost_usd": 80.0
+  },
+  "repo_deleted": true,
+  "logs": "run-03.logs",
+  "quality": "ok",
+  "coverage": {
+    "line_pct": 97.9,
+    "branch_pct": 96.0,
+    "total_pct": 97.5,
+    "tests": "unittest"
+  },
+  "run": 3,
+  "isolation": {
+    "config": "isolated",
+    "engine_skills": [
+      "caveman",
+      "handoff",
+      "harness",
+      "harness-arc",
+      "harness-init",
+      "harness-issue",
+      "harness-one",
+      "harness-pause",
+      "harness-plan",
+      "harness-prd",
+      "harness-resume",
+      "harness-start",
+      "harness-status",
+      "harness-stop",
+      "harness-uninstall",
+      "subagent-task-tree",
+      "to-issues",
+      "to-prd",
+      "writing-plans"
+    ],
+    "engine_plugins": []
+  },
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 47,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 982838,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 5.2671,
+  "turn_gaps": {
+    "turns": 303,
+    "p50_s": 7.2,
+    "p90_s": 17.0,
+    "max_s": 1241.8,
+    "over_5m": 5,
+    "over_1h": 0
+  },
+  "cache_ttl": "5m",
+  "effort": {
+    "high": 509,
+    "medium": 82
+  },
+  "provenance": {
+    "engine_commit": "cd68d682096c1cf8b846948b4782e3ce1dee3650",
+    "skill_version": "sha256:064c51f34bfa1028",
+    "cli_version": "2.1.322 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 0,
+  "fuzz_classes": 0,
+  "fuzz_class_counts": {},
+  "fuzz_examples": [],
+  "fuzz_seed": 620,
+  "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87",
+  "usd_per_passed_test": 0.1042,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  }
+}

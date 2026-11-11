@@ -1,0 +1,799 @@
+{
+  "passed": 80,
+  "failed": 0,
+  "total": 80,
+  "details": {
+    "install": "pip",
+    "tests": [
+      {
+        "id": "CliAddTests.test_add_appends_and_prints_the_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliAddTests.test_add_creates_a_missing_file",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliAddTests.test_add_refused_entry_does_not_create_the_file",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliAddTests.test_add_refuses_invalid_entries_and_leaves_the_file_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliAddTests.test_add_to_a_file_without_a_trailing_newline",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliAddTests.test_add_without_a_note",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliAddTests.test_added_entry_shows_up_everywhere",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliBalanceTests.test_balance",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliBalanceTests.test_balance_from_stdin",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliBalanceTests.test_balance_has_two_decimals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliBalanceTests.test_balance_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliBalanceTests.test_balance_of_an_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliErrorTests.test_bad_ledger_exits_1_naming_the_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliErrorTests.test_bad_ledger_on_stdin",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliErrorTests.test_command_without_a_file_exits_2",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliErrorTests.test_missing_file_exits_2",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliErrorTests.test_no_command_exits_2",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliErrorTests.test_unknown_command_exits_2",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_csv",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_default_format_is_csv",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_from_stdin",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_header_only_for_an_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_is_ordered_like_list",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_quotes_awkward_notes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliExportTests.test_export_rejects_unknown_format",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_category_filter_ignores_case",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_everything",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_filters_combine",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_from_stdin",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_json_with_no_match_is_an_empty_array",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_no_match_prints_nothing_and_succeeds",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_oldest_first_and_stable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_omits_note_without_trailing_space",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_rejects_a_mistyped_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_since_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_since_and_until_include_their_ends",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliListTests.test_list_until_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_by_category_explicit",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_by_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_defaults_to_category",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_from_stdin",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_json_by_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_lines_have_name_then_total",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_of_an_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CliSummaryTests.test_summary_rejects_unknown_grouping",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_category_is_case_insensitive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_filters_combine",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_input_list_is_not_modified",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_no_filters_returns_everything_in_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_order_given_is_kept",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_since_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_since_and_until_include_their_ends",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_unknown_category_matches_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilterTests.test_until_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_error_bad_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_error_date_that_does_not_exist",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_error_line_number_counts_blank_and_comment_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_error_malformed_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_error_not_enough_fields",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_error_reports_the_first_bad_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_amount_spellings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_categories_lowercased",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_empty_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_field_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_note_is_empty_string_when_missing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_note_is_rest_of_line_trimmed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_returns_entries_in_file_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_skips_blank_and_comment_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_tab_separated_fields",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_windows_line_endings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ParseTests.test_parse_without_trailing_newline",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_balance",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_balance_is_exact",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_balance_of_nothing_is_zero",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_by_category",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_by_category_and_month_of_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_by_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "SummaryTests.test_by_month_separates_years",
+        "status": "passed",
+        "message": ""
+      }
+    ]
+  },
+  "fuzz": {
+    "fuzz_cases": 1000,
+    "fuzz_divergences": 20,
+    "fuzz_classes": 4,
+    "fuzz_class_counts": {
+      "output:closed-pipe x stderr": 11,
+      "argv:dash-led-argument x exit": 4,
+      "ledger:lone-cr x stdout": 4,
+      "ledger:lone-cr x exit": 1
+    },
+    "fuzz_examples": [
+      {
+        "case": 25,
+        "argv": [
+          "export",
+          "ledger.txt"
+        ],
+        "ledger": "# trailing space  \\r2024-06-04 \\tSALArY -820986585 a # b\\r2024-04-16 Fuel\\t-53.02      new shoes\\r2024-03-20 salary 71.46\\r\\r2024-04-24 FUeL 2066.71\\r2024-03-08 salary  -78.88\\r# trailing space  \\r202\u2026",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "date,category,amount,note\\n2024-03-08,salary,-78.88,\\n2024-03-08,salary,0.60,Za\\u017c\\xf3\\u0142\\u0107 g\\u0119\\u015bl\\u0105\\n2024-03-20,salary,71.46,\\n2024-03-27,salary,-61.00,12.505\\n2024-04-16,fuel,-\u2026",
+          "stderr_empty": true,
+          "file": [
+            "# trailing space  ",
+            "2024-06-04 \tSALArY -820986585 a # b",
+            "2024-04-16 Fuel\t-53.02      new shoes",
+            "2024-03-20 salary 71.46",
+            "2024-04-24 FUeL 2066.71",
+            "2024-03-08 salary  -78.88",
+            "# trailing space  ",
+            "2024-06-25      fuel -58.97",
+            "#\t tabbed",
+            "2024-03-27 salary -61 12.505",
+            "2024-06-09\tsalary  -48.61",
+            "2024-05-14 fuel  22.9 milk, eggs, bread",
+            "2024-03-08 salary 0.60 Za\u017c\u00f3\u0142\u0107 g\u0119\u015bl\u0105",
+            "2024-05-01 FUEL -81.66"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "date,category,amount,note\\n",
+          "stderr_empty": true,
+          "file": [
+            "# trailing space  ",
+            "2024-06-04 \tSALArY -820986585 a # b",
+            "2024-04-16 Fuel\t-53.02      new shoes",
+            "2024-03-20 salary 71.46",
+            "2024-04-24 FUeL 2066.71",
+            "2024-03-08 salary  -78.88",
+            "# trailing space  ",
+            "2024-06-25      fuel -58.97",
+            "#\t tabbed",
+            "2024-03-27 salary -61 12.505",
+            "2024-06-09\tsalary  -48.61",
+            "2024-05-14 fuel  22.9 milk, eggs, bread",
+            "2024-03-08 salary 0.60 Za\u017c\u00f3\u0142\u0107 g\u0119\u015bl\u0105",
+            "2024-05-01 FUEL -81.66"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 126,
+        "argv": [
+          "export",
+          "ledger.txt"
+        ],
+        "ledger": "2021-01-29 savings +25.14\\n2021-04-26 rent -6 \\t \\n#\\n2021-06-17 \\tRent -1568.25\\n2021-10-18 \\treNt\\t19.91\\n2021-11-07 savings +1091.48\\n2021-12-30 rent -40.75  gift for mum\\n",
+        "ledger_from": "file",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "2021-01-29 savings +25.14",
+            "2021-04-26 rent -6 \t ",
+            "#",
+            "2021-06-17 \tRent -1568.25",
+            "2021-10-18 \treNt\t19.91",
+            "2021-11-07 savings +1091.48",
+            "2021-12-30 rent -40.75  gift for mum"
+          ]
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2021-01-29 savings +25.14",
+            "2021-04-26 rent -6 \t ",
+            "#",
+            "2021-06-17 \tRent -1568.25",
+            "2021-10-18 \treNt\t19.91",
+            "2021-11-07 savings +1091.48",
+            "2021-12-30 rent -40.75  gift for mum"
+          ]
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      },
+      {
+        "case": 232,
+        "argv": [
+          "add",
+          "ledger.txt",
+          "2024-04-30",
+          "rent",
+          "-abc"
+        ],
+        "ledger": "2024-03-01 savings -91.07\\n\\n2024-03-02 gifts -20\\n2024-03-27 utilities -408841405 weekly shop\\n2024-04-13  utilities      99\\n",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2024-03-01 savings -91.07",
+            "2024-03-02 gifts -20",
+            "2024-03-27 utilities -408841405 weekly shop",
+            "2024-04-13  utilities      99"
+          ]
+        },
+        "arm": {
+          "exit": 2,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2024-03-01 savings -91.07",
+            "2024-03-02 gifts -20",
+            "2024-03-27 utilities -408841405 weekly shop",
+            "2024-04-13  utilities      99"
+          ]
+        },
+        "arm_stderr": "usage: pennywise add [-h] FILE DATE CATEGORY AMOUNT [NOTE]\\npennywise add: error: the following arguments are required: AMOUNT\\n"
+      },
+      {
+        "case": 281,
+        "argv": [
+          "list",
+          "-",
+          "--since",
+          "2024-05-10"
+        ],
+        "ledger": "2024-05-02 groceries  0\\n2024-04-24\\thealth  -40\\n2024-03-03 Health -51.7\\n# ledger\\n2024-04-02 \\tuTiLiTieS +914090121.5 gift for mum\\n2024-03-29 Travel      -73835.86\\n2024-04-14 TRAVEL -1054\\n2024-0\u2026",
+        "ledger_from": "stdin",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": null
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": null
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      },
+      {
+        "case": 378,
+        "argv": [
+          "summary",
+          "ledger.txt",
+          "--json",
+          "--by",
+          "month"
+        ],
+        "ledger": "## section\\n2000-02-29 coFFEe  -35.51\\n2023-12-22 coFFEe -3.35 two  spaces  inside\\n2024-01-09 Gifts -2952.16\\n2024-01-13 Gifts -0.19 12.505\\n",
+        "ledger_from": "file",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "## section",
+            "2000-02-29 coFFEe  -35.51",
+            "2023-12-22 coFFEe -3.35 two  spaces  inside",
+            "2024-01-09 Gifts -2952.16",
+            "2024-01-13 Gifts -0.19 12.505"
+          ]
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "## section",
+            "2000-02-29 coFFEe  -35.51",
+            "2023-12-22 coFFEe -3.35 two  spaces  inside",
+            "2024-01-09 Gifts -2952.16",
+            "2024-01-13 Gifts -0.19 12.505"
+          ]
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      },
+      {
+        "case": 385,
+        "argv": [
+          "balance",
+          "ledger.txt"
+        ],
+        "ledger": "2022-07-02 Pets 66 \\trent for march\\n2022-10-14 Travel 84.71 #tag\\n2023-02-06 insurance 1665 -refund\\n2022-07-08 Pets      -1609.02 12.505\\n2023-02-21 insurance 37.20      birthday\\n",
+        "ledger_from": "file",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "2022-07-02 Pets 66 \trent for march",
+            "2022-10-14 Travel 84.71 #tag",
+            "2023-02-06 insurance 1665 -refund",
+            "2022-07-08 Pets      -1609.02 12.505",
+            "2023-02-21 insurance 37.20      birthday"
+          ]
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2022-07-02 Pets 66 \trent for march",
+            "2022-10-14 Travel 84.71 #tag",
+            "2023-02-06 insurance 1665 -refund",
+            "2022-07-08 Pets      -1609.02 12.505",
+            "2023-02-21 insurance 37.20      birthday"
+          ]
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      },
+      {
+        "case": 557,
+        "argv": [
+          "summary",
+          "ledger.txt"
+        ],
+        "ledger": "2024-03-18 salary -0.04\\r2024-03-18 rent -83738.58\\tthe \"good\" cheese\\r# trailing space  \\r2024-03-19\\trent 0 train to Leeds\\r\\r2024-03-19 TravEL  -2490.55\\r\\r2024-03-19 salary -28.01\\r2024-03-19 sala\u2026",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "groceries  95.90\\nrent  -83738.58\\nsalary  240685031.93\\ntravel  -2490.55\\n",
+          "stderr_empty": true,
+          "file": [
+            "2024-03-18 salary -0.04",
+            "2024-03-18 rent -83738.58\tthe \"good\" cheese",
+            "# trailing space  ",
+            "2024-03-19\trent 0 train to Leeds",
+            "2024-03-19 TravEL  -2490.55",
+            "2024-03-19 salary -28.01",
+            "2024-03-19 salary 240685059.98",
+            "2024-03-19  groceries 95.9 coffee beans"
+          ]
+        },
+        "arm": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2024-03-18 salary -0.04",
+            "2024-03-18 rent -83738.58\tthe \"good\" cheese",
+            "# trailing space  ",
+            "2024-03-19\trent 0 train to Leeds",
+            "2024-03-19 TravEL  -2490.55",
+            "2024-03-19 salary -28.01",
+            "2024-03-19 salary 240685059.98",
+            "2024-03-19  groceries 95.9 coffee beans"
+          ]
+        },
+        "arm_stderr": "pennywise: ledger.txt: line 1: invalid amount '-0.04\\\\r2024-03-18' (expected a number with at most two decimals)\\n"
+      },
+      {
+        "case": 572,
+        "argv": [
+          "list",
+          "ledger.txt",
+          "--until",
+          "2024-10-27"
+        ],
+        "ledger": "2024-03-05 dining\\t-10 dentist\\r\\r2024-03-05 pets\\t-400.55 two  spaces  inside\\r2024-03-07 dining -96.73\\r",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "2024-03-05 dining -10.00 dentist\\n2024-03-05 pets -400.55 two  spaces  inside\\n2024-03-07 dining -96.73\\n",
+          "stderr_empty": true,
+          "file": [
+            "2024-03-05 dining\t-10 dentist",
+            "2024-03-05 pets\t-400.55 two  spaces  inside",
+            "2024-03-07 dining -96.73"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "2024-03-05 dining -10.00 dentist\\r\\r2024-03-05 pets\\t-400.55 two  spaces  inside\\r2024-03-07 dining -96.73\\n",
+          "stderr_empty": true,
+          "file": [
+            "2024-03-05 dining\t-10 dentist",
+            "2024-03-05 pets\t-400.55 two  spaces  inside",
+            "2024-03-07 dining -96.73"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 663,
+        "argv": [
+          "summary",
+          "ledger.txt",
+          "--by",
+          "month"
+        ],
+        "ledger": "#\\r2024-03-10 salary -0.10\\t\\trefund\\r2024-03-10 SALARY      -3.3\\r2024-03-11 salary \\t1.1\\r\\r2024-03-12 Salary \\t-19.99\\r",
+        "ledger_from": "file",
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "2024-03  -22.29\\n",
+          "stderr_empty": true,
+          "file": [
+            "#",
+            "2024-03-10 salary -0.10\t\trefund",
+            "2024-03-10 SALARY      -3.3",
+            "2024-03-11 salary \t1.1",
+            "2024-03-12 Salary \t-19.99"
+          ]
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "#",
+            "2024-03-10 salary -0.10\t\trefund",
+            "2024-03-10 SALARY      -3.3",
+            "2024-03-11 salary \t1.1",
+            "2024-03-12 Salary \t-19.99"
+          ]
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 284,
+        "argv": [
+          "list",
+          "ledger.txt"
+        ],
+        "ledger": "2024-05-16  gifts -19\\n2024-05-04  gifts -25.32\\n2024-03-30 books 0 #tag\\n2024-03-18 gifts 54.05 bus ticket\\n2024-03-25      books -759197243.25 bus ticket\\n2024-03-16 \\tfuel 58.2\\n",
+        "ledger_from": "file",
+        "closed_stdout": true,
+        "reference": {
+          "exit": 0,
+          "stdout": "",
+          "stderr_empty": true,
+          "file": [
+            "2024-05-16  gifts -19",
+            "2024-05-04  gifts -25.32",
+            "2024-03-30 books 0 #tag",
+            "2024-03-18 gifts 54.05 bus ticket",
+            "2024-03-25      books -759197243.25 bus ticket",
+            "2024-03-16 \tfuel 58.2"
+          ]
+        },
+        "arm": {
+          "exit": 120,
+          "stdout": "",
+          "stderr_empty": false,
+          "file": [
+            "2024-05-16  gifts -19",
+            "2024-05-04  gifts -25.32",
+            "2024-03-30 books 0 #tag",
+            "2024-03-18 gifts 54.05 bus ticket",
+            "2024-03-25      books -759197243.25 bus ticket",
+            "2024-03-16 \tfuel 58.2"
+          ]
+        },
+        "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+      }
+    ],
+    "fuzz_seed": 620,
+    "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87"
+  }
+}

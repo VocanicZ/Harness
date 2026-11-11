@@ -1,0 +1,40 @@
+{
+  "bnd65b0": {
+    "sessions": 29,
+    "tokens": {},
+    "issues_closed": 26,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-20261110t202630z-harness-r02": {
+        "claims": 29,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 25,
+        "init": 1,
+        "which": 51,
+        "--help": 1
+      },
+      "which": 51,
+      "changed_nodes": 866,
+      "round1": 2474,
+      "round2": 863,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 51
+      },
+      "wall_ms": 12497,
+      "selective": 48,
+      "full_suite": 3,
+      "backfilled": 0,
+      "selective_share": 0.94
+    },
+    "model_mismatches": []
+  }
+}
