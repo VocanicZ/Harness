@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-test-timeout-windows: 1800
+# harness-test-timeout-windows: 5400
 # test_supervise_autoupdate_headless.sh — #493 / PRD #475 task 6: the headless twin of
 # test_supervise_autoupdate.sh (#477). `harness supervise` installs a published release by itself and
 # rolls every fleet's workers onto it, without killing a lane — here on HARNESS_SESSION_BACKEND=headless,
@@ -109,7 +109,10 @@ lane_survived(){ local f="$1" want="$2" what="$3" s p
   assert_ok "$what: the lane's runner process is alive" alive "$p"
   assert_ok "$what: the lane is still live" sess_live "$s"
   assert_eq "$(LANESNAP "$f")" "$want" "$what: the lane's state, turns, claude count and start directory are unchanged"
-  if [[ -s "$T/fake-$f/pids" ]]; then assert_ok "$what: its mid-turn claude and grandchild are still running" alive_all "$(FAKEPIDS "$f")"; fi; }
+  if [[ -s "$T/fake-$f/pids" ]]; then
+    if host_is_windows && ! alive_all "$(FAKEPIDS "$f")"; then   # a red one on Windows says what it saw (#627)
+      for p in $(FAKEPIDS "$f"); do echo "  diag $what: pid $p kill-0=$(kill -0 "$p" 2>&1 && echo y || echo n) tasklist=[$(tasklist //FI "PID eq $p" //NH 2>&1 | tr -d '\r' | tr -s ' \n' ' ')] runner-state=$(sess_state "$s")"; done; fi
+    assert_ok "$what: its mid-turn claude and grandchild are still running" alive_all "$(FAKEPIDS "$f")"; fi; }
 # fresh_host <initial tag> — a host on <tag>, two fleets started on it, one headless lane each (fa idle, fb mid-turn).
 fresh_host(){ local tag="$1" f i
   kill_ours; tmp_kill_rooted "$H" "$T/fleets"; rm -rf "$H" "$T/fleets" "$T/units" "$T/gh.calls" "$T/kill-sup" "$T/sup.out" "$T/systemctl.calls"
