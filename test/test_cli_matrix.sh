@@ -827,13 +827,17 @@ headless_busy_idle_ok(){ ( hl_env; local s=hz-main-i23 p; hl_lane busy normal; t
   rm -f "$FAKE_CLAUDE_DIR/hold"; hl_wait 15 hl_turn "$s" 1 || exit 1
   p="$(sess_capture "$s")"; not session_stalled "$p" && not session_limit_idle "$p" && same "$(sess_state "$s")" idle ); }
 # headless_limit_ok — a turn the usage limit ends parks the lane (with the CLI's reset time), not a
-# stall; the watchdog handles it as a limit park and its nudge is the lane's next turn.
+# stall; the watchdog parks it on a limit wait spec (#1066: no nudge, whatever the CLI) and, once the reset time has passed and no
+# usage hold stands, the engine resumes it once: the wake-up message is the lane's next turn.
 headless_limit_ok(){ ( hl_env; local s=hz-main-i24 p; hl_lane limit limit normal
   hl_launch "$s" GOAL=ISSUE:24 && hl_wait 15 hl_turn "$s" 1 || exit 1
   p="$(sess_capture "$s")"; session_limit_idle "$p" && not session_stalled "$p" && same "$(sess_state "$s")" limit &&
     { [[ -s "$FIX/$HARNESS_CLI/stream-json/limit-reset.na" ]] || [[ -n "$(limit_reset "$p")" ]]; } || exit 1
   watchdog_session "$s"; grep -qF "watchdog: $s parked at its idle prompt by the usage limit" "$HL/harness.log" &&
-    hl_wait 15 hl_turn "$s" 2 && has "the usage limit has reset" "$(hl_calls prompt | sed -n 2p)" ); }
+    grep -qF '"cond":"limit"' "$RUN_DIR/$s.wait" || exit 1
+  wait_tend "$s"; same "$(hl_calls prompt | wc -l | tr -d ' ')" 1 || exit 1   # parked: the reset time is not here yet, no turn
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["not_before"]=1; json.dump(d, open(sys.argv[1],"w"))' "$RUN_DIR/$s.wait"
+  wait_tend "$s"; hl_wait 15 hl_turn "$s" 2 && has "wait done: usage limit cleared" "$(hl_calls prompt | sed -n 2p)" ); }
 # headless_transient_ok — a turn a transient API error ends is the #115 wedge, not a limit; the
 # watchdog nudges it and the nudge runs a healthy turn.
 headless_transient_ok(){ ( hl_env; local s=hz-main-i25 p; hl_lane transient transient normal
