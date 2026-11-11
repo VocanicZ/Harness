@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_readme_docs.sh — the three live-injection shortcuts are documented in README's
 # CLI command table AND the per-command shortcut table (PRD #80 required three places;
 # the umbrella skill section was the third — see test_subskills.sh). Guards #81.

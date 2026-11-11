@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_tmux_twins.sh — #493 / PRD #475 task 6 (Solution 6): every test that needs a real tmux has a headless twin.
 #
 # Windows has no tmux, so a test that draws tmux panes either has a twin on the headless session backend that asserts the

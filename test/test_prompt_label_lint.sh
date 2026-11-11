@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_prompt_label_lint.sh — #1053: the prompt-skills lint (test_cli_matrix.sh prompt_skills) must know every Harness label,
 # trailing `# …` comment or not. An end-anchored regex dropped agent-paused, bug, bug-triaged and hitl, so the first prompt
 # to backtick one (prompts/_windows_suite.md) failed prompt-skills-installed for every CLI.

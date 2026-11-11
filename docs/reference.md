@@ -1078,6 +1078,18 @@ bug-fix and resume prompts):
 5. **No new failures**: a failing test is re-run against the base first; red there too is
    pre-existing and left alone.
 
+**Always-run guard set (#1059).** Coverage-based selection picks the tests that *execute* the changed code, so
+a repo-wide guard (every `HARNESS_*` has a config-table row, every `tmux` call goes through the session seam, every
+backticked prompt word is a known label, a Python test sits above its `__main__` runner) is never selected for a change
+that merely *adds* a variable, a script or a label. About half the release-gate reds were exactly that, each holding the
+release for 30 minutes to 3 hours. `bash test/guards.sh` runs the **guard set** — the test files whose only input is the
+repo tree, marked by a `# rtdd: always` line in their first 15 lines (`bash test/guards.sh list` prints them) — under
+`run.sh`'s isolation, in under a minute, and the lane prompts (`prompts/_rtdd.md`) have a lane run it with Round 1 and
+again before opening the PR. A new tree-only test joins the set by carrying that header; nothing else to register.
+It is not the full suite: the full suite still runs once, at PRD review. A guard too slow for the set
+(`test_cli_readme.sh` and `test_cli_matrix_guard.sh` wait on every CLI's matrix cells, minutes) gets its fast check split
+out into a file of its own, as `test_config_table.sh` did for the config table.
+
 At least one new test must fail without the change. A lane never weakens or edits a test to pass.
 The merge gate is the repo's `scripts/ci-local.sh` when it ships one, otherwise rtdd Rounds 1 and 2
 re-selected on the rebased head plus the lane's own new tests — never the full suite.

@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Lanes run an always-run guard set, so a repo-wide guard goes red in the lane, not at the release gate (#1059)
+
+- About half the release-gate reds were repo-wide guard tests (`test_cli_readme.sh`'s config-table row per `HARNESS_*`, `test_portable_guard.py`, `test_session_backend.sh`, `test_tmux_twins.sh`, the prompt-label lint, `test_py_runner_guard.sh`) that rtdd's coverage-based Rounds 1 and 2 never select: a change that only adds a variable, script or label executes none of them. Each red held the release for 30 minutes to 3 hours.
+- `bash test/guards.sh` runs the guard set under `run.sh`'s isolation in under a minute (`list` prints it); a test joins it by carrying a `# rtdd: always` line in its first 15 lines. The lane prompts (`prompts/_rtdd.md`: impl, bug-fix, resume) have a lane run it with Round 1 and again before opening the PR. It is not the full suite.
+- New `test/test_config_table.sh` is the config-table check on its own (a second, instead of `test_cli_readme.sh`'s minutes of matrix cells); `test_cli_readme.sh` keeps asserting it, through the same helper.
+
 ### A red release gate no longer files a duplicate of a triaged bug, or releases while its duplicate-closed bug's canonical is open (#1056)
 
 - `release_gate_bug` looked for an open gate bug by label `bug` and by a title that holds the short sha, so a bug the bug lane had triaged (`bug-triaged`), or one filed for an earlier head, was invisible and a second red gate opened a duplicate (7 of the 21 gate issues from #333 to #1055). It now searches open issues by title whatever their label, and when a later head fails the same `FAILED:` test files as an open gate bug it files nothing: the new `gate-failed-<sha>` marker points at that bug and the new sha is commented there. A filed gate bug lists its failing files in a `Failing test files:` block for this comparison.

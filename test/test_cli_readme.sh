@@ -60,14 +60,11 @@ for c in $green; do
   assert_eq "${bad# }" "" "README: every headless-* row of $c reads $want (or its matrix cell's n/a reason)"
 done
 # #316: the config table has a row for every setting the adapters read: each HARNESS_* in
-# scripts/cli/*.sh, but for the few Harness sets itself, never an operator.
-internal="HARNESS_BOOTSTRAP_PROMPT HARNESS_SESSION HARNESS_ENGINE_PLUGINS HARNESS_CLAUDE_CONFIG HARNESS_AGY_TRUST_FILE"
-# HARNESS_BOOTSTRAP_PROMPT: lib.sh's fixed launch prompt. HARNESS_SESSION: a lane variable, set per
-# session. HARNESS_ENGINE_PLUGINS: install.sh points it at the placed engine. HARNESS_CLAUDE_CONFIG,
-# HARNESS_AGY_TRUST_FILE: test seams (helpers.sh).
-read_vars="$(cd "$ROOT" && grep -ohE '\bHARNESS_[A-Z0-9_]*[A-Z0-9]\b' scripts/cli/*.sh | sort -u)"
-config="$(sed -n '/^## Configuration/,/^### /p' "$ROOT/docs/reference.md" | grep '^| `HARNESS_' | cut -d'|' -f2 | grep -oE 'HARNESS_[A-Z0-9_]+' | sort -u)"
-undocumented="$(comm -23 <(echo "$read_vars") <(echo "$config") | grep -vxF -f <(tr ' ' '\n' <<<"$internal"))"
+# scripts/cli/*.sh, but for the few Harness sets itself, never an operator (helpers.sh config_table_gaps, which
+# test_config_table.sh asserts alone, in the always-run guard set, #1059).
+internal="$CONFIG_TABLE_INTERNAL"
+read_vars="$(config_table_read_vars "$ROOT")"
+undocumented="$(config_table_gaps "$ROOT")"
 assert_eq "$undocumented" "" "the config table has a row for every HARNESS_* setting the adapters read"
 for v in $internal; do
   assert_ok "$v, left out of the config table, is still read by an adapter" grep -qw "$v" <<<"$read_vars"

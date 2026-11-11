@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_prompt_no_full_suite.sh — #449: lanes test with rtdd Rounds 1 and 2 only; the full suite runs
 # ONCE, at PRD review, never once per issue. #204/#218/#246 each brought a per-lane full suite back
 # (baseline + final + gate, 15–22 min each on swarm), so pin the rule on every lane prompt — raw AND

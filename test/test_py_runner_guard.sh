@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_py_runner_guard.sh — #892: run.sh runs a Python test file as `python3 <file>`, so a file with test_ functions and no
 # `if __name__ == "__main__":` runner defined its tests, ran none and exited 0 — test_ralph_stop_hook.py (19 tests) and
 # test_bench_refeeds.py (4) passed that way. Every such file must run its tests, a failing test must fail the run, and a

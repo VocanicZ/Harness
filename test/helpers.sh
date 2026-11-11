@@ -133,6 +133,21 @@ windows_skip(){ local row="$1" why="${2:-}" val
 # skipped on its n/a row is green); when it does not, a call that FAILed leaves the file to run on and end red.
 windows_skip_file(){ if windows_skip "$@"; then finish; exit 0; fi; return 0; }
 
+# config_table_gaps [root] — #1059: the HARNESS_* settings the adapters (scripts/cli/*.sh) read that docs/reference.md's
+# Configuration table has no row for, one per line (empty = covered). Harness's own variables — set by the engine, never by an
+# operator — are the few in `internal`. test_cli_readme.sh asserts it with the matrix cells (minutes); test_config_table.sh asserts
+# the same alone (a second), and is in the always-run guard set (test/guards.sh), so a new setting with no row fails the lane, not the gate.
+CONFIG_TABLE_INTERNAL="HARNESS_BOOTSTRAP_PROMPT HARNESS_SESSION HARNESS_ENGINE_PLUGINS HARNESS_CLAUDE_CONFIG HARNESS_AGY_TRUST_FILE"
+# HARNESS_BOOTSTRAP_PROMPT: lib.sh's fixed launch prompt. HARNESS_SESSION: a lane variable, set per
+# session. HARNESS_ENGINE_PLUGINS: install.sh points it at the placed engine. HARNESS_CLAUDE_CONFIG,
+# HARNESS_AGY_TRUST_FILE: test seams (helpers.sh).
+config_table_read_vars(){ local root="${1:-$(dirname "${BASH_SOURCE[0]}")/..}"
+  ( cd "$root" && grep -ohE '\bHARNESS_[A-Z0-9_]*[A-Z0-9]\b' scripts/cli/*.sh | sort -u ); }
+config_table_vars(){ local root="${1:-$(dirname "${BASH_SOURCE[0]}")/..}"
+  sed -n '/^## Configuration/,/^### /p' "$root/docs/reference.md" | grep '^| `HARNESS_' | cut -d'|' -f2 | grep -oE 'HARNESS_[A-Z0-9_]+' | sort -u; }
+config_table_gaps(){ local root="${1:-$(dirname "${BASH_SOURCE[0]}")/..}"
+  comm -23 <(config_table_read_vars "$root") <(config_table_vars "$root") | grep -vxF -f <(tr ' ' '\n' <<<"$CONFIG_TABLE_INTERNAL"); return 0; }
+
 # tmux_needing_tests [dir] — #493 / PRD #475 task 6: the shell tests in <dir> (default: this directory) that need a
 # real tmux, one file name per line. A test needs tmux when, outside comments, a line RUNS tmux to start a pane
 # (`tmux [-L sock] new-session`, behind an optional `env -u VAR` or `command`) or gates on the binary
