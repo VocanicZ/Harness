@@ -231,6 +231,31 @@ echo "# lock: dead waiters do not block the queue"
   assert_eq "$(queued_issues)" "557" "a fresh ticket is never dropped, whatever its lane"
   finish ) || rc=1
 
+echo "# lock: protocol version (#1041)"
+( fresh_env
+  # a lane on a pre-#1033 branch speaks protocol 1; once the host's lock is at protocol 2 it must fail fast and say to rebase
+  ws_lock 111 lane-a $$ >/dev/null 2>&1; assert_eq "$(cat "$WS_C/hx-proto")" "proto=2" "a current client records protocol 2 on the host"
+  export WS_LOCK_TIMEOUT=0 WS_POLL=30
+  t0=$SECONDS; out="$(WS_PROTO=1 ws_lock 222 lane-old $$ 2>&1)"; rc2=$?; t1=$((SECONDS - t0))
+  assert_eq "$rc2" "1" "a protocol-1 client is refused"
+  assert_ok "...at once, not after a poll" test "$t1" -lt 10
+  [[ "$out" == *"protocol 1"*"protocol 2"*"Rebase"* ]]; assert_eq "$?" "0" "...with an error naming both protocols and telling the lane to rebase"
+  assert_eq "$(queued_issues)" "" "...and it takes no ticket"
+  assert_eq "$(owner_issue)" "111" "...and the holder is untouched"
+  ws_unlock 111; ws_cleanup 111 >/dev/null
+  out="$(WS_PROTO=1 bash "$W/winsma.sh" run 222 base true 2>&1)"; assert_eq "$?" "1" "winsma.sh run from an old client fails too"
+  assert_no "...without taking the lock" test -e "$WS_C/hx-lock"
+  out="$(WS_PROTO=2 ws_lock 333 lane-new $$ 2>&1)"; assert_eq "$?" "0" "a current client still locks"
+  ws_cleanup 333 >/dev/null; wait
+  finish ) || rc=1
+( fresh_env
+  # a host that has never seen a protocol accepts any; a newer client raises it
+  assert_ok "a fresh host accepts protocol 1" ws_call r_proto_check 1
+  ws_call r_proto_check 2; assert_eq "$(cat "$WS_C/hx-proto")" "proto=2" "protocol 2 raises the record"
+  ws_call r_proto_check 2; assert_eq "$?" "0" "the same protocol is accepted"
+  assert_no "garbage is refused" ws_call r_proto_check x
+  finish ) || rc=1
+
 echo "# lock: the hold cap"
 ( fresh_env; export WS_HB_INTERVAL=300   # the exec gate on its own: the heartbeat's enforcement (#1040) is tested below
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null

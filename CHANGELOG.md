@@ -20,6 +20,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A queued lane that finds the holder's session idle (turn ended or exited) for longer than `WS_IDLE_MAX` (default 600 s) cleans the holder's run and releases the lock
 - `WS_POLL` below 300 is clamped to 300 (drivers polling every 15 s won every free-lock race); the Windows lane prompts forbid hand-rolled lock-holding drivers
 
+### The winsma lock records a protocol version; a lane on an old branch fails fast and is told to rebase (#1041)
+
+- Each lane streams the lock code from its own worktree, so lanes on branches older than #1033 ran the take-when-free lock with a 300 s poll beside the new FIFO queue and starved for days. The host now records the lock protocol in `C:\hx-proto` (1 = take-when-free, 2 = the FIFO queue); `winsma.sh lock` and `winsma.sh run` from a client below the recorded protocol exit 1 at once with an error telling the lane to rebase onto `origin/main`, instead of waiting. A lane already running pre-#1033 code has no check to run: rebase it.
+
 ### The winsma lock is a FIFO queue with a hold cap, and `harness status` shows it (#1033)
 
 - One lane could hold `C:\hx-lock` for about 12 hours while six others waited, and each release went to whichever waiter polled first. A lane that finds the lock held now takes a ticket in `C:\hx-queue` and the lock goes to the oldest live ticket; a lane that releases and asks again goes to the back. A ticket stale for `WS_STALE_SEC` whose lane is gone is dropped.
