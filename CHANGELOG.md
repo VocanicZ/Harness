@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `stats.py cache-waits` counts cache rewrites after a long gap (#1045)
+
+- `python3 scripts/stats.py cache-waits --since 24h` counts, per session and UTC hour, the calls with 100K or more cache-write tokens that follow a gap of 5 minutes or more, from the Claude transcripts; `--max-per-hour N` exits 1 over the limit. The 2026-11-09 to 2026-11-11 baseline is 1335 such calls, up to 7 per session-hour, so N = 2 (docs/reference.md).
+
 ### A lane waiting for the winsma lock parks and frees its pool slot (#1034, #1038)
 
 - An implementation lane that has queued for `C:\hx-lock` and is not next can run `winsma.sh park`: it keeps its queue ticket, posts a handoff and swaps `agent-working` for the new `waiting-winsma` label (`HARNESS_LABEL_WAITING_WINSMA`, seeded with the other labels). Its session ends and the slot is free; the label is not `agent-paused`, so the #417 self-park nudge leaves it alone.

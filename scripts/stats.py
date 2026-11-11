@@ -19,6 +19,8 @@ claude session, whose transcript grows across runs) reports only that run, flagg
     stats.py backfill                 rebuild session_end for past sessions from their transcripts
     stats.py goal-env <goal> [prd]    KIND=/ISSUE=/PRD= lines for a lane's HARNESS_* session env (#186)
     stats.py time-split <transcript>  coding vs testing seconds of a transcript, JSON (#379)
+    stats.py cache-waits [--since 24h] [--min-tokens 100000] [--min-gap 300] [--dir D]... [--json]
+                                      cache-rewrite calls after a long gap, per session and hour (#1045)
     stats.py transcripts <session>    a claude session's transcript paths, sub-agents included (#188)
     stats.py usage <transcript>...    per-model `<model>\t<in>\t<out>\t<cache_read>\t<cache_write>` (#188)
     stats.py mismatches [--fleet P] [-R owner/repo] [--since 7d]   model_mismatch lines for `harness status` (#376)
@@ -449,6 +451,119 @@ def session_time_split(session):
     """time_split of claude session <session>'s transcript, or None when the host no longer has it."""
     tr = find_transcript(session)
     return time_split(tr) if tr else None
+
+
+# --- cache rewrites after a long gap (#1045) ----------------------------------------------------
+# A lane call comes after a gap longer than the 5-minute prompt-cache TTL (`ephemeral_5m`) writes its whole
+# context again: 150K-300K `cache_creation_input_tokens` instead of a cache read. #1042's LONG WAITS rule keeps
+# lanes from sleep-polling past the TTL; this counts the calls that still do, per session and per hour.
+CACHE_WAIT_TOKENS = 100_000   # a call with at least this many cache writes ...
+CACHE_WAIT_GAP_S = 300        # ... after at least this many seconds since the session's previous call
+
+
+def cache_wait_calls(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S):
+    """[(ts, cache_create, gap_s)] for one transcript: each API call (a streamed message is written once
+    per content block under one id: its first line times the call, its last line ends it) whose cache writes
+    reach min_tokens and whose gap since the previous call ended reaches min_gap. The first call has no gap."""
+    calls, order = {}, []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(r, dict) or r.get("type") != "assistant":
+                    continue
+                m = r.get("message") or {}
+                u, t = m.get("usage"), parse_ts(r.get("timestamp"))
+                if not isinstance(u, dict) or t is None or m.get("model") == "<synthetic>":
+                    continue
+                key = m.get("id") or r.get("uuid") or len(order)
+                if key not in calls:
+                    calls[key] = [t, t, 0]
+                    order.append(key)
+                c = calls[key]
+                c[1] = max(c[1], t)
+                c[2] = int(u.get("cache_creation_input_tokens") or 0)   # the last line's usage wins
+    except OSError:
+        return []
+    out, prev_end = [], None
+    for key in order:
+        first, last, cc = calls[key]
+        if prev_end is not None and cc >= min_tokens and first - prev_end >= min_gap:
+            out.append((first, cc, first - prev_end))
+        prev_end = last if prev_end is None else max(prev_end, last)
+    return out
+
+
+def cache_waits(dirs=None, since=None, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S):
+    """The cache-rewrite report over every transcript under each config dir's projects/ (sub-agents too,
+    folded into their session): {calls, tokens, sessions, per_session: [{session, calls, tokens, worst_hour,
+    worst_hour_calls}], worst_hour_calls}. An hour is a UTC clock hour; a call before `since` is left out."""
+    dirs = config_dirs() if dirs is None else dirs
+    by_session, seen = {}, set()
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "projects", "*", "*.jsonl")) + glob.glob(os.path.join(d, "projects", "*", "*", "subagents", "*.jsonl")):
+            real = os.path.realpath(f)   # ~/.claude and the switch accounts may be symlinks of one tree: count a transcript once
+            if real in seen:
+                continue
+            seen.add(real)
+            try:
+                if since is not None and os.path.getmtime(f) < since:
+                    continue
+            except OSError:
+                continue
+            sub = os.path.basename(os.path.dirname(f)) == "subagents"
+            sid = os.path.basename(os.path.dirname(os.path.dirname(f))) if sub else os.path.basename(f)[:-len(".jsonl")]
+            for t, cc, gap in cache_wait_calls(f, min_tokens, min_gap):
+                if since is None or t >= since:
+                    by_session.setdefault(sid, []).append((t, cc, gap))
+    per = []
+    for sid, hits in by_session.items():
+        hours = {}
+        for t, _cc, _g in hits:
+            h = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:00Z")
+            hours[h] = hours.get(h, 0) + 1
+        wh = max(hours, key=lambda h: (hours[h], h))
+        per.append({"session": sid, "calls": len(hits), "tokens": sum(h[1] for h in hits),
+                    "worst_hour": wh, "worst_hour_calls": hours[wh]})
+    per.sort(key=lambda r: (-r["calls"], r["session"]))
+    return {"min_tokens": min_tokens, "min_gap_s": min_gap, "sessions": len(per),
+            "calls": sum(r["calls"] for r in per), "tokens": sum(r["tokens"] for r in per),
+            "worst_hour_calls": max((r["worst_hour_calls"] for r in per), default=0), "per_session": per}
+
+
+def cmd_cache_waits(argv):
+    import argparse
+    ap = argparse.ArgumentParser(prog="stats.py cache-waits", description="calls rewriting the prompt cache after a long gap (#1045)")
+    ap.add_argument("--since", default=None, help="7d, 24h, 30m or YYYY-MM-DD (default: all)")
+    ap.add_argument("--min-tokens", type=int, default=CACHE_WAIT_TOKENS)
+    ap.add_argument("--min-gap", type=int, default=CACHE_WAIT_GAP_S, help="seconds")
+    ap.add_argument("--dir", action="append", default=None, help="a Claude config dir (default: every one on the host)")
+    ap.add_argument("--top", type=int, default=10, help="sessions to list")
+    ap.add_argument("--max-per-hour", type=int, default=None, metavar="N",
+                    help="exit 1 when a session made more than N such calls in one UTC hour (the #1045 check)")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    try:
+        since = parse_since(a.since) if a.since else None
+    except ValueError as e:
+        print(f"stats.py cache-waits: {e}", file=sys.stderr)
+        return 2
+    r = cache_waits(a.dir, since, a.min_tokens, a.min_gap)
+    over = a.max_per_hour is not None and r["worst_hour_calls"] > a.max_per_hour
+    if a.json:
+        print(json.dumps(r))
+        return 1 if over else 0
+    print(f"calls with >= {r['min_tokens']} cache-write tokens after a gap >= {r['min_gap_s']}s"
+          + (f", since {a.since}" if a.since else ""))
+    print(f"  {r['calls']} calls, {r['tokens']} tokens, {r['sessions']} sessions; worst session-hour: {r['worst_hour_calls']} calls")
+    for row in r["per_session"][:a.top]:
+        print(f"  {row['session']}  {row['calls']} calls  {row['tokens']} tokens  worst hour {row['worst_hour']} ({row['worst_hour_calls']})")
+    if a.max_per_hour is not None:
+        print(f"  {'FAIL' if over else 'ok'}: worst session-hour {r['worst_hour_calls']} vs the limit {a.max_per_hour}")
+    return 1 if over else 0
 
 
 # --- a resumed session (#426) ---------------------------------------------------
@@ -1776,6 +1891,8 @@ def main(argv=None):
             return 1
         print(json.dumps(r))
         return 0
+    if cmd == "cache-waits":   # cache rewrites after a long gap, per session and hour (#1045)
+        return cmd_cache_waits(rest)
     if cmd == "ran":           # rc 0 when the event log holds usage for session <uuid> (#720)
         return 0 if rest and _has_tokens(logged_session_usage(rest[0])) else 1
     if cmd == "mismatches":    # `harness status`' model-mismatch flags (#376)

@@ -1328,6 +1328,58 @@ def _timed_transcript(d, sid="aaaaaaaa-0000-0000-0000-000000000001"):
         _use("00:08:00", "s1", "python3 -m pytest"), _res("00:09:00", "s1"))              # 60s test, in a sub-agent
     return main
 
+def _call(mid, hms, cc, lines=1):
+    """An assistant API call <mid> at 2026-10-01T<hms>Z with cc cache-write tokens, written <lines> times (streamed)."""
+    return [{"type": "assistant", "timestamp": f"2026-10-01T{hms}.000Z",
+             "message": {"id": mid, "model": "claude-sonnet-5-5", "usage": {"cache_creation_input_tokens": cc}}}] * lines
+
+def test_cache_wait_calls_count_only_big_writes_after_a_gap_of_five_minutes():   # #1045
+    with host() as d:
+        main = os.path.join(d, "projects", "-wt", "bbbbbbbb-0000-0000-0000-000000000001.jsonl")
+        _tx(main, *(_call("m1", "00:00:00", 900000)             # first call: no gap
+                    + _call("m2", "00:04:59", 200000)           # 299s gap: inside the TTL
+                    + _call("m3", "00:10:00", 99999)            # gap, but under 100K
+                    + _call("m4", "00:15:01", 150000, lines=3)  # 301s gap, streamed three times: ONE call
+                    + _call("m5", "00:15:30", 500000)           # no gap
+                    + _call("m6", "00:30:00", 100000)))         # 870s gap, exactly 100K
+        got = [(cc, int(g)) for _t, cc, g in st.cache_wait_calls(main)]
+        assert got == [(150000, 301), (100000, 870)], got
+
+def test_cache_waits_report_counts_per_session_and_hour_and_each_transcript_once():   # #1045
+    with host() as d:
+        sid = "bbbbbbbb-0000-0000-0000-000000000002"
+        main = os.path.join(d, "projects", "-wt", sid + ".jsonl")
+        _tx(main, *(_call("a1", "00:00:00", 10) + _call("a2", "00:06:00", 300000) + _call("a3", "00:12:00", 300000)
+                    + _call("a4", "02:00:00", 300000)))
+        _tx(os.path.join(d, "projects", "-wt", sid, "subagents", "agent-x.jsonl"),
+            *(_call("s1", "00:00:00", 10) + _call("s2", "00:09:00", 120000)))   # a sub-agent counts to its session
+        link = d + "-alias"
+        os.symlink(d, link)   # the same tree reached by a second config dir (~/.claude vs a switch account)
+        try:
+            r = st.cache_waits([d, link])
+        finally:
+            os.unlink(link)
+        assert (r["calls"], r["tokens"], r["sessions"], r["worst_hour_calls"]) == (4, 1020000, 1, 3), r
+        row = r["per_session"][0]
+        assert row["session"] == sid and row["worst_hour"] == "2026-10-01T00:00Z" and row["worst_hour_calls"] == 3, row
+        since = st.parse_ts("2026-10-01T01:00:00Z")
+        assert st.cache_waits([d], since)["calls"] == 1
+
+def test_cache_waits_command_exits_1_over_the_per_hour_limit():   # #1045
+    with host() as d:
+        _tx(os.path.join(d, "projects", "-wt", "bbbbbbbb-0000-0000-0000-000000000003.jsonl"),
+            *(_call("a1", "00:00:00", 10) + _call("a2", "00:06:00", 300000) + _call("a3", "00:12:00", 300000)))
+        stats = os.path.join(HERE, "..", "scripts", "stats.py")
+        def go(*a):
+            return subprocess.run([sys.executable, stats, "cache-waits", "--dir", d, *a], capture_output=True, text=True)
+        ok, bad = go("--max-per-hour", "2"), go("--max-per-hour", "1")
+        assert ok.returncode == 0 and "ok: worst session-hour 2 vs the limit 2" in ok.stdout, ok.stdout
+        assert bad.returncode == 1 and "FAIL: worst session-hour 2 vs the limit 1" in bad.stdout, bad.stdout
+        js = json.loads(go("--json").stdout)
+        assert js["calls"] == 2 and js["per_session"][0]["worst_hour_calls"] == 2, js
+        assert go("--since", "zz").returncode == 2
+
+
 def test_time_split_exact_on_a_fixture_transcript():
     with host() as d:
         tr = _timed_transcript(d)
