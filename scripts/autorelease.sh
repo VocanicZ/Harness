@@ -90,7 +90,7 @@ release_tick(){ local d now oldest prds nums after reason; release_repo_is_engin
 # same defect. An unfiled marker is held and its filing retried; a gh error counts as still open. A
 # bug seen CLOSED (fixed, or closed invalid/flake) is recorded as gate-resolved-<sha>: no further gh
 # call for it. Asked only when a release is due, and not while a release job runs (release_kick no-ops).
-release_gate_held(){ local reason="$1" d m sha n state pid; d="$(release_dir)"
+release_gate_held(){ local reason="$1" d m sha n state pid hops c; d="$(release_dir)"
   pid="$(cat "$d/release.pid" 2>/dev/null)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && return 1
   for m in "$d"/gate-failed-*; do
     [[ -f "$m" ]] || continue
@@ -101,12 +101,32 @@ release_gate_held(){ local reason="$1" d m sha n state pid; d="$(release_dir)"
       [[ "$n" =~ ^[0-9]+$ ]] || { log "auto-release: gate bug for the red gate at ${sha:0:7} is not filed yet — holding $reason"; return 0; }
     fi
     state="$(gh issue view "$n" -R "$SLUG" --json state --jq .state 2>/dev/null)" || state=""
+    # #1056: a gate bug closed as a duplicate of an open one is not a fix; the hold moves to the canonical.
+    hops=0
+    while [[ "$state" == CLOSED ]] && (( hops++ < 5 )); do
+      c="$(release_gate_canonical "$n")" || { state=""; break; }
+      [[ "$c" =~ ^[0-9]+$ && "$c" != "$n" ]] || break
+      log "auto-release: gate bug #$n (red gate at ${sha:0:7}) was closed as a duplicate of #$c — holding on #$c"
+      echo "$c" > "$m"; n="$c"
+      state="$(gh issue view "$n" -R "$SLUG" --json state --jq .state 2>/dev/null)" || state=""
+    done
     if [[ "$state" == CLOSED ]]; then : > "$d/gate-resolved-$sha"; continue; fi
     if [[ "$state" == OPEN ]]; then log "auto-release: gate bug #$n (red gate at ${sha:0:7}) still open — holding $reason"
     else log "auto-release: cannot read the state of gate bug #$n (red gate at ${sha:0:7}) — holding $reason"; fi
     return 0
   done
   return 1; }
+
+# release_gate_canonical <n> — print N when closed gate bug <n>'s last comment naming a canonical
+# says `duplicate of #N` (what `gh issue close --reason duplicate --comment` leaves); nothing when it
+# names none. rc 1 when GitHub cannot be read, so the caller keeps holding.
+release_gate_canonical(){ local text
+  text="$(gh issue view "$1" -R "$SLUG" --json comments --jq '.comments[].body' 2>/dev/null)" || return 1
+  grep -oiE 'duplicate of #[0-9]+' <<<"$text" | tail -n1 | grep -oE '[0-9]+$'; return 0; }
+
+# _gate_failed_set — stdin (a gate log or a gate bug's body) → its `FAILED: <file>` lines as one
+# sorted comma-joined key; empty when it lists none.
+_gate_failed_set(){ tr -d '\r' | sed -n 's/^FAILED: //p' | sort -u | paste -sd, -; }
 
 # release_tick_lane — the priority lane's release_tick: the bug lane outlives a completed unit, so
 # the fixes it merges are released even when no pool worker tick is running for the Harness repo.
@@ -173,21 +193,39 @@ release_clear_pending(){ local d tmp lockfd; d="$(release_dir)"; [[ -f "$d/pendi
   lock_release "$lockfd"; }
 
 # release_gate_bug <sha> <reason> — file one bug issue for a red gate at <sha>, idempotently: the
-# marker records the issue once filed, and an open bug with the same title is never duplicated.
-# Sets _GATE_BUG to the issue number (empty while it is not filed yet).
-release_gate_bug(){ local sha="$1" reason="$2" d m short title open url n body log
+# marker records the issue once filed, and an open gate bug is never duplicated (#1056): one with
+# the same title (this commit), or one whose body lists the same `FAILED:` files (a later head, the
+# same defect) — whatever its label, since the bug lane swaps `bug` for `bug-triaged`. The latter is
+# told the new sha in a comment. Sets _GATE_BUG to the issue number (empty while it is not filed yet).
+release_gate_bug(){ local sha="$1" reason="$2" d m short title open url n body log fset num t b
   d="$(release_dir)"; m="$d/gate-failed-$sha"; short="${sha:0:7}"; _GATE_BUG="$(head -n1 "$m" 2>/dev/null)"
   [[ -n "$_GATE_BUG" ]] && return 0
-  title="release gate failed at $short"
-  open="$(gh issue list -R "$SLUG" --label "$HARNESS_LABEL_BUG" --state open \
-    --search "$title in:title" --json number 2>/dev/null)" || { log "auto-release: cannot list bugs — filing for $short next poll"; return 0; }
-  n="$(sed -n 's/.*"number":[[:space:]]*\([0-9][0-9]*\).*/\1/p' <<<"$open" | head -1)"
+  title="release gate failed at $short"; log="$d/gate-$sha.log"; fset="$(_gate_failed_set < "$log" 2>/dev/null)"
+  open="$(gh issue list -R "$SLUG" --state open --search "release gate failed at in:title" --limit 50 \
+    --json number,title --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null)" || { log "auto-release: cannot list bugs — filing for $short next poll"; return 0; }
+  n=""
+  while IFS=$'\t' read -r num t; do
+    [[ "$num" =~ ^[0-9]+$ && "$t" == "$title" ]] && { n="$num"; break; }
+  done <<<"$open"
+  if [[ -z "$n" && -n "$fset" ]]; then
+    while IFS=$'\t' read -r num t; do
+      [[ "$num" =~ ^[0-9]+$ && "$t" == "release gate failed at "* ]] || continue
+      b="$(gh issue view "$num" -R "$SLUG" --json body --jq .body 2>/dev/null)" || continue
+      [[ "$(_gate_failed_set <<<"$b")" == "$fset" ]] || continue
+      n="$num"
+      gh issue comment "$n" -R "$SLUG" --body "The release gate failed again at $sha ($reason) on the same test files ($fset), so no new issue was filed: the fleet holds every release until this one is closed." >/dev/null 2>&1 || true
+      log "auto-release: red gate at $short fails the same files as open gate bug #$n — no new bug"
+      break
+    done <<<"$open"
+  fi
   if [[ -z "$n" ]]; then
-    log="$d/gate-$sha.log"; body="$(mktemp)"
+    body="$(mktemp)"
     { echo "\`harness release\` ($reason) ran the release gate (\`test/run.sh\`) at $sha and it failed, so no release was cut."
       echo "The fleet will not re-run the gate on this commit. Fixing this is a new commit, which the next release picks up."
       # #333: the failures first. Suites run alphabetically, so an early one's FAIL lines are far
       # above the tail; each is shown under its suite header, after what run.sh printed itself.
+      # #1056: the failing files, in a form a later red gate compares against before filing again.
+      [[ -n "$fset" ]] && { echo; echo "Failing test files:"; echo; echo '```'; tr , '\n' <<<"$fset" | sed 's/^/FAILED: /'; echo '```'; }
       echo; echo "Failures in the gate log (each under its suite):"
       echo; echo '```'
       awk '!seen && !/^== / { print; next } /^== / { seen = 1; h = $0; shown = 0; next }

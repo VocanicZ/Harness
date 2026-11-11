@@ -17,8 +17,8 @@ printf '#!/usr/bin/env bash\necho "$HARNESS_RELEASE_REASON" >> %q\necho "$2" >> 
 chmod +x "$RUN_DIR/release"; export HARNESS_RELEASE_CMD="$RUN_DIR/release"
 gh(){ echo "$*" >> "$GH_LOG"
   case "$1 $2" in
-    "issue list")   cat "$RUN_DIR/open-bugs" 2>/dev/null || echo '[]';;
-    "issue create") echo '[{"number":99}]' > "$RUN_DIR/open-bugs"; echo "https://github.com/acme/harness/issues/99";;
+    "issue list")   cat "$RUN_DIR/open-bugs" 2>/dev/null;;   # TSV: number<TAB>title, what --jq prints (#1056)
+    "issue create") printf '99\trelease gate failed at %s\n' bbbbbbb > "$RUN_DIR/open-bugs"; echo "https://github.com/acme/harness/issues/99";;
     "issue view")   [[ -e "$RUN_DIR/gh-down" ]] && return 1; cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;;  # #1029
   esac; return 0; }
 harness_event(){ echo "$*" >> "$EV"; }
@@ -111,13 +111,83 @@ gh(){ return 0; }; close_prd 276
 assert_ok "the retried close that lands releases" grep -qx 'prd:276' "$RLOG"
 
 # ── a red gate while a bug for it is already open: no duplicate ──
-: > "$GH_LOG"; echo '[{"number":77}]' > "$RUN_DIR/open-bugs"; echo ddddddd4 > "$RUN_DIR/head"
+: > "$GH_LOG"; printf '77\trelease gate failed at ddddddd\n' > "$RUN_DIR/open-bugs"; echo ddddddd4 > "$RUN_DIR/head"
 gh(){ echo "$*" >> "$GH_LOG"
   case "$1 $2" in "issue list") cat "$RUN_DIR/open-bugs";; "issue create") echo "https://github.com/acme/harness/issues/100";;
     "issue view") cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;; esac; return 0; }
 STUB_RC=4 release_run prd:277
 assert_eq "$(grep -c '^issue create' "$GH_LOG")" 0 "an open bug for the same commit is not filed twice"
 assert_eq "$(cat "$HARNESS_AUTORELEASE_DIR/gate-failed-ddddddd4")" 77 "the open bug is recorded for that commit"
+
+# ── #1056: a later head failing the same test files files no new issue, whatever label the bug carries ──
+# The bug lane swaps `bug` for `bug-triaged`, and the title holds the short sha, so neither a label
+# filter nor a title search finds the open gate bug for a new head. The FAILED: set is the key.
+D="$HARNESS_AUTORELEASE_DIR"; gate_log(){ local sha="$1"; shift   # a gate log: a failing suite, then run.sh's FAILED: lines
+  printf '== test_x.sh ==\n  FAIL: x\n== run.sh: 1/3 test files passed ==\n' > "$D/gate-$sha.log"
+  for f in "$@"; do echo "FAILED: $f"; done >> "$D/gate-$sha.log"; }
+gh(){ echo "$*" >> "$GH_LOG"
+  case "$1 $2" in
+    "issue list") cat "$RUN_DIR/open-bugs" 2>/dev/null;;
+    "issue create") echo "https://github.com/acme/harness/issues/101";;
+    "issue comment") :;;
+    "issue view") case "$*" in *"--json body"*) cat "$RUN_DIR/body-$3" 2>/dev/null;;
+                               *"--json comments"*) cat "$RUN_DIR/comments-$3" 2>/dev/null;;
+                               *) [[ -e "$RUN_DIR/gh-down" ]] && return 1; cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;; esac;;
+  esac; return 0; }
+# #77 is open and triaged (the bug label is gone), filed for an earlier head, listing two failing files
+printf '77\trelease gate failed at 1a1a1a1\n' > "$RUN_DIR/open-bugs"
+printf '```\nFAILED: test_a.sh\nFAILED: test_b.sh\n```\n' > "$RUN_DIR/body-77"; echo OPEN > "$RUN_DIR/state-77"
+LAST=2b2b2b2c; gate_log "$LAST" test_b.sh test_a.sh; echo "$LAST" > "$RUN_DIR/head"; : > "$GH_LOG"
+STUB_RC=4 release_run prd:1056
+assert_eq "$(grep -c '^issue create' "$GH_LOG")" 0 "gate 2 at a new sha with the same FAILED set files no new issue"
+assert_eq "$(cat "$D/gate-failed-$LAST")" 77 "its marker points at the open triaged bug"
+assert_ok "the new sha is commented on that bug" grep -qE "^issue comment 77 .*$LAST" "$GH_LOG"
+# a different FAILED set is a different defect: filed as its own bug
+LAST=3c3c3c3d; gate_log "$LAST" test_a.sh test_z.sh; echo "$LAST" > "$RUN_DIR/head"; : > "$GH_LOG"
+STUB_RC=4 release_run prd:1056
+assert_eq "$(grep -c '^issue create' "$GH_LOG")" 1 "a gate failing a different file set files its own bug"
+assert_eq "$(cat "$D/gate-failed-$LAST")" 101 "recorded for that sha"
+# a log with no FAILED: lines has no set to match: only the same commit's title dedupes
+LAST=4d4d4d4e; printf 'run.sh blew up\n' > "$D/gate-$LAST.log"; echo "$LAST" > "$RUN_DIR/head"; : > "$GH_LOG"
+STUB_RC=4 release_run prd:1056
+assert_eq "$(grep -c '^issue create' "$GH_LOG")" 1 "an empty FAILED set is never matched against an open bug"
+# GitHub may hand the body back with CRLF line ends: still the same set
+printf '77\trelease gate failed at 1a1a1a1\n' > "$RUN_DIR/open-bugs"; printf 'FAILED: test_a.sh\r\nFAILED: test_b.sh\r\n' > "$RUN_DIR/body-77"
+LAST=7a7a7a7b; gate_log "$LAST" test_a.sh test_b.sh; echo "$LAST" > "$RUN_DIR/head"; : > "$GH_LOG"
+STUB_RC=4 release_run prd:1056
+assert_eq "$(grep -c '^issue create' "$GH_LOG")" 0 "a CRLF body lists the same set"
+rm -f "$D"/gate-failed-2b2b2b2c "$D"/gate-failed-3c3c3c3d "$D"/gate-failed-4d4d4d4e "$D"/gate-failed-7a7a7a7b "$RUN_DIR/open-bugs"
+
+# ── #1056: a gate bug closed as a duplicate keeps the hold while its canonical is open ──
+# #692 closed as a dup of #687 (still open) and the next gate ran, failing the same test (#698).
+printf '80\n' > "$D/gate-failed-5e5e5e5f"; rm -f "$D/gate-resolved-5e5e5e5f"
+echo CLOSED > "$RUN_DIR/state-80"; printf 'Closing: Duplicate of #77.\n' > "$RUN_DIR/comments-80"; echo OPEN > "$RUN_DIR/state-77"
+: > "$RUN_DIR/tick.log"; : > "$GH_LOG"
+release_gate_held prd:1056 >> "$RUN_DIR/tick.log" 2>&1; rc=$?
+assert_eq "$rc" 0 "a gate bug closed as a duplicate of an open one still holds the release"
+assert_eq "$(head -n1 "$D/gate-failed-5e5e5e5f")" 77 "the marker is repointed to the canonical"
+assert_no "and the sha is not recorded as resolved" test -e "$D/gate-resolved-5e5e5e5f"
+assert_ok "the hold is logged on the canonical" grep -q 'gate bug #77 .*still open' "$RUN_DIR/tick.log"
+echo CLOSED > "$RUN_DIR/state-77"; : > "$RUN_DIR/comments-77"
+release_gate_held prd:1056; rc=$?
+assert_eq "$rc" 1 "once the canonical closes too the hold lifts"
+assert_ok "and the sha is resolved" test -e "$D/gate-resolved-5e5e5e5f"
+# a gh error reading the closing comments keeps the hold rather than guessing
+printf '81\n' > "$D/gate-failed-6f6f6f60"; echo CLOSED > "$RUN_DIR/state-81"
+gh(){ case "$*" in *"--json comments"*) return 1;; "issue view"*) cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;; esac; return 0; }
+release_gate_held prd:1056 >/dev/null 2>&1; rc=$?
+assert_eq "$rc" 0 "unreadable closing comments hold the release"
+# closed with no canonical named is a plain close: resolved
+gh(){ case "$*" in *"--json comments"*) echo "fixed in #123";; "issue view"*) cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;; esac; return 0; }
+release_gate_held prd:1056; rc=$?
+assert_eq "$rc" 1 "a gate bug closed without naming a canonical is resolved as before"
+rm -f "$D"/gate-failed-5e5e5e5f "$D"/gate-resolved-5e5e5e5f "$D"/gate-failed-6f6f6f60 "$D"/gate-resolved-6f6f6f60 "$RUN_DIR"/{state,body,comments}-{77,80,81}
+gh(){ echo "$*" >> "$GH_LOG"
+  case "$1 $2" in
+    "issue list")   cat "$RUN_DIR/open-bugs" 2>/dev/null;;
+    "issue create") printf '99\trelease gate failed at bbbbbbb\n' > "$RUN_DIR/open-bugs"; echo "https://github.com/acme/harness/issues/99";;
+    "issue view")   [[ -e "$RUN_DIR/gh-down" ]] && return 1; cat "$RUN_DIR/state-$3" 2>/dev/null || echo CLOSED;;
+  esac; return 0; }
 
 # ── a release that errored (rc 3: network, gh) waits out the throttle, then retries ──
 : > "$RLOG"; rm -f "$HARNESS_AUTORELEASE_DIR/pending"; echo eeeeeee5 > "$RUN_DIR/head"
