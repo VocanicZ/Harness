@@ -34,7 +34,11 @@ TSV=0; [[ "${1:-}" == --tsv ]] && TSV=1
 # (this script, fixtures, PATH and every HARNESS_MATRIX_* but the knobs below) reads them instead of running a cell: --tsv prints them, an
 # assertion run replays its `ok:` lines. A CLI with a red cell is never replayed by an assertion run: it runs live, so the failure comes with
 # the cell's own output. No cache variable: every run is live, as before.
-mcache_key(){ local v s="$HERE|$FIX|$MATRIX_START_PATH|${HARNESS_PLATFORM:-}|${_HARNESS_OS:-}"
+# mcache_path — the starting PATH without the entries under this run's TMPDIR. Every adapter test prepends scratch stub dirs of its own
+# (mktemp, a new name each run) to PATH before it asks for its CLI's cells; with them in the key none of the five files ever hit the
+# entry the prefetch published, and on a Windows host each recomputed its CLI's cells (#1028: 106 timing lines for codex's 53 cells).
+mcache_path(){ local p out="" IFS=:; for p in $MATRIX_START_PATH; do [[ -n "${TMPDIR:-}" && "$p" == "${TMPDIR%/}"/* ]] && continue; out+="${out:+:}$p"; done; printf '%s' "$out"; }
+mcache_key(){ local v s="$HERE|$FIX|$(mcache_path)|${HARNESS_PLATFORM:-}|${_HARNESS_OS:-}"
   for v in $(compgen -v HARNESS_MATRIX_); do case $v in HARNESS_MATRIX_JOBS|HARNESS_MATRIX_TRACE|HARNESS_MATRIX_TIMING|HARNESS_MATRIX_CACHE|HARNESS_MATRIX_CLIS) continue;; esac; s+="|$v=${!v}"; done
   printf '%s' "$s" | cksum | cut -d' ' -f1; }
 MCACHE=""; [[ -n "${HARNESS_MATRIX_CACHE:-}" ]] && { MCACHE="$HARNESS_MATRIX_CACHE"; mkdir -p "$MCACHE" 2>/dev/null && MKEY="$(mcache_key)" || MCACHE=""; }

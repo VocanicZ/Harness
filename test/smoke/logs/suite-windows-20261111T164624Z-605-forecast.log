@@ -1,0 +1,229 @@
+[15:49:34] run: #605 on winsma, mode suite: export HX_BRANCH=main HX_VERBOSE=1 HX_TESTS="test_forecast.py" HARNESS_TEST_TIMEOUT=3300 HARNESS_MATRIX_TIMING=1
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[15:50:04] lock: held by #1028 (hzhn-harness-i1028), heartbeat 277s old, held 281s; queue position 1 of 2; waiting 300s
+[15:55:51] lock: held by #1028 (hzhn-harness-i1028), heartbeat 19s old, held 625s; queue position 1 of 2; waiting 300s
+[16:01:39] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 696s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:01:43] lock: held by #1028 (hzhn-harness-i1028), heartbeat 63s old, held 971s; queue position 1 of 2; waiting 300s
+[16:07:33] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 1049s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:07:38] lock: held by #1028 (hzhn-harness-i1028), heartbeat 116s old, held 1325s; queue position 1 of 2; waiting 300s
+[16:13:34] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 1411s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:13:38] lock: held by #1028 (hzhn-harness-i1028), heartbeat 175s old, held 1686s; queue position 1 of 2; waiting 300s
+[16:19:25] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 1762s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:19:29] lock: held by #1028 (hzhn-harness-i1028), heartbeat 228s old, held 2041s; queue position 1 of 2; waiting 300s
+[16:24:47] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 2084s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:24:48] lock: held by #1028 (hzhn-harness-i1028), heartbeat 253s old, held 2367s; queue position 1 of 2; waiting 300s
+[16:30:05] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 2402s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:30:07] lock: held by #1028 (hzhn-harness-i1028), heartbeat 271s old, held 2685s; queue position 1 of 2; waiting 300s
+[16:35:18] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 2715s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:35:20] lock: held by #1028 (hzhn-harness-i1028), heartbeat 284s old, held 3000s; queue position 1 of 2; waiting 300s
+[16:40:33] lock: #1028 (hzhn-harness-i1028) has held hx-lock with its session idle for 3030s, past WS_IDLE_MAX 600s, and #605 is first in the queue; releasing it
+[16:40:34] lock: held by #1028 (hzhn-harness-i1028), heartbeat 298s old, held 3313s; queue position 1 of 2; waiting 300s
+[16:45:41] lock: hx-lock taken by #605 (hzhn-harness-i605)
+[16:45:52] guard: before recorded
+[16:46:22] credentials: before scan recorded
+[16:46:22] exec: export HX_BRANCH=main HX_VERBOSE=1 HX_TESTS="test_forecast.py" HARNESS_TEST_TIMEOUT=3300 HARNESS_MATRIX_TIMING=1
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[16:46:24] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-605/home | USERPROFILE=C:\hx-605\home | TMPDIR=C:/hx-605/tmp
+[16:46:24] == clone main
+[16:46:34] src at fd4a12f
+[16:46:34] == venv
+[16:46:54] jq = /c/hx-605/jqbin/jq: jq-1.8.1
+[16:46:55] python3 = /c/hx-605/venv/Scripts/python3: Python 3.13.5
+[16:46:55] ######## test/run.sh (per-test cap 3300s)
+[16:47:11] run.sh finished rc=0 after 16s
+######## full run.sh output
+| == test_forecast.py ==
+|   ok: test_a_bad_usd_per_pct_gives_no_fallback_valid_json_and_a_named_message
+|   ok: test_a_bodies_file_with_a_bom_reads_like_one_without_and_a_malformed_one_is_a_line_not_a_traceback
+|   ok: test_a_bodies_parse_error_names_the_option_and_quotes_the_path_with_control_characters_escaped
+|   ok: test_a_repo_read_from_config_is_checked_like_dash_r
+|   ok: test_bodies_number_past_4300_digits_is_a_one_line_error_without_pythons_advice
+|   ok: test_calibration_fits_usd_per_pct_skips_reset_pairs_and_lists_accounts_without_readings
+|   ok: test_config_value_ignores_a_leading_utf8_bom
+|   ok: test_config_value_never_reads_a_commented_out_setting
+|   ok: test_config_value_reads_every_assignment_form_and_the_last_wins
+|   ok: test_crlf_and_lone_cr_body_forecasts_the_same_as_its_lf_copy
+|   ok: test_dash_leading_unit_is_a_usage_error_with_and_without_repo
+|   ok: test_dash_led_option_value_after_a_space_is_named_and_the_equals_form_suggested
+|   ok: test_dash_led_stray_as_the_only_positional_is_named
+|   ok: test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_advice
+|   ok: test_empty_unit_and_bodies_are_usage_errors
+|   ok: test_explicit_events_path_that_is_missing_or_a_directory_is_an_error_not_no_events
+|   ok: test_fallback_alone_and_the_setting_from_config
+|   ok: test_forecast_host_fallback_and_no_history_at_all
+|   ok: test_forecast_prints_pct_of_each_window_from_the_bound_or_the_fallback
+|   ok: test_forecast_uses_prd_siblings_reports_spend_and_resolves_the_repo
+|   ok: test_forecast_without_history_falls_back_to_unit_and_says_so
+|   ok: test_harness_forecast_cli_dispatch
+|   ok: test_invalid_usd_per_pct_warning_on_stderr_escapes_line_separators
+|   ok: test_issue_number_below_one_is_a_usage_error
+|   ok: test_issue_number_is_ascii_digits_only
+|   ok: test_issue_number_over_long_is_a_one_line_usage_error
+|   ok: test_lane_without_transcript_is_spread_by_the_pool_phase_mix
+|   ok: test_list_price_per_model_and_cache_split
+|   ok: test_lone_cr_and_crlf_body_keeps_its_parent_prd
+|   ok: test_long_string_option_values_are_clipped_in_forecast_errors
+|   ok: test_oversized_usd_per_pct_is_echoed_truncated_on_stderr
+|   ok: test_phase_attribution_dedupes_streamed_messages_and_includes_subagents
+|   ok: test_phase_rules
+|   ok: test_pool_falls_back_prd_then_unit_then_host_and_skips_turn1_lanes
+|   ok: test_price_table_per_family_and_generation_pinned
+|   ok: test_quantiles_are_nearest_rank
+|   ok: test_repo_resolution_from_the_project
+|   ok: test_repo_value_must_be_owner_name_in_every_form
+|   ok: test_run_20261106_recomputes_at_list_prices
+|   ok: test_size_scale_is_clamped_and_neutral_when_unknown
+|   ok: test_unit_and_account_names_with_line_separators_print_escaped
+|   ok: test_unit_name_error_spells_a_form_feed_and_u2028_as_vis_does
+|   ok: test_unparseable_event_lines_are_counted_on_stderr
+|   ok: test_unreadable_bodies_path_with_line_separators_prints_escaped
+|   ok: test_usd_per_pct_rejects_non_finite_tiny_and_bad_values_and_names_them
+| ── all pass
+| == run.sh: 1/1 test files passed ==
+######## end of run.sh output
+== run.sh: 1/1 test files passed ==
+SUITE-RESULT 0 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-605
+credentials: GH_TOKEN written nowhere new
+[16:48:05] cleanup: winsma clean (no hx-605, lock released, no run task or process)
+[16:48:05] run: OK
