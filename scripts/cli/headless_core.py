@@ -221,23 +221,63 @@ def harness_watch_line(ev):
 
 
 # --- process trees ------------------------------------------------------------------------------
-def _descendants(root):
-    """Every pid under <root> (POSIX `ps`; empty when ps cannot say)."""
-    try:
-        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
+def _tree_under(root, pairs):
+    """Every pid under <root> given (pid, ppid) pairs, <root> excluded."""
     kids = {}
-    for line in out.splitlines():
-        p = line.split()
-        if len(p) == 2 and p[0].isdigit() and p[1].isdigit():
-            kids.setdefault(int(p[1]), []).append(int(p[0]))
+    for pid, ppid in pairs:
+        kids.setdefault(ppid, []).append(pid)
     seen, todo = [], [root]
     while todo:
         for k in kids.get(todo.pop(), []):
             if k not in seen:
                 seen.append(k); todo.append(k)
     return seen
+
+
+def _descendants(root):
+    """Every pid under <root> (POSIX `ps`; empty when ps cannot say)."""
+    try:
+        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pairs = []
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[0].isdigit() and p[1].isdigit():
+            pairs.append((int(p[0]), int(p[1])))
+    return _tree_under(root, pairs)
+
+
+def _win_descendants(root):
+    """Windows: every pid under <root>, from a Toolhelp snapshot (empty when none can be taken)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class ENTRY(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                        ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", wintypes.WCHAR * 260)]
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k.Process32FirstW.argtypes = k.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ENTRY)]
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        snap = k.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+        if not snap or snap == wintypes.HANDLE(-1).value:
+            return []
+        pairs, e = [], ENTRY()
+        e.dwSize = ctypes.sizeof(ENTRY)
+        ok = k.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            pairs.append((e.th32ProcessID, e.th32ParentProcessID))
+            ok = k.Process32NextW(snap, ctypes.byref(e))
+        k.CloseHandle(snap)
+        return _tree_under(root, pairs)
+    except (OSError, AttributeError, ValueError, TypeError):
+        return []
 
 
 def _win_job_new(proc):
@@ -262,6 +302,16 @@ def _win_job_new(proc):
             k.CloseHandle.argtypes = [wintypes.HANDLE]
             k.CloseHandle(job)
             return None
+        # A launcher (the venv's python3.exe, a .cmd shim) has already started the real program by now: it was born
+        # before the assignment, so it is outside the job and so is everything it starts. Take in what exists.
+        k.OpenProcess.restype = wintypes.HANDLE
+        k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        for pid in _win_descendants(proc.pid):
+            h = k.OpenProcess(0x0101, False, pid)   # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+            if h:
+                k.AssignProcessToJobObject(job, h)
+                k.CloseHandle.argtypes = [wintypes.HANDLE]
+                k.CloseHandle(h)
         return job
     except (OSError, AttributeError, ValueError, TypeError):
         return None

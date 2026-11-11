@@ -337,6 +337,15 @@ def test_windows_kill_tree_ends_the_turns_job_after_taskkill_and_a_finished_turn
         core.WINDOWS, core.subprocess.run, core._win_job_end = saved
 
 
+def test_tree_under_follows_children_of_children_and_leaves_out_the_root_and_other_trees():
+    """#627: a launcher (the venv's python3.exe) starts the real program before the turn's job exists, so the job takes in
+    the launcher's descendants as they stand: the walk over (pid, ppid) pairs."""
+    pairs = [(10, 1), (11, 10), (12, 11), (13, 10), (20, 1), (21, 20)]
+    assert sorted(core._tree_under(10, pairs)) == [11, 12, 13], core._tree_under(10, pairs)
+    assert core._tree_under(30, pairs) == [] and core._tree_under(10, []) == []
+    assert core._win_descendants(10) == []   # no ctypes.WinDLL off Windows: nothing found, nothing raised
+
+
 def test_windows_spawn_puts_the_turn_in_a_job_and_a_turn_that_ends_on_its_own_only_lets_go_of_it():
     made, closed = [], []
     saved = (core.WINDOWS, core._win_job_new, core.subprocess.Popen)
