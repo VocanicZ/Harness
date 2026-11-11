@@ -21,7 +21,9 @@ export HARNESS_HERMES_BIN
 hermes_bin(){ echo "${HARNESS_HERMES_BIN:-hermes}"; }
 _hermes_op_home(){ echo "${HARNESS_HERMES_HOME:-$HOME/.hermes}"; }
 # _hermes_home <wd> — the lane's profile (a profile name is lowercase letters and digits).
-_hermes_home(){ echo "$(_hermes_op_home)/profiles/harness$(printf '%s' "$1" | sha1sum | cut -c1-12)"; }
+# The name hashes the worktree as a NATIVE program spells it (C:/x on Windows): the headless runner (hermes_headless.py `lane_home`) is
+# handed --cwd that way, and hashing /c/x here named another profile, so the lane's state.db was never found (#969).
+_hermes_home(){ echo "$(_hermes_op_home)/profiles/harness$(printf '%s' "$(native_path "$1")" | sha1sum | cut -c1-12)"; }
 _hermes_db(){ echo "$(_hermes_home "$1")/state.db"; }
 _hermes_json(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"; }
 _hermes_jlist(){ python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"; }
