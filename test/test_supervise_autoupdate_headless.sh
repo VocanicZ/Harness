@@ -25,7 +25,7 @@ our_pids(){ local d; shopt -s nullglob
   for d in "$H"/lanes/*/; do cat "$d/pid" 2>/dev/null; echo; done
   for d in "$T"/fake-*/; do
     python3 -c 'import json,sys; [print(json.loads(l)["pid"]) for l in open(sys.argv[1])]' "$d/calls.jsonl" 2>/dev/null
-    [[ -f "$d/pids" ]] && tr ' ' '\n' < "$d/pids"
+    [[ -f "$d/pids" ]] && tr -d '\r' < "$d/pids" | tr ' ' '\n'
   done; shopt -u nullglob; }
 kill_ours(){ local p; for p in $(our_pids); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; return 0; }
 trap 'kill_ours; tmp_cleanup' EXIT
@@ -97,7 +97,7 @@ lane_settled(){ local f="$1" s="$f-main-i1"
 LANE(){ echo "$1-main-i1"; }
 LANEPID(){ sess_pane_pid "$(LANE "$1")"; }
 LANECALLS(){ wc -l < "$T/fake-$1/calls.jsonl" 2>/dev/null | tr -d ' '; }
-FAKEPIDS(){ cat "$T/fake-$1/pids" 2>/dev/null | tr '\n' ' '; }
+FAKEPIDS(){ cat "$T/fake-$1/pids" 2>/dev/null | tr -d '\r' | tr '\n' ' '; }   # the fake claude is a native program: its pid file may carry CRLF (#627)
 # LANESNAP <fleet> — everything that says the lane was neither killed, relaunched nor driven: the runner's pid, its
 # state word, the turns it has started, the claude processes it has run, its start directory.
 LANESNAP(){ local s; s="$(LANE "$1")"
@@ -270,6 +270,12 @@ sup                                                    # install v0.2.0, roll: t
 assert_eq "$(tag_of)" releases/v0.2.0 "the bad release was installed"
 sleep 3                                                # HARNESS_AUTO_UPDATE_HEALTH_S=2
 sup                                                    # health check: dead pids → rollback
+if host_is_windows && [[ "$(tag_of)" != releases/v0.1.0 ]]; then   # a red one on Windows says what it saw (#627)
+  echo "  diag rollback: supervise.log:"; tail -n 40 "$SLOG" 2>/dev/null | sed 's/^/    /'
+  echo "  diag rollback: auto-update.json: $(cat "$H/supervise/auto-update.json" 2>/dev/null)"
+  for f in fa fb; do for pf in "$(RUN $f)"/worker-1.pid "$(RUN $f)"/priority.pid; do
+    echo "  diag rollback: $pf = $(cat "$pf" 2>/dev/null | tr -d '\r') kill-0=$(kill -0 "$(cat "$pf" 2>/dev/null | tr -d '\r')" 2>/dev/null && echo y || echo n) alive_any=$(alive_any "$(cat "$pf" 2>/dev/null | tr -d '\r')" && echo y || echo n)"; done; done
+fi
 assert_eq "$(tag_of)" releases/v0.1.0 "the engine points at the old tag again"
 for f in fa fb; do
   assert_ok "$f: the worker was relaunched and lives" alive "$(pidof_f "$(RUN $f)/worker-1.pid")"
@@ -295,14 +301,25 @@ assert_eq "$(eng_of "$(pidof_f "$(RUN fa)/worker-1.pid")")" "$(realpath "$H/rele
 echo "=== the update restarts the supervisor mid-way: the next one finishes the roll ==="
 rm -rf "$SRV"; rel_server "$SRV"; pub v0.1.0 good; pub v0.2.0 good; rel_latest "$SRV" v0.2.0
 fresh_host v0.1.0
-hrn supervise --install >/dev/null 2>&1                # the unit the update will find and "restart"
-assert_ok "the supervise unit is installed" test -f "$T/units/harness-supervise.service"
+# Windows has no systemd unit: `supervise --install` registers a Task Scheduler task and the update re-registers it
+# (test_windows_update.sh covers that), so there is no unit restart to kill the supervisor. The part under test here is
+# the same on every OS — a supervisor that dies after the update flipped the engine, and the next one finishing the roll —
+# so on Windows the test ends the supervisor itself, the moment the link flips (docs/reference.md, Native Windows, #627).
+if ! host_is_windows; then
+  hrn supervise --install >/dev/null 2>&1                # the unit the update will find and "restart"
+  assert_ok "the supervise unit is installed" test -f "$T/units/harness-supervise.service"
+fi
 old_a=$(pidof_f "$(RUN fa)/worker-1.pid"); lane_a=$(LANESNAP fa); lane_b=$(LANESNAP fb)
 ( exec env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK HARNESS_FLEET_MIGRATE=0 bash "$H/engine/bin/harness" supervise --once >>"$T/sup.out" 2>&1 ) &   # (#537) update.sh would roll the fleets itself; this models an update that died before it
 echo $! >"$T/kill-sup"        # the exec'd supervisor itself: the unit restart kills it, as systemd would
-for _ in $(seq 1 100); do grep -q 'Update complete' "$SLOG" 2>/dev/null && break; sleep 0.2; done
-sleep 0.5
-assert_ok "the unit restart killed the supervisor mid-update" test -s "$T/systemctl.calls"
+if host_is_windows; then
+  for _ in $(seq 1 600); do [[ "$(tag_of)" == releases/v0.2.0 ]] && break; sleep 0.1; done
+  kill -9 "$(cat "$T/kill-sup")" 2>/dev/null; sleep 3    # the update it started finishes without it
+else
+  for _ in $(seq 1 100); do grep -q 'Update complete' "$SLOG" 2>/dev/null && break; sleep 0.2; done
+  sleep 0.5
+  assert_ok "the unit restart killed the supervisor mid-update" test -s "$T/systemctl.calls"
+fi
 assert_eq "$(tag_of)" releases/v0.2.0 "the update still flipped the engine"
 assert_ok "the old worker had not been rolled yet" alive "$old_a"
 rm -f "$T/kill-sup"
