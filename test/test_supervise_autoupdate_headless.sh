@@ -34,9 +34,12 @@ export HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$T
 export HARNESS_SUPERVISE_LOGINCTL=true HARNESS_WEB_SYSTEMCTL=true HARNESS_WEB_LOGINCTL=true HARNESS_GH_RATE_GUARD=0
 export HARNESS_SUPERVISE_SYSTEMCTL="$T/bin/systemctl"
 export HARNESS_SUPERVISE_GLOB="$T/none/*" HARNESS_SUPERVISE_CONF="$T/none.conf"
-export ONLINE_URL=file:///etc/hostname HARNESS_AUTO_UPDATE_EVERY=0 HARNESS_AUTO_UPDATE_HEALTH_S=2
+export HARNESS_AUTO_UPDATE_EVERY=0 HARNESS_AUTO_UPDATE_HEALTH_S=2
 export HARNESS_AGY_BIN="$T/bin/agy" HARNESS_RELEASE_REPO=VocanicZ/Harness
 export HARNESS_SESSION_BACKEND=headless   # every lane below is a headless runner: no tmux anywhere
+# The supervisor's network gate curls ONLINE_URL: a real file, in the spelling native curl reads (file_url, #608) — `file:///etc/hostname`
+# is no file on Windows, the gate then reads "network down" and holds every action, the auto-update included (#627).
+echo online >"$T/online"; export ONLINE_URL="$(file_url "$T/online")"
 H="$HARNESS_HOME"; SRV="$T/srv"; rel_server "$SRV"; EV="$H/events.jsonl"; SLOG="$H/supervise.log"
 mkdir -p "$T/bin"
 # stubs: a claude/agy/rtdd that does nothing, a gh that logs every call, systemctl that can kill the supervisor
@@ -74,7 +77,7 @@ sup_n(){ local n; n="$(grep -c "$1" "$SLOG" 2>/dev/null)"; echo "${n:-0}"; }
 ev_n(){ local n; n="$(grep -c "\"event\": *\"$1\"" "$EV" 2>/dev/null)"; echo "${n:-0}"; }
 tag_of(){ readlink "$H/engine"; }
 pidof_f(){ cat "$1" 2>/dev/null; }
-eng_of(){ local e; e="$(tr '\0' '\n' </proc/$1/environ 2>/dev/null | sed -n 's/^ENGINE_DIR=//p')"; realpath -m "$e" 2>/dev/null; }
+eng_of(){ local e; e="$(tr '\0' '\n' </proc/$1/environ 2>/dev/null | sed -n 's/^ENGINE_DIR=//p')"; posix_path "$(realpath -m "$e" 2>/dev/null)"; }   # one spelling: ENGINE_DIR is C:/… on Windows (#605, #627)
 alive(){ proc_alive "$1"; }
 alive_all(){ local p; for p in $1; do proc_alive "$p" || return 1; done; }
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
