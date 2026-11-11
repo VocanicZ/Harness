@@ -448,11 +448,13 @@ prebuild_tick(){ local lockfd f n cands head skip
   fi
   lock_release "$lockfd"; return 0; }
 
-# closed_issue_unlabel <issue> <issue-json> — #730: closing an issue through its PR leaves ready-for-agent / agent-working on it,
-# so any snapshot that lags the close offers it again. Best-effort: one `gh issue edit`, only when one of them is there.
+# closed_issue_unlabel <issue> <issue-json> — #730: closing an issue through its PR leaves agent-working on it, so any snapshot that
+# lags the close offers it again. Best-effort: one `gh issue edit`, only when it is there. ready-for-agent STAYS (#593): it is what
+# makes a closed issue one of its PRD's children (compute_state buckets children by it), so stripping it left the PRD with no
+# children at all — REVIEW never dispatched, and a fleet that had merged everything idled until the bench's wall cap. A closed issue
+# is never offered again anyway (impl_queue takes open issues; closed_live_mark covers the snapshot lag).
 closed_issue_unlabel(){ local issue="$1" names args=()
   names="$(python3 "$TASKCTX_PY" labels <<<"$2" 2>/dev/null || echo '')"
-  [[ "$names" == *"\"$HARNESS_LABEL_READY\""* ]] && args+=(--remove-label "$HARNESS_LABEL_READY")
   [[ "$names" == *"\"$HARNESS_LABEL_WORKING\""* ]] && args+=(--remove-label "$HARNESS_LABEL_WORKING")
   (( ${#args[@]} )) && { gh issue edit "$issue" -R "$SLUG" "${args[@]}" >/dev/null 2>&1 || true; }
   return 0; }
