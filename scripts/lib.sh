@@ -64,7 +64,8 @@ fi
 : "${HARNESS_LABEL_BUG:=bug}"               # bug-lane: never claimed by the normal pool
 : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"  # bug-lane: triaged, still isolated from the pool
 : "${HARNESS_LABEL_HITL:=hitl}"             # #360: human-in-the-loop — the fleet never claims it
-: "${HARNESS_LABEL_WAITING_WINSMA:=waiting-winsma}"   # #1034: parked in the winsma lock queue — no slot, not dispatched until its ticket is next
+# #1034: parked in the winsma lock queue — no slot, not dispatched until its ticket is next (no trailing comment: test_cli_matrix reads this line)
+: "${HARNESS_LABEL_WAITING_WINSMA:=waiting-winsma}"
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
 : "${HARNESS_USE_POLLER:=1}"           # #182: ON by default — workers read the host poller's shared snapshots; 0 = direct-gh polling

@@ -12,7 +12,7 @@
    - A long wait does not keep your pool slot (#1034). If the `run` log says `queue position N of M` with N > 1 and the wait is not about to
      end, PARK instead of polling: commit and push your branch, then
        bash {{WINSMA_DIR}}/winsma.sh park {{ISSUE}} {{SLUG}}
-     It keeps your place in the queue, posts the handoff, and swaps `agent-working` for the `waiting-winsma` label (this is NOT `agent-paused`,
-     and no HARNESS CHECKPOINT is involved). Your session then ends. Harness resumes the issue from this branch once your ticket is next and
+     It keeps your place in the queue, posts the handoff, and swaps `agent-working` for the `waiting-winsma` label (this is NOT a checkpoint
+     pause: no HARNESS CHECKPOINT is involved, and you never label the issue paused yourself). Your session then ends. Harness resumes the issue from this branch once your ticket is next and
      the lock is free; take the lock again then and it succeeds without queueing behind a lane that queued after you. `park` refuses while
      you are next with the lock free (take it) or with unpushed work (push, then park). A host that is down: do not park, note it, go on.

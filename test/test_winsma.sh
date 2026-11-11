@@ -419,7 +419,7 @@ fake_gh(){ GHLOG="$T/gh.log"; : >"$GHLOG"
   finish ) || rc=1
 ( fresh_env
   P="$HERE/../prompts/_windows_rtdd.md"
-  grep -q 'winsma.sh park {{ISSUE}} {{SLUG}}' "$P" && grep -q 'waiting-winsma' "$P" && grep -q 'NOT `agent-paused`' "$P"; assert_eq "$?" "0" "the Windows rtdd prompt tells a queued lane how to park"
+  grep -q 'winsma.sh park {{ISSUE}} {{SLUG}}' "$P" && grep -q 'waiting-winsma' "$P" && grep -q 'NOT a checkpoint' "$P"; assert_eq "$?" "0" "the Windows rtdd prompt tells a queued lane how to park"
   for k in waiting-winsma HARNESS_LABEL_WAITING_WINSMA "winsma.sh park"; do grep -q -- "$k" "$HERE/../docs/windows-smoke.md"; assert_eq "$?" "0" "docs/windows-smoke.md documents $k"; done
   grep -q 'HARNESS_LABEL_WAITING_WINSMA' "$HERE/../docs/reference.md"; assert_eq "$?" "0" "docs/reference.md documents the label key"
   finish ) || rc=1
