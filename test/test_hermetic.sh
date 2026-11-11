@@ -276,7 +276,9 @@ assert_eq "$(HARNESS_SESSION=u-1 bash -c 'source "$1"; export HARNESS_SESSION=u-
 # worker inherits it — the release_kick job, the gate, and the suite. A `sleep` a test starts as an "unstamped worker"
 # then carries the host's stamp, roll.sh calls it stale and kills it. The seam must drop it, for a gate run and for a
 # direct `bash test_X.sh`; pin_host_home drops it again if a test re-exports it.
-assert_eq "$(HARNESS_ENGINE_STAMP=1234-5678 bash -c 'source "$1"; sleep 30 & p=$!; tr "\0" "\n" </proc/$p/environ | grep -c "^HARNESS_ENGINE_STAMP="; kill $p' _ "$HERE/helpers.sh")" "0" \
+# The child reports its own environment (`env` has necessarily exec'd): reading /proc/<pid>/environ of a forked-but-not-yet-
+# exec'd `sleep &` returns the outer bash's startup block, which still holds the stamp (flaky, ~5%; #1043).
+assert_eq "$(HARNESS_ENGINE_STAMP=1234-5678 bash -c 'source "$1"; env | grep -c "^HARNESS_ENGINE_STAMP="' _ "$HERE/helpers.sh")" "0" \
   "a process a test starts does not carry the host's HARNESS_ENGINE_STAMP in its environ"
 assert_eq "$(HARNESS_ENGINE_STAMP=1234-5678 bash -c 'source "$1"; export HARNESS_ENGINE_STAMP=9-9; pin_host_home /pinned/h; echo "${HARNESS_ENGINE_STAMP-}"' _ "$HERE/helpers.sh")" "" \
   "pin_host_home drops a HARNESS_ENGINE_STAMP set after sourcing"
