@@ -27,6 +27,7 @@ echo "$*" >> "$GH_LOG"
 case "$1 $2" in
   "repo view")    echo main;;
   "release view") exit 1;;
+  "issue create") echo https://github.com/acme/harness/issues/90;;
 esac
 exit 0
 EOF
@@ -54,6 +55,33 @@ assert_ok "the release is an event" grep -q "^release_published reason=prd:325 s
 assert_no "no red-gate marker" test -e "$HARNESS_AUTORELEASE_DIR/gate-failed-$sha"
 assert_no "no bug filed" grep -q '^issue create' "$GH_LOG"
 [[ -e "$HARNESS_AUTORELEASE_DIR/gate-failed-$sha" ]] && cat "$RUN_DIR/run.log"
+
+# ── #1060: a gate red on a file that passes alone releases, and is a comment on ONE tracking issue — not a gate bug ──
+FL="$RUN_DIR/flaky"; mkdir -p "$FL/test"; git init -q --bare -b main "$FL.git"
+cat > "$FL/test/run.sh" <<'EOF'
+#!/usr/bin/env bash
+(( $# )) && exit 0
+echo "== test_x.sh =="; echo "FAIL: x lost the race"; echo "FAILED: test_x.sh"; exit 1
+EOF
+gc "$FL" init -q -b main; gc "$FL" add -A; gc "$FL" commit -qm "feat: init"
+gc "$FL" remote add origin "$FL.git"; gc "$FL" push -q -u origin main
+: > "$GH_LOG"; : > "$EV"; CHECKOUT="$FL"; rm -rf "$RUN_DIR/autorelease"
+release_run prd:1060 > "$RUN_DIR/flaky.log" 2>&1; rc=$?; sha="$(git -C "$FL" rev-parse HEAD)"
+assert_eq "$rc" 0 "release_run on a flaky gate returns 0"
+assert_ok "the release was published" grep -qE '^release create v0\.1\.0 ' "$GH_LOG"
+assert_no "no gate-failed marker" test -e "$HARNESS_AUTORELEASE_DIR/gate-failed-$sha"
+assert_no "no gate bug filed" grep -qE '^issue create .*release gate failed' "$GH_LOG"
+assert_ok "one tracking issue is created" grep -qE '^issue create .*--title release gate flakes' "$GH_LOG"
+assert_ok "and the flake is a comment on it" grep -qE '^issue comment .*test_x\.sh' "$GH_LOG"
+assert_no "the flake marker is consumed" test -e "$HARNESS_AUTORELEASE_DIR/gate-flake-$sha"
+assert_ok "the release is an event" grep -q "^release_published reason=prd:1060 sha=$sha" "$EV"
+# a later flake comments on the existing tracking issue instead of making another
+: > "$GH_LOG"; printf 'test_y.sh\n' > "$HARNESS_AUTORELEASE_DIR/gate-flake-feedface"
+gh(){ echo "$*" >> "$GH_LOG"; case "$1 $2" in "issue list") echo 55;; esac; return 0; }
+release_gate_flake feedface prd:2 >/dev/null 2>&1
+assert_no "an open tracking issue is reused" grep -q '^issue create' "$GH_LOG"
+assert_ok "the second flake is a comment on #55" grep -qE '^issue comment 55 .*test_y\.sh' "$GH_LOG"
+unset -f gh
 
 # ── #333: the filed bug shows the FAILURES, not just the log's tail ──
 # The f4756cc gate failed in suites that run early; its last 80 lines were all `ok:`, so the bug

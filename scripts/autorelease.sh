@@ -19,6 +19,8 @@
 #                       "<epoch>\tbootstrap" for the first release, not yet released
 #   gate-failed-<sha>   the gate failed at <sha>; holds the bug issue filed for it, once filed. While
 #                       that bug is open (or unfiled, or its state unreadable) no release starts
+#   gate-flake-<sha>    release.sh wrote it: the gate was red on those files and green when each was re-run
+#                       alone (#1060); the release went ahead and release_gate_flake comments it, then removes it
 #   gate-resolved-<sha> that bug was seen CLOSED: release_tick stops asking GitHub about it. The
 #                       gate-failed marker stays, so <sha> itself is still never re-gated
 #   retry-after         epoch before which release_tick does not retry a release that errored
@@ -175,6 +177,7 @@ release_run(){ local reason="$1" d lockfd plock start covered sha rc
   case "$rc" in
     0) release_clear_pending "$covered"; rm -f "$d/retry-after"
        log "auto-release: released ${sha:0:7} ($reason)"
+       release_gate_flake "$sha" "$reason"
        harness_event release_published reason="$reason" sha="$sha";;
     4) : > "$d/gate-failed-$sha"
        log "auto-release: release gate failed at ${sha:0:7} ($reason) — filing a bug, not retrying this commit"
@@ -184,6 +187,25 @@ release_run(){ local reason="$1" d lockfd plock start covered sha rc
        log "auto-release: harness release exited $rc at ${sha:0:7} ($reason) — retrying after the throttle";;
   esac
   lock_release "$lockfd"; return 0; }
+
+# release_gate_flake <sha> <reason> — a gate that went red on a file and green when that file was re-run alone (#1060) left
+# gate-flake-<sha>; the release went ahead. Record it as ONE comment on the single open "release gate flakes" tracking issue
+# (created on the first flake, unlabelled so no lane claims it) — never a gate bug, which would hold every release. Best effort:
+# a gh failure only loses the comment, and the marker is removed either way so a flake is recorded once.
+release_gate_flake(){ local sha="$1" reason="$2" d m files n url body; d="$(release_dir)"; m="$d/gate-flake-$sha"
+  [[ -f "$m" ]] || return 0
+  files="$(paste -sd' ' "$m" 2>/dev/null)"; rm -f "$m"
+  body="The release gate went red at $sha ($reason) on: $files. Each file passed when re-run alone, so it is recorded as a flake (host load, a race) and the release went ahead; no gate bug was filed. Gate log: \`$(hostname 2>/dev/null)\`:\`$d/gate-$sha.log\`."
+  n="$(gh issue list -R "$SLUG" --state open --search "release gate flakes in:title" --limit 20 \
+    --json number,title --jq '[.[] | select(.title == "release gate flakes")][0].number // empty' 2>/dev/null)" || n=""
+  if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+    url="$(gh issue create -R "$SLUG" --title "release gate flakes" \
+      --body "Tracking issue (#1060): the release gate re-runs a red test file once, alone. A file that passes alone is a flake and the release goes ahead; each one is a comment below. A file that keeps showing up here wants its own fix." 2>/dev/null)"
+    n="${url##*/}"
+  fi
+  [[ "$n" =~ ^[0-9]+$ ]] || { log "auto-release: gate flake at ${sha:0:7} ($files) not recorded — cannot reach the tracking issue"; return 0; }
+  gh issue comment "$n" -R "$SLUG" --body "$body" >/dev/null 2>&1 || true
+  log "auto-release: gate flake at ${sha:0:7} ($files) recorded on #$n"; }
 
 # release_clear_pending <entries> — drop the queued entries (lines of `pending`) a release covered.
 release_clear_pending(){ local d tmp lockfd; d="$(release_dir)"; [[ -f "$d/pending" && -n "$1" ]] || return 0

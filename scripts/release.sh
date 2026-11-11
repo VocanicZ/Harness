@@ -7,7 +7,9 @@
 #   1. idempotency — a vX.Y.Z tag already on <rev> with a published release is a no-op; a tag with
 #      no release is finished (published), never superseded by a new version
 #   2. gate        — test/run.sh on a `git archive` of <rev>, the exact tree that ships, so a dirty
-#      working tree can neither pass nor fail it
+#      working tree can neither pass nor fail it. It runs under `env -i` (PATH, HOME, LANG, TMPDIR and
+#      a private TMUX_TMPDIR only), and a red file is re-run once, alone: one that passes alone is a
+#      flake (gate-flake-<sha> in $HARNESS_AUTORELEASE_DIR) and does not stop the release (#1060)
 #   3. version     — the next semver from Conventional Commits since the last vX.Y.Z tag: a breaking
 #      change (`type!:` / `BREAKING CHANGE:`) bumps minor while 0.x and major from 1.0, any `feat`
 #      bumps minor, anything else patch. No prior tag → v0.1.0
@@ -134,17 +136,37 @@ if ((finishing == 0)); then
   mkdir -p "$tmp/gate"
   git archive --format=tar "$sha" | tar -x -C "$tmp/gate" || die 3 "git archive $short failed"
   log="$tmp/gate.log"
-  # Every release variable is dropped too (#325): the auto-release path hands this script
-  # HARNESS_AUTORELEASE_DIR / _RELEASE_REASON / _RELEASE_REPO, and a gate that inherited them ran
-  # test_release.sh against the host's real autorelease dir, so every automatic release failed.
-  # HARNESS_ENGINE_STAMP too (#682): the worker exports it, and a stamped stand-in worker in test_engine_roll.sh is rolled.
-  ( cd "$tmp/gate" && env -u STATE_DIR -u ENGINE_DIR -u HARNESS_HOME -u HARNESS_AUTORELEASE_DIR \
-      -u HARNESS_RELEASE_REASON -u HARNESS_RELEASE_REPO -u HARNESS_RELEASE_CMD -u HARNESS_ENGINE_STAMP bash test/run.sh ) >"$log" 2>&1
+  # The gate runs under a scrubbed environment (#1060): `env -i` with an explicit allowlist, so no HARNESS_*, CLAUDE_*, STATE_DIR,
+  # ENGINE_DIR or other worker variable reaches test/run.sh or any child of it. The old `env -u` list named leaks one red gate at a
+  # time (#325 the release variables, #333 the fleet's, #682 HARNESS_ENGINE_STAMP) and every new worker export was the next red gate;
+  # an allowlist cannot miss one. TMUX_TMPDIR is private, so no test reaches the fleet's tmux server (#649); it is short, because a
+  # socket path past ~107 bytes breaks tmux. The gate's own temp root is $tmp too, which the EXIT trap removes.
+  mkdir -p "$tmp/tx" "$tmp/gate-tmp"
+  gate_env=(env -i PATH="$PATH" HOME="${HOME:-/}" LANG="${LANG:-C.UTF-8}" TMPDIR="$tmp/gate-tmp" TMUX_TMPDIR="$tmp/tx")
+  ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh ) >"$log" 2>&1
   grc=$?
   if ((grc != 0)); then
-    mkdir -p "$AUTORELEASE_DIR" && cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"
-    tail -n 40 "$log" >&2
-    die 4 "gate failed: test/run.sh exited $grc at $short; not releasing $tag (log: $AUTORELEASE_DIR/gate-$sha.log)"
+    # A red file is re-run once, alone, before the gate is declared failed (#1060): the gate runs while a dozen lanes keep the host at
+    # load 15-55, and a race that loses once (#337, #339, #571) is not a product defect. A file that passes alone is a flake: it is
+    # recorded in gate-flake-<sha> (autorelease comments it on the one tracking issue) and the release goes on. Any file that fails
+    # again, or a red run that names no file (the runner itself broke), fails the gate as before. More than $GATE_RERUN_MAX red files
+    # is a broken tree, not load, and is not re-run.
+    mapfile -t red < <(tr -d '\r' < "$log" | sed -n 's/^FAILED: //p' | sort -u)
+    flaky=(); still=()
+    if ((${#red[@]} > 0 && ${#red[@]} <= ${HARNESS_GATE_RERUN_MAX:-5})); then
+      for f in "${red[@]}"; do
+        echo "== gate re-run alone: $f ==" >> "$log"
+        if ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh "$f" ) >>"$log" 2>&1; then flaky+=("$f"); else still+=("$f"); fi
+      done
+    fi
+    if ((${#red[@]} > 0 && ${#still[@]} == 0 && ${#flaky[@]} == ${#red[@]})); then
+      mkdir -p "$AUTORELEASE_DIR" && { printf '%s\n' "${flaky[@]}" > "$AUTORELEASE_DIR/gate-flake-$sha"; cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"; }
+      echo "harness release: gate flaked at $short (${flaky[*]}) — each passed alone; releasing $tag" >&2
+    else
+      mkdir -p "$AUTORELEASE_DIR" && cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"
+      tail -n 40 "$log" >&2
+      die 4 "gate failed: test/run.sh exited $grc at $short; not releasing $tag (log: $AUTORELEASE_DIR/gate-$sha.log)"
+    fi
   fi
   # ── 4. tag + push ──
   git tag -a "$tag" "$sha" -m "Harness $tag" || die 3 "git tag $tag failed"
