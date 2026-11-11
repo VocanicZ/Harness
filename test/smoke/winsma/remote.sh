@@ -92,19 +92,52 @@ r_hold_gate(){ _ws_issue_ok "$1" || return 2
   echo "hold cap reached, $n lane(s) queued: release and re-queue (#$1 has held hx-lock ${9}s, WS_HOLD_MAX is ${2}s)"; return 3; }
 # r_lock_heartbeat <issue> — refresh now (the loop below does this every WS_HB_INTERVAL).
 r_lock_heartbeat(){ local L; L="$(_ws_lock)"; [[ -d "$L" ]] && _ws_now >"$L/heartbeat"; }
-# r_hb_start <issue> — a background loop that refreshes the heartbeat, its pid recorded in pids. It ends by
-# itself when the lock is gone or belongs to someone else, so a missed cleanup cannot keep a dead lock fresh.
+# r_hb_start <issue> [hold_cap_s|off] [stale_s] — a background loop that refreshes the heartbeat, its pid recorded in pids. It ends by
+# itself when the lock is gone or belongs to someone else, so a missed cleanup cannot keep a dead lock fresh. It also ENFORCES the
+# hold cap (#1040): once the hold passes <hold_cap_s> and a live ticket of another issue is queued, it releases the lock and ends,
+# whatever the holder is doing (a background driver that never runs `exec` is stopped here, not at the gate). `off` = no cap.
 r_hb_start(){ _ws_issue_ok "$1" || return 2
-  local hx L pid; hx="$(_ws_hx "$1")"; L="$(_ws_lock)"; mkdir -p "$hx"
+  local hx L Q pid cap stale; hx="$(_ws_hx "$1")"; L="$(_ws_lock)"; Q="$(_ws_queue)"; cap="${2:-off}"; stale="${3:-1800}"; mkdir -p "$hx"
+  [[ "$cap" == off || "$cap" =~ ^-?[0-9]+$ ]] || cap=off; [[ "$stale" =~ ^[0-9]+$ ]] || stale=1800
   cat >"$hx/hb.sh" <<EOF
 #!/usr/bin/env bash
 while [ -f "$L/owner" ] && grep -qx 'issue=$1' "$L/owner"; do
+  if [ "$cap" != off ]; then
+    t=\$(head -1 "$L/taken" 2>/dev/null | tr -dc 0-9); now=\$(date +%s)
+    if [ -n "\$t" ] && [ \$((now - t)) -gt $cap ]; then
+      n=0
+      for f in "$Q"/[0-9]*-[0-9]*; do
+        [ -f "\$f" ] || continue
+        case "\$f" in *-$1) continue;; esac
+        m=\$(stat -c %Y "\$f" 2>/dev/null || echo \$now)
+        [ \$((now - m)) -le $stale ] && n=\$((n + 1))
+      done
+      if [ \$n -gt 0 ]; then rm -rf "$L"; exit 0; fi
+    fi
+  fi
   date +%s >"$L/heartbeat"; sleep $WS_HB_INTERVAL
 done
 EOF
   pid="$(${WS_SPAWN:-_ws_spawn_win} "$hx/hb.sh" | tr -dc 0-9)"
   [[ -n "$pid" ]] || { echo "winsma: heartbeat loop did not start" >&2; return 1; }
   r_pid_add "$1" "$pid"; echo "$pid"; }
+# r_lock_idle <issue> <idle|active> — a waiter's note about the holder's lane (#1040): `idle` records when the holder's session was first seen
+# not working (kept if already there) and prints how many seconds ago that was; `active` clears the note. Only for the lock's current owner.
+r_lock_idle(){ _ws_issue_ok "$1" || return 2
+  local L f t; L="$(_ws_lock)"; f="$L/idle_since"
+  [[ -d "$L" ]] && grep -qx "issue=$1" "$L/owner" 2>/dev/null || return 1
+  if [[ "${2:-}" == active ]]; then rm -f "$f"; echo 0; return 0; fi
+  [[ -s "$f" ]] || _ws_now >"$f"
+  t="$(head -1 "$f" | tr -dc 0-9)"; [[ -n "$t" ]] || t="$(_ws_now)"
+  echo $(( $(_ws_now) - t )); }
+# r_lock_break_idle <owner_issue> <idle_seconds> — the lock still belongs to that issue and its lane has been idle longer than that:
+# clean its run (its heartbeat loop dies with its pids) and drop the lock.
+r_lock_break_idle(){ _ws_issue_ok "$1" || return 2
+  local L t; L="$(_ws_lock)"
+  [[ -d "$L" ]] && grep -qx "issue=$1" "$L/owner" 2>/dev/null || { echo "winsma: lock changed hands; not breaking it" >&2; return 1; }
+  t="$(head -1 "$L/idle_since" 2>/dev/null | tr -dc 0-9)"
+  [[ -n "$t" ]] && (( $(_ws_now) - t > $2 )) || { echo "winsma: holder was not idle that long; not breaking it" >&2; return 1; }
+  r_cleanup "$1" || return 1; rm -rf "$L"; }
 # _ws_spawn_win <script> — start a bash script fully detached from this ssh session (a plain `&` job dies with it).
 _ws_spawn_win(){ local b s; b="$(_ws_winpath "$(command -v bash)")"; s="$(_ws_winpath "$1")"
   powershell -NoProfile -Command "(Start-Process -FilePath '$b' -ArgumentList '-l','$s' -WindowStyle Hidden -PassThru).Id" | tr -d '\r'; }

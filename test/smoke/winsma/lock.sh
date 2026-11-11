@@ -6,7 +6,11 @@
 #   WS_HOLD_MAX     seconds one acquisition may run commands while another lane is queued (default 5400): past it
 #                   `exec` refuses to START a command, so the holder releases and re-queues (#1033)
 #   WS_HOLD_HARD    seconds past which the queue's first lane may break even a LIVE holder (default 3x WS_HOLD_MAX, 0 = never)
+#   WS_POLL_MIN     the lowest poll honoured (default 300, the rule): a lane's WS_POLL below it is clamped to it (#1040). A TEST SEAM:
+#                   only the unit tests lower it
+#   WS_IDLE_MAX     seconds a holder's lane may sit idle (its turn ended, its session gone) before a queued waiter releases the lock (default 600, #1040)
 #   WS_OWNER_LIVE_CMD  test seam: `<session> <host_pid>` exits 0 while the owner lane is live on this host
+#   WS_OWNER_ACTIVE_CMD test seam: `<session> <host_pid>` exits 0 while the owner lane's session is WORKING (mid-turn)
 # A lane that finds the lock held WAITS. It never labels itself agent-paused (that trips the #417 self-park
 # nudge and checkpoint churn): the winsma-heavy tasks are chained with `Blocked by` to keep waits rare.
 # A long wait does not have to hold a pool slot: `winsma.sh park` (park.sh, #1034) keeps the ticket, labels the issue waiting-winsma and ends
@@ -16,6 +20,19 @@ ws_owner_live(){ local session="$1" pid="$2"
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && return 0
   [[ -n "$session" && "$session" != - ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t "$session" 2>/dev/null && return 0
   return 1; }
+# ws_owner_active <session> <host_pid> — the lane's session is mid-turn (#1040). A lane that cannot be read (no tmux, no pane, no busy pattern)
+# counts as active: the check may only ever release a lock when it KNOWS the session is idle or gone.
+ws_owner_active(){ local session="$1" pid="$2" pane
+  if [[ -n "${WS_OWNER_ACTIVE_CMD:-}" ]]; then $WS_OWNER_ACTIVE_CMD "$session" "$pid"; return; fi
+  ws_owner_live "$session" "$pid" || return 1
+  [[ -n "$session" && "$session" != - ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t "$session" 2>/dev/null || return 0
+  pane="$(tmux capture-pane -p -t "$session" 2>/dev/null)" || return 0
+  ( set +u; source "$WS_DIR/../../../scripts/lib.sh" >/dev/null 2>&1; declare -F cli_pane_busy >/dev/null 2>&1 || exit 0
+    cli_pane_busy "$pane" || { cli_pane_prompt "$pane" && exit 1; exit 0; } ); }
+# ws_poll_clamp <poll> — a poll lower than WS_POLL_MIN (the rule: 300) is raised to it, so a lane polling every 15 s cannot win every race (#1040).
+ws_poll_clamp(){ local min="${WS_POLL_MIN:-300}"
+  awk -v p="$1" -v m="$min" 'BEGIN{ exit !(p+0 < m+0) }' && { ws_log "lock: WS_POLL=$1 is below the rule ($min); using $min" >&2; echo "$min"; return 0; }
+  echo "$1"; }
 # ws_clock_ms — milliseconds on a monotonic-enough wall clock (test seam: a test redefines it). EPOCHREALTIME is bash 5+;
 # without it only whole seconds are known, so ws_lock_expired demands a whole extra second rather than risk giving up early.
 ws_clock_ms(){ if [[ -n "${EPOCHREALTIME:-}" ]]; then local t="${EPOCHREALTIME/[.,]/}"; echo $(( 10#$t / 1000 ))
@@ -29,8 +46,8 @@ ws_lock_expired(){ local to="${WS_LOCK_TIMEOUT:-0}" slack=0 now; (( to > 0 )) ||
 # Then start the heartbeat loop. Releasing and asking again sends the lane to the back of the queue.
 ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3:-${WS_LANE_PID:-$PPID}}"
   ws_need_host >/dev/null || return 1
-  local stale="${WS_STALE_SEC:-1800}" poll="${WS_POLL:-300}" hmax="${WS_HOLD_MAX:-5400}" hard started rc info line o oi os op age hold
-  local q qn qi qs qp qw qa pos total dead; hard="${WS_HOLD_HARD:-$(( hmax * 3 ))}"; started="$(ws_clock_ms)"
+  local stale="${WS_STALE_SEC:-1800}" poll="$(ws_poll_clamp "${WS_POLL:-300}")" hmax="${WS_HOLD_MAX:-5400}" hard started rc info line o oi os op age hold
+  local q qn qi qs qp qw qa pos total dead cap idle imax="${WS_IDLE_MAX:-600}"; hard="${WS_HOLD_HARD:-$(( hmax * 3 ))}"; started="$(ws_clock_ms)"
   while :; do
     info="$(ws_call r_lock_info)" || { ws_die "could not read the lock"; return 1; }
     dead=0
@@ -42,7 +59,8 @@ ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3
     (( dead )) && { info="$(ws_call r_lock_info)" || { ws_die "could not read the lock"; return 1; }; }
     ws_call r_lock_take "$issue" "$session" "$pid"; rc=$?
     if (( rc == 0 )); then
-      ws_call r_hb_start "$issue" >/dev/null || { ws_die "taken, but the heartbeat loop did not start"; return 1; }
+      cap="$hmax"; [[ -n "${WS_LOCK_RUN:-}" ]] && { (( hard > 0 )) && cap="$hard" || cap=off; }   # a `run` is one command: only the hard ceiling cuts it short
+      ws_call r_hb_start "$issue" "$cap" "$stale" >/dev/null || { ws_die "taken, but the heartbeat loop did not start"; return 1; }
       ws_log "lock: hx-lock taken by #$issue ($session)"; return 0
     fi
     (( rc == 1 )) || { ws_die "could not reach the lock (exit $rc)"; return 1; }
@@ -66,6 +84,18 @@ ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3
       if (( hard > 0 && hold > hard && pos == 1 )) && [[ "$oi" != - && "$oi" != "$issue" ]]; then
         ws_log "lock: #$oi ($os) has held hx-lock ${hold}s, past WS_HOLD_HARD ${hard}s, and #$issue is first in the queue; breaking it"
         ws_call r_lock_break_hold "$oi" "$hard" && continue
+      fi
+      # A holder whose session is not working (its turn ended, or it exited) is not using the lock: it is a background driver left
+      # holding it (#1040). Note it; once it has sat idle past WS_IDLE_MAX the first in line releases it.
+      if [[ "$oi" != - && "$oi" != "$issue" ]]; then
+        if ws_owner_active "$os" "$op"; then ws_call r_lock_idle "$oi" active >/dev/null
+        else
+          idle="$(ws_call r_lock_idle "$oi" idle)" || idle=0
+          if (( idle > imax && pos == 1 )); then
+            ws_log "lock: #$oi ($os) has held hx-lock with its session idle for ${idle}s, past WS_IDLE_MAX ${imax}s, and #$issue is first in the queue; releasing it"
+            ws_call r_lock_break_idle "$oi" "$imax" && continue
+          fi
+        fi
       fi
       # Say who holds it BEFORE the timeout check (#682): every waiter that finds a held lock tells the operator at least once.
       ws_log "lock: held by #$oi ($os), heartbeat ${age}s old, held ${hold}s; queue position $pos of $total; waiting ${poll}s"

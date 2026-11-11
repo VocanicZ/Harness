@@ -40,7 +40,7 @@ S
   export WS_C="$T/c" HOME="$T/home" HX_REAL_HOME="$T/home" WINSMA_SSH="$T/bin/fakessh" WS_SCHTASKS="$T/bin/schtasks" \
     WS_SPAWN="$T/bin/spawn" WS_PROCS_CMD="$T/bin/procs" WS_KILL=kill WS_PYTHON=python3 WS_VENV_ARGS=--without-pip WS_HB_INTERVAL=1 \
     FAKE_TASKS="$T/tasks.db" FAKE_PROCS="$T/procs" HARNESS_WINDOWS_HOST=winsma-fake GH_TOKEN="$TOK" \
-    WS_POLL=0.2 WS_LOCK_TIMEOUT=0 WS_STALE_SEC=1800 TEMP="$T/temp" TMP="$T/temp" GH_CONFIG_DIR="$T/home/ghcfg"
+    WS_POLL_MIN=0 WS_POLL=0.2 WS_LOCK_TIMEOUT=0 WS_STALE_SEC=1800 TEMP="$T/temp" TMP="$T/temp" GH_CONFIG_DIR="$T/home/ghcfg"
   mkdir -p "$T/temp" "$T/home/ghcfg"; echo 'hosts' >"$T/home/ghcfg/hosts.yml"
   unset WS_OWNER_LIVE_CMD WS_LANE_PID WS_LANE_SESSION WS_LOG
   source "$W/winsma.sh"; }
@@ -232,7 +232,7 @@ echo "# lock: dead waiters do not block the queue"
   finish ) || rc=1
 
 echo "# lock: the hold cap"
-( fresh_env
+( fresh_env; export WS_HB_INTERVAL=300   # the exec gate on its own: the heartbeat's enforcement (#1040) is tested below
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
   age_taken 100; ws_call r_queue_join 222 lane-b $$ >/dev/null
   out="$(bash "$W/winsma.sh" exec 111 base 'echo under-the-cap' 2>&1)"; rc2=$?
@@ -247,14 +247,14 @@ echo "# lock: the hold cap"
   assert_eq "$(cat "$T/b.rc")" "0" "once A releases, B takes the lock on its next poll"; assert_eq "$(owner_issue)" "222" "the lock is B's"
   ws_cleanup 222 >/dev/null; wait
   finish ) || rc=1
-( fresh_env
+( fresh_env; export WS_HB_INTERVAL=300
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null; age_taken 6000
   out="$(bash "$W/winsma.sh" exec 111 base 'echo nobody-waits' 2>&1)"; assert_eq "$?" "0" "past the cap with no one queued: A may keep exec'ing"
   ws_call r_queue_join 111 lane-a $$ >/dev/null
   assert_eq "$(bash "$W/winsma.sh" exec 111 base 'echo own-ticket-only' 2>&1 | tail -1)" "own-ticket-only" "...and A's own ticket is not another lane"
   ws_cleanup 111 >/dev/null
   finish ) || rc=1
-( fresh_env
+( fresh_env; export WS_HB_INTERVAL=300
   # an exec already running is never killed because the cap passed and someone queued up behind it
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
   ( bash "$W/winsma.sh" exec 111 base 'sleep 3; echo finished-after-cap' >"$T/x.out" 2>&1; echo $? >"$T/x.rc" ) &
@@ -270,6 +270,82 @@ echo "# lock: the hold cap"
   [[ "$out" == *ran-once* ]]; assert_eq "$?" "0" "...its command ran"
   assert_no "...and the lock is released at the end" test -e "$WS_C/hx-lock"
   assert_eq "$(queued_issues)" "222" "...leaving B first in line"
+  finish ) || rc=1
+
+echo "# lock: the heartbeat enforces the hold cap (#1040)"
+( fresh_env
+  # a driver script: lock, isolate, sleep — no exec, so the exec gate never fires
+  ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null; age_taken 6000
+  hbpid="$(head -1 "$WS_C/hx-111/pids")"; sleep 2.5
+  assert_eq "$(owner_issue)" "111" "past WS_HOLD_MAX with nobody queued, the heartbeat leaves the lock alone"
+  assert_ok "...and keeps running" alive "$hbpid"
+  ws_call r_queue_join 222 lane-b $$ >/dev/null
+  wait_until '[[ -z "$(owner_issue)" ]]' 60
+  assert_no "past WS_HOLD_MAX with a lane queued, the heartbeat releases the lock (no exec ever ran)" test -e "$WS_C/hx-lock"
+  wait_until '! alive "$hbpid"' 30; assert_no "...and the heartbeat loop ends" alive "$hbpid"
+  ( WS_LOCK_TIMEOUT=0 WS_POLL=0.1; ws_lock 222 lane-b $$ >/dev/null 2>&1; echo $? >"$T/b.rc" ) &
+  wait_until '[[ -f "$T/b.rc" ]]' 80; assert_eq "$(owner_issue)" "222" "...so the queued waiter takes it"
+  ws_cleanup 222 >/dev/null; ws_cleanup 111 >/dev/null; wait
+  finish ) || rc=1
+( fresh_env
+  # inside the cap a queued lane changes nothing; a ticket of the holder's own issue is not another lane; a stale ticket is not a lane
+  ws_lock 111 lane-a $$ >/dev/null; age_taken 100; ws_call r_queue_join 222 lane-b $$ >/dev/null; sleep 2.5
+  assert_eq "$(owner_issue)" "111" "inside WS_HOLD_MAX the heartbeat keeps the lock with a lane queued"
+  ws_call r_queue_leave 222 >/dev/null; age_taken 6000; ws_call r_queue_join 111 lane-a $$ >/dev/null; sleep 2.5
+  assert_eq "$(owner_issue)" "111" "past the cap, the holder's own ticket is not another lane"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+( fresh_env
+  # a `run` is one command: the cap does not cut it short, the hard ceiling does
+  export WS_HOLD_MAX=1 WS_HOLD_HARD=0
+  WS_LOCK_RUN=1 ws_lock 111 lane-a $$ >/dev/null; ws_call r_queue_join 222 lane-b $$ >/dev/null; sleep 3.5
+  assert_eq "$(owner_issue)" "111" "a lock taken by run is not released at WS_HOLD_MAX, even with a lane queued"
+  ws_cleanup 111 >/dev/null; ws_call r_queue_leave 222 >/dev/null
+  export WS_HOLD_HARD=2
+  WS_LOCK_RUN=1 ws_lock 111 lane-a $$ >/dev/null; ws_call r_queue_join 222 lane-b $$ >/dev/null; sleep 5
+  assert_no "...but is past WS_HOLD_HARD" test -e "$WS_C/hx-lock"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+
+echo "# lock: an idle lane does not hold the lock (#1040)"
+( fresh_env
+  export WS_OWNER_LIVE_CMD=true WS_IDLE_MAX=1 WS_LOCK_TIMEOUT=2 WS_POLL=0.3
+  ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
+  WS_OWNER_ACTIVE_CMD=true ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "1" "a holder whose session is working keeps the lock"
+  assert_eq "$(owner_issue)" "111" "...it is still A's"; assert_no "...and no idle note is left" test -e "$WS_C/hx-lock/idle_since"
+  export WS_LOCK_TIMEOUT=10
+  out="$(WS_OWNER_ACTIVE_CMD=false ws_lock 222 lane-b $$ 2>&1)"; assert_eq "$?" "0" "a holder whose turn ended, past WS_IDLE_MAX, loses the lock to the first in line"
+  [[ "$out" == *"WS_IDLE_MAX"* ]]; assert_eq "$?" "0" "...and the waiter says why"
+  assert_eq "$(owner_issue)" "222" "the lock is B's"; assert_no "the idle holder's run folder is cleaned" test -e "$WS_C/hx-111"
+  ws_cleanup 222 >/dev/null
+  finish ) || rc=1
+( fresh_env
+  # a lane that comes back to work resets the clock; the primitives refuse a stranger
+  export WS_OWNER_LIVE_CMD=true
+  ws_lock 111 lane-a $$ >/dev/null
+  ws_call r_lock_idle 111 idle >/dev/null; assert_ok "idle is noted" test -s "$WS_C/hx-lock/idle_since"
+  ws_call r_lock_idle 111 active >/dev/null; assert_no "active clears the note" test -e "$WS_C/hx-lock/idle_since"
+  assert_no "an idle note for another issue is refused" ws_call r_lock_idle 222 idle
+  assert_no "no break without an idle note" ws_call r_lock_break_idle 111 0; assert_eq "$(owner_issue)" "111" "...the lock stays"
+  ws_call r_lock_idle 111 idle >/dev/null
+  assert_no "no break before the idle time has passed" ws_call r_lock_break_idle 111 100; assert_eq "$(owner_issue)" "111" "...the lock stays"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+
+echo "# lock: WS_POLL below the rule is clamped (#1040)"
+( fresh_env; unset WS_POLL_MIN
+  assert_eq "$(ws_poll_clamp 15 2>/dev/null)" "300" "WS_POLL=15 from a lane env is clamped to 300"
+  assert_eq "$(ws_poll_clamp 299 2>/dev/null)" "300" "...so is 299"
+  assert_eq "$(ws_poll_clamp 300)" "300" "300 stays"; assert_eq "$(ws_poll_clamp 600)" "600" "a slower poll stays"
+  assert_eq "$(ws_poll_clamp 0.2 2>/dev/null)" "300" "a fractional poll is clamped too"
+  out="$(ws_poll_clamp 15 2>&1 >/dev/null)"; [[ "$out" == *"WS_POLL=15"*"300"* ]]; assert_eq "$?" "0" "...and the lane is told"
+  assert_eq "$(WS_POLL_MIN=0 ws_poll_clamp 0.2)" "0.2" "the test seam WS_POLL_MIN lowers the floor"
+  # end to end: a waiter with WS_POLL=15 sleeps 300 between polls
+  ws_call r_lock_take 111 lane-a $$ >/dev/null
+  ( sleep(){ echo "$1" >"$T/slept"; exit 9; }; export WS_POLL=15 WS_OWNER_LIVE_CMD=true WS_OWNER_ACTIVE_CMD=true; ws_lock 222 lane-b $$ >"$T/w.out" 2>&1 )
+  assert_eq "$(cat "$T/slept" 2>/dev/null)" "300" "ws_lock with WS_POLL=15 polls every 300 s"
+  [[ "$(cat "$T/w.out")" == *"waiting 300s"* ]]; assert_eq "$?" "0" "...and says so"
+  rm -rf "$WS_C/hx-lock" "$WS_C/hx-queue"
   finish ) || rc=1
 
 echo "# lock: the hard ceiling"
