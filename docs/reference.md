@@ -976,6 +976,24 @@ transcript the host no longer has reports `null`, and counts for nothing in the 
 `{"total_s", "testing_s", "coding_s", "test_calls"}` (or `None`), usable on any Claude-format transcript, a bench run's
 as well as a fleet session's; `python3 scripts/stats.py time-split <transcript>` prints it as JSON.
 
+#### Cache rewrites after a long gap (#1045)
+
+A lane call that comes more than 5 minutes after the session's previous call (the `ephemeral_5m` prompt-cache TTL) writes its whole
+context again: 150K-300K `cache_creation_input_tokens` instead of a cache read. #1042's LONG WAITS rule keeps lanes from sleep-polling past
+the TTL; `python3 scripts/stats.py cache-waits` counts the calls that still do, from the Claude transcripts of every config dir on the host
+(sub-agents folded into their session, a transcript reached through two dirs counted once):
+
+    python3 scripts/stats.py cache-waits --since 24h [--min-tokens 100000] [--min-gap 300] [--max-per-hour N] [--json]
+
+It prints the calls, tokens and sessions, then the sessions with the most calls and each one's worst UTC clock hour. A call counts when its cache
+writes reach `--min-tokens` and the gap since the previous call ended reaches `--min-gap` seconds (a streamed message is one call). With
+`--max-per-hour N` it exits 1 when any session made more than N such calls in one hour.
+
+Baseline, 2026-11-09 to 2026-11-11 (before #1042): 1335 calls of 100K or more (1743 of 50K or more, the 1717 of #1042) in 20 sessions; the worst
+session-hour had 7 calls, the 9-10 minute sleep-poll cadence. **N = 2 per session-hour**: after #1042 a lane waits in the background or parked, so
+only a re-dispatch after a park or one real idle may rewrite the cache. Run `--since 24h --max-per-hour 2` once a release carrying #1042 has run
+lanes for a day; more than that names a lane still sleep-polling.
+
 What counts as a test command is a regex, matched at **command position** — the start of the command or just after
 `;` `&` `|` `(` or a backtick, behind any `NAME=value`, `env`, `time`, `sudo`, `bash`, `python3` style prefix — so a
 runner only mentioned in an `echo` or a `gh issue comment` does not count. The default recognizes `pytest`,
