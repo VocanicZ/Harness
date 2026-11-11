@@ -337,6 +337,7 @@ worker_chores(){ local wid="$1" lockfd
   retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
   sweep_stale_lane_claims
   winsma_wake_tick   # #1034: a lane parked in the winsma queue is re-dispatched once its ticket is next
+  winsma_stale_tick  # #1050: a live lane whose branch predates the winsma protocol check is told to rebase before it queues
   adopt_lanes "$wid"; adopt_bug_sessions "$wid"
   chores_slotless
   lock_release "$lockfd"

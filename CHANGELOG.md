@@ -20,6 +20,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A queued lane that finds the holder's session idle (turn ended or exited) for longer than `WS_IDLE_MAX` (default 600 s) cleans the holder's run and releases the lock
 - `WS_POLL` below 300 is clamped to 300 (drivers polling every 15 s won every free-lock race); the Windows lane prompts forbid hand-rolled lock-holding drivers
 
+### The engine tells a lane whose branch predates the winsma protocol check to rebase before it queues (#1050)
+
+- A lane on a branch cut before #1033 has no `ws_proto_check` in `test/smoke/winsma/lock.sh`, so the #1041 protocol record cannot stop it: it kept polling beside the FIFO queue. With `HARNESS_WINDOWS_HOST` set the engine now looks at the lane's own lock code. A live lane without `ws_proto_check` is sent, once, an order to stop before any `winsma.sh` step and rebase onto `origin/<default branch>` (a chore, `winsma_stale_tick`, every `HARNESS_WINSMA_STALE_S` seconds, default 120). A lane (re)launched on a pushed branch that predates the check, such as one woken from the winsma park, gets the same order at the top of its task file. A lane is never rebased under its own feet. Branches with the check, and fleets with no Windows host, are untouched.
+
 ### The winsma lock records a protocol version; a lane on an old branch fails fast and is told to rebase (#1041)
 
 - Each lane streams the lock code from its own worktree, so lanes on branches older than #1033 ran the take-when-free lock with a 300 s poll beside the new FIFO queue and starved for days. The host now records the lock protocol in `C:\hx-proto` (1 = take-when-free, 2 = the FIFO queue); `winsma.sh lock` and `winsma.sh run` from a client below the recorded protocol exit 1 at once with an error telling the lane to rebase onto `origin/main`, instead of waiting. A lane already running pre-#1033 code has no check to run: rebase it.
