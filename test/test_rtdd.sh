@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# rtdd: always
 # test_rtdd.sh — the rtdd v0.3 contract in the lane prompts (#187). rtdd is OPTIONAL: every prompt
 # that uses it falls back to the closest tests by hand (never the full suite, #449), treats an empty
 # selection as not green, and defers the details to the user-level `rtdd` skill. The rtdd text lives in ONE partial, prompts/_rtdd.md.
