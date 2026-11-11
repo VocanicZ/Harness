@@ -1659,6 +1659,49 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
     fi
   done
   return 0; }
+# --- #1050: a lane whose branch predates the winsma protocol check ------------------------------------------------
+# Every lane streams the lock code from its own worktree. #1041 put a protocol check (ws_proto_check) in test/smoke/winsma/lock.sh, but a
+# branch cut before #1033 has no check to run: it polls for ever beside the FIFO queue and cannot be stopped from the host. The one place
+# the engine can still reach such a lane is BEFORE it queues, so it looks at the lane's lock code (never at the host) and tells the lane
+# to rebase before any winsma step. A branch with no winsma helpers at all streams nothing and is left alone. HARNESS_WINDOWS_HOST unset = no-op.
+# winsma_code_stale <worktree> [ref] — 0 when the lock code (the worktree's file, or <ref>'s copy of it) has no ws_proto_check.
+winsma_code_stale(){ local wd="$1" ref="${2:-}" src
+  if [[ -n "$ref" ]]; then src="$(git -C "$wd" show "$ref:test/smoke/winsma/lock.sh" 2>/dev/null)" || return 1
+  else [[ -f "$wd/test/smoke/winsma/lock.sh" ]] || return 1; src="$(cat "$wd/test/smoke/winsma/lock.sh" 2>/dev/null)"; fi
+  [[ -n "$src" ]] || return 1
+  ! grep -q 'ws_proto_check' <<<"$src"; }
+# winsma_rebase_notice <base> — the text a stale lane is told: stop, rebase onto origin/<base>, only then touch winsma.sh.
+winsma_rebase_notice(){ printf '%s' "HARNESS: your branch predates the winsma lock protocol check (#1041): test/smoke/winsma/lock.sh has no ws_proto_check, so your winsma.sh lock/run would poll for ever beside the FIFO queue and never be served. STOP before any winsma.sh step (lock, run, isolate, park): do NOT queue. Run  git fetch origin && git rebase origin/$1  (resolve conflicts, rerun your tests, push with --force-with-lease), confirm  grep -q ws_proto_check test/smoke/winsma/lock.sh , and only then continue."; }
+# winsma_prelaunch_notice <worktree> <branch> <base> — at (re)launch, a resumed lane carries on the pushed origin/<branch>: when THAT predates the
+# check, append the rebase order to the task file the lane reads first. Prints nothing and returns 1 when there is nothing to say.
+winsma_prelaunch_notice(){ local wd="$1" branch="$2" base="$3" ref="HEAD"
+  [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 1
+  git -C "$wd" fetch -q origin "$branch" 2>/dev/null || true
+  git -C "$wd" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null 2>&1 && ref="refs/remotes/origin/$branch"
+  winsma_code_stale "$wd" "$ref" || return 1
+  { printf '\n## REBASE FIRST — winsma protocol check missing (#1050)\n\n'; winsma_rebase_notice "$base"; printf '\n'; } >> "$wd/.harness-task.md"
+  log "winsma-stale: $wd ($branch) predates the lock protocol check — the task file orders a rebase before any winsma step (#1050)"
+  harness_event winsma_stale repo="${SLUG:-}" branch="$branch" where=launch
+  return 0; }
+# winsma_stale_tick — a chore: every live impl lane of this unit whose worktree lock code lacks ws_proto_check is told ONCE (marker
+# $RUN_DIR/<sess>.winsma-stale) to stop and rebase, before it queues. A lane that has since rebased clears its marker. It is never rebased
+# under its own feet. Throttled to HARNESS_WINSMA_STALE_S (default 120); with no Windows host there is nothing to check.
+winsma_stale_tick(){ local f="$RUN_DIR/winsma-stale.stamp" now t sess wd m base
+  [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 0
+  now="$(date +%s)"; t="$(cat "$f" 2>/dev/null)"
+  [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ${HARNESS_WINSMA_STALE_S:-120} )) && return 0
+  echo "$now" > "$f"; base="$(default_branch 2>/dev/null)"; base="${base:-main}"
+  for sess in $(sess_list 2>/dev/null | grep -E "^$HARNESS_SESS_PREFIX-.*-i[0-9]+\$" ); do
+    wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; m="$RUN_DIR/$sess.winsma-stale"
+    [[ -n "$wd" && -d "$wd" ]] || continue
+    if ! winsma_code_stale "$wd"; then rm -f "$m"; continue; fi
+    [[ -f "$m" ]] && continue
+    session_live "$sess" || continue
+    log "winsma-stale: $sess ($wd) runs lock code without ws_proto_check — telling it to rebase before it queues (#1050)"
+    cli_send "$sess" "$wd" "$(winsma_rebase_notice "$base")" && : > "$m"
+    harness_event winsma_stale repo="${SLUG:-}" session="$sess" where=live
+  done
+  return 0; }
 # {{skill:<name>}} — a skill the prompt names, as the configured CLI invokes it (cli_skill, #315).
 # cli_prereqs derives the skills it checks from these same tokens, so a prompt names a skill no other way.
 render(){ local tmpl="$1" n; shift

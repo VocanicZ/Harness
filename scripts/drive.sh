@@ -524,6 +524,7 @@ prepare_impl(){   # <ISSUE> <PROMISE>
     WINDOWS_RTDD="$(windows_block _windows_rtdd.md ISSUE="$issue" SLUG="$SLUG")" \
     ORIGINAL_REQUEST="$TC_REQUEST" ISSUE_BLOCK="$TC_ISSUE" PRD_BLOCK="$TC_PRD" TASK_LINT="$TC_LINT" \
     SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md" 2>/dev/null
+  winsma_prelaunch_notice "$wd" "$branch" "$base" || true   # #1050: a resumed branch cut before the winsma protocol check is told to rebase before it queues
   # #643: a lane launched into a missing or empty worktree sits idle for hours holding a slot (a reap took $wd between
   # the add and this render). It must be a git worktree and the task file must have landed — else no launch: the caller
   # drops its claim, and the issue is freed here (the worktree, if any, is the reap's).
