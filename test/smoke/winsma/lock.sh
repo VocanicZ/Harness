@@ -70,6 +70,7 @@ ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3
     if (( rc == 0 )); then
       cap="$hmax"; [[ -n "${WS_LOCK_RUN:-}" ]] && { (( hard > 0 )) && cap="$hard" || cap=off; }   # a `run` is one command: only the hard ceiling cuts it short
       ws_call r_hb_start "$issue" "$cap" "$stale" >/dev/null || { ws_die "taken, but the heartbeat loop did not start"; return 1; }
+      [[ -z "${WS_LOCK_RUN:-}" ]] || ws_call r_lock_mark_run "$issue" >/dev/null   # #1062: a run is not released as idle
       ws_log "lock: hx-lock taken by #$issue ($session)"; return 0
     fi
     (( rc == 1 )) || { ws_die "could not reach the lock (exit $rc)"; return 1; }

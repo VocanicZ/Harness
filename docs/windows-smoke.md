@@ -209,7 +209,7 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   too. Do not write one: it holds a lock nothing is using, since the lane's turn ends while it runs. A lock taken by `run`
   is cut short only by the hard ceiling below. The lock is also tied to the lane being **working**: a waiter that finds the
   holder's session idle (turn ended, or exited) notes it, and once it has sat idle longer than `WS_IDLE_MAX` (default 600 s)
-  the first lane in the queue cleans the holder's run and releases the lock. `WS_POLL` below the rule (300 s) is clamped
+  the first lane in the queue cleans the holder's run and releases the lock. A lock taken by `winsma.sh run` is exempt (#1062): its lane's pid and tmux session are not visible from the waiter's own sandbox, so "not working" there proves nothing, and a run in flight ends only at the hard ceiling below. `WS_POLL` below the rule (300 s) is clamped
   to it, so a lane cannot win every free-lock race by polling faster; only `WS_POLL_MIN` (a test seam) lowers the floor.
   As protection against a single runaway command there is a **hard ceiling**, `WS_HOLD_HARD` (default 3 × `WS_HOLD_MAX`,
   4.5 hours; 0 turns it off): past it the lane **first in the queue** treats even a live holder as breakable, kills its
