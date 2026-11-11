@@ -65,6 +65,58 @@ fresh_gh; D="$(fixture dirty 0)"; printf '#!/usr/bin/env bash\nexit 1\n' > "$D/t
 rel "$D" >/dev/null 2>&1
 assert_ok "the gate runs the committed tree, not the dirty one" test -f "$GH_PUB/v0.1.0"
 
+# ── #1060: the gate runs under a scrubbed environment ──
+# A gate started from a live worker's shell (HARNESS_ENGINE_STAMP, CLAUDE_*, STATE_DIR…) shows none of it in test/run.sh or any child.
+fresh_gh; E="$(fixture scrub 0)"
+cat > "$E/test/run.sh" <<EOF
+#!/usr/bin/env bash
+env > "$T/gate-env.txt"
+bash -c 'env' > "$T/gate-child-env.txt"
+exit 0
+EOF
+gc "$E" add -A; gc "$E" commit -qm "chore: env probe"; gc "$E" push -q
+( cd "$E" && HARNESS_ENGINE_STAMP=stamp-1060 HARNESS_CLAUDE_BIN=/x CLAUDE_CODE_SSE_PORT=1 CLAUDE_SESSION=s STATE_DIR=/live/.harness \
+    ENGINE_DIR=/live/engine HARNESS_TEST_FILE=t TMUX=/tmp/tmux-0/default,1,0 TMUX_PANE=%3 FLEET_SECRET=x bash "$RELEASE" ) >/dev/null 2>&1
+assert_ok "the scrubbed gate ran and the release was cut" test -f "$GH_PUB/v0.1.0"
+assert_no "no HARNESS_ variable in test/run.sh" grep -q '^HARNESS_' "$T/gate-env.txt"
+assert_no "no HARNESS_ variable in a child of it" grep -q '^HARNESS_' "$T/gate-child-env.txt"
+assert_no "no CLAUDE_ variable reaches the gate" grep -q '^CLAUDE' "$T/gate-child-env.txt"
+assert_no "no worker or fleet variable reaches the gate" grep -qE '^(STATE_DIR|ENGINE_DIR|TMUX|TMUX_PANE|FLEET_SECRET)=' "$T/gate-child-env.txt"
+assert_ok "PATH, HOME, LANG and TMPDIR are the allowlist" bash -c "grep -q '^PATH=' '$T/gate-child-env.txt' && grep -q '^HOME=' '$T/gate-child-env.txt' && grep -q '^LANG=' '$T/gate-child-env.txt' && grep -q '^TMPDIR=' '$T/gate-child-env.txt'"
+assert_ok "the gate gets a private TMUX_TMPDIR" grep -q '^TMUX_TMPDIR=' "$T/gate-child-env.txt"
+assert_no "which is not the fleet's /tmp" grep -qE '^TMUX_TMPDIR=/tmp/?$' "$T/gate-child-env.txt"
+
+# ── #1060: a red file is re-run once, alone; one that passes alone is a flake and the release goes ahead ──
+# flaky_fixture <name> <what a run with a file argument does> — red on a full run, <2nd arg> when re-run by file name.
+flaky_fixture(){ local d; d="$(fixture "$1" 0)"
+  cat > "$d/test/run.sh" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "$T/$1.calls"
+if (( \$# )); then $2; fi
+echo "== test_x.sh =="; echo "FAIL: x lost the race"; echo "FAILED: test_x.sh"; exit 1
+EOF
+  gc "$d" add -A; gc "$d" commit -qm "chore: flaky gate"; gc "$d" push -q; echo "$d"; }
+fresh_gh; K="$(flaky_fixture flaky 'exit 0')"
+out="$(rel "$K" 2>&1)"; rc=$?
+assert_eq "$rc" 0 "a file red once and green alone does not fail the gate"
+assert_ok "the release is cut" test -f "$GH_PUB/v0.1.0"
+assert_ok "the file was re-run alone, by name" grep -qx 'test_x.sh' "$T/flaky.calls"
+assert_eq "$(wc -l < "$T/flaky.calls" | tr -d " ")" 2 "re-run exactly once"
+assert_eq "$(cat "$HARNESS_HOME/autorelease/gate-flake-$(git -C "$K" rev-parse HEAD)")" test_x.sh "the flake is recorded for the tracking issue"
+assert_ok "the flake is said on stderr" grep -qF 'gate flaked' <<<"$out"
+fresh_gh; K="$(flaky_fixture stuck 'echo "FAILED: test_x.sh"; exit 1')"
+rel "$K" >/dev/null 2>&1; rc=$?
+assert_eq "$rc" 4 "a file that fails again alone fails the gate"
+assert_eq "$(wc -l < "$T/stuck.calls" | tr -d " ")" 2 "and was re-run once only"
+assert_eq "$(git -C "$K.git" tag -l)" "" "no tag"
+assert_no "no flake recorded for a real failure" test -e "$HARNESS_HOME/autorelease/gate-flake-$(git -C "$K" rev-parse HEAD)"
+fresh_gh; K="$(fixture big 0)"
+printf '#!/usr/bin/env bash\necho "$*" >> "%s/big.calls"\nfor i in 1 2 3 4 5 6; do echo "FAILED: test_$i.sh"; done; exit 1\n' "$T" > "$K/test/run.sh"
+gc "$K" add -A; gc "$K" commit -qm "chore: broken gate"; gc "$K" push -q
+rel "$K" >/dev/null 2>&1; rc=$?
+assert_eq "$rc" 4 "more red files than the cap is a broken tree: failed, not re-run"
+assert_eq "$(wc -l < "$T/big.calls" | tr -d " ")" 1 "no re-run"
+
 # ── publish: assets, --latest, grouped notes ──
 fresh_gh; N="$(fixture notes 0)"; commit "$N" "feat: add x (closes #7)"; commit "$N" "fix: mend y (closes #9)"
 out="$(rel "$N" 2>&1)"; rc=$?
