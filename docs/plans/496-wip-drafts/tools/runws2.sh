@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # runws2.sh <name> <mode> <stages>: ws_run plus a one-off repair step after the lock is taken (the first e2e run's damage to the owner's skills)
 SC=$(dirname "$(readlink -f "$0")")
-export WINSMA_SSH=$SC/wsssh.sh HARNESS_WINDOWS_HOST=winsma WS_LANE_SESSION=lane-496 WS_LANE_PID=${LANE_PID:-$$}
+export WINSMA_SSH=$SC/wsssh.sh HARNESS_WINDOWS_HOST=winsma WS_LANE_SESSION=hzhn-harness-i496 WS_LANE_PID=${LANE_PID:-$$}
 export WS_LOG=$SC/$1.log; mode=$2; stages=$3
 WSH_DIR=$SC/x; set -uo pipefail
 for f in common lock park isolate guard credentials cleanup; do source "$WSH_DIR/$f.sh"; done

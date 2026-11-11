@@ -128,7 +128,8 @@ if has supervise; then
   # A supervisor pass takes minutes on Windows (every gh call and python3 is a process spawn), and a pass that began before the kill must end
   # first: allow the supervisor 15 minutes, and show its log as it goes.
   back=0; t0=$SECONDS; for i in $(seq 1 90); do np="$(worker_pid)" && [[ "$np" != "$old" ]] && pid_alive "$np" && { back=1; break; }
-    (( i % 12 == 0 )) && say "…$(( SECONDS - t0 ))s after the kill, supervise.log: $(wc -l < "$sl") lines, last: $(tail -n 1 "$sl" | cut -c1-150)"; sleep 10; done
+    if (( i % 12 == 0 )); then n="$(wc -l < "$sl" 2>/dev/null || echo 0)"; say "…$(( SECONDS - t0 ))s after the kill, supervise.log: $n lines"
+      (( n > ${shown:-0} )) && tail -n +"$(( ${shown:-0} + 1 ))" "$sl" | cut -c1-300 | sed 's/^/   | /'; shown=$n; fi; sleep 10; done
   say "worker after the kill: ${np:-none} (alive: $(pid_alive "${np:-0}" && echo yes || echo no)), $(( SECONDS - t0 ))s after the kill"
   [[ -s "$sl" ]] && sed 's/^/   | /' "$sl" | tail -n 12
   ok "the supervisor restarted the killed worker" '(( back ))'
