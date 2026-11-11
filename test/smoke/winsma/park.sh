@@ -4,6 +4,8 @@
 #   winsma.sh park <issue> [owner/repo]   the LANE, queued and not next: keep the ticket, post a handoff, swap agent-working
 #                                         for the waiting label (HARNESS_LABEL_WAITING_WINSMA, default waiting-winsma). The
 #                                         engine then ends the session and does not dispatch the issue until its ticket is next.
+#                                         `park <prd> [owner/repo] --review` is the PRD review lane (#1038): no push check (its worktree is never
+#                                         pushed), the PRD gets the waiting label only, and the review is re-dispatched as REVIEW:<prd>.
 #   winsma.sh turn <issue>                the ENGINE, each tick, for a parked issue: refresh its ticket (the lane is gone, so a
 #                                         refresh is what keeps the place) and say whether it is next. exit 0 = next, 1 = still
 #                                         waiting, 2 = the host could not be asked (the issue stays parked).
@@ -32,18 +34,30 @@ ws_park_pushed(){ local br head remote
   remote="$(git ls-remote origin "refs/heads/$br" 2>/dev/null | awk '{print $1}' | head -1)"
   [[ -n "$remote" && "$remote" == "$head" ]] || { ws_die "park: $br is not pushed (HEAD $head, origin ${remote:-has no such branch}) — push first"; return 1; }
   return 0; }
-ws_park(){ local issue="$1" slug="${2:-${HARNESS_REPO:-}}" work waiting br rc
+ws_park(){ local issue="$1" slug="" work waiting br rc review=0 a; shift
+  for a in "$@"; do case "$a" in --review) review=1;; *) [[ -n "$slug" ]] || slug="$a";; esac; done
+  slug="${slug:-${HARNESS_REPO:-}}"
   [[ "$issue" =~ ^[0-9]+$ ]] || { ws_die "issue must be a number, got '$issue'"; return 1; }
   [[ -n "$slug" ]] || { ws_die "park: no repo — pass owner/repo"; return 1; }
   ws_need_host >/dev/null || return 1
   work="${HARNESS_LABEL_WORKING:-agent-working}"; waiting="${HARNESS_LABEL_WAITING_WINSMA:-waiting-winsma}"
-  if [[ "${WS_PARK_CHECK_PUSHED:-1}" != 0 ]]; then ws_park_pushed || return 1; fi
+  # --review (#1038): the PRD review lane. Its work is a throwaway worktree that is never pushed and its issue is the PRD, which never
+  # carries agent-working: nothing to push or to hand over but a comment, and one label to add.
+  if (( review == 0 )) && [[ "${WS_PARK_CHECK_PUSHED:-1}" != 0 ]]; then ws_park_pushed || return 1; fi
   br="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "issue/$issue")"
   # The ticket first: the place is what the park keeps. A lane that never queued takes one at the back now.
   ws_call r_queue_join "$issue" "parked-$issue" - >/dev/null || { ws_die "park: could not keep a place in the queue"; return 1; }
   ws_turn "$issue" >/dev/null; rc=$?
   (( rc == 0 )) && { ws_die "park: #$issue is next and hx-lock is free — take the lock instead of parking"; return 4; }
   (( rc == 2 )) && return 1
+  if (( review )); then
+    gh issue comment "$issue" -R "$slug" --body "<!-- harness-winsma-review-park prd=$issue -->
+Parked in the winsma lock queue (#1038): the review of PRD #$issue was waiting for hx-lock and gave up its pool slot. Its ticket in the queue is kept for #$issue, so the place is not lost. Harness re-dispatches the review once the ticket is next and the lock is free. On the re-dispatch: the Linux full-suite result and the other review findings are in the comments above; take the lock with winsma.sh (it succeeds at once, without queueing behind a lane that queued after you), run the Windows suite and finish the review." >/dev/null \
+      || { ws_die "park: could not post the handoff comment"; return 1; }
+    gh issue edit "$issue" -R "$slug" --add-label "$waiting" >/dev/null || { ws_die "park: could not add $waiting"; return 1; }
+    ws_log "park: the review of PRD #$issue parked in the winsma queue ($waiting); its session ends and the review is re-dispatched when its ticket is next"
+    return 0
+  fi
   gh issue comment "$issue" -R "$slug" --body "<!-- harness-handoff issue=$issue branch=$br -->
 Parked in the winsma lock queue (#1034): this lane was waiting for hx-lock and gave up its pool slot. The branch \`$br\` is pushed; its ticket in the queue is kept for #$issue, so the place is not lost. Harness re-dispatches the issue as a resume once the ticket is next and the lock is free. On resume: take the lock again with winsma.sh (it succeeds at once, without queueing behind a lane that queued after you) and run the Windows step you were waiting for." >/dev/null \
     || { ws_die "park: could not post the handoff comment"; return 1; }

@@ -216,8 +216,14 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   ticket is first in the queue and the lock is free (or its holder's heartbeat is stale and the lane gone), the engine removes
   the label and the issue is dispatched once, as a resume (`resume.md`, from the pushed branch). That lane's `lock` then
   succeeds on its first attempt, ahead of any lane that queued after it. A host that cannot be reached leaves the issue parked
-  (one log line per outage); with no `HARNESS_WINDOWS_HOST` configured the label is removed at once. The PRD review lane is not
-  parked by this: it still waits in its session (#1038).
+  (one log line per outage); with no `HARNESS_WINDOWS_HOST` configured the label is removed at once.
+  **The PRD review lane parks the same way** (#1038): queued and not next, it posts the Linux suite result as a PRD comment, then runs
+  `winsma.sh park <prd> <owner/repo> --review`. There is no pushed branch (the review's worktree is a throwaway) and the PRD never
+  carries `agent-working`, so `--review` skips the push check and only adds `waiting-winsma` to the PRD, with a
+  `<!-- harness-winsma-review-park prd=N -->` comment. `check REVIEW:<prd>` reads that session as done (slot freed; the #417 nudge
+  only ever looks at `agent-paused` implementation issues), dispatch skips a PRD carrying the label, and the same wake tick
+  (`winsma.sh turn <prd>`) removes it when the ticket is next and the lock is free; the PRD is then re-dispatched once as
+  `REVIEW:<prd>`, which reads the comments and runs the Windows suite.
 - **Isolation.** Everything runs in `C:\hx-<issue>\`. `harness`'s own state (`HARNESS_HOME`, `HARNESS_BIN_DIR`,
   `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache`, `GIT_CONFIG_GLOBAL` (a fleet's `ensure_safe` writes `safe.directory` entries to the global git config, which must not be `~/.gitconfig`) and the clone live under it. Install, update and uninstall
   runs also set `CLAUDE_CONFIG_DIR`; the full suite also sets `HOME` and `USERPROFILE` to `C:\hx-<issue>\home`.

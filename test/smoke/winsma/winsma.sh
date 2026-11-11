@@ -5,6 +5,7 @@
 #   winsma.sh lock <issue> [session] [pid] take C:\hx-lock (FIFO queue; wait your turn), start the heartbeat loop
 #   winsma.sh unlock <issue>               release it
 #   winsma.sh park <issue> [owner/repo]    queued and not next: keep the ticket, swap agent-working for waiting-winsma, free the pool slot (#1034)
+#                                          `park <prd> <owner/repo> --review`: the PRD review lane (#1038)
 #   winsma.sh turn <issue>                 (engine) refresh a parked issue's ticket; exit 0 = it is next, 1 = waiting, 2 = host unreachable
 #   winsma.sh status                       who holds the lock, for how long, and the queue in order
 #   winsma.sh isolate <issue> [--venv]     create C:\hx-<issue>\ (and a python venv in it)
@@ -54,6 +55,6 @@ main(){ local cmd="${1:-}"; shift || true
     pid-add)  ws_pid_add "$@";;
     cleanup)  ws_cleanup "$@";;
     run)      if [[ $# -ge 3 ]]; then ws_run "$1" "$2" "$3"; else ws_run "$1" base "$2"; fi;;
-    *) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p;' | head -24 >&2; return 2;;
+    *) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p;' | head -25 >&2; return 2;;
   esac; }
 [[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"

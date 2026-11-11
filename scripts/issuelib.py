@@ -1306,6 +1306,8 @@ def compute_state(repo):
         prds.append({"number": p["number"],
                      "open": is_open,
                      "reviewed": L_REVIEWED() in p["_labels"],
+                     # #1038: the review lane is parked in the winsma queue; the engine drops the label when its ticket is next
+                     "waiting": L_WAITING() in p["_labels"],
                      # a PRD's own `## Blocked by` is what sequences PRDs; no section = eligible now
                      "eligible": eligible,
                      # a HITL child counts as filed, so a PRD decomposed into HITL work only
@@ -1551,6 +1553,8 @@ def dispatch(repo, free_slots, allow_orchestration, busy_prds=(), priority_free=
             if sum(act[0] != "CLOSE_PRD" for act in out) >= slots: break
             if p["number"] in busy or not p["open"] or not p["children_all_closed"] or p.get("stray"):
                 continue
+            if p.get("waiting"):
+                continue   # #1038: its review lane is parked in the winsma queue; no REVIEW until the engine drops the label
             if not p["reviewed"]:
                 out.append(("REVIEW", str(p["number"]), "REVIEW DONE"))
             else:
@@ -1765,7 +1769,10 @@ def main():
             if goal == "PLAN": done = s["has_plan"]
             elif name == "PRD": done = bool(prds)
             elif name == "DECOMPOSE": done = bool(target) and target["children_exist"] and not target.get("needs_task1")
-            elif name == "REVIEW": done = bool(target) and (target["reviewed"] or len(target["unblocked"]) > 0)
+            elif name == "REVIEW":
+                # #1038: a review lane parked in the winsma queue (the PRD carries the waiting label) is done too: it handed
+                # its Linux result over in a PRD comment before it parked, so its session ends and the slot is free.
+                done = bool(target) and (target["reviewed"] or len(target["unblocked"]) > 0 or bool(target.get("waiting")))
             elif name == "CLOSE_PRD": done = bool(target) and not target["open"]
             elif goal.startswith("ISSUE:"):
                 # #271: an open issue its lane labelled agent-blocked is parked — that session is done
