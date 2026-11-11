@@ -598,9 +598,11 @@ allowlists with their reasons (tmux-only CLIs, the self-contained lane runner's 
 
 ### Native Windows
 
-Harness runs on native Windows under Git for Windows' bash with a native Python 3, on the headless
-session backend only ([ADR 0001](adr/0001-native-windows-runtime.md), #356). Linux is unchanged.
-[The Windows runbook](windows-smoke.md) sets up a host step by step and runs the fleet smoke on it.
+Harness runs on native Windows as a first-class host: Git for Windows' bash with a native Python 3, every agent CLI's lanes on the
+headless session backend (Windows has no tmux), the same features, skills, rtdd flow and install, update, rollback and uninstall
+lifecycle as Linux ([ADR 0001](adr/0001-native-windows-runtime.md), #356, PRD #475). Linux is unchanged.
+[The Windows guide](windows-smoke.md) sets up a host step by step, shows daily use, runs the fleet smoke on it and describes how the
+Windows check host (`winsma`) verifies each release; the [parity matrix](#windows-parity-matrix) has one row per feature.
 
 - **Install:** run `install.sh` from Git Bash. It needs Git for Windows (git, curl, sha256sum, tar), a
   Python 3 that runs, `gh` and `claude`; tmux is not needed. It offers each missing one through winget
@@ -701,15 +703,19 @@ work is built and tested against; `test/test_windows_parity_doc.sh` keeps it com
 
 How to read a cell:
 
-- `✓` — works there today. On Windows that means it has run on a real host (the winsma smoke, #358) or is part of a path that did.
-- `✓ target (#475 task N)` — not yet shown working on Windows, and **still a target**, not a gap we accept. Task `N` of PRD #475 flips it to `✓`.
-  "Not verified on winsma" is never a reason to write `n/a`.
+- `✓` — works there. On Windows that means it has run on a real host (winsma, the owner's Windows 10 desktop, under the rules in
+  [windows-smoke.md](windows-smoke.md)), and the cell names the test and the committed log under `test/smoke/logs/` that show it, or it is
+  part of a path that did. "Not verified on winsma" is never a reason to write `n/a`.
+- `✓ target (#N …)` — a row can no longer be left like this: PRD #475 is done, `test/test_windows_parity_doc.sh` fails on any `✓ target`,
+  and a new feature gets a `✓` with its evidence in the same change that adds it.
 - `n/a: <reason> ([source](https://…))` — Windows physically cannot do it. Allowed only for an external Linux-only service (HTCondor swarm submission)
   or an agent CLI whose vendor ships no Windows build or no non-interactive mode, and always with a link to the vendor or project page.
-  No row is `n/a` on Windows today: every supported CLI ships a Windows build and a non-interactive mode (see the research below).
+  The only row that is `n/a` on Windows is `swarm submission`: every supported CLI ships a Windows build and a non-interactive mode (see the research below).
 
-The PRD #475 tasks: 1 this matrix · 2 shared headless runner and per-CLI turn code · 3 `attach` send and detach · 4 Windows installer ·
-5 lifecycle (install, update, rollback, uninstall) · 6 test suite on Windows · 7 lane tooling and skills · 8 end-to-end verification on winsma.
+PRD #475 built this in eight tasks: 1 this matrix · 2 shared headless runner and per-CLI turn code · 3 `attach` send and detach · 4 Windows
+installer · 5 lifecycle (install, update, rollback, uninstall) · 6 test suite on Windows · 7 lane tooling and skills · 8 end-to-end
+verification on winsma (#496: the live `claude` smoke, the full lifecycle once more, `supervise`, `web`, `stats`, `forecast`, `harness-one`,
+inject and `--with-skills`, and the other CLIs' live headless smokes on the claude host).
 
 | feature | Linux | Windows |
 |---|---|---|

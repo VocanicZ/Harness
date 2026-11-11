@@ -28,8 +28,12 @@ ws_run(){ local issue="$1" mode="$2" cmd="$3" rc=0 step=""
   ws_isolate "$issue" || step=isolate
   [[ -z "$step" ]] && { ws_guard "$issue" before || step="guard before"; }
   [[ -z "$step" && -n "$(ws_token)" ]] && { ws_scan "$issue" before || step="scan before"; }
-  if [[ -z "$step" ]]; then ws_log "exec: $cmd"; WS_CAP_CHECK=0 ws_exec "$issue" "$mode" "$cmd" 2>&1 | tee -a "${WS_LOG:-/dev/null}"
-    [[ "${PIPESTATUS[0]}" == 0 ]] || step="command"; fi
+  if [[ -z "$step" ]]; then local out; out="$(mktemp)"; ws_log "exec: $cmd"; WS_CAP_CHECK=0 WS_SENTINEL=1 ws_exec "$issue" "$mode" "$cmd" 2>&1 | tee "$out" | tee -a "${WS_LOG:-/dev/null}"
+    local erc="${PIPESTATUS[0]}"
+    [[ "$erc" == 0 ]] || step="command"
+    # The remote shell reports its command's status as its last line: without it the command killed its own shell (#496).
+    grep -q '^WS-EXIT ' "$out" || { ws_log "exec: the remote shell ended without reporting an exit status (the command killed it)"; step="command"; }
+    rm -f "$out"; fi
   [[ "$step" == isolate || "$step" == "guard before" || "$step" == "scan before" ]] || {
     ws_guard "$issue" after || step="${step:+$step, }guard after"
     [[ -n "$(ws_token)" ]] && { ws_scan "$issue" after || step="${step:+$step, }scan after"; }; }

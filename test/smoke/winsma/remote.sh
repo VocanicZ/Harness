@@ -233,10 +233,12 @@ r_iso_env(){ _ws_issue_ok "$1" || return 2
   return 0; }
 
 # --- processes, tasks, the run's ~/.claude.json entries --------------------------------------------
-# _ws_procs_under <issue> — pids whose command line mentions C:\hx-<issue>\ (the trailing backslash keeps hx-47 off hx-479).
+# _ws_procs_under <issue> — pids whose command line mentions the run folder in any spelling a command line carries it: C:\hx-<issue>\,
+# C:/hx-<issue>/ (a native Python launched by a script: `python.exe C:/hx-496/…/web.py`) or /c/hx-<issue>/ (bash's own). The trailing
+# separator keeps hx-47 off hx-479. The first version knew only the backslash form and missed a dashboard server left running (#496).
 _ws_procs_under(){
   if [[ -n "${WS_PROCS_CMD:-}" ]]; then $WS_PROCS_CMD "$1"; return; fi
-  powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -like '*C:\\hx-$1\\*' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null | tr -d '\r'; }
+  powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.CommandLine -like '*C:\\hx-$1\\*' -or \$_.CommandLine -like '*C:/hx-$1/*' -or \$_.CommandLine -like '*/c/hx-$1/*') } | ForEach-Object { \$_.ProcessId }" 2>/dev/null | tr -d '\r'; }
 _ws_kill(){ $WS_KILL "$1" >/dev/null 2>&1; }
 # _ws_claude_json_drop <issue> — delete the run's `projects` entries (any key under C:\hx-<issue>) from ~/.claude.json.
 _ws_claude_json_drop(){ local cj; cj="$(_ws_real_home)/.claude.json"; [[ -f "$cj" ]] || return 0

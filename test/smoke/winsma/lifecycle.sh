@@ -2,7 +2,7 @@
 # NOT run by test/run.sh: it is the script `winsma.sh run <issue> install "$(cat lifecycle.sh)"` sends to the host, where it
 # runs in Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS, CLAUDE_CONFIG_DIR,
 # TMPDIR, npm_config_cache are the isolation's). See docs/windows-smoke.md. Environment (set by the caller, all optional):
-#   HX_BRANCH   the branch under test (default issue/491)
+#   HX_BRANCH   the branch under test (default issue/496)
 #   HX_STAGES   which stages to run, space separated: entry real tasks v011 gitco gitdef prune (default: all)
 # Releases are local: this tree and the previous real tag, tarred and served over file:// with a SHA256SUMS, so a stage never
 # reaches the network but for the clone. winget is a logging stub; schtasks is real except /Run and /End, so the supervise and
@@ -11,7 +11,7 @@ set -u
 fail=0; say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
 ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
 st(){ MSYS2_ARG_CONV_EXCL='*' schtasks "$@"; }
-BRANCH="${HX_BRANCH:-issue/491}"; STAGES="${HX_STAGES:-entry real tasks v011 gitco gitdef prune}"
+BRANCH="${HX_BRANCH:-issue/496}"; STAGES="${HX_STAGES:-entry real tasks v011 gitco gitdef prune}"
 has(){ [[ " $STAGES " == *" $1 "* ]]; }
 say "== host: $(uname -srm) | bash $BASH_VERSION | python3 $(python3 --version 2>&1) | MSYS=${MSYS:-}"
 say "== clone $BRANCH"

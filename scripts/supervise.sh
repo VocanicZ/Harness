@@ -316,17 +316,18 @@ sup_arc_rules(){ local sessions=$1 slugs sl line s slug num counters fresh=1
       ALARM\ *|RESOLVED\ *) sup_log "$line [fleet $HARNESS_SESS_PREFIX]" ;;
     esac
   done < <(sup_session_rows "$sessions" | UNPARENTED_OK="$UNPARENTED_OK" SUPERVISE_RUN_DIR="$RUN_DIR" python3 "$SUP_RULES" --counters "$counters" --repo-dir "$PROJECT_ROOT" \
-             --reconciled "$STATE_DIR/reconciled-plans" $slugs 2>>"$SUP_LOG")
+             --reconciled "$STATE_DIR/reconciled-plans" $slugs 2>>"$SUP_LOG" | tr -d '\r')
   rm -f "$SUP_STATE/rules/$HARNESS_SESS_PREFIX.json.dry"
 }
 
 # sup_clean_env — drop any inherited fleet config before sourcing lib.sh for ANOTHER fleet. Config
 # lines are `: "${VAR:=…}"`, so an inherited HARNESS_PREFIX/… (a `harness supervise --once` run from
 # inside a fleet session) would beat the fleet's own file. Path seams (*_DIR/_HOME/_FILE/CONFIG*)
-# and the supervisor's own knobs are kept.
+# and the supervisor's own knobs are kept, as is HARNESS_NATIVE_PATH_VARS (portable.sh's own list, which lib.sh reads
+# under `set -u` on Windows: unset, the source died silently and a killed worker was never restarted, #496).
 sup_clean_env(){ local v
   for v in $(compgen -v HARNESS_); do
-    case $v in *_DIR|*_DIRS|*_HOME|*_FILE|*CONFIG*|HARNESS_SUPERVISE_*) ;; *) unset "$v" ;; esac
+    case $v in *_DIR|*_DIRS|*_HOME|*_FILE|*CONFIG*|HARNESS_SUPERVISE_*|HARNESS_NATIVE_PATH_VARS) ;; *) unset "$v" ;; esac
   done
   unset STATE_DIR RUN_DIR CLAIMS_DIR POOL_LOCK PAUSE_FLAG; }
 
@@ -406,7 +407,9 @@ sup_net_gate(){ local f a b c
 }
 
 # sup_fleets — every fleet's STATE_DIR on this host, once each: the host fleet registry (written by
-# `harness start`) plus SUP_FLEET_GLOB for fleets the registry does not know.
+# `harness start`) plus SUP_FLEET_GLOB for fleets the registry does not know. A native Windows Python writes CRLF into a pipe,
+# so every Python output this file reads is stripped of the CR (`tr -d '\r'`): with it, `-f $d/config` never matched and the
+# supervisor found no fleet on Windows, so it never restarted a killed worker (#496).
 sup_fleets(){ local d
   { python3 - "$HARNESS_FLEETS_DIR" <<'PY' 2>/dev/null
 import json, os, sys
@@ -419,7 +422,7 @@ for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             pass
 PY
     for d in $SUP_FLEET_GLOB; do echo "$d"; done
-  } | while read -r d; do [[ -n $d && -f $d/config ]] && realpath "$d"; done | awk '!seen[$0]++'
+  } | tr -d '\r' | while read -r d; do [[ -n $d && -f $d/config ]] && realpath "$d"; done | awk '!seen[$0]++'
 }
 
 sup_pass(){ local sd
@@ -439,7 +442,7 @@ sup_event(){ (( SUP_DRY )) && return 0
     || sup_log "WARN auto-update: event $1 not written"; return 0; }
 # sup_au_get <key> / sup_au_put k=v … — the update's phase, kept on disk so the NEXT supervisor process
 # (the unit restarts this one in the middle of `harness update`) picks the roll and health check up.
-sup_au_get(){ python3 - "$SUP_AU_STATE" "$1" <<'PY' 2>/dev/null
+sup_au_get(){ python3 - "$SUP_AU_STATE" "$1" <<'PY' 2>/dev/null | tr -d '\r'
 import json, sys
 try: v = json.load(open(sys.argv[1])).get(sys.argv[2], "")
 except (OSError, ValueError): v = ""
