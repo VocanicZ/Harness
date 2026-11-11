@@ -303,4 +303,56 @@ release_tick >/dev/null 2>&1; release_tick >/dev/null 2>&1
 assert_eq "$(cat "$RLOG")" "prd:281" "once the fetch succeeds, one release covers it"
 assert_eq "$(cat "$REFS")" "$FRESH" "at the fetched head, after the PRD's last merge"
 assert_eq "$(grep -c . "$HARNESS_AUTORELEASE_DIR/pending")" 0 "and the released PRD leaves the queue"
+# ── #1068: an engine roll kills release_run mid-gate; release.sh survives and the NEXT tick records its result ──
+# The stub blocks until $GO exists, then exits $STUB_RC. release_run runs in a background subshell that is SIGKILLed once
+# the stub started — what the roll did to the worker's job — and the gate then finishes with nobody left to act on its rc.
+release_head(){ cat "$RUN_DIR/head"; }
+gh(){ echo "$*" >> "$GH_LOG"
+  case "$1 $2" in
+    "issue list")   cat "$RUN_DIR/open-bugs" 2>/dev/null;;
+    "issue create") printf '99\trelease gate failed at x\n' > "$RUN_DIR/open-bugs"; echo "https://github.com/acme/harness/issues/99";;
+    "issue view")   cat "$RUN_DIR/state-$3" 2>/dev/null || echo OPEN;;
+  esac; return 0; }
+orphan_run(){ local rc="$1" head="$2" reason="$3" i rp
+  GO="$RUN_DIR/go-$head"; STARTED="$RUN_DIR/started-$head"; rm -f "$GO" "$STARTED"; echo "$head" > "$RUN_DIR/head"
+  printf '#!/usr/bin/env bash\n: > %q\nuntil [[ -e %q ]]; do sleep 0.1; done\nexit %q\n' "$STARTED" "$GO" "$rc" > "$RUN_DIR/release-blocking"
+  chmod +x "$RUN_DIR/release-blocking"
+  ( HARNESS_RELEASE_CMD="$RUN_DIR/release-blocking" release_run "$reason" >/dev/null 2>&1 ) & rp=$!
+  for i in $(seq 1 100); do [[ -e "$STARTED" ]] && break; sleep 0.1; done
+  kill -9 "$rp" 2>/dev/null; wait "$rp" 2>/dev/null; : > "$GO"
+  for i in $(seq 1 100); do [[ -f "$HARNESS_AUTORELEASE_DIR/result-$head" ]] && break; sleep 0.1; done; }
+SLUG=acme/harness; D="$HARNESS_AUTORELEASE_DIR"; TICK="$RUN_DIR/tick.out"
+rm -f "$D"/pending "$D"/retry-after "$D"/gate-* "$D"/result-* "$D"/inflight-*; : > "$RLOG"; : > "$GH_LOG"; : > "$EV"; rm -f "$RUN_DIR/open-bugs"
+t1=1800100000
+printf '%s\t77\n%s\tprd:78\n' "$t1" "$t1" > "$D/pending"
+orphan_run 0 c0ffee01 prd:78
+assert_eq "$(cat "$D/result-c0ffee01" 2>/dev/null)" 0 "the orphaned job's rc survives its release_run in result-<sha>"
+assert_eq "$(grep -c . "$D/pending")" 2 "nothing recorded it yet: the covered entries are still queued"
+printf '%s\t79\n' "$t1" >> "$D/pending"          # queued after release_run resolved the head: not covered
+HARNESS_NOW=$((t1+10)) release_tick > "$TICK" 2>&1
+assert_eq "$(cat "$D/pending")" "$(printf '%s\t79' "$t1")" "rc 0: the next tick clears what the release covered, and only that"
+assert_ok "and logs the release" grep -q 'auto-release: released c0ffee0 (prd:78)' "$TICK"
+assert_ok "and the release is an event" grep -q '^release_published reason=prd:78 sha=c0ffee01' "$EV"
+assert_no "the result is consumed" test -e "$D/result-c0ffee01"
+assert_no "and so is the in-flight record" test -e "$D/inflight-c0ffee01"
+HARNESS_NOW=$((t1+20)) release_tick > "$TICK" 2>&1
+assert_eq "$(grep -c '^release_published' "$EV")" 1 "a second tick records nothing twice"
+
+: > "$GH_LOG"; : > "$EV"; : > "$RLOG"; printf '%s\tprd:80\n' "$t1" > "$D/pending"
+orphan_run 4 c0ffee04 prd:80
+assert_no "no marker before a tick runs" test -e "$D/gate-failed-c0ffee04"
+HARNESS_NOW=$((t1+30)) release_tick > "$TICK" 2>&1
+assert_ok "rc 4: the next tick writes the gate-failed marker" test -e "$D/gate-failed-c0ffee04"
+assert_eq "$(grep -c '^issue create' "$GH_LOG")" 1 "and files the bug"
+assert_eq "$(head -n1 "$D/gate-failed-c0ffee04")" 99 "which the marker records, so the hold (#1029) engages"
+assert_ok "the red gate is an event" grep -q '^release_gate_failed reason=prd:80 sha=c0ffee04 issue=99' "$EV"
+assert_eq "$(grep -c . "$D/pending")" 1 "the entry stays queued behind the hold"
+assert_eq "$(grep -c . "$RLOG")" 0 "and nothing was released"
+
+: > "$GH_LOG"; : > "$EV"; rm -f "$D"/gate-*; printf '%s\tprd:81\n' "$t1" > "$D/pending"
+HARNESS_NOW=$t1 orphan_run 1 c0ffee05 prd:81
+HARNESS_NOW=$((t1+40)) release_tick > "$TICK" 2>&1
+assert_eq "$(cat "$D/retry-after")" $((t1+3600)) "other rc: the next tick sets retry-after from the job's start"
+assert_eq "$(grep -c . "$D/pending")" 1 "and the entry stays queued"
+assert_no "no gate-failed marker for it" test -e "$D/gate-failed-c0ffee05"
 finish

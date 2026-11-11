@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### An auto-release the engine roll orphaned still has its result recorded (#1068)
+
+- An engine roll kills the worker whose `release_tick` kicked a release, and `release_run` with it. `release.sh` outlived it (it holds the flock fd), published, and nobody logged `released <sha>` or cleared `pending`, so the next worker gated and released the same entries again (a second ~1.5 h gate); a red gate (rc 4) left no `gate-failed-<sha>` marker and no bug, so the #1029 hold never engaged; any other rc left no `retry-after`.
+- `release_run` now writes `inflight-<sha>` (start, reason, the `pending` entries it covers) before the job, and a wrapper that survives HUP/TERM writes `result-<sha>` (release.sh's rc) when the job exits. `release_tick` reconciles any unrecorded result first: clear the covered entries (0), write the marker and file the gate bug (4), or set `retry-after` (other). A result is claimed by rename, so two ticks never record it twice.
+
 ### The engine waits for a lane: long jobs and usage limits park the lane and resume it once, for every CLI (#1066)
 
 - #1042's rule (`run_in_background`) relied on the model following it, and 72% of three days' spend ($1110 of $1547) still went to wait/poll wake-ups. A lane now starts a long job with `harness-wait run --deadline-s <s> --log <file> -- <command>` (`scripts/waitlib.py`, on every lane's PATH) and ends its turn. The worker tick checks the wait spec it wrote (a pid exits, a file appears, a regex appears in a log, the winsma queue) and, when the condition holds or the deadline passes, resumes the lane's session once through the adapter's resume path with `wait done: <condition>, rc=<n>, log tail: …`. No model call is made in between; the goal loops and the supervisor leave a waiting lane alone. The LONG WAITS rule (`prompts/_long_waits.md`) and the two Windows partials say so.
