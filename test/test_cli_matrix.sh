@@ -452,10 +452,11 @@ subagent_named(){ local t g="$STATE_DIR/gauntlet/main/p7/r1"; t="$(cat "$2/.harn
 # answered (fake-cli, subagent-critic.out).
 subagent_substitute_ok(){ ( local cmd d="$RUN_DIR/bin-$HARNESS_CLI" args="$RUN_DIR/subagent-args" bin cfg
   # The prompt names the brief as the lane's STATE_DIR spells it (/c/x on Git Bash); a native spelling is tried second (#969).
-  cmd="$(for b in "$4" "$(native_path "$4")"; do BRIEF="$b" python3 -c 'import os, sys
-t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % os.environ["BRIEF"]
+  # (An argument with MSYS2_ARG_CONV_EXCL, not an env var: a native Python is handed /c/x as C:\x in its environment.)
+  cmd="$(for b in "$4" "$(native_path "$4")"; do MSYS2_ARG_CONV_EXCL='*' python3 -c 'import sys
+t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % sys.argv[1]
 i = t.find(b)
-sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2" && break; done)" || exit 1
+sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' "$b" <<<"$2" && break; done)" || exit 1
   [[ -n $cmd ]] || exit 1
   cfg="$(_cli_line_opt "$(typed_line "$1")" '--config ')"
   # <dir> as the prompt leaves it (5c makes the round's evidence dirs); the brief's dir is already there.
