@@ -22,7 +22,7 @@ _ws_ssh(){ local h; h="$(ws_need_host)" || return 1
 # The GH_TOKEN a run uses: the caller's, else the host's gh login. Never printed, never put on a command line.
 ws_token(){ [[ -n "${GH_TOKEN:-}" ]] && { printf %s "$GH_TOKEN"; return 0; }; gh auth token 2>/dev/null; }
 # The settings the remote side reads, carried over only when set here.
-_ws_prelude(){ local v; for v in WS_C WS_HB_INTERVAL WS_CLAUDE_TOP_KEYS WS_GIT_NAME WS_GIT_EMAIL HX_REAL_HOME WS_VENV_ARGS; do
+_ws_prelude(){ local v; for v in WS_C WS_PROTO WS_HB_INTERVAL WS_CLAUDE_TOP_KEYS WS_GIT_NAME WS_GIT_EMAIL HX_REAL_HOME WS_VENV_ARGS; do
   [[ -n "${!v:-}" ]] && printf 'export %s=%q\n' "$v" "${!v}"; done; return 0; }
 # ws_stream [--token] <script on stdin> — what the host's bash reads: [the token on its own first line, read into
 # GH_TOKEN and exported], the prelude, remote.sh, then the script.

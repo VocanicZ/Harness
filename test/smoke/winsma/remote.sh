@@ -30,6 +30,18 @@ _ws_winpath(){ if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else
 _ws_real_home(){ echo "${HX_REAL_HOME:-$HOME}"; }
 _ws_now(){ date +%s; }
 
+# --- the lock protocol: C:\hx-proto (#1041) ------------------------------------------------------------------
+# Every lane streams the helpers from ITS OWN worktree, so a lane on an old branch runs old lock code beside new lanes and, with no
+# ticket, never sees the lock free. The host records the newest protocol any client has used; a client below it must rebase.
+#   1 = take-when-free, 300s poll (before #1033)   2 = FIFO queue in C:\hx-queue, hold cap (#1033)
+r_proto_check(){ local P cur; P="$WS_C/hx-proto"; cur="$(sed -n 's/^proto=//p' "$P" 2>/dev/null | head -1 | tr -dc 0-9)"
+  [[ "${1:-}" =~ ^[0-9]+$ ]] || { echo "winsma: lock protocol must be a number, got '${1:-}'" >&2; return 2; }
+  if (( $1 < ${cur:-0} )); then
+    echo "winsma: this lane's lock code speaks protocol $1, but the Windows host's lock is at protocol $cur: its branch predates the FIFO lock (#1033). Rebase onto origin/main and run again; waiting would starve you." >&2
+    return 4
+  fi
+  (( $1 > ${cur:-0} )) && { mkdir -p "$WS_C"; printf 'proto=%s\n' "$1" >"$P"; }; return 0; }
+
 # --- the lock: C:\hx-lock ------------------------------------------------------------------------
 # r_lock_take <issue> <session> <host_pid> — atomic `mkdir`; 0 = taken, 1 = held by someone OR someone queued earlier
 # is ahead (#1033: FIFO — the lock goes to the oldest ticket, or to anyone when the queue is empty). Taking it drops the

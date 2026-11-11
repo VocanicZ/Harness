@@ -9,6 +9,7 @@
 #   WS_POLL_MIN     the lowest poll honoured (default 300, the rule): a lane's WS_POLL below it is clamped to it (#1040). A TEST SEAM:
 #                   only the unit tests lower it
 #   WS_IDLE_MAX     seconds a holder's lane may sit idle (its turn ended, its session gone) before a queued waiter releases the lock (default 600, #1040)
+#   WS_PROTO        the lock protocol this client speaks (default 2 = the FIFO queue, #1033); a test seam for an older client (#1041)
 #   WS_OWNER_LIVE_CMD  test seam: `<session> <host_pid>` exits 0 while the owner lane is live on this host
 #   WS_OWNER_ACTIVE_CMD test seam: `<session> <host_pid>` exits 0 while the owner lane's session is WORKING (mid-turn)
 # A lane that finds the lock held WAITS. It never labels itself agent-paused (that trips the #417 self-park
@@ -41,6 +42,13 @@ ws_clock_ms(){ if [[ -n "${EPOCHREALTIME:-}" ]]; then local t="${EPOCHREALTIME/[
 # clock reads 1s after as little as a few ms, so on one the elapsed time must EXCEED the timeout, which makes it at least that long.
 ws_lock_expired(){ local to="${WS_LOCK_TIMEOUT:-0}" slack=0 now; (( to > 0 )) || return 1
   [[ -n "${EPOCHREALTIME:-}" ]] || slack=1000; now="$(ws_clock_ms)"; (( now - $1 >= to * 1000 + slack )); }
+# ws_proto_check — refuse at once, with the reason, when the host's lock is at a newer protocol than this client's code (#1041): a lane
+# on an old branch can neither queue nor be seen by the queue, so waiting only starves it. An unreachable host is not a protocol error.
+ws_proto_check(){ local msg rc
+  msg="$(ws_call r_proto_check "${WS_PROTO:-2}" 2>&1)"; rc=$?
+  (( rc == 0 )) && return 0
+  if (( rc == 4 )); then echo "$msg" >&2; return 1; fi
+  ws_die "could not check the lock protocol (exit $rc)"; }
 # ws_lock <issue> [session] [host_pid] — take the lock in FIFO order (#1033): a lane that finds it held, or finds a lane queued
 # ahead of it, takes a ticket in C:\hx-queue and waits its turn; a stale break or a hard-ceiling break clears the way.
 # Then start the heartbeat loop. Releasing and asking again sends the lane to the back of the queue.
@@ -48,6 +56,7 @@ ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3
   ws_need_host >/dev/null || return 1
   local stale="${WS_STALE_SEC:-1800}" poll="$(ws_poll_clamp "${WS_POLL:-300}")" hmax="${WS_HOLD_MAX:-5400}" hard started rc info line o oi os op age hold
   local q qn qi qs qp qw qa pos total dead cap idle imax="${WS_IDLE_MAX:-600}"; hard="${WS_HOLD_HARD:-$(( hmax * 3 ))}"; started="$(ws_clock_ms)"
+  ws_proto_check || return 1
   while :; do
     info="$(ws_call r_lock_info)" || { ws_die "could not read the lock"; return 1; }
     dead=0

@@ -184,6 +184,11 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   only when its heartbeat is older than 30 minutes **and** the owner lane is no longer live on the claude host; the
   breaker then kills the stale run's `pids`, anything whose command line is under `C:\hx-<n>\`, deletes its `tasks` and
   its `~/.claude.json` project entries and `C:\hx-<n>\`, and takes the lock.
+- **A lane on an old branch fails fast** (#1041). Every lane runs the helpers from its own worktree, so a branch older than
+  #1033 runs the take-when-free lock beside the queue and never sees the lock free. The host records the protocol in
+  `C:\hx-proto` (1 = take-when-free, 2 = the queue); `lock` and `run` check the client's protocol (`WS_PROTO`, default 2)
+  first and exit 1 at once, naming both protocols and telling the lane to rebase onto `origin/main`. A lane whose code
+  predates the check cannot be stopped from the host: rebase it.
 - **Fair and bounded: the queue and the hold cap** (#1033). One lane used to hold the lock for 12 hours while six others
   waited, and whichever waiter's poll landed first won each release. Now the lock is **FIFO**: a lane that finds it held
   takes a ticket in `C:\hx-queue\<stamp>-<issue>` (issue, session, host pid; refreshed on every poll; one ticket per
