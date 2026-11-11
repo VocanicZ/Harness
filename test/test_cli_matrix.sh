@@ -451,10 +451,12 @@ subagent_named(){ local t g="$STATE_DIR/gauntlet/main/p7/r1"; t="$(cat "$2/.harn
 # lane's config, a cwd of <dir>, a new empty state dir and the brief, and prints what the real critic
 # answered (fake-cli, subagent-critic.out).
 subagent_substitute_ok(){ ( local cmd d="$RUN_DIR/bin-$HARNESS_CLI" args="$RUN_DIR/subagent-args" bin cfg
-  cmd="$(BRIEF="$(native_path "$4")" python3 -c 'import os, sys
+  # The prompt names the brief as the lane's STATE_DIR spells it (/c/x on Git Bash); a native spelling is tried second (#969).
+  cmd="$(for b in "$4" "$(native_path "$4")"; do BRIEF="$b" python3 -c 'import os, sys
 t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % os.environ["BRIEF"]
 i = t.find(b)
-sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2")" || exit 1
+sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2" && break; done)" || exit 1
+  [[ -n $cmd ]] || exit 1
   cfg="$(_cli_line_opt "$(typed_line "$1")" '--config ')"
   # <dir> as the prompt leaves it (5c makes the round's evidence dirs); the brief's dir is already there.
   bin="$(cli_bin)"; mkdir -p "$d" "$3"; test -d "${4%/*}" || exit 1; printf 'brief\n' > "$4"
@@ -846,7 +848,9 @@ headless_transient_ok(){ ( hl_env; local s=hz-main-i25 p; hl_lane transient tran
 headless_loop_ok(){ ( hl_env; local s=hz-main-i26 i; hl_lane loop "normal not yet" "normal all done <promise>LOOP DONE</promise>" normal
   same "$(cli_loop)" driven || exit 1
   hl_launch "$s" GOAL=ISSUE:26 PROMISE="LOOP DONE" MAXITER=5 || exit 1
-  for (( i = 0; i < 100; i++ )); do cli_done "$WD" && break; watchdog_session "$s"; command sleep 0.2; done
+  # 100 passes (~20 s) on Linux; a Windows host gets 10 minutes of wall clock, each pass there forking for seconds (#969).
+  local win=0 end=$(( SECONDS + 600 )); host_is_windows && win=1
+  for (( i = 0; i < 100 || (win && SECONDS < end); i++ )); do cli_done "$WD" && break; watchdog_session "$s"; command sleep 0.2; done
   cli_done "$WD" && same "$(hl_calls prompt | wc -l)" 2 || exit 1
   local p; p="$(hl_calls prompt | sed -n 2p)"
   has "<promise>LOOP DONE</promise>" "$p" && has "$HARNESS_BOOTSTRAP_PROMPT" "$p" && lacks UNIQUE_TASK_MARKER "$p" &&
