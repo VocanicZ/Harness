@@ -2,7 +2,7 @@
 """test_supervise_rules.py — #181: the harness-arc watchdog rules folded into `harness supervise`.
 Pure-function cases on fixture facts (no gh, no tmux), plus the on-disk counters across a restart,
 the gather seam with a gh outage, the unfiled-plan grep on a real git repo, and `--alarms`."""
-import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile
+import contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location(
     "supervise_rules", os.path.normpath(os.path.join(HERE, "..", "scripts", "supervise_rules.py")))
@@ -327,6 +327,87 @@ def test_cli_entry_exits_with_mains_code():
         assert e.code == 0 and buf.getvalue() == "no arc alarms firing\n", (e.code, buf.getvalue())
     finally:
         sys.argv = saved
+
+
+def spend(name, usd, progress):
+    return {name: {"usd": usd, "progress": progress}}
+
+
+def test_spend_without_progress_alarms_after_two_passes_then_resolves():
+    # #1042: a lane sleep-polling a long wait spends dollars an hour and commits nothing
+    c = {}
+    f = facts([sess("hz-u-i7", 7)], issues=[issue(7, labels=["agent-working"])])
+    f["spend"] = spend("hz-u-i7", sr.SPEND_PER_HOUR + 5, False)
+    out = passes(f, 4, c)
+    alarms = [l for p in out for l in p if l.startswith("ALARM spend:hz-u-i7")]
+    assert len(alarms) == 1 and not out[0] and "sleep-poll" in alarms[0] and "$" in alarms[0], out
+    assert c["firing"] == ["spend:hz-u-i7"], c
+    f["spend"] = spend("hz-u-i7", sr.SPEND_PER_HOUR + 5, True)           # it committed: the spend is progress
+    assert passes(f, 1, c) == [["RESOLVED spend:hz-u-i7"]]
+
+
+def test_spend_under_the_cap_or_with_progress_is_left_alone():
+    for usd, progress in ((sr.SPEND_PER_HOUR + 5, True), (sr.SPEND_PER_HOUR, False), (0.5, False)):
+        f = facts([sess("hz-u-i7", 7)], issues=[issue(7, labels=["agent-working"])])
+        f["spend"] = spend("hz-u-i7", usd, progress)
+        assert passes(f, 4) == [[]] * 4, (usd, progress)
+
+
+def test_a_finished_lanes_spend_alarm_is_forgotten():
+    c = {}
+    f = facts([sess("hz-u-i7", 7)], issues=[issue(7, labels=["agent-working"])])
+    f["spend"] = spend("hz-u-i7", sr.SPEND_PER_HOUR + 5, False)
+    passes(f, 2, c)
+    assert c["firing"] == ["spend:hz-u-i7"], c
+    passes(facts([]), 1, c)
+    assert c["firing"] == [] and "spend:hz-u-i7" not in c.get("strikes", {}), c
+
+
+def _lane_fixture(root, uuid, wd_commit_age_s):
+    """A config dir with one lane transcript (3 messages: two inside the last hour, one 3h old), a git worktree
+    whose only commit is wd_commit_age_s old, and the run dir's <session>.wd pointing at it."""
+    cfg, wd, run = (os.path.join(root, d) for d in ("cfg", "wd", "run"))
+    for d in (os.path.join(cfg, "projects", "p"), os.path.join(wd, ".claude"), run):
+        os.makedirs(d)
+    now = time.time()
+    iso = lambda age: time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(now - age))
+    lines = []
+    for i, age in enumerate((10800, 1800, 600)):
+        lines.append(json.dumps({"type": "assistant", "timestamp": iso(age), "message": {
+            "id": f"m{i}", "model": "claude-sonnet-5-5",
+            "usage": {"input_tokens": 10, "output_tokens": 10, "cache_creation_input_tokens": 200000,
+                      "cache_read_input_tokens": 0}}}))
+    with open(os.path.join(cfg, "projects", "p", f"{uuid}.jsonl"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    with open(os.path.join(wd, ".claude", "ralph-loop.local.md"), "w") as f:
+        f.write(f"---\nactive: true\nsession_id: {uuid}\n---\n")
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t",
+               GIT_AUTHOR_DATE=f"@{int(now - wd_commit_age_s)} +0000", GIT_COMMITTER_DATE=f"@{int(now - wd_commit_age_s)} +0000")
+    for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "c"]):
+        subprocess.run(["git", "-C", wd] + argv, check=True, env=env, capture_output=True)
+    with open(os.path.join(run, "hz-u-i7.wd"), "w") as f:
+        f.write(wd)
+    return cfg, run
+
+
+def test_spend_facts_prices_the_last_hour_of_a_lane_transcript_and_reads_commits():
+    d = tempfile.mkdtemp()
+    saved = {k: os.environ.get(k) for k in ("HARNESS_CLAUDE_CONFIG_DIRS", "SUPERVISE_RUN_DIR", "RUN_DIR")}
+    try:
+        for age, progress in ((7200, False), (60, True)):
+            root = os.path.join(d, str(age)); os.makedirs(root)
+            cfg, run = _lane_fixture(root, "11111111-2222-3333-4444-555555555555", age)
+            os.environ["HARNESS_CLAUDE_CONFIG_DIRS"], os.environ["SUPERVISE_RUN_DIR"] = cfg, run
+            os.environ.pop("RUN_DIR", None)
+            got = sr.spend_facts([sess("hz-u-i7", 7), sess("hz-u-p3", 3, kind="orch"), sess("hz-gone", 9)])
+            assert list(got) == ["hz-u-i7"], got                        # orch lanes and lanes with no worktree: not counted
+            one = sys.modules["forecast"].raw_cost({"input_tokens": 10, "output_tokens": 10, "cache_creation_input_tokens": 200000}, "claude-sonnet-5-5")
+            assert one > 0.1 and abs(got["hz-u-i7"]["usd"] - 2 * one) < 0.001, (one, got)   # two 200K cache writes; the 3h-old third is out
+            assert got["hz-u-i7"]["progress"] is progress, (age, got)
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        rm_rf(d)
 
 
 def test_parse_sessions_skips_malformed_rows():

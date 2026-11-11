@@ -14,13 +14,15 @@ supervisor restart resets neither. Output, one per line, for supervise.sh to act
     FIX wedged <session>              STOP_HOOK_BLOCK_CAP in the pane: the loop will not resume
     FIX zombie <session>              live session, its issue already closed
     FIX unlocked <slug> <issue>       live session on an open issue with no agent-working label
+    ALARM spend:<session> ...         #1042: a lane spent over $SUPERVISE_SPEND_PER_HOUR in the last hour
+                                      and committed nothing in it (a sleep-poll loop rewriting its cache)
     ALARM <key> <message>             needs a human; printed once, when the rule first fires
     RESOLVED <key>                    a fired alarm's condition cleared
 
 A FIX line is printed on every pass its rule holds (each fix is idempotent). A rule whose input
 could not be read this pass (gh outage) is skipped, and its strikes are kept as they were.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, json, os, re, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -34,6 +36,10 @@ REVIEW_LOOP = int(os.environ.get("SUPERVISE_REVIEW_LOOP", "4"))
 # A plan can name tasks DECOMPOSE never filed. Authors word it differently: match a family.
 UNFILED_RE = (r"no (sibling )?issue (is |was )?(filed|yet)|no issue filed|not yet filed|"
               r"file one (citing|under)")
+# #1042: a lane that spends more than this many $ in the last hour with no commit in it is flagged. A lane
+# sleep-polling a 10-minute wait writes 150K-300K tokens of cache per wake (about $1 on Sonnet), 6 wakes an hour.
+SPEND_PER_HOUR = float(os.environ.get("SUPERVISE_SPEND_PER_HOUR", "10"))
+SPEND_WINDOW = int(os.environ.get("SUPERVISE_SPEND_WINDOW_S", "3600"))
 PLANS_DIR = os.environ.get("SUPERVISE_PLANS_DIR", "docs/superpowers/plans/")
 
 
@@ -60,10 +66,76 @@ def unfiled_plans(repo_dir):
     return [l.split(":", 1)[-1] for l in out.splitlines() if l.strip()]
 
 
+def lane_worktree(session):
+    """The worktree a live lane runs in: the path the pool worker wrote to $RUN_DIR/<session>.wd."""
+    run_dir = os.environ.get("RUN_DIR") or os.environ.get("SUPERVISE_RUN_DIR") or ""
+    try:
+        with open(os.path.join(run_dir, f"{session}.wd")) as f:
+            wd = f.read().strip()
+    except OSError:
+        return ""
+    return wd if wd and os.path.isdir(wd) else ""
+
+
+def lane_transcript(wd):
+    """The Claude transcript of the lane running in <wd>: its session id is in .claude/ralph-loop.local.md.
+    None for a lane with no claude transcript (another CLI, a headless lane): its spend is not counted."""
+    try:
+        with open(os.path.join(wd, ".claude", "ralph-loop.local.md")) as f:
+            m = re.search(r"^session_id:\s*(\S+)", f.read(), re.M)
+    except OSError:
+        return None
+    if not m:
+        return None
+    import forecast
+    return forecast.st.find_transcript(m.group(1).strip("\"'"))
+
+
+def lane_spend(transcript, since):
+    """$ the lane's transcript (main + sub-agents, each message once) spent after epoch <since>."""
+    import forecast
+    seen, usd = set(), 0.0
+    for f in forecast.st.transcript_files(transcript):
+        try:
+            if os.path.getmtime(f) <= since:
+                continue                                    # nothing in it is newer than the window
+        except OSError:
+            continue
+        for key, model, usage, _, ts in forecast._messages(f):
+            t = forecast.st.parse_ts(ts)
+            if t is None or t <= since or key in seen:
+                continue
+            seen.add(key)
+            usd += forecast.raw_cost(usage, model)
+    return usd
+
+
+def lane_progress(wd, since):
+    """True when the lane's checkout has a commit made after epoch <since> (a push or PR needs one first)."""
+    return bool(sh(["git", "-C", wd, "log", "-n1", "--format=%H", f"--since=@{int(since)}", "HEAD"]).strip())
+
+
+def spend_facts(sessions, now=None):
+    """{session: {"usd": $ in the window, "progress": a commit in it}} for the impl / bug lanes whose
+    transcript can be read. A lane with no worktree, no claude transcript or no spend is left out."""
+    now = time.time() if now is None else now
+    since, out = now - SPEND_WINDOW, {}
+    for s in sessions:
+        if s["kind"] not in ("impl", "bug"):
+            continue
+        wd = lane_worktree(s["session"])
+        tr = lane_transcript(wd) if wd else None
+        if not tr:
+            continue
+        out[s["session"]] = {"usd": lane_spend(tr, since), "progress": lane_progress(wd, since)}
+    return out
+
+
 def gather(slugs, sessions, repo_dir):
     """Everything the rules read. A slug whose state/issues cannot be read maps to None."""
     facts = {"sessions": sessions, "panes": {s["session"]: capture(s["session"]) for s in sessions},
-             "repos": {}, "unfiled": unfiled_plans(repo_dir), "mode": issuelib.MODE()}
+             "repos": {}, "unfiled": unfiled_plans(repo_dir), "mode": issuelib.MODE(),
+             "spend": spend_facts(sessions)}
     for slug in slugs:
         try:
             issues = issuelib._list_issues(slug)
@@ -93,6 +165,14 @@ def evaluate(facts, counters, exempt=(), reconciled=()):
             pct >= DEEP_PCT, 2,
             f"DEEP CONTEXT {name} at {pct}% context — expect a wedge or a dropped cleanup step; "
             f"check its merge diff for leftover scaffolding.")
+
+    # --- spend rule (#1042): money going out with nothing to show for it, the signature of a sleep-poll loop ---
+    for name, sp in (facts.get("spend") or {}).items():
+        rules[f"spend:{name}"] = (
+            sp["usd"] > SPEND_PER_HOUR and not sp["progress"], 2,
+            f"LANE SPEND {name} spent ${sp['usd']:.2f} in the last hour (over ${SPEND_PER_HOUR:g}/h) with no commit "
+            f"in it — likely a foreground sleep-poll rewriting its prompt cache on every wake. Read its pane; "
+            f"if it is waiting on a job, make it run_in_background, or park it (#1034).")
 
     for slug, repo in facts["repos"].items():
         if repo is None:
@@ -197,7 +277,7 @@ def pane_activity(line, now, nudge_min, kill_min):
     return {"state": state, "quiet_s": quiet}
 
 
-SESSION_RULES = ("wedged", "deep-context", "zombie", "unlocked")
+SESSION_RULES = ("wedged", "deep-context", "zombie", "unlocked", "spend")
 
 
 def apply(rules, fixes, counters):

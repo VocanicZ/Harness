@@ -8,6 +8,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - `python3 scripts/stats.py cache-waits --since 24h` counts, per session and UTC hour, the calls with 100K or more cache-write tokens that follow a gap of 5 minutes or more, from the Claude transcripts; `--max-per-hour N` exits 1 over the limit. The 2026-11-09 to 2026-11-11 baseline is 1335 such calls, up to 7 per session-hour, so N = 2 (docs/reference.md).
 
+### Lanes no longer sleep-poll long waits, and the supervisor flags a lane that burns money without committing (#1042)
+
+- Over two days, 72% of the spend (about $1,066 of $1,470) was prompt-cache rewrites: lanes waited on the winsma lock, Windows suites, gate runs and bench batches in foreground Bash loops that slept 9-10 minutes, so every wake came after the 5-minute cache TTL and rewrote 150K-300K tokens of context.
+- The implementation, resume, bug-fix and review prompts, and the two Windows-host paragraphs, now carry a LONG WAITS rule (`prompts/_long_waits.md`): a wait longer than about 4 minutes runs with `run_in_background` and its exit wakes the lane, a wait on another lane parks where a park exists (#1034), and a poll that cannot be avoided wakes under 270 seconds.
+- `harness supervise` has a new alarm, `spend:<session>`: a Claude lane that spent more than `SUPERVISE_SPEND_PER_HOUR` dollars (default 10) in the last hour, with no commit in it, for two passes in a row. It is listed by `harness supervise --alarms` and resolves when the lane commits or its spend drops.
+
 ### A lane waiting for the winsma lock parks and frees its pool slot (#1034, #1038)
 
 - An implementation lane that has queued for `C:\hx-lock` and is not next can run `winsma.sh park`: it keeps its queue ticket, posts a handoff and swaps `agent-working` for the new `waiting-winsma` label (`HARNESS_LABEL_WAITING_WINSMA`, seeded with the other labels). Its session ends and the slot is free; the label is not `agent-paused`, so the #417 self-park nudge leaves it alone.

@@ -313,7 +313,7 @@ sup_arc_rules(){ local sessions=$1 slugs sl line s slug num counters fresh=1
         sup_act gh issue edit "$num" -R "$slug" --add-label "$HARNESS_LABEL_WORKING" ;;
       ALARM\ *|RESOLVED\ *) sup_log "$line [fleet $HARNESS_SESS_PREFIX]" ;;
     esac
-  done < <(sup_session_rows "$sessions" | UNPARENTED_OK="$UNPARENTED_OK" python3 "$SUP_RULES" --counters "$counters" --repo-dir "$PROJECT_ROOT" \
+  done < <(sup_session_rows "$sessions" | UNPARENTED_OK="$UNPARENTED_OK" SUPERVISE_RUN_DIR="$RUN_DIR" python3 "$SUP_RULES" --counters "$counters" --repo-dir "$PROJECT_ROOT" \
              --reconciled "$STATE_DIR/reconciled-plans" $slugs 2>>"$SUP_LOG")
   rm -f "$SUP_STATE/rules/$HARNESS_SESS_PREFIX.json.dry"
 }
