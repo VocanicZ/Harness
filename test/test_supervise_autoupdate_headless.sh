@@ -274,7 +274,9 @@ if host_is_windows && [[ "$(tag_of)" != releases/v0.1.0 ]]; then   # a red one o
   echo "  diag rollback: supervise.log:"; tail -n 40 "$SLOG" 2>/dev/null | sed 's/^/    /'
   echo "  diag rollback: auto-update.json: $(cat "$H/supervise/auto-update.json" 2>/dev/null)"
   for f in fa fb; do for pf in "$(RUN $f)"/worker-1.pid "$(RUN $f)"/priority.pid; do
-    echo "  diag rollback: $pf = $(cat "$pf" 2>/dev/null | tr -d '\r') kill-0=$(kill -0 "$(cat "$pf" 2>/dev/null | tr -d '\r')" 2>/dev/null && echo y || echo n) alive_any=$(alive_any "$(cat "$pf" 2>/dev/null | tr -d '\r')" && echo y || echo n)"; done; done
+    echo "  diag rollback: $pf = $(cat "$pf" 2>/dev/null | tr -d '\r') kill-0=$(kill -0 "$(cat "$pf" 2>/dev/null | tr -d '\r')" 2>/dev/null && echo y || echo n) alive_any=$(alive_any "$(cat "$pf" 2>/dev/null | tr -d '\r')" && echo y || echo n) engine=$(eng_of "$(cat "$pf" 2>/dev/null | tr -d '\r')") args=$(proc_args "$(cat "$pf" 2>/dev/null | tr -d '\r')" | cut -c1-160)"
+    echo "  diag rollback: $(basename "$pf" .pid).log: $(tail -n 3 "${pf%.pid}.log" 2>/dev/null | tr '\n' '|')"; done; done
+  echo "  diag rollback: engine link = $(tag_of)"
 fi
 assert_eq "$(tag_of)" releases/v0.1.0 "the engine points at the old tag again"
 for f in fa fb; do
