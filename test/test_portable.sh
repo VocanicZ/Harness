@@ -176,6 +176,17 @@ EOF
 chmod +x "$W/taskkill"
 HARNESS_PROC_ROOT="$FP" HARNESS_TASKKILL="$W/taskkill" proc_kill_tree 777
 assert_eq "$(cat "$W/taskkill.log" 2>/dev/null)" "//T //F //PID 31337" "[windows] proc_kill_tree runs taskkill /T /F on the winpid"
+# taskkill /T follows WINDOWS parents; the MSYS descendants a fork or exec left behind are found by PPid in /proc and signalled too (#605)
+# (real /proc, real processes; taskkill is the no-op above, so only the /proc scan can end the child)
+printf '#!/usr/bin/env bash\nsleep 31 & echo $! > "$1"; wait\n' > "$W/kidmaker"; chmod +x "$W/kidmaker"
+bash "$W/kidmaker" "$W/kid.pid" </dev/null >/dev/null 2>&1 & KP=$!
+for _ in $(seq 50); do [[ -s $W/kid.pid ]] && break; sleep 0.1; done
+KID="$(cat "$W/kid.pid")"
+assert_ok "[windows] proc_msys_descendants lists the child of a process" grep -qx "$KID" <(proc_msys_descendants "$KP")
+assert_eq "$(proc_msys_descendants "$KID")" "" "[windows] ...a leaf has none"
+assert_eq "$(proc_msys_descendants abc)" "" "[windows] ...a non-number has none"
+HARNESS_TASKKILL="$W/taskkill" proc_kill_tree "$KP"; wait "$KP" 2>/dev/null; sleep 0.3
+assert_no "[windows] proc_kill_tree ends the MSYS child taskkill could not name" kill -0 "$KID"
 # proc_kill_tree refuses a pid that would signal more than one process tree (#543): an empty value,
 # a non-number, 0 (the caller's own group) and 1 (`kill -- -1` = every process the user owns).
 # `kill` is shadowed by a recorder, so nothing real is ever signalled.

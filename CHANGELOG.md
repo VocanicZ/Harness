@@ -862,6 +862,9 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   `portable.pid_alive` now. A hangup of an openclaw pane's loop found the turn's process tree with `ps -o`, which Git Bash's `ps`
   lacks, so the turn outlived the pane: on Windows the loop ends it through `proc_kill_tree` (taskkill /T). Test:
   `test_cli_openclaw.sh` drives that with a `ps` that refuses `-o` and a recording `taskkill`.
+  On the real host that was not enough: `taskkill /T` follows Windows parents, and an MSYS fork or `exec` leaves a child (the turn's own
+  `sleep &`) whose Windows parent is gone. `proc_kill_tree` now also reads the MSYS descendants from `/proc/*/status` (`proc_msys_descendants`)
+  before it kills anything, and signals them. Test: `test_portable.sh` runs it against real processes with a taskkill that does nothing.
 - The five adapter tests (codex, copilot, hermes, openclaw, opencode) each ran the whole CLI matrix and kept one CLI's cells; they now
   compute only their own (`HARNESS_MATRIX_CLIS`), which is what let them finish inside the per-test cap on a Windows host.
 - Tests: `helpers.sh` gains `posix_path`, `assert_path_eq` and `grep_path`; the tests that compared engine paths with `pwd`/`mktemp` ones,

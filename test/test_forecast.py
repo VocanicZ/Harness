@@ -994,11 +994,17 @@ def test_a_bodies_parse_error_names_the_option_and_quotes_the_path_with_control_
         cfg, events, _ = fixture(d)
         for ch, esc in (("\u2028", "\\u2028"), ("\f", "\\u000c")):
             path = os.path.join(d, f"bad{ch}.json")
-            with open(path, "w") as fh:
-                fh.write("{nope")
+            # a form feed cannot be in a Windows file name (#605): there the file is missing, and the error must still quote the path escaped
+            parses = not (ch == "\f" and portable.is_windows())
+            if parses:
+                with open(path, "w") as fh:
+                    fh.write("{nope")
             rc, out, err = run_cli(["3", "-R", W, "--events", events, "--bodies", path], cfg)
             assert rc == 2 and out == "", (rc, out)
-            assert err.startswith(f"harness forecast: --bodies '{d}/bad{esc}.json': not valid JSON: "), err
+            # the path is quoted as the caller spelled it (os.path.join: backslashes on Windows), not as a hand-built {d}/ would be
+            quoted = f"harness forecast: --bodies '{os.path.join(d, 'bad' + esc + '.json')}'"
+            assert err.startswith(quoted + (": " if parses else " ")), err
+            assert ("not valid JSON: " in err) if parses else ("is not readable" in err or "does not exist" in err), err
             assert ch not in err and err.count("\n") == 1, err
 
 
