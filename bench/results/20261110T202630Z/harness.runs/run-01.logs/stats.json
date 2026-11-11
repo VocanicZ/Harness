@@ -1,0 +1,39 @@
+{
+  "bne03f4": {
+    "sessions": 12,
+    "tokens": {},
+    "issues_closed": 11,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-20261110t202630z-harness-r01": {
+        "claims": 12,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 11,
+        "init": 1,
+        "which": 18
+      },
+      "which": 18,
+      "changed_nodes": 366,
+      "round1": 489,
+      "round2": 358,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 18
+      },
+      "wall_ms": 3243,
+      "selective": 16,
+      "full_suite": 2,
+      "backfilled": 0,
+      "selective_share": 0.89
+    },
+    "model_mismatches": []
+  }
+}

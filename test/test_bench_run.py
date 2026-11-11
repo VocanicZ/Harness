@@ -1017,6 +1017,7 @@ def test_validate_aggregate_names_what_is_wrong():
     assert agg.validate_aggregate(good) == []
     assert agg.validate_aggregate(dict(good, stopped=None))[0].startswith("stopped is null but fewer runs completed")
     assert "stopped: want" in agg.validate_aggregate(dict(good, stopped={"reason": "tired", "detail": ""}))[0]
+    assert agg.validate_aggregate(dict(good, stopped={"reason": "operator", "detail": "killed between runs"})) == []   # #593
     assert agg.validate_aggregate(dict(good, runs_completed=2)) != []
     bad = dict(good, aggregate={"n": 1, "metrics": {"cost_usd": {"n": 1, "median": 5, "min": 1, "max": 2}}})
     assert "aggregate.metrics.cost_usd" in agg.validate_aggregate(bad)[0]
@@ -1039,6 +1040,24 @@ def test_figures_check_re_measures_every_runs_logs_in_a_batch(e):
     shutil.rmtree(os.path.join(e.results, "t1", "stub.runs", "run-02.logs", "transcripts", "0-stub-session"))
     bad = subprocess.run(fig + ["--check"], capture_output=True, text=True)
     assert bad.returncode == 1 and "logs do not reproduce results: stub run 2: tokens.output" in bad.stderr, bad.stderr
+
+
+@with_env()
+def test_figures_check_does_not_read_a_non_harness_arms_claude_config_from_a_front_door(e):
+    """#593: plain records claude_config (its isolation proof) but has no front-door stream, so --check must not re-read it as a Harness arm's."""
+    assert e.run("stub", "--expected-usd", "5").returncode == 0
+    path = os.path.join(e.results, "t1", "stub.json")
+    doc = json.load(open(path))
+    doc["claude_config"] = {"source": "isolated config dir, session init", "skills": 0, "plugins": 0, "mcp_servers": 0}
+    with open(path, "w") as fh:
+        json.dump(doc, fh)
+    readme = os.path.join(e.d, "README.md")
+    with open(readme, "w") as fh:
+        fh.write("# T\n\n<!-- bench:begin — x -->\nOLD\n<!-- bench:end -->\n")
+    fig = [sys.executable, os.path.join(ROOT, "bench", "figures.py"), "--results-dir", e.results, "--readme", readme]
+    assert subprocess.run(fig, capture_output=True, text=True).returncode == 0
+    ok = subprocess.run(fig + ["--check"], capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr
 
 
 # --- #615: the prompt-cache TTL's measures --------------------------------------------------

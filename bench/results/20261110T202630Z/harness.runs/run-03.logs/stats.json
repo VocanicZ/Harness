@@ -1,0 +1,39 @@
+{
+  "bn9f24c": {
+    "sessions": 20,
+    "tokens": {},
+    "issues_closed": 17,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-20261110t202630z-harness-r03": {
+        "claims": 19,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 17,
+        "which": 38,
+        "init": 1
+      },
+      "which": 38,
+      "changed_nodes": 903,
+      "round1": 2233,
+      "round2": 353,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 36
+      },
+      "wall_ms": 8173,
+      "selective": 33,
+      "full_suite": 5,
+      "backfilled": 0,
+      "selective_share": 0.87
+    },
+    "model_mismatches": []
+  }
+}

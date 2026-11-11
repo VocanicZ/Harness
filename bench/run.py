@@ -1269,7 +1269,9 @@ def verify_logs(fc, st, doc, logs):
         got = lib.efforts(st, trs)
         if got != doc["effort"]:
             bad.append(f"effort: results JSON {doc['effort']}, logs {got}")
-    if isinstance(doc.get("claude_config"), dict):   # a Harness arm: the disclosed config and restarts (#584)
+    # a Harness arm: the disclosed config and restarts (#584), read from its front-door streams. The plain arm records
+    # claude_config too (from its isolation proof, #590) but has no front door: re-reading it as one never reproduced it (#593).
+    if isinstance(doc.get("claude_config"), dict) and str(doc.get("arm", "")).startswith(("harness", "hx")):
         spec = importlib.util.spec_from_file_location("bench_arm_harness", os.path.join(HERE, "arms", "harness.py"))
         arm = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(arm)

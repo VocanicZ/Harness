@@ -1,0 +1,841 @@
+{
+  "schema": 1,
+  "run_id": "20261110T202630Z",
+  "arm": "plain",
+  "fixture": "pennywise",
+  "repo": "VocanicZ/bench-20261110t202630z-plain-r04",
+  "status": "ok",
+  "capped": null,
+  "error": null,
+  "started_at": "2026-11-10T20:43:48Z",
+  "ended_at": "2026-11-10T20:49:16Z",
+  "wall_s": 173.058,
+  "coding_s": 162.609,
+  "testing_s": 4.242,
+  "test_calls": 3,
+  "tokens": {
+    "input": 22,
+    "output": 18500,
+    "cache_read": 361573,
+    "cache_write": 25142
+  },
+  "cost_usd": 0.5681,
+  "usd_per_pct": 0.53,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 1.07,
+  "models": {
+    "claude-opus-5-5": {
+      "messages": 11,
+      "input": 22,
+      "output": 18500,
+      "cache_read": 361573,
+      "cache_write": 25142,
+      "cost_usd": 0.5681
+    }
+  },
+  "hidden_tests": {
+    "passed": 80,
+    "failed": 0,
+    "total": 80,
+    "details": {
+      "install": "pip",
+      "tests": [
+        {
+          "id": "CliAddTests.test_add_appends_and_prints_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_creates_a_missing_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_refused_entry_does_not_create_the_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_refuses_invalid_entries_and_leaves_the_file_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_to_a_file_without_a_trailing_newline",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_without_a_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_added_entry_shows_up_everywhere",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_has_two_decimals",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_of_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_exits_1_naming_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_on_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_command_without_a_file_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_missing_file_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_no_command_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_unknown_command_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_default_format_is_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_header_only_for_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_is_ordered_like_list",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_quotes_awkward_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_rejects_unknown_format",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_category_filter_ignores_case",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_everything",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_filters_combine",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_json_with_no_match_is_an_empty_array",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_no_match_prints_nothing_and_succeeds",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_oldest_first_and_stable",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_omits_note_without_trailing_space",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_rejects_a_mistyped_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_since_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_since_and_until_include_their_ends",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_until_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_category_explicit",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_defaults_to_category",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_lines_have_name_then_total",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_of_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_rejects_unknown_grouping",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_category_is_case_insensitive",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_filters_combine",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_input_list_is_not_modified",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_no_filters_returns_everything_in_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_order_given_is_kept",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_since_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_since_and_until_include_their_ends",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_unknown_category_matches_nothing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_until_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_bad_amounts",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_date_that_does_not_exist",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_line_number_counts_blank_and_comment_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_malformed_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_not_enough_fields",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_reports_the_first_bad_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_amount_spellings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_categories_lowercased",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_field_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_empty_string_when_missing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_rest_of_line_trimmed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_returns_entries_in_file_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_skips_blank_and_comment_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_tab_separated_fields",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_windows_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_without_trailing_newline",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance_is_exact",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance_of_nothing_is_zero",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_category",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_category_and_month_of_nothing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_month_separates_years",
+          "status": "passed",
+          "message": ""
+        }
+      ]
+    }
+  },
+  "counts": {
+    "continue_replies": 0,
+    "commits": 1
+  },
+  "caps": {
+    "wall_s": 21600,
+    "cost_usd": 80.0
+  },
+  "repo_deleted": true,
+  "logs": "run-04.logs",
+  "quality": "ok",
+  "coverage": {
+    "line_pct": 94.2,
+    "branch_pct": 87.5,
+    "total_pct": 93.1,
+    "tests": "unittest"
+  },
+  "run": 4,
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "isolated config dir, session init",
+    "skills": 0,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 25142,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 0.198,
+  "turn_gaps": {
+    "turns": 11,
+    "p50_s": 16.2,
+    "p90_s": 32.1,
+    "max_s": 32.1,
+    "over_5m": 0,
+    "over_1h": 0
+  },
+  "cache_ttl": "5m",
+  "effort": {
+    "medium": 24
+  },
+  "provenance": {
+    "engine_commit": "6561d455d4fe65269508deeafbae2643c48ffb45-dirty",
+    "skill_version": "sha256:064c51f34bfa1028",
+    "cli_version": "2.1.322 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 9,
+  "fuzz_classes": 3,
+  "fuzz_class_counts": {
+    "argv:dash-led-argument x exit": 4,
+    "ledger:lone-cr x stdout": 4,
+    "ledger:lone-cr x exit": 1
+  },
+  "fuzz_examples": [
+    {
+      "case": 25,
+      "argv": [
+        "export",
+        "ledger.txt"
+      ],
+      "ledger": "# trailing space  \\r2024-06-04 \\tSALArY -820986585 a # b\\r2024-04-16 Fuel\\t-53.02      new shoes\\r2024-03-20 salary 71.46\\r\\r2024-04-24 FUeL 2066.71\\r2024-03-08 salary  -78.88\\r# trailing space  \\r202\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "date,category,amount,note\\n2024-03-08,salary,-78.88,\\n2024-03-08,salary,0.60,Za\\u017c\\xf3\\u0142\\u0107 g\\u0119\\u015bl\\u0105\\n2024-03-20,salary,71.46,\\n2024-03-27,salary,-61.00,12.505\\n2024-04-16,fuel,-\u2026",
+        "stderr_empty": true,
+        "file": [
+          "# trailing space  ",
+          "2024-06-04 \tSALArY -820986585 a # b",
+          "2024-04-16 Fuel\t-53.02      new shoes",
+          "2024-03-20 salary 71.46",
+          "2024-04-24 FUeL 2066.71",
+          "2024-03-08 salary  -78.88",
+          "# trailing space  ",
+          "2024-06-25      fuel -58.97",
+          "#\t tabbed",
+          "2024-03-27 salary -61 12.505",
+          "2024-06-09\tsalary  -48.61",
+          "2024-05-14 fuel  22.9 milk, eggs, bread",
+          "2024-03-08 salary 0.60 Za\u017c\u00f3\u0142\u0107 g\u0119\u015bl\u0105",
+          "2024-05-01 FUEL -81.66"
+        ]
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "date,category,amount,note\\n",
+        "stderr_empty": true,
+        "file": [
+          "# trailing space  ",
+          "2024-06-04 \tSALArY -820986585 a # b",
+          "2024-04-16 Fuel\t-53.02      new shoes",
+          "2024-03-20 salary 71.46",
+          "2024-04-24 FUeL 2066.71",
+          "2024-03-08 salary  -78.88",
+          "# trailing space  ",
+          "2024-06-25      fuel -58.97",
+          "#\t tabbed",
+          "2024-03-27 salary -61 12.505",
+          "2024-06-09\tsalary  -48.61",
+          "2024-05-14 fuel  22.9 milk, eggs, bread",
+          "2024-03-08 salary 0.60 Za\u017c\u00f3\u0142\u0107 g\u0119\u015bl\u0105",
+          "2024-05-01 FUEL -81.66"
+        ]
+      },
+      "arm_stderr": ""
+    },
+    {
+      "case": 232,
+      "argv": [
+        "add",
+        "ledger.txt",
+        "2024-04-30",
+        "rent",
+        "-abc"
+      ],
+      "ledger": "2024-03-01 savings -91.07\\n\\n2024-03-02 gifts -20\\n2024-03-27 utilities -408841405 weekly shop\\n2024-04-13  utilities      99\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-01 savings -91.07",
+          "2024-03-02 gifts -20",
+          "2024-03-27 utilities -408841405 weekly shop",
+          "2024-04-13  utilities      99"
+        ]
+      },
+      "arm": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-01 savings -91.07",
+          "2024-03-02 gifts -20",
+          "2024-03-27 utilities -408841405 weekly shop",
+          "2024-04-13  utilities      99"
+        ]
+      },
+      "arm_stderr": "usage: pennywise add [-h] FILE DATE CATEGORY AMOUNT [NOTE]\\npennywise add: error: the following arguments are required: AMOUNT\\n"
+    },
+    {
+      "case": 557,
+      "argv": [
+        "summary",
+        "ledger.txt"
+      ],
+      "ledger": "2024-03-18 salary -0.04\\r2024-03-18 rent -83738.58\\tthe \"good\" cheese\\r# trailing space  \\r2024-03-19\\trent 0 train to Leeds\\r\\r2024-03-19 TravEL  -2490.55\\r\\r2024-03-19 salary -28.01\\r2024-03-19 sala\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "groceries  95.90\\nrent  -83738.58\\nsalary  240685031.93\\ntravel  -2490.55\\n",
+        "stderr_empty": true,
+        "file": [
+          "2024-03-18 salary -0.04",
+          "2024-03-18 rent -83738.58\tthe \"good\" cheese",
+          "# trailing space  ",
+          "2024-03-19\trent 0 train to Leeds",
+          "2024-03-19 TravEL  -2490.55",
+          "2024-03-19 salary -28.01",
+          "2024-03-19 salary 240685059.98",
+          "2024-03-19  groceries 95.9 coffee beans"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-18 salary -0.04",
+          "2024-03-18 rent -83738.58\tthe \"good\" cheese",
+          "# trailing space  ",
+          "2024-03-19\trent 0 train to Leeds",
+          "2024-03-19 TravEL  -2490.55",
+          "2024-03-19 salary -28.01",
+          "2024-03-19 salary 240685059.98",
+          "2024-03-19  groceries 95.9 coffee beans"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 1: invalid amount '-0.04\\\\r2024-03-18' (expected a number with at most two decimals)\\n"
+    },
+    {
+      "case": 572,
+      "argv": [
+        "list",
+        "ledger.txt",
+        "--until",
+        "2024-10-27"
+      ],
+      "ledger": "2024-03-05 dining\\t-10 dentist\\r\\r2024-03-05 pets\\t-400.55 two  spaces  inside\\r2024-03-07 dining -96.73\\r",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03-05 dining -10.00 dentist\\n2024-03-05 pets -400.55 two  spaces  inside\\n2024-03-07 dining -96.73\\n",
+        "stderr_empty": true,
+        "file": [
+          "2024-03-05 dining\t-10 dentist",
+          "2024-03-05 pets\t-400.55 two  spaces  inside",
+          "2024-03-07 dining -96.73"
+        ]
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "2024-03-05 dining -10.00 dentist\\r\\r2024-03-05 pets\\t-400.55 two  spaces  inside\\r2024-03-07 dining -96.73\\n",
+        "stderr_empty": true,
+        "file": [
+          "2024-03-05 dining\t-10 dentist",
+          "2024-03-05 pets\t-400.55 two  spaces  inside",
+          "2024-03-07 dining -96.73"
+        ]
+      },
+      "arm_stderr": ""
+    },
+    {
+      "case": 663,
+      "argv": [
+        "summary",
+        "ledger.txt",
+        "--by",
+        "month"
+      ],
+      "ledger": "#\\r2024-03-10 salary -0.10\\t\\trefund\\r2024-03-10 SALARY      -3.3\\r2024-03-11 salary \\t1.1\\r\\r2024-03-12 Salary \\t-19.99\\r",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03  -22.29\\n",
+        "stderr_empty": true,
+        "file": [
+          "#",
+          "2024-03-10 salary -0.10\t\trefund",
+          "2024-03-10 SALARY      -3.3",
+          "2024-03-11 salary \t1.1",
+          "2024-03-12 Salary \t-19.99"
+        ]
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": [
+          "#",
+          "2024-03-10 salary -0.10\t\trefund",
+          "2024-03-10 SALARY      -3.3",
+          "2024-03-11 salary \t1.1",
+          "2024-03-12 Salary \t-19.99"
+        ]
+      },
+      "arm_stderr": ""
+    },
+    {
+      "case": 559,
+      "argv": [
+        "export",
+        "ledger.txt"
+      ],
+      "ledger": "2024-04-19\\ttravel  -1049.6 abc def ghi\\r# note to self\\r2024-03-16 fuel 370.67 -5\\r#2024-03-01 groceries abc\\r2024-04-12  travel -705.4 birthday\\r2024-04-08 Travel -15331.30 March pay new shoes birth\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "date,category,amount,note\\n2024-03-16,fuel,370.67,-5\\n2024-04-08,travel,-15331.30,March pay new shoes birthday 2024-03-02 -5 refund weekly shop coffee beans dentist 42 gift for mum -5 2024-03-02 42 x \u2026",
+        "stderr_empty": true,
+        "file": [
+          "2024-04-19\ttravel  -1049.6 abc def ghi",
+          "# note to self",
+          "2024-03-16 fuel 370.67 -5",
+          "#2024-03-01 groceries abc",
+          "2024-04-12  travel -705.4 birthday",
+          "2024-04-08 Travel -15331.30 March pay new shoes birthday 2024-03-02 -5 refund weekly shop coffee beans dentist 42 gift for mum -5 2024-03-02 42 x 2024-03-02 bus ticket 2024-03-02 train to Leeds new shoes March pay birthday 12.505 weekly shop bus ticket gift for mum weekly shop abc def ghi dentist gift for mum -5 lunch with Sam refund coffee beans coffee beans gift for mum two  spaces  inside train to Leeds 42 dentist train to Leeds abc def ghi two  spaces  inside weekly shop abc def ghi March pay lunch with Sam coffee beans 42 two  spaces  inside 12.505 two  spaces  inside lunch with Sam train to Leeds coffee beans refund weekly shop 2024-03-02 coffee beans refund train to Leeds abc def ghi 2024-03-02 electric bill 42 x -5 coffee beans new shoes birthday bus ticket refund 12.505 -5 coffee beans refund weekly shop electric bill new shoes rent for march coffee beans lunch with Sam dentist lunch with Sam coffee beans bus ticket dentist dentist gift for mum 12.505 dentist coffee beans x 12.505 abc def ghi two  spaces  inside x abc def ghi March pay lunch with Sam 42 refund weekly shop x March pay coffee beans two  spaces  inside electric bill new shoes coffee beans x birthday refund rent for march lunch with Sam electric bill 12.505 42 gift for mum x train to Leeds lunch with Sam weekly shop March pay 12.505 dentist weekly shop train to Leeds 42 rent for march -5 new shoes bus ticket birthday x dentist bus ticket dentist birthday weekly shop train to Leeds dentist birthday bus ticket electric bill two  spaces  inside two  spaces  inside coffee beans March pay coffee beans abc def ghi electric bill bus ticket rent for march gift for mum abc def ghi bus ticket lunch with Sam train to Leeds 42 bus ticket coffee beans x birthday lunch with Sam gift for mum birthday 2024-03-02 gift for mum 42 bus ticket coffee beans March pay electric bill rent for march electric bill -5 abc def ghi gift for mum birthday gift for mum 42 refund two  spaces  inside train to Leeds new shoes gift for mum birthday dentist rent for march rent for march weekly shop refund x new shoes March pay 2024-03-02 12.505 two  spaces  inside lunch with Sam"
+        ]
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "date,category,amount,note\\n2024-04-19,travel,-1049.60,\"abc def ghi\\r# note to self\\r2024-03-16 fuel 370.67 -5\\r#2024-03-01 groceries abc\\r2024-04-12  travel -705.4 birthday\\r2024-04-08 Travel -15331.3\u2026",
+        "stderr_empty": true,
+        "file": [
+          "2024-04-19\ttravel  -1049.6 abc def ghi",
+          "# note to self",
+          "2024-03-16 fuel 370.67 -5",
+          "#2024-03-01 groceries abc",
+          "2024-04-12  travel -705.4 birthday",
+          "2024-04-08 Travel -15331.30 March pay new shoes birthday 2024-03-02 -5 refund weekly shop coffee beans dentist 42 gift for mum -5 2024-03-02 42 x 2024-03-02 bus ticket 2024-03-02 train to Leeds new shoes March pay birthday 12.505 weekly shop bus ticket gift for mum weekly shop abc def ghi dentist gift for mum -5 lunch with Sam refund coffee beans coffee beans gift for mum two  spaces  inside train to Leeds 42 dentist train to Leeds abc def ghi two  spaces  inside weekly shop abc def ghi March pay lunch with Sam coffee beans 42 two  spaces  inside 12.505 two  spaces  inside lunch with Sam train to Leeds coffee beans refund weekly shop 2024-03-02 coffee beans refund train to Leeds abc def ghi 2024-03-02 electric bill 42 x -5 coffee beans new shoes birthday bus ticket refund 12.505 -5 coffee beans refund weekly shop electric bill new shoes rent for march coffee beans lunch with Sam dentist lunch with Sam coffee beans bus ticket dentist dentist gift for mum 12.505 dentist coffee beans x 12.505 abc def ghi two  spaces  inside x abc def ghi March pay lunch with Sam 42 refund weekly shop x March pay coffee beans two  spaces  inside electric bill new shoes coffee beans x birthday refund rent for march lunch with Sam electric bill 12.505 42 gift for mum x train to Leeds lunch with Sam weekly shop March pay 12.505 dentist weekly shop train to Leeds 42 rent for march -5 new shoes bus ticket birthday x dentist bus ticket dentist birthday weekly shop train to Leeds dentist birthday bus ticket electric bill two  spaces  inside two  spaces  inside coffee beans March pay coffee beans abc def ghi electric bill bus ticket rent for march gift for mum abc def ghi bus ticket lunch with Sam train to Leeds 42 bus ticket coffee beans x birthday lunch with Sam gift for mum birthday 2024-03-02 gift for mum 42 bus ticket coffee beans March pay electric bill rent for march electric bill -5 abc def ghi gift for mum birthday gift for mum 42 refund two  spaces  inside train to Leeds new shoes gift for mum birthday dentist rent for march rent for march weekly shop refund x new shoes March pay 2024-03-02 12.505 two  spaces  inside lunch with Sam"
+        ]
+      },
+      "arm_stderr": ""
+    },
+    {
+      "case": 576,
+      "argv": [
+        "add",
+        "ledger.txt",
+        "2022-06-27",
+        "fuel",
+        "-abc",
+        "  price\u00a05  "
+      ],
+      "ledger": "2022-04-03 gifts -81 50% off\\n2022-05-31 utilities \\t-926.79\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2022-04-03 gifts -81 50% off",
+          "2022-05-31 utilities \t-926.79"
+        ]
+      },
+      "arm": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2022-04-03 gifts -81 50% off",
+          "2022-05-31 utilities \t-926.79"
+        ]
+      },
+      "arm_stderr": "usage: pennywise [-h] COMMAND ...\\npennywise: error: unrecognized arguments: -abc\\n"
+    },
+    {
+      "case": 636,
+      "argv": [
+        "add",
+        "ledger.txt",
+        "2023-10-16",
+        "health",
+        "-abc"
+      ],
+      "ledger": "",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": []
+      },
+      "arm": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": []
+      },
+      "arm_stderr": "usage: pennywise add [-h] FILE DATE CATEGORY AMOUNT [NOTE]\\npennywise add: error: the following arguments are required: AMOUNT\\n"
+    },
+    {
+      "case": 869,
+      "argv": [
+        "add",
+        "ledger.txt",
+        "2024-03-24",
+        "health",
+        "-abc",
+        "col1\tcol2"
+      ],
+      "ledger": null,
+      "ledger_from": null,
+      "closed_stdout": false,
+      "reference": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm_stderr": "usage: pennywise [-h] COMMAND ...\\npennywise: error: unrecognized arguments: -abc\\n"
+    }
+  ],
+  "fuzz_seed": 620,
+  "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87",
+  "usd_per_passed_test": 0.0071,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  }
+}

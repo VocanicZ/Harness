@@ -18,7 +18,7 @@ run is counted at what it spent before its cap stopped it, and its cap is record
 import statistics
 
 COMPLETED = ("ok", "capped")
-STOP_REASONS = ("guard", "arm-error", "repo-not-deleted")
+STOP_REASONS = ("guard", "arm-error", "repo-not-deleted", "operator")
 SCHEMA = 1
 
 

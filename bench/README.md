@@ -78,6 +78,7 @@ run is listed in `runs` but not counted. `aggregate.cap_hits` is how often the r
 | `guard` | the guard refused a later run (the budget ran out, an account got usage-HELD, the disk filled): `causes` are the guard's (`budget`, `held`, …) and `detail` its numbers. Nothing is created or spent for the refused run |
 | `arm-error` | a run's arm failed (it is recorded as `status: error`); more runs would most likely fail the same way |
 | `repo-not-deleted` | a run's repo could not be deleted (exit 4, named on stderr); no further repo is created |
+| `operator` | the batch was ended by hand (killed) between runs, so the runner could not record why; whoever ended it writes this and the `detail` into the aggregate (#593) |
 
 A refusal before the **first** run is unchanged: exit 3 (or `skipped: <cause>` with `--optional`), nothing recorded.
 Exit status of a batch: 0 when the aggregate is recorded (also when it stopped early on the guard), 1 when it

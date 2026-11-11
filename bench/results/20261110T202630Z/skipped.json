@@ -1,0 +1,5 @@
+{
+  "harness-3": "headroom: the weekly window of the main account was 59-66% used and 1% of it is about $0.53, so a run is 8-18% of the window; the headroom guard (stop line 85%) left room for 3 Harness runs, not the 5 per arm planned (#593)",
+  "harness-opus": "headroom: not run; the weekly window of the main account had no room left under the 85% stop line after the plain and Harness (1 worker) batches (#593)",
+  "hx": "headroom: not run; the weekly window of the main account had no room left under the 85% stop line after the plain and Harness (1 worker) batches (#593)"
+}
