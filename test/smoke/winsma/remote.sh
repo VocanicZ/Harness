@@ -142,11 +142,19 @@ r_lock_idle(){ _ws_issue_ok "$1" || return 2
   [[ -s "$f" ]] || _ws_now >"$f"
   t="$(head -1 "$f" | tr -dc 0-9)"; [[ -n "$t" ]] || t="$(_ws_now)"
   echo $(( $(_ws_now) - t )); }
+# r_lock_mark_run <issue> — the lock's owner took it for a `run` (one command; see r_lock_break_idle). Only for the current owner.
+r_lock_mark_run(){ _ws_issue_ok "$1" || return 2
+  local L; L="$(_ws_lock)"
+  [[ -d "$L" ]] && grep -qx "issue=$1" "$L/owner" 2>/dev/null || return 1
+  _ws_now >"$L/run"; }
 # r_lock_break_idle <owner_issue> <idle_seconds> — the lock still belongs to that issue and its lane has been idle longer than that:
 # clean its run (its heartbeat loop dies with its pids) and drop the lock.
 r_lock_break_idle(){ _ws_issue_ok "$1" || return 2
   local L t; L="$(_ws_lock)"
   [[ -d "$L" ]] && grep -qx "issue=$1" "$L/owner" 2>/dev/null || { echo "winsma: lock changed hands; not breaking it" >&2; return 1; }
+  # A lock taken by `winsma.sh run` is one command in flight, cut short only by WS_HOLD_HARD (docs/windows-smoke.md): the waiter cannot see
+  # that lane's pid or tmux session from its own sandbox, so "not working" there is "not visible", never proof of idle (#1062).
+  [[ ! -e "$L/run" ]] || { echo "winsma: #$1 holds the lock for a run; not releasing it as idle" >&2; return 1; }
   t="$(head -1 "$L/idle_since" 2>/dev/null | tr -dc 0-9)"
   [[ -n "$t" ]] && (( $(_ws_now) - t > $2 )) || { echo "winsma: holder was not idle that long; not breaking it" >&2; return 1; }
   r_cleanup "$1" || return 1; rm -rf "$L"; }

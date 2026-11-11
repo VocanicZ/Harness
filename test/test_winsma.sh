@@ -357,6 +357,21 @@ echo "# lock: an idle lane does not hold the lock (#1040)"
   ws_cleanup 111 >/dev/null
   finish ) || rc=1
 
+echo "# lock: a lock taken by run is not released as idle (#1062)"
+( fresh_env
+  # the waiter cannot see the run lane's pid or tmux session (another sandbox): "not working" must not end a run in flight
+  export WS_OWNER_LIVE_CMD=false WS_OWNER_ACTIVE_CMD=false WS_IDLE_MAX=1 WS_LOCK_TIMEOUT=4 WS_POLL=0.3 WS_HOLD_HARD=0
+  WS_LOCK_RUN=1 ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
+  assert_ok "the run's lock carries the run marker" test -s "$WS_C/hx-lock/run"
+  ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "1" "a waiter that sees the run's lane as not working times out instead of taking the lock"
+  assert_eq "$(owner_issue)" "111" "...the lock is still the run's"; assert_ok "...and its run folder is intact" test -d "$WS_C/hx-111"
+  assert_no "r_lock_break_idle refuses a run's lock" ws_call r_lock_break_idle 111 0
+  ws_call r_queue_leave 222 >/dev/null; ws_cleanup 111 >/dev/null
+  # the step-by-step path has no marker and is still released when idle
+  ws_lock 111 lane-a $$ >/dev/null; assert_no "a lock taken by plain lock has no run marker" test -e "$WS_C/hx-lock/run"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+
 echo "# lock: WS_POLL below the rule is clamped (#1040)"
 ( fresh_env; unset WS_POLL_MIN
   assert_eq "$(ws_poll_clamp 15 2>/dev/null)" "300" "WS_POLL=15 from a lane env is clamped to 300"
