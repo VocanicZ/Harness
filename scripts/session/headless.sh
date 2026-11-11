@@ -76,7 +76,9 @@ headless_sess_list_paths(){ local n
   while read -r n; do [[ -n $n ]] && printf '%s\t%s\n' "$n" "$(cat "$(headless_lane_dir "$n")/dir" 2>/dev/null)"; done < <(headless_sess_list); }
 headless_sess_panes(){ local n; while read -r n; do [[ -n $n ]] && echo "$n:0.0 headless"; done < <(headless_sess_list); }
 headless_sess_live(){ _hl_runner "$1" >/dev/null && [[ "$(_hl_state "$1")" != ended ]]; }
-# _hl_start_tries — how many 0.1 s tries headless_sess_start gives the runner to write its first state: 10 s, 60 s on Windows.
+# _hl_start_tries — how many 0.1 s tries headless_sess_start gives the runner to write its first state: 10 s, 60 s on Windows. The
+# budget is that many TENTHS OF A SECOND of wall clock: each try also forks, and on Git Bash those tries went by in under half the
+# time (600 of them ran out in ~25 s while a native Python runner needs ~25 s to write its state, #969).
 _hl_start_tries(){ is_windows && echo 600 || echo 100; }
 # <name> <dir> [-e K=V …] <command…> — a lane needs its runner's command: there is no shell to type a
 # launch line into. The command runs in <dir> with the -e pairs and HARNESS_LANE_DIR in its
@@ -98,8 +100,8 @@ headless_sess_start(){ local name="$1" dir="$2" lane pid i; shift 2; local -a en
     exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" </dev/null >>"$lane/runner.log" 2>&1 ) &
   pid=$!; echo "$pid" > "$lane/pid"
   # The runner's first state: ~1 s on Linux; a native Python on a loaded Windows host takes tens of seconds (#606).
-  local tries; tries="$(_hl_start_tries)"
-  for (( i = 0; i < tries; i++ )); do
+  local tries t0=$SECONDS; tries="$(_hl_start_tries)"
+  for (( i = 0; i < tries || SECONDS - t0 <= tries / 10; i++ )); do
     # Its identity once it runs the runner (the state file is the runner's), not the shell it forked as.
     [[ -s "$lane/state.json" ]] && _hl_alive "$pid" && { _hl_ident "$pid" > "$lane/started"; return 0; }
     _hl_alive "$pid" || break
