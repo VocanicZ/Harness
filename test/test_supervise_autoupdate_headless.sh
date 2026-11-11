@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_supervise_autoupdate_headless.sh — #493 / PRD #475 task 6: the headless twin of
 # test_supervise_autoupdate.sh (#477). `harness supervise` installs a published release by itself and
 # rolls every fleet's workers onto it, without killing a lane — here on HARNESS_SESSION_BACKEND=headless,
@@ -79,7 +80,7 @@ tag_of(){ readlink "$H/engine"; }
 pidof_f(){ cat "$1" 2>/dev/null; }
 eng_of(){ local e; e="$(tr '\0' '\n' </proc/$1/environ 2>/dev/null | sed -n 's/^ENGINE_DIR=//p')"; posix_path "$(realpath -m "$e" 2>/dev/null)"; }   # one spelling: ENGINE_DIR is C:/… on Windows (#605, #627)
 alive(){ proc_alive "$1"; }
-alive_all(){ local p; for p in $1; do proc_alive "$p" || return 1; done; }
+alive_all(){ local p; for p in $1; do alive_any "$p" || return 1; done; }   # a fake claude's pids are native (Windows) pids (#606, #627)
 wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 
 # mklane <fleet> <idle|busy> — the fleet's lane <fleet>-main-i1 as a real headless lane, started by launch_agent in the
