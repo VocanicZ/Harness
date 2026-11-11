@@ -451,10 +451,13 @@ subagent_named(){ local t g="$STATE_DIR/gauntlet/main/p7/r1"; t="$(cat "$2/.harn
 # lane's config, a cwd of <dir>, a new empty state dir and the brief, and prints what the real critic
 # answered (fake-cli, subagent-critic.out).
 subagent_substitute_ok(){ ( local cmd d="$RUN_DIR/bin-$HARNESS_CLI" args="$RUN_DIR/subagent-args" bin cfg
-  cmd="$(BRIEF="$(native_path "$4")" python3 -c 'import os, sys
-t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % os.environ["BRIEF"]
+  # The prompt names the brief as the lane's STATE_DIR spells it (/c/x on Git Bash); a native spelling is tried second (#969).
+  # (An argument with MSYS2_ARG_CONV_EXCL, not an env var: a native Python is handed /c/x as C:\x in its environment.)
+  cmd="$(for b in "$4" "$(native_path "$4")"; do MSYS2_ARG_CONV_EXCL='*' python3 -c 'import sys
+t, b = sys.stdin.read(), "write its whole brief to `%s`, then run `" % sys.argv[1]
 i = t.find(b)
-sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' <<<"$2")" || exit 1
+sys.exit(1) if i < 0 else print(t[i + len(b):].split("`", 1)[0])' "$b" <<<"$2" && break; done)" || exit 1
+  [[ -n $cmd ]] || exit 1
   cfg="$(_cli_line_opt "$(typed_line "$1")" '--config ')"
   # <dir> as the prompt leaves it (5c makes the round's evidence dirs); the brief's dir is already there.
   bin="$(cli_bin)"; mkdir -p "$d" "$3"; test -d "${4%/*}" || exit 1; printf 'brief\n' > "$4"
@@ -785,7 +788,9 @@ hl_cleanup(){ local d p; shopt -s nullglob
 # the reply).
 hl_lane(){ WD="$HL/wd-$1"; new_wd "$WD"; export FAKE_CLAUDE_DIR="$HL/fake-$1"; mkdir -p "$FAKE_CLAUDE_DIR"; shift
   printf '%s\n' "$@" > "$FAKE_CLAUDE_DIR/plan"; }
-hl_wait(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; command sleep 0.1; done; return 1; }
+# A Windows host forks ~10x slower and the matrix runs its CLIs side by side there, so a headless lane's turn can take far longer than
+# the Linux timings below (#969): every wait is scaled up. It returns as soon as its condition holds, so a green cell pays nothing.
+hl_wait(){ local t="$1" i; shift; host_is_windows && t=$(( t * 8 )); for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; command sleep 0.1; done; return 1; }
 hl_alive(){ alive_any "$1"; }   # by its MSYS pid or (Windows) the native one a fake agent records (#606)
 # hl_calls <field> — that field of each turn the fake ran (argv, prompt), one JSON value per line.
 hl_calls(){ python3 -c 'import json, sys; [print(json.dumps(json.loads(l)[sys.argv[2]])) for l in open(sys.argv[1])]' \
@@ -844,7 +849,9 @@ headless_transient_ok(){ ( hl_env; local s=hz-main-i25 p; hl_lane transient tran
 headless_loop_ok(){ ( hl_env; local s=hz-main-i26 i; hl_lane loop "normal not yet" "normal all done <promise>LOOP DONE</promise>" normal
   same "$(cli_loop)" driven || exit 1
   hl_launch "$s" GOAL=ISSUE:26 PROMISE="LOOP DONE" MAXITER=5 || exit 1
-  for (( i = 0; i < 100; i++ )); do cli_done "$WD" && break; watchdog_session "$s"; command sleep 0.2; done
+  # 100 passes (~20 s) on Linux; a Windows host gets 10 minutes of wall clock, each pass there forking for seconds (#969).
+  local win=0 end=$(( SECONDS + 600 )); host_is_windows && win=1
+  for (( i = 0; i < 100 || (win && SECONDS < end); i++ )); do cli_done "$WD" && break; watchdog_session "$s"; command sleep 0.2; done
   cli_done "$WD" && same "$(hl_calls prompt | wc -l)" 2 || exit 1
   local p; p="$(hl_calls prompt | sed -n 2p)"
   has "<promise>LOOP DONE</promise>" "$p" && has "$HARNESS_BOOTSTRAP_PROMPT" "$p" && lacks UNIQUE_TASK_MARKER "$p" &&
@@ -863,10 +870,10 @@ headless_interrupt_ok(){ ( hl_env; local s=hz-main-i27 fpid gpid rpid; hl_lane i
 # checkpoint, which waits behind the turn, then waits on the lane's state for the checkpoint turn and
 # ends the lane. Leaves $S, $UUID (the lane's), $SID (the agent session it ran), $PAUSE_OUT.
 hl_checkpoint(){ local ppid
-  source "$HERE/../scripts/drive.sh"; matrix_stub; hl_env; lane_env; export HARNESS_PAUSE_GRACE=30
+  source "$HERE/../scripts/drive.sh"; matrix_stub; hl_env; lane_env; export HARNESS_PAUSE_GRACE=30; host_is_windows && HARNESS_PAUSE_GRACE=240   # (#969)
   log(){ printf '%s\n' "$*" >> "$HL/harness.log"; }
   hl_lane cp "normal working on it" "normal checkpointed" "normal resumed"; touch "$FAKE_CLAUDE_DIR/hold"
-  spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 || return 1
+  spawn_impl 17 "ISSUE 17 DONE" >"$HL/spawn.out" 2>&1 || return 1
   S="$(sess_impl main 17)"; WD="$WORKTREES_DIR/main-i17"; UUID="$(state_uuid "$WD")"
   sess_live "$S" && hl_wait 10 hl_busy "$S" || return 1
   PAUSE_OUT="$HL/pause.out"
@@ -885,7 +892,7 @@ headless_checkpoint_ok(){ ( hl_checkpoint || exit 1; local msg
 headless_resume_ok(){ ( hl_checkpoint || exit 1
   rm -f "$PAUSE_FLAG"; same "$(sess_resume_id "$S" "$WD")" "$SID" || exit 1
   FAKE_LABELS='["agent-paused"]' FAKE_REMOTE_BRANCH=issue/17 FAKE_HANDOFF=$'<!-- harness-handoff issue=17 branch=issue/17 -->\nLEFT OFF HERE'
-  spawn_impl 17 "ISSUE 17 DONE" >/dev/null 2>&1 && sess_live "$S" && hl_wait 15 hl_turn "$S" 1 || exit 1
+  spawn_impl 17 "ISSUE 17 DONE" >"$HL/spawn.out" 2>&1 && sess_live "$S" && hl_wait 15 hl_turn "$S" 1 || exit 1
   grep -qF "LEFT OFF HERE" "$WD/.harness-task.md" && same "$(state_uuid "$WD")" "$SID" &&
     same "$(hl_calls prompt | sed -n 3p)" "\"$HARNESS_BOOTSTRAP_PROMPT\"" &&
     hl_resumes "$(hl_calls argv | sed -n 3p)" "$SID" ); }

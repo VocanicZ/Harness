@@ -78,8 +78,10 @@ _openclaw_line(){ local wd="$1" uuid="$2" model="$3" effort="$4" op; op="$(_open
 # argument (#350) changes nothing a turn runs; the bootstrap is the first turn.
 openclaw_headless(){ local wd="$1" uuid="$2" model="$3" effort="$4" flags
   _openclaw_config "$wd" || { echo "openclaw: cannot write the lane's config $(_openclaw_cfg "$wd")" >&2; return 1; }
-  flags="$(printf '%q ' --config "$(_openclaw_cfg "$wd")" --cwd "$wd" --state-dir "$(_openclaw_dir "$wd")" \
-    --timeout "${HARNESS_OPENCLAW_TIMEOUT:-14400}")"
+  # The paths ride inside ONE argv word (--flags=…), which a Windows shell does not convert for a native program: the runner (and the
+  # openclaw it starts) would read /c/x as C:\c\x and write the lane's transcript where the stats sweep never looks (#969).
+  flags="$(printf '%q ' --config "$(native_path "$(_openclaw_cfg "$wd")")" --cwd "$(native_path "$wd")" \
+    --state-dir "$(native_path "$(_openclaw_dir "$wd")")" --timeout "${HARNESS_OPENCLAW_TIMEOUT:-14400}")"
   printf '%s\n' python3 "$CLI_DIR/openclaw_headless.py" run --cwd "$wd" --bin "$(openclaw_bin)" --session-id "$uuid" \
     ${5:+--resume} ${model:+--model "$model"} ${effort:+--effort "$effort"} "--flags=${flags% }" --message "$HARNESS_BOOTSTRAP_PROMPT"; }
 _openclaw_headless(){ [[ "$(sess_backend)" == headless ]]; }

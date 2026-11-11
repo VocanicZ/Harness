@@ -212,6 +212,16 @@ source "$ROOT/scripts/session/headless.sh"
 assert_eq "$(HARNESS_PLATFORM=posix _hl_start_tries)" 100 "10 s on POSIX"
 assert_eq "$(HARNESS_PLATFORM=windows _hl_start_tries)" 600 "60 s on Windows: a native Python runner starts slowly on a loaded host"
 
+echo "== …and the wait is wall clock, not a count of tries (#969) =="
+# Git Bash got through 600 tries in ~25 s, not 60: a runner that needs ~25 s to write its state was not waited for. Here the tries
+# are made instant (sleep shadowed, 30 of them = a 3 s budget) and the runner takes 1.5 s: only a wait that counts seconds sees it.
+( lane_root="$RUN_DIR/hlwait"; mkdir -p "$lane_root"
+  headless_lane_dir(){ echo "$lane_root/$1"; }; headless_sess_live(){ return 1; }; _hl_reap_turn(){ :; }; detach_prefix(){ :; }
+  _hl_start_tries(){ echo 30; }; sleep(){ :; }
+  headless_sess_start hz-main-i77 "$lane_root" bash -c 'command sleep 1.5; echo "{}" > "$HARNESS_LANE_DIR/state.json"; command sleep 30' 2>/dev/null; rc=$?
+  kill -KILL "$(cat "$lane_root/hz-main-i77/pid" 2>/dev/null)" 2>/dev/null; exit $rc ); rc=$?
+assert_eq "$rc" 0 "a runner slower than the tries, within the seconds, still starts"
+
 echo "== docs =="
 assert_ok "docs/reference.md documents HARNESS_SESSION_BACKEND and its values" \
   grep -qE '^\| `HARNESS_SESSION_BACKEND` \| `tmux` \|.*`headless`' "$ROOT/docs/reference.md"

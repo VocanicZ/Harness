@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-test-timeout-windows: 43200
+# harness-test-timeout-windows: 7200
 # test_cli_matrix_guard.sh — #305 / PRD #189: no matrix cell is trivially true. A cell whose predicate
 # still holds with the adapter's functions stubbed to `:`, or with its fixture gone, proves nothing: it
 # must read n/a (the row cannot exist for the CLI) or FAIL, never ok.
@@ -94,7 +94,10 @@ fi
 assert_eq "$(res "$cells" codex supervisor-frozen-session)" FAIL "no limit.txt: codex supervisor-frozen-session FAILs"
 assert_eq "$(res "$cells" agy bypass-covers-subagents)" FAIL "agy's sub-agent pane shows the approval prompt: bypass-covers-subagents FAILs"
 
-headless_rows(){ awk -F'\t' -v c="${2:-claude}" '$1 == c && $2 ~ /^headless-/ { print $2 "\t" $3 }' <<<"$1"; }
+# headless-sweep-detached-jobs runs nothing (and reads ok, whatever is stubbed) on a host without setsid or /proc/self/environ,
+# which Git Bash has not (#969): there that one row says nothing about the stubs, so it is left out of "every headless-* row FAILs".
+headless_rows(){ local skip=""; { command -v setsid >/dev/null && [[ -r /proc/self/environ ]]; } || skip=headless-sweep-detached-jobs
+  awk -F'\t' -v c="${2:-claude}" -v skip="$skip" '$1 == c && $2 ~ /^headless-/ && $2 != skip { print $2 "\t" $3 }' <<<"$1"; }
 cells="$(tsv claude-runner)"
 assert_ok "stubbed runner: claude has headless-* rows" test -n "$(headless_rows "$cells")"
 assert_eq "$(headless_rows "$cells" | cut -f2 | sort -u)" FAIL "stubbed runner: every claude headless-* row FAILs"

@@ -10,6 +10,18 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - Once a lock has been held longer than `WS_HOLD_MAX` (default 5400 s) and another lane is queued, `winsma.sh exec` refuses to start a new command (`hold cap reached, N lane(s) queued: release and re-queue`); a running command is never killed. `WS_HOLD_HARD` (default three times the cap, 0 = off) lets the first lane in line break a live runaway holder.
 - `winsma.sh status`, and `harness status` when `HARNESS_WINDOWS_HOST` is set, show the holder, how long it has held the lock, the heartbeat age and the queue in order; an unreachable host is one `winsma: unreachable` line.
 
+### test_cli_readme.sh and test_cli_matrix_guard.sh are green on winsma, with caps sized to what they take there (#969)
+
+- First measured on winsma after the parallel matrix (#943): `test_cli_matrix_guard.sh` 4645 s and red, `test_cli_readme.sh` 5569 s and red (no CLI's matrix column was green). Now both pass there:
+  the guard in 3290 s (42/42), the readme test in 5960 s (35/35). Their `harness-test-timeout-windows` caps are 7200 s (was 43200) and 10800 s (was 14400).
+- The guard's "every headless-* row FAILs" assertions counted `headless-sweep-detached-jobs`, which runs nothing (and reads ok) on a host without `setsid` or `/proc/self/environ`, as Git Bash is; that one row is left out
+  where it cannot run.
+- A headless lane's start wait (`headless_sess_start`) is wall clock: its 600 tries are made to last 60 s on Windows (they ran out in ~25 s there while a native Python runner needs ~25 s to write its first state), which made
+  `headless-checkpoint` and `headless-resume` fail about half the time for every CLI. The matrix's headless waits and the checkpoint grace are longer on a Windows host too.
+- `openclaw_headless` hands the runner its `--config`, `--cwd` and `--state-dir` in native spelling (`C:/x`): inside the one `--flags=` word `/c/x` was read as `C:\c\x`, so the lane's transcript was written where the stats
+  sweep never looked (`headless-stats-session-end-usage`). The hermes profile name hashes the worktree in native spelling too, as the headless runner does, so a headless hermes lane's `state.db` is found by session lookup
+  (`headless-loop-mode`). `test_cli_matrix.sh`'s `review-gauntlet` row reads the brief path as the prompt spells it.
+
 ### The suite computes a CLI's matrix cells once per run, so the five adapter tests no longer time out on Windows (#1024)
 
 - On winsma, `test_cli_codex.sh`, `test_cli_copilot.sh`, `test_cli_hermes.sh`, `test_cli_openclaw.sh` and `test_cli_opencode.sh` passed every assertion of their own and then hit the 1500 s cap in their closing
