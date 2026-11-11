@@ -24,7 +24,7 @@ for f in common lock park isolate guard credentials cleanup; do source "$WSH_DIR
 ws_run(){ local issue="$1" mode="$2" cmd="$3" rc=0 step=""
   ws_log "run: #$issue on $(ws_host), mode $mode: $cmd"
   trap 'ws_cleanup "$issue" >/dev/null 2>&1' INT TERM
-  ws_lock "$issue" || { return 1; }
+  WS_LOCK_RUN=1 ws_lock "$issue" || { return 1; }
   ws_isolate "$issue" || step=isolate
   [[ -z "$step" ]] && { ws_guard "$issue" before || step="guard before"; }
   [[ -z "$step" && -n "$(ws_token)" ]] && { ws_scan "$issue" before || step="scan before"; }

@@ -4,7 +4,7 @@
      WS_LOG=test/smoke/logs/suite-windows-<UTC stamp>.log bash {{WINSMA_DIR}}/winsma.sh run {{PRD}} suite "export HX_BRANCH=<default-branch> HX_STRICT=1; $(cat {{WINSMA_DIR}}/suite.sh)"
    The bar: no Windows failure that Linux does not also have at the same commit, and every Windows skip names an `n/a` row of the
    parity matrix in docs/reference.md. A Windows-only failure is a gap: file it as an issue. Follow the "Verification on winsma" rules of
-   PRD #475 (wait your turn in the lock's FIFO queue, never agent-paused; one `run` per acquisition, never a lock session held across runs: past the hold cap WS_HOLD_MAX, 90 min, with another lane queued, a new command is refused; no credential written; commit the log under test/smoke/logs/). A host
+   PRD #475 (wait your turn in the lock's FIFO queue, never agent-paused; one `run` per acquisition, never a lock session held across runs: past the hold cap WS_HOLD_MAX, 90 min, with another lane queued, a new command is refused, and the lock heartbeat releases it once the cap passes with a lane queued; never write a driver script that holds the lock (lock + sleep loop + cleanup) and never set WS_POLL below the rule, 300 (it is clamped); no credential written; commit the log under test/smoke/logs/). A host
    that is down: say so in the PRD comment and finish the Linux review.
    A long wait does not keep your pool slot (#1038). If the `run` log says `queue position N of M` with N > 1 and the wait is not about
    to end, PARK the review instead of polling: FIRST post the Linux full-suite result and your findings so far as a comment on PRD #{{PRD}}

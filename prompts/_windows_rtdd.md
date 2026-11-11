@@ -6,7 +6,7 @@
      guard apply. Send a script shaped like {{WINSMA_DIR}}/suite.sh (clone the branch, a venv under the run folder,
      PYTHONUTF8=1) that runs `rtdd which` and those test files in place of `bash test/run.sh`:
        WS_LOG=test/smoke/logs/rtdd-windows-<UTC stamp>.log bash {{WINSMA_DIR}}/winsma.sh run {{ISSUE}} suite "$(cat <your script>)"
-   - Follow the "Verification on winsma" rules of PRD #475: wait your turn in the lock's FIFO queue (never agent-paused), one `run` per acquisition and never a lock held across runs (hold cap WS_HOLD_MAX, 90 min, when another lane is queued), write no credential, make no
+   - Follow the "Verification on winsma" rules of PRD #475: wait your turn in the lock's FIFO queue (never agent-paused), one `run` per acquisition and never a lock held across runs (hold cap WS_HOLD_MAX, 90 min, when another lane is queued; the heartbeat releases a lock held past it, and a hand-rolled driver script that holds the lock or a WS_POLL below 300 is forbidden), write no credential, make no
      machine-wide change, commit that log under test/smoke/logs/. Windows red that Linux Round 1/2 does not also have is YOURS;
      a skipped test must name its `n/a` matrix row (`windows_skip` in test/helpers.sh). A host that is down: note it in an issue comment, go on.
    - A long wait does not keep your pool slot (#1034). If the `run` log says `queue position N of M` with N > 1 and the wait is not about to

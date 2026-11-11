@@ -196,6 +196,14 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   queued: release and re-queue`, exit 3): clean up, `cleanup <issue>`, and `lock` again (you queue at the back). An
   `exec` that is already running is never killed for this. With nobody queued the cap does not apply. Do not plan to
   work in one lock session for hours: run one test file or one matrix per acquisition and re-queue between them.
+  The cap does not rely on `exec`: the lock's **heartbeat loop** enforces it (#1040). Once the hold passes `WS_HOLD_MAX` and a
+  live ticket of another lane is queued, the loop **releases the lock and ends**, whatever the holder is doing, so a
+  background "driver" script (`lock`, `isolate`, a `while … sleep` loop, `cleanup`) that never calls `exec` loses the lock
+  too. Do not write one: it holds a lock nothing is using, since the lane's turn ends while it runs. A lock taken by `run`
+  is cut short only by the hard ceiling below. The lock is also tied to the lane being **working**: a waiter that finds the
+  holder's session idle (turn ended, or exited) notes it, and once it has sat idle longer than `WS_IDLE_MAX` (default 600 s)
+  the first lane in the queue cleans the holder's run and releases the lock. `WS_POLL` below the rule (300 s) is clamped
+  to it, so a lane cannot win every free-lock race by polling faster; only `WS_POLL_MIN` (a test seam) lowers the floor.
   As protection against a single runaway command there is a **hard ceiling**, `WS_HOLD_HARD` (default 3 × `WS_HOLD_MAX`,
   4.5 hours; 0 turns it off): past it the lane **first in the queue** treats even a live holder as breakable, kills its
   run through the same cleanup the stale breaker uses, and takes the lock.
@@ -328,7 +336,7 @@ process list: the host itself is only touched by a recorded run
 there only because the ssh session is an elevated administrator, so the non-admin path is covered by the
 `HARNESS_PLATFORM=windows` fakes, not by a live run.
 
-Knobs: `WS_POLL` (wait between lock polls, default 300 s), `WS_STALE_SEC` (default 1800), `WS_HOLD_MAX` (hold cap, default 5400 s), `WS_HOLD_HARD` (hard ceiling, default 3 × `WS_HOLD_MAX`, 0 = off), `WS_STATUS_TIMEOUT` (default 5 s), `WS_LOCK_TIMEOUT` (default
+Knobs: `WS_POLL` (wait between lock polls, default 300 s; a lower value is clamped to 300, `WS_POLL_MIN` is the test seam), `WS_IDLE_MAX` (how long an idle holder keeps the lock, default 600 s), `WS_STALE_SEC` (default 1800), `WS_HOLD_MAX` (hold cap, default 5400 s), `WS_HOLD_HARD` (hard ceiling, default 3 × `WS_HOLD_MAX`, 0 = off), `WS_STATUS_TIMEOUT` (default 5 s), `WS_LOCK_TIMEOUT` (default
 0 = wait as long as it takes), `WS_HB_INTERVAL` (default 300 s), `WS_LANE_SESSION` / `WS_LANE_PID` (what `lock` records
 as the owner; pid defaults to the caller's parent).
 

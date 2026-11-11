@@ -10,6 +10,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - The pool does not dispatch an issue that carries the label. Each chores tick the engine asks `winsma.sh turn` (bounded by `WS_WAKE_TIMEOUT`) for every parked issue, which also refreshes the ticket so the place is kept; when the ticket is next and the lock is free the label is removed and the issue is resumed from its pushed branch, and its lock attempt succeeds without queueing behind a lane that queued after it. An unreachable host leaves the issue parked.
 - The PRD review lane parks too (#1038): `winsma.sh park <prd> <owner/repo> --review` keeps its ticket and puts `waiting-winsma` on the PRD (no push check, no `agent-working` swap: the review has neither). The PRD is not dispatched a REVIEW while it carries the label, `check` reads the review session as done, and the same wake tick re-dispatches it as `REVIEW:<prd>` once the ticket is next.
 
+### The winsma hold cap is enforced by the heartbeat, an idle lane cannot keep the lock, and `WS_POLL` is clamped (#1040)
+
+- A background "driver" script (`lock`, `isolate`, a sleep loop, `cleanup`) never ran `exec`, so `WS_HOLD_MAX` never applied: one lane held `C:\hx-lock` for about 18 hours with five queued, another while its Claude session was idle. The lock's heartbeat loop now releases the lock once the hold passes `WS_HOLD_MAX` and a live lane is queued, whatever the holder is doing (a `run` is cut short only by `WS_HOLD_HARD`)
+- A queued lane that finds the holder's session idle (turn ended or exited) for longer than `WS_IDLE_MAX` (default 600 s) cleans the holder's run and releases the lock
+- `WS_POLL` below 300 is clamped to 300 (drivers polling every 15 s won every free-lock race); the Windows lane prompts forbid hand-rolled lock-holding drivers
+
 ### The winsma lock is a FIFO queue with a hold cap, and `harness status` shows it (#1033)
 
 - One lane could hold `C:\hx-lock` for about 12 hours while six others waited, and each release went to whichever waiter polled first. A lane that finds the lock held now takes a ticket in `C:\hx-queue` and the lock goes to the oldest live ticket; a lane that releases and asks again goes to the back. A ticket stale for `WS_STALE_SEC` whose lane is gone is dropped.
