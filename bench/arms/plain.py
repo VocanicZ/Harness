@@ -20,7 +20,7 @@ count; the proof file names them.
 
 THE LOOP. The brief (the file bench/fixture/brief.md then one fixed delivery line saying where to commit) is the
 first message. `claude -p` ends a turn when the session stops; if the work is not DONE the scripted reply
-`keep going, decide for yourself` goes in (`--resume` the same session), at most 20 times. DONE = the final
+`continue until the brief is fully done` goes in (`--resume` the same session; the scripted nudge, #621), at most 20 times. DONE = the final
 message does not end in a question AND the work is delivered: the clone is clean, HEAD is on origin/main and
 there is at least one commit past the brief. The reply count lands in the results as counts.continue_replies,
 the commits on the default branch (past the seed) as counts.commits.
@@ -32,7 +32,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 _spec = importlib.util.spec_from_file_location("bench_armlib", os.path.join(os.path.dirname(HERE), "armlib.py"))
 armlib = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(armlib)
-CONTINUE_REPLY = "keep going, decide for yourself"
+CONTINUE_REPLY = "continue until the brief is fully done"   # the one scripted nudge (#621); its count is counts.continue_replies
 MAX_REPLIES = 20      # the default fixture's; a fixture sets its own (bench/fixtures.py: the large one raises it to 50, #592)
 CHANGE_INTRO = "I have changed my mind about some of what I asked for. Here is the change, in writing:\n\n"
 CHANGE_OUTRO = "\nPlease bring the project in line with it, and carry on with what is still to do."

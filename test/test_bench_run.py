@@ -825,10 +825,10 @@ def test_usage_errors_spell_a_form_feed_and_u2028_as_vis_does():   # #899
 def test_fixture_choice_error_spells_a_form_feed_and_u2028_as_vis_does():   # #912
     for ch, esc in (("\x0c", "\\u000c"), ("\u2028", "\\u2028")):
         r = subprocess.run([sys.executable, RUN, "stub", "--fixture", f"p{ch}"], capture_output=True, text=True)
-        assert r.returncode == 2 and f"invalid choice: 'p{esc}' (choose from pennywise, large)" in r.stderr, (r.returncode, r.stderr)
+        assert r.returncode == 2 and f"invalid choice: 'p{esc}' (choose from pennywise, medium, large)" in r.stderr, (r.returncode, r.stderr)
         assert ch not in r.stderr and "\\x0c" not in r.stderr, repr(r.stderr)
     r = subprocess.run([sys.executable, RUN, "stub", "-h"], capture_output=True, text=True)
-    assert "--fixture {pennywise,large}" in r.stdout, r.stdout
+    assert "--fixture {pennywise,medium,large}" in r.stdout, r.stdout
     assert bench_run.parse_args(["stub", "--fixture", "large"]).fixture == "large"
 
 

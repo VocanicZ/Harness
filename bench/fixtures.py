@@ -4,13 +4,14 @@
 A fixture is a brief, hidden tests, a reference implementation and a fuzz generator under one directory:
 
     pennywise   bench/fixture/        a 4.7 KB brief, about 400 lines of code; fits one session (the original)
+    medium      bench/fixture-medium/ stockroom: a 12 KB brief, two subsystems (shelves, orders), 6-10 issues of work (#621)
     large       bench/fixture-large/  a 20-page brief, a 6-10k line reference, a mid-run requirement change
 
 `bench/run.py <arm> --fixture NAME` picks one (default `pennywise`). The large fixture describes itself in
-`bench/fixture-large/fixture.json`; `pennywise` has no manifest and gets the defaults below.
+`bench/fixture-large/fixture.json` and so does the medium one; `pennywise` has no manifest and gets the defaults below.
 
     load(name)   -> Fixture
-    names()      -> ["pennywise", "large"]
+    names()      -> ["pennywise", "medium", "large"]
 
 Fixture attributes: name, dir, brief (path), hidden (dir), runner (hidden/run_hidden.py), reference (dir), package,
 cmd_env (the env var the hidden tests read the CLI argv from), fuzz (path of the fuzz module, whose run(argv, env,
@@ -24,7 +25,7 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT = "pennywise"
-DIRS = {"pennywise": "fixture", "large": "fixture-large"}
+DIRS = {"pennywise": "fixture", "medium": "fixture-medium", "large": "fixture-large"}
 PLAIN_MAX_REPLIES = 20
 
 
@@ -45,6 +46,7 @@ class Fixture:
         self.milestones = bool(m.get("milestones", False))
         self.plain_max_replies = int(m.get("plain_max_replies", PLAIN_MAX_REPLIES))
         self.modules = dict(m.get("modules") or {})
+        self.shape = os.path.join(root, m["shape"]) if m.get("shape") else None
 
     @property
     def change(self):

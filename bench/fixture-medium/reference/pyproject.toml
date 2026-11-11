@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stockroom"
+version = "1.0.0"
+description = "Read plain text stock, catalogue and order files; say what is on the shelves, what an order costs and what can ship."
+requires-python = ">=3.9"
+
+[project.scripts]
+stockroom = "stockroom.cli:main"
+
+[tool.setuptools]
+packages = ["stockroom"]

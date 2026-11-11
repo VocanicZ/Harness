@@ -1,0 +1,683 @@
+{
+  "schema": 1,
+  "run_id": "run-20261111-medium",
+  "arm": "plain",
+  "fixture": "medium",
+  "repo": "VocanicZ/bench-run-20261111-medium-plain-r05",
+  "status": "ok",
+  "capped": null,
+  "error": null,
+  "started_at": "2026-11-11T08:05:45Z",
+  "ended_at": "2026-11-11T08:21:08Z",
+  "wall_s": 318.024,
+  "coding_s": 294.671,
+  "testing_s": 15.147,
+  "test_calls": 2,
+  "tokens": {
+    "input": 30,
+    "output": 31032,
+    "cache_read": 658484,
+    "cache_write": 40928
+  },
+  "cost_usd": 0.9571,
+  "usd_per_pct": 0.53,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 1.81,
+  "models": {
+    "claude-opus-5-5": {
+      "messages": 15,
+      "input": 30,
+      "output": 31032,
+      "cache_read": 658484,
+      "cache_write": 40928,
+      "cost_usd": 0.9571
+    }
+  },
+  "hidden_tests": {
+    "passed": 114,
+    "failed": 0,
+    "total": 114,
+    "details": {
+      "install": "pip",
+      "tests": [
+        {
+          "id": "BrokenPipeTests.test_report_piped_to_a_reader_that_stops",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "BrokenPipeTests.test_stock_piped_to_a_reader_that_stops",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_duplicate_skus",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_error_carries_line_attribute_and_message",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_field_count_and_sku_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_first_mistake_is_reported",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_line_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_name_and_price_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_reorder_and_tax_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_example_and_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_field_values",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_ignored_lines_and_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_sku_rules",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_tax_classes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_arguments_and_options",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_arguments_taken_as_typed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_checked_before_files_are_read",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_mistyped_dates",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_no_command_or_unknown_command",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_the_files_are_read_before_the_request_is_carried_out",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_default_and_relative",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_dir_position",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_errors_name_the_file_found_in_dir",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_writes_go_to_the_dir",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_good_runs_and_empty_files",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_mistakes_in_catalogue_and_movements",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_mistakes_in_orders",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_read_only_commands",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_refusals_are_exit_1_with_nothing_on_stdout",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_unreadable_is_exit_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FileFormatTests.test_bom_and_crlf",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FileFormatTests.test_endings_and_blank_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FileFormatTests.test_utf8_and_odd_separators",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilesNeededTests.test_others_read_what_they_need",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilesNeededTests.test_the_shelves_commands_do_not_read_the_orders",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_date_against_the_order_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_earlier_shipments_by_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_file_handling",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_later_dips_and_same_day",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_later_movements_limit_the_shipment",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_open_and_partial_status",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_partial_then_complete",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_shortage",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_unknown_order_is_refused",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_empty_and_unknown",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_odd_characters_in_a_note_stay_in_the_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_follows_what_shipped",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_partial_and_full",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_refused",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_which_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "LowCliTests.test_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "LowCliTests.test_nothing_low_prints_nothing_and_succeeds",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "LowCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementErrorTests.test_field_and_date_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementErrorTests.test_line_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementErrorTests.test_sku_and_quantity_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_example_and_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_field_forms",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_ignored_lines_and_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_effect_on_lines_and_tax",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_order_discount_halves_round_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_order_discount_with_volume_discounts_and_all_three_classes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_threshold",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_threshold_on_the_subtotal",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_field_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_line_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_order_line_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_order_number_and_date_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_customer_and_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_example_and_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_order_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_separators_and_ignored_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_missing_files",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_order_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_volume_and_order_discounts_carry_a_minus_sign",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteShapeTests.test_discounts_are_zero_or_negative",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteShapeTests.test_quote_shape",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_append_and_print",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_effects_on_the_shelves",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_file_handling",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refusal_leaves_the_file_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refused_input",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refused_stock",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_edges",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_statuses_and_amounts",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_a_single_line_takes_the_whole_discount",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_biggest_lost_fraction",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_ties_go_to_the_earlier_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_two_leftover_pennies_go_to_the_two_earlier_lines_of_three_tied_ones",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockCliTests.test_empty_catalog_and_unicode",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockCliTests.test_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockLevelTests.test_example_and_unmoved_products",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockLevelTests.test_levels_are_ints_and_sum_every_movement",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_below_zero_is_blamed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_date_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_each_product_is_checked_on_its_own",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_line_numbers_when_blaming",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_same_day_movements_keep_the_order_of_the_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "TaxTests.test_rates_and_totals",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "TaxTests.test_rounding",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "TaxTests.test_tax_is_rounded_per_line_then_added_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "VolumeDiscountTests.test_halves_round_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "VolumeDiscountTests.test_the_tier_depends_on_each_lines_own_quantity",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "VolumeDiscountTests.test_tiers_at_the_edges",
+          "status": "passed",
+          "message": ""
+        }
+      ]
+    }
+  },
+  "counts": {
+    "continue_replies": 0,
+    "commits": 1
+  },
+  "caps": {
+    "wall_s": 3600.0,
+    "cost_usd": 12.0
+  },
+  "repo_deleted": true,
+  "logs": "run-05.logs",
+  "quality": "ok",
+  "coverage": {
+    "line_pct": 92.0,
+    "branch_pct": 88.5,
+    "total_pct": 91.1,
+    "tests": "unittest"
+  },
+  "run": 5,
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "isolated config dir, session init",
+    "skills": 0,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 40928,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 0.3363,
+  "turn_gaps": {
+    "turns": 15,
+    "p50_s": 14.2,
+    "p90_s": 54.6,
+    "max_s": 94.7,
+    "over_5m": 0,
+    "over_1h": 0
+  },
+  "cache_ttl": "5m",
+  "effort": {
+    "medium": 29
+  },
+  "provenance": {
+    "engine_commit": "85f72c192b9d43371b9a2bf130c02d863c6929b0-dirty",
+    "skill_version": "sha256:064c51f34bfa1028",
+    "cli_version": "2.1.322 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 0,
+  "fuzz_classes": 0,
+  "fuzz_class_counts": {},
+  "fuzz_examples": [],
+  "fuzz_seed": 621,
+  "fuzz_hash": "dadc646bc2e0c241c8dde733be0f4c09da016eba2e7319c0e5d24dcf3537a0f1",
+  "usd_per_passed_test": 0.0084,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  }
+}

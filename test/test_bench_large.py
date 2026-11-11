@@ -35,7 +35,7 @@ figures = load("t_figures", os.path.join(BENCH, "figures.py"))
 
 # --- the registry -----------------------------------------------------------------------------
 def test_the_registry_knows_both_fixtures_and_defaults_to_pennywise():
-    assert fixtures.names() == ["pennywise", "large"] and fixtures.DEFAULT == "pennywise"
+    assert fixtures.names() == ["pennywise", "medium", "large"] and fixtures.DEFAULT == "pennywise"
     p, lg = fixtures.load(), fixtures.load("large")
     assert (p.name, p.package, p.cmd_env, p.phases, p.milestones, p.change) == ("pennywise", "pennywise", "PENNYWISE_CMD", False, False, None)
     assert p.brief == os.path.join(BENCH, "fixture", "brief.md") and p.plain_max_replies == 20
