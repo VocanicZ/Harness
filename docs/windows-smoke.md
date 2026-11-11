@@ -330,6 +330,12 @@ call for their CLI, which takes more than 25 minutes on this host (`HARNESS_MATR
 hung once at a `harness start` in its last third (it passed in the run before); openclaw's hangup-ends-the-tree case is still red; and two tests
 main added since (`test_stats.py`, `test_forecast.py`: Git's bash instead of WSL's, and the Windows "Invalid argument" for a form feed in a file name)
 were fixed afterwards. Those fixes are not re-run on winsma.
+The last runs (11 Nov, branch `issue/605` then `main`): `test_stats.py` green, `test_fleet_migrate.sh` 182 of 182, `test_cli_openclaw.sh` passes every assertion of its
+own, the hangup case included (`proc_kill_tree` also signals the MSYS descendants it reads from `/proc`: `taskkill /T` follows Windows parents, and
+an MSYS fork or exec leaves a child whose Windows parent is gone), and `test_forecast.py` green in `test/smoke/logs/suite-windows-20261111T164624Z-605-forecast.log`
+(a form feed cannot be in a Windows file name, and the `--bodies` error quotes the path as the caller spelled it). Those runs were cut short several
+times by other lanes releasing an "idle" holder (#1062); copying `suite.out` to the lane's side every 90 s kept the evidence. The adapter files'
+matrix time is the follow-up issue's.
 `HX_VERBOSE=1` makes `suite.sh` print run.sh's whole output (`| `-prefixed) after the summary, to read why a red file is red.
 
 The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
