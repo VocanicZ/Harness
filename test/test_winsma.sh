@@ -349,7 +349,7 @@ echo "# lock: WS_POLL below the rule is clamped (#1040)"
   finish ) || rc=1
 
 echo "# lock: the hard ceiling"
-( fresh_env
+( fresh_env; export WS_HB_INTERVAL=300   # the waiter's ceiling on its own: the heartbeat's cap enforcement (#1040) is tested above
   # a runaway holder: past WS_HOLD_HARD a queued waiter may break a LIVE holder (its run is cleaned first)
   export WS_HOLD_HARD=100 WS_LOCK_TIMEOUT=5
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null; : >"$WS_C/hx-111/mark"
