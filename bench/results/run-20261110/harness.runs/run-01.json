@@ -1,44 +1,44 @@
 {
   "schema": 1,
-  "run_id": "20261110T202630Z",
+  "run_id": "run-20261110",
   "arm": "harness",
   "fixture": "pennywise",
-  "repo": "VocanicZ/bench-20261110t202630z-harness-r02",
+  "repo": "VocanicZ/bench-20261110t202630z-harness-r01",
   "status": "ok",
   "capped": null,
   "error": null,
-  "started_at": "2026-11-11T00:46:16Z",
-  "ended_at": "2026-11-11T02:21:00Z",
-  "wall_s": 5486.446,
-  "coding_s": 3138.959,
-  "testing_s": 918.789,
-  "test_calls": 126,
+  "started_at": "2026-11-11T00:10:18Z",
+  "ended_at": "2026-11-11T00:46:00Z",
+  "wall_s": 1985.13,
+  "coding_s": 1361.681,
+  "testing_s": 84.157,
+  "test_calls": 53,
   "tokens": {
-    "input": 896,
-    "output": 256191,
-    "cache_read": 13136815,
-    "cache_write": 1119054
+    "input": 386,
+    "output": 116696,
+    "cache_read": 5610936,
+    "cache_write": 476697
   },
-  "cost_usd": 9.6439,
+  "cost_usd": 4.045,
   "usd_per_pct": 0.53,
   "usd_per_pct_source": "fit",
-  "weekly_window_pct": 18.2,
+  "weekly_window_pct": 7.63,
   "models": {
     "claude-opus-5-5": {
-      "messages": 133,
-      "input": 278,
-      "output": 123664,
-      "cache_read": 5490261,
-      "cache_write": 473071,
-      "cost_usd": 5.9378
+      "messages": 54,
+      "input": 114,
+      "output": 46062,
+      "cache_read": 2010061,
+      "cache_write": 185044,
+      "cost_usd": 2.2489
     },
     "claude-sonnet-5-5": {
-      "messages": 309,
-      "input": 618,
-      "output": 132527,
-      "cache_read": 7646554,
-      "cache_write": 645983,
-      "cost_usd": 3.7061
+      "messages": 136,
+      "input": 272,
+      "output": 70634,
+      "cache_read": 3600875,
+      "cache_write": 291653,
+      "cost_usd": 1.7961
     }
   },
   "hidden_tests": {
@@ -455,23 +455,23 @@
     "workers": 1,
     "continue_replies": 0,
     "fleet_restarts": 0,
-    "issues_closed": 26,
-    "prs_merged": 26
+    "issues_closed": 11,
+    "prs_merged": 11
   },
   "caps": {
     "wall_s": 21600,
     "cost_usd": 80.0
   },
   "repo_deleted": true,
-  "logs": "run-02.logs",
+  "logs": "run-01.logs",
   "quality": "ok",
   "coverage": {
-    "line_pct": 98.3,
-    "branch_pct": 98.0,
-    "total_pct": 98.2,
+    "line_pct": 99.0,
+    "branch_pct": 98.9,
+    "total_pct": 99.0,
     "tests": "unittest"
   },
-  "run": 2,
+  "run": 1,
   "isolation": {
     "config": "isolated",
     "engine_skills": [
@@ -507,21 +507,21 @@
     "plugins": 0,
     "mcp_servers": 0
   },
-  "cache_write_5m": 1119054,
+  "cache_write_5m": 476697,
   "cache_write_1h": 0,
-  "cache_cost_usd": 5.843,
+  "cache_cost_usd": 2.4165,
   "turn_gaps": {
-    "turns": 410,
-    "p50_s": 6.0,
-    "p90_s": 21.9,
-    "max_s": 475.5,
-    "over_5m": 2,
+    "turns": 177,
+    "p50_s": 5.4,
+    "p90_s": 14.3,
+    "max_s": 329.0,
+    "over_5m": 1,
     "over_1h": 0
   },
   "cache_ttl": "5m",
   "effort": {
-    "high": 758,
-    "medium": 22
+    "high": 303,
+    "medium": 30
   },
   "provenance": {
     "engine_commit": "cd68d682096c1cf8b846948b4782e3ce1dee3650",
@@ -535,14 +535,14 @@
   "fuzz_examples": [],
   "fuzz_seed": 620,
   "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87",
-  "usd_per_passed_test": 0.1205,
+  "usd_per_passed_test": 0.0506,
   "compactions": 0,
   "refeeds": 0,
   "refeed_tokens": 0,
   "sonarqube": {
     "bugs": 0,
     "vulnerabilities": 0,
-    "code_smells": 1,
+    "code_smells": 0,
     "maintainability_rating": "A",
     "duplicated_lines_density": 0.0,
     "coverage": 0.0

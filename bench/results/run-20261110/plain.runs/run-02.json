@@ -1,36 +1,36 @@
 {
   "schema": 1,
-  "run_id": "20261110T202630Z",
+  "run_id": "run-20261110",
   "arm": "plain",
   "fixture": "pennywise",
-  "repo": "VocanicZ/bench-20261110t202630z-plain-r04",
+  "repo": "VocanicZ/bench-20261110t202630z-plain-r02",
   "status": "ok",
   "capped": null,
   "error": null,
-  "started_at": "2026-11-10T20:43:48Z",
-  "ended_at": "2026-11-10T20:49:16Z",
-  "wall_s": 173.058,
-  "coding_s": 162.609,
-  "testing_s": 4.242,
+  "started_at": "2026-11-10T20:32:21Z",
+  "ended_at": "2026-11-10T20:37:34Z",
+  "wall_s": 168.991,
+  "coding_s": 162.846,
+  "testing_s": 0.76,
   "test_calls": 3,
   "tokens": {
-    "input": 22,
-    "output": 18500,
-    "cache_read": 361573,
-    "cache_write": 25142
+    "input": 32,
+    "output": 17329,
+    "cache_read": 546260,
+    "cache_write": 24585
   },
-  "cost_usd": 0.5681,
+  "cost_usd": 0.5789,
   "usd_per_pct": 0.53,
   "usd_per_pct_source": "fit",
-  "weekly_window_pct": 1.07,
+  "weekly_window_pct": 1.09,
   "models": {
     "claude-opus-5-5": {
-      "messages": 11,
-      "input": 22,
-      "output": 18500,
-      "cache_read": 361573,
-      "cache_write": 25142,
-      "cost_usd": 0.5681
+      "messages": 16,
+      "input": 32,
+      "output": 17329,
+      "cache_read": 546260,
+      "cache_write": 24585,
+      "cost_usd": 0.5789
     }
   },
   "hidden_tests": {
@@ -452,15 +452,15 @@
     "cost_usd": 80.0
   },
   "repo_deleted": true,
-  "logs": "run-04.logs",
+  "logs": "run-02.logs",
   "quality": "ok",
   "coverage": {
-    "line_pct": 94.2,
-    "branch_pct": 87.5,
-    "total_pct": 93.1,
+    "line_pct": 91.0,
+    "branch_pct": 86.8,
+    "total_pct": 90.2,
     "tests": "unittest"
   },
-  "run": 4,
+  "run": 2,
   "configured": {
     "model": null,
     "effort": null
@@ -471,20 +471,20 @@
     "plugins": 0,
     "mcp_servers": 0
   },
-  "cache_write_5m": 25142,
+  "cache_write_5m": 24585,
   "cache_write_1h": 0,
-  "cache_cost_usd": 0.198,
+  "cache_cost_usd": 0.2322,
   "turn_gaps": {
-    "turns": 11,
-    "p50_s": 16.2,
-    "p90_s": 32.1,
-    "max_s": 32.1,
+    "turns": 16,
+    "p50_s": 5.3,
+    "p90_s": 26.6,
+    "max_s": 43.2,
     "over_5m": 0,
     "over_1h": 0
   },
   "cache_ttl": "5m",
   "effort": {
-    "medium": 24
+    "medium": 26
   },
   "provenance": {
     "engine_commit": "6561d455d4fe65269508deeafbae2643c48ffb45-dirty",
@@ -492,9 +492,10 @@
     "cli_version": "2.1.322 (Claude Code)"
   },
   "fuzz_cases": 1000,
-  "fuzz_divergences": 9,
-  "fuzz_classes": 3,
+  "fuzz_divergences": 20,
+  "fuzz_classes": 4,
   "fuzz_class_counts": {
+    "output:closed-pipe x stderr": 11,
     "argv:dash-led-argument x exit": 4,
     "ledger:lone-cr x stdout": 4,
     "ledger:lone-cr x exit": 1
@@ -554,6 +555,45 @@
       "arm_stderr": ""
     },
     {
+      "case": 126,
+      "argv": [
+        "export",
+        "ledger.txt"
+      ],
+      "ledger": "2021-01-29 savings +25.14\\n2021-04-26 rent -6 \\t \\n#\\n2021-06-17 \\tRent -1568.25\\n2021-10-18 \\treNt\\t19.91\\n2021-11-07 savings +1091.48\\n2021-12-30 rent -40.75  gift for mum\\n",
+      "ledger_from": "file",
+      "closed_stdout": true,
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": [
+          "2021-01-29 savings +25.14",
+          "2021-04-26 rent -6 \t ",
+          "#",
+          "2021-06-17 \tRent -1568.25",
+          "2021-10-18 \treNt\t19.91",
+          "2021-11-07 savings +1091.48",
+          "2021-12-30 rent -40.75  gift for mum"
+        ]
+      },
+      "arm": {
+        "exit": 120,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2021-01-29 savings +25.14",
+          "2021-04-26 rent -6 \t ",
+          "#",
+          "2021-06-17 \tRent -1568.25",
+          "2021-10-18 \treNt\t19.91",
+          "2021-11-07 savings +1091.48",
+          "2021-12-30 rent -40.75  gift for mum"
+        ]
+      },
+      "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+    },
+    {
       "case": 232,
       "argv": [
         "add",
@@ -588,6 +628,104 @@
         ]
       },
       "arm_stderr": "usage: pennywise add [-h] FILE DATE CATEGORY AMOUNT [NOTE]\\npennywise add: error: the following arguments are required: AMOUNT\\n"
+    },
+    {
+      "case": 281,
+      "argv": [
+        "list",
+        "-",
+        "--since",
+        "2024-05-10"
+      ],
+      "ledger": "2024-05-02 groceries  0\\n2024-04-24\\thealth  -40\\n2024-03-03 Health -51.7\\n# ledger\\n2024-04-02 \\tuTiLiTieS +914090121.5 gift for mum\\n2024-03-29 Travel      -73835.86\\n2024-04-14 TRAVEL -1054\\n2024-0\u2026",
+      "ledger_from": "stdin",
+      "closed_stdout": true,
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": null
+      },
+      "arm": {
+        "exit": 120,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+    },
+    {
+      "case": 378,
+      "argv": [
+        "summary",
+        "ledger.txt",
+        "--json",
+        "--by",
+        "month"
+      ],
+      "ledger": "## section\\n2000-02-29 coFFEe  -35.51\\n2023-12-22 coFFEe -3.35 two  spaces  inside\\n2024-01-09 Gifts -2952.16\\n2024-01-13 Gifts -0.19 12.505\\n",
+      "ledger_from": "file",
+      "closed_stdout": true,
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": [
+          "## section",
+          "2000-02-29 coFFEe  -35.51",
+          "2023-12-22 coFFEe -3.35 two  spaces  inside",
+          "2024-01-09 Gifts -2952.16",
+          "2024-01-13 Gifts -0.19 12.505"
+        ]
+      },
+      "arm": {
+        "exit": 120,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "## section",
+          "2000-02-29 coFFEe  -35.51",
+          "2023-12-22 coFFEe -3.35 two  spaces  inside",
+          "2024-01-09 Gifts -2952.16",
+          "2024-01-13 Gifts -0.19 12.505"
+        ]
+      },
+      "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
+    },
+    {
+      "case": 385,
+      "argv": [
+        "balance",
+        "ledger.txt"
+      ],
+      "ledger": "2022-07-02 Pets 66 \\trent for march\\n2022-10-14 Travel 84.71 #tag\\n2023-02-06 insurance 1665 -refund\\n2022-07-08 Pets      -1609.02 12.505\\n2023-02-21 insurance 37.20      birthday\\n",
+      "ledger_from": "file",
+      "closed_stdout": true,
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": [
+          "2022-07-02 Pets 66 \trent for march",
+          "2022-10-14 Travel 84.71 #tag",
+          "2023-02-06 insurance 1665 -refund",
+          "2022-07-08 Pets      -1609.02 12.505",
+          "2023-02-21 insurance 37.20      birthday"
+        ]
+      },
+      "arm": {
+        "exit": 120,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2022-07-02 Pets 66 \trent for march",
+          "2022-10-14 Travel 84.71 #tag",
+          "2023-02-06 insurance 1665 -refund",
+          "2022-07-08 Pets      -1609.02 12.505",
+          "2023-02-21 insurance 37.20      birthday"
+        ]
+      },
+      "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
     },
     {
       "case": 557,
@@ -701,132 +839,46 @@
       "arm_stderr": ""
     },
     {
-      "case": 559,
+      "case": 284,
       "argv": [
-        "export",
+        "list",
         "ledger.txt"
       ],
-      "ledger": "2024-04-19\\ttravel  -1049.6 abc def ghi\\r# note to self\\r2024-03-16 fuel 370.67 -5\\r#2024-03-01 groceries abc\\r2024-04-12  travel -705.4 birthday\\r2024-04-08 Travel -15331.30 March pay new shoes birth\u2026",
+      "ledger": "2024-05-16  gifts -19\\n2024-05-04  gifts -25.32\\n2024-03-30 books 0 #tag\\n2024-03-18 gifts 54.05 bus ticket\\n2024-03-25      books -759197243.25 bus ticket\\n2024-03-16 \\tfuel 58.2\\n",
       "ledger_from": "file",
-      "closed_stdout": false,
+      "closed_stdout": true,
       "reference": {
         "exit": 0,
-        "stdout": "date,category,amount,note\\n2024-03-16,fuel,370.67,-5\\n2024-04-08,travel,-15331.30,March pay new shoes birthday 2024-03-02 -5 refund weekly shop coffee beans dentist 42 gift for mum -5 2024-03-02 42 x \u2026",
+        "stdout": "",
         "stderr_empty": true,
         "file": [
-          "2024-04-19\ttravel  -1049.6 abc def ghi",
-          "# note to self",
-          "2024-03-16 fuel 370.67 -5",
-          "#2024-03-01 groceries abc",
-          "2024-04-12  travel -705.4 birthday",
-          "2024-04-08 Travel -15331.30 March pay new shoes birthday 2024-03-02 -5 refund weekly shop coffee beans dentist 42 gift for mum -5 2024-03-02 42 x 2024-03-02 bus ticket 2024-03-02 train to Leeds new shoes March pay birthday 12.505 weekly shop bus ticket gift for mum weekly shop abc def ghi dentist gift for mum -5 lunch with Sam refund coffee beans coffee beans gift for mum two  spaces  inside train to Leeds 42 dentist train to Leeds abc def ghi two  spaces  inside weekly shop abc def ghi March pay lunch with Sam coffee beans 42 two  spaces  inside 12.505 two  spaces  inside lunch with Sam train to Leeds coffee beans refund weekly shop 2024-03-02 coffee beans refund train to Leeds abc def ghi 2024-03-02 electric bill 42 x -5 coffee beans new shoes birthday bus ticket refund 12.505 -5 coffee beans refund weekly shop electric bill new shoes rent for march coffee beans lunch with Sam dentist lunch with Sam coffee beans bus ticket dentist dentist gift for mum 12.505 dentist coffee beans x 12.505 abc def ghi two  spaces  inside x abc def ghi March pay lunch with Sam 42 refund weekly shop x March pay coffee beans two  spaces  inside electric bill new shoes coffee beans x birthday refund rent for march lunch with Sam electric bill 12.505 42 gift for mum x train to Leeds lunch with Sam weekly shop March pay 12.505 dentist weekly shop train to Leeds 42 rent for march -5 new shoes bus ticket birthday x dentist bus ticket dentist birthday weekly shop train to Leeds dentist birthday bus ticket electric bill two  spaces  inside two  spaces  inside coffee beans March pay coffee beans abc def ghi electric bill bus ticket rent for march gift for mum abc def ghi bus ticket lunch with Sam train to Leeds 42 bus ticket coffee beans x birthday lunch with Sam gift for mum birthday 2024-03-02 gift for mum 42 bus ticket coffee beans March pay electric bill rent for march electric bill -5 abc def ghi gift for mum birthday gift for mum 42 refund two  spaces  inside train to Leeds new shoes gift for mum birthday dentist rent for march rent for march weekly shop refund x new shoes March pay 2024-03-02 12.505 two  spaces  inside lunch with Sam"
+          "2024-05-16  gifts -19",
+          "2024-05-04  gifts -25.32",
+          "2024-03-30 books 0 #tag",
+          "2024-03-18 gifts 54.05 bus ticket",
+          "2024-03-25      books -759197243.25 bus ticket",
+          "2024-03-16 \tfuel 58.2"
         ]
       },
       "arm": {
-        "exit": 0,
-        "stdout": "date,category,amount,note\\n2024-04-19,travel,-1049.60,\"abc def ghi\\r# note to self\\r2024-03-16 fuel 370.67 -5\\r#2024-03-01 groceries abc\\r2024-04-12  travel -705.4 birthday\\r2024-04-08 Travel -15331.3\u2026",
-        "stderr_empty": true,
-        "file": [
-          "2024-04-19\ttravel  -1049.6 abc def ghi",
-          "# note to self",
-          "2024-03-16 fuel 370.67 -5",
-          "#2024-03-01 groceries abc",
-          "2024-04-12  travel -705.4 birthday",
-          "2024-04-08 Travel -15331.30 March pay new shoes birthday 2024-03-02 -5 refund weekly shop coffee beans dentist 42 gift for mum -5 2024-03-02 42 x 2024-03-02 bus ticket 2024-03-02 train to Leeds new shoes March pay birthday 12.505 weekly shop bus ticket gift for mum weekly shop abc def ghi dentist gift for mum -5 lunch with Sam refund coffee beans coffee beans gift for mum two  spaces  inside train to Leeds 42 dentist train to Leeds abc def ghi two  spaces  inside weekly shop abc def ghi March pay lunch with Sam coffee beans 42 two  spaces  inside 12.505 two  spaces  inside lunch with Sam train to Leeds coffee beans refund weekly shop 2024-03-02 coffee beans refund train to Leeds abc def ghi 2024-03-02 electric bill 42 x -5 coffee beans new shoes birthday bus ticket refund 12.505 -5 coffee beans refund weekly shop electric bill new shoes rent for march coffee beans lunch with Sam dentist lunch with Sam coffee beans bus ticket dentist dentist gift for mum 12.505 dentist coffee beans x 12.505 abc def ghi two  spaces  inside x abc def ghi March pay lunch with Sam 42 refund weekly shop x March pay coffee beans two  spaces  inside electric bill new shoes coffee beans x birthday refund rent for march lunch with Sam electric bill 12.505 42 gift for mum x train to Leeds lunch with Sam weekly shop March pay 12.505 dentist weekly shop train to Leeds 42 rent for march -5 new shoes bus ticket birthday x dentist bus ticket dentist birthday weekly shop train to Leeds dentist birthday bus ticket electric bill two  spaces  inside two  spaces  inside coffee beans March pay coffee beans abc def ghi electric bill bus ticket rent for march gift for mum abc def ghi bus ticket lunch with Sam train to Leeds 42 bus ticket coffee beans x birthday lunch with Sam gift for mum birthday 2024-03-02 gift for mum 42 bus ticket coffee beans March pay electric bill rent for march electric bill -5 abc def ghi gift for mum birthday gift for mum 42 refund two  spaces  inside train to Leeds new shoes gift for mum birthday dentist rent for march rent for march weekly shop refund x new shoes March pay 2024-03-02 12.505 two  spaces  inside lunch with Sam"
-        ]
-      },
-      "arm_stderr": ""
-    },
-    {
-      "case": 576,
-      "argv": [
-        "add",
-        "ledger.txt",
-        "2022-06-27",
-        "fuel",
-        "-abc",
-        "  price\u00a05  "
-      ],
-      "ledger": "2022-04-03 gifts -81 50% off\\n2022-05-31 utilities \\t-926.79\\n",
-      "ledger_from": "file",
-      "closed_stdout": false,
-      "reference": {
-        "exit": 1,
+        "exit": 120,
         "stdout": "",
         "stderr_empty": false,
         "file": [
-          "2022-04-03 gifts -81 50% off",
-          "2022-05-31 utilities \t-926.79"
+          "2024-05-16  gifts -19",
+          "2024-05-04  gifts -25.32",
+          "2024-03-30 books 0 #tag",
+          "2024-03-18 gifts 54.05 bus ticket",
+          "2024-03-25      books -759197243.25 bus ticket",
+          "2024-03-16 \tfuel 58.2"
         ]
       },
-      "arm": {
-        "exit": 2,
-        "stdout": "",
-        "stderr_empty": false,
-        "file": [
-          "2022-04-03 gifts -81 50% off",
-          "2022-05-31 utilities \t-926.79"
-        ]
-      },
-      "arm_stderr": "usage: pennywise [-h] COMMAND ...\\npennywise: error: unrecognized arguments: -abc\\n"
-    },
-    {
-      "case": 636,
-      "argv": [
-        "add",
-        "ledger.txt",
-        "2023-10-16",
-        "health",
-        "-abc"
-      ],
-      "ledger": "",
-      "ledger_from": "file",
-      "closed_stdout": false,
-      "reference": {
-        "exit": 1,
-        "stdout": "",
-        "stderr_empty": false,
-        "file": []
-      },
-      "arm": {
-        "exit": 2,
-        "stdout": "",
-        "stderr_empty": false,
-        "file": []
-      },
-      "arm_stderr": "usage: pennywise add [-h] FILE DATE CATEGORY AMOUNT [NOTE]\\npennywise add: error: the following arguments are required: AMOUNT\\n"
-    },
-    {
-      "case": 869,
-      "argv": [
-        "add",
-        "ledger.txt",
-        "2024-03-24",
-        "health",
-        "-abc",
-        "col1\tcol2"
-      ],
-      "ledger": null,
-      "ledger_from": null,
-      "closed_stdout": false,
-      "reference": {
-        "exit": 1,
-        "stdout": "",
-        "stderr_empty": false,
-        "file": null
-      },
-      "arm": {
-        "exit": 2,
-        "stdout": "",
-        "stderr_empty": false,
-        "file": null
-      },
-      "arm_stderr": "usage: pennywise [-h] COMMAND ...\\npennywise: error: unrecognized arguments: -abc\\n"
+      "arm_stderr": "Exception ignored on flushing sys.stdout:\\nBrokenPipeError: [Errno 32] Broken pipe\\n"
     }
   ],
   "fuzz_seed": 620,
   "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87",
-  "usd_per_passed_test": 0.0071,
+  "usd_per_passed_test": 0.0072,
   "compactions": 0,
   "refeeds": 0,
   "refeed_tokens": 0,
