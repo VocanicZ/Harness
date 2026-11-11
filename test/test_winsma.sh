@@ -160,6 +160,178 @@ PY
   ws_cleanup 444 >/dev/null
   finish ) || rc=1
 
+# --- #1033: a FIFO queue, a hold cap and a visible lock ----------------------------------------------------------------
+# wait_until <command> [tenths of a second] — poll a condition (the waiters run in the background).
+wait_until(){ local i; for ((i=0; i<${2:-100}; i++)); do eval "$1" && return 0; sleep 0.1; done; return 1; }
+owner_issue(){ sed -n 's/^issue=//p' "$WS_C/hx-lock/owner" 2>/dev/null; }
+queued_issues(){ ws_call r_queue_state | awk '{printf "%s ", $2}' | sed 's/ $//'; }
+age_taken(){ echo $(( $(date +%s) - $1 )) >"$WS_C/hx-lock/taken"; }   # pretend the lock was taken that many seconds ago
+
+echo "# lock: FIFO queue"
+( fresh_env
+  ws_lock 111 lane-a $$ >/dev/null
+  # B polls slowly, C fast: when A lets go C's poll lands first, and must still lose to B (it queued later)
+  ( WS_POLL=1; ws_lock 222 lane-b $$ >"$T/b.out" 2>&1; echo $? >"$T/b.rc" ) &
+  wait_until '[[ "$(queued_issues)" == 222 ]]' || true
+  ( WS_POLL=0.1; ws_lock 333 lane-c $$ >"$T/c.out" 2>&1; echo $? >"$T/c.rc" ) &
+  wait_until '[[ "$(queued_issues)" == "222 333" ]]'; assert_eq "$?" "0" "B queued first, then C: the queue is B, C"
+  ws_call r_queue_join 222 lane-b $$ >/dev/null
+  assert_eq "$(queued_issues)" "222 333" "one issue has at most one ticket: a second join is a refresh, not a second place"
+  ws_unlock 111
+  wait_until '[[ -f "$T/b.rc" ]]' 80; assert_eq "$(cat "$T/b.rc" 2>/dev/null)" "0" "A releases: B (oldest ticket) gets the lock"
+  assert_eq "$(owner_issue)" "222" "...even though C polled first"
+  assert_no "C does not take it while B holds it" test -f "$T/c.rc"
+  assert_eq "$(queued_issues)" "333" "B's ticket is gone once it holds the lock; C is still queued"
+  ws_unlock 222
+  wait_until '[[ -f "$T/c.rc" ]]' 80; assert_eq "$(cat "$T/c.rc" 2>/dev/null)" "0" "B releases: C gets it next"
+  assert_eq "$(owner_issue)" "333" "the lock is C's"
+  assert_eq "$(queued_issues)" "" "and the queue is empty"
+  ws_cleanup 333 >/dev/null; wait
+  finish ) || rc=1
+( fresh_env
+  # no re-take while others wait: A releases and asks again at once, B (queued) wins, A goes behind B and behind C
+  ws_lock 111 lane-a $$ >/dev/null
+  ( WS_POLL=0.5; ws_lock 222 lane-b $$ >"$T/b.out" 2>&1; echo $? >"$T/b.rc" ) &
+  wait_until '[[ "$(queued_issues)" == 222 ]]' || true
+  ( WS_POLL=0.5; ws_lock 333 lane-c $$ >"$T/c.out" 2>&1; echo $? >"$T/c.rc" ) &
+  wait_until '[[ "$(queued_issues)" == "222 333" ]]' || true
+  ws_unlock 111
+  ( WS_POLL=0.1; ws_lock 111 lane-a $$ >"$T/a.out" 2>&1; echo $? >"$T/a.rc" ) &
+  wait_until '[[ -f "$T/b.rc" ]]' 80; assert_eq "$(owner_issue)" "222" "A releases and re-locks at once: B holds the lock, not A"
+  assert_eq "$(queued_issues)" "333 111" "A is queued behind C (already queued) as well as B"
+  assert_no "A did not get the lock back" test -f "$T/a.rc"
+  ws_unlock 222; wait_until '[[ -f "$T/c.rc" ]]' 80; assert_eq "$(owner_issue)" "333" "next is C"
+  ws_unlock 333; wait_until '[[ -f "$T/a.rc" ]]' 80; assert_eq "$(owner_issue)" "111" "A last"
+  ws_cleanup 111 >/dev/null; wait
+  finish ) || rc=1
+( fresh_env
+  # an unqueued newcomer finds a free lock and an empty queue: it takes it with no ticket left behind
+  ws_lock 111 lane-a $$ >/dev/null; assert_eq "$(queued_issues)" "" "an uncontended lock leaves no ticket"
+  ws_cleanup 111 >/dev/null
+  # a waiter that gives up leaves the queue
+  seed_lock 999 lane-z 999999 10; export WS_LOCK_TIMEOUT=1
+  ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$(queued_issues)" "" "a waiter that times out takes its ticket with it"
+  out="$(ws_lock 222 lane-b $$ 2>&1)"; [[ "$out" == *"queue position 1"* ]]; assert_eq "$?" "0" "a waiter says its place in the queue"
+  finish ) || rc=1
+
+echo "# lock: dead waiters do not block the queue"
+( fresh_env
+  printf '#!/usr/bin/env bash\n[ "$1" != lane-dead ]\n' >"$T/bin/live"; chmod +x "$T/bin/live"
+  export WS_OWNER_LIVE_CMD="$T/bin/live" WS_LOCK_TIMEOUT=3
+  ws_call r_queue_join 555 lane-dead 999999 >/dev/null; touch -d '2 hours ago' "$WS_C"/hx-queue/*-555
+  ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "0" "a ticket stale for over WS_STALE_SEC whose lane is gone is skipped: the next live ticket gets the lock"
+  assert_eq "$(queued_issues)" "" "...and the dead ticket is dropped"
+  ws_cleanup 222 >/dev/null
+  # stale refresh but the lane is still live: it keeps its place, the newcomer waits
+  ws_call r_queue_join 556 lane-slow $$ >/dev/null; touch -d '2 hours ago' "$WS_C"/hx-queue/*-556
+  ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "1" "a stale ticket whose lane is live keeps its place"
+  ws_call r_queue_drop "$(ls "$WS_C/hx-queue" | grep -- -556)" 1800 >/dev/null
+  # lane gone but the ticket is fresh: not dead yet
+  ws_call r_queue_join 557 lane-dead 999999 >/dev/null; ws_call r_queue_drop "$(ls "$WS_C/hx-queue" | grep -- -557)" 1800
+  assert_eq "$(queued_issues)" "557" "a fresh ticket is never dropped, whatever its lane"
+  finish ) || rc=1
+
+echo "# lock: the hold cap"
+( fresh_env
+  ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
+  age_taken 100; ws_call r_queue_join 222 lane-b $$ >/dev/null
+  out="$(bash "$W/winsma.sh" exec 111 base 'echo under-the-cap' 2>&1)"; rc2=$?
+  assert_eq "$rc2" "0" "inside WS_HOLD_MAX a queued waiter changes nothing"; [[ "$out" == *under-the-cap* ]]; assert_eq "$?" "0" "...and the command ran"
+  age_taken 6000
+  out="$(bash "$W/winsma.sh" exec 111 base 'echo past-the-cap' 2>&1)"; rc2=$?
+  assert_ok "past WS_HOLD_MAX with a ticket queued, exec is refused (non-zero)" test "$rc2" -ne 0
+  [[ "$out" == *"hold cap reached, 1 lane(s) queued: release and re-queue"* ]]; assert_eq "$?" "0" "...naming the cap and the queue"
+  [[ "$out" != *past-the-cap* ]]; assert_eq "$?" "0" "...and the command did not run"
+  ( WS_LOCK_TIMEOUT=0 WS_POLL=0.1; ws_lock 222 lane-b $$ >/dev/null 2>&1; echo $? >"$T/b.rc" ) &
+  ws_unlock 111; wait_until '[[ -f "$T/b.rc" ]]' 80
+  assert_eq "$(cat "$T/b.rc")" "0" "once A releases, B takes the lock on its next poll"; assert_eq "$(owner_issue)" "222" "the lock is B's"
+  ws_cleanup 222 >/dev/null; wait
+  finish ) || rc=1
+( fresh_env
+  ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null; age_taken 6000
+  out="$(bash "$W/winsma.sh" exec 111 base 'echo nobody-waits' 2>&1)"; assert_eq "$?" "0" "past the cap with no one queued: A may keep exec'ing"
+  ws_call r_queue_join 111 lane-a $$ >/dev/null
+  assert_eq "$(bash "$W/winsma.sh" exec 111 base 'echo own-ticket-only' 2>&1 | tail -1)" "own-ticket-only" "...and A's own ticket is not another lane"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+( fresh_env
+  # an exec already running is never killed because the cap passed and someone queued up behind it
+  ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
+  ( bash "$W/winsma.sh" exec 111 base 'sleep 3; echo finished-after-cap' >"$T/x.out" 2>&1; echo $? >"$T/x.rc" ) &
+  sleep 0.5; age_taken 6000; ws_call r_queue_join 222 lane-b $$ >/dev/null
+  wait_until '[[ -f "$T/x.rc" ]]' 100
+  assert_eq "$(cat "$T/x.rc")" "0" "a running exec finishes when the cap passes mid-command"; grep -q finished-after-cap "$T/x.out"; assert_eq "$?" "0" "...with its output"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+( fresh_env
+  # a `run` is one acquisition for exactly one command: its own exec is not refused by the cap, even with B queued behind it
+  export WS_HOLD_MAX=-1; ws_call r_queue_join 479 lane-a $$ >/dev/null; ws_call r_queue_join 222 lane-b $$ >/dev/null
+  out="$(ws_run 479 base 'echo ran-once' 2>&1)"; assert_eq "$?" "0" "a run is never refused by the cap"
+  [[ "$out" == *ran-once* ]]; assert_eq "$?" "0" "...its command ran"
+  assert_no "...and the lock is released at the end" test -e "$WS_C/hx-lock"
+  assert_eq "$(queued_issues)" "222" "...leaving B first in line"
+  finish ) || rc=1
+
+echo "# lock: the hard ceiling"
+( fresh_env
+  # a runaway holder: past WS_HOLD_HARD a queued waiter may break a LIVE holder (its run is cleaned first)
+  export WS_HOLD_HARD=100 WS_LOCK_TIMEOUT=5
+  ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null; : >"$WS_C/hx-111/mark"
+  age_taken 50
+  ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "1" "under the hard ceiling a live holder is never broken"
+  assert_eq "$(owner_issue)" "111" "...it keeps the lock"
+  age_taken 500
+  out="$(ws_lock 222 lane-b $$ 2>&1)"; assert_eq "$?" "0" "past the hard ceiling the queued waiter breaks the holder and takes the lock"
+  [[ "$out" == *"WS_HOLD_HARD"* ]]; assert_eq "$?" "0" "...and says why"
+  assert_eq "$(owner_issue)" "222" "the lock is B's"; assert_no "the runaway holder's run folder is cleaned" test -e "$WS_C/hx-111"
+  ws_cleanup 222 >/dev/null
+  # WS_HOLD_HARD=0 switches the ceiling off
+  export WS_HOLD_HARD=0 WS_LOCK_TIMEOUT=1
+  ws_lock 111 lane-a $$ >/dev/null; age_taken 99999
+  ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "1" "WS_HOLD_HARD=0: no ceiling"
+  ws_cleanup 111 >/dev/null
+  finish ) || rc=1
+
+echo "# status: the lock, the holder and the queue"
+( fresh_env
+  seed_lock 111 hz-main-i111 $$ 42; age_taken 4500
+  ws_call r_queue_join 222 hz-main-i222 $$ >/dev/null; sleep 1.1; ws_call r_queue_join 333 hz-main-i333 $$ >/dev/null
+  out="$(bash "$W/winsma.sh" status 2>&1)"; assert_eq "$?" "0" "winsma.sh status succeeds on a reachable host"
+  [[ "$out" == *"#111"*"hz-main-i111"*"1h15m"*"heartbeat 4"[0-9]"s"* ]]; assert_eq "$?" "0" "names the holder, how long it has held, the heartbeat age"
+  [[ "$out" == *"#222"*"#333"* && "$out" != *"#333"*"#222"* ]]; assert_eq "$?" "0" "lists the queue in order"
+  [[ "$(grep -c 'waiting' <<<"$out")" == 2 ]]; assert_eq "$?" "0" "...each ticket with its wait"
+  seed_free(){ rm -rf "$WS_C/hx-lock" "$WS_C/hx-queue"; }; seed_free
+  out="$(bash "$W/winsma.sh" status 2>&1)"; [[ "$out" == *"free"* ]]; assert_eq "$?" "0" "a free lock says free"
+  printf '#!/usr/bin/env bash\nexit 255\n' >"$T/bin/downssh"; printf '#!/usr/bin/env bash\nsleep 30\n' >"$T/bin/hangssh"; chmod +x "$T/bin/"*ssh
+  out="$(WINSMA_SSH="$T/bin/downssh" bash "$W/winsma.sh" status 2>&1)"; rc2=$?
+  assert_ok "an unreachable host: status exits non-zero" test "$rc2" -ne 0; assert_eq "$out" "winsma: unreachable" "...with the one line"
+  finish ) || rc=1
+( fresh_env
+  # harness status: the winsma block, the unreachable line, and nothing at all when there is no Windows host
+  export STATE_DIR="$T/state" HARNESS_SESS_PREFIX=wstest HARNESS_POOL=1; mkdir -p "$STATE_DIR"
+  seed_lock 111 hz-main-i111 $$ 42; age_taken 4500; ws_call r_queue_join 222 hz-main-i222 $$ >/dev/null
+  S="$HERE/../scripts/status.sh"
+  out="$(bash "$S" 2>&1)"
+  [[ "$out" == *"#111"*"hz-main-i111"*"#222"* ]]; assert_eq "$?" "0" "harness status names the holder and the queued lane"
+  [[ "$out" == *"worker"* ]]; assert_eq "$?" "0" "...inside the normal status"
+  printf '#!/usr/bin/env bash\nexit 255\n' >"$T/bin/downssh"; printf '#!/usr/bin/env bash\nsleep 30\n' >"$T/bin/hangssh"; chmod +x "$T/bin/"*ssh
+  out="$(WINSMA_SSH="$T/bin/downssh" bash "$S" 2>&1)"
+  [[ "$(grep -c 'winsma: unreachable' <<<"$out")" == 1 ]]; assert_eq "$?" "0" "an ssh that fails: one 'winsma: unreachable' line"
+  [[ "$out" == *"worker"* ]]; assert_eq "$?" "0" "...and the rest of status still renders"
+  t0=$SECONDS; out="$(WINSMA_SSH="$T/bin/hangssh" WS_STATUS_TIMEOUT=2 bash "$S" 2>&1)"; t1=$((SECONDS - t0))
+  [[ "$(grep -c 'winsma: unreachable' <<<"$out")" == 1 && "$out" == *"worker"* ]]; assert_eq "$?" "0" "an ssh that hangs: 'winsma: unreachable' too, status still renders"
+  assert_ok "...within the timeout, not 30s" test "$t1" -lt 15
+  out="$(unset HARNESS_WINDOWS_HOST; bash "$S" 2>&1)"
+  assert_no "HARNESS_WINDOWS_HOST unset: no winsma line" grep -qi winsma <<<"$out"
+  finish ) || rc=1
+
+echo "# docs: the queue and the cap"
+( D="$HERE/../docs/windows-smoke.md"
+  for k in WS_HOLD_MAX WS_HOLD_HARD hx-queue; do grep -q "$k" "$D"; assert_eq "$?" "0" "docs/windows-smoke.md documents $k"; done
+  grep -qi 'hold cap\|WS_HOLD_MAX' "$HERE/../prompts/_windows_suite.md" && grep -qi 'hold cap\|WS_HOLD_MAX' "$HERE/../prompts/_windows_rtdd.md"; assert_eq "$?" "0" "both Windows prompts name the cap"
+  assert_no "the docs no longer teach iterating in one lock session" grep -qi 'iterate in one lock session' "$D"
+  finish ) || rc=1
+
 echo "# isolation"
 ( fresh_env
   ws_isolate 479; hx="$WS_C/hx-479"

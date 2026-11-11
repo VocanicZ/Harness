@@ -24,21 +24,26 @@
 _ws_issue_ok(){ [[ "${1:-}" =~ ^[0-9]+$ ]] || { echo "winsma: issue must be a number, got '${1:-}'" >&2; return 1; }; }  # never hx-smoke, hx-lock…
 _ws_hx(){ echo "$WS_C/hx-$1"; }
 _ws_lock(){ echo "$WS_C/hx-lock"; }
+_ws_queue(){ echo "$WS_C/hx-queue"; }   # the FIFO of lanes waiting for the lock (#1033): one ticket file per waiting issue
 _ws_native(){ if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else echo "$1"; fi; }   # C:/hx-479/… for native tools
 _ws_winpath(){ if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }  # C:\hx-479\…
 _ws_real_home(){ echo "${HX_REAL_HOME:-$HOME}"; }
 _ws_now(){ date +%s; }
 
 # --- the lock: C:\hx-lock ------------------------------------------------------------------------
-# r_lock_take <issue> <session> <host_pid> — atomic `mkdir`; 0 = taken, 1 = held by someone.
+# r_lock_take <issue> <session> <host_pid> — atomic `mkdir`; 0 = taken, 1 = held by someone OR someone queued earlier
+# is ahead (#1033: FIFO — the lock goes to the oldest ticket, or to anyone when the queue is empty). Taking it drops the
+# caller's own ticket and records when (`taken`, epoch seconds: the hold cap counts from it).
 r_lock_take(){ _ws_issue_ok "$1" || return 2
-  local L; L="$(_ws_lock)"
+  local L first; L="$(_ws_lock)"
+  first="$(r_queue_state | head -1 | awk '{print $2}')"
+  [[ -z "$first" || "$first" == "$1" ]] || return 1
   mkdir "$L" 2>/dev/null || return 1
   printf 'issue=%s\nsession=%s\nhost_pid=%s\n' "$1" "${2:-}" "${3:-}" >"$L/owner"
-  _ws_now >"$L/heartbeat"; return 0; }
-# r_lock_state — `free`, or `held <issue> <session> <host_pid> <heartbeat_age_seconds>`. A lock whose owner or
+  _ws_now >"$L/taken"; _ws_now >"$L/heartbeat"; r_queue_leave "$1"; return 0; }
+# r_lock_state — `free`, or `held <issue> <session> <host_pid> <heartbeat_age_seconds> <hold_seconds>`. A lock whose owner or
 # heartbeat file is not there yet (the holder is between its mkdir and its writes) ages from the directory.
-r_lock_state(){ local L issue session pid hb age; L="$(_ws_lock)"
+r_lock_state(){ local L issue session pid hb age taken hold; L="$(_ws_lock)"
   [[ -d "$L" ]] || { echo free; return 0; }
   issue="$(sed -n 's/^issue=//p' "$L/owner" 2>/dev/null | head -1)"
   session="$(sed -n 's/^session=//p' "$L/owner" 2>/dev/null | head -1)"
@@ -46,7 +51,45 @@ r_lock_state(){ local L issue session pid hb age; L="$(_ws_lock)"
   hb="$(head -1 "$L/heartbeat" 2>/dev/null | tr -dc 0-9)"
   [[ -n "$hb" ]] || hb="$(stat -c %Y "$L" 2>/dev/null || _ws_now)"
   age=$(( $(_ws_now) - hb )); (( age < 0 )) && age=0
-  echo "held ${issue:--} ${session:--} ${pid:--} $age"; }
+  taken="$(head -1 "$L/taken" 2>/dev/null | tr -dc 0-9)"; [[ -n "$taken" ]] || taken="$hb"
+  hold=$(( $(_ws_now) - taken )); (( hold < 0 )) && hold=0
+  echo "held ${issue:--} ${session:--} ${pid:--} $age $hold"; }
+# --- the queue: C:\hx-queue\<ns stamp>-<issue> (#1033) ----------------------------------------------------------
+# A ticket is a file `issue= session= host_pid= queued=`; its mtime is the last refresh. Sorted by name = arrival order.
+# r_queue_join <issue> <session> <host_pid> — take a place at the back, or refresh the place the issue already has.
+r_queue_join(){ _ws_issue_ok "$1" || return 2
+  local Q t; Q="$(_ws_queue)"; mkdir -p "$Q"
+  for t in "$Q"/[0-9]*-"$1"; do [[ -f "$t" ]] && { touch "$t"; return 0; }; done
+  t="$Q/$(date +%s%N)-$1"
+  ( set -C; printf 'issue=%s\nsession=%s\nhost_pid=%s\nqueued=%s\n' "$1" "${2:-}" "${3:-}" "$(_ws_now)" >"$t" ) 2>/dev/null || return 1; }
+# r_queue_state — one line per ticket, oldest first: `<name> <issue> <session> <host_pid> <waited_s> <refresh_age_s>`.
+r_queue_state(){ local Q t n issue session pid queued now; Q="$(_ws_queue)"; now="$(_ws_now)"
+  local seen=" "
+  for t in "$Q"/[0-9]*-[0-9]*; do [[ -f "$t" ]] || continue; n="${t##*/}"
+    issue="$(sed -n 's/^issue=//p' "$t" | head -1)"; [[ "$issue" =~ ^[0-9]+$ && "$seen" != *" $issue "* ]] || continue
+    seen+="$issue "
+    session="$(sed -n 's/^session=//p' "$t" | head -1)"; pid="$(sed -n 's/^host_pid=//p' "$t" | head -1)"
+    queued="$(sed -n 's/^queued=//p' "$t" | head -1 | tr -dc 0-9)"; [[ -n "$queued" ]] || queued="$now"
+    echo "$n $issue ${session:--} ${pid:--} $(( now - queued )) $(( now - $(stat -c %Y "$t" 2>/dev/null || echo "$now") ))"
+  done; return 0; }
+# r_queue_leave <issue> — drop the issue's ticket(s).
+r_queue_leave(){ _ws_issue_ok "$1" || return 2; rm -f "$(_ws_queue)"/[0-9]*-"$1" 2>/dev/null; return 0; }
+# r_queue_drop <ticket name> <stale_seconds> — drop a ticket only if its refresh is still older than that (the host checked its lane is gone).
+r_queue_drop(){ local t; [[ "${1:-}" =~ ^[0-9]+-[0-9]+$ ]] || return 2; t="$(_ws_queue)/$1"
+  [[ -f "$t" ]] || return 0
+  (( $(_ws_now) - $(stat -c %Y "$t" 2>/dev/null || _ws_now) > ${2:-1800} )) || { echo "winsma: ticket $1 was refreshed; not dropping it" >&2; return 1; }
+  rm -f "$t"; }
+# r_lock_info — the lock line (r_lock_state), then one `q <ticket line>` per queued ticket: everything `harness status` and a waiter need, in one call.
+r_lock_info(){ r_lock_state; r_queue_state | sed 's/^/q /'; }
+# r_hold_gate <issue> <hold_max> <stale> — 0 = the next command may start; 3 = this issue has held the lock longer than
+# <hold_max> seconds AND a live ticket of another issue is queued: print why. Only ever stops a NEW command.
+r_hold_gate(){ _ws_issue_ok "$1" || return 2
+  local st n; st="$(r_lock_state)"; set -- "$1" "$2" "$3" $st
+  [[ "$4" == held && "$5" == "$1" ]] || return 0
+  (( ${9:-0} > $2 )) || return 0
+  n="$(r_queue_state | awk -v me="$1" -v st="$3" '$2 != me && $6 <= st' | wc -l | tr -d ' ')"
+  (( n > 0 )) || return 0
+  echo "hold cap reached, $n lane(s) queued: release and re-queue (#$1 has held hx-lock ${9}s, WS_HOLD_MAX is ${2}s)"; return 3; }
 # r_lock_heartbeat <issue> — refresh now (the loop below does this every WS_HB_INTERVAL).
 r_lock_heartbeat(){ local L; L="$(_ws_lock)"; [[ -d "$L" ]] && _ws_now >"$L/heartbeat"; }
 # r_hb_start <issue> — a background loop that refreshes the heartbeat, its pid recorded in pids. It ends by
@@ -71,6 +114,13 @@ r_lock_release(){ _ws_issue_ok "$1" || return 2
   [[ -d "$L" ]] || return 0
   grep -qx "issue=$1" "$L/owner" 2>/dev/null || { echo "winsma: hx-lock is not held by #$1; left alone" >&2; return 1; }
   rm -rf "$L"; }
+# r_lock_break_hold <owner_issue> <hold_hard_seconds> — the hard ceiling (#1033): the lock still belongs to that issue and has been
+# held longer than <hold_hard_seconds>, a runaway even though its lane lives; clean its run and drop the lock.
+r_lock_break_hold(){ _ws_issue_ok "$1" || return 2
+  local st; st="$(r_lock_state)"; set -- "$1" "$2" $st
+  [[ "$3" == held && "$4" == "$1" ]] || { echo "winsma: lock changed hands; not breaking it" >&2; return 1; }
+  (( ${8:-0} > $2 )) || { echo "winsma: lock was not held that long; not breaking it" >&2; return 1; }
+  r_cleanup "$1" || return 1; rm -rf "$(_ws_lock)"; }
 # r_lock_break <owner_issue> <stale_seconds> — the breaker: only if the lock still belongs to that issue AND
 # its heartbeat is still older than <stale_seconds> (the host already checked the owner lane is gone); then
 # clean that run (kill its pids and anything under its folder, delete its tasks and folder) and drop the lock.
@@ -152,7 +202,7 @@ r_cleanup(){ _ws_issue_ok "$1" || return 2
   _ws_claude_json_drop "$1" || { echo "winsma: could not clean ~/.claude.json" >&2; rc=1; }
   for i in 1 2 3 4 5; do rm -rf "$hx" 2>/dev/null; [[ -e "$hx" ]] || break; sleep 1; done
   [[ -e "$hx" ]] && { echo "winsma: $hx is still there after cleanup" >&2; rc=1; }
-  r_lock_release "$1" 2>/dev/null
+  r_lock_release "$1" 2>/dev/null; r_queue_leave "$1"
   return $rc; }
 # r_clean_check <issue> — winsma is clean: no folder, no lock of ours, no recorded process left, no run task.
 r_clean_check(){ _ws_issue_ok "$1" || return 2
