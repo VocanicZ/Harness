@@ -336,6 +336,7 @@ worker_chores(){ local wid="$1" lockfd
   one_auto_tend; reap_ownerless_pool_bugs
   retry_pending_unlocks; sweep_orphan_locks "$UNIT"   # #179: a lock a failed reap or a dead host left behind
   sweep_stale_lane_claims
+  winsma_wake_tick   # #1034: a lane parked in the winsma queue is re-dispatched once its ticket is next
   adopt_lanes "$wid"; adopt_bug_sessions "$wid"
   chores_slotless
   lock_release "$lockfd"

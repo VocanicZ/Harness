@@ -27,6 +27,7 @@ L_PAUSED   = lambda: os.environ.get("HARNESS_LABEL_PAUSED", "agent-paused")
 L_BUG         = lambda: os.environ.get("HARNESS_LABEL_BUG", "bug")
 L_BUG_TRIAGED = lambda: os.environ.get("HARNESS_LABEL_BUG_TRIAGED", "bug-triaged")
 L_HITL        = lambda: os.environ.get("HARNESS_LABEL_HITL", "hitl")
+L_WAITING     = lambda: os.environ.get("HARNESS_LABEL_WAITING_WINSMA", "waiting-winsma")   # #1034
 ALLOWLIST  = lambda: os.environ.get("HARNESS_AUTHOR_ALLOWLIST", "")
 
 _BLOCKED_BY_HEADING = re.compile(r"^#{2,3}\s+Blocked by\s*:?\s*$", re.IGNORECASE | re.MULTILINE)
@@ -719,7 +720,7 @@ def _claimable(issue, slug):
     lane takes bugs, and an agent-working issue is already held. Anything else — an operator step
     with no ready label, or a parked issue nothing has changed — waits on a human (#221, #271)."""
     labels = issue["_labels"]
-    if L_WORKING() in labels:
+    if L_WORKING() in labels or L_WAITING() in labels:   # #1034: a parked winsma waiter is woken by the engine
         return True
     if _is_hitl(issue):
         return False   # #360: a HITL task waits on a human, whatever other labels it carries
@@ -1270,6 +1271,8 @@ def compute_state(repo):
         for k in kids:
             if k["state"].lower() != "open" or L_WORKING() in k["_labels"]:
                 continue
+            if L_WAITING() in k["_labels"]:
+                continue   # #1034: parked in the winsma queue; the engine drops the label when its ticket is next
             if _blocked_hold(k, slug):
                 if AUTONOMOUS(): parked.append(k["number"])
                 continue
@@ -1385,6 +1388,7 @@ def bug_lane_candidates(repo):
                  if (L_BUG() in i["_labels"] or L_BUG_TRIAGED() in i["_labels"])
                  and i["state"].lower() == "open"
                  and L_WORKING() not in i["_labels"]
+                 and L_WAITING() not in i["_labels"]   # #1034: parked in the winsma queue until its ticket is next
                  and not _blocked_hold(i, slug)
                  and not _is_hitl(i)]   # #360: no lane claims a HITL task
     claimable.sort(key=lambda i: 0 if L_BUG_TRIAGED() in i["_labels"] else 1)
@@ -1673,6 +1677,11 @@ def main():
                 raw = sys.argv[sys.argv.index("--busy-prds")+1]
                 busy = tuple(int(x) for x in raw.split(",") if x.strip().isdigit())
             for action, payload, promise in slotless_actions(repo, busy): print(f"{action}\t{payload}\t{promise}")
+        elif cmd == "waiting-winsma":
+            # waiting-winsma <repo> (#1034): open issues parked in the winsma queue (the waiting label, no agent-working).
+            for i in _author_filter(_list_issues(_repo_slug(repo))):
+                if i["state"].lower() == "open" and L_WAITING() in i["_labels"] and L_WORKING() not in i["_labels"]:
+                    print(i["number"])
         elif cmd == "child-body":
             # child-body <repo> <prd> (#614): the body drive.sh's file_child gives the one issue it files for a PRD.
             n = int(sys.argv[3])
@@ -1767,6 +1776,11 @@ def main():
                     st = _issue_state(s["slug"], n)
                     labels = _issue_labels(s["slug"], n) if st == "open" else set()
                 done = st == "closed" or L_BLOCKED() in labels
+                # #1034: parked in the winsma queue (waiting label, no agent-working) — the lane handed its branch and
+                # handoff over before it swapped the labels, so the session is done and its slot is free. It is not
+                # agent-paused, so the #417 self-park nudge below never sees it.
+                if not done and L_WAITING() in labels and L_WORKING() not in labels:
+                    done = True
                 # #417: agent-paused WITHOUT agent-working — the lane checkpointed, or parked itself.
                 # Not done (a checkpoint keeps its session); drive.sh's selfpark_tend tells the two
                 # apart. A resumed lane carries both labels until it re-claims, so it is not PAUSED.

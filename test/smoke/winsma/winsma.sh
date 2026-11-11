@@ -4,6 +4,8 @@
 #   winsma.sh host                         print HARNESS_WINDOWS_HOST (exit 1 if unset)
 #   winsma.sh lock <issue> [session] [pid] take C:\hx-lock (FIFO queue; wait your turn), start the heartbeat loop
 #   winsma.sh unlock <issue>               release it
+#   winsma.sh park <issue> [owner/repo]    queued and not next: keep the ticket, swap agent-working for waiting-winsma, free the pool slot (#1034)
+#   winsma.sh turn <issue>                 (engine) refresh a parked issue's ticket; exit 0 = it is next, 1 = waiting, 2 = host unreachable
 #   winsma.sh status                       who holds the lock, for how long, and the queue in order
 #   winsma.sh isolate <issue> [--venv]     create C:\hx-<issue>\ (and a python venv in it)
 #   winsma.sh env <issue> [base|install|suite]   the export lines for that mode
@@ -15,7 +17,7 @@
 #   winsma.sh run <issue> [mode] <command> the whole sequence: lock → isolate → guard → command → guard → scan → cleanup
 set -uo pipefail
 WSH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in common lock isolate guard credentials cleanup; do source "$WSH_DIR/$f.sh"; done
+for f in common lock park isolate guard credentials cleanup; do source "$WSH_DIR/$f.sh"; done
 
 # ws_run <issue> <mode> <command> — cleanup always runs; the exit status is 0 only if every step held.
 ws_run(){ local issue="$1" mode="$2" cmd="$3" rc=0 step=""
@@ -41,6 +43,8 @@ main(){ local cmd="${1:-}"; shift || true
     lock)     ws_lock "$@";;
     unlock)   ws_unlock "$@";;
     status)   ws_status;;
+    park)     ws_park "$@";;
+    turn)     ws_turn "$@";;
     isolate)  ws_isolate "$@";;
     env)      ws_env "$@";;
     exec)     ws_exec "$@";;
@@ -50,6 +54,6 @@ main(){ local cmd="${1:-}"; shift || true
     pid-add)  ws_pid_add "$@";;
     cleanup)  ws_cleanup "$@";;
     run)      if [[ $# -ge 3 ]]; then ws_run "$1" "$2" "$3"; else ws_run "$1" base "$2"; fi;;
-    *) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p;' | head -20 >&2; return 2;;
+    *) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p;' | head -24 >&2; return 2;;
   esac; }
 [[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"

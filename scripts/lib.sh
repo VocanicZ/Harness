@@ -64,6 +64,8 @@ fi
 : "${HARNESS_LABEL_BUG:=bug}"               # bug-lane: never claimed by the normal pool
 : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"  # bug-lane: triaged, still isolated from the pool
 : "${HARNESS_LABEL_HITL:=hitl}"             # #360: human-in-the-loop — the fleet never claims it
+# #1034: parked in the winsma lock queue — no slot, not dispatched until its ticket is next (no trailing comment: test_cli_matrix reads this line)
+: "${HARNESS_LABEL_WAITING_WINSMA:=waiting-winsma}"
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
 : "${HARNESS_USE_POLLER:=1}"           # #182: ON by default — workers read the host poller's shared snapshots; 0 = direct-gh polling
@@ -113,7 +115,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
 export HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HARNESS_SPEC HARNESS_AUTONOMOUS HARNESS_SELFPARK_GRACE_MIN \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED \
-  HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL \
+  HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_LABEL_WAITING_WINSMA \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_STALE_MIN HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
@@ -1625,6 +1627,38 @@ windows_block(){ local part="$1"; shift
   [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 0
   render "${PROMPTS_DIR:-$ENGINE_DIR/prompts}/$part" WINDOWS_HOST="$HARNESS_WINDOWS_HOST" \
     WINDOWS_RELEVANT="$(printf %q "$ENGINE_DIR/scripts/windows-relevant.sh")" WINSMA_DIR="$(printf %q "$ENGINE_DIR/test/smoke/winsma")" "$@"; }
+# winsma_wake_tick — #1034: wake the issues parked in the winsma lock queue (the waiting label, no agent-working). Called from the
+# pool's chores. Per parked issue it asks `winsma.sh turn` (bounded by WS_WAKE_TIMEOUT, default 20s) — that call also refreshes the
+# issue's queue ticket, which is what keeps its place while no lane is alive — and when the ticket is next and the lock is free it
+# removes the label; the issue is then claimable and dispatch resumes it (resume.md, as for agent-paused). A host that cannot be
+# asked leaves the issue parked and says so once per outage. With no HARNESS_WINDOWS_HOST there is nothing to wait for: wake all.
+# Throttled to one pass per HARNESS_WINSMA_WAKE_S (default 60) seconds; no parked issue = no call at all.
+winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc live down="$RUN_DIR/winsma-wake.down"
+  now="$(date +%s)"; t="$(cat "$f" 2>/dev/null)"
+  [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ${HARNESS_WINSMA_WAKE_S:-60} )) && return 0
+  waiting="$(timeout 60 python3 "$ISSUELIB" waiting-winsma "$REPO" 2>/dev/null)" || return 0
+  [[ -n "$waiting" ]] || { rm -f "$down"; return 0; }
+  echo "$now" > "$f"
+  for n in $waiting; do
+    [[ "$n" =~ ^[0-9]+$ ]] || continue
+    if [[ -n "${HARNESS_WINDOWS_HOST:-}" ]]; then
+      out="$(timeout "${WS_WAKE_TIMEOUT:-20}" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$n" 2>&1 </dev/null)"; rc=$?
+    else out="no Windows host is configured"; rc=0; fi
+    case "$rc" in
+      0) ;;
+      1) rm -f "$down.$n"; continue;;
+      *) [[ -f "$down.$n" ]] || log "winsma-wake: #$n stays parked — the Windows host could not be asked (exit $rc): ${out##*$'\n'} (#1034)"
+         : > "$down.$n"; continue;;
+    esac
+    rm -f "$down.$n"
+    live="$(gh issue view "$n" -R "$SLUG" --json labels -q '.labels[].name' 2>/dev/null)" || continue   # the snapshot lags: act on the live labels
+    grep -qxF "$HARNESS_LABEL_WAITING_WINSMA" <<<"$live" || continue
+    if gh issue edit "$n" -R "$SLUG" --remove-label "$HARNESS_LABEL_WAITING_WINSMA" >/dev/null 2>&1; then
+      log "winsma-wake: #$n — ${out##*$'\n'}; $HARNESS_LABEL_WAITING_WINSMA removed, the issue is re-dispatched as a resume (#1034)"
+      harness_event winsma_wake repo="$SLUG" issue="$n"
+    fi
+  done
+  return 0; }
 # {{skill:<name>}} — a skill the prompt names, as the configured CLI invokes it (cli_skill, #315).
 # cli_prereqs derives the skills it checks from these same tokens, so a prompt names a skill no other way.
 render(){ local tmpl="$1" n; shift

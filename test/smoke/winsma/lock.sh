@@ -9,6 +9,8 @@
 #   WS_OWNER_LIVE_CMD  test seam: `<session> <host_pid>` exits 0 while the owner lane is live on this host
 # A lane that finds the lock held WAITS. It never labels itself agent-paused (that trips the #417 self-park
 # nudge and checkpoint churn): the winsma-heavy tasks are chained with `Blocked by` to keep waits rare.
+# A long wait does not have to hold a pool slot: `winsma.sh park` (park.sh, #1034) keeps the ticket, labels the issue waiting-winsma and ends
+# the session; the engine re-dispatches it as a resume once the ticket is next.
 ws_owner_live(){ local session="$1" pid="$2"
   if [[ -n "${WS_OWNER_LIVE_CMD:-}" ]]; then $WS_OWNER_LIVE_CMD "$session" "$pid"; return; fi
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && return 0
