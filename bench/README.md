@@ -513,7 +513,7 @@ where that holds, the **time crossover** the smallest where the pool-3 arm also 
 `scripts/tier.toml` moves only when a stated size brackets a limit, and its `[estimate]` lines are re-fitted only from two measured
 sizes or more; nothing is moved from one size or from fewer than 5 runs.
 
-**State of the data.** Run `run-20261110` is the small size (plain n=5, Harness n=3). The medium and large sizes need the full
+**State of the data.** Run `run-20261110` is the small size (plain n=5, Harness n=3). Run `run-20261111-medium` is the medium size's plain arm (n=5: 114/114 hidden tests, 0 fuzz classes, no nudges, median 6.4 min and $1.20 each); its Harness arms are not run. The medium and large sizes need the full
 matrix (3 sizes x 4 arms x 5 runs), which does not fit the weekly window of this host's account: one account-week is about $53 at list
 price, the matrix is several hundred dollars at the medium size and thousands at the large one. Until those runs exist the
 thresholds are the provisional ones from #619 and the crossover reads "not reached at a size with 5 runs a side"; #1035 runs

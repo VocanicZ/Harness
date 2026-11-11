@@ -30,9 +30,9 @@ min_unattended_minutes = 120   # hours of unattended work
 # figure scales with criteria, the fleet figure is its fixed pipeline (front -> PRD -> lanes -> review)
 # plus the same per-criterion work. Where `harness forecast` has history for the issue, prefer it.
 direct_minutes_base    = 0.0
-direct_minutes_per_criterion = 0.178
-direct_usd_base        = 0.02
-direct_usd_per_criterion = 0.033
+direct_minutes_per_criterion = 0.175
+direct_usd_base        = 0.05
+direct_usd_per_criterion = 0.031
 fleet_minutes_base     = 12   # the projection after the fixes in PRD #587 (was 59 in run-20261106)
 fleet_minutes_per_criterion = 2
 fleet_usd_base         = 2.50
@@ -44,7 +44,7 @@ fleet_usd_per_criterion = 0.30
 # Time (Harness with 3 workers also matches or beats plain): not reached at a size with 5 runs a side.
 # Indicative only (fewer than 5 runs a side): small.
 # no limit moved: no size has a stated verdict (fewer than 5 runs a side, or not run)
-# estimate.direct_minutes_base 3 -> 0.0, direct_minutes_per_criterion 1.5 -> 0.178 (fitted to 2 measured sizes)
-# estimate.direct_usd_base 0.3 -> 0.02, direct_usd_per_criterion 0.1 -> 0.033 (fitted to 2 measured sizes)
+# estimate.direct_minutes_base 3 -> 0.0, direct_minutes_per_criterion 1.5 -> 0.175 (fitted to 2 measured sizes)
+# estimate.direct_usd_base 0.3 -> 0.05, direct_usd_per_criterion 0.1 -> 0.031 (fitted to 2 measured sizes)
 calibrated_from = "small=run-20261110, medium=run-20261111-medium"
 # --- calibration:end ---
