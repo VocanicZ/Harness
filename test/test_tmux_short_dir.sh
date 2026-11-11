@@ -2,7 +2,7 @@
 # rtdd: always
 # test_tmux_short_dir.sh — #1077: a tmux socket path is a fixed-size kernel field (AF_UNIX sun_path: 108 bytes with the NUL), but
 # the tests derived TMUX_TMPDIR from `mktemp -d`, which inherits the whole depth of $TMPDIR. The release gate (#1060) runs run.sh
-# under TMPDIR=$tmp/gate-tmp, run.sh nests each test under it, and the socket path
+# under a TMPDIR of its own (then $tmp/gate-tmp, now a short /tmp/hg.* dir, #1080), run.sh nests each test under it, and the socket path
 #   $TMUX_TMPDIR/tmux-$UID/<socket>
 # came to 110-126 bytes: tmux said "error connecting to … (File name too long)" and every supervisor-frozen cell went red.
 # The fix is ONE helper, tmux_short_dir (test/helpers.sh): a private, tracked dir directly under /tmp, whatever $TMPDIR is.
