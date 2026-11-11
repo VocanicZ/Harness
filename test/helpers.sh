@@ -21,6 +21,14 @@ windows_row_value(){ local row="$1" doc="${2:-${HARNESS_PARITY_DOC:-$(dirname "$
     on { f=trim($2); gsub(/^`|`$/, "", f); if (f==row) { print trim($4); found=1; exit } }
     END { exit found ? 0 : 1 }' "$doc"; }
 
+# harness_label_defaults [lib.sh] — every `: "${HARNESS_LABEL_*:=<label>}"` default of scripts/lib.sh, one per line. A
+# trailing `# …` comment on the line is allowed (#1053: an end-anchored regex dropped agent-paused, bug, bug-triaged, hitl).
+harness_label_defaults(){ sed -nE 's/^: "\$\{HARNESS_LABEL_[A-Z_]+:=([^}]+)\}".*$/\1/p' "${1:-$(dirname "${BASH_SOURCE[0]}")/../scripts/lib.sh}"; }
+# prompt_kebab_leaks <lib.sh> <prompt.md…> — the backticked kebab-case words of those prompts that are none of lib.sh's labels
+# (a skill named by hand: `subagent-driven-development`, #321), one per line, backticks kept.
+prompt_kebab_leaks(){ local lib="$1"; shift
+  grep -ohE '`[a-z][a-z0-9]*(-[a-z0-9]+)+`' "$@" | grep -vxF -f <(harness_label_defaults "$lib" | sed 's/.*/`&`/'); }
+
 # host_is_windows — Git Bash / MSYS / Cygwin, or HARNESS_PLATFORM=windows (the suite's way to force the Windows paths on
 # Linux; HARNESS_PLATFORM=posix forces the other way). scripts/portable.sh has the engine's is_windows; this is the
 # test rig's, so helpers.sh needs no engine file sourced first.
