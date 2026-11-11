@@ -6,7 +6,8 @@
 #   $TMUX_TMPDIR/tmux-$UID/<socket>
 # came to 110-126 bytes: tmux said "error connecting to … (File name too long)" and every supervisor-frozen cell went red.
 # The fix is ONE helper, tmux_short_dir (test/helpers.sh): a private, tracked dir directly under /tmp, whatever $TMPDIR is.
-#   1. dynamic — under a TMPDIR of 150+ bytes the helper's socket path is short, and a real tmux server starts on it
+#   1. dynamic — under a TMPDIR of 150+ bytes the helper's socket path is short (no tmux needed; the real server that starts on it
+#      is test_tmux_short_dir_real.sh, whose headless twin is this file)
 #   2. the helper keeps #649 (private, existing, never /tmp itself, TMUX dropped) and temp hygiene (#294: nothing left in /tmp)
 #   3. static  — no test that starts a real tmux server derives its TMUX_TMPDIR from mktemp / $RUN_DIR / $T / $ROOT; the lint has
 #      its own good and bad fixtures, and runs over every test/test_*.sh
@@ -14,6 +15,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 unset_inherited_config
+export HARNESS_SESSION_BACKEND=headless   # the twin of test_tmux_short_dir_real.sh (test/tmux_twins.tsv): no tmux anywhere in this file
 ROOT="$(mktemp -d)"; tmp_track "$ROOT"
 UIDN="$(id -u)"
 
@@ -27,11 +29,8 @@ mkdir -p "$deep"
 probe(){ env -u TMUX_TMPDIR TMUX=/nonexistent/sock,1,0 TMUX_PANE=%3 TMPDIR="$deep" bash -c '
   source "$1/helpers.sh"; tmux_short_dir || exit 1
   echo "$TMUX_TMPDIR"; echo "${TMUX-unset}/${TMUX_PANE-unset}"
-  if [[ ${2:-} == real ]]; then
-    env -u TMUX -u TMUX_PANE tmux new-session -d -s hx1077 "sleep 30" && env -u TMUX -u TMUX_PANE tmux has-session -t hx1077 && echo started
-    env -u TMUX -u TMUX_PANE tmux kill-server 2>/dev/null
-  fi' _ "$HERE" "$1"; }
-out="$(probe none)"; dir="$(sed -n 1p <<<"$out")"; envs="$(sed -n 2p <<<"$out")"
+ ' _ "$HERE"; }
+out="$(probe)"; dir="$(sed -n 1p <<<"$out")"; envs="$(sed -n 2p <<<"$out")"
 assert_ok "the helper returned a directory name" test -n "$dir"
 assert_ok "…it is a short path (< 100 with /tmux-$UIDN/default)" test $(( ${#dir} + ${#UIDN} + 15 )) -lt 100
 assert_ok "…and with the longest -L name the suite uses (lm<pid>)" test $(( ${#dir} + ${#UIDN} + 8 + ${#BASHPID} + 4 )) -lt 100
@@ -39,15 +38,6 @@ assert_no "…it is not under the 150-byte TMPDIR" test "${dir#"$deep"}" != "$di
 assert_no "…it is not /tmp itself (#649)" test "${dir%/}" = /tmp
 assert_eq "$envs" "unset/unset" "…and TMUX and TMUX_PANE are dropped (#649)"
 assert_no "…the dir is gone after the shell exits (#294)" test -e "$dir"
-if command -v tmux >/dev/null 2>&1; then
-  # the same deep TMPDIR, the old way: proves the probe would have caught the bug
-  old="$deep/tmux-claude"; mkdir -p "$old"
-  assert_no "(control) a TMUX_TMPDIR under that TMPDIR is too long for tmux" bash -c 'env -u TMUX TMUX_TMPDIR="$1" tmux new-session -d -s hxctl "sleep 5" 2>/dev/null' _ "$old"
-  env -u TMUX TMUX_TMPDIR="$old" tmux kill-server 2>/dev/null
-  out="$(probe real)"
-  assert_eq "$(sed -n 3p <<<"$out")" "started" "a real tmux server starts on the helper's dir (File name too long no more)"
-  assert_no "…and nothing is left of its dir" test -e "$(sed -n 1p <<<"$out")"
-else echo "  skip: tmux not installed (the real-server probe)"; fi
 
 echo "== hygiene: the dir is removed when the test's own EXIT trap runs tmp_cleanup =="
 out="$(env -u TMUX_TMPDIR TMPDIR="$deep" bash -c '
