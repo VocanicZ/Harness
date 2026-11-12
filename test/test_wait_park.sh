@@ -129,6 +129,46 @@ wait_sweep
 assert_ok "…but not a redispatch park (winsma_wake_tick's: its session ended on purpose)" test -s "$RUN_DIR/$S.wait"
 rm -f "$RUN_DIR/$S.wait"
 
+echo "== 2d. a wait spec that is not the lane's own (a test wrote it into the lane's file, #1084) is dropped and the lane resumed =="
+S=wpk-main-i26; : > "$LOG"
+lane i26 claude normal normal
+GOAL=ISSUE:26 launch_agent "$S" "$WD" >/dev/null 2>&1 && rm -f "$WD/.claude/ralph-loop.local.md"
+assert_ok "the lane's first turn ends" wait_until 15 turn_is "$S" 1
+# the lane's identity, as the launch recorded it: issue 1084 of acme/lane (a review lane would carry the PRD too)
+spec_set "$RUN_DIR/$S.stats" issue '"1084"'; spec_set "$RUN_DIR/$S.stats" repo '"acme/lane"'; spec_set "$RUN_DIR/$S.stats" prd '""'
+park(){ python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --winsma "$1" --slug "$2" --label waiting-winsma --resume redispatch --deadline-s 600 >/dev/null; }
+park 1084 acme/lane
+for (( i = 0; i < 3; i++ )); do tick "$S"; done
+assert_ok "a winsma park of the lane's own issue and repo is kept (winsma_wake_tick's)" test -s "$RUN_DIR/$S.wait"
+assert_eq "$(nturns)" "1" "…and the lane is not resumed"
+spec_set "$RUN_DIR/$S.stats" issue '""'; spec_set "$RUN_DIR/$S.stats" prd '"1084"'; park 1084 acme/lane
+tick "$S"
+assert_ok "a review park (the spec's issue is the lane's PRD) is kept" test -s "$RUN_DIR/$S.wait"
+assert_eq "$(nturns)" "1" "…and the lane is not resumed"
+spec_set "$RUN_DIR/$S.stats" issue '"1084"'; spec_set "$RUN_DIR/$S.stats" prd '""'
+python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --deadline-s 600 --path "$RUN_DIR/never" >/dev/null
+tick "$S"
+assert_ok "a job spec (no issue field) is untouched" test -s "$RUN_DIR/$S.wait"
+assert_eq "$(nturns)" "1" "…and the lane is not resumed"
+park 900 acme/widget; mv "$RUN_DIR/$S.stats" "$RUN_DIR/$S.stats.away"
+tick "$S"
+assert_ok "with no .stats file to judge by, a foreign-looking spec is kept" test -s "$RUN_DIR/$S.wait"
+assert_eq "$(nturns)" "1" "…and the lane is not resumed"
+mv "$RUN_DIR/$S.stats.away" "$RUN_DIR/$S.stats"
+tick "$S"
+assert_no "a spec naming another issue and repo (#900 acme/widget) is removed even with resume=redispatch" test -e "$RUN_DIR/$S.wait"
+assert_ok "…and the lane is resumed" wait_until 15 turn_is "$S" 2
+assert_ok "…told its wait spec was replaced by a foreign one, and to re-arm its wait" grep -qE 'wait spec was replaced by a foreign one.*re-arm' <<<"$(prompt_n 2)"
+assert_ok "…the log names the session and the foreign issue and repo" grep -qE "wait: $S — .*#900.*acme/widget.*\(#1084\)" "$LOG"
+assert_eq "$(grep -c "wait: $S — .*acme/widget" "$LOG")" "1" "…one line"
+for (( i = 0; i < 4; i++ )); do tick "$S"; done
+assert_eq "$(nturns)" "2" "…and once"
+park 1084 acme/other
+tick "$S"
+assert_no "the right issue in another repo is foreign too" test -e "$RUN_DIR/$S.wait"
+assert_ok "…and the lane is resumed" wait_until 15 turn_is "$S" 3
+sess_kill "$S"
+
 echo "== 3. a lane on a non-Claude adapter (codex) that hits the usage limit is parked and resumed once after the hold clears =="
 S=wpk-main-i31; : > "$LOG"
 lane i31 codex limit "normal <promise>ISSUE 31 DONE</promise>"

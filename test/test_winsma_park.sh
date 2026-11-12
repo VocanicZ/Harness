@@ -216,6 +216,23 @@ setup; snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$
 winsma_wake_tick
 assert_eq "$(edits)" "1" "(control) a label with no spec, from before #1066, is still woken by the ticket alone"
 
+echo "=== 9b. a lane's own wait file survives the suite (#1084): the seam drops HARNESS_WAIT_FILE, so a park here never writes it ==="
+setup
+ws ws_lock 111 lane-a $$ >/dev/null; ws ws_call r_queue_join 222 lane-b $$ >/dev/null
+export GHLOG="$RUN_DIR/ghpark9b"; : > "$GHLOG"
+SENT="$RUN_DIR/hz-lane-i1084.wait"; SENTSPEC='{"v":1,"cond":"pid","resume":"inject","pid":4242,"deadline":9999999999,"what":"the lane'"'"'s own job"}'
+printf '%s' "$SENTSPEC" > "$SENT"
+# the lane hands HARNESS_WAIT_FILE down (wait_env); a test file sources helpers.sh first, so re-source it with the variable set
+( export HARNESS_WAIT_FILE="$SENT" WS_PARK_CHECK_PUSHED=0; gh(){ echo "gh $*" >> "$GHLOG"; return 0; }
+  source "$HERE/helpers.sh"
+  cd "$RUN_DIR" || exit 1; ws ws_park 222 acme/widget >/dev/null 2>&1 ); assert_eq "$?" "0" "B parks from a shell that inherited the lane's wait file"
+assert_eq "$(cat "$SENT")" "$SENTSPEC" "the lane's wait spec is intact: the park wrote nothing into it"
+rm -f "$SENT"
+( export HARNESS_WAIT_FILE="$SENT" WS_PARK_CHECK_PUSHED=0; gh(){ echo "gh $*" >> "$GHLOG"; return 0; }
+  source "$HERE/helpers.sh"
+  cd "$RUN_DIR" || exit 1; ws ws_park 222 acme/widget >/dev/null 2>&1 )
+assert_no "a lane wait file that did not exist is not created by the suite either" test -e "$SENT"
+
 echo "=== 6. wired into the pool's chores, the label is seeded and configurable ==="
 assert_ok "worker_chores runs winsma_wake_tick" grep -q 'winsma_wake_tick' "$ROOT/scripts/pool-worker.sh"
 assert_eq "$HARNESS_LABEL_WAITING_WINSMA" "waiting-winsma" "the label defaults to waiting-winsma"

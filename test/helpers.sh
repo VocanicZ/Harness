@@ -229,12 +229,15 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # reaches one with the lane's identity kills the lane that is running it (exit 137, ~20 sessions on #541).
 # ENGINE_DIR (handled below, not in this list) is the lane's engine: scripts default their engine to it, so a test
 # that builds its own engine would act on the lane's instead (test_web_install's uninstall left the unit behind).
+# HARNESS_WAIT_FILE (#1084) is the lane's own wait spec (wait_env, #1066). ws_park_spec writes a park spec to it whenever it is set, so a
+# test that parked inside a lane overwrote the lane's real job spec with fixture data (#900 acme/widget) and the engine never resumed
+# the lane. A test that needs a wait file pins its own per-test path, as test_winsma_park.sh section 9 does.
 # Dropped when this file is sourced, so every test is a stranger to the fleet that launched it; a test that
 # wants a session sets its own after sourcing.
 # HARNESS_ENGINE_STAMP (#682) is the same kind of thing: pool.sh / priority.sh export the worker's engine stamp (#602) and every child
 # inherits it, the release gate included. A test's stand-in "unstamped" worker then carries the host's stamp, roll.sh calls it stale
 # and kills it (test_engine_roll.sh red at the e902e61 gate). A test that wants a stamped process sets it inline on that process.
-HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX HARNESS_ENGINE_STAMP RTDD_EVENT_LOG TMUX TMUX_PANE"
+HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX HARNESS_ENGINE_STAMP HARNESS_WAIT_FILE RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
 # …and the user skill dirs a sandboxed host pins (#921). A winsma suite run exports HARNESS_USER_SKILLS (and a lane may export the agy/codex
 # ones) so nothing reaches the real home; a test that points HOME at its own fixture then installs skills into the host's pinned dir and reads

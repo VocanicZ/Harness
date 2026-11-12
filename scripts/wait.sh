@@ -101,9 +101,32 @@ _wait_deliver(){ local sess="$1" mf="$RUN_DIR/$1.wait.msg" msg
   cli_send "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" "$msg" || return 1
   rm -f "$mf"; return 0; }
 
+# _wait_foreign <sess> <spec> — #1084: the spec in a live lane's wait file names an issue or repo that is not the lane's (a test
+# wrote its fixture park there). Prints "#<issue> <slug>" of the spec and returns 0 when so. The lane's identity is its .stats
+# (issue, prd, repo): a park's issue is the lane's issue, or its PRD for a review lane. A spec with no issue/slug, or a lane whose
+# .stats cannot be read, is never foreign.
+_wait_foreign(){ python3 - "$RUN_DIR/$1.stats" "$2" <<'PY' 2>/dev/null
+import json, sys
+try:
+    lane = json.load(open(sys.argv[1])); spec = json.load(open(sys.argv[2]))
+except (OSError, ValueError):
+    sys.exit(1)
+if not isinstance(lane, dict) or not isinstance(spec, dict):
+    sys.exit(1)
+def s(v): return "" if v is None else str(v).strip()
+issue, slug = s(spec.get("issue")), s(spec.get("slug"))
+mine = {x for x in (s(lane.get("issue")), s(lane.get("prd"))) if x}
+repo = s(lane.get("repo"))
+bad = (issue and mine and issue not in mine) or (slug and repo and slug != repo)
+if not bad:
+    sys.exit(1)
+print(f"#{issue or '-'} {slug or '-'}")
+PY
+}
+
 # wait_tend <sess> — one tick for one live lane: resume it, once, when its wait is over. A busy lane is left alone (it did not end its
 # turn yet; the wait is judged when it does). rc 0 always.
-wait_tend(){ local sess="$1" f mf pane cond resume msg rc asked reason issue
+wait_tend(){ local sess="$1" f mf pane cond resume msg rc asked reason issue foreign
   f="$(wait_file "$sess")"; mf="$f.msg"
   [[ -s "$f" || -s "$mf" ]] || return 0
   session_live "$sess" || return 0
@@ -112,6 +135,14 @@ wait_tend(){ local sess="$1" f mf pane cond resume msg rc asked reason issue
   if ! cli_pane_prompt "$pane" || session_active_turn "$pane" || { declare -F lane_subagent_running >/dev/null && lane_subagent_running "$pane"; }; then return 0; fi
   if [[ -s "$mf" ]]; then _wait_deliver "$sess" || log "wait: $sess — could not deliver the resume message, retrying next tick (#1066)"; return 0; fi
   IFS=$'\t' read -r cond resume issue < <(python3 "$WAITLIB_PY" fields --file "$f" cond resume issue 2>/dev/null) || return 0
+  if foreign="$(_wait_foreign "$sess" "$f")"; then   # #1084: not this lane's spec — drop it, resume the lane
+    rm -f "$f"
+    printf '%s' "Your wait spec was replaced by a foreign one (${foreign}) and has been removed. Check whether your job is still running and re-arm your wait (harness-wait run / set) if it is; otherwise carry on." > "$mf"
+    log "wait: $sess — foreign wait spec (issue/slug ${foreign}) in this lane's file; removed, lane resumed (#1084)"
+    stats_sess_event "$sess" wait_done cond=foreign
+    _wait_deliver "$sess" || log "wait: $sess — could not deliver the resume message, retrying next tick (#1066)"
+    return 0
+  fi
   [[ "$resume" == redispatch ]] && return 0   # winsma_wake_tick's: the session is gone
   if [[ "$cond" == limit ]] && ! session_limit_idle "$pane"; then
     log "wait: $sess — no longer at the usage limit; park dropped (#1066)"; rm -f "$f"; return 0; fi
