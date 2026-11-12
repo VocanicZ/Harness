@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The six winsma matrix cells that were red by host load are green, two runs in a row (#944)
+
+- `agy: headless-resume`, `hermes: stats-session-end-usage`, `hermes: headless-loop-mode`, `hermes: headless-stats-session-end-usage`, `openclaw: review-gauntlet` and `openclaw: headless-stats-session-end-usage` passed on winsma in two runs in a row of the agy, hermes and openclaw matrix (53/53, 51/51 and 49/49 each time), with the guard clean and `reap.ps1` finding nothing afterwards. No code change was needed: the reds predate the 8x Windows scaling of `hl_wait` (#1073) and the `proc_kill_tree` fix (#1071), which are the likeliest reason they cleared. The runs' logs and the command to rerun a cell are in `docs/windows-smoke.md`.
+
 ### A lane parked in the winsma queue is no longer claimed again from the stale board snapshot (#1092)
 
 - `winsma.sh park` adds `waiting-winsma` and ends the lane, but the host snapshot lags the edit by minutes: the claim path still saw the issue as claimable, relaunched it about 15 seconds later, and each relaunch parked again, paying a whole session start every time (seen on #496).
