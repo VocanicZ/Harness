@@ -2,7 +2,7 @@
 # NOT run by test/run.sh: it is the script `winsma.sh run <issue> install "$(cat lifecycle.sh)"` sends to the host, where it
 # runs in Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS, CLAUDE_CONFIG_DIR,
 # TMPDIR, npm_config_cache are the isolation's). See docs/windows-smoke.md. Environment (set by the caller, all optional):
-#   HX_BRANCH   the branch under test (default issue/491)
+#   HX_BRANCH   the branch under test (default issue/496)
 #   HX_STAGES   which stages to run, space separated: entry real tasks v011 gitco gitdef prune (default: all)
 # Releases are local: this tree and the previous real tag, tarred and served over file:// with a SHA256SUMS, so a stage never
 # reaches the network but for the clone. winget is a logging stub; schtasks is real except /Run and /End, so the supervise and
@@ -11,7 +11,7 @@ set -u
 fail=0; say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
 ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
 st(){ MSYS2_ARG_CONV_EXCL='*' schtasks "$@"; }
-BRANCH="${HX_BRANCH:-issue/491}"; STAGES="${HX_STAGES:-entry real tasks v011 gitco gitdef prune}"
+BRANCH="${HX_BRANCH:-issue/496}"; STAGES="${HX_STAGES:-entry real tasks v011 gitco gitdef prune}"
 has(){ [[ " $STAGES " == *" $1 "* ]]; }
 say "== host: $(uname -srm) | bash $BASH_VERSION | python3 $(python3 --version 2>&1) | MSYS=${MSYS:-}"
 say "== clone $BRANCH"
@@ -112,6 +112,7 @@ release_stage(){ local name="$1" P="$2" T="$3" irc urc before after
   say "-- harness update (unpinned) comes forward to $CUR again; uninstall runs from the current release"
   hu 2>&1 | sed 's/^/   /'; ok "engine on $CUR" '[[ "$(tgt)" == "releases/$CUR" ]]'
   harness uninstall --force --force-engine 2>&1 | sed 's/^/   /'
+  say "left in HARNESS_HOME after uninstall: $(cd "$HARNESS_HOME" 2>/dev/null && find . -maxdepth 3 | head -n 30 | tr '\n' ' ')"
   ok "uninstall leaves HARNESS_HOME empty (or gone)" '[[ -z "$(ls -A "$HARNESS_HOME" 2>/dev/null)" ]]'
   (( T )) && ok "tasks gone" '! sup_task_ok'
 }
@@ -196,9 +197,9 @@ if has gitco; then
   ok "no temp copy of update.sh is left" '! ls "$TMPDIR"/harness-update.* >/dev/null 2>&1'
   ok "doctor green (migrated)" '[[ -z "$(docfail)" ]]'; doc
   harness uninstall --force --force-engine 2>&1 | sed 's/^/   /'
-  say "-- the same, with a checkout whose update.sh predates the fix ($MAIN's code): it cannot move itself on Windows; the install line can"
+  say "-- the same, with a checkout whose update.sh predates the fix (1467c2d^, the parent of the #491 merge; origin/main carries the fix since): it cannot move itself on Windows; the install line can"
   newhome gitold
-  mkdir -p "$HARNESS_HOME"; git clone -q src "$HARNESS_HOME/engine" && git -C "$HARNESS_HOME/engine" checkout -q origin/main || { say "clone failed"; exit 1; }
+  mkdir -p "$HARNESS_HOME"; git clone -q src "$HARNESS_HOME/engine" && git -C "$HARNESS_HOME/engine" checkout -q 1467c2d^ || { say "clone failed"; exit 1; }
   MSYS=winsymlinks:nativestrict ln -sfn "$HARNESS_HOME/engine/bin/harness" "$HARNESS_BIN_DIR/harness"
   hu 2>&1 | sed 's/^/   /'; urc=${PIPESTATUS[0]}
   ok "the old update.sh fails cleanly (exit 3) with the checkout untouched" '(( urc == 3 )) && [[ -d "$HARNESS_HOME/engine/.git" && ! -L "$HARNESS_HOME/engine" ]]'

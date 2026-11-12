@@ -106,6 +106,11 @@ assert_ok "[windows] … nothing landed in WMI's directory"     test -z "$(ls -A
   detach_launch "$W/c.pid" "$W/c.log" true ) 2>"$W/c.err"; rc=$?
 assert_no "[windows] a failed Win32_Process.Create is a failure" test "$rc" = 0
 assert_ok "[windows] … and says so"                           grep -q "Win32_Process.Create failed" "$W/c.err"
+printf '#!/usr/bin/env bash\necho "CimException: access denied" >&2; exit 3\n' >"$W/ps-says-why"; chmod +x "$W/ps-says-why"
+( export HARNESS_PLATFORM=windows HARNESS_DETACH_WAIT=1 HARNESS_POWERSHELL="$W/ps-says-why"
+  detach_launch "$W/e.pid" "$W/e.log" true ) 2>"$W/e.err"
+assert_ok "[windows] … with powershell's exit status and its own words (#496)" grep -q "powershell exit 3: CimException: access denied" "$W/e.err"
+assert_no "[windows] … and no output file left beside the pidfile"       test -e "$W/e.pid.ps.out"
 
 echo "=== pool.sh / priority.sh / the poller launch through detach_launch ==="
 FE="$T/engine"; mkdir -p "$FE/scripts"

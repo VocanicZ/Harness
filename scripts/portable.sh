@@ -454,9 +454,12 @@ detach_launch(){ local append=0
   } > "$launch" || return 1
   rm -f "$pidf" "$pidf.new"
   cl="\"$(win_bash_exe)\" \"$(native_path "$launch")\""
+  local psout="$pidf.ps.out"   # powershell's own words, shown when the launch fails: "Create failed" alone said nothing about why (#496)
   MSYS2_ARG_CONV_EXCL='*' "${HARNESS_POWERSHELL:-powershell}" -NoProfile -NonInteractive -Command \
-    "\$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='$(_ps_quote "$cl")'}; exit \$r.ReturnValue" \
-    </dev/null >/dev/null 2>&1 || { rm -f "$envf"; echo "detach_launch: Win32_Process.Create failed for: $*" >&2; return 1; }
+    "\$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='$(_ps_quote "$cl")'}; if (\$r.ReturnValue -ne 0) { [Console]::Error.WriteLine('Win32_Process.Create ReturnValue ' + \$r.ReturnValue) }; exit \$r.ReturnValue" \
+    </dev/null >"$psout" 2>&1 || { local prc=$?
+      rm -f "$envf"; echo "detach_launch: Win32_Process.Create failed for: $* (powershell exit $prc: $(head -c 400 "$psout" 2>/dev/null | tr '\r\n' '  '))" >&2; rm -f "$psout"; return 1; }
+  rm -f "$psout"
   for (( i = 0; i < ${HARNESS_DETACH_WAIT:-30} * 10; i++ )); do
     [[ -s $pidf ]] && return 0
     sleep 0.1

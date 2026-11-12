@@ -49,7 +49,7 @@ EOF
   cat > "$d/bin/harness" <<'EOF'
 #!/usr/bin/env bash
 S="$(dirname "$0")/../state"
-echo "harness $* | STATE_DIR=${STATE_DIR:-unset} HARNESS_REPO=${HARNESS_REPO:-unset} HARNESS_SESS_PREFIX=${HARNESS_SESS_PREFIX:-unset} CLI=${HARNESS_CLI:-unset} BACKEND=${HARNESS_SESSION_BACKEND:-unset}" >> "$(dirname "$0")/../calls"
+echo "harness $* | STATE_DIR=${STATE_DIR:-unset} HARNESS_REPO=${HARNESS_REPO:-unset} HARNESS_SESS_PREFIX=${HARNESS_SESS_PREFIX:-unset} CLI=${HARNESS_CLI:-unset} BACKEND=${HARNESS_SESSION_BACKEND:-unset} HOME_DIR=${HARNESS_HOME:-unset} BIN_DIR=${HARNESS_BIN_DIR:-unset}" >> "$(dirname "$0")/../calls"
 # pause --force: the lane checkpoints and is ended (its runner killed, by its own pid); resume: re-dispatched.
 [[ "$*" == *" pause --force"* ]] && { touch "$S/paused"; p="$(cat "$HOME/.harness/lanes/"*/pid 2>/dev/null | head -1)"
   [[ $p =~ ^[0-9]+$ ]] && kill -KILL -- "-$p" "$p" 2>/dev/null; echo "FLEET: PAUSED"; }
@@ -93,6 +93,16 @@ harness_verbs(){ awk '$1 != "harness" { next } $2 == "--state-dir" { $2 = ""; $3
 echo "── usage"
 bash "$SMOKE" >/dev/null 2>&1; assert_eq "$?" 2 "no CLI argument exits 2"
 bash "$SMOKE" nosuchcli >/dev/null 2>&1; assert_eq "$?" 2 "a CLI with no adapter exits 2"
+
+echo "── SMOKE_KEEP_ENV: the isolation of a run on a shared host survives the drop of the inherited fleet config (#496)"
+setup_stubs 1
+run_smoke HARNESS_HOME=/iso/harness-home HARNESS_FLEETS_DIR=/iso/fleets HARNESS_BIN_DIR=/iso/bin SMOKE_KEEP_ENV="HARNESS_HOME NOT_SET"
+assert_eq "$RC" 0 "a run that keeps HARNESS_HOME passes"
+assert_ok "HARNESS_HOME named in SMOKE_KEEP_ENV reaches every harness call" bash -c "grep -c 'HOME_DIR=/iso/harness-home' '$CALLS' | grep -qv '^0$' && ! grep 'HOME_DIR=unset' '$CALLS'"
+assert_no "...and one that is not named is still dropped" grep -qF 'BIN_DIR=/iso/bin' "$CALLS"
+setup_stubs 1
+run_smoke HARNESS_HOME=/iso/harness-home HARNESS_FLEETS_DIR=/iso/fleets
+assert_no "without SMOKE_KEEP_ENV HARNESS_HOME is dropped, as before" grep -qF 'HOME_DIR=/iso/harness-home' "$CALLS"
 
 echo "── a pass: the fleet's own path, in order, then teardown"
 setup_stubs 1
@@ -264,9 +274,11 @@ done
 RM="$HERE/../README.md"
 inst="$(sed -n '/^## Install$/,/^## Quick start$/p' "$RM")"
 assert_ok "README Install states native Windows support" grep -qF 'native Windows' <<<"$inst"
-assert_ok "...on the headless backend only" grep -qF 'headless session backend only' <<<"$inst"
-assert_ok "...with claude lanes only" grep -qF '`claude` lanes only' <<<"$inst"
-assert_ok "...linking the runbook" grep -qF '](docs/windows-smoke.md)' <<<"$inst"
+assert_ok "...as a first-class host, not a reduced mode (#496)" grep -qF 'first-class' <<<"$inst"
+assert_no "...no longer headless-only or claude-only" grep -qE 'headless session backend only|`claude` lanes only' <<<"$inst"
+assert_ok "...every agent CLI runs lanes there" grep -qF '(`claude`, `codex`, `opencode`, `copilot`, `hermes`, `openclaw`, `agy`)' <<<"$inst"
+assert_ok "...WSL2 is optional" grep -qF 'WSL2 is optional' <<<"$inst"
+assert_ok "...linking the guide" grep -qF '](docs/windows-smoke.md)' <<<"$inst"
 assert_no "...and no longer sends Windows users to WSL2 only" grep -qF 'on Windows, run it inside WSL2' <<<"$inst"
 assert_ok "the reference's Native Windows section links the runbook" \
   bash -c "sed -n '/^### Native Windows/,/^### /p' '$HERE/../docs/reference.md' | grep -qF '](windows-smoke.md)'"

@@ -60,10 +60,13 @@ curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | 
 
 <sub>Agents: run the `npx` line above, or the `curl` line when `git` is missing, and relay any missing prerequisites to the user.</sub>
 
-Linux and macOS, and native Windows: run the `curl` line from Git Bash. On Windows the fleet runs on
-the headless session backend only, with `claude` lanes only (the other CLIs need tmux): the
-[Windows runbook](docs/windows-smoke.md) sets up a host and runs the end-to-end smoke. WSL2 also
-works, as Linux. Pin a release with `HARNESS_REF=v0.1.0`.
+Linux, macOS and **native Windows** are all first-class hosts: on Windows, run either line above from Git Bash. The same
+features, skills, rtdd flow and install, update, rollback and uninstall lifecycle work there, with every agent CLI
+(`claude`, `codex`, `opencode`, `copilot`, `hermes`, `openclaw`, `agy`) running its lanes on the headless session
+backend, since Windows has no tmux. It is not a reduced mode, and WSL2 is optional (run the Linux instructions inside it
+if you prefer). The [Windows guide](docs/windows-smoke.md) covers setup, daily use, the end-to-end smoke and troubleshooting;
+the [parity matrix](docs/reference.md#windows-parity-matrix) lists every feature on both. Pin a release with
+`HARNESS_REF=v0.1.0`.
 
 | Prerequisite | |
 |---|---|

@@ -54,6 +54,7 @@
 #                       600) — so the log carries the session's end, not a teardown kill mid-loop
 #   SMOKE_EXTRA_CONFIG  file whose lines are appended to the sandbox's .harness/config — a host's
 #                       HARNESS_<CLI>_BIN / _FLAGS pin (e.g. the account wrapper claude lanes use)
+#   SMOKE_KEEP_ENV      names of environment variables that survive the drop of every inherited HARNESS_* (default: none)
 #   SMOKE_DELETE_REPO   1 = delete the sandbox repo at teardown (needs `gh auth refresh -s delete_repo`)
 #   SMOKE_HARNESS       the harness entrypoint (default: this checkout's bin/harness)
 #   SMOKE_REMOTE        the URL the sandbox is cloned from (default https://github.com/<SMOKE_REPO>.git)
@@ -68,12 +69,17 @@ CLI="${1:-}"; [[ -n "$CLI" && "$CLI" != -* ]] || usage
 # `: "${VAR:=…}"` — so run from inside a lane, the sandbox would silently take THAT fleet's repo, prefix
 # and CLI. Drop every inherited HARNESS_* (the host path pins too: lib.sh re-derives them from $HOME),
 # the state dir, and the parent agent's own session markers.
+# SMOKE_KEEP_ENV (space-separated names) survives the drop: a run on a shared Windows host (test/smoke/winsma/live.sh, #496)
+# keeps HARNESS_HOME / HARNESS_BIN_DIR / HARNESS_USER_SKILLS pointing at its isolation folder, or the sandbox fleet would
+# write the host's real ~/.harness.
+declare -A _keep=(); for v in ${SMOKE_KEEP_ENV:-}; do [[ "$v" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && -n "${!v+x}" ]] && _keep[$v]="${!v}"; done
 for v in $(compgen -v HARNESS_); do unset "$v"; done
+for v in "${!_keep[@]}"; do export "$v=${_keep[$v]}"; done
 unset STATE_DIR ENGINE_DIR RUN_DIR HARNESS_DIR CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID \
       CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
 
 HARNESS="${SMOKE_HARNESS:-$HERE/../../bin/harness}"
-# The platform: native Windows (Git Bash) runs headless claude lanes only (#349, #356, ADR 0001 §1).
+# The platform: native Windows (Git Bash) has no tmux, so it runs headless lanes of any CLI that has a headless runner (#349, #356, ADR 0001 §1, PRD #475).
 case "${SMOKE_PLATFORM:-$(uname -s 2>/dev/null)}" in
   windows|MINGW*|MSYS*|CYGWIN*) PLATFORM=windows;;
   posix) PLATFORM=posix;;

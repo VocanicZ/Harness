@@ -1,0 +1,26 @@
+# test_winsma.sh on winsma at origin/main (ba76721), for comparison with the branch: red for "a running exec finishes when the cap passes mid-command" too (#496)
+# host: C:\hx-496\ in the `suite` isolation, the winsma rules; claude token usage: none
+# note: the script text is elided from the log.
+[19:26:25] run: #496 on winsma, mode suite: export HX_BRANCH=main; export HX … (the script is test/smoke/winsma/suite.sh, elided here)
+[19:26:35] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[19:26:48] guard: before recorded
+[19:27:21] credentials: before scan recorded
+[19:27:21] exec: export HX_BRANCH=main; export HX_TESTS='test_winsma.sh' HX_S … (the script is test/smoke/winsma/suite.sh, elided here)
+[19:27:24] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-496/home | USERPROFILE=C:\hx-496\home | TMPDIR=C:/hx-496/tmp
+[19:27:24] == clone main
+[19:27:35] src at ba76721
+[19:27:35] == venv
+[19:28:11] jq = /c/hx-496/jqbin/jq: jq-1.8.1
+[19:28:13] python3 = /c/hx-496/venv/Scripts/python3: Python 3.13.5
+[19:28:13] ######## test/run.sh (per-test cap 600s)
+[19:47:43] run.sh finished rc=1 after 1170s
+  [test_winsma.sh]   FAIL: a running exec finishes when the cap passes mid-command — want [0] got [3]
+  [test_winsma.sh]   FAIL: ...with its output — want [0] got [1]
+== run.sh: 0/1 test files passed ==
+FAILED: test_winsma.sh
+SUITE-RESULT 1 failed
+WS-EXIT 1
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[19:49:09] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[19:49:09] run: FAILED at command

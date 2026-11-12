@@ -1,0 +1,85 @@
+16:22:19Z == fleet smoke | cli=copilot | GitHub Copilot CLI 1.0.105. | 2026-11-08T16:22:19Z
+16:22:19Z == host posix | Linux 7.0.0-3-pve x86_64 | bash 5.2.37(1)-release | python3 3.13.5
+16:22:19Z == session backend headless | checkpoint+resume off
+16:22:19Z == engine harness v0.10.0-5-g2cca05c-dirty (dev checkout) | repo VocanicZ/harness-smoke-copilot | prefix smokecopilot
+16:22:22Z == harness init
+   roles (copilot): manager <CLI default>/<CLI default>, implementer <CLI default>/<CLI default>
+   wrote /tmp/hzt-278221484/harness-smoke-copilot.QV3k3L/harness-smoke-copilot/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-copilot
+   : "${HARNESS_CLI:=copilot}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-copilot}"
+   : "${HARNESS_UNIT:=harness-smoke-copilot}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokecopilot}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_LABEL_HITL:=hitl}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_MODEL_MANAGER:=}"
+   : "${HARNESS_EFFORT_MANAGER:=}"
+   : "${HARNESS_MODEL_IMPLEMENTER:=}"
+   : "${HARNESS_EFFORT_IMPLEMENTER:=}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+16:22:30Z == harness setup
+   ── Harness setup (mode=issue-only cli=copilot) ──
+     ok      copilot binary (copilot)
+     ok      copilot skill handoff (/home/claude/.copilot/skills/handoff)
+     ok      copilot skill rtdd (/home/claude/.copilot/skills/rtdd)
+     ok      copilot skill subagent-task-tree (/home/claude/.copilot/skills/subagent-task-tree)
+     ok      copilot skill to-issues (/home/claude/.copilot/skills/to-issues)
+     ok      copilot skill to-prd (/home/claude/.copilot/skills/to-prd)
+     ok      copilot skill writing-plans (/home/claude/.copilot/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'harness-smoke-copilot' (VocanicZ/harness-smoke-copilot)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+16:22:44Z filed PRD #25 and issue #26
+16:22:44Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=30s):
+     worker-1: started (pid 1130358) — log /tmp/hzt-278221484/harness-smoke-copilot.QV3k3L/harness-smoke-copilot/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=60s):
+     priority: started (pid 1131355) — log /tmp/hzt-278221484/harness-smoke-copilot.QV3k3L/harness-smoke-copilot/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+16:22:51Z issue=OPEN labels=ready-for-agent sessions=none prs=#24 MERGED,#21 MERGED,#18 MERGED,#15 MERGED,#12 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+16:23:23Z issue=OPEN labels=agent-working,ready-for-agent sessions=none prs=#24 MERGED,#21 MERGED,#18 MERGED,#15 MERGED,#12 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+16:23:55Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokecopilot-harness-smoke-copilot-i26 prs=#24 MERGED,#21 MERGED,#18 MERGED,#15 MERGED,#12 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+16:24:58Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokecopilot-harness-smoke-copilot-i26 prs=#27 OPEN,#24 MERGED,#21 MERGED,#18 MERGED,#15 MERGED,#12 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+16:25:30Z issue=CLOSED labels=agent-working,ready-for-agent sessions=none prs=#27 MERGED,#24 MERGED,#21 MERGED,#18 MERGED,#15 MERGED,#12 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+16:25:30Z fleet sessions after close: none (ended by the fleet)
+16:25:31Z issue #26 CLOSED
+16:25:31Z merged PR: #27 feat: add smoke fixture for issue 26 (closes #26) https://github.com/VocanicZ/harness-smoke-copilot/pull/27 merged 2026-11-08T16:25:09Z
+16:25:33Z smoke/20261108T162218Z.txt on the default branch: hello from copilot
+   issue #26: 1 session(s)
+     2026-11-08T16:23:24Z  launch  kind=impl
+     2026-11-08T16:25:21Z  goal_satisfied  kind=impl
+     2026-11-08T16:25:22Z  reap  kind=impl reason=session_gone
+     2026-11-08T16:25:23Z  merged  kind=impl
+     rtdd  which 3  changed nodes 10  round1 2  round2 0  stale graph 0  selective 2/3  --version 1  1.4s
+     time  coding 0m00s  testing 0m00s
+16:25:34Z == teardown
+   Stopping pool workers:
+     killed priority (pid 1131355)
+     killed worker-1 (pid 1130358)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+16:25:39Z closed leftover issue #25
+16:25:40Z == result: PASS | log: /home/claude/harness-dev/.harness/worktrees/harness-i496/test/smoke/logs/copilot-headless-20261108T162217Z.log

@@ -1,15 +1,33 @@
-# Native Windows: set up a host and run the fleet smoke
+# Harness on native Windows: setup, daily use, the smoke and the Windows check host
 
-Harness runs on native Windows (no WSL) under Git for Windows' bash with a native Python 3, on the
-**headless session backend only**, and with **`claude` lanes only**: the other agent CLIs need tmux
-panes, which Windows does not have. The decision and its trade-offs are in
-[ADR 0001](adr/0001-native-windows-runtime.md); what the engine does differently there is in
+Native Windows is a **first-class host**, not a reduced mode (PRD #475). The same features, skills, rtdd flow and
+install, update, rollback and uninstall lifecycle that Linux has work in Git for Windows' bash with a native Python 3,
+and every supported agent CLI runs its lanes there. WSL2 is optional: if you would rather run the Linux instructions
+inside it, they work unchanged. The one structural difference is the session backend: Windows has no tmux, so lanes run
+on the **headless session backend**, which draws the same screen from a lane's `state.json`, and `harness attach` drives
+a headless lane directly (typed lines become the lane's next turn, Ctrl-C detaches and leaves it running), on every OS.
+[Parity matrix](reference.md#windows-parity-matrix): one row per feature, each `✓` on both hosts but the Linux-only
+HTCondor swarm service. How it works, and why: [ADR 0001](adr/0001-native-windows-runtime.md) and
 [Native Windows](reference.md#native-windows).
 
-This runbook sets up a Windows machine from scratch and runs `test/smoke/fleet_smoke.sh`, the one-issue
-end-to-end check, on it (#357). The smoke files a trivial issue in a sandbox repo and lets a real fleet
-claim it, run a headless `claude` lane, checkpoint and resume that lane mid-task, open a PR, merge it
-and close the issue. It spends real `claude` quota and takes 10 to 30 minutes.
+| Agent CLI | Windows lane runner | Windows build of the CLI |
+|---|---|---|
+| `claude` | `scripts/cli/claude_headless.py` | Claude Code for Windows (`irm https://claude.ai/install.ps1 \| iex`, `winget install Anthropic.ClaudeCode`) |
+| `codex` | `scripts/cli/codex_headless.py` (`codex exec --json`) | native on Windows, no WSL needed (Windows 11 recommended, Windows 10 1809+ best effort) |
+| `opencode` | `scripts/cli/opencode_headless.py` (`opencode run`) | runs directly on Windows (`OPENCODE_GIT_BASH_PATH` names Git Bash; the vendor recommends WSL) |
+| `copilot` | `scripts/cli/copilot_headless.py` | `winget install GitHub.Copilot` |
+| `hermes` | `scripts/cli/hermes_headless.py` | native: `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` |
+| `openclaw` | `scripts/cli/openclaw_headless.py` (`openclaw agent exec --json`) | native Windows CLI and Gateway supported |
+| `agy` | `scripts/cli/agy_headless.py` | PowerShell installer `irm https://antigravity.google/cli/install.ps1 \| iex` |
+
+The vendors' pages and each CLI's non-interactive mode are in [reference.md](reference.md#non-interactive-mode-per-agent-cli).
+All seven share one runner core (`scripts/cli/headless_core.py`) and differ only in a small per-CLI turn adapter.
+
+This guide sets up a Windows machine from scratch (1 to 4), shows daily use (the next section), runs
+`test/smoke/fleet_smoke.sh`, the one-issue end-to-end check, on it (#357; 5 and 6), and describes how Harness itself is
+checked on a Windows desktop that does other work (`test/smoke/winsma/`, the last section). The smoke files a trivial issue
+in a sandbox repo and lets a real fleet claim it, run a headless `claude` lane, checkpoint and resume that lane mid-task,
+open a PR, merge it and close the issue. It spends real `claude` quota and takes 10 to 30 minutes.
 
 ## 1. Install the prerequisites
 
@@ -113,6 +131,31 @@ agent CLI, rtdd, Developer Mode, the git identity and the checkout's per-repo gi
 those settings) is
 written to the smoke's log, and every failure there names its fix.
 
+## Daily use on Windows
+
+Everything is the `harness` command, in Git Bash (or `harness.cmd` from cmd and PowerShell, which runs it through Git's
+`bash.exe` by path). Per feature, Windows differs from Linux only where this table says:
+
+| You do | On Windows |
+|---|---|
+| `harness init`, `start`, `status`, `stop`, `doctor` | as on Linux. `start` launches the workers detached, so they outlive the shell or ssh session; `stop` ends them by pid file |
+| `harness attach <lane>` | live watch of the lane's screen; a typed line is queued as the lane's next turn; **Ctrl-C detaches** and leaves the lane running |
+| `harness pause --force`, `resume` | checkpoint every lane to GitHub (`agent-paused` plus a handoff comment), then put the issues back in the pool |
+| `harness supervise --install`, `web --install` | a Task Scheduler task in place of the systemd user unit: `Harness\harness-supervise`, `Harness\harness-web`. It starts at logon only (never at boot), needs no administrator, and the name carries a short hash of `HARNESS_HOME` when that is not `~/.harness`, so a second home never collides. A killed worker is brought back by the supervisor's next pass (`INTERVAL` in `supervise.conf`) |
+| `harness web` | the read-only dashboard, `http://127.0.0.1:4637/` (`HARNESS_WEB_PORT`, `HARNESS_WEB_BIND`) |
+| `harness stats`, `forecast`, `one`, `issue`, `prd`, `plan` | as on Linux; the event log is `$HARNESS_HOME/events.jsonl`; the injector (`issue`, `prd`, `plan`) is a headless lane named `hz-inject-<unit>` |
+| `harness update`, `update --rollback`, `update --with-skills` | download, SHA256SUMS check, flip of the `engine` link (a real symlink), prune to the current release plus 2, redeploy of the shim, tasks and skill links; a second `--rollback` goes forward again |
+| `harness uninstall [--force] [--force-engine]` | removes the fleet, `.harness/`, the engine and everything Harness put outside them: the Task Scheduler tasks and launchers, `harness`, `harness.cmd`, the python3 shim, the skill links, the registry and the poller. It never touches anything Harness did not create |
+| rtdd | `rtdd.exe`, found on PATH or in its install dir |
+| HTCondor swarm submission | not available (a Linux-only service): a Windows lane tests with rtdd locally, and `HARNESS_SWARM=off` in a Windows sandbox |
+
+Windows rules worth knowing. **Symlinks:** Harness makes real ones (`MSYS=winsymlinks:nativestrict`), which need Developer
+Mode or an administrator shell; `harness doctor` says which. **A directory cannot be renamed while a file inside it is open**,
+so stop the fleet and leave an engine folder before `harness update`. **Python:** the engine runs its own `python3` shim
+(`$HARNESS_HOME/bin/python3`) in UTF-8 mode; the Microsoft Store stub is never used. **Paths:** `C:/x`, `/c/x` and `C:\x` all
+reach the same file, but a path handed to a native program's command line must be in the `C:/x` form. **Line endings:** the
+repo's `.gitattributes` keeps the engine LF; Harness sets `core.autocrlf=false` and `core.eol=lf` per repo, never globally.
+
 ## 5. Run the smoke
 
 From Git Bash, in the Harness checkout:
@@ -132,7 +175,8 @@ ssh winsma '%USERPROFILE%\Harness\test\smoke\fleet_smoke.cmd claude'    # from a
 ```
 
 On Windows the smoke defaults to `SMOKE_BACKEND=headless`. It refuses `SMOKE_BACKEND=tmux` and any CLI
-but `claude`, and exits 2 before it touches GitHub. Keep the shell or ssh session open until it prints
+without a headless runner, and exits 2 before it touches GitHub (`claude` is the one this guide runs; the others are checked on
+the claude host, below). Keep the shell or ssh session open until it prints
 its result: the fleet it starts is detached and outlives the session, but the smoke's own wait and
 teardown run in the foreground. Every `SMOKE_*` setting in the script's header applies here as on
 Linux. These are the ones that matter on a Windows host:
@@ -383,6 +427,39 @@ Knobs: `WS_POLL` (wait between lock polls, default 300 s; a lower value is clamp
 0 = wait as long as it takes), `WS_HB_INTERVAL` (default 300 s), `WS_LANE_SESSION` / `WS_LANE_PID` (what `lock` records
 as the owner; pid defaults to the caller's parent).
 
+### The end-to-end record of PRD #475 (#496)
+
+Every claim in the [parity matrix](reference.md#windows-parity-matrix) names the log that shows it. The runs of the last task, each under the rules
+above (lock, isolation, guard before and after, credential scan, cleanup; every log opens with the host, the commit and its Claude token usage):
+
+| What | Script | Log |
+|---|---|---|
+| The live `claude` smoke: claim → lane → PR → merge → close, `pause --force` and resume, then the lane's token usage from `harness stats` and `harness forecast` (the only run with the real Claude sign-in) | `winsma.sh run <n> base`, `e2e.sh` stage `live` | `test/smoke/logs/live-claude-windows-20261112T125158Z.log` |
+| Install by `npx` and by `curl`, re-install, update from v0.1.1 and from the previous release, rollback and forward, `uninstall --force --force-engine` | `lifecycle.sh` | `test/smoke/logs/lifecycle-windows-20261112T114048Z.log` |
+| `update --with-skills` into the sandbox `CLAUDE_CONFIG_DIR`, every `/harness*` skill linked, a lane-shaped shell | `tooling.sh` | `test/smoke/logs/tooling-windows-20261112T120058Z.log` |
+| `supervise --install`, a killed worker restarted by the supervisor, `supervise --uninstall` | `e2e.sh` stage `supervise` | `test/smoke/logs/e2e-windows-20261112T094302Z.log` |
+| the dashboard (foreground and its task), `stats`, `forecast`, `one`, `status`, `poll`, `migrate`, `tier`, `release --dry-run`; `plan`, `prd` and `issue` | `e2e.sh` stages `ops`, `inject` | `test/smoke/logs/e2e-windows-20261112T094302Z.log` |
+| the fixture-replay `headless-*` rows of every CLI, on Windows | `suite.sh` with `HX_TESTS="test_cli_matrix.sh"` | `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log` |
+| the other CLIs, live and headless, on the claude host | `fleet_smoke.sh <cli>` with `SMOKE_BACKEND=headless`; `codex_headless_smoke.sh` | `test/smoke/logs/<cli>-headless-20261108T*.log` |
+
+Three things those runs showed that the guide above would not tell you:
+
+- **Task Scheduler needs a logged-on user for these tasks.** `supervise --install` and `web --install` register `InteractiveToken` tasks that
+  start at the task user's logon and run in that user's session (no administrator, nothing at boot). On winsma the ssh session is an administrator
+  but the task user, `pc`, has no interactive session (`quser` lists another user on the console), so `schtasks /Run` queues the task and it never
+  starts: `Last Result` stays `267011`, "the task has not yet run". The record therefore starts the task's own command line (`bash.exe` and the
+  launcher script it names, exactly the task's `<Exec>`) detached, and says so. On a desktop where the owner is logged on the task runs itself, and
+  a task that cannot start shows in `schtasks /Query /TN <name> /V /FO LIST`.
+- **A supervisor pass is slow on Windows.** Every `gh`, `python3` and `git` call is a process spawn, so one pass over a fleet takes minutes, and a
+  worker killed just after a pass began is restarted by the pass after it. The record allows 15 minutes.
+- **A native Windows Python writes CRLF into a pipe.** Any `python3 … | while read` in the engine sees a trailing `\r`; the supervisor strips it
+  (#496), and new code that reads Python's output in bash must do the same.
+
+**Checkpoint on a fast lane.** The headless smokes ran with the checkpoint step on where the lane took long enough to be caught mid-task
+(`opencode`), and off where a lane finished its one-file task before the pause could land (`copilot`: 100 s from launch to merge, so `pause --force`
+waited out its 15 minutes for a lane that no longer existed, #662). `agy` ran on its Gemini model because its Claude-and-GPT bucket was at 100% until
+Wed 08:01 UTC.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -392,7 +469,7 @@ as the owner; pid defaults to the caller's parent).
 | `$'\r': command not found` | a CRLF engine: re-clone (the `.gitattributes` keeps it LF), or `git config --global core.autocrlf false` and re-clone |
 | `ln -s` made a copy, or doctor says `symlinks: cannot create one` | turn on Developer Mode, or run as an administrator |
 | `fleet_smoke: native Windows has no tmux` | unset `SMOKE_BACKEND`, or set it to `headless` |
-| `fleet_smoke: '<cli>' is tmux-only` | only a CLI with a headless lane runner (`agy`, `claude`, `codex`, `hermes`, `openclaw`, `opencode`) runs on Windows: run `fleet_smoke.sh claude` |
+| `fleet_smoke: '<cli>' is tmux-only` | the name is not a CLI with a headless lane runner (`agy`, `claude`, `codex`, `copilot`, `hermes`, `openclaw`, `opencode`): check the spelling |
 | `fleet_smoke.cmd: no Git bash.exe at …` | Git for Windows is elsewhere: set `HARNESS_BASH_EXE` to its `bin\bash.exe` |
 | the issue never gets claimed | read `harness doctor`'s `windows:` lines in the log, then `harness --state-dir <clone>/.harness status` while it runs |
 | `install.sh`: `could not resolve the latest release … the response is not JSON` | an `install.sh` from before #403's fix ran the releases lookup with the Store-stub `python3` before the shim existed; a current one resolves it through the Python that runs and writes the shim first. On an older one: `HARNESS_REF=<tag> bash install.sh` (e.g. the latest from `gh release list -R VocanicZ/Harness`) |

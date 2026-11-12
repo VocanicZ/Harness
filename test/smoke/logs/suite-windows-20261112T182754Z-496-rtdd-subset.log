@@ -1,0 +1,27 @@
+# rtdd Round 1+2 subset on winsma for the Windows-relevant diff of #496: HX_TESTS="test_supervise.sh test_windows_uninstall.sh test_uninstall.sh test_python_lf.sh test_fleet_smoke.sh test_windows_parity_doc.sh test_winsma.sh" (the tests of the changed Windows code; the whole selection is 278 files and the full cli-matrix has its own log)
+# host: C:\hx-496\ in the `suite` isolation, the winsma rules; claude token usage: none (no sign-in, no lane)
+# result: 6/7 files pass; test_winsma.sh is red on this host for "a running exec finishes when the cap passes mid-command" (timing in lock.sh, a Linux-targeted test of the helpers) and it is red the same way on main (suite-windows-20261112T192625Z-496-main-test_winsma.log). The run after this one (alone) also failed a heartbeat-reader assertion once: a timing flake.
+# note: the script text is elided from the log.
+[18:27:54] run: #496 on winsma, mode suite: export HX_BRANCH=issue/496; expo … (the script is test/smoke/winsma/suite.sh, elided here)
+[18:28:03] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[18:28:18] guard: before recorded
+[18:28:52] credentials: before scan recorded
+[18:28:52] exec: export HX_BRANCH=issue/496; export HX_TESTS='test_supervise. … (the script is test/smoke/winsma/suite.sh, elided here)
+[18:28:55] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-496/home | USERPROFILE=C:\hx-496\home | TMPDIR=C:/hx-496/tmp
+[18:28:56] == clone issue/496
+[18:29:09] src at 51109c5
+[18:29:09] == venv
+[18:29:49] jq = /c/hx-496/jqbin/jq: jq-1.8.1
+[18:29:51] python3 = /c/hx-496/venv/Scripts/python3: Python 3.13.5
+[18:29:51] ######## test/run.sh (per-test cap 600s)
+[19:00:53] run.sh finished rc=1 after 1862s
+  [test_winsma.sh]   FAIL: a running exec finishes when the cap passes mid-command — want [0] got [3]
+  [test_winsma.sh]   FAIL: ...with its output — want [0] got [1]
+== run.sh: 6/7 test files passed ==
+FAILED: test_winsma.sh
+SUITE-RESULT 1 failed
+WS-EXIT 1
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[19:02:20] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[19:02:20] run: FAILED at command

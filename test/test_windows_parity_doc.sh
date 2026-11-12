@@ -70,6 +70,8 @@ for name, (lin, win) in rows.items():
         elif v.startswith("✓"):
             if v.startswith("✓ target") and not re.search(r"\(#[0-9]+", v):
                 problems.append("row `%s`: %s target names no issue" % (name, col))
+            if v.startswith("✓ target"):
+                problems.append("row `%s`: %s is still a target: PRD #475 is done, so it is `✓` (shown working) or a sourced `n/a`" % (name, col))
         else:
             problems.append("row `%s`: %s value is neither ✓ nor n/a: %s" % (name, col, v[:40]))
 
@@ -190,8 +192,13 @@ expect_fail na-no-source "n/a has no source link" "an n/a with no source"
 mutate na-not-allowed 's = s.replace("| `harness stop` | ✓ | ✓ |", "| `harness stop` | ✓ | n/a: not verified on winsma (https://example.com) |")'
 expect_fail na-not-allowed "Windows n/a is allowed only for" "n/a on a feature Windows can do"
 
-mutate target-no-issue 's = s.replace("| `harness release` | ✓ | ✓ target (#475 task 8) |", "| `harness release` | ✓ | ✓ target |")'
+mutate target-no-issue 's = "\n".join(("| `harness release` | ✓ | ✓ target |" if l.startswith("| `harness release` |") else l) for l in s.split("\n"))'
 expect_fail target-no-issue "target names no issue" "a target with no issue"
+
+mutate target-left 's = "\n".join(("| `harness release` | ✓ | ✓ target (#475 task 8) |" if l.startswith("| `harness release` |") else l) for l in s.split("\n"))'
+expect_fail target-left "is still a target" "a row left as a target after PRD #475 (every row is ✓ or a sourced n/a)"
+mutate target-left-cli 's = "\n".join(("| `cli openclaw` | ✓ | ✓ target (#475 task 2) |" if l.startswith("| `cli openclaw` |") else l) for l in s.split("\n"))'
+expect_fail target-left-cli "row \`cli openclaw\`: Windows is still a target" "an agent CLI row left as a target"
 
 mutate missing-subcommand 's = s.replace("| `harness doctor` | ✓ | ✓ |\n", "")'
 expect_fail missing-subcommand "no row for subcommand \`harness doctor\`" "a subcommand with no row"

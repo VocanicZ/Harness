@@ -628,6 +628,13 @@ for target in .claude/settings.json .claude/plugins/installed_plugins.json .clau
     ws_guard 479 after >/dev/null 2>&1; assert_eq "$?" "1" "a changed $target fails the run"
     finish ) >/dev/null || { echo "  FAIL: a changed $target fails the run"; exit 1; }
 done
+km_write(){ printf '{\n  "harness": {\n    "source": {"source": "directory", "path": "%s"},\n    "installLocation": "x",\n    "lastUpdated": "%s"\n  }\n}\n' "$1" "$2" >"$HOME/.claude/plugins/known_marketplaces.json"; }
+( fresh_env; km_write /e 2026-11-12T12:16:50.544Z; snapshot
+  km_write /e 2026-11-12T12:40:10.277Z
+  ws_guard 479 after >/dev/null 2>&1; assert_eq "$?" "0" "Claude Code re-stamping a marketplace's lastUpdated is not a change (#496 live smoke)"
+  km_write /other 2026-11-12T12:40:10.277Z
+  out="$(ws_guard 479 after 2>&1)"; assert_eq "$?" "1" "a marketplace whose source moved IS a change"; [[ "$out" == *known_marketplaces.json* ]]; assert_eq "$?" "0" "and names the file"
+  finish ) || rc=1
 ( fresh_env; snapshot; echo new >"$HOME/.local/bin/harness.cmd"
   ws_guard 479 after >/dev/null 2>&1; assert_eq "$?" "1" "a NEW file in .local/bin fails the run"
   rm "$HOME/.local/bin/harness.cmd"; echo x >"$HOME/.claude/skills/new-skill"
@@ -752,5 +759,43 @@ echo "# run: the whole sequence"
 ( fresh_env; seed_lock 111 lane-b 999999 10; export WS_LOCK_TIMEOUT=1
   ws_run 479 base 'echo never' >/dev/null 2>&1; assert_eq "$?" "1" "a run that cannot get the lock does not run"
   assert_no "and creates no folder" test -e "$WS_C/hx-479"
+  finish ) || rc=1
+
+echo "# run: a command that takes the remote shell down is a failed run, not a pass (#496)"
+( fresh_env; printf '#!/usr/bin/env bash\nbash -s\nexit 0\n' >"$T/bin/fakessh0"; chmod +x "$T/bin/fakessh0"; export WINSMA_SSH="$T/bin/fakessh0"
+  # the first e2e.sh run did `kill -9 0` on an empty pid: the shell died, ssh still exited 0, and the run said OK
+  out="$(ws_run 479 base 'kill -9 $PPID' 2>&1)"; rc=$?
+  assert_eq "$rc" "1" "a command that kills its own remote shell fails the run, though ssh exited 0"
+  [[ "$out" == *"ended without reporting an exit status"* && "$out" == *"FAILED at command"* ]]; assert_eq "$?" "0" "…and says why"
+  assert_no "cleanup still ran" test -e "$WS_C/hx-479"
+  out="$(ws_run 479 base 'echo fine' 2>&1)"; rc=$?
+  assert_eq "$rc" "0" "a command that ends normally still passes"; [[ "$out" == *"WS-EXIT 0"* ]]; assert_eq "$?" "0" "…and its status is in the log"
+  finish ) || rc=1
+
+echo "# stray processes: the run folder in every spelling a command line carries it (#496)"
+# a dashboard server (`python.exe C:/hx-496/…/web.py`) survived a run because only the backslash form was matched
+for form in 'C:\\hx-$1\\' 'C:/hx-$1/' '/c/hx-$1/'; do
+  assert_ok "_ws_procs_under matches $form" grep -qF -- "-like '*$form*'" "$W/remote.sh"
+done
+
+echo "# e2e.sh (#496): the end-to-end script a winsma run sends"
+E2E="$W/e2e.sh"
+assert_ok "e2e.sh parses" bash -n "$E2E"
+for want in 'supervise --install' 'supervise --uninstall' 'web --install' 'web --uninstall' 'stats --json' 'forecast' 'one gate' 'one check' 'harness poll' 'migrate' \
+    'release --dry-run' 'for alt in plan prd issue' 'fleet_smoke.sh claude' 'SMOKE_KEEP_ENV="HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS"' \
+    'HARNESS_USAGE_CHECKPOINT_PCT' 'stats --json'; do
+  assert_ok "e2e.sh covers: $want" grep -qF -- "$want" "$E2E"
+done
+assert_ok "its header names both stages and the isolation each needs" bash -c "head -20 '$E2E' | grep -q 'ops' && head -20 '$E2E' | grep -q 'live' && head -20 '$E2E' | grep -q 'REAL Claude sign-in'"
+# every signal goes through kill_pid, which refuses 0, 1, a negative or an empty pid: `kill -9 ""`/`kill 0` took a whole shell down once
+assert_eq "$(grep -nE '(^|[^_a-z])(kill|taskkill)( |$)' "$E2E" | grep -vE '^[0-9]+:\s*#|kill -0|kill_pid|taskkill //F //T //PID "\$\(winpid "\$1"\)"' | wc -l | tr -d ' ')" "0" \
+  "e2e.sh signals a process only through kill_pid"
+( fresh_env; eval "$(sed -n '/^kill_pid()/,+1p' "$E2E")"
+  winpid(){ echo "w$1"; }; taskkill(){ echo "taskkill $*" >>"$T/sig"; }; kill(){ echo "kill $*" >>"$T/sig"; }
+  : >"$T/sig"
+  for bad in "" 0 1 -1 abc "12 13" "0x4"; do kill_pid "$bad" && echo "ACCEPTED '$bad'" >>"$T/bad"; done
+  assert_eq "$(cat "$T/sig")" "" "kill_pid sends nothing for an empty, 0, 1, negative or non-numeric pid"
+  kill_pid 4242; assert_ok "…and a real pid goes to taskkill's process tree" grep -qF 'taskkill //F //T //PID w4242' "$T/sig"
+  assert_no "…and nothing was accepted that should not have been" test -e "$T/bad"
   finish ) || rc=1
 exit $rc

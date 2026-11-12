@@ -222,7 +222,14 @@ printf ': "${HARNESS_SESS_PREFIX:=fx}"\n: "${HARNESS_POOL:=2}"\n: "${HARNESS_REP
 SUP_FLEET_GLOB="$T/fleets/*/.harness"; export HARNESS_FLEETS_DIR="$T/registry"
 mkdir -p "$HARNESS_FLEETS_DIR"; printf '{"prefix":"fx","project":"%s"}\n' "$F/.harness" >"$HARNESS_FLEETS_DIR/fx.json"
 assert_eq "$(sup_fleets)" "$(realpath "$F/.harness")" "registry + glob find the fleet once"
-printf '#!/bin/sh\necho "$@" >> %s/harness.calls\n' "$T" >"$T/harness-stub"; chmod +x "$T/harness-stub"
+# A native Windows Python writes CRLF into a pipe (#496): its output must reach the supervisor with the CR stripped, or the fleet's
+# `-f $d/config` never matches and no killed worker is ever restarted. The stand-in python3 below ends every line with \r\n.
+mkdir -p "$T/crlf"; REALPY="$(command -v python3)"
+printf '#!/usr/bin/env bash\n"%s" "$@" | sed "s/$/\r/"\n' "$REALPY" >"$T/crlf/python3"; chmod +x "$T/crlf/python3"
+assert_eq "$(SUP_FLEET_GLOB="" PATH="$T/crlf:$PATH" sup_fleets)" "$(realpath "$F/.harness")" "a CRLF-writing python3 (Windows): the registry alone (no glob) still finds the fleet"
+printf '{"phase": "rolled"}' >"$T/au-crlf.json"
+assert_eq "$(SUP_AU_STATE="$T/au-crlf.json" PATH="$T/crlf:$PATH" sup_au_get phase)" "rolled" "…and the auto-update phase reads back without the CR"
+printf '#!/bin/sh\necho "$@" >> %s/harness.calls\necho "skills=${HARNESS_USER_SKILLS:-}" >> %s/harness.env\n' "$T" "$T" >"$T/harness-stub"; chmod +x "$T/harness-stub"
 SUP_HARNESS="$T/harness-stub"
 sleep 600 & LIVE=$!
 dead_pid(){ sh -c 'echo $$' ; }
@@ -249,6 +256,16 @@ assert_no "a lock younger than LOCK_GRACE is kept"          grep -q "issue edit 
 fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/worker-2.pid"
 SUP_DRY=0 sup_check_fleet "$F/.harness"
 assert_ok "a dead pool worker → harness start for that fleet" grep -q -- "--state-dir $F/.harness start" "$T/harness.calls"
+# (_HARNESS_OS, not HARNESS_PLATFORM: the cleanup drops that one, as it drops any inherited HARNESS_*.)
+# On Windows lib.sh reads portable.sh's HARNESS_NATIVE_PATH_VARS under `set -u`; the env cleanup must not unset it (#496)
+fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/worker-2.pid"
+_HARNESS_OS=windows CLAUDE_CONFIG_DIR="$T/cc" SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "Windows: a dead pool worker is still restarted (lib.sh sources under the cleaned env)" grep -q -- "--state-dir $F/.harness start" "$T/harness.calls"
+# A run that isolates its skills dir (HARNESS_USER_SKILLS, as the winsma runs do) must keep it through the cleanup: the `harness start` the supervisor
+# runs links skills there, and without it linked them into the user's real ~/.claude/skills (#496).
+fleet_reset; rm -f "$T/harness.env"; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/worker-2.pid"
+HARNESS_USER_SKILLS="$T/iso-skills" SUP_DRY=0 sup_check_fleet "$F/.harness"
+assert_ok "the harness start of a restart sees the run's HARNESS_USER_SKILLS" grep -qx "skills=$T/iso-skills" "$T/harness.env"
 fleet_reset; echo "$LIVE" >"$F/.harness/run/worker-1.pid"; dead_pid >"$F/.harness/run/priority.pid"
 SUP_DRY=0 sup_check_fleet "$F/.harness"
 assert_ok "a dead priority lane → harness start"            test -s "$T/harness.calls"
@@ -374,6 +391,16 @@ assert_ok "--install writes the unit"                       test -f "$U/harness-
 assert_ok "unit restarts always"                            grep -qx "Restart=always" "$U/harness-supervise.service"
 assert_ok "a unit restart never kills the fleets it started" grep -qx "KillMode=process" "$U/harness-supervise.service"
 assert_ok "unit runs this engine's supervise"               grep -qx "ExecStart=/eng/bin/harness supervise" "$U/harness-supervise.service"
+# Windows (#496): the task's PATH must reach powershell, which detach_launch starts workers with, or a killed worker is never restarted.
+mkdir -p "$T/winps"; printf '#!/bin/sh\n' >"$T/winps/powershell"; chmod +x "$T/winps/powershell"
+assert_ok "Windows: the unit PATH holds powershell's dir"   bash -c "! [[ -z \"\$1\" ]] && tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" _HARNESS_OS=windows sup_unit_path)"
+# ...but AFTER /usr/bin: System32 carries a WSL bash.exe stub that answers every bare `bash` (the first e2e run: "no installed distributions").
+mkdir -p "$T/Windows/System32"; printf '#!/bin/sh\n' >"$T/Windows/System32/powershell"; chmod +x "$T/Windows/System32/powershell"
+path_index(){ tr : '\n' <<<"$1" | grep -nxF -- "$2" | cut -d: -f1; }
+WUP="$(PATH="$T/Windows/System32:$T/tools:$PATH" _HARNESS_OS=windows sup_unit_path)"
+assert_ok "Windows: System32 is in the unit PATH"            test -n "$(path_index "$WUP" "$T/Windows/System32")"
+assert_ok "Windows: System32 is the LAST dir, after /usr/bin" test "$(tr : '\n' <<<"$WUP" | tail -n 1)" = "$T/Windows/System32"
+assert_no "a Linux unit PATH does not look for powershell"  bash -c "tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" sup_unit_path)"
 assert_ok "unit PATH holds the claude/gh/rtdd dir"          grep -q "^Environment=PATH=$T/tools:" "$U/harness-supervise.service"
 assert_ok "systemd reloaded + enabled + (re)started"        bash -c "grep -q daemon-reload '$T/systemctl.calls' && grep -q 'enable harness-supervise' '$T/systemctl.calls' && grep -q 'restart harness-supervise' '$T/systemctl.calls'"
 assert_ok "linger enabled"                                  grep -q enable-linger "$T/loginctl.calls"
