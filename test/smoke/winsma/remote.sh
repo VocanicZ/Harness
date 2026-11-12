@@ -29,6 +29,9 @@ _ws_native(){ if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else 
 _ws_winpath(){ if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }  # C:\hx-479\…
 _ws_real_home(){ echo "${HX_REAL_HOME:-$HOME}"; }
 _ws_now(){ date +%s; }
+# _ws_hb_write <file> — write the epoch to a temp file beside <file>, then rename it over: a concurrent reader never sees <file> empty (#1082:
+# a plain `>` truncates first). A failed rename (on Windows, a reader holding the file open) removes the temp file and returns 1.
+_ws_hb_write(){ local f="$1" t="$1.$$"; date +%s >"$t" 2>/dev/null && mv -f "$t" "$f" 2>/dev/null || { rm -f "$t" 2>/dev/null; return 1; }; }
 
 # --- the lock protocol: C:\hx-proto (#1041) ------------------------------------------------------------------
 # Every lane streams the helpers from ITS OWN worktree, so a lane on an old branch runs old lock code beside new lanes and, with no
@@ -52,7 +55,7 @@ r_lock_take(){ _ws_issue_ok "$1" || return 2
   [[ -z "$first" || "$first" == "$1" ]] || return 1
   mkdir "$L" 2>/dev/null || return 1
   printf 'issue=%s\nsession=%s\nhost_pid=%s\n' "$1" "${2:-}" "${3:-}" >"$L/owner"
-  _ws_now >"$L/taken"; _ws_now >"$L/heartbeat"; r_queue_leave "$1"; return 0; }
+  _ws_now >"$L/taken"; _ws_hb_write "$L/heartbeat"; r_queue_leave "$1"; return 0; }
 # r_lock_state — `free`, or `held <issue> <session> <host_pid> <heartbeat_age_seconds> <hold_seconds>`. A lock whose owner or
 # heartbeat file is not there yet (the holder is between its mkdir and its writes) ages from the directory.
 r_lock_state(){ local L issue session pid hb age taken hold; L="$(_ws_lock)"
@@ -103,7 +106,7 @@ r_hold_gate(){ _ws_issue_ok "$1" || return 2
   (( n > 0 )) || return 0
   echo "hold cap reached, $n lane(s) queued: release and re-queue (#$1 has held hx-lock ${9}s, WS_HOLD_MAX is ${2}s)"; return 3; }
 # r_lock_heartbeat <issue> — refresh now (the loop below does this every WS_HB_INTERVAL).
-r_lock_heartbeat(){ local L; L="$(_ws_lock)"; [[ -d "$L" ]] && _ws_now >"$L/heartbeat"; }
+r_lock_heartbeat(){ local L; L="$(_ws_lock)"; [[ -d "$L" ]] && _ws_hb_write "$L/heartbeat"; }
 # r_hb_start <issue> [hold_cap_s|off] [stale_s] — a background loop that refreshes the heartbeat, its pid recorded in pids. It ends by
 # itself when the lock is gone or belongs to someone else, so a missed cleanup cannot keep a dead lock fresh. It also ENFORCES the
 # hold cap (#1040): once the hold passes <hold_cap_s> and a live ticket of another issue is queued, it releases the lock and ends,
@@ -127,7 +130,8 @@ while [ -f "$L/owner" ] && grep -qx 'issue=$1' "$L/owner"; do
       if [ \$n -gt 0 ]; then rm -rf "$L"; exit 0; fi
     fi
   fi
-  date +%s >"$L/heartbeat"; sleep $WS_HB_INTERVAL
+  t="$L/heartbeat.\$\$"; { date +%s >"\$t" && mv -f "\$t" "$L/heartbeat"; } 2>/dev/null || rm -f "\$t" 2>/dev/null
+  sleep $WS_HB_INTERVAL
 done
 EOF
   pid="$(${WS_SPAWN:-_ws_spawn_win} "$hx/hb.sh" | tr -dc 0-9)"
