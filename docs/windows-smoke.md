@@ -358,6 +358,11 @@ a first attempt was lost to an ssh drop 38 min in); and the acceptance run, `HX_
 **`test_cli_copilot.sh` 70/70 and `test_cli_codex.sh` 67/67, guard clean, winsma clean, 29 min.** The cell's own timeouts are scaled 8x on Windows (`hl_wait`) and it took
 25-37 s each time, so it was not near a limit. What turned it red at `aeb13d2` is not known: that run predates #1071 (leftover MSYS descendants of a fake agent that `taskkill`
 could not name), which is the likeliest cause, but no run could show it. If it comes back, run the five-CLI matrix again and read the cell's own output.
+The matrix cells that were red by host load (#944: `agy: headless-resume`, `hermes: stats-session-end-usage`, `hermes: headless-loop-mode`, `hermes: headless-stats-session-end-usage`,
+`openclaw: review-gauntlet`, `openclaw: headless-stats-session-end-usage`) do not reproduce on `main` (`2c3f46f`). Two runs in a row in the suite isolation, `HX_TESTS=test_cli_matrix.sh`
+`HARNESS_MATRIX_CLIS='agy hermes openclaw' HARNESS_MATRIX_TIMING=1`: **agy 53/53, hermes 51/51, openclaw 49/49 both times**, `run.sh` 81 min and 69 min, guard clean, `reap.ps1` found
+nothing, winsma clean after (`test/smoke/logs/suite-windows-20261112T055407Z-944-matrix-run1.log`, `...T074045Z-944-matrix-run2.log`). `hl_wait`'s 8x Windows scaling (#1073) and the `proc_kill_tree` fix (#1071) landed after the red runs and are the likeliest cause of the change (not shown: no run isolates them). If a cell goes red again, rerun it with
+`HARNESS_MATRIX_ROWS='^(row)$'` and `bash -x` and read its own output; a host-load red has no code cause to fix in the test.
 The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
 (`bash test/run.sh <files>`) in the same isolation. Their winsma logs are `test/smoke/logs/suite-windows-20261106T*.log`; the last,
 `suite-windows-20261106T225957Z.log`, has `test_watchdog_headless.sh`, `test_env_leak_headless.sh` and `test_session_names_headless.sh`
