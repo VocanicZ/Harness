@@ -27,3 +27,15 @@ test_windows_lifecycle.sh 156/156, test_fleet_smoke.sh 139/139.
 4. suite.sh HX_TESTS="test_cli_matrix.sh" (mode suite, ~55 min).
 Then: name logs test/smoke/logs/<kind>-windows-<UTC>.log (+ "# claude token usage:" header; none for sandbox runs), same header on the six CLI logs, flip.py, guide-record.md,
 Task Scheduler note, CHANGELOG (changelog-entry.md), delete docs/plans/496-wip-drafts, rtdd which --base origin/main + Rounds 1+2, PR (link #662), merge.
+
+
+## Update 2026-11-12 06:4xZ (resumed lane)
+- Rebased on main (conflict in supervise.sh sup_session_rows pipe resolved: SUPERVISE_RUN_DIR + tr -d '\r'). Pushed.
+- e2e supervise run 1 (sup1) FAILED: owner skills repair was already done (links point at engine/skill; no hx-496 targets). Real cause of "killed worker not restarted":
+  the unit PATH (sup_unit_path) after 317b827 put C:\Windows\System32 BEFORE /usr/bin -> a bare `bash` was System32's WSL stub ("no installed distributions"
+  in tasks/harness-supervise.log, UTF-16). Fixed: System32 dirs sorted LAST (commit 8075cd8 + test pin, red 149/150 without, 150/150 with). e2e.sh now fails on
+  "distribution|command not found" in the launcher log.
+- Rerun of e2e supervise needed (name sup2; was queued behind #944 for hx-lock; this lane PARKED in the winsma queue, ticket kept). Next acquisition: same `runws2.sh sup2 install supervise` (NO_REPAIR=1).
+- Tooling for waits: no `harness-wait` on PATH; use `python3 ~/.harness/releases/v0.13.2/scripts/waitlib.py run|set`. `--pid` waits fire at once (sandbox pid namespace): use `set --path <rc file>` with `run`'s <log>.rc.
+  runws2.sh process died (rc 1) while queued after ~7 min even though ticket stays: just park rather than wait in-process.
+- The runs after supervise are unchanged (see list above).
