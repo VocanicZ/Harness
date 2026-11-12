@@ -344,7 +344,14 @@ if has live; then
   export SMOKE_KEEP_ENV="HARNESS_HOME HARNESS_BIN_DIR HARNESS_USER_SKILLS" SMOKE_EXTRA_CONFIG="$HX_DIR/smoke-extra.conf" \
     SMOKE_LOG="$HX_DIR/live-smoke.log" SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-3000}" SMOKE_REPO="$REPO"
   # the smoke's own lines go out raw (they are the log test/test_fleet_smoke.sh reads): header, host, the doctor's windows: section, every poll
+  # The guard hashes the owner's ~/.claude/plugins/known_marketplaces.json; keep a copy to name what moved if it moves (keys and times only: no credential lives in it)
+  KM="$HOME/.claude/plugins/known_marketplaces.json"; cp "$KM" "$HX_DIR/km.before" 2>/dev/null
   bash src/test/smoke/fleet_smoke.sh claude 2>&1; src_rc=$?
+  if [[ -f "$HX_DIR/km.before" ]] && ! cmp -s "$KM" "$HX_DIR/km.before"; then
+    say "NOTE known_marketplaces.json changed during the live lane; diff of its pretty-printed JSON (before -> after):"
+    PY="$HARNESS_HOME/bin/python3"; [[ -x "$PY" ]] || PY=python3
+    diff <("$PY" -m json.tool "$HX_DIR/km.before" 2>&1) <("$PY" -m json.tool "$KM" 2>&1) | sed 's/^/   km| /' | head -n 40
+  else say "known_marketplaces.json unchanged by the live lane"; fi
   say "fleet_smoke.sh exited $src_rc"
   ok "fleet_smoke.sh claude exits 0 (== result: PASS)" '(( src_rc == 0 )) && grep -q "== result: PASS" "$SMOKE_LOG"'
   ok "the lane was checkpointed and resumed" 'grep -q "agent-paused" "$SMOKE_LOG" && grep -q "== resume" "$SMOKE_LOG"'
