@@ -1,0 +1,633 @@
+# Install, update, rollback and uninstall on winsma, final run (#496, PRD #475 Task 8)
+# host: Windows 10 via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-496\ under the winsma rules (lock, isolation, before/after guard, credential scan)
+# script: test/smoke/winsma/lifecycle.sh at the head of issue/496 (d4c07ef; cloned from GitHub inside C:\hx-496); all stages: entry (real `npx` + `curl | bash` lines, HARNESS_REF=v0.5.0) real tasks v011 gitco gitdef prune; mode install
+# covers: install (npx + curl, re-install), update from v0.1.1 and from the previous release, rollback and forward, `uninstall --force --force-engine`
+# claude token usage: none. A sandbox run: CLAUDE_CONFIG_DIR is the sandbox, no Claude sign-in, no lane.
+# note: two earlier runs of this script on the same branch were red (HARNESS_HOME kept bin/pylf/__pycache__ after uninstall: fixed in scripts/uninstall.sh; the "old update.sh" check used a checkout that already carried the fix: now 1467c2d^). This is the green run on the fixed branch; the script text is elided from the log.
+[11:40:48] run: #496 on winsma, mode install: export HX_BRANCH=issue/496; # … (the script is test/smoke/winsma/lifecycle.sh, elided here)
+[11:40:58] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[11:41:11] guard: before recorded
+[11:41:40] credentials: before scan recorded
+[11:41:40] exec: export HX_BRANCH=issue/496; # lifecycle.sh — the install / u … (the script is test/smoke/winsma/lifecycle.sh, elided here)
+[11:41:42] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases. | MSYS=
+[11:41:42] == clone issue/496
+[11:41:52] src at d4c07ef
+[11:41:59] published v0.5.0 (the real git tag), v9.8.0 (origin/main: a12ef70) and v9.9.0 (this branch)
+[11:41:59] ######## stage real: the real release v0.5.0 -> this branch, rollback, forward (no tasks: v0.5.0 registers the pre-#489 fixed task names)
+[11:42:00] ---- home real: C:/hx-496/h-real | tasks Harness\harness-supervise-4a216c05, Harness\harness-web-4a216c05
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.5.0 to C:/hx-496/h-real/releases/v0.5.0 ...
+     installed Harness v0.5.0 at C:/hx-496/h-real/releases/v0.5.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/s-real/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/s-real/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-real/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/s-real/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/s-real/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/s-real/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+     linked C:/hx-496/b-real/harness -> C:/hx-496/h-real/engine/bin/harness
+     wrote C:/hx-496/b-real/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-real, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-real:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.5.0 is installed once at C:/hx-496/h-real/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:42:16] PASS install.sh v0.5.0 exit 0
+[11:42:16] PASS engine is a real symlink to releases/v0.5.0
+[11:42:16] PASS harness resolves
+[11:42:17] PASS harness version is v0.5.0
+[11:42:17] -- re-install (idempotent)
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.5.0 to C:/hx-496/h-real/releases/v0.5.0 ...
+     installed Harness v0.5.0 at C:/hx-496/h-real/releases/v0.5.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/s-real/handoff)
+     WARN    claude skill rtdd (C:/hx-496/s-real/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-real/subagent-task-tree)
+     ok      claude skill to-issues (C:/hx-496/s-real/to-issues)
+     ok      claude skill to-prd (C:/hx-496/s-real/to-prd)
+     ok      claude skill writing-plans (C:/hx-496/s-real/writing-plans)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+     linked C:/hx-496/b-real/harness -> C:/hx-496/h-real/engine/bin/harness
+     wrote C:/hx-496/b-real/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-real, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-real:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.5.0 is installed once at C:/hx-496/h-real/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:42:32] PASS re-install exit 0
+[11:42:32] PASS re-install leaves the layout unchanged
+[11:42:32] PASS engine still releases/v0.5.0
+[11:42:33] PASS doctor green (installed)
+[11:42:34] -- harness update (v0.5.0 -> v9.9.0)
+   updated Harness v0.5.0 -> v9.9.0 at C:/hx-496/h-real/releases/v9.9.0
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:42:48] PASS update exit 0
+[11:42:48] PASS engine flipped to releases/v9.9.0
+[11:42:48] PASS v0.5.0 kept for rollback
+[11:42:48] PASS no stray flip link
+[11:42:48] PASS python3 shim present
+[11:42:48] PASS harness.cmd present
+[11:42:49] PASS doctor green (updated)
+[11:42:51] -- update again (already current)
+   Harness v9.9.0 is the latest release.
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+[11:42:58] PASS second update exit 0, still v9.9.0
+[11:42:58] -- harness update --rollback
+   rolled back Harness v9.9.0 -> v0.5.0
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:43:09] PASS rollback exit 0
+[11:43:09] PASS engine back on v0.5.0
+[11:43:09] PASS v9.9.0 kept
+[11:43:10] PASS doctor green (rolled back)
+[11:43:11] -- harness update --rollback (forward again)
+   rolled back Harness v0.5.0 -> v9.9.0
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:43:22] PASS second rollback exit 0, engine forward on v9.9.0
+[11:43:23] PASS doctor green (forward)
+[11:43:23] -- HARNESS_REF pin (older tag, never compared)
+   updated Harness v9.9.0 -> v0.5.0 at C:/hx-496/h-real/releases/v0.5.0
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:43:34] PASS pinned update lands on v0.5.0
+[11:43:34] -- harness update (unpinned) comes forward to v9.9.0 again; uninstall runs from the current release
+   updated Harness v0.5.0 -> v9.9.0 at C:/hx-496/h-real/releases/v9.9.0
+     python3 shim: C:/hx-496/h-real/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-real (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:43:45] PASS engine on v9.9.0
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-real/engine
+     removed releases C:/hx-496/h-real/releases
+     removed PATH entrypoint C:/hx-496/b-real/harness
+     removed C:/hx-496/b-real/harness.cmd
+     removed the python3 shim C:/hx-496/h-real/bin/python3
+     refusing to remove project state C:/hx-496/h-real/releases/v9.9.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-real
+     removed C:/hx-496/h-real/poller
+     removed C:/hx-496/h-real/snapshots
+     removed C:/hx-496/h-real
+   Uninstalled.
+[11:43:53] left in HARNESS_HOME after uninstall: 
+[11:43:53] PASS uninstall leaves HARNESS_HOME empty (or gone)
+[11:43:53] ######## stage tasks: v9.8.0 (origin/main) -> this branch with the supervise and web tasks installed
+[11:43:55] ---- home tasks: C:/hx-496/h-tasks | tasks Harness\harness-supervise-c0de4c86, Harness\harness-web-c0de4c86
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v9.8.0 to C:/hx-496/h-tasks/releases/v9.8.0 ...
+     installed Harness v9.8.0 at C:/hx-496/h-tasks/releases/v9.8.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/s-tasks/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/s-tasks/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-tasks/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/s-tasks/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/s-tasks/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/s-tasks/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+     linked C:/hx-496/b-tasks/harness -> C:/hx-496/h-tasks/engine/bin/harness
+     wrote C:/hx-496/b-tasks/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-tasks, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-tasks:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.8.0 is installed once at C:/hx-496/h-tasks/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:44:09] PASS install.sh v9.8.0 exit 0
+[11:44:09] PASS engine is a real symlink to releases/v9.8.0
+[11:44:09] PASS harness resolves
+[11:44:10] PASS harness version is v9.8.0
+[11:44:10] -- re-install (idempotent)
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v9.8.0 to C:/hx-496/h-tasks/releases/v9.8.0 ...
+     installed Harness v9.8.0 at C:/hx-496/h-tasks/releases/v9.8.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/s-tasks/handoff)
+     WARN    claude skill rtdd (C:/hx-496/s-tasks/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-tasks/subagent-task-tree)
+     ok      claude skill to-issues (C:/hx-496/s-tasks/to-issues)
+     ok      claude skill to-prd (C:/hx-496/s-tasks/to-prd)
+     ok      claude skill writing-plans (C:/hx-496/s-tasks/writing-plans)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+     linked C:/hx-496/b-tasks/harness -> C:/hx-496/h-tasks/engine/bin/harness
+     wrote C:/hx-496/b-tasks/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-tasks, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-tasks:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.8.0 is installed once at C:/hx-496/h-tasks/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:44:24] PASS re-install exit 0
+[11:44:24] PASS re-install leaves the layout unchanged
+[11:44:24] PASS engine still releases/v9.8.0
+[11:44:25] PASS doctor green (installed)
+[11:44:27] -- supervise + web tasks on v9.8.0
+     wrote C:/hx-496/h-tasks/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-c0de4c86)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-c0de4c86   log: C:/hx-496/h-tasks/supervise.log
+     wrote C:/hx-496/h-tasks/tasks/harness-web.sh (scheduled task Harness\harness-web-c0de4c86)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-c0de4c86
+[11:44:34] PASS supervise task registered
+[11:44:35] PASS web task registered
+[11:44:35] launcher: # ExecStart=C:/hx-496/h-tasks/engine/bin/harness supervise
+[11:44:35] -- harness update (v9.8.0 -> v9.9.0)
+   updated Harness v9.8.0 -> v9.9.0 at C:/hx-496/h-tasks/releases/v9.9.0
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     wrote C:/hx-496/h-tasks/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-c0de4c86)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-c0de4c86   log: C:/hx-496/h-tasks/supervise.log
+     wrote C:/hx-496/h-tasks/tasks/harness-web.sh (scheduled task Harness\harness-web-c0de4c86)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-c0de4c86
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:44:53] PASS update exit 0
+[11:44:54] PASS engine flipped to releases/v9.9.0
+[11:44:54] PASS v9.8.0 kept for rollback
+[11:44:54] PASS no stray flip link
+[11:44:54] PASS supervise + web tasks still registered after the flip
+[11:44:54] launcher after: # ExecStart=C:/hx-496/h-tasks/engine/bin/harness supervise
+[11:44:54] PASS launcher follows the engine link
+[11:44:55] PASS task XML is logon-only (no boot trigger)
+[11:44:55] PASS python3 shim present
+[11:44:55] PASS harness.cmd present
+[11:44:56] PASS doctor green (updated)
+[11:44:57] -- update again (already current)
+   Harness v9.9.0 is the latest release.
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+[11:45:05] PASS second update exit 0, still v9.9.0
+[11:45:05] -- harness update --rollback
+   rolled back Harness v9.9.0 -> v9.8.0
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     wrote C:/hx-496/h-tasks/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-c0de4c86)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-c0de4c86   log: C:/hx-496/h-tasks/supervise.log
+     wrote C:/hx-496/h-tasks/tasks/harness-web.sh (scheduled task Harness\harness-web-c0de4c86)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-c0de4c86
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:45:22] PASS rollback exit 0
+[11:45:22] PASS engine back on v9.8.0
+[11:45:22] PASS v9.9.0 kept
+[11:45:22] PASS tasks still registered (rolled back)
+[11:45:23] PASS doctor green (rolled back)
+[11:45:24] -- harness update --rollback (forward again)
+   rolled back Harness v9.8.0 -> v9.9.0
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     wrote C:/hx-496/h-tasks/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-c0de4c86)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-c0de4c86   log: C:/hx-496/h-tasks/supervise.log
+     wrote C:/hx-496/h-tasks/tasks/harness-web.sh (scheduled task Harness\harness-web-c0de4c86)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-c0de4c86
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:45:42] PASS second rollback exit 0, engine forward on v9.9.0
+[11:45:43] PASS doctor green (forward)
+[11:45:43] -- HARNESS_REF pin (older tag, never compared)
+   updated Harness v9.9.0 -> v9.8.0 at C:/hx-496/h-tasks/releases/v9.8.0
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     wrote C:/hx-496/h-tasks/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-c0de4c86)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-c0de4c86   log: C:/hx-496/h-tasks/supervise.log
+     wrote C:/hx-496/h-tasks/tasks/harness-web.sh (scheduled task Harness\harness-web-c0de4c86)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-c0de4c86
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:46:00] PASS pinned update lands on v9.8.0
+[11:46:00] -- harness update (unpinned) comes forward to v9.9.0 again; uninstall runs from the current release
+   updated Harness v9.8.0 -> v9.9.0 at C:/hx-496/h-tasks/releases/v9.9.0
+     python3 shim: C:/hx-496/h-tasks/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     wrote C:/hx-496/h-tasks/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-c0de4c86)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-c0de4c86   log: C:/hx-496/h-tasks/supervise.log
+     wrote C:/hx-496/h-tasks/tasks/harness-web.sh (scheduled task Harness\harness-web-c0de4c86)
+     dashboard running on 127.0.0.1:4637: schtasks /Query /TN Harness\harness-web-c0de4c86
+     ✓ linked /harness skills into C:/hx-496/s-tasks (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:46:18] PASS engine on v9.9.0
+   Removing Harness:
+     removed scheduled task Harness\harness-supervise-c0de4c86
+     removed scheduled task Harness\harness-web-c0de4c86
+     removed shared engine link C:/hx-496/h-tasks/engine
+     removed releases C:/hx-496/h-tasks/releases
+     removed PATH entrypoint C:/hx-496/b-tasks/harness
+     removed C:/hx-496/b-tasks/harness.cmd
+     removed the python3 shim C:/hx-496/h-tasks/bin/python3
+     refusing to remove project state C:/hx-496/h-tasks/releases/v9.9.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-tasks
+     removed C:/hx-496/h-tasks/poller
+     removed C:/hx-496/h-tasks/snapshots
+     removed C:/hx-496/h-tasks/tasks
+     removed C:/hx-496/h-tasks
+   Uninstalled.
+[11:46:28] left in HARNESS_HOME after uninstall: 
+[11:46:28] PASS uninstall leaves HARNESS_HOME empty (or gone)
+[11:46:28] PASS tasks gone
+[11:46:28] ######## stage entry: the two install lines from Git Bash, the real network, HARNESS_REF pinned to the real v0.5.0, then again
+[11:46:30] ---- home npx: C:/hx-496/h-npx | tasks Harness\harness-supervise-984cfd66, Harness\harness-web-984cfd66
+[11:46:30] -- npx -y github:VocanicZ/Harness#issue/496
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-npx/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.5.0 to C:/hx-496/h-npx/releases/v0.5.0 ...
+     installed Harness v0.5.0 at C:/hx-496/h-npx/releases/v0.5.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-496/s-npx/caveman, installed)
+     ok      claude skill handoff (C:/hx-496/s-npx/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/s-npx/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-npx/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/s-npx/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/s-npx/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/s-npx/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-npx (user scope, claude, opencode): 13 new, 6 relinked, 19 in all
+     linked C:/hx-496/b-npx/harness -> C:/hx-496/h-npx/engine/bin/harness
+     wrote C:/hx-496/b-npx/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-npx, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-npx:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.5.0 is installed once at C:/hx-496/h-npx/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+   npm notice
+   npm notice New major version of npm available! 11.20.0 -> 12.2.2
+   npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+   npm notice To update run: npm install -g npm@12.2.2
+   npm notice
+[11:48:06] PASS npx line exit 0
+[11:48:06] PASS npx: engine is a real symlink to releases/v0.5.0
+[11:48:07] PASS npx: harness runs (v0.5.0)
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-npx/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.5.0 to C:/hx-496/h-npx/releases/v0.5.0 ...
+     installed Harness v0.5.0 at C:/hx-496/h-npx/releases/v0.5.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-496/s-npx/caveman)
+     ok      claude skill handoff (C:/hx-496/s-npx/handoff)
+     WARN    claude skill rtdd (C:/hx-496/s-npx/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-npx/subagent-task-tree)
+     ok      claude skill to-issues (C:/hx-496/s-npx/to-issues)
+     ok      claude skill to-prd (C:/hx-496/s-npx/to-prd)
+     ok      claude skill writing-plans (C:/hx-496/s-npx/writing-plans)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-npx (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+     linked C:/hx-496/b-npx/harness -> C:/hx-496/h-npx/engine/bin/harness
+     wrote C:/hx-496/b-npx/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-npx, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-npx:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.5.0 is installed once at C:/hx-496/h-npx/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:48:55] PASS npx re-install exit 0 and nothing changed
+[11:48:56] PASS doctor green (npx install)
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-npx/engine
+     removed releases C:/hx-496/h-npx/releases
+     removed PATH entrypoint C:/hx-496/b-npx/harness
+     refusing to remove project state C:/hx-496/h-npx/releases/v0.5.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-npx
+   Uninstalled.
+[11:49:12] ---- home curl: C:/hx-496/h-curl | tasks Harness\harness-supervise-3f25a0b0, Harness\harness-web-3f25a0b0
+[11:49:12] -- curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/issue/496/install.sh | bash
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-curl/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.5.0 to C:/hx-496/h-curl/releases/v0.5.0 ...
+     installed Harness v0.5.0 at C:/hx-496/h-curl/releases/v0.5.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-496/s-curl/caveman, installed)
+     ok      claude skill handoff (C:/hx-496/s-curl/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/s-curl/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-curl/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/s-curl/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/s-curl/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/s-curl/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-curl (user scope, claude, opencode): 13 new, 6 relinked, 19 in all
+     linked C:/hx-496/b-curl/harness -> C:/hx-496/h-curl/engine/bin/harness
+     wrote C:/hx-496/b-curl/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-curl, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-curl:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.5.0 is installed once at C:/hx-496/h-curl/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:49:42] PASS curl line exit 0
+[11:49:42] PASS curl: engine is a real symlink to releases/v0.5.0
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-curl/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v0.5.0 to C:/hx-496/h-curl/releases/v0.5.0 ...
+     installed Harness v0.5.0 at C:/hx-496/h-curl/releases/v0.5.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin ralph-loop (installed)
+     ok      claude plugin superpowers (installed)
+     ok      claude skill caveman (C:/hx-496/s-curl/caveman)
+     ok      claude skill handoff (C:/hx-496/s-curl/handoff)
+     WARN    claude skill rtdd (C:/hx-496/s-curl/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-curl/subagent-task-tree)
+     ok      claude skill to-issues (C:/hx-496/s-curl/to-issues)
+     ok      claude skill to-prd (C:/hx-496/s-curl/to-prd)
+     ok      claude skill writing-plans (C:/hx-496/s-curl/writing-plans)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-curl (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+     linked C:/hx-496/b-curl/harness -> C:/hx-496/h-curl/engine/bin/harness
+     wrote C:/hx-496/b-curl/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-curl, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-curl:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.5.0 is installed once at C:/hx-496/h-curl/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:50:46] PASS curl re-install exit 0 and nothing changed
+[11:50:50] PASS doctor green (curl install)
+[11:50:53] -- HARNESS_REF pin to a different release over the same home
+           export PATH="C:/hx-496/b-curl:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v0.4.5 is installed once at C:/hx-496/h-curl/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:51:32] PASS pinned to v0.4.5 (older, never compared)
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-curl/engine
+     removed releases C:/hx-496/h-curl/releases
+     removed PATH entrypoint C:/hx-496/b-curl/harness
+     refusing to remove project state C:/hx-496/h-curl/releases/v0.4.5 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-curl
+   Uninstalled.
+[11:51:42] ######## stage v011: upgrade from v0.1.1 (a git checkout engine, rebuilt here)
+[11:51:45] ---- home v011: C:/hx-496/h-v011 | tasks Harness\harness-supervise-07d66357, Harness\harness-web-07d66357
+[11:51:50] v0.1.1 engine: v0.1.1 is a git checkout: yes
+[11:51:50] PASS v0.1.1 harness runs
+[11:51:50] -- harness update (from the v0.1.1 engine's own update.sh)
+   Updating files:  43% (399/911)
+Updating files:  44% (401/911)
+Updating files:  45% (410/911)
+Updating files:  46% (420/911)
+Updating files:  47% (429/911)
+Updating files:  48% (438/911)
+Updating files:  49% (447/911)
+Updating files:  50% (456/911)
+Updating files:  51% (465/911)
+Updating files:  52% (474/911)
+Updating files:  53% (483/911)
+Updating files:  54% (492/911)
+Updating files:  55% (502/911)
+Updating files:  56% (511/911)
+Updating files:  57% (520/911)
+Updating files:  58% (529/911)
+Updating files:  59% (538/911)
+Updating files:  60% (547/911)
+Updating files:  61% (556/911)
+Updating files:  62% (565/911)
+Updating files:  63% (574/911)
+Updating files:  64% (584/911)
+Updating files:  65% (593/911)
+Updating files:  66% (602/911)
+Updating files:  67% (611/911)
+Updating files:  68% (620/911)
+Updating files:  69% (629/911)
+Updating files:  70% (638/911)
+Updating files:  71% (647/911)
+Updating files:  72% (656/911)
+Updating files:  73% (666/911)
+Updating files:  74% (675/911)
+Updating files:  75% (684/911)
+Updating files:  76% (693/911)
+Updating files:  77% (702/911)
+Updating files:  78% (711/911)
+Updating files:  79% (720/911)
+Updating files:  80% (729/911)
+Updating files:  81% (738/911)
+Updating files:  82% (748/911)
+Updating files:  83% (757/911)
+Updating files:  84% (766/911)
+Updating files:  85% (775/911)
+Updating files:  86% (784/911)
+Updating files:  87% (793/911)
+Updating files:  88% (802/911)
+Updating files:  89% (811/911)
+Updating files:  90% (820/911)
+Updating files:  91% (830/911)
+Updating files:  92% (839/911)
+Updating files:  93% (848/911)
+Updating files:  94% (857/911)
+Updating files:  95% (866/911)
+Updating files:  96% (875/911)
+Updating files:  97% (884/911)
+Updating files:  98% (893/911)
+Updating files:  99% (902/911)
+Updating files: 100% (911/911)
+Updating files: 100% (911/911), done.
+   Updating ed18fcb..d4c07ef
+   Fast-forward
+    911 files changed, 165490 insertions(+), 3572 deletions(-)
+     engine updated at /c/hx-496/h-v011/engine — every project picks it up immediately.
+   Update complete.
+[11:51:58] update from v0.1.1 exit 0; engine now: not a link 
+[11:51:58] -- the v0.1.1 update.sh could not migrate its own checkout; re-running the install line over it
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/h-v011/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v9.9.0 to C:/hx-496/h-v011/releases/v9.9.0 ...
+     migrated the git-checkout engine to C:/hx-496/h-v011/releases/git-d4c07ef5e85e (local edits kept)
+     installed Harness v9.9.0 at C:/hx-496/h-v011/releases/v9.9.0
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/s-v011/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/s-v011/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/s-v011/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/s-v011/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/s-v011/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/s-v011/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/s-v011 (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+     linked C:/hx-496/b-v011/harness -> C:/hx-496/h-v011/engine/bin/harness
+     wrote C:/hx-496/b-v011/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/b-v011, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-v011:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.9.0 is installed once at C:/hx-496/h-v011/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:52:17] PASS engine migrated onto releases/v9.9.0
+[11:52:17] PASS the v0.1.1 checkout is kept as a release (rollback target)
+[11:52:18] releases: git-d4c07ef5e85e v9.9.0 
+[11:52:19] PASS doctor green (migrated)
+   rolled back Harness v9.9.0 -> v0.0.0
+     python3 shim: C:/hx-496/h-v011/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-v011 (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:52:34] PASS rollback onto the migrated v0.1.1 tree
+   rolled back Harness v0.0.0 -> v9.9.0
+     python3 shim: C:/hx-496/h-v011/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-v011 (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Update complete.
+[11:52:47] PASS forward again onto v9.9.0
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-v011/engine
+     removed releases C:/hx-496/h-v011/releases
+     removed PATH entrypoint C:/hx-496/b-v011/harness
+     removed C:/hx-496/b-v011/harness.cmd
+     removed the python3 shim C:/hx-496/h-v011/bin/python3
+     refusing to remove project state C:/hx-496/h-v011/releases/v9.9.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-v011
+     removed C:/hx-496/h-v011/poller
+     removed C:/hx-496/h-v011/snapshots
+     removed C:/hx-496/h-v011
+   Uninstalled.
+[11:52:59] ######## stage gitco: a git-checkout engine is migrated onto releases (update.sh runs from the checkout it moves)
+[11:53:01] ---- home gitco: C:/hx-496/h-gitco | tasks Harness\harness-supervise-735b3346, Harness\harness-web-735b3346
+[11:53:04] PASS engine is a git checkout
+[11:53:04] -- harness update (the checkout's own update.sh, with the fix)
+   migrated the git-checkout engine to C:/hx-496/h-gitco/releases/git-d4c07ef5e85e; updated Harness -> v9.9.0
+     python3 shim: C:/hx-496/h-gitco/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-gitco (user scope, claude, opencode): 19 new, 0 relinked, 19 in all
+   Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.
+   Update complete.
+[11:53:16] PASS update exit 0
+[11:53:17] PASS engine migrated onto releases/v9.9.0
+[11:53:17] PASS the old checkout is kept with its uncommitted edit
+[11:53:17] PASS no temp copy of update.sh is left
+[11:53:18] PASS doctor green (migrated)
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-gitco/engine
+     removed releases C:/hx-496/h-gitco/releases
+     removed PATH entrypoint C:/hx-496/b-gitco/harness
+     removed the python3 shim C:/hx-496/h-gitco/bin/python3
+     refusing to remove project state C:/hx-496/h-gitco/releases/v9.9.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-gitco
+     removed C:/hx-496/h-gitco
+   Uninstalled.
+[11:53:28] -- the same, with a checkout whose update.sh predates the fix (1467c2d^, the parent of the #491 merge; origin/main carries the fix since): it cannot move itself on Windows; the install line can
+[11:53:30] ---- home gitold: C:/hx-496/h-gitold | tasks Harness\harness-supervise-67bd1a2b, Harness\harness-web-67bd1a2b
+   mv: cannot move 'C:/hx-496/h-gitold/engine' to 'C:/hx-496/h-gitold/releases/git-b3245d63984b': Permission denied
+   harness update: could not move C:/hx-496/h-gitold/engine to C:/hx-496/h-gitold/releases/git-b3245d63984b
+[11:53:38] PASS the old update.sh fails cleanly (exit 3) with the checkout untouched
+     NOTE: 'harness' is in C:/hx-496/b-gitold, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/b-gitold:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.9.0 is installed once at C:/hx-496/h-gitold/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[11:53:52] PASS the install line migrates it
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-gitold/engine
+     removed releases C:/hx-496/h-gitold/releases
+     removed PATH entrypoint C:/hx-496/b-gitold/harness
+     removed C:/hx-496/b-gitold/harness.cmd
+     removed the python3 shim C:/hx-496/h-gitold/bin/python3
+     refusing to remove project state C:/hx-496/h-gitold/releases/v9.9.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-gitold
+     removed C:/hx-496/h-gitold/poller
+     removed C:/hx-496/h-gitold/snapshots
+     removed C:/hx-496/h-gitold
+   Uninstalled.
+[11:54:00] ######## stage gitdef: the same migration with the DEFAULT home (HARNESS_HOME unset, so HOME-derived /c/ paths while bin/harness exports C:/ ones); HOME is inside C:\hx-<issue>; no task is registered under the default name
+[11:54:00] ---- default home /c/hx-496/hm/.harness
+   migrated the git-checkout engine to /c/hx-496/hm/.harness/releases/git-d4c07ef5e85e; updated Harness -> v9.9.0
+     python3 shim: /c/hx-496/hm/.harness/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     ✓ linked /harness skills into C:/hx-496/s-gitdef (user scope, claude, opencode): 19 new, 0 relinked, 19 in all
+   Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.
+   Update complete.
+[11:54:16] PASS default-home update exit 0
+[11:54:16] PASS engine migrated onto releases/v9.9.0
+[11:54:16] PASS the old checkout is kept with its edit
+   Removing Harness:
+     removed shared engine link /c/hx-496/hm/.harness/engine
+     removed releases C:/hx-496/hm/.harness/releases
+     removed PATH entrypoint C:/hx-496/b-gitdef/harness
+     removed the python3 shim C:/hx-496/hm/.harness/bin/python3
+     refusing to remove project state C:/hx-496/hm/.harness/releases/v9.9.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-gitdef
+     removed C:/hx-496/hm/.harness
+   Uninstalled.
+[11:54:25] ######## stage prune: releases are pruned to the current + the previous 2
+[11:54:26] ---- home prune: C:/hx-496/h-prune | tasks Harness\harness-supervise-dd0eaf12, Harness\harness-web-dd0eaf12
+           export PATH="C:/hx-496/b-prune:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v1.0.0 is installed once at C:/hx-496/h-prune/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+   Update complete.
+   Update complete.
+   Update complete.
+   Update complete.
+[11:55:42] releases after five installs: v1.2.0 v1.3.0 v1.4.0 
+[11:55:42] PASS prune keeps exactly 3
+[11:55:42] PASS current + previous 2 kept
+[11:55:42] PASS engine on v1.4.0
+[11:55:42] -- a corrupted archive is refused by SHA256SUMS, engine untouched
+   harness update: checksum mismatch for harness-v1.5.0.tar.gz: expected d9521a6ce024f5448f72fd390517134783393e4d453dfd9cfabf295c41447df9, got 2335834e5ecd791c29150ef11555470cd13926b50279d305328f6ab83adab30b
+[11:55:47] PASS checksum mismatch exits 3
+[11:55:47] PASS engine unchanged
+[11:55:47] PASS no v1.5.0 left behind
+   Removing Harness:
+     removed shared engine link C:/hx-496/h-prune/engine
+     removed releases C:/hx-496/h-prune/releases
+     removed PATH entrypoint C:/hx-496/b-prune/harness
+     removed C:/hx-496/b-prune/harness.cmd
+     removed the python3 shim C:/hx-496/h-prune/bin/python3
+     refusing to remove project state C:/hx-496/h-prune/releases/v1.4.0 — not a Harness project state dir (need basename '.harness' + a config marker)
+     removed 19 /harness skill dir(s) from C:/hx-496/s-prune
+     removed C:/hx-496/h-prune/poller
+     removed C:/hx-496/h-prune/snapshots
+     removed C:/hx-496/h-prune
+   Uninstalled.
+[11:55:58] Harness tasks left: 
+[11:55:58] result: PASS
+WS-EXIT 0
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[11:56:58] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[11:56:58] run: OK

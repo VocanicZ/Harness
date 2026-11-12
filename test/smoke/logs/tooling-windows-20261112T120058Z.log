@@ -1,0 +1,225 @@
+# Lane tooling and skills on winsma, final run (#496, PRD #475 Task 8)
+# host: Windows 10 via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-496\ under the winsma rules (lock, isolation, before/after guard, credential scan)
+# script: test/smoke/winsma/tooling.sh at the head of issue/496 (cloned from GitHub inside C:\hx-496); stages install skills lane; mode install
+# covers: `harness update --with-skills` into the sandbox CLAUDE_CONFIG_DIR / HARNESS_USER_SKILLS (never the real ~/.claude), every skill dir and every {{skill:…}} a prompt names, the lane shell (git, gh, rtdd.exe, python3, grep, sed) in a worktree path with a space
+# claude token usage: none. A sandbox run: no Claude sign-in, no lane.
+# note: the run before this one was red on a stale check (the retired ralph-loop registration; the engine's own harness-ralph plugin replaced it); tooling.sh was fixed and this is the green run. The script text is elided from the log.
+[12:00:45] run: #496 on winsma, mode install: export HX_BRANCH=issue/496; # … (the script is test/smoke/winsma/tooling.sh, elided here)
+[12:00:53] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[12:01:02] guard: before recorded
+[12:01:30] credentials: before scan recorded
+[12:01:30] exec: export HX_BRANCH=issue/496; # tooling.sh — lane tooling and skills on a real Windows host (#495, PRD #475 Solution 7).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> install "$(cat tooling.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS, CLAUDE_CONFIG_DIR, TMPDIR,
+# npm_config_cache are the isolation's). See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH   the branch under test (default issue/496)
+#   HX_STAGES   which stages to run, space separated: install skills lane (default: all)
+# Stages:
+#   install  this branch as a local release, installed into the sandbox; rtdd resolves to the host's real rtdd.exe
+#   skills   `harness update --with-skills` installs the plugins into the sandbox CLAUDE_CONFIG_DIR and the skills into
+#            HARNESS_USER_SKILLS (never the real ~/.claude), and every skill a lane prompt names ({{skill:…}}) is there
+#   lane     a lane-shaped shell (the lane's env: the shim first on PATH, a short TMPDIR) in a worktree whose path has a space
+#            runs git, gh, rtdd.exe, python3, grep and sed
+# winget is a logging stub (never a real install); rtdd is NOT installed here — the host's own rtdd.exe is found, never run
+# through its installer (which writes skills machine-wide).
+set -u
+fail=0; say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+ok(){ if eval "$2"; then say "PASS $1"; else say "FAIL $1"; fail=1; fi; }
+BRANCH="${HX_BRANCH:-issue/496}"; STAGES="${HX_STAGES:-install skills lane}"
+has(){ [[ " $STAGES " == *" $1 "* ]]; }
+say "== host: $(uname -srm) | bash $BASH_VERSION | python3 $(python3 --version 2>&1) | MSYS=${MSYS:-}"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+CUR=v9.9.9
+mkdir -p stubs rel/download
+printf '#!/usr/bin/env bash\necho "winget $*" >> "%s/winget.log"\nexit 0\n' "$HX_DIR" > stubs/winget; : > winget.log
+printf '#!/usr/bin/env bash\ncase "$1" in /Run|/End) exit 0;; esac\nMSYS2_ARG_CONV_EXCL="*" exec schtasks.exe "$@"\n' > stubs/schtasks
+chmod +x stubs/winget stubs/schtasks
+export HARNESS_BASE_URL="file:///$HX_DIR/rel/download" HARNESS_API_URL="file:///$HX_DIR/rel/latest.json" \
+  HARNESS_WINGET="$HX_DIR/stubs/winget" HARNESS_INSTALL_PREREQS=1 HARNESS_INSTALL_NOPROMPT=1 \
+  HARNESS_SCHTASKS="$HX_DIR/stubs/schtasks" HARNESS_SUPERVISE_CONF="$HX_DIR/none.conf"
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+HOST_PATH="$PATH"
+mkdir -p "stage/harness-$CUR" "rel/download/$CUR"
+git -C src archive HEAD bin scripts prompts skill plugins install.sh update.sh | tar -xf - -C "stage/harness-$CUR"
+printf '%s\n%040d\n' "$CUR" 0 > "stage/harness-$CUR/VERSION"
+tar -C stage -czf "rel/download/$CUR/harness-$CUR.tar.gz" "harness-$CUR"
+( cd "rel/download/$CUR" && sha256sum "harness-$CUR.tar.gz" > SHA256SUMS )
+printf '{"tag_name":"%s"}\n' "$CUR" > rel/latest.json
+say "published $CUR from this branch"
+mkdir -p "$HARNESS_BIN_DIR" "$HARNESS_USER_SKILLS"
+export PATH="$(cygpath -u "$HARNESS_BIN_DIR"):$HOST_PATH"
+E="$HARNESS_HOME/engine"
+hv(){ timeout 600 harness "$@" </dev/null; }
+
+if has install; then
+  say "######## stage install: this branch into the sandbox"
+  HARNESS_REF="$CUR" bash src/install.sh </dev/null 2>&1 | sed 's/^/   /'; irc=${PIPESTATUS[0]}
+  ok "install.sh exit 0" '(( irc == 0 ))'
+  ok "engine is releases/$CUR" '[[ "$(readlink "$HARNESS_HOME/engine")" == "releases/$CUR" ]]'
+  RT="$( ( source "$E/scripts/portable.sh"; rtdd_exe ) 2>&1 )"; say "rtdd_exe: $RT"
+  ok "rtdd resolves to an rtdd.exe" '[[ "$RT" == *rtdd.exe ]]'
+  ok "…which runs" '"$RT" --version >/dev/null 2>&1'
+fi
+
+if has skills; then
+  say "######## stage skills: harness update --with-skills into the sandbox (CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR, skills $HARNESS_USER_SKILLS)"
+  [[ -e "$E/bin/harness" ]] || HARNESS_REF="$CUR" bash src/install.sh </dev/null >/dev/null 2>&1
+  rm -rf "$HARNESS_USER_SKILLS"; mkdir -p "$HARNESS_USER_SKILLS"
+  hv update --with-skills 2>&1 | tee upd.out | sed 's/^/   /'; urc=${PIPESTATUS[0]}
+  ok "update --with-skills exit 0" '(( urc == 0 ))'
+  say "skills dir: $(ls -1 "$HARNESS_USER_SKILLS" | tr '\n' ' ')"
+  for s in to-prd to-issues subagent-task-tree harness handoff; do ok "skill $s is in HARNESS_USER_SKILLS" '[[ -e "$HARNESS_USER_SKILLS/$s/SKILL.md" ]]'; done
+  for d in "$E"/skill/*/; do n="$(basename "$d")"; ok "skill $n (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS" '[[ -e "$HARNESS_USER_SKILLS/$n/SKILL.md" ]]'; done
+  names="$(grep -ohE '\{\{skill:[A-Za-z0-9_.-]+\}\}' "$E"/prompts/*.md | sed -E 's/^\{\{skill:(.*)\}\}$/\1/' | sort -u | grep -vx rtdd)"
+  say "prompt-named skills: $(echo $names)"
+  for s in $names; do ok "{{skill:$s}} is where the CLI loads skills from" '[[ -e "$HARNESS_USER_SKILLS/$s/SKILL.md" ]]'; done
+  # the goal loop's Stop hook is the engine's own plugins/claude/harness-ralph (#616), loaded from the release by --plugin-dir: nothing is registered in the sandbox config
+  ok "update reports the claude plugin harness-ralph ok" 'grep -q "ok  *claude plugin harness-ralph" upd.out'
+  ok "… and the plugin is in the release" '[[ -d "$E/plugins/claude/harness-ralph" ]]'
+  ok "the sandbox has no CRLF-converted skill (autocrlf off)" '! grep -rlI $'"'"'\r'"'"' "$HARNESS_USER_SKILLS/to-prd/" 2>/dev/null | grep -q .'
+fi
+
+if has lane; then
+  say "######## stage lane: a lane-shaped shell in a worktree path with a space, a short TMPDIR"
+  [[ -e "$E/bin/harness" ]] || HARNESS_REF="$CUR" bash src/install.sh </dev/null >/dev/null 2>&1
+  PRJ="$(cygpath -u "$HX_DIR")/my project"; WT="$PRJ/.harness/worktrees/main i495"; LT="$(cygpath -u "$HX_DIR")/t"
+  rm -rf "$PRJ"; mkdir -p "$PRJ" "$LT"
+  git -C "$PRJ" init -q -b main && git -C "$PRJ" -c user.name=hx -c user.email=hx@example.invalid commit -q --allow-empty -m init
+  git -C "$PRJ" worktree add -q -b issue/495 "$WT"
+  printf 'one\ntwo\n' > "$WT/notes.txt"; printf 'echo hi\n' > "$WT/a.sh"
+  say "worktree: $WT | TMPDIR: $LT (${#LT} chars)"
+  # the lane's env: bin/harness puts the python3 shim's dir first on PATH; the host tools after
+  out="$(cd "$WT" && PATH="$(cygpath -u "$HARNESS_HOME")/bin:$HOST_PATH" TMPDIR="$LT" RTDD_EVENT_LOG="$HX_DIR/rtdd-events.jsonl" bash -c '
+    echo "pwd=$PWD"
+    echo "git=$(git rev-parse --abbrev-ref HEAD)"
+    echo "gh=$(gh --version 2>&1 | head -1)"
+    echo "rtdd=$(rtdd.exe --version 2>&1 | head -1)"
+    rtdd.exe which --base main >rtdd.which 2>&1; echo "rtdd_which_rc=$?"
+    echo "py=$(python3 -c "import sys; print(sys.version_info[0])" 2>&1)"
+    echo "grep=$(grep -c two notes.txt)"
+    echo "sed=$(sed -n 2p notes.txt)"
+    f="$(mktemp)"; echo "tmp=$f"; [[ $f == "$TMPDIR"/* ]] && echo tmpdir_ok' 2>&1)"
+  echo "$out" | sed 's/^/   | /'
+  ok "cwd is the worktree" 'grep -qxF "pwd=$WT" <<<"$out" || grep -q "^pwd=.*main i495$" <<<"$out"'
+  ok "git: issue/495" 'grep -qx "git=issue/495" <<<"$out"'
+  ok "gh runs" 'grep -q "^gh=gh version" <<<"$out"'
+  ok "rtdd.exe runs" 'grep -q "^rtdd=rtdd " <<<"$out"'
+  ok "rtdd which exits 0 in the worktree" 'grep -qx "rtdd_which_rc=0" <<<"$out"'
+  ok "python3 (the shim) is a Python 3" 'grep -qx "py=3" <<<"$out"'
+  ok "grep" 'grep -qx "grep=1" <<<"$out"'
+  ok "sed" 'grep -qx "sed=two" <<<"$out"'
+  ok "mktemp lands in the short TMPDIR" 'grep -qx tmpdir_ok <<<"$out"'
+  git -C "$PRJ" worktree remove --force "$WT" 2>/dev/null
+fi
+say "result: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"; exit $fail
+[12:01:33] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases. | MSYS=
+[12:01:33] == clone issue/496
+[12:01:47] src at 3472c8a
+[12:01:50] published v9.9.9 from this branch
+[12:01:50] ######## stage install: this branch into the sandbox
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/harness-home/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v9.9.9 to C:/hx-496/harness-home/releases/v9.9.9 ...
+     installed Harness v9.9.9 at C:/hx-496/harness-home/releases/v9.9.9
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ rtdd already installed (/c/Users/pc/AppData/Local/Programs/rtdd/rtdd.exe)
+     ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+     linked C:/hx-496/bin/harness -> C:/hx-496/harness-home/engine/bin/harness
+     wrote C:/hx-496/bin/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/bin, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.9.9 is installed once at C:/hx-496/harness-home/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[12:02:06] PASS install.sh exit 0
+[12:02:06] PASS engine is releases/v9.9.9
+[12:02:07] rtdd_exe: /c/Users/pc/AppData/Local/Programs/rtdd/rtdd.exe
+[12:02:07] PASS rtdd resolves to an rtdd.exe
+[12:02:07] PASS …which runs
+[12:02:07] ######## stage skills: harness update --with-skills into the sandbox (CLAUDE_CONFIG_DIR=C:/hx-496/claude-config, skills C:/hx-496/skills)
+   Harness v9.9.9 is the latest release.
+     ✓ rtdd already installed (/c/Users/pc/AppData/Local/Programs/rtdd/rtdd.exe)
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/harness-home/releases/v9.9.9/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+[12:02:17] PASS update --with-skills exit 0
+[12:02:17] skills dir: caveman handoff harness harness-arc harness-init harness-issue harness-one harness-pause harness-plan harness-prd harness-resume harness-start harness-status harness-stop harness-uninstall subagent-task-tree to-issues to-prd writing-plans 
+[12:02:17] PASS skill to-prd is in HARNESS_USER_SKILLS
+[12:02:17] PASS skill to-issues is in HARNESS_USER_SKILLS
+[12:02:17] PASS skill subagent-task-tree is in HARNESS_USER_SKILLS
+[12:02:17] PASS skill harness is in HARNESS_USER_SKILLS
+[12:02:17] PASS skill handoff is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill caveman (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill handoff (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-arc (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-init (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-issue (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-one (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-pause (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-plan (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-prd (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-resume (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-start (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:18] PASS skill harness-status (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] PASS skill harness-stop (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] PASS skill harness-uninstall (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] PASS skill subagent-task-tree (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] PASS skill to-issues (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] PASS skill to-prd (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] PASS skill writing-plans (every /harness* skill and the rest of skill/) is in HARNESS_USER_SKILLS
+[12:02:19] prompt-named skills: handoff subagent-task-tree to-issues to-prd writing-plans
+[12:02:19] PASS {{skill:handoff}} is where the CLI loads skills from
+[12:02:19] PASS {{skill:subagent-task-tree}} is where the CLI loads skills from
+[12:02:19] PASS {{skill:to-issues}} is where the CLI loads skills from
+[12:02:19] PASS {{skill:to-prd}} is where the CLI loads skills from
+[12:02:19] PASS {{skill:writing-plans}} is where the CLI loads skills from
+[12:02:20] PASS update reports the claude plugin harness-ralph ok
+[12:02:20] PASS … and the plugin is in the release
+[12:02:20] PASS the sandbox has no CRLF-converted skill (autocrlf off)
+[12:02:20] ######## stage lane: a lane-shaped shell in a worktree path with a space, a short TMPDIR
+[12:02:21] worktree: /c/hx-496/my project/.harness/worktrees/main i495 | TMPDIR: /c/hx-496/t (11 chars)
+   | pwd=/c/hx-496/my project/.harness/worktrees/main i495
+   | git=issue/495
+   | gh=gh version 2.103.3 (2026-10-26)
+   | rtdd=rtdd 0.4.0 (commit fba4d9ce15bc1ce08970d8e0112a823b6247abb3, built 2026-10-28T01:46:41Z)
+   | rtdd_which_rc=0
+   | py=3
+   | grep=1
+   | sed=two
+   | tmp=/c/hx-496/t/tmp.UZYA0O8VBh
+   | tmpdir_ok
+[12:02:23] PASS cwd is the worktree
+[12:02:23] PASS git: issue/495
+[12:02:23] PASS gh runs
+[12:02:24] PASS rtdd.exe runs
+[12:02:24] PASS rtdd which exits 0 in the worktree
+[12:02:24] PASS python3 (the shim) is a Python 3
+[12:02:24] PASS grep
+[12:02:24] PASS sed
+[12:02:24] PASS mktemp lands in the short TMPDIR
+[12:02:24] result: PASS
+WS-EXIT 0
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[12:03:19] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[12:03:19] run: OK
