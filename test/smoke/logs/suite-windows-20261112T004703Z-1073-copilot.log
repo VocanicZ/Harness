@@ -1,0 +1,439 @@
+[00:03:36] run: #1073 on winsma, mode suite: export HX_BRANCH=issue/1073 HX_TESTS='test_cli_codex.sh test_cli_copilot.sh' HX_VERBOSE=1 HX_STRICT=0 HARNESS_MATRIX_TIMING=1 HARNESS_TEST_TIMEOUT=1500
+trap 'echo "######## send-diag"; cat "$HX_DIR/send-diag.txt" 2>&1; echo "######## end send-diag"' EXIT
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[00:03:36] lock: WS_POLL=15 is below the rule (300); using 300
+[00:03:46] lock: free, but #627 is first in the queue; queue position 2 of 2; waiting 300s
+[00:09:00] lock: held by #627 (hzhn-harness-i627), heartbeat 230s old, held 235s; queue position 1 of 1; waiting 300s
+[00:14:13] lock: held by #627 (hzhn-harness-i627), heartbeat 243s old, held 548s; queue position 1 of 1; waiting 300s
+[00:19:28] lock: held by #627 (hzhn-harness-i627), heartbeat 258s old, held 863s; queue position 1 of 1; waiting 300s
+[00:24:39] lock: held by #627 (hzhn-harness-i627), heartbeat 269s old, held 1175s; queue position 1 of 1; waiting 300s
+[00:29:49] lock: held by #627 (hzhn-harness-i627), heartbeat 279s old, held 1485s; queue position 1 of 1; waiting 300s
+[00:34:59] lock: held by #627 (hzhn-harness-i627), heartbeat 288s old, held 1795s; queue position 1 of 1; waiting 300s
+[00:40:09] lock: held by #627 (hzhn-harness-i627), heartbeat 298s old, held 2105s; queue position 1 of 1; waiting 300s
+[00:45:19] lock: hx-lock taken by #1073 (hzhn-harness-i1073)
+[00:45:34] guard: before recorded
+[00:46:08] credentials: before scan recorded
+[00:46:08] exec: export HX_BRANCH=issue/1073 HX_TESTS='test_cli_codex.sh test_cli_copilot.sh' HX_VERBOSE=1 HX_STRICT=0 HARNESS_MATRIX_TIMING=1 HARNESS_TEST_TIMEOUT=1500
+trap 'echo "######## send-diag"; cat "$HX_DIR/send-diag.txt" 2>&1; echo "######## end send-diag"' EXIT
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[00:46:11] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-1073/home | USERPROFILE=C:\hx-1073\home | TMPDIR=C:/hx-1073/tmp
+[00:46:11] == clone issue/1073
+[00:46:22] src at 62d9257
+[00:46:22] == venv
+[00:47:01] jq = /c/hx-1073/jqbin/jq: jq-1.8.1
+[00:47:03] python3 = /c/hx-1073/venv/Scripts/python3: Python 3.13.5
+[00:47:03] ######## test/run.sh (per-test cap 1500s)
+[01:14:05] run.sh finished rc=0 after 1622s
+######## full run.sh output
+| == matrix cells:  codex copilot  (computed once for the files that read them) ==
+| matrix-timing codex fixtures-recorded 0s
+| matrix-timing codex launch-bootstrap-prompt 0s
+| matrix-timing codex launch-no-task-text 0s
+| matrix-timing codex launch-model 0s
+| matrix-timing codex launch-effort-once 1s
+| matrix-timing codex launch-role-model 15s
+| matrix-timing codex session-id 10s
+| matrix-timing codex idle-is-prompt 0s
+| matrix-timing codex idle-is-not-busy 0s
+| matrix-timing codex busy-is-busy 1s
+| matrix-timing codex trust-dialog-is-not-prompt 0s
+| matrix-timing codex transient-stalls 1s
+| matrix-timing codex idle-never-stalls 1s
+| matrix-timing codex busy-never-stalls 1s
+| matrix-timing codex limit-parks 0s
+| matrix-timing codex transient-is-not-limit 0s
+| matrix-timing codex trust-pre-accepted 3s
+| matrix-timing codex bypass-covers-subagents 9s
+| matrix-timing codex done-signal 0s
+| matrix-timing codex loop-mode 2s
+| matrix-timing codex transcripts-found 0s
+| matrix-timing codex usage-from-transcript 0s
+| matrix-timing codex stats-launch-model-effort 9s
+| matrix-timing codex stats-session-end-usage 3s
+| matrix-timing codex usage-windows 1s
+| matrix-timing codex checkpoint-skill 22s
+| matrix-timing codex handoff-skill-installed 77s
+| matrix-timing codex prompt-skills-installed 87s
+| matrix-timing codex operator-skills 64s
+| matrix-timing codex pause-force-resume-other-host 38s
+| matrix-timing codex send-and-kill 1s
+| matrix-timing codex inject-sessions 39s
+| matrix-timing codex bug-lane-triage-fix 31s
+| matrix-timing codex review-gauntlet 17s
+| matrix-timing codex supervisor-frozen-session 94s
+| matrix-timing codex supervisor-skips-trust-dialog 112s
+| matrix-timing codex rtdd-event-context 10s
+| matrix-timing codex prereqs-named 10s
+| matrix-timing codex init-wizard-choice 5s
+| matrix-timing codex headless-launch 21s
+| matrix-timing codex headless-send 28s
+| matrix-timing codex headless-busy-idle 28s
+| matrix-timing codex headless-limit-parks 62s
+| matrix-timing codex headless-transient-stalls 45s
+| matrix-timing codex headless-loop-mode 40s
+| matrix-timing codex headless-interrupt 31s
+| matrix-timing codex headless-checkpoint 50s
+| matrix-timing codex headless-resume 73s
+| matrix-timing codex headless-supervisor-frozen-session 96s
+| matrix-timing codex headless-usage-windows 18s
+| matrix-timing codex headless-stats-session-end-usage 40s
+| matrix-timing codex headless-stop 30s
+| matrix-timing codex headless-sweep-detached-jobs 1s
+| matrix-timing copilot fixtures-recorded 0s
+| matrix-timing copilot launch-bootstrap-prompt 0s
+| matrix-timing copilot launch-no-task-text 0s
+| matrix-timing copilot launch-model 0s
+| matrix-timing copilot launch-effort-once 1s
+| matrix-timing copilot launch-role-model 15s
+| matrix-timing copilot session-id 9s
+| matrix-timing copilot idle-is-prompt 0s
+| matrix-timing copilot idle-is-not-busy 0s
+| matrix-timing copilot busy-is-busy 1s
+| matrix-timing copilot trust-dialog-is-not-prompt 0s
+| matrix-timing copilot transient-stalls 1s
+| matrix-timing copilot idle-never-stalls 0s
+| matrix-timing copilot busy-never-stalls 1s
+| matrix-timing copilot limit-parks 1s
+| matrix-timing copilot transient-is-not-limit 1s
+| matrix-timing copilot trust-pre-accepted 2s
+| matrix-timing copilot bypass-covers-subagents 9s
+| matrix-timing copilot done-signal 0s
+| matrix-timing copilot loop-mode 27s
+| matrix-timing copilot transcripts-found 0s
+| matrix-timing copilot usage-from-transcript 0s
+| matrix-timing copilot stats-launch-model-effort 8s
+| matrix-timing copilot stats-session-end-usage 2s
+| matrix-timing copilot usage-windows 2s
+| matrix-timing copilot checkpoint-skill 21s
+| matrix-timing copilot handoff-skill-installed 91s
+| matrix-timing copilot prompt-skills-installed 98s
+| matrix-timing copilot operator-skills 78s
+| matrix-timing copilot pause-force-resume-other-host 35s
+| matrix-timing copilot send-and-kill 1s
+| matrix-timing copilot inject-sessions 35s
+| matrix-timing copilot bug-lane-triage-fix 34s
+| matrix-timing copilot review-gauntlet 16s
+| matrix-timing copilot supervisor-frozen-session 90s
+| matrix-timing copilot supervisor-skips-trust-dialog 110s
+| matrix-timing copilot rtdd-event-context 11s
+| matrix-timing copilot prereqs-named 8s
+| matrix-timing copilot init-wizard-choice 5s
+| matrix-timing copilot headless-launch 21s
+| matrix-timing copilot headless-send 29s
+| matrix-timing copilot headless-busy-idle 33s
+| matrix-timing copilot headless-limit-parks 56s
+| matrix-timing copilot headless-transient-stalls 45s
+| matrix-timing copilot headless-loop-mode 40s
+| matrix-timing copilot headless-interrupt 33s
+| matrix-timing copilot headless-checkpoint 53s
+| matrix-timing copilot headless-resume 71s
+| matrix-timing copilot headless-supervisor-frozen-session 92s
+| matrix-timing copilot headless-usage-windows 17s
+| matrix-timing copilot headless-stats-session-end-usage 37s
+| matrix-timing copilot headless-stop 23s
+| matrix-timing copilot headless-sweep-detached-jobs 1s
+| == test_cli_codex.sh ==
+|   ok: effort is a config override, not a flag
+|   ok: the lane's effort replaces the default one
+|   ok: model is -m
+|   ok: scrollback kept for capture-pane
+|   ok: approvals and sandbox bypassed
+|   ok: Harness's own Stop hook may run untrusted
+|   ok: codex cannot take a caller-set id
+|   ok: no caller-set id anywhere on the line
+|   ok: the prompt is the positional bootstrap
+|   ok: no lane model/effort: the configured flags as they are
+|   ok: trust is a [projects] entry in config.toml
+|   ok: cli_trusted reads it back
+|   ok: another dir is not trusted by it
+|   ok: the update modal is turned off
+|   ok: update check is top-level, every other key kept
+|   ok: trusting twice writes one entry
+|   ok: …and one update-check key
+|   ok: an untrusted entry is flipped to trusted
+|   ok: …in place, not duplicated
+|   ok: trust with no config.toml yet
+|   ok: session id read from the worktree's rollout
+|   ok: a rollout of another cwd is not this worktree's
+|   ok: a rollout from before this launch is the previous session's
+|   ok: a newer sub-agent rollout in the worktree is not the session
+|   ok: transcripts: the session's rollout first, then its sub-agents'
+|   ok: no session id, no transcripts
+|   ok: usage folds token_count per turn_context model, cached input as cache reads
+|   ok: the 30-day primary window, its used percent
+| 
+|   ok: a window whose reset has passed is not reported
+|   ok: idle: the composer is the prompt
+|   ok: the live composer, not a submitted prompt echoed above it
+|   ok: the trust dialog's › option is not a prompt
+|   ok: the status row's timer is the turn's seconds
+|   ok: no status row, no turn
+|   ok: minutes and seconds
+|   ok: Escape prints the interrupt line
+|   ok: an interrupted turn is not busy
+|   ok: an interrupted turn leaves the prompt
+|   ok: the free-plan reset banner is no usage limit
+|   ok: a 400 error cell is no transient stall
+|   ok: …and no usage limit
+|   ok: Codex's Stop hook drives the loop
+|   ok: a skill is invoked as $<name>
+|   ok: no promise: the hook blocks with the task as the next prompt
+|   ok: …and counts the iteration
+|   ok: max_iterations reached: the hook lets the turn end
+|   ok: …and ends the loop
+|   ok: a different promise does not end the loop
+|   ok: the promise in the reply ends the loop
+|   ok: no state file: another session's turn is left alone
+|   ok: the marketplace is named with its add command
+|   ok: the plugin is named with its add command
+|   ok: the handoff skill is named where codex loads skills (#303)
+|   ok: an installed plugin passes
+|   ok: the marketplace it names holds the plugin
+|   ok: windows: trusting /c/w/proj upgrades the table kept as C:/w/proj in place (no second spelling)
+|   ok: windows: …and /c/w/proj reads as trusted
+|   ok: windows: …as C:\w\proj too
+|   ok: windows: …but another directory is not
+| ── 59/59 passed
+|   ok: every codex matrix cell is ok, but its headless-* rows: n/a, tmux-only
+| ── 56/56 passed
+| == test_cli_copilot.sh ==
+|   ok: caller-set session id
+|   ok: effort flag
+|   ok: model flag
+|   ok: everything allowed
+|   ok: the agent may not stop on a question
+|   ok: no update mid-fleet
+|   ok: the bootstrap is the -i prompt
+|   ok: an operator's COPILOT_HOME reaches the pane
+|   ok: no COPILOT_HOME, no lane model/effort: the configured flags as they are
+|   ok: the lane's model and effort replace the configured ones (--reasoning-effort is effort's alias)
+|   ok: trust is a trustedFolders entry
+|   ok: cli_trusted reads it back
+|   ok: another dir is not trusted by it
+|   ok: the comment header is kept
+|   ok: every other key is kept
+|   ok: …and every other folder
+|   ok: trusting twice writes one entry
+|   ok: a fresh home gets a config.json with the entry
+|   ok: trust takes the lock beside config.json and leaves none held
+|   ok: the trust dialog is not the prompt
+|   ok: busy fixture is busy
+|   ok: a turn before its first tool call is busy
+|   ok: the first Escape's hint is still busy
+|   ok: an interrupted turn prints its line
+|   ok: …and is back at the prompt
+|   ok: the prompt line is the box's, not the echo above it
+|   ok: text typed mid-turn is steered into it, never queued in the box
+|   ok: the rate-limit menu is a limit menu
+|   ok: …and a dialog, never a prompt
+|   ok: copilot draws no turn timer
+|   ok: a skill is a slash command (skill.txt)
+|   ok: …as the matrix's handoff-skill fixture says
+|   ok: …as the capture ran one
+|   ok: agentStop caps at 8 blocks, below HARNESS_IMPL_MAXITER: Harness drives
+|   ok: the session id is the one the launch set
+|   ok: the captured session id is the loop run's session.start
+|   ok: no transcript before the session wrote one
+|   ok: transcript path from the id
+|   ok: usage: input without the cache reads/writes, per model
+|   ok: the reply to the last prompt (the loop run's second turn)
+|   ok: …keyed by that prompt's event id
+|   ok: a sub-agent's own prompt and replies are not the session's
+|   ok: the sub-agent ran its shell with no prompt
+|   ok: no reply while the last prompt's turn runs
+|   ok: an aborted turn has ended, with an empty reply
+|   ok: a prompt's first model call ended but its next one runs: no reply yet
+| 08:09:39 [harness] goal loop: hz-max-i8 ended a turn without its promise — 🔄 Ralph iteration 2
+| 08:09:44 [harness] goal loop: hz-max-i8 ended its loop (promise or max iterations)
+|   ok: max_iterations ends the driven loop after one re-prompt
+| 08:09:52 [harness] watchdog: hz-busy-i9 parked at its idle prompt by the usage limit — resumed once after the usage hold clears and the reset time passes (#1066)
+|   ok: a busy or limit-parked pane is not re-prompted
+|   ok: an injector parked at a limit is not re-prompted
+| 08:10:04 [harness] goal loop: hz-inject-main ended its loop (promise or max iterations)
+| 08:10:04 [harness] reaped finished inject session hz-inject-main (ralph loop ended)
+|   ok: an injector's promise ends its loop and the injector is reaped
+| 08:10:11 [harness] goal loop: hz-mid-i10 ended a turn without its promise — 🔄 Ralph iteration 2
+|   ok: a promise announced before the turn's last message does not end the loop
+| 08:10:16 [harness] goal loop: hz-err-i11 ended a turn without its promise — 🔄 Ralph iteration 2
+| 08:10:21 [harness] goal loop: hz-err-i11 ended its loop (promise or max iterations)
+|   ok: a promise given with the transient-error line still on screen ends the loop
+|   ok: a paused bug lane drains a driven goal loop by polling its watchdog until the session ends
+|   ok: the chat quota is the window; completions (editors only) and a no-entitlement quota are not
+| 
+|   ok: a passed reset is no window
+|   ok: the binary is the only prerequisite
+|   ok: …beside the handoff skill, where copilot loads skills (#303)
+|   ok: init offers copilot
+|   ok: every copilot matrix cell is ok, its headless-* rows included
+|   ok: …and it has all 14 of them
+| matrix-timing copilot headless-launch 16s
+| matrix-timing copilot headless-send 25s
+| matrix-timing copilot headless-busy-idle 22s
+| matrix-timing copilot headless-limit-parks 43s
+| matrix-timing copilot headless-transient-stalls 33s
+| matrix-timing copilot headless-usage-windows 13s
+| matrix-timing copilot headless-stats-session-end-usage 28s
+| matrix-timing copilot headless-stop 22s
+|   ok: copilot's lane rows pass under HARNESS_PLATFORM=windows (8 of them)
+|   ok: …and none is red
+|   ok: copilot on the headless backend: the lane's turn timer is read
+|   ok: …on tmux copilot has no turn timer (unavailable)
+|   ok: …and an idle lane has no turn running
+|   ok: copilot is a headless CLI
+|   ok: …and the headless backend does not refuse it as tmux-only
+|   ok: windows: /c/w/proj is the folder kept as C:/w/proj
+|   ok: windows: trusting it again adds no second spelling
+|   ok: windows: another folder is not trusted
+| ── 70/70 passed
+| ── 67/67 passed
+| == run.sh: 2/2 test files passed ==
+######## end of run.sh output
+== run.sh: 2/2 test files passed ==
+SUITE-RESULT 0 failed
+######## send-diag
+cat: 'C:/hx-1073/send-diag.txt': No such file or directory
+######## end send-diag
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-1073
+credentials: GH_TOKEN written nowhere new
+[01:15:35] cleanup: winsma clean (no hx-1073, lock released, no run task or process)
+[01:15:35] run: OK

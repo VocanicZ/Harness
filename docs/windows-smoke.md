@@ -350,6 +350,14 @@ short before a verdict (a pre-#1033 branch against the FIFO lock, then the idle-
 than an hour should be started on a branch rebased onto `origin/main`.
 `HX_VERBOSE=1` makes `suite.sh` print run.sh's whole output (`| `-prefixed) after the summary, to read why a red file is red.
 
+copilot's `headless-send` cell on winsma (#1073): the one red the five-adapter run above left that was not a timeout does not reproduce on `main` (`62d9257`, which carries the
+`proc_kill_tree` fix of #1071 and the cache-key fix of #1076). Five runs in the suite isolation, `HARNESS_MATRIX_TIMING=1`, each with the cell's step-by-step diagnostics in
+place (they never fired, and were removed again): the cell alone (`HARNESS_MATRIX_CLIS=copilot HARNESS_MATRIX_ROWS='^headless-send$'`, 26 s, ok); the `headless-*` rows of codex,
+copilot, hermes, openclaw and opencode in parallel as the suite's prefetch runs them (33 s, ok); the whole matrix of those five CLIs (53/53, 53/53, 51/51, 49/49, 48/48, ok;
+a first attempt was lost to an ssh drop 38 min in); and the acceptance run, `HX_TESTS="test_cli_codex.sh test_cli_copilot.sh"`, `test/smoke/logs/suite-windows-20261112T004703Z-1073-copilot.log`:
+**`test_cli_copilot.sh` 70/70 and `test_cli_codex.sh` 67/67, guard clean, winsma clean, 29 min.** The cell's own timeouts are scaled 8x on Windows (`hl_wait`) and it took
+25-37 s each time, so it was not near a limit. What turned it red at `aeb13d2` is not known: that run predates #1071 (leftover MSYS descendants of a fake agent that `taskkill`
+could not name), which is the likeliest cause, but no run could show it. If it comes back, run the five-CLI matrix again and read the cell's own output.
 The headless twins of the tmux tests (#493): `HX_TESTS="test_watchdog_headless.sh …"` makes `suite.sh` run just those files
 (`bash test/run.sh <files>`) in the same isolation. Their winsma logs are `test/smoke/logs/suite-windows-20261106T*.log`; the last,
 `suite-windows-20261106T225957Z.log`, has `test_watchdog_headless.sh`, `test_env_leak_headless.sh` and `test_session_names_headless.sh`
