@@ -155,7 +155,7 @@ usage: harness <command> [args]
   release [--dry-run] [--ref <rev>]
                        cut the next Harness release from this checkout (gate: test/run.sh)
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
-  uninstall [--force] [--force-engine]  stop the fleet + remove the engine, this project's .harness/, and /harness skills (--force-engine: remove the shared engine even if other fleets still depend on it)
+  uninstall [--force] [--force-engine]  stop the fleet + remove the engine, this project's .harness/, and /harness skills (--force-engine: remove the shared engine even if other fleets still depend on it); refuses to run from inside the project's .harness/ or while its fleet is running
   setup                verify prereqs + seed configured labels on all units (no start)
   poll  [--once|--status]  host poller debug entry (the shared snapshot refresher; #71)
   supervise [--once] [--dry-run] | --install | --uninstall

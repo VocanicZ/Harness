@@ -237,4 +237,82 @@ assert "CLI uninstall --force exits 0"             "[[ $rc7 -eq 0 ]]"
 assert "CLI uninstall removes the engine"          "[[ ! -e '$R7/.harness/engine' ]]"
 assert "CLI uninstall removes project state (discovered from cwd)" "[[ ! -e '$R7/proj/.harness' ]]"
 
+# ── #1095: uninstall refuses from inside the state dir it deletes, and while the project's fleet runs ──
+# A lane worktree lives at <proj>/.harness/worktrees/<lane>: discovery from there reaches the live
+# fleet's own state dir, and `uninstall --force` rm -rf'd it under its workers. Every host path is
+# sandboxed here; only the project discovered from cwd could escape, which is what these pin.
+mk_guard(){ G="$(mktemp -d)"; mk_layout "$G"; mkdir -p "$G/proj/.harness/worktrees/lane" "$G/tm"
+  git -C "$G/proj" init -q 2>/dev/null; }
+guard_run(){ # guard_run <cwd> <envs…> -- <args…>  (STATE_DIR etc. unset unless passed)
+  local cwd="$1"; shift; local -a e=(); while [[ "${1:-}" != -- ]]; do e+=("$1"); shift; done; shift
+  ( cd "$cwd" && env -u STATE_DIR -u HARNESS_DIR -u ENGINE_DIR -u XDG_CONFIG_HOME -u TMUX -u HARNESS_STATE_DIR_OK \
+      HOME="$G/hm" HARNESS_HOME="$G/.harness" HARNESS_BIN_DIR="$G/bin" HARNESS_USER_SKILLS="$G/.claude/skills" \
+      HARNESS_POLLER_DIR="$G/empty-poller" TMUX_TMPDIR="$G/tm" "${e[@]}" \
+      "$CLI" "$@" </dev/null 2>&1 ); }
+intact(){ [[ -f "$G/proj/.harness/config" ]] && grep -qxF '.harness/' "$G/proj/.gitignore" \
+  && [[ -e "$G/.harness/engine" && -L "$G/bin/harness" && -d "$G/.claude/skills/harness" ]]; }
+
+mk_guard; LANE="$G/proj/.harness/worktrees/lane"
+og="$(guard_run "$LANE" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall --force)"; rcg=$?
+assert "1095 cwd under .harness (discovered): rc != 0"          "[[ $rcg -ne 0 ]]"
+assert "1095 cwd under .harness (discovered): nothing removed"   "intact"
+assert "1095 the message names the state dir"                    "grep -qF '$G/proj/.harness' <<< \"\$og\""
+assert "1095 the message names the cwd"                          "grep -qF '$LANE' <<< \"\$og\""
+assert "1095 the message says to cd out"                         "grep -q 'cd ' <<< \"\$og\""
+for fl in "" "--force-engine" "--force --force-engine"; do
+  og="$(guard_run "$LANE" HARNESS_UNINSTALL_WORKER_PIDS= HARNESS_UNINSTALL_YES=1 -- uninstall $fl)"; rcg=$?
+  assert "1095 cwd under .harness, flags '${fl:-none}': rc != 0, nothing removed" "[[ $rcg -ne 0 ]] && intact"
+done
+og="$(guard_run "$G/proj/.harness" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall --force)"; rcg=$?
+assert "1095 cwd == the state dir itself: rc != 0, nothing removed" "[[ $rcg -ne 0 ]] && intact"
+# inherited STATE_DIR (a lane exports it)
+og="$(guard_run "$LANE" STATE_DIR="$G/proj/.harness" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall --force --force-engine)"; rcg=$?
+assert "1095 inherited STATE_DIR, cwd under it: rc != 0, nothing removed" "[[ $rcg -ne 0 ]] && intact"
+assert "1095 inherited case names the state dir"                 "grep -qF '$G/proj/.harness' <<< \"\$og\""
+# --state-dir (deliberate)
+og="$(guard_run "$LANE" HARNESS_UNINSTALL_WORKER_PIDS= -- --state-dir "$G/proj/.harness" uninstall --force)"; rcg=$?
+assert "1095 --state-dir, cwd under it: rc != 0, nothing removed" "[[ $rcg -ne 0 ]] && intact"
+# cwd reached through a symlink still counts
+ln -s "$LANE" "$G/lanelink"
+og="$(guard_run "$G/lanelink" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall --force)"; rcg=$?
+assert "1095 cwd via a symlink into the state dir: rc != 0, nothing removed" "[[ $rcg -ne 0 ]] && intact"
+rm -rf "$G"
+
+# live fleet: --force must not delete the state dir under its own workers
+mk_guard
+if declare -F proc_env >/dev/null && { env STATE_DIR=x sleep 30 & p=$!; sleep 0.2; v="$(proc_env "$p" STATE_DIR)"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; [[ "$v" == x ]]; }; then
+  env STATE_DIR="$G/proj/.harness" sleep 300 & live=$!
+  og="$(guard_run "$G/proj" HARNESS_UNINSTALL_WORKER_PIDS="$live" -- uninstall --force)"; rcg=$?
+  assert "1095 live worker of this project, --force: rc != 0"      "[[ $rcg -ne 0 ]]"
+  assert "1095 live worker of this project: nothing removed"       "intact"
+  assert "1095 the message says the fleet is running + harness stop" "grep -q 'harness stop' <<< \"\$og\" && grep -qi 'running' <<< \"\$og\""
+  og="$(guard_run "$G/proj" HARNESS_UNINSTALL_WORKER_PIDS="$live" -- uninstall --force --force-engine)"; rcg=$?
+  assert "1095 live worker, --force --force-engine: rc != 0, nothing removed" "[[ $rcg -ne 0 ]] && intact"
+  # a worker of ANOTHER project does not block removing this one
+  kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+  mkdir -p "$G/other/.harness"; env STATE_DIR="$G/other/.harness" sleep 300 & other=$!
+  og="$(guard_run "$G/proj" HARNESS_UNINSTALL_WORKER_PIDS="$other" -- uninstall --force)"; rcg=$?
+  kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+  assert "1095 a worker of another project does not block: rc 0, state removed" "[[ $rcg -eq 0 && ! -e '$G/proj/.harness' ]]"
+else
+  echo "  skip: 1095 live-worker case (proc_env cannot read a process environ here)"
+fi
+rm -rf "$G"
+
+# normal use unchanged: from the project root, no live workers → state dir + .gitignore entry go
+mk_guard
+og="$(guard_run "$G/proj" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall --force)"; rcg=$?
+assert "1095 from the project root with no workers: rc 0"        "[[ $rcg -eq 0 ]]"
+assert "1095 from the project root: state dir removed"           "[[ ! -e '$G/proj/.harness' ]]"
+assert "1095 from the project root: .gitignore entry stripped"   "! grep -qxF '.harness/' '$G/proj/.gitignore'"
+rm -rf "$G"
+# outside any project: engine + skills only
+mk_guard; mkdir -p "$G/away"
+og="$(guard_run "$G/away" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall --force)"; rcg=$?
+assert "1095 outside any project: rc 0, engine removed, project untouched" "[[ $rcg -eq 0 && ! -e '$G/.harness/engine' && -f '$G/proj/.harness/config' ]]"
+rm -rf "$G"
+# the usage line documents the refusal
+assert "1095 usage says uninstall refuses inside .harness/ or while the fleet runs" \
+  "\"$CLI\" help 2>&1 | grep -A2 'uninstall \[--force\]' | grep -qi 'refuses'"
+
 echo "── uninstall ok"
