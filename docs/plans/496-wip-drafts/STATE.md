@@ -39,3 +39,8 @@ Task Scheduler note, CHANGELOG (changelog-entry.md), delete docs/plans/496-wip-d
 - Tooling for waits: no `harness-wait` on PATH; use `python3 ~/.harness/releases/v0.13.2/scripts/waitlib.py run|set`. `--pid` waits fire at once (sandbox pid namespace): use `set --path <rc file>` with `run`'s <log>.rc.
   runws2.sh process died (rc 1) while queued after ~7 min even though ticket stays: just park rather than wait in-process.
 - The runs after supervise are unchanged (see list above).
+
+## Update 2026-11-12 (resumed again)
+- Branch == origin/issue/496 @753a84e, 0 behind main. Lock held by #944; #496 is queue 1 (next). Parked again via `winsma.sh park`.
+- Driver tools (runws2.sh/wsssh.sh) live in docs/plans/496-wip-drafts/tools/; copy to scratchpad + `cp -r test/smoke/winsma $SC/x`; NO_REPAIR=1.
+- Next: `runws2.sh sup2 install supervise` then the rest of the acquisitions list above.
