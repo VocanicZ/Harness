@@ -77,7 +77,7 @@ source "$SUP_ENGINE_DIR/scripts/cli/dispatch.sh"   # #188: each CLI's pane regex
 # release flip takes effect on restart without rewriting the unit. Taken only when it resolves to
 # this engine: a link inherited from some other engine's environment never redirects the unit.
 SUP_LINK="${HARNESS_ENGINE_LINK:-$SUP_ENGINE_DIR}"
-[[ "$(realpath -m "$SUP_LINK" 2>/dev/null)" == "$(realpath -m "$SUP_ENGINE_DIR" 2>/dev/null)" ]] || SUP_LINK="$SUP_ENGINE_DIR"
+same_path "$(realpath -m "$SUP_LINK" 2>/dev/null)" "$(realpath -m "$SUP_ENGINE_DIR" 2>/dev/null)" || SUP_LINK="$SUP_ENGINE_DIR"   # one spelling: ENGINE_DIR is C:/… on Windows, the link /c/… (#605, #627)
 SUP_HARNESS="${HARNESS_SUPERVISE_HARNESS:-$SUP_LINK/bin/harness}"
 SUP_RULES="${HARNESS_SUPERVISE_RULES:-$SUP_ENGINE_DIR/scripts/supervise_rules.py}"
 # Fleets the registry does not know (an engine that predates it) are found by this glob too.

@@ -92,6 +92,29 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
   CLI live so the failure comes with the cell's own output. `test_cli_matrix_cache.sh` covers it, and `test_cli_matrix_guard.sh` still runs every cell it checks live. Without `HARNESS_MATRIX_CACHE`
   (a direct `bash test/test_cli_codex.sh`) nothing changes.
 
+### On Windows, ending a headless lane's turn also ends the background jobs its parent had already left behind (#627)
+
+- Windows has no process groups, and `taskkill /T` follows only live parents, so a background job whose parent had already exited
+  (a command a turn started, then the shell that started it ended) survived `sess_kill`, `harness interrupt` and a stop. The headless
+  runner (`scripts/cli/headless_core.py`) now puts each turn's process in a Windows Job Object and `kill_tree` ends the job after
+  `taskkill`, so every process the turn started goes, orphans included. A turn that ends on its own only lets go of its job: what it
+  left running stays up, as on Linux, until the lane is killed or swept.
+- The job also takes in what the turn's launcher had already started: a venv `python3.exe` starts the real interpreter before the
+  runner can assign the job, so that process and the jobs it left behind were outside it (found by a probe on winsma, #627).
+- The headless auto-update twin (`test_supervise_autoupdate_headless.sh`) reads a real file as `ONLINE_URL` (native curl cannot open
+  `file:///etc/hostname`, so the supervisor's network gate held every action, the update included), compares one spelling of a
+  worker's engine path, counts a fake claude's native pids as alive, and carries a Windows time cap. The other headless twins
+  (fleet-migrate, supervise, headless lane) were already green on winsma after #605/#606/#607.
+- `harness supervise` took the stable engine link only when `realpath` of the link and of the engine directory matched as text. On
+  Windows they differ in spelling (`C:/…` against `/c/…`), so the supervisor restarted a dead worker through the old release's path:
+  after a bad release it relaunched the dead workers from the old engine, hid the failure, and never rolled back. It compares them
+  with `same_path` now (the rollback section of `test_supervise_autoupdate_headless.sh` covers it).
+- The auto-update twin no longer relies on a systemd unit restart on Windows (there is none: the update re-registers the Task Scheduler
+  task), the fake claude's grandchild and the stub workers sleep an hour instead of ten minutes, and the sweep twin runs the fake
+  claude on the base interpreter (a venv `python3.exe` is a launcher that starts the real one outside the turn's Job Object).
+- The five headless twins (fleet-migrate, supervise, headless lane, auto-update, session sweep) are 5/5 green on winsma:
+  `test/smoke/logs/suite-windows-20261112T040410Z-627-5headless-twins.log`.
+
 ### `harness --version`, `harness version` and `harness help` reject an unknown extra argument (#994)
 
 - `harness --version -x`, `harness version --bogus` and `harness help -x` exited 0 and ignored the extra argument, so a typo went unnoticed. Only `--verbose` is valid after `--version`/`version`,

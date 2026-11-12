@@ -295,6 +295,79 @@ def test_stdio_prints_utf8_and_lf_whatever_the_platform_text_mode():
     assert got_err == b"oops\n\n", got_err
 
 
+class _Proc:
+    """A stand-in for a turn's Popen: running until `.ended`, remembering that it was waited on."""
+    pid = 4242
+
+    def __init__(self, running=True):
+        self.rc = None if running else 0
+        self.waited = False
+
+    def poll(self):
+        return self.rc
+
+    def wait(self):
+        self.waited = True
+        self.rc = 0 if self.rc is None else self.rc
+        return self.rc
+
+
+def test_windows_kill_tree_ends_the_turns_job_after_taskkill_and_a_finished_turn_still_has_its_job_ended():
+    """#627: Windows has no process groups and `taskkill /T` follows only live parents, so a background job whose parent
+    already exited is reached through the turn's Job Object. Proved here with the Windows calls replaced."""
+    calls = []
+    saved = (core.WINDOWS, core.subprocess.run, core._win_job_end)
+    core.WINDOWS = True
+    core.subprocess.run = lambda argv, **kw: calls.append(("run", argv[:3]))
+    core._win_job_end = lambda job: calls.append(("job", job))
+    try:
+        p = _Proc(); p._hx_job = "J1"
+        core.kill_tree(p)
+        assert calls == [("run", ["taskkill", "/T", "/F"]), ("job", "J1")], calls
+        assert p.waited and p._hx_job is None
+        calls.clear()
+        done = _Proc(running=False); done._hx_job = "J2"   # the turn's own process already exited, its orphans did not
+        core.kill_tree(done)
+        assert calls == [("job", "J2")], calls
+        calls.clear()
+        nojob = _Proc(); nojob._hx_job = None             # no job could be made: taskkill alone, as before
+        core.kill_tree(nojob)
+        assert calls == [("run", ["taskkill", "/T", "/F"])], calls
+    finally:
+        core.WINDOWS, core.subprocess.run, core._win_job_end = saved
+
+
+def test_tree_under_follows_children_of_children_and_leaves_out_the_root_and_other_trees():
+    """#627: a launcher (the venv's python3.exe) starts the real program before the turn's job exists, so the job takes in
+    the launcher's descendants as they stand: the walk over (pid, ppid) pairs."""
+    pairs = [(10, 1), (11, 10), (12, 11), (13, 10), (20, 1), (21, 20)]
+    assert sorted(core._tree_under(10, pairs)) == [11, 12, 13], core._tree_under(10, pairs)
+    assert core._tree_under(30, pairs) == [] and core._tree_under(10, []) == []
+    assert core._win_descendants(10) == []   # no ctypes.WinDLL off Windows: nothing found, nothing raised
+
+
+def test_windows_spawn_puts_the_turn_in_a_job_and_a_turn_that_ends_on_its_own_only_lets_go_of_it():
+    made, closed = [], []
+    saved = (core.WINDOWS, core._win_job_new, core.subprocess.Popen)
+    core.WINDOWS = True
+    core.subprocess.CREATE_NEW_PROCESS_GROUP = 0x200   # only defined on Windows
+    core._win_job_new = lambda proc: made.append(proc) or "J"
+    core.subprocess.Popen = lambda *a, **kw: _Proc()
+    try:
+        p = core.spawn(["x"], ".", None, None)
+        assert made == [p] and p._hx_job == "J"
+    finally:
+        core.WINDOWS, core._win_job_new, core.subprocess.Popen = saved
+        del core.subprocess.CREATE_NEW_PROCESS_GROUP
+    saved_end = core._win_job_end
+    core._win_job_end = lambda job: closed.append(job)
+    try:
+        core._win_job_close(p)   # no ctypes on Linux: the handle is dropped, nothing is terminated
+    finally:
+        core._win_job_end = saved_end
+    assert p._hx_job is None and closed == []
+
+
 if __name__ == "__main__":   # no pytest: the Windows suite host installs nothing beyond the standard library (#606)
     fails = 0
     for name, fn in sorted(globals().items()):

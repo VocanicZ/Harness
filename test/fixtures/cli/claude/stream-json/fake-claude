@@ -55,7 +55,7 @@ for i, e in enumerate(events):
         while os.path.exists(os.path.join(d, "hold")):
             time.sleep(0.05)
 if name == "hang":
-    child = subprocess.Popen(["sleep", "600"])
+    child = subprocess.Popen(["sleep", "3600"])   # not 600: a Windows host takes longer than 10 minutes to get from a turn to the assertions about it (#627)
     with open(os.path.join(d, "pids"), "w") as f:
         f.write(f"{os.getpid()} {child.pid}\n")
     while True:

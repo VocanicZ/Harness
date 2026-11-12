@@ -221,17 +221,11 @@ def harness_watch_line(ev):
 
 
 # --- process trees ------------------------------------------------------------------------------
-def _descendants(root):
-    """Every pid under <root> (POSIX `ps`; empty when ps cannot say)."""
-    try:
-        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
+def _tree_under(root, pairs):
+    """Every pid under <root> given (pid, ppid) pairs, <root> excluded."""
     kids = {}
-    for line in out.splitlines():
-        p = line.split()
-        if len(p) == 2 and p[0].isdigit() and p[1].isdigit():
-            kids.setdefault(int(p[1]), []).append(int(p[0]))
+    for pid, ppid in pairs:
+        kids.setdefault(ppid, []).append(pid)
     seen, todo = [], [root]
     while todo:
         for k in kids.get(todo.pop(), []):
@@ -240,14 +234,131 @@ def _descendants(root):
     return seen
 
 
+def _descendants(root):
+    """Every pid under <root> (POSIX `ps`; empty when ps cannot say)."""
+    try:
+        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pairs = []
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[0].isdigit() and p[1].isdigit():
+            pairs.append((int(p[0]), int(p[1])))
+    return _tree_under(root, pairs)
+
+
+def _win_descendants(root):
+    """Windows: every pid under <root>, from a Toolhelp snapshot (empty when none can be taken)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class ENTRY(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                        ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", wintypes.WCHAR * 260)]
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k.Process32FirstW.argtypes = k.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ENTRY)]
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        snap = k.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+        if not snap or snap == wintypes.HANDLE(-1).value:
+            return []
+        pairs, e = [], ENTRY()
+        e.dwSize = ctypes.sizeof(ENTRY)
+        ok = k.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            pairs.append((e.th32ProcessID, e.th32ParentProcessID))
+            ok = k.Process32NextW(snap, ctypes.byref(e))
+        k.CloseHandle(snap)
+        return _tree_under(root, pairs)
+    except (OSError, AttributeError, ValueError, TypeError):
+        return []
+
+
+def _win_job_new(proc):
+    """Windows: a Job Object holding <proc> (#627). Windows has no process groups and `taskkill /T` follows only
+    live parents, so a background job whose parent already exited (a command the turn started, then the shell that
+    started it ended) is out of its reach; a Job Object is the one handle that still holds it, because every
+    process <proc> starts is born inside the job. Not KILL_ON_JOB_CLOSE: a lane's leftovers outlive an ended turn
+    on POSIX too, and are ended by kill_tree or the session sweep. None when the job cannot be made (the caller
+    then has taskkill alone)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        k.AssignProcessToJobObject.restype = wintypes.BOOL
+        job = k.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        if not k.AssignProcessToJobObject(job, wintypes.HANDLE(int(proc._handle))):
+            k.CloseHandle.argtypes = [wintypes.HANDLE]
+            k.CloseHandle(job)
+            return None
+        # A launcher (the venv's python3.exe, a .cmd shim) has already started the real program by now: it was born
+        # before the assignment, so it is outside the job and so is everything it starts. Take in what exists.
+        k.OpenProcess.restype = wintypes.HANDLE
+        k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        for pid in _win_descendants(proc.pid):
+            h = k.OpenProcess(0x0101, False, pid)   # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+            if h:
+                k.AssignProcessToJobObject(job, h)
+                k.CloseHandle.argtypes = [wintypes.HANDLE]
+                k.CloseHandle(h)
+        return job
+    except (OSError, AttributeError, ValueError, TypeError):
+        return None
+
+
+def _win_job_end(job):
+    """Terminate every process in <job> (Windows) and close it."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.TerminateJobObject(job, 1)
+        k.CloseHandle(job)
+    except (OSError, AttributeError, ValueError, TypeError):
+        pass
+
+
+def _win_job_close(proc):
+    """A turn ended on its own: let go of its Job Object without ending it (what the turn left running stays up)."""
+    job = getattr(proc, "_hx_job", None)
+    if not job:
+        return
+    proc._hx_job = None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.CloseHandle(job)
+    except (OSError, AttributeError, ValueError, TypeError):
+        pass
+
+
 def kill_tree(proc, grace=3.0):
     """End <proc> and everything it started. POSIX: proc leads its own process group (spawn()); TERM
     the group and every descendant found before the kill (one that left the group too), then KILL
-    whatever outlives <grace>. Windows: taskkill /T /F."""
+    whatever outlives <grace>. Windows: taskkill /T /F, then the turn's Job Object (spawn()), which also
+    holds what a parent that already exited left behind (#627)."""
     if WINDOWS:
-        if proc.poll() is not None:
-            return
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        job = getattr(proc, "_hx_job", None)
+        if proc.poll() is None:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        if job:
+            proc._hx_job = None
+            _win_job_end(job)
         proc.wait(); return
     tree = _descendants(proc.pid)
 
@@ -282,7 +393,10 @@ def spawn(argv, cwd, stdout, stderr, env=None):
     kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
     if env:
         kw["env"] = {**os.environ, **env}
-    return subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, **kw)
+    proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, **kw)
+    if WINDOWS:
+        proc._hx_job = _win_job_new(proc)
+    return proc
 
 
 # --- the runner ---------------------------------------------------------------------------------
@@ -473,6 +587,8 @@ class Runner:
                 time.sleep(POLL_S)
             th.join(timeout=5)
             rc = proc.wait()
+            if WINDOWS:
+                _win_job_close(proc)
         with lock:
             if stopped:
                 self.event({"type": "harness", "subtype": "turn_end", "turn": n, "state": "ended", "exit": rc,
