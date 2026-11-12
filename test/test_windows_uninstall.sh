@@ -74,6 +74,8 @@ assert_ok "the install wrote the python3 shim"                 test -x "$I/home/
 assert_ok "… and its LF-stdio sitecustomize (#609)"            test -f "$I/home/bin/pylf/sitecustomize.py"
 assert_ok "… and harness.cmd"                                  test -f "$I/bin/harness.cmd"
 assert_ok "… and the task launchers"                           test -n "$(ls "$I"/home/tasks/*.sh 2>/dev/null)"
+# Python compiles the sitecustomize on its first run: the __pycache__ it leaves must not keep the home alive (#496, seen on winsma)
+mkdir -p "$I/home/bin/pylf/__pycache__"; : >"$I/home/bin/pylf/__pycache__/sitecustomize.cpython-313.pyc"
 before="$(snapshot "$I/home" "$I/bin" "$I/skills")"
 out="$(HARNESS_HOME="$I/home" HARNESS_BIN_DIR="$I/bin" HARNESS_USER_SKILLS="$I/skills" STATE_DIR="$I/proj/.harness" \
   ENGINE_DIR="$R" HARNESS_UNINSTALL_WORKER_PIDS="" bash "$R/scripts/uninstall.sh" --force --force-engine </dev/null 2>&1)"; rc=$?
