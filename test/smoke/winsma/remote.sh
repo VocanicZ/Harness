@@ -165,19 +165,24 @@ r_lock_break_idle(){ _ws_issue_ok "$1" || return 2
 # _ws_spawn_win <script> — start a bash script fully detached from this ssh session (a plain `&` job dies with it).
 _ws_spawn_win(){ local b s; b="$(_ws_winpath "$(command -v bash)")"; s="$(_ws_winpath "$1")"
   powershell -NoProfile -Command "(Start-Process -FilePath '$b' -ArgumentList '-l','$s' -WindowStyle Hidden -PassThru).Id" | tr -d '\r'; }
+# _ws_rm_lock <dir> — rm -rf the lock dir, retrying (#1089). The heartbeat loop writes heartbeat.<pid> inside it and renames it over
+# heartbeat; a write that lands mid-removal makes rm -rf fail "Directory not empty" or re-create a file. The loop ends once the owner
+# file is gone (it checks before each write), so a retry or two settles it; without that a stray hx-lock was left behind.
+_ws_rm_lock(){ local i; for i in 1 2 3 4 5 6 7 8 9 10; do rm -rf "$1" 2>/dev/null; [[ -e "$1" ]] || return 0; sleep 0.1; done
+  rm -rf "$1"; }
 # r_lock_release <issue> — remove the lock only if this issue owns it.
 r_lock_release(){ _ws_issue_ok "$1" || return 2
   local L; L="$(_ws_lock)"
   [[ -d "$L" ]] || return 0
   grep -qx "issue=$1" "$L/owner" 2>/dev/null || { echo "winsma: hx-lock is not held by #$1; left alone" >&2; return 1; }
-  rm -rf "$L"; }
+  _ws_rm_lock "$L"; }
 # r_lock_break_hold <owner_issue> <hold_hard_seconds> — the hard ceiling (#1033): the lock still belongs to that issue and has been
 # held longer than <hold_hard_seconds>, a runaway even though its lane lives; clean its run and drop the lock.
 r_lock_break_hold(){ _ws_issue_ok "$1" || return 2
   local st; st="$(r_lock_state)"; set -- "$1" "$2" $st
   [[ "$3" == held && "$4" == "$1" ]] || { echo "winsma: lock changed hands; not breaking it" >&2; return 1; }
   (( ${8:-0} > $2 )) || { echo "winsma: lock was not held that long; not breaking it" >&2; return 1; }
-  r_cleanup "$1" || return 1; rm -rf "$(_ws_lock)"; }
+  r_cleanup "$1" || return 1; _ws_rm_lock "$(_ws_lock)"; }
 # r_lock_break <owner_issue> <stale_seconds> — the breaker: only if the lock still belongs to that issue AND
 # its heartbeat is still older than <stale_seconds> (the host already checked the owner lane is gone); then
 # clean that run (kill its pids and anything under its folder, delete its tasks and folder) and drop the lock.
@@ -185,7 +190,7 @@ r_lock_break(){ _ws_issue_ok "$1" || return 2
   local st; st="$(r_lock_state)"; set -- "$1" "$2" $st
   [[ "$3" == held && "$4" == "$1" ]] || { echo "winsma: lock changed hands; not breaking it" >&2; return 1; }
   (( ${7:-0} > $2 )) || { echo "winsma: lock heartbeat is fresh again; not breaking it" >&2; return 1; }
-  r_cleanup "$1" || return 1; rm -rf "$(_ws_lock)"; }
+  r_cleanup "$1" || return 1; _ws_rm_lock "$(_ws_lock)"; }
 
 # r_lock_drop_orphan <stale_seconds> — a lock directory with no owner file whose directory is older than that: its holder
 # died between its mkdir and its writes, so there is no run to clean, only the directory.

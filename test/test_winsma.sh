@@ -47,6 +47,8 @@ S
 # seed_lock <issue> <session> <pid> <age_seconds> — someone else's lock, with a heartbeat that old.
 seed_lock(){ ws_call r_lock_take "$1" "$2" "$3" >/dev/null; echo $(( $(date +%s) - $4 )) >"$WS_C/hx-lock/heartbeat"; }
 alive(){ kill -0 "$1" 2>/dev/null; }
+# wait_until <command> [tenths of a second] — poll a condition (the waiters run in the background).
+wait_until(){ local i; for ((i=0; i<${2:-100}; i++)); do eval "$1" && return 0; sleep 0.1; done; return 1; }
 
 echo "# HARNESS_WINDOWS_HOST"
 ( fresh_env; unset HARNESS_WINDOWS_HOST
@@ -86,7 +88,9 @@ echo "# lock: heartbeat is never empty"
   echo "  (reads=$n empty=$empty)"
   assert_eq "$empty" "0" "a reader never sees the heartbeat empty while the loop rewrites it"
   ws_call r_lock_heartbeat; assert_ok "r_lock_heartbeat leaves a number" grep -qx '[0-9]*' "$hb"
-  ws_unlock 479; sleep 0.5
+  ws_unlock 479
+  no_lock_left(){ [[ "$(ls "$WS_C" | grep -c '^hx-lock')" == 0 ]]; }
+  wait_until no_lock_left 50   # bounded: the interval-0 loop may still be mid-write when release starts
   assert_eq "$(ls "$WS_C" | grep -c '^hx-lock')" "0" "no lock dir or temp file is left after release"
   finish ) || rc=1
 
@@ -175,9 +179,19 @@ PY
   ws_cleanup 444 >/dev/null
   finish ) || rc=1
 
+# #1089: release's rm -rf raced the heartbeat loop's temp file ("Directory not empty", or the loop re-created a file) and left
+# hx-lock behind. A writer that keeps dropping files into the lock dir for a while must not stop release removing it.
+echo "# lock: release survives a writer racing the removal"
+( fresh_env
+  ws_lock 480 lane-a $$ >/dev/null
+  L="$WS_C/hx-lock"
+  ( end=$((SECONDS + 1)); while (( SECONDS < end )); do echo x >"$L/heartbeat.race" 2>/dev/null; done ) & wpid=$!
+  ws_unlock 480; rc2=$?; wait "$wpid"
+  assert_eq "$rc2" "0" "release succeeds while a writer races the removal"
+  assert_eq "$(ls "$WS_C" | grep -c '^hx-lock')" "0" "...and no lock dir is left"
+  finish ) || rc=1
+
 # --- #1033: a FIFO queue, a hold cap and a visible lock ----------------------------------------------------------------
-# wait_until <command> [tenths of a second] — poll a condition (the waiters run in the background).
-wait_until(){ local i; for ((i=0; i<${2:-100}; i++)); do eval "$1" && return 0; sleep 0.1; done; return 1; }
 owner_issue(){ sed -n 's/^issue=//p' "$WS_C/hx-lock/owner" 2>/dev/null; }
 queued_issues(){ ws_call r_queue_state | awk '{printf "%s ", $2}' | sed 's/ $//'; }
 age_taken(){ echo $(( $(date +%s) - $1 )) >"$WS_C/hx-lock/taken"; }   # pretend the lock was taken that many seconds ago
