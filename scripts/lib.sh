@@ -519,6 +519,42 @@ closed_live_keys(){ local f n out=(); shopt -s nullglob
   for f in "$RUN_DIR"/closedlive.*; do n="${f##*/closedlive.}"; [[ "$n" =~ ^[0-9]+$ ]] || continue
     if closed_live_active "$n"; then out+=("$n"); else rm -f "$f"; fi; done
   shopt -u nullglob; local IFS=,; echo "${out[*]-}"; }
+# --- #1092: a claim skipped because the issue is parked in the winsma queue (LIVE) ---------------------------------------
+# `winsma.sh park` (#1034, #1038) adds waiting-winsma and (for an issue) drops agent-working in one edit, and ends the lane. The
+# board snapshot lags that edit the same way it lags a close (#730), so dispatch kept offering the parked issue: ~15 s later a lane
+# claimed it, a whole session started, parked again, and so on until the poller refreshed. Two guards, both bounded:
+#   parked_live_*  prepare_impl / prebuild_build / spawn_orch read the LIVE labels before any side effect; waiting-winsma there marks
+#                  the issue here, and claim_lane / prebuild_candidates add the marked issues to dispatch's `owned` and `busy` lists
+#                  until the mark ages out (HARNESS_PARKED_LIVE_SECS, default HARNESS_PRIORITY_POLL + 600) or the wake clears it.
+#   parked_spec_keys  the park wrote a resume=redispatch winsma wait spec on THIS host with no snapshot lag: it keeps the issue out
+#                  before even one gh call. Honoured only while the spec is no older than the snapshot (a snapshot taken after the
+#                  park shows the label itself) and younger than the same ageout: a human who removes the label by hand leaves the
+#                  spec behind, and it must not block the issue for ever.
+parked_live_file(){ echo "$RUN_DIR/parkedlive.$1"; }
+parked_live_mark(){ date +%s > "$(parked_live_file "$1")" 2>/dev/null || true; }
+parked_live_clear(){ rm -f "$(parked_live_file "$1")"; }
+parked_ttl(){ echo "${HARNESS_PARKED_LIVE_SECS:-$(( ${HARNESS_PRIORITY_POLL:-60} + 600 ))}"; }
+parked_live_active(){ local t; read -r t 2>/dev/null < "$(parked_live_file "$1")" || return 1
+  [[ "$t" =~ ^[0-9]+$ ]] || return 1
+  (( $(date +%s) - t < $(parked_ttl) )); }
+# issue_json_has_label <json> <label> — 0 when a `gh issue view --json …labels…` answer carries <label>; 1 for none or an unreadable answer.
+issue_json_has_label(){ local names; names="$(python3 "$TASKCTX_PY" labels <<<"$1" 2>/dev/null || echo '')"
+  [[ "$names" == *"\"$2\""* ]]; }
+# parked_spec_keys — the issue numbers whose redispatch winsma spec still holds them out of dispatch, comma-separated.
+parked_spec_keys(){ local gen now ttl n created out=(); now="$(date +%s)"; ttl="$(parked_ttl)"
+  gen="$(python3 -c 'import json,sys
+try: print(int(json.load(open(sys.argv[1])).get("generated_at") or 0))
+except Exception: print(0)' "${HARNESS_SNAPSHOT_FILE:-/nonexistent}" 2>/dev/null)"; [[ "$gen" =~ ^[0-9]+$ ]] || gen=0
+  while IFS=$'\t' read -r _ n _ created; do
+    [[ "$n" =~ ^[0-9]+$ && "$created" =~ ^[0-9]+$ ]] || continue
+    (( created >= gen && now - created < ttl )) && out+=("$n")
+  done < <(python3 "$WAITLIB_PY" parked --dir "$RUN_DIR" 2>/dev/null)
+  local IFS=,; echo "${out[*]-}"; }
+# parked_keys — every issue / PRD to keep out of this claim for being parked: the live marks (an expired one is removed) and the local specs.
+parked_keys(){ local f n out=(); shopt -s nullglob
+  for f in "$RUN_DIR"/parkedlive.*; do n="${f##*/parkedlive.}"; [[ "$n" =~ ^[0-9]+$ ]] || continue
+    if parked_live_active "$n"; then out+=("$n"); else rm -f "$f"; fi; done
+  shopt -u nullglob; local IFS=,; _csv_union "${out[*]-}" "$(parked_spec_keys)"; }
 # launch_fail <sess> <uuid> <reason> — the launch itself failed (the backend could not start the session).
 launch_fail(){ local sess="$1" uuid="$2" reason="$3" key; key="$(launch_key_of_sess "$sess")"
   harness_event launch_failed session="$uuid" tmux="$sess" goal="${GOAL:-}" prd="${STAT_PRD:-}" reason="$reason"
@@ -1652,7 +1688,7 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
   waiting="$(timeout 60 python3 "$ISSUELIB" waiting-winsma "$REPO" 2>/dev/null)" || return 0
   [[ -n "$waiting" ]] || { rm -f "$down"; return 0; }
   echo "$now" > "$f"
-  while IFS=$'\t' read -r _ n dl; do [[ "$n" =~ ^[0-9]+$ && "$dl" =~ ^[0-9]+$ ]] && deadlines[$n]="$dl"
+  while IFS=$'\t' read -r _ n dl _; do [[ "$n" =~ ^[0-9]+$ && "$dl" =~ ^[0-9]+$ ]] && deadlines[$n]="$dl"
   done < <(python3 "$WAITLIB_PY" parked --dir "$RUN_DIR" 2>/dev/null)
   for n in $waiting; do
     [[ "$n" =~ ^[0-9]+$ ]] || continue
@@ -1671,6 +1707,7 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
     if gh issue edit "$n" -R "$SLUG" --remove-label "$HARNESS_LABEL_WAITING_WINSMA" >/dev/null 2>&1; then
       log "winsma-wake: #$n — $out; $HARNESS_LABEL_WAITING_WINSMA removed, the issue is re-dispatched (a resume for an implementation issue, a REVIEW for a PRD) (#1034, #1038, #1066)"
       python3 "$WAITLIB_PY" forget --dir "$RUN_DIR" --issue "$n" 2>/dev/null
+      parked_live_clear "$n"   # #1092: the park is over — the issue is claimable again at once
       harness_event winsma_wake repo="$SLUG" issue="$n"
       harness_event wait_done cond=winsma resume=redispatch repo="$SLUG" issue="$n" ${why:+reason=$why}
     fi

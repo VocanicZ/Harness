@@ -43,8 +43,9 @@ claim_lane(){ local wid="$1" lockfd live allow busy owned actions rc errf action
   if (( live < POOL )); then
     allow=0; (( live == 0 )) && allow=1
     # #596: an issue / PRD whose last launch failed is held back (like a busy one) until its backoff runs out
-    busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)")"
-    owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)" "$(closed_live_keys)")"   # #730
+    local parked; parked="$(parked_keys)"   # #1092: parked in the winsma queue; the snapshot does not show it yet
+    busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)" "$parked")"
+    owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)" "$(closed_live_keys)" "$parked")"   # #730
     errf="$RUN_DIR/$UNIT.dispatch.err"
     actions="$(dispatch_actions "$REPO" 1 "$allow" "$busy" "$owned" 2>"$errf")"; rc=$?
     [[ -s "$errf" ]] && cat "$errf" >&2
@@ -89,8 +90,8 @@ start_lane(){ local wid="$1" action="$2" payload="$3" promise="$4" key sess rc=0
           log "worker $wid claimed $action #$payload"
           spawn_orch "$action" "$payload" "$promise" || rc=$?;;
   esac
-  if (( rc == 3 )) && [[ "$action" == IMPL ]]; then   # #745: a closed issue was skipped (#730) — not a failed spawn
-    log "worker $wid: #$payload is closed — claim dropped, claiming again"; lane_release "$key" "$wid"; return 7; fi
+  if (( rc == 3 )) && [[ "$action" == IMPL || "$action" == REVIEW ]]; then   # #745: a closed (#730) or winsma-parked (#1092) issue was skipped — not a failed spawn
+    log "worker $wid: #$payload is closed or parked — claim dropped, claiming again"; lane_release "$key" "$wid"; return 7; fi
   harness_event lane_claim kind="$kind" action="$action" payload="$payload" worker="$wid" repo="$SLUG"
   if (( rc != 0 )); then
     log "worker $wid: could not start $action $payload — claim dropped"; lane_release "$key" "$wid"; return 1; fi

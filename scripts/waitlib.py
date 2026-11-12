@@ -27,7 +27,7 @@ The spec is one JSON file, $HARNESS_WAIT_FILE (the engine puts it in the lane's 
   waitlib.py show  [--file F] [--field NAME]       the spec (or one field of it)
   waitlib.py fields [--file F] NAME…               the named fields on one TAB-separated line (empty when unset)
   waitlib.py clear [--file F]                      drop the spec
-  waitlib.py parked --dir D        the redispatch specs under D, one per line: <file> TAB <issue> TAB <deadline epoch>
+  waitlib.py parked --dir D        the redispatch specs under D, one per line: <file> TAB <issue> TAB <deadline epoch> TAB <created epoch>
   waitlib.py forget --dir D --issue N   drop the redispatch specs under D that wait for issue N
 
 Conditions: pid | file | regex | winsma | limit. `resume` is `inject` (the lane stays alive; the message is its next
@@ -348,7 +348,7 @@ def parked_specs(d):
 
 def cmd_parked(a):
     for path, spec in parked_specs(a.dir):
-        print(f"{path}\t{spec.get('issue')}\t{int(spec.get('deadline') or 0)}")
+        print(f"{path}\t{spec.get('issue')}\t{int(spec.get('deadline') or 0)}\t{int(spec.get('created') or 0)}")
     return 0
 
 
