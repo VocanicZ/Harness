@@ -5,7 +5,7 @@
 # was first to see the red (#682 #687 #827 #841 #1025 #1053 #1055 …), holding the release 30 minutes to 3 hours each time.
 #
 # A test joins the set by carrying the header line `# rtdd: always` in its first 15 lines (a .sh or .py test file): the only input
-# of such a test is the repo tree, and it must stay fast (the whole set under 60s; test_guard_set.sh asserts the cap). Nothing
+# of such a test is the repo tree, and it must stay fast (the whole set near 60s of CPU; test_guard_set.sh warns over it and fails over a hard cap). Nothing
 # else to register.
 #
 #   bash test/guards.sh          run the set (run.sh's isolation and guards), print the wall time; exit non-zero on a red
