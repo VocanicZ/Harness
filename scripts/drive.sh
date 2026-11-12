@@ -293,6 +293,12 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
   # PRD-qualified goal so reap_done_sessions advances the right session when several PRDs are in
   # flight; the unit-level PLAN/PRD actions keep the bare goal.
   GOAL="$action"; (( prd > 0 )) && GOAL="$action:$prd"
+  # #1092: a REVIEW whose PRD was parked in the winsma queue (winsma.sh park --review, #1038) since the board snapshot dispatch
+  # claimed from: read its LIVE labels before any worktree or session. rc 3 = skipped, not failed (as prepare_impl, #745).
+  if [[ "$action" == REVIEW ]] && issue_json_has_label "$(gh issue view "$prd" -R "$SLUG" --json labels 2>/dev/null || echo '')" "$HARNESS_LABEL_WAITING_WINSMA"; then
+    log "REVIEW of PRD #$prd: parked in the winsma queue (the board snapshot lags) — not launching (#1092)"
+    parked_live_mark "$prd"; harness_event launch_skipped kind=orch issue="$prd" reason=winsma_parked; return 3; fi
+  [[ "$action" == REVIEW ]] && parked_live_clear "$prd"
   ensure_safe "$CHECKOUT"
   win_repo_config "$CHECKOUT"   # #488
   base="$(default_branch)"
@@ -368,8 +374,9 @@ prebuilt_take(){ local issue="$1" wd="$2" branch="$3" base="$4" f; f="$(prebuilt
 # next claim takes). rc 1 = unknown or pre-empted: dispatch held or failed, or an orchestration action (PLAN, PRD,
 # DECOMPOSE) comes first — the caller then neither builds nor drops anything.
 prebuild_candidates(){ local busy owned errf actions rc act pl pr
-  busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)")"
-  owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)" "$(closed_live_keys)")"   # #730
+  local parked; parked="$(parked_keys)"   # #1092: parked in the winsma queue; the snapshot does not show it yet
+  busy="$(_csv_union "$(busy_prds_for "$UNIT")" "$(claimed_prds)" "$(backoff_keys orch)" "$parked")"
+  owned="$(_csv_union "$(busy_issues_for "$UNIT")" "$(claimed_issues)" "$(backoff_keys impl)" "$(closed_live_keys)" "$parked")"   # #730
   errf="$RUN_DIR/$UNIT.prebuild.err"
   actions="$(dispatch_actions "$REPO" 99 0 "$busy" "$owned" 2>"$errf")"; rc=$?
   (( rc == 0 )) || return 1
@@ -412,6 +419,9 @@ prebuild_build(){ local n="$1" wd="$WORKTREES_DIR/$UNIT-i$1" branch="issue/$1" f
   if [[ "$(issue_json_state "$ijson")" == CLOSED ]]; then
     log "prebuild: #$n is already closed (the board snapshot lags) — no worktree (#730)"
     closed_live_mark "$n"; closed_issue_unlabel "$n" "$ijson"; return 1; fi
+  if issue_json_has_label "$ijson" "$HARNESS_LABEL_WAITING_WINSMA"; then   # #1092: the same lag, for a park
+    log "prebuild: #$n is parked in the winsma queue (the board snapshot lags) — no worktree (#1092)"
+    parked_live_mark "$n"; return 1; fi
   lock_acquire "$POOL_LOCK" lockfd
   if is_claimed "impl-$n" || [[ -e "$wd" ]]; then lock_release "$lockfd"; return 1; fi
   mkdir -p "$RUN_DIR/prebuilt"; printf 'building %s %s\n' "$(date +%s)" "$$" > "$f"
@@ -472,6 +482,19 @@ prepare_impl_closed(){ local issue="$1" wd="$2" branch="$3" ijson="$4" f; f="$(p
   harness_event launch_skipped kind=impl issue="$issue" reason=issue_closed
   return 3; }
 
+# prepare_impl_parked <issue> <worktree> <branch> — #1092: the issue is parked in the winsma queue (live): the board snapshot lags
+# the park. The twin of prepare_impl_closed: nothing is stamped or launched (the issue keeps waiting-winsma and gets no
+# agent-working), a worktree pre-built for it (#644) goes, the issue is marked so the next tick does not offer it again, and rc 3
+# says "skipped, not failed" (#745). The wake (winsma_wake_tick) clears the mark when it removes the label.
+prepare_impl_parked(){ local issue="$1" wd="$2" branch="$3" f; f="$(prebuilt_file "$UNIT" "$issue")"
+  log "prepare #$issue: the issue is parked in the winsma queue (the board snapshot lags) — not launching (#1092)"
+  if [[ -e "$f" ]] && ! prebuilt_building "$UNIT" "$issue"; then
+    remove_worktree "$CHECKOUT" "$wd" "$branch"; rm -f "$f"
+    harness_event prebuilt_dropped kind=impl issue="$issue" reason="#$issue is parked in the winsma queue"; fi
+  parked_live_mark "$issue"
+  harness_event launch_skipped kind=impl issue="$issue" reason=winsma_parked
+  return 3; }
+
 # prepare_impl <ISSUE> <PROMISE> — claim the issue (agent-working), set up its worktree on
 # issue/<n> and render impl.md — resume.md for a force-paused issue or one whose branch is already
 # pushed — into <worktree>/.harness-task.md. Everything spawn_impl does short of the launch, so
@@ -489,6 +512,9 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   ist="$(issue_json_state "$ijson")"
   if [[ -n "$ist" && "$ist" != OPEN ]]; then prepare_impl_closed "$issue" "$wd" "$branch" "$ijson"; return $?; fi
   closed_live_clear "$issue"
+  # #1092: parked in the winsma queue (the label is on the issue NOW; the snapshot dispatch claimed from predates it)
+  if issue_json_has_label "$ijson" "$HARNESS_LABEL_WAITING_WINSMA"; then prepare_impl_parked "$issue" "$wd" "$branch"; return $?; fi
+  parked_live_clear "$issue"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   # #644: a worktree pre-built for this issue while another lane ran is reused — no add, no hook, no ensure_*.
   if ! prebuilt_take "$issue" "$wd" "$branch" "$base"; then

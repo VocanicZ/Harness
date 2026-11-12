@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A lane parked in the winsma queue is no longer claimed again from the stale board snapshot (#1092)
+
+- `winsma.sh park` adds `waiting-winsma` and ends the lane, but the host snapshot lags the edit by minutes: the claim path still saw the issue as claimable, relaunched it about 15 seconds later, and each relaunch parked again, paying a whole session start every time (seen on #496).
+- `prepare_impl`, `prebuild_build` and the REVIEW spawn now read the live labels before any worktree or label side effect. An issue or PRD that carries `waiting-winsma` there is skipped (`launch_skipped reason=winsma_parked`, rc 3, no slot lost, no backoff), a worktree pre-built for it is dropped, and it is held out of `claim_lane` and the pre-build until the mark ages out (`HARNESS_PARKED_LIVE_SECS`, default `HARNESS_PRIORITY_POLL` + 600) or the wake removes the label.
+- The park's own `resume=redispatch` wait spec on the host keeps the issue out before even one `gh` call, but only while it is no older than the snapshot and the same ageout, so a label removed by hand does not block the issue for ever. `waitlib.py parked` prints the spec's creation time as a fourth column.
+
 ### An auto-release the engine roll orphaned still has its result recorded (#1068)
 
 - An engine roll kills the worker whose `release_tick` kicked a release, and `release_run` with it. `release.sh` outlived it (it holds the flock fd), published, and nobody logged `released <sha>` or cleared `pending`, so the next worker gated and released the same entries again (a second ~1.5 h gate); a red gate (rc 4) left no `gate-failed-<sha>` marker and no bug, so the #1029 hold never engaged; any other rc left no `retry-after`.
