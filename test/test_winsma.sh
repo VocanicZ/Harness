@@ -75,6 +75,21 @@ echo "# lock"
   sleep 1.5; assert_no "the heartbeat loop ends once the lock is gone" alive "$hbpid"
   finish ) || rc=1
 
+# #1082: the heartbeat was written with a plain `>` redirect (truncate, then write), so a reader could see it empty and
+# `test -s` failed under load. With the loop rewriting it constantly, a tight reader must never see it empty.
+echo "# lock: heartbeat is never empty"
+( fresh_env
+  export WS_HB_INTERVAL=0
+  ws_lock 479 lane-a $$ >/dev/null
+  hb="$WS_C/hx-lock/heartbeat"; n=0; empty=0; end=$((SECONDS + 2))
+  while (( SECONDS < end )); do n=$((n+1)); [[ -s "$hb" ]] || empty=$((empty+1)); done
+  echo "  (reads=$n empty=$empty)"
+  assert_eq "$empty" "0" "a reader never sees the heartbeat empty while the loop rewrites it"
+  ws_call r_lock_heartbeat; assert_ok "r_lock_heartbeat leaves a number" grep -qx '[0-9]*' "$hb"
+  ws_unlock 479; sleep 0.5
+  assert_eq "$(ls "$WS_C" | grep -c '^hx-lock')" "0" "no lock dir or temp file is left after release"
+  finish ) || rc=1
+
 echo "# lock: waiting and breaking"
 ( fresh_env
   seed_lock 111 lane-b 999999 10
