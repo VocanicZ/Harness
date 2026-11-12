@@ -599,7 +599,13 @@ sup_unit_path(){ local b p sb out=()
     [[ $p == /* ]] && out+=("$(dirname "$p")")
   done
   out+=("$HOME/.local/bin" /usr/local/bin /usr/bin /bin)
-  printf '%s\n' "${out[@]}" | awk '!seen[$0]++' | paste -sd: -
+  # Windows' own directories go LAST: System32 holds a WSL `bash.exe` stub, so ahead of /usr/bin it answered every bare `bash` the pass
+  # ran ("no installed distributions", a killed worker never restarted, #496). Git's bash and the tools beside it must win.
+  local d front=() back=()
+  for d in "${out[@]}"; do
+    case ${d,,} in */windows/system32|*/windows/system32/*|*/winnt/system32|*/winnt/system32/*) back+=("$d") ;; *) front+=("$d") ;; esac
+  done
+  printf '%s\n' "${front[@]}" ${back[@]+"${back[@]}"} | awk '!seen[$0]++' | paste -sd: -
 }
 # KillMode=process: the workers a pass restarts (`harness start`), and a tmux server it may bring
 # up, are children of this unit. systemd's default control-group kill would take every one of them

@@ -394,6 +394,12 @@ assert_ok "unit runs this engine's supervise"               grep -qx "ExecStart=
 # Windows (#496): the task's PATH must reach powershell, which detach_launch starts workers with, or a killed worker is never restarted.
 mkdir -p "$T/winps"; printf '#!/bin/sh\n' >"$T/winps/powershell"; chmod +x "$T/winps/powershell"
 assert_ok "Windows: the unit PATH holds powershell's dir"   bash -c "! [[ -z \"\$1\" ]] && tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" _HARNESS_OS=windows sup_unit_path)"
+# ...but AFTER /usr/bin: System32 carries a WSL bash.exe stub that answers every bare `bash` (the first e2e run: "no installed distributions").
+mkdir -p "$T/Windows/System32"; printf '#!/bin/sh\n' >"$T/Windows/System32/powershell"; chmod +x "$T/Windows/System32/powershell"
+path_index(){ tr : '\n' <<<"$1" | grep -nxF -- "$2" | cut -d: -f1; }
+WUP="$(PATH="$T/Windows/System32:$T/tools:$PATH" _HARNESS_OS=windows sup_unit_path)"
+assert_ok "Windows: System32 is in the unit PATH"            test -n "$(path_index "$WUP" "$T/Windows/System32")"
+assert_ok "Windows: System32 comes after /usr/bin"           test "$(path_index "$WUP" "$T/Windows/System32")" -gt "$(path_index "$WUP" /usr/bin)"
 assert_no "a Linux unit PATH does not look for powershell"  bash -c "tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" sup_unit_path)"
 assert_ok "unit PATH holds the claude/gh/rtdd dir"          grep -q "^Environment=PATH=$T/tools:" "$U/harness-supervise.service"
 assert_ok "systemd reloaded + enabled + (re)started"        bash -c "grep -q daemon-reload '$T/systemctl.calls' && grep -q 'enable harness-supervise' '$T/systemctl.calls' && grep -q 'restart harness-supervise' '$T/systemctl.calls'"
