@@ -1,0 +1,341 @@
+# End-to-end operations on winsma: supervise, ops, inject (#496, PRD #475 Task 8)
+# host: Windows 10 via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-496\ under the winsma rules (lock, isolation, before/after guard, credential scan)
+# script: test/smoke/winsma/e2e.sh at the head of issue/496 (0510299; cloned from GitHub inside C:\hx-496), stages: supervise ops inject; mode install
+# claude token usage: none. This is a sandbox run (CLAUDE_CONFIG_DIR is the sandbox, a stand-in claude answers the injector lanes, no sign-in); the live run has its own log.
+# note: the first 17 lines are the run waiting for C:\hx-lock behind another lane (it held the lock 74 minutes); the run itself started 09:23:12.
+[08:06:12] run: #496 on winsma, mode install, stages supervise ops inject (repair first: no)
+[08:06:24] lock: free, but #944 is first in the queue; queue position 2 of 2; waiting 300s
+[08:12:02] lock: held by #944 (hzhn-harness-i944), heartbeat 288s old, held 294s; queue position 1 of 1; waiting 300s
+[08:17:41] lock: held by #944 (hzhn-harness-i944), heartbeat 23s old, held 632s; queue position 1 of 1; waiting 300s
+[08:23:17] lock: held by #944 (hzhn-harness-i944), heartbeat 58s old, held 970s; queue position 1 of 1; waiting 300s
+[08:28:56] lock: held by #944 (hzhn-harness-i944), heartbeat 95s old, held 1308s; queue position 1 of 1; waiting 300s
+[08:34:32] lock: held by #944 (hzhn-harness-i944), heartbeat 130s old, held 1645s; queue position 1 of 1; waiting 300s
+[08:40:12] lock: held by #944 (hzhn-harness-i944), heartbeat 167s old, held 1984s; queue position 1 of 1; waiting 300s
+[08:45:50] lock: held by #944 (hzhn-harness-i944), heartbeat 203s old, held 2322s; queue position 1 of 1; waiting 300s
+[08:51:22] lock: held by #944 (hzhn-harness-i944), heartbeat 236s old, held 2656s; queue position 1 of 1; waiting 300s
+[08:56:41] lock: held by #944 (hzhn-harness-i944), heartbeat 255s old, held 2977s; queue position 1 of 1; waiting 300s
+[09:02:00] lock: held by #944 (hzhn-harness-i944), heartbeat 273s old, held 3296s; queue position 1 of 1; waiting 300s
+[09:07:21] lock: held by #944 (hzhn-harness-i944), heartbeat 292s old, held 3616s; queue position 1 of 1; waiting 300s
+[09:12:40] lock: held by #944 (hzhn-harness-i944), heartbeat 10s old, held 3936s; queue position 1 of 1; waiting 300s
+[09:18:00] lock: held by #944 (hzhn-harness-i944), heartbeat 28s old, held 4256s; queue position 1 of 1; waiting 300s
+[09:23:12] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[09:23:29] guard: before recorded
+[09:24:11] credentials: before scan recorded
+[09:24:11] exec: e2e stages supervise ops inject
+[09:24:15] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases. | MSYS=
+[09:24:15] == clone issue/496
+[09:24:29] src at 0510299
+[09:24:34] == install this branch as release v9.9.96 into the sandbox (C:/hx-496/harness-home)
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/harness-home/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v9.9.96 to C:/hx-496/harness-home/releases/v9.9.96 ...
+     installed Harness v9.9.96 at C:/hx-496/harness-home/releases/v9.9.96
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+     linked C:/hx-496/bin/harness -> C:/hx-496/harness-home/engine/bin/harness
+     wrote C:/hx-496/bin/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/bin, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.9.96 is installed once at C:/hx-496/harness-home/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[09:25:04] PASS install.sh exit 0
+[09:25:06] harness resolves to: /c/hx-496/bin/harness | harness v9.9.96 (0000000)
+[09:25:10] this home's tasks: Harness\harness-supervise-a1f384d7, Harness\harness-web-a1f384d7
+[09:25:10] ######## stage supervise (sandbox CLAUDE_CONFIG_DIR=C:/hx-496/claude-config: no sign-in)
+   roles (claude): manager opus/high, implementer sonnet/high
+   wrote /c/hx-496/proj/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-claude
+[09:25:34] ---- supervise: --install registers the task, the task runs the supervisor, a killed worker comes back
+     ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=20s):
+     worker-1: started (pid 2973) — log C:/hx-496/proj/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=40s):
+     priority: started (pid 3277) — log C:/hx-496/proj/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+[09:26:36] pool worker pid: 2973 (alive: yes); run dir: claims priority.log priority.pid priority.pid.launch.sh worker-1.log worker-1.pid worker-1.pid.launch.sh 
+[09:26:37] PASS a pool worker is running after harness start
+     wrote C:/hx-496/harness-home/tasks/harness-supervise.sh (scheduled task Harness\harness-supervise-a1f384d7)
+     supervisor running: schtasks /Query /TN Harness\harness-supervise-a1f384d7   log: C:/hx-496/harness-home/supervise.log
+[09:26:52] PASS the supervise task is registered
+   |     <LogonTrigger>
+   |     </LogonTrigger>
+[09:26:53] PASS …logon-only (no boot trigger)
+[09:26:54] interactive sessions on this host:  USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME; vocanicz              console             1  Active      none   11/12/2026 3:49 AM;
+[09:27:35] NOTE Task Scheduler did not run the task (Last Result 267011, the task has not yet run: it is an InteractiveToken task and its user, pc, has no interactive session here: see quser above); starting its own command line (bash.exe <launcher>) instead
+[09:27:37] supervisor started as pid 9040
+   task| TaskName:                             Harness\harness-supervise-a1f384d7
+   task| Next Run Time:                        N/A
+   task| Status:                               Ready
+   task| Last Run Time:                        11/30/1999 12:00:00 AM
+   task| Last Result:                          267011
+   task| Task To Run:                          C:/Program Files/Git/bin/bash.exe "C:/hx-496/harness-home/tasks/harness-supervise.sh"
+   task| Scheduled Task State:                 Enabled
+   task| Run As User:                          pc
+[09:27:48] supervisor wrote a log: 1 (223 bytes supervise.log)
+   task| TaskName:                             Harness\harness-supervise-a1f384d7
+   task| Next Run Time:                        N/A
+   task| Status:                               Ready
+   task| Last Run Time:                        11/30/1999 12:00:00 AM
+   task| Last Result:                          267011
+   task| Task To Run:                          C:/Program Files/Git/bin/bash.exe "C:/hx-496/harness-home/tasks/harness-supervise.sh"
+   task| Scheduled Task State:                 Enabled
+   task| Run As User:                          pc
+   tasks| total 16
+   tasks| drwxr-xr-x 1 pc 197121    0 Nov 12 16:27 .
+   tasks| drwxr-xr-x 1 pc 197121    0 Nov 12 16:27 ..
+   tasks| -rw-r--r-- 1 pc 197121    0 Nov 12 16:27 harness-supervise.log
+   tasks| -rwxr-xr-x 1 pc 197121  660 Nov 12 16:26 harness-supervise.sh
+   tasks| -rw-r--r-- 1 pc 197121 2052 Nov 12 16:26 harness-supervise.xml
+   proc| "bash.exe","13868","Services","0","13,036 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","14512","Services","0","5,744 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","11832","Services","0","10,912 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","13948","Services","0","9,364 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","14744","Services","0","5,740 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","6664","Services","0","9,656 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","14712","Services","0","12,488 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","8580","Services","0","5,736 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","9556","Services","0","9,664 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+   proc| "bash.exe","5392","Services","0","12,316 K","Unknown","DESKTOP-FU5A8C3\pc","0:00:00","N/A"
+[09:28:02] PASS the task started the supervisor (it logged)
+[09:28:03] PASS …and its log shows no WSL stub or missing command
+   | 2026-11-12 16:27:46 WARN auto-update: could not resolve the latest release (harness update: could not resolve the latest release from file:///C:/hx-496/rel/latest.json: the response is not JSON) — trying again next cycle
+[09:28:03] killing worker 2973
+[09:28:07] PASS the worker is dead
+[09:29:24] worker after the kill: 5165 (alive: yes), 77s after the kill
+   | 2026-11-12 16:27:46 WARN auto-update: could not resolve the latest release (harness update: could not resolve the latest release from file:///C:/hx-496/rel/latest.json: the response is not JSON) — trying again next cycle
+   | 2026-11-12 16:28:31 ACT env -C /c/hx-496/proj C:/hx-496/harness-home/engine/bin/harness --state-dir C:/hx-496/proj/.harness start
+   |   ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   | Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   | Launching 1 pool worker(s) (one lane each, poll=20s):
+   |   worker-1: started (pid 5165) — log C:/hx-496/proj/.harness/run/worker-1.log
+[09:29:25] PASS the supervisor restarted the killed worker
+     removed scheduled task Harness\harness-supervise-a1f384d7
+[09:29:33] PASS supervise --uninstall removed the task
+   Stopping pool workers:
+     killed priority (pid 3277)
+     killed worker-1 (pid 5165)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+[09:29:49] ######## stage ops (sandbox CLAUDE_CONFIG_DIR=C:/hx-496/claude-config: no sign-in)
+rm: cannot remove 'proj': Device or resource busy
+   roles (claude): manager opus/high, implementer sonnet/high
+   wrote /c/hx-496/proj/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-claude
+     ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 0 new, 19 relinked, 19 in all
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=20s):
+     worker-1: started (pid 6526) — log C:/hx-496/proj/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=40s):
+     priority: already running (pid 5806)
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+[09:31:52] ---- web: the dashboard is reachable
+[09:32:05] PASS harness web answers on 127.0.0.1:46496
+[09:32:08] page: 2664 bytes, title: <title>Fleets · Harness
+[09:32:09] PASS the page is the Harness dashboard (HTML)
+[09:32:09] PASS an unknown path is a 404
+[09:32:12] api/host: {
+ "asof": null,
+ "fleets": [
+  {
+   "prefix": "hxe496",
+   "root": "C:/hx-496/proj",
+   "state": "running",
+   "repos":
+[09:32:16] PASS the foreground server is stopped
+     wrote C:/hx-496/harness-home/tasks/harness-web.sh (scheduled task Harness\harness-web-a1f384d7)
+     dashboard running on 127.0.0.1:46496: schtasks /Query /TN Harness\harness-web-a1f384d7
+[09:32:24] PASS the web task is registered
+[09:33:12] NOTE Task Scheduler did not run the web task (no interactive session for pc); starting its own command line
+[09:33:15] web launcher started as pid 15064
+[09:33:25] PASS the web task serves the dashboard
+     removed scheduled task Harness\harness-web-a1f384d7
+[09:33:31] PASS web --uninstall removed the task
+[09:33:34] ending the web server still listening on 46496 (pid 4492)
+[09:33:39] PASS …and the dashboard is gone
+[09:33:39] ---- reports: stats, forecast, harness-one on an event log of fixture lanes
+   | fleet hxe496: sessions 4  issues closed 0  PRDs closed 0  retries 0  HOLD 0.0m
+   |   tokens  claude-sonnet-5-5: out 16,800 in 480 cache_create 120,000 cache_read 3,600,000
+   |   rtdd    -
+[09:33:48] PASS harness stats exits 0
+[09:33:54] PASS harness stats --json is JSON naming the fixture lanes
+   | issue #2: 1 session(s)
+   |   2026-11-12T06:33:40Z  launch  kind=impl model=sonnet effort=high
+   |   2026-11-12T07:33:40Z  session_end  kind=impl  claude-sonnet-5-5: out 4,200 in 120 cache_create 30,000 cache_read 900,000
+   |   rtdd  -
+   |   time  coding 0m00s  testing 0m00s
+[09:33:59] PASS harness stats --issue 2 exits 0
+[09:34:09] filed PRD #46 and issue #47
+   | forecast #47 VocanicZ/harness-smoke-claude (unit harness-smoke-claude)
+   |   basis: unit harness-smoke-claude — 4 past lane(s)
+   |   FALLBACK to unit harness-smoke-claude: #47 has no history; PRD #46 has 0 past lane(s), need 3
+   |   size: body 96 chars vs median 59 → scale x1.63 (clamped 0.6–2.0)
+   |   phase       p50 $    p80 $    p95 $   % of window
+   |   explore      0.33     0.33     0.33   n/a
+   |   test         0.41     0.41     0.41   n/a
+   |   impl         0.49     0.49     0.49   n/a
+   |   gate         0.57     0.57     0.57   n/a
+   |   ship         0.65     0.65     0.65   n/a
+   |   TOTAL        2.44     2.44     2.44   n/a
+   |   calibration claude-config: no usage readings and HARNESS_ONE_USD_PER_PCT unset — n/a
+   |   % of each usage window: n/a until a $-per-% calibration exists or HARNESS_ONE_USD_PER_PCT is set
+[09:34:17] PASS harness forecast exits 0
+[09:34:27] PASS harness forecast --json is JSON
+   | harness one: refused — the fleet is not PAUSED and no account is usage-HELD, so its pool would
+   |   race this session for the claim. Pause it first: harness pause (drain) or harness pause --force.
+[09:34:37] harness one check rc=1 (the fleet is not paused: harness one refuses, as it must)
+[09:34:37] PASS harness one refuses while the fleet is running
+   FLEET: PAUSED (draining) — workers stop claiming; live sessions finish. Resume: harness/resume.sh
+   | harness one: the fleet is PAUSED — its pool claims nothing
+[09:34:54] harness one check rc=0 (paused)
+[09:34:54] PASS harness one check passes once the fleet is paused
+   | harness one: the fleet is PAUSED — its pool claims nothing
+   | forecast #47 VocanicZ/harness-smoke-claude (unit harness-smoke-claude)
+   |   basis: unit harness-smoke-claude — 4 past lane(s)
+   |   FALLBACK to unit harness-smoke-claude: #47 has no history; PRD #46 has 0 past lane(s), need 3
+   |   size: body 96 chars vs median 59 → scale x1.63 (clamped 0.6–2.0)
+   |   phase       p50 $    p80 $    p95 $   % of window
+   |   explore      0.33     0.33     0.33   n/a
+   |   test         0.41     0.41     0.41   n/a
+   |   impl         0.49     0.49     0.49   n/a
+   |   gate         0.57     0.57     0.57   n/a
+   |   ship         0.65     0.65     0.65   n/a
+   |   TOTAL        2.44     2.44     2.44   n/a
+   |   calibration claude-config: no usage readings and HARNESS_ONE_USD_PER_PCT unset — n/a
+   |   % of each usage window: n/a until a $-per-% calibration exists or HARNESS_ONE_USD_PER_PCT is set
+   | gate #47: APPROVE iff now% + p80% + reserve 2% <= stop 98% (HARNESS_ONE_STOP_PCT / HARNESS_ONE_RESERVE_PCT), for every window
+   |   no usage window to check
+   | RECOMMEND: DENY — no usage reading (cli_limit_usage reports none)
+   | The human decides: approve / pick another issue / stop. Nothing runs until approved.
+[09:35:09] harness one gate rc=1
+[09:35:10] PASS harness one gate prints a verdict (RECOMMEND: APPROVE or DENY)
+   RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll.
+[09:35:28] ---- the rest of the command surface: status, poll, release --dry-run, migrate, tier, version
+   | harness v9.9.96 (0000000)
+   | ═══════════════════════  Harness fleet  ═══════════════════════════
+   |   FLEET: IDLE/WATCHING  (1/1 workers resident; all work complete — polling for new work)
+   |   pool=1  poll=20s   16:35:52
+   |   usage: unavailable for claude (checkpoints on the limit message only)
+   |   github: token-da7e3bda: core 4897/5000 resets 17:26, graphql 4941/5000 resets 16:47
+   | ───────────────────────────────────────────────────────────────────
+   | prefix: hxe496
+   |   (no other fleets registered on this host)
+   | ● UP   worker-1  → #47 hxe496-harness-smoke-claude-i47 transient
+   |         ⟳ hxe496-harness-smoke-claude-i47 ralph-iter=1  headless: transient
+   | ──────────────────────  priority bug lane  ────────────────────────
+   | ● UP   priority lane pid 5806
+[09:36:37] PASS harness status exits 0 in a project
+   | ═══════════════════  Harness — every fleet on this host  ═══════════════════
+   |   registry: C:/hx-496/harness-home\fleets   fleets: 1   16:36:42
+   |   GitHub budget: core 4895/5000 (reset 17:26, in 50m) · graphql 4941/5000 (reset 16:47, in 11m)
+   | ───────────────────────────────────────────────────────────────────────────
+   | ■ hxe496   C:/hx-496/proj   COMPLETE
+   |   repos: VocanicZ/harness-smoke-claude   mode: issue-only   workers: 1/1
+   |   sessions (1):
+   |     ⟳ hxe496-harness-smoke-claude-i47 #47              47s  sonnet  [transient]
+[09:36:55] PASS harness status --all (every fleet on this host) exits 0
+   | poller: not running
+   | registry: C:/hx-496/harness-home/poller/registry
+[09:37:05] PASS harness poll --status exits 0
+   | 
+[09:37:18] PASS harness poll --once exits 0
+   | migrated /c/hx-496/proj/.harness to state-only (engine: C:/hx-496/harness-home/engine)
+[09:37:24] PASS harness migrate exits 0 on a state-only project
+   | {"tier": "direct", "recommended": "direct", "reason": "fits one session: 3 criteria, ~40 lines, ~2 files, 1 subsystem, user around", "override": null, "estimate": {"direct": {"minutes": 1, "usd": 0.14}, "fleet": {"minutes": 18, "usd": 3.4}}, "provisional": "thresholds are provisional until #621 recalibrates them"}
+[09:37:33] PASS harness tier decide answers JSON
+   | would release v0.13.3 (0510299)
+   | 
+   | ## Harness v0.13.3
+   | 
+   | ### Fixes
+   | 
+   | - the supervise task's PATH puts Windows' System32 after /usr/bin, so a bare bash is Git's and not the WSL stub (#496) (8075cd8)
+   | - the Windows supervise task's PATH reaches powershell, so the supervisor can restart a killed worker (#496) (fa261af)
+   | - lock release retries its rm -rf so a racing heartbeat write cannot leave hx-lock behind; test waits with a bounded wait_until (closes [#1089](https://github.com/VocanicZ/Harness/issues/1089)) (#1091) (23afb19)
+   | - the five headless twins are green on winsma: Job Object for orphaned turn jobs, supervise link spelling, twin fixes (closes [#627](https://github.com/VocanicZ/Harness/issues/627)) (#1090) (3193f35)
+   | - test_winsma.sh waits for A's ticket before asserting it is queued behind B and C (closes [#1085](https://github.com/VocanicZ/Harness/issues/1085)) (#1088) (d50321b)
+   | 
+   | ### Other
+   | 
+[09:37:54] PASS harness release --dry-run (cuts nothing) exits 0 in a checkout
+   Stopping pool workers:
+     killed priority (pid 5806)
+     killed worker-1 (pid 6526)
+   Killing agent worker sessions:
+     killed headless hxe496-harness-smoke-claude-i47
+   Removing worktrees:
+     removed /c/hx-496/proj/.harness/worktrees/harness-smoke-claude-i47
+   Stopped.
+[09:38:16] ######## stage inject (sandbox CLAUDE_CONFIG_DIR=C:/hx-496/claude-config, a stand-in claude: no sign-in)
+rm: cannot remove 'proj': Device or resource busy
+   roles (claude): manager opus/high, implementer sonnet/high
+   wrote /c/hx-496/proj/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-claude
+[09:38:43] ---- inject: harness plan | prd | issue "<brief>" launch the injector lane
+[09:38:44] stand-in claude: C:/Users/ampna/AppData/Local/Programs/Python/Python313/python.exe C:/hx-496/fake/stand-in.py
+   16:39:02 [harness-smoke-claude] WARN lean lane: skill rtdd not found (C:/hx-496/skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+   16:39:15 [harness-smoke-claude] launched session hxe496-inject-harness-smoke-claude (cwd /c/hx-496/proj)
+   16:39:16 [harness-smoke-claude] injector launched: hxe496-inject-harness-smoke-claude (altitude=plan unit=harness-smoke-claude) — but the pool is STOPPED (no live workers or lane); the new work will sit unclaimed. Run 'harness start --recover' to pick it up.
+[09:39:16] PASS harness plan exits 0
+[09:39:16] PASS harness plan: the injector lane ran a turn (the stand-in claude was called)
+[09:39:16] PASS harness plan: the lane's prompt points it at its task file
+[09:39:16] PASS harness plan: the task file was rendered into the checkout
+[09:39:17] injector lane after its turn: idle (a second injector is refused while one lives, so the lane is ended before the next)
+   Stopping pool workers:
+   Killing agent worker sessions:
+     killed headless hxe496-inject-harness-smoke-claude
+   Removing worktrees:
+   Stopped.
+   16:39:53 [harness-smoke-claude] WARN lean lane: skill rtdd not found (C:/hx-496/skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+   16:40:05 [harness-smoke-claude] launched session hxe496-inject-harness-smoke-claude (cwd /c/hx-496/proj)
+   16:40:05 [harness-smoke-claude] injector launched: hxe496-inject-harness-smoke-claude (altitude=prd unit=harness-smoke-claude) — but the pool is STOPPED (no live workers or lane); the new work will sit unclaimed. Run 'harness start --recover' to pick it up.
+[09:40:05] PASS harness prd exits 0
+[09:40:06] PASS harness prd: the injector lane ran a turn (the stand-in claude was called)
+[09:40:06] PASS harness prd: the lane's prompt points it at its task file
+[09:40:06] PASS harness prd: the task file was rendered into the checkout
+[09:40:07] injector lane after its turn: idle (a second injector is refused while one lives, so the lane is ended before the next)
+   Stopping pool workers:
+   Killing agent worker sessions:
+     killed headless hxe496-inject-harness-smoke-claude
+   Removing worktrees:
+   Stopped.
+   16:40:43 [harness-smoke-claude] WARN lean lane: skill rtdd not found (C:/hx-496/skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+   16:40:54 [harness-smoke-claude] launched session hxe496-inject-harness-smoke-claude (cwd /c/hx-496/proj)
+   16:40:54 [harness-smoke-claude] injector launched: hxe496-inject-harness-smoke-claude (altitude=issue unit=harness-smoke-claude) — but the pool is STOPPED (no live workers or lane); the new work will sit unclaimed. Run 'harness start --recover' to pick it up.
+[09:40:54] PASS harness issue exits 0
+[09:40:55] PASS harness issue: the injector lane ran a turn (the stand-in claude was called)
+[09:40:55] PASS harness issue: the lane's prompt points it at its task file
+[09:40:55] PASS harness issue: the task file was rendered into the checkout
+[09:40:56] injector lane after its turn: idle (a second injector is refused while one lives, so the lane is ended before the next)
+   Stopping pool workers:
+   Killing agent worker sessions:
+     killed headless hxe496-inject-harness-smoke-claude
+   Removing worktrees:
+   Stopped.
+   lane: hxe496-harness-smoke-claude-i47
+   lane: hxe496-inject-harness-smoke-claude
+   Stopping pool workers:
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+[09:41:21] result: PASS
+WS-EXIT 0
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[09:43:02] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[09:43:02] run: OK
