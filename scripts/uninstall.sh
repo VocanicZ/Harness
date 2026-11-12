@@ -258,6 +258,47 @@ confirm(){
   [[ "$ans" == y || "$ans" == Y || "$ans" == yes ]]
 }
 
+# _real <path> — realpath, one spelling for comparing (Windows C:/x and /c/x, #605); literal on failure.
+_real(){ local r; r="$(realpath -m "$1" 2>/dev/null)" || r="$1"
+  declare -F posix_path >/dev/null && r="$(posix_path "$r")"; printf '%s\n' "$r"; }
+# _is_state_dir — STATE_DIR is something remove_project_state would delete (the #105 shape: basename '.harness' +
+# a config marker). Sourcing lib.sh defaults an unset STATE_DIR to the engine root, which is no state dir and
+# which `bash <checkout>/scripts/uninstall.sh` run from that checkout (docs/reference.md) must not trip on.
+_is_state_dir(){ [[ -n "$STATE_DIR" && "$(basename "$STATE_DIR")" == .harness && -f "$STATE_DIR/config" ]]; }
+# refuse_cwd_in_state_dir — #1095: uninstall deletes STATE_DIR, so a caller whose cwd IS it or is under it
+# (a lane worktree at <proj>/.harness/worktrees/<lane>, found by the walk up from cwd) is deleting its own
+# floor and the live fleet's. A real operator runs this from the project root, the PARENT of .harness/.
+# Checked first in main, before any removal, for a STATE_DIR from discovery, the env or --state-dir alike.
+refuse_cwd_in_state_dir(){
+  _is_state_dir || return 0
+  local sd cwd; sd="$(_real "$STATE_DIR")"; cwd="$(_real "$(pwd -P 2>/dev/null || pwd)")"
+  [[ "$cwd" == "$sd" || "$cwd" == "$sd"/* ]] || return 0
+  {
+    echo "harness uninstall: refusing — the current directory is inside the project's state dir, which uninstall deletes."
+    echo "  state dir: $sd"
+    echo "  cwd:       $cwd"
+    echo "  cd out of the project's .harness/ first (to the project root), then run uninstall again. Nothing was removed."
+  } >&2
+  exit 1
+}
+# refuse_live_fleet — #1095: a live pool/priority worker whose STATE_DIR is THIS project's means the fleet
+# is running; removing its state dir under it kills every lane. --force skips stop_fleet, so check here.
+refuse_live_fleet(){
+  _is_state_dir || return 0
+  local pid sd
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    sd="$(proc_state_dir "$pid" 2>/dev/null)"
+    [[ -n "$sd" ]] && same_path "$(_real "$sd")" "$(_real "$STATE_DIR")" || continue
+    {
+      echo "harness uninstall: refusing — this project's fleet is still running (worker pid $pid, STATE_DIR $sd)."
+      echo "  Run 'harness stop' in the project first, then uninstall again. Nothing was removed."
+    } >&2
+    exit 1
+  done < <(_worker_pids)
+  return 0
+}
+
 main(){
   local force=0 force_engine=0 arg
   for arg in "$@"; do
@@ -273,10 +314,12 @@ main(){
     echo "  Stop it (harness stop, in its project), or run harness uninstall without --force-engine to keep the engine." >&2
     exit 1
   fi
+  refuse_cwd_in_state_dir
   if (( ! force )); then
     confirm || { echo "harness uninstall: aborted — nothing removed."; exit 1; }
     stop_fleet
   fi
+  refuse_live_fleet   # after stop_fleet on the default path: go ahead once its workers are gone
   echo "Removing Harness:"
   # Multi-fleet guard: the engine + `harness` PATH link are SHARED across co-resident fleets. If
   # another fleet/project still depends on them and the user did not pass --force-engine, preserve
