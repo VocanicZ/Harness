@@ -121,7 +121,8 @@ recs="$(commits "$prev" "$sha")" || die 3 "git log failed"
 [[ -n "$tag" ]] || tag="$(next_version "$prev" "$recs")"
 
 tmp="$(mktemp -d)" || die 3 "mktemp failed"
-trap 'rm -rf "$tmp"' EXIT
+gate_tmp=""
+trap 'rm -rf "$tmp" ${gate_tmp:+"$gate_tmp"}' EXIT
 release_notes "$tag" "$prev" "$recs" > "$tmp/notes.md"
 
 if ((DRY)); then
@@ -139,10 +140,13 @@ if ((finishing == 0)); then
   # The gate runs under a scrubbed environment (#1060): `env -i` with an explicit allowlist, so no HARNESS_*, CLAUDE_*, STATE_DIR,
   # ENGINE_DIR or other worker variable reaches test/run.sh or any child of it. The old `env -u` list named leaks one red gate at a
   # time (#325 the release variables, #333 the fleet's, #682 HARNESS_ENGINE_STAMP) and every new worker export was the next red gate;
-  # an allowlist cannot miss one. TMUX_TMPDIR is private, so no test reaches the fleet's tmux server (#649); it is short, because a
-  # socket path past ~107 bytes breaks tmux. The gate's own temp root is $tmp too, which the EXIT trap removes.
-  mkdir -p "$tmp/tx" "$tmp/gate-tmp"
-  gate_env=(env -i PATH="$PATH" HOME="${HOME:-/}" LANG="${LANG:-C.UTF-8}" TMPDIR="$tmp/gate-tmp" TMUX_TMPDIR="$tmp/tx")
+  # an allowlist cannot miss one. TMUX_TMPDIR is private, so no test reaches the fleet's tmux server (#649); a test that starts a real
+  # tmux server does not use it: a socket path past ~107 bytes breaks tmux, so it makes its own short dir (tmux_short_dir, #1077). The gate's TMPDIR is a short dir directly under /tmp (#1080), not $tmp/gate-tmp: run.sh nests every test under it, and headless Chrome's
+  # SingletonSocket needs TMPDIR + 45 bytes (web_cdp.mjs gives the browser its own short dir too; this keeps margin for every other socket
+  # maker). The EXIT trap removes it with $tmp.
+  mkdir -p "$tmp/tx"
+  gate_tmp="$(mktemp -d /tmp/hg.XXXXXX 2>/dev/null)" || gate_tmp="$(mktemp -d)" || die 3 "mktemp failed"
+  gate_env=(env -i PATH="$PATH" HOME="${HOME:-/}" LANG="${LANG:-C.UTF-8}" TMPDIR="$gate_tmp" TMUX_TMPDIR="$tmp/tx")
   ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh ) >"$log" 2>&1
   grc=$?
   if ((grc != 0)); then

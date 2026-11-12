@@ -534,10 +534,10 @@ frozen_ok(){ ( if ! command -v tmux >/dev/null; then
     [[ -f $FIX/$HARNESS_CLI/idle.txt && -f $FIX/$HARNESS_CLI/$1.txt ]] || exit 1   # the same fixture check: no half skipped
     headless_supervisor_ok && { [[ $1 != trust ]] || headless_launch_ok; }; exit; fi
   local cli="$HARNESS_CLI" other="$1" k i
-  export TMUX_TMPDIR="$RUN_DIR/tmux-$cli"; mkdir -p "$TMUX_TMPDIR"; unset TMUX
+  tmux_short_dir   # #1077: not under $RUN_DIR — the gate's TMPDIR made that socket path longer than tmux accepts
   export HARNESS_SUPERVISE_CONF=/dev/null HARNESS_SUPERVISE_STATE="$RUN_DIR/sup-$cli" HARNESS_SUPERVISE_LOG="$RUN_DIR/sup-$cli.log"
   source "$HERE/../scripts/supervise.sh"; SUP_DRY=1 CPU_ACTIVE_S=0
-  trap 'tmux kill-server 2>/dev/null' EXIT
+  trap 'tmux kill-server 2>/dev/null; tmp_cleanup' EXIT
   for k in idle "$other"; do [[ -f $FIX/$cli/$k.txt ]] || exit 1
     tmux new-session -d -s "$cli-$k" -x 160 -y 45 "cat '$FIX/$cli/$k.txt'; exec sleep 600"; done
   for (( i = 0; i < 50; i++ )); do tmux capture-pane -p -t "$cli-idle" 2>/dev/null | grep -qE "$(cli_idle_re)" && break; command sleep 0.1; done

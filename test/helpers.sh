@@ -294,6 +294,16 @@ tmux_guard_install(){ [[ -x $TMUX_GUARD_DIR/tmux ]] || { echo "tmux_guard_instal
   if ! tmux_guard_real_tmux; then
     PATH="$(tr ':' '\n' <<<"$PATH" | grep -vxF "$TMUX_GUARD_DIR" | paste -sd: -)"; export PATH; return 0; fi
   case ":$PATH:" in ":$TMUX_GUARD_DIR:"*) ;; *) PATH="$TMUX_GUARD_DIR:$(tr ':' '\n' <<<"$PATH" | grep -vxF "$TMUX_GUARD_DIR" | paste -sd: -)"; export PATH;; esac; }
+# tmux_short_dir (#1077) — a private TMUX_TMPDIR whose socket path stays short, whatever $TMPDIR is. A tmux socket is
+# $TMUX_TMPDIR/tmux-$UID/<name>, and an AF_UNIX path is at most 107 bytes. A dir made by `mktemp -d` or under $RUN_DIR inherits the whole
+# depth of $TMPDIR (the release gate's /tmp/tmp.X/gate-tmp/tmp.Y, then run.sh's <test>/tmp, then the test's own mktemp, #1060) and came to
+# 110-126 bytes: "error connecting to … (File name too long)". So the dir is made directly under /tmp, tracked (tmp_track, #294: the test's
+# EXIT trap must run tmp_cleanup) and private: it exists and is never /tmp itself, which test/guard/tmux (#649) refuses. Sets and exports
+# TMUX_TMPDIR (and TMUX_SHORT_DIR), drops the lane's TMUX / TMUX_PANE. It must run in the shell that owns the test's EXIT trap, not in
+# a $(…): a command substitution would track the dir in its own subshell and remove it on return.
+tmux_short_dir(){ local d
+  d="$(mktemp -d "${HARNESS_TMUX_SHORT_ROOT:-/tmp}/hxsock.XXXXXX" 2>/dev/null)" || d="$(mktemp -d)" || return 1
+  tmp_track "$d"; TMUX_SHORT_DIR="$d"; export TMUX_TMPDIR="$d"; unset TMUX TMUX_PANE; }
 # pin_host_home <dir> — export HARNESS_HOME=<dir> and everything that would otherwise point at the host.
 # Creates nothing: a test may assert on a host root that does not exist yet.
 pin_host_home(){ local home="$1" e v
