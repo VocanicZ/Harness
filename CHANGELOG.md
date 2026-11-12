@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness-wait set --limit --until` refuses a `--deadline-s` that ends before `--until` (#1100)
+
+- A lane on #1035 parked itself until the weekly reset with `--limit --until <reset> --deadline-s <small>`. The deadline resumes a lane like any condition, so the spec expired about 20 seconds later, the engine consumed it, and the lane sat idle with no wait spec at all (three times in nine hours); nothing would have woken it at the reset.
+- `waitlib.py set --limit` now exits with "a limit park's deadline must not end before --until; omit --deadline-s" and writes no spec. Without `--deadline-s` the park has no deadline and waits for the reset. The LONG WAITS rule (`prompts/_long_waits.md`) tells lanes to omit it.
+
 ### The six winsma matrix cells that were red by host load are green, two runs in a row (#944)
 
 - `agy: headless-resume`, `hermes: stats-session-end-usage`, `hermes: headless-loop-mode`, `hermes: headless-stats-session-end-usage`, `openclaw: review-gauntlet` and `openclaw: headless-stats-session-end-usage` passed on winsma in two runs in a row of the agy, hermes and openclaw matrix (53/53, 51/51 and 49/49 each time), with the guard clean and `reap.ps1` finding nothing afterwards. No code change was needed: the reds predate the 8x Windows scaling of `hl_wait` (#1073) and the `proc_kill_tree` fix (#1071), which are the likeliest reason they cleared. The runs' logs and the command to rerun a cell are in `docs/windows-smoke.md`.

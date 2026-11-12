@@ -141,6 +141,20 @@ check(s["cond"] == "limit" and s["not_before"] == until and s["account"] == "acc
 check(wl("check")[0] == 3 and wl("fire")[0] == 1, "…and is the engine's to judge")
 check(wl("fields", "cond", "account", "not_before")[1].split("\t")[:2] == ["limit", "acct1"], "fields prints the named fields on one line")
 wl("clear")
+# #1100: a limit park whose deadline ends before --until would wake the lane into a limit that has not cleared (the spec is
+# consumed, the lane idles with none). Refused, and no spec is written; a deadline at or past --until, or none, is fine.
+far = time.time() + 3 * 86400
+rc, out, err = wl("set", "--limit", "--until", str(far), "--deadline-s", "20")
+check(rc != 0 and "must not end before --until" in err and "omit --deadline-s" in err, "limit: a --deadline-s that ends before --until is refused with a clear message")
+check(not os.path.exists(SPEC), "…and no spec is written")
+rc, _, err = wl("set", "--limit", "--until", str(time.time() + 90000), "--deadline-s", "999999")
+check(rc != 0 and "must not end before --until" in err, "…the 24 h cap counts: a deadline clamped to 24 h still ends before an --until further out")
+wl("set", "--limit", "--until", str(time.time() + 600), "--deadline-s", "3600")
+check(spec()["cond"] == "limit" and spec()["deadline"] > spec()["not_before"], "limit: a deadline past --until is accepted")
+wl("clear")
+wl("set", "--limit", "--until", str(far))
+check(spec()["deadline"] == 0 and spec()["not_before"] == far, "limit: no --deadline-s still parks until the reset")
+wl("clear")
 
 print("== the redispatch park (winsma.sh park, #1034) ==")
 d = os.path.join(tmp, "run"); os.makedirs(d)

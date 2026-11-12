@@ -18,7 +18,8 @@ The spec is one JSON file, $HARNESS_WAIT_FILE (the engine puts it in the lane's 
                    (--pid P | --path F | --regex R --log F | --winsma ISSUE | --limit [--until EPOCH])
                       write a spec for a job the lane started itself. --pid: the process exits; --path: the file
                       appears; --regex: a line of --log (from now on) matches; --winsma: that issue's ticket is first
-                      in the winsma queue (the engine asks the host); --limit: the usage limit has cleared.
+                      in the winsma queue (the engine asks the host); --limit: the usage limit has cleared (a --deadline-s that ends
+                      before --until is refused, #1100: omit it and the park waits for the reset).
   waitlib.py check [--file F]      JSON: {"done", "reason", "rc", "tail", "what"}; exit 0 done, 1 pending, 2 no spec,
                                    3 the condition is the engine's to judge (winsma, limit)
   waitlib.py fire  [--file F] [--satisfied REASON]
@@ -213,6 +214,11 @@ def cmd_set(a):
     elif a.winsma is not None:
         spec = new_spec(a, "winsma", issue=a.winsma, slug=a.slug or "", label=a.label or "")
     else:
+        if a.until and a.deadline_s and now() + clamp_deadline_s(a.deadline_s) < a.until:
+            # #1100: the deadline resumes the lane too, so one that ends before --until wakes it into a limit that has
+            # not cleared; the engine consumes the spec and the lane sits idle with none (seen three times on #1035).
+            sys.exit(f"waitlib set: a limit park's deadline must not end before --until ({int(clamp_deadline_s(a.deadline_s))}s from now "
+                     f"ends {int(a.until - now() - clamp_deadline_s(a.deadline_s))}s before it); omit --deadline-s")
         spec = new_spec(a, "limit", not_before=a.until or 0, account=a.account or "")
     write_spec(path, spec)
     print(f"wait set: {spec['what']}; deadline {time.strftime('%H:%M:%S', time.localtime(spec['deadline'])) if spec['deadline'] else 'none'}. "
