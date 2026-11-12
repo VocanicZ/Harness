@@ -818,14 +818,11 @@ headless_launch_ok(){ ( hl_env; local s=hz-main-i21 uuid; hl_lane launch normal
 # headless_send_ok — cli_send mid-turn waits in the lane's input box and is the next turn, carrying on
 # the same session (--resume).
 headless_send_ok(){ ( hl_env; local s=hz-main-i22 uuid; hl_lane send normal "normal sent"; touch "$FAKE_CLAUDE_DIR/hold"
-  dg(){ exec 2>>"${HX_DIR:-${TMPDIR:-/tmp}}/send-diag.txt"; echo "DIAG send step $1 failed (t=$SECONDS)" >&2; echo "DIAG state: $(hl_field "$s" state) turn=$(hl_field "$s" turn) pid=$(hl_field "$s" pid)" >&2
-    echo "DIAG pane: $(sess_capture "$s" 2>&1 | tail -5)" >&2; echo "DIAG calls: $(cat "$FAKE_CLAUDE_DIR/calls.jsonl" 2>&1 | cut -c1-300)" >&2
-    ls -la "$(headless_lane_dir "$s")" >&2 2>&1; tail -n 20 "$(headless_lane_dir "$s")"/*.log >&2 2>&1; }
-  hl_launch "$s" GOAL=ISSUE:22 || { dg 1; exit 1; }; uuid="$(state_uuid "$WD")"
-  hl_wait 10 hl_busy "$s" || { dg 2; exit 1; }; cli_send "$s" "$WD" "a later message" || { dg 3; exit 1; }
-  grep -qxF "❯ a later message" <<<"$(sess_capture "$s")" || { dg 4; exit 1; }
-  rm -f "$FAKE_CLAUDE_DIR/hold"; hl_wait 15 hl_turn "$s" 2 || { dg 5; exit 1; }
-  same "$(hl_calls prompt | sed -n 2p)" '"a later message"' && hl_resumes "$(hl_calls argv | sed -n 2p)" "$(hl_field "$s" session_id)" || { dg 6; exit 1; } ); }
+  hl_launch "$s" GOAL=ISSUE:22 || exit 1; uuid="$(state_uuid "$WD")"
+  hl_wait 10 hl_busy "$s" && cli_send "$s" "$WD" "a later message" || exit 1
+  grep -qxF "❯ a later message" <<<"$(sess_capture "$s")" || exit 1
+  rm -f "$FAKE_CLAUDE_DIR/hold"; hl_wait 15 hl_turn "$s" 2 || exit 1
+  same "$(hl_calls prompt | sed -n 2p)" '"a later message"' && hl_resumes "$(hl_calls argv | sed -n 2p)" "$(hl_field "$s" session_id)" ); }
 # headless_busy_idle_ok — a running turn reads busy (its input box drawn below, as the TUI's is), never
 # a stall; once it ends the lane reads as the idle prompt, not busy, not a stall and not a limit.
 headless_busy_idle_ok(){ ( hl_env; local s=hz-main-i23 p; hl_lane busy normal; touch "$FAKE_CLAUDE_DIR/hold"
