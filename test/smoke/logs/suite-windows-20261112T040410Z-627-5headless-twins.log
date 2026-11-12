@@ -1,0 +1,742 @@
+[02:00:18] run: #627 on winsma, mode suite: export HX_BRANCH=issue/627 HX_TESTS='test_fleet_migrate_headless.sh test_supervise_headless.sh test_headless_lane.sh test_supervise_autoupdate_headless.sh test_sess_sweep_headless.sh' HX_VERBOSE=1
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[02:00:27] lock: hx-lock taken by #627 (hzhn-harness-i627)
+[02:00:41] guard: before recorded
+[02:01:15] credentials: before scan recorded
+[02:01:15] exec: export HX_BRANCH=issue/627 HX_TESTS='test_fleet_migrate_headless.sh test_supervise_headless.sh test_headless_lane.sh test_supervise_autoupdate_headless.sh test_sess_sweep_headless.sh' HX_VERBOSE=1
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[02:01:18] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-627/home | USERPROFILE=C:\hx-627\home | TMPDIR=C:/hx-627/tmp
+[02:01:18] == clone issue/627
+[02:01:31] src at aa1d68d
+[02:01:31] == venv
+[02:02:09] jq = /c/hx-627/jqbin/jq: jq-1.8.1
+[02:02:11] python3 = /c/hx-627/venv/Scripts/python3: Python 3.13.5
+[02:02:11] ######## test/run.sh (per-test cap 600s)
+[03:46:21] run.sh finished rc=0 after 6250s
+  reap: reaped 8768 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 1124 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 10404 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 12752 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 11916 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 3332 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 7520 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 256 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 9600 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 10480 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 4020 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 10164 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 6400 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 11996 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 360 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 4828 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 12508 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 12472 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 12440 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 9140 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 7576 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 10844 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 6892 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 12000 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 11108 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 968 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 3480 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 2156 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 12100 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 11320 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 4612 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 9836 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 10040 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 12736 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 1420 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 5796 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 10768 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 9440 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 9204 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 10700 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 8256 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 6384 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 13208 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 2672 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 8056 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 12420 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 9960 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 5552 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 524 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 11180 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 6768 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 4468 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 11372 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 8876 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 2844 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 10692 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 13576 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 13664 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 14024 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 14052 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 12364 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 14216 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 6288 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 13484 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 10964 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 13948 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 8720 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 1228 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 14044 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 14912 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 612 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 15184 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 11036 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 1668 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 8520 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 10708 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 12780 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 14816 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 1748 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 1632 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 13848 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 14480 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 6680 python3.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 14116 python.exe C:\hx-627\venv\Scripts\python3.EXE C:/hx-627/src/test/fixtures/cli/claude/stream-json/fake-claude -p --output-
+  reap: reaped 1664 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 12668 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 9048 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 15300 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 14080 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 10940 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 9936 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 13652 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 9328 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 5328 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 13296 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 10460 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 2252 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 13256 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+  reap: reaped 8856 bash.exe "C:/Program Files/Git/bin/bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tm
+  reap: reaped 8560 bash.exe "C:\Program Files\Git\bin\..\usr\bin\bash.exe" "C:/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headles
+######## full run.sh output
+| == test_fleet_migrate_headless.sh ==
+|   ok: setup: the three headless lanes are live
+|   ok: setup: each is a detached runner
+|   ok: update: fleet A is migrated
+|   ok: update: A's old worker + priority pids are dead
+|   ok: update: an already-migrated (rc 10) fleet's old-release workers are killed (#537)
+|   ok: update: ...and relaunched
+|   ok: update: the bystander process is untouched
+|   ok: update: the fleet's live lane: its runner process is alive
+|   ok: update: the fleet's live lane: the lane is still live
+|   ok: update: the fleet's live lane: the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: update: another fleet's / a bystander lane: its runner process is alive
+|   ok: update: another fleet's / a bystander lane: the lane is still live
+|   ok: update: another fleet's / a bystander lane: the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: update: an rc-10 fleet's live lane survives its roll (#537): its runner process is alive
+|   ok: update: an rc-10 fleet's live lane survives its roll (#537): the lane is still live
+|   ok: update: an rc-10 fleet's live lane survives its roll (#537): the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: update: ...the relaunched worker adopts the rolled fleet's headless lane (adopt_lanes writes impl-3.claim, #537)
+|   ok: update: ...the claim records the lane's runner pid
+|   ok: update: ...and adopting it leaves the lane as it was: its runner process is alive
+|   ok: update: ...and adopting it leaves the lane as it was: the lane is still live
+|   ok: update: ...and adopting it leaves the lane as it was: the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: start #566: the leftover HARNESS_CAP line is gone
+|   ok: start #566: ...the old-engine workers and priority lane are stopped
+|   ok: start #566: ...with the fleet's headless lane: its runner process is alive
+|   ok: start #566: ...with the fleet's headless lane: the lane is still live
+|   ok: start #566: ...with the fleet's headless lane: the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: start #566: ...and the other fleets' lanes: its runner process is alive
+|   ok: start #566: ...and the other fleets' lanes: the lane is still live
+|   ok: start #566: ...and the other fleets' lanes: the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: start #566: ...(rc-10 fleet's too): its runner process is alive
+|   ok: start #566: ...(rc-10 fleet's too): the lane is still live
+|   ok: start #566: ...(rc-10 fleet's too): the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+|   ok: start #566: ...(and the bystander's): its runner process is alive
+|   ok: start #566: ...(and the bystander's): the lane is still live
+|   ok: start #566: ...(and the bystander's): the same runner, state, turns, claude count and start directory (neither killed nor relaunched)
+| ── 35/35 passed
+| == test_supervise_headless.sh ==
+| == a frozen idle lane is nudged, through its inbox ==
+| 09:05:46 [harness] WARN lean lane: skill rtdd not found (/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_headless.sh/tmp/tmp.6S8X6NpZBT/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+|   ok: the lane's first turn ends, idle
+|   ok: the quiet lane is nudged once
+|   ok: …clearing its input line first
+|   ok: …then submitting it
+|   ok: the nudge is the lane's next turn
+|   ok: …its prompt the supervisor's nudge
+|   ok: no second nudge inside RENUDGE_S
+| == a turn that ran between two passes is activity, though the drawn screen is unchanged ==
+|   ok: a third turn runs and ends
+|   ok: the lane's screen reads exactly as before the turn
+|   ok: a headless lane has an activity mark
+|   ok: …so the lane is not quiet and is not nudged
+|   ok: …its quiet clock restarted
+|   ok: a tmux pane has no mark beyond its screen
+| == a limit-parked lane is NOT nudged ==
+| 09:07:03 [harness] WARN lean lane: skill rtdd not found (/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_headless.sh/tmp/tmp.6S8X6NpZBT/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+|   ok: the lane's turn hits the usage limit
+|   ok: …its state reads limit
+|   ok: a limit-parked lane is left alone
+|   ok: …nothing at all is done to it
+| == an endless turn with a nudge queued behind it is interrupted ==
+| 09:07:38 [harness] WARN lean lane: skill rtdd not found (/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_headless.sh/tmp/tmp.6S8X6NpZBT/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+|   ok: the lane's turn hangs
+|   ok: the nudge waits in the lane's input box
+|   ok: dry run: the endless turn would be interrupted
+|   ok: …its process still running
+|   ok: the turn is logged as endless with input queued
+|   ok: …and interrupted
+|   ok: …which it reports (Interrupted)
+|   ok: …its process tree ended
+|   ok: a turn_interrupted event is recorded for stats
+|   ok: the queued nudge is delivered as the next turn
+|   ok: …its prompt the nudge
+| == a lane past the kill threshold is checkpointed, then killed ==
+| warning: in the working copy of 'a.txt', LF will be replaced by CRLF the next time Git touches it
+| 09:08:23 [harness] WARN lean lane: skill rtdd not found (/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_headless.sh/tmp/tmp.6S8X6NpZBT/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+|   ok: the lane's turn ends, idle
+|   ok: the quiet lane is nudged first (dry: never delivered)
+|   ok: nothing is killed before KILL_MIN
+|   ok: its WIP is pushed to origin/issue/4
+|   ok: …never .harness-task.md
+|   ok: a handoff comment is posted
+|   ok: …carrying the lane's last screen
+|   ok: the lane is killed
+|   ok: …its runner gone
+|   ok: …its state reads ended
+|   ok: checkpointed BEFORE it was killed (comment line 9, stop line 20)
+|   ok: a watchdog_kill event is recorded
+|   ok: the killed lane's state is forgotten
+| == a whole headless fleet: workers, orphan locks, frozen lanes, arc rules — no tmux ==
+| 09:09:23 [harness] WARN lean lane: skill rtdd not found (/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_headless.sh/tmp/tmp.6S8X6NpZBT/user-skills/rtdd) — this lane starts without it; it runs the full suite instead of rtdd rounds (harness setup installs it: rtdd skill install)
+|   ok: the fleet's lane is idle
+|   ok: an orphan lock (no lane for it) is cleared
+|   ok: a lock held by a live headless lane is kept
+|   ok: the fleet's frozen lane is nudged
+|   ok: …and the nudge reaches it
+|   ok: the arc rules are handed the headless lane
+|   ok: the arc rules read the lane's screen (its drawn state)
+|   ok: a dead worker → harness start for the headless fleet
+| == the supervisor's own preflight needs no tmux ==
+|   ok: --install warns about nothing missing
+|   ok: …and writes the unit
+|   ok: the unit's PATH reaches every session backend's binaries the host has (python3)
+|   ok: harness doctor reports the headless backend
+|   ok: no tmux ran anywhere in this test
+| == docs ==
+|   ok: docs/reference.md says the supervisor handles headless lanes
+| ── 55/55 passed
+| == test_headless_lane.sh ==
+| == launch_agent starts a headless lane; bootstrap, a later cli_send, busy → idle ==
+|   ok: launch_agent starts the lane
+|   ok: the lane is live
+|   ok: sess_list lists it
+|   ok: …with its start directory
+|   ok: sess_panes names it
+|   ok: its process id is the runner's, alive
+|   ok: the .wd is recorded
+|   ok: …and the .goal
+|   ok: the bootstrap turn shows busy
+|   ok: the first turn's prompt is the bootstrap, on stdin
+|   ok: …run with the launch's session id
+|   ok: …and the configured flags
+|   ok: no launch line was typed: argv names no task text
+|   ok: a headless claude lane runs the driven goal loop
+|   ok: the goal loop reads no reply while the turn runs
+|   ok: a cli_send mid-turn waits in the input box
+|   ok: …and nothing is left typed
+|   ok: both turns run, and the lane reads idle
+|   ok: the cli_send was delivered as the next turn
+|   ok: …resuming the same session
+|   ok: the goal loop reads the last turn's reply
+| == the driven goal loop ends on the promise ==
+|   ok: the goal loop ended (the state file is gone)
+|   ok: …after re-prompting the turn that ended without its promise
+|   ok: …with the bootstrap, never the task text
+|   ok: the log says the loop ended
+|   ok: the lane stays live, idle
+| == attach follows the lane read-only ==
+|   ok: attach hint
+|   ok: harness attach <session> watches the headless lane
+|   ok: …showing its turns
+|   ok: …and its replies
+|   ok: attaching typed nothing into the lane
+| == interrupt ends a running turn, and the lane takes the next message ==
+|   ok: the hang turn is running
+|   ok: the queued nudge shows in the input box
+|   ok: turn_interrupt ends the turn (it prints Interrupted)
+|   ok: …its process tree is gone
+|   ok: the runner is still up
+|   ok: …and delivers the queued nudge next
+|   ok: the goal loop reads no reply off an interrupted turn
+| == harness stop leaves no lane process behind ==
+|   ok: the nudge's turn ends, the lane idle
+|   ok: the last turn hangs with a grandchild
+|   ok: harness stop kills the headless lane
+|   ok: process 12575 is gone
+|   ok: process 9556 is gone
+|   ok: process 6860 is gone
+|   ok: no lane is listed
+|   ok: the lane is not live
+|   ok: its state reads ended
+|   ok: sess_kill on a gone lane is false
+| == the watchdog sees a headless lane's limit and transient states ==
+|   ok: the bootstrap turn hits the usage limit
+|   ok: the pane reads as parked at the usage limit
+|   ok: …with claude's own reset time
+|   ok: …not as the transient wedge's goal-loop turn
+|   ok: the watchdog handles it as a limit park
+|   ok: …writing a wait spec for the usage limit (#1066)
+|   ok: …and sends no nudge turn while the limit stands: the lane is parked, not polled
+|   ok: once the reset time has passed the next turn resumes it, once
+|   ok: …delivered as the engine's wait-done message
+|   ok: …and the park is spent
+|   ok: the transient turn reads as the #115 wedge
+|   ok: …not as a limit
+|   ok: the watchdog nudges the transient wedge
+|   ok: …counting the stalled poll
+|   ok: …and the nudge runs a healthy turn
+|   ok: …delivered as the transient nudge
+|   ok: the recovered lane is not stalled
+|   ok: killed
+| == a lane whose runner died: its pid reused by a stranger, its claude turn left running ==
+|   ok: the bootstrap turn hangs with a grandchild
+|   ok: a SIGKILLed runner's lane is not live
+|   ok: …though its claude turn still runs (its own process group)
+|   ok: a reused pid does not make the dead lane live
+|   ok: …nor is it the lane's process id
+|   ok: sess_kill reports no live lane
+|   ok: …and leaves the stranger alone
+|   ok: …but ends the turn the dead runner left (5080)
+|   ok: …but ends the turn the dead runner left (2868)
+| == a CLI with no headless runner is refused as tmux-only ==
+|   ok: claude may run headless
+|   ok: fakecli on headless is refused
+|   ok: …naming the CLI as tmux-only
+|   ok: tmux takes any CLI
+|   ok: agy (#486), claude, codex, copilot (#483), hermes, openclaw and opencode are the CLIs with a headless runner
+|   ok: harness init refuses headless + fakecli
+|   ok: …naming fakecli as tmux-only
+|   ok: …and writes no config
+|   ok: harness doctor flags it
+|   ok: …as a problem
+|   ok: SIGPIPE ignored: cli_backend_check still refuses fakecli
+|   ok: …and writes no EPIPE 'write error' to stderr
+|   ok: …only its one refusal line
+|   ok: SIGPIPE ignored: doctor's line stays whole
+|   ok: …with no 'write error' in it
+|   ok: harness start refuses it
+|   ok: …naming fakecli as tmux-only
+|   ok: launch_agent with fakecli on headless fails
+|   ok: …starting no lane
+|   ok: …and recording no goal
+| == tmux stays the default, claude's loop stays its hook there ==
+|   ok: on tmux claude's goal loop is ralph-loop's hook
+|   ok: unset → tmux, hook
+| == docs ==
+|   ok: docs/reference.md documents the headless backend
+|   ok: …naming inbox.jsonl
+|   ok: …naming events.jsonl
+|   ok: …naming state.json
+|   ok: …naming harness attach
+|   ok: …naming tmux-only
+| ── 103/103 passed
+| == test_supervise_autoupdate_headless.sh ==
+| === setup: a host on v0.1.0, v0.2.0 published ===
+|   ok: fa: worker-1 up on v0.1.0
+|   ok: fa: worker runs from releases/v0.1.0
+|   ok: fa: its headless lane is up (a detached runner, not a tmux pane)
+|   ok: fb: worker-1 up on v0.1.0
+|   ok: fb: worker runs from releases/v0.1.0
+|   ok: fb: its headless lane is up (a detached runner, not a tmux pane)
+|   ok: fa: the lane is idle at its prompt
+|   ok: fb: the lane is mid-turn
+| === #477: one pass installs the release and rolls every fleet, lanes untouched ===
+|   ok: the engine link points at the published release
+|   ok: fa: worker is alive
+|   ok: fa: priority is alive
+|   ok: fa: the worker runs from releases/v0.2.0
+|   ok: fa: the priority lane runs from releases/v0.2.0
+|   ok: fb: worker is alive
+|   ok: fb: priority is alive
+|   ok: fb: the worker runs from releases/v0.2.0
+|   ok: fb: the priority lane runs from releases/v0.2.0
+|   ok: fa: the old worker process is gone
+|   ok: fa: the old priority process is gone
+|   ok: fb: the old worker process is gone
+|   ok: fb: the old priority process is gone
+|   ok: fa: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: fa: the lane's runner process is alive
+|   ok: fa: the lane is still live
+|   ok: fa: the lane's state, turns, claude count and start directory are unchanged
+|   ok: fb: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: fb: the lane's runner process is alive
+|   ok: fb: the lane is still live
+|   ok: fb: the lane's state, turns, claude count and start directory are unchanged
+|   ok: fb: its mid-turn claude and grandchild are still running
+|   ok: engine_updated is emitted once
+|   ok: workers_rolled is emitted once per fleet
+|   ok: engine_updated names from and to
+|   ok: a second pass does not install it again
+|   ok: a second pass rolls nothing more
+|   ok: after a second pass: fa: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: after a second pass: fa: the lane's runner process is alive
+|   ok: after a second pass: fa: the lane is still live
+|   ok: after a second pass: fa: the lane's state, turns, claude count and start directory are unchanged
+|   ok: after a second pass: fb: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: after a second pass: fb: the lane's runner process is alive
+|   ok: after a second pass: fb: the lane is still live
+|   ok: after a second pass: fb: the lane's state, turns, claude count and start directory are unchanged
+|   ok: after a second pass: fb: its mid-turn claude and grandchild are still running
+| === a released worker is rolled even when the pass finds the same tag current ===
+|   ok: workers already on the new release are left alone
+| === bug-claim deferral ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: a priority worker holding a bug claim is not killed
+|   ok: …and is still alive
+|   ok: the idle worker beside it is rolled
+|   ok: …onto the new release
+|   ok: the other fleet is rolled in full
+|   ok: the deferral is in the event
+|   ok: the claim released: the next pass rolls the priority worker
+|   ok: …onto the new release
+| === a paused fleet is rolled too, and stays paused ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: the paused fleet's old worker is gone
+|   ok: …its new one runs the new release
+|   ok: the fleet is still paused
+| === a fleet stopped on purpose (no worker pid files) is skipped ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: a stopped fleet is not started
+|   ok: only the live fleet is rolled
+| === opt-outs: nothing is queried, installed or killed ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: HARNESS_AUTO_UPDATE=0: the engine is unchanged
+|   ok: HARNESS_AUTO_UPDATE=0: no worker is killed
+|   ok: HARNESS_AUTO_UPDATE=0: no engine_updated
+|   ok: HARNESS_AUTO_UPDATE=0: not even a release query (no log line)
+|   ok: a HARNESS_REF pin: the engine is unchanged
+|   ok: a HARNESS_REF pin: no worker is killed
+|   ok: a HARNESS_REF pin: no engine_updated
+|   ok: an equal published tag: the engine is unchanged
+|   ok: an equal published tag: no worker is killed
+|   ok: an equal published tag: no engine_updated
+|   ok: an older published tag: the engine is unchanged
+|   ok: an older published tag: no worker is killed
+|   ok: an older published tag: no engine_updated
+|   ok: an unparseable tag: the engine is unchanged
+|   ok: an unparseable tag: no worker is killed
+|   ok: an unparseable tag: no engine_updated
+|   ok: an unparseable tag is logged
+|   ok: a dev clone's supervisor: the engine is unchanged
+|   ok: a dev clone's supervisor: no worker is killed
+|   ok: a dev clone's supervisor: no engine_updated
+|   ok: a git-checkout engine stays a directory
+|   ok: …and is not replaced by a release
+|   ok: …nothing was installed beside it
+| === throttle: HARNESS_AUTO_UPDATE_EVERY ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: inside the interval the release is not queried again
+|   ok: once the interval has elapsed it is installed
+| === offline and a failed query ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: offline: nothing is installed
+|   ok: an unreachable release API installs nothing
+|   ok: …and logs one WARN
+| === --dry-run logs the update and the roll, and does neither ===
+|   ok: dry run: the engine is unchanged
+|   ok: dry run: the worker is alive
+|   ok: dry run: the would-be update is logged
+|   ok: dry run: no state is written
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: dry run: the worker is still alive
+|   ok: dry run: the would-be kill is logged
+| === rollback: the relaunched workers die ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+|   ok: the bad release was installed
+|   ok: the engine points at the old tag again
+|   ok: fa: the worker was relaunched and lives
+|   ok: fa: the worker runs the old release again
+|   ok: fa: the priority lane too
+|   ok: fb: the worker was relaunched and lives
+|   ok: fb: the worker runs the old release again
+|   ok: fb: the priority lane too
+|   ok: exactly one bug is filed
+|   ok: …on the engine's own repo, labelled bug
+|   ok: …naming the bad tag
+|   ok: …and the release it rolled back to
+|   ok: …and the dead pid files
+|   ok: engine_rolled_back is emitted
+|   ok: the update and the rollback: fa: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: the update and the rollback: fa: the lane's runner process is alive
+|   ok: the update and the rollback: fa: the lane is still live
+|   ok: the update and the rollback: fa: the lane's state, turns, claude count and start directory are unchanged
+|   ok: the update and the rollback: fb: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: the update and the rollback: fb: the lane's runner process is alive
+|   ok: the update and the rollback: fb: the lane is still live
+|   ok: the update and the rollback: fb: the lane's state, turns, claude count and start directory are unchanged
+|   ok: the update and the rollback: fb: its mid-turn claude and grandchild are still running
+|   ok: a later pass with the same tag still latest does not install it again
+|   ok: …and files no second bug
+|   ok: a NEWER tag is still installed
+|   ok: …and the workers roll onto it
+| === the update restarts the supervisor mid-way: the next one finishes the roll ===
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+| test_supervise_autoupdate_headless.sh: line 325: 95916 Killed                     ( exec env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK HARNESS_FLEET_MIGRATE=0 bash "$H/engine/bin/harness" supervise --once >> "$T/sup.out" 2>&1 )
+|   ok: the update still flipped the engine
+|   ok: the old worker had not been rolled yet
+|   ok: the next supervisor rolls the old worker
+|   ok: …onto the new release
+|   ok: …in every fleet
+|   ok: engine_updated is emitted once across the two supervisors
+|   ok: the restarted-supervisor roll: fa: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: the restarted-supervisor roll: fa: the lane's runner process is alive
+|   ok: the restarted-supervisor roll: fa: the lane is still live
+|   ok: the restarted-supervisor roll: fa: the lane's state, turns, claude count and start directory are unchanged
+|   ok: the restarted-supervisor roll: fb: the lane's runner is the same process (neither killed nor relaunched)
+|   ok: the restarted-supervisor roll: fb: the lane's runner process is alive
+|   ok: the restarted-supervisor roll: fb: the lane is still live
+|   ok: the restarted-supervisor roll: fb: the lane's state, turns, claude count and start directory are unchanged
+|   ok: the restarted-supervisor roll: fb: its mid-turn claude and grandchild are still running
+|   ok: the health check ran from the on-disk state
+| ── 135/135 passed
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+| == test_sess_sweep_headless.sh ==
+| == sess_kill ends the lane's detached jobs, its turn's group and its process tree ==
+|   ok: launch_agent starts the lane
+|   ok: fixture: the lane is live
+|   ok: fixture: the lane carries a HARNESS_SESSION
+|   ok: fixture: the lane's own process is the runner, up
+|   ok: fixture: the runner's environ carries the lane's HARNESS_SESSION
+|   ok: fixture: the detached job is up before the kill
+|   ok: fixture: the TERM-ignoring job is up before the kill
+|   ok: fixture: the detached job inherited the lane's HARNESS_SESSION
+|   ok: sess_kill on a live session returns 0
+|   ok: a setsid'd job carrying the session's HARNESS_SESSION is gone
+|   ok: a plain turn-group job is gone
+|   ok: a job without HARNESS_SESSION, in the turn's tree, is gone
+|   ok: a TERM-ignoring job is KILLed after the grace period
+|   ok: the runner is gone
+|   ok: the running turn is gone
+|   ok: …and so is its own child
+|   ok: another session's process survives
+|   ok: HARNESS_SESSION=<uuid>-x survives (exact match only)
+|   ok: HARNESS_SESSION=<uuid prefix> survives
+|   ok: a process with no HARNESS_SESSION outside the lane's tree survives
+|   ok: a process whose argv merely names the uuid survives
+|   ok: the session is gone
+| == …and when the turn ended normally and left its jobs behind (no process group reaches them) ==
+|   ok: the turn ends, the lane idle
+|   ok: fixture: the detached job outlived its turn
+|   ok: fixture: the TERM-ignoring job outlived its turn
+|   ok: sess_kill on the idle lane returns 0
+|   ok: the detached job left behind by an ended turn is gone
+|   ok: a TERM-ignoring leftover is KILLed after the grace period
+|   ok: another session's process still survives
+|   ok: HARNESS_SESSION=<uuid>-x still survives
+|   ok: a process with no HARNESS_SESSION still survives
+|   ok: the session is gone
+| == sess_kill on a session that does not exist ==
+|   ok: returns non-zero (false when there was none)
+|   ok: sess_describe kill names the headless stop
+| == sess_kill never kills its caller ==
+|   ok: the turn ends, the lane idle
+|   ok: the caller returned normally (rc=0)
+|   ok: the caller's parent (same HARNESS_SESSION) was alive afterwards
+|   ok: the parent shell carried on after the caller
+|   ok: the session's detached job is still swept
+|   ok: the lane is gone
+| == a lane that exits on its own: stats_sweep_ended sweeps its leftovers ==
+|   ok: the turn ends, the lane idle
+|   ok: fixture: the session is not live
+|   ok: fixture: its detached job outlived it
+|   ok: fixture: its ctx is waiting to be swept
+|   ok: fixture: …and names the lane's uuid
+|   ok: the self-exited lane's detached job is gone
+|   ok: …and its TERM-ignoring one
+|   ok: its ctx was claimed
+|   ok: HARNESS_SESSION=<uuid>-x survives the self-exit sweep
+|   ok: another session's process survives the self-exit sweep
+|   ok: the earlier bystanders still survive
+| == a live lane's ctx is never swept; a ctx without a uuid is not an error ==
+|   ok: the turn ends, the lane idle
+|   ok: stats_sweep_ended with a uuid-less ctx returns 0
+|   ok: a live lane's detached job is left alone
+|   ok: a live lane's ctx is kept
+| == sess_sweep: a live lane's uuid sweeps nothing, an ended lane's sweeps its leftovers (#427) ==
+|   ok: sess_sweep leaves a live lane's detached job alone
+|   ok: …and its runner
+|   ok: fixture: the lane has ended
+|   ok: fixture: its job outlived it
+|   ok: an empty uuid sweeps nothing and is not an error
+|   ok: …the leftover is still up
+|   ok: …and the decoy is too
+|   ok: once the lane has ended, its leftover job is gone
+|   ok: another uuid's process survives the sweep
+|   ok: HARNESS_SESSION=<uuid>-x of the first lane survives
+| == no pattern kill anywhere in the change ==
+|   ok: scripts/portable.sh uses no pkill / killall / pgrep
+|   ok: scripts/session/tmux.sh uses no pkill / killall / pgrep
+|   ok: scripts/session/headless.sh uses no pkill / killall / pgrep
+|   ok: scripts/session/dispatch.sh uses no pkill / killall / pgrep
+| ── 69/69 passed
+| == run.sh: 5/5 test files passed ==
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+| rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+######## end of run.sh output
+== run.sh: 5/5 test files passed ==
+rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/fleets/fb/proj/.harness/worktrees/main-i1': Device or resource busy
+rm: cannot remove '/c/hx-627/tmp/tmp.82jl3aWorT/test_supervise_autoupdate_headless.sh/tmp/tmp.IgYD5l3EnO/host/lanes/fb-main-i1/stderr.log': Device or resource busy
+SUITE-RESULT 0 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-627
+credentials: GH_TOKEN written nowhere new
+[04:04:10] cleanup: winsma clean (no hx-627, lock released, no run task or process)
+[04:04:10] run: OK
