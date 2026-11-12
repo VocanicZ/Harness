@@ -399,7 +399,7 @@ mkdir -p "$T/Windows/System32"; printf '#!/bin/sh\n' >"$T/Windows/System32/power
 path_index(){ tr : '\n' <<<"$1" | grep -nxF -- "$2" | cut -d: -f1; }
 WUP="$(PATH="$T/Windows/System32:$T/tools:$PATH" _HARNESS_OS=windows sup_unit_path)"
 assert_ok "Windows: System32 is in the unit PATH"            test -n "$(path_index "$WUP" "$T/Windows/System32")"
-assert_ok "Windows: System32 comes after /usr/bin"           test "$(path_index "$WUP" "$T/Windows/System32")" -gt "$(path_index "$WUP" /usr/bin)"
+assert_ok "Windows: System32 is the LAST dir, after /usr/bin" test "$(tr : '\n' <<<"$WUP" | tail -n 1)" = "$T/Windows/System32"
 assert_no "a Linux unit PATH does not look for powershell"  bash -c "tr : '\\n' <<<\"\$1\" | grep -qx '$T/winps'" _ "$(PATH="$T/winps:$T/tools:$PATH" sup_unit_path)"
 assert_ok "unit PATH holds the claude/gh/rtdd dir"          grep -q "^Environment=PATH=$T/tools:" "$U/harness-supervise.service"
 assert_ok "systemd reloaded + enabled + (re)started"        bash -c "grep -q daemon-reload '$T/systemctl.calls' && grep -q 'enable harness-supervise' '$T/systemctl.calls' && grep -q 'restart harness-supervise' '$T/systemctl.calls'"

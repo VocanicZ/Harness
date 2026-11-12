@@ -119,6 +119,8 @@ if has supervise; then
   task_diag "$SUP"; ls -la "$HARNESS_HOME/tasks" 2>&1 | sed 's/^/   tasks| /'; tail -n 5 "$HARNESS_HOME/tasks/harness-supervise.log" 2>&1 | sed 's/^/   launcher-log| /'
   tasklist //V //FO CSV 2>/dev/null | grep -i "bash" | cut -c1-160 | sed 's/^/   proc| /' | head
   ok "the task started the supervisor (it logged)" '(( got ))'
+  # The launcher log holds the supervisor's stderr: a WSL stub answering `bash` ("no installed distributions", UTF-16) or a missing tool is a failure, not a log.
+  ok "…and its log shows no WSL stub or missing command" '! tr -d "\\0\\r" < "$HARNESS_HOME/tasks/harness-supervise.log" 2>/dev/null | grep -qiE "distribution|command not found"'
   [[ -s "$sl" ]] && sed 's/^/   | /' "$sl" | tail -n 8
   old="${wp:-0}"
   say "killing worker $old"
