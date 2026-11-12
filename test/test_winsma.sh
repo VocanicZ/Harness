@@ -628,6 +628,13 @@ for target in .claude/settings.json .claude/plugins/installed_plugins.json .clau
     ws_guard 479 after >/dev/null 2>&1; assert_eq "$?" "1" "a changed $target fails the run"
     finish ) >/dev/null || { echo "  FAIL: a changed $target fails the run"; exit 1; }
 done
+km_write(){ printf '{\n  "harness": {\n    "source": {"source": "directory", "path": "%s"},\n    "installLocation": "x",\n    "lastUpdated": "%s"\n  }\n}\n' "$1" "$2" >"$HOME/.claude/plugins/known_marketplaces.json"; }
+( fresh_env; km_write /e 2026-11-12T12:16:50.544Z; snapshot
+  km_write /e 2026-11-12T12:40:10.277Z
+  ws_guard 479 after >/dev/null 2>&1; assert_eq "$?" "0" "Claude Code re-stamping a marketplace's lastUpdated is not a change (#496 live smoke)"
+  km_write /other 2026-11-12T12:40:10.277Z
+  out="$(ws_guard 479 after 2>&1)"; assert_eq "$?" "1" "a marketplace whose source moved IS a change"; [[ "$out" == *known_marketplaces.json* ]]; assert_eq "$?" "0" "and names the file"
+  finish ) || rc=1
 ( fresh_env; snapshot; echo new >"$HOME/.local/bin/harness.cmd"
   ws_guard 479 after >/dev/null 2>&1; assert_eq "$?" "1" "a NEW file in .local/bin fails the run"
   rm "$HOME/.local/bin/harness.cmd"; echo x >"$HOME/.claude/skills/new-skill"

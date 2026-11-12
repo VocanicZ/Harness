@@ -292,6 +292,10 @@ _ws_guard_targets(){ local h; h="$(_ws_real_home)"
 _ws_sums(){ local t
   while IFS= read -r t; do
     if [[ -d "$t" ]]; then echo "DIR $t"; find "$t" -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum
+    elif [[ "$t" == */.claude/plugins/known_marketplaces.json && -f "$t" ]]; then
+      # Claude Code itself stamps each marketplace's `lastUpdated` whenever a session starts under the real sign-in (the live smoke,
+      # #496): its own bookkeeping, like the counters in ~/.claude.json. Every other byte of the file is still the guard's business.
+      printf '%s *%s\n' "$(sed -E 's/("lastUpdated"[[:space:]]*:[[:space:]]*)"[^"]*"/\1""/g' "$t" | sha256sum | cut -d' ' -f1)" "$t"
     elif [[ -f "$t" ]]; then sha256sum "$t"
     else echo "ABSENT $t"; fi
   done < <(_ws_guard_targets); }
