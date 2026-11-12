@@ -213,6 +213,8 @@ echo "# lock: FIFO queue"
   ws_unlock 111
   ( WS_POLL=0.1; ws_lock 111 lane-a $$ >"$T/a.out" 2>&1; echo $? >"$T/a.rc" ) &
   wait_until '[[ -f "$T/b.rc" ]]' 80; assert_eq "$(owner_issue)" "222" "A releases and re-locks at once: B holds the lock, not A"
+  # A polls on its own clock: B's .rc can appear before A has re-joined, so wait for A's ticket (bounded) before asserting
+  wait_until '[[ "$(queued_issues)" == "333 111" ]]' 80 || true
   assert_eq "$(queued_issues)" "333 111" "A is queued behind C (already queued) as well as B"
   assert_no "A did not get the lock back" test -f "$T/a.rc"
   ws_unlock 222; wait_until '[[ -f "$T/c.rc" ]]' 80; assert_eq "$(owner_issue)" "333" "next is C"
