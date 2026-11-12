@@ -96,12 +96,12 @@ bash "$SMOKE" nosuchcli >/dev/null 2>&1; assert_eq "$?" 2 "a CLI with no adapter
 
 echo "── SMOKE_KEEP_ENV: the isolation of a run on a shared host survives the drop of the inherited fleet config (#496)"
 setup_stubs 1
-run_smoke HARNESS_HOME=/iso/harness-home HARNESS_BIN_DIR=/iso/bin SMOKE_KEEP_ENV="HARNESS_HOME NOT_SET"
+run_smoke HARNESS_HOME=/iso/harness-home HARNESS_FLEETS_DIR=/iso/fleets HARNESS_BIN_DIR=/iso/bin SMOKE_KEEP_ENV="HARNESS_HOME NOT_SET"
 assert_eq "$RC" 0 "a run that keeps HARNESS_HOME passes"
 assert_ok "HARNESS_HOME named in SMOKE_KEEP_ENV reaches every harness call" bash -c "grep -c 'HOME_DIR=/iso/harness-home' '$CALLS' | grep -qv '^0$' && ! grep 'HOME_DIR=unset' '$CALLS'"
 assert_no "...and one that is not named is still dropped" grep -qF 'BIN_DIR=/iso/bin' "$CALLS"
 setup_stubs 1
-run_smoke HARNESS_HOME=/iso/harness-home
+run_smoke HARNESS_HOME=/iso/harness-home HARNESS_FLEETS_DIR=/iso/fleets
 assert_no "without SMOKE_KEEP_ENV HARNESS_HOME is dropped, as before" grep -qF 'HOME_DIR=/iso/harness-home' "$CALLS"
 
 echo "── a pass: the fleet's own path, in order, then teardown"
