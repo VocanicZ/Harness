@@ -291,6 +291,24 @@ for v in $(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$HERE/../scripts/pool.sh" "$HERE
 done
 assert_eq "$worker_missing" "" "every HARNESS_* variable pool.sh / priority.sh export is dropped at the suite seam"
 
+# #1084: a LANE is handed more than the engine EXPORTS: session_env / wait_env put `-e K=V` pairs on the tmux session
+# (SESSION_ENV), and LANE_ENV_NAMES lists the names a CLI passes through. The export scan above never saw them, so
+# HARNESS_WAIT_FILE (the lane's own wait spec, #1066) reached the suite: test_winsma_park.sh's `ws_park` wrote a fake
+# park spec (#900 acme/widget) into the file of the lane running it, and the engine never resumed that lane.
+lane_vars(){ { sed -n 's/^LANE_ENV_NAMES=(\(.*\))/\1/p' "$HERE/../scripts/lib.sh" | tr ' ' '\n'
+    grep -ohE -- '-e "HARNESS_[A-Z0-9_]+=' "$HERE/../scripts/"*.sh "$HERE/../scripts/cli/"*.sh | sed -e 's/^-e "//' -e 's/=$//'; } | sed '/^$/d' | sort -u; }
+lane_missing=""
+for v in $(lane_vars); do
+  [[ " $(echo $HARNESS_CONFIG_VARS) $(echo $HARNESS_LANE_IDENTITY_VARS) " == *" $v "* ]] || lane_missing+=" $v"
+done
+assert_eq "$lane_missing" "" "every variable a lane is handed (LANE_ENV_NAMES, session -e pairs) is dropped at the suite seam"
+assert_ok "the lane-variable scan sees the wait file and the session id (an empty scan cannot pass)" \
+  bash -c '[[ " $(tr "\n" " " <<<"$1") " == *" HARNESS_WAIT_FILE "* && " $(tr "\n" " " <<<"$1") " == *" HARNESS_SESSION "* ]]' _ "$(lane_vars)"
+assert_eq "$(HARNESS_WAIT_FILE=/x/lane.wait bash -c 'source "$1"; echo "${HARNESS_WAIT_FILE-<unset>}"' _ "$HERE/helpers.sh")" "<unset>" \
+  "sourcing helpers.sh drops the lane's HARNESS_WAIT_FILE (a test's park would overwrite the lane's wait spec)"
+assert_eq "$(HARNESS_WAIT_FILE=/x/lane.wait bash -c 'source "$1"; export HARNESS_WAIT_FILE=/y; pin_host_home /pinned/h; echo "${HARNESS_WAIT_FILE-<unset>}"' _ "$HERE/helpers.sh")" "<unset>" \
+  "pin_host_home drops a HARNESS_WAIT_FILE set after sourcing"
+
 # One source of truth (Acceptance 4): every path var the engine rewrites for native Windows programs
 # (HARNESS_NATIVE_PATH_VARS) is pinned or dropped by pin_host_home, or exempted in helpers.sh WITH a reason.
 source "$HERE/../scripts/portable.sh" 2>/dev/null
