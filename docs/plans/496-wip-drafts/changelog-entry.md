@@ -24,6 +24,15 @@ smokes on the claude host. Every parity-matrix row is now `✓` (with the test a
   remote shell down, ssh still exited 0, and the run reported OK. The remote shell now ends with `WS-EXIT <status>`; a run without it fails.
   The end-of-run process sweep also matches the run folder in the `C:/hx-N/` and `/c/hx-N/` spellings, not only `C:\hx-N\` (a dashboard server started
   by a script was left running); the end-to-end script signals a process only through `kill_pid`, which refuses an empty, 0, 1 or negative pid.
+- **Fixed: `harness uninstall` left `HARNESS_HOME` behind on Windows.** Python compiles the LF-stdio `sitecustomize.py` the `python3` shim puts on
+  `PYTHONPATH` on its first run, and the `__pycache__` beside it kept `bin/pylf` (and so the home) alive after the uninstall. It is removed with the
+  file; `test/test_windows_uninstall.sh` plants one. Found by the lifecycle run on winsma.
+- **Fixed: the winsma guard failed a clean live run.** Claude Code itself re-stamps a marketplace's `lastUpdated` in the owner's
+  `~/.claude/plugins/known_marketplaces.json` when a session starts under the real sign-in. The guard hashes that file with the stamp blanked (any other
+  change, a moved source or a new marketplace, still fails; `test/test_winsma.sh` pins both sides), the way it already reads `~/.claude.json`.
+- Two checks of the winsma scripts had gone stale and are fixed: `lifecycle.sh` tested "an old `update.sh` fails cleanly" against `origin/main`, which has
+  carried the fix since #491 (it now uses `1467c2d^`), and `tooling.sh` looked for the retired `ralph-loop` registration instead of the engine's own
+  `harness-ralph` plugin.
 - `test/smoke/winsma/e2e.sh` (stages `supervise`, `ops`, `inject`, `supdiag`, `live`) is the script those runs send; `fleet_smoke.sh` takes
   `SMOKE_KEEP_ENV` so a run on a shared host keeps its `HARNESS_HOME` instead of the smoke's own default (the real `~/.harness`).
 - **A finding, not a fix:** Task Scheduler does not start the supervise or web task on winsma over ssh: both are `InteractiveToken` tasks, they

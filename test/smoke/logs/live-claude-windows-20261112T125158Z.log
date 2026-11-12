@@ -1,0 +1,270 @@
+# Live Claude smoke on winsma: claim → headless lane → PR → merge → close, with a `pause --force` checkpoint and resume (#496, PRD #475 Task 8)
+# host: Windows 10 via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-496\ under the winsma rules (lock, isolation, before/after guard, credential scan); mode base = the REAL Claude sign-in, the only run that uses it
+# script: test/smoke/winsma/e2e.sh stage live at the head of issue/496 (cloned from GitHub inside C:\hx-496), which runs test/smoke/fleet_smoke.sh claude against VocanicZ/harness-smoke-claude; the sandbox HARNESS_HOME is C:\hx-496\harness-home
+# claude token usage (harness stats, the one lane of this run, model claude-sonnet-5-5): output 4,528  input 36  cache_create 23,521  cache_read 404,465 (see the stats block near the end of the log)
+# note: the two runs before this one passed the smoke itself and failed the guard: Claude Code re-stamps `lastUpdated` of a marketplace in the owner's ~/.claude/plugins/known_marketplaces.json when a session starts. The guard now ignores that stamp only (test_winsma.sh pins both sides). The script text is elided from the log.
+[12:51:58] run: #496 on winsma, mode base: export HX_BRANCH=issue/496; expor … (the script is test/smoke/winsma/e2e.sh, elided here)
+[12:52:07] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[12:52:21] guard: before recorded
+[12:53:00] credentials: before scan recorded
+[12:53:00] exec: export HX_BRANCH=issue/496; export HX_STAGES='live'; # e2e.s … (the script is test/smoke/winsma/e2e.sh, elided here)
+[12:53:04] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases. | MSYS=
+[12:53:04] == clone issue/496
+[12:53:15] src at 81be38c
+[12:53:19] == install this branch as release v9.9.96 into the sandbox (C:/hx-496/harness-home)
+     Developer Mode is off, but this shell can make symlinks (an administrator) — fine here; other shells need it.
+     python3 shim: C:/hx-496/harness-home/bin/python3 -> /c/Users/ampna/AppData/Local/Programs/Python/Python313/python
+     installing Harness v9.9.96 to C:/hx-496/harness-home/releases/v9.9.96 ...
+     installed Harness v9.9.96 at C:/hx-496/harness-home/releases/v9.9.96
+   ensuring the claude CLI's plugins (best-effort) ...
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/skills/handoff, installed)
+     WARN    claude skill rtdd (C:/hx-496/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/skills/subagent-task-tree, installed)
+     ok      claude skill to-issues (C:/hx-496/skills/to-issues, installed)
+     ok      claude skill to-prd (C:/hx-496/skills/to-prd, installed)
+     ok      claude skill writing-plans (C:/hx-496/skills/writing-plans, installed)
+     ✓ matt-pocock skills (to-prd/to-issues) already present
+     ✓ subagent-task-tree skill already present
+     ✓ linked /harness skills into C:/hx-496/skills (user scope, claude, opencode): 14 new, 5 relinked, 19 in all
+     linked C:/hx-496/bin/harness -> C:/hx-496/harness-home/engine/bin/harness
+     wrote C:/hx-496/bin/harness.cmd (runs harness through Git's bash)
+     NOTE: 'harness' is in C:/hx-496/bin, which is not on your PATH yet. Add it, then re-open your shell:
+           export PATH="C:/hx-496/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
+   Done. Harness v9.9.96 is installed once at C:/hx-496/harness-home/engine and linked as 'harness'.
+   Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
+[12:53:42] PASS install.sh exit 0
+[12:53:44] harness resolves to: /c/hx-496/bin/harness | harness v9.9.96 (0000000)
+[12:53:48] this home's tasks: Harness\harness-supervise-a1f384d7, Harness\harness-web-a1f384d7
+[12:53:48] ######## stage live (the REAL Claude sign-in, under the guard)
+[12:53:49] claude: /c/Users/pc/.local/bin/claude 2.1.316 (Claude Code) | gh: gh version 2.103.3 (2026-10-26)
+12:53:53Z == fleet smoke | cli=claude | 2.1.316 (Claude Code) | 2026-11-12T12:53:53Z
+12:53:53Z == host windows | MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | python3 3.13.5
+12:53:53Z == session backend headless | checkpoint+resume on, 30s into the lane
+12:53:55Z == engine  | repo VocanicZ/harness-smoke-claude | prefix smokeclaude
+12:53:58Z == harness init
+   roles (claude): manager opus/high, implementer sonnet/high
+   wrote /c/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-claude
+   : "${HARNESS_CLI:=claude}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-claude}"
+   : "${HARNESS_UNIT:=harness-smoke-claude}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokeclaude}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_LABEL_HITL:=hitl}"
+   : "${HARNESS_LABEL_WAITING_WINSMA:=waiting-winsma}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_MODEL_MANAGER:=opus}"
+   : "${HARNESS_EFFORT_MANAGER:=high}"
+   : "${HARNESS_MODEL_IMPLEMENTER:=sonnet}"
+   : "${HARNESS_EFFORT_IMPLEMENTER:=high}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+   : "${HARNESS_TURN_MAX:=120}"
+   : "${HARNESS_PAUSE_GRACE:=900}"
+   : "${HARNESS_USAGE_CHECKPOINT_PCT:=99}"
+12:54:15Z == harness setup
+   ── Harness setup (mode=issue-only cli=claude) ──
+     ok      claude binary (claude)
+     ok      claude plugin harness-ralph (/c/hx-496/src/plugins/claude/harness-ralph)
+     ok      claude skill handoff (C:/hx-496/skills/handoff)
+     WARN    claude skill rtdd (C:/hx-496/skills/rtdd): lanes run the full suite without it; harness setup installs it (rtdd skill install)
+     ok      claude skill subagent-task-tree (C:/hx-496/skills/subagent-task-tree)
+     ok      claude skill to-issues (C:/hx-496/skills/to-issues)
+     ok      claude skill to-prd (C:/hx-496/skills/to-prd)
+     ok      claude skill writing-plans (C:/hx-496/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'harness-smoke-claude' (VocanicZ/harness-smoke-claude)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+12:54:38Z == harness doctor
+   ── harness doctor ── C:/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude/.harness
+   RUN_DIR: /c/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude/.harness/run
+   session backend: headless
+   windows:
+     session backend: headless ✓
+     shell: Git Bash (MINGW64_NT-10.0-19045) ✓
+     task bash: C:/Program Files/Git/bin/bash.exe ✓
+     python3: 3.13.5 (/c/hx-496/harness-home/bin/python3) ✓
+     symlinks: can create ✓
+     line endings: LF ✓
+     schtasks: ✓
+     powershell: ✓
+     taskkill: ✓
+     gh: ✓
+     agent CLI: claude ✓
+     rtdd: ✓ (/c/Users/pc/AppData/Local/Programs/rtdd/rtdd.exe)
+     developer mode: off, but symlinks can be made here (administrator) ✓
+     git identity: ✓
+     git settings (/c/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude): core.longpaths core.autocrlf core.eol not set — harness doctor --fix, or: git -C "/c/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude" config core.longpaths true && git -C "/c/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude" config core.autocrlf false && git -C "/c/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude" config core.eol lf
+     engine: releases/v9.9.96 (v9.9.96) ✓
+     harness on PATH: link to /c/hx-496/harness-home/engine/bin/harness ✓
+   locks:
+     start.lock: absent (never created — fine)
+     pool.lock: absent (never created — fine)
+   pidfiles:
+   fleet registry:
+     absent (never created — fine)
+   ────────────────────────────────────────────
+   1 problem(s) found. To clear: harness doctor --fix   (kills only this project's orphans; prunes stale fleet-registry entries — never a live fleet)
+12:54:45Z doctor exit 1
+12:54:50Z filed PRD #54 and issue #55
+12:54:50Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=30s):
+     worker-1: started (pid 1662) — log C:/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=60s):
+     priority: started (pid 1964) — log C:/hx-496/tmp/harness-smoke-claude.8undWe/harness-smoke-claude/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+12:55:34Z issue=OPEN labels=ready-for-agent sessions=none prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+12:57:14Z issue=OPEN labels=agent-working,ready-for-agent sessions=none prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+12:57:51Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-harness-smoke-claude-i55 prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+12:58:30Z == checkpoint: harness pause --force (lane smokeclaude-harness-smoke-claude-i55 up 39s)
+     checkpoint requested: smokeclaude-harness-smoke-claude-i55 (issue #55 on VocanicZ/harness-smoke-claude)
+     lane ended after its checkpoint: smokeclaude-harness-smoke-claude-i55
+     confirmed paused: VocanicZ/harness-smoke-claude#55
+   FLEET: PAUSED — all in-flight agents checkpointed to GitHub. Resume anywhere: harness/resume.sh
+13:01:18Z after checkpoint: labels=agent-paused,ready-for-agent sessions=none
+13:01:19Z handoff comment posted on #55
+13:01:20Z == resume: harness resume
+   RESUMED — workers will pick up claiming (incl. any agent-paused issues) on the next poll.
+13:02:03Z issue=OPEN labels=agent-paused,ready-for-agent sessions=none prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+13:03:12Z issue=OPEN labels=agent-paused,agent-working,ready-for-agent sessions=none prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+13:03:53Z issue=OPEN labels=agent-paused,agent-working,ready-for-agent sessions=smokeclaude-harness-smoke-claude-i55 prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+13:04:36Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokeclaude-harness-smoke-claude-i55 prs=#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+13:08:52Z issue=CLOSED labels=agent-working,ready-for-agent sessions=smokeclaude-harness-smoke-claude-i55 prs=#56 MERGED,#53 MERGED,#50 MERGED,#25 MERGED,#22 MERGED,#17 MERGED,#14 MERGED,#9 MERGED,#6 MERGED,#3 MERGED
+13:09:59Z fleet sessions after close: none (ended by the fleet)
+13:10:00Z issue #55 CLOSED
+13:10:00Z merged PR: #56 feat: add smoke/20261112T125351Z.txt (closes #55) https://github.com/VocanicZ/harness-smoke-claude/pull/56 merged 2026-11-12T13:08:28Z
+13:10:02Z smoke/20261112T125351Z.txt on the default branch: hello from claude
+   issue #55: 1 session(s)
+     2026-11-12T12:57:23Z  launch  kind=impl model=sonnet effort=high
+     2026-11-12T13:00:30Z  turn_interrupted  kind=impl model=sonnet effort=high turn_s=161 queued_nudges=0
+     2026-11-12T13:01:19Z  session_end  kind=impl model=sonnet effort=high wall_s=218  claude-sonnet-5-5: out 2,815 in 20 cache_create 20,114 cache_read 203,039
+     2026-11-12T13:02:19Z  reap  kind=impl reason=session_gone
+     2026-11-12T13:03:42Z  launch  kind=impl model=sonnet effort=high
+     2026-11-12T13:09:35Z  goal_satisfied  kind=impl model=sonnet effort=high
+     2026-11-12T13:09:42Z  reap  kind=impl reason=session_gone
+     2026-11-12T13:09:45Z  merged  kind=impl
+     rtdd  which 1  changed nodes 15  round1 1  round2 0  stale graph 0  selective 1/1  --version 1  2.1s
+     time  coding 10m44s  testing 0m22s
+   20:03:16 [harness-smoke-claude] session smokeclaude-harness-smoke-claude-i55 carries on agent session 5671ba8b-1188-4d23-b00a-54993da081a4
+13:10:05Z == teardown
+   Stopping pool workers:
+     killed priority (pid 1964)
+     killed worker-1 (pid 1662)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+13:10:18Z closed leftover issue #54
+13:10:20Z == result: PASS | log: C:/hx-496/live-smoke.log
+[13:10:20] known_marketplaces.json unchanged by the live lane
+[13:10:20] fleet_smoke.sh exited 0
+[13:10:20] PASS fleet_smoke.sh claude exits 0 (== result: PASS)
+[13:10:20] PASS the lane was checkpointed and resumed
+[13:10:20] ---- the Claude token usage of this run's lanes (harness stats, the sandbox event log)
+   | fleet smokeclaude: sessions 1  issues closed 1  PRDs closed 0  retries 0  HOLD 0.0m
+   |   tokens  claude-sonnet-5-5: out 4,528 in 36 cache_create 23,521 cache_read 404,465
+   |   rtdd    which 1  changed nodes 15  round1 1  round2 0  stale graph 0  selective 1/1  --version 1  2.1s  100% selective
+   |   lanes   VocanicZ/harness-smoke-claude 2 claim(s) by 1 worker(s)
+   json| {
+   json|   "smokeclaude": {
+   json|     "sessions": 1,
+   json|     "tokens": {
+   json|       "claude-sonnet-5-5": {
+   json|         "input": 36,
+   json|         "output": 4528,
+   json|         "cache_create": 23521,
+   json|         "cache_read": 404465
+   json|       }
+   json|     },
+   json|     "issues_closed": 1,
+   json|     "prds_closed": 0,
+   json|     "retries": 0,
+   json|     "lanes": {
+   json|       "VocanicZ/harness-smoke-claude": {
+   json|         "claims": 2,
+   json|         "workers": [
+   json|           "1"
+   json|         ]
+   json|       }
+   json|     },
+   json|     "hold_minutes": 0.0,
+   json|     "rtdd": {
+   json|       "calls": {
+   json|         "--version": 1,
+   json|         "which": 1
+   json|       },
+   json|       "which": 1,
+   json|       "changed_nodes": 15,
+   json|       "round1": 1,
+   json|       "round2": 0,
+   json|       "stale_graph": 0,
+   json|       "graph_sources": {
+   json|         "scanner": 1
+   json|       },
+   json|       "wall_ms": 2140,
+   json|       "selective": 1,
+   json|       "full_suite": 0,
+   json|       "backfilled": 0,
+   json|       "selective_share": 1.0
+   json|     },
+   json|     "model_mismatches": []
+   json|   }
+   json| }
+
+[13:10:25] ---- harness stats --issue 55 and harness forecast 55 on the real lane
+   | issue #55: 1 session(s)
+   |   2026-11-12T12:57:23Z  launch  kind=impl model=sonnet effort=high
+   |   2026-11-12T13:00:30Z  turn_interrupted  kind=impl model=sonnet effort=high turn_s=161 queued_nudges=0
+   |   2026-11-12T13:01:19Z  session_end  kind=impl model=sonnet effort=high wall_s=218  claude-sonnet-5-5: out 2,815 in 20 cache_create 20,114 cache_read 203,039
+   |   2026-11-12T13:02:19Z  reap  kind=impl reason=session_gone
+   |   2026-11-12T13:03:42Z  launch  kind=impl model=sonnet effort=high
+   |   2026-11-12T13:09:35Z  goal_satisfied  kind=impl model=sonnet effort=high
+   |   2026-11-12T13:09:42Z  reap  kind=impl reason=session_gone
+   |   2026-11-12T13:09:45Z  merged  kind=impl
+   |   2026-11-12T13:10:10Z  session_end  kind=impl model=sonnet effort=high wall_s=291  claude-sonnet-5-5: out 1,713 in 16 cache_create 3,407 cache_read 201,426
+   |   rtdd  which 1  changed nodes 15  round1 1  round2 0  stale graph 0  selective 1/1  --version 1  2.1s
+   |   time  coding 10m44s  testing 0m22s
+   | harness forecast: no past lanes on this host to forecast from
+   | forecast #55 VocanicZ/harness-smoke-claude (unit harness-smoke-claude)
+   |   basis: none — 0 past lane(s)
+   |   FALLBACK to none: PRD #54 has 0 past lane(s), need 3; unit VocanicZ/harness-smoke-claude has 0 past lane(s), need 3
+   |   size: body 397 chars vs median 59 → scale x2.00 (clamped 0.6–2.0)
+   |   phase       p50 $    p80 $    p95 $   % of window
+   |   explore      0.00     0.00     0.00   n/a
+   |   test         0.00     0.00     0.00   n/a
+   |   impl         0.00     0.00     0.00   n/a
+   |   gate         0.00     0.00     0.00   n/a
+   |   ship         0.00     0.00     0.00   n/a
+   |   TOTAL        0.00     0.00     0.00   n/a
+   |   calibration default seven_day: no usable reading pair and HARNESS_ONE_USD_PER_PCT unset — n/a
+   |   % of each usage window: n/a until a $-per-% calibration exists or HARNESS_ONE_USD_PER_PCT is set
+   |   already spent on #55: $0.14 over 1 session(s)
+[13:10:31] PASS the event log of the run exists and names a session
+[13:10:32] events: 15 lines in C:/hx-496/harness-home/events.jsonl
+[13:10:32] result: PASS
+WS-EXIT 0
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[13:11:56] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[13:11:56] run: OK
