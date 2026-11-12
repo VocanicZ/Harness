@@ -722,53 +722,53 @@ inject and `--with-skills`, and the other CLIs' live headless smokes on the clau
 | `harness install` | ✓ | ✓ |
 | `harness version` | ✓ | ✓ |
 | `harness update` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
-| `harness release` | ✓ | ✓ target (#475 task 8) |
-| `harness poll` | ✓ | ✓ target (#475 task 8) |
-| `harness stats` | ✓ | ✓ target (#475 task 8) |
-| `harness forecast` | ✓ | ✓ target (#475 task 8) |
-| `harness supervise` | ✓ | ✓ target (#475 task 8) |
-| `harness web` | ✓ | ✓ target (#475 task 8) |
+| `harness release` | ✓ | ✓ (`harness release --dry-run` in a checkout, `test/test_release.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `harness poll` | ✓ | ✓ (`harness poll --once` and `--status`, `test/test_poller.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `harness stats` | ✓ | ✓ (text, `--json`, `--issue`; `test/test_stats.py`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and on the real lane of the live smoke: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
+| `harness forecast` | ✓ | ✓ (`test/test_forecast.py`; winsma run on fixture lanes with transcripts: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and on the live lane: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
+| `harness supervise` | ✓ | ✓ (a killed worker is restarted by the supervisor; `test/test_supervise_headless.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `harness web` | ✓ | ✓ (the dashboard answers on a private port, `/`, `/api/host`, a 404; `test/test_web.py`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness init` | ✓ | ✓ |
 | `harness start` | ✓ | ✓ |
 | `harness stop` | ✓ | ✓ |
-| `harness status` | ✓ | ✓ target (#475 task 8) |
-| `harness one` | ✓ | ✓ target (#475 task 8) |
+| `harness status` | ✓ | ✓ (`status` and `status --all`; `test/test_status.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and the live smoke: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
+| `harness one` | ✓ | ✓ (`one check` refuses a running fleet and passes a paused one, `one gate` prints its verdict; `test/test_one.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness doctor` | ✓ | ✓ |
 | `harness attach` | ✓ | ✓ (headless lane: watch, typed lines, Ctrl-C detach) |
 | `harness pause` | ✓ | ✓ |
-| `harness setup` | ✓ | ✓ target (#475 task 8) |
-| `harness migrate` | ✓ | ✓ target (#475 task 8) |
+| `harness setup` | ✓ | ✓ (`test/test_setup.sh`; winsma runs: the live smoke `test/smoke/logs/live-claude-windows-20261112T125158Z.log`, which runs `harness setup`, and `test/smoke/logs/windows-installer-windows-20261104T041438Z.log`) |
+| `harness migrate` | ✓ | ✓ (`test/test_migrate.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness uninstall` | ✓ | ✓ |
-| `harness plan` | ✓ | ✓ target (#475 task 8) |
-| `harness prd` | ✓ | ✓ target (#475 task 8) |
-| `harness issue` | ✓ | ✓ target (#475 task 8) |
+| `harness plan` | ✓ | ✓ (`harness plan` launches the injector lane; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `harness prd` | ✓ | ✓ (`harness prd` launches the injector lane; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `harness issue` | ✓ | ✓ (`harness issue` launches the injector lane; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness resume` | ✓ | ✓ |
 | `harness tier` | ✓ | ✓ |
 | `/harness` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `/harness-arc` | ✓ | ✓ target (#475 task 8) |
+| `/harness-arc` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-init` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `/harness-issue` | ✓ | ✓ target (#475 task 8) |
-| `/harness-one` | ✓ | ✓ target (#475 task 8) |
+| `/harness-issue` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
+| `/harness-one` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-pause` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `/harness-plan` | ✓ | ✓ target (#475 task 8) |
-| `/harness-prd` | ✓ | ✓ target (#475 task 8) |
+| `/harness-plan` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
+| `/harness-prd` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-resume` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-start` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `/harness-status` | ✓ | ✓ target (#475 task 8) |
+| `/harness-status` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-stop` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `/harness-uninstall` | ✓ | ✓ |
-| `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`) |
-| `cli agy` | ✓ | ✓ (headless runner `scripts/cli/agy_headless.py`; its `headless-*` rows pass from fixture replay under `HARNESS_PLATFORM=windows` but `headless-checkpoint` and `headless-resume`, which are red there for `claude` too; a winsma run is still #475 task 8) |
-| `cli codex` | ✓ | ✓ (headless runner `scripts/cli/codex_headless.py`, `codex exec --json`; its `headless-*` rows pass from fixture replay on Linux, a winsma run is still #475 task 8) |
-| `cli copilot` | ✓ | ✓ (headless runner `scripts/cli/copilot_headless.py`; its `headless-*` rows pass from fixture replay under `HARNESS_PLATFORM=windows`, a winsma run is still #475 task 8) |
-| `cli opencode` | ✓ | ✓ (headless runner `scripts/cli/opencode_headless.py`) |
-| `cli hermes` | ✓ | ✓ (headless runner `scripts/cli/hermes_headless.py`) |
-| `cli openclaw` | ✓ | ✓ target (#475 task 2) |
+| `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`; the live smoke on winsma with the real sign-in: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`; the matrix: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`) |
+| `cli agy` | ✓ | ✓ (headless runner `scripts/cli/agy_headless.py`; its `headless-*` rows pass from fixture replay under `HARNESS_PLATFORM=windows` and the whole matrix on winsma is green (`test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`); live headless smoke on the claude host: `test/smoke/logs/agy-headless-20261108T163737Z.log`) |
+| `cli codex` | ✓ | ✓ (headless runner `scripts/cli/codex_headless.py`, `codex exec --json`; its `headless-*` rows pass from fixture replay on Linux, the whole matrix on winsma is green (`test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`); live headless smoke on the claude host: `test/smoke/logs/codex-headless-20261108T155850Z.log`) |
+| `cli copilot` | ✓ | ✓ (headless runner `scripts/cli/copilot_headless.py`; its `headless-*` rows pass from fixture replay under `HARNESS_PLATFORM=windows`, and the whole matrix on winsma is green (`test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`); live headless smoke on the claude host: `test/smoke/logs/copilot-headless-20261108T162217Z.log`) |
+| `cli opencode` | ✓ | ✓ (headless runner `scripts/cli/opencode_headless.py`; the matrix on winsma: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`; live headless smoke on the claude host: `test/smoke/logs/opencode-headless-20261108T153050Z.log`) |
+| `cli hermes` | ✓ | ✓ (headless runner `scripts/cli/hermes_headless.py`; the matrix on winsma: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`; live headless smoke on the claude host: `test/smoke/logs/hermes-headless-20261108T153050Z.log`) |
+| `cli openclaw` | ✓ | ✓ (headless runner `scripts/cli/openclaw_headless.py`; the matrix on winsma: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`; live headless smoke on the claude host: `test/smoke/logs/openclaw-headless-20261108T153050Z.log`) |
 | `rtdd` | ✓ | ✓ (`rtdd.exe`, found by `rtdd_exe` in `scripts/portable.sh`; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
 | `supervise --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
 | `web --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
-| `harness-one` | ✓ | ✓ target (#475 task 8) |
-| `inject` | ✓ | ✓ target (#475 task 8) |
+| `harness-one` | ✓ | ✓ (the `one` verbs above; `test/test_one_run.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `inject` | ✓ | ✓ (`plan`, `prd` and `issue` each launch the injector lane on a stand-in `claude`; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `pause --force and resume` | ✓ | ✓ |
 | `headless attach: typed lines and Ctrl-C detach` | ✓ | ✓ (`test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
 | `install via npx` | ✓ | ✓ (`bin/harness-install.js` runs `install.sh` under Git's bash; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |

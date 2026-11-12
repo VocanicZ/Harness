@@ -1,0 +1,415 @@
+# The cli-matrix on winsma, all seven CLIs, final run (#496, PRD #475 Task 8): HX_TESTS=test_cli_matrix.sh HX_STRICT=1 HX_VERBOSE=1
+# host: Windows 10 via ssh alias winsma (HARNESS_WINDOWS_HOST), C:\hx-496\ in the `suite` isolation (HOME, USERPROFILE, HARNESS_* all under the run folder), the winsma rules: lock, guard before and after, credential scan, cleanup
+# script: test/smoke/winsma/suite.sh at the head of issue/496 (314acb3; cloned from GitHub inside C:\hx-496), mode suite; run.sh finished rc=0 after 7285 s
+# result: 7 CLIs, every cell `ok` or an `n/a` with its source: 53/53, 53/53, 53/53, 53/53, 51/51, 49/49, 48/48; `== run.sh: 1/1 test files passed ==`, SUITE-RESULT 0 failed
+# claude token usage: none. The matrix replays recorded fixtures through stand-in CLIs; no sign-in, no live lane.
+# note: the script text is elided from the log.
+[13:12:19] run: #496 on winsma, mode suite: export HX_BRANCH=issue/496; expo … (the script is test/smoke/winsma/suite.sh, elided here)
+[13:12:32] lock: hx-lock taken by #496 (hzhn-harness-i496)
+[13:12:51] guard: before recorded
+[13:13:29] credentials: before scan recorded
+[13:13:29] exec: export HX_BRANCH=issue/496; export HX_TESTS='test_cli_matrix … (the script is test/smoke/winsma/suite.sh, elided here)
+[13:13:32] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-496/home | USERPROFILE=C:\hx-496\home | TMPDIR=C:/hx-496/tmp
+[13:13:33] == clone issue/496
+[13:13:45] src at 314acb3
+[13:13:45] == venv
+[13:14:27] jq = /c/hx-496/jqbin/jq: jq-1.8.1
+[13:14:30] python3 = /c/hx-496/venv/Scripts/python3: Python 3.13.5
+[13:14:30] ######## test/run.sh (per-test cap 600s)
+[15:15:55] run.sh finished rc=0 after 7285s
+######## full run.sh output
+| == matrix cells: every CLI (computed once for the files that read them) ==
+| == test_cli_matrix.sh ==
+|   ok: agy: fixtures-recorded
+|   ok: agy: launch-bootstrap-prompt
+|   ok: agy: launch-no-task-text
+|   ok: agy: launch-model
+|   ok: agy: launch-effort-once
+|   ok: agy: launch-role-model
+|   ok: agy: session-id
+|   ok: agy: idle-is-prompt
+|   ok: agy: idle-is-not-busy
+|   ok: agy: busy-is-busy
+|   ok: agy: trust-dialog-is-not-prompt
+|   ok: agy: transient-stalls
+|   ok: agy: idle-never-stalls
+|   ok: agy: busy-never-stalls
+|   ok: agy: limit-parks
+|   ok: agy: transient-is-not-limit
+|   ok: agy: trust-pre-accepted
+|   ok: agy: bypass-covers-subagents
+|   ok: agy: done-signal
+|   ok: agy: loop-mode
+|   ok: agy: transcripts-found
+|   ok: agy: usage-from-transcript
+|   ok: agy: stats-launch-model-effort
+|   ok: agy: stats-session-end-usage
+|   ok: agy: usage-windows
+|   ok: agy: checkpoint-skill
+|   ok: agy: handoff-skill-installed
+|   ok: agy: prompt-skills-installed
+|   ok: agy: operator-skills
+|   ok: agy: pause-force-resume-other-host
+|   ok: agy: send-and-kill
+|   ok: agy: inject-sessions
+|   ok: agy: bug-lane-triage-fix
+|   ok: agy: review-gauntlet
+|   ok: agy: supervisor-frozen-session
+|   ok: agy: supervisor-skips-trust-dialog
+|   ok: agy: rtdd-event-context
+|   ok: agy: prereqs-named
+|   ok: agy: init-wizard-choice
+|   ok: agy: headless-launch
+|   ok: agy: headless-send
+|   ok: agy: headless-busy-idle
+|   ok: agy: headless-limit-parks
+|   ok: agy: headless-transient-stalls
+|   ok: agy: headless-loop-mode
+|   ok: agy: headless-interrupt
+|   ok: agy: headless-checkpoint
+|   ok: agy: headless-resume
+|   ok: agy: headless-supervisor-frozen-session
+|   ok: agy: headless-usage-windows
+|   ok: agy: headless-stats-session-end-usage
+|   ok: agy: headless-stop
+|   ok: agy: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: claude: fixtures-recorded
+|   ok: claude: launch-bootstrap-prompt
+|   ok: claude: launch-no-task-text
+|   ok: claude: launch-model
+|   ok: claude: launch-effort-once
+|   ok: claude: launch-role-model
+|   ok: claude: session-id
+|   ok: claude: idle-is-prompt
+|   ok: claude: idle-is-not-busy
+|   ok: claude: busy-is-busy
+|   ok: claude: trust-dialog-is-not-prompt
+|   ok: claude: transient-stalls
+|   ok: claude: idle-never-stalls
+|   ok: claude: busy-never-stalls
+|   ok: claude: limit-parks
+|   ok: claude: transient-is-not-limit
+|   ok: claude: trust-pre-accepted
+|   ok: claude: bypass-covers-subagents
+|   ok: claude: done-signal
+|   ok: claude: loop-mode
+|   ok: claude: transcripts-found
+|   ok: claude: usage-from-transcript
+|   ok: claude: stats-launch-model-effort
+|   ok: claude: stats-session-end-usage
+|   ok: claude: usage-windows
+|   ok: claude: checkpoint-skill
+|   ok: claude: handoff-skill-installed
+|   ok: claude: prompt-skills-installed
+|   ok: claude: operator-skills
+|   ok: claude: pause-force-resume-other-host
+|   ok: claude: send-and-kill
+|   ok: claude: inject-sessions
+|   ok: claude: bug-lane-triage-fix
+|   ok: claude: review-gauntlet
+|   ok: claude: supervisor-frozen-session
+|   ok: claude: supervisor-skips-trust-dialog
+|   ok: claude: rtdd-event-context
+|   ok: claude: prereqs-named
+|   ok: claude: init-wizard-choice
+|   ok: claude: headless-launch
+|   ok: claude: headless-send
+|   ok: claude: headless-busy-idle
+|   ok: claude: headless-limit-parks
+|   ok: claude: headless-transient-stalls
+|   ok: claude: headless-loop-mode
+|   ok: claude: headless-interrupt
+|   ok: claude: headless-checkpoint
+|   ok: claude: headless-resume
+|   ok: claude: headless-supervisor-frozen-session
+|   ok: claude: headless-usage-windows
+|   ok: claude: headless-stats-session-end-usage
+|   ok: claude: headless-stop
+|   ok: claude: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: codex: fixtures-recorded
+|   ok: codex: launch-bootstrap-prompt
+|   ok: codex: launch-no-task-text
+|   ok: codex: launch-model
+|   ok: codex: launch-effort-once
+|   ok: codex: launch-role-model
+|   ok: codex: session-id
+|   ok: codex: idle-is-prompt
+|   ok: codex: idle-is-not-busy
+|   ok: codex: busy-is-busy
+|   ok: codex: trust-dialog-is-not-prompt
+|   ok: codex: transient-stalls
+|   ok: codex: idle-never-stalls
+|   ok: codex: busy-never-stalls
+|   ok: codex: limit-parks
+|   ok: codex: transient-is-not-limit
+|   ok: codex: trust-pre-accepted
+|   ok: codex: bypass-covers-subagents
+|   ok: codex: done-signal
+|   ok: codex: loop-mode
+|   ok: codex: transcripts-found
+|   ok: codex: usage-from-transcript
+|   ok: codex: stats-launch-model-effort
+|   ok: codex: stats-session-end-usage
+|   ok: codex: usage-windows
+|   ok: codex: checkpoint-skill
+|   ok: codex: handoff-skill-installed
+|   ok: codex: prompt-skills-installed
+|   ok: codex: operator-skills
+|   ok: codex: pause-force-resume-other-host
+|   ok: codex: send-and-kill
+|   ok: codex: inject-sessions
+|   ok: codex: bug-lane-triage-fix
+|   ok: codex: review-gauntlet
+|   ok: codex: supervisor-frozen-session
+|   ok: codex: supervisor-skips-trust-dialog
+|   ok: codex: rtdd-event-context
+|   ok: codex: prereqs-named
+|   ok: codex: init-wizard-choice
+|   ok: codex: headless-launch
+|   ok: codex: headless-send
+|   ok: codex: headless-busy-idle
+|   ok: codex: headless-limit-parks
+|   ok: codex: headless-transient-stalls
+|   ok: codex: headless-loop-mode
+|   ok: codex: headless-interrupt
+|   ok: codex: headless-checkpoint
+|   ok: codex: headless-resume
+|   ok: codex: headless-supervisor-frozen-session
+|   ok: codex: headless-usage-windows
+|   ok: codex: headless-stats-session-end-usage
+|   ok: codex: headless-stop
+|   ok: codex: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: copilot: fixtures-recorded
+|   ok: copilot: launch-bootstrap-prompt
+|   ok: copilot: launch-no-task-text
+|   ok: copilot: launch-model
+|   ok: copilot: launch-effort-once
+|   ok: copilot: launch-role-model
+|   ok: copilot: session-id
+|   ok: copilot: idle-is-prompt
+|   ok: copilot: idle-is-not-busy
+|   ok: copilot: busy-is-busy
+|   ok: copilot: trust-dialog-is-not-prompt
+|   ok: copilot: transient-stalls
+|   ok: copilot: idle-never-stalls
+|   ok: copilot: busy-never-stalls
+|   ok: copilot: limit-parks
+|   ok: copilot: transient-is-not-limit
+|   ok: copilot: trust-pre-accepted
+|   ok: copilot: bypass-covers-subagents
+|   ok: copilot: done-signal
+|   ok: copilot: loop-mode
+|   ok: copilot: transcripts-found
+|   ok: copilot: usage-from-transcript
+|   ok: copilot: stats-launch-model-effort
+|   ok: copilot: stats-session-end-usage
+|   ok: copilot: usage-windows
+|   ok: copilot: checkpoint-skill
+|   ok: copilot: handoff-skill-installed
+|   ok: copilot: prompt-skills-installed
+|   ok: copilot: operator-skills
+|   ok: copilot: pause-force-resume-other-host
+|   ok: copilot: send-and-kill
+|   ok: copilot: inject-sessions
+|   ok: copilot: bug-lane-triage-fix
+|   ok: copilot: review-gauntlet
+|   ok: copilot: supervisor-frozen-session
+|   ok: copilot: supervisor-skips-trust-dialog
+|   ok: copilot: rtdd-event-context
+|   ok: copilot: prereqs-named
+|   ok: copilot: init-wizard-choice
+|   ok: copilot: headless-launch
+|   ok: copilot: headless-send
+|   ok: copilot: headless-busy-idle
+|   ok: copilot: headless-limit-parks
+|   ok: copilot: headless-transient-stalls
+|   ok: copilot: headless-loop-mode
+|   ok: copilot: headless-interrupt
+|   ok: copilot: headless-checkpoint
+|   ok: copilot: headless-resume
+|   ok: copilot: headless-supervisor-frozen-session
+|   ok: copilot: headless-usage-windows
+|   ok: copilot: headless-stats-session-end-usage
+|   ok: copilot: headless-stop
+|   ok: copilot: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: hermes: fixtures-recorded
+|   ok: hermes: launch-bootstrap-prompt
+|   ok: hermes: launch-no-task-text
+|   ok: hermes: launch-model
+|   ok: hermes: launch-effort-once
+|   ok: hermes: launch-role-model
+|   ok: hermes: session-id
+|   ok: hermes: idle-is-prompt
+|   ok: hermes: idle-is-not-busy
+|   ok: hermes: busy-is-busy
+|   n/a: hermes: trust-dialog-is-not-prompt — Hermes has no workspace-trust gate on running a folder: only the skills a worktree carries are gated, by skills.trusted_project_dirs, which cli_trust writes into the lane config (skill-project.txt)
+|   ok: hermes: transient-stalls
+|   ok: hermes: idle-never-stalls
+|   ok: hermes: busy-never-stalls
+|   ok: hermes: limit-parks
+|   ok: hermes: transient-is-not-limit
+|   ok: hermes: trust-pre-accepted
+|   ok: hermes: bypass-covers-subagents
+|   ok: hermes: done-signal
+| 21:52:16 [harness] goal loop: hz-loop-i6 ended a turn without its promise — 🔄 Ralph iteration 2
+| 21:52:36 [harness] goal loop: hz-loop-i6 ended its loop (promise or max iterations)
+|   ok: hermes: loop-mode
+|   ok: hermes: transcripts-found
+|   ok: hermes: usage-from-transcript
+|   ok: hermes: stats-launch-model-effort
+|   ok: hermes: stats-session-end-usage
+|   ok: hermes: usage-windows
+|   ok: hermes: checkpoint-skill
+|   ok: hermes: handoff-skill-installed
+|   ok: hermes: prompt-skills-installed
+|   ok: hermes: operator-skills
+|   ok: hermes: pause-force-resume-other-host
+|   ok: hermes: send-and-kill
+|   ok: hermes: inject-sessions
+|   ok: hermes: bug-lane-triage-fix
+|   ok: hermes: review-gauntlet
+|   ok: hermes: supervisor-frozen-session
+|   n/a: hermes: supervisor-skips-trust-dialog — Hermes has no workspace-trust gate on running a folder: only the skills a worktree carries are gated, by skills.trusted_project_dirs, which cli_trust writes into the lane config (skill-project.txt)
+|   ok: hermes: rtdd-event-context
+|   ok: hermes: prereqs-named
+|   ok: hermes: init-wizard-choice
+|   ok: hermes: headless-launch
+|   ok: hermes: headless-send
+|   ok: hermes: headless-busy-idle
+|   ok: hermes: headless-limit-parks
+|   ok: hermes: headless-transient-stalls
+|   ok: hermes: headless-loop-mode
+|   ok: hermes: headless-interrupt
+|   ok: hermes: headless-checkpoint
+|   ok: hermes: headless-resume
+|   ok: hermes: headless-supervisor-frozen-session
+|   ok: hermes: headless-usage-windows
+|   ok: hermes: headless-stats-session-end-usage
+|   ok: hermes: headless-stop
+|   ok: hermes: headless-sweep-detached-jobs
+| ── 51/51 passed
+| test_cli_matrix.sh: line 785: 162035 Killed                     ( cd "$dir" 2> /dev/null || exit 1; exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" < /dev/null >> "$lane/runner.log" 2>&1 )
+|   ok: openclaw: fixtures-recorded
+|   ok: openclaw: launch-bootstrap-prompt
+|   ok: openclaw: launch-no-task-text
+|   ok: openclaw: launch-model
+|   ok: openclaw: launch-effort-once
+|   ok: openclaw: launch-role-model
+|   ok: openclaw: session-id
+|   ok: openclaw: idle-is-prompt
+|   ok: openclaw: idle-is-not-busy
+|   ok: openclaw: busy-is-busy
+|   n/a: openclaw: trust-dialog-is-not-prompt — `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools
+|   ok: openclaw: transient-stalls
+|   ok: openclaw: idle-never-stalls
+|   ok: openclaw: busy-never-stalls
+|   ok: openclaw: limit-parks
+|   ok: openclaw: transient-is-not-limit
+|   n/a: openclaw: trust-pre-accepted — `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools
+|   n/a: openclaw: bypass-covers-subagents — `agent exec` turns run no sub-agents: `sessions_spawn` needs the Gateway, and both spawns a lane tried failed `published reply runtime missing for main` (bypass-subagent.txt)
+|   ok: openclaw: done-signal
+| 21:51:10 [harness] goal loop: hz-loop-i6 ended a turn without its promise — 🔄 Ralph iteration 2
+| 21:51:27 [harness] goal loop: hz-loop-i6 ended its loop (promise or max iterations)
+|   ok: openclaw: loop-mode
+|   ok: openclaw: transcripts-found
+|   ok: openclaw: usage-from-transcript
+|   ok: openclaw: stats-launch-model-effort
+|   ok: openclaw: stats-session-end-usage
+|   ok: openclaw: usage-windows
+|   ok: openclaw: checkpoint-skill
+|   ok: openclaw: handoff-skill-installed
+|   ok: openclaw: prompt-skills-installed
+|   ok: openclaw: operator-skills
+|   ok: openclaw: pause-force-resume-other-host
+|   ok: openclaw: send-and-kill
+|   ok: openclaw: inject-sessions
+|   ok: openclaw: bug-lane-triage-fix
+|   ok: openclaw: review-gauntlet
+|   ok: openclaw: supervisor-frozen-session
+|   n/a: openclaw: supervisor-skips-trust-dialog — `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools
+|   ok: openclaw: rtdd-event-context
+|   ok: openclaw: prereqs-named
+|   ok: openclaw: init-wizard-choice
+|   ok: openclaw: headless-launch
+|   ok: openclaw: headless-send
+|   ok: openclaw: headless-busy-idle
+|   ok: openclaw: headless-limit-parks
+|   ok: openclaw: headless-transient-stalls
+|   ok: openclaw: headless-loop-mode
+|   ok: openclaw: headless-interrupt
+|   ok: openclaw: headless-checkpoint
+|   ok: openclaw: headless-resume
+|   ok: openclaw: headless-supervisor-frozen-session
+|   ok: openclaw: headless-usage-windows
+|   ok: openclaw: headless-stats-session-end-usage
+|   ok: openclaw: headless-stop
+|   ok: openclaw: headless-sweep-detached-jobs
+| ── 49/49 passed
+| test_cli_matrix.sh: line 785: 156608 Killed                     ( cd "$dir" 2> /dev/null || exit 1; exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" < /dev/null >> "$lane/runner.log" 2>&1 )
+|   ok: opencode: fixtures-recorded
+|   ok: opencode: launch-bootstrap-prompt
+|   ok: opencode: launch-no-task-text
+|   ok: opencode: launch-model
+|   ok: opencode: launch-effort-once
+|   ok: opencode: launch-role-model
+|   ok: opencode: session-id
+|   ok: opencode: idle-is-prompt
+|   ok: opencode: idle-is-not-busy
+|   ok: opencode: busy-is-busy
+|   n/a: opencode: trust-dialog-is-not-prompt — OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking
+|   ok: opencode: transient-stalls
+|   ok: opencode: idle-never-stalls
+|   ok: opencode: busy-never-stalls
+|   ok: opencode: limit-parks
+|   ok: opencode: transient-is-not-limit
+|   n/a: opencode: trust-pre-accepted — OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking
+|   ok: opencode: bypass-covers-subagents
+|   ok: opencode: done-signal
+|   ok: opencode: loop-mode
+|   ok: opencode: transcripts-found
+|   ok: opencode: usage-from-transcript
+|   ok: opencode: stats-launch-model-effort
+|   ok: opencode: stats-session-end-usage
+|   n/a: opencode: usage-windows — OpenCode 1.x has no quota meter: a limit shows only as its error text at the prompt, which parks the lane (limit-parks)
+|   ok: opencode: checkpoint-skill
+|   ok: opencode: handoff-skill-installed
+|   ok: opencode: prompt-skills-installed
+|   ok: opencode: operator-skills
+|   ok: opencode: pause-force-resume-other-host
+|   ok: opencode: send-and-kill
+|   ok: opencode: inject-sessions
+|   ok: opencode: bug-lane-triage-fix
+|   ok: opencode: review-gauntlet
+|   ok: opencode: supervisor-frozen-session
+|   n/a: opencode: supervisor-skips-trust-dialog — OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking
+|   ok: opencode: rtdd-event-context
+|   ok: opencode: prereqs-named
+|   ok: opencode: init-wizard-choice
+|   ok: opencode: headless-launch
+|   ok: opencode: headless-send
+|   ok: opencode: headless-busy-idle
+|   ok: opencode: headless-limit-parks
+|   ok: opencode: headless-transient-stalls
+|   ok: opencode: headless-loop-mode
+|   ok: opencode: headless-interrupt
+|   ok: opencode: headless-checkpoint
+|   ok: opencode: headless-resume
+|   ok: opencode: headless-supervisor-frozen-session
+|   n/a: opencode: headless-usage-windows — OpenCode 1.x has no quota meter: a limit shows only as its error text at the prompt, which parks the lane (limit-parks)
+|   ok: opencode: headless-stats-session-end-usage
+|   ok: opencode: headless-stop
+|   ok: opencode: headless-sweep-detached-jobs
+| ── 48/48 passed
+| == run.sh: 1/1 test files passed ==
+######## end of run.sh output
+== run.sh: 1/1 test files passed ==
+SUITE-RESULT 0 failed
+WS-EXIT 0
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-496
+credentials: GH_TOKEN written nowhere new
+[15:17:40] cleanup: winsma clean (no hx-496, lock released, no run task or process)
+[15:17:40] run: OK
