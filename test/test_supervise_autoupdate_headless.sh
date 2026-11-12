@@ -60,7 +60,7 @@ mk_src(){ local d="$1" mode="$2" w; rm -rf "$d"; mkdir -p "$d"
   ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$d"
   for w in pool-worker priority-worker; do
     if [[ $mode == bad ]]; then printf '#!/usr/bin/env bash\nexit 1\n' >"$d/scripts/$w.sh"
-    else printf '#!/usr/bin/env bash\nexec sleep 600\n' >"$d/scripts/$w.sh"; fi
+    else printf '#!/usr/bin/env bash\nexec sleep 3600\n' >"$d/scripts/$w.sh"; fi
   done; }
 REAL_SRC="$FIXTURE_ENGINE_SRC"
 mk_src "$T/src-good" good; mk_src "$T/src-bad" bad

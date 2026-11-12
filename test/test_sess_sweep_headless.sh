@@ -19,7 +19,15 @@ make_env
 unset HARNESS_SESSION
 export RUN_DIR HARNESS_SESS_PREFIX=hsw HARNESS_SESSION_BACKEND=headless HARNESS_CLI=claude HARNESS_SWEEP_GRACE=1
 FAKE="$HERE/fixtures/cli/claude/stream-json/fake-claude"
-export HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
+# On Windows a venv's python3.exe is a LAUNCHER: it starts the real interpreter itself, outside the Job Object the runner puts the turn's
+# process in, so what the turn leaves behind is out of the job's reach (#627). A real agent CLI is no launcher; the fake claude runs on
+# the base interpreter there, so the test asserts the product's behaviour and not the launcher's.
+PYBIN=python3
+if host_is_windows; then
+  b="$(python3 -c 'import sys; print(getattr(sys, "_base_executable", sys.executable).replace(chr(92), "/"))' 2>/dev/null | tr -d '\r')"
+  [[ -n $b && $b != *" "* && -x $b ]] && PYBIN="$b"
+fi
+export HARNESS_CLAUDE_BIN="$PYBIN $(native_path "$FAKE")" HARNESS_CLAUDE_FLAGS="--dangerously-skip-permissions"
 export HARNESS_STALL_RETRIES=3 HARNESS_LIMIT_NUDGE_EVERY=1 HARNESS_INTERRUPT_WAIT=10 HARNESS_HEADLESS_STOP_WAIT=10
 export HARNESS_EVENTS_FILE="$RUN_DIR/events.jsonl"
 LOG="$RUN_DIR/harness.log"; log(){ printf '%s\n' "$*" >> "$LOG"; }
