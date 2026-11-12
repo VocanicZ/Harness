@@ -44,3 +44,6 @@ Task Scheduler note, CHANGELOG (changelog-entry.md), delete docs/plans/496-wip-d
 - Branch == origin/issue/496 @753a84e, 0 behind main. Lock held by #944; #496 is queue 1 (next). Parked again via `winsma.sh park`.
 - Driver tools (runws2.sh/wsssh.sh) live in docs/plans/496-wip-drafts/tools/; copy to scratchpad + `cp -r test/smoke/winsma $SC/x`; NO_REPAIR=1.
 - Next: `runws2.sh sup2 install supervise` then the rest of the acquisitions list above.
+
+## Update 2026-11-12 (resumed a third time)
+- Branch == origin/issue/496, 0 behind main. Lock held by #944 (1h18m); #496 queue 1. Parked again via winsma.sh park. Next: runws2.sh sup2 install supervise (NO_REPAIR=1), then the acquisitions list.
