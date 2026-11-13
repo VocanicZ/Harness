@@ -41,7 +41,7 @@ fleet_verdict(){
 # a backend that keeps one, the session's own state (a headless lane's idle | busy | limit | transient,
 # #352 — a pane's state is only on its screen).
 session_row(){ local st; st="$(sess_state "$1" 2>/dev/null)"
-  printf '        ⟳ %-18s ralph-iter=%s%s\n' "$1" "$(iter_of "$2")" "${st:+  $(sess_backend): $st}"; }
+  printf '        ⟳ %-18s ralph-iter=%s%s\n' "$(vis "$1")" "$(iter_of "$2")" "${st:+  $(sess_backend): $(vis "$st")}"; }
 
 # model_mismatch_report — #376: every session of THIS fleet (last 7d) whose dominant-by-output model is
 # another family than the model it was launched with (stats.py's model_mismatch events). Silent when
@@ -114,14 +114,14 @@ render_once(){
   # Which tmux namespace this fleet owns, and who else is on the host. A shared prefix is what makes
   # `harness stop` here kill another project's agents, so it belongs in the at-a-glance view — under
   # the banner, like every other block, not above it.
-  echo "prefix: $HARNESS_SESS_PREFIX"
+  echo "prefix: $(vis "$HARNESS_SESS_PREFIX")"   # #1124: a config value, printed escaped
   local p prj rd slugs sibs=0
   # $FLEET_ROW_SEP, not tab: a POLLER row's run_dir is an empty INTERIOR field and bash collapses
   # runs of tab, so the slug list would land in $rd and the `(slugs)` suffix would vanish from the
   # row. Same treatment as the other fleet_registry_entries consumers (lib.sh, doctor.sh).
   while IFS="$FLEET_ROW_SEP" read -r p prj rd slugs; do
     [[ -n "$p" ]] || continue
-    sibs=$((sibs+1)); printf '  sibling fleet: %-12s %s%s\n' "$p" "$(dirname "$prj")" "${slugs:+ ($slugs)}"
+    sibs=$((sibs+1)); printf '  sibling fleet: %-12s %s%s\n' "$(vis "$p")" "$(vis "$(dirname "$prj")")" "${slugs:+ ($(vis "$slugs"))}"
   done < <(fleet_registry_entries "$STATE_DIR" | tr '\t' "$FLEET_ROW_SEP")
   (( sibs == 0 )) && echo "  (no other fleets registered on this host)"
 
@@ -139,7 +139,7 @@ render_once(){
     if [[ -n "$csess" && "$csess" != - ]]; then
       cstate="$(sess_state "$csess" 2>/dev/null)"; cstate="${cstate:-running}"
     else csess=-; fi
-    printf '%s worker-%-2s → %s %s %s\n' "$mark" "$i" "$cissue" "$csess" "$cstate"
+    printf '%s worker-%-2s → %s %s %s\n' "$mark" "$i" "$(vis "$cissue")" "$(vis "$csess")" "$(vis "$cstate")"
     if [[ "$csess" != - ]]; then
       if [[ "$csess" == *-i* ]]; then cwd="$WORKTREES_DIR/${csess#${HARNESS_SESS_PREFIX}-}"; else cwd="$(fleet_checkout)"; fi
       session_row "$csess" "$cwd"
@@ -164,8 +164,8 @@ render_once(){
     # A repo-qualified ref (<owner>/<repo>#N, #44) already carries its own '#'; a bare number
     # (legacy bare claim) gets the '#' prefix. Avoids the ugly 'bug #acme/a#6'.
     case "$lbug" in
-      *#*) printf '        ▶ bug %s (%s)\n'  "$lbug" "${lphase:-?}";;
-      *)   printf '        ▶ bug #%s (%s)\n' "$lbug" "${lphase:-?}";;
+      *#*) printf '        ▶ bug %s (%s)\n'  "$(vis "$lbug")" "$(vis "${lphase:-?}")";;
+      *)   printf '        ▶ bug #%s (%s)\n' "$(vis "$lbug")" "$(vis "${lphase:-?}")";;
     esac
   elif pid_up "$RUN_DIR/priority.pid"; then
     echo "        · watching (no bug claimed)"
@@ -179,8 +179,8 @@ render_once(){
     prs="$(gh pr list -R "$slug" --state open --json number,title,headRefName \
            -q '.[] | "  #\(.number) \(.headRefName) — \(.title)"' 2>/dev/null || true)"
     if [[ -n "$prs" ]]; then
-      echo "  $slug:"
-      echo "$prs"
+      echo "  $(vis "$slug"):"
+      echo "$prs" | vis_lines
     fi
   done
   echo "═══════════════════════════════════════════════════════════════════"
