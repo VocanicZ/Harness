@@ -92,23 +92,31 @@ assert_eq "$(cat "$ROOT/stub.out")" "stub kill-server" "a shell-function tmux is
 echo "=== 5. no real tmux on PATH: the guard is invisible (#655) ==="
 # With the guard dir on PATH, `command -v tmux` is true on a host with no tmux, so every `command -v tmux` gate takes its
 # tmux branch and dies with exit 127 instead of skipping or running its headless twin (test_tmux_twins.sh, native Windows).
-NT="$ROOT/notmux"; mkdir -p "$NT"
+# NTP = this PATH without tmux. A dir that holds no tmux stays as it is; only a dir that does is mirrored into $NT without it
+# (one ln per file: /usr/bin is ~2000 forks on Linux, but Git Bash's PATH holds tens of thousands of files and a fork costs
+# ~10x there, which ran this test past its 600s cap on winsma, #1110).
+NT="$ROOT/notmux"; mkdir -p "$NT"; NTP=""; nt_used=0
 IFS=: read -ra pdirs <<<"$PATH"
-for d in "${pdirs[@]}"; do [[ -d $d ]] || continue; for f in "$d"/*; do b="${f##*/}"; [[ $b == tmux || -e $NT/$b ]] || ln -s "$f" "$NT/$b" 2>/dev/null; done; done
-out="$(PATH="$GUARD:$NT"; tmux_guard_install; echo "path_has_guard=$(tr ':' '\n' <<<"$PATH" | grep -cxF "$GUARD")"; echo "tmux=$(type -P tmux)")"
+for d in "${pdirs[@]}"; do [[ -d $d ]] || continue
+  if [[ -e $d/tmux || -e $d/tmux.exe ]]; then
+    for f in "$d"/*; do b="${f##*/}"; [[ $b == tmux || $b == tmux.exe || -e $NT/$b ]] || ln -s "$f" "$NT/$b" 2>/dev/null; done
+    (( nt_used )) || { NTP+="${NTP:+:}$NT"; nt_used=1; }
+  else NTP+="${NTP:+:}$d"; fi
+done
+out="$(PATH="$GUARD:$NTP"; tmux_guard_install; echo "path_has_guard=$(tr ':' '\n' <<<"$PATH" | grep -cxF "$GUARD")"; echo "tmux=$(type -P tmux)")"
 assert_eq "$out" $'path_has_guard=0\ntmux=' "tmux_guard_install on a tmux-less PATH takes an inherited guard dir back out"
-out="$(PATH="$NT"; tmux_guard_install; echo "path_has_guard=$(tr ':' '\n' <<<"$PATH" | grep -cxF "$GUARD")"; echo "tmux=$(type -P tmux)")"
+out="$(PATH="$NTP"; tmux_guard_install; echo "path_has_guard=$(tr ':' '\n' <<<"$PATH" | grep -cxF "$GUARD")"; echo "tmux=$(type -P tmux)")"
 assert_eq "$out" $'path_has_guard=0\ntmux=' "...and does not add it when no real tmux is reachable"
-out="$(PATH="$GUARD:$NT"; pin_host_home "$ROOT/h5"; echo "tmux=$(type -P tmux)")"
+out="$(PATH="$GUARD:$NTP"; pin_host_home "$ROOT/h5"; echo "tmux=$(type -P tmux)")"
 assert_eq "$out" "tmux=" "pin_host_home on a tmux-less PATH: tmux is not found on PATH"
-out="$(PATH="$NT:$GUARD"; pin_host_home "$ROOT/h5"; echo "tmux=$(type -P tmux)")"
+out="$(PATH="$NTP:$GUARD"; pin_host_home "$ROOT/h5"; echo "tmux=$(type -P tmux)")"
 assert_eq "$out" "tmux=" "...also when the guard dir is last on PATH"
 # with a tmux reachable the guard stays first and fail-closed (the #649 protections do not weaken)
 : > "$ROOT/real.log"
-out="$(PATH="$FAKE:$NT"; tmux_guard_install; echo "first=${PATH%%:*}"; env -u TMUX_TMPDIR tmux ls >/dev/null 2>&1; echo "rc=$?")"
+out="$(PATH="$FAKE:$NTP"; tmux_guard_install; echo "first=${PATH%%:*}"; env -u TMUX_TMPDIR tmux ls >/dev/null 2>&1; echo "rc=$?")"
 assert_eq "$out" "first=$GUARD"$'\nrc=97' "a real tmux on PATH: the guard leads PATH and refuses an unset TMUX_TMPDIR"
 for bad in "$ROOT/never-made" /tmp; do
-  out="$(PATH="$FAKE:$NT"; tmux_guard_install; TMUX_TMPDIR="$bad" tmux ls >/dev/null 2>&1; echo "rc=$?")"
+  out="$(PATH="$FAKE:$NTP"; tmux_guard_install; TMUX_TMPDIR="$bad" tmux ls >/dev/null 2>&1; echo "rc=$?")"
   assert_eq "$out" "rc=97" "...and refuses TMUX_TMPDIR=$bad"
 done
 assert_eq "$(real_calls)" "0" "...and none of those reached the real tmux"

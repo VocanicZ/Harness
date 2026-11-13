@@ -7,6 +7,9 @@ import importlib.util, json, os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import portable  # bash_exe: a bare "bash" is WSL's launcher on Windows, not Git's (#605, #609)
+BASH = portable.bash_exe()
 
 
 def _load(name):
@@ -36,7 +39,7 @@ def test_forecast_text_and_json_into_a_closed_pipe_are_quiet():
         base = ["50", "-R", tf.W, "--events", events, "--bodies", bodies]
         for extra in ([], ["--json"]):
             quiet([sys.executable, os.path.join(ROOT, "scripts", "forecast.py")] + base + extra, env)
-            quiet(["bash", os.path.join(ROOT, "bin", "harness"), "forecast"] + base + extra, env)
+            quiet([BASH, os.path.join(ROOT, "bin", "harness"), "forecast"] + base + extra, env)
 
 
 def test_tier_decide_and_thresholds_into_a_closed_pipe_are_quiet():
@@ -44,7 +47,7 @@ def test_tier_decide_and_thresholds_into_a_closed_pipe_are_quiet():
     decide = ["decide", "--criteria", "3", "--lines", "80", "--files", "3", "--subsystems", "1"]
     for args in (decide, decide + ["--json"], ["thresholds"]):
         quiet([sys.executable, tier] + args)
-    quiet(["bash", os.path.join(ROOT, "bin", "harness"), "tier"] + decide)
+    quiet([BASH, os.path.join(ROOT, "bin", "harness"), "tier"] + decide)
 
 
 def test_bench_dry_run_into_a_closed_pipe_is_quiet():
@@ -67,8 +70,8 @@ def test_help_into_a_closed_pipe_is_quiet_and_exits_0():
             [py, os.path.join(ROOT, "scripts", "tier.py"), "--help"],
             [py, os.path.join(ROOT, "scripts", "tier.py"), "decide", "--help"],
             [py, os.path.join(ROOT, "bench", "run.py"), "--help"],
-            ["bash", os.path.join(ROOT, "bin", "harness"), "stats", "--help"],
-            ["bash", os.path.join(ROOT, "bin", "harness"), "tier", "decide", "--help"]]
+            [BASH, os.path.join(ROOT, "bin", "harness"), "stats", "--help"],
+            [BASH, os.path.join(ROOT, "bin", "harness"), "tier", "decide", "--help"]]
     for argv in cmds:
         rc, err = into_true(argv)
         assert err == "" and rc == 0, (argv, rc, err)
@@ -76,7 +79,7 @@ def test_help_into_a_closed_pipe_is_quiet_and_exits_0():
 
 def closed_stdout(argv, env=None):
     """Run argv with standard output CLOSED (`>&-`), so sys.stdout is None; (returncode, stderr)."""
-    r = subprocess.run(["bash", "-c", '"$@" >&-', "_"] + argv, stdin=subprocess.DEVNULL,
+    r = subprocess.run([BASH, "-c", '"$@" >&-', "_"] + argv, stdin=subprocess.DEVNULL,
                        stderr=subprocess.PIPE, env=env)
     return r.returncode, r.stderr.decode()
 
@@ -94,7 +97,7 @@ def test_closed_stdout_is_quiet_for_stats_tier_and_forecast():
                 [py, os.path.join(ROOT, "scripts", "stats.py"), "report", "--events", events, "--json"],
                 [py, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"],
                 [py, os.path.join(ROOT, "scripts", "tier.py")] + decide,
-                ["bash", os.path.join(ROOT, "bin", "harness"), "tier", "thresholds"]]
+                [BASH, os.path.join(ROOT, "bin", "harness"), "tier", "thresholds"]]
         for argv in cmds:
             rc, err = closed_stdout(argv)
             assert err == "" and rc == 0, (argv, rc, err)
@@ -118,8 +121,8 @@ def test_help_with_a_closed_stdout_prints_nothing_on_stderr():
             [py, os.path.join(ROOT, "scripts", "tier.py"), "--help"],
             [py, os.path.join(ROOT, "scripts", "tier.py"), "decide", "--help"],
             [py, os.path.join(ROOT, "bench", "run.py"), "--help"],
-            ["bash", os.path.join(ROOT, "bin", "harness"), "stats", "--help"],
-            ["bash", os.path.join(ROOT, "bin", "harness"), "tier", "decide", "--help"]]
+            [BASH, os.path.join(ROOT, "bin", "harness"), "stats", "--help"],
+            [BASH, os.path.join(ROOT, "bin", "harness"), "tier", "decide", "--help"]]
     for argv in cmds:
         rc, err = closed_stdout(argv)
         assert err == "" and rc == 0, (argv, rc, err)
@@ -127,7 +130,7 @@ def test_help_with_a_closed_stdout_prints_nothing_on_stderr():
 
 def test_harness_help_with_a_closed_stdout_or_pipe_is_quiet_and_exits_0():
     """#984: usage() used `cat`, which printed 'cat: standard output: Bad file descriptor' and exited 1 under `>&-`."""
-    h = ["bash", os.path.join(ROOT, "bin", "harness")]
+    h = [BASH, os.path.join(ROOT, "bin", "harness")]
     for argv in (h + ["--help"], h + ["help"], h + ["-h"], h):
         rc, err = closed_stdout(argv)
         assert err == "" and rc == 0, (argv, rc, err)
@@ -139,7 +142,7 @@ def test_harness_help_with_a_closed_stdout_or_pipe_is_quiet_and_exits_0():
 
 def early_exit_reader(argv, reader):
     """Run `argv | <reader>` under bash with default SIGPIPE handling; (PIPESTATUS[0], stderr)."""
-    r = subprocess.run(["bash", "-c", '"$@" | ' + reader + '; echo "${PIPESTATUS[0]}" >&2', "_"] + argv,
+    r = subprocess.run([BASH, "-c", '"$@" | ' + reader + '; echo "${PIPESTATUS[0]}" >&2', "_"] + argv,
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     lines = r.stderr.decode().splitlines()
     return int(lines[-1]), "\n".join(lines[:-1])
@@ -147,7 +150,7 @@ def early_exit_reader(argv, reader):
 
 def test_harness_version_into_an_early_exit_reader_exits_0():
     """#993: `harness --version | head -0` exited 141 (echo died of SIGPIPE); with --verbose `| head -1` did in ~1 of 5 runs."""
-    h = ["bash", os.path.join(ROOT, "bin", "harness")]
+    h = [BASH, os.path.join(ROOT, "bin", "harness")]
     for argv in (h + ["--version"], h + ["--version", "--verbose"], h + ["version"]):
         for reader in ("head -0", "head -1"):
             for _ in range(10 if reader == "head -1" else 1):
@@ -184,7 +187,7 @@ def test_a_full_disk_on_stdout_is_one_stderr_line_and_exit_1():
 def closed_stderr(argv, env=None):
     """Run argv with standard error CLOSED (`2>&-`); (returncode, stdout). Under `bin/harness` bash itself then
     opens its script on fd 2, so python inherits a read-only stderr rather than none."""
-    r = subprocess.run(["bash", "-c", '"$@" 2>&-', "_"] + argv, stdin=subprocess.DEVNULL,
+    r = subprocess.run([BASH, "-c", '"$@" 2>&-', "_"] + argv, stdin=subprocess.DEVNULL,
                        stdout=subprocess.PIPE, env=env)
     return r.returncode, r.stdout.decode()
 
@@ -193,7 +196,7 @@ def test_a_usage_error_with_stderr_closed_still_exits_2():
     """#896: `harness stats -x 2>&-` exited 120: bash opens the script on the closed fd 2, the usage message could not
     be written, and the flush of stderr at shutdown turned the status into 120. Now: 2, as with stderr open."""
     py = sys.executable
-    harness = ["bash", os.path.join(ROOT, "bin", "harness")]
+    harness = [BASH, os.path.join(ROOT, "bin", "harness")]
     cmds = [harness + ["stats", "-x"], harness + ["forecast", "-x"], harness + ["tier", "-x"],
             [py, os.path.join(ROOT, "scripts", "stats.py"), "report", "-x"],
             [py, os.path.join(ROOT, "scripts", "forecast.py"), "-x"],
@@ -212,7 +215,7 @@ def test_a_hand_written_usage_error_with_stderr_closed_or_full_still_exits_2():
     `print(msg, file=sys.stderr)` raised EBADF/ENOSPC, and pipesafe took any file-less OSError for a failed stdout write.
     A stderr that cannot be written never changes the status: 2, as with stderr open."""
     py = sys.executable
-    harness = ["bash", os.path.join(ROOT, "bin", "harness")]
+    harness = [BASH, os.path.join(ROOT, "bin", "harness")]
     stats, forecast = os.path.join(ROOT, "scripts", "stats.py"), os.path.join(ROOT, "scripts", "forecast.py")
     tier, bench = os.path.join(ROOT, "scripts", "tier.py"), os.path.join(ROOT, "bench", "run.py")
     cases = [(harness + ["stats", "--since=-x"], {}), ([py, stats, "--prd", "0"], {}),
@@ -240,7 +243,7 @@ def test_a_hand_written_usage_error_with_stderr_closed_or_full_still_exits_2():
 def direct_closed_stderr(argv, env=None):
     """Run argv under python3 DIRECTLY with fd 2 closed (`exec 2>&-` then exec: no bash script on fd 2, so
     sys.stderr is None); (returncode, stdout)."""
-    r = subprocess.run(["bash", "-c", 'exec 2>&-; exec "$@"', "_"] + argv, stdin=subprocess.DEVNULL,
+    r = subprocess.run([BASH, "-c", 'exec 2>&-; exec "$@"', "_"] + argv, stdin=subprocess.DEVNULL,
                        stdout=subprocess.PIPE, env=env)
     return r.returncode, r.stdout.decode()
 
@@ -274,7 +277,7 @@ def test_diagnostics_and_usage_are_dropped_not_sent_to_stdout_when_stderr_is_clo
 
 
 def test_a_successful_run_with_stderr_closed_still_exits_0():
-    harness = ["bash", os.path.join(ROOT, "bin", "harness")]
+    harness = [BASH, os.path.join(ROOT, "bin", "harness")]
     for argv in (harness + ["tier", "thresholds"], [sys.executable, os.path.join(ROOT, "scripts", "tier.py"), "thresholds"]):
         rc, out = closed_stderr(argv)
         assert rc == 0 and out, (argv, rc, out)
@@ -286,6 +289,30 @@ def test_help_still_prints_and_a_usage_error_still_exits_2():
     assert r.returncode == 0 and "usage:" in r.stdout and r.stderr == "", r
     r = subprocess.run(tier + ["decide", "--bogus"], capture_output=True, text=True)
     assert r.returncode == 2 and "usage:" in r.stderr, r
+
+def test_windows_einval_on_a_closed_pipe_is_a_closed_pipe_not_a_write_failure():
+    """#1110: native Windows' CRT write() maps a pipe whose reader closed to EINVAL ("Invalid argument"), raised as a plain
+    OSError. Unfixed that was `harness forecast: cannot write output: Invalid argument`, exit 1. Run on every OS by pinning
+    sys.platform; a named path's EINVAL (an open() of a bad name) and a non-Windows EINVAL are still failures."""
+    import errno
+    pipesafe = _load("../scripts/pipesafe")
+    real, saved_out = sys.platform, sys.stdout
+    def einval(*_):
+        raise OSError(errno.EINVAL, "Invalid argument")
+    try:
+        sys.platform = "win32"
+        assert pipesafe.broken_pipe(OSError(errno.EINVAL, "Invalid argument"))
+        assert pipesafe.broken_pipe(BrokenPipeError())
+        assert not pipesafe.broken_pipe(OSError(errno.ENOSPC, "No space left on device"))
+        assert not pipesafe.broken_pipe(OSError(errno.EINVAL, "Invalid argument", "x.json"))
+        sys.stdout = open(os.devnull, "w")
+        assert pipesafe.run(einval) == 0, "a write into a closed pipe ends the command quietly"
+        sys.platform = "linux"
+        assert not pipesafe.broken_pipe(OSError(errno.EINVAL, "Invalid argument"))
+    finally:
+        sys.platform = real
+        sys.stdout.close() if sys.stdout is not saved_out else None
+        sys.stdout = saved_out
 
 
 if __name__ == "__main__":

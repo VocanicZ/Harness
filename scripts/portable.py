@@ -217,7 +217,8 @@ def _cygpath(flag, p):
     if not exe:
         return None
     try:
-        out = subprocess.run([exe, flag, p], capture_output=True, text=True, timeout=10).stdout.strip()
+        # resolve_argv: HARNESS_CYGPATH may name a script (a test's stand-in), which CreateProcess cannot start by itself
+        out = subprocess.run(resolve_argv([exe, flag, p]), capture_output=True, text=True, timeout=10).stdout.strip()
         return out or None
     except (OSError, subprocess.SubprocessError):
         return None
