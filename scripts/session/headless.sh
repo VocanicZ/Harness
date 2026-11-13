@@ -210,8 +210,29 @@ if best:
 # behind a running one — and Ctrl-C (or a TERM) detaches: it ends the watch and this attach, never the
 # lane, whose runner leads its own process session and is not signalled. Without a typed line
 # (stdin closed, or not a terminal) it is still the watch. Only the inbox / cli_send contract is used.
-_hl_attach_send(){ local name="$1" line="$2" st; st="$(_hl_state "$name")"
-  if [[ $st == busy ]]; then echo "· queued behind the running turn: $line"; else echo "· sent: $line"; fi
+# _hl_vis STR — STR for the echo (#1125), spelled as bin/harness vis_arg does (#952): a C0 or C1 control character, DEL,
+# U+2028 and U+2029 become \uXXXX, so a typed CR, form feed or line separator never rewrites or splits the terminal line.
+# Byte-level under LC_ALL=C. Only the echo is escaped: the line itself reaches the lane unchanged.
+_hl_vis(){
+  local LC_ALL=C s="$1" out="" i=0 n c d e v
+  n=${#s}
+  while (( i < n )); do
+    c="${s:i:1}"; printf -v v '%d' "'$c"
+    if (( v < 32 || v == 127 )); then printf -v c '\\u%04x' "$v"
+    elif (( v == 194 && i + 1 < n )); then
+      d="${s:i+1:1}"; printf -v e '%d' "'$d"
+      if (( e >= 128 && e <= 159 )); then printf -v c '\\u%04x' "$e"; i=$((i+1)); fi
+    elif (( v == 226 && i + 2 < n )); then
+      d="${s:i+1:2}"
+      if [[ "$d" == $'\x80\xa8' ]]; then c='\u2028'; i=$((i+2))
+      elif [[ "$d" == $'\x80\xa9' ]]; then c='\u2029'; i=$((i+2)); fi
+    fi
+    out+="$c"; i=$((i+1))
+  done
+  printf '%s' "$out"
+}
+_hl_attach_send(){ local name="$1" line="$2" st shown; st="$(_hl_state "$name")"; shown="$(_hl_vis "$line")"
+  if [[ $st == busy ]]; then echo "· queued behind the running turn: $shown"; else echo "· sent: $shown"; fi
   if declare -F cli_send >/dev/null; then cli_send "$name" "$(cat "$(headless_lane_dir "$name")/dir" 2>/dev/null)" "$line"
   else headless_sess_send_line "$name" "$line"; fi; }
 headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name" || { echo "no live headless lane $name" >&2; return 1; }

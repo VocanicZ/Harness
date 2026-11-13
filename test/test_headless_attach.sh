@@ -88,6 +88,16 @@ assert_ok "attach says it sent it" wait_until 10 out_has "· sent: one more"
 assert_ok "…and it runs as turn 3" wait_until 15 turn_is 3
 assert_eq "$(calls prompt | sed -n 3p)" '"one more"' "the third prompt is the typed line"
 
+echo "== attach: the echo escapes control characters and U+2028/U+2029 (#1125) =="
+# A CR rewrites the terminal line; FF and U+2028 print as they are. Only the echo is escaped: the lane gets the line as typed.
+printf 'a\rb\fc\xe2\x80\xa8d\xe2\x80\xa9e\x1bf\n' >&7
+assert_ok "the echo spells each one as \\uXXXX" wait_until 10 out_has '· sent: a\u000db\u000cc\u2028d\u2029e\u001bf'
+assert_ok "…and runs as turn 4" wait_until 15 turn_is 4
+assert_eq "$(grep -c "$(printf '\r')" "$OUT")" 0 "…no CR reached the output"
+assert_eq "$(grep -c "$(printf '\f')" "$OUT")" 0 "…no form feed reached the output"
+assert_eq "$(grep -c "$(printf '\xe2\x80\xa8')" "$OUT")" 0 "…no U+2028 reached the output"
+assert_eq "$(calls prompt | sed -n 4p)" '"a\rb\fc\u2028d\u2029e\u001bf"' "…the lane still got the line as typed"
+
 echo "== attach: Ctrl-C detaches and leaves the lane running =="
 STATE_BEFORE="$(cat "$(headless_lane_dir "$S")/state.json")"
 gone(){ ! proc_alive "$1"; }
@@ -113,7 +123,7 @@ assert_eq "$(sess_pane_pid "$S")" "$RUNNER" "…the same runner, still the lane'
 assert_ok "the lane is still live" sess_live "$S"
 assert_eq "$(lane_state)" idle "its state is still idle"
 assert_eq "$(cat "$(headless_lane_dir "$S")/state.json")" "$STATE_BEFORE" "…and state.json is byte for byte unchanged"
-assert_eq "$(calls prompt | wc -l)" 3 "detaching sent nothing to the lane"
+assert_eq "$(calls prompt | wc -l)" 4 "detaching sent nothing to the lane"
 if command -v pgrep >/dev/null 2>&1; then
   assert_no "the watch it started is gone" pgrep -f "claude_headless.py watch --lane $(headless_lane_dir "$S")"
 fi
@@ -134,5 +144,5 @@ WAIT=3; is_windows && WAIT=20   # Git Bash takes seconds to start a script
 out="$(timeout "$WAIT" bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
 assert_ok "it watches the lane" grep -qF "watching headless lane $S" <<<"$out"
 assert_ok "…showing the typed line's turn" grep -qF "── turn 2 (message) ── please do the typed thing" <<<"$out"
-assert_eq "$(calls prompt | wc -l)" 3 "…and typed nothing"
+assert_eq "$(calls prompt | wc -l)" 4 "…and typed nothing"
 finish

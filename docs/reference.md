@@ -481,7 +481,7 @@ state.
 **Attaching to a lane.** `harness attach <unit> [issue]` (or `harness attach <session>`) follows the lane
 live — each turn, its tool calls and its reply as they land in `events.jsonl` — and drives it, on every OS:
 a line you type goes to the lane's inbox through `cli_send` and runs as the next turn, queued behind a turn
-that is still running (attach says `queued behind the running turn` or `sent`; blank lines send nothing).
+that is still running (attach says `queued behind the running turn` or `sent`, with the line's control characters, U+2028 and U+2029 written as `\uXXXX` in that echo only — the lane gets the line as typed; blank lines send nothing).
 Ctrl-C **detaches**: it ends the attach and its watch, and never the lane — the runner is not signalled, its
 state is unchanged, and `harness attach` reattaches. With stdin closed or not a terminal it is the read-only
 watch. `python3 scripts/cli/headless_core.py state --lane <dir>` (or `claude_headless.py state`, the
