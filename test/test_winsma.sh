@@ -313,8 +313,9 @@ echo "# lock: the hold cap"
 ( fresh_env; export WS_HB_INTERVAL=300
   # an exec already running is never killed because the cap passed and someone queued up behind it
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
-  ( bash "$W/winsma.sh" exec 111 base 'sleep 3; echo finished-after-cap' >"$T/x.out" 2>&1; echo $? >"$T/x.rc" ) &
-  sleep 0.5; age_taken 6000; ws_call r_queue_join 222 lane-b $$ >/dev/null
+  # (the cap passes only once the command is running: on a slow host `sleep 0.5` is not, and the hold gate refused it first)
+  ( bash "$W/winsma.sh" exec 111 base "touch '$T/x.started'; sleep 3; echo finished-after-cap" >"$T/x.out" 2>&1; echo $? >"$T/x.rc" ) &
+  wait_until '[[ -f "$T/x.started" ]]' 100; age_taken 6000; ws_call r_queue_join 222 lane-b $$ >/dev/null
   wait_until '[[ -f "$T/x.rc" ]]' 100
   assert_eq "$(cat "$T/x.rc")" "0" "a running exec finishes when the cap passes mid-command"; grep -q finished-after-cap "$T/x.out"; assert_eq "$?" "0" "...with its output"
   ws_cleanup 111 >/dev/null
@@ -369,7 +370,7 @@ echo "# lock: an idle lane does not hold the lock (#1040)"
   ws_lock 111 lane-a $$ >/dev/null; ws_isolate 111 >/dev/null
   WS_OWNER_ACTIVE_CMD=true ws_lock 222 lane-b $$ >/dev/null 2>&1; assert_eq "$?" "1" "a holder whose session is working keeps the lock"
   assert_eq "$(owner_issue)" "111" "...it is still A's"; assert_no "...and no idle note is left" test -e "$WS_C/hx-lock/idle_since"
-  export WS_LOCK_TIMEOUT=10
+  export WS_LOCK_TIMEOUT=60   # it returns the moment the idle holder is released; a slow host (Git Bash forks) needs the room to see two polls
   out="$(WS_OWNER_ACTIVE_CMD=false ws_lock 222 lane-b $$ 2>&1)"; assert_eq "$?" "0" "a holder whose turn ended, past WS_IDLE_MAX, loses the lock to the first in line"
   [[ "$out" == *"WS_IDLE_MAX"* ]]; assert_eq "$?" "0" "...and the waiter says why"
   assert_eq "$(owner_issue)" "222" "the lock is B's"; assert_no "the idle holder's run folder is cleaned" test -e "$WS_C/hx-111"
@@ -462,12 +463,12 @@ echo "# status: the lock, the holder and the queue"
   [[ "$out" == *"#111"*"hz-main-i111"*"#222"* ]]; assert_eq "$?" "0" "harness status names the holder and the queued lane"
   [[ "$out" == *"worker"* ]]; assert_eq "$?" "0" "...inside the normal status"
   printf '#!/usr/bin/env bash\nexit 255\n' >"$T/bin/downssh"; printf '#!/usr/bin/env bash\nsleep 30\n' >"$T/bin/hangssh"; chmod +x "$T/bin/"*ssh
-  out="$(WINSMA_SSH="$T/bin/downssh" bash "$S" 2>&1)"
+  t0=$SECONDS; out="$(WINSMA_SSH="$T/bin/downssh" bash "$S" 2>&1)"; tdown=$((SECONDS - t0))   # what rendering the dashboard costs on this host
   [[ "$(grep -c 'winsma: unreachable' <<<"$out")" == 1 ]]; assert_eq "$?" "0" "an ssh that fails: one 'winsma: unreachable' line"
   [[ "$out" == *"worker"* ]]; assert_eq "$?" "0" "...and the rest of status still renders"
   t0=$SECONDS; out="$(WINSMA_SSH="$T/bin/hangssh" WS_STATUS_TIMEOUT=2 bash "$S" 2>&1)"; t1=$((SECONDS - t0))
   [[ "$(grep -c 'winsma: unreachable' <<<"$out")" == 1 && "$out" == *"worker"* ]]; assert_eq "$?" "0" "an ssh that hangs: 'winsma: unreachable' too, status still renders"
-  assert_ok "...within the timeout, not 30s" test "$t1" -lt 15
+  assert_ok "...within the timeout, not 30s (the hang adds its 2s, not the ssh's 30)" test "$(( t1 - tdown ))" -lt 15
   out="$(unset HARNESS_WINDOWS_HOST; bash "$S" 2>&1)"
   assert_no "HARNESS_WINDOWS_HOST unset: no winsma line" grep -qi winsma <<<"$out"
   finish ) || rc=1

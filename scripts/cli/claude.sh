@@ -332,8 +332,10 @@ claude_usage(){ (( $# )) && python3 "$CLI_DIR/../stats.py" usage "$@"; }
 # fresh one.
 claude_limit_usage(){
   USAGE_DIR="$(_usage_dir)" FLEETS="${HARNESS_FLEETS_DIR:-}" LANES="$(declare -F _hl_root >/dev/null && _hl_root)" \
-    PREFIX="${HARNESS_SESS_PREFIX:-}" python3 - <<'PY'
+    PREFIX="${HARNESS_SESS_PREFIX:-}" PORTABLE_DIR="$CLI_DIR/.." python3 - <<'PY'
 import glob, json, os, sys, time
+sys.path.insert(0, os.environ["PORTABLE_DIR"])
+import portable  # a registry entry may name a run_dir in the MSYS spelling (/c/x), which native Python cannot open (#1109)
 now, best, seen = time.time(), {}, False
 def load(f):
     try:
@@ -354,6 +356,7 @@ def take(acct, win, pct, reset, at):   # pct: the reading as printed
 dirs = [os.environ["USAGE_DIR"]]
 for f in sorted(glob.glob(os.path.join(os.environ["FLEETS"], "*.json"))) if os.environ["FLEETS"] else ():
     rd = load(f).get("run_dir")   # a missing / unreadable entry or run dir is skipped, never fatal
+    rd = portable.native_path(rd) if isinstance(rd, str) and rd else rd
     if isinstance(rd, str) and rd and os.path.join(rd, "usage") not in dirs:
         dirs.append(os.path.join(rd, "usage"))
 for f in sorted(g for d in dirs for g in glob.glob(os.path.join(d, "*.json"))):
@@ -412,8 +415,9 @@ PY
 # $CHECKOUTS_DIR) of a git worktree <dir> too — existing file only, Harness-owned statusLine only (#695).
 usage_statusline_heal_checkout(){ local common main
   common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
-  main="$(dirname "$common")"
-  [[ -n "${CHECKOUTS_DIR:-}" && "$main" == "$CHECKOUTS_DIR"/* && "$main" != "$1" && "$main" != "$PROJECT_ROOT" ]] || return 0
+  # git prints C:/… on Windows where CHECKOUTS_DIR is /c/…: compare the MSYS forms (#1109).
+  main="$(posix_path "$(dirname "$common")")"
+  [[ -n "${CHECKOUTS_DIR:-}" && "$main" == "$(posix_path "$CHECKOUTS_DIR")"/* ]] && ! same_path "$main" "$1" && ! same_path "$main" "$PROJECT_ROOT" || return 0
   usage_statusline_install "$main" existing-only; }
 claude_usage_setup(){ usage_statusline_install "$1"; usage_statusline_heal_checkout "$1" || true; }
 

@@ -167,6 +167,22 @@ check(rc == 0 and [r[1] for r in rows] == ["5"] and int(rows[0][2]) > time.time(
 wl("forget", "--dir", d, "--issue", "5")
 check(wl("parked", "--dir", d)[1] == "" and os.path.exists(os.path.join(d, "hz-main-i6.wait")), "forget drops that issue's park and nothing else")
 
+print("== a native Windows job is judged by its Windows pid, not an MSYS pid (#1109) ==")
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import waitlib  # noqa: E402
+seen = []
+real_alive = waitlib.portable.win_process_alive
+try:
+    for alive in (True, False):
+        waitlib.portable.win_process_alive = lambda w, alive=alive: seen.append(w) or alive
+        ev = waitlib.evaluate({"cond": "pid", "pid": 999999, "winpid": 4242, "deadline": time.time() + 600})
+        check(ev["done"] is (not alive), f"a spec with a winpid is {'pending' if alive else 'done'} when its Windows process is {'alive' if alive else 'gone'}")
+    check(seen == [4242, 4242], "…and the Windows pid is the one asked about")
+finally:
+    waitlib.portable.win_process_alive = real_alive
+check(waitlib.evaluate({"cond": "pid", "pid": 999999, "deadline": time.time() + 600})["done"] is True,
+      "a spec with no winpid (an MSYS or POSIX pid) is still read as before: a dead pid is done")
+
 for p in started:
     try:
         p.kill()

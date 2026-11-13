@@ -61,6 +61,14 @@ def pid_alive(pid, start=None):
     return isinstance(pid, int) and pid > 1 and portable.pid_alive(pid)
 
 
+def spec_pid_alive(spec):
+    """Is the job a pid wait names still running? `run` on native Windows records the job wrapper's WINDOWS pid (spec["winpid"]):
+    portable.pid_alive reads an MSYS pid, finds no such MSYS process, and called every live job exited (#1109)."""
+    if isinstance(spec.get("winpid"), int) and spec["winpid"] > 1:
+        return portable.win_process_alive(spec["winpid"])
+    return pid_alive(spec.get("pid"))
+
+
 # --- the spec ------------------------------------------------------------------------------------------
 def spec_path(arg=None):
     p = arg or os.environ.get("HARNESS_WAIT_FILE")
@@ -139,7 +147,7 @@ def evaluate(spec, t=None):
     c = spec.get("cond")
     held = {"done": False, "reason": "", "external": c in ("winsma", "limit")}
     if c == "pid":
-        if not pid_alive(spec.get("pid")):
+        if not spec_pid_alive(spec):
             return {"done": True, "reason": condition_text(spec), "external": False}
     elif c == "file":
         if spec.get("path") and os.path.exists(spec["path"]):
@@ -249,7 +257,7 @@ def cmd_run(a):
     a.pid, a.path, a.regex, a.winsma, a.limit, a.rc_file = p.pid, None, None, None, False, rc_file
     a.log = log
     a.what = a.what or f"job `{' '.join(cmd)[:80]}` (pid {p.pid}) exited"
-    spec = new_spec(a, "pid", pid=p.pid)
+    spec = new_spec(a, "pid", pid=p.pid, **({"winpid": p.pid} if WINDOWS else {}))
     write_spec(path, spec)
     print(f"wait set: {spec['what']}; log {log}; deadline {time.strftime('%H:%M:%S', time.localtime(spec['deadline']))}. "
           f"End your turn now: the engine resumes this session once, with the result, when the job exits.")
@@ -259,7 +267,7 @@ def cmd_exec(a):
     """The job's wrapper: run the command, write its exit code, exit with it."""
     cmd = a.cmd[1:] if a.cmd and a.cmd[0] == "--" else a.cmd
     try:
-        rc = subprocess.call(cmd)
+        rc = subprocess.call(portable.resolve_argv(cmd))   # a bare `bash` is Git's, not System32's WSL launcher (#1109)
     except OSError as e:
         print(f"waitlib: cannot run {cmd[:1]}: {e}", file=sys.stderr); rc = 127
     tmp = f"{a.rc_file}.{os.getpid()}.tmp"

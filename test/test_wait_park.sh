@@ -62,12 +62,14 @@ cat > "$FAKE_DIR/turn-hook" <<EOF
 #!/usr/bin/env bash
 p="\$(cat)"
 case "\$p" in *"wait done"*) exit 0;; esac
+printf '%s\n' "\$HARNESS_WAIT_FILE" > "$FAKE_DIR/lane.waitenv"
 python3 "$WAITLIB" run --deadline-s 1800 --log "$FAKE_DIR/job.log" -- bash -c 'echo \$\$ > "$FAKE_DIR/job.pid"; until [ -e "$FAKE_DIR/release" ]; do sleep 0.1; done; echo "1234 passed"; exit 0'
 EOF
 chmod +x "$FAKE_DIR/turn-hook"
 PROMISE="ISSUE 21 DONE" MAXITER=10 GOAL=ISSUE:21 launch_agent "$S" "$WD" >/dev/null 2>&1   # the driven goal loop is ARMED
-assert_ok "the lane's environment names its wait file" grep -qF "$RUN_DIR/$S.wait" <<<"$(tr '\0' '\n' < "/proc/$(cat "$(headless_lane_dir "$S")/pid")/environ" 2>/dev/null)"
 assert_ok "turn 1 (the one that starts the job) ends" wait_until 15 turn_is "$S" 1
+# what the lane's own child (the turn hook) sees: a native Windows process cannot be read through /proc, and its spelling is C:/x, not /c/x
+assert_eq "$(posix_path "$(tr -d '\r' < "$FAKE_DIR/lane.waitenv" 2>/dev/null)")" "$(posix_path "$RUN_DIR/$S.wait")" "the lane's environment names its wait file"
 assert_ok "…leaving a wait spec for the job" test -s "$RUN_DIR/$S.wait"
 dl=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(int(d["deadline"]-d["created"]))' "$RUN_DIR/$S.wait")
 assert_eq "$dl" "1800" "…with a 30-minute deadline"

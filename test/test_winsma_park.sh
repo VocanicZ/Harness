@@ -64,7 +64,7 @@ snap "222:ready-for-agent,waiting-winsma"
 assert_eq "$(python3 "$ISSUELIB" dispatch acme/widget 3 2>/dev/null | wc -l | tr -d ' ')" "0" "...and with nothing else claimable nothing is dispatched (the issue is not stuck: no STUCK diagnosis)"
 assert_no "a parked issue is not reported STUCK by status" bash -c "python3 '$ISSUELIB' status acme/widget 2>&1 | grep -q STUCK"
 snap "222:bug,waiting-winsma" "333:bug"
-assert_eq "$(python3 -c "import sys; sys.path.insert(0, '$ROOT/scripts'); import issuelib as i; print(i.bug_lane_issues('acme/widget'))")" "[333]" "the bug lane leaves a parked bug alone too"
+assert_eq "$(python3 -c "import sys; sys.path.insert(0, '$(native_path "$ROOT/scripts")'); import issuelib as i; print(i.bug_lane_issues('acme/widget'))")" "[333]" "the bug lane leaves a parked bug alone too"
 snap "222:ready-for-agent"
 assert_eq "$(impls)" "IMPL:222" "the label gone: dispatched, once"
 
