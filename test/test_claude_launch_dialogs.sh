@@ -50,13 +50,20 @@ import json, sys
 json.dump({"userID": "keep", "projects": {"/other": {"hasTrustDialogAccepted": True, "lastCost": 2}, sys.argv[2]: {"allowedTools": ["Bash"]}}}, open(sys.argv[1], "w"))
 PY
 ensure_trusted "$LANE"
-entry(){ python3 -c 'import json,sys
-p = json.load(open(sys.argv[1]))["projects"].get(sys.argv[2], {}); print(p.get(sys.argv[3], "<absent>"))' "$CFG" "$1" "$2"; }
+# The key is looked up exactly as spelled: on Windows MSYS would otherwise rewrite a /c/x or /other argument into C:/… for native
+# python (and the config path must then be native itself: #1110).
+entry(){ MSYS2_ARG_CONV_EXCL='*' python3 -c 'import json,sys
+p = json.load(open(sys.argv[1]))["projects"].get(sys.argv[2], {}); print(p.get(sys.argv[3], "<absent>"))' "$(native_path "$CFG")" "$1" "$2"; }
 MAINREAL="$(git -C "$LANE" rev-parse --path-format=absolute --git-common-dir)"; MAINREAL="${MAINREAL%/.git}"
 for d in "$LANE" "$MAINREAL"; do
   assert_eq "$(entry "$d" hasTrustDialogAccepted)" "True" "trusted: $d"
   assert_eq "$(entry "$d" hasClaudeMdExternalIncludesWarningShown)" "True" "imports warning shown: $d"
   assert_eq "$(entry "$d" hasClaudeMdExternalIncludesApproved)" "<absent>" "imports never approved: $d"
+done
+# Windows: Claude Code keys the project as C:/x, the wd bash holds is /c/x — both are filed (#1110)
+for d in "$LANE" "$MAINREAL"; do
+  assert_eq "$(entry "$(native_path "$d")" hasTrustDialogAccepted)" "True" "trusted under its native spelling too: $d"
+  assert_eq "$(entry "$(native_path "$d")" hasClaudeMdExternalIncludesWarningShown)" "True" "imports warning shown under its native spelling too: $d"
 done
 assert_eq "$(entry "$MAINREAL" allowedTools)" "['Bash']" "the main checkout's existing fields survive"
 assert_eq "$(entry /other lastCost)" "2" "another project's entry survives"
@@ -81,6 +88,23 @@ d = json.load(open(sys.argv[1])); d["projects"][sys.argv[2]]["hasClaudeMdExterna
 PY
 ensure_trusted "$LANE"
 assert_eq "$(entry "$MAINREAL" hasClaudeMdExternalIncludesApproved)" "False" "Approved: false stays"
+
+echo "=== Windows (a stand-in cygpath, on every OS): the lane is filed under C:/x as well as /c/x (#1110) ==="
+mkdir -p "$RUN_DIR/cyg"
+cat > "$RUN_DIR/cyg/cygpath" <<'CYG'
+#!/bin/sh
+# cygpath -m <path>: /c/x/y -> C:/x/y, anything else as it is
+case "$2" in /[a-z]/*) printf '%s:%s\n' "$(printf %s "$2" | cut -c2 | tr a-z A-Z)" "$(printf %s "$2" | cut -c3-)";; *) printf '%s\n' "$2";; esac
+CYG
+chmod +x "$RUN_DIR/cyg/cygpath"
+WINCFG="$RUN_DIR/wincfg.json"; WINDIR_="/c/hx-win/lane"
+HARNESS_CLAUDE_CONFIG="$WINCFG" PATH="$RUN_DIR/cyg:$PATH" HARNESS_PLATFORM=windows ensure_trusted "$WINDIR_"
+CFG_BAK="$CFG"; CFG="$WINCFG"
+assert_eq "$(entry C:/hx-win/lane hasTrustDialogAccepted)" "True" "windows: trusted under C:/hx-win/lane (what Claude Code reads)"
+assert_eq "$(entry C:/hx-win/lane hasClaudeMdExternalIncludesWarningShown)" "True" "windows: imports warning shown under C:/hx-win/lane"
+assert_eq "$(entry "$WINDIR_" hasTrustDialogAccepted)" "True" "windows: ...and still under the MSYS spelling bash holds"
+CFG="$CFG_BAK"
+HARNESS_CLAUDE_CONFIG="$WINCFG" PATH="$RUN_DIR/cyg:$PATH" HARNESS_PLATFORM=windows assert_ok "windows: claude_trusted holds for both spellings" cli_trusted "$WINDIR_"
 
 echo "=== a plain (non-worktree) dir gets only its own entry ==="
 PLAIN="$RUN_DIR/plain"; mkrepo "$PLAIN"; ensure_trusted "$PLAIN"

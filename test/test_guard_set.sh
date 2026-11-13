@@ -3,6 +3,7 @@
 # release-gate reds were repo-wide guards a lane's rtdd rounds never select (they read the whole tree; coverage picks only tests
 # that execute the changed code). A test joins the set with a `# rtdd: always` header; the set is fast; the lane prompts say to run it;
 # and a new HARNESS_* read with no docs row fails the set — the lane's pre-PR check — not the gate.
+# harness-test-timeout-windows: 1800
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
@@ -61,7 +62,11 @@ assert_eq "$?" "0" "fixture tree: the docs row turns the set green again"
 # stretches 60s of work to minutes), so the assertion is on CPU time (user+sys of the set and its children), which load moves
 # little. Over the 60s budget is a warning (a lane-side target); the hard cap is HARNESS_GUARD_SET_CAP (default 150s of CPU,
 # 2.5x the budget). A wall-clock hang guard (HARNESS_GUARD_SET_WALL_CAP, default 900s) catches a guard that blocks without burning CPU.
-budget=60; cap="${HARNESS_GUARD_SET_CAP:-150}"; wall_cap="${HARNESS_GUARD_SET_WALL_CAP:-900}"
+# On a real Windows host every Git Bash fork costs ~10x (the same guard files took 328s of CPU, 463s wall, on winsma against a
+# few seconds' work on Linux), so the budget and both caps scale by 4 there (#1110): the cap still catches a guard that grows
+# without bound, which is what it is for. Both stay overridable through the environment.
+scale=1; real_windows_host && scale=4
+budget=$((60 * scale)); cap="${HARNESS_GUARD_SET_CAP:-$((150 * scale))}"; wall_cap="${HARNESS_GUARD_SET_WALL_CAP:-$((900 * scale))}"
 s=$SECONDS
 out="$( bash "$HERE/guards.sh" 2>&1; echo $? >"$T/guard_rc"; times >"$T/guard_times" )"
 took=$((SECONDS-s)); rc="$(cat "$T/guard_rc")"

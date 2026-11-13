@@ -204,7 +204,14 @@ _claude_trust_configs(){ local acct
   done; return 0; }
 # _claude_trust_dirs <dir> — the project paths Claude Code reads the pre-accept from: <dir>, and for a linked
 # worktree its main checkout too (#660: the CLAUDE.md-import answer is keyed there, not by the worktree).
-_claude_trust_dirs(){ local main; echo "$1"; main="$(_claude_main_root "$1")"; [[ -n "$main" ]] && echo "$main"; return 0; }
+# On Windows Claude Code keys a project by its native spelling (C:/x), while the lane's wd is the MSYS one (/c/x) that bash and
+# tmux hold: a pre-accept filed only under /c/x never matched, so the trust dialog opened on a Windows lane (#1110). Both
+# spellings are written and checked (an entry under a spelling Claude never reads is inert).
+_claude_trust_dirs(){ local d main n
+  for d in "$1" "$(_claude_main_root "$1")"; do
+    [[ -n "$d" ]] || continue
+    echo "$d"; n="$(native_path "$d")"; [[ "$n" != "$d" ]] && echo "$n"
+  done; return 0; }
 # _claude_trust_config <cfg> <dir>… — merge the workspace pre-accept for each <dir> into one config file:
 # hasTrustDialogAccepted, and hasClaudeMdExternalIncludesWarningShown so the "Allow external CLAUDE.md file
 # imports?" dialog never opens (#660). hasClaudeMdExternalIncludesApproved is never set true: the answer
@@ -213,7 +220,8 @@ _claude_trust_dirs(){ local main; echo "$1"; main="$(_claude_main_root "$1")"; [
 _claude_trust_config(){
   local cfg="$1" lockfd; shift
   lock_acquire "$cfg.harness-trust.lock" lockfd
-  CFG="$cfg" DIRS="$(printf '%s\n' "$@")" python3 - <<'PY'
+  # CFG goes through the environment, which MSYS does not convert: a /c/x path would be opened by native python as C:\c\x (#1110)
+  CFG="$(native_path "$cfg")" DIRS="$(printf '%s\n' "$@")" python3 - <<'PY'
 import json, os, tempfile
 cfg, dirs = os.environ["CFG"], [d for d in os.environ["DIRS"].split("\n") if d]
 try:
@@ -250,7 +258,7 @@ claude_trust(){ local cfg dirs
   while read -r cfg; do _claude_trust_config "$cfg" "${dirs[@]}"; done < <(_claude_trust_configs); }
 claude_trusted(){ local cfg
   while read -r cfg; do
-    CFG="$cfg" DIRS="$(_claude_trust_dirs "$1")" python3 -c 'import json,os,sys
+    CFG="$(native_path "$cfg")" DIRS="$(_claude_trust_dirs "$1")" python3 -c 'import json,os,sys
 projects = json.load(open(os.environ["CFG"])).get("projects") or {}
 for d in os.environ["DIRS"].split("\n"):
     p = projects.get(d) or {}
