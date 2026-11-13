@@ -143,7 +143,7 @@ release_tick_lane(){ local repo SLUG CHECKOUT
     CHECKOUT="$(bug_checkout "$repo")"; release_tick
   done; }
 
-# release_kick <reason> — release_run as a background job (it runs the whole suite as its gate).
+# release_kick <reason> — release_run as a background job (its gate is rtdd Rounds 1+2 plus the guard set, or a PRD review's recorded result: #1148).
 # fd 9 is closed for it: start.sh's double-start lock must not be held by a job that outlives it.
 # One job at a time: while one is live, a new kick starts nothing; what it was for stays queued in
 # `pending` unless that job's release covers it, so the next tick releases it.
@@ -185,15 +185,34 @@ release_run(){ local reason="$1" d lockfd plock start covered sha rc
   release_record "$sha"
   lock_release "$lockfd"; return 0; }
 
+# release_reviewed <reason> — print "<sha> <prd>" when the release is for PRD close(s) whose review recorded the sha its full suite was green
+# at (#1148): the PRD comment `<!-- harness-prd-suite sha=<40 hex> -->` the review lane posts, the newest one per PRD, and only one the fleet's own gh login wrote (anyone can comment, and a forged marker would skip the gate). release.sh reuses
+# that result when <sha> is the release's own sha, and otherwise selects rtdd rounds from it. With several PRDs in the reason, one without
+# a record means no reviewed sha (its work is covered only from the last tag); of the recorded ones the newest wins. Prints nothing for a
+# bug-only or bootstrap release and when GitHub cannot be read: release.sh then selects rtdd rounds from the last tag, never the full suite.
+release_reviewed(){ local reason="$1" tok n text s best="" bestprd=""
+  [[ -n "$(fleet_login)" ]] || return 0
+  for tok in $reason; do
+    [[ "$tok" =~ ^prd:([0-9]+)$ ]] || continue; n="${BASH_REMATCH[1]}"
+    text="$(gh issue view "$n" -R "$SLUG" --json comments -q "$(_fleet_comments_jq '<!-- harness-prd-suite sha=') | .[]" 2>/dev/null)" || return 0
+    s="$(grep -oE '<!-- harness-prd-suite sha=[0-9a-f]{40} -->' <<<"$text" | tail -n1 | grep -oE '[0-9a-f]{40}')"
+    [[ -n "$s" ]] || return 0
+    if [[ -z "$best" ]] || git -C "$CHECKOUT" merge-base --is-ancestor "$best" "$s" 2>/dev/null; then best="$s"; bestprd="$n"; fi
+  done
+  [[ -n "$best" ]] && echo "$best $bestprd"; return 0; }
+
 # release_exec <sha> <reason> — run release.sh at <sha> as a process that survives release_run (#1068). An engine roll kills the
 # worker and release_run with it, but release.sh lives on (it holds the flock fd) and nobody was left to act on its rc. The wrapper
 # keeps HUP/TERM as a handler (reset by exec, so release.sh and its gate see default signals) and writes the rc to
 # result-<sha> atomically when release.sh exits; release_record / release_reconcile turn that into the log line, the marker, the
 # bug or retry-after. The path is an argument, not an env var: the gate must see no release variable (#325).
-release_exec(){ local sha="$1" reason="$2" d; d="$(release_dir)"
+release_exec(){ local sha="$1" reason="$2" d rsha rprd; d="$(release_dir)"
+  local -a rargs=()
+  read -r rsha rprd <<<"$(release_reviewed "$reason")"
+  [[ -z "$rsha" ]] || rargs=(--reviewed-sha "$rsha" --reviewed-prd "$rprd")
   ( cd "$CHECKOUT" && HARNESS_RELEASE_REASON="$reason" HARNESS_RELEASE_REPO="$(release_repo)" HARNESS_AUTORELEASE_DIR="$d" \
       bash -c 'trap : HUP TERM; res="$1"; shift; "$@"; rc=$?; printf "%s\n" "$rc" > "$res.tmp" && mv -f "$res.tmp" "$res"; exit "$rc"' \
-      _ "$d/result-$sha" bash "${HARNESS_RELEASE_CMD:-$ENGINE_DIR/scripts/release.sh}" --ref "$sha" ); }
+      _ "$d/result-$sha" bash "${HARNESS_RELEASE_CMD:-$ENGINE_DIR/scripts/release.sh}" --ref "$sha" ${rargs[@]+"${rargs[@]}"} ); }
 
 # release_record <sha> — act on result-<sha> (release.sh's rc) once: claim it by rename so two ticks never both record it,
 # then clear the pending entries it covered (0), mark the red gate and file its bug (4), or set retry-after (other).
@@ -278,7 +297,7 @@ release_gate_bug(){ local sha="$1" reason="$2" d m short title open url n body l
   fi
   if [[ -z "$n" ]]; then
     body="$(mktemp)"
-    { echo "\`harness release\` ($reason) ran the release gate (\`test/run.sh\`) at $sha and it failed, so no release was cut."
+    { echo "\`harness release\` ($reason) ran the release gate (rtdd Rounds 1+2 plus \`test/guards.sh\`, never the full suite) at $sha and it failed, so no release was cut."
       echo "The fleet will not re-run the gate on this commit. Fixing this is a new commit, which the next release picks up."
       # #333: the failures first. Suites run alphabetically, so an early one's FAIL lines are far
       # above the tail; each is shown under its suite header, after what run.sh printed itself.

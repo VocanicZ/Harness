@@ -8,6 +8,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - The winsma full suite printed six `SKIP (POSIX branch, no counterpart to run on a Windows host)` lines that named no parity-matrix row, against PRD #475's "every Windows skip names a row that is `n/a` on Windows". `skip_posix_branch` is now `posix_branch_off_windows`: on a real Windows host it asserts that the engine takes its Windows branch (`is_windows`, with no `HARNESS_PLATFORM` forcing it) and counts a pass; `test_portable.py` does the same. The only SKIP a Windows run prints is `windows_skip`'s, which names an `n/a` row, and `test_windows_skip.sh` checks both.
 
+### The release gate no longer runs the full suite: it runs once per PRD, at review (#1148)
+
+- `harness release` used to run a bare `test/run.sh` on every release, about an hour under fleet load, and 25 of its 29 runs since 10-29 filed a `gate-failed` bug. The gate is now the PRD review's recorded result when the release is at the sha the review tested (no test runs, and the release says which result it reused), otherwise rtdd Rounds 1+2 for `rtdd which --base <reviewed sha | last vX.Y.Z tag>` plus `test/guards.sh`. The review lane records the sha with a `<!-- harness-prd-suite sha=… -->` comment on the PRD; the auto-release reads it only from the fleet's own login. The `env -i` isolation, the `git archive` tree, the re-run-alone flake check and gate-failed, one bug, hold are unchanged. rtdd missing is exit 3 (safe to re-run), never a fallback to the whole suite.
+
 ### rtdd no longer selects the whole suite for a changelog edit
 
 - `CHANGELOG.md` is one node that most of the repo references, and most PRs append to it, so Round 2 picked all 254 test files for a 29-line fix (#1101). `.rtdd/config.yaml` now leaves `CHANGELOG.md`, `test/smoke/logs/**` and `bench/results/**` out of the scan: logs were counted as tests and bench transcripts as callers. #1101 measured 254 to 85 selected test files.

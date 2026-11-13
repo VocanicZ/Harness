@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# release.sh [--dry-run] [--ref <rev>] — `harness release` (#278, PRD #274): cut the next Harness
+# release.sh [--dry-run] [--ref <rev>] [--reviewed-sha <sha> [--reviewed-prd <n>]] — `harness release` (#278, PRD #274): cut the next Harness
 # release from this checkout, on this host, with this host's `gh`. Harness runs no GitHub Actions
 # (#245), so this is the one way a release is made.
 #
 # In order:
 #   1. idempotency — a vX.Y.Z tag already on <rev> with a published release is a no-op; a tag with
 #      no release is finished (published), never superseded by a new version
-#   2. gate        — test/run.sh on a `git archive` of <rev>, the exact tree that ships, so a dirty
-#      working tree can neither pass nor fail it. It runs under `env -i` (PATH, HOME, LANG, TMPDIR and
-#      a private TMUX_TMPDIR only), and a red file is re-run once, alone: one that passes alone is a
-#      flake (gate-flake-<sha> in $HARNESS_AUTORELEASE_DIR) and does not stop the release (#1060)
+#   2. gate        — never the whole suite (#1148: the full suite runs once per PRD, at PRD review). It is
+#      one of: the PRD review's recorded full-suite result when --reviewed-sha is <rev> itself (no test
+#      runs); else rtdd Rounds 1+2 for `rtdd which --base <reviewed sha | last vX.Y.Z tag>` plus
+#      test/guards.sh, run through test/run.sh on a `git archive` of <rev>, the exact tree that ships,
+#      so a dirty working tree can neither pass nor fail it. It runs under `env -i` (PATH, HOME, LANG,
+#      TMPDIR and a private TMUX_TMPDIR only), and a red file is re-run once, alone: one that passes
+#      alone is a flake (gate-flake-<sha> in $HARNESS_AUTORELEASE_DIR) and does not stop the release (#1060)
 #   3. version     — the next semver from Conventional Commits since the last vX.Y.Z tag: a breaking
 #      change (`type!:` / `BREAKING CHANGE:`) bumps minor while 0.x and major from 1.0, any `feat`
 #      bumps minor, anything else patch. No prior tag → v0.1.0
@@ -20,7 +23,7 @@
 #
 # Exit codes (Task 7's auto-release trigger reads these):
 #   0  released, or already released     2  configuration (not a git checkout, bad --ref, gh not
-#   3  environment (git/tar/gh failed;      authenticated, an unparseable last tag)
+#   3  environment (git/tar/gh/rtdd failed;  authenticated, an unparseable last tag)
 #      safe to re-run)                   4  the gate failed (log at $HARNESS_AUTORELEASE_DIR/gate-<sha>.log)
 set -uo pipefail
 
@@ -30,13 +33,17 @@ TAG_GLOB='v[0-9]*.[0-9]*.[0-9]*'
 
 die(){ local rc="$1"; shift; echo "harness release: $*" >&2; exit "$rc"; }
 
-DRY=0; REF=HEAD
+DRY=0; REF=HEAD; REVIEWED=""; REVIEWED_PRD=""
 while (($#)); do
   case "$1" in
     --dry-run) DRY=1;;
     --ref) [[ $# -ge 2 ]] || die 2 "--ref needs a revision"; REF="$2"; shift;;
     --ref=*) REF="${1#--ref=}";;
-    -h|--help) echo "usage: harness release [--dry-run] [--ref <rev>]"; exit 0;;
+    --reviewed-sha) [[ $# -ge 2 ]] || die 2 "--reviewed-sha needs a commit"; REVIEWED="$2"; shift;;
+    --reviewed-sha=*) REVIEWED="${1#--reviewed-sha=}";;
+    --reviewed-prd) [[ $# -ge 2 ]] || die 2 "--reviewed-prd needs a PRD number"; REVIEWED_PRD="$2"; shift;;
+    --reviewed-prd=*) REVIEWED_PRD="${1#--reviewed-prd=}";;
+    -h|--help) echo "usage: harness release [--dry-run] [--ref <rev>] [--reviewed-sha <sha> [--reviewed-prd <n>]]"; exit 0;;
     *) die 2 "unknown argument: $1";;
   esac
   shift
@@ -122,7 +129,7 @@ recs="$(commits "$prev" "$sha")" || die 3 "git log failed"
 
 tmp="$(mktemp -d)" || die 3 "mktemp failed"
 gate_tmp=""
-trap 'rm -rf "$tmp" ${gate_tmp:+"$gate_tmp"}' EXIT
+trap '[[ -d "$tmp/sel" ]] && { git worktree remove --force "$tmp/sel" >/dev/null 2>&1; git worktree prune >/dev/null 2>&1; }; rm -rf "$tmp" ${gate_tmp:+"$gate_tmp"}' EXIT
 release_notes "$tag" "$prev" "$recs" > "$tmp/notes.md"
 
 if ((DRY)); then
@@ -132,44 +139,89 @@ fi
 
 gh auth status >/dev/null 2>&1 || die 2 "gh is not authenticated (run: gh auth login)"
 
+# gate_base — what the gate's rtdd selection is measured from (#1148): the PRD review's tested sha when it is an ancestor of <rev>
+# (the PRD's work and anything merged since), else the last vX.Y.Z tag; with no tag at all (the bootstrap release) the root commit.
+gate_base(){
+  if [[ -n "$REVIEWED" ]] && rs="$(git rev-parse -q --verify "$REVIEWED^{commit}" 2>/dev/null)" && git merge-base --is-ancestor "$rs" "$sha" 2>/dev/null; then
+    echo "$rs"; return 0; fi
+  if [[ -n "$prev" ]]; then echo "$prev"; return 0; fi
+  git rev-list --max-parents=0 "$sha" | tail -n1; }
+
+# gate_select <base> — the test files of rtdd Rounds 1 and 2 for <base>..<rev>, into sel[] as run.sh names (relative to test/). rtdd
+# runs on a detached worktree of <rev> (it needs the history and `.rtdd/config.yaml`; the gate's `git archive` tree has no .git). Round 3 is
+# "the full suite": never read. Only test/test_*.sh|py files run: helpers and smokes rtdd names are not tests. rc 1: rtdd absent or broken.
+# The JSON read: each file of rounds 1 and 2, once, in order.
+read -r -d '' GATE_PY <<'PY'
+import json, sys
+seen = set()
+for r in json.load(sys.stdin)["rounds"]:
+    if r.get("round") in (1, 2):
+        for f in r.get("files", []):
+            if f not in seen:
+                seen.add(f)
+                print(f)
+PY
+gate_select(){ local out f files
+  command -v rtdd >/dev/null 2>&1 || { echo "harness release: rtdd is not on PATH; the gate selects its tests with rtdd" >&2; return 1; }
+  git worktree add -q --detach "$tmp/sel" "$sha" >/dev/null 2>&1 || { echo "harness release: git worktree add for rtdd failed" >&2; return 1; }
+  out="$( cd "$tmp/sel" && env -i PATH="$PATH" HOME="${HOME:-/}" LANG="${LANG:-C.UTF-8}" rtdd which --json --base "$1" 2>"$tmp/rtdd.err" )" \
+    || { cat "$tmp/rtdd.err" >&2; echo "harness release: rtdd which --base $1 failed" >&2; return 1; }
+  sel=()
+  files="$(python3 -I -c "$GATE_PY" <<<"$out")" || { echo "harness release: cannot read rtdd's JSON" >&2; return 1; }
+  while IFS= read -r f; do
+    f="${f#test/}"
+    [[ "$f" =~ ^test_[^/]+\.(sh|py)$ && -f "$tmp/gate/test/$f" ]] && sel+=("$f")
+  done <<<"$files"
+  return 0; }
+
 if ((finishing == 0)); then
-  # ── 2. the gate: test/run.sh on the exact tree being tagged ──
-  mkdir -p "$tmp/gate"
-  git archive --format=tar "$sha" | tar -x -C "$tmp/gate" || die 3 "git archive $short failed"
-  log="$tmp/gate.log"
-  # The gate runs under a scrubbed environment (#1060): `env -i` with an explicit allowlist, so no HARNESS_*, CLAUDE_*, STATE_DIR,
-  # ENGINE_DIR or other worker variable reaches test/run.sh or any child of it. The old `env -u` list named leaks one red gate at a
-  # time (#325 the release variables, #333 the fleet's, #682 HARNESS_ENGINE_STAMP) and every new worker export was the next red gate;
-  # an allowlist cannot miss one. TMUX_TMPDIR is private, so no test reaches the fleet's tmux server (#649); a test that starts a real
-  # tmux server does not use it: a socket path past ~107 bytes breaks tmux, so it makes its own short dir (tmux_short_dir, #1077). The gate's TMPDIR is a short dir directly under /tmp (#1080), not $tmp/gate-tmp: run.sh nests every test under it, and headless Chrome's
-  # SingletonSocket needs TMPDIR + 45 bytes (web_cdp.mjs gives the browser its own short dir too; this keeps margin for every other socket
-  # maker). The EXIT trap removes it with $tmp.
-  mkdir -p "$tmp/tx"
-  gate_tmp="$(mktemp -d /tmp/hg.XXXXXX 2>/dev/null)" || gate_tmp="$(mktemp -d)" || die 3 "mktemp failed"
-  gate_env=(env -i PATH="$PATH" HOME="${HOME:-/}" LANG="${LANG:-C.UTF-8}" TMPDIR="$gate_tmp" TMUX_TMPDIR="$tmp/tx")
-  ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh ) >"$log" 2>&1
-  grc=$?
-  if ((grc != 0)); then
-    # A red file is re-run once, alone, before the gate is declared failed (#1060): the gate runs while a dozen lanes keep the host at
-    # load 15-55, and a race that loses once (#337, #339, #571) is not a product defect. A file that passes alone is a flake: it is
-    # recorded in gate-flake-<sha> (autorelease comments it on the one tracking issue) and the release goes on. Any file that fails
-    # again, or a red run that names no file (the runner itself broke), fails the gate as before. More than $GATE_RERUN_MAX red files
-    # is a broken tree, not load, and is not re-run.
-    mapfile -t red < <(tr -d '\r' < "$log" | sed -n 's/^FAILED: //p' | sort -u)
-    flaky=(); still=()
-    if ((${#red[@]} > 0 && ${#red[@]} <= ${HARNESS_GATE_RERUN_MAX:-5})); then
-      for f in "${red[@]}"; do
-        echo "== gate re-run alone: $f ==" >> "$log"
-        if ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh "$f" ) >>"$log" 2>&1; then flaky+=("$f"); else still+=("$f"); fi
-      done
-    fi
-    if ((${#red[@]} > 0 && ${#still[@]} == 0 && ${#flaky[@]} == ${#red[@]})); then
-      mkdir -p "$AUTORELEASE_DIR" && { printf '%s\n' "${flaky[@]}" > "$AUTORELEASE_DIR/gate-flake-$sha"; cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"; }
-      echo "harness release: gate flaked at $short (${flaky[*]}) — each passed alone; releasing $tag" >&2
-    else
-      mkdir -p "$AUTORELEASE_DIR" && cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"
-      tail -n 40 "$log" >&2
-      die 4 "gate failed: test/run.sh exited $grc at $short; not releasing $tag (log: $AUTORELEASE_DIR/gate-$sha.log)"
+  # ── 2. the gate (#1148): a recorded PRD review result, or rtdd Rounds 1+2 plus the guard set — never the whole suite ──
+  grc=0
+  if [[ -n "$REVIEWED" ]] && [[ "$(git rev-parse -q --verify "$REVIEWED^{commit}" 2>/dev/null)" == "$sha" ]]; then
+    echo "harness release: gate reused the${REVIEWED_PRD:+ PRD #$REVIEWED_PRD} review full-suite result (green at $short) — no tests run" >&2
+  else
+    mkdir -p "$tmp/gate"
+    git archive --format=tar "$sha" | tar -x -C "$tmp/gate" || die 3 "git archive $short failed"
+    base="$(gate_base)"; [[ -n "$base" ]] || die 3 "no base commit for the gate's rtdd selection"
+    sel=(); gate_select "$base" || die 3 "cannot select the gate's tests with rtdd (safe to re-run)"
+    log="$tmp/gate.log"
+    echo "harness release: gate = rtdd Rounds 1+2 for $(git rev-parse --short "$base")..$short (${#sel[@]} test files) plus test/guards.sh" >&2
+    # The gate runs under a scrubbed environment (#1060): `env -i` with an explicit allowlist, so no HARNESS_*, CLAUDE_*, STATE_DIR,
+    # ENGINE_DIR or other worker variable reaches test/run.sh or any child of it. The old `env -u` list named leaks one red gate at a
+    # time (#325 the release variables, #333 the fleet's, #682 HARNESS_ENGINE_STAMP) and every new worker export was the next red gate;
+    # an allowlist cannot miss one. TMUX_TMPDIR is private, so no test reaches the fleet's tmux server (#649); a test that starts a real
+    # tmux server does not use it: a socket path past ~107 bytes breaks tmux, so it makes its own short dir (tmux_short_dir, #1077). The gate's TMPDIR is a short dir directly under /tmp (#1080), not $tmp/gate-tmp: run.sh nests every test under it, and headless Chrome's
+    # SingletonSocket needs TMPDIR + 45 bytes (web_cdp.mjs gives the browser its own short dir too; this keeps margin for every other socket
+    # maker). The EXIT trap removes it with $tmp.
+    mkdir -p "$tmp/tx"
+    gate_tmp="$(mktemp -d /tmp/hg.XXXXXX 2>/dev/null)" || gate_tmp="$(mktemp -d)" || die 3 "mktemp failed"
+    gate_env=(env -i PATH="$PATH" HOME="${HOME:-/}" LANG="${LANG:-C.UTF-8}" TMPDIR="$gate_tmp" TMUX_TMPDIR="$tmp/tx")
+    : > "$log"
+    # run.sh with NO file argument is the whole suite: the selection is passed by name, and an empty one runs only the guard set.
+    if ((${#sel[@]})); then ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh "${sel[@]}" ) >>"$log" 2>&1 || grc=$?; fi
+    if [[ -f "$tmp/gate/test/guards.sh" ]]; then ( cd "$tmp/gate" && "${gate_env[@]}" bash test/guards.sh ) >>"$log" 2>&1 || grc=$?; fi
+    if ((grc != 0)); then
+      # A red file is re-run once, alone, before the gate is declared failed (#1060): the gate runs while a dozen lanes keep the host at
+      # load 15-55, and a race that loses once (#337, #339, #571) is not a product defect. A file that passes alone is a flake: it is
+      # recorded in gate-flake-<sha> (autorelease comments it on the one tracking issue) and the release goes on. Any file that fails
+      # again, or a red run that names no file (the runner itself broke), fails the gate as before. More than $GATE_RERUN_MAX red files
+      # is a broken tree, not load, and is not re-run.
+      mapfile -t red < <(tr -d '\r' < "$log" | sed -n 's/^FAILED: //p' | sort -u)
+      flaky=(); still=()
+      if ((${#red[@]} > 0 && ${#red[@]} <= ${HARNESS_GATE_RERUN_MAX:-5})); then
+        for f in "${red[@]}"; do
+          echo "== gate re-run alone: $f ==" >> "$log"
+          if ( cd "$tmp/gate" && "${gate_env[@]}" bash test/run.sh "$f" ) >>"$log" 2>&1; then flaky+=("$f"); else still+=("$f"); fi
+        done
+      fi
+      if ((${#red[@]} > 0 && ${#still[@]} == 0 && ${#flaky[@]} == ${#red[@]})); then
+        mkdir -p "$AUTORELEASE_DIR" && { printf '%s\n' "${flaky[@]}" > "$AUTORELEASE_DIR/gate-flake-$sha"; cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"; }
+        echo "harness release: gate flaked at $short (${flaky[*]}) — each passed alone; releasing $tag" >&2
+      else
+        mkdir -p "$AUTORELEASE_DIR" && cp "$log" "$AUTORELEASE_DIR/gate-$sha.log"
+        tail -n 40 "$log" >&2
+        die 4 "gate failed: the rtdd selection and guard set exited $grc at $short; not releasing $tag (log: $AUTORELEASE_DIR/gate-$sha.log)"
+      fi
     fi
   fi
   # ── 4. tag + push ──

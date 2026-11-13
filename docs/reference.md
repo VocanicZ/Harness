@@ -1416,9 +1416,24 @@ harness release --dry-run    # print the next version and its notes; no gate, ta
 harness release --ref <rev>  # release <rev> instead of HEAD
 ```
 
-It gates on `test/run.sh` against a `git archive` of the shipped tree, takes the version from
-[Conventional Commits](https://www.conventionalcommits.org/), tags, builds and publishes. Exit codes:
-`0` released, `2` configuration, `3` environment, `4` gate failed.
+It gates, takes the version from [Conventional Commits](https://www.conventionalcommits.org/), tags, builds and
+publishes. Exit codes: `0` released, `2` configuration, `3` environment (rtdd missing or broken: safe to re-run),
+`4` gate failed.
+
+**The release gate never runs the full suite (#1148).** The owner rule is *rtdd per issue, full suite per PRD*: the
+full suite (`test/run.sh`) runs once per PRD, at PRD review, and nowhere else. The gate is one of:
+
+- **A PRD close at the sha its review tested:** the review lane comments `<!-- harness-prd-suite sha=<40 hex> -->` on
+  the PRD when its full suite is green. A release at that same sha is that result: no test runs, and release.sh says
+  which review result it reused. The fleet passes it with `--reviewed-sha <sha> [--reviewed-prd <n>]`, read only from a
+  comment the fleet's own login wrote.
+- **A PRD close after main moved, or a patch release for merged bug fixes:** rtdd Rounds 1+2 for
+  `rtdd which --base <reviewed sha>` (the last vX.Y.Z tag when there is no record, as for an old PRD, and the root commit
+  for the first release) plus `bash test/guards.sh`, run through `test/run.sh` by file name on a `git archive` of the
+  shipped tree. rtdd's last round, the full suite, is never read, and an empty selection runs the guard set alone.
+
+The `env -i` isolation, the re-run-alone flake check and *red gate → one bug → hold* are unchanged. rtdd missing or
+erroring is exit `3`, never a fallback to the whole suite.
 
 **The fleet cuts releases itself** when it drives `HARNESS_RELEASE_REPO` (default `VocanicZ/Harness`):
 once per reviewed PRD close, and at most one patch release per `HARNESS_RELEASE_THROTTLE` seconds

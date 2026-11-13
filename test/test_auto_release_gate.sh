@@ -57,10 +57,19 @@ assert_no "no bug filed" grep -q '^issue create' "$GH_LOG"
 [[ -e "$HARNESS_AUTORELEASE_DIR/gate-failed-$sha" ]] && cat "$RUN_DIR/run.log"
 
 # ── #1060: a gate red on a file that passes alone releases, and is a comment on ONE tracking issue — not a gate bug ──
+# The gate selects its tests with rtdd (#1148) and runs them by name: a stub rtdd selects test_x.sh (and, with no rtdd.files, nothing);
+# test_x.sh is red on the gate's run and green when re-run alone.
+cat > "$STUB/rtdd" <<'EOF'
+#!/usr/bin/env bash
+if [[ -f rtdd.files ]]; then printf '{"rounds":[{"round":1,"files":["test/test_x.sh","test/test_y.sh"]},{"round":3,"full_suite":true}]}\n'
+else printf '{"rounds":[{"round":1,"files":[]},{"round":2,"files":[]}]}\n'; fi
+EOF
+chmod +x "$STUB/rtdd"
 FL="$RUN_DIR/flaky"; mkdir -p "$FL/test"; git init -q --bare -b main "$FL.git"
+: > "$FL/rtdd.files"; : > "$FL/test/test_x.sh"; : > "$FL/test/test_y.sh"
 cat > "$FL/test/run.sh" <<'EOF'
 #!/usr/bin/env bash
-(( $# )) && exit 0
+[[ "$*" == test_x.sh ]] && exit 0   # the re-run alone
 echo "== test_x.sh =="; echo "FAIL: x lost the race"; echo "FAILED: test_x.sh"; exit 1
 EOF
 gc "$FL" init -q -b main; gc "$FL" add -A; gc "$FL" commit -qm "feat: init"
