@@ -14,6 +14,13 @@ export HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$T
   HARNESS_SUPERVISE_SYSTEMCTL=true HARNESS_SUPERVISE_LOGINCTL=true HARNESS_WEB_SYSTEMCTL=true HARNESS_WEB_LOGINCTL=true
 H="$HARNESS_HOME"; SRV="$T/srv"; rel_server "$SRV"; rel_publish "$SRV" v0.2.0; rel_latest "$SRV" v0.2.0
 clean(){ env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK "$@"; }
+# On a Windows host a "unit" is a scheduled-task launcher (portable.sh win_task_*): $T/units/harness-<x>.sh, its command on a `# ExecStart=`
+# comment, and registering it calls schtasks. Fake that one (#1104): a real one leaked three Harness\* tasks onto winsma. Linux: .service files.
+if real_windows_host; then
+  UEXT=sh; UPFX='# '; UPIN='^# ExecStart=.*'   # (the launcher also exports PATH, HARNESS_HOME…: only its command line can pin a release)
+  printf '#!/bin/sh\nexit 0\n' > "$T/schtasks"; chmod +x "$T/schtasks"; export HARNESS_SCHTASKS="$T/schtasks"
+else UEXT=service; UPFX=''; UPIN=''; fi
+unit(){ printf '%s/units/%s.%s' "$T" "$1" "$UEXT"; }
 
 # Today's host: $HARNESS_HOME/engine is a git checkout of this engine, with an uncommitted local edit,
 # and units installed from it.
@@ -32,9 +39,9 @@ assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "engine points at the latest
 assert_ok "the old tree is kept under releases/git-<sha>" test -d "$H/releases/git-$sha/.git"
 assert_ok "its local edit is kept, not discarded" grep -qx '# local edit' "$H/releases/git-$sha/scripts/lib.sh"
 assert_eq "$(git -C "$H/releases/git-$sha" status --porcelain | xargs)" "M scripts/lib.sh" "the old tree's git state is untouched"
-for u in harness-supervise.service harness-web.service; do
-  assert_ok "$u runs the stable engine path" grep -qE "^ExecStart=$(any_spelling "$H")/engine/bin/harness " "$T/units/$u"
-  assert_no "$u pins no versioned dir" grep -qE "$(any_spelling "$H")/releases/" "$T/units/$u"
+for u in harness-supervise harness-web; do
+  assert_ok "$u.service runs the stable engine path" grep -qE "^${UPFX}ExecStart=$(any_spelling "$H")/engine/bin/harness " "$(unit "$u")"
+  assert_no "$u.service pins no versioned dir" grep -qE "${UPIN}$(any_spelling "$H")/releases/" "$(unit "$u")"
 done
 
 # bin/harness through a PATH link: units get the stable path, a launched worker the concrete release.
@@ -44,11 +51,11 @@ assert_ok "a launched worker's ENGINE_DIR is the concrete release" grep -qE "^en
 assert_ok "units resolve through the stable engine path" grep -qE "^stable: $(any_spelling "$H")/engine$" <<<"$v"
 clean bash "$T/harness" supervise --install >/dev/null 2>&1
 assert_ok "a unit installed from a release still names the stable path" \
-  grep -qE "^ExecStart=$(any_spelling "$H")/engine/bin/harness supervise$" "$T/units/harness-supervise.service"
+  grep -qE "^${UPFX}ExecStart=$(any_spelling "$H")/engine/bin/harness supervise$" "$(unit harness-supervise)"
 env -u STATE_DIR ENGINE_DIR="$H/releases/v0.2.0" HARNESS_ENGINE_LINK="$T/elsewhere" \
   bash "$H/releases/v0.2.0/scripts/web.sh" --install >/dev/null 2>&1
 assert_ok "an inherited link that is not this engine never redirects a unit" \
-  grep -qE "^ExecStart=$(any_spelling "$H")/releases/v0.2.0/bin/harness web$" "$T/units/harness-web.service"
+  grep -qE "^${UPFX}ExecStart=$(any_spelling "$H")/releases/v0.2.0/bin/harness web$" "$(unit harness-web)"
 
 clean bash "$H/engine/bin/harness" update --rollback >/dev/null 2>&1
 assert_eq "$(readlink "$H/engine")" "releases/git-$sha" "--rollback right after migration returns to the old tree"

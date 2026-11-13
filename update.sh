@@ -45,7 +45,9 @@ hand_off(){
   fi
   if grep -q -- '--post-flip' "$new/update.sh" 2>/dev/null; then
     post=(--post-flip); (( WITH_SKILLS )) && post+=(--with-skills)
-    exec env ENGINE_DIR="$new" HARNESS_ENGINE_LINK="$HARNESS_HOME/engine" bash "$new/update.sh" "${post[@]}"
+    # -u HARNESS_UPDATE_COPY (#1104): that marker is the temp copy's own ("delete $0 first thing"); handed on, the release's update.sh
+    # would take itself for the copy and delete itself, and every later `harness update` / --rollback of this host found no update.sh.
+    exec env -u HARNESS_UPDATE_COPY ENGINE_DIR="$new" HARNESS_ENGINE_LINK="$HARNESS_HOME/engine" bash "$new/update.sh" "${post[@]}"
   fi
   ENGINE_DIR="$new"; HARNESS_ENGINE_LINK="$HARNESS_HOME/engine"; POST_FLIP=1
 }

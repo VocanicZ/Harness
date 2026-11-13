@@ -495,15 +495,20 @@ engine_migrate_git(){
 # proc_engine_dir <pid> — a process's ENGINE_DIR from its exec-time environ (the twin of lib.sh's
 # proc_state_dir; copied here because a piped install has no lib.sh).
 proc_engine_dir(){ tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^ENGINE_DIR=//p' | head -1; }
+# _rel_pn <path> — its realpath, in MSYS form where cygpath exists (#1104). On Windows `realpath` keeps the spelling it is given and
+# a worker's exec-time environ holds ENGINE_DIR as C:/x (MSYS hands a native spelling to the process) while the release dir is named
+# /c/x: compared as strings they never match and prune removed the release a live worker ran from.
+_rel_pn(){ local p; p="$(realpath -m "$1" 2>/dev/null)" || p="$1"
+  if command -v cygpath >/dev/null 2>&1; then cygpath -u "$p" 2>/dev/null || printf '%s\n' "$p"; else printf '%s\n' "$p"; fi; }
 # rel_in_use <dir> — rc 0 iff some live process's ENGINE_DIR, realpath'd, is <dir> or under it. Reads
 # each environ in-shell (no fork per process): a fleet host runs hundreds of them.
 rel_in_use(){
   local want e kv
-  want="$(realpath -m "$1" 2>/dev/null)" || want="$1"
+  want="$(_rel_pn "$1")"
   for e in /proc/[0-9]*/environ; do
     while IFS= read -r -d '' kv; do
       [[ "$kv" == ENGINE_DIR=* ]] || continue
-      kv="$(realpath -m "${kv#ENGINE_DIR=}" 2>/dev/null)" || break
+      kv="$(_rel_pn "${kv#ENGINE_DIR=}")" || break
       [[ "$kv" == "$want" || "$kv" == "$want"/* ]] && return 0
       break
     done 2>/dev/null < "$e"

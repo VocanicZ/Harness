@@ -4,6 +4,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The Windows release lifecycle works on winsma: a migrating `harness update` no longer deletes the release's own `update.sh`, and prune keeps the release a live worker runs from (#1104)
+
+- On Windows a git-checkout engine's `harness update` runs from a temporary copy of itself, and that copy deletes itself first thing. The marker that tells it so (`HARNESS_UPDATE_COPY`) was handed on to the release the update then switches to, whose `update.sh` took itself for the copy and deleted itself. Every later `harness update` and `--rollback` on that host died with "update.sh: No such file or directory". The hand-off now drops the marker.
+- `rel_in_use` (the check that stops prune from removing a release a live process runs from) compared a worker's `ENGINE_DIR` as Windows hands it to the process (`C:/x/...`) with the release directory in Git Bash's spelling (`/c/x/...`) as plain strings, so it never matched on Windows. Both are now compared in the same spelling.
+- The tests: `test_migrate_release.sh` (and `test_hermetic_engine_2.sh`, which runs it) read the scheduled-task launcher a Windows host writes instead of a `.service` file, and fake `schtasks`, so the run no longer leaves `Harness\*` tasks on the host. `test_install_release.sh` gives the Store-stub case a wrapper script for `python` instead of a link to a venv's `python.exe`, which cannot start from another directory. `test_windows_update.sh` asserts the release's `update.sh` survives the hand-off.
+
 ### `harness-wait set --limit --until` refuses a `--deadline-s` that ends before `--until` (#1100)
 
 - A lane on #1035 parked itself until the weekly reset with `--limit --until <reset> --deadline-s <small>`. The deadline resumes a lane like any condition, so the spec expired about 20 seconds later, the engine consumed it, and the lane sat idle with no wait spec at all (three times in nine hours); nothing would have woken it at the reset.

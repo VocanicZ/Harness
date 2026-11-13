@@ -74,7 +74,10 @@ for t in claude; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$t"; chmod +x "$STUB/$
 printf '#!/bin/sh\ncase "$1" in auth) exit 0;; esac\nexit 0\n' > "$STUB/gh"; chmod +x "$STUB/gh"
 printf '#!/bin/sh\nexit 1\n' > "$STUB/git"; chmod +x "$STUB/git"
 printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 9009\n' > "$STUB/python3"
-chmod +x "$STUB/python3"; ln -s "$REALPY" "$STUB/python"
+chmod +x "$STUB/python3"
+# `python` is a wrapper script, not a link to the real interpreter (#1104): on a Windows host the real one can be a venv's python.exe, which
+# finds its pyvenv.cfg beside itself, so a link or copy of it elsewhere dies "failed to locate pyvenv.cfg" and no Python would run at all.
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$REALPY" > "$STUB/python"; chmod +x "$STUB/python"
 out="$(env -u HARNESS_PYTHON -u MSYS PATH="$STUB:$(sys_path)" HARNESS_PLATFORM=windows HARNESS_BASH_EXE='C:\Git\bin\bash.exe' \
   HARNESS_SKIP_RTDD=1 HARNESS_CLAUDE_BIN="$STUB/claude" "${nope[@]}" \
   CLAUDE_CONFIG_DIR="$T/home7/.claude" HARNESS_USER_SKILLS="$T/home7/skills" bash "$HERE/../install.sh" 2>&1)"; rc=$?
