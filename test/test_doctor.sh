@@ -57,6 +57,26 @@ rc=0; doctor_main --fix >/dev/null || rc=$?
 assert_eq "$rc" "0" "doctor_main --fix: clears the problem (exit 0)"
 assert_no "doctor_main --fix actually removed the stale pidfile" test -f "$RUN_DIR/worker-2.pid"
 
+echo "== doctor_main rejects an unknown argument (#1120) =="
+has(){ [[ "$2" == *"$1"* ]]; }
+# A mistyped --fx used to run doctor without --fix and exit 0. Now: usage error on stderr, exit 2, nothing checked or touched.
+echo "999999" > "$RUN_DIR/worker-3.pid"
+for BAD in "-x" "-" "--flag" "--fx" "extra"; do
+  DOCTOR_FIX=0; ERR="$(doctor_main "$BAD" 2>&1 >/dev/null)"; rc=$?
+  assert_eq "$rc" "2" "doctor_main $BAD: exit 2"
+  assert_ok "doctor_main $BAD: names the option on stderr" has "harness doctor: unknown option '$BAD'" "$ERR"
+  assert_ok "doctor_main $BAD: prints the usage on stderr" has "usage: harness doctor [--fix]" "$ERR"
+  assert_eq "$(DOCTOR_FIX=0; doctor_main "$BAD" 2>/dev/null)" "" "doctor_main $BAD: nothing on stdout (no doctor run)"
+done
+DOCTOR_FIX=0; rc=0; doctor_main --fix -x >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "2" "doctor_main --fix -x: exit 2"
+assert_ok "doctor_main --fix -x: the stale pidfile was not cleared" test -f "$RUN_DIR/worker-3.pid"
+ERR="$(DOCTOR_FIX=0; doctor_main $'a\nb' 2>&1 >/dev/null)"
+assert_eq "$(printf '%s\n' "$ERR" | wc -l | tr -d ' ')" "2" "doctor_main: a newline in the argument cannot split the error"
+rc=0; doctor_main --help >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "doctor_main --help: still exit 0"
+rm -f "$RUN_DIR/worker-3.pid"
+
 echo "== doctor reports and --fix prunes stale fleet-registry entries =="
 export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"
 tmux(){ return 1; }; export -f tmux
