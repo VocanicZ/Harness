@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### rtdd no longer selects the whole suite for a changelog edit
+
+- `CHANGELOG.md` is one node that most of the repo references, and most PRs append to it, so Round 2 picked all 254 test files for a 29-line fix (#1101). `.rtdd/config.yaml` now leaves `CHANGELOG.md`, `test/smoke/logs/**` and `bench/results/**` out of the scan: logs were counted as tests and bench transcripts as callers. #1101 measured 254 to 85 selected test files.
+
 ### `harness-wait set --limit --until` refuses a `--deadline-s` that ends before `--until` (#1100)
 
 - A lane on #1035 parked itself until the weekly reset with `--limit --until <reset> --deadline-s <small>`. The deadline resumes a lane like any condition, so the spec expired about 20 seconds later, the engine consumed it, and the lane sat idle with no wait spec at all (three times in nine hours); nothing would have woken it at the reset.
