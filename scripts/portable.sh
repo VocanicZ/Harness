@@ -478,8 +478,14 @@ detach_launch(){ local append=0
 # HARNESS_SCHTASKS names schtasks (a test fakes it).
 _schtasks(){ MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${HARNESS_SCHTASKS:-schtasks}" "$@"; }
 # win_home_tag — "" for the default home, else the first 8 hex digits of a hash of the home's path.
-win_home_tag(){ local home="${HARNESS_HOME:-$HOME/.harness}" def="$HOME/.harness"
-  home="${home%/}"; def="${def%/}"
+# Both sides go through posix_path first (#1112): once lib.sh has run export_native_paths, HARNESS_HOME is
+# C:/Users/… while HOME stays /c/Users/…, and a C:\ or lower-case-drive spelling is the same directory
+# again, so a string compare called the default home "not default" and named its tasks with a hash. The
+# hash is of the normalised path too, so one home gets one name in every spelling.
+win_home_tag(){ local home def
+  home="$(posix_path "${HARNESS_HOME:-$HOME/.harness}")"; def="$(posix_path "$HOME/.harness")"
+  while [[ $home == ?*/ ]]; do home="${home%/}"; done
+  while [[ $def == ?*/ ]]; do def="${def%/}"; done
   [[ $home == "$def" ]] && return 0
   if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$home" | sha256sum | cut -c1-8
   else printf '%08x\n' "$(printf '%s' "$home" | cksum | cut -d' ' -f1)"; fi; }
