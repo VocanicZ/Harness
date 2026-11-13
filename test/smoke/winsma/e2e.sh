@@ -3,7 +3,7 @@
 # inside C:\hx-<issue>\ (cwd = $HX_DIR; HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS, TMPDIR, npm_config_cache are the isolation's).
 # See docs/windows-smoke.md. Environment (set by the caller, all optional):
 #   HX_BRANCH   the branch under test (default issue/496); it must be pushed, the host clones it
-#   HX_STAGES   which stages to run, space separated: supervise ops inject supdiag live (default: supervise ops inject)
+#   HX_STAGES   which stages to run, space separated: supervise ops inject supdiag live doctor (default: supervise ops inject)
 # Stages:
 #   (every stage installs this branch as a local release into the sandbox first, then `harness init` in a clone of the sandbox repo)
 #   supervise  mode `install` (CLAUDE_CONFIG_DIR is the sandbox: no sign-in, no token usage). `harness start`, `supervise --install`
@@ -17,11 +17,11 @@
 #   inject mode `install`. `harness plan|prd|issue "<brief>"` each launch the injector lane (a stand-in claude, no sign-in), which renders
 #          the task file and runs a turn
 #   supdiag  mode `install`. One `harness supervise --once` pass over a fleet whose worker was killed: what the supervisor does about it
-#   doctor   mode `install` (#1113). install → `harness init` → `harness start` → `harness doctor` on a project nothing has configured by hand:
-#          the checkout's per-repo git settings (core.longpaths, core.autocrlf, core.eol) are set and doctor exits 0 ("Doctor is green")
 #   live   mode `base` (the REAL Claude sign-in, the only stage that uses it, under the guard). test/smoke/fleet_smoke.sh claude on this host:
 #          claim → headless lane → PR → merge → close, with `pause --force` checkpoint and resume mid-lane; then `harness stats` for the
 #          lane's Claude token usage and `harness forecast` for the closed issue.
+#   doctor   mode `install` (#1113). install → `harness init` → `harness start` → `harness doctor` on a project nothing has configured by hand:
+#          the checkout's per-repo git settings (core.longpaths, core.autocrlf, core.eol) are set and doctor exits 0 ("Doctor is green")
 # winget is a logging stub (never a real install); schtasks is real, and every task name is written to $HX_DIR/tasks BEFORE it is registered
 # so cleanup deletes it by name; every process the script starts is recorded in $HX_DIR/pids.
 set -u
