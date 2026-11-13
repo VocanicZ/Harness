@@ -17,6 +17,8 @@
 #   inject mode `install`. `harness plan|prd|issue "<brief>"` each launch the injector lane (a stand-in claude, no sign-in), which renders
 #          the task file and runs a turn
 #   supdiag  mode `install`. One `harness supervise --once` pass over a fleet whose worker was killed: what the supervisor does about it
+#   doctor   mode `install` (#1113). install → `harness init` → `harness start` → `harness doctor` on a project nothing has configured by hand:
+#          the checkout's per-repo git settings (core.longpaths, core.autocrlf, core.eol) are set and doctor exits 0 ("Doctor is green")
 #   live   mode `base` (the REAL Claude sign-in, the only stage that uses it, under the guard). test/smoke/fleet_smoke.sh claude on this host:
 #          claim → headless lane → PR → merge → close, with `pause --force` checkpoint and resume mid-lane; then `harness stats` for the
 #          lane's Claude token usage and `harness forecast` for the closed issue.
@@ -330,6 +332,25 @@ for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
 PYX
   say "---- the auto-update's release lookup, as the supervisor does it (sup_rel rel_latest_tag)"
   ( export HARNESS_HOME; HARNESS_INSTALL_NOMAIN=1 source "$HARNESS_HOME/engine/install.sh"; echo "python_probe: $(python_probe 2>&1)"; echo "curl: $(curl -sSL "$HARNESS_API_URL" 2>&1 | head -c 200)"; echo "rel_latest_tag: $(rel_latest_tag 2>&1) rc=$?" ) 2>&1 | sed 's/^/   au| /'
+  $H stop --clean 2>&1 | sed 's/^/   /'
+  cd ..
+fi
+
+# ============================================================================================================================ doctor
+if has doctor; then
+  say "######## stage doctor (#1113: a fresh project's doctor is green after init + start)"
+  setup_project || { say "result: FAIL"; exit 1; }
+  cd proj || exit 1
+  ok "init set core.longpaths=true on the project's checkout"  '[[ "$(git config --local --get core.longpaths)" == true ]]'
+  ok "init set core.autocrlf=false"                            '[[ "$(git config --local --get core.autocrlf)" == false ]]'
+  ok "init set core.eol=lf"                                    '[[ "$(git config --local --get core.eol)" == lf ]]'
+  git config --local --unset core.longpaths; git config --local --unset core.autocrlf; git config --local --unset core.eol
+  $H start 2>&1 | sed 's/^/   /'
+  ok "start sets the three settings again (never --global: $(git config --global --get core.longpaths || echo unset))" \
+     '[[ "$(git config --local --get core.longpaths)$(git config --local --get core.autocrlf)$(git config --local --get core.eol)" == truefalself ]]'
+  $H doctor 2>&1 | sed 's/^/   doctor| /' | tee "$HX_DIR/doctor.out"; drc=${PIPESTATUS[0]}
+  ok "doctor on the project just made by init + start exits 0 (rc=$drc)" '(( drc == 0 ))'
+  ok "… and reads the git settings as set"                     'grep -q "longpaths + LF" "$HX_DIR/doctor.out"'
   $H stop --clean 2>&1 | sed 's/^/   /'
   cd ..
 fi
