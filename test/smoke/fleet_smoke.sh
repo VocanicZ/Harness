@@ -168,7 +168,7 @@ host_line(){ local py
 say "== fleet smoke | cli=$CLI | $(cli_version) | $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 say "== $(host_line)"
 [[ "$BACKEND" == tmux ]] || say "== session backend $BACKEND | checkpoint+resume $( ((CHECKPOINT)) && echo "on, ${CP_AFTER}s into the lane" || echo off)"
-say "== engine $(H --version 2>/dev/null | head -1) | repo $REPO | prefix $PREFIX"
+say "== engine $("$HARNESS" --version 2>/dev/null | head -1) | repo $REPO | prefix $PREFIX"
 
 # 1. sandbox repo: create once, seed once. The task file names its own path, so a reused repo never
 #    already holds this run's answer.
@@ -284,6 +284,14 @@ say "merged PR: ${merged:-none}"
 git -C "$PROJ" pull -q origin HEAD 2>/dev/null
 say "smoke/$STAMP.txt on the default branch: $(cat "$PROJ/smoke/$STAMP.txt" 2>/dev/null || echo '<missing>')"
 H stats --issue "$ISSUE" -R "$REPO" 2>&1 | sed 's/^/   /'
+# What the lane spent (#1114, PRD #475): `harness stats` shows a session_end's usage only when the sweep found the CLI's
+# transcript, and a headless opencode / agy / openclaw lane's sweep does not. So the log reads it itself, after the run, from the
+# CLI's own store through its adapter, by the session id the lane's state.json holds.
+lane_usage(){
+  [[ "$BACKEND" == headless ]] || { echo "token usage: not read (tmux lanes: see the stats above)"; return 0; }
+  HARNESS_CLI="$CLI" HARNESS_SESSION_BACKEND=headless bash "$HERE/lane_usage.sh" "$CLI" "$PREFIX" "$ISSUE" 2>&1; }
+say "== lane token usage"
+lane_usage | sed 's/^/   /'
 # The fleet's own record of the resumed lane carrying on its checkpointed session (launch_agent).
 (( CHECKPOINT )) && grep -rhs 'carries on agent session' "$PROJ/.harness" | sed 's/^/   /'
 [[ -n "$merged" ]] || { say "closed without a merged PR"; exit 1; }
