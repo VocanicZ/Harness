@@ -42,7 +42,7 @@ declare -F lock_acquire >/dev/null || source "$_ROLL_HERE/portable.sh"
 
 _roll_log(){ "${ROLL_LOG:-echo}" "$@"; }
 # _roll_proc_engine <pid> — the realpath of a process's ENGINE_DIR, empty when unreadable.
-_roll_proc_engine(){ local e; e="$(proc_env "$1" ENGINE_DIR)"; [[ -n $e ]] && realpath -m "$e"; return 0; }
+_roll_proc_engine(){ local e; e="$(proc_env "$1" ENGINE_DIR)"; [[ -n $e ]] && real_posix_path "$e"; return 0; }
 # _roll_bug_claimed <run dir> <pid> — the pid holds a bug-lane claim.
 _roll_bug_claimed(){ local f; for f in "$1"/claims/bug-*.claim; do
     [[ -f $f && "$(awk '{print $2; exit}' "$f" 2>/dev/null)" == "$2" ]] && return 0; done; return 1; }
@@ -72,7 +72,7 @@ fleet_slot_reconcile(){
   local sd="$1" slot="$2" want run pf p s ed lockfd tracked="" adopt="" w line
   local cands=() held=() gone=()
   FSR_STOPPED=(); FSR_HELD=()
-  want="$(realpath -m "$3")"; run="$sd/run"; pf="$run/$slot.pid"
+  want="$(real_posix_path "$3")"; run="$sd/run"; pf="$run/$slot.pid"
   p="$(cat "$pf" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && kill -0 "$p" 2>/dev/null && tracked="$p"
   while read -r p s; do [[ -n $p && $s == "$slot" ]] && cands+=("$p"); done < <(fleet_untracked_workers "$sd")
   if (( ! ${#cands[@]} )); then [[ -n $tracked ]] && return 1; return 0; fi
@@ -121,7 +121,7 @@ _roll_clean_env(){ local v
 
 fleet_roll(){
   local sd="$1" want hb="$3" dry="${4:-0}" stop_only="${5:-0}" run pf pid ed lockfd killed=0 deferred=0 dead=0 victims=() keep=() line w
-  want="$(realpath -m "$2")"; run="$sd/run"
+  want="$(real_posix_path "$2")"; run="$sd/run"
   [[ -n ${ROLL_RESULT:-} ]] && echo "0 0 0" >"$ROLL_RESULT"
   shopt -s nullglob; local pids=("$run"/worker-*.pid); shopt -u nullglob
   # stopped on purpose — unless a worker no pid file names is still running (#647): that fleet is not stopped

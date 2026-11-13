@@ -92,7 +92,7 @@ echo "=== 4. fleet C (no binary configured), then the seams that must survive ==
 ( unset_inherited_config; export HARNESS_HOME="$ROOT/host" STATE_DIR="$A" ENGINE_DIR="$REAL"; source "$REAL/scripts/lib.sh" >/dev/null 2>&1
   source "$REAL/scripts/roll.sh"; fleet_roll "$C" "$REAL" "$STUB" 0 ) >/dev/null 2>&1
 assert_eq "$(loaded "$C" claude_bin)" "claude" "fleet C gets the engine default, not A's wrapper"
-assert_eq "$(got "$C" HARNESS_HOME)" "$ROOT/host" "HARNESS_HOME (a path seam) still reaches the start"
+assert_path_eq "$(got "$C" HARNESS_HOME)" "$ROOT/host" "HARNESS_HOME (a path seam) still reaches the start"   # #1105: C:/x on Windows (export_native_paths), the same place as /c/x
 : > "$LOG"; touch "$C/run/PAUSED"
 ( unset_inherited_config; export HARNESS_HOME="$ROOT/host" STATE_DIR="$A" ENGINE_DIR="$REAL"; source "$REAL/scripts/lib.sh" >/dev/null 2>&1
   source "$REAL/scripts/roll.sh"; fleet_roll "$C" "$REAL" "$STUB" 0 ) >/dev/null 2>&1
