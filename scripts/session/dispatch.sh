@@ -99,6 +99,10 @@ sess_resume_id(){ _sess_call resume_id "$@"; }
 sess_attach(){ _sess_call attach "$@"; }
 # sess_attach_hint <name> — the command an operator runs to watch <name>.
 sess_attach_hint(){ _sess_call attach_hint "$@"; }
+# sess_leaked_env [-u] — the Claude Code session variables (claude_session_env_names) the backend's shared
+# environment holds, one per line, which every lane would inherit (#1144: a tmux server's global environment);
+# with -u, also removed from it. Nothing when it holds none, or the backend has no shared environment.
+sess_leaked_env(){ _sess_call leaked_env "$@"; }
 # sess_describe <command> [args…] — <command> as the backend runs it, for a dry-run or action log:
 # a sess_* call reads as the backend's own command line, anything else as itself.
 sess_describe(){ local b; b="$(sess_backend)"

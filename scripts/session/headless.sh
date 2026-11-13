@@ -96,8 +96,11 @@ headless_sess_start(){ local name="$1" dir="$2" lane pid i; shift 2; local -a en
   printf '%s\n' "$dir" > "$lane/dir"; date +%s > "$lane/created"
   local kv; for kv in "${envs[@]}"; do [[ $kv == HARNESS_SESSION=?* ]] && printf '%s\n' "${kv#HARNESS_SESSION=}" > "$lane/session"; done
   local dp; dp="$(detach_prefix)"; [[ -n $dp ]] && set -- "$dp" "$@"
+  # #1144: the worker's own Claude Code session variables (CLAUDECODE, CLAUDE_CODE_CHILD_SESSION …) stay out of the runner
+  # and its CLI turns; the -e pairs come after the -u, so one a lane needs is still set.
+  local v; local -a drop=(); for v in $(claude_session_env_names); do drop+=(-u "$v"); done
   ( cd "$dir" 2>/dev/null || exit 1
-    exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" </dev/null >>"$lane/runner.log" 2>&1 ) &
+    exec env "${drop[@]}" "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" </dev/null >>"$lane/runner.log" 2>&1 ) &
   pid=$!; echo "$pid" > "$lane/pid"
   # The runner's first state: ~1 s on Linux; a native Python on a loaded Windows host takes tens of seconds (#606).
   local tries t0=$SECONDS; tries="$(_hl_start_tries)"
@@ -110,6 +113,8 @@ headless_sess_start(){ local name="$1" dir="$2" lane pid i; shift 2; local -a en
   echo "headless lane $name did not start: $(tail -n 3 "$lane/runner.log" 2>/dev/null | tr '\n' ' ')" >&2
   _hl_alive "$pid" && kill -KILL "$pid" 2>/dev/null
   return 1; }
+# A headless lane is a child of its worker: there is no shared environment between lanes to leak through (#1144).
+headless_sess_leaked_env(){ return 0; }
 headless_sess_send_line(){ _hl_send "$1" "$2"; }
 headless_sess_type(){ headless_sess_live "$1" || return 1; printf '%s' "$2" >> "$(headless_lane_dir "$1")/typed"; }
 # Enter submits what is typed as one message; on an empty input line it does nothing, as on a prompt.

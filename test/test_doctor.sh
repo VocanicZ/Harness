@@ -124,4 +124,39 @@ assert_ok "doctor_main's verdict line (not just the section header) mentions the
 DOCTOR_FIX=1 doctor_main >/dev/null   # clean up: prune it
 unset -f tmux
 
+echo "== #1144: doctor warns when the tmux server's global env holds the Claude Code session's variables =="
+# A server created from inside a Claude Code session carries CLAUDECODE / CLAUDE_CODE_CHILD_SESSION into every lane: no
+# transcript, no usage in session_end. Silent on a clean server and when no server runs; --fix unsets them.
+# A `tmux` function models the server's global environment (a file: one NAME=value per line); no real tmux.
+export HARNESS_SESSION_BACKEND=tmux
+rm -rf "$HARNESS_HOME"; export HARNESS_HOME="$(mktemp -d)"; export HARNESS_FLEETS_DIR="$HARNESS_HOME/fleets"; rm -f "$RUN_DIR"/*.pid
+GENV="$(mktemp)"; rm -f "$GENV"   # absent = no server running
+tmux(){ case "$1 $2" in
+  "show-environment -g") [[ -f $GENV ]] && cat "$GENV" || return 1 ;;
+  "set-environment -g") [[ -f $GENV && $3 == -u ]] && { grep -v "^$4=" "$GENV" > "$GENV.n"; mv "$GENV.n" "$GENV"; } ;;
+  *) return 1 ;; esac; }
+DOCTOR_FIX=0
+OUT="$(doctor_main 2>&1)"; rc=$?
+assert_eq "$rc" 0 "no tmux server running: doctor is healthy"
+assert_no "…and silent about the tmux server environment" contains 'set-environment' "$OUT"
+printf 'SOME_GLOBAL=keep\n-REMOVED_ONE\n' > "$GENV"
+OUT="$(doctor_main 2>&1)"; rc=$?
+assert_eq "$rc" 0 "a clean server: doctor is healthy"
+assert_no "…and silent" contains 'set-environment' "$OUT"
+printf 'CLAUDECODE=1\nCLAUDE_CODE_CHILD_SESSION=1\nCLAUDE_CODE_SESSION_ID=x\n' >> "$GENV"
+OUT="$(doctor_main 2>&1)"; rc=$?
+assert_eq "$rc" 1 "a leaked server: doctor reports a problem"
+assert_ok "…names CLAUDECODE" contains 'CLAUDECODE' "$OUT"
+assert_ok "…names CLAUDE_CODE_CHILD_SESSION" contains 'CLAUDE_CODE_CHILD_SESSION' "$OUT"
+assert_ok "…names CLAUDE_CODE_SESSION_ID" contains 'CLAUDE_CODE_SESSION_ID' "$OUT"
+assert_ok "…and the fix" contains 'tmux set-environment -g -u' "$OUT"
+assert_eq "$(grep -cE '^(CLAUDECODE|CLAUDE_CODE_)' "$GENV")" 3 "report mode leaves the server alone"
+OUT="$(doctor_main --fix 2>&1)"; rc=$?
+assert_eq "$rc" 0 "doctor --fix: done (exit 0)"
+assert_eq "$(grep -cE '^(CLAUDECODE|CLAUDE_CODE_)' "$GENV")" 0 "…the variables are gone from the server's global env"
+assert_eq "$(grep -c '^SOME_GLOBAL=keep$' "$GENV")" 1 "…and nothing else"
+DOCTOR_FIX=0; OUT="$(doctor_main 2>&1)"; rc=$?
+assert_eq "$rc" 0 "after --fix: healthy again"
+unset -f tmux; rm -f "$GENV"
+
 finish
