@@ -151,7 +151,7 @@ Everything is the `harness` command, in Git Bash (or `harness.cmd` from cmd and 
 
 Windows rules worth knowing. **Symlinks:** Harness makes real ones (`MSYS=winsymlinks:nativestrict`), which need Developer
 Mode or an administrator shell; `harness doctor` says which. **A directory cannot be renamed while a file inside it is open**,
-so stop the fleet and leave an engine folder before `harness update`. **Python:** the engine runs its own `python3` shim
+so stop the fleet and leave an engine folder before `harness update`. **Upgrading from v0.1.1** (the oldest Windows install, a git checkout): run `harness update` twice. The first runs v0.1.1's own `update.sh`, which can only fast-forward the checkout, and ends with `Run 'harness update' once more`; the second, run by the code the first pulled, moves the engine onto a release (`engine -> releases/vX`, your checkout kept as `releases/git-<sha>`). No install line is needed. **Python:** the engine runs its own `python3` shim
 (`$HARNESS_HOME/bin/python3`) in UTF-8 mode; the Microsoft Store stub is never used. **Paths:** `C:/x`, `/c/x` and `C:\x` all
 reach the same file, but a path handed to a native program's command line must be in the `C:/x` form. **Line endings:** the
 repo's `.gitattributes` keeps the engine LF; Harness sets `core.autocrlf=false` and `core.eol=lf` per repo, never globally.
@@ -327,7 +327,7 @@ logging winget stub and a `schtasks` wrapper that swallows `/Run` and `/End` (so
 per-home, but never started): `entry` (both install lines from Git Bash, the real network, `HARNESS_REF` pinned to a real
 release, then again, then a different pin), `real` (the real previous release to this branch's tree, served over `file://`
 with a `SHA256SUMS`: update, update again, rollback, forward, pin, uninstall), `tasks` (the same with the supervise and web
-tasks registered), `v011` (a v0.1.1 git checkout rebuilt inside the folder, updated, migrated, rolled back and forward),
+tasks registered), `v011` (a v0.1.1 git checkout rebuilt inside the folder, then `harness update` twice, the first printing that it must run again, the second leaving `engine -> releases/<tag>`; rolled back and forward),
 `gitco` and `gitdef` (a git-checkout engine migrated, with an explicit and with the default home), and `prune` (five releases
 leave three; a corrupted archive is refused). `harness doctor` runs after each state. The log is
 `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`.
