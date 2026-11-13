@@ -315,4 +315,31 @@ rm -rf "$G"
 assert "1095 usage says uninstall refuses inside .harness/ or while the fleet runs" \
   "\"$CLI\" help 2>&1 | grep -A2 'uninstall \[--force\]' | grep -qi 'refuses'"
 
+# #1118: --help/-h print the usage and exit 0 whatever else is given; an unknown argument is rc 2 + usage
+# on stderr; nothing is removed in any of these cases (--force would otherwise remove it all).
+for a in "--force --help" "--help --force --force-engine" "-h --force" "--help"; do
+  mk_guard
+  # shellcheck disable=SC2086
+  og="$(guard_run "$G/proj" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall $a)"; rcg=$?
+  assert "1118 'uninstall $a': rc 0 + usage" "[[ $rcg -eq 0 ]] && grep -q '^usage: harness uninstall' <<< \"\$og\""
+  assert "1118 'uninstall $a': nothing removed" "intact"
+  rm -rf "$G"
+done
+for a in "-x" "-" "--flag" "--force --flag" "--force-engine -x" "--force extra"; do
+  mk_guard
+  # shellcheck disable=SC2086
+  og="$(guard_run "$G/proj" HARNESS_UNINSTALL_WORKER_PIDS= -- uninstall $a)"; rcg=$?
+  bad="${a##* }"
+  assert "1118 'uninstall $a': rc 2" "[[ $rcg -eq 2 ]]"
+  assert "1118 'uninstall $a': names the option + usage" "grep -qF \"harness uninstall: unknown option '$bad'\" <<< \"\$og\" && grep -q '^usage: harness uninstall' <<< \"\$og\""
+  assert "1118 'uninstall $a': nothing removed" "intact"
+  rm -rf "$G"
+done
+# the usage goes to stderr for an error, stdout for --help
+mk_guard
+e="$(cd "$G/proj" && env -u STATE_DIR -u HARNESS_DIR -u ENGINE_DIR -u TMUX HOME="$G/hm" HARNESS_HOME="$G/.harness" HARNESS_BIN_DIR="$G/bin" HARNESS_USER_SKILLS="$G/.claude/skills" "$CLI" uninstall -x 2>&1 >/dev/null </dev/null)"
+o="$(cd "$G/proj" && env -u STATE_DIR -u HARNESS_DIR -u ENGINE_DIR -u TMUX HOME="$G/hm" HARNESS_HOME="$G/.harness" HARNESS_BIN_DIR="$G/bin" HARNESS_USER_SKILLS="$G/.claude/skills" "$CLI" uninstall --help 2>/dev/null </dev/null)"
+assert "1118 error usage on stderr, --help usage on stdout" "grep -q 'unknown option' <<< \"\$e\" && grep -q '^usage:' <<< \"\$o\""
+rm -rf "$G"
+
 echo "── uninstall ok"

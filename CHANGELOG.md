@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness uninstall` rejects what it does not know instead of ignoring it (#1118)
+
+- `harness uninstall --force --help` ran a full uninstall: the argument loop acted only on `--force` and `--force-engine` and dropped everything else, so `-x`, `-` and `--help` with no terminal printed "aborted" with no usage. Every argument is now read before anything is touched: `--help` / `-h` print the usage and exit 0 whatever else is given, and any other argument prints `harness uninstall: unknown option '<arg>'` and the usage on stderr and exits 2, removing nothing. `test_uninstall.sh` covers `--force --help`, `-x`, `-` and `--flag`.
+
 ### A POSIX-only test cell on Windows is a pass, not a nameless SKIP (#1117)
 
 - The winsma full suite printed six `SKIP (POSIX branch, no counterpart to run on a Windows host)` lines that named no parity-matrix row, against PRD #475's "every Windows skip names a row that is `n/a` on Windows". `skip_posix_branch` is now `posix_branch_off_windows`: on a real Windows host it asserts that the engine takes its Windows branch (`is_windows`, with no `HARNESS_PLATFORM` forcing it) and counts a pass; `test_portable.py` does the same. The only SKIP a Windows run prints is `windows_skip`'s, which names an `n/a` row, and `test_windows_skip.sh` checks both.

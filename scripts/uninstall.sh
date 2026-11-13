@@ -301,14 +301,36 @@ refuse_live_fleet(){
   return 0
 }
 
+uninstall_usage(){
+  cat <<'EOF'
+usage: harness uninstall [--force] [--force-engine]
+  Stop the fleet and remove the engine, this project's .harness/, and the /harness skills.
+  --force         skip the confirmation prompt and the fleet stop
+  --force-engine  remove the shared engine even if other fleets still depend on it
+  -h, --help      print this usage and exit; nothing is removed
+EOF
+}
+
 main(){
-  local force=0 force_engine=0 arg
+  local force=0 force_engine=0 arg bad=""
+  # #1118: parse EVERY argument before anything is touched. --help/-h wins over any other flag;
+  # an unknown argument is a usage error (rc 2), never silently ignored.
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help) uninstall_usage; exit 0 ;;
+    esac
+  done
   for arg in "$@"; do
     case "$arg" in
       --force)        force=1 ;;
       --force-engine) force_engine=1 ;;
+      *) [[ -n "$bad" ]] || bad="$arg" ;;
     esac
   done
+  if [[ -n "$bad" ]]; then
+    { echo "harness uninstall: unknown option '$bad'"; uninstall_usage; } >&2
+    exit 2
+  fi
   # #490: on Windows a running worker holds its scripts open, so removing the engine under another
   # fleet fails half way (or yanks it). --force-engine is refused there while one runs; nothing is touched.
   if (( force_engine )) && declare -F is_windows >/dev/null && is_windows && other_fleets_depend_on_engine; then
