@@ -222,6 +222,54 @@ assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "the checkout was recognised
 rm -f "$T/cwd/C:"
 }
 
+echo "=== a v0.1.1 git checkout: its own update.sh only pulls (#1116); it says to run harness update again, and that one migrates ==="
+# test/fixtures/update-v0.1.1.sh is v0.1.1's update.sh verbatim. On Windows it never recognises its own checkout (realpath spells
+# C:/x and /c/x differently), so it takes the `git pull --ff-only` path, sources the install.sh the pull brought, and ends with the
+# engine still a git checkout. The fake realpath below spells things the way that host does (verbatim), so ENGINE_DIR=<engine>/.
+# is never "the same" engine. The pull is a real one, from a local origin whose second commit is this tree's update.sh.
+skip_posix_branch "a fake realpath standing in for Windows' spellings" || {
+mkdir -p "$T/vrp"; printf '#!/usr/bin/env bash\na=(); for x in "$@"; do [[ $x == -* ]] || a+=("$x"); done; echo "${a[0]}"\n' > "$T/vrp/realpath"; chmod +x "$T/vrp/realpath"
+git_t(){ git -c user.name=t -c user.email=t@t "$@"; }
+oldco(){   # a checkout of an origin at "v0.1.1's update.sh", one commit behind this tree's
+  rm -rf "$T/orig.v011" "$H/engine"; mkdir -p "$T/orig.v011" "$H"
+  ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$T/orig.v011"
+  cp "$FIXTURE_ENGINE_SRC/update.sh" "$T/update.now"; cp "$FIXTURE_ENGINE_SRC/test/fixtures/update-v0.1.1.sh" "$T/orig.v011/update.sh"
+  git -C "$T/orig.v011" init -q . && git_t -C "$T/orig.v011" add -A >/dev/null 2>&1 && git_t -C "$T/orig.v011" commit -q -m v0.1.1 >/dev/null 2>&1
+  git clone -q "$T/orig.v011" "$H/engine" 2>/dev/null
+  cp "$T/update.now" "$T/orig.v011/update.sh"; git_t -C "$T/orig.v011" commit -q -am "the update.sh of this tree" >/dev/null 2>&1; }
+oldupd(){ env -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF ${PIN:+HARNESS_REF=$PIN} PATH="$T/vrp:$PATH" ENGINE_DIR="$H/engine/." HARNESS_HOME="$H" bash "$H/engine/update.sh" 2>&1; }
+oldco; rel_latest "$SRV" v0.2.0
+out="$(oldupd)"; rc=$?
+assert_eq "$rc" 0 "v0.1.1's own update exits 0"
+assert_ok "(setup) it pulled the new update.sh" grep -q HARNESS_UPDATE_MIGRATES "$H/engine/update.sh"
+assert_ok "(setup) … and ran its own, old one to the end" grep -qx 'Update complete.' <<<"$out"
+assert_no "the engine is still a git checkout, not a link" test -L "$H/engine"
+assert_ok "it says to run harness update once more, and what that does" grep -qF "Run 'harness update' once more" <<<"$out"
+assert_ok "… naming the release the engine moves onto" grep -qF 'engine -> releases/v0.2.0' <<<"$out"
+assert_eq "$(tail -n 2 <<<"$out" | head -n 1 | cut -c1-5)" NOTE: "… after 'Update complete.', as the last thing it prints"
+out="$(env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" update 2>&1)"; rc=$?
+assert_eq "$rc" 0 "the second harness update exits 0"
+assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "… and leaves engine -> releases/v0.2.0 (a real link)"
+assert_ok "the v0.1.1 checkout is kept as a release" bash -c "compgen -G \"$H/releases/git-*\" >/dev/null"
+assert_no "the second update does not tell it to run again" grep -qF "once more" <<<"$out"
+oldco; rel_latest "$SRV" ""
+out="$(oldupd)"; rc=$?
+assert_eq "$rc" 0 "nothing published: v0.1.1's update exits 0"
+assert_no "nothing published: there is no release to move onto, so no 'run it again'" grep -qF "once more" <<<"$out"
+oldco; rel_latest "$SRV" v0.2.0
+out="$(PIN=v0.3.0 oldupd)"
+assert_ok "a pinned HARNESS_REF names the pinned release" grep -qF 'engine -> releases/v0.3.0' <<<"$out"
+rel_latest "$SRV" v0.2.0
+# the current update.sh moves a checkout itself and never says it (its pull path, with nothing published, neither)
+oldco; cp "$T/update.now" "$H/engine/update.sh"; git_t -C "$H/engine" commit -q -am now >/dev/null 2>&1
+out="$(env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" update 2>&1)"
+assert_no "this tree's update.sh migrates in one go and prints no second-run note" grep -qF "once more" <<<"$out"
+oldco; cp "$T/update.now" "$H/engine/update.sh"; git_t -C "$H/engine" commit -q -am now >/dev/null 2>&1; rel_latest "$SRV" ""
+out="$(env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" update 2>&1)"
+assert_no "… and with nothing published, neither" grep -qF "once more" <<<"$out"
+rel_latest "$SRV" v0.2.0
+}
+
 echo "=== harness doctor: the installed, rolled-back and broken engine states ==="
 . "$R/scripts/lib.sh"; export HARNESS_PLATFORM=windows
 de(){ ( export HARNESS_HOME="$H" HARNESS_BIN_DIR="$HARNESS_BIN_DIR"; source "$R/scripts/doctor.sh"; doctor_engine_windows ) 2>&1; }

@@ -24,6 +24,8 @@
 # becomes the symlink. While nothing is published it keeps the `git pull --ff-only` path. Neither
 # path runs a destructive git op that could discard untracked/ignored files.
 set -uo pipefail
+# Marks this update.sh as the one that migrates a git-checkout engine itself (#1116): install.sh, sourced below, tells a run of an OLDER update.sh to run it again.
+HARNESS_UPDATE_MIGRATES=1
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # Windows (#356): Git Bash's `ln -s` copies by default — the engine link this flips must be a real one.
 # (install.sh, which this sources, sets the same; set here too so no link is ever made without it.)

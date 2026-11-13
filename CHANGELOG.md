@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness update` from a v0.1.1 install says to run itself again, and the second run migrates the engine (#1116)
+
+- On Windows, v0.1.1's own `update.sh` never recognises its git checkout (it compares `C:/x` with `/c/x`), so the logged run (`lifecycle-windows-20261112T114048Z.log`) ended with `engine now: not a link` and fell back to the install line. That script cannot be fixed from here, but the `install.sh` its pull brings is sourced by it, so the new `install.sh` now ends such a run with `NOTE: … Run 'harness update' once more` and the release the engine will move onto. The second `harness update` is run by the freshly pulled code and leaves `engine -> releases/<tag>`, the old checkout kept as `releases/git-<sha>`: two `harness update` commands, no install line. The current `update.sh` migrates in one go and never prints it.
+- `test/smoke/winsma/lifecycle.sh` stage `v011` now runs exactly that on winsma, and the Windows guide documents it. `test_windows_update.sh` replays v0.1.1's `update.sh` (`test/fixtures/update-v0.1.1.sh`) against a real pull.
+
 ### rtdd no longer selects the whole suite for a changelog edit
 
 - `CHANGELOG.md` is one node that most of the repo references, and most PRs append to it, so Round 2 picked all 254 test files for a 29-line fix (#1101). `.rtdd/config.yaml` now leaves `CHANGELOG.md`, `test/smoke/logs/**` and `bench/results/**` out of the scan: logs were counted as tests and bench transcripts as callers. #1101 measured 254 to 85 selected test files.

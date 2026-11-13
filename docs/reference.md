@@ -662,8 +662,10 @@ Windows check host (`winsma`) verifies each release; the [parity matrix](#window
   folder is inside the engine) the move fails with a message to `harness stop` and leave the folder. **A release older than
   the Windows lifecycle (#356, v0.1.1 and every release before it) copies instead of linking**, so after a rollback onto
   one `harness update --rollback` prints how to come forward again (`MSYS=winsymlinks:nativestrict harness update
-  --rollback`). Upgrading from a v0.1.1 git checkout: its own `harness update` fast-forwards the checkout to current code
-  (or fails if it is on a detached HEAD); the next `harness update`, or the install line, migrates it onto releases.
+  --rollback`). Upgrading from a v0.1.1 git checkout takes two `harness update` runs and no install line (#1116): v0.1.1's own `update.sh` cannot
+  recognise its checkout on Windows (it compares `C:/x` with `/c/x`), so the first run only fast-forwards the checkout to current code (or fails if it
+  is on a detached HEAD) and ends by printing `Run 'harness update' once more` with the release it will move onto; the second, run by the code the
+  first pulled, installs that release, moves the checkout aside to `releases/git-<sha>` and leaves `engine -> releases/<tag>`.
 - **`harness doctor`** adds a `windows:` section that checks the headless backend, that the shell and
   the tasks' `bash.exe` are Git's (`uname -s` MINGW/MSYS, not WSL), that a Python 3 runs, that a
   symlink can be made, that the engine is LF, and that `schtasks`, `powershell` and `taskkill` are

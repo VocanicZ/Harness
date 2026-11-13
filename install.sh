@@ -756,4 +756,23 @@ Done. Harness $INSTALLED_TAG is installed once at $HARNESS_HOME/engine and linke
 Next: cd into a project and run  harness init   (creates that project's .harness/ config + state).
 EOF
 }
+
+# An OLD update.sh pulled this file in (#1116). A git-checkout engine from before the Windows lifecycle (v0.1.1 is the oldest in
+# the field) cannot recognise itself there: its update.sh compares realpath spellings, C:/x against /c/x, never sees its own
+# checkout, and takes the `git pull --ff-only` path. That pull is what brought THIS install.sh, which that old update.sh now
+# sources and carries on with, so the engine is still a git checkout when it ends. The update.sh just pulled does migrate it,
+# so the old run's last words must say to run it once more. Registered as an EXIT trap so it prints after "Update complete."
+# The current update.sh sets HARNESS_UPDATE_MIGRATES before it sources this file: it handles a checkout itself, never says this.
+_second_update_note(){
+  local e="$HARNESS_HOME/engine" tag
+  [[ -d "$e" && ! -L "$e" && -e "$e/.git" ]] || return 0
+  if [[ -n "${HARNESS_REF:-}" ]]; then tag="$HARNESS_REF"; else tag="$(rel_latest_tag 2>/dev/null)" || return 0; fi
+  [[ -n "$tag" ]] || return 0
+  echo "NOTE: this Harness engine is still a git checkout; the update that just ran is the old one's and could not move it onto a release."
+  echo "      Run 'harness update' once more: the code it just pulled moves it onto release $tag (engine -> releases/$tag), keeping this checkout as releases/git-<sha>."
+}
+if [[ "${HARNESS_INSTALL_NOMAIN:-0}" == 1 && "${BASH_SOURCE[1]:-}" == *update.sh && -z "${HARNESS_UPDATE_MIGRATES:-}" \
+      && -z "$(trap -p EXIT)" ]]; then
+  trap '_second_update_note' EXIT
+fi
 [[ "${HARNESS_INSTALL_NOMAIN:-0}" == 1 ]] || main "$@"
