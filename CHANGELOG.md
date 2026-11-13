@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness attach` and `harness status` print config values and session names escaped (#1124)
+
+- With a form feed in `HARNESS_PREFIX`, `harness attach xx` printed `no live session 'p<FF>z-xx-p0'` with the raw control character, and a U+2028 split the line on screen. `attach` (its error, its session lists) and `status` (the `prefix:` line, session names, sibling fleets, bug refs, open PRs) now escape them as `harness stats` and `harness tier` do (#952, #1003): `\u000c` for a form feed, `\u2028` for U+2028, any other C0 or C1 control character, DEL and U+2029 as `\uXXXX`, a newline `\n`, a tab `\t`. The helper is `vis` in `scripts/lib.sh`; `test_attach_status_vis.sh` covers it.
+
 ### `harness attach` prints its "no live session" error on stderr (#1123)
 
 - `harness attach <name>` for a session that is not live wrote `no live session '…'` (and the list of near matches, and the several-orch-sessions list) to stdout, so `harness attach xx >/dev/null` showed nothing and `2>/dev/null` showed the error. They now go to stderr; the exit code is still 1. `test_headless_attach.sh` captures the two streams apart.

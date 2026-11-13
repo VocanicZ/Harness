@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 UNIT="${1:-}"; ISSUE="${2:-}"
 if [[ -z "$UNIT" ]]; then
   echo "live sessions:"
-  sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-" || echo "  (none)"
+  sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-" | vis_lines | grep . || echo "  (none)"
   echo "usage: attach.sh <unit> [issue]"
   exit 0
 fi
@@ -24,7 +24,7 @@ else
   if (( ${#_orch[@]} == 1 )); then
     sess="${_orch[0]}"
   elif (( ${#_orch[@]} > 1 )); then
-    { echo "several orch sessions are live for $UNIT:"; printf '  %s\n' "${_orch[@]}"; } >&2
+    { echo "several orch sessions are live for $(vis "$UNIT"):"; printf '%s\n' "${_orch[@]}" | vis_lines | sed 's/^/  /'; } >&2
     die "name one explicitly: harness attach <session>"
   else
     sess="$(sess_orch "$UNIT")"
@@ -32,8 +32,9 @@ else
 fi
 session_live "$sess" || {
   # An error: stderr, so `harness attach xx >/dev/null` still shows it and `2>/dev/null` hides it (#1123).
-  { echo "no live session '$sess'"
-    sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-${UNIT}" || true; } >&2
+  # The session name and the list carry config values (HARNESS_PREFIX), so they print escaped (#1124).
+  { echo "no live session '$(vis "$sess")'"
+    sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-${UNIT}" | vis_lines || true; } >&2
   exit 1
 }
 sess_attach "$sess"

@@ -201,6 +201,31 @@ ensure_safe(){ local d="$1" s n
   n=$(( _SAFE_BASE + ${#_SAFE_DIRS[@]} ))
   export "GIT_CONFIG_KEY_$n=safe.directory" "GIT_CONFIG_VALUE_$n=$d" "GIT_CONFIG_COUNT=$(( n + 1 ))"
   _SAFE_DIRS+=("$d"); return 0; }
+# vis STR — STR for a one-line message (#1124), spelled as bin/harness vis_arg does (#952): a newline is \n, a tab \t, any
+# other C0 or C1 control character, DEL, U+2028 and U+2029 become \uXXXX, so a config value or session name never splits a
+# line or reaches the terminal raw. Byte-level under LC_ALL=C, so no locale matters. An empty STR prints nothing.
+vis(){
+  local LC_ALL=C s="$1" out="" i=0 n c d e v
+  n=${#s}
+  while (( i < n )); do
+    c="${s:i:1}"; printf -v v '%d' "'$c"
+    if (( v == 10 )); then c='\n'
+    elif (( v == 9 )); then c='\t'
+    elif (( v < 32 || v == 127 )); then printf -v c '\\u%04x' "$v"
+    elif (( v == 194 && i + 1 < n )); then
+      d="${s:i+1:1}"; printf -v e '%d' "'$d"
+      if (( e >= 128 && e <= 159 )); then printf -v c '\\u%04x' "$e"; i=$((i+1)); fi
+    elif (( v == 226 && i + 2 < n )); then
+      d="${s:i+1:2}"
+      if [[ "$d" == $'\x80\xa8' ]]; then c='\u2028'; i=$((i+2))
+      elif [[ "$d" == $'\x80\xa9' ]]; then c='\u2029'; i=$((i+2)); fi
+    fi
+    out+="$c"; i=$((i+1))
+  done
+  printf '%s' "$out"
+}
+# vis_lines — filter: each stdin line through vis (#1124).
+vis_lines(){ local _l; while IFS= read -r _l; do printf '%s\n' "$(vis "$_l")"; done; }
 # run_worktree_hook <dir> — run HARNESS_WORKTREE_HOOK inside a freshly added worktree.
 # `git worktree add` produces a BARE checkout of the tracked tree: submodules are empty dirs
 # (worktree add never inits them), and anything the main checkout carries untracked — toolchain
