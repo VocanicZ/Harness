@@ -1,0 +1,89 @@
+15:09:19Z == fleet smoke | cli=hermes | Hermes Agent v0.22.5 (2026.9.24) · stable · local bf0203a794a0 | 2026-11-13T15:09:19Z
+15:09:19Z == host posix | Linux 7.0.0-3-pve x86_64 | bash 5.2.37(1)-release | python3 3.13.5
+15:09:19Z == session backend headless | checkpoint+resume off
+15:09:19Z == engine harness v0.13.3-3-gfc3e80c-dirty (dev checkout) | repo VocanicZ/harness-smoke-hermes | prefix smokehermes
+15:09:22Z == harness init
+   roles (hermes): manager <CLI default>/<CLI default>, implementer <CLI default>/<CLI default>
+   wrote /tmp/hzt-3292263374/harness-smoke-hermes.Y8Mzm7/harness-smoke-hermes/.harness/config
+   seeded the harness labels on VocanicZ/harness-smoke-hermes
+   : "${HARNESS_CLI:=hermes}"
+   : "${HARNESS_MODE:=issue-only}"
+   : "${HARNESS_OWNER:=VocanicZ}"
+   : "${HARNESS_REPO:=VocanicZ/harness-smoke-hermes}"
+   : "${HARNESS_UNIT:=harness-smoke-hermes}"
+   : "${HARNESS_SPEC:=}"
+   : "${HARNESS_AUTONOMOUS:=true}"
+   : "${HARNESS_SESS_PREFIX:=smokehermes}"
+   : "${HARNESS_POOL:=1}"
+   : "${HARNESS_POLL:=30}"
+   : "${HARNESS_PRIORITY_POLL:=60}"
+   : "${HARNESS_LABEL_READY:=ready-for-agent}"
+   : "${HARNESS_LABEL_PRD:=prd}"
+   : "${HARNESS_LABEL_WORKING:=agent-working}"
+   : "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+   : "${HARNESS_LABEL_REVIEWED:=reviewed}"
+   : "${HARNESS_LABEL_COORD:=coordination}"
+   : "${HARNESS_LABEL_PAUSED:=agent-paused}"
+   : "${HARNESS_LABEL_BUG:=bug}"
+   : "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+   : "${HARNESS_LABEL_HITL:=hitl}"
+   : "${HARNESS_LABEL_WAITING_WINSMA:=waiting-winsma}"
+   : "${HARNESS_AUTHOR_ALLOWLIST:=}"
+   : "${HARNESS_SECURITY_AUDIT:=0}"
+   : "${HARNESS_MODEL_MANAGER:=}"
+   : "${HARNESS_EFFORT_MANAGER:=}"
+   : "${HARNESS_MODEL_IMPLEMENTER:=}"
+   : "${HARNESS_EFFORT_IMPLEMENTER:=}"
+   : "${HARNESS_USE_POLLER:=0}"
+   : "${HARNESS_SESSION_BACKEND:=headless}"
+   : "${HARNESS_SWARM:=off}"
+   : "${HARNESS_USAGE_CHECKPOINT_PCT:=101}"
+15:09:31Z == harness setup
+   ── Harness setup (mode=issue-only cli=hermes) ──
+     ok      hermes binary (hermes)
+     ok      hermes skill handoff (/home/claude/.hermes/skills/handoff)
+     ok      hermes skill rtdd (/home/claude/.hermes/skills/rtdd)
+     ok      hermes skill subagent-task-tree (/home/claude/.hermes/skills/subagent-task-tree)
+     ok      hermes skill to-issues (/home/claude/.hermes/skills/to-issues)
+     ok      hermes skill to-prd (/home/claude/.hermes/skills/to-prd)
+     ok      hermes skill writing-plans (/home/claude/.hermes/skills/writing-plans)
+     ✓ rtdd skill installed
+     seeding labels for unit 'harness-smoke-hermes' (VocanicZ/harness-smoke-hermes)
+   ── setup done: verified prereqs + seeded 1 unit(s). Start the fleet: harness/start.sh ──
+15:09:46Z filed PRD #24 and issue #25
+15:09:46Z == harness start
+   Starting Harness delivery fleet — pool of 1 workers (one lane each) + 1 priority bug lane:
+   Launching 1 pool worker(s) (one lane each, poll=30s):
+     worker-1: started (pid 144693) — log /tmp/hzt-3292263374/harness-smoke-hermes.Y8Mzm7/harness-smoke-hermes/.harness/run/worker-1.log
+   Launching the priority bug lane (one lane, poll=60s):
+     priority: started (pid 145163) — log /tmp/hzt-3292263374/harness-smoke-hermes.Y8Mzm7/harness-smoke-hermes/.harness/run/priority.log
+   
+   Monitor:  harness/status.sh          Watch a unit: harness/attach.sh <unit> [issue]
+   Stop all: harness/stop.sh
+15:09:49Z issue=OPEN labels=ready-for-agent sessions=none prs=#23 MERGED,#20 MERGED,#17 MERGED,#14 MERGED,#11 MERGED,#6 MERGED,#3 MERGED
+15:10:21Z issue=OPEN labels=agent-working,ready-for-agent sessions=none prs=#23 MERGED,#20 MERGED,#17 MERGED,#14 MERGED,#11 MERGED,#6 MERGED,#3 MERGED
+15:10:53Z issue=OPEN labels=agent-working,ready-for-agent sessions=smokehermes-harness-smoke-hermes-i25 prs=#23 MERGED,#20 MERGED,#17 MERGED,#14 MERGED,#11 MERGED,#6 MERGED,#3 MERGED
+15:11:36Z issue=CLOSED labels=agent-working,ready-for-agent sessions=smokehermes-harness-smoke-hermes-i25 prs=#26 MERGED,#23 MERGED,#20 MERGED,#17 MERGED,#14 MERGED,#11 MERGED,#6 MERGED,#3 MERGED
+15:12:07Z fleet sessions after close: none (ended by the fleet)
+15:12:08Z issue #25 CLOSED
+15:12:08Z merged PR: #26 feat: add smoke/20261113T150912Z.txt (closes #25) https://github.com/VocanicZ/harness-smoke-hermes/pull/26 merged 2026-11-13T15:11:16Z
+15:12:10Z smoke/20261113T150912Z.txt on the default branch: hello from hermes
+   issue #25: 1 session(s)
+     2026-11-13T15:10:24Z  launch  kind=impl model=gpt-4.1 effort=medium
+     2026-11-13T15:11:46Z  goal_satisfied  kind=impl model=gpt-4.1 effort=medium
+     2026-11-13T15:11:50Z  reap  kind=impl reason=session_gone
+     2026-11-13T15:11:51Z  merged  kind=impl
+     2026-11-13T15:11:57Z  session_end  kind=impl model=gpt-4.1 effort=medium wall_s=93  gpt-4.1: out 293 in 20,140 cache_create 0 cache_read 148,096
+     rtdd  -
+     time  coding 0m00s  testing 0m00s
+15:12:11Z == lane token usage
+   token usage: lane smokehermes-harness-smoke-hermes-i25 gpt-4.1: in 20140 out 293 cache_read 148096 cache_write 0
+15:12:11Z == teardown
+   Stopping pool workers:
+     killed priority (pid 145163)
+     killed worker-1 (pid 144693)
+   Killing agent worker sessions:
+   Removing worktrees:
+   Stopped.
+15:12:19Z closed leftover issue #24
+15:12:20Z == result: PASS | log: /home/claude/harness-dev/.harness/worktrees/harness-i1114/test/smoke/logs/hermes-headless-20261113T150912Z.log

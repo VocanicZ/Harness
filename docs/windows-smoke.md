@@ -440,7 +440,7 @@ above (lock, isolation, guard before and after, credential scan, cleanup; every 
 | `supervise --install`, a killed worker restarted by the supervisor, `supervise --uninstall` | `e2e.sh` stage `supervise` | `test/smoke/logs/e2e-windows-20261112T094302Z.log` |
 | the dashboard (foreground and its task), `stats`, `forecast`, `one`, `status`, `poll`, `migrate`, `tier`, `release --dry-run`; `plan`, `prd` and `issue` | `e2e.sh` stages `ops`, `inject` | `test/smoke/logs/e2e-windows-20261112T094302Z.log` |
 | the fixture-replay `headless-*` rows of every CLI, on Windows | `suite.sh` with `HX_TESTS="test_cli_matrix.sh"` | `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log` |
-| the other CLIs, live and headless, on the claude host | `fleet_smoke.sh <cli>` with `SMOKE_BACKEND=headless`; `codex_headless_smoke.sh` | `test/smoke/logs/<cli>-headless-20261108T*.log` |
+| the other CLIs, live and headless, on the claude host | `fleet_smoke.sh <cli>` with `SMOKE_BACKEND=headless`; `codex_headless_smoke.sh` | `test/smoke/logs/<cli>-headless-20261108T*.log`; re-run at v0.13.3 with each lane's token usage logged (`test/smoke/lane_usage.sh`), copilot, opencode, hermes, openclaw and agy: `test/smoke/logs/<cli>-headless-20261113T150912Z.log` |
 
 Three things those runs showed that the guide above would not tell you:
 

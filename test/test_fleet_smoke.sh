@@ -129,6 +129,8 @@ assert_eq "$(ls -d "$D"/harness-smoke-codex.* 2>/dev/null | wc -l)" 0 "teardown 
 assert_ok "the sandbox was seeded with a test command" bash -c "git -C '$D/seed' pull -q origin main 2>/dev/null; test -x '$D/seed/test/run.sh' && grep -q '^\.harness/$' '$D/seed/.gitignore'"
 assert_ok "the fleet's own session end is waited for and logged" grep -qF 'fleet sessions after close: none (ended by the fleet)' "$OUT"
 assert_ok "the result line says PASS" grep -qE '== result: PASS' "$OUT"
+assert_ok "the log's engine line carries the engine's version, read before the sandbox exists (#1114)" grep -qE '^[0-9:]+Z == engine harness test \|' "$OUT"
+assert_ok "a tmux run says its lane usage is not read" grep -qF 'token usage: not read (tmux lanes' "$OUT"
 
 echo "── a timeout: still torn down, exits 1"
 setup_stubs 0
@@ -184,6 +186,8 @@ assert_ok "the handoff comment is found" grep -qF 'handoff comment posted on #2'
 assert_ok "the resume is logged" grep -qF '== resume: harness resume' "$OUT"
 assert_ok "the task opens with a wait, so the lane is still mid-task at the checkpoint" grep -qF 'First run `sleep 240`' "$D/state/body.2"
 assert_ok "the result line says PASS" grep -qE '== result: PASS' "$OUT"
+assert_ok "the log has a lane token usage section (#1114)" grep -qF '== lane token usage' "$OUT"
+assert_ok "...naming the lane, even when it holds no usage" grep -qF 'token usage: lane smokeclaude-main-i2: none found for the CLI' "$OUT"
 kill_lanes
 
 echo "── headless: a checkpoint that never confirms fails the run"
@@ -307,6 +311,20 @@ assert_ok "it shows the resume" grep -qF '== resume: harness resume' "${WREC:-/d
 assert_ok "it shows the resumed lane carrying on its session" grep -qF 'carries on agent session' "${WREC:-/dev/null}"
 assert_ok "it shows the issue closed through a merged PR" grep -qE 'merged PR: #[0-9]+ .*merged 20[0-9]{2}-' "${WREC:-/dev/null}"
 assert_ok "it passed" grep -qE '== result: PASS' "${WREC:-/dev/null}"
+
+echo "── lane_usage.sh: a headless lane's token usage, from the CLI's own record (#1114)"
+LU="$HERE/smoke/lane_usage.sh"; LR="$D/lane-usage"; mkdir -p "$LR/smokeopenclaw-x-i7" "$LR/smokeopenclaw-x-i8" "$LR/smokeopenclaw-x-i9"
+printf '{"state":"ended","session_id":"s-1","cwd":"/gone/wt"}' > "$LR/smokeopenclaw-x-i7/state.json"
+printf '%s\n' '{"type":"harness","subtype":"turn_start"}' \
+  '{"ok":true,"final":"done","usage":{"input":2,"output":8,"cacheRead":58349,"cacheWrite":302},"model":"claude-haiku-5-5","provider":"claude-cli"}' \
+  '{"ok":true,"final":"again","usage":{"input":3,"output":4,"cacheRead":10,"cacheWrite":0},"model":"claude-haiku-5-5","provider":"claude-cli"}' > "$LR/smokeopenclaw-x-i7/events.jsonl"
+printf '{"state":"ended","session_id":"s-2","cwd":"/gone/wt"}' > "$LR/smokeopenclaw-x-i8/state.json"; : > "$LR/smokeopenclaw-x-i8/events.jsonl"
+lu(){ HARNESS_CLI=openclaw HARNESS_SESSION_BACKEND=headless HARNESS_HEADLESS_DIR="$LR" bash "$LU" openclaw smokeopenclaw "$1" 2>&1; }
+assert_eq "$(lu 7)" "token usage: lane smokeopenclaw-x-i7 claude-cli/claude-haiku-5-5: in 5 out 12 cache_read 58359 cache_write 302" \
+  "a lane's turns are summed per model from its envelopes"
+assert_eq "$(lu 8)" "token usage: lane smokeopenclaw-x-i8: none found for the CLI's session s-2" "a lane with no usage says so, naming the session"
+assert_eq "$(lu 6)" "token usage: no lane directory for issue #6 under $LR" "an issue with no lane says so"
+assert_eq "$(lu 7 | grep -c .)" 1 "one line per model"
 
 echo "── test/run.sh never runs it"
 assert_ok "the smoke script exists under test/smoke/" test -f "$SMOKE"

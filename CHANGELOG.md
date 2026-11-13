@@ -8,6 +8,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - `CHANGELOG.md` is one node that most of the repo references, and most PRs append to it, so Round 2 picked all 254 test files for a 29-line fix (#1101). `.rtdd/config.yaml` now leaves `CHANGELOG.md`, `test/smoke/logs/**` and `bench/results/**` out of the scan: logs were counted as tests and bench transcripts as callers. #1101 measured 254 to 85 selected test files.
 
+### The other CLIs' live headless smokes re-run at current main, each log with the lane's token usage (#1114)
+
+- copilot, opencode, hermes, openclaw and agy each ran a real fleet session on the claude host (claim, headless lane, PR, merge, close) at v0.13.3, after the runner-core changes of 11-09 to 11-12 that the 11-08 logs predate: `test/smoke/logs/<cli>-headless-20261113T150912Z.log`, all PASS (opencode with its checkpoint and resume).
+- `fleet_smoke.sh` now ends a headless run with a `== lane token usage` section, one `token usage: lane <name> <model>: in … out … cache_read … cache_write …` line per model (`test/smoke/lane_usage.sh`). `harness stats` showed usage only for copilot and hermes: a headless opencode, agy or openclaw lane's `session_end` carries none, because its stats sweep does not find the CLI's own record. The new section reads it from the CLI's store through the adapter, by the session id in the lane's `state.json` (openclaw: its lane events).
+- The smoke log's `== engine` line was empty since `harness --state-dir` began to require an existing directory: it reads the version without it again.
+- Still open: the codex live smoke. The account's usage limit resets 2026-11-18 15:21 UTC, so the run with a real turn is filed as #1145.
+
 ### `harness-wait set --limit --until` refuses a `--deadline-s` that ends before `--until` (#1100)
 
 - A lane on #1035 parked itself until the weekly reset with `--limit --until <reset> --deadline-s <small>`. The deadline resumes a lane like any condition, so the spec expired about 20 seconds later, the engine consumed it, and the lane sat idle with no wait spec at all (three times in nine hours); nothing would have woken it at the reset.
