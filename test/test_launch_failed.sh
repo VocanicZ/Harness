@@ -50,7 +50,16 @@ assert_eq "$(sed -n 1p "$FAKE_LOG")" "TMUX=unset PANE=unset" "…and new-session
 assert_eq "$(sed -n 2p "$FAKE_LOG")" "has-session TMUX=unset" "…and so did the has-session that confirms it"
 out="$( export TMUX="$T/gone-dir/default,4242,0" TMUX_PANE=%0; source "$ROOT/scripts/session/tmux.sh"; tmux_env_sanitize; echo "${TMUX-unset}/${TMUX_PANE-unset}" )"
 assert_eq "$out" "unset/unset" "tmux_env_sanitize drops a TMUX whose socket is gone"
-mkdir -p "$T/live"; python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$T/live/default"
+mkdir -p "$T/live"
+# mk_unix_socket <path> — a socket file that bash's -S sees. python's bind does it on POSIX. A native Windows python binds a
+# Windows AF_UNIX socket there, which Git Bash may not know as a socket (#1110): ssh-agent, an MSYS program, makes the kind it does.
+mk_unix_socket(){ local p="$1" out
+  python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$p" 2>/dev/null; [[ -S $p ]] && return 0
+  rm -f "$p"; command -v ssh-agent >/dev/null 2>&1 || return 1
+  out="$(ssh-agent -a "$p" 2>/dev/null)"; AGENT_PID="$(sed -n 's/.*SSH_AGENT_PID=\([0-9][0-9]*\).*/\1/p' <<<"$out" | head -1)"
+  [[ -S $p ]]; }
+trap '[[ ${AGENT_PID:-} =~ ^[0-9]+$ ]] && (( AGENT_PID > 1 )) && kill "$AGENT_PID" 2>/dev/null; rm -rf "$T"' EXIT
+mk_unix_socket "$T/live/default"
 out="$( export TMUX="$T/live/default,1,0"; source "$ROOT/scripts/session/tmux.sh"; tmux_env_sanitize; echo "${TMUX-unset}" )"
 assert_eq "$out" "$T/live/default,1,0" "…and keeps a TMUX whose socket exists"
 
