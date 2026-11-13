@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness update` rejects arguments it does not know (#1119)
+
+- `update.sh` used to ignore every argument it did not recognise: `harness update --help` ran an update (a real `git pull --ff-only` from a dev checkout) and `harness update --rollback -x` rolled back. `-h` and `--help` now print the usage and exit 0 with nothing changed, and an unknown or dash-led argument (`-x`, `-`, `--flag`) is a usage error on stderr, exit 2, before anything is touched. `test_update_args.sh` covers each case.
+
 ### A POSIX-only test cell on Windows is a pass, not a nameless SKIP (#1117)
 
 - The winsma full suite printed six `SKIP (POSIX branch, no counterpart to run on a Windows host)` lines that named no parity-matrix row, against PRD #475's "every Windows skip names a row that is `n/a` on Windows". `skip_posix_branch` is now `posix_branch_off_windows`: on a real Windows host it asserts that the engine takes its Windows branch (`is_windows`, with no `HARNESS_PLATFORM` forcing it) and counts a pass; `test_portable.py` does the same. The only SKIP a Windows run prints is `windows_skip`'s, which names an `n/a` row, and `test_windows_skip.sh` checks both.
