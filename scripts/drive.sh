@@ -359,6 +359,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
 prebuilt_take(){ local issue="$1" wd="$2" branch="$3" base="$4" f; f="$(prebuilt_file "$UNIT" "$issue")"
   [[ -e "$f" ]] || return 1
   prebuilt_building "$UNIT" "$issue" && return 1   # its builder is mid-add: not ours to touch (the add below then fails, as for any busy issue)
+  ensure_safe "$wd"   # #1115: this process did not build it, and the old global entry is gone
   if prebuilt_ready "$UNIT" "$issue" && [[ -e "$wd/.git" && "$(git -C "$wd" symbolic-ref --short -q HEAD 2>/dev/null)" == "$branch" ]]; then
     rm -f "$f"
     # the branch was cut from origin/<base> when it was built: bring it to today's, nothing is on it

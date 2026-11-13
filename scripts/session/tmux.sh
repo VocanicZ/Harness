@@ -43,7 +43,7 @@ tmux_sess_leaked_env(){ local line n rc=0
 tmux_sess_start(){ local v unset_args=(-u TMUX) rc
   if declare -F tmux >/dev/null; then tmux new-session -d -s "$1" -c "$2" "${@:3}"; rc=$?
   else
-    for v in STATE_DIR RTDD_EVENT_LOG $(compgen -e HARNESS_) $(claude_session_env_names); do unset_args+=(-u "$v"); done
+    for v in STATE_DIR RTDD_EVENT_LOG $(compgen -e HARNESS_) $(claude_session_env_names) $(compgen -e | grep -E "^GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+)$"); do unset_args+=(-u "$v"); done   # #1115: a lane gets its git config by -e, the server none
     tmux_sess_leaked_env -u >/dev/null
     env "${unset_args[@]}" tmux new-session -d -s "$1" -c "$2" "${@:3}"; rc=$?
   fi

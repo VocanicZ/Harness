@@ -289,7 +289,7 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   (`winsma.sh turn <prd>`) removes it when the ticket is next and the lock is free; the PRD is then re-dispatched once as
   `REVIEW:<prd>`, which reads the comments and runs the Windows suite.
 - **Isolation.** Everything runs in `C:\hx-<issue>\`. `harness`'s own state (`HARNESS_HOME`, `HARNESS_BIN_DIR`,
-  `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache`, `GIT_CONFIG_GLOBAL` (a fleet's `ensure_safe` writes `safe.directory` entries to the global git config, which must not be `~/.gitconfig`) and the clone live under it. Install, update and uninstall
+  `HARNESS_USER_SKILLS`), `TMPDIR`, `npm_config_cache`, `GIT_CONFIG_GLOBAL` (the run's own global git config, so the run never reads or touches `~/.gitconfig`; a fleet writes no `safe.directory` entry there since #1115) and the clone live under it. Install, update and uninstall
   runs also set `CLAUDE_CONFIG_DIR`; the full suite also sets `HOME` and `USERPROFILE` to `C:\hx-<issue>\home`.
   Python packages go into a venv under the folder, never into the shared `python`. Tasks the run creates are
   registered logon-only (never a boot trigger) and recorded in `tasks`; processes it starts are recorded in `pids`.
