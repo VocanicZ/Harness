@@ -161,7 +161,7 @@ assert_no "the copy of update.sh it ran from is gone" compgen -G "$TMPDIR/harnes
 fresh; mkdir -p "$H/engine"; ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$H/engine"
 ( cd "$H/engine" && git init -q . && git -c user.name=t -c user.email=t@t add -A >/dev/null 2>&1 && git -c user.name=t -c user.email=t@t commit -q -m engine >/dev/null 2>&1 )
 # (a real Windows host cannot run update.sh in place from the checkout it moves: that is the rule the section above is about)
-if ! skip_posix_branch "update.sh run in place from the git checkout it migrates"; then
+if ! posix_branch_off_windows "update.sh run in place from the git checkout it migrates"; then
 out="$(HARNESS_PLATFORM=posix env -u ENGINE_DIR -u STATE_DIR -u HARNESS_ENGINE_LINK -u HARNESS_REF bash "$H/engine/bin/harness" update 2>&1)"; rc=$?
 assert_eq "$rc" 0 "Linux: the same update exits 0"
 assert_eq "$(readlink "$H/engine")" releases/v0.2.0 "Linux: engine is a link too"
@@ -194,7 +194,7 @@ assert_no "… and is not a loop waiting on a timeout" test "$rc" = 124
 assert_no "its baked interpreter is not the shim" grep -qF "p=\"\${HARNESS_PYTHON:-$H/bin/python3}\"" "$H/bin/python3"
 
 echo "=== bin/harness takes the engine link when HARNESS_HOME is spelled C:/x and ENGINE_DIR is /c/x ==="
-skip_posix_branch "C:-spelled fakes of realpath/cygpath (a real Windows host has the real spellings)" || {
+posix_branch_off_windows "C:-spelled fakes of realpath/cygpath (a real Windows host has the real spellings)" || {
 # Windows' realpath keeps the spelling it is given; the fakes do the same (realpath of C:<abs> is C:<resolved>, cygpath -u drops the drive).
 fresh; rel_install_at "$SRV" v0.1.0; mkdir -p "$T/winfake"
 cat >"$T/winfake/realpath" <<'EOF'
@@ -211,7 +211,7 @@ assert_eq "$out" "$(realpath "$H/engine")" "another home's link is never taken (
 }
 
 echo "=== a git-checkout engine migrates when bin/harness hands update.sh a C:/ ENGINE_DIR and HOME-derived paths are /c/ ==="
-skip_posix_branch "C:-spelled fakes of realpath/cygpath" || {
+posix_branch_off_windows "C:-spelled fakes of realpath/cygpath" || {
 fresh; mkdir -p "$H/engine" "$T/cwd"; ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$H/engine"
 ( cd "$H/engine" && git init -q . && git -c user.name=t -c user.email=t@t add -A >/dev/null 2>&1 && git -c user.name=t -c user.email=t@t commit -q -m engine >/dev/null 2>&1 )
 rel_latest "$SRV" v0.2.0

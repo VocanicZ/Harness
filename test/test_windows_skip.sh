@@ -107,4 +107,24 @@ printf '#!/bin/sh\necho MINGW64_NT-10.0-19045\n' >"$T/uname"; chmod +x "$T/uname
 assert_ok "host_is_windows: an unforced MINGW uname" env -u HARNESS_PLATFORM PATH="$T:$PATH" bash -c "source '$HERE/helpers.sh'; host_is_windows"
 printf '#!/bin/sh\necho Linux\n' >"$T/uname"
 assert_no "host_is_windows: an unforced Linux uname" env -u HARNESS_PLATFORM PATH="$T:$PATH" bash -c "source '$HERE/helpers.sh'; host_is_windows"
+# --- posix_branch_off_windows (#1117): a POSIX-only cell is asserted off-Windows, never a SKIP -----------------------------------
+# PRD #475: every Windows skip names an n/a matrix row. A POSIX-only branch (flock, fcntl, procps) has no such row: on a real Windows
+# host it is a PASS (the engine takes its Windows branch), counted in TESTS_RUN, and prints no SKIP. A fake MINGW uname is a real Windows host.
+printf '#!/bin/sh\necho MINGW64_NT-10.0-19045\n' >"$T/uname"
+pb(){ local u="$1"; shift; env -u HARNESS_PLATFORM ${u:+PATH="$u:$PATH"} HARNESS_PLATFORM="$1" bash -c '
+  source "$1"; posix_branch_off_windows "a flock cell"; echo "rc=$? run=$TESTS_RUN fail=$TESTS_FAIL"' _ "$HERE/helpers.sh"; }
+out="$(pb "$T" windows)"
+assert_eq "$(tail1 "$out")" "rc=0 run=1 fail=0" "posix_branch_off_windows on a real Windows host: handled (status 0), one assertion, no failure"
+assert_no "… prints no SKIP" grep -q SKIP <<<"$out"
+assert_ok "… and says the POSIX branch is not used, as an ok" grep -qF "ok: the POSIX branch is not used on a Windows host (a flock cell)" <<<"$out"
+out="$(pb "$T" posix)"   # the cell forces HARNESS_PLATFORM=posix, as the tests do; the assertion must not read it
+assert_eq "$(tail1 "$out")" "rc=0 run=1 fail=0" "… with HARNESS_PLATFORM=posix forced by the test, still passes (the check unsets it)"
+printf '#!/bin/sh\necho Linux\n' >"$T/uname"
+out="$(pb "$T" posix)"
+assert_eq "$(tail1 "$out")" "rc=1 run=0 fail=0" "posix_branch_off_windows on Linux: not handled (status 1), nothing asserted — the POSIX cells run"
+assert_eq "$(sed '$d' <<<"$out")" "" "… and prints nothing"
+# no test prints the old nameless SKIP, and the old helper name is gone
+leaks="$(grep -lE 'POSIX branch, no counterpart|skip_posix_branch' "$HERE"/test_*.sh "$HERE"/test_*.py "$HERE/helpers.sh" 2>/dev/null | grep -v '/test_windows_skip.sh$')"
+assert_eq "$leaks" "" "no test prints a SKIP that names no n/a matrix row for a POSIX branch (#1117)"
+assert_no "test_portable.py prints no SKIP for a POSIX branch" grep -qE 'print\(" +SKIP' "$HERE/test_portable.py"
 finish

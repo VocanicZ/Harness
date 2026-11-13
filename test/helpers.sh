@@ -46,14 +46,20 @@ native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cy
 # a test that forces HARNESS_PLATFORM=posix on Linux still has flock and fcntl; one that does it on winsma does not (#607).
 real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
 
-# skip_posix_branch <what> — for a cell that exercises the POSIX implementation of a primitive (flock, fcntl, a fd inherited
+# posix_branch_off_windows <what> — for a cell that exercises the POSIX implementation of a primitive (flock, fcntl, a fd inherited
 # by a child, procps `ps -o`) forced with HARNESS_PLATFORM=posix. On a real Windows host that implementation cannot run
 # (Git Bash has no flock, Python no fcntl), and the Windows branch of the same primitive is asserted by the file's own
-# [windows] cells, which run on every OS (#607). Prints SKIP and returns 0 there, returns 1 anywhere else: write
-#   skip_posix_branch "flock fd inheritance" || { …the POSIX cells… }
+# [windows] cells, which run on every OS (#607). So there the cell is not skipped but ASSERTED (#1117): the POSIX branch is not
+# the one the engine takes on this host (scripts/portable.sh's is_windows, with no HARNESS_PLATFORM forcing it, is true). That is a
+# pass, printed `ok:`, and no SKIP line: the only SKIP a Windows run may print is windows_skip's, which names an n/a matrix row.
+# Returns 0 on a real Windows host (the POSIX cells are not run), 1 anywhere else. Write
+#   posix_branch_off_windows "flock fd inheritance" || { …the POSIX cells… }
 # It is not a way out of a Windows cell: the Windows branch is never skipped (windows_skip, on an n/a matrix row, is the
 # only skip of a feature).
-skip_posix_branch(){ real_windows_host || return 1; echo "  SKIP (POSIX branch, no counterpart to run on a Windows host): ${1:-}"; return 0; }
+posix_branch_off_windows(){ real_windows_host || return 1
+  assert_ok "the POSIX branch is not used on a Windows host (${1:-}): the engine takes its Windows branch here" \
+    env -u HARNESS_PLATFORM bash -c "source \"\$1\"; is_windows" _ "$(dirname "${BASH_SOURCE[0]}")/../scripts/portable.sh"
+  return 0; }
 # any_spelling <path> — an ERE group matching <path> in both spellings a Windows host prints it in (/c/x and C:/x); on Linux the path itself.
 # The engine echoes HARNESS_HOME / unit lines in the native spelling while a test builds its fixtures in the MSYS one (#608).
 any_spelling(){ local n; n="$(native_path "$1")"; if [[ $n == "$1" ]]; then printf '%s' "$1"; else printf '(%s|%s)' "$1" "$n"; fi; }

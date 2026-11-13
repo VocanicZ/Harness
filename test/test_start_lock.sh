@@ -49,7 +49,7 @@ lock_held_now(){ ! lock_free "$1"; }
 
 # --- BUGGY pattern (child inherits fd 9): lock stays held after parent exits ---------------------
 # A POSIX mechanism: only a flock fd is inherited by a child. A Windows lock is owned by a pid, so nothing leaks.
-if ! skip_posix_branch "a child inheriting the flock fd 9"; then
+if ! posix_branch_off_windows "a child inheriting the flock fd 9"; then
   PIDF_BUG="$(mktemp)"; tmp_track "$PIDF_BUG"; run_pattern inherit "$PIDF_BUG" "$LOCK_BUG"
   assert_ok "leaked-fd pattern: lock is HELD by the live worker after start exits (documents the bug)" lock_held_now "$LOCK_BUG"
   kill "$(cat "$PIDF_BUG")" 2>/dev/null

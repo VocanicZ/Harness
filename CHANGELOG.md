@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A POSIX-only test cell on Windows is a pass, not a nameless SKIP (#1117)
+
+- The winsma full suite printed six `SKIP (POSIX branch, no counterpart to run on a Windows host)` lines that named no parity-matrix row, against PRD #475's "every Windows skip names a row that is `n/a` on Windows". `skip_posix_branch` is now `posix_branch_off_windows`: on a real Windows host it asserts that the engine takes its Windows branch (`is_windows`, with no `HARNESS_PLATFORM` forcing it) and counts a pass; `test_portable.py` does the same. The only SKIP a Windows run prints is `windows_skip`'s, which names an `n/a` row, and `test_windows_skip.sh` checks both.
+
 ### rtdd no longer selects the whole suite for a changelog edit
 
 - `CHANGELOG.md` is one node that most of the repo references, and most PRs append to it, so Round 2 picked all 254 test files for a 29-line fix (#1101). `.rtdd/config.yaml` now leaves `CHANGELOG.md`, `test/smoke/logs/**` and `bench/results/**` out of the scan: logs were counted as tests and bench transcripts as callers. #1101 measured 254 to 85 selected test files.
