@@ -12,6 +12,12 @@ scan_exclude:
   - "build/**"
   - ".rtdd/**"
   - "graphify-out/**"
+  # Every PR appends to the changelog, and the whole file is one node most of the repo references:
+  # scanning it put all 254 test files in Round 2 for a 29-line fix (#1101). Logs and bench
+  # transcripts are records, not tests or callers.
+  - "CHANGELOG.md"
+  - "test/smoke/logs/**"
+  - "bench/results/**"
 
 # Files read for their file node and the paths they name, never for definitions.
 definition_exclude:
