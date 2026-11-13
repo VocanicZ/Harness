@@ -13,7 +13,7 @@ source "$HERE/../scripts/drive.sh"
 source "$HERE/helpers.sh"
 make_env
 export RUN_DIR HARNESS_STATE_DIR_OK=1 HARNESS_REPO=acme/widget HARNESS_OWNER=acme
-export GIT_CONFIG_GLOBAL="$RUN_DIR/gitconfig"; : > "$GIT_CONFIG_GLOBAL"   # ensure_safe writes here, not ~
+export GIT_CONFIG_GLOBAL="$RUN_DIR/gitconfig"; : > "$GIT_CONFIG_GLOBAL"   # the test's own git config, not ~
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$STATE_DIR"; : > "$STATE_DIR/config"
 ONE=(bash "$HERE/../scripts/one.sh")

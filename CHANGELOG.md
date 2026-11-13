@@ -27,6 +27,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - The smoke log's `== engine` line was empty since `harness --state-dir` began to require an existing directory: it reads the version without it again.
 - Still open: the codex live smoke. The account's usage limit resets 2026-11-18 15:21 UTC, so the run with a real turn is filed as #1145.
 
+### Harness no longer writes `safe.directory` entries to the user's global git config (#1115)
+
+- `ensure_safe` ran `git config --global --add safe.directory <dir>` for every checkout and lane worktree. The entries piled up in `~/.gitconfig` without limit and `harness uninstall` never removed them, against PRD #475 ("never `--global` or `--system`").
+- `ensure_safe` now adds the directory to the process's `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` environment, after any entries the user's own environment already carries, and each lane's session is given its checkout and worktree the same way. The user's git config is never written, so there is nothing for uninstall to remove. `test/test_safe_directory.sh` asserts a lane launch leaves a temp `GIT_CONFIG_GLOBAL` unchanged.
+- Entries a previous release already wrote to `~/.gitconfig` stay; remove them with `git config --global --unset-all safe.directory` if you no longer want them.
+
 ### `harness-wait set --limit --until` refuses a `--deadline-s` that ends before `--until` (#1100)
 
 - A lane on #1035 parked itself until the weekly reset with `--limit --until <reset> --deadline-s <small>`. The deadline resumes a lane like any condition, so the spec expired about 20 seconds later, the engine consumed it, and the lane sat idle with no wait spec at all (three times in nine hours); nothing would have woken it at the reset.

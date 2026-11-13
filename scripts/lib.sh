@@ -189,7 +189,18 @@ roots_check(){ [[ "$_ROOTS_WATCH" == 1 ]] || return 0
   roots_gone || return 0
   log "root $_ROOT_GONE is gone — nothing left to serve, exiting"; exit 0; }
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-ensure_safe(){ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" || git config --global --add safe.directory "$1"; }
+# ensure_safe <dir> — #1115: mark <dir> a safe.directory for THIS process and what it starts, never the user's git
+# config (PRD #475: no --global/--system write, nothing left for uninstall). git honours safe.directory from the
+# command-line scope, which GIT_CONFIG_COUNT/KEY_n/VALUE_n feed: the entry is appended to those variables, after the
+# user's own (_SAFE_BASE = the count found on the first call), once per dir. A lane gets its own via lane_safe_env.
+declare -ga _SAFE_DIRS=()
+ensure_safe(){ local d="$1" s n
+  [[ -n "$d" ]] || return 0
+  for s in "${_SAFE_DIRS[@]}"; do [[ "$s" == "$d" ]] && return 0; done
+  [[ "${_SAFE_BASE:-}" =~ ^[0-9]+$ ]] || { _SAFE_BASE=0; [[ "${GIT_CONFIG_COUNT:-}" =~ ^[0-9]+$ ]] && _SAFE_BASE="$GIT_CONFIG_COUNT"; }
+  n=$(( _SAFE_BASE + ${#_SAFE_DIRS[@]} ))
+  export "GIT_CONFIG_KEY_$n=safe.directory" "GIT_CONFIG_VALUE_$n=$d" "GIT_CONFIG_COUNT=$(( n + 1 ))"
+  _SAFE_DIRS+=("$d"); return 0; }
 # run_worktree_hook <dir> — run HARNESS_WORKTREE_HOOK inside a freshly added worktree.
 # `git worktree add` produces a BARE checkout of the tracked tree: submodules are empty dirs
 # (worktree add never inits them), and anything the main checkout carries untracked — toolchain
@@ -1938,6 +1949,21 @@ lane_tmp_env(){ local d; d="$(lane_tmpdir "$1")"; mkdir -p "$d" 2>/dev/null || r
   SESSION_ENV+=(-e "TMPDIR=$d"); return 0; }
 # The entry is in MSYS form (posix_path, #605): ENGINE_DIR is C:/… on Windows (export_native_paths), and a `C:/x` entry in a
 # colon-separated PATH splits into `C` and `/x`, so the lane would never find lane-bin.
+# lane_safe_env <wd> — append to SESSION_ENV the git config a lane needs to use its checkout and worktree (#1115): the
+# user's own GIT_CONFIG_* entries (this process's first _SAFE_BASE) plus safe.directory for $CHECKOUT and <wd>. The
+# lane's launcher may not be the process that made the worktree (a pre-built one), so it never relies on _SAFE_DIRS.
+lane_safe_env(){ local wd="$1" base=0 i n d names=() k v
+  [[ "${_SAFE_BASE:-}" =~ ^[0-9]+$ ]] && base="$_SAFE_BASE"
+  [[ -z "${_SAFE_BASE:-}" && "${GIT_CONFIG_COUNT:-}" =~ ^[0-9]+$ ]] && base="$GIT_CONFIG_COUNT"
+  for (( i = 0; i < base; i++ )); do k="GIT_CONFIG_KEY_$i"; v="GIT_CONFIG_VALUE_$i"
+    SESSION_ENV+=(-e "$k=${!k-}" -e "$v=${!v-}"); names+=("$k" "$v"); done
+  n=$base
+  for d in "${CHECKOUT:-}" "$wd"; do [[ -n "$d" ]] || continue
+    SESSION_ENV+=(-e "GIT_CONFIG_KEY_$n=safe.directory" -e "GIT_CONFIG_VALUE_$n=$d")
+    names+=("GIT_CONFIG_KEY_$n" "GIT_CONFIG_VALUE_$n"); n=$(( n + 1 )); done
+  SESSION_ENV+=(-e "GIT_CONFIG_COUNT=$n"); names+=(GIT_CONFIG_COUNT)
+  for d in "${names[@]}"; do [[ " ${LANE_ENV_NAMES[*]} " == *" $d "* ]] || LANE_ENV_NAMES+=("$d"); done   # hermes passthrough
+  return 0; }
 lane_guard_env(){ [[ -d "$ENGINE_DIR/scripts/lane-bin" ]] || return 0
   SESSION_ENV+=(-e "PATH=$(posix_path "$ENGINE_DIR")/scripts/lane-bin:$PATH"); [[ -v HARNESS_COAUTHOR ]] && SESSION_ENV+=(-e "HARNESS_COAUTHOR=$HARNESS_COAUTHOR"); return 0; }
 # task_context <issue> <issue-json> <worktree> [base-branch] — the blocks a lane's .harness-task.md carries so the lane
@@ -2001,7 +2027,8 @@ launch_agent(){ local sess="$1" wd="$2" uuid resume=""
   if [[ -n "${uuid:-}" ]]; then resume=1; log "session $sess carries on agent session $uuid"
   else uuid="$(new_uuid)"; fi
   write_state "$wd" "${PROMISE:-}" "${MAXITER:-}" "$uuid"
-  session_env "$uuid"; lane_guard_env "$wd"; lane_tmp_env "$wd"; wait_env "$sess"
+  ensure_safe "${CHECKOUT:-}"; ensure_safe "$wd"   # #1115: a pool restarted since the worktree was made has no entry in its env
+  session_env "$uuid"; lane_guard_env "$wd"; lane_tmp_env "$wd"; lane_safe_env "$wd"; wait_env "$sess"
   local model effort line line_me
   if [[ "$(sess_backend)" != tmux ]]; then _launch_headless "$sess" "$wd" "$uuid" "$resume" || { launch_fail "$sess" "$uuid" start_failed; return 1; }
   else

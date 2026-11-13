@@ -69,7 +69,8 @@ for cli in claude agy; do
   done
   assert_ok "$cli: tmux new-session sets -e HARNESS_COAUTHOR (#642)" grep -qxF -- "HARNESS_COAUTHOR=$HARNESS_COAUTHOR" "$NEWSESS"
   assert_ok "$cli: tmux new-session puts scripts/lane-bin first on PATH (#642)" grep -qF -- "PATH=$ENGINE_DIR/scripts/lane-bin:" "$NEWSESS"
-  want=11; [[ $cli == claude ]] && want=12   # #1066: HARNESS_WAIT_FILE; #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #642: lane-bin PATH + HARNESS_COAUTHOR
+  assert_ok "$cli: tmux new-session sets the worktree's safe.directory by -e (#1115)" grep -qxF -- "GIT_CONFIG_VALUE_0=$WT" "$NEWSESS"
+  want=14; [[ $cli == claude ]] && want=15   # #1115: GIT_CONFIG_COUNT + the worktree's safe.directory KEY/VALUE (no CHECKOUT here); #1066: HARNESS_WAIT_FILE; #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #642: lane-bin PATH + HARNESS_COAUTHOR
   assert_eq "$(grep -cx -- -e "$NEWSESS")" "$want" "$cli: exactly the rtdd env, the lane's TMPDIR (#610), the lane-bin PATH and trailer (#642) and the CLI's own lane env, nothing else"
   assert_eq "$(ev 1 "e['session']")" "$FIXTURE_SID" "$cli: the launch event's session is the HARNESS_SESSION rtdd joins on"
   rm -f "$RUN_DIR/hz-$cli-i7.stats"
