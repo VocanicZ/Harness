@@ -157,6 +157,9 @@ assert_ok "the checkout was moved aside as a release, uncommitted edit and all" 
 assert_ok "it counts as a release for --rollback" grep -qx "git-$sha" "$H/releases/.installed"
 assert_ok "the update says it migrated" grep -qF "migrated the git-checkout engine to $H/releases/git-$sha" <<<"$out"
 assert_no "the copy of update.sh it ran from is gone" compgen -G "$TMPDIR/harness-update.*"
+# #1104: the copy's "delete $0" marker (HARNESS_UPDATE_COPY) must not reach the release the update hands off to, or that release's
+# own update.sh deletes itself and no later `harness update` or --rollback of the host can run.
+assert_ok "the release's own update.sh survives the hand-off" test -f "$H/releases/v0.2.0/update.sh"
 # …and the copy is only for Windows: elsewhere update.sh runs in place (nothing to rename around).
 fresh; mkdir -p "$H/engine"; ( cd "$FIXTURE_ENGINE_SRC" && tar -cf - bin scripts prompts skill plugins install.sh update.sh ) | tar -xf - -C "$H/engine"
 ( cd "$H/engine" && git init -q . && git -c user.name=t -c user.email=t@t add -A >/dev/null 2>&1 && git -c user.name=t -c user.email=t@t commit -q -m engine >/dev/null 2>&1 )
