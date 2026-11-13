@@ -1,0 +1,1287 @@
+[15:18:27] run: #1107 on winsma, mode suite: export HX_BRANCH=issue/1107 HX_TESTS='test_cli_matrix.sh test_cli_codex.sh test_cli_hermes.sh test_cli_readme.sh test_headless_usage_stats.sh' HX_VERBOSE=1 HARNESS_MATRIX_TIMING=1 HARNESS_TEST_TIMEOUT=2400
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[15:19:03] lock: hx-lock taken by #1107 (hzhn-harness-i1107)
+[15:19:25] guard: before recorded
+[15:20:25] credentials: before scan recorded
+[15:20:25] exec: export HX_BRANCH=issue/1107 HX_TESTS='test_cli_matrix.sh test_cli_codex.sh test_cli_hermes.sh test_cli_readme.sh test_headless_usage_stats.sh' HX_VERBOSE=1 HARNESS_MATRIX_TIMING=1 HARNESS_TEST_TIMEOUT=2400
+# suite.sh — the full test suite, test/run.sh, on a real Windows host (#492, PRD #475 Solution 6).
+# NOT run by test/run.sh: it is the script `winsma.sh run <issue> suite "$(cat suite.sh)"` sends to the host, where it runs in
+# Git Bash inside C:\hx-<issue>\ (cwd = $HX_DIR) in the `suite` isolation: HARNESS_HOME, HARNESS_BIN_DIR, HARNESS_USER_SKILLS,
+# CLAUDE_CONFIG_DIR, TMPDIR, npm_config_cache AND HOME / USERPROFILE (= $HX_DIR\home) all live under the run folder, so no
+# install or uninstall test can reach C:\Users\pc. See docs/windows-smoke.md. Environment (set by the caller, all optional):
+#   HX_BRANCH            the branch under test (default issue/493); it must be pushed, the host clones it
+#   HX_TESTS             space-separated test files in test/ to run instead of the whole suite (#493: the headless twins)
+#   HARNESS_TEST_TIMEOUT per-test wall-clock cap in seconds, handed to run.sh (default 600)
+#   HX_VERBOSE           1 = also print the whole of run.sh's output (every assertion line, the tail of a TIMEOUT), prefixed `| `: how a lane reads
+#                        why a red file is red when the FAIL lines alone do not say (#605)
+#   HX_STRICT            1 = exit with run.sh's own status (default: exit 0 once run.sh has COMPLETED, so the guard, the
+#                        scan and the cleanup of `winsma.sh run` still count; the red files are in the log's summary)
+# Prints `== run.sh: N/M test files passed ==` and one `FAILED: <file>` per red test file, then `SUITE-RESULT <n> failed`.
+# Compare those lines with the same commit on Linux (`bash test/run.sh`): the failures Linux does not have are the Windows ones.
+set -u
+say(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+BRANCH="${HX_BRANCH:-issue/493}"
+say "== host: $(uname -srm) | bash $BASH_VERSION | HOME=$HOME | USERPROFILE=${USERPROFILE:-} | TMPDIR=${TMPDIR:-}"
+case "$(uname -s)" in MINGW*|MSYS*) ;; *) say "FAIL not Git Bash (uname -s must start with MINGW or MSYS)"; exit 1;; esac
+# The run folder must hold HOME: a suite that can reach the real home is the one thing this stage must never be.
+case "$(cygpath -u "${HOME:-/nonexistent}")" in "$(cygpath -u "$HX_DIR")"/*) ;; *) say "FAIL HOME ($HOME) is not under $HX_DIR: not the suite isolation"; exit 1;; esac
+export TMPDIR="$(cygpath -u "$TMPDIR")"
+say "== clone $BRANCH"
+git clone -q --branch "$BRANCH" https://github.com/VocanicZ/Harness.git src || { say "FAIL clone failed"; exit 1; }
+say "src at $(git -C src rev-parse --short HEAD)"
+# python3 is the Microsoft Store stub on winsma, and the `python` on PATH is another user's: a venv under the run folder,
+# with python.exe also named python3.exe, first on PATH (setuptools is the only thing pip-installed; the rest of the suite needs only the standard library).
+say "== venv"
+python -m venv "$(cygpath -w "$HX_DIR/venv")" || { say "FAIL python -m venv failed"; exit 1; }
+VB="$HX_DIR/venv/Scripts"; cp "$VB/python.exe" "$VB/python3.exe" || { say "FAIL no venv python.exe"; exit 1; }
+export PATH="$(cygpath -u "$VB"):$PATH"
+# bench/grade.py builds the fixture with `pip install --no-build-isolation --no-index`, which needs setuptools in the interpreter
+# itself; a venv made by Python 3.12+ has none, and the grader then silently falls back to PYTHONPATH (#609). The one package
+# the suite installs: the Linux hosts have it system-wide.
+python -m pip install --quiet --disable-pip-version-check setuptools >/dev/null 2>&1 || say "WARN setuptools not installed: test_bench_fixture.sh builds by PYTHONPATH"
+# jq: the tests' fake `gh` run gh's own `-q` filters through it (gauntlet, security_audit, handoff, headless usage), and winsma
+# has none (#686). The release's own sha256 pins the download; a failure is a WARN, the tests that need jq then say so.
+JQ_VER=1.8.1; JQ_SHA=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334
+mkdir -p "$HX_DIR/jqbin"
+if curl -fsSL --retry 5 --retry-all-errors --retry-delay 4 -o "$HX_DIR/jqbin/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VER/jq-windows-amd64.exe" \
+   && [[ "$(sha256sum "$HX_DIR/jqbin/jq.exe" | cut -d' ' -f1)" == "$JQ_SHA" ]]; then
+  export PATH="$(cygpath -u "$HX_DIR/jqbin"):$PATH"; say "jq = $(command -v jq): $(jq --version 2>&1)"
+else rm -f "$HX_DIR/jqbin/jq.exe"; say "WARN jq $JQ_VER not downloaded: the tests that run a gh -q filter through jq fail"; fi
+# What the engine's python3 shim does (install.sh, #406): Python in UTF-8 mode, or stdio and open() are cp1252 and every
+# test that prints or reads a non-ASCII character fails for that alone. This venv python is not the shim, so say it here.
+export PYTHONUTF8=1
+# …and its LF stdio (#609): a native Windows Python writes "\n" as CRLF, which every fake `gh` written in Python, every
+# `$(python3 …)` and every rendered prompt would carry. The shim puts the pylf sitecustomize on PYTHONPATH; so does this stage.
+( HARNESS_INSTALL_NOMAIN=1 source src/install.sh && python_lf_dir "$HX_DIR/pylf" ) || { say "FAIL no pylf sitecustomize"; exit 1; }
+export PYTHONPATH="$(cygpath -w "$HX_DIR/pylf")"
+say "python3 = $(command -v python3): $(python3 --version 2>&1)"
+# The suite makes real git commits and its fixtures need an identity: env vars, never a config file.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-hx-suite}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-hx-suite@example.invalid}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export HARNESS_TEST_TIMEOUT="${HARNESS_TEST_TIMEOUT:-600}"
+say "######## test/run.sh (per-test cap ${HARNESS_TEST_TIMEOUT}s)"
+start=$SECONDS
+( cd src && bash test/run.sh ${HX_TESTS:-} ) </dev/null > "$HX_DIR/suite.out" 2>&1; rc=$?
+say "run.sh finished rc=$rc after $(( SECONDS - start ))s"
+# Tests leak processes that hold this ssh session's stdout open (see src/test/smoke/winsma/reap.ps1): without this the run
+# never returns to the claude host. Only processes under this run's folder that are not ours are ended.
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HX_DIR/src/test/smoke/winsma/reap.ps1")" -Me "$(cat /proc/$$/winpid)" -Issue "$HX_ISSUE" 2>&1 | tr -d '\r' | sed 's/^/  reap: /'
+# What a reader needs: every red assertion with its file, then the summary run.sh ends with.
+awk '/^== test_.*\.(sh|py) ==$/ { f=$2 } /^  FAIL:|^FAIL:|Traceback|^TIMEOUT:/ { print "  [" f "] " $0 }' "$HX_DIR/suite.out"
+[[ "${HX_VERBOSE:-0}" == 1 ]] && { echo "######## full run.sh output"; tr -d '\r' < "$HX_DIR/suite.out" | sed 's/^/| /'; echo "######## end of run.sh output"; }
+sed -n '/^== run.sh: /,$p' "$HX_DIR/suite.out"
+if ! grep -q '^== run.sh: ' "$HX_DIR/suite.out"; then say "FAIL run.sh did not complete (no summary line); last output:"; tail -n 25 "$HX_DIR/suite.out"; exit 1; fi
+n="$(grep -c '^FAILED: ' "$HX_DIR/suite.out")"
+echo "SUITE-RESULT $n failed"
+[[ "${HX_STRICT:-0}" == 1 ]] && exit "$rc"
+exit 0
+[15:20:31] == host: MINGW64_NT-10.0-19045 3.6.10-5a1665c8.x86_64 x86_64 | bash 5.3.15(2)-release | HOME=C:/hx-1107/home | USERPROFILE=C:\hx-1107\home | TMPDIR=C:/hx-1107/tmp
+[15:20:32] == clone issue/1107
+[15:20:46] src at 3a2a95d
+[15:20:46] == venv
+[15:21:59] jq = /c/hx-1107/jqbin/jq: jq-1.8.1
+[15:22:04] python3 = /c/hx-1107/venv/Scripts/python3: Python 3.13.5
+[15:22:04] ######## test/run.sh (per-test cap 2400s)
+[20:07:41] run.sh finished rc=1 after 17136s
+  [test_cli_matrix.sh]   FAIL: claude: supervisor-skips-trust-dialog — expected success from: frozen_ok trust
+  [test_cli_readme.sh]   FAIL: README lists exactly the CLIs whose matrix column is green — want [agy
+######## full run.sh output
+| == matrix cells: every CLI (computed once for the files that read them) ==
+| matrix-timing agy fixtures-recorded 0s
+| matrix-timing agy launch-bootstrap-prompt 0s
+| matrix-timing agy launch-no-task-text 1s
+| matrix-timing agy launch-model 0s
+| matrix-timing agy launch-effort-once 1s
+| matrix-timing agy launch-role-model 66s
+| matrix-timing agy session-id 36s
+| matrix-timing agy idle-is-prompt 2s
+| matrix-timing agy idle-is-not-busy 1s
+| matrix-timing agy busy-is-busy 2s
+| matrix-timing agy trust-dialog-is-not-prompt 2s
+| matrix-timing agy transient-stalls 3s
+| matrix-timing agy idle-never-stalls 3s
+| matrix-timing agy busy-never-stalls 2s
+| matrix-timing agy limit-parks 4s
+| matrix-timing agy transient-is-not-limit 4s
+| matrix-timing agy trust-pre-accepted 9s
+| matrix-timing agy bypass-covers-subagents 26s
+| matrix-timing agy done-signal 1s
+| matrix-timing agy loop-mode 11s
+| matrix-timing agy transcripts-found 0s
+| matrix-timing agy usage-from-transcript 0s
+| matrix-timing agy stats-launch-model-effort 29s
+| matrix-timing agy stats-session-end-usage 9s
+| matrix-timing agy usage-windows 7s
+| matrix-timing agy checkpoint-skill 90s
+| matrix-timing agy handoff-skill-installed 258s
+| matrix-timing agy prompt-skills-installed 244s
+| matrix-timing agy operator-skills 203s
+| matrix-timing agy pause-force-resume-other-host 148s
+| matrix-timing agy send-and-kill 1s
+| matrix-timing agy inject-sessions 102s
+| matrix-timing agy bug-lane-triage-fix 92s
+| matrix-timing agy review-gauntlet 43s
+| matrix-timing agy supervisor-frozen-session 236s
+| matrix-timing agy supervisor-skips-trust-dialog 316s
+| matrix-timing agy rtdd-event-context 29s
+| matrix-timing agy prereqs-named 20s
+| matrix-timing agy init-wizard-choice 13s
+| matrix-timing agy headless-launch 56s
+| matrix-timing agy headless-send 75s
+| matrix-timing agy headless-busy-idle 77s
+| matrix-timing agy headless-limit-parks 138s
+| matrix-timing agy headless-transient-stalls 124s
+| matrix-timing agy headless-loop-mode 116s
+| matrix-timing agy headless-interrupt 73s
+| matrix-timing agy headless-checkpoint 125s
+| matrix-timing agy headless-resume 171s
+| matrix-timing agy headless-supervisor-frozen-session 283s
+| matrix-timing agy headless-usage-windows 60s
+| matrix-timing agy headless-stats-session-end-usage 150s
+| matrix-timing agy headless-stop 110s
+| matrix-timing agy headless-sweep-detached-jobs 4s
+| matrix-timing claude fixtures-recorded 0s
+| matrix-timing claude launch-bootstrap-prompt 1s
+| matrix-timing claude launch-no-task-text 0s
+| matrix-timing claude launch-model 0s
+| matrix-timing claude launch-effort-once 3s
+| matrix-timing claude launch-role-model 118s
+| matrix-timing claude session-id 53s
+| matrix-timing claude idle-is-prompt 2s
+| matrix-timing claude idle-is-not-busy 1s
+| matrix-timing claude busy-is-busy 1s
+| matrix-timing claude trust-dialog-is-not-prompt 0s
+| matrix-timing claude transient-stalls 3s
+| matrix-timing claude idle-never-stalls 3s
+| matrix-timing claude busy-never-stalls 2s
+| matrix-timing claude limit-parks 2s
+| matrix-timing claude transient-is-not-limit 2s
+| matrix-timing claude trust-pre-accepted 12s
+| matrix-timing claude bypass-covers-subagents 67s
+| matrix-timing claude done-signal 1s
+| matrix-timing claude loop-mode 29s
+| matrix-timing claude transcripts-found 0s
+| matrix-timing claude usage-from-transcript 0s
+| matrix-timing claude stats-launch-model-effort 62s
+| matrix-timing claude stats-session-end-usage 11s
+| matrix-timing claude usage-windows 5s
+| matrix-timing claude checkpoint-skill 115s
+| matrix-timing claude handoff-skill-installed 214s
+| matrix-timing claude prompt-skills-installed 265s
+| matrix-timing claude operator-skills 197s
+| matrix-timing claude pause-force-resume-other-host 158s
+| matrix-timing claude send-and-kill 2s
+| matrix-timing claude inject-sessions 161s
+| matrix-timing claude bug-lane-triage-fix 138s
+| matrix-timing claude review-gauntlet 72s
+| matrix-timing claude supervisor-frozen-session 53s
+| matrix-timing claude supervisor-skips-trust-dialog 354s
+| matrix-timing claude rtdd-event-context 47s
+| matrix-timing claude prereqs-named 26s
+| matrix-timing claude init-wizard-choice 16s
+| matrix-timing claude headless-launch 4862s
+| matrix-timing claude headless-send 144s
+| matrix-timing claude headless-busy-idle 133s
+| matrix-timing claude headless-limit-parks 196s
+| matrix-timing claude headless-transient-stalls 213s
+| matrix-timing claude headless-loop-mode 148s
+| matrix-timing claude headless-interrupt 156s
+| matrix-timing claude headless-checkpoint 130s
+| matrix-timing claude headless-resume 209s
+| matrix-timing claude headless-supervisor-frozen-session 235s
+| matrix-timing claude headless-usage-windows 60s
+| matrix-timing claude headless-stats-session-end-usage 122s
+| matrix-timing claude headless-stop 83s
+| matrix-timing claude headless-sweep-detached-jobs 2s
+| matrix-timing codex fixtures-recorded 0s
+| matrix-timing codex launch-bootstrap-prompt 0s
+| matrix-timing codex launch-no-task-text 1s
+| matrix-timing codex launch-model 0s
+| matrix-timing codex launch-effort-once 2s
+| matrix-timing codex launch-role-model 67s
+| matrix-timing codex session-id 37s
+| matrix-timing codex idle-is-prompt 2s
+| matrix-timing codex idle-is-not-busy 1s
+| matrix-timing codex busy-is-busy 2s
+| matrix-timing codex trust-dialog-is-not-prompt 3s
+| matrix-timing codex transient-stalls 2s
+| matrix-timing codex idle-never-stalls 3s
+| matrix-timing codex busy-never-stalls 3s
+| matrix-timing codex limit-parks 4s
+| matrix-timing codex transient-is-not-limit 3s
+| matrix-timing codex trust-pre-accepted 10s
+| matrix-timing codex bypass-covers-subagents 27s
+| matrix-timing codex done-signal 0s
+| matrix-timing codex loop-mode 8s
+| matrix-timing codex transcripts-found 0s
+| matrix-timing codex usage-from-transcript 0s
+| matrix-timing codex stats-launch-model-effort 30s
+| matrix-timing codex stats-session-end-usage 12s
+| matrix-timing codex usage-windows 5s
+| matrix-timing codex checkpoint-skill 88s
+| matrix-timing codex handoff-skill-installed 261s
+| matrix-timing codex prompt-skills-installed 243s
+| matrix-timing codex operator-skills 201s
+| matrix-timing codex pause-force-resume-other-host 143s
+| matrix-timing codex send-and-kill 2s
+| matrix-timing codex inject-sessions 101s
+| matrix-timing codex bug-lane-triage-fix 93s
+| matrix-timing codex review-gauntlet 45s
+| matrix-timing codex supervisor-frozen-session 235s
+| matrix-timing codex supervisor-skips-trust-dialog 314s
+| matrix-timing codex rtdd-event-context 27s
+| matrix-timing codex prereqs-named 22s
+| matrix-timing codex init-wizard-choice 12s
+| matrix-timing codex headless-launch 56s
+| matrix-timing codex headless-send 75s
+| matrix-timing codex headless-busy-idle 77s
+| matrix-timing codex headless-limit-parks 137s
+| matrix-timing codex headless-transient-stalls 125s
+| matrix-timing codex headless-loop-mode 116s
+| matrix-timing codex headless-interrupt 73s
+| matrix-timing codex headless-checkpoint 125s
+| matrix-timing codex headless-resume 172s
+| matrix-timing codex headless-supervisor-frozen-session 283s
+| matrix-timing codex headless-usage-windows 55s
+| matrix-timing codex headless-stats-session-end-usage 154s
+| matrix-timing codex headless-stop 111s
+| matrix-timing codex headless-sweep-detached-jobs 3s
+| matrix-timing copilot fixtures-recorded 0s
+| matrix-timing copilot launch-bootstrap-prompt 1s
+| matrix-timing copilot launch-no-task-text 0s
+| matrix-timing copilot launch-model 1s
+| matrix-timing copilot launch-effort-once 2s
+| matrix-timing copilot launch-role-model 67s
+| matrix-timing copilot session-id 32s
+| matrix-timing copilot idle-is-prompt 2s
+| matrix-timing copilot idle-is-not-busy 1s
+| matrix-timing copilot busy-is-busy 2s
+| matrix-timing copilot trust-dialog-is-not-prompt 0s
+| matrix-timing copilot transient-stalls 4s
+| matrix-timing copilot idle-never-stalls 4s
+| matrix-timing copilot busy-never-stalls 1s
+| matrix-timing copilot limit-parks 3s
+| matrix-timing copilot transient-is-not-limit 3s
+| matrix-timing copilot trust-pre-accepted 9s
+| matrix-timing copilot bypass-covers-subagents 29s
+| matrix-timing copilot done-signal 1s
+| matrix-timing copilot loop-mode 107s
+| matrix-timing copilot transcripts-found 0s
+| matrix-timing copilot usage-from-transcript 0s
+| matrix-timing copilot stats-launch-model-effort 33s
+| matrix-timing copilot stats-session-end-usage 7s
+| matrix-timing copilot usage-windows 6s
+| matrix-timing copilot checkpoint-skill 89s
+| matrix-timing copilot handoff-skill-installed 290s
+| matrix-timing copilot prompt-skills-installed 292s
+| matrix-timing copilot operator-skills 235s
+| matrix-timing copilot pause-force-resume-other-host 103s
+| matrix-timing copilot send-and-kill 3s
+| matrix-timing copilot inject-sessions 101s
+| matrix-timing copilot bug-lane-triage-fix 75s
+| matrix-timing copilot review-gauntlet 35s
+| matrix-timing copilot supervisor-frozen-session 262s
+| matrix-timing copilot supervisor-skips-trust-dialog 303s
+| matrix-timing copilot rtdd-event-context 28s
+| matrix-timing copilot prereqs-named 25s
+| matrix-timing copilot init-wizard-choice 16s
+| matrix-timing copilot headless-launch 56s
+| matrix-timing copilot headless-send 72s
+| matrix-timing copilot headless-busy-idle 66s
+| matrix-timing copilot headless-limit-parks 163s
+| matrix-timing copilot headless-transient-stalls 116s
+| matrix-timing copilot headless-loop-mode 109s
+| matrix-timing copilot headless-interrupt 82s
+| matrix-timing copilot headless-checkpoint 124s
+| matrix-timing copilot headless-resume 208s
+| matrix-timing copilot headless-supervisor-frozen-session 336s
+| matrix-timing copilot headless-usage-windows 59s
+| matrix-timing copilot headless-stats-session-end-usage 123s
+| matrix-timing copilot headless-stop 83s
+| matrix-timing copilot headless-sweep-detached-jobs 3s
+| matrix-timing hermes fixtures-recorded 0s
+| matrix-timing hermes launch-bootstrap-prompt 0s
+| matrix-timing hermes launch-no-task-text 0s
+| matrix-timing hermes launch-model 0s
+| matrix-timing hermes launch-effort-once 1s
+| matrix-timing hermes launch-role-model 80s
+| matrix-timing hermes session-id 46s
+| matrix-timing hermes idle-is-prompt 0s
+| matrix-timing hermes idle-is-not-busy 0s
+| matrix-timing hermes busy-is-busy 2s
+| matrix-timing hermes transient-stalls 2s
+| matrix-timing hermes idle-never-stalls 2s
+| matrix-timing hermes busy-never-stalls 3s
+| matrix-timing hermes limit-parks 2s
+| matrix-timing hermes transient-is-not-limit 1s
+| matrix-timing hermes trust-pre-accepted 13s
+| matrix-timing hermes bypass-covers-subagents 52s
+| matrix-timing hermes done-signal 0s
+| matrix-timing hermes loop-mode 81s
+| matrix-timing hermes transcripts-found 0s
+| matrix-timing hermes usage-from-transcript 0s
+| matrix-timing hermes stats-launch-model-effort 42s
+| matrix-timing hermes stats-session-end-usage 8s
+| matrix-timing hermes usage-windows 7s
+| matrix-timing hermes checkpoint-skill 98s
+| matrix-timing hermes handoff-skill-installed 182s
+| matrix-timing hermes prompt-skills-installed 212s
+| matrix-timing hermes operator-skills 162s
+| matrix-timing hermes pause-force-resume-other-host 144s
+| matrix-timing hermes send-and-kill 5s
+| matrix-timing hermes inject-sessions 256s
+| matrix-timing hermes bug-lane-triage-fix 229s
+| matrix-timing hermes review-gauntlet 110s
+| matrix-timing hermes supervisor-frozen-session 333s
+| matrix-timing hermes rtdd-event-context 91s
+| matrix-timing hermes prereqs-named 37s
+| matrix-timing hermes init-wizard-choice 52s
+| matrix-timing hermes headless-launch 102s
+| matrix-timing hermes headless-send 111s
+| matrix-timing hermes headless-busy-idle 113s
+| matrix-timing hermes headless-limit-parks 249s
+| matrix-timing hermes headless-transient-stalls 202s
+| matrix-timing hermes headless-loop-mode 163s
+| matrix-timing hermes headless-interrupt 138s
+| matrix-timing hermes headless-checkpoint 191s
+| matrix-timing hermes headless-resume 258s
+| matrix-timing hermes headless-supervisor-frozen-session 358s
+| matrix-timing hermes headless-usage-windows 71s
+| matrix-timing hermes headless-stats-session-end-usage 158s
+| matrix-timing hermes headless-stop 102s
+| matrix-timing hermes headless-sweep-detached-jobs 4s
+| matrix-timing openclaw fixtures-recorded 0s
+| matrix-timing openclaw launch-bootstrap-prompt 0s
+| matrix-timing openclaw launch-no-task-text 0s
+| matrix-timing openclaw launch-model 1s
+| matrix-timing openclaw launch-effort-once 1s
+| matrix-timing openclaw launch-role-model 47s
+| matrix-timing openclaw session-id 33s
+| matrix-timing openclaw idle-is-prompt 2s
+| matrix-timing openclaw idle-is-not-busy 0s
+| matrix-timing openclaw busy-is-busy 2s
+| matrix-timing openclaw transient-stalls 2s
+| matrix-timing openclaw idle-never-stalls 2s
+| matrix-timing openclaw busy-never-stalls 2s
+| matrix-timing openclaw limit-parks 2s
+| matrix-timing openclaw transient-is-not-limit 2s
+| matrix-timing openclaw done-signal 0s
+| matrix-timing openclaw loop-mode 74s
+| matrix-timing openclaw transcripts-found 0s
+| matrix-timing openclaw usage-from-transcript 0s
+| matrix-timing openclaw stats-launch-model-effort 22s
+| matrix-timing openclaw stats-session-end-usage 5s
+| matrix-timing openclaw usage-windows 6s
+| matrix-timing openclaw checkpoint-skill 59s
+| matrix-timing openclaw handoff-skill-installed 172s
+| matrix-timing openclaw prompt-skills-installed 213s
+| matrix-timing openclaw operator-skills 149s
+| matrix-timing openclaw pause-force-resume-other-host 129s
+| matrix-timing openclaw send-and-kill 3s
+| matrix-timing openclaw inject-sessions 118s
+| matrix-timing openclaw bug-lane-triage-fix 82s
+| matrix-timing openclaw review-gauntlet 62s
+| matrix-timing openclaw supervisor-frozen-session 350s
+| matrix-timing openclaw rtdd-event-context 53s
+| matrix-timing openclaw prereqs-named 34s
+| matrix-timing openclaw init-wizard-choice 23s
+| matrix-timing openclaw headless-launch 77s
+| matrix-timing openclaw headless-send 108s
+| matrix-timing openclaw headless-busy-idle 107s
+| matrix-timing openclaw headless-limit-parks 197s
+| matrix-timing openclaw headless-transient-stalls 176s
+| matrix-timing openclaw headless-loop-mode 158s
+| matrix-timing openclaw headless-interrupt 101s
+| matrix-timing openclaw headless-checkpoint 195s
+| matrix-timing openclaw headless-resume 284s
+| matrix-timing openclaw headless-supervisor-frozen-session 347s
+| matrix-timing openclaw headless-usage-windows 56s
+| matrix-timing openclaw headless-stats-session-end-usage 167s
+| matrix-timing openclaw headless-stop 126s
+| matrix-timing openclaw headless-sweep-detached-jobs 3s
+| matrix-timing opencode fixtures-recorded 0s
+| matrix-timing opencode launch-bootstrap-prompt 0s
+| matrix-timing opencode launch-no-task-text 0s
+| matrix-timing opencode launch-model 1s
+| matrix-timing opencode launch-effort-once 0s
+| matrix-timing opencode launch-role-model 36s
+| matrix-timing opencode session-id 25s
+| matrix-timing opencode idle-is-prompt 1s
+| matrix-timing opencode idle-is-not-busy 0s
+| matrix-timing opencode busy-is-busy 3s
+| matrix-timing opencode transient-stalls 2s
+| matrix-timing opencode idle-never-stalls 2s
+| matrix-timing opencode busy-never-stalls 2s
+| matrix-timing opencode limit-parks 1s
+| matrix-timing opencode transient-is-not-limit 2s
+| matrix-timing opencode bypass-covers-subagents 21s
+| matrix-timing opencode done-signal 0s
+| matrix-timing opencode loop-mode 8s
+| matrix-timing opencode transcripts-found 0s
+| matrix-timing opencode usage-from-transcript 0s
+| matrix-timing opencode stats-launch-model-effort 20s
+| matrix-timing opencode stats-session-end-usage 6s
+| matrix-timing opencode checkpoint-skill 58s
+| matrix-timing opencode handoff-skill-installed 185s
+| matrix-timing opencode prompt-skills-installed 202s
+| matrix-timing opencode operator-skills 164s
+| matrix-timing opencode pause-force-resume-other-host 104s
+| matrix-timing opencode send-and-kill 2s
+| matrix-timing opencode inject-sessions 89s
+| matrix-timing opencode bug-lane-triage-fix 74s
+| matrix-timing opencode review-gauntlet 48s
+| matrix-timing opencode supervisor-frozen-session 346s
+| matrix-timing opencode rtdd-event-context 37s
+| matrix-timing opencode prereqs-named 35s
+| matrix-timing opencode init-wizard-choice 16s
+| matrix-timing opencode headless-launch 71s
+| matrix-timing opencode headless-send 95s
+| matrix-timing opencode headless-busy-idle 99s
+| matrix-timing opencode headless-limit-parks 156s
+| matrix-timing opencode headless-transient-stalls 161s
+| matrix-timing opencode headless-loop-mode 150s
+| matrix-timing opencode headless-interrupt 100s
+| matrix-timing opencode headless-checkpoint 161s
+| matrix-timing opencode headless-resume 258s
+| matrix-timing opencode headless-supervisor-frozen-session 323s
+| matrix-timing opencode headless-stats-session-end-usage 149s
+| matrix-timing opencode headless-stop 96s
+| matrix-timing opencode headless-sweep-detached-jobs 5s
+| == test_cli_matrix.sh ==
+|   ok: agy: fixtures-recorded
+|   ok: agy: launch-bootstrap-prompt
+|   ok: agy: launch-no-task-text
+|   ok: agy: launch-model
+|   ok: agy: launch-effort-once
+|   ok: agy: launch-role-model
+|   ok: agy: session-id
+|   ok: agy: idle-is-prompt
+|   ok: agy: idle-is-not-busy
+|   ok: agy: busy-is-busy
+|   ok: agy: trust-dialog-is-not-prompt
+|   ok: agy: transient-stalls
+|   ok: agy: idle-never-stalls
+|   ok: agy: busy-never-stalls
+|   ok: agy: limit-parks
+|   ok: agy: transient-is-not-limit
+|   ok: agy: trust-pre-accepted
+|   ok: agy: bypass-covers-subagents
+|   ok: agy: done-signal
+|   ok: agy: loop-mode
+|   ok: agy: transcripts-found
+|   ok: agy: usage-from-transcript
+|   ok: agy: stats-launch-model-effort
+|   ok: agy: stats-session-end-usage
+|   ok: agy: usage-windows
+|   ok: agy: checkpoint-skill
+|   ok: agy: handoff-skill-installed
+|   ok: agy: prompt-skills-installed
+|   ok: agy: operator-skills
+|   ok: agy: pause-force-resume-other-host
+|   ok: agy: send-and-kill
+|   ok: agy: inject-sessions
+|   ok: agy: bug-lane-triage-fix
+|   ok: agy: review-gauntlet
+|   ok: agy: supervisor-frozen-session
+|   ok: agy: supervisor-skips-trust-dialog
+|   ok: agy: rtdd-event-context
+|   ok: agy: prereqs-named
+|   ok: agy: init-wizard-choice
+|   ok: agy: headless-launch
+|   ok: agy: headless-send
+|   ok: agy: headless-busy-idle
+|   ok: agy: headless-limit-parks
+|   ok: agy: headless-transient-stalls
+|   ok: agy: headless-loop-mode
+|   ok: agy: headless-interrupt
+|   ok: agy: headless-checkpoint
+|   ok: agy: headless-resume
+|   ok: agy: headless-supervisor-frozen-session
+|   ok: agy: headless-usage-windows
+|   ok: agy: headless-stats-session-end-usage
+|   ok: agy: headless-stop
+|   ok: agy: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: claude: fixtures-recorded
+|   ok: claude: launch-bootstrap-prompt
+|   ok: claude: launch-no-task-text
+|   ok: claude: launch-model
+|   ok: claude: launch-effort-once
+|   ok: claude: launch-role-model
+|   ok: claude: session-id
+|   ok: claude: idle-is-prompt
+|   ok: claude: idle-is-not-busy
+|   ok: claude: busy-is-busy
+|   ok: claude: trust-dialog-is-not-prompt
+|   ok: claude: transient-stalls
+|   ok: claude: idle-never-stalls
+|   ok: claude: busy-never-stalls
+|   ok: claude: limit-parks
+|   ok: claude: transient-is-not-limit
+|   ok: claude: trust-pre-accepted
+|   ok: claude: bypass-covers-subagents
+|   ok: claude: done-signal
+|   ok: claude: loop-mode
+|   ok: claude: transcripts-found
+|   ok: claude: usage-from-transcript
+|   ok: claude: stats-launch-model-effort
+|   ok: claude: stats-session-end-usage
+|   ok: claude: usage-windows
+|   ok: claude: checkpoint-skill
+|   ok: claude: handoff-skill-installed
+|   ok: claude: prompt-skills-installed
+|   ok: claude: operator-skills
+|   ok: claude: pause-force-resume-other-host
+|   ok: claude: send-and-kill
+|   ok: claude: inject-sessions
+|   ok: claude: bug-lane-triage-fix
+|   ok: claude: review-gauntlet
+|   ok: claude: supervisor-frozen-session
+|   FAIL: claude: supervisor-skips-trust-dialog — expected success from: frozen_ok trust
+|   ok: claude: rtdd-event-context
+|   ok: claude: prereqs-named
+|   ok: claude: init-wizard-choice
+|   ok: claude: headless-launch
+|   ok: claude: headless-send
+|   ok: claude: headless-busy-idle
+|   ok: claude: headless-limit-parks
+|   ok: claude: headless-transient-stalls
+|   ok: claude: headless-loop-mode
+|   ok: claude: headless-interrupt
+|   ok: claude: headless-checkpoint
+|   ok: claude: headless-resume
+|   ok: claude: headless-supervisor-frozen-session
+|   ok: claude: headless-usage-windows
+|   ok: claude: headless-stats-session-end-usage
+|   ok: claude: headless-stop
+|   ok: claude: headless-sweep-detached-jobs
+| ── 52/53 passed
+| matrix-timing claude fixtures-recorded 0s
+| matrix-timing claude launch-bootstrap-prompt 0s
+| matrix-timing claude launch-no-task-text 0s
+| matrix-timing claude launch-model 1s
+| matrix-timing claude launch-effort-once 1s
+| matrix-timing claude launch-role-model 96s
+| matrix-timing claude session-id 72s
+| matrix-timing claude idle-is-prompt 3s
+| matrix-timing claude idle-is-not-busy 0s
+| matrix-timing claude busy-is-busy 2s
+| matrix-timing claude trust-dialog-is-not-prompt 0s
+| matrix-timing claude transient-stalls 2s
+| matrix-timing claude idle-never-stalls 3s
+| matrix-timing claude busy-never-stalls 3s
+| matrix-timing claude limit-parks 3s
+| matrix-timing claude transient-is-not-limit 4s
+| matrix-timing claude trust-pre-accepted 12s
+| matrix-timing claude bypass-covers-subagents 64s
+| matrix-timing claude done-signal 1s
+| matrix-timing claude loop-mode 24s
+| matrix-timing claude transcripts-found 0s
+| matrix-timing claude usage-from-transcript 0s
+| matrix-timing claude stats-launch-model-effort 48s
+| matrix-timing claude stats-session-end-usage 9s
+| matrix-timing claude usage-windows 5s
+| matrix-timing claude checkpoint-skill 112s
+| matrix-timing claude handoff-skill-installed 184s
+| matrix-timing claude prompt-skills-installed 207s
+| matrix-timing claude operator-skills 249s
+| matrix-timing claude pause-force-resume-other-host 210s
+| matrix-timing claude send-and-kill 3s
+| matrix-timing claude inject-sessions 265s
+| matrix-timing claude bug-lane-triage-fix 192s
+| matrix-timing claude review-gauntlet 67s
+| matrix-timing claude supervisor-frozen-session 247s
+| matrix-timing claude supervisor-skips-trust-dialog 3651s
+| matrix-timing claude rtdd-event-context 24s
+| matrix-timing claude prereqs-named 15s
+| matrix-timing claude init-wizard-choice 8s
+| matrix-timing claude headless-launch 44s
+| matrix-timing claude headless-send 59s
+| matrix-timing claude headless-busy-idle 68s
+| matrix-timing claude headless-limit-parks 83s
+| matrix-timing claude headless-transient-stalls 68s
+| matrix-timing claude headless-loop-mode 106s
+| matrix-timing claude headless-interrupt 53s
+| matrix-timing claude headless-checkpoint 67s
+| test_cli_matrix.sh: line 785: 361268 Killed                     ( cd "$dir" 2> /dev/null || exit 1; exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" < /dev/null >> "$lane/runner.log" 2>&1 )
+| matrix-timing claude headless-resume 104s
+| matrix-timing claude headless-supervisor-frozen-session 157s
+| matrix-timing claude headless-usage-windows 29s
+| matrix-timing claude headless-stats-session-end-usage 55s
+| matrix-timing claude headless-stop 37s
+| matrix-timing claude headless-sweep-detached-jobs 1s
+|   ok: codex: fixtures-recorded
+|   ok: codex: launch-bootstrap-prompt
+|   ok: codex: launch-no-task-text
+|   ok: codex: launch-model
+|   ok: codex: launch-effort-once
+|   ok: codex: launch-role-model
+|   ok: codex: session-id
+|   ok: codex: idle-is-prompt
+|   ok: codex: idle-is-not-busy
+|   ok: codex: busy-is-busy
+|   ok: codex: trust-dialog-is-not-prompt
+|   ok: codex: transient-stalls
+|   ok: codex: idle-never-stalls
+|   ok: codex: busy-never-stalls
+|   ok: codex: limit-parks
+|   ok: codex: transient-is-not-limit
+|   ok: codex: trust-pre-accepted
+|   ok: codex: bypass-covers-subagents
+|   ok: codex: done-signal
+|   ok: codex: loop-mode
+|   ok: codex: transcripts-found
+|   ok: codex: usage-from-transcript
+|   ok: codex: stats-launch-model-effort
+|   ok: codex: stats-session-end-usage
+|   ok: codex: usage-windows
+|   ok: codex: checkpoint-skill
+|   ok: codex: handoff-skill-installed
+|   ok: codex: prompt-skills-installed
+|   ok: codex: operator-skills
+|   ok: codex: pause-force-resume-other-host
+|   ok: codex: send-and-kill
+|   ok: codex: inject-sessions
+|   ok: codex: bug-lane-triage-fix
+|   ok: codex: review-gauntlet
+|   ok: codex: supervisor-frozen-session
+|   ok: codex: supervisor-skips-trust-dialog
+|   ok: codex: rtdd-event-context
+|   ok: codex: prereqs-named
+|   ok: codex: init-wizard-choice
+|   ok: codex: headless-launch
+|   ok: codex: headless-send
+|   ok: codex: headless-busy-idle
+|   ok: codex: headless-limit-parks
+|   ok: codex: headless-transient-stalls
+|   ok: codex: headless-loop-mode
+|   ok: codex: headless-interrupt
+|   ok: codex: headless-checkpoint
+|   ok: codex: headless-resume
+|   ok: codex: headless-supervisor-frozen-session
+|   ok: codex: headless-usage-windows
+|   ok: codex: headless-stats-session-end-usage
+|   ok: codex: headless-stop
+|   ok: codex: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: copilot: fixtures-recorded
+|   ok: copilot: launch-bootstrap-prompt
+|   ok: copilot: launch-no-task-text
+|   ok: copilot: launch-model
+|   ok: copilot: launch-effort-once
+|   ok: copilot: launch-role-model
+|   ok: copilot: session-id
+|   ok: copilot: idle-is-prompt
+|   ok: copilot: idle-is-not-busy
+|   ok: copilot: busy-is-busy
+|   ok: copilot: trust-dialog-is-not-prompt
+|   ok: copilot: transient-stalls
+|   ok: copilot: idle-never-stalls
+|   ok: copilot: busy-never-stalls
+|   ok: copilot: limit-parks
+|   ok: copilot: transient-is-not-limit
+|   ok: copilot: trust-pre-accepted
+|   ok: copilot: bypass-covers-subagents
+|   ok: copilot: done-signal
+|   ok: copilot: loop-mode
+|   ok: copilot: transcripts-found
+|   ok: copilot: usage-from-transcript
+|   ok: copilot: stats-launch-model-effort
+|   ok: copilot: stats-session-end-usage
+|   ok: copilot: usage-windows
+|   ok: copilot: checkpoint-skill
+|   ok: copilot: handoff-skill-installed
+|   ok: copilot: prompt-skills-installed
+|   ok: copilot: operator-skills
+|   ok: copilot: pause-force-resume-other-host
+|   ok: copilot: send-and-kill
+|   ok: copilot: inject-sessions
+|   ok: copilot: bug-lane-triage-fix
+|   ok: copilot: review-gauntlet
+|   ok: copilot: supervisor-frozen-session
+|   ok: copilot: supervisor-skips-trust-dialog
+|   ok: copilot: rtdd-event-context
+|   ok: copilot: prereqs-named
+|   ok: copilot: init-wizard-choice
+|   ok: copilot: headless-launch
+|   ok: copilot: headless-send
+|   ok: copilot: headless-busy-idle
+|   ok: copilot: headless-limit-parks
+|   ok: copilot: headless-transient-stalls
+|   ok: copilot: headless-loop-mode
+|   ok: copilot: headless-interrupt
+|   ok: copilot: headless-checkpoint
+|   ok: copilot: headless-resume
+|   ok: copilot: headless-supervisor-frozen-session
+|   ok: copilot: headless-usage-windows
+|   ok: copilot: headless-stats-session-end-usage
+|   ok: copilot: headless-stop
+|   ok: copilot: headless-sweep-detached-jobs
+| ── 53/53 passed
+|   ok: hermes: fixtures-recorded
+|   ok: hermes: launch-bootstrap-prompt
+|   ok: hermes: launch-no-task-text
+|   ok: hermes: launch-model
+|   ok: hermes: launch-effort-once
+|   ok: hermes: launch-role-model
+|   ok: hermes: session-id
+|   ok: hermes: idle-is-prompt
+|   ok: hermes: idle-is-not-busy
+|   ok: hermes: busy-is-busy
+|   n/a: hermes: trust-dialog-is-not-prompt — Hermes has no workspace-trust gate on running a folder: only the skills a worktree carries are gated, by skills.trusted_project_dirs, which cli_trust writes into the lane config (skill-project.txt)
+|   ok: hermes: transient-stalls
+|   ok: hermes: idle-never-stalls
+|   ok: hermes: busy-never-stalls
+|   ok: hermes: limit-parks
+|   ok: hermes: transient-is-not-limit
+|   ok: hermes: trust-pre-accepted
+|   ok: hermes: bypass-covers-subagents
+|   ok: hermes: done-signal
+|   ok: hermes: loop-mode
+|   ok: hermes: transcripts-found
+|   ok: hermes: usage-from-transcript
+|   ok: hermes: stats-launch-model-effort
+|   ok: hermes: stats-session-end-usage
+|   ok: hermes: usage-windows
+|   ok: hermes: checkpoint-skill
+|   ok: hermes: handoff-skill-installed
+|   ok: hermes: prompt-skills-installed
+|   ok: hermes: operator-skills
+|   ok: hermes: pause-force-resume-other-host
+|   ok: hermes: send-and-kill
+|   ok: hermes: inject-sessions
+|   ok: hermes: bug-lane-triage-fix
+|   ok: hermes: review-gauntlet
+|   ok: hermes: supervisor-frozen-session
+|   n/a: hermes: supervisor-skips-trust-dialog — Hermes has no workspace-trust gate on running a folder: only the skills a worktree carries are gated, by skills.trusted_project_dirs, which cli_trust writes into the lane config (skill-project.txt)
+|   ok: hermes: rtdd-event-context
+|   ok: hermes: prereqs-named
+|   ok: hermes: init-wizard-choice
+|   ok: hermes: headless-launch
+|   ok: hermes: headless-send
+|   ok: hermes: headless-busy-idle
+|   ok: hermes: headless-limit-parks
+|   ok: hermes: headless-transient-stalls
+|   ok: hermes: headless-loop-mode
+|   ok: hermes: headless-interrupt
+|   ok: hermes: headless-checkpoint
+|   ok: hermes: headless-resume
+|   ok: hermes: headless-supervisor-frozen-session
+|   ok: hermes: headless-usage-windows
+|   ok: hermes: headless-stats-session-end-usage
+|   ok: hermes: headless-stop
+|   ok: hermes: headless-sweep-detached-jobs
+| ── 51/51 passed
+|   ok: openclaw: fixtures-recorded
+|   ok: openclaw: launch-bootstrap-prompt
+|   ok: openclaw: launch-no-task-text
+|   ok: openclaw: launch-model
+|   ok: openclaw: launch-effort-once
+|   ok: openclaw: launch-role-model
+|   ok: openclaw: session-id
+|   ok: openclaw: idle-is-prompt
+|   ok: openclaw: idle-is-not-busy
+|   ok: openclaw: busy-is-busy
+|   n/a: openclaw: trust-dialog-is-not-prompt — `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools
+|   ok: openclaw: transient-stalls
+|   ok: openclaw: idle-never-stalls
+|   ok: openclaw: busy-never-stalls
+|   ok: openclaw: limit-parks
+|   ok: openclaw: transient-is-not-limit
+|   n/a: openclaw: trust-pre-accepted — `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools
+|   n/a: openclaw: bypass-covers-subagents — `agent exec` turns run no sub-agents: `sessions_spawn` needs the Gateway, and both spawns a lane tried failed `published reply runtime missing for main` (bypass-subagent.txt)
+|   ok: openclaw: done-signal
+|   ok: openclaw: loop-mode
+|   ok: openclaw: transcripts-found
+|   ok: openclaw: usage-from-transcript
+|   ok: openclaw: stats-launch-model-effort
+|   ok: openclaw: stats-session-end-usage
+|   ok: openclaw: usage-windows
+|   ok: openclaw: checkpoint-skill
+|   ok: openclaw: handoff-skill-installed
+|   ok: openclaw: prompt-skills-installed
+|   ok: openclaw: operator-skills
+|   ok: openclaw: pause-force-resume-other-host
+|   ok: openclaw: send-and-kill
+|   ok: openclaw: inject-sessions
+|   ok: openclaw: bug-lane-triage-fix
+|   ok: openclaw: review-gauntlet
+|   ok: openclaw: supervisor-frozen-session
+|   n/a: openclaw: supervisor-skips-trust-dialog — `agent exec` has no workspace-trust gate: the worktree is the --cwd of each turn, which scopes its file tools
+|   ok: openclaw: rtdd-event-context
+|   ok: openclaw: prereqs-named
+|   ok: openclaw: init-wizard-choice
+|   ok: openclaw: headless-launch
+|   ok: openclaw: headless-send
+|   ok: openclaw: headless-busy-idle
+|   ok: openclaw: headless-limit-parks
+|   ok: openclaw: headless-transient-stalls
+|   ok: openclaw: headless-loop-mode
+|   ok: openclaw: headless-interrupt
+|   ok: openclaw: headless-checkpoint
+|   ok: openclaw: headless-resume
+|   ok: openclaw: headless-supervisor-frozen-session
+|   ok: openclaw: headless-usage-windows
+|   ok: openclaw: headless-stats-session-end-usage
+|   ok: openclaw: headless-stop
+|   ok: openclaw: headless-sweep-detached-jobs
+| ── 49/49 passed
+|   ok: opencode: fixtures-recorded
+|   ok: opencode: launch-bootstrap-prompt
+|   ok: opencode: launch-no-task-text
+|   ok: opencode: launch-model
+|   ok: opencode: launch-effort-once
+|   ok: opencode: launch-role-model
+|   ok: opencode: session-id
+|   ok: opencode: idle-is-prompt
+|   ok: opencode: idle-is-not-busy
+|   ok: opencode: busy-is-busy
+|   n/a: opencode: trust-dialog-is-not-prompt — OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking
+|   ok: opencode: transient-stalls
+|   ok: opencode: idle-never-stalls
+|   ok: opencode: busy-never-stalls
+|   ok: opencode: limit-parks
+|   ok: opencode: transient-is-not-limit
+|   n/a: opencode: trust-pre-accepted — OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking
+|   ok: opencode: bypass-covers-subagents
+|   ok: opencode: done-signal
+|   ok: opencode: loop-mode
+|   ok: opencode: transcripts-found
+|   ok: opencode: usage-from-transcript
+|   ok: opencode: stats-launch-model-effort
+|   ok: opencode: stats-session-end-usage
+|   n/a: opencode: usage-windows — OpenCode 1.x has no quota meter: a limit shows only as its error text at the prompt, which parks the lane (limit-parks)
+|   ok: opencode: checkpoint-skill
+|   ok: opencode: handoff-skill-installed
+|   ok: opencode: prompt-skills-installed
+|   ok: opencode: operator-skills
+|   ok: opencode: pause-force-resume-other-host
+|   ok: opencode: send-and-kill
+|   ok: opencode: inject-sessions
+|   ok: opencode: bug-lane-triage-fix
+|   ok: opencode: review-gauntlet
+|   ok: opencode: supervisor-frozen-session
+|   n/a: opencode: supervisor-skips-trust-dialog — OpenCode 1.x has no workspace-trust gate: it loads a project config and its plugins without asking
+|   ok: opencode: rtdd-event-context
+|   ok: opencode: prereqs-named
+|   ok: opencode: init-wizard-choice
+|   ok: opencode: headless-launch
+|   ok: opencode: headless-send
+|   ok: opencode: headless-busy-idle
+|   ok: opencode: headless-limit-parks
+|   ok: opencode: headless-transient-stalls
+|   ok: opencode: headless-loop-mode
+|   ok: opencode: headless-interrupt
+|   ok: opencode: headless-checkpoint
+|   ok: opencode: headless-resume
+|   ok: opencode: headless-supervisor-frozen-session
+|   n/a: opencode: headless-usage-windows — OpenCode 1.x has no quota meter: a limit shows only as its error text at the prompt, which parks the lane (limit-parks)
+|   ok: opencode: headless-stats-session-end-usage
+|   ok: opencode: headless-stop
+|   ok: opencode: headless-sweep-detached-jobs
+| ── 48/48 passed
+| matrix-timing opencode fixtures-recorded 0s
+| matrix-timing opencode launch-bootstrap-prompt 0s
+| matrix-timing opencode launch-no-task-text 0s
+| matrix-timing opencode launch-model 0s
+| matrix-timing opencode launch-effort-once 2s
+| matrix-timing opencode launch-role-model 46s
+| matrix-timing opencode session-id 25s
+| matrix-timing opencode idle-is-prompt 1s
+| matrix-timing opencode idle-is-not-busy 0s
+| matrix-timing opencode busy-is-busy 3s
+| matrix-timing opencode transient-stalls 3s
+| matrix-timing opencode idle-never-stalls 3s
+| matrix-timing opencode busy-never-stalls 5s
+| matrix-timing opencode limit-parks 4s
+| matrix-timing opencode transient-is-not-limit 3s
+| matrix-timing opencode bypass-covers-subagents 40s
+| matrix-timing opencode done-signal 0s
+| matrix-timing opencode loop-mode 11s
+| matrix-timing opencode transcripts-found 0s
+| matrix-timing opencode usage-from-transcript 0s
+| matrix-timing opencode stats-launch-model-effort 34s
+| matrix-timing opencode stats-session-end-usage 9s
+| matrix-timing opencode checkpoint-skill 85s
+| matrix-timing opencode handoff-skill-installed 244s
+| matrix-timing opencode prompt-skills-installed 183s
+| matrix-timing opencode operator-skills 185s
+| matrix-timing opencode pause-force-resume-other-host 163s
+| matrix-timing opencode send-and-kill 3s
+| matrix-timing opencode inject-sessions 145s
+| matrix-timing opencode bug-lane-triage-fix 125s
+| matrix-timing opencode review-gauntlet 68s
+| matrix-timing opencode supervisor-frozen-session 367s
+| matrix-timing opencode rtdd-event-context 28s
+| matrix-timing opencode prereqs-named 20s
+| matrix-timing opencode init-wizard-choice 15s
+| matrix-timing opencode headless-launch 83s
+| matrix-timing opencode headless-send 50s
+| matrix-timing opencode headless-busy-idle 58s
+| matrix-timing opencode headless-limit-parks 129s
+| matrix-timing opencode headless-transient-stalls 91s
+| matrix-timing opencode headless-loop-mode 100s
+| matrix-timing opencode headless-interrupt 64s
+| matrix-timing opencode headless-checkpoint 159s
+| test_cli_matrix.sh: line 785: 283673 Killed                     ( cd "$dir" 2> /dev/null || exit 1; exec env "${envs[@]}" HARNESS_LANE_DIR="$lane" nohup "$@" < /dev/null >> "$lane/runner.log" 2>&1 )
+| matrix-timing opencode headless-resume 176s
+| matrix-timing opencode headless-supervisor-frozen-session 158s
+| matrix-timing opencode headless-stats-session-end-usage 81s
+| matrix-timing opencode headless-stop 66s
+| matrix-timing opencode headless-sweep-detached-jobs 2s
+| == test_cli_codex.sh ==
+|   ok: effort is a config override, not a flag
+|   ok: the lane's effort replaces the default one
+|   ok: model is -m
+|   ok: scrollback kept for capture-pane
+|   ok: approvals and sandbox bypassed
+|   ok: Harness's own Stop hook may run untrusted
+|   ok: codex cannot take a caller-set id
+|   ok: no caller-set id anywhere on the line
+|   ok: the prompt is the positional bootstrap
+|   ok: no lane model/effort: the configured flags as they are
+|   ok: trust is a [projects] entry in config.toml
+|   ok: cli_trusted reads it back
+|   ok: another dir is not trusted by it
+|   ok: the update modal is turned off
+|   ok: update check is top-level, every other key kept
+|   ok: trusting twice writes one entry
+|   ok: …and one update-check key
+|   ok: an untrusted entry is flipped to trusted
+|   ok: …in place, not duplicated
+|   ok: trust with no config.toml yet
+|   ok: session id read from the worktree's rollout
+|   ok: a rollout of another cwd is not this worktree's
+|   ok: a rollout from before this launch is the previous session's
+|   ok: a newer sub-agent rollout in the worktree is not the session
+|   ok: transcripts: the session's rollout first, then its sub-agents'
+|   ok: no session id, no transcripts
+|   ok: usage folds token_count per turn_context model, cached input as cache reads
+|   ok: the 30-day primary window, its used percent
+| 
+|   ok: a window whose reset has passed is not reported
+|   ok: idle: the composer is the prompt
+|   ok: the live composer, not a submitted prompt echoed above it
+|   ok: the trust dialog's › option is not a prompt
+|   ok: the status row's timer is the turn's seconds
+|   ok: no status row, no turn
+|   ok: minutes and seconds
+|   ok: Escape prints the interrupt line
+|   ok: an interrupted turn is not busy
+|   ok: an interrupted turn leaves the prompt
+|   ok: the free-plan reset banner is no usage limit
+|   ok: a 400 error cell is no transient stall
+|   ok: …and no usage limit
+|   ok: Codex's Stop hook drives the loop
+|   ok: a skill is invoked as $<name>
+|   ok: no promise: the hook blocks with the task as the next prompt
+|   ok: …and counts the iteration
+|   ok: max_iterations reached: the hook lets the turn end
+|   ok: …and ends the loop
+|   ok: a different promise does not end the loop
+|   ok: the promise in the reply ends the loop
+|   ok: no state file: another session's turn is left alone
+|   ok: the marketplace is named with its add command
+|   ok: the plugin is named with its add command
+|   ok: the handoff skill is named where codex loads skills (#303)
+|   ok: an installed plugin passes
+|   ok: the marketplace it names holds the plugin
+|   ok: windows: trusting /c/w/proj upgrades the table kept as C:/w/proj in place (no second spelling)
+|   ok: windows: …and /c/w/proj reads as trusted
+|   ok: windows: …as C:\w\proj too
+|   ok: windows: …but another directory is not
+| ── 59/59 passed
+|   ok: every codex matrix cell is ok, but its headless-* rows: n/a, tmux-only
+| ── 56/56 passed
+| == test_cli_hermes.sh ==
+|   ok: a lane's home is a profile of the operator's, its name the worktree's
+|   ok: …a profile name Hermes takes (lowercase letters and digits)
+|   ok: …another worktree gets another
+|   ok: the launch runs on that home
+|   ok: addressed by title, created if missing
+|   ok: yolo and hooks accepted at launch
+|   ok: first turn submitted with -q
+|   ok: no -m on the line (refused beside -c <title> --create-if-missing)
+|   ok: no --reasoning on the line (refused the same way)
+|   ok: the lane's model is in its config
+|   ok: …the operator's provider kept
+|   ok: the lane's effort is in its config
+|   ok: approvals off for the whole lane profile
+|   ok: the clarify toolset is off, beside the operator's
+|   ok: …the operator's other agent keys kept
+|   ok: …and its comments
+|   ok: no update checks in a lane
+|   ok: the operator's skills and Harness's user skills are external skill dirs
+|   ok: the lane settings the launch event records
+|   ok: the operator's stored login is copied
+|   ok: …its .env (messaging-bot tokens) is not
+|   ok: the runtime is the profile root's: nothing linked in (a linked tools/ repoints the host's launcher)
+|   ok: nothing is written into the worktree
+|   ok: a relaunch with no model takes the operator's again
+|   ok: …and records no lane settings
+|   ok: a lane profile whose worktree is gone is removed
+|   ok: …not while its gateway runs
+|   ok: …nor while its worktree is there
+|   ok: …and no profile of the operator's own
+|   ok: the worktree's skills are trusted
+|   ok: …once
+|   ok: …and still after a relaunch
+|   ok: another worktree is not
+|   ok: every lane variable passed to the lane's commands, after the operator's own, once each
+|   ok: …the operator's other terminal keys kept
+|   ok: …and still once each after a relaunch
+|   ok: LANE_ENV_NAMES names every variable session_env gives a lane
+|   ok: …a lane with an issue, a PRD and a repo gets all seven
+|   ok: the real CLI: a passed lane variable reaches the lane's command (env-passthrough.txt)
+|   ok: …its own event log, not the gateway's
+|   ok: unpassed, the command saw the log of the lane that started the gateway (env-no-passthrough.txt)
+|   ok: the Enter waits for the text to land (a same-burst Enter is a newline in the composer)
+|   ok: kill stops the lane's gateway, which outlives the pane
+|   ok: …once the pane is gone (a live TUI starts a new gateway)
+|   ok: a session with no lane home stops no gateway
+|   ok: reap_done_sessions stops the met lane's gateway
+|   ok: no Stop hook Harness can block: Harness drives
+|   ok: a skill is named, not slashed (Hermes's own /handoff shadows it)
+|   ok: turn time off the busy top rule
+|   ok: …or the status bar's ⏱ when the rule is truncated
+|   ok: no turn at the idle prompt
+|   ok: hours and minutes
+|   ok: minutes
+|   ok: an echoed prompt in the scrollback is no prompt
+|   ok: text typed under a running turn is not queued (Enter redirects the turn: steer.txt)
+|   ok: the busy composer is busy
+|   ok: a limit that names its reset parks
+|   ok: a 503 after every retry stalls
+|   ok: the interrupted turn's pane is idle
+|   ok: …and not busy
+|   ok: the session is found by its title
+|   ok: the reply that ended the last prompt's turn
+|   ok: …after the id of that prompt (here the message a finished delegation injected)
+|   ok: no reply while the gateway holds the turn's lease
+|   ok: …a lapsed lease holds nothing
+|   ok: no reply while a background delegation it dispatched still runs
+|   ok: …nor while its finished result is not yet delivered to the session
+|   ok: …one whose owner died holds nothing
+|   ok: a prompt not yet answered has no reply
+|   ok: a failed turn is the watchdog's
+|   ok: …so is an interrupted one
+|   ok: a compressed session keeps its id, the title moved onto its continuation
+|   ok: …and its reply is read from that continuation
+|   ok: …while the gateway holds the lease it keys on the first session
+|   ok: the session and its sub-agent
+|   ok: usage sums every transcript's session_model_usage
+|   ok: every window the provider reports: <provider> <label> <pct used> <reset epoch>
+|   ok: …fetched in the newest lane's profile
+|   ok: …the NEWEST lane's profile
+|   ok: …or the operator's home before any lane has one
+|   ok: a second poll within HARNESS_HERMES_USAGE_TTL reads the cache
+|   ok: …the windows, cached in the usage dir
+|   ok: a window with no percent is skipped; one with no reset reads 0
+|   ok: a passed reset is no window: rc 1
+|   ok: a provider with no usage endpoint (usage-none.txt): rc 1
+|   ok: every hermes matrix cell is ok or n/a
+| ── 86/86 passed
+| == test_cli_readme.sh ==
+|   ok: only the dispatcher reads HARNESS_CLI
+|   ok: no python script reads HARNESS_CLI
+|   ok: the matrix produced cells
+|   FAIL: README lists exactly the CLIs whose matrix column is green — want [agy
+| codex
+| copilot
+| hermes
+| openclaw
+| opencode] got [agy
+| claude
+| codex
+| copilot
+| hermes
+| openclaw
+| opencode]
+|   ok: README: agy verified on its fixture version
+|   ok: README: codex verified on its fixture version
+|   ok: README: copilot verified on its fixture version
+|   ok: README: hermes verified on its fixture version
+|   ok: README: openclaw verified on its fixture version
+|   ok: README: opencode verified on its fixture version
+|   ok: README feature rows are exactly the matrix rows
+|   ok: README: every agy row is ✓ exactly where its matrix cell is ok, n/a with its reason
+|   ok: README: every codex row is ✓ exactly where its matrix cell is ok, n/a with its reason
+|   ok: README: every copilot row is ✓ exactly where its matrix cell is ok, n/a with its reason
+|   ok: README: every hermes row is ✓ exactly where its matrix cell is ok, n/a with its reason
+|   ok: README: every openclaw row is ✓ exactly where its matrix cell is ok, n/a with its reason
+|   ok: README: every opencode row is ✓ exactly where its matrix cell is ok, n/a with its reason
+|   ok: the matrix has headless-* rows
+|   ok: README: every headless-* row of agy reads ✓ (or its matrix cell's n/a reason)
+|   ok: README: every headless-* row of codex reads ✓ (or its matrix cell's n/a reason)
+|   ok: README: every headless-* row of copilot reads ✓ (or its matrix cell's n/a reason)
+|   ok: README: every headless-* row of hermes reads ✓ (or its matrix cell's n/a reason)
+|   ok: README: every headless-* row of openclaw reads ✓ (or its matrix cell's n/a reason)
+|   ok: README: every headless-* row of opencode reads ✓ (or its matrix cell's n/a reason)
+|   ok: the config table has a row for every HARNESS_* setting the adapters read
+|   ok: HARNESS_BOOTSTRAP_PROMPT, left out of the config table, is still read by an adapter
+|   ok: HARNESS_SESSION, left out of the config table, is still read by an adapter
+|   ok: HARNESS_ENGINE_PLUGINS, left out of the config table, is still read by an adapter
+|   ok: HARNESS_CLAUDE_CONFIG, left out of the config table, is still read by an adapter
+|   ok: HARNESS_AGY_TRUST_FILE, left out of the config table, is still read by an adapter
+|   ok: the README usage-source table has one row per CLI in cli_list
+|   ok: no README line outside the support table names a subset of its CLIs as the list
+| ── 31/32 passed
+| == test_headless_usage_stats.sh ==
+| == a busy headless lane under the usage threshold is left alone ==
+|   ok: the headless impl lane is live
+|   ok: …its first turn running
+|   ok: below the threshold: no hold
+|   ok: …no checkpoint queued for the lane
+|   ok: …nothing waits on its inbox
+|   ok: …no park pending
+|   ok: …its turn runs on
+|   ok: another account over the threshold holds claims
+|   ok: …but the lane runs on its own account: no checkpoint for it
+|   ok: …nothing queued on it
+| == over the threshold: the checkpoint waits behind the running turn, then the lane parks ==
+|   ok: the account's claims are held
+|   ok: the lane's account is the one its runner recorded
+|   ok: the checkpoint was requested
+|   ok: …and waits behind the running turn
+|   ok: …a park is pending for the lane
+|   ok: no session_end while the lane is live
+|   ok: still mid-turn: the lane is not parked yet
+|   ok: the checkpoint turn runs and ends
+|   ok: …it was the checkpoint, on the same claude session
+|   ok: …whose prompt names the usage limit
+|   ok: the checkpoint landed: agent-working → agent-paused
+|   ok: …with the handoff comment
+|   ok: the next usage pass parks the lane
+|   ok: …it is no longer live
+|   ok: …its runner has exited
+|   ok: …the park is done with
+|   ok: claims stay held while the window is over
+|   ok: the parked lane leaves its claude session for the resume
+|   ok: a paused event was logged for the session
+| == stats: the ended session's model and tokens, from its turns' stream-json results ==
+|   ok: session_end is emitted once the runner has exited
+|   ok: …exactly once
+|   ok: session_end's usage is the sum of the fixture turns' modelUsage
+|   ok: …a model the fixtures ran
+|   ok: harness stats shows the session's model
+|   ok: …and its token counts
+|   ok: …under its claude session id
+| == #426: the parked lane relaunched on its claude session — the two session_ends never double-count ==
+|   ok: the lane is live again
+|   ok: …carrying on the claude session
+|   ok: …its first turn resumes it
+|   ok: …as --resume 6d3c9d9b-0830-4ea0-b008-442aaa0a657f
+|   ok: the relaunched lane ends
+|   ok: a second session_end for the resumed run
+|   ok: …reporting only the turn this run added
+|   ok: …flagged resumed
+|   ok: …the first run's is not
+|   ok: harness stats keeps one session
+|   ok: …whose tokens are both runs' turns, counted once
+| == the claude adapter reads a headless lane's usage windows off its rate_limit_event readings ==
+|   ok: the newest reading per account window of this fleet's lanes, a reset window skipped
+|   ok: …a newer status-line drop wins over it
+|   ok: the usage watch holds claims on a headless lane's reading
+|   ok: …naming the window
+|   ok: no lane and no drop: usage unavailable
+|   ok: a drop whose every window has reset: available, no open window (as before)
+| == the lane runner records the account and when its rate-limit reading changed ==
+|   ok: the account is the lane's config dir, as the status line names it
+| == harness status, fleetview and harness web list a live headless lane with its state ==
+|   ok: the lane is busy
+|   ok: sess_state reads the lane's state
+|   ok: harness status's session row shows the lane's state
+|   ok: a tmux session has no state of its own
+|   ok: …so its row shows none
+|   ok: …with its state
+|   ok: …and the model on its runner's flags
+|   ok: harness web's session row carries the lane and its state
+|   ok: the state follows the lane
+|   ok: an ended lane has no state
+| == docs ==
+|   ok: docs/reference.md § Headless lanes covers usage, stats and the views
+| ── 66/67 passed
+| == run.sh: 2/5 test files passed ==
+| FAILED: test_cli_matrix.sh
+| FAILED: test_cli_readme.sh
+| FAILED: test_headless_usage_stats.sh
+######## end of run.sh output
+== run.sh: 2/5 test files passed ==
+FAILED: test_cli_matrix.sh
+FAILED: test_cli_readme.sh
+FAILED: test_headless_usage_stats.sh
+SUITE-RESULT 3 failed
+guard: no change to the machine files, the Harness\* tasks or ~/.claude.json outside C:\hx-1107
+credentials: GH_TOKEN written nowhere new
+[20:14:12] cleanup: winsma clean (no hx-1107, lock released, no run task or process)
+[20:14:12] run: OK
