@@ -123,6 +123,11 @@ echo "== attach: a lane that is not live is refused =="
 out="$(bash "$ROOT/scripts/attach.sh" hat-main-i99 2>&1 </dev/null)"; rc=$?
 assert_eq "$rc" 1 "attach to no lane fails"
 assert_ok "…naming it" grep -qF "no live" <<<"$out"
+# #1123: the error is on stderr, not stdout — capture the two streams apart.
+bash "$ROOT/scripts/attach.sh" hat-main-i99 >"$RUN_DIR/refuse.out" 2>"$RUN_DIR/refuse.err" </dev/null; rc=$?
+assert_eq "$rc" 1 "attach to no lane fails (streams captured apart)"
+assert_ok "…the error is on stderr" grep -qF "no live session '" "$RUN_DIR/refuse.err"
+assert_eq "$(cat "$RUN_DIR/refuse.out")" "" "…and stdout stays empty"
 
 echo "== attach: with stdin closed it is still the live watch =="
 WAIT=3; is_windows && WAIT=20   # Git Bash takes seconds to start a script

@@ -24,15 +24,16 @@ else
   if (( ${#_orch[@]} == 1 )); then
     sess="${_orch[0]}"
   elif (( ${#_orch[@]} > 1 )); then
-    echo "several orch sessions are live for $UNIT:"; printf '  %s\n' "${_orch[@]}"
+    { echo "several orch sessions are live for $UNIT:"; printf '  %s\n' "${_orch[@]}"; } >&2
     die "name one explicitly: harness attach <session>"
   else
     sess="$(sess_orch "$UNIT")"
   fi
 fi
 session_live "$sess" || {
-  echo "no live session '$sess'"
-  sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-${UNIT}" || true
+  # An error: stderr, so `harness attach xx >/dev/null` still shows it and `2>/dev/null` hides it (#1123).
+  { echo "no live session '$sess'"
+    sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-${UNIT}" || true; } >&2
   exit 1
 }
 sess_attach "$sess"
