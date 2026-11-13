@@ -463,11 +463,12 @@ def test_results_dir_must_be_non_empty_and_not_dash_leading(e):   # #862
 
 @with_env()
 def test_events_must_be_an_existing_file_not_a_missing_path_or_a_directory(e):   # #999
+    # the path is quoted as stats.vrepr writes it ('…' round it, a backslash left as it is), not as repr() does: on Windows repr() doubles every \ (#1108)
     missing = os.path.join(e.d, "no", "such", "file")
     for path, why in ((missing, "does not exist"), (e.d, "is a directory")):
         for extra in ((), ("--optional",), ("--dry-run",)):
             p = e.run("stub", *extra, "--events", path)
-            assert p.returncode == 2 and f"bench: --events {path!r} {why}" in p.stderr, (path, extra, p.returncode, p.stderr)
+            assert p.returncode == 2 and f"bench: --events '{path}' {why}" in p.stderr, (path, extra, p.returncode, p.stderr)
             assert "bench guard" not in p.stdout + p.stderr and "no weekly usage reading" not in p.stderr, (p.stdout, p.stderr)
     assert not os.path.exists(e.results), os.listdir(e.d)
     assert e.calls() == []

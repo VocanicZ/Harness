@@ -31,10 +31,12 @@ assert_eq "$HARNESS_API_URL" "file:///C:/hx-608/srv/latest.json" "rel_server: th
 assert_eq "$HARNESS_BASE_URL" "file:///C:/hx-608/srv/download" "rel_server: the download base is a native URL"
 
 echo "=== sys_path: the system PATH keeps the dirs of curl and git on Git for Windows ==="
-assert_eq "$(sys_path)" "/usr/bin:/bin" "Linux: /usr/bin:/bin, nothing added"
+# the Linux cell names a Linux host: on winsma the real uname is MINGW and sys_path would (rightly) add curl, git and python3's dirs (#1108)
+assert_eq "$(uname(){ [[ ${1:-} == -s ]] && echo Linux || command uname "$@"; }; sys_path)" "/usr/bin:/bin" "Linux: /usr/bin:/bin, nothing added"
 mkdir -p "$T/ucrt/bin"; for t in curl git; do printf '#!/bin/sh\n' > "$T/ucrt/bin/$t"; chmod +x "$T/ucrt/bin/$t"; done
 uname(){ [[ ${1:-} == -s ]] && echo MINGW64_NT-10.0 || command uname "$@"; }
-assert_eq "$(PATH="$T/ucrt/bin:$PATH" sys_path)" "/usr/bin:/bin:$T/ucrt/bin" "MINGW: the dir that holds curl and git (here a UCRT64-like tree) is appended once"
+# PATH is the fixture dir plus the system dirs only: on winsma $PATH also holds the venv's python3, which sys_path rightly appends (#1108)
+assert_eq "$(PATH="$T/ucrt/bin:/usr/bin:/bin" sys_path)" "/usr/bin:/bin:$T/ucrt/bin" "MINGW: the dir that holds curl and git (here a UCRT64-like tree) is appended once"
 assert_eq "$(PATH="/usr/bin:/bin" sys_path)" "/usr/bin:/bin" "MINGW: curl and git already in /usr/bin: nothing is doubled"
 unset -f uname
 finish
