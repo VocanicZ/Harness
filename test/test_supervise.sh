@@ -14,6 +14,7 @@ printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$AGY_LOG" > "$AGY_STUB_DIR/agy"
 export HARNESS_AGY_BIN="$AGY_STUB_DIR/agy" PATH="$AGY_STUB_DIR:$PATH"
 source "$HERE/../scripts/lib.sh"
 source "$HERE/helpers.sh"
+tmp_track "$AGY_STUB_DIR"   # (#1106) the no-tmux skip below (Git Bash has none) exits before the trap that removes it, and left it in TMPDIR
 make_env
 command -v tmux >/dev/null || { echo "  skip: tmux not installed"; exit 0; }
 T="$(mktemp -d)"

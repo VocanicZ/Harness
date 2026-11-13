@@ -340,7 +340,11 @@ tmp_cleanup(){ [[ "$TMP_OWNER" == "$BASHPID" ]] || return 0
 # pattern, this is a shared host — and never this shell or an ancestor of it. TERM, then KILL what is
 # still up after 2s. No /proc (macOS, Git Bash): nothing to read, so nothing is killed.
 tmp_kill_rooted(){ local proc="${HARNESS_PROC_ROOT:-/proc}"
-  [[ -d "$proc/self" ]] && command -v python3 >/dev/null 2>&1 || return 0
+  [[ -d "$proc/self" ]] || return 0
+  # Git Bash (#1106): its /proc is the MSYS one, which a NATIVE Python (the only python3 there) cannot read, so the script below found no
+  # process and killed none — a stand-in whose cwd was in a tracked dir lived on, and the dir it held could not be removed.
+  real_windows_host && { _tmp_kill_rooted_msys "$proc" "$@"; return 0; }
+  command -v python3 >/dev/null 2>&1 || return 0
   python3 - "$proc" "$BASHPID" "$@" <<'PY' 2>/dev/null || true
 import os, signal, sys, time
 proc, me, dirs = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
@@ -405,6 +409,62 @@ for sig in (signal.SIGTERM, signal.SIGKILL):
     hits = [p for p in hits if alive(p)]
 PY
 }
+# _msys_posix <path> — <path> as an MSYS path in lower case (C:/x, C:\x and /c/x are one place, and NTFS does not tell x from X), in REPLY.
+# Pure bash: a fork costs ten times as much under Git Bash, and the scan below reads every process's environment.
+_msys_posix(){ local p="$1"; p="${p//\\//}"
+  [[ $p =~ ^([A-Za-z]):(/.*)?$ ]] && p="/${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+  REPLY="${p,,}"; }
+# _tmp_kill_rooted_msys <proc> <dir>… (#1106) — tmp_kill_rooted for Git Bash, in bash, over the MSYS /proc: the cwd link and the NUL-separated
+# environment of every MSYS process (a native program has neither there; the tests that start one record its pid and end it themselves).
+# Same rules as the Python scan: a broad root is ignored, this shell and its ancestors are kept, TERM then KILL what is up after 2s.
+_tmp_kill_rooted_msys(){ local proc="$1" d rd r p pid k v line ppid n i home hr
+  local -a roots=() hits=() parts=(); local -A keep=()
+  shift
+  _msys_posix "$(realpath -m "$(cygpath -u "${HOME:-/nonexistent}" 2>/dev/null || echo "${HOME:-/nonexistent}")" 2>/dev/null)"; home="$REPLY"
+  for d in "$@"; do
+    [[ -n ${d//\//} ]] || continue
+    _msys_posix "$(cygpath -u "$d" 2>/dev/null || printf '%s' "$d")"; d="${REPLY%/}"
+    rd="$(realpath -m "$d" 2>/dev/null)" || rd="$d"; _msys_posix "$rd"; rd="${REPLY%/}"
+    IFS=/ read -ra parts <<<"$rd"; n=0; for p in "${parts[@]}"; do [[ -n $p ]] && n=$((n+1)); done
+    (( n < 3 )) && continue
+    [[ $home == "$rd" || $home == "$rd"/* ]] && continue
+    hr="$home/.harness"; [[ $hr == "$rd" || $hr == "$rd"/* ]] && continue
+    roots+=("$d"); [[ $rd == "$d" ]] || roots+=("$rd")
+  done
+  (( ${#roots[@]} )) || return 0
+  p="$BASHPID"; while [[ $p =~ ^[0-9]+$ ]] && (( p > 1 )) && [[ -z ${keep[$p]:-} ]]; do   # this shell and every ancestor
+    keep[$p]=1; ppid=""
+    while read -r k v; do [[ $k == PPid: ]] && { ppid="$v"; break; }; done 2>/dev/null < "$proc/$p/status"
+    p="$ppid"; done
+  _inside(){ local x="$1" r; for r in "${roots[@]}"; do [[ $x == "$r" || $x == "$r"/* ]] && return 0; done; return 1; }
+  # every process's cwd in one find (a readlink each is a fork each); a process that has none is not ours to judge
+  n=0
+  while IFS=$'\t' read -r pid line; do
+    n=$((n+1)); pid="${pid##*/}"; [[ $pid =~ ^[0-9]+$ ]] && [[ -z ${keep[$pid]:-} ]] || continue
+    line="${line% (deleted)}"; _msys_posix "$line"; _inside "$REPLY" && hits+=("$pid")
+  done < <(find "$proc" -mindepth 2 -maxdepth 2 -name cwd -printf '%h\t%l\n' 2>/dev/null)
+  if (( n == 0 )); then   # a find that cannot read /proc: one readlink per process, slower but the same answer
+    for p in "$proc"/[0-9]*; do pid="${p##*/}"; [[ -z ${keep[$pid]:-} ]] || continue
+      line="$(readlink "$p/cwd" 2>/dev/null)" || continue; line="${line% (deleted)}"; _msys_posix "$line"; _inside "$REPLY" && hits+=("$pid"); done
+  fi
+  for p in "$proc"/[0-9]*; do pid="${p##*/}"
+    [[ -z ${keep[$pid]:-} && -r $p/environ ]] || continue
+    [[ " ${hits[*]} " == *" $pid "* ]] && continue
+    while IFS= read -r -d '' line; do
+      k="${line%%=*}"; v="${line#*=}"
+      case "$k" in STATE_DIR|HARNESS_HOME|HARNESS_LANE_DIR) [[ -n $v ]] && { _msys_posix "$v"; _inside "$REPLY" && { hits+=("$pid"); break; }; };; esac
+    done 2>/dev/null < "$p/environ"
+  done
+  unset -f _inside
+  (( ${#hits[@]} )) || return 0
+  local sig up
+  for sig in TERM KILL; do
+    for pid in "${hits[@]}"; do kill -"$sig" "$pid" 2>/dev/null; done
+    for (( i = 0; i < 40; i++ )); do up=(); for pid in "${hits[@]}"; do kill -0 "$pid" 2>/dev/null && up+=("$pid"); done
+      (( ${#up[@]} )) || return 0; [[ $sig == TERM ]] || break; sleep 0.05; done
+    hits=("${up[@]}")
+  done
+  return 0; }
 tmp_track(){
   if [[ "$TMP_OWNER" != "$BASHPID" ]]; then
     local prev=""

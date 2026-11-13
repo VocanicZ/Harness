@@ -21,14 +21,30 @@ unset_inherited_config   # a lane running this directly must not lend the fleets
 T="$(mktemp -d)"; tmp_track "$T"
 # Only the processes this test started: each lane's runner (its pid file) and each fake claude (calls.jsonl /
 # pids). Never a pattern kill: the host runs other lanes.
-our_pids(){ local d; shopt -s nullglob
-  for d in "$H"/lanes/*/; do cat "$d/pid" 2>/dev/null; echo; done
+our_fake_pids(){ local d; shopt -s nullglob
   for d in "$T"/fake-*/; do
     python3 -c 'import json,sys; [print(json.loads(l)["pid"]) for l in open(sys.argv[1])]' "$d/calls.jsonl" 2>/dev/null
     [[ -f "$d/pids" ]] && tr -d '\r' < "$d/pids" | tr ' ' '\n'
   done; shopt -u nullglob; }
-kill_ours(){ local p; for p in $(our_pids); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; return 0; }
-trap 'kill_ours; tmp_cleanup' EXIT
+# Windows (#1106): a lane's runner pid is an MSYS pid (its tree, the native claude under it included, goes with proc_kill_tree) and a fake
+# claude's pids are WINDOWS pids, which MSYS `kill` cannot signal: it answered "no such process" for them, or — the numbers share one space —
+# ended an unrelated MSYS process (the decoy worker of test_hermetic_heavy_1) whose MSYS pid is that number. So the fakes go by taskkill, and
+# only a process that still runs the fake claude or its `sleep` grandchild. Left running, they held the lane's worktree and stderr.log open
+# and the next fresh_host could not remove them.
+fake_proc(){ local c; c="$(winpid_cmdline "$1")"; [[ $c == *fake-claude* || $c == *"sleep 3600"* ]]; }
+kill_ours(){ local d p; shopt -s nullglob
+  for d in "$H"/lanes/*/; do p="$(cat "$d/pid" 2>/dev/null)"; [[ $p =~ ^[0-9]+$ ]] && (( p > 1 )) || continue
+    if real_windows_host; then proc_kill_tree "$p"; else kill -KILL "$p" 2>/dev/null; fi; done
+  shopt -u nullglob
+  for p in $(our_fake_pids); do [[ $p =~ ^[0-9]+$ ]] && (( p > 1 )) || continue
+    if real_windows_host; then winpid_alive "$p" && fake_proc "$p" && winpid_kill_tree "$p"; else kill -KILL "$p" 2>/dev/null; fi; done
+  return 0; }
+# rm_tree <path>… — rm -rf that waits for Windows to let go of what a killed process held open (a handle outlives its process by a moment).
+rm_tree(){ local i p left
+  for (( i = 0; i < 20; i++ )); do rm -rf "$@" 2>/dev/null; left=0; for p in "$@"; do [[ -e $p ]] && left=1; done
+    (( left )) || return 0; real_windows_host || break; sleep 0.5; done
+  rm -rf "$@"; }
+trap 'kill_ours; real_windows_host && sleep 1; tmp_cleanup' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 pin_host_home "$T/host"   # + the fleet/poller/snapshot pins, unit dirs and user bus (#541)
 export HARNESS_HOME="$T/host" HARNESS_SKIP_RTDD=1 HARNESS_SUPERVISE_UNIT_DIR="$T/units" HARNESS_WEB_UNIT_DIR="$T/units"
@@ -115,7 +131,7 @@ lane_survived(){ local f="$1" want="$2" what="$3" s p
     assert_ok "$what: its mid-turn claude and grandchild are still running" alive_all "$(FAKEPIDS "$f")"; fi; }
 # fresh_host <initial tag> — a host on <tag>, two fleets started on it, one headless lane each (fa idle, fb mid-turn).
 fresh_host(){ local tag="$1" f i
-  kill_ours; tmp_kill_rooted "$H" "$T/fleets"; rm -rf "$H" "$T/fleets" "$T/units" "$T/gh.calls" "$T/kill-sup" "$T/sup.out" "$T/systemctl.calls"
+  kill_ours; tmp_kill_rooted "$H" "$T/fleets"; rm_tree "$H" "$T/fleets" "$T/units" "$T/gh.calls" "$T/kill-sup" "$T/sup.out" "$T/systemctl.calls"
   mkdir -p "$H" "$T/units"; : >"$T/gh.calls"
   rel_install_at "$SRV" "$tag"
   i=0; for f in fa fb; do i=$((i+1)); mkdir -p "$T/fleets/$f/proj/.harness"

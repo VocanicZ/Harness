@@ -63,9 +63,11 @@ EOF
 cat >"$R/test_leak.py" <<'EOF'
 import os, tempfile
 tempfile.mkdtemp(); tempfile.mkstemp()
-if tempfile.gettempdir().startswith(os.environ["RUNNER_TMP"] + "/"): print("python TMPDIR under TMPROOT")
+# one spelling of both paths (#1106): a native Python on Windows answers C:\x\y for a TMPDIR the shell wrote as /c/x/y or C:/x/y
+norm = lambda p: os.path.normcase(os.path.abspath(p))
+if norm(tempfile.gettempdir()).startswith(norm(os.environ["RUNNER_TMP_NATIVE"]) + os.sep): print("python TMPDIR under TMPROOT")
 EOF
-out="$(TMPDIR="$d" RUNNER_TMP="$d" bash "$R/run.sh" 2>&1)"; rc=$?
+out="$(TMPDIR="$d" RUNNER_TMP="$d" RUNNER_TMP_NATIVE="$(native_path "$d")" bash "$R/run.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 0 "the fixture suite passes"
 assert_ok "bash tests get a TMPDIR under the runner's root" grep -qx "bash TMPDIR under TMPROOT" <<<"$out"
 assert_ok "python tests get a TMPDIR under the runner's root" grep -qx "python TMPDIR under TMPROOT" <<<"$out"
