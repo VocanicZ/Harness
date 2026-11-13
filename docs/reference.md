@@ -785,6 +785,12 @@ file: an `n/a` row skips on Windows (printing `SKIP (Windows n/a: row '<row>')`)
 `✓ target` row, or a row the matrix does not have is a **failure on every OS**, so a wrong skip is caught on Linux. The one use
 today is `test/test_swarm.sh` (`swarm submission`). `test/test_windows_skip.sh` covers the helper.
 
+A cell that exercises the POSIX implementation of a primitive (flock, `fcntl`, a fd inherited by a child, procps `ps -o`) has no
+matrix row, so it is never a skip (#1117): `posix_branch_off_windows <what>` (`test/helpers.sh`; the same check in `test/test_portable.py`)
+runs the cell on Linux, and on a real Windows host asserts that the engine takes its Windows branch there (`is_windows`, unforced) and counts
+that as a pass. The Windows run prints no `SKIP` line except `windows_skip`'s, which names an `n/a` row; `test/test_windows_skip.sh`
+enforces it.
+
 Every row that is `✓` on Windows has a line in `test/windows_coverage.tsv` naming at least one test that actually runs there.
 `test/test_windows_parity_doc.sh` fails on a `✓` row with no line, on a line whose test file is missing or skips itself for want of
 tmux (a test that needs tmux is covered by its headless twin, below), and on a line for a row that is `n/a` or absent.

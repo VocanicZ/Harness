@@ -21,6 +21,12 @@ def check(ok, msg):
     fails += 0 if ok else 1
 
 
+def posix_branch_off_windows(what):
+    """On a real Windows host the POSIX branch of a primitive cannot run: assert it is not the one taken (a pass, no SKIP line, #1117)."""
+    with env(HARNESS_PLATFORM=None):
+        check(portable.is_windows(), "the POSIX branch is not used on a Windows host (%s): the engine takes its Windows branch here" % what)
+
+
 def load(name):
     spec = importlib.util.spec_from_file_location(name, os.path.join(SCRIPTS, name + ".py"))
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
@@ -91,7 +97,7 @@ def main():
     # The POSIX branch needs os.kill(pid, 0) and `true` on PATH; on a real Windows host os.kill(pid, 0) terminates
     # the process, and the [windows] cells below are the branch that host runs (#607).
     if REAL_WINDOWS:
-        print("  SKIP (POSIX branch, no counterpart to run on a Windows host): pid_alive via os.kill")
+        posix_branch_off_windows("pid_alive via os.kill")
     else:
         with env(HARNESS_PLATFORM="posix"):
             check(portable.pid_alive(os.getpid()), "[posix] pid_alive: this process is alive")
@@ -164,7 +170,7 @@ def main():
     # ---- lock_nb / unlock
     path = os.path.join(tmp, "events.jsonl")
     if REAL_WINDOWS:
-        print("  SKIP (POSIX branch, no counterpart to run on a Windows host): lock_nb via fcntl.flock")
+        posix_branch_off_windows("lock_nb via fcntl.flock")
     else:
         with env(HARNESS_PLATFORM="posix"):
             a, b = open(path, "a"), open(path, "a")
