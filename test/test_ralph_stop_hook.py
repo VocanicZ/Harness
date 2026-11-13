@@ -101,12 +101,17 @@ def test_a_promise_flushed_200ms_after_stop_fires_ends_the_loop_with_no_refeed()
 def test_the_flush_race_is_real_without_the_wait():
     # Same transcript, no wait: the hook sees only the earlier message and re-feeds. Pins that the test above
     # is red without the re-check.
+    # The flush must land after the hook's one look: 0.2s is plenty where a python start is ~50ms, but a native Windows start
+    # (the venv launcher, then the interpreter) takes longer than that, and the promise was already there to find (#1110).
+    # So the delay is twice what one hook run takes here, with 0.2s as the floor.
+    probe = lane(); probe.say("working on it"); probe.write()
+    t0 = time.time(); probe.stop(flush_ms=0); delay = max(0.2, 2 * (time.time() - t0))
     L = lane()
     L.say("working on it"); L.write()
-    threading.Timer(0.2, L.say, [f"<promise>{PROMISE}</promise>"]).start()
+    timer = threading.Timer(delay, L.say, [f"<promise>{PROMISE}</promise>"]); timer.start()
     out = L.stop(flush_ms=0)
     assert out and out["decision"] == "block"
-    time.sleep(0.4)
+    timer.join()
 
 
 def _hook_module():
