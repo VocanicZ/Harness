@@ -88,6 +88,14 @@ assert_ok "attach says it sent it" wait_until 10 out_has "· sent: one more"
 assert_ok "…and it runs as turn 3" wait_until 15 turn_is 3
 assert_eq "$(calls prompt | sed -n 3p)" '"one more"' "the third prompt is the typed line"
 
+echo "== attach: a line with invalid UTF-8 is delivered with replacement characters, never dropped (#1126) =="
+BEFORE_BAD="$(wc -l < "$INBOX")"
+printf 'bad\377byte\n' >&7
+assert_ok "attach confirms it only after the send, once it is in the inbox" wait_until 10 out_has "· sent: bad"
+assert_eq "$(( $(wc -l < "$INBOX") - BEFORE_BAD ))" 1 "…one more message on the inbox"
+assert_eq "$(python3 -c 'import json,sys; print(json.loads(open(sys.argv[1], encoding="utf-8").read().splitlines()[-1])["text"] == "bad\ufffdbyte")' "$INBOX")" True "…the bad byte arrives as a replacement character"
+assert_ok "…and it runs as turn 4" wait_until 15 turn_is 4
+
 echo "== attach: Ctrl-C detaches and leaves the lane running =="
 STATE_BEFORE="$(cat "$(headless_lane_dir "$S")/state.json")"
 gone(){ ! proc_alive "$1"; }
@@ -113,7 +121,7 @@ assert_eq "$(sess_pane_pid "$S")" "$RUNNER" "…the same runner, still the lane'
 assert_ok "the lane is still live" sess_live "$S"
 assert_eq "$(lane_state)" idle "its state is still idle"
 assert_eq "$(cat "$(headless_lane_dir "$S")/state.json")" "$STATE_BEFORE" "…and state.json is byte for byte unchanged"
-assert_eq "$(calls prompt | wc -l)" 3 "detaching sent nothing to the lane"
+assert_eq "$(calls prompt | wc -l)" 4 "detaching sent nothing to the lane"
 if command -v pgrep >/dev/null 2>&1; then
   assert_no "the watch it started is gone" pgrep -f "claude_headless.py watch --lane $(headless_lane_dir "$S")"
 fi
@@ -129,10 +137,22 @@ assert_eq "$rc" 1 "attach to no lane fails (streams captured apart)"
 assert_ok "…the error is on stderr" grep -qF "no live session '" "$RUN_DIR/refuse.err"
 assert_eq "$(cat "$RUN_DIR/refuse.out")" "" "…and stdout stays empty"
 
+echo "== attach: a failed send prints no confirmation, names the line on stderr, and attach goes on (#1126) =="
+(  # stubs: a lane whose send fails, then one whose send works
+  cli_send(){ return 1; }; _hl_state(){ echo idle; }; headless_lane_dir(){ echo "$RUN_DIR/nolane"; }
+  _hl_attach_send "$S" "lost line" >"$RUN_DIR/fs.out" 2>"$RUN_DIR/fs.err"; echo $? > "$RUN_DIR/fs.rc"
+  cli_send(){ return 0; }
+  _hl_attach_send "$S" "good line" >"$RUN_DIR/ok.out" 2>"$RUN_DIR/ok.err" )
+assert_eq "$(cat "$RUN_DIR/fs.rc")" 0 "a failed send does not end the attach"
+assert_eq "$(cat "$RUN_DIR/fs.out")" "" "…nothing is confirmed on stdout"
+assert_ok "…stderr names the line" grep -qF "lost line" "$RUN_DIR/fs.err"
+assert_eq "$(cat "$RUN_DIR/ok.out")" "· sent: good line" "…and a send that works is confirmed after it"
+assert_eq "$(cat "$RUN_DIR/ok.err")" "" "…with nothing on stderr"
+
 echo "== attach: with stdin closed it is still the live watch =="
 WAIT=3; is_windows && WAIT=20   # Git Bash takes seconds to start a script
 out="$(timeout "$WAIT" bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
 assert_ok "it watches the lane" grep -qF "watching headless lane $S" <<<"$out"
 assert_ok "…showing the typed line's turn" grep -qF "── turn 2 (message) ── please do the typed thing" <<<"$out"
-assert_eq "$(calls prompt | wc -l)" 3 "…and typed nothing"
+assert_eq "$(calls prompt | wc -l)" 4 "…and typed nothing"
 finish

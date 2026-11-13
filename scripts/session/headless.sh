@@ -211,9 +211,12 @@ if best:
 # lane, whose runner leads its own process session and is not signalled. Without a typed line
 # (stdin closed, or not a terminal) it is still the watch. Only the inbox / cli_send contract is used.
 _hl_attach_send(){ local name="$1" line="$2" st; st="$(_hl_state "$name")"
-  if [[ $st == busy ]]; then echo "· queued behind the running turn: $line"; else echo "· sent: $line"; fi
+  # The confirmation comes after the send, and only when it succeeded (#1126); a failed one names the line on stderr
+  # and the attach keeps running.
   if declare -F cli_send >/dev/null; then cli_send "$name" "$(cat "$(headless_lane_dir "$name")/dir" 2>/dev/null)" "$line"
-  else headless_sess_send_line "$name" "$line"; fi; }
+  else headless_sess_send_line "$name" "$line"; fi \
+    || { echo "· NOT sent (the send failed): $line" >&2; return 0; }
+  if [[ $st == busy ]]; then echo "· queued behind the running turn: $line"; else echo "· sent: $line"; fi; }
 headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name" || { echo "no live headless lane $name" >&2; return 1; }
   lane="$(headless_lane_dir "$name")"
   echo "watching headless lane $name — type a line to send it as the next turn; Ctrl-C detaches and leaves the lane running — $lane/events.jsonl"

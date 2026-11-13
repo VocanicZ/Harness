@@ -56,7 +56,8 @@ _cli_default_pinned_model(){ :; }
 # The model and effort the line's --model/--effort name (`--model x` or `--model=x`).
 _cli_default_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--effort[= ]')"; }
 _cli_default_first_input(){ :; }
-_cli_default_send(){ sess_type "$1" "$3" 2>/dev/null || true; sess_enter "$1" 2>/dev/null || true; }
+# Its status is the Enter's: a line that never reached the session is a failed send (#1126), not a silent one.
+_cli_default_send(){ sess_type "$1" "$3" 2>/dev/null || true; sess_enter "$1" 2>/dev/null; }
 _cli_default_kill(){ sess_kill "$1" 2>/dev/null; }
 _cli_default_session_id(){ echo "$2"; }
 _cli_default_limit_menu_re(){ :; }
