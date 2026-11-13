@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# harness-test-timeout-windows: 2400
 """test_bench_run.py — #381 (PRD #345): the benchmark runner core, bench/run.py. gh is a fake on PATH
 (bare repos in a temp dir), the arm is bench/arms/stub.py, usage comes from a stub HARNESS_USAGE_CMD.
 Covered: a run creates a private repo seeded with the brief only, records a schema-valid results JSON

@@ -162,7 +162,8 @@ def ask(judge_cmd, model, work, prompt, config_dir=None, runner=subprocess.run):
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if config_dir:
         env["CLAUDE_CONFIG_DIR"] = config_dir
-    argv = shlex.split(judge_cmd) + JUDGE_FLAGS + ["--model", model]
+    # a Windows path in the command (C:\x\python3.exe) keeps its backslashes: posix shlex would eat them (bench/armlib.py split_cmd, #1108)
+    argv = shlex.split(judge_cmd.replace("\\", "/") if os.name == "nt" else judge_cmd) + JUDGE_FLAGS + ["--model", model]
     try:
         p = runner(argv, cwd=work, env=env, input=prompt, capture_output=True, text=True, timeout=TIMEOUT)
     except (subprocess.SubprocessError, OSError):

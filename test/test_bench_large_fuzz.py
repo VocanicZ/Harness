@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# harness-test-timeout-windows: 7200
 """test_bench_large_fuzz.py — #592 (PRD #345): bench/fixture-large/fuzz.py, the differential fuzz of an arm's `tallybook`
 against the reference implementation. Covered: the generator is deterministic and FROZEN (a pinned case hash; a change
 makes the fuzz refuse to run), a smaller --cases is a prefix of the full plan, the plan has the mix (offline / book /

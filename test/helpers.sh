@@ -42,6 +42,11 @@ host_is_windows(){ case "${HARNESS_PLATFORM:-}" in windows) return 0;; posix) re
 # through this: HARNESS_CLAUDE_BIN="python3 $(native_path "$FAKE")".
 native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 
+# native_wpath <path> — <path> as MSYS hands it to a NATIVE program through the environment or argv (`C:\x\y`, cygpath -w) when this
+# host is Windows, unchanged elsewhere (#1108). `HARNESS_TIER_TOML=$T/x.toml python3 …` reaches a native Python as `C:\…\x.toml`, so a
+# message that echoes it names that spelling, not the `/c/…` one the test built the fixture with: a test greps its output for this.
+native_wpath(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+
 # real_windows_host — this machine IS Windows (Git Bash / MSYS / Cygwin), whatever HARNESS_PLATFORM forces. Not host_is_windows:
 # a test that forces HARNESS_PLATFORM=posix on Linux still has flock and fcntl; one that does it on winsma does not (#607).
 real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
