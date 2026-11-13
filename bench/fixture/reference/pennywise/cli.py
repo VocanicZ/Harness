@@ -1,5 +1,6 @@
 import argparse
 import csv
+import errno
 import json
 import os
 import sys
@@ -149,10 +150,15 @@ def main(argv=None):
     """Run the CLI; its exit status. A reader that went away (`pennywise list | head -1`) ends the output
     quietly with status 0: no traceback, nothing on standard error."""
     try:
-        status = _main(sys.argv[1:] if argv is None else list(argv))
-        if sys.stdout is not None:
-            sys.stdout.flush()
-        return status
+        try:
+            status = _main(sys.argv[1:] if argv is None else list(argv))
+            if sys.stdout is not None:
+                sys.stdout.flush()
+            return status
+        except OSError as exc:   # a write to a pipe nobody reads is EINVAL on Windows, EPIPE elsewhere
+            if os.name == "nt" and exc.errno == errno.EINVAL:
+                raise BrokenPipeError(errno.EPIPE, "Broken pipe") from exc
+            raise
     except BrokenPipeError:
         try:
             os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())   # the exit-time flush must not fail too

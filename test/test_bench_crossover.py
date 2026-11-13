@@ -26,6 +26,12 @@ cx = load("t_crossover", os.path.join(BENCH, "crossover.py"))
 fixtures = load("t_cx_fixtures", os.path.join(BENCH, "fixtures.py"))
 
 
+def with_site(path):
+    """PYTHONPATH for a child that runs the reference: <path> first, then the PYTHONPATH this process has. On a Windows host the suite puts the
+    LF-stdio sitecustomize (pylf) there, so the child prints \\n, not \\r\\n, as on Linux; a bare PYTHONPATH=<path> drops it (#1108)."""
+    return os.pathsep.join(p for p in (path, os.environ.get("PYTHONPATH")) if p)
+
+
 def summ(median, lo=None, hi=None, n=5):
     return {"n": n, "median": median, "min": median if lo is None else lo, "max": median if hi is None else hi}
 
@@ -201,7 +207,7 @@ def test_the_medium_hidden_tests_pass_on_the_reference_and_there_are_enough_of_t
     fx = fixtures.load("medium")
     tmp = tempfile.mkdtemp()
     try:
-        env = dict(os.environ, PYTHONPATH=fx.reference, PYTHONDONTWRITEBYTECODE="1",
+        env = dict(os.environ, PYTHONPATH=with_site(fx.reference), PYTHONDONTWRITEBYTECODE="1",
                    **{fx.cmd_env: json.dumps([sys.executable, "-m", "stockroom"])})
         out = os.path.join(tmp, "r.json")
         subprocess.run([sys.executable, fx.runner, "--run", out], env=env, cwd=tmp, check=True, timeout=300,
@@ -224,7 +230,7 @@ def test_the_medium_hidden_tests_fail_on_a_reference_with_a_planted_bug():
         src = open(path).read()
         assert "(pennies * rate + 50) // 100" in src
         open(path, "w").write(src.replace("(pennies * rate + 50) // 100", "(pennies * rate + 49) // 100"))
-        env = dict(os.environ, PYTHONPATH=ref, PYTHONDONTWRITEBYTECODE="1",
+        env = dict(os.environ, PYTHONPATH=with_site(ref), PYTHONDONTWRITEBYTECODE="1",
                    **{fx.cmd_env: json.dumps([sys.executable, "-m", "stockroom"])})
         out = os.path.join(tmp, "r.json")
         subprocess.run([sys.executable, fx.runner, "--run", out], env=env, cwd=tmp, check=True, timeout=300,

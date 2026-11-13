@@ -15,6 +15,12 @@ from pennywise import cli, ledger      # noqa: E402
 TEXT = "2024-03-05 rent -900\n2024-03-01 salary 2500 pay, March\n2024-03-01 fun -12.5\n2024-04-02 salary 2500\n"
 
 
+def with_site(path):
+    """PYTHONPATH for a child that runs the reference: <path> first, then the PYTHONPATH this process has. On a Windows host the suite puts the
+    LF-stdio sitecustomize (pylf) there, so the child prints \\n, not \\r\\n, as on Linux; a bare PYTHONPATH=<path> drops it (#1108)."""
+    return os.pathsep.join(p for p in (path, os.environ.get("PYTHONPATH")) if p)
+
+
 def run(argv, stdin=""):
     out, err = io.StringIO(), io.StringIO()
     old = sys.stdin
@@ -78,7 +84,7 @@ def test_module_entry_point_runs_the_cli():
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "l.txt")
         open(path, "w").write(TEXT)
-        env = dict(os.environ, PYTHONPATH=REF, PYTHONDONTWRITEBYTECODE="1")
+        env = dict(os.environ, PYTHONPATH=with_site(REF), PYTHONDONTWRITEBYTECODE="1")
         p = subprocess.run([sys.executable, "-m", "pennywise", "balance", path], env=env, cwd=d,
                            capture_output=True, text=True)
         assert (p.returncode, p.stdout) == (0, "4087.50\n"), (p.returncode, p.stdout, p.stderr)
@@ -224,7 +230,7 @@ def test_list_into_a_closed_pipe_leaves_no_traceback():
         open(path, "w").write(TEXT)
         r, w = os.pipe()
         os.close(r)                      # `pennywise list | head -0`: nobody reads
-        env = dict(os.environ, PYTHONPATH=REF, PYTHONDONTWRITEBYTECODE="1")
+        env = dict(os.environ, PYTHONPATH=with_site(REF), PYTHONDONTWRITEBYTECODE="1")
         try:
             p = subprocess.run([sys.executable, "-m", "pennywise", "list", path], env=env, cwd=d, stdout=w,
                                stderr=subprocess.PIPE)

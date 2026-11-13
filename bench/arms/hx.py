@@ -51,6 +51,11 @@ def _resolve(argv):
     return mod.resolve_argv(list(argv))
 
 
+def _split(cmd):
+    """shlex.split of a command line the operator wrote, safe for a Windows path: posix shlex eats the backslashes of C:\\x\\y (#1108)."""
+    return shlex.split(cmd.replace("\\", "/") if os.name == "nt" else cmd)
+
+
 def _stats():
     spec = importlib.util.spec_from_file_location("bench_hx_stats", os.path.join(ROOT, "scripts", "stats.py"))
     mod = importlib.util.module_from_spec(spec)
@@ -116,7 +121,7 @@ class Hx:
         self.env = child_env()
 
     def argv(self, *args):
-        return shlex.split(self.node) + NODE_FLAGS + [self.bin] + list(args)
+        return _split(self.node) + NODE_FLAGS + [self.bin] + list(args)
 
     def cmd(self, *args, timeout=600):
         argv = self.argv(*args)
@@ -195,7 +200,7 @@ def run(ctx):
     work = os.path.dirname(os.path.abspath(ctx.clone))
     src, commit = install(ctx, work)
     hx = Hx(ctx, src, node)
-    nv = _sh(shlex.split(node) + ["--version"]).stdout.strip()
+    nv = _sh(_split(node) + ["--version"]).stdout.strip()
     with open(os.path.join(ctx.logs, "hx.json"), "w", encoding="utf-8") as fh:
         json.dump({"repo": HX_REPO, "commit": commit, "pinned": HX_COMMIT, "node": nv, "state_dir": hx.state,
                    "stop": "SIGINT the `hx run --watch` process, or `hx pause --now` in the run clone"}, fh, indent=2)

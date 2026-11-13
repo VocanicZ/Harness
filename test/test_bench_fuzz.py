@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# harness-test-timeout-windows: 5400
 """test_bench_fuzz.py — #589, #620 (PRD #345): bench/fuzz.py, the differential fuzz of an arm's pennywise against the
 reference implementation. Covered: the generator (bench/fixture/fuzzgen.py, the BLIND one of #620) is deterministic and
 FROZEN (a pinned case hash; a change makes the fuzz refuse to run) and says how it was written; it covers the shapes the
