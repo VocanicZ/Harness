@@ -417,6 +417,15 @@ _env_script(){ local v
     printf 'export %s=%q\n' "$v" "${!v}"
   done; }
 
+# claude_session_env_names — the variables a Claude Code session exports about ITSELF, one per line (#1144): CLAUDECODE,
+# CLAUDE_PID, CLAUDE_EFFORT and every exported CLAUDE_CODE_* (CLAUDE_CODE_CHILD_SESSION turns transcript saving off in
+# whatever inherits it; the messaging socket/token and session id are the parent's). A lane must never inherit them from
+# whoever ran `harness start`. CLAUDE_CONFIG_DIR is the lane's own config, not one of them. A CLI setting a lane needs
+# reaches it as an -e pair (session_env), which no scrub touches.
+claude_session_env_names(){ printf '%s\n' CLAUDECODE CLAUDE_PID CLAUDE_EFFORT; compgen -e CLAUDE_CODE_; }
+# claude_session_env_name <NAME> — true when <NAME> is one of them (a server's global env is read name by name).
+claude_session_env_name(){ case "$1" in CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_?*) return 0 ;; esac; return 1; }
+
 # _abs_path <path> — <path> made absolute against $PWD (a C:/… or C:\… path already is).
 _abs_path(){ if [[ $1 == /* || $1 =~ ^[A-Za-z]:[/\\] ]]; then printf '%s\n' "$1"; else printf '%s\n' "$PWD/$1"; fi; }
 # detach_launch [-a] <pidfile> <logfile> <cmd…> — start <cmd…> in the background so it outlives this

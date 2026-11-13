@@ -74,6 +74,44 @@ assert_eq "$(grep '^local=' "$R")" "local=/global/state" "a caller's local STATE
 assert_eq "$(grep '^stub=' "$R")" "stub=yes" "a tmux function stub still runs in the current shell (side effects kept)"
 assert_eq "$(head -n1 "$T/stub.log")" "new-session -d -s s558 -c /tmp" "…and gets the new-session args"
 
+echo "== #1144: the Claude Code session's own variables do not reach the server or the lane =="
+# A pool worker started from an interactive Claude Code session carries CLAUDECODE / CLAUDE_CODE_* / CLAUDE_PID /
+# CLAUDE_EFFORT. The server copied them into its global env and every lane inherited them: CLAUDE_CODE_CHILD_SESSION
+# turned transcript saving off, so no session_end carried usage. CLAUDE_CONFIG_DIR is the lane's config: it stays.
+CCLEAK='^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_[A-Z0-9_]*)='
+tmux kill-server 2>/dev/null; sleep 0.2
+(
+  export CLAUDECODE=1 CLAUDE_CODE_CHILD_SESSION=1 CLAUDE_CODE_SESSION_ID=x CLAUDE_EFFORT=medium CLAUDE_PID=123 CLAUDE_CONFIG_DIR=/cfg
+  export CLAUDE_CODE_MESSAGING_TOKEN=secret CLAUDE_CODE_ENTRYPOINT=cli
+  source "$ROOT/scripts/session/tmux.sh"
+  tmux_sess_start hx1144a /tmp -e HARNESS_SESSION=u1 -e FORCE_PROMPT_CACHING_5M=1 "env | sort > $T/cc.env; sleep 30"
+)
+for _ in $(seq 30); do [[ -s $T/cc.env ]] && break; sleep 0.1; done
+assert_eq "$(tmux show-environment -g 2>/dev/null | grep -cE "$CCLEAK")" 0 "no CLAUDECODE / CLAUDE_PID / CLAUDE_EFFORT / CLAUDE_CODE_* in the server's global env"
+assert_eq "$(grep -cE "$CCLEAK" "$T/cc.env")" 0 "the lane's env holds none of them"
+assert_eq "$(grep '^CLAUDE_CONFIG_DIR=' "$T/cc.env")" "CLAUDE_CONFIG_DIR=/cfg" "the lane keeps CLAUDE_CONFIG_DIR"
+assert_eq "$(grep '^FORCE_PROMPT_CACHING_5M=' "$T/cc.env")" "FORCE_PROMPT_CACHING_5M=1" "…and its -e pairs (FORCE_PROMPT_CACHING_5M)"
+assert_eq "$(grep '^HARNESS_SESSION=' "$T/cc.env")" "HARNESS_SESSION=u1" "…HARNESS_SESSION too"
+assert_eq "$(grep '^TMUX_TMPDIR=' "$T/cc.env")" "TMUX_TMPDIR=$TMUX_TMPDIR" "…and TMUX_TMPDIR, PATH, HOME pass through"
+assert_ok "PATH and HOME are there" bash -c 'grep -q "^PATH=" "$1" && grep -q "^HOME=" "$1"' _ "$T/cc.env"
+
+echo "== #1144: a server that already holds them: a lane from a clean client still gets none =="
+tmux kill-server 2>/dev/null; sleep 0.2
+( unset CLAUDECODE CLAUDE_PID CLAUDE_EFFORT $(compgen -e CLAUDE_CODE_); tmux new-session -d -s seedsrv -c /tmp )   # a clean client makes the server
+tmux set-environment -g CLAUDECODE 1; tmux set-environment -g CLAUDE_CODE_CHILD_SESSION 1
+tmux set-environment -g CLAUDE_CODE_SESSION_ID old; tmux set-environment -g SOME_GLOBAL keep
+assert_eq "$(tmux show-environment -g 2>/dev/null | grep -cE "$CCLEAK")" 3 "fixture: the server holds the leaked variables"
+rm -f "$T/pre.env"
+(
+  unset CLAUDECODE CLAUDE_PID CLAUDE_EFFORT $(compgen -e CLAUDE_CODE_)
+  source "$ROOT/scripts/session/tmux.sh"
+  tmux_sess_start hx1144b /tmp -e HARNESS_SESSION=u2 "env | sort > $T/pre.env; sleep 30"
+)
+for _ in $(seq 30); do [[ -s $T/pre.env ]] && break; sleep 0.1; done
+assert_eq "$(grep -cE "$CCLEAK" "$T/pre.env")" 0 "the lane's env holds none of the server's leaked variables"
+assert_eq "$(grep '^SOME_GLOBAL=' "$T/pre.env")" "SOME_GLOBAL=keep" "…while every other global variable still reaches it"
+assert_eq "$(tmux show-environment -g 2>/dev/null | grep -cE "$CCLEAK")" 0 "…and the server's global env is cleaned of them"
+
 echo "== TMUX_TMPDIR is honoured =="
 assert_ok "the server socket is under the private TMUX_TMPDIR" bash -c 'ls "$1"/tmux-*/default >/dev/null 2>&1' _ "$TMUX_TMPDIR"
 

@@ -110,6 +110,19 @@ doctor_fleets(){
   return "$problems"
 }
 
+# doctor_session_env — the backend's shared environment (a tmux server's global one) holds the Claude Code session's own
+# variables (#1144): every lane started on it inherits CLAUDE_CODE_CHILD_SESSION, writes no transcript, and its session_end
+# carries no usage. Names them and the fix; --fix unsets them (what the fix line says to do by hand). Silent on a clean
+# server, and when no server runs. Returns the problem count.
+doctor_session_env(){ local names
+  names="$(sess_leaked_env 2>/dev/null | xargs)"
+  [[ -n $names ]] || return 0
+  echo "  the session backend's shared environment holds the Claude Code session's variables: $names"
+  echo "    every lane started on it inherits them (transcripts off, no usage in session_end)"
+  if (( DOCTOR_FIX )); then sess_leaked_env -u >/dev/null 2>&1; echo "    → unset"
+  else echo "    → for each: tmux set-environment -g -u <name>   (or restart the tmux server), or: harness doctor --fix"; fi
+  return 1; }
+
 # doctor_windows — native Windows prerequisites (#356, ADR 0001): the headless session backend, Git's
 # bash (not WSL's) for the entrypoints Windows starts, a Python 3 that runs (the `python3` on a stock
 # host's PATH is the Microsoft Store stub; the install's shim runs HARNESS_PYTHON), symlink creation
@@ -272,7 +285,9 @@ doctor_main(){
   doctor_pidfiles || pp=$?
   echo "fleet registry:"
   doctor_fleets   || fp=$?
-  local total=$((lp+pp+fp+sp+wp))
+  echo "session environment:"
+  local ep=0; doctor_session_env || ep=$?
+  local total=$((lp+pp+fp+sp+wp+ep))
   echo "────────────────────────────────────────────"
   if (( total == 0 )); then
     echo "healthy ✓ — no lock wedges, stale pidfiles, or stale fleet-registry entries."

@@ -27,10 +27,24 @@ tmux_sess_live(){ _tmx has-session -t "$1" 2>/dev/null; }
 # `error creating …` yet exit 0, and the lane was logged as launched. The server is the default one under
 # TMUX_TMPDIR, never the caller's own. And a start counts only if the session exists: has-session confirms it,
 # so a tmux that exits 0 without creating one (or whose command died at once) is a failed start, rc 1.
+# #1144: the same goes for the Claude Code session the worker was started from (claude_session_env_names): CLAUDECODE,
+# CLAUDE_PID, CLAUDE_EFFORT, CLAUDE_CODE_*. Every lane inherited CLAUDE_CODE_CHILD_SESSION from the server and wrote no
+# transcript, so no session_end carried usage. A server that ALREADY holds them (started before this) gives them to a lane
+# whatever the client drops, so they are unset from its global environment before the lane is created.
+declare -F claude_session_env_names >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/../portable.sh"
+# tmux_sess_leaked_env [-u] — the Claude Code session variables the server's global environment holds, one per line (none
+# when it holds none or no server runs); with -u, also unset from it (what `tmux set-environment -g -u` does).
+tmux_sess_leaked_env(){ local line n rc=0
+  while IFS= read -r line; do
+    n="${line%%=*}"; [[ $line == -* || $line != *=* ]] && continue   # `-NAME` is a name removed from the global env
+    claude_session_env_name "$n" || continue
+    echo "$n"; [[ ${1:-} == -u ]] && { _tmx set-environment -g -u "$n" 2>/dev/null || rc=1; }
+  done < <(_tmx show-environment -g 2>/dev/null); return "$rc"; }
 tmux_sess_start(){ local v unset_args=(-u TMUX) rc
   if declare -F tmux >/dev/null; then tmux new-session -d -s "$1" -c "$2" "${@:3}"; rc=$?
   else
-    for v in STATE_DIR RTDD_EVENT_LOG $(compgen -e HARNESS_); do unset_args+=(-u "$v"); done
+    for v in STATE_DIR RTDD_EVENT_LOG $(compgen -e HARNESS_) $(claude_session_env_names); do unset_args+=(-u "$v"); done
+    tmux_sess_leaked_env -u >/dev/null
     env "${unset_args[@]}" tmux new-session -d -s "$1" -c "$2" "${@:3}"; rc=$?
   fi
   (( rc == 0 )) || return "$rc"
