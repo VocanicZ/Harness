@@ -8,6 +8,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - `harness attach <name>` for a session that is not live wrote `no live session '…'` (and the list of near matches, and the several-orch-sessions list) to stdout, so `harness attach xx >/dev/null` showed nothing and `2>/dev/null` showed the error. They now go to stderr; the exit code is still 1. `test_headless_attach.sh` captures the two streams apart.
 
+### `harness attach` with no unit prints the command the user typed, to stderr, and exits 2 (#1122)
+
+- `harness attach` and `harness attach ''` printed `usage: attach.sh <unit> [issue]` (the internal script name) on stdout and exited 0, so a script could not tell a bad call from a good one. The usage is now `usage: harness attach <unit> [issue]` on stderr and the exit code is 2. The list of live sessions above it stays on stdout. `test/test_attach_usage.sh` covers both spellings.
+
 ### A POSIX-only test cell on Windows is a pass, not a nameless SKIP (#1117)
 
 - The winsma full suite printed six `SKIP (POSIX branch, no counterpart to run on a Windows host)` lines that named no parity-matrix row, against PRD #475's "every Windows skip names a row that is `n/a` on Windows". `skip_posix_branch` is now `posix_branch_off_windows`: on a real Windows host it asserts that the engine takes its Windows branch (`is_windows`, with no `HARNESS_PLATFORM` forcing it) and counts a pass; `test_portable.py` does the same. The only SKIP a Windows run prints is `windows_skip`'s, which names an `n/a` row, and `test_windows_skip.sh` checks both.

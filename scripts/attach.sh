@@ -8,8 +8,8 @@ UNIT="${1:-}"; ISSUE="${2:-}"
 if [[ -z "$UNIT" ]]; then
   echo "live sessions:"
   sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-" || echo "  (none)"
-  echo "usage: attach.sh <unit> [issue]"
-  exit 0
+  echo "usage: harness attach <unit> [issue]" >&2
+  exit 2
 fi
 if [[ -n "$ISSUE" ]]; then
   sess="$(sess_impl "$UNIT" "$ISSUE")"
