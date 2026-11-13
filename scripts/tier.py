@@ -28,6 +28,8 @@ null) — "could not check" is never reported as clear.
 import argparse, json, math, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import portable  # noqa: E402  #1108: resolve_argv — a gh script or gh.cmd shim first on a native Windows PATH is the one that runs (#686)
 TOML = os.environ.get("HARNESS_TIER_TOML") or os.path.join(HERE, "tier.toml")
 TIERS = ("direct", "lane", "fleet")
 
@@ -256,7 +258,7 @@ def _first_line(text, default):
 def _call(argv, cwd=None):
     """(returncode, stdout, stderr); an unrunnable command raises CheckFailed."""
     try:
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=120)
+        p = subprocess.run(portable.resolve_argv(argv), cwd=cwd, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
         raise CheckFailed(f"`{' '.join(argv)}` could not run: {e}")
     return p.returncode, p.stdout, p.stderr
