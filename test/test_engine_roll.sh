@@ -144,4 +144,18 @@ out="$(roll "$NEWREL")"
 assert_ok "a 5-field lane claim's process is untouched" alive "$LANE"
 kill "$CUR7" "$STR" "$LANE" 2>/dev/null
 
+echo "=== 7. #1105: a worker whose ENGINE_DIR is spelled the Windows way (W:/x for /x) is the same engine — the roll leaves it alone ==="
+# On Windows export_native_paths hands a worker ENGINE_DIR=C:/x while the roll's own realpath answers /c/x. A cygpath stub that maps W:/x -> /x
+# and HARNESS_PLATFORM=windows give a Linux host that two-spelling world; the stamp matches, so only the spelling could make the roll kill it.
+WB="$ROOT/winbin"; mkdir -p "$WB"
+printf '#!/usr/bin/env bash\n[[ "$1" == -[um] ]] && shift\nprintf "%%s\\n" "${1#W:}"\n' > "$WB/cygpath"; chmod +x "$WB/cygpath"
+WENG="$ROOT/engine-win"; mk_engine "$WENG" v1 git
+F8="$(fleet eight)"
+( ENGINE_DIR="W:$WENG" HARNESS_ENGINE_STAMP="$(engine_stamp "$WENG")" nohup sleep 600 >/dev/null 2>&1 9>&- & echo $! > "$F8/run/worker-1.pid" )
+sleep 0.2; WP="$(wpid "$F8")"
+out="$( unset_inherited_config; unset STATE_DIR; PATH="$WB:$PATH" HARNESS_PLATFORM=windows ENGINE_DIR="$WENG" HARNESS_HOME="$ROOT/host" bash "$WENG/scripts/fleet-migrate.sh" --all 2>&1 )"
+assert_ok "the worker with the W:/ spelling of its engine was not rolled" alive "$WP"
+assert_eq "$(wpid "$F8")" "$WP" "...and its pid file still names it"
+kill "$WP" 2>/dev/null
+
 finish

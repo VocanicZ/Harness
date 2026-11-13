@@ -214,9 +214,9 @@ proc_ppid(){ local k v
 # Another fleet's workers never match. Nothing without a /proc (macOS), so callers behave as they did before.
 fleet_worker_procs(){ local want pid sd cmd kind arg ppid
   declare -A _fw_slot=()
-  want="$(realpath -m "$1" 2>/dev/null)" || return 0
+  want="$(real_posix_path "$1")" || return 0
   for pid in $(proc_find '(^|[ /])(pool|priority)-worker\.sh( |$)'); do
-    sd="$(proc_env "$pid" STATE_DIR)"; [[ -n $sd && "$(realpath -m "$sd" 2>/dev/null)" == "$want" ]] || continue
+    sd="$(proc_env "$pid" STATE_DIR)"; [[ -n $sd && "$(real_posix_path "$sd")" == "$want" ]] || continue
     cmd="$(proc_cmdline "$pid")"
     # a worker is a shell running the script; `pgrep -f pool-worker.sh` / `bash -c '… grep pool-worker.sh'` only mention it
     [[ $cmd =~ ^([^\ ]*/)?(ba|da|z)?sh(\.exe)?\  && $cmd != *" -c "* ]] || continue
@@ -321,6 +321,11 @@ posix_path(){ local p="$1"
 # same_path <a> <b> — true when both name the same path in any spelling (C:/x, C:\x, /c/x); a plain string
 # compare elsewhere. Textual: it does not follow symlinks (realpath first for that).
 same_path(){ [[ "$(posix_path "$1")" == "$(posix_path "$2")" ]]; }
+# real_posix_path <path> — `realpath -m` of <path> in ONE spelling (the MSYS form on Windows, #1105). A worker's exec-time ENGINE_DIR /
+# STATE_DIR is spelled C:/x there (export_native_paths rewrites them for the native programs it starts) while the caller's own
+# `realpath` answers /c/x, and realpath keeps whichever spelling it is given: two paths to one directory then differ as strings. A
+# process-table scan that compares a worker's directory with the fleet's goes through this on both sides. Unchanged on POSIX.
+real_posix_path(){ local p; p="$(posix_path "$1")"; realpath -m "$p" 2>/dev/null || printf '%s\n' "$p"; }
 # export_native_paths [VAR…] — on Windows, rewrite each EXPORTED path variable (default: the list
 # below) in mixed form. MSYS converts argv for native programs (python.exe, gh.exe, claude.exe) but not
 # arbitrary environment variables, so a path they read from the environment must already be in their
