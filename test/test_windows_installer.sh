@@ -195,4 +195,93 @@ assert_ok "gh missing: the winget command"                grep -q 'gh: MISSING �
 printf '[user]\n\tname = Test User\n\temail = test@example.com\n' >"$GIT_CONFIG_GLOBAL"
 assert_eq "$( ( export HARNESS_PLATFORM=posix; doctor_windows_prereqs; echo rc=$? ) )" "rc=0" "Linux: doctor_windows_prereqs is a no-op"
 
+echo "=== #1113: the clone and the checkout carry the per-repo settings before any worktree is added ==="
+# ensure_checkout on Windows clones with the three settings as -c options (a first clone of a long-path repo
+# must not fail, and its checkout is LF); on Linux the clone line is untouched.
+clone_args(){   # <platform> — the argv git saw for the clone
+  HP="$1" bash -c '
+    set -uo pipefail
+    export RUN_DIR="$(mktemp -d)" HARNESS_PLATFORM="$HP"
+    source "'"$R"'/scripts/lib.sh"; source "'"$R"'/scripts/drive.sh"
+    TMP="$(mktemp -d)"; SLUG=acme/widget; CHECKOUT="$TMP/co"
+    git(){ case "$*" in *"rev-parse --git-dir"*) return 1;; *clone*) echo "$*" >> "$TMP/gitargs"; return 1;; esac; return 0; }
+    log(){ :; }; ensure_safe(){ :; }
+    ensure_checkout >/dev/null 2>&1
+    cat "$TMP/gitargs" 2>/dev/null'
+}
+out="$(clone_args windows)"
+assert_ok "windows: the clone passes -c core.longpaths=true"  grep -qF -- '-c core.longpaths=true' <<<"$out"
+assert_ok "windows: the clone passes -c core.autocrlf=false"  grep -qF -- '-c core.autocrlf=false' <<<"$out"
+assert_ok "windows: the clone passes -c core.eol=lf"          grep -qF -- '-c core.eol=lf' <<<"$out"
+assert_ok "windows: the -c options come before the clone verb" grep -qE -- '^-c .* clone ' <<<"$out"
+assert_ok "windows: never --global or --system"               bash -c '! grep -qE -- "--(global|system)" <<<"$1"' _ "$out"
+out="$(clone_args posix)"
+assert_ok "linux: the clone is reached"                       grep -q 'clone' <<<"$out"
+assert_ok "linux: the clone line carries no -c options"       bash -c '! grep -qF -- "-c core." <<<"$1"' _ "$out"
+# … and after a clone that works, the checkout is configured (the -c options are the first line of defence only).
+CLONE_SRC="$T/clone-src"; git init -q -b main "$CLONE_SRC"; git -C "$CLONE_SRC" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+out="$(HARNESS_PLATFORM=windows bash -c '
+    set -uo pipefail
+    export RUN_DIR="$(mktemp -d)"
+    source "'"$R"'/scripts/lib.sh"; source "'"$R"'/scripts/drive.sh"
+    SLUG=acme/widget; CHECKOUT="'"$T"'/clone-co"; log(){ :; }; ensure_safe(){ :; }
+    git(){ if [[ "${1:-}" == clone || "${1:-}" == -c ]]; then local a=(); while [[ "${1:-}" == -c ]]; do a+=("$1" "$2"); shift 2; done; shift; command git "${a[@]}" clone -q "'"$CLONE_SRC"'" "${!#}"; else command git "$@"; fi; }
+    ensure_checkout; echo "rc=$?"' 2>&1)"
+assert_ok "a Windows clone through ensure_checkout succeeds"  grep -q 'rc=0' <<<"$out"
+assert_eq "$(git -C "$T/clone-co" config --local --get core.longpaths)" true "… and the new checkout has core.longpaths=true"
+assert_eq "$(git -C "$T/clone-co" config --local --get core.autocrlf)"  false "… core.autocrlf=false"
+assert_eq "$(git -C "$T/clone-co" config --local --get core.eol)"       lf   "… core.eol=lf"
+
+# Every worktree add is preceded by win_repo_config on the CHECKOUT (a worktree shares its repo's config, so the
+# first worktree is cut with autocrlf=false); orch, impl, bug fix, bug triage and the prebuild.
+add_order(){   # <label> <invocation…>
+  local label="$1"; shift
+  local out; out="$(bash -c '
+    set -uo pipefail
+    export RUN_DIR="$(mktemp -d)"
+    source "'"$R"'/scripts/lib.sh"; source "'"$R"'/scripts/drive.sh"
+    TMP="$(mktemp -d)"; WORKTREES_DIR="$TMP/worktrees"; mkdir -p "$WORKTREES_DIR"
+    UNIT=main; SLUG=acme/widget; PROJECT=main; DESC=widget; CHECKOUT="$TMP/co"; ORDER="$TMP/order"
+    mkdir -p "$WORKTREES_DIR/main-i7" "$(bug_worktree acme/widget 7)" "$(triage_worktree acme/widget 7)"
+    git(){ case "$*" in *"worktree add"*) echo "add" >> "$ORDER";; esac; return 0; }
+    gh(){ echo "[]"; }; tmux(){ :; }; render(){ :; }; launch_claude(){ :; }; log(){ :; }; harness_event(){ :; }
+    default_branch(){ echo main; }; ensure_safe(){ :; }; ensure_checkout(){ :; }; remove_worktree(){ :; }
+    run_worktree_hook(){ :; }; issue_json_state(){ echo OPEN; }
+    win_repo_config(){ echo "config $1" >> "$ORDER"; }
+    CHECKOUT_EXPECT="$CHECKOUT"
+    '"$*"' >/dev/null 2>&1
+    grep -n "" "$ORDER" 2>/dev/null | tr "\n" " "; echo; echo "checkout=$CHECKOUT"')"
+  local first; first="$(sed -n 1p <<<"$out")"
+  assert_ok "$label: win_repo_config on the checkout is logged before the first worktree add" \
+    bash -c 'o="$1"; c="$(sed -n 2p <<<"$2" | sed s/checkout=//)"; [[ "$o" == *"config $c"* && "$o" == *add* ]] && c_at="${o%%config $c*}" && a_at="${o%%add*}" && (( ${#c_at} < ${#a_at} ))' _ "$first" "$out"
+}
+add_order "spawn_impl"        'spawn_impl 7 "PROMISE"'
+add_order "spawn_bug fix"     'spawn_bug 7 fix'
+add_order "spawn_bug triage"  'spawn_bug 7 triage'
+add_order "spawn_orch DECOMPOSE" 'spawn_orch DECOMPOSE 7 "PROMISE"'
+add_order "prebuild_build"    'prebuild_build 8'
+
+echo "=== #1113: init and start give the project's checkout the settings, so doctor is green ==="
+PJ="$T/proj"; git init -q -b main "$PJ"; git -C "$PJ" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+( cd "$PJ" && export HARNESS_PLATFORM=windows HARNESS_INIT_NONINTERACTIVE=1 HARNESS_INIT_SEED=0 HARNESS_MODE=prd HARNESS_OWNER=acme \
+    HARNESS_REPO=acme/widget HARNESS_AUTONOMOUS=false STATE_DIR="$PJ/.harness" ENGINE_DIR="$R"; unset HARNESS_CHECKOUT
+  bash "$R/scripts/init.sh" >/dev/null 2>&1 )
+assert_ok "harness init wrote the project's config"                test -f "$PJ/.harness/config"
+assert_eq "$(git -C "$PJ" config --local --get core.longpaths)" true "windows init: core.longpaths=true on the project checkout"
+assert_eq "$(git -C "$PJ" config --local --get core.autocrlf)"  false "windows init: core.autocrlf=false"
+assert_eq "$(git -C "$PJ" config --local --get core.eol)"       lf    "windows init: core.eol=lf"
+out="$( export HARNESS_PLATFORM=windows HARNESS_REG="$DR/reg" HARNESS_WINGET=winget HARNESS_CHECKOUT="$PJ"; doctor_windows_prereqs 2>&1 )"
+assert_ok "doctor on the just-initialised project reads the git settings as ✓" grep -q 'longpaths + LF ✓' <<<"$out"
+assert_ok "… and names no git settings problem"                    bash -c '! grep -q "not set" <<<"$1"' _ "$out"
+PJ2="$T/proj2"; git init -q -b main "$PJ2"
+( cd "$PJ2" && export HARNESS_PLATFORM=posix HARNESS_INIT_NONINTERACTIVE=1 HARNESS_INIT_SEED=0 HARNESS_MODE=prd HARNESS_OWNER=acme \
+    HARNESS_REPO=acme/widget HARNESS_AUTONOMOUS=false STATE_DIR="$PJ2/.harness" ENGINE_DIR="$R"; unset HARNESS_CHECKOUT
+  bash "$R/scripts/init.sh" >/dev/null 2>&1 )
+assert_eq "$(git -C "$PJ2" config --local --get core.longpaths || echo unset)" unset "linux init: no settings written"
+# start.sh applies them to the fleet's checkout before the workers (and so any worktree) come up. start.sh needs a
+# live host (tmux/claude/gh), so this pins the ordering in the source, the way test_start_lock.sh pins its fd 9.
+cfg_line="$(grep -n 'win_repo_config "$(fleet_checkout)"' "$R/scripts/start.sh" | head -1 | cut -d: -f1)"
+pool_line="$(grep -n 'scripts/pool.sh' "$R/scripts/start.sh" | tail -1 | cut -d: -f1)"
+assert_ok "start.sh configures the fleet's checkout, before it launches the pool" test -n "$cfg_line" -a -n "$pool_line" -a "${cfg_line:-999}" -lt "${pool_line:-0}"
+
 finish

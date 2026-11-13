@@ -611,8 +611,9 @@ Windows check host (`winsma`) verifies each release; the [parity matrix](#window
   declines, and `HARNESS_WINGET` names the winget binary. The Microsoft Store `python3` stub counts as
   missing. It checks Developer Mode (the registry; off is only a problem when this shell cannot make a
   symlink either) and the git identity, and prints the exact fix for each. Harness sets
-  `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` per repo (`git -C <worktree> config`
-  on its checkout and every lane worktree), never `--global` or `--system`. It makes every link it creates a real
+  `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` per repo (`git -C <repo> config` on the
+  project's checkout at `harness init` and `harness start`, and before every `git worktree add`; the clone passes them as `-c`
+  options), never `--global` or `--system`. It makes every link it creates a real
   symlink (`MSYS=winsymlinks:nativestrict`; enable Developer Mode or run as an administrator), writes
   a `python3` shim in `$HARNESS_HOME/bin` (the `python3` on a stock host's PATH is the Microsoft Store
   stub) that runs `HARNESS_PYTHON` (default: the first of `python3`, `python`, `py -3` that runs) with a `pylf/sitecustomize.py`

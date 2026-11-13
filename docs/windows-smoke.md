@@ -48,8 +48,9 @@ Linux, and asks before each one:
 are printed instead); `HARNESS_WINGET` names the winget binary (the test suite points it at a stub). winget
 updates PATH for new terminals only, so open a new Git Bash if a prerequisite still reads `MISSING`.
 It then checks Developer Mode and the git identity (step 3) and prints the exact fix for each.
-Harness sets `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` in its own repo and
-worktrees (`git -C <worktree> config`, never `--global` or `--system`). WSL2 remains an optional
+Harness sets `core.longpaths=true`, `core.autocrlf=false` and `core.eol=lf` in the project's own repo
+(at `harness init` and `harness start`, and on the clone's own command line) before any worktree is added, so
+every worktree is cut with them (`git -C <repo> config`, never `--global` or `--system`). WSL2 remains an optional
 alternative: run the Linux instructions inside it.
 
 To install by hand instead, in PowerShell:

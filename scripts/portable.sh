@@ -406,6 +406,12 @@ win_repo_config(){ is_windows || return 0
   git -C "$1" config --local core.longpaths true 2>/dev/null
   git -C "$1" config --local core.autocrlf false 2>/dev/null
   git -C "$1" config --local core.eol lf 2>/dev/null; return 0; }
+# win_clone_args — the `-c` options a Harness clone takes on Windows (#1113), one per line: the same three
+# settings win_repo_config writes, applied DURING the clone so its own checkout (a repo with long paths, LF
+# files) is right from the first file, and `git clone -c` records them in the new repo's config. Nothing
+# elsewhere; prints nothing on Linux/macOS.
+win_clone_args(){ is_windows || return 0
+  printf '%s\n' -c core.longpaths=true -c core.autocrlf=false -c core.eol=lf; }
 # _ps_quote <s> — <s> as a PowerShell single-quoted string body (a ' is doubled).
 _ps_quote(){ printf '%s' "${1//\'/\'\'}"; }
 # _env_script — this shell's exported variables as `export NAME=value` lines a later bash can source.

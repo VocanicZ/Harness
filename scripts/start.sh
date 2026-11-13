@@ -46,6 +46,7 @@ rtdd_exe >/dev/null || {
   echo "    Install it with:  npx -y github:VocanicZ/rtdd     (or: harness update)"
   harness_event rtdd_missing   # #186: the slowdown shows up in `harness stats`, not just this terminal
 }
+win_repo_config "$(fleet_checkout)"   # #1113: Windows: longpaths + LF on the project's checkout before any worktree is added (never --global)
 skills_heal   # #439: every installed CLI keeps its links to the engine's skills (only what changed is said)
 
 # crash / migration recovery: GitHub is the source of truth, but two bits of local state

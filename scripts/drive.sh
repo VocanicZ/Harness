@@ -241,8 +241,9 @@ ensure_checkout(){ local err
     err="checkout $CHECKOUT exists but is not a git repo — not cloning $SLUG over it"
   else
     log "cloning $SLUG into $CHECKOUT"
-    if git clone -q "https://github.com/$SLUG.git" "$CHECKOUT" 2>/dev/null; then
-      ensure_safe "$CHECKOUT"; _CHECKOUT_ERR=""; return 0; fi
+    local -a cfg=(); mapfile -t cfg < <(win_clone_args)   # #1113: longpaths + LF from the first checked-out file
+    if git ${cfg[@]+"${cfg[@]}"} clone -q "https://github.com/$SLUG.git" "$CHECKOUT" 2>/dev/null; then
+      ensure_safe "$CHECKOUT"; win_repo_config "$CHECKOUT"; _CHECKOUT_ERR=""; return 0; fi
     err="clone of $SLUG into $CHECKOUT failed"
   fi
   [[ "${_CHECKOUT_ERR:-}" == "$err" ]] || { log "$err — holding, will retry"; _CHECKOUT_ERR="$err"; }
@@ -300,7 +301,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     parked_live_mark "$prd"; harness_event launch_skipped kind=orch issue="$prd" reason=winsma_parked; return 3; fi
   [[ "$action" == REVIEW ]] && parked_live_clear "$prd"
   ensure_safe "$CHECKOUT"
-  win_repo_config "$CHECKOUT"   # #488
+  win_repo_config "$CHECKOUT"   # #488 (and before the orch worktree add below, #1113)
   base="$(default_branch)"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   if (( prd > 0 )); then
@@ -314,7 +315,6 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
       git -C "$CHECKOUT" worktree add -B "agent/orch-$prd" "$wd" 2>/dev/null || { log "worktree add failed orch PRD #$prd"; return 1; }
     fi
     ensure_safe "$wd"
-    win_repo_config "$wd"   # #488: per-repo longpaths + LF on Windows (never --global)
     run_worktree_hook "$wd"
   else
     # PLAN/PRD: unit-level, gated on zero PRDs existing, so they cannot race each other or a
@@ -428,12 +428,12 @@ prebuild_build(){ local n="$1" wd="$WORKTREES_DIR/$UNIT-i$1" branch="issue/$1" f
   lock_release "$lockfd"
   base="$(default_branch)"
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+  win_repo_config "$CHECKOUT"   # #1113: before the add — a worktree shares this repo's config, so its first checkout is already LF
   if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null \
      && ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null; then
     log "prebuild: worktree add failed #$n — will not retry for ${HARNESS_PREBUILD_RETRY_SECS:-600}s (#644)"
     remove_worktree "$CHECKOUT" "$wd" "$branch"; rm -f "$f"; : > "$RUN_DIR/prebuilt/.failed-$UNIT-i$n"; return 1; fi
   ensure_safe "$wd"
-  win_repo_config "$wd"   # #488
   run_worktree_hook "$wd"
   printf 'ready %s %s\n' "$(date +%s)" "$$" > "$f.tmp" && mv -f "$f.tmp" "$f"
   log "prebuild: worktree of #$n is ready, ahead of its claim (#644)"
@@ -518,11 +518,11 @@ prepare_impl(){   # <ISSUE> <PROMISE>
   git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
   # #644: a worktree pre-built for this issue while another lane ran is reused — no add, no hook, no ensure_*.
   if ! prebuilt_take "$issue" "$wd" "$branch" "$base"; then
+    win_repo_config "$CHECKOUT"   # #1113: before the add (see prebuild)
     if ! git -C "$CHECKOUT" worktree add -B "$branch" "$wd" "origin/$base" 2>/dev/null; then
       git -C "$CHECKOUT" worktree add -B "$branch" "$wd" 2>/dev/null || { log "worktree add failed #$issue"; return 1; }
     fi
     ensure_safe "$wd"
-    win_repo_config "$wd"   # #488
     run_worktree_hook "$wd"
   fi
   # Stamp agent-working only AFTER the worktree is in place (#416, as spawn_bug since #34). A failed
@@ -599,11 +599,11 @@ spawn_bug(){
     session_live "$(sess_bug "$SLUG" "$issue" triage)" \
       || remove_worktree "$CHECKOUT" "$(triage_worktree "$SLUG" "$issue")" "agent/bug-triage-$issue"
     git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+    win_repo_config "$CHECKOUT"   # #1113: before the add (see prebuild)
     if ! git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" "origin/$base" 2>/dev/null; then
       git -C "$CHECKOUT" worktree add -B "issue/$issue" "$wd" 2>/dev/null || { log "worktree add failed bug #$issue"; return 1; }
     fi
     ensure_safe "$wd"
-    win_repo_config "$wd"   # #488: per-repo longpaths + LF on Windows (never --global)
     run_worktree_hook "$wd"
     # Resume detection (mirrors spawn_impl, #36): a force-paused fix flips to agent-paused and
     # pushes its issue/<n> branch. Either signal means a prior agent checkpointed WIP to GitHub —
@@ -623,11 +623,11 @@ spawn_bug(){
     tmpl="bug-triage.md"; wd="$(triage_worktree "$SLUG" "$issue")"; base="$(default_branch)"
     remove_worktree "$CHECKOUT" "$wd"   # defensive pre-add reap of a crashed-triage leftover (#34)
     git -C "$CHECKOUT" fetch -q origin "$base" 2>/dev/null || true
+    win_repo_config "$CHECKOUT"   # #1113: before the add (see prebuild)
     if ! git -C "$CHECKOUT" worktree add -B "agent/bug-triage-$issue" "$wd" "origin/$base" 2>/dev/null; then
       git -C "$CHECKOUT" worktree add -B "agent/bug-triage-$issue" "$wd" 2>/dev/null || { log "worktree add failed triage #$issue"; return 1; }
     fi
     ensure_safe "$wd"
-    win_repo_config "$wd"   # #488: per-repo longpaths + LF on Windows (never --global)
     run_worktree_hook "$wd"
   fi
   # Stamp agent-working only AFTER the worktree is in place (#34): a failed `worktree add` returns

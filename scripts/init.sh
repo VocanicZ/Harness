@@ -130,6 +130,9 @@ ask HARNESS_AUTHOR_ALLOWLIST "Author allowlist (comma-sep logins; empty=self-onl
   printf ': "${%s:=%s}"\n' "$SESS_CONFIG_VAR" "$(sess_backend)"
 } > "$CONFIG"
 echo "wrote $CONFIG"
+# #1113: on Windows the project's checkout takes the per-repo git settings now (longpaths + LF, this repo's config only),
+# so a doctor run right after init + start is green and the first worktree is cut with them. A no-op elsewhere.
+win_repo_config "${HARNESS_CHECKOUT:-$(cd "$STATE_DIR/.." && pwd)}"
 if [[ "$ni" != 1 ]]; then
   source "$ENGINE_DIR/scripts/lib.sh"
   seed_if_needed main
