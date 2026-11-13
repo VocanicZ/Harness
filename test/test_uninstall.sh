@@ -30,9 +30,10 @@ mk_layout(){ local root="$1"
   : > "$root/.harness/engine/bin/harness"; chmod +x "$root/.harness/engine/bin/harness"
   ln -sfn "$root/.harness/engine/bin/harness" "$root/bin/harness"
   local s
-  for s in harness harness-init harness-stop harness-uninstall; do
-    mkdir -p "$root/.claude/skills/$s"; : > "$root/.claude/skills/$s/SKILL.md"
-  done
+  # what an install leaves (#439): the umbrella harness/ holds a SKILL.md link, every other skill is a link
+  # into the engine's skill/ (#1111: uninstall removes Harness's own, so a bare dir would be the operator's)
+  mkdir -p "$root/.claude/skills/harness"; ln -s "$root/.harness/engine/skill/SKILL.md" "$root/.claude/skills/harness/SKILL.md"
+  for s in harness-init harness-stop harness-uninstall; do ln -s "$root/.harness/engine/skill/$s" "$root/.claude/skills/$s"; done
   mkdir -p "$root/.claude/skills/to-prd"; : > "$root/.claude/skills/to-prd/SKILL.md"   # unrelated — survives
   cp -R "$HERE/../skill/handoff" "$root/.claude/skills/handoff"   # Harness's own, by its marker (#303)
   printf ': "${HARNESS_MODE:=issue-only}"\n: "${HARNESS_TOPOLOGY:=single}"\n' > "$root/proj/.harness/config"
