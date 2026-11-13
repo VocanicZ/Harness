@@ -29,10 +29,10 @@ Steps:
    Prove it the cheap way — `git stash` your source change (keep the test), run that test, watch
    it fail, `git stash pop`. A change no test can fail for is a change with no test, however green
    the report looks. This is the obligation TDD's red step used to carry; rtdd does not carry it.
-   For sizeable / multi-subtask work, apply the audited {{skill:subagent-task-tree}} skill's discipline
-   (planner → plan-auditor → per-subtask implementer + spec/quality/domain audits → drift-auditor),
-   treating this issue's subtasks as the tree's tasks. For small issues, a single implementer +
-   review is fine — just do it. Stay in THIS repo.
+   SIZE THE WORK AFTER READING THE ISSUE. Read its `## Scope` first and start from those files only. It is BIG when ANY holds: two or more scope groups with disjoint files, more than 8 files in scope, or more than 6 checkboxes. Otherwise SMALL.
+   SMALL: do the work yourself, directly; a single implementer + review is fine. BIG: start ONE sub-agent per scope group, its brief holding only its own files, tests and checkboxes. Do NOT read those files yourself.
+   Apply the audited {{skill:subagent-task-tree}} skill's discipline (planner → plan-auditor → per-subtask implementer + audits → drift-auditor), each scope group a task. Integrate the results, run the rtdd rounds ONCE and open ONE PR.
+   Stay in THIS repo.
    Every sub-agent those start, NAME a short name unique to it: {{SUBAGENT}}
 {{> _submodule.md}}
 3. Never delete, skip, or weaken a test to go green, and never edit a test so `untested`

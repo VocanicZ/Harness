@@ -43,6 +43,28 @@ Both are parsed by the engine, not decoration, and getting either wrong wedges t
     `{{LABEL_READY}}` issue is CLOSED). The fleet reports RUNNING and does nothing, indefinitely.
     Nothing in that loop mutates state, so it never self-recovers and no watchdog clears it.
 
+GROUPING FINDINGS INTO ISSUES (rtdd scope) — applies to EVERY `{{LABEL_READY}}` issue you create in this pass:
+phase 1 criteria gaps, step 2b I/O findings, phase 2 security findings and the phase 3 gauntlet gap. A lane's
+context and wake-ups cost the most, not the number of issues, so group by the tests a fix would pay for:
+  - For each finding, name the source file(s) it lives in and run `rtdd explain <file>` to get the tests that
+    cover them.
+  - Findings whose test sets largely overlap go into ONE issue, because they would pay for the same test run.
+    Findings with small, separate test sets stay separate small issues.
+  - A BIG finding is always its own issue. A finding is big when it needs its own design, spans several
+    subsystems, or is more than one lane's work.
+  - EVERY issue you file gets a `## Scope` section, before the trailer, that lists the files to read and the
+    test files to run, both taken from rtdd (`rtdd explain`):
+        ## Scope
+        Files: <path>, <path>
+        Tests: <test file>, <test file>
+    A lane starts from those files only.
+  - EVERY finding is still filed: one checkbox per finding (`- [ ] ...`) in the issue that holds it, each giving
+    the exact command or repro, plus expected vs actual. Grouping never drops a finding: never sign off in step 6
+    over an unfiled finding (#600). The PRD comment maps each finding to its issue.
+  - Worked example: 10 findings become 4 issues. Three findings sit in one subsystem with shared tests -> issue 1.
+    Four are in `a.py` -> issue 2. Two are in `c.py` and `d.py` and share tests -> issue 3. One is big (own design,
+    several subsystems) -> issue 4, alone. 3 + 4 + 2 + 1 = 10 checkboxes across 4 issues, each with its own `## Scope`.
+
 PHASE 1 — CRITERIA GATE (always).
 1. Read PRD #{{PRD}} and its `## Acceptance criteria`.  gh issue view {{PRD}} -R {{SLUG}} --json title,body,labels,comments
 1b. JUDGE AGAINST THE ORIGINAL BRIEF. When the PRD has an `## Original request` section (inlined at the top of this
@@ -78,11 +100,11 @@ PHASE 1 — CRITERIA GATE (always).
    parsing, output text or format, exit status, error messages, encodings, line endings, a closed pipe), from the probe,
    the sub-agent or your own reading, becomes a `{{LABEL_READY}}` follow-up issue BEFORE sign-off, whatever its
    severity: "minor", "cosmetic", "consistent with the PRD" and "matches how the PRD says to read it" are not reasons
-   to skip filing it. File one issue per finding, with the `## Blocked by` + `## Parent` trailer from FILING A GAP
+   to skip filing it. File them grouped by rtdd scope (GROUPING FINDINGS INTO ISSUES above: one checkbox per finding, a `## Scope` section on each issue), with the `## Blocked by` + `## Parent` trailer from FILING A GAP
    ISSUE above, and never sign off in step 6 over a finding you did not file. An I/O follow-up does not by itself fail
    the criteria gate: if every criterion is met, filing it is not a reason to stop at step 3.
 3. If ANY criterion is unmet: for each gap, create a `{{LABEL_READY}}` implementation issue in
-   this repo — with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above,
+   this repo (gaps grouped by rtdd scope, one checkbox per gap and a `## Scope` section, per GROUPING FINDINGS INTO ISSUES above) — with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above,
    which is mandatory on every issue you file — and comment the findings on PRD #{{PRD}}. Do NOT add
    `{{LABEL_REVIEWED}}`. Do NOT run phase 2 or 3 — a half-built artifact loses every comparison for
    reasons the acceptance criteria already told you, wasting a full round. That is a completed
@@ -106,10 +128,11 @@ S3. RUN. Read {{SECURITY_AUDIT_SKILL}} and follow it in FULL AUDIT MODE — this
     never use a real credential. The run is done when findings.json and REPORT.md exist there and
     both validators pass.
 S4. ACT on findings.json:
-    - Every `confirmed` record with overall_severity medium, high, or critical gets ONE
-      `{{LABEL_READY}}` issue in this repo, titled "Security: <record title>", whose body carries the
-      root cause, the trace (file:line list), the observed result, and the remediation, then the
-      mandatory `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above.
+    - Every `confirmed` record with overall_severity medium, high, or critical gets ONE checkbox in a
+      `{{LABEL_READY}}` issue in this repo, grouped by rtdd scope (GROUPING FINDINGS INTO ISSUES above; a big
+      finding is titled "Security: <record title>" and stands alone). Each checkbox carries the root cause,
+      the trace (file:line list), the observed result, and the remediation. Each issue has a `## Scope`
+      section, then the mandatory `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above.
     - If you filed at least one, mark the round — the marker MUST be the first line:
         gh issue comment {{PRD}} -R {{SLUG}} --body "<!-- harness-security-audit round={{SECURITY_AUDIT_ROUND}} -->
         Security audit round {{SECURITY_AUDIT_ROUND}}: filed #<a>, #<b>. Also noted: <low findings and needs-validation leads, one line each, or none>."
@@ -165,8 +188,8 @@ The bar names one real artifact to beat and the dimensions to judge on:
     LOST:
       Create exactly ONE `{{LABEL_READY}}` issue in this repo, for the critic's single largest gap
       — not a checklist of everything you noticed. One gap per round is what makes this a loop
-      instead of a shotgun. It carries the same mandatory `## Blocked by` + `## Parent` trailer
-      from FILING A GAP ISSUE above. Then:
+      instead of a shotgun. It carries a `## Scope` section (GROUPING FINDINGS INTO ISSUES above) and the same mandatory
+      `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above. Then:
       gh issue comment {{PRD}} -R {{SLUG}} --body "<!-- harness-gauntlet round={{GAUNTLET_ROUND}} -->
       Gauntlet round {{GAUNTLET_ROUND}}: lost vs <bar>. Gap: <gap>. Filed #<issue>."
       Do NOT add `{{LABEL_REVIEWED}}`. The pool implements the gap issue, and review runs again at
