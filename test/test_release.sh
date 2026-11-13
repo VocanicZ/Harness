@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# test_release.sh — PRD #274 / #278: `harness release` gates on test/run.sh at the exact commit,
-# bumps semver from Conventional Commits, publishes archive + SHA256SUMS, and is idempotent.
+# test_release.sh — PRD #274 / #278: `harness release` gates on rtdd's Rounds 1+2 plus test/guards.sh, run through test/run.sh
+# at the exact commit (#1148: never the whole suite; test_release_gate_scope.sh pins the rounds), bumps semver from Conventional Commits, publishes archive + SHA256SUMS, and is idempotent.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
@@ -30,9 +30,28 @@ esac
 EOF
 chmod +x "$STUB/gh"
 fresh_gh(){ rm -rf "$GH_PUB"; mkdir -p "$GH_PUB"; : > "$GH_LOG"; }
-# fixture <name> <test/run.sh exit> — a Harness-shaped repo whose origin is a local bare repo.
+# Stub rtdd (#1148): the gate selects its tests with `rtdd which --json --base <x>`. It answers from the checkout it runs in: each line
+# of rtdd.files is "<round> <file>". A Round 3 (the full suite) is always reported, and the gate must never read it.
+cat > "$STUB/rtdd" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "$T/rtdd.log"
+python3 -I - <<'PY'
+import json
+rounds = {}
+for line in open("rtdd.files"):
+    r, f = line.split()
+    rounds.setdefault(int(r), []).append(f)
+print(json.dumps({"schema": 3, "rounds": [{"round": n, "files": rounds.get(n, [])} for n in (1, 2)] + [{"round": 3, "full_suite": True}]}))
+PY
+EOF
+chmod +x "$STUB/rtdd"
+# fixture <name> <test/run.sh exit> — a Harness-shaped repo whose origin is a local bare repo: test_a.sh and test_x.sh, a guard set
+# stub, and an rtdd.files that selects both tests (Round 1) plus a helper and a smoke the gate must not run.
 fixture(){ local d="$T/$1"; mkdir -p "$d/test"; git init -q --bare -b main "$d.git"
-  printf '#!/usr/bin/env bash\nexit %s\n' "$2" > "$d/test/run.sh"
+  printf '#!/usr/bin/env bash\necho "$*" >> "%s/run.calls"\nexit %s\n' "$T" "$2" > "$d/test/run.sh"
+  printf '#!/usr/bin/env bash\necho guards >> "%s/guards.calls"\nexit 0\n' "$T" > "$d/test/guards.sh"
+  : > "$d/test/test_a.sh"; : > "$d/test/test_x.sh"; : > "$d/test/helpers.sh"
+  printf '1 test/test_a.sh\n1 test/test_x.sh\n2 test/helpers.sh\n2 test/smoke/fleet_smoke.sh\n' > "$d/rtdd.files"
   gc "$d" init -q -b main; gc "$d" add -A; gc "$d" commit -qm "chore: init"
   gc "$d" remote add origin "$d.git"; gc "$d" push -q -u origin main; echo "$d"; }
 commit(){ printf '%s\n' "$2" >> "$1/log"; gc "$1" add -A; gc "$1" commit -qm "$2" ${3:+-m "$3"}; gc "$1" push -q; }
@@ -57,6 +76,7 @@ assert_eq "$(cat "$GH_LOG" | grep -c '^release create')" 0 "--dry-run creates no
 fresh_gh; B="$(fixture red 1)"
 rel "$B" >/dev/null 2>&1; rc=$?
 assert_eq "$rc" 4 "a red test/run.sh refuses with the gate exit code"
+assert_eq "$(head -n1 "$T/run.calls")" "test_a.sh test_x.sh" "the gate runs the rtdd selection by name, never a bare run.sh"
 assert_eq "$(git -C "$B" tag -l)" "" "no tag after a red gate"
 assert_eq "$(git -C "$B.git" tag -l)" "" "no tag pushed after a red gate"
 assert_no "no gh release create after a red gate" grep -q '^release create' "$GH_LOG"
@@ -87,12 +107,12 @@ assert_ok "the gate gets a private TMUX_TMPDIR" grep -q '^TMUX_TMPDIR=' "$T/gate
 assert_no "which is not the fleet's /tmp" grep -qE '^TMUX_TMPDIR=/tmp/?$' "$T/gate-child-env.txt"
 
 # ── #1060: a red file is re-run once, alone; one that passes alone is a flake and the release goes ahead ──
-# flaky_fixture <name> <what a run with a file argument does> — red on a full run, <2nd arg> when re-run by file name.
+# flaky_fixture <name> <what a re-run of test_x.sh alone does> — red on the gate's run, <2nd arg> when re-run by file name.
 flaky_fixture(){ local d; d="$(fixture "$1" 0)"
   cat > "$d/test/run.sh" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >> "$T/$1.calls"
-if (( \$# )); then $2; fi
+if [[ "\$*" == test_x.sh ]]; then $2; fi
 echo "== test_x.sh =="; echo "FAIL: x lost the race"; echo "FAILED: test_x.sh"; exit 1
 EOF
   gc "$d" add -A; gc "$d" commit -qm "chore: flaky gate"; gc "$d" push -q; echo "$d"; }

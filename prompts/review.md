@@ -87,6 +87,12 @@ PHASE 1 — CRITERIA GATE (always).
    off, timed out, or a SMALL suite the helper sends back because it runs faster locally than it
    queues on swarm) → run the suite locally.
 {{WINDOWS_SUITE}}
+   RECORD THE SHA THE SUITE TESTED (#1148). When the full suite came back GREEN (swarm, local, or both), comment ONCE on
+   PRD #{{PRD}} with the commit it ran against, the first line exactly this marker with the 40-hex sha of this working dir's HEAD:
+     gh issue comment {{PRD}} -R {{SLUG}} --body "<!-- harness-prd-suite sha=$(git rev-parse HEAD) -->
+     Full suite green at $(git rev-parse --short HEAD)."
+   The release gate reads it: a release at that same sha reuses this result and runs no tests, and a later one runs only rtdd
+   Rounds 1+2 for the commits since. Never post it for a red run, and never for a sha the suite did not run on.
    That sub-agent is the PROBE: it ALWAYS runs a fixed robustness checklist against the real interface, not only
    the cases the PRD lists. Pick the checklist that suits the interface:
    - CLI: a value starting with a dash, both positional and as an option value (`-x`, `--flag`, `-`); output piped
