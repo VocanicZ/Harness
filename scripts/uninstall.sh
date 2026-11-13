@@ -202,8 +202,8 @@ _marked_skills(){ grep -lF '<!-- harness-skill:' "$1"/*/SKILL.md 2>/dev/null | x
 # remove the deployed /harness operator skills (umbrella `harness` + every `harness-*`, and the marked
 # prompt skills) from user scope and every CLI's own user-skills dir (cli_user_skills_dir), leaving
 # unrelated skills untouched. #439: what goes is what Harness made — its links into an engine's
-# skill/ (dangling ones too, once the engine is gone) and its copies (cli_skill_ours); an operator's
-# same-named skill stays. Then whatever Harness installed into each CLI itself (cli_uninstall: agy's
+# skill/ (dangling ones too, once the engine is gone) and its copies (cli_skill_removable, #1111); an operator's
+# same-named skill, or a link into their own skill/ dir, stays. Then whatever Harness installed into each CLI itself (cli_uninstall: agy's
 # harness-ralph plugin, #236). lib.sh is sourced best-effort above, so the adapter seam is sourced on
 # its own; a pinned HARNESS_USER_SKILLS (a sandbox) never reaches into the real HOME's other CLI dirs.
 # Idempotent; best-effort: a missing or failing binary never fails this.
@@ -219,6 +219,8 @@ _skill_dirs(){ local c us
     [[ -n "$us" ]] && ! [[ -n "$_SKILLS_PINNED" && "$us" == "$HOME"/* ]] && echo "$us"
   done | awk '!seen[$0]++'; }
 _SKILL_DIRS="$(_skill_dirs)"
+# The /harness skill copies Harness shipped, read NOW: remove_engine deletes the releases they are compared with (#1111).
+declare -F cli_skill_sums >/dev/null && CLI_SKILL_SHIPPED="$(cli_skill_sums "$ENGINE_DIR/skill")"
 remove_skills(){
   local d n=0 c dir
   if ! declare -F cli_skill_ours >/dev/null; then     # no seam at all: the /harness names alone
@@ -233,7 +235,7 @@ remove_skills(){
     shopt -s nullglob
     for d in "$dir"/*; do
       [[ -L $d || ${d##*/} == harness || ${d##*/} == harness-* ]] || grep -qF '<!-- harness-skill:' "$d/SKILL.md" 2>/dev/null || continue
-      cli_skill_ours "$d" || continue
+      cli_skill_removable "$d" || continue
       rm -rf "$d" && [[ $dir == "$HARNESS_USER_SKILLS" ]] && n=$((n+1))
     done
     shopt -u nullglob

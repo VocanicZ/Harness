@@ -55,8 +55,8 @@ mk_install(){ local root="$1" h="$1/home" b="$1/bin" s="$1/skills"
   : >"$h/poller/poller.log"; echo '{}' >"$h/poller/registry/x.json"; echo '{}' >"$h/fleets/hz.json"
   echo '{}' >"$h/snapshots/a.json"; echo '{}' >"$h/events.jsonl"; echo '{}' >"$h/rtdd-events.jsonl"
   mkdir -p "$h/supervise/rules"; : >"$h/supervise.log"
-  ln -sfn "$h/engine/skill/harness" "$s/harness"
-  mkdir -p "$s/harness-init"; : >"$s/harness-init/SKILL.md"
+  mkdir -p "$s/harness"; ln -sfn "$h/engine/skill/SKILL.md" "$s/harness/SKILL.md"   # the umbrella, as install_skills links it (#439)
+  ln -sfn "$h/engine/skill/harness-init" "$s/harness-init"
   printf '#!/usr/bin/env bash\nexec sleep 60\n' >"$T/poller.sh"; chmod +x "$T/poller.sh"
   bash -c 'exec -a poller.sh sleep 60' & POLLER_SLEEP=$!; SLEEPERS+=("$!"); echo "$POLLER_SLEEP" >"$h/poller/poller.pid"
 }

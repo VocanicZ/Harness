@@ -262,6 +262,56 @@ cli_skill_ours(){ local dst="${1%/}" root="${2:-}" n rel f c d
   [[ $d == "${HARNESS_USER_SKILLS:-$HOME/.claude/skills}" ]] && return 0
   for c in $CLI_SKILLS_COPIED; do [[ $d == "$(cli_with "$c" cli_user_skills_dir)" ]] && return 0; done
   return 1; }
+# --- uninstall: remove only what Harness made (#1111) -----------------------------------------------------
+# cli_skill_ours is generous because INSTALL (re)links through it: an old pruned release's link, a dev
+# clone's link and a pre-#439 copy are all replaced by the engine's link. Uninstall DELETES, so it asks
+# the stricter cli_skill_removable below: a link must name a Harness engine, a copy must be what Harness shipped.
+# _cli_forms <path> — the spellings one path can have, one per line: as given, posix (Windows C:/x -> /c/x,
+# #605) and lexically normalized. A link text can be relative or name a path that is gone.
+_cli_forms(){ local p="$1" r
+  printf '%s\n' "${p%/}"
+  declare -F posix_path >/dev/null && { r="$(posix_path "${p%/}" 2>/dev/null)" && printf '%s\n' "$r"; }
+  r="$(realpath -m -s "${p%/}" 2>/dev/null)" && printf '%s\n' "$r"
+  return 0; }
+# _cli_into_engine <link text> <link's dir> <leaf> — 0 iff the link text names <leaf> under the skill/ of a
+# Harness engine: $HARNESS_HOME/engine, any $HARNESS_HOME/releases/<tag> (gone or not), or the engine
+# being removed ($ENGINE_DIR). Any other */skill/<leaf> is the operator's (a link into their own repo).
+_cli_into_engine(){ local t="$1" ld="$2" leaf="$3" hh f r h
+  [[ $t == /* || $t =~ ^[A-Za-z]:[/\\] ]] || t="$ld/$t"
+  while IFS= read -r hh; do [[ -n $hh ]] || continue
+    while IFS= read -r f; do
+      [[ $f == "$hh/engine/skill/$leaf" || $f == "$hh"/releases/*/skill/"$leaf" ]] && return 0
+      if [[ -n ${ENGINE_DIR:-} ]]; then
+        while IFS= read -r r; do [[ $f == "${r%/}/skill/$leaf" ]] && return 0; done < <(_cli_forms "$ENGINE_DIR"); fi
+    done < <(_cli_forms "$t")
+  done < <(_cli_forms "${HARNESS_HOME:-$HOME/.harness}")
+  return 1; }
+# cli_skill_sums [skill/ root…] — "<skill name> <cksum>" for the SKILL.md of every /harness skill (the umbrella,
+# named harness, and each harness-*) in an installed release ($HARNESS_HOME/releases/*/skill) and in each root:
+# the copies Harness shipped. uninstall reads it BEFORE it removes the engine, into CLI_SKILL_SHIPPED.
+cli_skill_sums(){ local r f n
+  for r in "${HARNESS_HOME:-$HOME/.harness}"/releases/*/skill "$@"; do
+    [[ -n $r && -d $r ]] || continue
+    for f in "$r"/SKILL.md "$r"/harness-*/SKILL.md; do [[ -f $f ]] || continue
+      n="${f%/SKILL.md}"; n="${n##*/}"; [[ $f == "$r"/SKILL.md ]] && n=harness
+      echo "$n $(cksum <"$f")"; done
+  done; }
+# cli_skill_removable <dst> [engine skill/ root] — 0 iff uninstall may delete <dst>: a symlink into a Harness
+# engine's skill/<its name> (dangling too); harness/ holding a SKILL.md link into an engine's skill/SKILL.md; a
+# copy carrying CLI_SKILL_MARK; or a harness / harness-* copy whose SKILL.md is byte-equal (same cksum) to one
+# Harness shipped (CLI_SKILL_SHIPPED, else read now from the releases, the root and $ENGINE_DIR/skill).
+# Everything else — a link into some other skill/ dir, a harness-mytool of the operator's own — stays.
+cli_skill_removable(){ local dst="${1%/}" root="${2:-}" n sum shipped
+  n="${dst##*/}"
+  if [[ -L $dst ]]; then _cli_into_engine "$(readlink "$dst")" "${dst%/*}" "$n"; return; fi
+  [[ -d $dst ]] || return 1
+  if [[ $n == harness && -L $dst/SKILL.md ]]; then _cli_into_engine "$(readlink "$dst/SKILL.md")" "$dst" SKILL.md; return; fi
+  [[ -f $dst/SKILL.md ]] || return 1
+  grep -qF "$CLI_SKILL_MARK" "$dst/SKILL.md" && return 0
+  [[ $n == harness || $n == harness-* ]] || return 1
+  sum="$(cksum <"$dst/SKILL.md")"
+  shipped="${CLI_SKILL_SHIPPED-$(cli_skill_sums ${root:+"$root"} ${ENGINE_DIR:+"$ENGINE_DIR/skill"})}"
+  grep -qxF "$n $sum" <<<"$shipped"; }
 # cli_skill_link <src> <dst> — make <dst> Harness's link to the engine skill <src>: a skill dir, or the
 # umbrella skill/SKILL.md (then <dst> is the harness/ dir holding the link). Prints what it did:
 # `linked` (new), `relinked` (a dangling, old-release or copied one replaced), `kept` (the operator's
