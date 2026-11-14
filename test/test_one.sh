@@ -134,4 +134,14 @@ assert_eq "$(cut -f1-4 <<<"$got")" "$(printf 'main\tseven_day\t55\t%s' "$future"
 assert_ok "…and the age comes from the reading's own time, not the drop file's" \
   bash -c "a=\$(cut -f5 <<<'$got'); (( a >= 4995 && a <= 5010 ))"
 
+# #1155: _one_note renders text and runs nothing — its backticked `harness pause --force` was a command
+# substitution that paused the fleet. A stub `harness` on PATH records any call.
+mkdir -p "$RUN_DIR/stubbin"
+printf '#!/bin/sh\necho "$@" >> "%s/stub-harness.calls"\n' "$RUN_DIR" > "$RUN_DIR/stubbin/harness"; chmod +x "$RUN_DIR/stubbin/harness"
+rm -f "$RUN_DIR/PAUSED" "$RUN_DIR/stub-harness.calls"
+note="$(PATH="$RUN_DIR/stubbin:$PATH"; UNIT=u; source "$HERE/../scripts/one.sh"; _one_note 5)"
+assert_ok "_one_note keeps harness pause --force as literal text" grep -qF 'the one `harness pause --force` sends' <<<"$note"
+assert_ok "_one_note runs no harness command" test ! -e "$RUN_DIR/stub-harness.calls"
+assert_ok "_one_note creates no PAUSED flag" test ! -e "$RUN_DIR/PAUSED"
+
 finish
