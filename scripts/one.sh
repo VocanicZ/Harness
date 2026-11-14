@@ -150,7 +150,7 @@ BEFORE EACH PHASE — explore, test, impl, gate, ship, in that order — run:
   $h phase $1 <phase> --unit $UNIT
   Exit 0 (FITS): go on with that phase.
   Exit 1 (CHECKPOINT): do not start the phase. It prints a message beginning "HARNESS CHECKPOINT",
-  the one `harness pause --force` sends a fleet lane: follow it exactly — commit + push the branch,
+  the one \`harness pause --force\` sends a fleet lane: follow it exactly — commit + push the branch,
   the handoff comment, the $HARNESS_LABEL_WORKING → $HARNESS_LABEL_PAUSED swap — then, instead of
   exiting, run the release below and stop.
 WHEN DONE — merged and closed, or checkpointed — run:
