@@ -267,7 +267,13 @@ doctor_leftovers(){ local home="${HARNESS_HOME:-$HOME/.harness}" bin="${HARNESS_
 }
 
 doctor_main(){
-  local a; for a in "$@"; do case "$a" in --fix) DOCTOR_FIX=1;; -h|--help) echo "usage: harness doctor [--fix]"; return 0;; esac; done
+  # An argument that is not --fix / -h / --help is a typo (#1120): a mistyped `--fx` must not silently run without --fix.
+  # Usage error, exit 2, before anything is checked or touched. Control characters in it are shown as '?' (one line, #952).
+  local a; for a in "$@"; do case "$a" in
+    --fix) DOCTOR_FIX=1;;
+    -h|--help) echo "usage: harness doctor [--fix]"; return 0;;
+    *) echo "harness doctor: unknown option '${a//[[:cntrl:]]/?}'" >&2; echo "usage: harness doctor [--fix]" >&2; return 2;;
+  esac; done
   local tag=""; (( DOCTOR_FIX )) && tag="(--fix) "
   echo "── harness doctor ${tag}── ${STATE_DIR:-?}"
   echo "RUN_DIR: $RUN_DIR"
