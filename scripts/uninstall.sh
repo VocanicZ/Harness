@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # uninstall.sh [--force] [--force-engine] — tear down a Harness install/project (#61, PRD #52).
 # --force-engine removes the SHARED engine + PATH link even when other co-resident fleets/projects
-# still depend on them (the multi-fleet guard otherwise preserves them).
+# still depend on them (the multi-fleet guard otherwise preserves them). On Windows it is REFUSED while
+# another fleet still uses the engine (a running worker holds its scripts open, #490): nothing is removed.
 set -uo pipefail
 ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${STATE_DIR:-${HARNESS_DIR:-}}"   # this project's .harness/ (bin/harness discovers it); may be empty
