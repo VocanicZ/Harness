@@ -216,6 +216,59 @@ setup; snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$
 winsma_wake_tick
 assert_eq "$(edits)" "1" "(control) a label with no spec, from before #1066, is still woken by the ticket alone"
 
+echo "=== 8. a woken issue must be dispatchable at once, or it stays parked and keeps its ticket (#1161) ==="
+# Waking removes the label and the lane is gone: nothing refreshes the ticket, and lock.sh drops one idle past WS_STALE_SEC. So a due
+# issue waits (its ticket refreshed by `turn` each tick) while the pool is full or a usage hold stands, and keeps its place meanwhile.
+ticket_age(){ ws ws_call r_queue_state | awk -v i="$1" '$2==i{print $6}'; }
+ticket_name(){ ws ws_call r_queue_state | awk -v i="$1" '$2==i{print $1}'; }
+setup
+ws ws_call r_queue_join 222 lane-b $$ >/dev/null; sleep 0.05; ws ws_call r_queue_join 333 lane-c $$ >/dev/null
+snap "222:ready-for-agent,waiting-winsma" "333:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\nready-for-agent\n' > "$LIVELABELS"
+B0="$(ticket_name 222)"
+stale(){ touch -d '3 hours ago' "$WS_C/hx-queue/$B0"; }     # the ticket has sat for far longer than WS_STALE_SEC
+eval "orig_$(declare -f pool_lane_count)"                   # keep the real one; the tests fill the pool with a stub
+real_pool(){ eval "$(declare -f orig_pool_lane_count | sed '1s/orig_pool_lane_count/pool_lane_count/')"; }
+pool_lane_count(){ echo "$POOL"; }                          # every pool slot is taken
+stale; assert_ok "(setup) B's ticket is older than WS_STALE_SEC" test "$(ticket_age 222)" -gt "$WS_STALE_SEC"
+winsma_wake_tick
+assert_eq "$(edits)" "0" "the pool is full: B is next and the lock is free, but B is not woken"
+assert_ok "...the log says why" grep -q 'winsma-wake: #222 stays parked — it is due, but the pool is full' "$LOGF"
+assert_ok "...and B's ticket is refreshed, not left to go stale" test "$(ticket_age 222)" -lt 60
+assert_eq "$(ticket_name 222)" "$B0" "...it is the same ticket: B keeps its place"
+winsma_wake_tick; winsma_wake_tick
+assert_eq "$(grep -c 'stays parked — it is due' "$LOGF")" "1" "the hold is logged once, not once per tick"
+real_pool
+mkdir -p "$(_usage_hold_dir)"; : > "$(_usage_hold_dir)/main.hold"          # a usage hold pauses claims
+stale; winsma_wake_tick
+assert_eq "$(edits)" "0" "a usage hold stands: B is not woken"
+assert_ok "...the log says why" grep -q 'stays parked — it is due, but a usage hold pauses claims' "$LOGF"
+assert_ok "...and B's ticket is refreshed" test "$(ticket_age 222)" -lt 60
+assert_eq "$(ticket_name 222)" "$B0" "...still B's own ticket"
+rm -f "$(_usage_hold_dir)"/*.hold; : > "$CALLS"
+ws ws_call r_queue_drop "$B0" "$WS_STALE_SEC" >/dev/null 2>&1   # lock.sh's drop of an idle ticket: refused, B's was refreshed
+assert_ok "B's ticket survived a drop by lock.sh's stale rule" test -n "$(ticket_name 222)"
+winsma_wake_tick
+assert_eq "$(edits)" "1" "the hold clears and a slot is free: B is woken"
+assert_ok "...B's, not C's" grep -q '^gh issue edit 222 .*--remove-label waiting-winsma' "$CALLS"
+ws ws_lock 222 lane-b2 $$ >/dev/null 2>&1; assert_eq "$?" "0" "B's lock attempt succeeds at once"
+assert_eq "$(sed -n 's/^issue=//p' "$WS_C/hx-lock/owner")" "222" "...ahead of C, which queued after it"
+# the deadline path never asks the host, but a due issue that cannot be dispatched keeps its ticket too
+setup
+ws ws_call r_queue_join 222 lane-b $$ >/dev/null; B0="$(ticket_name 222)"
+snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"
+WF="$RUN_DIR/hz-main-i222.wait"; HARNESS_WAIT_FILE="$WF" python3 "$ROOT/scripts/waitlib.py" set --winsma 222 --slug acme/widget --label waiting-winsma --resume redispatch --deadline-s 43200 --what t >/dev/null
+assert_ok "(setup) B's park spec exists" test -s "$WF"
+python3 - "$WF" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["deadline"] = 1; json.dump(d, open(p, "w"))
+PY
+pool_lane_count(){ echo "$POOL"; }; : > "$CALLS"; stale
+winsma_wake_tick
+assert_eq "$(edits)" "0" "its deadline passed but the pool is full: still parked"
+assert_ok "...and its ticket is refreshed" test "$(ticket_age 222)" -lt 60
+real_pool; winsma_wake_tick
+assert_eq "$(edits)" "1" "a slot is free: the overdue issue is woken"
+
 echo "=== 9b. a lane's own wait file survives the suite (#1084): the seam drops HARNESS_WAIT_FILE, so a park here never writes it ==="
 setup
 ws ws_lock 111 lane-a $$ >/dev/null; ws ws_call r_queue_join 222 lane-b $$ >/dev/null
