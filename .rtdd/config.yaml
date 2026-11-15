@@ -18,6 +18,11 @@ scan_exclude:
   - "CHANGELOG.md"
   - "test/smoke/logs/**"
   - "bench/results/**"
+  # The bench fixtures carry hidden tests of their own; `**/fixtures/**` misses fixture, fixture-medium
+  # and fixture-large, so they were selected as Harness tests (#1156). Not `bench/fixture*/**`: that
+  # would drop bench/fixtures.py, which is Harness code.
+  - "bench/fixture/**"
+  - "bench/fixture-*/**"
 
 # Files read for their file node and the paths they name, never for definitions.
 definition_exclude:

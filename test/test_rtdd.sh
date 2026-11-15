@@ -152,6 +152,8 @@ assert "README teaches no removed v0.2 workflow" "! grep -qE 'rtdd (run|seed)|ma
 # files an older `rtdd init` wrote) is gone.
 ROOT="$HERE/.."
 assert "v0.3 config committed"            "[[ -f '$ROOT/.rtdd/config.yaml' ]] && grep -q '^whole_file_tests:' '$ROOT/.rtdd/config.yaml'"
+assert "bench fixture trees are never scanned (#1156)" "grep -qxF '  - \"bench/fixture/**\"' '$ROOT/.rtdd/config.yaml' && grep -qxF '  - \"bench/fixture-*/**\"' '$ROOT/.rtdd/config.yaml'"
+assert "bench/fixtures.py stays scanned (#1156)" "! grep -qE '^ *- \"bench/fixture\*' '$ROOT/.rtdd/config.yaml'"
 assert "graph cache ignored"              "grep -qx 'graph.json' '$ROOT/.rtdd/.gitignore'"
 for f in .rtdd/map.jsonl .rtdd/adapters scripts/rtdd-bash-runner.py AGENTS.md .cursor/rules/rtdd.mdc; do
   assert "v0.2 footprint gone: $f"        "[[ ! -e '$ROOT/$f' ]]"
