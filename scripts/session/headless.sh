@@ -219,7 +219,9 @@ headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name"
   echo "watching headless lane $name — type a line to send it as the next turn; Ctrl-C detaches and leaves the lane running — $lane/events.jsonl"
   python3 "$HEADLESS_LANE_PY" watch --lane "$lane" & wp=$!
   trap 'kill "$wp" 2>/dev/null; echo; echo "detached; headless lane '"$name"' keeps running"; exit 0' INT TERM
-  while IFS= read -r line; do
+  # `|| [[ -n $line ]]`: read returns non-zero at EOF on a final line with no newline, yet fills `line` —
+  # that last piped line is sent like any other (#1128).
+  while IFS= read -r line || [[ -n $line ]]; do
     [[ -n ${line//[[:space:]]/} ]] || continue
     headless_sess_live "$name" || { echo "headless lane $name has ended" >&2; kill "$wp" 2>/dev/null; return 1; }
     _hl_attach_send "$name" "$line"
