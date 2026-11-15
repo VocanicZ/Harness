@@ -246,7 +246,7 @@ _hl_attach_send(){ local name="$1" line="$2" st shown; st="$(_hl_state "$name")"
     || { echo "· NOT sent (the send failed): $(_hl_vis "$line")" >&2; return 0; }
   shown="$(_hl_vis "$line")"
   if [[ $st == busy ]]; then echo "· queued behind the running turn: $shown"; else echo "· sent: $shown"; fi; }
-headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name" || { echo "no live headless lane $name" >&2; return 1; }
+headless_sess_attach(){ local name="$1" lane wp line piece; headless_sess_live "$name" || { echo "no live headless lane $name" >&2; return 1; }
   lane="$(headless_lane_dir "$name")"
   echo "watching headless lane $name — type a line to send it as the next turn; Ctrl-C detaches and leaves the lane running — $lane/events.jsonl"
   python3 "$HEADLESS_LANE_PY" watch --lane "$lane" & wp=$!
@@ -260,10 +260,14 @@ headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name"
     if (( rc > 128 )); then buf+="$line"
     else
       line="$buf$line"; buf=""
-      if [[ -n ${line//[[:space:]]/} ]]; then
+      # #1127: a leading UTF-8 BOM is dropped, and a CR ends a line like an LF — the CR of a CRLF line leaves an
+      # empty piece (blank, skipped), a lone CR splits the line in two messages.
+      line="${line#$'\xef\xbb\xbf'}"
+      while IFS= read -r piece; do
+        [[ -n ${piece//[[:space:]]/} ]] || continue
         headless_sess_live "$name" || { _hl_attach_ended "$name" "$wp"; return 1; }
-        _hl_attach_send "$name" "$line"
-      fi
+        _hl_attach_send "$name" "$piece"
+      done <<<"${line//$'\r'/$'\n'}"
       (( rc == 0 )) && continue
       break   # stdin closed (or not a terminal): still the watch
     fi
