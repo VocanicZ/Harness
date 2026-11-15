@@ -230,7 +230,7 @@ echo "=== a v0.1.1 git checkout: its own update.sh only pulls (#1116); it says t
 # C:/x and /c/x differently), so it takes the `git pull --ff-only` path, sources the install.sh the pull brought, and ends with the
 # engine still a git checkout. The fake realpath below spells things the way that host does (verbatim), so ENGINE_DIR=<engine>/.
 # is never "the same" engine. The pull is a real one, from a local origin whose second commit is this tree's update.sh.
-skip_posix_branch "a fake realpath standing in for Windows' spellings" || {
+posix_branch_off_windows "a fake realpath standing in for Windows' spellings" || {
 mkdir -p "$T/vrp"; printf '#!/usr/bin/env bash\na=(); for x in "$@"; do [[ $x == -* ]] || a+=("$x"); done; echo "${a[0]}"\n' > "$T/vrp/realpath"; chmod +x "$T/vrp/realpath"
 git_t(){ git -c user.name=t -c user.email=t@t "$@"; }
 oldco(){   # a checkout of an origin at "v0.1.1's update.sh", one commit behind this tree's
