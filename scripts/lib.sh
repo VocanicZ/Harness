@@ -431,6 +431,16 @@ worker_claims(){ local f p
     p="$(awk '{print $2; exit}' "$f" 2>/dev/null)"
     [[ "$p" == "$$" ]] && echo "$f"
   done < <(worker_claims_of "$1"); }
+# worker_has_claim <wid> — does THIS process hold any claim? Returns at the first one found, without a pipe: a
+# `worker_claims | head -n1` closes the pipe after the first line, and a worker holding several claims (adopted
+# lanes) then got EPIPE on every later echo — workers run with SIGPIPE ignored, so bash logged `write error:
+# Broken pipe` about 7 times per poll (#1159).
+worker_has_claim(){ local f p all; all="$(worker_claims_of "$1")"   # read whole: an early return must not leave a writer on a closed pipe
+  while read -r f; do
+    [[ -n "$f" ]] || continue
+    p="$(awk '{print $2; exit}' "$f" 2>/dev/null)"
+    [[ "$p" == "$$" ]] && return 0
+  done <<<"$all"; return 1; }
 # session_lane_key <session> — the lane key of one of the fleet unit's sessions (empty for any other).
 session_lane_key(){ local k="${1#"$HARNESS_SESS_PREFIX-$(fleet_unit)-"}"
   case "$k" in i[0-9]*) echo "impl-${k#i}";; p[0-9]*) echo "orch-${k#p}";; esac; }

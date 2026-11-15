@@ -91,11 +91,50 @@ reap_done_sessions(){
 #                       kill; reap_team then unlocks the issue and dispatch resumes it from resume.md.
 # Recovery (check reads PENDING) clears the state in reap_done_sessions. Work that cannot be pushed
 # is never killed: logged as an ERROR and retried next poll.
+# --- #1159: the checkpointed lane ---------------------------------------------------------------------
+# A HARNESS CHECKPOINT (a usage hold, `pause --force`) leaves <sess>.checkpoint, and the lane then swaps its issue to
+# agent-paused and sits at its prompt. That was written for a lane meant to wait for an operator, but a backend with
+# no turn counter (tmux) gives usage_park_lanes nothing to park it by, and once the pause or hold was gone nothing
+# ended the lane: it kept its pool slot and the issue stayed agent-paused under a live session for good.
+# checkpointed_lane_tend <sess> — rc 1: no checkpoint marker (not this rule's lane: #417's self-park applies). rc 0:
+# the lane is a checkpointed one, and it was left alone or ended. It is ended only when ALL hold: no pause flag,
+# no usage hold, the issue reads agent-paused without agent-working, and the pane is idle at its prompt (no dialog,
+# no turn running). Its work is on origin first: a dirty or unpushed worktree is mechanically checkpointed, and a
+# push that fails keeps the lane alive (ERROR logged, retried next poll). reap_impl_lane / the bug reap then free
+# the claim and worktree, and dispatch resumes the issue from its branch.
+_wt_unpushed(){ local wd="$1" br="$2" head remote   # rc 0: the worktree has work origin/<br> lacks
+  git -C "$wd" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  [[ -n "$(git -C "$wd" status --porcelain -- . ':!.claude' ':!.harness-task.md' 2>/dev/null)" ]] && return 0
+  head="$(git -C "$wd" rev-parse HEAD 2>/dev/null)"
+  remote="$(git -C "$wd" ls-remote origin "refs/heads/$br" 2>/dev/null | awk '{print $1; exit}')"
+  [[ "$head" != "$remote" ]]; }
+checkpointed_lane_tend(){ local sess="$1" pane wd labels
+  [[ -f "$RUN_DIR/$sess.checkpoint" ]] || return 1
+  is_paused && return 0          # the operator's pause: the lane is meant to sit there
+  usage_held && return 0         # ...and so is a usage hold
+  pane="$(sess_capture "$sess" 2>/dev/null)"
+  cli_pane_dialog "$pane" && return 0                             # never act on a dialog
+  { cli_pane_prompt "$pane" && ! cli_pane_busy "$pane"; } || return 0   # still on its checkpoint turn
+  _checkpoint_target "$sess" && [[ -n "$_CP_ISSUE" && "$_CP_SLUG" == */?* ]] || return 0
+  labels="$(gh issue view "$_CP_ISSUE" -R "$_CP_SLUG" --json labels -q '[.labels[].name]' 2>/dev/null || echo '')"
+  [[ "$labels" == *"\"$HARNESS_LABEL_PAUSED\""* && "$labels" != *"\"$HARNESS_LABEL_WORKING\""* ]] || return 0   # checkpoint not complete (or resumed)
+  wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"
+  if [[ -n "$_CP_BRANCH" && -n "$wd" ]] && _wt_unpushed "$wd" "$_CP_BRANCH"; then
+    mechanical_checkpoint "$sess" "$pane" "checkpoint-end" \
+      "Session \`$sess\` was checkpointed by Harness and the pause or usage hold that asked for it is over; its worktree held work origin did not, so Harness pushed it before ending the session. The issue is resumed from this branch." \
+      || { log "checkpoint: ERROR could not push $sess ($_CP_SLUG#$_CP_ISSUE) — not killing it, retrying next poll (#1159)"; return 0; }
+  fi
+  log "checkpoint: $sess ($_CP_SLUG#$_CP_ISSUE) is checkpointed and idle, and no pause or usage hold stands — ending it for reap → resume (#1159)"
+  stats_sess_event "$sess" paused reason=checkpoint_end
+  cli_kill "$sess" "$wd" || true
+  session_live "$sess" || rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.usagepark"
+  return 0; }
+
 SELFPARK_NUDGE='AUTONOMOUS fleet: you may not wait on a human. The `%s` label belongs to the HARNESS CHECKPOINT protocol only, and no checkpoint was sent to you. Pick the option you recommended, document it in an issue comment as an operator decision, remove `%s`, re-add `%s` (gh issue edit %s -R %s --remove-label %s --add-label %s), and continue the task.'
 selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
+  checkpointed_lane_tend "$sess" && return 0   # a checkpoint was requested: it sits there while a pause or hold stands, and is ended after (#1159)
   [[ "${HARNESS_AUTONOMOUS:-true}" == true ]] || return 0
   [[ "$issue" =~ ^[0-9]+$ ]] || return 0
-  [[ -f "$RUN_DIR/$sess.checkpoint" ]] && return 0   # a checkpoint was requested: it is meant to sit there
   wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; now="$(date +%s)"
   # #660: a lane launched moments ago is not parked yet. A resumed paused issue still carries agent-paused from the
   # checkpoint it resumes until the lane itself removes it (prompts/resume.md step 3), so the first goal check reads
@@ -660,6 +699,7 @@ bug_lane_tend(){ local slug="$1" n="$2" phase sess SLUG="$1"
     sess="$(sess_bug "$slug" "$n" "$phase")"
     session_live "$sess" || continue
     watchdog_session "$sess"; wait_tend "$sess"   # #1066: a bug lane parked on a long job or the usage limit is resumed once
+    checkpointed_lane_tend "$sess" && continue    # #1159: a checkpointed bug lane is ended once the pause / hold is gone
     if bug_goal_done "$n" "$phase"; then
       log "pool: bug #$n $phase goal met — ending $sess"
       [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge

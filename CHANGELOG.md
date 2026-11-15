@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A checkpointed tmux lane is ended once the pause or usage hold is gone (#1159)
+
+- A lane checkpointed by a usage hold or `harness pause --force` pushed its branch, swapped its issue to `agent-paused` and then sat idle at its prompt for good on a tmux fleet: nothing ended it after the window reset or `harness resume`, so it held its pool slot and its issue was never resumed. Such a lane (checkpoint marker, issue `agent-paused`, pane idle at its prompt) is now ended on the first poll after the pause or hold is gone, and its issue resumes from its branch. Unpushed work is pushed first; a failed push keeps the lane alive and is retried. Priority and pool bug lanes follow the same rule. While the pause or hold stands, nothing is touched.
+- A pool worker holding several claims no longer fills its log with `write error: Broken pipe` (`worker_has_claim` replaces the `worker_claims | head` pipes).
+
 ### A woken winsma issue that cannot be dispatched keeps its queue ticket (#1161)
 
 - `winsma_wake_tick` removed `waiting-winsma` as soon as an issue's ticket was next and the lock free, even when every pool slot was taken or a usage hold paused claims. The woken issue's lane was gone and nothing refreshed its ticket, so `lock.sh` dropped it after `WS_STALE_SEC` (about 30 minutes) and the issue went to the end of any future queue (#1110, #1108). The tick now wakes an issue only when it can be dispatched at once (`winsma_wake_blocked`: a free pool slot and no usage hold); otherwise it stays parked, logs why once, and `winsma.sh turn` keeps refreshing its ticket each tick, so it still has its place when a slot frees. This covers the park-deadline wake too. `test/test_winsma_park.sh` section 8.
