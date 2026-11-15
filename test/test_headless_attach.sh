@@ -127,6 +127,28 @@ if command -v pgrep >/dev/null 2>&1; then
 fi
 exec 7<&-
 
+echo "== attach: a lane that ends while nobody types ends the attach (#1129) =="
+# A second lane, so the one above stays for the sections after this. The attach's stdin is a fifo nobody writes
+# to: an untimed `read` would sit there until the next keystroke. The poll is cut to 1 s to keep the test short.
+S2=hat-main-i2; WD2="$RUN_DIR/wd2"; mkdir -p "$WD2"; echo "the task" > "$WD2/.harness-task.md"
+FAKE2="$RUN_DIR/fake2"; mkdir -p "$FAKE2"; printf '%s\n' normal > "$FAKE2/plan"   # its own fake dir: the calls above stay countable
+l2="$(FAKE_CLAUDE_DIR="$FAKE2" PROMISE="ISSUE 2 DONE" MAXITER=10 GOAL=ISSUE:2 launch_agent "$S2" "$WD2" 2>&1)"; l2rc=$?
+assert_ok "the second lane is live (rc $l2rc: $l2)" sess_live "$S2"
+OUT2="$RUN_DIR/attach2.out"; : > "$OUT2"
+mkfifo "$RUN_DIR/attach2.in"; exec 8<>"$RUN_DIR/attach2.in"
+HARNESS_ATTACH_POLL_S=1 "${DEFSIG[@]}" bash "$ROOT/scripts/attach.sh" "$S2" <&8 >"$OUT2" 2>&1 &
+APID2=$!
+OUT_SAVE="$OUT"; OUT="$OUT2"
+assert_ok "attach is watching the second lane" wait_until 10 out_has "watching headless lane $S2"
+headless_sess_kill "$S2" >/dev/null 2>&1
+gone2(){ ! proc_alive "$APID2"; }
+assert_ok "the attach exits by itself, with nothing typed" wait_until 12 gone2
+gone2 || kill -KILL "$APID2" 2>/dev/null
+wait "$APID2"; rc2=$?
+assert_eq "$rc2" 1 "…failing, as the lane is gone"
+assert_ok "…saying the lane has ended" out_has "headless lane $S2 has ended"
+OUT="$OUT_SAVE"; exec 8<&-
+
 echo "== attach: a lane that is not live is refused =="
 out="$(bash "$ROOT/scripts/attach.sh" hat-main-i99 2>&1 </dev/null)"; rc=$?
 assert_eq "$rc" 1 "attach to no lane fails"
