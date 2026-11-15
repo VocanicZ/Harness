@@ -1700,7 +1700,14 @@ windows_block(){ local part="$1"; shift
 # it removes the label. A host that cannot be asked leaves the issue parked and says so once per outage. With no
 # HARNESS_WINDOWS_HOST there is nothing to wait for: wake all. A label with no spec (a park from before #1066) is judged the same
 # way, without a deadline. Throttled to one pass per HARNESS_WINSMA_WAKE_S (default 60) seconds; no parked issue = no call at all.
-winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc live down="$RUN_DIR/winsma-wake.down" dl why
+# winsma_wake_blocked — #1161: 0 and a reason on stdout when a woken issue could not be dispatched this tick (every pool slot is taken,
+# or a usage hold pauses claims); 1 when it could. Waking such an issue would strand its queue ticket (the lane is gone, nothing refreshes it).
+winsma_wake_blocked(){ local live
+  if usage_held; then echo "a usage hold pauses claims"; return 0; fi
+  live="$(pool_lane_count)"; [[ "$live" =~ ^[0-9]+$ ]] || live=0
+  if (( live >= POOL )); then echo "the pool is full ($live of $POOL slots)"; return 0; fi
+  return 1; }
+winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc live down="$RUN_DIR/winsma-wake.down" dl why blocked
   local -A deadlines=()
   now="$(date +%s)"; t="$(cat "$f" 2>/dev/null)"
   [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ${HARNESS_WINSMA_WAKE_S:-60} )) && return 0
@@ -1721,6 +1728,15 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
          : > "$down.$n"; continue;;
     esac
     rm -f "$down.$n"
+    # #1161: waking is removing the label, and a woken issue's lane is gone — nothing refreshes its queue ticket until it is dispatched, and
+    # lock.sh drops a ticket idle past WS_STALE_SEC. So wake only when the issue can be dispatched at once; otherwise it stays parked, and
+    # `turn` (above, every tick) keeps the ticket fresh. The deadline path never asked the host: refresh the ticket here, best effort.
+    if blocked="$(winsma_wake_blocked)"; then
+      [[ "$why" == deadline ]] && wait_winsma_turn "$n" >/dev/null 2>&1
+      [[ "$(cat "$down.held.$n" 2>/dev/null)" == "$blocked" ]] || log "winsma-wake: #$n stays parked — it is due, but $blocked; its queue ticket is kept fresh meanwhile (#1161)"
+      echo "$blocked" > "$down.held.$n"; continue
+    fi
+    rm -f "$down.held.$n"
     live="$(gh issue view "$n" -R "$SLUG" --json labels -q '.labels[].name' 2>/dev/null)" || continue   # the snapshot lags: act on the live labels
     grep -qxF "$HARNESS_LABEL_WAITING_WINSMA" <<<"$live" || continue
     if gh issue edit "$n" -R "$SLUG" --remove-label "$HARNESS_LABEL_WAITING_WINSMA" >/dev/null 2>&1; then

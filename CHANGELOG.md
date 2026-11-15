@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A woken winsma issue that cannot be dispatched keeps its queue ticket (#1161)
+
+- `winsma_wake_tick` removed `waiting-winsma` as soon as an issue's ticket was next and the lock free, even when every pool slot was taken or a usage hold paused claims. The woken issue's lane was gone and nothing refreshed its ticket, so `lock.sh` dropped it after `WS_STALE_SEC` (about 30 minutes) and the issue went to the end of any future queue (#1110, #1108). The tick now wakes an issue only when it can be dispatched at once (`winsma_wake_blocked`: a free pool slot and no usage hold); otherwise it stays parked, logs why once, and `winsma.sh turn` keeps refreshing its ticket each tick, so it still has its place when a slot frees. This covers the park-deadline wake too. `test/test_winsma_park.sh` section 8.
+
 ### A lane waiting hours on a usage window parks and frees its pool slot (#1154)
 
 - Two bench lanes held 2 of 8 pool slots for about 45 hours, each re-arming a `cond=file` wait for the weekly window reset, while ready issues (and a woken winsma waiter) found the pool full. `harness-wait set --limit --until <epoch>` (or `--path <file> --deadline-s <s>`) from an implementation lane whose earliest wake is more than 2 hours away (`HARNESS_QUOTA_PARK_MIN_S`) now parks the lane the way `winsma.sh park` does: a `resume=redispatch` wait spec, a handoff comment, `agent-working` swapped for the new `waiting-quota` label in one edit (`HARNESS_LABEL_WAITING_QUOTA`, seeded by `harness init`), and the session ends so another ready issue takes the slot. `quota_wake_tick` re-dispatches the issue once, as a resume, when the reset time has passed and no usage hold stands, one issue per `HARNESS_WAIT_STAGGER_S`. A dirty or unpushed worktree refuses the park and keeps the session; `--resume inject` keeps the slot. The LONG WAITS prompt tells lanes to park a bench/budget block. `test/test_quota_park.sh`, `test/test_waitlib.py`.
