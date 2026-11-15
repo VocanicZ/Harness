@@ -15,7 +15,7 @@ unset_inherited_config; unset HARNESS_REPO HARNESS_DEFAULT_BRANCH
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 H(){ bash "$ROOT/bin/harness" "$@"; }
 has(){ grep -qi -- "$1" <<<"$2"; }   # has <pattern> <text>
-tp(){ native_wpath "$1"; }   # a path as a native python3 prints it back (C:\… on Windows, #1108)
+tp(){ native_path "$1"; }   # a path as a native python3 prints it back (C:/… on Windows, #1108)
 jq_(){ python3 -c "import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))" "$1"; }
 
 # ── decide: the three tiers ─────────────────────────────────────────────────────────────────────
@@ -161,6 +161,8 @@ assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
 assert_ok "…naming the file" grep -qF -- "$(tp "$T/bad.toml")" <<<"$out"
 assert_ok "…naming HARNESS_TIER_TOML and quoting the path like a not-found error (#1003)" grep -qF "harness tier: HARNESS_TIER_TOML '$(tp "$T/bad.toml")': cannot parse it: " <<<"$out"
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   printf '[direct\n' > "$T/bad${ch}.toml"
   err="$(HARNESS_TIER_TOML="$T/bad${ch}.toml" H tier thresholds 2>&1 >/dev/null)"
@@ -238,6 +240,8 @@ out="$(HARNESS_TIER_TOML="$T/badval.toml" H tier thresholds 2>&1)"; rc=$?
 assert_eq "$rc" 2 "tier thresholds with a bad value -> exit 2 too"
 # a tier.toml path holding U+2028 or a form feed is echoed escaped in the error (#863)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   err="$(HARNESS_TIER_TOML="$T/no${ch}pe.toml" H tier thresholds 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "unreadable tier.toml path with ${esc} -> exit 2"
@@ -349,11 +353,15 @@ case "$1 $2" in
   *) exit 1;;
 esac
 SH
-git worktree add -q -b issue/9 "$T/wt9"$'\f'"ff" main
-echo wip > "$T/wt9"$'\f'"ff/src/a.py"
+# Windows refuses a control character in a file name, so there the form-feed worktree is not made and only U+2028 is checked (#1108)
+pairs="9:src/a.py 10:src/b.py"
+if host_is_windows; then pairs="10:src/b.py"; else
+  git worktree add -q -b issue/9 "$T/wt9"$'\f'"ff" main
+  echo wip > "$T/wt9"$'\f'"ff/src/a.py"
+fi
 git worktree add -q -b issue/10 "$T/wt10"$'\xe2\x80\xa8'"ff" main
 echo wip > "$T/wt10"$'\xe2\x80\xa8'"ff/src/b.py"
-for pair in 9:src/a.py 10:src/b.py; do
+for pair in $pairs; do
   n="${pair%%:*}"; f="${pair#*:}"
   out="$(ov "$f")"; rc=$?
   assert_eq "$rc" 1 "$f is uncommitted in issue #$n's worktree, whose path holds a control character -> overlap"
@@ -502,7 +510,7 @@ for p in "$T/nonexistent-dir" "$T/afile"; do
     fi
     assert_eq "$rc" 2 "overlap --repo-dir ($form) $p not a directory -> usage error, exit 2"
     assert_ok "overlap --repo-dir ($form) $p: names --repo-dir" grep -qF -- '--repo-dir' <<<"$err"
-    assert_ok "overlap --repo-dir ($form) $p: names the path (its first 20 characters, #911)" grep -qF -- "${p:0:20}" <<<"$err"
+    assert_ok "overlap --repo-dir ($form) $p: names the path (its first 20 characters, #911)" grep -qF -- "$(tp "$p" | cut -c1-20)" <<<"$err"
     assert_eq "$(grep -c "error:" <<<"$err")" 1 "overlap --repo-dir ($form) $p: one error line"
     assert_eq "$(wc -c < "$GH_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs gh"
     assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs git"
@@ -569,6 +577,8 @@ for sk in harness-prd harness-issue harness-arc; do
 done
 # a --base / -R / --repo-dir value with U+2028 or a form feed is echoed escaped, in the same \uXXXX style as every other tool (#899)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   err="$(H tier overlap --files a --base="-a${ch}b" 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "tier overlap --base with ${esc} -> exit 2"
@@ -591,6 +601,8 @@ for pair in $'\f:\\u000c' $'\xe2\x80\xa8:\\u2028' $'\x01:\\u0001'; do
 done
 # --prefer's choice error, a tier.toml string value and a tier.toml parse error echo U+2028 / a form feed escaped, as vis does (#912)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   err="$(H tier decide --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer "p${ch}" 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "tier decide --prefer with ${esc} -> exit 2"

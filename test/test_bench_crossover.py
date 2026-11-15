@@ -161,7 +161,8 @@ def test_writing_is_idempotent_and_check_finds_a_stale_file():
         once = (open(toml).read(), open(readme).read(), open(rmd).read())
         subprocess.run(write, check=True)
         assert (open(toml).read(), open(readme).read(), open(rmd).read()) == once, "a second write changes nothing"
-        assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 0
+        chk = subprocess.run(argv + ["--check"], capture_output=True, text=True)
+        assert chk.returncode == 0, (chk.returncode, chk.stdout, chk.stderr)
         assert cx.START in once[1] and "## When to use Harness" in once[1] and "calibrated_from" in once[0]
         # #1194: the README keeps the verdict sentences only, the tables are RESULTS.md's
         assert "**The crossover.**" in once[1] and "**The tier thresholds**" in once[1] and "| arm |" not in once[1], once[1]

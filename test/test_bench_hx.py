@@ -27,6 +27,8 @@ a = sys.argv[1:]
 if a == ["--version"]:
     print("v24.0.0"); sys.exit(0)
 a = [x for x in a if not x.startswith("--disable-warning")]
+if os.name == "nt":   # os.execv on native Windows starts the new program and exits 0 at once: wait for it and pass its status on (#1108)
+    import subprocess; sys.exit(subprocess.call([sys.executable] + a))
 os.execv(sys.executable, [sys.executable] + a)
 '''
 
@@ -43,6 +45,11 @@ board = os.environ["FAKE_GH_HOME"]
 def put(name, data):   # atomic (#814): the fake gh `cat`s these while they are rewritten, never a torn file
     tmp = os.path.join(board, ".%s.%d.tmp" % (name, os.getpid()))
     with open(tmp, "w") as f: json.dump(data, f)
+    for _ in range(20000):   # native Windows denies the rename while a reader (the fake gh's cat) has the file open: try again (#1108)
+        try:
+            os.replace(tmp, os.path.join(board, name)); return
+        except PermissionError:
+            time.sleep(0.001)
     os.replace(tmp, os.path.join(board, name))
 state = os.path.join(os.getcwd(), ".hx")
 cmd = argv[0]
@@ -61,6 +68,7 @@ elif cmd == "run":
         with open(os.path.join(d, "sigint.log"), "a") as f: f.write("sigint %d\n" % n)
         sys.exit(0)
     signal.signal(signal.SIGINT, on_int)
+    if hasattr(signal, "SIGBREAK"): signal.signal(signal.SIGBREAK, on_int)   # native Windows stops it with CTRL_BREAK (#1108)
     if os.environ.get("FAKE_DIE_ALWAYS") or (os.environ.get("FAKE_DIE_ONCE") and n == 1):
         sys.exit(3)
     sid = "hx-lane-%d" % n
@@ -114,7 +122,10 @@ class Arm:
 
     def close(self):
         try:
-            os.killpg(self.decoy.pid, signal.SIGKILL)
+            if hasattr(os, "killpg"):
+                os.killpg(self.decoy.pid, signal.SIGKILL)
+            else:
+                self.decoy.kill()   # native Windows has no process groups to signal (#1108)
         except OSError:
             pass
         self.decoy.wait()
@@ -141,15 +152,15 @@ def test_the_brief_is_filed_with_hx_prd_and_run_watch_starts_with_default_config
     r = a.result()
     assert tb.bench_run.validate(r) == [] and (r["status"], r["error"]) == ("ok", None), r
     init, prd, run = a.calls("init")[0], a.calls("prd")[0], a.calls("run")[0]
-    assert init["args"] == ["init", "--yes"] and init["cwd"].endswith("/clone"), init
+    assert init["args"] == ["init", "--yes"] and init["cwd"].replace("\\", "/").endswith("/clone"), init
     brief = open(os.path.join(tb.ROOT, "bench", "fixture", "brief.md")).read()
     title = [l[2:].strip() for l in brief.splitlines() if l.startswith("# ")][0]
-    assert prd["args"][0] == "prd" and prd["args"][1].endswith("/clone/brief.md"), prd
+    assert prd["args"][0] == "prd" and prd["args"][1].replace("\\", "/").endswith("/clone/brief.md"), prd
     assert prd["args"][2:] == ["--title", "PRD: " + title], prd["args"]
     assert run["args"] == ["run", "--watch"], "no --workers: Hx's own default"
     cfg = json.load(open(os.path.join(a.e.results, "t1", "hx.logs", "config.json")))
     assert cfg["workers"] == 2 and cfg["model"] == "claude-opus-5-5" and cfg["autoWorkers"] is True, cfg
-    assert cfg["worktreeRoot"].endswith("/hx-wt") and not cfg["worktreeRoot"].startswith("/hx-wt"), cfg
+    assert cfg["worktreeRoot"].replace("\\", "/").endswith("/hx-wt") and not cfg["worktreeRoot"].startswith("/hx-wt"), cfg
     assert r["counts"]["workers"] == 2
 
 
@@ -175,7 +186,7 @@ def test_the_environment_is_scrubbed_of_the_hosts_fleet_and_api_keys(a):
     assert {c["args"][0] for c in calls} == {"init", "prd", "run"}
     for c in calls:
         assert c["env"] == {}, c["env"]
-        assert c["cwd"].endswith("/clone"), c
+        assert c["cwd"].replace("\\", "/").endswith("/clone"), c
 
 
 @with_arm()
@@ -265,7 +276,7 @@ def _board_put_is_atomic(script, label):
     m = re.search(r"^def put\(name, data\):.*\n(?:    .*\n)+", script, re.M)
     assert m, label + ": no put() in the fake"
     d = tempfile.mkdtemp()
-    ns = {"json": json, "os": os, "board": d}
+    ns = {"json": json, "os": os, "time": __import__("time"), "board": d}
     exec(m.group(0), ns)
     put, stop, bad = ns["put"], threading.Event(), []
     put("prds.json", [{"number": 1, "state": "OPEN"}])

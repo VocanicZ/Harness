@@ -207,7 +207,7 @@ def test_the_time_cap_stops_starting_new_cases():
 
 def test_a_command_that_hangs_or_is_missing_is_a_divergence_not_a_crash():
     old = fuzz.RUN_TIMEOUT
-    fuzz.RUN_TIMEOUT = 1
+    fuzz.RUN_TIMEOUT = 10 if os.name == "nt" else 1   # the reference must start inside it: a native Windows Python takes over a second (#1108)
     try:
         hang = fuzz.run([sys.executable, "-c", "import time; time.sleep(30)"], env_for(REF), cases=2)
     finally:
