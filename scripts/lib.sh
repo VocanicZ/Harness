@@ -66,6 +66,8 @@ fi
 : "${HARNESS_LABEL_HITL:=hitl}"             # #360: human-in-the-loop — the fleet never claims it
 # #1034: parked in the winsma lock queue — no slot, not dispatched until its ticket is next
 : "${HARNESS_LABEL_WAITING_WINSMA:=waiting-winsma}"
+# #1154: parked until a usage window (or another long wait) ends — no slot, not dispatched until the wake
+: "${HARNESS_LABEL_WAITING_QUOTA:=waiting-quota}"
 : "${HARNESS_PAUSE_GRACE:=300}"             # seconds pause --force waits for each agent to confirm
 : "${HARNESS_AUTHOR_ALLOWLIST:=}"      # secure-by-default: empty = self-only; comma-sep logins; `*` = allow-any
 : "${HARNESS_USE_POLLER:=1}"           # #182: ON by default — workers read the host poller's shared snapshots; 0 = direct-gh polling
@@ -115,7 +117,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/cli/dispatch.sh"
 export HARNESS_MODE HARNESS_OWNER HARNESS_REPO HARNESS_UNIT HARNESS_CHECKOUT HARNESS_SPEC HARNESS_AUTONOMOUS HARNESS_SELFPARK_GRACE_MIN \
   HARNESS_LABEL_READY HARNESS_LABEL_PRD HARNESS_LABEL_WORKING HARNESS_LABEL_BLOCKED \
   HARNESS_LABEL_REVIEWED HARNESS_LABEL_COORD HARNESS_LABEL_PAUSED \
-  HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_LABEL_WAITING_WINSMA \
+  HARNESS_LABEL_BUG HARNESS_LABEL_BUG_TRIAGED HARNESS_LABEL_HITL HARNESS_LABEL_WAITING_WINSMA HARNESS_LABEL_WAITING_QUOTA \
   HARNESS_AUTHOR_ALLOWLIST HARNESS_USE_POLLER HARNESS_PREFIX_COLLISION HARNESS_WORKTREE_HOOK \
   HARNESS_GAUNTLET_ROUNDS HARNESS_CI_GATE HARNESS_SEED_CI HARNESS_DISABLE_CI HARNESS_SESS_PREFIX HARNESS_SECURITY_AUDIT HARNESS_SECURITY_AUDIT_ROUNDS \
   HARNESS_USAGE_CHECKPOINT_PCT HARNESS_USAGE_STALE_MIN HARNESS_USAGE_CMD HARNESS_USAGE_STATUSLINE \
@@ -551,12 +553,18 @@ parked_live_active(){ local t; read -r t 2>/dev/null < "$(parked_live_file "$1")
 # issue_json_has_label <json> <label> — 0 when a `gh issue view --json …labels…` answer carries <label>; 1 for none or an unreadable answer.
 issue_json_has_label(){ local names; names="$(python3 "$TASKCTX_PY" labels <<<"$1" 2>/dev/null || echo '')"
   [[ "$names" == *"\"$2\""* ]]; }
+# issue_json_parked <json> — 0 when the live labels carry a park: the winsma queue's (#1034) or a usage window's (#1154). Sets
+# PARKED_WHY to winsma|quota.
+issue_json_parked(){ PARKED_WHY=""
+  if issue_json_has_label "$1" "$HARNESS_LABEL_WAITING_WINSMA"; then PARKED_WHY=winsma; return 0; fi
+  if issue_json_has_label "$1" "$HARNESS_LABEL_WAITING_QUOTA"; then PARKED_WHY=quota; return 0; fi
+  return 1; }
 # parked_spec_keys — the issue numbers whose redispatch winsma spec still holds them out of dispatch, comma-separated.
 parked_spec_keys(){ local gen now ttl n created out=(); now="$(date +%s)"; ttl="$(parked_ttl)"
   gen="$(python3 -c 'import json,sys
 try: print(int(json.load(open(sys.argv[1])).get("generated_at") or 0))
 except Exception: print(0)' "${HARNESS_SNAPSHOT_FILE:-/nonexistent}" 2>/dev/null)"; [[ "$gen" =~ ^[0-9]+$ ]] || gen=0
-  while IFS=$'\t' read -r _ n _ created; do
+  while IFS=$'\t' read -r _ n _ created _; do
     [[ "$n" =~ ^[0-9]+$ && "$created" =~ ^[0-9]+$ ]] || continue
     (( created >= gen && now - created < ttl )) && out+=("$n")
   done < <(python3 "$WAITLIB_PY" parked --dir "$RUN_DIR" 2>/dev/null)
@@ -1721,6 +1729,46 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
       parked_live_clear "$n"   # #1092: the park is over — the issue is claimable again at once
       harness_event winsma_wake repo="$SLUG" issue="$n"
       harness_event wait_done cond=winsma resume=redispatch repo="$SLUG" issue="$n" ${why:+reason=$why}
+    fi
+  done
+  return 0; }
+# quota_wake_tick — #1154: wake the issues parked until a long wait ends (the waiting-quota label, no agent-working). A lane whose wait
+# is hours away (`waitlib set --limit --until U`, scripts/quota-park.sh) gives its pool slot up and leaves a `resume=redispatch` spec
+# next to the label; this tick judges it, and waking is removing the label: the pool relaunches the issue as a resume (resume.md), once.
+# Ready when: a limit spec's reset time (not_before) has passed; a file spec's file appeared or its deadline passed; a label with no
+# spec (another host, a lost run dir) at once. AND no usage hold stands for the spec's account (claims are paused under one: a
+# woken issue could not be dispatched anyway). Staggered like every limit resume (wait_stagger_ok), so a reset does not wake the
+# whole fleet in one second. Throttled to one pass per HARNESS_QUOTA_WAKE_S (default 60) seconds; no parked issue = no gh call.
+quota_wake_tick(){ local f="$RUN_DIR/quota-wake.stamp" now t waiting n live sf cond nb dl acct why
+  local -A sfile=() scond=() snb=() sdl=()
+  now="$(date +%s)"; t="$(cat "$f" 2>/dev/null)"
+  [[ "$t" =~ ^[0-9]+$ ]] && (( now - t < ${HARNESS_QUOTA_WAKE_S:-60} )) && return 0
+  waiting="$(timeout 60 python3 "$ISSUELIB" waiting-quota "$REPO" 2>/dev/null)" || return 0
+  [[ -n "$waiting" ]] || return 0
+  echo "$now" > "$f"
+  while IFS=$'\t' read -r sf n dl _ cond nb; do
+    [[ "$n" =~ ^[0-9]+$ ]] || continue
+    sfile[$n]="$sf"; scond[$n]="$cond"; snb[$n]="$nb"; sdl[$n]="$dl"
+  done < <(python3 "$WAITLIB_PY" parked --dir "$RUN_DIR" 2>/dev/null)
+  for n in $waiting; do
+    [[ "$n" =~ ^[0-9]+$ ]] || continue
+    sf="${sfile[$n]:-}"; cond="${scond[$n]:-}"; nb="${snb[$n]:-0}"; acct=""; why="its wait is over"
+    [[ -n "$sf" ]] && acct="$(wait_spec_field "$sf" account)"
+    case "$cond" in
+      limit) [[ "$nb" =~ ^[0-9]+$ ]] || nb=0; (( now >= nb )) || continue; why="its usage window reset";;
+      file)  python3 "$WAITLIB_PY" check --file "$sf" >/dev/null 2>&1 || continue; why="its file appeared or its deadline passed";;
+      "")    why="no wait spec on this host";;
+      *)     continue;;
+    esac
+    usage_held_for "$acct" && continue
+    live="$(gh issue view "$n" -R "$SLUG" --json labels -q '.labels[].name' 2>/dev/null)" || continue   # the snapshot lags: act on the live labels
+    grep -qxF "$HARNESS_LABEL_WAITING_QUOTA" <<<"$live" || continue
+    wait_stagger_ok || continue
+    if gh issue edit "$n" -R "$SLUG" --remove-label "$HARNESS_LABEL_WAITING_QUOTA" >/dev/null 2>&1; then
+      log "quota-wake: #$n — $why; $HARNESS_LABEL_WAITING_QUOTA removed, the issue is re-dispatched as a resume (#1154)"
+      python3 "$WAITLIB_PY" forget --dir "$RUN_DIR" --issue "$n" 2>/dev/null
+      parked_live_clear "$n"   # the park is over — the issue is claimable again at once
+      harness_event wait_done cond="${cond:-none}" resume=redispatch repo="$SLUG" issue="$n"
     fi
   done
   return 0; }

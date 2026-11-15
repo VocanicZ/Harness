@@ -288,6 +288,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_LABEL_REVIEWED` | `reviewed` | Label applied to the PRD issue after review passes |
 | `HARNESS_LABEL_HITL` | `hitl` | Human-in-the-loop task (#360): decompose files a slice no lane can do with this label and a `[HITL] …` title. No lane ever claims it (even if it also carries the ready label), the engine never labels it ready, and while open it holds its PRD's review and close; `harness status` reports it as `WAITING ON HUMAN`, not `STUCK`. An unlabelled issue titled `[HITL]` is treated the same |
 | `HARNESS_LABEL_WAITING_WINSMA` | `waiting-winsma` | Parked in the winsma lock queue (#1034): an implementation lane waiting for `C:\hx-lock` gave up its pool slot (`winsma.sh park`). Not `agent-paused`, so the #417 self-park nudge ignores it. The pool never dispatches an issue carrying it; the engine removes it once the issue's queue ticket is first and the lock is free, and the issue is resumed from its branch. A PRD review lane parks the same way (#1038, `winsma.sh park <prd> <owner/repo> --review`): the PRD carries the label, gets no REVIEW dispatch while it does, and is re-dispatched as `REVIEW:<prd>` |
+| `HARNESS_LABEL_WAITING_QUOTA` | `waiting-quota` | Parked until a long wait ends (#1154): an implementation lane whose wait is more than `HARNESS_QUOTA_PARK_MIN_S` (default 7200, 2 h) away (`harness-wait set --limit --until <epoch>`, or `--path <file> --deadline-s <s>`) commits and pushes, then `waitlib.py set` posts its handoff, swaps `agent-working` for this label in one edit (`scripts/quota-park.sh`) and the session ends, so the pool slot goes to the next ready issue. The pool never dispatches an issue carrying it; `quota_wake_tick` removes it once the reset time has passed and no usage hold stands, and the issue is resumed from its branch. Not `agent-paused` |
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
 | `HARNESS_USE_POLLER` | `1` | Host poller, **on by default** (#182): this fleet reads shared host snapshots instead of polling GitHub itself. Empty also means on (configs written before #182 carry an empty value); `0` = direct-`gh` polling. See [Host poller](#host-poller) |
@@ -1521,8 +1522,18 @@ still went to wait/poll wake-ups. So the engine waits. A wait is one JSON **wait
 - **#1034's winsma park is the same spec** with `resume=redispatch`: `winsma.sh park` writes it (cond `winsma`, deadline `WS_PARK_DEADLINE_S`,
   default 12 h) next to the `waiting-winsma` label, the lane's session ends, and `winsma_wake_tick` judges it (the ticket is next, or the
   deadline passed) and wakes it by removing the label so the pool relaunches the issue as a resume. A label with no spec is still woken by its ticket.
+- **A long wait parks the lane (#1154).** A lane that waited hours on a usage window (bench lanes: `cond=file`/`limit` with 13-21 h deadlines)
+  kept its tmux session and pool slot for the whole wait, so ready work (and a woken winsma waiter) found the pool full. `waitlib.py set --limit
+  --until U` (or `--path F --deadline-s S`) from an implementation lane whose earliest wake is more than `HARNESS_QUOTA_PARK_MIN_S` (default
+  2 h) away writes the spec with `resume=redispatch`, runs `scripts/quota-park.sh` (handoff comment, `agent-working` -> `waiting-quota` in one
+  edit) and tells the lane to stop; the pool reads "waiting label, no agent-working" as done, so `count_team_sessions` drops and the slot
+  is claimed by another issue. It refuses (nothing written, the lane keeps its session) while the worktree is dirty or HEAD is unpushed;
+  `--resume inject` keeps the slot, `--resume redispatch` parks whatever the length. Pid and regex waits and review/bug lanes never park.
+  `quota_wake_tick` (pool chores, throttled by `HARNESS_QUOTA_WAKE_S`, default 60) removes the label when the spec's reset time has passed
+  (a file park: its file appeared or its deadline passed; no spec on this host: at once) and no usage hold stands for the spec's account,
+  one issue per `HARNESS_WAIT_STAGGER_S`, and forgets the spec: the issue is re-dispatched once, as a resume.
 
-Both wakes log `wait: <session> — wait done: …` / `winsma-wake: …` and write a `wait_done` event (`cond`). Acceptance on the claude host: `python3
+Both wakes log `wait: <session> — wait done: …` / `winsma-wake: …` / `quota-wake: …` and write a `wait_done` event (`cond`). Acceptance on the claude host: `python3
 ~/ops/poll-burn.py 24` shows poll-wake at most 10% of spend over 24 h on a release carrying this.
 
 ### Cost forecast

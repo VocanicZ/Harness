@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A lane waiting hours on a usage window parks and frees its pool slot (#1154)
+
+- Two bench lanes held 2 of 8 pool slots for about 45 hours, each re-arming a `cond=file` wait for the weekly window reset, while ready issues (and a woken winsma waiter) found the pool full. `harness-wait set --limit --until <epoch>` (or `--path <file> --deadline-s <s>`) from an implementation lane whose earliest wake is more than 2 hours away (`HARNESS_QUOTA_PARK_MIN_S`) now parks the lane the way `winsma.sh park` does: a `resume=redispatch` wait spec, a handoff comment, `agent-working` swapped for the new `waiting-quota` label in one edit (`HARNESS_LABEL_WAITING_QUOTA`, seeded by `harness init`), and the session ends so another ready issue takes the slot. `quota_wake_tick` re-dispatches the issue once, as a resume, when the reset time has passed and no usage hold stands, one issue per `HARNESS_WAIT_STAGGER_S`. A dirty or unpushed worktree refuses the park and keeps the session; `--resume inject` keeps the slot. The LONG WAITS prompt tells lanes to park a bench/budget block. `test/test_quota_park.sh`, `test/test_waitlib.py`.
+
 ### `harness attach` prints its "no live session" error on stderr (#1123)
 
 - `harness attach <name>` for a session that is not live wrote `no live session '…'` (and the list of near matches, and the several-orch-sessions list) to stdout, so `harness attach xx >/dev/null` showed nothing and `2>/dev/null` showed the error. They now go to stderr; the exit code is still 1. `test_headless_attach.sh` captures the two streams apart.
