@@ -29,7 +29,14 @@ The spec is one JSON file, $HARNESS_WAIT_FILE (the engine puts it in the lane's 
   waitlib.py fields [--file F] NAME…               the named fields on one TAB-separated line (empty when unset)
   waitlib.py clear [--file F]                      drop the spec
   waitlib.py parked --dir D        the redispatch specs under D, one per line: <file> TAB <issue> TAB <deadline epoch> TAB <created epoch>
+                                   TAB <cond> TAB <not-before epoch>
   waitlib.py forget --dir D --issue N   drop the redispatch specs under D that wait for issue N
+
+A long wait PARKS the lane (#1154): `set --limit --until U` (or `set --path F`) whose earliest wake is more than
+HARNESS_QUOTA_PARK_MIN_S (default 2h) away, from an implementation lane, writes the spec with `resume=redispatch` and posts the
+handoff / swaps `agent-working` for `waiting-quota` (scripts/quota-park.sh): the lane's session ends, its pool slot is free, and the
+engine re-dispatches the issue once the wait is over (quota_wake_tick). `--resume inject` keeps the slot instead; a shorter wait does
+by itself. A park refuses (nothing written) while the worktree is dirty or unpushed.
 
 Conditions: pid | file | regex | winsma | limit. `resume` is `inject` (the lane stays alive; the message is its next
 turn) or `redispatch` (the lane's session ended and the issue was handed back — winsma.sh park, #1034: the engine
@@ -46,6 +53,7 @@ import portable  # noqa: E402  (pid_alive, ADR 0001)
 WINDOWS = os.name == "nt"
 WAIT_DEFAULT_DEADLINE_S = 6 * 3600
 WAIT_MAX_DEADLINE_S = 24 * 3600
+QUOTA_PARK_MIN_S = 2 * 3600   # #1154: a wait whose earliest wake is further away than this parks the lane (HARNESS_QUOTA_PARK_MIN_S)
 TAIL_LINES = 20
 TAIL_CHARS = 1500
 SCAN_BYTES = 1 << 20          # a regex wait looks at no more than the newest MiB of the log it appended since the spec
@@ -190,6 +198,71 @@ def new_spec(a, cond, **kw):
     return spec
 
 
+def quota_park_min_s():
+    try:
+        return max(0.0, float(os.environ.get("HARNESS_QUOTA_PARK_MIN_S", QUOTA_PARK_MIN_S)))
+    except ValueError:
+        return float(QUOTA_PARK_MIN_S)
+
+
+def wake_at(spec):
+    """The earliest moment the ENGINE may wake a parked lane for <spec>: the reset time of a limit wait, the deadline of a file
+    wait (the file itself may appear earlier: the engine looks), 0 for any other condition (a pid or a log line can fire at any time)."""
+    if spec.get("cond") == "limit":
+        return float(spec.get("not_before") or 0)
+    if spec.get("cond") == "file":
+        return float(spec.get("deadline") or 0)
+    return 0.0
+
+
+def lane_issue():
+    """(issue, slug) of the implementation lane this process runs in (the engine's HARNESS_* env), else None: only an
+    implementation lane has an issue to park (a review or bug lane keeps its slot)."""
+    issue, slug = os.environ.get("HARNESS_ISSUE", ""), os.environ.get("HARNESS_REPO", "")
+    if os.environ.get("HARNESS_KIND") == "impl" and issue.isdigit() and slug:
+        return int(issue), slug
+    return None
+
+
+def should_park(spec, a):
+    """#1154: park (give the pool slot up) rather than hold it — for a limit or file wait of an implementation lane. `--resume inject`
+    never; `--resume redispatch` always; unset: when the earliest wake is more than HARNESS_QUOTA_PARK_MIN_S away (a file wait
+    only when its --deadline-s was given: the default deadline is no promise of a long wait). The winsma park (#1034) is no
+    business of this: winsma.sh parks it."""
+    if spec.get("cond") not in ("limit", "file") or a.resume == "inject" or lane_issue() is None:
+        return False
+    if a.resume == "redispatch":
+        return True
+    if spec.get("cond") == "file" and not a.deadline_s:
+        return False
+    w = wake_at(spec)
+    return w > 0 and w - now() > quota_park_min_s()
+
+
+def do_park(path, spec):
+    """Hand the issue back: the spec (resume=redispatch) is written first, then scripts/quota-park.sh posts the handoff and swaps the
+    labels. A refusal (dirty or unpushed worktree, gh failed) removes the spec again: the lane keeps its slot and its session."""
+    issue, slug = lane_issue()
+    spec.update({"resume": "redispatch", "issue": issue, "slug": slug,
+                 "label": os.environ.get("HARNESS_LABEL_WAITING_QUOTA", "waiting-quota")})
+    write_spec(path, spec)
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "quota-park.sh")
+    try:
+        r = subprocess.run(["bash", script, str(issue), slug, str(int(wake_at(spec))), spec.get("what", "")],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    except OSError as e:
+        r = subprocess.CompletedProcess([], 1, "", f"cannot run {script}: {e}")
+    if r.returncode != 0:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        sys.exit(f"waitlib set: this wait is {int(max(0, wake_at(spec) - now()) // 60)} min away, so it parks the lane (frees your pool slot) "
+                 f"and the park was refused: {(r.stderr or r.stdout).strip()}\nFix that and set the wait again, or pass --resume inject to keep your slot.")
+    print(f"wait set: {spec['what']}; PARKED (#{issue}, {spec['label']}): your session ends now and the engine re-dispatches the issue as a "
+          f"resume once the wait is over. Do nothing more: no promise, no further tool calls.")
+
+
 def cmd_set(a):
     path = spec_path(a.file)
     kinds = [x for x in (a.pid, a.path, a.regex, a.winsma, a.limit or None) if x is not None]
@@ -220,6 +293,8 @@ def cmd_set(a):
             sys.exit(f"waitlib set: a limit park's deadline must not end before --until ({int(clamp_deadline_s(a.deadline_s))}s from now "
                      f"ends {int(a.until - now() - clamp_deadline_s(a.deadline_s))}s before it); omit --deadline-s")
         spec = new_spec(a, "limit", not_before=a.until or 0, account=a.account or "")
+    if should_park(spec, a):
+        return do_park(path, spec)
     write_spec(path, spec)
     print(f"wait set: {spec['what']}; deadline {time.strftime('%H:%M:%S', time.localtime(spec['deadline'])) if spec['deadline'] else 'none'}. "
           f"End your turn now: the engine resumes this session once, with the result, when it holds.")
@@ -337,7 +412,7 @@ def cmd_clear(a):
 
 
 def parked_specs(d):
-    """[(path, spec)] of the `redispatch` winsma specs under <d>: the lanes that ended and handed their issue back."""
+    """[(path, spec)] of the `redispatch` specs under <d> (winsma, #1034; a long wait, #1154): the lanes that ended and handed their issue back."""
     out = []
     try:
         names = sorted(os.listdir(d))
@@ -347,14 +422,14 @@ def parked_specs(d):
         if not n.endswith(".wait"):
             continue
         spec = read_spec(os.path.join(d, n))
-        if spec and spec.get("resume") == "redispatch" and spec.get("cond") == "winsma":
+        if spec and spec.get("resume") == "redispatch" and spec.get("issue") is not None:
             out.append((os.path.join(d, n), spec))
     return out
 
 
 def cmd_parked(a):
     for path, spec in parked_specs(a.dir):
-        print(f"{path}\t{spec.get('issue')}\t{int(spec.get('deadline') or 0)}\t{int(spec.get('created') or 0)}")
+        print(f"{path}\t{spec.get('issue')}\t{int(spec.get('deadline') or 0)}\t{int(spec.get('created') or 0)}\t{spec.get('cond')}\t{int(wake_at(spec))}")
     return 0
 
 

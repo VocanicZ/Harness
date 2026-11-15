@@ -339,6 +339,7 @@ worker_chores(){ local wid="$1" lockfd
   sweep_stale_lane_claims
   wait_sweep         # #1066: a wait spec whose lane is gone is void
   winsma_wake_tick   # #1034: a lane parked in the winsma queue is re-dispatched once its ticket is next
+  quota_wake_tick    # #1154: a lane parked until a usage window / long wait ends is re-dispatched once, when it is over
   winsma_stale_tick  # #1050: a live lane whose branch predates the winsma protocol check is told to rebase before it queues
   adopt_lanes "$wid"; adopt_bug_sessions "$wid"
   chores_slotless

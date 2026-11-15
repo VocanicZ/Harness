@@ -167,6 +167,89 @@ check(rc == 0 and [r[1] for r in rows] == ["5"] and int(rows[0][2]) > time.time(
 wl("forget", "--dir", d, "--issue", "5")
 check(wl("parked", "--dir", d)[1] == "" and os.path.exists(os.path.join(d, "hz-main-i6.wait")), "forget drops that issue's park and nothing else")
 
+print("== a long wait parks the lane (#1154): the slot is freed, the issue handed back ==")
+# a lane's worktree: a clone of a bare origin with its branch pushed; a stub gh records the handoff and the label swap
+bare = os.path.join(tmp, "origin.git"); wt = os.path.join(tmp, "wt"); fakebin = os.path.join(tmp, "bin"); GHLOG = os.path.join(tmp, "gh.log")
+os.makedirs(fakebin)
+with open(os.path.join(fakebin, "gh"), "w") as f:
+    f.write('#!/usr/bin/env bash\nprintf "gh %s\\n" "$(printf %s "$*" | tr "\\n" " ")" >> "$GH_LOG"\n')
+os.chmod(os.path.join(fakebin, "gh"), 0o755)
+genv = {**env, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+def git(*a, cwd=None):
+    return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, env=genv)
+
+
+git("init", "-q", "--bare", bare)
+git("clone", "-q", bare, wt)
+git("checkout", "-q", "-b", "issue/33", cwd=wt)
+with open(os.path.join(wt, "f"), "w") as f:
+    f.write("x")
+git("add", "f", cwd=wt); git("commit", "-q", "-m", "wip", cwd=wt); git("push", "-q", "-u", "origin", "issue/33", cwd=wt)
+lane_env = {**env, "PATH": fakebin + os.pathsep + env["PATH"], "GH_LOG": GHLOG, "HARNESS_KIND": "impl", "HARNESS_ISSUE": "33", "HARNESS_REPO": "acme/widget"}
+
+
+def wl_lane(*args, extra=None):
+    p = subprocess.run([sys.executable, WAITLIB, *args], capture_output=True, text=True, env={**lane_env, **(extra or {})}, cwd=wt, timeout=60)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+
+def gh_calls():
+    try:
+        return open(GHLOG).read().splitlines()
+    except OSError:
+        return []
+
+
+reset = time.time() + 20 * 3600
+rc, out, err = wl_lane("set", "--limit", "--until", str(reset), "--what", "usage limit (resets Sun 18:00)")
+s = spec()
+check(rc == 0 and "PARKED" in out, "limit --until 20h away: the lane is parked, and told to do nothing more")
+check(s["resume"] == "redispatch" and s["cond"] == "limit" and s["issue"] == 33 and s["slug"] == "acme/widget" and s["label"] == "waiting-quota"
+      and s["not_before"] == reset, "…the spec is resume=redispatch, with the issue, slug, label and the reset time")
+calls = gh_calls()
+check(len(calls) == 2 and calls[0].startswith("gh issue comment 33 -R acme/widget") and "harness-handoff issue=33 branch=issue/33" in open(GHLOG).read(),
+      "…a handoff comment (first line the harness-handoff marker) is posted on the issue")
+check(calls[1] == "gh issue edit 33 -R acme/widget --add-label waiting-quota --remove-label agent-working",
+      "…and agent-working is swapped for waiting-quota in ONE edit")
+rows = [l.split("\t") for l in wl("parked", "--dir", tmp)[1].splitlines()]
+check([r[1:2] + r[4:] for r in rows] == [["33", "limit", str(int(reset))]], "parked lists it: issue, cond, not-before")
+wl("forget", "--dir", tmp, "--issue", "33")
+check(not os.path.exists(SPEC), "forget drops a quota park too")
+
+open(GHLOG, "w").close()
+rc, out, _ = wl_lane("set", "--limit", "--until", str(time.time() + 1800), "--what", "short")
+check(rc == 0 and "PARKED" not in out and spec()["resume"] == "inject" and gh_calls() == [], "a wake 30 minutes away keeps the slot: an inject wait, no label")
+rc, out, _ = wl_lane("set", "--limit", "--until", str(reset), "--resume", "inject")
+check(rc == 0 and "PARKED" not in out and spec()["resume"] == "inject" and gh_calls() == [], "--resume inject keeps the slot however far the wake is")
+rc, out, _ = wl_lane("set", "--limit", "--until", str(reset), extra={"HARNESS_KIND": "review"})
+check(rc == 0 and "PARKED" not in out and spec()["resume"] == "inject", "only an implementation lane parks (a review lane keeps its slot)")
+rc, out, _ = wl("set", "--limit", "--until", str(reset))
+check(rc == 0 and "PARKED" not in out and spec()["resume"] == "inject", "outside a lane (no issue in the environment) nothing parks")
+rc, out, _ = wl_lane("set", "--limit", "--until", str(reset), extra={"HARNESS_QUOTA_PARK_MIN_S": str(30 * 3600)})
+check(rc == 0 and "PARKED" not in out, "HARNESS_QUOTA_PARK_MIN_S moves the threshold")
+rc, out, _ = wl_lane("set", "--pid", "999999", "--deadline-s", "40000")
+check(rc == 0 and spec()["resume"] == "inject" and gh_calls() == [], "a pid wait never parks (it can fire at any time; the job is the lane's own)")
+rc, out, _ = wl_lane("set", "--path", os.path.join(tmp, "never"))
+check(rc == 0 and spec()["resume"] == "inject" and gh_calls() == [], "a file wait with the default deadline does not park (the default is no promise of a long wait)")
+rc, out, _ = wl_lane("set", "--path", os.path.join(tmp, "never"), "--deadline-s", "72000")
+check(rc == 0 and "PARKED" in out and spec()["cond"] == "file" and spec()["resume"] == "redispatch", "a file wait with a 20h --deadline-s parks")
+check(wl("parked", "--dir", tmp)[1].split("\t")[4] == "file", "…and parked reports its cond as file")
+wl("forget", "--dir", tmp, "--issue", "33"); open(GHLOG, "w").close()
+
+with open(os.path.join(wt, "dirty"), "w") as f:
+    f.write("y")
+rc, out, err = wl_lane("set", "--limit", "--until", str(reset))
+check(rc != 0 and "uncommitted changes" in err and "--resume inject" in err, "a dirty worktree refuses the park, naming the fix and the way out")
+check(not os.path.exists(SPEC) and not any("issue edit" in c for c in gh_calls()), "…writing no spec and swapping no label: the lane keeps its slot and session")
+os.unlink(os.path.join(wt, "dirty"))
+with open(os.path.join(wt, "f"), "w") as f:
+    f.write("changed")
+git("commit", "-q", "-am", "unpushed", cwd=wt)
+rc, out, err = wl_lane("set", "--limit", "--until", str(reset))
+check(rc != 0 and "is not pushed" in err and not os.path.exists(SPEC), "an unpushed HEAD refuses the park too")
+
 for p in started:
     try:
         p.kill()
