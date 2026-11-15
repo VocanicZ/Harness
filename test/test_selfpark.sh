@@ -179,6 +179,7 @@ for cli in claude agy; do
   setup
   snapshot "ready-for-agent,agent-paused"
   usage_checkpoint_account acctA "usage limit near" 2>/dev/null
+  mkdir -p "$(_usage_hold_dir)"; : > "$(_usage_hold_dir)/acctA.hold"   # the hold that sent it still stands (#1159: once it is gone the lane is ended)
   assert_ok "[$cli] the usage checkpoint reached the session" grep -q "send-keys -t $S .*HARNESS CHECKPOINT" "$CALLS"
   assert_ok "[$cli] the usage checkpoint left a marker" test -s "$RUN_DIR/$S.checkpoint"
   reap_done_sessions 2>/dev/null; reap_done_sessions 2>/dev/null
@@ -190,7 +191,7 @@ for cli in claude agy; do
   setup
   snapshot "ready-for-agent,agent-paused"
   HARNESS_PAUSE_GRACE=2 RUN_DIR="$RUN_DIR" bash "$HERE/../scripts/pause.sh" --force >/dev/null 2>&1
-  rm -f "$PAUSE_FLAG"   # the drive loop skips a paused fleet anyway; this pins the marker on its own
+  assert_ok "[$cli] pause --force set the pause flag" test -f "$PAUSE_FLAG"   # #1159: while it stands the checkpointed lane sits there
   assert_ok "[$cli] pause --force reached the session" grep -q "send-keys -t $S .*HARNESS CHECKPOINT" "$CALLS"
   assert_ok "[$cli] pause --force left a marker" test -s "$RUN_DIR/$S.checkpoint"
   reap_done_sessions 2>/dev/null

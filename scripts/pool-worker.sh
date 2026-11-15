@@ -114,7 +114,7 @@ worker_tick(){ local wid="$1" act pl pr rc
   if is_paused; then return 3; fi   # pause: no new claim — running lanes are still tended (worker_tend)
   if usage_held; then return 3; fi   # #194: an account is near its usage limit — claim nothing until it resets
   if gh_budget_low; then return 5; fi   # #183: the GitHub token is near its budget — claim nothing, poll at half rate
-  [[ -z "$(worker_claims "$wid" | head -n1)" ]] || return 1   # one lane per worker (adoption can add more)
+  worker_has_claim "$wid" && return 1   # one lane per worker (adoption can add more)
   ensure_checkout || return 6   # #539: no clone → no worktree can be added; clone it or hold (deduped log), never spin
   # #50: a red default branch holds NEW dispatch; the next tick re-checks, so the fleet resumes by itself.
   if ! ci_gate_ok "$SLUG"; then harness_event hold reason=other cause=ci_red secs="$POLL"; return 3; fi
@@ -362,7 +362,7 @@ worker_hold_tick(){ local f sess lockfd
   watchdog_team; lock_release "$lockfd"; }
 
 # worker_owns_lane <wid> — this worker holds a claim (a lane it tends).
-worker_owns_lane(){ [[ -n "$(worker_claims "$1" | head -n1)" ]]; }
+worker_owns_lane(){ worker_has_claim "$1"; }
 # worker_short_due <wid> — #594: tick short while this worker owns a lane and the last FULL step is under POLL
 # old. _LAST_FULL starts unset and a reap clears it, so the first step and the step after a reap are full.
 worker_short_due(){ local now; (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) || return 1

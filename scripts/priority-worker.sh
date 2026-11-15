@@ -34,6 +34,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     # (loop exits on the next session_live check → reap → re-dispatch frees the lane slot).
     watchdog_session "$sess"; wait_tend "$sess"   # #1066
     usage_watch   # #194: the lane holds here for the whole session — the crossing must reach it too
+    checkpointed_lane_tend "$sess"; session_live "$sess" || break   # #1159: checkpointed + the pause / hold gone → ended, then reaped below
     if bug_goal_done "$n" "$phase"; then
       cli_kill "$sess" "$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)" || true; rm -f "$RUN_DIR/$sess.goal" "$RUN_DIR/$sess.wd"
       [[ "$phase" == fix ]] && release_on_bug_merge "$n"   # #283: a triage close is a dismissal, not a merge
@@ -68,6 +69,22 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
 # paused-but-live session is still live (drained, not killed) → skipped; a checkpointed one carries
 # agent-paused, not agent-working → not a candidate. Repo/slug/checkout/worktree are derived exactly
 # as drive_bug derives them, so create (spawn_bug) and reap can never disagree on the path.
+# reap_checkpointed_bugs — #1159: a bug lane that `pause --force` checkpointed leaves drive_bug's wait loop (it breaks on
+# the pause) with its session live and no claim. Once the pause is gone nothing tends that session, so it is ended here
+# (checkpointed_lane_tend: idle, issue agent-paused, work pushed) and its worktrees reaped, which re-dispatches the bug.
+# A session a claim names (the pool's, or this lane's own loop) is that owner's to tend.
+reap_checkpointed_bugs(){ local s
+  is_paused && return 0
+  while read -r s; do
+    [[ -n "$s" && -f "$RUN_DIR/$s.checkpoint" ]] || continue
+    _checkpoint_target "$s" && [[ -n "$_CP_ISSUE" && "$_CP_SLUG" == */?* ]] || continue
+    is_bug_claimed "$_CP_SLUG#$_CP_ISSUE" && continue
+    local slug="$_CP_SLUG" n="$_CP_ISSUE"
+    checkpointed_lane_tend "$s"; session_live "$s" && continue
+    remove_worktree "$(bug_checkout "$slug")" "$(bug_worktree "$slug" "$n")" "issue/$n"
+    remove_worktree "$(bug_checkout "$slug")" "$(triage_worktree "$slug" "$n")" "agent/bug-triage-$n"
+  done < <(checkpoint_sessions | grep -E "^$HARNESS_SESS_PREFIX-bug-"); }
+
 reap_lane(){ local repo slug n
   for repo in $(_bug_repos); do
     [[ -n "$repo" ]] || continue
@@ -116,7 +133,7 @@ bug_step(){ local wid="$1"
     sleep "$PRIORITY_POLL"; return 4
   fi
   gh_rate_wait   # #183: rate-limited — sleep until the reset before reap_lane's gh reads/writes
-  reap_lane; retry_pending_unlocks; usage_watch; release_tick_lane; bug_tick "$wid"; local rc=$?
+  reap_checkpointed_bugs; reap_lane; retry_pending_unlocks; usage_watch; release_tick_lane; bug_tick "$wid"; local rc=$?
   case "$rc" in
     0) _IDLE_LOGGED=0 ;;
     1) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "no bugs — idle, watching"; _IDLE_LOGGED=1; }
