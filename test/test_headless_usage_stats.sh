@@ -70,7 +70,10 @@ our_pids(){ local d; shopt -s nullglob
 cleanup(){ local p; for p in $(our_pids); do [[ $p =~ ^[0-9]+$ ]] && kill -KILL "$p" 2>/dev/null; done; tmp_cleanup; }
 trap cleanup EXIT
 alive(){ alive_any "$1"; }
-wait_until(){ local t="$1" i; shift; for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
+# A Windows host forks ~10x slower and runs the full suite's files under load, so a headless lane's turn can take far longer than the
+# Linux timings below (#1107; the matrix's hl_wait scales the same way, #969): every wait is scaled up. It returns as soon as its
+# condition holds, so a green wait pays nothing.
+wait_until(){ local t="$1" i; shift; host_is_windows && t=$(( t * 8 )); for (( i = 0; i < t * 10; i++ )); do "$@" && return 0; sleep 0.1; done; return 1; }
 lane_field(){ python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$(headless_lane_dir "$1")" --field "$2" 2>/dev/null; }
 lane_field_is(){ [[ "$(lane_field "$1" "$2")" == "$3" ]]; }   # polled: `wait_until … test "$(lane_field …)" = x` reads once, before it waits (#606)
 pane_has(){ sess_capture "$1" 2>/dev/null | grep -qF "$2"; }
@@ -234,12 +237,14 @@ CLAUDE_CONFIG_DIR=/x/accounts/team/ HARNESS_LANE_DIR="$L" python3 "$ROOT/scripts
   >/dev/null 2>&1 & lpid=$!
 # (polled: `wait_until … test "$(…)" = 1` would read the field once, before waiting — a slow Windows host read it too early, #606)
 lane_is(){ [[ "$(python3 "$ROOT/scripts/cli/claude_headless.py" state --lane "$L" --field "$1" 2>/dev/null)" == "$2" ]]; }
-wait_until 15 lane_is turn 1
-wait_until 15 lane_is state idle
+assert_ok "the lane ran its turn" wait_until 15 lane_is turn 1
+assert_ok "…and sits idle" wait_until 15 lane_is state idle
 st="$(cat "$L/state.json")"
 python3 "$ROOT/scripts/cli/claude_headless.py" stop --lane "$L" >/dev/null 2>&1; wait "$lpid" 2>/dev/null
 assert_eq "$(jq -r .account <<<"$st")" team "the account is the lane's config dir, as the status line names it"
-assert_ok "rate_limit_at is stamped with the reading" jq -e '.rate_limit_at > 0 and .rate_limit.unifiedWindows.seven_day.utilization == 0.94' >/dev/null <<<"$st"
+# (the redirections sit on jq itself: on assert_ok they swallowed its `ok:`/`FAIL:` line, so a red here left no trace in the log, #1107)
+jq -e '.rate_limit_at > 0 and .rate_limit.unifiedWindows.seven_day.utilization == 0.94' <<<"$st" >/dev/null 2>&1; rl=$?
+assert_eq "$rl" 0 "rate_limit_at is stamped with the reading"
 
 echo "== harness status, fleetview and harness web list a live headless lane with its state =="
 S="$(sess_impl main 11)"; WD="$WORKTREES_DIR/main-i11"; mkdir -p "$WD"; : > "$WD/.git"
