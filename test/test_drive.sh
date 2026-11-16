@@ -201,7 +201,7 @@ CHECKOUT="$RUN_DIR/cowin"; git init -q "$CHECKOUT"
 git -C "$CHECKOUT" config user.email t@t; git -C "$CHECKOUT" config user.name t
 git -C "$CHECKOUT" commit -q --allow-empty -m init
 WORKTREES_DIR="$RUN_DIR/wtwin"; mkdir -p "$WORKTREES_DIR"
-WINFAKE="$RUN_DIR/winfake"; mkdir -p "$WINFAKE"; REALGIT="$(command -v git)"
+WINFAKE="$RUN_DIR/winfake"; mkdir -p "$WINFAKE"; REALGIT="$(real_git)"   # not `command -v git`: in a lane that is lane-bin/git, which loops back into the wrapper (#1177)
 cat >"$WINFAKE/git" <<EOF
 #!/usr/bin/env bash
 case " \$* " in

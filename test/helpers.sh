@@ -46,6 +46,18 @@ native_path(){ if host_is_windows && command -v cygpath >/dev/null 2>&1; then cy
 # a test that forces HARNESS_PLATFORM=posix on Linux still has flock and fcntl; one that does it on winsma does not (#607).
 real_windows_host(){ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; *) return 1;; esac; }
 
+# real_git (#1177) — the git a test bakes into a wrapper that `exec`s it: the first executable `git` on PATH whose directory is not a
+# scripts/lane-bin. Inside a lane lane-bin is first on PATH, and `command -v git` there is lane-bin/git, which looks up "the first git
+# on PATH that is not my dir": a wrapper ahead of it on PATH is that git, so the two exec each other forever. Directories are compared
+# by resolved path, as lane-bin does. No such git: falls back to `command -v git`.
+real_git(){ local d r
+  while IFS= read -r d; do
+    [[ -n $d && -x $d/git && -f $d/git ]] || continue
+    r="$(cd "$d" 2>/dev/null && pwd)" || continue
+    [[ $r == */scripts/lane-bin ]] && continue
+    printf '%s/git\n' "$d"; return 0
+  done < <(tr ':' '\n' <<<"$PATH"); command -v git; }
+
 # posix_branch_off_windows <what> — for a cell that exercises the POSIX implementation of a primitive (flock, fcntl, a fd inherited
 # by a child, procps `ps -o`) forced with HARNESS_PLATFORM=posix. On a real Windows host that implementation cannot run
 # (Git Bash has no flock, Python no fcntl), and the Windows branch of the same primitive is asserted by the file's own

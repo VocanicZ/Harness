@@ -85,6 +85,23 @@ CFGD="$(mktemp -d)"; tmp_track "$CFGD"; printf '%s\n' 'HARNESS_COAUTHOR=' > "$CF
 assert_eq "$(unset HARNESS_COAUTHOR; STATE_DIR="$CFGD" bash -c 'source "$1/scripts/lib.sh"; printf "[%s]" "$HARNESS_COAUTHOR"' _ "$ROOT" 2>/dev/null)" "[]" ".harness/config HARNESS_COAUTHOR= turns it off"
 assert_eq "$(unset HARNESS_COAUTHOR; bash -c 'source "$1/scripts/lib.sh"; printf "%s" "$HARNESS_COAUTHOR"' _ "$ROOT" 2>/dev/null)" "$TRAILER" "unset: the default trailer"
 
+echo "== a wrapper in front of lane-bin does not loop (#1177) =="
+# test_drive.sh's winfake/git and test_tier.sh's $GBIN/git exec "the real git" while lane-bin is first on the lane PATH. A bare
+# `command -v git` there is lane-bin/git itself, which picks the first git on PATH that is not its own dir: the wrapper, and the two
+# exec each other forever. real_git (helpers.sh) skips every scripts/lane-bin.
+RG="$(PATH="$LB:$PATH" real_git)"
+assert_ok "real_git is an executable git" test -x "$RG"
+assert_no "real_git is not a scripts/lane-bin/git, lane-bin first on PATH" test "$(cd "$(dirname "$RG")" && pwd)" = "$LB"
+assert_eq "$(cd "$(dirname "$RG")" && pwd | grep -c 'scripts/lane-bin$')" 0 "real_git: its dir is no scripts/lane-bin"
+mkdir -p "$T/wf"; printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$RG" > "$T/wf/git"; chmod +x "$T/wf/git"
+out="$(PATH="$T/wf:$LB:$PATH" timeout 10 git --version 2>&1)"; rc=$?
+assert_eq "$rc" 0 "wrapper -> real_git -> git --version finishes (not 124)"
+assert_ok "…and prints the version" grep -q '^git version' <<<"$out"
+# the old resolution is the loop: lane-bin first on PATH, `command -v git` is lane-bin/git, and the wrapper in front of it cycles
+BAD="$(PATH="$LB:$PATH" command -v git)"
+printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$BAD" > "$T/wf/git"
+PATH="$T/wf:$LB:$PATH" timeout 3 git --version >/dev/null 2>&1; assert_eq "$?" 124 "(control) command -v git behind a wrapper loops: timeout 124"
+
 echo "== gh in a repo without .gitmodules is unchanged =="
 mkdir -p "$T/bin"; printf '#!/usr/bin/env bash\necho "$@" >> "%s/real-gh.calls"\n' "$T" > "$T/bin/gh"; chmod +x "$T/bin/gh"
 ( cd "$T/r" && PATH="$LB:$T/bin:$PATH" gh pr merge --squash 5 ) >/dev/null 2>&1
