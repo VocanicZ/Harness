@@ -3,15 +3,22 @@
 # respect but one: `gh pr merge` first runs scripts/gitlink-guard.sh on the lane's checkout, so a
 # merge that bumps a submodule gitlink to an unmerged or non-descendant commit is refused before the
 # real gh is reached. Everything else is passed through untouched.
+# harness-lane-bin-wrapper
 set -uo pipefail
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]}"; [[ "$here" == */* ]] && here="${here%/*}" || here=.
+SELF="$(cd "$here" && pwd -P)"
 GUARD="$SELF/../gitlink-guard.sh"
-# the real gh: first `gh` on PATH that is not this directory
+# is_wrapper <file> — its first lines hold the marker line (pure bash: PATH may hold nothing but lane-bin dirs, so no head/grep)
+is_wrapper(){ local l n=0; while (( n++ < 40 )) && IFS= read -r l; do [[ $l == '# harness-lane-bin-wrapper' ]] && return 0; done <"$1" 2>/dev/null; return 1; }
+# the real gh: first `gh` on PATH that is neither this directory (by physical path, so a symlinked alias counts) nor any
+# lane-bin wrapper — another worktree's or release's copy would be taken for the real one and the two would exec each other forever (#1179)
 real=
 IFS=: read -ra dirs <<<"$PATH"
 for d in "${dirs[@]}"; do
-  [[ -n "$d" && "$(cd "$d" 2>/dev/null && pwd)" == "$SELF" ]] && continue
-  [[ -x "$d/gh" ]] && { real="$d/gh"; break; }
+  [[ -n "$d" && "$(cd "$d" 2>/dev/null && pwd -P)" == "$SELF" ]] && continue
+  [[ -f "$d/gh" && -x "$d/gh" ]] || continue
+  is_wrapper "$d/gh" && continue
+  real="$d/gh"; break
 done
 [[ -n "$real" ]] || { echo "gh: command not found" >&2; exit 127; }
 

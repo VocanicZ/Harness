@@ -70,6 +70,28 @@ echo "== a missing real git =="
 assert_eq "$(PATH="$LB" /bin/bash "$LB/git" status 2>&1; echo rc=$?)" "git: command not found
 rc=127" "no real git on PATH: 127"
 
+echo "== two lane-bin copies on PATH do not loop (#1179) =="
+# the worktree's lane-bin and the installed engine's lane-bin are both on a lane PATH; each wrapper used to take the other for "the real
+# git" and the two exec'd each other forever. A wrapper skips every candidate that is itself a lane-bin wrapper. Each call is under timeout.
+CP="$T/copies"; mkdir -p "$CP/a/scripts" "$CP/b/scripts"; cp -r "$LB" "$CP/a/scripts/"; cp -r "$LB" "$CP/b/scripts/"
+ln -s "$CP/a/scripts/lane-bin" "$CP/alias"
+RGD="$(dirname "$(PATH="$LB:$PATH" real_git)")"
+TWO="$CP/a/scripts/lane-bin:$CP/b/scripts/lane-bin:$RGD"
+out="$(PATH="$TWO" timeout 10 git --version 2>&1)"; assert_eq "$?" 0 "two copies: git --version finishes"
+assert_ok "…and prints the version" grep -q '^git version' <<<"$out"
+assert_ok "two copies: git status finishes" bash -c 'cd "$1" && PATH="$2" timeout 10 git status -s' _ "$T/r" "$TWO"
+echo 6 >> "$T/r/a"; git -C "$T/r" add a
+( cd "$T/r" && PATH="$TWO" timeout 10 git commit -q -m "two" ); assert_eq "$?" 0 "two copies: git commit finishes"
+assert_eq "$(count)" 1 "…and the commit carries the Harness trailer once"
+( cd "$T/r" && PATH="$CP/a/scripts/lane-bin:$CP/alias:$RGD" timeout 10 git --version ) >/dev/null 2>&1
+assert_eq "$?" 0 "a symlink to the lane-bin dir ahead of the real git: no loop"
+( cd "$T/r" && PATH="$CP/alias:$CP/a/scripts/lane-bin:$RGD" timeout 10 git --version ) >/dev/null 2>&1
+assert_eq "$?" 0 "…the symlink first, the dir second: no loop"
+assert_eq "$(PATH="$CP/a/scripts/lane-bin:$CP/b/scripts/lane-bin" /bin/bash "$CP/a/scripts/lane-bin/git" status 2>&1; echo rc=$?)" "git: command not found
+rc=127" "only lane-bin dirs on PATH: git: command not found, 127"
+assert_eq "$(PATH="$CP/a/scripts/lane-bin:$CP/alias" /bin/bash "$CP/a/scripts/lane-bin/git" status 2>&1; echo rc=$?)" "git: command not found
+rc=127" "a lane-bin dir and its symlink only: 127"
+
 echo "== the lane environment =="
 GOAL=""; SLUG="acme/widget"; STATS_PY=/nonexistent
 mkdir -p "$T/with" "$T/without"; : > "$T/with/.gitmodules"

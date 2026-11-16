@@ -147,6 +147,18 @@ guard(){ bash "$GUARD" --repo "$1" --base "${2:-origin/main}" --head "${3:-HEAD}
   q -C "$R" reset -q --hard origin/main
   ( cd "$R" && PATH="$ROOT/scripts/lane-bin:$D/bin:$PATH" HARNESS_GUARD_BASE=origin/main gh pr merge --squash 5 ) >/dev/null 2>&1
   assert_ok "clean merge reaches real gh" grep -q "pr merge --squash 5" "$D/real-gh.calls"
+  # #1179: two lane-bin copies (the worktree's and the engine's) ahead of the real gh used to exec each other forever
+  CP="$D/copies"; mkdir -p "$CP/a/scripts" "$CP/b/scripts"; cp -r "$ROOT/scripts/lane-bin" "$CP/a/scripts/"; cp -r "$ROOT/scripts/lane-bin" "$CP/b/scripts/"
+  cp "$ROOT/scripts/gitlink-guard.sh" "$CP/a/scripts/"; cp "$ROOT/scripts/gitlink-guard.sh" "$CP/b/scripts/"; ln -s "$CP/a/scripts/lane-bin" "$CP/alias"
+  rm -f "$D/real-gh.calls"
+  ( cd "$R" && PATH="$CP/a/scripts/lane-bin:$CP/b/scripts/lane-bin:$D/bin:$PATH" timeout 10 gh issue list ) >/dev/null 2>&1
+  assert_eq "$?" 0 "two lane-bin copies: gh finishes under timeout"
+  assert_ok "…and reaches the real gh" grep -q "issue list" "$D/real-gh.calls"
+  ( cd "$R" && PATH="$CP/a/scripts/lane-bin:$CP/alias:$D/bin:$PATH" timeout 10 gh issue view 3 ) >/dev/null 2>&1
+  assert_eq "$?" 0 "a lane-bin dir and its symlink: gh finishes under timeout"
+  assert_ok "…and reaches the real gh" grep -q "issue view 3" "$D/real-gh.calls"
+  assert_eq "$(cd "$R" && PATH="$CP/a/scripts/lane-bin:$CP/b/scripts/lane-bin" /bin/bash "$CP/a/scripts/lane-bin/gh" issue list 2>&1; echo rc=$?)" "gh: command not found
+rc=127" "only lane-bin dirs on PATH: gh: command not found, 127"
   finish
 ) || rc=1
 
