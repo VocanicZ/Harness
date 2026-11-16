@@ -173,7 +173,7 @@ check_prereqs(){
 # ── offering missing prerequisites (#342) ───────────────────────────────────────────────────────
 # offer_prereqs asks to install what check_prereqs would find missing, instead of only failing.
 # Questions read from $HARNESS_TTY (/dev/tty: works under `curl | bash`, whose stdin is the script).
-# HARNESS_INSTALL_PREREQS=1 answers yes, 0 no; no terminal and no setting prints the command only.
+# HARNESS_INSTALL_PREREQS=1 (or yes/true/on) answers yes, 0 (no/false/off) no; no terminal and no setting prints the command only.
 PREREQ_TOOLS="git tmux python3 curl sha256sum tar gh"
 # Windows (#356): Git for Windows brings git, curl, sha256sum and tar; Python is probed (python_probe).
 inst_windows && PREREQ_TOOLS="git curl sha256sum tar gh"
@@ -204,9 +204,23 @@ pkg_install_cmd(){ local m="$1" p pkgs=" " su=""; shift
   esac; }
 _tty(){ echo "${HARNESS_TTY:-/dev/tty}"; }
 _has_tty(){ ( : <"$(_tty)" ) 2>/dev/null; }
+# prereqs_answer — HARNESS_INSTALL_PREREQS as yes/no (#1140): 1 yes true on y, 0 no false off n, any case.
+# rc 0 yes, 1 no, 2 unset or empty, 3 unrecognised (said once on stderr, then ask_yes asks as if unset).
+_PREREQS_WARNED=0
+prereqs_answer(){ local v
+  v="$(printf %s "${HARNESS_INSTALL_PREREQS:-}" | tr 'A-Z' 'a-z')"
+  case "$v" in
+    1|yes|y|true|on)  return 0 ;;
+    0|no|n|false|off) return 1 ;;
+    '')               return 2 ;;
+  esac
+  (( _PREREQS_WARNED )) || echo "  ! HARNESS_INSTALL_PREREQS='${HARNESS_INSTALL_PREREQS}' is not yes or no (use 1/yes/true/on or 0/no/false/off) — ignoring it" >&2
+  _PREREQS_WARNED=1; return 3; }
 # ask_yes <question> — rc 0 yes, 1 no, 2 nobody to ask (no terminal, no HARNESS_INSTALL_PREREQS).
-ask_yes(){ local a
-  case "${HARNESS_INSTALL_PREREQS:-}" in 1) return 0 ;; 0) return 1 ;; esac
+ask_yes(){ local a pa=0
+  prereqs_answer || pa=$?
+  (( pa == 0 )) && return 0
+  (( pa == 1 )) && return 1
   _has_tty || return 2
   printf '%s [Y/n] ' "$1" >&2
   IFS= read -r a <"$(_tty)" || a=n
@@ -280,8 +294,9 @@ check_windows_host(){ local ok=1 m
     else echo "MISSING: Developer Mode — this shell cannot make a real symlink, and the engine link must be one. Fix: $WIN_DEVMODE_FIX" >&2; ok=0; fi
   fi
   m=()
-  [[ -n "$(git config --get user.name 2>/dev/null)" || -n "${GIT_AUTHOR_NAME:-}" ]] || m+=(user.name)
-  [[ -n "$(git config --get user.email 2>/dev/null)" || -n "${GIT_AUTHOR_EMAIL:-}" ]] || m+=(user.email)
+  # --global: a repo-local identity in the current directory must not hide a missing global one (#1140).
+  [[ -n "$(git config --global --get user.name 2>/dev/null)" || -n "${GIT_AUTHOR_NAME:-}" ]] || m+=(user.name)
+  [[ -n "$(git config --global --get user.email 2>/dev/null)" || -n "${GIT_AUTHOR_EMAIL:-}" ]] || m+=(user.email)
   (( ${#m[@]} )) && echo "  ! git has no ${m[*]} — a lane's first commit would fail. Fix: $WIN_IDENTITY_FIX" >&2
   [[ "$ok" == 1 ]]; }
 # offer_prereqs — the tools (one package-manager command), then gh sign-in, then an agent CLI (Claude

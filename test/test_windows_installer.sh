@@ -118,6 +118,14 @@ assert_no "GIT_AUTHOR_* in the environment counts"        grep -q 'git has no' <
 printf '[user]\n\tname = Test User\n\temail = test@example.com\n' >"$GIT_CONFIG_GLOBAL"
 out="$(HARNESS_REG="$M1/reg" win "$M1" check_windows_host 2>&1)"
 assert_no "an identity set: nothing printed"              grep -q 'git has no' <<<"$out"
+# #1140: a repo-local identity in the current directory must not hide a missing global one.
+printf '' >"$GIT_CONFIG_GLOBAL"
+LR="$T/localrepo"; git init -q "$LR"; git -C "$LR" config user.name Local; git -C "$LR" config user.email local@example.com
+out="$(cd "$LR" && HARNESS_REG="$M1/reg" win "$M1" check_windows_host 2>&1)"
+assert_ok "repo-local identity, no global one: still reported missing" grep -q 'git has no user.name user.email' <<<"$out"
+printf '[user]\n\tname = Test User\n\temail = test@example.com\n' >"$GIT_CONFIG_GLOBAL"
+out="$(cd "$LR" && HARNESS_REG="$M1/reg" win "$M1" check_windows_host 2>&1)"
+assert_no "global identity set, inside a repo: nothing printed" grep -q 'git has no' <<<"$out"
 
 echo "=== a release extracts when TMPDIR is in Windows mixed form (C:/…) ==="
 source "$HERE/release_fixture.sh"

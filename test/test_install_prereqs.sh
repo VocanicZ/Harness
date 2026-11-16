@@ -99,6 +99,27 @@ assert_ok "answering y installs" grep -qx 'apt-get install -y git tmux python3 c
 : > "$LOG"; HARNESS_TTY="$ENTER" on "$A" offer_prereqs >/dev/null 2>&1
 assert_ok "Enter (the default) installs" grep -qx 'apt-get install -y git tmux python3 curl coreutils tar gh' "$LOG"
 
+# ── HARNESS_INSTALL_PREREQS spellings (#1140): yes/no words work like 1/0, an unknown value is said and ignored ──
+for v in yes YES y true True on; do
+  : > "$LOG"; HARNESS_INSTALL_PREREQS=$v HARNESS_TTY="$T/no-such-tty" on "$A" offer_prereqs >/dev/null 2>&1
+  assert_ok "HARNESS_INSTALL_PREREQS=$v answers yes" grep -qx 'apt-get install -y git tmux python3 curl coreutils tar gh' "$LOG"
+done
+for v in no NO n false False off; do
+  : > "$LOG"; out="$(HARNESS_INSTALL_PREREQS=$v HARNESS_TTY="$YES" on "$A" offer_prereqs 2>&1)"
+  assert_no "HARNESS_INSTALL_PREREQS=$v answers no: installs nothing" grep -q apt-get "$LOG"
+  assert_ok "HARNESS_INSTALL_PREREQS=$v answers no: prints the command" grep -qF -- "$WANT" <<<"$out"
+  assert_no "HARNESS_INSTALL_PREREQS=$v does not ask" grep -qF '[Y/n]' <<<"$out"
+done
+: > "$LOG"; out="$(HARNESS_INSTALL_PREREQS=maybe HARNESS_TTY="$NO" on "$A" offer_prereqs 2>&1)"
+assert_ok "an unknown value is named in a clear message" grep -qF "HARNESS_INSTALL_PREREQS='maybe' is not yes or no" <<<"$out"
+assert_ok "...and falls back to asking" grep -qF '[Y/n]' <<<"$out"
+assert_no "...and installs nothing on a no" grep -q apt-get "$LOG"
+: > "$LOG"; HARNESS_INSTALL_PREREQS=maybe HARNESS_TTY="$YES" on "$A" offer_prereqs >/dev/null 2>&1
+assert_ok "...and honours the answer it was given" grep -qx 'apt-get install -y git tmux python3 curl coreutils tar gh' "$LOG"
+out="$(HARNESS_INSTALL_PREREQS=maybe HARNESS_TTY="$T/no-such-tty" on "$A" offer_prereqs 2>&1)"
+assert_ok "unknown value, no terminal: still prints the command" grep -qF -- "$WANT" <<<"$out"
+assert_eq "$(grep -c "is not yes or no" <<<"$out")" 1 "...and the message is said once, not once per offer"
+
 # ── nothing missing: nothing asked ───────────────────────────────────────────────────────────────
 F="$T/full"; for t in git tmux python3 curl sha256sum tar apt-get; do stub "$F" "$t"; done
 stub "$F" gh 'exit 0'
