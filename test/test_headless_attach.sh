@@ -129,6 +129,15 @@ assert_eq "$rc" 1 "attach to no lane fails (streams captured apart)"
 assert_ok "…the error is on stderr" grep -qF "no live session '" "$RUN_DIR/refuse.err"
 assert_eq "$(cat "$RUN_DIR/refuse.out")" "" "…and stdout stays empty"
 
+# #1122: no unit (absent or empty) is a usage error naming the typed command, on stderr, exit 2.
+for a in "" "''"; do
+  if [[ -z "$a" ]]; then bash "$ROOT/scripts/attach.sh" >"$RUN_DIR/usage.out" 2>"$RUN_DIR/usage.err" </dev/null; rc=$?
+  else bash "$ROOT/scripts/attach.sh" '' >"$RUN_DIR/usage.out" 2>"$RUN_DIR/usage.err" </dev/null; rc=$?; fi
+  assert_eq "$rc" 2 "attach with no unit (${a:-absent}) exits 2"
+  assert_eq "$(cat "$RUN_DIR/usage.err")" "usage: harness attach <unit> [issue]" "…stderr is the usage naming harness attach"
+  assert_no "…and stdout never names the internal script" grep -qF "attach.sh" "$RUN_DIR/usage.out"
+done
+
 echo "== attach: with stdin closed it is still the live watch =="
 WAIT=3; is_windows && WAIT=20   # Git Bash takes seconds to start a script
 out="$(timeout "$WAIT" bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
