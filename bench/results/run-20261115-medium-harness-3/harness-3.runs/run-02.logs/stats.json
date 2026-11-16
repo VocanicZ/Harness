@@ -1,0 +1,41 @@
+{
+  "bn434e8": {
+    "sessions": 17,
+    "tokens": {},
+    "issues_closed": 15,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-medium-harness-3-harness-3-r02": {
+        "claims": 17,
+        "workers": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 14,
+        "init": 1,
+        "which": 40
+      },
+      "which": 40,
+      "changed_nodes": 3195,
+      "round1": 2214,
+      "round2": 316,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 40
+      },
+      "wall_ms": 10450,
+      "selective": 38,
+      "full_suite": 2,
+      "backfilled": 0,
+      "selective_share": 0.95
+    },
+    "model_mismatches": []
+  }
+}

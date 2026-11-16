@@ -1,0 +1,955 @@
+{
+  "schema": 1,
+  "run_id": "run-20261115-medium-harness",
+  "arm": "harness",
+  "fixture": "medium",
+  "repo": "VocanicZ/bench-run-20261115-medium-harness-harness-r01",
+  "status": "ok",
+  "capped": null,
+  "error": null,
+  "started_at": "2026-11-15T18:39:51Z",
+  "ended_at": "2026-11-15T19:44:11Z",
+  "wall_s": 3643.67,
+  "coding_s": 5818.135,
+  "testing_s": 148.354,
+  "test_calls": 69,
+  "tokens": {
+    "input": 490,
+    "output": 181340,
+    "cache_read": 10167029,
+    "cache_write": 746730
+  },
+  "cost_usd": 6.6125,
+  "usd_per_pct": 0.46,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 14.37,
+  "models": {
+    "claude-opus-5-5": {
+      "messages": 68,
+      "input": 142,
+      "output": 67878,
+      "cache_read": 3788430,
+      "cache_write": 342660,
+      "cost_usd": 3.8291
+    },
+    "claude-sonnet-5-5": {
+      "messages": 174,
+      "input": 348,
+      "output": 113462,
+      "cache_read": 6378599,
+      "cache_write": 404070,
+      "cost_usd": 2.7834
+    }
+  },
+  "hidden_tests": {
+    "passed": 114,
+    "failed": 0,
+    "total": 114,
+    "details": {
+      "install": "pip",
+      "tests": [
+        {
+          "id": "BrokenPipeTests.test_report_piped_to_a_reader_that_stops",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "BrokenPipeTests.test_stock_piped_to_a_reader_that_stops",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_duplicate_skus",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_error_carries_line_attribute_and_message",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_field_count_and_sku_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_first_mistake_is_reported",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_line_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_name_and_price_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogErrorTests.test_reorder_and_tax_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_example_and_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_field_values",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_ignored_lines_and_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_sku_rules",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CatalogParseTests.test_tax_classes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_arguments_and_options",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_arguments_taken_as_typed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_checked_before_files_are_read",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_mistyped_dates",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_no_command_or_unknown_command",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CommandLineTests.test_the_files_are_read_before_the_request_is_carried_out",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_default_and_relative",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_dir_position",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_errors_name_the_file_found_in_dir",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DirOptionTests.test_writes_go_to_the_dir",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_good_runs_and_empty_files",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_mistakes_in_catalogue_and_movements",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_mistakes_in_orders",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_read_only_commands",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_refusals_are_exit_1_with_nothing_on_stdout",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_unreadable_is_exit_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FileFormatTests.test_bom_and_crlf",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FileFormatTests.test_endings_and_blank_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FileFormatTests.test_utf8_and_odd_separators",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilesNeededTests.test_others_read_what_they_need",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilesNeededTests.test_the_shelves_commands_do_not_read_the_orders",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_date_against_the_order_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_earlier_shipments_by_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_file_handling",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_later_dips_and_same_day",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_later_movements_limit_the_shipment",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_open_and_partial_status",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_partial_then_complete",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_shortage",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FulfilCliTests.test_unknown_order_is_refused",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_empty_and_unknown",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_odd_characters_in_a_note_stay_in_the_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_follows_what_shipped",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_partial_and_full",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_refused",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_which_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "LowCliTests.test_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "LowCliTests.test_nothing_low_prints_nothing_and_succeeds",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "LowCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementErrorTests.test_field_and_date_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementErrorTests.test_line_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementErrorTests.test_sku_and_quantity_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_example_and_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_field_forms",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_ignored_lines_and_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "MovementParseTests.test_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_effect_on_lines_and_tax",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_order_discount_halves_round_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_order_discount_with_volume_discounts_and_all_three_classes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_threshold",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderDiscountTests.test_threshold_on_the_subtotal",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_field_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_line_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_order_line_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderErrorTests.test_order_number_and_date_mistakes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_customer_and_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_example_and_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_order_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "OrderParseTests.test_separators_and_ignored_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_missing_files",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_order_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteCliTests.test_volume_and_order_discounts_carry_a_minus_sign",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteShapeTests.test_discounts_are_zero_or_negative",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "QuoteShapeTests.test_quote_shape",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_append_and_print",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_effects_on_the_shelves",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_file_handling",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refusal_leaves_the_file_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refused_input",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refused_stock",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_edges",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_statuses_and_amounts",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReportCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_a_single_line_takes_the_whole_discount",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_biggest_lost_fraction",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_ties_go_to_the_earlier_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ShareOutTests.test_two_leftover_pennies_go_to_the_two_earlier_lines_of_three_tied_ones",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockCliTests.test_empty_catalog_and_unicode",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockCliTests.test_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockCliTests.test_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockLevelTests.test_example_and_unmoved_products",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockLevelTests.test_levels_are_ints_and_sum_every_movement",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_below_zero_is_blamed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_date_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_each_product_is_checked_on_its_own",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_line_numbers_when_blaming",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StockRuleTests.test_same_day_movements_keep_the_order_of_the_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "TaxTests.test_rates_and_totals",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "TaxTests.test_rounding",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "TaxTests.test_tax_is_rounded_per_line_then_added_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "VolumeDiscountTests.test_halves_round_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "VolumeDiscountTests.test_the_tier_depends_on_each_lines_own_quantity",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "VolumeDiscountTests.test_tiers_at_the_edges",
+          "status": "passed",
+          "message": ""
+        }
+      ]
+    }
+  },
+  "counts": {
+    "workers": 1,
+    "continue_replies": 0,
+    "fleet_restarts": 0,
+    "issues_closed": 12,
+    "prs_merged": 12
+  },
+  "caps": {
+    "wall_s": 21600,
+    "cost_usd": 80.0
+  },
+  "repo_deleted": true,
+  "logs": "run-01.logs",
+  "quality": "ok",
+  "coverage": {
+    "line_pct": 28.0,
+    "branch_pct": 15.0,
+    "total_pct": 24.8,
+    "tests": "unittest"
+  },
+  "run": 1,
+  "isolation": {
+    "config": "isolated",
+    "engine_skills": [
+      "caveman",
+      "handoff",
+      "harness",
+      "harness-arc",
+      "harness-init",
+      "harness-issue",
+      "harness-one",
+      "harness-pause",
+      "harness-plan",
+      "harness-prd",
+      "harness-resume",
+      "harness-start",
+      "harness-status",
+      "harness-stop",
+      "harness-uninstall",
+      "subagent-task-tree",
+      "to-issues",
+      "to-prd",
+      "writing-plans"
+    ],
+    "engine_plugins": []
+  },
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 38,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 746730,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 4.119,
+  "turn_gaps": {
+    "turns": 228,
+    "p50_s": 8.5,
+    "p90_s": 25.0,
+    "max_s": 1708.6,
+    "over_5m": 3,
+    "over_1h": 0
+  },
+  "cache_ttl": "5m",
+  "effort": {
+    "high": 390,
+    "medium": 52
+  },
+  "provenance": {
+    "engine_commit": "879964dc4ae3aba1605f63e569fd9943c5538a81-dirty",
+    "skill_version": "sha256:104fcebf3f893ceb",
+    "cli_version": "2.1.325 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 3,
+  "fuzz_classes": 2,
+  "fuzz_class_counts": {
+    "movements:receive-ship x stdout": 2,
+    "format:empty x file": 1
+  },
+  "fuzz_examples": [
+    {
+      "case": 55,
+      "kind": "format",
+      "step": 3,
+      "what": "stockroom receive 2024-01-06 QRS-777 2 first",
+      "steps": [
+        [
+          "report",
+          "--format",
+          "json"
+        ],
+        [
+          "low",
+          "--json"
+        ],
+        [
+          "stock"
+        ],
+        [
+          "receive",
+          "2024-01-06",
+          "QRS-777",
+          "2",
+          "first"
+        ],
+        [
+          "history",
+          "QRS-777"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "QRS-777 | Garden gnome | 93.04 | 1 | Standard\\nEf-500 | Tea-towel | 0.50 | 5 | standard\\n",
+        "movements.txt": "\\ufeff",
+        "orders.txt": "\\ufeff# only a comment"
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-01-06 QRS-777 +2 first\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "\ufeff",
+          "2024-01-06 QRS-777 +2 first"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "2024-01-06 QRS-777 +2 first\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "\ufeff2024-01-06 QRS-777 +2 first"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": ""
+    },
+    {
+      "case": 191,
+      "kind": "receive_ship",
+      "step": 0,
+      "what": "stockroom receive 2024-05-10 wxyz-123 10 a\tb",
+      "steps": [
+        [
+          "receive",
+          "2024-05-10",
+          "wxyz-123",
+          "10",
+          "a\tb"
+        ],
+        [
+          "low"
+        ],
+        [
+          "receive",
+          "2024-04-28",
+          "CD-010",
+          "1"
+        ],
+        [
+          "history",
+          "ij-100"
+        ],
+        [
+          "receive",
+          "2024-05-18",
+          "CD-010",
+          "40"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "WXYZ-123 | Plant label \"oak\" | 2.50 | 10\\nij-100 | Name with 'quotes' | 10.5 | 0 | reduced\\nCd-010 | Gift voucher | 50.0 | 0 | reduced\\n",
+        "movements.txt": "2024-01-14 wxyz-123 +11 Zo\\xeb's delivery\\n2024-01-22 \\t cd-010   +25  order  \\n2024-01-23 Ij-100 +12 damaged\\n2024-01-25 cd-010 -18\\n2024-01-25 cd-010 +40  restock\\n2024-02-13   IJ-100  -11\\tshipped by van\\n2024-03-04  IJ-100 \\t +25 x \\n2024-03-18 IJ-100 -12\\n2024-03-31 ij-100 12 a|b\\n2024-04-21 Ij-100 -24 order ",
+        "orders.txt": ""
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-05-10 WXYZ-123 +10 a\\tb\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-14 wxyz-123 +11 Zo\u00eb's delivery",
+          "2024-01-22 \t cd-010   +25  order  ",
+          "2024-01-23 Ij-100 +12 damaged",
+          "2024-01-25 cd-010 -18",
+          "2024-01-25 cd-010 +40  restock",
+          "2024-02-13   IJ-100  -11\tshipped by van",
+          "2024-03-04  IJ-100 \t +25 x ",
+          "2024-03-18 IJ-100 -12",
+          "2024-03-31 ij-100 12 a|b",
+          "2024-04-21 Ij-100 -24 order ",
+          "2024-05-10 WXYZ-123 +10 a\tb"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "2024-05-10 WXYZ-123 +10 a\\\\x09b\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-14 wxyz-123 +11 Zo\u00eb's delivery",
+          "2024-01-22 \t cd-010   +25  order  ",
+          "2024-01-23 Ij-100 +12 damaged",
+          "2024-01-25 cd-010 -18",
+          "2024-01-25 cd-010 +40  restock",
+          "2024-02-13   IJ-100  -11\tshipped by van",
+          "2024-03-04  IJ-100 \t +25 x ",
+          "2024-03-18 IJ-100 -12",
+          "2024-03-31 ij-100 12 a|b",
+          "2024-04-21 Ij-100 -24 order ",
+          "2024-05-10 WXYZ-123 +10 a\tb"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": ""
+    },
+    {
+      "case": 831,
+      "kind": "receive_ship",
+      "step": 5,
+      "what": "stockroom receive --dir box 2024-03-25 KL-750 8 a\tb",
+      "steps": [
+        [
+          "ship",
+          "2024-03-25",
+          "KL-750",
+          "14",
+          "--dir",
+          "box"
+        ],
+        [
+          "--dir",
+          "box",
+          "low"
+        ],
+        [
+          "--dir",
+          "box",
+          "ship",
+          "2024-03-03",
+          "KL-750",
+          "14"
+        ],
+        [
+          "stock",
+          "--dir",
+          "box"
+        ],
+        [
+          "--dir",
+          "box",
+          "ship",
+          "2024-03-10",
+          "KL-750",
+          "14",
+          "--dir2"
+        ],
+        [
+          "receive",
+          "--dir",
+          "box",
+          "2024-03-25",
+          "KL-750",
+          "8",
+          "a\tb"
+        ]
+      ],
+      "dir": "box",
+      "files": {
+        "catalog.txt": "KL-750 | Ceramic pot (large) | 183.73 | 0\\n",
+        "movements.txt": "2024-01-22 KL-750 +8 damaged\\n2024-01-31 KL-750 1\\n2024-02-08 KL-750 -2 first delivery\\n2024-02-25 KL-750 +20 shipped by van\\n2024-03-11 KL-750 -13 damaged\\n",
+        "orders.txt": ""
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03-25 KL-750 +8 a\\tb\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-22 KL-750 +8 damaged",
+          "2024-01-31 KL-750 1",
+          "2024-02-08 KL-750 -2 first delivery",
+          "2024-02-25 KL-750 +20 shipped by van",
+          "2024-03-11 KL-750 -13 damaged",
+          "2024-03-25 KL-750 -14",
+          "2024-03-25 KL-750 +8 a\tb"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 0,
+        "stdout": "2024-03-25 KL-750 +8 a\\\\x09b\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-22 KL-750 +8 damaged",
+          "2024-01-31 KL-750 1",
+          "2024-02-08 KL-750 -2 first delivery",
+          "2024-02-25 KL-750 +20 shipped by van",
+          "2024-03-11 KL-750 -13 damaged",
+          "2024-03-25 KL-750 -14",
+          "2024-03-25 KL-750 +8 a\tb"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": ""
+    }
+  ],
+  "fuzz_seed": 621,
+  "fuzz_hash": "dadc646bc2e0c241c8dde733be0f4c09da016eba2e7319c0e5d24dcf3537a0f1",
+  "usd_per_passed_test": 0.058,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  }
+}

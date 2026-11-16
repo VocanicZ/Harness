@@ -1,0 +1,2 @@
+claude -p --output-format stream-json --verbose --disable-slash-commands --strict-mcp-config --setting-sources project,local --dangerously-skip-permissions
+claude -p --output-format stream-json --verbose --disable-slash-commands --strict-mcp-config --setting-sources project,local --dangerously-skip-permissions --resume 09876613-8059-43e1-8a55-ce5846921950

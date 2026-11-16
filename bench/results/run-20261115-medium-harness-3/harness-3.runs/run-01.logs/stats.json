@@ -1,0 +1,42 @@
+{
+  "bn32cac": {
+    "sessions": 13,
+    "tokens": {},
+    "issues_closed": 11,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-medium-harness-3-harness-3-r01": {
+        "claims": 13,
+        "workers": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 10,
+        "--help": 1,
+        "which": 32,
+        "init": 2
+      },
+      "which": 32,
+      "changed_nodes": 2339,
+      "round1": 1588,
+      "round2": 526,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 32
+      },
+      "wall_ms": 7821,
+      "selective": 32,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

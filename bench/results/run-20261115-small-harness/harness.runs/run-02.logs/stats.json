@@ -1,0 +1,40 @@
+{
+  "bn727e7": {
+    "sessions": 18,
+    "tokens": {},
+    "issues_closed": 17,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-small-harness-harness-r02": {
+        "claims": 18,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 15,
+        "init": 1,
+        "which": 33,
+        "explain": 5
+      },
+      "which": 33,
+      "changed_nodes": 633,
+      "round1": 812,
+      "round2": 622,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 37
+      },
+      "wall_ms": 6719,
+      "selective": 32,
+      "full_suite": 1,
+      "backfilled": 0,
+      "selective_share": 0.97
+    },
+    "model_mismatches": []
+  }
+}

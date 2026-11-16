@@ -1,0 +1,8 @@
+{
+  "state_dir": "/tmp/hzt-3388928427/bench-run-3f282h66/clone/.harness",
+  "harness_home": "/tmp/hzt-3388928427/bench-run-3f282h66/harness-home",
+  "prefix": "bn0455d",
+  "workers": 3,
+  "repo": "VocanicZ/bench-run-20261115-medium-harness-3-harness-3-r05",
+  "stop": "harness stop --state-dir /tmp/hzt-3388928427/bench-run-3f282h66/clone/.harness"
+}
