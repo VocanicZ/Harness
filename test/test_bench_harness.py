@@ -44,6 +44,11 @@ board = os.environ["FAKE_GH_HOME"]
 def put(name, data):   # atomic (#814): the fake gh `cat`s these while they are rewritten, never a torn file
     tmp = os.path.join(board, ".%s.%d.tmp" % (name, os.getpid()))
     with open(tmp, "w") as f: json.dump(data, f)
+    for _ in range(20000):   # native Windows denies the rename while a reader (the fake gh's cat) has the file open: try again (#1108)
+        try:
+            os.replace(tmp, os.path.join(board, name)); return
+        except PermissionError:
+            time.sleep(0.001)
     os.replace(tmp, os.path.join(board, name))
 if cmd == "init":
     os.makedirs(os.path.join(state, "run"), exist_ok=True)
@@ -138,7 +143,11 @@ with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "a") as t:
 if action.startswith("start"):   # start, start-error, start-restart
     tmp = os.path.join(os.environ["FAKE_GH_HOME"], ".prds.json.%d.tmp" % os.getpid())   # atomic (#814), as put() above
     with open(tmp, "w") as f: json.dump([{"number": 1, "state": "OPEN"}], f)
-    os.replace(tmp, os.path.join(os.environ["FAKE_GH_HOME"], "prds.json"))
+    for _ in range(20000):   # native Windows denies the rename while the fake gh's cat has the file open: try again (#1108)
+        try:
+            os.replace(tmp, os.path.join(os.environ["FAKE_GH_HOME"], "prds.json")); break
+        except PermissionError:
+            time.sleep(0.001)
     def sh(*args):   # a Bash call of the front-door session: in the stream as a tool_use, then run for real
         print(json.dumps({"type": "assistant", "session_id": sid, "message": {"content": [
             {"type": "tool_use", "name": "Bash", "input": {"command": "harness " + " ".join(args) + " 2>&1 | tail -5"}}]}}), flush=True)
@@ -206,6 +215,11 @@ class Arm:
             pass
         self.decoy.wait()
         self.e.close()
+
+
+def _n(path):
+    """A path with forward slashes: a native Windows run spells its paths with backslashes (#1108)."""
+    return path.replace("\\", "/")
 
 
 def with_arm(plan, **kw):
@@ -289,7 +303,7 @@ def test_the_run_fleet_is_isolated_from_the_hosts(a):
         assert c["HARNESS_HOME"] != "/host/home" and "harness-home" in c["HARNESS_HOME"], c
         assert c["HARNESS_USE_POLLER"] == "0", "no host-level poller is started by the run fleet"
     init = calls_of(a, "init")[0]
-    assert init["state_dir"].endswith("/clone/.harness") and init["cwd"].endswith("/clone"), init
+    assert _n(init["state_dir"]).endswith("/clone/.harness") and _n(init["cwd"]).endswith("/clone"), init
     assert [x["path0"] for x in a.front_calls()] == [os.path.dirname(a.harness)], "the engine measured is on PATH"
     assert a.decoy_alive() and os.path.exists(os.path.join(a.host_state, "run", "pool-1.pid")), "the host fleet is untouched"
 
@@ -322,12 +336,12 @@ def test_the_front_door_and_the_fleet_run_on_an_isolated_config_with_only_the_en
     r = a.result()
     assert tb.bench_run.validate(r) == [] and r["status"] == "ok", r
     iso = {c["env"]["CLAUDE_CONFIG_DIR"] for c in a.front_calls()} | {c["config"] for c in _plugin_calls(a)}   # none: no plugin call
-    assert len(iso) == 1 and iso != {host} and list(iso)[0].endswith("/claude-config"), (iso, host)
+    assert len(iso) == 1 and iso != {host} and _n(list(iso)[0]).endswith("/claude-config"), (iso, host)
     iso = iso.pop()
     for c in a.front_calls():   # the user-skills dir the engine links into is the isolated one's too
-        assert c["env"]["HARNESS_USER_SKILLS"] == iso + "/skills", c["env"]
+        assert _n(c["env"]["HARNESS_USER_SKILLS"]) == _n(iso) + "/skills", c["env"]
     start = calls_of(a, "start")[0]["env"]
-    assert start["HARNESS_USER_SKILLS"] == iso + "/skills" and start["HARNESS_CLAUDE_CONFIG_DIRS"].split(os.pathsep)[0] == iso
+    assert _n(start["HARNESS_USER_SKILLS"]) == _n(iso) + "/skills" and start["HARNESS_CLAUDE_CONFIG_DIRS"].split(os.pathsep)[0] == iso
     # the host's skill / plugin / MCP server are not in what the front door loaded
     logs = os.path.join(a.e.results, "t1", "harness.logs")
     init = json.load(open(os.path.join(logs, "init.json")))
@@ -448,7 +462,7 @@ def _stopped_only_its_own(a):
     stops = calls_of(a, "stop")
     assert len(stops) == 1, stops
     s = stops[0]
-    assert s["args"] == ["stop"] and s["state_dir"].endswith("/clone/.harness"), s
+    assert s["args"] == ["stop"] and _n(s["state_dir"]).endswith("/clone/.harness"), s
     assert s["state_dir"] != a.host_state and s["env"]["HARNESS_HOME"] != "/host/home", s
     assert a.decoy_alive() and os.path.exists(os.path.join(a.host_state, "run", "pool-1.pid")), "the host fleet is untouched"
     for st in calls_of(a, "start"):   # the resident worker of the run fleet is gone: its pid file was removed by the stop
@@ -509,7 +523,7 @@ def test_a_fleet_that_died_is_restarted_with_recover(a):
     assert r["status"] == "ok" and r["counts"]["fleet_restarts"] == 1, r
     starts = calls_of(a, "start")
     assert [s["args"] for s in starts] == [["start"], ["start", "--recover"]], starts
-    assert starts[1]["state_dir"].endswith("/clone/.harness")
+    assert _n(starts[1]["state_dir"]).endswith("/clone/.harness")
 
 
 @with_arm(["start-restart|ok"])
@@ -556,7 +570,7 @@ def test_session_prefix_is_per_run_and_the_env_scrub_units():
 
     ctx = types.SimpleNamespace(repo="o/bench-a-harness", clone="/tmp/w/clone", log=lambda m: None)
     f = harness_arm.Fleet(ctx, 2, "/e/bin/harness")
-    assert f.state == "/tmp/w/clone/.harness" and f.home == "/tmp/w/harness-home"
+    assert _n(f.state).endswith("/tmp/w/clone/.harness") and _n(f.home).endswith("/tmp/w/harness-home")
     env = f.env({"PATH": "/usr/bin", "HARNESS_POOL": "9", "STATE_DIR": "/x", "ANTHROPIC_API_KEY": "k",
                  "HARNESS_USAGE_CMD": "u", "HARNESS_MODEL_MANAGER": "m", "OTHER": "1"})
     assert env["HARNESS_POOL"] == "2" and env["HARNESS_USAGE_CMD"] == "u" and env["OTHER"] == "1"
@@ -586,7 +600,7 @@ def _board_put_is_atomic(script, label):
     m = re.search(r"^def put\(name, data\):.*\n(?:    .*\n)+", script, re.M)
     assert m, label + ": no put() in the fake"
     d = __import__('tempfile').mkdtemp()
-    ns = {"json": json, "os": os, "board": d}
+    ns = {"json": json, "os": os, "time": time, "board": d}
     exec(m.group(0), ns)
     put, stop, bad = ns["put"], threading.Event(), []
     put("prds.json", [{"number": 1, "state": "OPEN"}])

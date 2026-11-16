@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# harness-test-timeout-windows: 7200
 """test_bench_large_fuzz.py — #592 (PRD #345): bench/fixture-large/fuzz.py, the differential fuzz of an arm's `tallybook`
 against the reference implementation. Covered: the generator is deterministic and FROZEN (a pinned case hash; a change
 makes the fuzz refuse to run), a smaller --cases is a prefix of the full plan, the plan has the mix (offline / book /
@@ -206,7 +207,7 @@ def test_the_time_cap_stops_starting_new_cases():
 
 def test_a_command_that_hangs_or_is_missing_is_a_divergence_not_a_crash():
     old = fuzz.RUN_TIMEOUT
-    fuzz.RUN_TIMEOUT = 1
+    fuzz.RUN_TIMEOUT = 10 if os.name == "nt" else 1   # the reference must start inside it: a native Windows Python takes over a second (#1108)
     try:
         hang = fuzz.run([sys.executable, "-c", "import time; time.sleep(30)"], env_for(REF), cases=2)
     finally:

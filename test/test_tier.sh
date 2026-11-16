@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# harness-test-timeout-windows: 1800
 # test_tier.sh — #619: "When to use Harness". `harness tier decide` picks direct / lane / fleet from an
 # estimate against the ONE thresholds file (scripts/tier.toml, provisional until #621) and prints the
 # reason plus a time+cost for direct and fleet; --prefer is the user's override either way.
@@ -14,6 +15,7 @@ unset_inherited_config; unset HARNESS_REPO HARNESS_DEFAULT_BRANCH
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 H(){ bash "$ROOT/bin/harness" "$@"; }
 has(){ grep -qi -- "$1" <<<"$2"; }   # has <pattern> <text>
+tp(){ native_path "$1"; }   # a path as a native python3 prints it back (C:/… on Windows, #1108)
 jq_(){ python3 -c "import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))" "$1"; }
 
 # ── decide: the three tiers ─────────────────────────────────────────────────────────────────────
@@ -156,13 +158,15 @@ printf '[direct\nmax_criteria = = 2\n' > "$T/bad.toml"
 out="$(dd "$T/bad.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "an unparsable tier.toml -> exit 2"
 assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
-assert_ok "…naming the file" grep -q "$T/bad.toml" <<<"$out"
-assert_ok "…naming HARNESS_TIER_TOML and quoting the path like a not-found error (#1003)" grep -qF "harness tier: HARNESS_TIER_TOML '$T/bad.toml': cannot parse it: " <<<"$out"
+assert_ok "…naming the file" grep -qF -- "$(tp "$T/bad.toml")" <<<"$out"
+assert_ok "…naming HARNESS_TIER_TOML and quoting the path like a not-found error (#1003)" grep -qF "harness tier: HARNESS_TIER_TOML '$(tp "$T/bad.toml")': cannot parse it: " <<<"$out"
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   printf '[direct\n' > "$T/bad${ch}.toml"
   err="$(HARNESS_TIER_TOML="$T/bad${ch}.toml" H tier thresholds 2>&1 >/dev/null)"
-  assert_ok "#1003: a parse error quotes the path with ${esc} escaped" grep -qF "HARNESS_TIER_TOML '$T/bad${esc}.toml': cannot parse it: " <<<"$err"
+  assert_ok "#1003: a parse error quotes the path with ${esc} escaped" grep -qF "HARNESS_TIER_TOML '$(tp "$T/bad")${esc}.toml': cannot parse it: " <<<"$err"
   assert_eq "$(printf %s "$err" | grep -c -- "$ch")" 0 "…no raw ${esc} on stderr"
 done
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
@@ -171,7 +175,7 @@ python3 -c "print('[direct]\nmax_criteria = ' + '9'*5000)" > "$T/huge.toml"
 out="$(dd "$T/huge.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "a 5000-digit number in tier.toml -> exit 2"
 assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
-assert_ok "…naming the file" grep -q "$T/huge.toml" <<<"$out"
+assert_ok "…naming the file" grep -qF -- "$(tp "$T/huge.toml")" <<<"$out"
 assert_ok "…and the key" grep -q "direct.max_criteria" <<<"$out"
 assert_ok "…saying it is too large" grep -q "too large" <<<"$out"
 assert_no "…without Python's set_int_max_str_digits advice" grep -q 'set_int_max_str_digits' <<<"$out"
@@ -182,7 +186,7 @@ assert_eq "$rc" 2 "a tier.toml that is not UTF-8 -> exit 2"
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 out="$(dd "$T/missing.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "a missing tier.toml -> exit 2"
-assert_ok "…naming the file" grep -q "$T/missing.toml" <<<"$out"
+assert_ok "…naming the file" grep -qF -- "$(tp "$T/missing.toml")" <<<"$out"
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 # a bad threshold value: a string, nan, inf, a negative and a zero where zero is meaningless -> exit 2 naming the key (#749)
 badval(){   # badval <section> <key> <toml-value> <label>
@@ -191,7 +195,7 @@ badval(){   # badval <section> <key> <toml-value> <label>
   assert_eq "$rc" 2 "$4: $2 = $3 -> exit 2"
   assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 1 "…with a one-line error"
   assert_ok "…naming the key" grep -q "$1.$2" <<<"$out"
-  assert_ok "…and the file" grep -q "$T/badval.toml" <<<"$out"
+  assert_ok "…and the file" grep -qF -- "$(tp "$T/badval.toml")" <<<"$out"
   assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 }
 badval direct max_criteria '"8"' "a string"
@@ -230,12 +234,14 @@ json.loads(sys.argv[1], parse_constant=bad)' "$(d --criteria 3 --lines 10 --file
 printf 'direct = 3\n' > "$T/badsec.toml"
 out="$(dd "$T/badsec.toml" 2>&1)"; rc=$?
 assert_eq "$rc" 2 "a section that is not a table -> exit 2"
-assert_ok "…naming the section and the file" grep -q "$T/badsec.toml: \[direct\]" <<<"$out"
+assert_ok "…naming the section and the file" grep -qF -- "$(tp "$T/badsec.toml"): [direct]" <<<"$out"
 assert_no "…and no traceback" grep -q 'Traceback' <<<"$out"
 out="$(HARNESS_TIER_TOML="$T/badval.toml" H tier thresholds 2>&1)"; rc=$?
 assert_eq "$rc" 2 "tier thresholds with a bad value -> exit 2 too"
 # a tier.toml path holding U+2028 or a form feed is echoed escaped in the error (#863)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   err="$(HARNESS_TIER_TOML="$T/no${ch}pe.toml" H tier thresholds 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "unreadable tier.toml path with ${esc} -> exit 2"
@@ -347,11 +353,15 @@ case "$1 $2" in
   *) exit 1;;
 esac
 SH
-git worktree add -q -b issue/9 "$T/wt9"$'\f'"ff" main
-echo wip > "$T/wt9"$'\f'"ff/src/a.py"
+# Windows refuses a control character in a file name, so there the form-feed worktree is not made and only U+2028 is checked (#1108)
+pairs="9:src/a.py 10:src/b.py"
+if host_is_windows; then pairs="10:src/b.py"; else
+  git worktree add -q -b issue/9 "$T/wt9"$'\f'"ff" main
+  echo wip > "$T/wt9"$'\f'"ff/src/a.py"
+fi
 git worktree add -q -b issue/10 "$T/wt10"$'\xe2\x80\xa8'"ff" main
 echo wip > "$T/wt10"$'\xe2\x80\xa8'"ff/src/b.py"
-for pair in 9:src/a.py 10:src/b.py; do
+for pair in $pairs; do
   n="${pair%%:*}"; f="${pair#*:}"
   out="$(ov "$f")"; rc=$?
   assert_eq "$rc" 1 "$f is uncommitted in issue #$n's worktree, whose path holds a control character -> overlap"
@@ -500,7 +510,7 @@ for p in "$T/nonexistent-dir" "$T/afile"; do
     fi
     assert_eq "$rc" 2 "overlap --repo-dir ($form) $p not a directory -> usage error, exit 2"
     assert_ok "overlap --repo-dir ($form) $p: names --repo-dir" grep -qF -- '--repo-dir' <<<"$err"
-    assert_ok "overlap --repo-dir ($form) $p: names the path (its first 20 characters, #911)" grep -qF -- "${p:0:20}" <<<"$err"
+    assert_ok "overlap --repo-dir ($form) $p: names the path (its first 20 characters, #911)" grep -qF -- "$(tp "$p" | cut -c1-20)" <<<"$err"
     assert_eq "$(grep -c "error:" <<<"$err")" 1 "overlap --repo-dir ($form) $p: one error line"
     assert_eq "$(wc -c < "$GH_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs gh"
     assert_eq "$(wc -c < "$GIT_LOG" | tr -d ' ')" 0 "overlap --repo-dir ($form) $p never runs git"
@@ -567,6 +577,8 @@ for sk in harness-prd harness-issue harness-arc; do
 done
 # a --base / -R / --repo-dir value with U+2028 or a form feed is echoed escaped, in the same \uXXXX style as every other tool (#899)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   err="$(H tier overlap --files a --base="-a${ch}b" 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "tier overlap --base with ${esc} -> exit 2"
@@ -589,6 +601,8 @@ for pair in $'\f:\\u000c' $'\xe2\x80\xa8:\\u2028' $'\x01:\\u0001'; do
 done
 # --prefer's choice error, a tier.toml string value and a tier.toml parse error echo U+2028 / a form feed escaped, as vis does (#912)
 for pair in $'\xe2\x80\xa8:\\u2028' $'\f:\\u000c'; do
+  # Windows refuses a control character (a form feed) in a file name: the U+2028 half still runs there (#1108)
+  host_is_windows && [ "${pair%%:*}" = $'\f' ] && continue
   ch="${pair%%:*}"; esc="${pair#*:}"
   err="$(H tier decide --criteria 1 --lines 1 --files 1 --subsystems 1 --prefer "p${ch}" 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "tier decide --prefer with ${esc} -> exit 2"

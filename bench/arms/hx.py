@@ -51,6 +51,11 @@ def _resolve(argv):
     return mod.resolve_argv(list(argv))
 
 
+def _split(cmd):
+    """shlex.split of a command line the operator wrote, safe for a Windows path: posix shlex eats the backslashes of C:\\x\\y (#1108)."""
+    return shlex.split(cmd.replace("\\", "/") if os.name == "nt" else cmd)
+
+
 def _stats():
     spec = importlib.util.spec_from_file_location("bench_hx_stats", os.path.join(ROOT, "scripts", "stats.py"))
     mod = importlib.util.module_from_spec(spec)
@@ -63,13 +68,21 @@ def _stats():
 # turns the runner's SIGTERM into Hx's own SIGINT (a second SIGINT 7 s later is Hx's force quit, inside the
 # runner's 10 s grace) and forwards a SIGINT as it is.
 FORWARDER = (
-    "import signal, subprocess, sys, threading\n"
-    "p = subprocess.Popen(sys.argv[1:])\n"
-    "def fwd(*_): p.send_signal(signal.SIGINT)\n"
+    "import signal, subprocess, sys, threading, time\n"
+    "W = sys.platform == 'win32'\n"
+    "p = subprocess.Popen(sys.argv[1:], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if W else 0)\n"
+    "STOP = signal.CTRL_BREAK_EVENT if W else signal.SIGINT\n"
+    "def fwd(*_): p.send_signal(STOP)\n"
     "def term(*_):\n"
     "    fwd(); threading.Timer(7.0, fwd).start()\n"
     "signal.signal(signal.SIGINT, fwd); signal.signal(signal.SIGTERM, term)\n"
-    "sys.exit(p.wait())\n")
+    "if W: signal.signal(signal.SIGBREAK, fwd)\n"
+    "while p.poll() is None: time.sleep(0.05)\n"
+    "sys.exit(p.returncode)\n")
+# #1108: native Windows has no SIGINT to send a process: the stop is a CTRL_BREAK_EVENT to the forwarder's own process group
+# (start_run starts it with CREATE_NEW_PROCESS_GROUP) and the forwarder passes it on to `hx run`, which sits in a group of its own.
+STOP_SIGNAL = signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT
+SPAWN_FLAGS = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}
 
 
 def child_env(base=None):
@@ -116,7 +129,7 @@ class Hx:
         self.env = child_env()
 
     def argv(self, *args):
-        return shlex.split(self.node) + NODE_FLAGS + [self.bin] + list(args)
+        return _split(self.node) + NODE_FLAGS + [self.bin] + list(args)
 
     def cmd(self, *args, timeout=600):
         argv = self.argv(*args)
@@ -128,8 +141,8 @@ class Hx:
         """`hx run --watch`, spawned through ctx so a cap terminates it."""
         argv = self.argv("run", "--watch")
         self.ctx.log("$ " + shlex.join(argv))
-        return self.ctx.spawn([sys.executable, "-c", FORWARDER] + argv, cwd=self.ctx.clone, env=self.env, stdin=subprocess.DEVNULL, stdout=out,
-                              stderr=subprocess.STDOUT)
+        return self.ctx.spawn([sys.executable, "-c", FORWARDER] + _resolve(argv), cwd=self.ctx.clone, env=self.env, stdin=subprocess.DEVNULL,
+                              stdout=out, stderr=subprocess.STDOUT, **SPAWN_FLAGS)
 
     def usage_sessions(self):
         """Session ids of every turn Hx recorded in its usage log."""
@@ -181,9 +194,9 @@ def stop_run(ctx, proc):
     if proc is None or proc.poll() is not None:
         return
     try:
-        proc.send_signal(signal.SIGINT)
+        proc.send_signal(STOP_SIGNAL)
         proc.wait(timeout=STOP_GRACE_S)
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         ctx.log("hx run did not exit on SIGINT: terminating it")
     ctx.terminate(10.0)
 
@@ -195,7 +208,7 @@ def run(ctx):
     work = os.path.dirname(os.path.abspath(ctx.clone))
     src, commit = install(ctx, work)
     hx = Hx(ctx, src, node)
-    nv = _sh(shlex.split(node) + ["--version"]).stdout.strip()
+    nv = _sh(_split(node) + ["--version"]).stdout.strip()
     with open(os.path.join(ctx.logs, "hx.json"), "w", encoding="utf-8") as fh:
         json.dump({"repo": HX_REPO, "commit": commit, "pinned": HX_COMMIT, "node": nv, "state_dir": hx.state,
                    "stop": "SIGINT the `hx run --watch` process, or `hx pause --now` in the run clone"}, fh, indent=2)
