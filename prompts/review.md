@@ -69,7 +69,7 @@ and a helper decides what is filed.
         checklist (one `- [ ]` per finding with its repro and expected vs actual), a `## Scope` section (the union of
         the files and tests) and the `## Blocked by` / `## Parent` trailer. One lane works the whole issue.
       * `issue` is null: nothing was filed, on purpose: the findings were all non-blocking and fit the tier's `direct`
-        limits (`max_criteria`, `max_files`, `max_subsystems`, `max_changed_lines` in `scripts/tier.toml`), so one more
+        limits (the `[direct]` table of `scripts/tier.toml`: criteria, files, subsystems and changed lines), so one more
         lane would cost more than they are worth. Do not file them yourself.
       * `notes` is the text of the non-blocking findings that stay out of the issue (below the `direct` limits, even
         when blocking findings file an issue): put it in the PRD comment this pass posts, with the issue number if there
