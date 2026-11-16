@@ -210,7 +210,12 @@ vis_arg(){
 # the real stdout.
 pipe_safe_exec(){
   [[ -p /dev/stdout ]] || exec "$@"
-  exec "$@" > >(exec sh -c 'trap "" PIPE; cat 2>/dev/null; exec cat >/dev/null 2>&1')
+  # The process substitution's pipe is opened on a named fd and closed again for the subcommand: a plain `exec "$@" > >(…)` leaves
+  # bash's own /dev/fd/63 open beside fd 1, every worker `harness update`/`resume` launched inherited it, and the relay (so the
+  # caller's `| tail`, `$(…)`) then waited for the workers to exit (#1205). The subcommand ends up with the relay on fd 1 only.
+  local rfd
+  exec {rfd}> >(exec sh -c 'trap "" PIPE; cat 2>/dev/null; exec cat >/dev/null 2>&1')
+  exec "$@" >&"$rfd" {rfd}>&-
 }
 # no_extra_args CMD ALLOWED ARG... — the engine-level read-only commands take no (or one) argument; a stray one is a typo, so it is a
 # usage error (#994) naming the argument, escaped as the unknown-command error does (#952). ALLOWED is the one option accepted ("" for none).
