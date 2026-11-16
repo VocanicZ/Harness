@@ -1,0 +1,8 @@
+{
+  "state_dir": "/tmp/hzt-3388928427/bench-run-5t7pwsfk/clone/.harness",
+  "harness_home": "/tmp/hzt-3388928427/bench-run-5t7pwsfk/harness-home",
+  "prefix": "bn1da15",
+  "workers": 1,
+  "repo": "VocanicZ/bench-run-20261115-medium-harness-opus-harness-opus-r01",
+  "stop": "harness stop --state-dir /tmp/hzt-3388928427/bench-run-5t7pwsfk/clone/.harness"
+}

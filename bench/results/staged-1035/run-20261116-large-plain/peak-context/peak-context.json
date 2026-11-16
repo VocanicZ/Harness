@@ -1,0 +1,122 @@
+{
+ "run-01": {
+  "main": {
+   "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac.jsonl",
+   "peak_context_tokens": 214120,
+   "assistant_turns": 128,
+   "compact_markers": 0
+  },
+  "subagents": [
+   {
+    "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac/subagents/agent-a495ab4b5e8707f8a.jsonl",
+    "peak_context_tokens": 67863,
+    "assistant_turns": 31,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac/subagents/agent-a58a4c00b35f92867.jsonl",
+    "peak_context_tokens": 125061,
+    "assistant_turns": 39,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac/subagents/agent-a725faf4a0c5ee9d6.jsonl",
+    "peak_context_tokens": 75360,
+    "assistant_turns": 23,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac/subagents/agent-a9bec5d4d796ad27b.jsonl",
+    "peak_context_tokens": 191417,
+    "assistant_turns": 79,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac/subagents/agent-acb0250b4d4de6c33.jsonl",
+    "peak_context_tokens": 72808,
+    "assistant_turns": 34,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-01.logs/transcripts/0-bf0540f4-82ac-4f66-ae08-ebd01741b7ac/subagents/agent-ae96227d432ee36a3.jsonl",
+    "peak_context_tokens": 77276,
+    "assistant_turns": 20,
+    "compact_markers": 0
+   }
+  ]
+ },
+ "run-02": {
+  "main": {
+   "file": "run-02.logs/transcripts/0-09876613-8059-43e1-8a55-ce5846921950.jsonl",
+   "peak_context_tokens": 278032,
+   "assistant_turns": 113,
+   "compact_markers": 0
+  },
+  "subagents": [
+   {
+    "file": "run-02.logs/transcripts/0-09876613-8059-43e1-8a55-ce5846921950/subagents/agent-aac6ed56eccb8a46d.jsonl",
+    "peak_context_tokens": 162215,
+    "assistant_turns": 56,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-02.logs/transcripts/0-09876613-8059-43e1-8a55-ce5846921950/subagents/agent-af91a88c316058887.jsonl",
+    "peak_context_tokens": 173325,
+    "assistant_turns": 80,
+    "compact_markers": 0
+   }
+  ]
+ },
+ "run-03": {
+  "main": {
+   "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da.jsonl",
+   "peak_context_tokens": 219952,
+   "assistant_turns": 117,
+   "compact_markers": 0
+  },
+  "subagents": [
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a19c4960f697ff264.jsonl",
+    "peak_context_tokens": 47470,
+    "assistant_turns": 17,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a3c0942f30af340ad.jsonl",
+    "peak_context_tokens": 60732,
+    "assistant_turns": 20,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a7295ad19c28c1d19.jsonl",
+    "peak_context_tokens": 164992,
+    "assistant_turns": 77,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a84b76d248f56470d.jsonl",
+    "peak_context_tokens": 135073,
+    "assistant_turns": 74,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a900b5ebc42a3c208.jsonl",
+    "peak_context_tokens": 48176,
+    "assistant_turns": 19,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a92262b54cb08b58c.jsonl",
+    "peak_context_tokens": 85527,
+    "assistant_turns": 31,
+    "compact_markers": 0
+   },
+   {
+    "file": "run-03.logs/transcripts/0-5d5566e9-8198-4fa6-ab74-64fadaf096da/subagents/agent-a9a95dc37c0bdef8c.jsonl",
+    "peak_context_tokens": 58346,
+    "assistant_turns": 18,
+    "compact_markers": 0
+   }
+  ]
+ }
+}

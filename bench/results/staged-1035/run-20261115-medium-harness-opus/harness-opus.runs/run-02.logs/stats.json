@@ -1,0 +1,40 @@
+{
+  "bne17f6": {
+    "sessions": 7,
+    "tokens": {},
+    "issues_closed": 6,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-medium-harness-opus-harness-opus-r02": {
+        "claims": 7,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 6,
+        "--help": 1,
+        "init": 1,
+        "which": 14
+      },
+      "which": 14,
+      "changed_nodes": 859,
+      "round1": 455,
+      "round2": 32,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 14
+      },
+      "wall_ms": 3956,
+      "selective": 14,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

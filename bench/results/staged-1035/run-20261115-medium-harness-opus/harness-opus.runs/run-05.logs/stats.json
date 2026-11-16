@@ -1,0 +1,41 @@
+{
+  "bne27b1": {
+    "sessions": 10,
+    "tokens": {},
+    "issues_closed": 9,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-medium-harness-opus-harness-opus-r05": {
+        "claims": 10,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 9,
+        "which": 25,
+        "init": 1,
+        "--help": 1,
+        "explain": 1
+      },
+      "which": 25,
+      "changed_nodes": 1491,
+      "round1": 962,
+      "round2": 761,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 26
+      },
+      "wall_ms": 7028,
+      "selective": 25,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

@@ -1,0 +1,250 @@
+{
+  "schema": 1,
+  "run_id": "run-20261115-small-harness",
+  "arm": "harness",
+  "status": "aggregate",
+  "runs_requested": 2,
+  "runs_completed": 2,
+  "stopped": null,
+  "runs": [
+    {
+      "run": 1,
+      "file": "harness.runs/run-01.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 2,
+      "file": "harness.runs/run-02.json",
+      "status": "ok",
+      "capped": null
+    }
+  ],
+  "aggregate": {
+    "n": 2,
+    "metrics": {
+      "wall_s": {
+        "n": 2,
+        "median": 5716.124,
+        "min": 3045.055,
+        "max": 8387.193
+      },
+      "coding_s": {
+        "n": 2,
+        "median": 7592.994,
+        "min": 5017.388,
+        "max": 10168.6
+      },
+      "testing_s": {
+        "n": 2,
+        "median": 356.3425,
+        "min": 303.34,
+        "max": 409.345
+      },
+      "test_calls": {
+        "n": 2,
+        "median": 72.5,
+        "min": 56,
+        "max": 89
+      },
+      "cost_usd": {
+        "n": 2,
+        "median": 5.8166,
+        "min": 5.6255,
+        "max": 6.0078
+      },
+      "weekly_window_pct": {
+        "n": 2,
+        "median": 12.375,
+        "min": 12.23,
+        "max": 12.52
+      },
+      "tokens": {
+        "n": 2,
+        "median": 8319803.5,
+        "min": 7273405,
+        "max": 9366202
+      },
+      "tokens_input": {
+        "n": 2,
+        "median": 510.0,
+        "min": 432,
+        "max": 588
+      },
+      "tokens_output": {
+        "n": 2,
+        "median": 148238.5,
+        "min": 140030,
+        "max": 156447
+      },
+      "tokens_cache_read": {
+        "n": 2,
+        "median": 7444953.5,
+        "min": 6474677,
+        "max": 8415230
+      },
+      "tokens_cache_write": {
+        "n": 2,
+        "median": 726101.5,
+        "min": 658266,
+        "max": 793937
+      },
+      "cache_write_5m": {
+        "n": 2,
+        "median": 726101.5,
+        "min": 658266,
+        "max": 793937
+      },
+      "cache_write_1h": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "cache_cost_usd": {
+        "n": 2,
+        "median": 3.6949,
+        "min": 3.4935,
+        "max": 3.8963
+      },
+      "gap_p90_s": {
+        "n": 2,
+        "median": 19.75,
+        "min": 18.1,
+        "max": 21.4
+      },
+      "gaps_over_5m": {
+        "n": 2,
+        "median": 4.5,
+        "min": 4,
+        "max": 5
+      },
+      "hidden_passed": {
+        "n": 2,
+        "median": 80.0,
+        "min": 80,
+        "max": 80
+      },
+      "hidden_total": {
+        "n": 2,
+        "median": 80.0,
+        "min": 80,
+        "max": 80
+      },
+      "fuzz_divergences": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "fuzz_cases": {
+        "n": 2,
+        "median": 1000.0,
+        "min": 1000,
+        "max": 1000
+      },
+      "fuzz_classes": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "coverage": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "sonar_bugs": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_vulnerabilities": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_code_smells": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_duplicated_lines_density": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "cov_line_pct": {
+        "n": 2,
+        "median": 97.3,
+        "min": 96.4,
+        "max": 98.2
+      },
+      "cov_branch_pct": {
+        "n": 2,
+        "median": 96.15,
+        "min": 93.9,
+        "max": 98.4
+      },
+      "cov_total_pct": {
+        "n": 2,
+        "median": 97.05,
+        "min": 95.9,
+        "max": 98.2
+      },
+      "issues_closed": {
+        "n": 2,
+        "median": 14.0,
+        "min": 11,
+        "max": 17
+      },
+      "prs_merged": {
+        "n": 2,
+        "median": 14.0,
+        "min": 11,
+        "max": 17
+      },
+      "continue_replies": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "usd_per_passed_test": {
+        "n": 2,
+        "median": 0.0727,
+        "min": 0.0703,
+        "max": 0.0751
+      },
+      "compactions": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "refeeds": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "refeed_tokens": {
+        "n": 2,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "cap_hits": {
+      "runs": 0,
+      "of": 2,
+      "wall": 0,
+      "cost": 0
+    }
+  }
+}

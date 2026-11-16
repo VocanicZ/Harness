@@ -1,0 +1,42 @@
+{
+  "bnc615c": {
+    "sessions": 9,
+    "tokens": {},
+    "issues_closed": 7,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-medium-harness-3-harness-3-r03": {
+        "claims": 9,
+        "workers": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 4,
+        "--help": 1,
+        "init": 1,
+        "which": 17
+      },
+      "which": 17,
+      "changed_nodes": 997,
+      "round1": 584,
+      "round2": 186,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 17
+      },
+      "wall_ms": 3095,
+      "selective": 16,
+      "full_suite": 1,
+      "backfilled": 0,
+      "selective_share": 0.94
+    },
+    "model_mismatches": []
+  }
+}
