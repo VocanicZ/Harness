@@ -6,7 +6,7 @@
 #   winsma.sh unlock <issue>               release it
 #   winsma.sh park <issue> [owner/repo]    queued and not next: keep the ticket, swap agent-working for waiting-winsma, free the pool slot (#1034)
 #                                          `park <prd> <owner/repo> --review`: the PRD review lane (#1038)
-#   winsma.sh turn <issue>                 (engine) refresh a parked issue's ticket; exit 0 = it is next, 1 = waiting, 2 = host unreachable
+#   winsma.sh turn <issue>...              (engine) refresh the parked issues' tickets in one call; exit 0 = it is next, 1 = waiting, 2 = host unreachable
 #   winsma.sh status                       who holds the lock, for how long, and the queue in order
 #   winsma.sh isolate <issue> [--venv]     create C:\hx-<issue>\ (and a python venv in it)
 #   winsma.sh env <issue> [base|install|suite]   the export lines for that mode

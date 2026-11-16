@@ -286,6 +286,71 @@ rm -f "$SENT"
   cd "$RUN_DIR" || exit 1; ws ws_park 222 acme/widget >/dev/null 2>&1 )
 assert_no "a lane wait file that did not exist is not created by the suite either" test -e "$SENT"
 
+echo "=== 10. one call per tick, a timeout reported as a timeout, a dead head dropped (#1172) ==="
+# winsma.sh runs as a child: its gh is a script on PATH (the engine's own gh is the function above).
+mk_gh(){ mkdir -p "$RUN_DIR/ghbin"; cat >"$RUN_DIR/ghbin/gh" <<'S'
+#!/usr/bin/env bash
+n="$3"; case "$*" in
+  *"--json state"*) [ -f "$GHSTATE/closed.$n" ] && echo CLOSED || echo OPEN;;
+  *"--json labels"*) echo waiting-winsma;;
+esac; exit 0
+S
+  chmod +x "$RUN_DIR/ghbin/gh"; export GHSTATE="$RUN_DIR"; PATH="$RUN_DIR/ghbin:$PATH"; }
+count_ssh(){ printf '#!/usr/bin/env bash\necho x >>"%s/ssh.count"\nexec bash -s\n' "$RUN_DIR" >"$RUN_DIR/countssh"; chmod +x "$RUN_DIR/countssh"; : >"$RUN_DIR/ssh.count"; export WINSMA_SSH="$RUN_DIR/countssh"; }
+ssh_calls(){ wc -l <"$RUN_DIR/ssh.count" | tr -d ' '; }
+setup; OLDPATH="$PATH"; mk_gh; count_ssh
+ws ws_lock 111 lane-a $$ >/dev/null
+for i in 222 333 444; do ws ws_call r_queue_join $i lane-$i $$ >/dev/null; sleep 0.05; done
+snap "222:ready-for-agent,waiting-winsma" "333:ready-for-agent,waiting-winsma" "444:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"
+: >"$RUN_DIR/ssh.count"; winsma_wake_tick
+assert_eq "$(ssh_calls)" "1" "three parked issues: ONE ssh call for the whole tick, not one per issue"
+assert_eq "$(edits)" "0" "...and the lock is held, so none is woken"
+ws ws_unlock 111; : >"$RUN_DIR/ssh.count"; winsma_wake_tick
+assert_eq "$(edits)" "1" "the lock is free: only the first in line is woken"
+assert_ok "...it is #222" grep -q '^gh issue edit 222 .*--remove-label waiting-winsma' "$CALLS"
+assert_eq "$(ssh_calls)" "1" "...still one call"
+
+echo "--- a timeout is reported as a timeout, a dead host as a dead host"
+setup; mk_gh; snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"
+ws ws_call r_queue_join 222 lane-b $$ >/dev/null
+printf '#!/usr/bin/env bash\nsleep 30\n' > "$RUN_DIR/slowssh"; chmod +x "$RUN_DIR/slowssh"
+WS_WAKE_TIMEOUT=1 WINSMA_SSH="$RUN_DIR/slowssh" winsma_wake_tick
+assert_ok "a cut-off call logs that it timed out after N s" grep -q 'winsma-wake: #222 stays parked — the call to the Windows host timed out: timed out after 1s' "$LOGF"
+assert_no "...not 'could not be asked'" grep -q 'could not be asked' "$LOGF"
+assert_eq "$(edits)" "0" "...and the issue stays parked"
+WS_WAKE_TIMEOUT=1 WINSMA_SSH="$RUN_DIR/slowssh" winsma_wake_tick
+assert_eq "$(grep -c 'timed out' "$LOGF")" "1" "...once per outage"
+: > "$LOGF"; rm -f "$RUN_DIR"/winsma-wake.down*
+WINSMA_SSH=false winsma_wake_tick
+assert_ok "an unreachable host still logs the existing line" grep -q 'stays parked — the Windows host could not be asked (exit 2)' "$LOGF"
+assert_eq "$(edits)" "0" "...and the issue stays parked"
+# wait_winsma_turn: the single-issue wrapper returns a distinct code and sets the message
+( WS_WAKE_TIMEOUT=1 WINSMA_SSH="$RUN_DIR/slowssh" wait_winsma_turn 222; echo "rc=$? out=$WAIT_WINSMA_OUT" ) > "$RUN_DIR/wwt.out"
+assert_eq "$(cat "$RUN_DIR/wwt.out")" "rc=3 out=timed out after 1s" "wait_winsma_turn: a cut-off call is rc 3 with the timeout in WAIT_WINSMA_OUT"
+( WINSMA_SSH=false wait_winsma_turn 222; echo "rc=$?" ) > "$RUN_DIR/wwt.out"; assert_eq "$(cat "$RUN_DIR/wwt.out")" "rc=2" "...an unreachable host is still rc 2"
+assert_ok "the default wake budget covers a ~2 min round trip" bash -c "grep -qE 'WS_WAKE_TIMEOUT:-(1[2-9][0-9]|[2-9][0-9][0-9])' '$ROOT/scripts/wait.sh'"
+
+echo "--- a closed issue's ticket at the head is dropped in the same tick that wakes the waiter behind it"
+setup; mk_gh; : > "$RUN_DIR/closed.1120"
+ws ws_call r_queue_join 1120 lane-1120 $$ >/dev/null; sleep 0.05; ws ws_call r_queue_join 222 parked-222 - >/dev/null
+snap "222:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"
+winsma_wake_tick
+assert_eq "$(edits)" "1" "the closed head is dropped by the tick: the parked waiter behind it is woken"
+assert_ok "...#222" grep -q '^gh issue edit 222 .*--remove-label waiting-winsma' "$CALLS"
+assert_ok "...and the log names the dropped ticket" grep -q 'winsma-wake: .*turn: queue ticket of #1120 (lane-1120): its issue is closed' "$LOGF"
+assert_eq "$(ws ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "222 " "...#1120's ticket is gone"
+
+echo "--- every parked ticket stale: none is dropped as dead, the first is the one woken"
+setup; mk_gh; export WS_OWNER_LIVE_CMD=false
+ws ws_call r_queue_join 222 parked-222 - >/dev/null; sleep 0.05; ws ws_call r_queue_join 333 parked-333 - >/dev/null
+touch -d '3 hours ago' "$WS_C"/hx-queue/*-222 "$WS_C"/hx-queue/*-333
+snap "222:ready-for-agent,waiting-winsma" "333:ready-for-agent,waiting-winsma"; printf 'waiting-winsma\n' > "$LIVELABELS"
+winsma_wake_tick
+assert_eq "$(edits)" "1" "both stale: one is woken"
+assert_ok "...#222, which kept position 1" grep -q '^gh issue edit 222 .*--remove-label waiting-winsma' "$CALLS"
+assert_eq "$(ws ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "222 333 " "...and neither ticket was dropped"
+PATH="$OLDPATH"; export WS_OWNER_LIVE_CMD=true
+
 echo "=== 6. wired into the pool's chores, the label is seeded and configurable ==="
 assert_ok "worker_chores runs winsma_wake_tick" grep -q 'winsma_wake_tick' "$ROOT/scripts/pool-worker.sh"
 assert_eq "$HARNESS_LABEL_WAITING_WINSMA" "waiting-winsma" "the label defaults to waiting-winsma"

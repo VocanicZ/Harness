@@ -270,9 +270,22 @@ The rules the helpers enforce, all from PRD #475's "Verification on winsma":
   (`HARNESS_LABEL_WAITING_WINSMA`) in one edit. That is not `agent-paused`: no HARNESS CHECKPOINT was sent, and the #417
   self-park nudge never looks at it. The engine reads the issue as done for its session (the session is ended, the slot is
   free) and does **not** dispatch an issue that carries the label. Each pool chores tick (at most one per
-  `HARNESS_WINSMA_WAKE_S`, default 60 s, and only while an issue is parked) the engine runs `winsma.sh turn <issue>` for every
-  parked issue, under `WS_WAKE_TIMEOUT` (default 20 s). `turn` refreshes the ticket, because no lane is alive to do it, so the
-  place is not lost to the stale-ticket drop; it also takes a fresh ticket at the back if the old one was lost. When the
+  `HARNESS_WINSMA_WAKE_S`, default 60 s, and only while an issue is parked) the engine runs ONE `winsma.sh turn <issue>…` for all
+  the parked issues, under `WS_WAKE_TIMEOUT` (default 240 s). `turn` refreshes every ticket and reads the lock in a single ssh round
+  trip, because no lane is alive to refresh them, so the place is not lost to the stale-ticket drop; it also takes a fresh ticket
+  at the back if the old one was lost. **The bound** (#1172): a pass holds the pool's chores for at most one `WS_WAKE_TIMEOUT`
+  whatever the number of parked issues, never N times it. The default covers one round trip at the latency seen on the host
+  (up to about 2 minutes) plus the one more call a drop needs (at most one more; the `gh` lookups of the next paragraph are local
+  to the claude host). A call cut off by the budget is logged as `the call to the Windows host timed out: timed out after N s`
+  (once per outage), an unreachable host as `the Windows host could not be asked (exit 2)`; either leaves the issue parked.
+  **Dead tickets ahead are dropped by `turn`** (#1172): stale tickets used to be dropped only inside `lock`, which a parked queue
+  never runs, so a lane whose issue closed while it was queued (it never called `queue leave`) held the head for ever and every
+  parked waiter waited for the 12 h deadline. `turn` drops a ticket ahead of the asker when its issue is CLOSED in the fleet's repo
+  (`WS_REPO`, set by the engine; tickets carry no repo, so with none known this rule is skipped), or when its refresh is older than
+  `WS_STALE_SEC`, its lane is gone and it is **not a parked issue**. A parked ticket has no lane and is stale after an engine outage
+  or a run of timeouts, so a ticket of an issue that still carries `waiting-winsma` (or is in the tick's parked set,
+  `WS_PARKED_ISSUES`) is never dropped as dead, by `turn` or by `lock`. Each drop logs one line naming the issue and its session,
+  and the same call re-reads the queue, so the waiter behind it is woken in that tick. When the
   ticket is first in the queue and the lock is free (or its holder's heartbeat is stale and the lane gone), the engine removes
   the label and the issue is dispatched once, as a resume (`resume.md`, from the pushed branch). That lane's `lock` then
   succeeds on its first attempt, ahead of any lane that queued after it. A host that cannot be reached leaves the issue parked

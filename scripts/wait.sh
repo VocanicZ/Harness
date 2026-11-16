@@ -85,17 +85,38 @@ wait_limit_ready(){ local sess="$1" f="$2" nb acct
   wait_stagger_ok; }
 
 # wait_winsma_turn <issue> — ask the winsma host whether #<issue>'s ticket is next and the lock free. rc 0 = next (or no Windows host
-# is configured: nothing to wait for), 1 = still waiting, 2 = the host could not be asked. $WAIT_WINSMA_OUT holds its last line.
-wait_winsma_turn(){ local out rc
+# is configured: nothing to wait for), 1 = still waiting, 2 = the host could not be asked, 3 = the call was cut off by WS_WAKE_TIMEOUT
+# (#1172: a timeout is not an unreachable host). $WAIT_WINSMA_OUT holds its last line, or `timed out after N s` on rc 3.
+# WS_WAKE_TIMEOUT (default 240 s) covers one round trip at the host's observed latency (up to ~2 min) and the one more a drop needs.
+wait_winsma_turn(){ local out rc t="${WS_WAKE_TIMEOUT:-240}"
   if [[ -n "${HARNESS_WINDOWS_HOST:-}" ]]; then
     # Into a file, not a $(…) pipe: where timeout cannot signal the whole process group (Git Bash), a child the killed bash left
     # behind holds the pipe open and the substitution would wait for it, past the timeout (#1109).
     local of; of="$(mktemp "${RUN_DIR:-${TMPDIR:-/tmp}}/winsma-turn.XXXXXX")" || of=/dev/null
-    timeout "${WS_WAKE_TIMEOUT:-20}" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$1" >"$of" 2>&1 </dev/null; rc=$?
+    timeout -k 5 "$t" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$1" >"$of" 2>&1 </dev/null; rc=$?
     out="$(cat "$of" 2>/dev/null)"; [[ "$of" == /dev/null ]] || rm -f "$of"
   else out="no Windows host is configured"; rc=0; fi
   WAIT_WINSMA_OUT="${out##*$'\n'}"
-  case "$rc" in 0) return 0;; 1) return 1;; *) return 2;; esac; }
+  case "$rc" in 0) return 0;; 1) return 1;; 124|137) WAIT_WINSMA_OUT="timed out after ${t}s"; return 3;; *) return 2;; esac; }
+
+# wait_winsma_turns <issue>... — #1172: ask for several parked issues in ONE winsma.sh call (one ssh round trip refreshes every ticket and
+# reads the lock), so a pass costs one WS_WAKE_TIMEOUT whatever the number of parked issues. The issues are this tick's parked set: a
+# parked ticket is never dropped as dead. Fills WAIT_WINSMA_RC[<issue>] (0 next, 1 waiting, 2 host could not be asked, 3 timed out) and
+# WAIT_WINSMA_MSG[<issue>]; WAIT_WINSMA_LOG holds the lines winsma.sh logged (dropped tickets). rc 0 = the host answered, else 2 or 3.
+wait_winsma_turns(){ local out rc t="${WS_WAKE_TIMEOUT:-240}" n line r m kind
+  declare -gA WAIT_WINSMA_RC=() WAIT_WINSMA_MSG=(); WAIT_WINSMA_LOG=""
+  if [[ -z "${HARNESS_WINDOWS_HOST:-}" ]]; then for n in "$@"; do WAIT_WINSMA_RC[$n]=0; WAIT_WINSMA_MSG[$n]="no Windows host is configured"; done; return 0; fi
+  local of; of="$(mktemp "${RUN_DIR:-${TMPDIR:-/tmp}}/winsma-turn.XXXXXX")" || of=/dev/null   # a file, not a pipe (#1109)
+  env WS_TURN_LINES=1 WS_PARKED_ISSUES="$*" WS_REPO="${WS_REPO:-${SLUG:-${HARNESS_REPO:-}}}" timeout -k 5 "$t" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$@" >"$of" 2>&1 </dev/null; rc=$?
+  out="$(cat "$of" 2>/dev/null)"; [[ "$of" == /dev/null ]] || rm -f "$of"
+  case "$rc" in 0) ;; 124|137) kind=3; m="timed out after ${t}s";; *) kind=2; m="${out##*$'\n'}";; esac
+  if (( rc != 0 )); then for n in "$@"; do WAIT_WINSMA_RC[$n]=$kind; WAIT_WINSMA_MSG[$n]="$m"; done; WAIT_WINSMA_OUT="$m"; return "$kind"; fi
+  while IFS= read -r line; do
+    if [[ "$line" == turn$'\t'* ]]; then IFS=$'\t' read -r _ n r m <<<"$line"; [[ "$n" =~ ^[0-9]+$ ]] && { WAIT_WINSMA_RC[$n]="$r"; WAIT_WINSMA_MSG[$n]="$m"; }
+    elif [[ -n "$line" ]]; then WAIT_WINSMA_LOG+="$line"$'\n'; fi
+  done <<<"$out"
+  for n in "$@"; do [[ -n "${WAIT_WINSMA_RC[$n]:-}" ]] || { WAIT_WINSMA_RC[$n]=2; WAIT_WINSMA_MSG[$n]="the host's answer did not name #$n"; }; done
+  return 0; }
 
 # _wait_deliver <sess> — send the lane the resume message waiting in <sess>.wait.msg, once. The message is kept on disk until
 # the send succeeded, so a failed send is retried next tick and a delivered one is never sent again.

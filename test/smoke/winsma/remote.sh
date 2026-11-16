@@ -94,6 +94,12 @@ r_queue_drop(){ local t; [[ "${1:-}" =~ ^[0-9]+-[0-9]+$ ]] || return 2; t="$(_ws
   [[ -f "$t" ]] || return 0
   (( $(_ws_now) - $(stat -c %Y "$t" 2>/dev/null || _ws_now) > ${2:-1800} )) || { echo "winsma: ticket $1 was refreshed; not dropping it" >&2; return 1; }
   rm -f "$t"; }
+# r_turn <issue>... — the engine's ask for parked issues (#1172), ONE round trip: refresh each issue's ticket (taking one at the back if it was lost),
+# then print r_lock_info. A parked issue has no lane, so the refresh is what keeps its place.
+r_turn(){ local n; for n in "$@"; do r_queue_join "$n" "parked-$n" - || return $?; done; r_lock_info; }
+# r_queue_reap <ticket name>:<min age>... — drop each named ticket whose refresh is older than <min age> seconds (-1 = whatever its age: the issue is closed),
+# then print r_lock_info: the dead tickets ahead of a waiter go and the queue is re-read in the same round trip (#1172).
+r_queue_reap(){ local a; for a in "$@"; do r_queue_drop "${a%%:*}" "${a#*:}" 2>/dev/null; done; r_lock_info; }
 # r_lock_info — the lock line (r_lock_state), then one `q <ticket line>` per queued ticket: everything `harness status` and a waiter need, in one call.
 r_lock_info(){ r_lock_state; r_queue_state | sed 's/^/q /'; }
 # r_hold_gate <issue> <hold_max> <stale> — 0 = the next command may start; 3 = this issue has held the lock longer than

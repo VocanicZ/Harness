@@ -585,6 +585,87 @@ fake_gh(){ GHLOG="$T/gh.log"; : >"$GHLOG"
   grep -q 'HARNESS_LABEL_WAITING_WINSMA' "$HERE/../docs/reference.md"; assert_eq "$?" "0" "docs/reference.md documents the label key"
   finish ) || rc=1
 
+echo "# park: a dead ticket ahead of a parked waiter is dropped by turn, a parked one never is (#1172)"
+# A lane whose issue closes while it is queued never leaves the queue; a parked queue has no live lane to drop its ticket (the drop lives
+# in ws_lock), so every parked waiter behind it waited for ever. turn drops a dead ticket ahead of the asker, in the same round trip budget.
+# gh_stub — a gh that answers `issue view N --json state|labels` from $T/state.N and $T/labels.N.
+gh_stub(){ gh(){ local n="$3"; echo "gh $*" >>"$T/gh.log"
+    case "$*" in
+      *"--json state"*) cat "$T/state.$n" 2>/dev/null || echo OPEN;;
+      *"--json labels"*) cat "$T/labels.$n" 2>/dev/null;;
+    esac; return 0; }; }
+age_ticket(){ touch -d "${2:-56} hours ago" "$WS_C"/hx-queue/*-"$1"; }
+( fresh_env; gh_stub; export WS_OWNER_LIVE_CMD=false
+  ws_call r_queue_join 1120 hzhn-harness-i1120 999999 >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null
+  age_ticket 1120
+  out="$(ws_turn 1107 2>"$T/err")"; rc=$?
+  assert_eq "$rc" "0" "a stale head whose lane is gone is dropped by turn: the waiter behind it is next (not 'queue position 2 of 2' for ever)"
+  [[ "$out" == ready:* ]]; assert_eq "$?" "0" "...and turn prints ready: (got '$out')"
+  grep -q '#1120' "$T/err" && grep -q 'hzhn-harness-i1120' "$T/err"; assert_eq "$?" "0" "...logging one line that names the dropped ticket's issue and session"
+  assert_eq "$(grep -c 'dropping it' "$T/err")" "1" "...exactly one line"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "1107 " "...and only the waiter's own ticket is left"
+  finish ) || rc=1
+( fresh_env; gh_stub; export WS_OWNER_LIVE_CMD=true
+  ws_call r_queue_join 1120 hzhn-harness-i1120 $$ >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null
+  age_ticket 1120
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "1" "a stale head whose lane is LIVE is kept: the waiter behind it still waits"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "1120 1107 " "...and both tickets are still queued"
+  finish ) || rc=1
+( fresh_env; gh_stub; export WS_OWNER_LIVE_CMD=true WS_REPO=acme/widget   # the issue is closed: its ticket goes even though it is fresh and its lane live
+  ws_call r_queue_join 1120 hzhn-harness-i1120 $$ >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null
+  echo CLOSED >"$T/state.1120"
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "0" "a head ticket whose issue is CLOSED is dropped, fresh or not: the waiter is next"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "1107 " "...the closed issue's ticket is gone"
+  ws_call r_queue_join 1120 hzhn-harness-i1120 $$ >/dev/null; sleep 0.05
+  ws_call r_queue_leave 1107 >/dev/null; ws_call r_queue_join 1107 parked-1107 - >/dev/null          # 1120 queued first again, still closed
+  ( unset WS_REPO HARNESS_REPO; ws_turn 1107 >/dev/null 2>&1 ); assert_eq "$?" "1" "with no repo known the engine cannot attribute the ticket: a closed issue is not guessed at"
+  finish ) || rc=1
+( fresh_env; gh_stub; export WS_OWNER_LIVE_CMD=false WS_REPO=acme/widget   # every parked ticket is stale (engine down, or turn timing out): none is dead
+  ws_call r_queue_join 1108 parked-1108 - >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null
+  echo waiting-winsma >"$T/labels.1108"; echo waiting-winsma >"$T/labels.1107"
+  age_ticket 1108 5; age_ticket 1107 5
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "1" "all parked tickets stale: asking for A does not drop parked head B"
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "1108 1107 " "...B keeps position 1"
+  ws_turn 1108 >/dev/null 2>&1; assert_eq "$?" "0" "...and B is the one woken once the lock is free"
+  # a parked ticket that kept its lane's session and a dead pid (park joins with the lane's session first) is parked all the same
+  ws_call r_queue_leave 1108 >/dev/null; ws_call r_queue_leave 1107 >/dev/null
+  ws_call r_queue_join 1108 hzhn-harness-i1108 999999 >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null; age_ticket 1108 5
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "1" "a parked head that still carries its old lane's session is not dropped either"
+  : >"$T/labels.1108"                                      # B is no longer parked (the label is gone) and its lane is gone: now it is dead
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "0" "(control) once B no longer carries waiting-winsma its stale ticket is dropped"
+  finish ) || rc=1
+( fresh_env; export WS_OWNER_LIVE_CMD=false              # the seam the wake tick uses: the parked set, no gh at all
+  ws_call r_queue_join 1108 hzhn-harness-i1108 999999 >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null; age_ticket 1108 5
+  WS_PARKED_ISSUES="1107 1108" ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "1" "an issue in this tick's parked set (WS_PARKED_ISSUES) is never dropped as dead"
+  WS_PARKED_ISSUES="1107" ws_turn 1107 >/dev/null 2>&1; assert_eq "$?" "0" "(control) one that is not in the set is"
+  finish ) || rc=1
+( fresh_env; gh_stub; export WS_OWNER_LIVE_CMD=false WS_REPO=acme/widget   # lock.sh's own drop has the same weakness
+  ws_call r_queue_join 1108 parked-1108 - >/dev/null; age_ticket 1108 5; echo waiting-winsma >"$T/labels.1108"
+  ws_lock 222 lane-b $$ >/dev/null 2>&1 & lp=$!; sleep 1.5
+  assert_eq "$(ws_call r_queue_state | awk '{print $2}' | tr '\n' ' ')" "1108 222 " "ws_lock does not drop a stale ticket of an issue that is still parked"
+  kill "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
+  finish ) || rc=1
+
+echo "# park: turn is one round trip (#1172)"
+( fresh_env; gh_stub; export WS_OWNER_LIVE_CMD=false
+  printf '#!/usr/bin/env bash\necho x >>"%s/ssh.count"\nexec bash -s\n' "$T" >"$T/bin/fakessh"
+  calls(){ wc -l <"$T/ssh.count" 2>/dev/null || echo 0; }
+  ws_call r_queue_join 1107 parked-1107 - >/dev/null; : >"$T/ssh.count"
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$(calls | tr -d ' ')" "1" "turn refreshes the ticket and reads the lock in ONE ssh call"
+  ws_call r_queue_leave 1107 >/dev/null; ws_call r_queue_join 1120 hzhn-harness-i1120 999999 >/dev/null; sleep 0.05; ws_call r_queue_join 1107 parked-1107 - >/dev/null
+  age_ticket 1120; : >"$T/ssh.count"
+  ws_turn 1107 >/dev/null 2>&1; assert_eq "$(calls | tr -d ' ')" "2" "a dead head costs at most one more call (drop and re-read together)"
+  # a batch: every parked issue's ticket is refreshed, the lock read once
+  ws_call r_queue_leave 1107 >/dev/null; : >"$T/ssh.count"
+  ws_call r_queue_join 1107 parked-1107 - >/dev/null; sleep 0.05; ws_call r_queue_join 1108 parked-1108 - >/dev/null; sleep 0.05; ws_call r_queue_join 1109 parked-1109 - >/dev/null
+  age_ticket 1107 3; age_ticket 1108 3; age_ticket 1109 3; : >"$T/ssh.count"
+  out="$(WS_PARKED_ISSUES="1107 1108 1109" ws_turn 1107 1108 1109 2>/dev/null)"; rc=$?
+  assert_eq "$rc" "0" "turn with several issues exits 0 when the host answered"
+  assert_eq "$(calls | tr -d ' ')" "1" "...with ONE ssh call for all of them"
+  assert_eq "$(awk -F'\t' '$1=="turn"{print $2":"$3}' <<<"$out" | tr '\n' ' ')" "1107:0 1108:1 1109:1 " "...and one 'turn <issue> <rc> <message>' line each: the first is next, the others wait"
+  assert_eq "$(( $(date +%s) - $(stat -c %Y "$(ls "$WS_C"/hx-queue/*-1109)") < 60 ))" "1" "...and every ticket was refreshed"
+  finish ) || rc=1
+
 echo "# isolation"
 ( fresh_env
   ws_isolate 479; hx="$WS_C/hx-479"
