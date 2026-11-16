@@ -164,13 +164,15 @@ if has v011; then
   MSYS=winsymlinks:nativestrict ln -sfn "$HARNESS_HOME/engine/bin/harness" "$HARNESS_BIN_DIR/harness"
   say "v0.1.1 engine: $(git -C "$HARNESS_HOME/engine" describe --tags) is a git checkout: $([[ -d "$HARNESS_HOME/engine/.git" ]] && echo yes)"
   ok "v0.1.1 harness runs" 'harness help >/dev/null 2>&1'
-  say "-- harness update (from the v0.1.1 engine's own update.sh)"
-  hu 2>&1 | grep -vE '^ [^ ]+ +\| |^ create mode|^ delete mode|^ mode change|^ rename ' | sed 's/^/   /'; urc=${PIPESTATUS[0]}
-  say "update from v0.1.1 exit $urc; engine now: $(tgt || echo 'not a link') $(ver)"
-  if [[ "$(tgt)" != "releases/$CUR" ]]; then
-    say "-- the v0.1.1 update.sh could not migrate its own checkout; re-running the install line over it"
-    bash src/install.sh </dev/null 2>&1 | sed 's/^/   /'
-  fi
+  say "-- harness update (from the v0.1.1 engine's own update.sh: it can only pull; it must say to run harness update again, #1116)"
+  hu 2>&1 | grep -vE '^ [^ ]+ +\| |^ create mode|^ delete mode|^ mode change|^ rename |^Updating files:' | sed 's/^/   /' | tee "$HX_DIR/v011-first.out"; urc=${PIPESTATUS[0]}
+  say "first update from v0.1.1 exit $urc; engine now: $(tgt || echo 'not a link') $(ver)"
+  ok "the first update exits 0 and says to run harness update once more" '(( urc == 0 )) && grep -qF "Run '"'"'harness update'"'"' once more" "$HX_DIR/v011-first.out"'
+  ok "… naming releases/$CUR" 'grep -qF "engine -> releases/$CUR" "$HX_DIR/v011-first.out"'
+  say "-- harness update again (run by the code the first one pulled; no install line)"
+  hu 2>&1 | grep -vE '^ [^ ]+ +\| |^ create mode|^ delete mode|^ mode change|^ rename ' | sed 's/^/   /' | tee "$HX_DIR/v011-second.out"; urc=${PIPESTATUS[0]}
+  say "second update exit $urc; engine now: $(tgt || echo 'not a link') $(ver)"
+  ok "the second update exits 0 and does not ask for a third" '(( urc == 0 )) && ! grep -qF "once more" "$HX_DIR/v011-second.out"'
   ok "engine migrated onto releases/$CUR" '[[ "$(tgt)" == "releases/$CUR" && "$(ver)" == "$CUR" ]]'
   ok "the v0.1.1 checkout is kept as a release (rollback target)" 'ls -d "$HARNESS_HOME"/releases/git-* >/dev/null 2>&1'
   say "releases: $(rels)"
