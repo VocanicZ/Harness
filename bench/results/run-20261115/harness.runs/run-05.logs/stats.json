@@ -1,0 +1,20 @@
+{
+  "bna976b": {
+    "sessions": 0,
+    "tokens": {},
+    "issues_closed": 0,
+    "prds_closed": 0,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-harness-r05": {
+        "claims": 25,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {},
+    "model_mismatches": []
+  }
+}

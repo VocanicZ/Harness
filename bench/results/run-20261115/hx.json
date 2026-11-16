@@ -1,0 +1,241 @@
+{
+  "schema": 1,
+  "run_id": "run-20261115",
+  "arm": "hx",
+  "status": "aggregate",
+  "runs_requested": 5,
+  "runs_completed": 1,
+  "stopped": {
+    "reason": "operator",
+    "detail": "ended by hand after run 1 (owner rule: no runs that cannot change a conclusion): the Harness arms are re-benched under PRD #1180, so more Hx runs on this engine commit cannot change a conclusion"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "file": "hx.runs/run-01.json",
+      "status": "ok",
+      "capped": null
+    }
+  ],
+  "aggregate": {
+    "n": 1,
+    "metrics": {
+      "wall_s": {
+        "n": 1,
+        "median": 1626.989,
+        "min": 1626.989,
+        "max": 1626.989
+      },
+      "coding_s": {
+        "n": 1,
+        "median": 1490.167,
+        "min": 1490.167,
+        "max": 1490.167
+      },
+      "testing_s": {
+        "n": 1,
+        "median": 231.031,
+        "min": 231.031,
+        "max": 231.031
+      },
+      "test_calls": {
+        "n": 1,
+        "median": 58,
+        "min": 58,
+        "max": 58
+      },
+      "cost_usd": {
+        "n": 1,
+        "median": 5.2551,
+        "min": 5.2551,
+        "max": 5.2551
+      },
+      "weekly_window_pct": {
+        "n": 1,
+        "median": 11.42,
+        "min": 11.42,
+        "max": 11.42
+      },
+      "tokens": {
+        "n": 1,
+        "median": 3841692,
+        "min": 3841692,
+        "max": 3841692
+      },
+      "tokens_input": {
+        "n": 1,
+        "median": 384,
+        "min": 384,
+        "max": 384
+      },
+      "tokens_output": {
+        "n": 1,
+        "median": 119453,
+        "min": 119453,
+        "max": 119453
+      },
+      "tokens_cache_read": {
+        "n": 1,
+        "median": 3280170,
+        "min": 3280170,
+        "max": 3280170
+      },
+      "tokens_cache_write": {
+        "n": 1,
+        "median": 441685,
+        "min": 441685,
+        "max": 441685
+      },
+      "cache_write_5m": {
+        "n": 1,
+        "median": 441685,
+        "min": 441685,
+        "max": 441685
+      },
+      "cache_write_1h": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "cache_cost_usd": {
+        "n": 1,
+        "median": 2.8645,
+        "min": 2.8645,
+        "max": 2.8645
+      },
+      "gap_p90_s": {
+        "n": 1,
+        "median": 19.6,
+        "min": 19.6,
+        "max": 19.6
+      },
+      "gaps_over_5m": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "hidden_passed": {
+        "n": 1,
+        "median": 80,
+        "min": 80,
+        "max": 80
+      },
+      "hidden_total": {
+        "n": 1,
+        "median": 80,
+        "min": 80,
+        "max": 80
+      },
+      "fuzz_divergences": {
+        "n": 1,
+        "median": 16,
+        "min": 16,
+        "max": 16
+      },
+      "fuzz_cases": {
+        "n": 1,
+        "median": 1000,
+        "min": 1000,
+        "max": 1000
+      },
+      "fuzz_classes": {
+        "n": 1,
+        "median": 3,
+        "min": 3,
+        "max": 3
+      },
+      "coverage": {
+        "n": 1,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "sonar_bugs": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_vulnerabilities": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_code_smells": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_duplicated_lines_density": {
+        "n": 1,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "cov_line_pct": {
+        "n": 1,
+        "median": 94.0,
+        "min": 94.0,
+        "max": 94.0
+      },
+      "cov_branch_pct": {
+        "n": 1,
+        "median": 83.3,
+        "min": 83.3,
+        "max": 83.3
+      },
+      "cov_total_pct": {
+        "n": 1,
+        "median": 92.3,
+        "min": 92.3,
+        "max": 92.3
+      },
+      "issues_closed": {
+        "n": 1,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "prs_merged": {
+        "n": 1,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "usd_per_passed_test": {
+        "n": 1,
+        "median": 0.0657,
+        "min": 0.0657,
+        "max": 0.0657
+      },
+      "compactions": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "refeeds": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "refeed_tokens": {
+        "n": 1,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "cap_hits": {
+      "runs": 0,
+      "of": 1,
+      "wall": 0,
+      "cost": 0
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "bnf47ea": {
+    "sessions": 10,
+    "tokens": {},
+    "issues_closed": 9,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-harness-3-r01": {
+        "claims": 10,
+        "workers": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 9,
+        "init": 1,
+        "which": 16
+      },
+      "which": 16,
+      "changed_nodes": 386,
+      "round1": 553,
+      "round2": 207,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 15
+      },
+      "wall_ms": 2337,
+      "selective": 15,
+      "full_suite": 1,
+      "backfilled": 0,
+      "selective_share": 0.94
+    },
+    "model_mismatches": []
+  }
+}

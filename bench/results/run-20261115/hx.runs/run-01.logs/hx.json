@@ -1,0 +1,8 @@
+{
+  "repo": "https://github.com/MorphEdit/Hx",
+  "commit": "f5f0be17b9e873fcc9bfec2faa5aa6234c68dc45",
+  "pinned": "f5f0be17b9e873fcc9bfec2faa5aa6234c68dc45",
+  "node": "v24.21.0",
+  "state_dir": "/tmp/hzt-2363150338/bench-run-hn8p9akd/clone/.hx",
+  "stop": "SIGINT the `hx run --watch` process, or `hx pause --now` in the run clone"
+}
