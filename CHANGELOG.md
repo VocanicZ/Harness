@@ -19,6 +19,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ### `harness attach` drops a leading BOM and the CR of a CRLF line, and ends a line at a lone CR (#1127)
 
+
 - A typed line that began with a UTF-8 BOM reached the CLI with the BOM, a CRLF line reached it with a trailing CR, and a line with a lone CR went out as one message with the CR inside. `harness attach` on a headless lane now strips a leading BOM and the CR of a CRLF line, and treats a lone CR as a line end, the same as LF (two messages). `test/test_headless_attach.sh`, on Linux and with `HARNESS_PLATFORM=windows`.
 ### Usage calibration counts all the account's spend, not just the event log's sessions (#1183, PRD #1180)
 
