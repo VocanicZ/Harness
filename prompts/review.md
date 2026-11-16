@@ -248,6 +248,17 @@ The bar names one real artifact to beat and the dimensions to judge on:
    Filing a follow-up AND signing off in the same pass is fine and often right. Just leave the close
    to the engine, which will do it once that follow-up has been implemented.
 
+REVIEW-OPENED PRs OWN THEMSELVES (#1233) — applies to EVERY branch below, before OUTPUT. When this pass opened a PR for its
+own artifacts (the full-suite logs the PRD's rules require, review notes), it merges that PR in THIS session, after the gate,
+the way an impl lane merges its own: `git fetch origin`, rebase on the default branch when it moved (re-run nothing for a
+logs-only diff), then
+  gh pr merge --squash --delete-branch -R {{SLUG}} <pr-number>
+If it cannot merge (a conflict you cannot resolve, a refused merge), file ONE `{{LABEL_READY}}` issue that OWNS the PR so a lane
+can claim it, its body naming the PR (`PR #<n> is open: merge or close it`) and ENDING with the `## Blocked by` / `None` and
+`## Parent` / `#{{PRD}}` sections FILING A GAP ISSUE above describes. That issue is the one exception to ONE ISSUE PER REVIEW
+ROUND: an owner for a PR is not a finding. The review is NOT done while a PR it opened is open with no owner: PR #1103 (suite
+logs, 2026-11-13) sat open for 4 days because nothing merged it and no issue was linked, and a finished fleet leaves 0 open PRs.
+
 OUTPUT — every branch above is a completed review pass: signed off, criteria gaps filed, security
 findings filed, or a gauntlet gap filed. When one of them is done, output exactly:
 <promise>{{PROMISE}}</promise>

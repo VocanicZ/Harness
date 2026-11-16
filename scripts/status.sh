@@ -84,6 +84,29 @@ winsma_report(){ [[ -n "${HARNESS_WINDOWS_HOST:-}" ]] || return 0
   else echo "  winsma: unreachable"; fi
   rm -f "$f"; return 0; }
 
+# pr_orphan_lines <slug> <pr-json> <open-issue-json> <sessions> — #1233: one row per open PR, `  #N branch — title`, ending
+# `  ⚠ orphaned` when the PR has NO linked open issue and NO live lane. Linked = an open issue the PR closes (its
+# closingIssuesReferences) or the issue its branch names (`issue/N`, `issue/harness-N`, `…-iN`); a live lane = a session
+# of this fleet ending `-i<N>` for that issue. An empty <open-issue-json> (gh failed) marks nothing. A review-opened PR (suite logs) that nobody owns used to sit open for days
+# (#1103): it now shows up here. Pure: reads its arguments only, so a test feeds it canned JSON.
+pr_orphan_lines(){
+  python3 -I -c '
+import json, re, sys
+prs, sessions = json.loads(sys.argv[1] or "[]"), sys.argv[3].split()
+unknown = not sys.argv[2].strip()   # gh could not list the issues: never call a PR orphaned on a guess
+open_n = {i["number"] for i in json.loads(sys.argv[2] or "[]")}
+for p in prs:
+    ref = p.get("headRefName") or ""
+    nums = {c["number"] for c in (p.get("closingIssuesReferences") or []) if isinstance(c, dict) and "number" in c}
+    m = re.search(r"(?:^issue/(?:harness-)?|-i)(\d+)$", ref)
+    if m: nums.add(int(m.group(1)))
+    linked = unknown or bool(nums & open_n)
+    live = any(re.search(r"-i(\d+)$", s) and int(re.search(r"-i(\d+)$", s).group(1)) in nums for s in sessions)
+    line = "  #%s %s \u2014 %s" % (p["number"], ref, p.get("title", ""))
+    print(line + ("" if linked or live else "  \u26a0 orphaned"))
+' "$2" "$3" "$4"
+}
+
 render_once(){
   local up=0 total="$POOL" sess_total
   for ((i=1;i<=POOL;i++)); do pid_up "$RUN_DIR/worker-$i.pid" && up=$((up+1)); done
@@ -175,9 +198,11 @@ render_once(){
   echo "──────────────────────────  open PRs  ─────────────────────────────"
   for u in $(all_units); do
     local slug; slug="$(unit_slug "$u")"
-    local prs
-    prs="$(gh pr list -R "$slug" --state open --json number,title,headRefName \
-           -q '.[] | "  #\(.number) \(.headRefName) — \(.title)"' 2>/dev/null || true)"
+    local prs prj oj sj
+    prj="$(gh pr list -R "$slug" --state open --json number,title,headRefName,closingIssuesReferences 2>/dev/null || true)"
+    oj="$(gh issue list -R "$slug" --state open --limit 1000 --json number 2>/dev/null || true)"
+    sj="$(sess_list 2>/dev/null | grep -E "$(fleet_session_re)" || true)"
+    prs=""; [[ -n "$prj" ]] && prs="$(pr_orphan_lines "$slug" "$prj" "$oj" "$sj" 2>/dev/null || true)"
     if [[ -n "$prs" ]]; then
       echo "  $(vis "$slug"):"
       echo "$prs" | vis_lines
