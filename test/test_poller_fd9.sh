@@ -32,7 +32,10 @@ LOCK="$WORK/start.lock"
   HARNESS_POLLER_CMD='sleep 30' ensure_poller
   if is_windows; then lock_release "$h"; else exec 9>&-; fi )
 
-assert_ok "ensure_poller does NOT leak the start-lock (fd 9) to the poller child" lock_free "$LOCK"
+# #1205: the child closes its inherited fds in its first milliseconds (detach_launch's wrapper), after the parent's own fd 9 is gone: wait for
+# that, up to 5 s. A child that KEPT fd 9 never frees the lock, so the cell still fails then.
+lock_free_soon(){ local i; for i in $(seq 1 50); do lock_free "$1" && return 0; sleep 0.1; done; return 1; }
+assert_ok "ensure_poller does NOT leak the start-lock (fd 9) to the poller child" lock_free_soon "$LOCK"
 
 # cleanup the spawned poller child
 pid="$(cat "$HARNESS_POLLER_DIR/poller.pid" 2>/dev/null || true)"; [[ -n "$pid" ]] && kill "$pid" 2>/dev/null; sleep 0.2
@@ -44,6 +47,9 @@ assert_ok "ensure_poller spawns poller.sh through detach_launch" \
   grep -Eq 'detach_launch .*poller\.sh"' "$HERE/../scripts/lib.sh"
 dl="$(awk '/^detach_launch\(\)\{/{f=1} f&&/^$/{exit} f' "$HERE/../scripts/portable.sh")"
 assert_ok "detach_launch spawns with nohup" grep -q nohup <<<"$dl"
-assert_no "detach_launch closes fd 9 (9>&-) on every nohup spawn" grep -E 'nohup' <<<"$(grep nohup <<<"$dl" | grep -v '9>&-')"
+# #1205: the closing moved into a wrapper every nohup spawn goes through, which closes EVERY fd above 2 (fd 9 among them), not only fd 9.
+assert_no "every detach_launch nohup spawn goes through the fd-closing wrapper" grep -E 'nohup' <<<"$(grep nohup <<<"$dl" | grep -v '_DETACH_CLOSE_FDS')"
+assert_ok "the wrapper closes every fd above 2 it inherited and then execs the command" \
+  bash -c 'source "$1"; [[ $_DETACH_CLOSE_FDS == *"exec \$n>&-"* && $_DETACH_CLOSE_FDS == *exec\ \"\$@\"* ]]' _ "$HERE/../scripts/portable.sh"
 
 finish

@@ -430,12 +430,17 @@ claude_session_env_name(){ case "$1" in CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAU
 
 # _abs_path <path> — <path> made absolute against $PWD (a C:/… or C:\… path already is).
 _abs_path(){ if [[ $1 == /* || $1 =~ ^[A-Za-z]:[/\\] ]]; then printf '%s\n' "$1"; else printf '%s\n' "$PWD/$1"; fi; }
+# The body of the wrapper detach_launch runs the child through: close every fd above 2 (listed by /proc/self/fd or /dev/fd, else 3..255), then exec.
+_DETACH_CLOSE_FDS='d=/proc/self/fd; [ -d "$d" ] || d=/dev/fd
+if [ -d "$d" ]; then for f in "$d"/*; do n=${f##*/}; case $n in 0|1|2|*[!0-9]*) ;; *) eval "exec $n>&-" 2>/dev/null ;; esac; done
+else n=3; while [ $n -le 255 ]; do eval "exec $n>&-" 2>/dev/null; n=$((n+1)); done; fi
+exec "$@"'
 # detach_launch [-a] <pidfile> <logfile> <cmd…> — start <cmd…> in the background so it outlives this
 # shell and the login session, with stdout+stderr to <logfile> (-a appends), and write its pid to
 # <pidfile>. rc 0 once the pid is recorded.
-#   POSIX:   `nohup <cmd…> >log 2>&1 9>&- &` and `$!` — exactly what pool.sh, priority.sh and
-#            ensure_poller did before #356. fd 9 is closed for the child: start.sh holds its
-#            double-start lock there, and a long-lived child must never inherit it.
+#   POSIX:   `nohup bash -c '<close every fd above 2; exec "$@">' _ <cmd…> </dev/null >log 2>&1 &` and `$!` (the wrapper
+#            execs, so $! is <cmd…>'s pid). Every fd above 2 is closed for the child, not only fd 9 (start.sh's
+#            double-start lock): a long-lived child must never inherit a lock, a relay pipe (#1205) or a caller's stdin.
 #   Windows: WMI starts the process (Win32_Process.Create through powershell's Invoke-CimMethod), so
 #            it is a child of the WMI service, not of this shell, and leaves the OpenSSH session's job
 #            object behind. It gets the user's default environment, not ours, so a launcher script
@@ -449,8 +454,10 @@ detach_launch(){ local append=0
   [[ ${1:-} == -a ]] && { append=1; shift; }
   local pidf log; pidf="$(_abs_path "$1")"; log="$(_abs_path "$2")"; shift 2
   if ! is_windows; then
-    if (( append )); then nohup "$@" >>"$log" 2>&1 9>&- &
-    else nohup "$@" >"$log" 2>&1 9>&- & fi
+    # The wrapper first closes every fd above 2 the child inherited (fd 63 of a pipe_safe_exec relay, #1205, the start lock, a
+    # caller's open files) and the child gets /dev/null on stdin, so a worker never keeps a caller's pipe or terminal alive.
+    if (( append )); then nohup "${BASH:-bash}" -c "$_DETACH_CLOSE_FDS" _ "$@" </dev/null >>"$log" 2>&1 &
+    else nohup "${BASH:-bash}" -c "$_DETACH_CLOSE_FDS" _ "$@" </dev/null >"$log" 2>&1 & fi
     echo "$!" > "$pidf"; return 0
   fi
   local launch="$pidf.launch.sh" envf="$pidf.env" redir='>' cl i

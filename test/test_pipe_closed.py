@@ -2,7 +2,7 @@
 early (`cmd | true`): no "Exception ignored on flushing sys.stdout: BrokenPipeError" on stderr, exit 0 (or 141).
 The reader's end is closed before the child starts, so its first write or its exit-time flush has no reader —
 the same as `| true`, without the race. scripts/pipesafe.py is the shared helper; stats.py's own is #671."""
-import importlib.util, json, os, subprocess, sys
+import importlib.util, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -376,6 +376,138 @@ def test_read_only_commands_exit_0_into_a_closed_pipe():
         piped = subprocess.run(["bash", "-c", '"$@" | cat; echo "${PIPESTATUS[0]}" >&2', "_"] + bad, capture_output=True, env=env, cwd=proj, stdin=subprocess.DEVNULL)
         assert direct.returncode != 0, direct
         assert piped.stderr.decode().splitlines()[-1] == str(direct.returncode) and piped.stdout == direct.stdout, (piped, direct)
+
+
+# ── #1205: the relay's fd and a detached worker must not hold a caller's pipe open ─────────────────────────────────
+import time
+
+_PORTABLE = os.path.join(ROOT, "scripts", "portable.sh")
+
+
+def _pipe_safe_exec_src():
+    """The pipe_safe_exec function text out of bin/harness (the dispatch around it needs a project)."""
+    src = open(os.path.join(ROOT, "bin", "harness")).read()
+    m = re.search(r"^pipe_safe_exec\(\)\{\n.*?^\}\n", src, re.S | re.M)
+    assert m, "pipe_safe_exec not found in bin/harness"
+    return m.group(0)
+
+
+def _alive(pid):
+    try: os.kill(pid, 0)
+    except OSError: return False
+    return True
+
+
+def _kill(pid):
+    if isinstance(pid, int) and pid > 1:
+        try: os.kill(pid, 9)
+        except OSError: pass
+
+
+def _wait_pidfile(path, secs=10):
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            v = open(path).read().strip()
+            if v.isdigit(): return int(v)
+        except OSError: pass
+        time.sleep(0.05)
+    raise AssertionError("no pid in " + path)
+
+
+def _launcher(d, sleep_s):
+    """A subcommand script that spawns a long-lived child through detach_launch and exits at once."""
+    child = os.path.join(d, "child.sh")
+    with open(child, "w") as f:
+        f.write('source "%s"\ndetach_launch "%s/child.pid" "%s/child.log" sleep %d\necho done\n' % (_PORTABLE, d, d, sleep_s))
+    top = os.path.join(d, "top.sh")
+    with open(top, "w") as f:
+        f.write(_pipe_safe_exec_src() + '\npipe_safe_exec bash "$@"\n')
+    return top, child
+
+
+def test_a_detached_child_does_not_hold_a_pipe_safe_exec_reader_open():
+    """#1205: the relay's input stayed open as an extra fd in the subcommand (fd 63), and detach_launch's child
+    inherited it, so `harness update | tail` waited for the workers to exit. A reader gets EOF at once."""
+    if not os.path.isdir("/proc/self/fd"):
+        print("  skip: no /proc"); return
+    with tempfile.TemporaryDirectory() as d:
+        top, child = _launcher(d, 30)
+        pid = None
+        try:
+            t0 = time.time()
+            try:
+                r = subprocess.run(["bash", top, child], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, timeout=12)
+            except subprocess.TimeoutExpired:
+                raise AssertionError("the reader never got EOF while the detached child ran")
+            took = time.time() - t0
+            pid = _wait_pidfile(os.path.join(d, "child.pid"))
+            assert r.stdout == b"done\n" and r.returncode == 0, r
+            assert took < 5, "the reader waited %.1fs for EOF while the detached child ran" % took
+            assert _alive(pid), "the detached child must outlive the subcommand"
+            # command substitution: bash waits for EOF on the substitution's pipe too
+            t0 = time.time()
+            try:
+                r = subprocess.run(["bash", "-c", 'out=$(bash "$@"); echo "got:$out"', "_", top, child],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, timeout=12)
+            except subprocess.TimeoutExpired:
+                raise AssertionError("out=$(...) never returned while the detached child ran")
+            assert r.stdout == b"got:done\n" and time.time() - t0 < 5, (r, time.time() - t0)
+        finally:
+            _kill(pid)
+            try: _kill(int(open(os.path.join(d, "child.pid")).read().strip()))
+            except (OSError, ValueError): pass
+
+
+def test_pipe_safe_exec_leaves_the_subcommand_only_the_relay_on_fd_1():
+    """#1205: no extra fd in the subcommand points at the relay's pipe; fd 1 is the relay's input."""
+    if not os.path.isdir("/proc/self/fd"):
+        print("  skip: no /proc"); return
+    with tempfile.TemporaryDirectory() as d:
+        top = os.path.join(d, "top.sh")
+        with open(top, "w") as f:
+            f.write(_pipe_safe_exec_src() + '\npipe_safe_exec bash "$@"\n')
+        probe = os.path.join(d, "probe.sh")
+        with open(probe, "w") as f:
+            f.write('for f in /proc/$$/fd/*; do n=${f##*/}; [ -e "$f" ] && echo "$n $(readlink "$f")"; done\n')
+        r = subprocess.run(["bash", top, probe], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, timeout=15)
+        fds = dict(l.split(" ", 1) for l in r.stdout.decode().splitlines())
+        pipes = {n: t for n, t in fds.items() if t.startswith("pipe:")}
+        assert "1" in pipes, fds
+        extra = {n: t for n, t in pipes.items() if n != "1" and t == pipes["1"]}
+        assert not extra, ("an extra fd holds the relay's pipe", extra)
+
+
+def test_detach_launch_child_has_devnull_stdin_the_log_and_no_other_fds():
+    """#1205: a detached POSIX child gets /dev/null on fd 0, the log on fds 1 and 2, and nothing else it inherited."""
+    if not os.path.isdir("/proc/self/fd"):
+        print("  skip: no /proc"); return
+    with tempfile.TemporaryDirectory() as d:
+        log = os.path.join(d, "w.log")
+        script = ('source "%s"\nexec 7>"%s/seven" 8</dev/null 9>"%s/nine" 20>"%s/twenty"\n'
+                  'detach_launch "%s/w.pid" "%s" sleep 30\n' % (_PORTABLE, d, d, d, d, log))
+        pid = None
+        try:
+            r = subprocess.run(["bash", "-c", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, timeout=15)
+            assert r.returncode == 0, r
+            pid = _wait_pidfile(os.path.join(d, "w.pid"))
+            end = time.time() + 10   # the pid exists before the exec of the real command settles
+            cmd = b""
+            while time.time() < end:
+                try: cmd = open("/proc/%d/cmdline" % pid, "rb").read()
+                except OSError: cmd = b""
+                if cmd.startswith(b"sleep"): break
+                time.sleep(0.05)
+            assert cmd.startswith(b"sleep"), cmd
+            fds = {}
+            for n in os.listdir("/proc/%d/fd" % pid):
+                fds[int(n)] = os.path.realpath("/proc/%d/fd/%s" % (pid, n))
+            assert set(fds) == {0, 1, 2}, fds
+            assert fds[0] == os.path.realpath("/dev/null"), fds
+            assert fds[1] == fds[2] == os.path.realpath(log), fds
+        finally:
+            _kill(pid)
 
 
 if __name__ == "__main__":
