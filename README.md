@@ -76,7 +76,7 @@ the [parity matrix](docs/reference.md#windows-parity-matrix) lists every feature
 The installer offers to install the rest: `git` (with the `curl` line), `tmux`, `python3`, `curl`,
 `sha256sum`, `tar` and `gh` with your package manager (apt-get, dnf, pacman, zypper, apk or brew),
 `gh auth login`, and Claude Code when no [agent CLI](docs/reference.md#supported-agent-clis) is
-installed. It asks first; `HARNESS_INSTALL_PREREQS=1` answers yes, `0` no. With neither a terminal
+installed. It asks first; `HARNESS_INSTALL_PREREQS=1` (or `yes`, `true`, `on`) answers yes, `0` (`no`, `false`, `off`) no; any other value is reported and ignored. With neither a terminal
 nor that setting, it prints the command to run and stops.
 
 On Windows the package manager is **winget**: from Git Bash, `install.sh` offers Git for Windows

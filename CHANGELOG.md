@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The installer's git identity check reads the global config, and `HARNESS_INSTALL_PREREQS` takes yes/no words (#1140)
+
+- On Windows, `install.sh` read the identity from the current directory's git config, so running it inside a repo with a local `user.name` reported the identity as set even when the global one, which lanes use in other repos, was missing. It now reads `git config --global` (`GIT_AUTHOR_*` in the environment still counts).
+- `HARNESS_INSTALL_PREREQS` accepts `1`/`yes`/`y`/`true`/`on` and `0`/`no`/`n`/`false`/`off`, in any case. Any other value is named on stderr (`HARNESS_INSTALL_PREREQS='maybe' is not yes or no`) and ignored, so the installer asks as before. `test/test_install_prereqs.sh`, `test/test_windows_installer.sh`.
+
 ### `harness attach` to a headless lane ends once the lane has ended (#1129)
 
 - When the attached headless lane ended, `harness attach` stayed blocked in `read` until the next keystroke and only then noticed. The read is now timed and the lane is checked every `HARNESS_ATTACH_POLL_S` seconds (default 2), also once stdin is closed: attach prints `headless lane <name> has ended` on stderr and exits 1 within a few seconds. `test/test_headless_attach.sh` covers it.
