@@ -44,7 +44,10 @@ while (($#)); do
     --reviewed-prd) [[ $# -ge 2 ]] || die 2 "--reviewed-prd needs a PRD number"; REVIEWED_PRD="$2"; shift;;
     --reviewed-prd=*) REVIEWED_PRD="${1#--reviewed-prd=}";;
     -h|--help) echo "usage: harness release [--dry-run] [--ref <rev>] [--reviewed-sha <sha> [--reviewed-prd <n>]]"; exit 0;;
-    *) die 2 "unknown argument: $1";;
+    -*) echo "harness release: unknown option '${1//[[:cntrl:]]/?}'" >&2
+        echo "usage: harness release [--dry-run] [--ref <rev>] [--reviewed-sha <sha> [--reviewed-prd <n>]]" >&2; exit 2;;
+    *) echo "harness release: unknown argument '${1//[[:cntrl:]]/?}'" >&2
+       echo "usage: harness release [--dry-run] [--ref <rev>] [--reviewed-sha <sha> [--reviewed-prd <n>]]" >&2; exit 2;;
   esac
   shift
 done

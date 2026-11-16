@@ -77,6 +77,8 @@ case "$mode" in
     done
     ;;
   *)
-    echo "usage: poller.sh [--once|--status]" >&2; exit 2
+    if [[ "$mode" == -* ]]; then echo "harness poll: unknown option '${mode//[[:cntrl:]]/?}'" >&2
+    else echo "harness poll: unknown argument '${mode//[[:cntrl:]]/?}'" >&2; fi
+    echo "usage: harness poll [--once|--status]" >&2; exit 2
     ;;
 esac

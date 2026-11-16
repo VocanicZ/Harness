@@ -22,6 +22,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - `harness attach` with no unit (or `harness attach ''`) printed `usage: attach.sh <unit> [issue]` on stdout and exited 0. It now prints `usage: harness attach <unit> [issue]` on stderr and exits 2. `test/test_headless_attach.sh`.
 
+### Unknown-option errors read the same across `harness` subcommands (#1134)
+
+- `harness supervise -x` said `unknown option -x`, `harness web -x` said `unknown argument: -x`, `harness release -x` said `unknown argument: -x` and `harness poll -x` printed only a `poller.sh` usage line. Each now prints `harness <cmd>: unknown option '<arg>'` (`unknown argument` for a word that is not dash-led) followed by `usage: harness <cmd> …` on stderr, exits 2 and prints nothing on stdout, like `harness doctor` and `harness version`. A control character in the argument is shown as `?`. `test/test_unknown_option.sh` runs each of them with `-x`.
+
 ### `harness uninstall` with no terminal says why it did not remove anything (#1133)
 
 - Run with no terminal (stdin closed or at end of file) and without `--force`, `harness uninstall` printed only `aborted — nothing removed.` on stdout. It now prints `harness uninstall: no terminal to confirm on; re-run with --force to uninstall without asking. Nothing was removed.` on stderr, leaves stdout empty and still exits 1. A typed or piped `n` keeps the old abort line. `test/test_uninstall.sh`.
