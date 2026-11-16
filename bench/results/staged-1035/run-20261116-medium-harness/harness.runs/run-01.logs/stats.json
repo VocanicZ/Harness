@@ -1,0 +1,40 @@
+{
+  "bnf1ef6": {
+    "sessions": 3,
+    "tokens": {},
+    "issues_closed": 2,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261116-medium-harness-harness-r01": {
+        "claims": 3,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 1,
+        "which": 10,
+        "init": 1,
+        "explain": 10
+      },
+      "which": 10,
+      "changed_nodes": 1911,
+      "round1": 1182,
+      "round2": 12,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 19
+      },
+      "wall_ms": 3216,
+      "selective": 10,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}
