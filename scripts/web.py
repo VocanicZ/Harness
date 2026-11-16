@@ -23,6 +23,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -362,7 +363,9 @@ def main(argv):
         print(USAGE)
         return 0
     if argv:
-        print(f"harness web: unknown argument: {argv[0]}\n{USAGE}", file=sys.stderr)
+        bad = "".join("?" if unicodedata.category(c) == "Cc" else c for c in argv[0])
+        kind = "option" if argv[0].startswith("-") else "argument"
+        print(f"harness web: unknown {kind} '{bad}'\n{USAGE}", file=sys.stderr)
         return 2
     try:
         bind, port = bind_addr(os.environ)

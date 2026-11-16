@@ -707,7 +707,8 @@ for a; do case $a in
   --install) sup_install; exit ;; --uninstall) sup_uninstall; exit ;;
   --alarms) python3 "$SUP_RULES" alarms "$SUP_STATE/rules"; exit ;;
   -h|--help) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
-  *) echo "harness supervise: unknown option $a" >&2; exit 2 ;;
+  *) echo "harness supervise: unknown option '${a//[[:cntrl:]]/?}'" >&2
+     echo "usage: harness supervise [--once] [--dry-run] | --install | --uninstall | --alarms" >&2; exit 2 ;;
 esac; done
 mkdir -p "$SUP_STATE/panes"
 while :; do
