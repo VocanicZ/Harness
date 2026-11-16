@@ -139,7 +139,7 @@ assert_ok "...listing its pid and slot" grep -q "pid $D4 (worker-1)" <<<"$out"
 kill "$D4"; sleep 0.3
 F5="$(fleet five)"
 F5W="$(stub "$F5" pool 1 fork)"; echo "$F5W" > "$F5/run/worker-1.pid"          # tracked, and carrying a background subshell fork
-assert_ok "setup: the worker has a subshell fork in the process table" bash -c "[[ \$(pgrep -P $F5W | wc -l) -ge 1 ]]"
+assert_ok "setup: the worker has a subshell fork in the process table" bash -c "source '$REAL/scripts/portable.sh'; [[ \$(proc_msys_descendants $F5W | wc -l) -ge 1 ]]"   # #1105: no pgrep in Git Bash
 assert_eq "$(nworkers "$F5")" "1" "the fork is not a worker"
 assert_eq "$(status "$F5")" "" "a worker mid-fork shows no warning"
 out="$(start "$F5" --recover)"
@@ -168,5 +168,15 @@ out="$(start "$F8")"
 track "$(pidof_slot "$F8" worker-1)" "$(pidof_slot "$F8" priority)"
 assert_no "the stray worker-5 was stopped" alive "$ST"
 assert_eq "$(nworkers "$F8")" "2" "...POOL + the priority lane remain"
+
+echo "=== 6. #1105: a worker whose STATE_DIR is spelled the Windows way (W:/x for /x) belongs to the same fleet ==="
+# Windows hands a worker STATE_DIR=C:/x (export_native_paths) while the scan's own realpath answers /c/x; a cygpath stub that maps W:/x -> /x
+# and HARNESS_PLATFORM=windows reproduce that two-spelling world on Linux.
+mkdir -p "$ROOT/winbin"; printf '#!/usr/bin/env bash\n[[ "$1" == -[um] ]] && shift\nprintf "%%s\\n" "${1#W:}"\n' > "$ROOT/winbin/cygpath"; chmod +x "$ROOT/winbin/cygpath"
+F9="$(fleet nine)"
+WW="$(spawn "W:$F9" "$ENG" pool 1)"
+assert_eq "$( PATH="$ROOT/winbin:$PATH" HARNESS_PLATFORM=windows bash -c 'source "$1/scripts/portable.sh"; fleet_worker_procs "$2" | wc -l | tr -d " "' _ "$REAL" "$F9" )" "1" \
+  "the worker with the W:/ spelling of its STATE_DIR is found in the process table"
+kill "$WW" 2>/dev/null
 
 finish
