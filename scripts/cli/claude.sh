@@ -184,6 +184,7 @@ claude_trust_dialog_path(){ printf '%s\n' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' 
           for (i=at+1; i<=NR && line[i] ~ /^[ \t]*$/; i++) ;
           for (; i<=NR && line[i] !~ /^[ \t]*$/; i++) { s=line[i]; gsub(/^[ \t]+|[ \t\r]+$/, "", s); p=p s }
           print p }'; }
+claude_trust_dialog_yes_selected(){ grep -qE '^ *❯ Yes, I trust this folder' <<<"$1"; }
 # The footer's background-agent / shell timers and token counters; one moving means work is in
 # flight even though the screen above the prompt is still (supervise.sh).
 claude_bg_re(){ echo "$(_cli_default_bg_re)|↓ [0-9.]+k tokens"; }

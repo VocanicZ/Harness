@@ -157,7 +157,7 @@ trust_dialog_tend(){ local sess="$1" f="$RUN_DIR/$1.trustanswers" pane dpath wd 
   sess_down "$sess" || return 0
   sleep "${HARNESS_TRUST_KEY_DELAY_S:-0.3}"
   again="$(sess_capture "$sess" 2>/dev/null)"
-  if [[ "$(cli_trust_dialog_path "$again")" == "$dpath" ]] && grep -qE '^ *❯ Yes, I trust this folder' <<<"$again"; then
+  if [[ "$(cli_trust_dialog_path "$again")" == "$dpath" ]] && cli_trust_dialog_yes_selected "$again"; then
     sess_enter "$sess"
     log "trust: $sess was on the trust dialog for $wd — answered Yes (answer $(( n + 1 )) of 3, #1237)"
     stats_sess_event "$sess" trust_dialog_answered answer=$(( n + 1 )) >/dev/null 2>&1
