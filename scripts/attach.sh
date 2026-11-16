@@ -7,6 +7,17 @@ set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 UNIT="${1:-}"; ISSUE="${2:-}"
+ATTACH_USAGE="usage: harness attach <unit> [issue]   (or harness attach <session>)"
+# #1121: -h/--help print the usage; any other dash-led argument is a usage error (exit 2), never a unit
+# name; the issue is a number.
+case "$UNIT" in -h|--help) echo "$ATTACH_USAGE"; exit 0;; esac
+case "$ISSUE" in -h|--help) echo "$ATTACH_USAGE"; exit 0;; esac
+if [[ "$UNIT" == -* ]]; then
+  echo "harness attach: unknown option '$UNIT'" >&2; echo "$ATTACH_USAGE" >&2; exit 2
+fi
+if [[ -n "$ISSUE" && ! "$ISSUE" =~ ^[0-9]+$ ]]; then
+  echo "harness attach: issue must be a number, got '$ISSUE'" >&2; echo "$ATTACH_USAGE" >&2; exit 2
+fi
 if [[ -z "$UNIT" ]]; then
   echo "live sessions:"
   sess_list | sed 's/^/  /' | grep -E "^  ${HARNESS_SESS_PREFIX}-" | vis_lines | grep . || echo "  (none)"
