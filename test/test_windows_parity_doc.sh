@@ -8,6 +8,8 @@
 # row (a vendor with no Windows build / no non-interactive mode). The per-CLI non-interactive research table
 # has a sourced row for every CLI.
 #
+# A Windows `✓` names its evidence (#1141): a test in test/ or a committed log under test/smoke/logs/, that exists, and that is the
+# newest `<kind>-windows-<stamp>.log` of its kind.
 # Coverage (#492): every row that is `✓` on Windows has a line in test/windows_coverage.tsv naming at least one test
 # that actually runs on Windows (it exists, and does not skip itself for want of tmux).
 # The checker runs on the real doc (must pass) and on copies of it with one defect each (must fail, naming it).
@@ -72,6 +74,22 @@ for name, (lin, win) in rows.items():
                 problems.append("row `%s`: %s target names no issue" % (name, col))
             if v.startswith("✓ target"):
                 problems.append("row `%s`: %s is still a target: PRD #475 is done, so it is `✓` (shown working) or a sourced `n/a`" % (name, col))
+            elif col == "Windows":
+                # #1141: a Windows ✓ names its evidence — a committed log under test/smoke/logs/ or a test in test/ — and the
+                # log is the newest of its kind (lifecycle-windows-<stamp>.log: a newer one supersedes the older)
+                srcs = re.findall(r"test/[A-Za-z0-9_./-]+\.(?:log|sh|py)", v)
+                if not srcs:
+                    problems.append("row `%s`: Windows ✓ cites no log or test as its source" % name)
+                for sp in srcs:
+                    if not os.path.isfile(os.path.join(root, sp)):
+                        problems.append("row `%s`: Windows ✓ cites %s, which does not exist" % (name, sp))
+                    m = re.match(r"^test/smoke/logs/(.+)-windows-(\d{8}T\d{6}Z)\.log$", sp)
+                    if m:
+                        newer = sorted(f for f in os.listdir(os.path.join(root, "test", "smoke", "logs"))
+                                       if re.match(r"^%s-windows-\d{8}T\d{6}Z\.log$" % re.escape(m.group(1)), f)
+                                       and f[len(m.group(1)) + 9:-4] > m.group(2))
+                        if newer:
+                            problems.append("row `%s`: Windows ✓ cites %s, superseded by test/smoke/logs/%s" % (name, sp, newer[-1]))
         else:
             problems.append("row `%s`: %s value is neither ✓ nor n/a: %s" % (name, col, v[:40]))
 
@@ -177,19 +195,19 @@ expect_fail(){ # <name> <message fragment> <why>
   assert_ok "fixture $1: checker fails ($3)" test "$rc" -ne 0
   assert_ok "fixture $1: names the defect" grep -qF "$2" <<<"$o"; }
 
-mutate no-windows 's = s.replace("| `harness stop` | ✓ | ✓ |", "| `harness stop` | ✓ |  |")'
+mutate no-windows 's = "\n".join(("| `harness stop` | ✓ |  |" if l.startswith("| `harness stop` |") else l) for l in s.split("\n"))'
 expect_fail no-windows "row \`harness stop\`: no Windows value" "a row with no Windows value"
 
-mutate no-linux 's = s.replace("| `harness stop` | ✓ | ✓ |", "| `harness stop` |  | ✓ |")'
+mutate no-linux 's = "\n".join(("| `harness stop` |  | ✓ (x) |" if l.startswith("| `harness stop` |") else l) for l in s.split("\n"))'
 expect_fail no-linux "row \`harness stop\`: no Linux value" "a row with no Linux value"
 
-mutate bad-value 's = s.replace("| `harness stop` | ✓ | ✓ |", "| `harness stop` | ✓ | planned |")'
+mutate bad-value 's = "\n".join(("| `harness stop` | ✓ | planned |" if l.startswith("| `harness stop` |") else l) for l in s.split("\n"))'
 expect_fail bad-value "neither ✓ nor n/a" "a value that is neither ✓ nor n/a"
 
 mutate na-no-source 's = s.replace("(\"Linux with systemd + cgroup v2\", [VocanicZ/swarm README](https://github.com/VocanicZ/swarm#readme))", "(\"Linux with systemd + cgroup v2\")")'
 expect_fail na-no-source "n/a has no source link" "an n/a with no source"
 
-mutate na-not-allowed 's = s.replace("| `harness stop` | ✓ | ✓ |", "| `harness stop` | ✓ | n/a: not verified on winsma (https://example.com) |")'
+mutate na-not-allowed 's = "\n".join(("| `harness stop` | ✓ | n/a: not verified on winsma (https://example.com) |" if l.startswith("| `harness stop` |") else l) for l in s.split("\n"))'
 expect_fail na-not-allowed "Windows n/a is allowed only for" "n/a on a feature Windows can do"
 
 mutate target-no-issue 's = "\n".join(("| `harness release` | ✓ | ✓ target |" if l.startswith("| `harness release` |") else l) for l in s.split("\n"))'
@@ -200,7 +218,16 @@ expect_fail target-left "is still a target" "a row left as a target after PRD #4
 mutate target-left-cli 's = "\n".join(("| `cli openclaw` | ✓ | ✓ target (#475 task 2) |" if l.startswith("| `cli openclaw` |") else l) for l in s.split("\n"))'
 expect_fail target-left-cli "row \`cli openclaw\`: Windows is still a target" "an agent CLI row left as a target"
 
-mutate missing-subcommand 's = s.replace("| `harness doctor` | ✓ | ✓ |\n", "")'
+mutate no-source 's = "\n".join(("| `harness stop` | ✓ | ✓ |" if l.startswith("| `harness stop` |") else l) for l in s.split("\n"))'
+expect_fail no-source "row \`harness stop\`: Windows ✓ cites no log or test as its source" "a Windows ✓ with no source"
+
+mutate source-missing 's = s.replace("test/smoke/logs/e2e-windows-20261112T094302Z.log", "test/smoke/logs/e2e-windows-20261112T094303Z.log", 1)'
+expect_fail source-missing "which does not exist" "a Windows ✓ citing a log that is not committed"
+
+mutate source-superseded 's = s.replace("test/smoke/logs/lifecycle-windows-20261112T114048Z.log", "test/smoke/logs/lifecycle-windows-20261104T124219Z.log", 1)'
+expect_fail source-superseded "superseded by test/smoke/logs/lifecycle-windows-20261112T114048Z.log" "a Windows ✓ citing the superseded 11-04 lifecycle log"
+
+mutate missing-subcommand 's = "\n".join(l for l in s.split("\n") if not l.startswith("| `harness doctor` |"))'
 expect_fail missing-subcommand "no row for subcommand \`harness doctor\`" "a subcommand with no row"
 
 mutate missing-skill 's = "\n".join(l for l in s.split("\n") if not l.startswith("| `/harness-stop` |"))'
