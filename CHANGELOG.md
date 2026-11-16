@@ -10,6 +10,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - A write into a closed pipe on native Windows, which the C runtime reports as EINVAL ("Invalid argument") instead of a broken pipe, now ends a command quietly like on Linux (`scripts/pipesafe.py`), not as `cannot write output: Invalid argument`. A named path's EINVAL, and EINVAL on other systems, still fail.
 - `portable._cygpath` starts a `HARNESS_CYGPATH` script stand-in through `resolve_argv`, as `CreateProcess` cannot run an extensionless script.
 - Windows-only test fixes: `test_pipe_closed.py` uses Git Bash, not WSL's `bash.exe`; the ralph flush-race delay, the guard-set caps, the tmux fallback PATH setup, the `lane_has_gh` cell and the unix-socket fixture in `test_launch_failed.sh` fit Windows. Windows-unverified: needs a winsma run.
+
 ### Windows: the tmp-hygiene and supervise-autoupdate tests clean up after themselves on Git Bash (#1106)
 
 - `tmp_kill_rooted` (test/helpers.sh) ran a native Python that cannot read Git Bash's MSYS `/proc`, so on Windows it ended no process and a stand-in whose cwd or `HARNESS_HOME` sat in a tracked dir lived on and held the dir open. On Windows it now scans the MSYS `/proc` in bash; Linux still uses the Python scan.
