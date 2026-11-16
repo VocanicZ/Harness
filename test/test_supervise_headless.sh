@@ -55,7 +55,7 @@ idle_at(){ [[ "$(state "$1" turn)" == "$2" ]] && [[ "$(state "$1" state)" != bus
 # pass <session> [nudge min] [kill min] — one frozen-session pass over a lane, as sup_check_fleet runs it.
 pass(){ sup_watch_pane "$1" "$SUP_STATE/panes/$1" "${2:-0}" "${3:-0}" "$SUP_NUDGE_MSG" claude sup_checkpoint_and_kill; }
 quiet(){ "$@" 2>/dev/null; }
-typed(){ grep -c "headless type $1: harness supervise:" "$LOG"; }
+typed(){ grep -c "headless send $1: harness supervise:" "$LOG"; }   # #1137: one atomic inbox message
 
 echo "== a frozen idle lane is nudged, through its inbox =="
 S=hst-u-i1; lane "$S" normal normal
@@ -63,8 +63,7 @@ assert_ok "the lane's first turn ends, idle" wait_until 15 idle_at "$S" 1
 : > "$LOG"; rm -rf "$SUP_STATE"
 pass "$S"; pass "$S"                                     # baseline, then quiet (NUDGE_MIN 0)
 assert_eq "$(typed "$S")" 1 "the quiet lane is nudged once"
-assert_ok "…clearing its input line first" grep -q "ACT headless clear $S" "$LOG"
-assert_ok "…then submitting it" grep -q "ACT headless enter $S" "$LOG"
+assert_no "…never through the lane's shared typed buffer (#1137)" grep -qE "headless (type|clear|enter) $S" "$LOG"
 assert_ok "the nudge is the lane's next turn" wait_until 15 idle_at "$S" 2
 assert_ok "…its prompt the supervisor's nudge" grep -qF "harness supervise: no activity for a while" <<<"$(prompt "$S" 2)"
 pass "$S"
@@ -134,7 +133,7 @@ assert_ok "the lane's turn ends, idle" wait_until 15 idle_at "$S" 1
 rpid="$(sess_pane_pid "$S")"
 : > "$LOG"; : > "$SEV"; : > "$T/gh.calls"; rm -rf "$SUP_STATE"
 SUP_DRY=1 pass "$S" 0 1; SUP_DRY=1 pass "$S" 0 1        # baseline, then the nudge (not delivered: dry)
-assert_ok "the quiet lane is nudged first (dry: never delivered)" grep -q "DRY headless type $S: harness supervise:" "$LOG"
+assert_ok "the quiet lane is nudged first (dry: never delivered)" grep -q "DRY headless send $S: harness supervise:" "$LOG"
 pass "$S" 0 1
 assert_ok "nothing is killed before KILL_MIN" sess_live "$S"
 read -r a b c t0 rest < "$SUP_STATE/panes/$S"; echo "$a $b $c $(( t0 - 7200 )) $rest" > "$SUP_STATE/panes/$S"

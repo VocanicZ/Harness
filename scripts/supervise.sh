@@ -186,10 +186,14 @@ sup_watch_pane(){
   if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
     "$killfn" "${t%%:*}" "$idle" "$pane" && rm -f "$f"
   elif (( idle >= nudge_min && nudged == 0 && now - lastn >= RENUDGE_S )); then
-    sup_act sess_clear_line "$t"
-    sup_act sess_type "$t" "$msg"
-    (( SUP_DRY )) || sleep 0.5   # an Enter in the same burst as the text is a newline to hermes (cli_send)
-    sup_act sess_enter "$t"
+    if [[ "$(sess_backend)" == headless ]]; then
+      sup_act sess_send_line "$t" "$msg"   # #1137: one atomic inbox message, never the lane's shared typed buffer
+    else
+      sup_act sess_clear_line "$t"
+      sup_act sess_type "$t" "$msg"
+      (( SUP_DRY )) || sleep 0.5   # an Enter in the same burst as the text is a newline to hermes (cli_send)
+      sup_act sess_enter "$t"
+    fi
     echo "$body $bg $cpu $t0 1 $now" >"$f"
   fi
   return 0
