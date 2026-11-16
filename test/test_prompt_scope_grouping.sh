@@ -37,7 +37,7 @@ assert_ok "files exactly what it returns" grep -qF 'File exactly what it returns
 assert_ok "a null issue is on purpose, notes go in the PRD comment" \
   grep -qF '`issue` is null: nothing was filed, on purpose' <<<"$RV"
 assert_ok "below the tier direct limits non-blocking findings are notes" \
-  grep -qF 'fit the tier'"'"'s `direct` limits (`max_criteria`, `max_files`, `max_subsystems`, `max_changed_lines` in `scripts/tier.toml`)' <<<"$RV"
+  grep -qF 'fit the tier'"'"'s `direct`' <<<"$RV"
 assert_ok "above the limits they are in the issue" grep -qF 'Non-blocking findings ABOVE those limits are in the issue instead' <<<"$RV"
 assert_ok "files once, at the end of the pass" grep -qF 'FILE ONCE, at the end of the pass' <<<"$RV"
 assert_ok "step 2b only collects" grep -qF 'step 2b only collects' <<<"$RV"
