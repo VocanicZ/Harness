@@ -1733,10 +1733,10 @@ windows_block(){ local part="$1"; shift
 # winsma_wake_tick — #1034, generalised by #1066: wake the issues parked in the winsma lock queue (the waiting label, no agent-working).
 # It is the `resume=redispatch` half of the engine-owned waits (scripts/wait.sh): `winsma.sh park` writes the same wait spec a lane
 # writes for a job (cond winsma, deadline) next to the label, this tick judges it, and waking is removing the label — the pool
-# relaunches the issue as a resume (resume.md, as for agent-paused). Called from the pool's chores. Per parked issue it asks
-# `winsma.sh turn` (bounded by WS_WAKE_TIMEOUT, default 20s) — that call also refreshes the issue's queue ticket, which is what
-# keeps its place while no lane is alive — and when the ticket is next and the lock is free, or the spec's deadline has passed,
-# it removes the label. A host that cannot be asked leaves the issue parked and says so once per outage. With no
+# relaunches the issue as a resume (resume.md, as for agent-paused). Called from the pool's chores. It asks
+# `winsma.sh turn` for ALL the parked issues in one call (#1172; bounded by WS_WAKE_TIMEOUT, default 240s, once per pass) — that call also refreshes
+# the tickets, which is what keeps their place while no lane is alive, and drops a dead ticket ahead of them — and when the ticket is next and the lock is free, or the spec's deadline has passed,
+# it removes the label. A host that cannot be asked, or a call that timed out, leaves the issue parked and says which, once per outage. With no
 # HARNESS_WINDOWS_HOST there is nothing to wait for: wake all. A label with no spec (a park from before #1066) is judged the same
 # way, without a deadline. Throttled to one pass per HARNESS_WINSMA_WAKE_S (default 60) seconds; no parked issue = no call at all.
 # winsma_wake_blocked — #1161: 0 and a reason on stdout when a woken issue could not be dispatched this tick (every pool slot is taken,
@@ -1755,14 +1755,21 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
   echo "$now" > "$f"
   while IFS=$'\t' read -r _ n dl _; do [[ "$n" =~ ^[0-9]+$ && "$dl" =~ ^[0-9]+$ ]] && deadlines[$n]="$dl"
   done < <(python3 "$WAITLIB_PY" parked --dir "$RUN_DIR" 2>/dev/null)
-  for n in $waiting; do
-    [[ "$n" =~ ^[0-9]+$ ]] || continue
+  # #1172: ONE call for every parked issue (one ssh round trip refreshes all their tickets and reads the lock), so a pass costs at most one
+  # WS_WAKE_TIMEOUT however many issues are parked. The deadline path is covered too: its ticket is refreshed by the same call.
+  local -a parked=(); for n in $waiting; do [[ "$n" =~ ^[0-9]+$ ]] && parked+=("$n"); done
+  (( ${#parked[@]} )) || return 0
+  wait_winsma_turns "${parked[@]}"
+  while IFS= read -r why; do [[ -n "$why" ]] && log "winsma-wake: $why (#1172)"; done <<<"$WAIT_WINSMA_LOG"
+  for n in "${parked[@]}"; do
     dl="${deadlines[$n]:-0}"; why=""
     if (( dl > 0 && now >= dl )); then out="its wait deadline passed"; rc=0; why=deadline   # the park waits no longer than its deadline
-    else wait_winsma_turn "$n"; rc=$?; out="$WAIT_WINSMA_OUT"; fi
+    else rc="${WAIT_WINSMA_RC[$n]:-2}"; out="${WAIT_WINSMA_MSG[$n]:-}"; fi
     case "$rc" in
       0) ;;
       1) rm -f "$down.$n"; continue;;
+      3) [[ -f "$down.$n" ]] || log "winsma-wake: #$n stays parked — the call to the Windows host timed out: $out (WS_WAKE_TIMEOUT; #1172)"
+         : > "$down.$n"; continue;;
       *) [[ -f "$down.$n" ]] || log "winsma-wake: #$n stays parked — the Windows host could not be asked (exit $rc): $out (#1034)"
          : > "$down.$n"; continue;;
     esac
@@ -1771,7 +1778,6 @@ winsma_wake_tick(){ local f="$RUN_DIR/winsma-wake.stamp" now t waiting n out rc 
     # lock.sh drops a ticket idle past WS_STALE_SEC. So wake only when the issue can be dispatched at once; otherwise it stays parked, and
     # `turn` (above, every tick) keeps the ticket fresh. The deadline path never asked the host: refresh the ticket here, best effort.
     if blocked="$(winsma_wake_blocked)"; then
-      [[ "$why" == deadline ]] && wait_winsma_turn "$n" >/dev/null 2>&1
       [[ "$(cat "$down.held.$n" 2>/dev/null)" == "$blocked" ]] || log "winsma-wake: #$n stays parked — it is due, but $blocked; its queue ticket is kept fresh meanwhile (#1161)"
       echo "$blocked" > "$down.held.$n"; continue
     fi

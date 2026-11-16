@@ -42,6 +42,22 @@ ws_clock_ms(){ if [[ -n "${EPOCHREALTIME:-}" ]]; then local t="${EPOCHREALTIME/[
 # clock reads 1s after as little as a few ms, so on one the elapsed time must EXCEED the timeout, which makes it at least that long.
 ws_lock_expired(){ local to="${WS_LOCK_TIMEOUT:-0}" slack=0 now; (( to > 0 )) || return 1
   [[ -n "${EPOCHREALTIME:-}" ]] || slack=1000; now="$(ws_clock_ms)"; (( now - $1 >= to * 1000 + slack )); }
+# ws_issue_repo — the repo the fleet's issues live in (WS_REPO, set by the engine; else HARNESS_REPO), or empty. Tickets carry no repo, so an
+# issue is only looked up when the repo is known (#1172).
+ws_issue_repo(){ printf %s "${WS_REPO:-${HARNESS_REPO:-}}"; }
+# ws_issue_closed <issue> — 0 only when the issue is known to be CLOSED in the fleet's repo. Unknown (no repo, gh fails) is never closed.
+ws_issue_closed(){ local repo; repo="$(ws_issue_repo)"; [[ -n "$repo" ]] || return 1
+  [[ "$(gh issue view "$1" -R "$repo" --json state -q .state </dev/null 2>/dev/null)" == CLOSED ]]; }
+# ws_ticket_parked <issue> <session> — 0 when the ticket belongs to an issue that is still PARKED in the queue (#1172). A parked ticket has no
+# lane (ws_owner_live says gone) and stays fresh only while the engine's turn refreshes it: after an outage or a run of timeouts every parked
+# ticket is stale, and dropping one as dead would lose its place. Judged by: WS_PARKED_ISSUES (the wake tick's parked set, when set), else the
+# issue's live waiting label (when the repo is known and gh answers), else the ticket's own `parked-<n>` session.
+ws_ticket_parked(){ local issue="$1" session="$2" repo labels
+  if [[ -n "${WS_PARKED_ISSUES+x}" ]]; then [[ " ${WS_PARKED_ISSUES//[$'\t\n']/ } " == *" $issue "* ]]; return; fi
+  repo="$(ws_issue_repo)"
+  if [[ -n "$repo" ]] && labels="$(gh issue view "$issue" -R "$repo" --json labels -q '.labels[].name' </dev/null 2>/dev/null)"; then
+    grep -qxF "${HARNESS_LABEL_WAITING_WINSMA:-waiting-winsma}" <<<"$labels"; return; fi
+  [[ "$session" == "parked-$issue" ]]; }
 # ws_proto_check — refuse at once, with the reason, when the host's lock is at a newer protocol than this client's code (#1041): a lane
 # on an old branch can neither queue nor be seen by the queue, so waiting only starves it. An unreachable host is not a protocol error.
 ws_proto_check(){ local msg rc
@@ -62,7 +78,7 @@ ws_lock(){ local issue="$1" session="${2:-${WS_LANE_SESSION:-lane-$1}}" pid="${3
     dead=0
     while read -r q qn qi qs qp qw qa; do   # a dead waiter must not block the line: refresh stale AND its lane gone
       [[ "$q" == q ]] || continue
-      (( qa > stale )) && [[ "$qi" != "$issue" ]] && ! ws_owner_live "$qs" "$qp" \
+      (( qa > stale )) && [[ "$qi" != "$issue" ]] && ! ws_owner_live "$qs" "$qp" && ! ws_ticket_parked "$qi" "$qs" \
         && { ws_log "lock: queue ticket of #$qi ($qs) is ${qa}s stale and its lane is gone; dropping it"; ws_call r_queue_drop "$qn" "$stale" && dead=1; }
     done <<<"$info"
     (( dead )) && { info="$(ws_call r_lock_info)" || { ws_die "could not read the lock"; return 1; }; }
