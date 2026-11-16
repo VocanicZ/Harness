@@ -84,6 +84,7 @@ assert_ok "the session's detached job is still swept" gone "$T/det2.pid"
 
 echo "== a session that exits on its own: stats_sweep_ended sweeps its leftovers =="
 U3="$(new_uuid)"
+sess_start keepalive "$T" "sleep 1009"   # #1168: a fleet that still has a session has a server; with none the sweeps judge nothing
 sess_start s3 "$T" -e "HARNESS_SESSION=$U3" "setsid sleep 1006 & echo \$! > $T/self.pid; sleep 0.5; exit 0"
 wait_pid_files "$T/self.pid"
 for i in $(seq 50); do sess_live s3 || break; sleep 0.1; done

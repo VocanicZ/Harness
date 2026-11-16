@@ -230,7 +230,7 @@ setup; snap 7
 SESS7="$(sess_impl "$UNIT" 7)"
 echo "$((NOW - 2)) uuid-7" > "$RUN_DIR/$SESS7.launched"; : > "$RUN_DIR/$SESS7.goalmet"
 echo '{"session":"uuid-7","repo":"acme/widget","issue":7,"kind":"impl","goal":"ISSUE:7"}' > "$RUN_DIR/$SESS7.stats"
-session_live(){ return 1; }; churn_check(){ :; }; sess_sweep(){ :; }; _stats_cli_usage(){ :; }
+session_live(){ return 1; }; sess_server_reachable(){ :; }; churn_check(){ :; }; sess_sweep(){ :; }; _stats_cli_usage(){ :; }   # #1168: a reachable server that lacks the session
 launch_backoff_mark impl-7
 stats_sweep_ended
 assert_no "the sweep consumed .goalmet" test -e "$RUN_DIR/$SESS7.goalmet"

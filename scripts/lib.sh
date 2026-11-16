@@ -1098,8 +1098,11 @@ tracked_worker_pid(){
 # have no reaper at all — so their goal files leak (confirmed: a stale hz*-inject-<unit>.goal with
 # no session). This per-poll sweep GCs every lane's orphaned goal files uniformly. A goal whose
 # session is STILL live is left alone: it is an in-flight claim a reaper still owns.
+# #1168: with the session server unreachable (a bwrap lane sees an empty tmux socket dir but the fleet's run/ read-write)
+# session_live is false for EVERY session, so nothing is judged: no file deleted, no .stats consumed, no sess_sweep.
 gc_orphan_goals(){
   local f sess
+  sess_server_reachable || return 0
   stats_sweep_ended   # #185: session_end for self-exited sessions (Ralph promise, inject) too
   shopt -s nullglob
   for f in "$RUN_DIR"/*.goal; do
@@ -1996,6 +1999,7 @@ stats_sess_event(){ local sess="$1"; shift; harness_event "$1" --ctx "$RUN_DIR/$
 # running (sess_sweep on its HARNESS_SESSION uuid) — a lane that exited on its own (Ralph promise,
 # inject loop end, `exec claude` returning) had no sess_kill to do it.
 stats_sweep_ended(){ local f s claim uuid repo issue kind cp
+  sess_server_reachable || return 0   # #1168: an unreachable server says nothing about which sessions ended
   shopt -s nullglob
   for f in "$RUN_DIR"/*.stats; do
     s="$(basename "$f" .stats)"
