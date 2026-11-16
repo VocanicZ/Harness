@@ -288,6 +288,93 @@ def test_help_still_prints_and_a_usage_error_still_exits_2():
     assert r.returncode == 2 and "usage:" in r.stderr, r
 
 
+# ── #1130: a reader that closes the pipe must not kill a destructive subcommand half way ──────────────────────────
+import shutil, tempfile
+
+
+def _host(d):
+    """A throwaway host under d: HOME, HARNESS_HOME with two releases (engine -> v0.2.0), a PATH link, a project; (env, paths)."""
+    home, hh, binlink = os.path.join(d, "home"), os.path.join(d, "host"), os.path.join(d, "localbin")
+    proj = os.path.join(d, "proj")
+    for t in ("v0.1.0", "v0.2.0"):
+        st = os.path.join(hh, "releases", t)
+        os.makedirs(st)
+        for name in ("bin", "scripts", "prompts", "skill", "plugins"):
+            shutil.copytree(os.path.join(ROOT, name), os.path.join(st, name), symlinks=True)
+        for name in ("install.sh", "update.sh"):
+            shutil.copy(os.path.join(ROOT, name), os.path.join(st, name))
+        with open(os.path.join(st, "VERSION"), "w") as f: f.write(t + "\n" + "0" * 40 + "\n")
+    with open(os.path.join(hh, "releases", ".installed"), "w") as f: f.write("v0.1.0\nv0.2.0\n")
+    os.symlink("releases/v0.2.0", os.path.join(hh, "engine"))
+    os.makedirs(binlink); os.symlink(os.path.join(hh, "engine", "bin", "harness"), os.path.join(binlink, "harness"))
+    os.makedirs(os.path.join(proj, ".harness", "run")); os.makedirs(home)
+    with open(os.path.join(proj, ".harness", "config"), "w") as f:
+        f.write(': "${HARNESS_MODE:=issue-only}"\n: "${HARNESS_TOPOLOGY:=single}"\n')
+    env = {k: v for k, v in os.environ.items() if k not in ("ENGINE_DIR", "STATE_DIR", "HARNESS_ENGINE_LINK", "TMUX", "TMUX_PANE")}
+    env.update(HARNESS_FLEETS_DIR=os.path.join(d, "fleets"))   # pinned first: the host registry is never the real one (test_hermetic)
+    env.update(HOME=home, HARNESS_HOME=hh, HARNESS_BIN_DIR=binlink, HARNESS_USER_SKILLS=os.path.join(home, "skills"),
+               HARNESS_SKIP_RTDD="1", HARNESS_UNINSTALL_WORKER_PIDS="",
+               HARNESS_POLLER_DIR=os.path.join(d, "poller"), HARNESS_SNAPSHOTS_DIR=os.path.join(d, "snapshots"),
+               XDG_CONFIG_HOME=os.path.join(d, "config"), TMUX_TMPDIR=os.path.join(d, "tmux"),
+               HARNESS_SUPERVISE_UNIT_DIR=os.path.join(d, "units"), HARNESS_WEB_UNIT_DIR=os.path.join(d, "units"),
+               HARNESS_SUPERVISE_SYSTEMCTL="false", HARNESS_SUPERVISE_LOGINCTL="false",
+               HARNESS_WEB_SYSTEMCTL="false", HARNESS_WEB_LOGINCTL="false")
+    return env, hh, binlink, proj
+
+
+def _into_head0(argv, env, cwd):
+    """`harness ... | head -0` (the reader exits at once, the pipe closes); (PIPESTATUS[0], stderr)."""
+    r = subprocess.run(["bash", "-c", '"$@" | head -0; echo "${PIPESTATUS[0]}" >&2', "_"] + argv, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, cwd=cwd)
+    lines = r.stderr.decode().splitlines()
+    return int(lines[-1]), "\n".join(lines[:-1])
+
+
+def test_uninstall_force_into_a_closed_pipe_still_removes_everything():
+    """#1130: `harness uninstall --force | head -1` exited 141 after removing the engine link, leaving a dangling
+    bin/harness, releases/ and the project's .harness/. Now it runs to the end: same result as with a terminal."""
+    with tempfile.TemporaryDirectory() as d:
+        env, hh, binlink, proj = _host(d)
+        harness = os.path.join(hh, "releases", "v0.2.0", "bin", "harness")
+        rc, err = _into_head0(["bash", harness, "uninstall", "--force"], env, proj)
+        assert rc == 0, (rc, err)
+        assert not os.path.lexists(os.path.join(hh, "engine")), "engine link left"
+        assert not os.path.lexists(os.path.join(binlink, "harness")), "dangling bin/harness left"
+        assert not os.path.exists(os.path.join(hh, "releases")), "releases/ left"
+        assert not os.path.exists(os.path.join(proj, ".harness")), "project .harness/ left"
+
+
+def test_update_rollback_into_a_closed_pipe_flips_and_redeploys():
+    """#1130: `harness update --rollback | head -1` flipped the engine, then the redeploy died of SIGPIPE (141)."""
+    with tempfile.TemporaryDirectory() as d:
+        env, hh, binlink, proj = _host(d)
+        harness = os.path.join(hh, "releases", "v0.2.0", "bin", "harness")
+        ref = subprocess.run(["bash", harness, "update", "--rollback"], capture_output=True, text=True, env=env, cwd=proj, stdin=subprocess.DEVNULL)
+        assert ref.returncode == 0 and "rolled back Harness v0.2.0 -> v0.1.0" in ref.stdout + ref.stderr, ref
+        os.unlink(os.path.join(hh, "engine")); os.symlink("releases/v0.2.0", os.path.join(hh, "engine"))
+        with open(os.path.join(hh, "releases", ".installed"), "w") as f: f.write("v0.1.0\nv0.2.0\n")
+        rc, err = _into_head0(["bash", harness, "update", "--rollback"], env, proj)
+        assert rc == 0, (rc, err)
+        assert os.readlink(os.path.join(hh, "engine")) == "releases/v0.1.0"
+        assert open(os.path.join(hh, "releases", ".installed")).read().split()[-1] == "v0.1.0", "the rollback was not recorded"
+
+
+def test_read_only_commands_exit_0_into_a_closed_pipe():
+    """#1130: doctor, status (in a project) and attach exited 141 into `| head -0`; the python commands already exit 0."""
+    with tempfile.TemporaryDirectory() as d:
+        env, hh, binlink, proj = _host(d)
+        harness = ["bash", os.path.join(hh, "releases", "v0.2.0", "bin", "harness")]
+        for args in (["doctor"], ["status"], ["attach"], ["status", "--all"], ["stats"], ["version"], ["help"]):
+            rc, err = _into_head0(harness + args, env, proj)
+            assert rc == 0 and "Broken pipe" not in err and "write error" not in err, (args, rc, err)
+        # a failing command keeps its own status through the relay: a pipe is not a reason to report success
+        bad = harness + ["attach", "no-such-unit"]
+        direct = subprocess.run(bad, capture_output=True, env=env, cwd=proj, stdin=subprocess.DEVNULL)
+        piped = subprocess.run(["bash", "-c", '"$@" | cat; echo "${PIPESTATUS[0]}" >&2', "_"] + bad, capture_output=True, env=env, cwd=proj, stdin=subprocess.DEVNULL)
+        assert direct.returncode != 0, direct
+        assert piped.stderr.decode().splitlines()[-1] == str(direct.returncode) and piped.stdout == direct.stdout, (piped, direct)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
