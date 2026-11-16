@@ -252,11 +252,15 @@ stop_fleet(){
   STATE_DIR="$STATE_DIR" bash "$ENGINE_DIR/scripts/stop.sh" --clean || true
 }
 # confirm — the default-path human gate. HARNESS_UNINSTALL_YES=1 auto-confirms (scripting/tests);
-# otherwise read a y/N from stdin. Anything but an explicit yes aborts.
+# otherwise read a y/N from stdin. Anything but an explicit yes aborts. Return 2 (#1133): no terminal and
+# nothing piped on stdin (EOF) — there was nobody to ask, which is not the same as the operator saying no.
 confirm(){
   [[ "${HARNESS_UNINSTALL_YES:-0}" == 1 ]] && return 0
   local ans
-  read -rp "Remove the shared engine, this project's .harness/, and /harness skills? [y/N]: " ans || ans=""
+  if ! read -rp "Remove the shared engine, this project's .harness/, and /harness skills? [y/N]: " ans; then
+    [[ -t 0 ]] || return 2
+    ans=""
+  fi
   [[ "$ans" == y || "$ans" == Y || "$ans" == yes ]]
 }
 
@@ -318,7 +322,14 @@ main(){
   fi
   refuse_cwd_in_state_dir
   if (( ! force )); then
-    confirm || { echo "harness uninstall: aborted — nothing removed."; exit 1; }
+    local crc=0
+    confirm || crc=$?
+    if (( crc == 2 )); then
+      echo "harness uninstall: no terminal to confirm on; re-run with --force to uninstall without asking. Nothing was removed." >&2
+      exit 1
+    elif (( crc )); then
+      echo "harness uninstall: aborted — nothing removed."; exit 1
+    fi
     stop_fleet
   fi
   refuse_live_fleet   # after stop_fleet on the default path: go ahead once its workers are gone
