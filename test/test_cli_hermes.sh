@@ -106,7 +106,7 @@ assert_ok "unpassed, the command saw the log of the lane that started the gatewa
 TMUXLOG="$RUN_DIR/tmux.log"; : > "$TMUXLOG"
 tmux(){ echo "tmux $*" >> "$TMUXLOG"; }; sleep(){ echo "sleep $*" >> "$TMUXLOG"; }
 cli_send sess-x "$WD" "Please continue — x"
-assert_eq "$(cat "$TMUXLOG")" $'tmux send-keys -t sess-x -l Please continue — x\nsleep 0.5\ntmux send-keys -t sess-x Enter' \
+assert_eq "$(grep -v capture-pane "$TMUXLOG")" $'tmux send-keys -t sess-x -l Please continue — x\nsleep 0.5\ntmux send-keys -t sess-x Enter' \
   "the Enter waits for the text to land (a same-burst Enter is a newline in the composer)"
 : > "$TMUXLOG"
 cli_kill sess-x "$WD"

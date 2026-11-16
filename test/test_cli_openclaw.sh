@@ -175,10 +175,11 @@ assert_eq "$(cli_last_reply "$WD" "$UUID")" $'4:s9\nNo route-compatible authenti
 
 # --- send, kill ------------------------------------------------------------------------------------
 TMUXLOG="$RUN_DIR/tmux.log"; : > "$TMUXLOG"
-tmux(){ echo "tmux $*" >> "$TMUXLOG"; }
+tmux(){ echo "tmux $*" >> "$TMUXLOG"; }; sleep(){ echo "sleep $*" >> "$TMUXLOG"; }
 cli_send sess-x "$WD" "HARNESS CHECKPOINT — test"
-assert_eq "$(cat "$TMUXLOG")" $'tmux send-keys -t sess-x -l HARNESS CHECKPOINT — test\ntmux send-keys -t sess-x Enter' \
+assert_eq "$(grep -v capture-pane "$TMUXLOG")" $'tmux send-keys -t sess-x -l HARNESS CHECKPOINT — test\nsleep 0.5\ntmux send-keys -t sess-x Enter' \
   "a checkpoint is typed at the loop's prompt: the next turn's message"
+unset -f sleep
 : > "$TMUXLOG"; ( sleep 31 & sleep 30; wait ) & SL=$!; echo "$SL" > "$WD/.harness-openclaw/running"; sleep 0.3
 kids="$(ps -o pid= --ppid "$SL" | xargs)"
 cli_kill sess-x "$WD"

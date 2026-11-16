@@ -60,7 +60,35 @@ _cli_default_first_input(){ :; }
 # input buffer let two senders merge or lose each other's lines. Its status is the send's (#1126): a line
 # that never reached the session is a failed send, not a silent one.
 _cli_default_send(){ if [[ "$(sess_backend)" == headless ]]; then sess_send_line "$1" "$3" 2>/dev/null; return; fi
-  sess_type "$1" "$3" 2>/dev/null || true; sess_enter "$1" 2>/dev/null; }
+  cli_send_typed "$1" "$3"; }
+# cli_send_typed <sess> <text> — #1201: type <text> into a tmux lane's input box and submit it. An Enter in the same burst as the
+# text reaches the TUI as part of a paste (a newline in the box, no submit), so the Enter waits HARNESS_SEND_ENTER_DELAY_S
+# (default 0.5; 0 = no wait). The pane is then read back: while the start of <text> is still on the input line the Enter was
+# swallowed, so it is sent again after HARNESS_SEND_RETRY_S (default 3) up to 3 times. A line still unsubmitted after that logs
+# `inject_unsubmitted` and fails, so a caller that keeps its message (wait.sh's _wait_deliver) retries it. A pane that cannot
+# be read counts as submitted. The one tmux send path: cli_send, hermes_send and the supervisor's idle nudge.
+cli_send_typed(){ local s="$1" text="$2" pause="${HARNESS_SEND_ENTER_DELAY_S:-0.5}" retry="${HARNESS_SEND_RETRY_S:-3}" tries=0
+  sess_type "$s" "$text" 2>/dev/null || true
+  [[ $pause == 0 ]] || sleep "$pause"
+  sess_enter "$s" 2>/dev/null || return 1
+  while _cli_input_holds "$s" "$text"; do
+    if (( tries++ >= 3 )); then
+      if declare -F stats_sess_event >/dev/null; then stats_sess_event "${s%%:*}" inject_unsubmitted tries=$tries >/dev/null 2>&1; fi
+      echo "inject_unsubmitted: ${s%%:*}: the line is still on the input box after $tries Enters" >&2
+      return 1
+    fi
+    [[ $retry == 0 ]] || sleep "$retry"
+    sess_enter "$s" 2>/dev/null || return 1
+  done
+  return 0; }
+# _cli_input_holds <sess> <text> — the start of <text> (its first 24 characters) is on the pane's last input-prompt line.
+_cli_input_holds(){ local pane ln line head
+  pane="$(sess_capture "$1" 2>/dev/null)" || return 1
+  [[ -n $pane ]] || return 1
+  head="${2%%$'\n'*}"; head="${head:0:24}"; [[ -n $head ]] || return 1
+  ln="$(cli_pane_prompt_line "$pane")"; (( ln > 0 )) || return 1
+  line="$(sed -n "${ln}p" <<<"$pane")"
+  [[ $line == *"$head"* ]]; }
 _cli_default_kill(){ sess_kill "$1" 2>/dev/null; }
 _cli_default_session_id(){ echo "$2"; }
 _cli_default_limit_menu_re(){ :; }

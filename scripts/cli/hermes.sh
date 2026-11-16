@@ -172,9 +172,9 @@ PY
 }
 
 # An Enter that reaches the composer in the same burst as the text is read as a newline in it, not
-# a submit (the text stays in the box): the Enter waits half a second.
+# a submit (the text stays in the box): the Enter waits half a second (cli_send_typed, #1201).
 hermes_send(){ if _hermes_headless; then sess_send_line "$1" "$3" 2>/dev/null; return; fi   # #1137: atomic inbox
-  sess_type "$1" "$3" 2>/dev/null || true; _hermes_headless || sleep 0.5; sess_enter "$1" 2>/dev/null || true; }
+  cli_send_typed "$1" "$3"; }
 # hermes_kill <sess> <wd> — the pane, then the lane's gateway. The TUI leaving interrupts its turn
 # (a pane killed mid-command: `Operation interrupted`), but the gateway daemon outlives it: `gateway
 # stop -y` ends it, interrupting anything it still runs. In the other order the TUI, still up, starts
