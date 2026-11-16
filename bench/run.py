@@ -584,6 +584,8 @@ def measure(fc, st, transcripts):
     tokens = {k: sum(m[k] for m in models.values()) for k in ("input", "output", "cache_read", "cache_write")}
     splits = [s for s in (st.time_split(t) for t in transcripts) if s]
     split = None if not splits else {k: sum(s[k] for s in splits) for k in ("coding_s", "testing_s", "test_calls")}
+    if split:   # wall time inside any agent session: overlapping sessions count once (#1194)
+        split["session_s"] = st.union_s([sp for sp in (st.session_span(t) for t in transcripts) if sp])
     return {"tokens": tokens, "models": models, "cost_usd": round(sum(m["cost_usd"] for m in models.values()), 4),
             "split": split, "cache_write_5m": w5t, "cache_write_1h": w1t, "cache_cost_usd": round(cache_usd, 4),
             "turn_gaps": gap_stats(turn_gaps(fc, st, transcripts))}
@@ -1258,9 +1260,11 @@ def verify_logs(fc, st, doc, logs):
     if "cache_cost_usd" in doc and (not isinstance(doc["cache_cost_usd"], (int, float))
                                     or abs(doc["cache_cost_usd"] - m["cache_cost_usd"]) > 1e-4):
         bad.append(f"cache_cost_usd: results JSON {doc['cache_cost_usd']}, logs {m['cache_cost_usd']}")
-    for k in ("coding_s", "testing_s", "test_calls"):
+    for k in ("coding_s", "testing_s", "test_calls", "session_s"):
         want = (m["split"] or {}).get(k)
         got = doc.get(k)
+        if k == "session_s" and k not in doc:   # results written before #1194 have none
+            continue
         if (got is None) != (want is None) or (got is not None and abs(got - want) > 1e-3):
             bad.append(f"{k}: results JSON {got}, logs {want}")
     if isinstance(doc.get("effort"), dict):   # the effort the transcripts show (#590)

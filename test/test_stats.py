@@ -1386,6 +1386,18 @@ def test_time_split_exact_on_a_fixture_transcript():
         r = st.time_split(tr)
         assert r == {"total_s": 600, "testing_s": 300, "coding_s": 300, "test_calls": 4}, r
 
+def test_session_span_and_union_count_overlapping_sessions_once():   # #1194
+    with host() as d:
+        tr = _timed_transcript(d)
+        a, b = st.session_span(tr)
+        assert b - a == 600, (a, b)
+        assert st.session_span(os.path.join(d, "nope.jsonl")) is None
+        # two sessions of 600s that overlap by 200s cover 1000s of wall time, not 1200s
+        assert st.union_s([(a, a + 600), (a + 400, a + 1000)]) == 1000
+        assert st.union_s([(a, a + 600), (a + 100, a + 200)]) == 600, "a session inside another adds nothing"
+        assert st.union_s([(a, a + 100), (a + 500, a + 600)]) == 200, "a gap between sessions is not covered"
+        assert st.union_s([]) == 0
+
 def test_time_split_command_patterns():
     rx = st.test_command_re()
     for cmd in ("pytest", "python3 -m pytest -x", "bash test/run.sh", "./test/run.sh", "cd a && npm test",

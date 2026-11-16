@@ -269,7 +269,7 @@ def test_figures_show_the_quality_column_and_a_skip():
         p = subprocess.run([sys.executable, "-I", FIGURES, "--results-dir", os.path.join(d, "results"),
                             "--readme", readme], capture_output=True, text=True)
         assert p.returncode == 0, p.stderr
-        text = open(readme).read()
+        text = open(os.path.join(d, "bench", "RESULTS.md")).read()   # the full log (#1194)
         assert "| SonarQube |" in text, text
         assert "bugs 2, vulns 0, smells 7, maint. A, dup 3.5%" in text and "cov" not in text.split("bugs 2")[1].split("\n")[0], text
         assert "n/a (docker is not installed)" in text, text

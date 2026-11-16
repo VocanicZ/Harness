@@ -447,6 +447,30 @@ def time_split(transcript, pattern=None):
             "test_calls": calls}
 
 
+def session_span(transcript):
+    """(start, end) epoch seconds of the session whose main transcript is <transcript> (its sub-agents' beside it
+    included), or None when there is no readable transcript with a timestamp (#1194)."""
+    lo = hi = None
+    for f in transcript_files(transcript):
+        a, b = _call_spans(f, test_command_re(), {}, {})
+        if a is not None:
+            lo = a if lo is None else min(lo, a)
+            hi = b if hi is None else max(hi, b)
+    return None if lo is None else (lo, hi)
+
+
+def union_s(spans):
+    """Seconds covered by the union of (start, end) spans: sessions that overlap in time count once (#1194)."""
+    total, end = 0.0, None
+    for a, b in sorted(spans):
+        if end is not None and a < end:
+            a = end
+        if b > a:
+            total += b - a
+            end = b if end is None else max(end, b)
+    return round(total, 3) if total % 1 else int(total)
+
+
 def session_time_split(session):
     """time_split of claude session <session>'s transcript, or None when the host no longer has it."""
     tr = find_transcript(session)

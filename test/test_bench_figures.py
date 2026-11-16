@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""test_bench_figures.py — #384 (PRD #345): bench/figures.py generates the README Benchmark table and
-the figure from bench/results/. Covered: sample results JSON give the table and an SVG; running twice
+"""test_bench_figures.py — #384 (PRD #345): bench/figures.py generates the README Benchmark table (4 columns, #1194),
+bench/RESULTS.md (the full log) and the figure from bench/results/. Covered: sample results JSON give the table and an SVG; running twice
 gives identical bytes; missing optional data (null splits, no SonarQube, an ungraded run, absent optional
 arms) renders as n/a or "skipped: <reason>", never an error; the SonarQube and Coverage columns are always there; a skipped quality scan marks the run invalid;
 the README is rewritten only between its markers; --check flags stale files; the committed README and
@@ -48,9 +48,15 @@ def readme_with_markers(d):
     return p
 
 
+def full(readme):
+    """The full log (RESULTS.md) generated beside a README: the tables, notes and figure live there (#1194)."""
+    return os.path.join(os.path.dirname(readme), "RESULTS.md")
+
+
 def run(d, *extra, readme=None):
     r = subprocess.run([sys.executable, "-I", FIG, "--results-dir", os.path.join(d, "results"),
-                        "--readme", readme or os.path.join(d, "README.md"), *extra], capture_output=True, text=True)
+                        "--readme", readme or os.path.join(d, "README.md"),
+                        "--results-md", os.path.join(d, "RESULTS.md"), *extra], capture_output=True, text=True)
     return r
 
 
@@ -72,7 +78,7 @@ try:
     readme = readme_with_markers(d)
     r = run(d)
     check("generates without error", r.returncode == 0, r.stderr)
-    text = slurp(readme, "r")
+    text = slurp(full(readme), "r")
     svg_path = os.path.join(d, "results", "benchmark.svg")
     check("figure written", os.path.isfile(svg_path))
     svg = slurp(svg_path, "r") if os.path.isfile(svg_path) else ""
@@ -95,27 +101,28 @@ try:
     put(d, "results", "r1", "harness-3.json", data={"schema": 1, "run_id": "r1", "arm": "harness-3", "status": "skipped",
                                                     "reason": "budget", "skipped_at": "t", "guard": {}})
     run(d)
-    text2 = slurp(readme, "r")
+    text2 = slurp(full(readme), "r")
     check("a skipped <arm>.json renders as skipped: budget", "| Harness (3 workers) | n/a | skipped: budget | n/a |" in text2, text2)
     check("a skipped record is not a plotted arm", "Harness (3 workers)" not in slurp(svg_path, "r"))
     # #577: the cell shows the guard's real cause(s), whatever they are
     put(d, "results", "r1", "harness-3.json", data={"schema": 1, "run_id": "r1", "arm": "harness-3", "status": "skipped",
                                                     "reason": "disk,budget", "skipped_at": "t", "guard": {}})
     run(d)
-    check("a skipped <arm>.json shows every cause", "| Harness (3 workers) | n/a | skipped: disk,budget | n/a |" in slurp(readme, "r"))
+    check("a skipped <arm>.json shows every cause", "| Harness (3 workers) | n/a | skipped: disk,budget | n/a |" in slurp(full(readme), "r"))
     os.remove(os.path.join(d, "results", "r1", "harness-3.json")); run(d)
-    check("no undeleted-repos note while every repo was deleted", "Repos not deleted" not in slurp(readme, "r"))
+    check("no undeleted-repos note while every repo was deleted", "Repos not deleted" not in slurp(full(readme), "r"))
     # #578: a run that left its repo behind says so in the README
     put(d, "results", "r1", "plain.json", data=doc("plain", repo="o/bench-r1-plain", repo_deleted=False))
     run(d)
-    left = slurp(readme, "r")
+    left = slurp(full(readme), "r")
     check("an undeleted repo is named in the README", "**Repos not deleted:**" in left and "`o/bench-r1-plain`" in left
           and "`repo_deleted: false`" in left and "bench-r1-harness" not in left, left)
     check("--check passes with the undeleted note", run(d, "--check").returncode == 0)
     put(d, "results", "r1", "plain.json", data=doc("plain")); run(d)
     check("figure referenced relative to README", "![Benchmark: wall time and list-price cost per arm](results/benchmark.svg)" in text, text)
+    readme_text = slurp(readme, "r")
     check("hand-written text outside the markers untouched",
-          text.startswith("# T\n\nintro by hand\n\n## Benchmark\n\n<!-- bench:begin") and text.endswith("<!-- bench:end -->\n\ntail by hand\n") and "OLD" not in text)
+          readme_text.startswith("# T\n\nintro by hand\n\n## Benchmark\n\n<!-- bench:begin") and readme_text.endswith("<!-- bench:end -->\n\ntail by hand\n") and "OLD" not in readme_text)
     first = (slurp(readme), slurp(svg_path))
     r2 = run(d)
     check("second run succeeds", r2.returncode == 0, r2.stderr)
@@ -140,7 +147,7 @@ try:
     put(d2, "results", "r1", "harness.json", data=doc("harness"))
     readme2 = readme_with_markers(d2)
     r = run(d2)
-    t2 = slurp(readme2, "r")
+    t2 = slurp(full(readme2), "r")
     check("SonarQube column shows a result's measures", r.returncode == 0 and "| SonarQube |" in t2 and "bugs 1, vulns 0, smells 7, maint. A |" in t2 and "cov 81.5" not in t2, t2 + r.stderr)
     check("arm without SonarQube data shows n/a (not measured)", "| claude-opus-4-1 | n/a (not measured) | n/a (not measured) |\n" in t2, t2)
 
@@ -153,9 +160,10 @@ try:
                                                       coverage="skipped (coverage.py is not installed)"))
     readme9 = readme_with_markers(d9)
     r = run(d9)
-    t9 = slurp(readme9, "r")
+    t9 = slurp(full(readme9), "r")
     check("a skipped quality scan marks the run invalid at the top of the section",
-          r.returncode == 0 and "**INVALID RUN: rerun.**" in t9.split("Generated by")[0]
+          r.returncode == 0 and "**INVALID RUN: rerun.**" in t9.split("Generated by `bench/figures.py` from")[0]
+          and "**INVALID RUN: rerun.**" in slurp(readme9, "r")
           and "Harness (1 worker): quality skipped (Not enough free disk space for Elasticsearch)" in t9
           and "Plain Claude Code: quality" not in t9, t9)
     check("coverage cell: total, line and branch %", "| 94% (line 95.7%, branch 86.7%) |" in t9, t9)
@@ -165,11 +173,11 @@ try:
     put(d9, "results", "r1", "harness.json", data=doc("harness", quality="ok", sonarqube=sq,
                                                       coverage={"line_pct": 98.7, "branch_pct": 97.8}))
     run(d9)
-    t9 = slurp(readme9, "r")
+    t9 = slurp(full(readme9), "r")
     check("every arm's scan ok: the run is not marked invalid", "INVALID" not in t9 and "| line 98.7%, branch 97.8% |" in t9, t9)
     put(d9, "results", "r1", "harness.json", data=doc("harness"))   # no quality key at all: not measured is invalid too
     run(d9)
-    check("an arm with no quality result is invalid too", "Harness (1 worker): quality not measured" in slurp(readme9, "r"))
+    check("an arm with no quality result is invalid too", "Harness (1 worker): quality not measured" in slurp(full(readme9), "r"))
 
     # --- missing data never errors ---------------------------------------------------------
     d3 = os.path.join(tmp, "sparse"); os.makedirs(d3)
@@ -182,7 +190,7 @@ try:
         fh.write("{not json")
     readme3 = readme_with_markers(d3)
     r = run(d3)
-    t3 = slurp(readme3, "r")
+    t3 = slurp(full(readme3), "r")
     check("sparse results do not error", r.returncode == 0, r.stderr)
     check("null split, window and models render n/a", "| Plain Claude Code | n=1 | error | 1h 02m | n/a | n/a | 13.1M |" in t3 and "| n/a | n/a | n/a (not graded) | n/a | n/a | n/a |" in t3, t3)
     check("a result with only an arm name renders a row", "| odd | n=1 | n/a | n/a | n/a | n/a | n/a | n/a / n/a / n/a / n/a | n/a |" in t3, t3)
@@ -193,7 +201,7 @@ try:
     d4 = os.path.join(tmp, "empty"); os.makedirs(d4)
     readme4 = readme_with_markers(d4)
     r = run(d4)
-    check("no results: ok, says so, no figure", r.returncode == 0 and "No benchmark results are committed yet" in slurp(readme4, "r")
+    check("no results: ok, says so, no figure", r.returncode == 0 and "No benchmark results are committed yet" in slurp(full(readme4), "r")
           and not os.path.exists(os.path.join(d4, "results", "benchmark.svg")), r.stderr)
     r = run(d4, "--run-id", "nope")
     check("unknown --run-id exits 2", r.returncode == 2, r.stderr)
@@ -209,9 +217,9 @@ try:
     put(d5, "results", "2026-11-02", "plain.json", data=doc("plain", run_id="2026-11-02", cost_usd=2.0))
     readme5 = readme_with_markers(d5)
     run(d5)
-    check("latest run is shown", "$2.00" in slurp(readme5, "r") and "results/2026-11-02/" in slurp(readme5, "r"))
+    check("latest run is shown", "$2.00" in slurp(full(readme5), "r") and "results/2026-11-02/" in slurp(full(readme5), "r"))
     run(d5, "--run-id", "2026-11-01")
-    check("--run-id selects an older run", "$1.00" in slurp(readme5, "r") and "$2.00" not in slurp(readme5, "r"))
+    check("--run-id selects an older run", "$1.00" in slurp(full(readme5), "r") and "$2.00" not in slurp(full(readme5), "r"))
 
     # --- #583: bars are wall_s long; time outside sessions is its own segment ----------------
     d6 = os.path.join(tmp, "geom"); os.makedirs(d6)
@@ -236,7 +244,7 @@ try:
           abs(bars[1][2][1] - 4500 / 6000 * 250) <= 0.2 and abs(bars[0][2][1] - 200 / 6000 * 250) <= 0.2, str(bars))
     check("an arm without a split is one unsplit wall bar", [r[2] for r in bars[2]] == ["#9aa0a6"], str(bars[2]))
     check("the legend names the outside-sessions segment", "outside sessions" in sv6 and "#b8a2d6" in sv6)
-    t6 = slurp(readme6, "r")
+    t6 = slurp(full(readme6), "r")
     check("README says what Coding/Testing measure and what the rest of Wall time is",
           "Coding and Testing count time inside agent sessions" in t6 and "rest of Wall time is time outside them" in t6, t6)
     # a split that overruns wall_s (not a measured outcome) still tiles the bar, with no negative segment
@@ -252,14 +260,14 @@ try:
     put(d7, "results", "r1", "plain.json", data=doc("plain"))
     run(d7)
     check("no config sentence or note when no arm recorded one",
-          "Claude config" not in slurp(readme7, "r") and "**Note" not in slurp(readme7, "r"))
+          "Claude config" not in slurp(full(readme7), "r") and "**Note" not in slurp(full(readme7), "r"))
     put(d7, "results", "r1", "harness.json", data=doc(
         "harness", claude_config={"source": "front-door init", "skills": 186, "plugins": 6, "mcp_servers": 4},
         note="Fixed the tmux dir by hand\nand restarted once."))
     put(d7, "results", "r1", "plain.json", data=doc(
         "plain", claude_config={"source": "front-door init", "skills": 0, "plugins": 0, "mcp_servers": 0}))
     run(d7)
-    t7 = slurp(readme7, "r")
+    t7 = slurp(full(readme7), "r")
     check("the loaded config is stated under the table, with its counts",
           "**Claude config:** the Harness (1 worker) arm's sessions ran on the operator's own Claude setup, not an isolated "
           "one: its front-door init loaded 186 skills, 6 user plugins and 4 MCP servers" in t7, t7)
@@ -273,7 +281,7 @@ try:
     put(d7, "results", "r1", "harness.json", data=doc("harness", claude_config={"skills": "many"}, note="  "))
     run(d7)
     check("a malformed claude_config and a blank note render nothing for that arm",
-          "Harness (1 worker)'s" not in slurp(readme7, "r") and "**Note, Harness" not in slurp(readme7, "r"))
+          "Harness (1 worker)'s" not in slurp(full(readme7), "r") and "**Note, Harness" not in slurp(full(readme7), "r"))
 
     # --check re-reads the config and the restarts from the committed logs (the front door's stream, run.log)
     d8 = tempfile.mkdtemp(dir=tmp)
@@ -313,7 +321,7 @@ try:
         claude_config={"source": "front-door init", "skills": 21, "plugins": 2, "mcp_servers": 0},
         isolation={"config": "isolated", "engine_skills": ["harness"] * 19, "engine_plugins": ["ralph-loop", "superpowers"]}))
     run(d10)
-    t10 = slurp(readme10, "r")
+    t10 = slurp(full(readme10), "r")
     check("the matched arm has a table row of its own, not a skipped one", "| Harness (all Opus, plain's effort) | n=1 | within caps" in t10, t10)
     check("each arm's models, effort, asked-for settings and provenance are stated under the table",
           "**Run settings, Plain Claude Code:** models claude-opus-4-1; effort by message medium (42); asked for model default, "
@@ -330,7 +338,7 @@ try:
     readme11 = readme_with_markers(d11)
     put(d11, "results", "r1", "plain.json", data=doc("plain"))
     run(d11)
-    t11 = slurp(readme11, "r")
+    t11 = slurp(full(readme11), "r")
     check("an arm without settings records adds no Run settings line, and the matched arm shows as not run",
           "Run settings" not in t11 and "| Harness (all Opus, plain's effort) | n/a | skipped: not run" in t11, t11)
 
@@ -344,7 +352,7 @@ try:
     put(d9, "results", "r1", "harness-3.json", data=doc("harness-3", fuzz_error="fuzz did not run: OSError"))
     readme9 = readme_with_markers(d9)
     run(d9)
-    t9 = slurp(readme9, "r")
+    t9 = slurp(full(readme9), "r")
     check("fuzz divergences per arm in the table", "| 17 / 20 | 250 / 1000 | n/a | n/a | 12 commits |" in t9 and "| 17 / 20 | 0 / 1000 |" in t9, t9)
     check("an arm whose fuzz could not run says so", "| 17 / 20 | n/a (fuzz error) | n/a | n/a |" in t9, t9)
     check("the fuzz note names what is counted, the seed and the hash",
@@ -368,7 +376,7 @@ try:
                                                        review=dict(rev, versus="plain", mean_gap=1.3)))
     readme20 = readme_with_markers(d20)
     run(d20)
-    t20 = slurp(readme20, "r")
+    t20 = slurp(full(readme20), "r")
     check("classes and review per arm in the table",
           "| 130 / 1000 | 2 | 6.2 | " in t20 and "| 9 / 1000 | 1 | 7.5 | " in t20, t20)
     check("the notes name the classes, the scripted review and the ship rule",
@@ -403,7 +411,7 @@ try:
     put(d12, "results", "r1", "hx.json", data=doc("hx"))        # a legacy single-run result beside the batches
     readme12 = readme_with_markers(d12)
     r12 = run(d12)
-    t12 = slurp(readme12, "r")
+    t12 = slurp(full(readme12), "r")
     svg12 = slurp(os.path.join(d12, "results", "benchmark.svg"), "r")
     check("a batch renders without error", r12.returncode == 0, r12.stderr)
     check("the table has an n column: n=3, n=2 of 5 for a stopped batch, n=1 for a single run",
@@ -446,7 +454,7 @@ try:
                                                   "runs": qruns, "aggregate": a13})
     readme13 = readme_with_markers(d13)
     r13 = run(d13)
-    t13 = slurp(readme13, "r")
+    t13 = slurp(full(readme13), "r")
     cov_cell = [c.strip() for c in t13.splitlines() if c.startswith("| Plain Claude Code")][0].split("|")[-2].strip()
     check("coverage cell: median (min-max) over the runs that measured it", r13.returncode == 0
           and cov_cell == "89% (85%–93%) (line 93% (90%–96%), branch 85% (80%–90%))", cov_cell + t13 + r13.stderr)
@@ -467,14 +475,109 @@ try:
     batch_docs("plain", [("error", 1.0, 5, 0, 0), ("ok", 12.0, 600, 70, 5)], 3,
                {"reason": "arm-error", "detail": "the arm failed"})
     run(d12)
-    t13 = slurp(readme12, "r")
+    t13 = slurp(full(readme12), "r")
     check("an errored run is not in the medians but shows in the cap status",
           "| Plain Claude Code | n=1 of 3 | 1 error, 1 within caps | 10m 00s |" in t13 and "$12.00 |" in t13, t13)
     batch_docs("plain", [("error", 1.0, 5, 0, 0)], 3, {"reason": "arm-error", "detail": "the arm failed"})
     r14 = run(d12)
-    t14 = slurp(readme12, "r")
+    t14 = slurp(full(readme12), "r")
     check("a batch with no finished run renders n=0 and n/a, not an error",
           r14.returncode == 0 and "| Plain Claude Code | n=0 of 3 | error | n/a | n/a | n/a | n/a |" in t14, t14 + r14.stderr)
+
+    # --- #1194: the README is a 4-column table and a link; RESULTS.md is the full log -----------------
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("t_figures", FIG)
+    figmod = importlib.util.module_from_spec(spec); spec.loader.exec_module(figmod)
+
+    d15 = os.path.join(tmp, "four"); os.makedirs(d15)
+    put(d15, "results", "r1", "plain.json", data=doc(
+        "plain", wall_s=180, coding_s=170, testing_s=5, cost_usd=0.54, quality="ok", sonarqube={"bugs": 0}, coverage="skipped (x)",
+        hidden_tests={"passed": 80, "failed": 0, "total": 80, "details": {}}, fuzz_cases=1000, fuzz_divergences=9, fuzz_classes=3))
+    put(d15, "results", "r1", "harness-3.json", data=doc(
+        "harness-3", wall_s=1365, coding_s=1200, testing_s=100, cost_usd=3.93, quality="ok", sonarqube={"bugs": 0}, coverage="skipped (x)",
+        hidden_tests={"passed": 80, "failed": 0, "total": 80, "details": {}}, fuzz_cases=1000, fuzz_divergences=0, fuzz_classes=0))
+    put(d15, "results", "r1", "skipped.json", data={"hx": "no-information (operator): a long explanation that does not belong in the README"})
+    readme15 = readme_with_markers(d15)
+    r = run(d15)
+    t15 = slurp(readme15, "r")
+    sect = t15.split("<!-- bench:begin")[1].split("<!-- bench:end -->")[0]
+    check("README table has exactly 4 columns", "| Arm | Time spent | Cost | Quality |\n|---|---|---|---|\n" in sect and "Wall time" not in sect, sect)
+    check("README plain row: median time, cost, tests and fuzz classes",
+          "| Plain Claude Code (n=1) | 3m 00s | $0.54 | 80/80 tests, 3 edge-case bug classes |" in sect, sect)
+    check("README 0 fuzz classes read no edge-case bugs",
+          "| Harness (3 workers) (n=1) | 22m 45s | $3.93 | 80/80 tests, no edge-case bugs |" in sect, sect)
+    check("README skipped arm is one row with a short reason",
+          "| Hx | — | — | skipped: no-information |" in sect and "explanation" not in sect, sect)
+    check("README has no figure and no notes, and links the full log",
+          "![" not in sect and "**Runs:**" not in sect and "**Ship rule:**" not in sect and "Claude config" not in sect
+          and sect.rstrip().endswith("Full results, ranges, per-run data and run settings: [bench/RESULTS.md](bench/RESULTS.md)"), sect)
+    check("README table is not a 19-column table", max(l.count("|") for l in sect.splitlines()) <= 6, sect)
+    res15 = slurp(full(readme15), "r")
+    check("RESULTS.md holds the full table, figure, notes and definitions",
+          "| Wall time | Coding | Testing |" in res15 and "![Benchmark: wall time and list-price cost per arm](results/benchmark.svg)" in res15
+          and "**Ship rule:**" in res15 and "**Fuzz classes:**" in res15 and res15.startswith("# Benchmark results"), res15[:400])
+    check("--check passes, then fails on a stale RESULTS.md, and again on a missing one",
+          run(d15, "--check").returncode == 0)
+    with open(full(readme15), "w", newline="\n") as fh:
+        fh.write(res15.replace("**Ship rule:**", "**Ship rules:**"))
+    r = run(d15, "--check")
+    check("--check flags a stale RESULTS.md", r.returncode == 1 and "RESULTS.md" in r.stderr, r.stderr)
+    os.remove(full(readme15))
+    check("--check flags a missing RESULTS.md", run(d15, "--check").returncode == 1)
+    run(d15)
+    check("a run rewrites RESULTS.md byte for byte", slurp(full(readme15), "r") == res15)
+
+    # a stopped arm (no completed run) is a one-line row with the reason
+    d16 = os.path.join(tmp, "stopped"); os.makedirs(d16)
+    put(d16, "results", "r1", "plain.json", data={"schema": 1, "run_id": "r1", "arm": "plain", "status": "aggregate", "runs_requested": 3,
+                                                  "runs_completed": 0, "runs": [], "stopped": {"reason": "operator", "detail": "ended by hand: more words"}})
+    readme16 = readme_with_markers(d16)
+    run(d16)
+    s16 = slurp(readme16, "r")
+    check("a stopped arm with no completed run is one row with the reason",
+          "| Plain Claude Code (n=0 of 3) | — | — | stopped: operator |" in s16, s16)
+
+    # the time bar is exactly the median wall time: overlapping sessions (sum > wall) cannot lengthen it
+    over = doc("harness", wall_s=5000, coding_s=8000.0, testing_s=400.0, session_s=4900)
+    seg = figmod.time_segments(over)
+    check("time bar total equals wall_s when the sessions' seconds sum to more than the wall time",
+          seg is not None and seg[3] == 5000 and abs(seg[0] + seg[1] + seg[2] - 5000) < 0.01 and seg[2] > 0, seg)
+    check("coding and testing are wall-time shares in proportion, clipped to the union of the sessions",
+          abs(seg[0] + seg[1] - 4900) < 0.01 and abs(seg[1] / (seg[0] + seg[1]) - 400 / 8400) < 0.001, seg)
+    seg = figmod.time_segments(doc("harness", wall_s=3000, coding_s=8000.0, testing_s=400.0))
+    check("without session_s the split is clipped to wall: no outside segment, the bar is still wall long",
+          seg[3] == 3000 and abs(seg[0] + seg[1] - 3000) < 0.01 and seg[2] == 0, seg)
+    seg = figmod.time_segments(doc("plain", wall_s=100, coding_s=None, testing_s=None))
+    check("no split: one unsplit segment wall long", seg == (None, None, None, 100), seg)
+    # several runs: the bar is the median wall time and never runs past its own max whisker
+    d17 = os.path.join(tmp, "overlap"); os.makedirs(d17)
+    runs17 = []
+    for i, (w, sess) in enumerate(((3000, 2900), (5000, 4900), (7000, 6900)), 1):
+        put(d17, "results", "r1", "harness.runs", "run-%02d.json" % i, data=doc(
+            "harness", run=i, wall_s=w, coding_s=sess * 1.6, testing_s=sess * 0.1, session_s=sess))
+        runs17.append({"run": i, "file": "harness.runs/run-%02d.json" % i, "status": "ok"})
+    put(d17, "results", "r1", "harness.json", data={"schema": 1, "run_id": "r1", "arm": "harness", "status": "aggregate",
+                                                    "runs_requested": 3, "runs_completed": 3, "runs": runs17})
+    arms17, _ = figmod.load_run(os.path.join(d17, "results"), "r1")
+    seg = figmod.time_segments(arms17["harness"])
+    check("a batch's bar is its median wall time, longer than no run's wall time and inside its whisker",
+          seg[3] == 5000 and seg[3] <= figmod.metric(arms17["harness"], "wall_s")["max"] and seg[2] > 0, seg)
+
+    # the committed numbers: the README cells agree with the committed run files, not with constants
+    cm = os.path.join(ROOT, "bench", "results", "run-20261115")
+    committed = slurp(os.path.join(ROOT, "README.md"), "r")
+    def med(arm, key):
+        return json.load(open(os.path.join(cm, arm + ".json")))["aggregate"]["metrics"][key]["median"]
+    for arm, label in (("plain", "Plain Claude Code"), ("harness-3", "Harness (3 workers)")):
+        want = "%d/%d tests, " % (med(arm, "hidden_passed"), med(arm, "hidden_total")) + (
+            "no edge-case bugs" if med(arm, "fuzz_classes") == 0 else "%d edge-case bug classes" % med(arm, "fuzz_classes"))
+        row = [l for l in committed.splitlines() if l.startswith("| %s (n=" % label)][0]
+        check("committed README %s quality cell is what its run files say (%s)" % (label, want), row.endswith("| " + want + " |"), row)
+    ones = figmod.load_run(os.path.join(ROOT, "bench", "results"), "run-20261115")[0]["harness"]
+    seg = figmod.time_segments(ones)
+    check("committed Harness (1 worker) bar is its 1h 24m wall time, with an outside-sessions segment",
+          figmod.dur(seg[3]) == "1h 24m" and seg[3] == figmod.val(ones, "wall_s") and seg[2] > 0
+          and seg[3] <= figmod.metric(ones, "wall_s")["max"], seg)
 
     # --- the committed README and figure are current with the committed results -------------
     r = subprocess.run([sys.executable, "-I", FIG, "--check"], capture_output=True, text=True)

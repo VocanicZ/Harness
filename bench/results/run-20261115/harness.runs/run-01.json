@@ -13,6 +13,7 @@
   "coding_s": 3809.6440000000002,
   "testing_s": 329.041,
   "test_calls": 43,
+  "session_s": 2455.02,
   "tokens": {
     "input": 360,
     "output": 111773,

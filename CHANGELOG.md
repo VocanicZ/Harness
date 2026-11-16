@@ -9,6 +9,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - On Windows, `install.sh` read the identity from the current directory's git config, so running it inside a repo with a local `user.name` reported the identity as set even when the global one, which lanes use in other repos, was missing. It now reads `git config --global` (`GIT_AUTHOR_*` in the environment still counts).
 - `HARNESS_INSTALL_PREREQS` accepts `1`/`yes`/`y`/`true`/`on` and `0`/`no`/`n`/`false`/`off`, in any case. Any other value is named on stderr (`HARNESS_INSTALL_PREREQS='maybe' is not yes or no`) and ignored, so the installer asks as before. `test/test_install_prereqs.sh`, `test/test_windows_installer.sh`.
 
+### The README Benchmark is a 4-column table, the full log is `bench/RESULTS.md`, and the time bar is wall time (#1194)
+
+- The README **Benchmark** section is now one sentence, one table per fixture size that has runs with only **Arm**, **Time spent**, **Cost** and **Quality** (hidden tests passed, and the median edge-case bug classes), and a link to the full log. **When to use Harness** keeps only its crossover and tier-threshold sentences. Everything that was removed (the full tables with ranges, the figure, the per-arm notes, run settings, the fuzz and ship-rule definitions, the stopped-early notes, the crossover tables) is in the new generated `bench/RESULTS.md`; `bench/figures.py --check` and `bench/crossover.py --check` cover it byte for byte.
+- The figure's time bar drew the Harness (1 worker) arm about 2h12m long under a "1h 24m" label: coding and testing were summed over every agent session, and Harness sessions overlap. The bar is now exactly the median wall time; coding and testing are shares of the wall time the sessions actually covered (the union of their intervals, recorded as `session_s` in the results), and the rest is "outside sessions".
+
 ### `harness attach` to a headless lane ends once the lane has ended (#1129)
 
 - When the attached headless lane ended, `harness attach` stayed blocked in `read` until the next keystroke and only then noticed. The read is now timed and the lane is checked every `HARNESS_ATTACH_POLL_S` seconds (default 2), also once stdin is closed: attach prints `headless lane <name> has ended` on stderr and exits 1 within a few seconds. `test/test_headless_attach.sh` covers it.
