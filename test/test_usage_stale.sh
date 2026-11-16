@@ -106,6 +106,19 @@ assert_eq "$(claude_limit_usage | cut -f1 | sort | tr '\n' ' ')" "main other " "
 rm -f "$HARNESS_FLEETS_DIR"/*.json
 assert_eq "$(claude_limit_usage | cut -f1 | tr '\n' ' ')" "" "no registry: only our own drops (none here)";
 
+# a registry entry written by bash on Windows names the run dir in the MSYS spelling (/c/x), which native
+# Python cannot open (#1109): the reader maps it through native_path first. Forced-Windows here, with a fake
+# cygpath standing in for the mount table: /msys/sibling is FLEETS_SIB's native spelling.
+reset_state
+mkdir -p "$HARNESS_FLEETS_DIR"
+printf '#!/usr/bin/env bash\ncase "$2" in /msys/sibling) printf "%%s\\n" "%s";; *) printf "%%s\\n" "$2";; esac\n' "$FLEETS_SIB" > "$RUN_DIR/fake-cygpath"
+chmod +x "$RUN_DIR/fake-cygpath"
+printf '{"prefix":"sib","project":"/p/sib","run_dir":"/msys/sibling"}' > "$HARNESS_FLEETS_DIR/sib.json"
+drop "$FLEETS_SIB/usage" main 77 60
+assert_eq "$(HARNESS_PLATFORM=windows HARNESS_CYGPATH="$RUN_DIR/fake-cygpath" claude_limit_usage | cut -f1-3)" "$(printf 'main\tseven_day\t77')" \
+  "a sibling whose run_dir is spelled /msys/… is still read (native_path)"
+rm -f "$HARNESS_FLEETS_DIR"/*.json
+
 # ── 5: the 5th column is the winning reading's own time ────────────────────────────────────────────
 reset_state
 drop "$(_usage_dir)" main 70 $(( 31 * 60 ))
