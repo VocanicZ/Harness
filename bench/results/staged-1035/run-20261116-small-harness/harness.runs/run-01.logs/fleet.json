@@ -1,0 +1,8 @@
+{
+  "state_dir": "/tmp/hzt-2474852314/bench-run-fw441u51/clone/.harness",
+  "harness_home": "/tmp/hzt-2474852314/bench-run-fw441u51/harness-home",
+  "prefix": "bn42d5d",
+  "workers": 1,
+  "repo": "VocanicZ/bench-run-20261116-small-harness-harness-r01",
+  "stop": "harness stop --state-dir /tmp/hzt-2474852314/bench-run-fw441u51/clone/.harness"
+}
