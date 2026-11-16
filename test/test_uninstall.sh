@@ -92,6 +92,16 @@ assert "decline leaves the project .harness/ intact" "[[ -e '$R2/proj/.harness' 
 assert "decline leaves /harness skills intact"     "[[ -e '$R2/.claude/skills/harness' ]]"
 assert "decline leaves the .gitignore entry intact" "grep -qxF '.harness/' '$R2/proj/.gitignore'"
 
+# ── #1133: no terminal to confirm on → says why on stderr, stdout stays empty, nothing removed ──
+R2b="$(mktemp -d)"; mk_layout "$R2b"
+o2b="$(HARNESS_HOME="$R2b/.harness" HARNESS_BIN_DIR="$R2b/bin" HARNESS_USER_SKILLS="$R2b/.claude/skills" \
+       STATE_DIR="$R2b/proj/.harness" bash "$UNINSTALL" </dev/null 2>"$R2b/err")"; rc2b=$?
+assert "1133 no terminal, no --force: exits 1"                  "[[ $rc2b -eq 1 ]]"
+assert "1133 no terminal: stderr names the reason and --force"  "[[ \"\$(tail -n1 '$R2b/err')\" == 'harness uninstall: no terminal to confirm on; re-run with --force to uninstall without asking. Nothing was removed.' ]]"
+assert "1133 no terminal: nothing on stdout"                    "[[ -z \"\$o2b\" ]]"
+assert "1133 no terminal: nothing removed"                      "[[ -e '$R2b/.harness/engine' && -e '$R2b/proj/.harness' && -e '$R2b/.claude/skills/harness' ]]"
+rm -rf "$R2b"
+
 # ── default STOPS the fleet first; --force SKIPS the stop guard (precise control flow) ──
 # Source with the NOMAIN guard, then stub stop_fleet (records it ran) + the removal funcs (no-op)
 # so we observe ONLY which steps main invokes, on real temp paths. Not exported → subprocess
