@@ -123,8 +123,5 @@ printf '#!/bin/sh\necho Linux\n' >"$T/uname"
 out="$(pb "$T" posix)"
 assert_eq "$(tail1 "$out")" "rc=1 run=0 fail=0" "posix_branch_off_windows on Linux: not handled (status 1), nothing asserted — the POSIX cells run"
 assert_eq "$(sed '$d' <<<"$out")" "" "… and prints nothing"
-# no test prints the old nameless SKIP, and the old helper name is gone
-leaks="$(grep -lE 'POSIX branch, no counterpart|skip_posix_branch' "$HERE"/test_*.sh "$HERE"/test_*.py "$HERE/helpers.sh" 2>/dev/null | grep -v '/test_windows_skip.sh$')"
-assert_eq "$leaks" "" "no test prints a SKIP that names no n/a matrix row for a POSIX branch (#1117)"
-assert_no "test_portable.py prints no SKIP for a POSIX branch" grep -qE 'print\(" +SKIP' "$HERE/test_portable.py"
+# the static scan (no test calls the removed skip_posix_branch or prints a nameless POSIX-branch SKIP) is a guard now: test_static_skip_lints.sh (#1229)
 finish
