@@ -11,6 +11,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 ### `harness uninstall` with no terminal says why it did not remove anything (#1133)
 
 - Run with no terminal (stdin closed or at end of file) and without `--force`, `harness uninstall` printed only `aborted — nothing removed.` on stdout. It now prints `harness uninstall: no terminal to confirm on; re-run with --force to uninstall without asking. Nothing was removed.` on stderr, leaves stdout empty and still exits 1. A typed or piped `n` keeps the old abort line. `test/test_uninstall.sh`.
+
 ### `harness attach` and `harness status` print config values and session names escaped (#1124)
 
 - With a form feed in `HARNESS_PREFIX`, `harness attach xx` printed `no live session 'p<FF>z-xx-p0'` with the raw control character, and a U+2028 split the line on screen. `attach` (its error, its session lists) and `status` (the `prefix:` line, session names, sibling fleets, bug refs, open PRs) now escape them as `harness stats` and `harness tier` do (#952, #1003): `\u000c` for a form feed, `\u2028` for U+2028, any other C0 or C1 control character, DEL and U+2029 as `\uXXXX`, a newline `\n`, a tab `\t`. The helper is `vis` in `scripts/lib.sh`; `test_attach_status_vis.sh` covers it.
