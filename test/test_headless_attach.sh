@@ -148,6 +148,7 @@ assert_no "…no CR left in what it said" grep -q $'\r' <<<"$win"
 
 echo "== attach: Ctrl-C detaches and leaves the lane running =="
 STATE_BEFORE="$(cat "$(headless_lane_dir "$S")/state.json")"
+DETACH_T0=$SECONDS
 if (( SIGINT_OK )); then
   kill -INT "$APID"
   assert_ok "the attach process exits" wait_until 10 gone "$APID"
@@ -162,6 +163,8 @@ if ! gone "$APID"; then
   kill -TERM "$APID" 2>/dev/null; wait_until 5 gone "$APID" || { kill -KILL "$APID" 2>/dev/null; wait_until 5 gone "$APID"; }
 fi
 assert_ok "…and no attach is left alive" gone "$APID"
+# #1234: test_signal_defaults.sh bounds THIS number, the detach (Ctrl-C, then the TERM/KILL fallback), not the length of the file.
+echo "  detach took $((SECONDS - DETACH_T0))s"
 wait "$APID"; rc=$?
 assert_eq "$rc" 0 "…cleanly"
 assert_ok "it says it detached" grep -qF "detached; headless lane $S keeps running" "$OUT"
@@ -175,6 +178,9 @@ if command -v pgrep >/dev/null 2>&1; then
   assert_no "the watch it started is gone" pgrep -f "claude_headless.py watch --lane $(headless_lane_dir "$S")"
 fi
 exec 7<&-
+# #1234: with HAT_ATTACH_IGNORE_INT the run is only there to show the failed detach ends bounded and leaves no attach behind
+# (test_signal_defaults.sh). Nothing after this is about SIGINT, so it stops here and the run's length no longer grows with the file.
+[[ -n "${HAT_ATTACH_IGNORE_INT:-}" ]] && { finish; exit; }
 
 echo "== attach: a lane that ends while nobody types ends the attach (#1129) =="
 # A second lane, so the one above stays for the sections after this. The attach's stdin is a fifo nobody writes
