@@ -61,3 +61,4 @@ assert_eq "$(cat "$EVENTS")" "" "no session_end emitted"
 assert_eq "$(cat "$SWEPT")" "" "no sess_sweep / proc_sweep_session call"
 at "$L"; assert_ok "the live session is still up on its own server" tmux has-session -t hzfk-live
 assert_ok "sess_server_reachable is true again once the server is reachable" sess_server_reachable
+finish

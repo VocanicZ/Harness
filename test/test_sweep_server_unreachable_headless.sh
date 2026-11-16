@@ -28,3 +28,4 @@ for e in goal wd loop loop.lock stats; do assert_no "headless: a session no lane
 assert_no "headless: the .wd-only orphan is swept" test -e "$RUN_DIR/hzfk-wdonly.wd"
 assert_eq "$(cat "$EVENTS")" "session_end" "headless: session_end emitted"
 assert_eq "$(cat "$SWEPT")" "uuid-hzfk-dead" "headless: sess_sweep ran"
+finish
