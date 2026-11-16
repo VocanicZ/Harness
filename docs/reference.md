@@ -705,8 +705,9 @@ work is built and tested against; `test/test_windows_parity_doc.sh` keeps it com
 How to read a cell:
 
 - `✓` — works there. On Windows that means it has run on a real host (winsma, the owner's Windows 10 desktop, under the rules in
-  [windows-smoke.md](windows-smoke.md)), and the cell names the test and the committed log under `test/smoke/logs/` that show it, or it is
-  part of a path that did. "Not verified on winsma" is never a reason to write `n/a`.
+  [windows-smoke.md](windows-smoke.md)), and the cell names the test and the newest committed log under `test/smoke/logs/` that show it, or it is
+  part of a path that did. `test/test_windows_parity_doc.sh` fails on a Windows `✓` that cites no log or test, one that cites a file that is
+  not committed, and one that cites a log a newer run of the same script has superseded (#1141). "Not verified on winsma" is never a reason to write `n/a`.
 - `✓ target (#N …)` — a row can no longer be left like this: PRD #475 is done, `test/test_windows_parity_doc.sh` fails on any `✓ target`,
   and a new feature gets a `✓` with its evidence in the same change that adds it.
 - `n/a: <reason> ([source](https://…))` — Windows physically cannot do it. Allowed only for an external Linux-only service (HTCondor swarm submission)
@@ -720,44 +721,44 @@ inject and `--with-skills`, and the other CLIs' live headless smokes on the clau
 
 | feature | Linux | Windows |
 |---|---|---|
-| `harness install` | ✓ | ✓ |
-| `harness version` | ✓ | ✓ |
-| `harness update` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
+| `harness install` | ✓ | ✓ (`install.sh` on winsma, exit 0, engine linked, `harness` resolves; `test/test_install.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
+| `harness version` | ✓ | ✓ (`test/test_version.sh`; winsma run: `harness version` names the installed release after install, update and rollback: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
+| `harness update` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
 | `harness release` | ✓ | ✓ (`harness release --dry-run` in a checkout, `test/test_release.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness poll` | ✓ | ✓ (`harness poll --once` and `--status`, `test/test_poller.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness stats` | ✓ | ✓ (text, `--json`, `--issue`; `test/test_stats.py`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and on the real lane of the live smoke: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
 | `harness forecast` | ✓ | ✓ (`test/test_forecast.py`; winsma run on fixture lanes with transcripts: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and on the live lane: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
 | `harness supervise` | ✓ | ✓ (a killed worker is restarted by the supervisor; `test/test_supervise_headless.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness web` | ✓ | ✓ (the dashboard answers on a private port, `/`, `/api/host`, a 404; `test/test_web.py`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
-| `harness init` | ✓ | ✓ |
-| `harness start` | ✓ | ✓ |
-| `harness stop` | ✓ | ✓ |
+| `harness init` | ✓ | ✓ (`test/test_init.sh`; winsma run: the live smoke runs `harness init` on the real sign-in: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
+| `harness start` | ✓ | ✓ (`test/test_windows_lifecycle.sh`; winsma run: a pool worker is running after `harness start`: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and on the live smoke: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
+| `harness stop` | ✓ | ✓ (`harness stop` kills the headless lane and leaves no process behind; `test/test_headless_lane.sh`; winsma run: `test/smoke/logs/suite-windows-20261112T040410Z-627-5headless-twins.log`) |
 | `harness status` | ✓ | ✓ (`status` and `status --all`; `test/test_status.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`, and the live smoke: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
 | `harness one` | ✓ | ✓ (`one check` refuses a running fleet and passes a paused one, `one gate` prints its verdict; `test/test_one.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
-| `harness doctor` | ✓ | ✓ |
-| `harness attach` | ✓ | ✓ (headless lane: watch, typed lines, Ctrl-C detach) |
-| `harness pause` | ✓ | ✓ |
+| `harness doctor` | ✓ | ✓ (`test/test_doctor.sh`; winsma run: `doctor green` after install, update, rollback and forward in `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
+| `harness attach` | ✓ | ✓ (headless lane: watch, typed lines, Ctrl-C detach; `test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
+| `harness pause` | ✓ | ✓ (`harness pause --force` checkpoints the live lane; `test/test_pause.sh`; winsma run: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
 | `harness setup` | ✓ | ✓ (`test/test_setup.sh`; winsma runs: the live smoke `test/smoke/logs/live-claude-windows-20261112T125158Z.log`, which runs `harness setup`, and `test/smoke/logs/windows-installer-windows-20261104T041438Z.log`) |
 | `harness migrate` | ✓ | ✓ (`test/test_migrate.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
-| `harness uninstall` | ✓ | ✓ |
+| `harness uninstall` | ✓ | ✓ (`uninstall --force --force-engine` leaves `HARNESS_HOME` empty and the tasks gone; `test/test_windows_uninstall.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`, and `test/smoke/logs/suite-windows-20261112T111559Z-1095-uninstall.log`) |
 | `harness plan` | ✓ | ✓ (`harness plan` launches the injector lane; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness prd` | ✓ | ✓ (`harness prd` launches the injector lane; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness issue` | ✓ | ✓ (`harness issue` launches the injector lane; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
-| `harness resume` | ✓ | ✓ |
-| `harness tier` | ✓ | ✓ |
-| `/harness` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
+| `harness resume` | ✓ | ✓ (`test/test_resume.sh`; winsma run: the checkpointed lane is resumed and finishes: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
+| `harness tier` | ✓ | ✓ (`harness tier decide` answers JSON; `test/test_tier.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `/harness` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-arc` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
-| `/harness-init` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
+| `/harness-init` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-issue` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-one` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
-| `/harness-pause` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
+| `/harness-pause` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-plan` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-prd` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
-| `/harness-resume` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `/harness-start` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
+| `/harness-resume` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
+| `/harness-start` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
 | `/harness-status` | ✓ | ✓ (linked into the Windows skills dir; `test/test_operator_skills.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
-| `/harness-stop` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `/harness-uninstall` | ✓ | ✓ |
+| `/harness-stop` | ✓ | ✓ (linked into the Windows skills dir; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
+| `/harness-uninstall` | ✓ | ✓ (`uninstall --force` removes the `/harness-uninstall` skill dir; `test/test_windows_uninstall.sh`; winsma run: `test/smoke/logs/suite-windows-20261112T111559Z-1095-uninstall.log`, and `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
 | `cli claude` | ✓ | ✓ (headless runner `scripts/cli/claude_headless.py`; the live smoke on winsma with the real sign-in: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`; the matrix: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`) |
 | `cli agy` | ✓ | ✓ (headless runner `scripts/cli/agy_headless.py`; its `headless-*` rows pass from fixture replay under `HARNESS_PLATFORM=windows` and the whole matrix on winsma is green (`test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`); live headless smoke on the claude host at v0.13.3, with the lane's token usage: `test/smoke/logs/agy-headless-20261113T150912Z.log`) |
 | `cli codex` | ✓ | ✓ (headless runner `scripts/cli/codex_headless.py`, `codex exec --json`; its `headless-*` rows pass from fixture replay on Linux, the whole matrix on winsma is green (`test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`); live headless smoke on the claude host: `test/smoke/logs/codex-headless-20261108T155850Z.log` (its live turn hit the account's usage limit, which resets 2026-11-18 15:21 UTC; the claim → PR → merge run follows in #1145)) |
@@ -765,17 +766,17 @@ inject and `--with-skills`, and the other CLIs' live headless smokes on the clau
 | `cli opencode` | ✓ | ✓ (headless runner `scripts/cli/opencode_headless.py`; the matrix on winsma: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`; live headless smoke on the claude host at v0.13.3, with the lane's token usage: `test/smoke/logs/opencode-headless-20261113T150912Z.log`) |
 | `cli hermes` | ✓ | ✓ (headless runner `scripts/cli/hermes_headless.py`; the matrix on winsma: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`; live headless smoke on the claude host at v0.13.3, with the lane's token usage: `test/smoke/logs/hermes-headless-20261113T150912Z.log`) |
 | `cli openclaw` | ✓ | ✓ (headless runner `scripts/cli/openclaw_headless.py`; the matrix on winsma: `test/smoke/logs/suite-windows-20261112T131219Z-496-cli-matrix.log`; live headless smoke on the claude host at v0.13.3, with the lane's token usage: `test/smoke/logs/openclaw-headless-20261113T150912Z.log`) |
-| `rtdd` | ✓ | ✓ (`rtdd.exe`, found by `rtdd_exe` in `scripts/portable.sh`; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261104T141533Z.log`) |
-| `supervise --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
-| `web --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356) |
+| `rtdd` | ✓ | ✓ (`rtdd.exe`, found by `rtdd_exe` in `scripts/portable.sh`; `test/test_windows_lane_tooling.sh`; winsma run: `test/smoke/logs/tooling-windows-20261112T120058Z.log`) |
+| `supervise --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356; `test/test_windows_lifecycle.sh`; winsma run: the task is registered, logon-only, starts the supervisor and `--uninstall` removes it: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
+| `web --install` | ✓ (systemd user unit) | ✓ (Task Scheduler task, #356; `test/test_web_install.sh`; winsma run: the task is registered, serves the dashboard and `--uninstall` removes it: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `harness-one` | ✓ | ✓ (the `one` verbs above; `test/test_one_run.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
 | `inject` | ✓ | ✓ (`plan`, `prd` and `issue` each launch the injector lane on a stand-in `claude`; `test/test_inject.sh`; winsma run: `test/smoke/logs/e2e-windows-20261112T094302Z.log`) |
-| `pause --force and resume` | ✓ | ✓ |
+| `pause --force and resume` | ✓ | ✓ (`test/test_headless_checkpoint.sh`; winsma run: the live lane is checkpointed, then resumed and merged: `test/smoke/logs/live-claude-windows-20261112T125158Z.log`) |
 | `headless attach: typed lines and Ctrl-C detach` | ✓ | ✓ (`test/test_headless_attach.sh`; winsma run: `test/smoke/logs/headless-attach-windows-20261104T033325Z.log`) |
-| `install via npx` | ✓ | ✓ (`bin/harness-install.js` runs `install.sh` under Git's bash; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
-| `install via curl` | ✓ | ✓ (winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
-| `install prerequisite offers` | ✓ (apt-get, dnf, pacman, zypper, apk or brew) | ✓ (winget: `Git.Git`, `Python.Python.3.13`, `GitHub.cli`, `Anthropic.ClaudeCode`, `OpenJS.NodeJS.LTS`) |
-| `update --rollback` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261104T124219Z.log`) |
+| `install via npx` | ✓ | ✓ (`bin/harness-install.js` runs `install.sh` under Git's bash; winsma run: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
+| `install via curl` | ✓ | ✓ (winsma run: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
+| `install prerequisite offers` | ✓ (apt-get, dnf, pacman, zypper, apk or brew) | ✓ (winget: `Git.Git`, `Python.Python.3.13`, `GitHub.cli`, `Anthropic.ClaudeCode`, `OpenJS.NodeJS.LTS`; `test/test_windows_installer.sh`; winsma run, with a logging winget stub: `test/smoke/logs/windows-installer-windows-20261104T041438Z.log`) |
+| `update --rollback` | ✓ | ✓ (`test/test_windows_update.sh`; winsma run: `test/smoke/logs/lifecycle-windows-20261112T114048Z.log`) |
 | `swarm submission` | ✓ | n/a: swarm is a Linux-only HTCondor service ("Linux with systemd + cgroup v2", [VocanicZ/swarm README](https://github.com/VocanicZ/swarm#readme)); a Windows lane runs rtdd locally |
 
 #### Skipping a test on Windows, and the coverage check (#492)
