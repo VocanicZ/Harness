@@ -8,9 +8,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/helpers.sh"
 ROOT="$HERE/.."
-hits="$(cd "$ROOT" && grep -l 'HARNESS_CLI' scripts/*.sh scripts/cli/*.sh)"
-assert_eq "$hits" "scripts/cli/dispatch.sh" "only the dispatcher reads HARNESS_CLI"
-assert_eq "$(cd "$ROOT" && grep -l 'HARNESS_CLI' scripts/*.py)" "" "no python script reads HARNESS_CLI"
+# "only the dispatcher reads HARNESS_CLI" is a static scan of scripts/: test_static_scripts_lints.sh (always-run guard set, #1211).
 
 cells="$(bash "$HERE/test_cli_matrix.sh" --tsv 2>/dev/null)"
 assert_ok "the matrix produced cells" test -n "$cells"

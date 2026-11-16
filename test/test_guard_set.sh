@@ -10,10 +10,11 @@ ROOT="$HERE/.."
 
 # The set: the guards named in the issue, and none of the minutes-long ones.
 set_list="$(bash "$HERE/guards.sh" list)"
-for g in test_config_table.sh test_portable_guard.py test_session_backend.sh test_tmux_twins.sh test_py_runner_guard.sh test_prompt_label_lint.sh; do
+for g in test_config_table.sh test_portable_guard.py test_session_backend.sh test_tmux_twins.sh test_py_runner_guard.sh test_prompt_label_lint.sh \
+         test_static_hermetic_lints.sh test_static_scripts_lints.sh; do   # the last two: the static scans of the slow files (#1211)
   assert_ok "guard set holds $g" grep -qxF "$g" <<<"$set_list"
 done
-for slow in test_cli_readme.sh test_cli_matrix.sh test_cli_matrix_guard.sh test_guard_set.sh; do
+for slow in test_hermetic.sh test_cli_readme.sh test_cli_matrix.sh test_cli_matrix_guard.sh test_cap_removed.sh test_guard_set.sh; do
   assert_ok "guard set leaves out $slow (waits on matrix cells, or is this test)" bash -c '! grep -qxF "$1" <<<"$2"' _ "$slow" "$set_list"
 done
 bad=""; while IFS= read -r f; do [[ -f $HERE/$f ]] || bad+=" $f"; done <<<"$set_list"
@@ -56,6 +57,35 @@ assert_ok "…and the report names test_config_table.sh and the setting" bash -c
 printf '%s\n' '## Configuration' '| `HARNESS_OLD` | x | y |' '| `HARNESS_FLEETS_DIR_LIKE_NEW` | x | y |' '### Next' > "$F/docs/reference.md"
 bash "$F/test/guards.sh" >/dev/null 2>&1
 assert_eq "$?" "0" "fixture tree: the docs row turns the set green again"
+
+# Acceptance (#1211): the static scans that lived in slow files (test_hermetic.sh, test_cli_readme.sh, test_cap_removed.sh) fail the
+# set — the lane's pre-PR check — not the gate. Each replay is a gate failure: a new test that assigns HARNESS_HOME with no
+# pin_host_home (#1198, #1208), a new script that reads HARNESS_CLI (#657) or mentions HARNESS_CAP (#778). Removing the file turns the set green.
+G="$T/tree2"; mkdir -p "$G/test"
+cp "$HERE/guards.sh" "$HERE/run.sh" "$HERE/helpers.sh" "$HERE/test_static_hermetic_lints.sh" "$HERE/test_static_scripts_lints.sh" "$G/test/"
+cp -r "$HERE/guard" "$G/test/"; cp -r "$ROOT/scripts" "$G/scripts"
+out="$(bash "$G/test/guards.sh" 2>&1)"; rc=$?
+assert_eq "$rc" "0" "fixture tree: a copy of the scripts and the static lints is green"
+hh=HARNESS_HOME   # built from parts: spelled out, the offender line would make THIS file an offender of the very lint it replays
+printf '%s\n' '#!/usr/bin/env bash' "export HOME=\"\$T/home\" $hh=\"\$T/hh\"" > "$G/test/test_x.sh"
+out="$(bash "$G/test/guards.sh" 2>&1)"; rc=$?
+assert_ok "fixture tree: a new test assigning HARNESS_HOME with no pin_host_home fails the guard set (#1198, #1208)" test "$rc" -ne 0
+assert_ok "…and the report names test_static_hermetic_lints.sh and the offender test_x.sh" bash -c 'grep -q "FAILED: test_static_hermetic_lints.sh" <<<"$1" && grep -q "test_x.sh" <<<"$1"' _ "$out"
+rm -f "$G/test/test_x.sh"
+bash "$G/test/guards.sh" >/dev/null 2>&1
+assert_eq "$?" "0" "fixture tree: removing the offender turns the set green again"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "$HARNESS_CLI"' > "$G/scripts/foo.sh"
+out="$(bash "$G/test/guards.sh" 2>&1)"; rc=$?
+assert_ok "fixture tree: a new script reading HARNESS_CLI fails the guard set (#657)" test "$rc" -ne 0
+assert_ok "…and the report names test_static_scripts_lints.sh and scripts/foo.sh" bash -c 'grep -q "FAILED: test_static_scripts_lints.sh" <<<"$1" && grep -q "scripts/foo.sh" <<<"$1"' _ "$out"
+rm -f "$G/scripts/foo.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "$HARNESS_CAP"' > "$G/scripts/foo.sh"
+out="$(bash "$G/test/guards.sh" 2>&1)"; rc=$?
+assert_ok "fixture tree: a new script mentioning HARNESS_CAP fails the guard set (#778)" test "$rc" -ne 0
+assert_ok "…and the report names test_static_scripts_lints.sh and scripts/foo.sh" bash -c 'grep -q "FAILED: test_static_scripts_lints.sh" <<<"$1" && grep -q "foo.sh" <<<"$1"' _ "$out"
+rm -f "$G/scripts/foo.sh"
+bash "$G/test/guards.sh" >/dev/null 2>&1
+assert_eq "$?" "0" "fixture tree: removing the script turns the set green again"
 
 # Speed (#1098): the set's own work stays near the 60s the issue asks for. A wall-clock cap flaked at the gate (host load 15-55
 # stretches 60s of work to minutes), so the assertion is on CPU time (user+sys of the set and its children), which load moves
