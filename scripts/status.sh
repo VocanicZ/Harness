@@ -18,16 +18,16 @@ pid_up(){ [[ -f "$1" ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 fleet_verdict(){
   local up="$1" total="$2" sess="$3" done_n="$4" all_n="$5" paused="$6" lane_up="${7:-0}"
   if [[ "$paused" == 1 ]]; then
-    echo "PAUSED   (drained — workers idle; resume: harness/resume.sh)"
+    echo "PAUSED   (drained — workers idle; resume: harness resume)"
   elif (( up == 0 && lane_up == 0 && sess > 0 )); then
     # No pool worker and no lane pid is alive, yet detached claude tmux session(s) are still
     # live: the pool/lane died UNCLEANLY (kill -9 / host crash) and the tmux server outlived
     # it. Reporting STOPPED would lure the operator into a plain `start`, relaunching workers
     # that re-claim units whose claude sessions are already live -> double-dispatch. Flag it as
     # DEGRADED and point at the crash-safe path instead.
-    echo "DEGRADED ($sess fleet session(s) live but no worker/lane pid — unclean death; do NOT plain-start, run: harness/start.sh --recover)"
+    echo "DEGRADED ($sess fleet session(s) live but no worker/lane pid — unclean death; do NOT plain-start, run: harness start --recover)"
   elif (( up == 0 && lane_up == 0 )); then
-    echo "STOPPED  (pool not running — start with: harness/start.sh)"
+    echo "STOPPED  (pool not running — start with: harness start)"
   elif (( up == 0 )); then
     echo "RUNNING  (pool down; priority bug lane live)"
   elif (( all_n > 0 && done_n >= all_n )); then
