@@ -51,6 +51,10 @@ sess_list_paths(){ _sess_call list_paths "$@"; }
 sess_panes(){ _sess_call panes "$@"; }
 # sess_live <target> — true while the session is up.
 sess_live(){ _sess_call live "$@"; }
+# sess_server_reachable — true when the backend can SEE its sessions at all (#1168). sess_live is false both for "no such
+# session" and for "no server reachable" (a lane's bwrap tmpfs over the fleet's tmux socket dir); a sweep that deletes on
+# the first reading must ask this first. tmux: `ls` reaches a server; headless: always (its lanes are files).
+sess_server_reachable(){ _sess_call server_reachable "$@"; }
 # sess_start <name> <dir> [command…] — start a detached session named <name> in <dir>; with no
 # command, the backend's shell. False when it could not be started.
 sess_start(){ _sess_call start "$@"; }

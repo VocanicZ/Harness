@@ -19,3 +19,4 @@ test_unit_tmux_safe.sh	test_session_names_headless.sh
 test_watchdog.sh	test_watchdog_headless.sh
 test_tmux_one_server.sh	test_one_server_headless.sh
 test_tmux_short_dir_real.sh	test_tmux_short_dir.sh
+test_sweep_server_unreachable.sh	test_sweep_server_unreachable_headless.sh

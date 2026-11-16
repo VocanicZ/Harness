@@ -13,6 +13,7 @@ tmux_sess_list(){ _tmx ls -F '#S' 2>/dev/null; }
 tmux_sess_list_paths(){ _tmx ls -F '#{session_name}'$'\t''#{session_path}' 2>/dev/null; }
 tmux_sess_panes(){ _tmx list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}' 2>/dev/null; }
 tmux_sess_live(){ _tmx has-session -t "$1" 2>/dev/null; }
+tmux_sess_server_reachable(){ _tmx ls >/dev/null 2>&1; }   # #1168: no server (or an empty socket dir) -> false
 # Typing and kill leave their stderr to the caller, as `tmux send-keys` / `kill-session` did before the
 # seam: an adapter silences it, supervise logs it.
 # <name> <dir> [-e K=V …] [command…] — the -e pairs are the session's environment (session_env).

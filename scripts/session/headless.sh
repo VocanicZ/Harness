@@ -75,6 +75,7 @@ headless_sess_list(){ local n; while read -r n; do [[ -n $n ]] && headless_sess_
 headless_sess_list_paths(){ local n
   while read -r n; do [[ -n $n ]] && printf '%s\t%s\n' "$n" "$(cat "$(headless_lane_dir "$n")/dir" 2>/dev/null)"; done < <(headless_sess_list); }
 headless_sess_panes(){ local n; while read -r n; do [[ -n $n ]] && echo "$n:0.0 headless"; done < <(headless_sess_list); }
+headless_sess_server_reachable(){ return 0; }   # #1168: lanes are files under the fleet's own dir; there is no server to lose
 headless_sess_live(){ _hl_runner "$1" >/dev/null && [[ "$(_hl_state "$1")" != ended ]]; }
 # _hl_start_tries — how many 0.1 s tries headless_sess_start gives the runner to write its first state: 10 s, 60 s on Windows. The
 # budget is that many TENTHS OF A SECOND of wall clock: each try also forks, and on Git Bash those tries went by in under half the

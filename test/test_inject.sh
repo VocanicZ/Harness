@@ -114,7 +114,7 @@ HARNESS_SESS_PREFIX=hz
 echo IMPL    > "$RUN_DIR/hz-main-i7.goal"        # dead session -> leaked goal, must be GC'd
 echo INJECT  > "$RUN_DIR/hz-inject-main.goal"    # dead inject session (no reaper) -> must be GC'd
 echo ISSUE:9 > "$RUN_DIR/hz-main-i9.goal"        # live session -> in-flight, must be kept
-session_live(){ [[ "$1" == "hz-main-i9" ]]; }
+session_live(){ [[ "$1" == "hz-main-i9" ]]; }; sess_server_reachable(){ :; }   # #1168: a reachable server, one live session
 gc_orphan_goals
 assert_no "gc removed the dead impl session's leaked goal"    test -f "$RUN_DIR/hz-main-i7.goal"
 assert_no "gc removed the dead inject session's leaked goal"  test -f "$RUN_DIR/hz-inject-main.goal"
