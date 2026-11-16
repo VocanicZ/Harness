@@ -269,4 +269,48 @@ assert_ok "worker_tend runs wait_tend for an impl and an orch lane, and the bug 
 assert_ok "the chores sweep dead lanes' waits" grep -qF 'wait_sweep' "$ROOT/scripts/pool-worker.sh"
 assert_ok "harness-wait is on every lane's PATH (lane-bin)" test -x "$ROOT/scripts/lane-bin/harness-wait"
 
+echo "== 5. background work is not a running turn: it never blocks a due wait (#1228) =="
+# The pane is a captured Claude screen (stubbed sess_capture); the delivery is recorded, not sent.
+PANES="$HERE/fixtures/cli/claude"; PANE="$PANES/idle.txt"; SENT="$RUN_DIR/sent.log"
+sess_capture(){ cat "$PANE"; }
+session_live(){ return 0; }
+cli_send(){ printf '%s\n' "$3" >> "$SENT"; }
+S=wpk-main-i51
+w5(){ rm -f "$RUN_DIR/$S.wait" "$RUN_DIR/$S.wait.msg" "$RUN_DIR/$S.wait.held" "$SENT"; : > "$LOG"; export HARNESS_CLI=claude; }
+for fx in idle-subagent-running idle-bgshell-running; do
+  PANE="$PANES/$fx.txt"
+  w5; python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --deadline-s 600 --path "$WD/.harness-task.md" >/dev/null   # already true
+  tick "$S"
+  assert_eq "$(grep -c 'wait done: file .*appeared' "$SENT" 2>/dev/null)" "1" "$fx: a held condition resumes the lane within one tick"
+  assert_no "$fx: …the spec is consumed" test -e "$RUN_DIR/$S.wait"
+  for (( i = 0; i < 3; i++ )); do tick "$S"; done
+  assert_eq "$(wc -l < "$SENT" | tr -d ' ')" "1" "$fx: …delivered exactly once"
+  w5; python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --deadline-s 600 --path "$RUN_DIR/never5" >/dev/null
+  spec_set "$RUN_DIR/$S.wait" deadline "$(( $(date +%s) - 5 ))"
+  tick "$S"
+  assert_eq "$(grep -c 'wait done: deadline passed' "$SENT" 2>/dev/null)" "1" "$fx: a passed deadline resumes the lane within one tick"
+  assert_no "$fx: …the spec is consumed" test -e "$RUN_DIR/$S.wait"
+  for (( i = 0; i < 3; i++ )); do tick "$S"; done
+  assert_eq "$(wc -l < "$SENT" | tr -d ' ')" "1" "$fx: …delivered exactly once"
+done
+for fx in busy busy-spinner; do
+  PANE="$PANES/$fx.txt"
+  w5; python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --deadline-s 600 --path "$WD/.harness-task.md" >/dev/null
+  for (( i = 0; i < 4; i++ )); do tick "$S"; done
+  assert_no "$fx: a running turn is never resumed" test -e "$SENT"
+  assert_ok "$fx: …its spec waits" test -s "$RUN_DIR/$S.wait"
+  assert_eq "$(grep -c "wait: $S — due (file .* appeared) but the pane reads busy" "$LOG")" "1" "$fx: a due wait held by a running turn is logged once, not once per tick"
+done
+w5; PANE="$PANES/busy.txt"; python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --deadline-s 600 --path "$RUN_DIR/never5" >/dev/null
+for (( i = 0; i < 3; i++ )); do tick "$S"; done
+assert_eq "$(grep -c 'but the pane reads busy' "$LOG")" "0" "a wait that is not due says nothing while the lane works"
+PANE="$PANES/idle.txt"; rm -f "$RUN_DIR/$S.wait.held"
+echo "== 5b. a lane adopted by another worker is woken by its deadline (#1228) =="
+# the claim names a different worker than the one that launched the lane: wait_tend judges the lane's own wait spec, whoever holds it
+w5; PANE="$PANES/idle-subagent-running.txt"
+python3 "$WAITLIB" set --file "$RUN_DIR/$S.wait" --deadline-s 600 --pid 999999 --log "$RUN_DIR/none5.log" >/dev/null
+spec_set "$RUN_DIR/$S.wait" pidns '"pid:[1]"'; spec_set "$RUN_DIR/$S.wait" deadline "$(( $(date +%s) - 5 ))"
+tick "$S"
+assert_ok "the adopting worker's tick resumes it: deadline passed" grep -qF 'wait done: deadline passed' "$SENT"
+
 finish

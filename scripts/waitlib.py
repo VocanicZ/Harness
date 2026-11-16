@@ -69,6 +69,22 @@ def pid_alive(pid, start=None):
     return isinstance(pid, int) and pid > 1 and portable.pid_alive(pid)
 
 
+def own_pidns():
+    """The pid namespace this process runs in (Linux: the link /proc/self/ns/pid points at), else None (Windows, macOS)."""
+    try:
+        return os.readlink("/proc/self/ns/pid")
+    except (OSError, AttributeError):
+        return None
+
+
+def foreign_pidns(spec):
+    """#1228: the pid of <spec> was recorded in another pid namespace than this process's (a lane under `bwrap --unshare-pid` writes
+    the pid it sees; the engine reads it on the host, where it names an unrelated process or none). A spec without a `pidns` (older
+    specs, Windows, macOS) is judged as before."""
+    ns = spec.get("pidns")
+    return bool(ns) and ns != own_pidns()
+
+
 def spec_pid_alive(spec):
     """Is the job a pid wait names still running? `run` on native Windows records the job wrapper's WINDOWS pid (spec["winpid"]):
     portable.pid_alive reads an MSYS pid, finds no such MSYS process, and called every live job exited (#1109)."""
@@ -155,7 +171,11 @@ def evaluate(spec, t=None):
     c = spec.get("cond")
     held = {"done": False, "reason": "", "external": c in ("winsma", "limit")}
     if c == "pid":
-        if not spec_pid_alive(spec):
+        # #1228: the job's rc file is the answer both sides can read (`run` writes it, /tmp is shared); a pid from another pid
+        # namespace means nothing here, so such a wait ends by its rc file or its deadline only
+        if spec.get("rc_file") and os.path.exists(spec["rc_file"]):
+            return {"done": True, "reason": condition_text(spec), "external": False}
+        if not foreign_pidns(spec) and not spec_pid_alive(spec):
             return {"done": True, "reason": condition_text(spec), "external": False}
     elif c == "file":
         if spec.get("path") and os.path.exists(spec["path"]):
@@ -271,13 +291,18 @@ def do_park(path, spec):
           f"resume once the wait is over. Do nothing more: no promise, no further tool calls.")
 
 
+def _pidns_kw():
+    ns = own_pidns()
+    return {"pidns": ns} if ns else {}
+
+
 def cmd_set(a):
     path = spec_path(a.file)
     kinds = [x for x in (a.pid, a.path, a.regex, a.winsma, a.limit or None) if x is not None]
     if len(kinds) != 1:
         sys.exit("waitlib set: give exactly one of --pid, --path, --regex, --winsma, --limit")
     if a.pid is not None:
-        spec = new_spec(a, "pid", pid=a.pid)
+        spec = new_spec(a, "pid", pid=a.pid, **_pidns_kw())
     elif a.path is not None:
         spec = new_spec(a, "file", path=os.path.abspath(a.path))
     elif a.regex is not None:
@@ -332,7 +357,7 @@ def cmd_run(a):
     a.pid, a.path, a.regex, a.winsma, a.limit, a.rc_file = p.pid, None, None, None, False, rc_file
     a.log = log
     a.what = a.what or f"job `{' '.join(cmd)[:80]}` (pid {p.pid}) exited"
-    spec = new_spec(a, "pid", pid=p.pid, **({"winpid": p.pid} if WINDOWS else {}))
+    spec = new_spec(a, "pid", pid=p.pid, **({"winpid": p.pid} if WINDOWS else {}), **_pidns_kw())
     write_spec(path, spec)
     print(f"wait set: {spec['what']}; log {log}; deadline {time.strftime('%H:%M:%S', time.localtime(spec['deadline']))}. "
           f"End your turn now: the engine resumes this session once, with the result, when the job exits.")
