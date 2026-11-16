@@ -4,6 +4,13 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Windows suite: pipe-closed, claude workspace trust and test-harness fixes (#1110)
+
+- On Windows, `harness claude` pre-accepts the workspace-trust dialog in the native config file: the `CFG` path handed to Python is now converted with `native_path` (MSYS does not convert env vars, so Python opened a `C:\c\...` path), and the trusted-directory list also carries the `C:/x` spelling Claude Code keys projects by.
+- A write into a closed pipe on native Windows, which the C runtime reports as EINVAL ("Invalid argument") instead of a broken pipe, now ends a command quietly like on Linux (`scripts/pipesafe.py`), not as `cannot write output: Invalid argument`. A named path's EINVAL, and EINVAL on other systems, still fail.
+- `portable._cygpath` starts a `HARNESS_CYGPATH` script stand-in through `resolve_argv`, as `CreateProcess` cannot run an extensionless script.
+- Windows-only test fixes: `test_pipe_closed.py` uses Git Bash, not WSL's `bash.exe`; the ralph flush-race delay, the guard-set caps, the tmux fallback PATH setup, the `lane_has_gh` cell and the unix-socket fixture in `test_launch_failed.sh` fit Windows. Windows-unverified: needs a winsma run.
+
 ### `harness attach` drops a leading BOM and the CR of a CRLF line, and ends a line at a lone CR (#1127)
 
 - A typed line that began with a UTF-8 BOM reached the CLI with the BOM, a CRLF line reached it with a trailing CR, and a line with a lone CR went out as one message with the CR inside. `harness attach` on a headless lane now strips a leading BOM and the CR of a CRLF line, and treats a lone CR as a line end, the same as LF (two messages). `test/test_headless_attach.sh`, on Linux and with `HARNESS_PLATFORM=windows`.
