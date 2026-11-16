@@ -9,7 +9,7 @@ CLI="$HERE/../bin/harness"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/home" "$T/proj/.harness"
 : >"$T/proj/.harness/config"
-export HOME="$T/home" HARNESS_HOME="$T/hh"
+export HOME="$T/home"; pin_host_home "$T/hh"; mkdir -p "$HARNESS_HOME"
 unset STATE_DIR TMUX
 
 # run_x CMD ARG — run `harness CMD ARG` in the temp project; sets OUT (stdout), ERR (stderr), RC.
