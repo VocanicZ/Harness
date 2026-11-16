@@ -257,4 +257,76 @@ rc=127" "only lane-bin dirs on PATH: gh: command not found, 127"
   finish
 ) || rc=1
 
+# ── group 11: lane worktree submodules borrow the main checkout's objects (#1207) ─────────────
+# A plain `submodule update --init --recursive` in a linked worktree clones every submodule in full
+# (a 1 GB pack per lane). file:// URLs, so a local-clone hardlink cannot mask a full copy.
+(
+  D="$TMP/g11"; mkdir -p "$D"; BLOB=3000000
+  F="file://$D"
+  # mk11 <name> — bare remote <name>.git with a big blob, work clone <name>w; pushes main.
+  mk11(){ git init -q --bare -b main "$D/$1.git"; git clone -q "$F/$1.git" "$D/$1w" 2>/dev/null
+    ( cd "$D/$1w" && git checkout -q -b main 2>/dev/null; head -c $BLOB /dev/urandom > big; git add big; q commit -m c1; q push origin main ); }
+  mk11 nest; mk11 sub; mk11 other
+  ( cd "$D/subw" && git submodule add -q "$F/nest.git" nest 2>/dev/null && q commit -m "add nest" && q push origin main )
+  git init -q -b main "$D/main"
+  ( cd "$D/main" && echo hi > README; git add README; q commit -m init \
+      && git submodule add -q "$F/sub.git" engine 2>/dev/null && git submodule add -q "$F/other.git" other 2>/dev/null \
+      && q commit -m "add submodules" && git submodule update --init --recursive -q 2>/dev/null )
+  M="$D/main"; MG="$(git -C "$M" rev-parse --path-format=absolute --git-common-dir)"
+  kb(){ du -sk "$1" | cut -f1; }
+  FULLKB=$((BLOB / 1024))
+
+  # (a) every level borrows from its OWN main-side counterpart
+  q -C "$M" worktree add -b issue/11 "$D/wt1" HEAD
+  submodule_init "$D/wt1"; assert_eq "$?" 0 "borrowing init: returns 0"
+  W1G="$(git -C "$D/wt1" rev-parse --path-format=absolute --git-common-dir)"
+  for pair in "engine:modules/engine" "other:modules/other" "engine/nest:modules/engine/modules/nest"; do
+    p="${pair%%:*}"; want="${pair#*:}"
+    git -C "$D/wt1/$p" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { assert_ok "$p is checked out" false; continue; }
+    od="$(git -C "$D/wt1/$p" rev-parse --path-format=absolute --git-path objects)"
+    assert_ok "$p: objects/info/alternates exists" test -f "$od/info/alternates"
+    assert_eq "$(sed 's#\\#/#g' "$od/info/alternates" 2>/dev/null | head -1 | sed -E 's#^.*/\.git/(modules/.*)$#\1#')" "$want/objects" \
+      "$p: alternates names its own main-side objects"
+    assert_ok "$p: lane objects dir is not a copy (<< blob size)" test "$(kb "$od")" -lt $((FULLKB / 4))
+    assert_eq "$(git -C "$D/wt1/$p" rev-parse HEAD)" "$(git -C "$M/$p" rev-parse HEAD)" "$p: sits at the gitlink commit"
+    assert_ok "$p: object store is consistent" git -C "$D/wt1/$p" fsck --connectivity-only
+  done
+  assert_ok "the nested file is checked out" test -s "$D/wt1/engine/nest/big"
+
+  # (b) main-side module dir absent for one submodule -> that one is a plain clone, the other still borrows
+  git init -q -b main "$D/main2"
+  ( cd "$D/main2" && echo hi > README; git add README; q commit -m init \
+      && git submodule add -q "$F/sub.git" engine 2>/dev/null && git submodule add -q "$F/other.git" other 2>/dev/null \
+      && q commit -m "add submodules" && git submodule update --init --recursive -q -- engine 2>/dev/null \
+      && git submodule deinit -f -q other 2>/dev/null; rm -rf .git/modules/other )
+  assert_no "precondition: main2 never initialised other" test -d "$D/main2/.git/modules/other"
+  q -C "$D/main2" worktree add -b issue/12 "$D/wt2" HEAD
+  submodule_init "$D/wt2"; assert_eq "$?" 0 "missing reference: returns 0"
+  assert_ok "missing reference: other is checked out at all" test -s "$D/wt2/other/big"
+  assert_eq "$(git -C "$D/wt2/other" rev-parse HEAD)" "$(git -C "$D/main2" rev-parse HEAD:other)" "missing reference: other at the gitlink"
+  assert_no "missing reference: other has no alternates" test -f "$D/wt2/other/.git" -a -f "$(git -C "$D/wt2/other" rev-parse --path-format=absolute --git-path objects/info/alternates)"
+  assert_ok "missing reference: engine still borrows" test -f "$(git -C "$D/wt2/engine" rev-parse --path-format=absolute --git-path objects/info/alternates)"
+  assert_ok "missing reference: nested submodule of engine still borrows" test -f "$(git -C "$D/wt2/engine/nest" rev-parse --path-format=absolute --git-path objects/info/alternates)"
+
+  # (c) main checkout's submodule sits at an OLDER commit than the lane's gitlink: missing objects come from the remote
+  ( cd "$D/otherw" && echo 2 > f2 && git add f2 && q commit -m c2 && q push origin main )
+  NEW="$(git -C "$D/otherw" rev-parse HEAD)"
+  ( cd "$M" && git update-index --cacheinfo "160000,$NEW,other" && q commit -m "bump other" )
+  assert_ok "precondition: main's other is behind the gitlink" test "$(git -C "$M/other" rev-parse HEAD)" != "$NEW"
+  q -C "$M" worktree add -b issue/13 "$D/wt3" HEAD
+  submodule_init "$D/wt3"; assert_eq "$?" 0 "stale reference: returns 0"
+  assert_eq "$(git -C "$D/wt3/other" rev-parse HEAD)" "$NEW" "stale reference: other at the lane's gitlink"
+  assert_ok "stale reference: the new file is checked out" test -f "$D/wt3/other/f2"
+  assert_ok "stale reference: still borrows" test -f "$(git -C "$D/wt3/other" rev-parse --path-format=absolute --git-path objects/info/alternates)"
+
+  # (d) a real failure (unreachable remote) still returns non-zero, and the other submodules are still done
+  q -C "$M" worktree add -b issue/14 "$D/wt4" HEAD
+  mv "$D/sub.git" "$D/sub.git.off"
+  submodule_init "$D/wt4" >/dev/null 2>&1; rc4=$?; mv "$D/sub.git.off" "$D/sub.git"
+  assert_ok "init failure: returns non-zero" test "$rc4" -ne 0
+  assert_ok "init failure: the other submodule is still checked out" test -s "$D/wt4/other/big"
+  assert_no "init failure: the failed one is not" test -s "$D/wt4/engine/big"
+  finish
+) || rc=1
+
 exit $rc
