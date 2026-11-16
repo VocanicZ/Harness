@@ -45,18 +45,24 @@ out="$(cd "$T/suite" && timeout -k 5 60 "${IGN[@]}" bash run.sh 2>&1)"
 assert_ok "a test run by run.sh can still trap SIGINT" grep -qF "probe-got-int" <<<"$out"
 assert_no "…and does not lose it" grep -qF "probe-int-lost" <<<"$out"
 
+# #1234: a nested run's output used to be thrown away, so a gate log never named the inner assertion that failed.
+show_inner_fails(){ grep -F "FAIL:" <<<"$1" | sed 's/^/    inner: /'; }
+
 echo "== test_headless_attach.sh under ignored signals =="
-SECONDS=0
 out="$(timeout -k 5 $((90 * SLOW)) "${IGN[@]}" bash "$HERE/test_headless_attach.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 0 "it passes, rather than hanging until the timeout kills it (rc 124)"
 assert_no "…with no FAIL line" grep -qF "FAIL:" <<<"$out"
+(( rc == 0 )) || { echo "    inner run rc=$rc; its failing lines:"; show_inner_fails "$out"; echo "    its last lines:"; tail -n 8 <<<"$out" | sed 's/^/    inner: /'; }
 
 echo "== …and when the attach really cannot take SIGINT, it fails bounded =="
-SECONDS=0
+# The bound is on the detach itself (test_headless_attach.sh prints "detach took Ns"), not on the length of that file (#1234).
+# A hang never prints it and ends at the outer timeout (rc 124), which the first assertion catches.
+fails0=$TESTS_FAIL
 out="$(HAT_ATTACH_IGNORE_INT=1 timeout -k 5 $((90 * SLOW)) bash "$HERE/test_headless_attach.sh" 2>&1)"; rc=$?
-took=$SECONDS
+took="$(sed -n 's/^  detach took \([0-9][0-9]*\)s$/\1/p' <<<"$out" | head -n1)"
 assert_eq "$([[ $rc -ne 0 && $rc -ne 124 && $rc -ne 137 ]] && echo failed || echo "rc=$rc")" failed "it reports FAIL (rc $rc) instead of hanging"
 assert_ok "…naming the attach that did not exit" grep -qF "FAIL: the attach process exits" <<<"$out"
 assert_ok "…and the attach it started is gone" grep -qF "ok: …and no attach is left alive" <<<"$out"
-assert_ok "…within $((40 * SLOW)) s (took ${took}s)" test "$took" -lt $((40 * SLOW))
+assert_ok "…detaching within $((30 * SLOW)) s (took ${took:-?}s)" test "${took:-999}" -lt $((30 * SLOW))
+(( TESTS_FAIL == fails0 )) || { echo "    inner run rc=$rc; its output:"; sed 's/^/    inner: /' <<<"$out"; }
 finish
