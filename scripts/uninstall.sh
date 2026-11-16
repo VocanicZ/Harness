@@ -22,11 +22,16 @@ PATH_LINK="$HARNESS_BIN_DIR/harness"
 
 # other_fleets_depend_on_engine — true (0) when a co-resident fleet/project STILL needs the shared
 # engine, so uninstalling THIS project must NOT remove $SHARED_ENGINE or the `harness` PATH link out
-# from under it. Two independent signals:
+# from under it (#1138). Only a LIVE fleet that uses the engine being removed counts. Two signals:
 #   (a) a live pool-worker.sh/priority-worker.sh process whose STATE_DIR (proc_state_dir) is NOT this
-#       project's STATE_DIR — a foreign fleet is actively running against the shared engine; or
-#   (b) poller_registry_prefixes "$STATE_DIR" is non-empty — another project is registered active.
-# Overridable: tests redefine this (and worker_pids / poller_registry_prefixes need never run)
+#       project's STATE_DIR and whose ENGINE_DIR is this home's engine (worker_uses_engine) — a worker
+#       under another HARNESS_HOME runs another engine and is none of our business; or
+#   (b) an entry in the fleet or poller registry (fleet_registry_entries, one per project, both kept
+#       under this HARNESS_HOME) that is not this project and is not stale. A STALE entry — its project
+#       folder gone, or no live session and no live pid in its run_dir (fleet_stale) — cannot be
+#       stopped, so it must not block; it is named with the fix that prunes it (harness doctor --fix).
+# Every path is compared with same_path, so C:/x and /c/x are one project (#605).
+# Overridable: tests redefine this (and worker_pids / the registry need never run)
 # before calling main, so the test never touches real /proc or the real registry.
 # _worker_pids — pids of live pool/priority workers, one per line. Factored out + overridable so a
 # CLI-level test (which can't source+stub the guard) can insulate signal (a) from real host /proc:
@@ -37,14 +42,33 @@ _worker_pids(){
   declare -F proc_find >/dev/null || return 0
   proc_find 'pool-worker\.sh|priority-worker\.sh'
 }
+# worker_uses_engine <pid> — rc 0 unless the worker's exec-time ENGINE_DIR (realpath'd) provably is NOT the
+# engine being removed: $SHARED_ENGINE (the link's target too) or a release under $HARNESS_HOME/releases.
+# A worker whose engine cannot be read counts: it might be ours.
+worker_uses_engine(){
+  local e want rel
+  declare -F proc_engine_dir >/dev/null || return 0
+  e="$(proc_engine_dir "$1" 2>/dev/null)"; [[ -n "$e" ]] || return 0
+  e="$(_real "$e")"; want="$(_real "$SHARED_ENGINE")"; rel="$(_real "$HARNESS_HOME/releases")"
+  [[ "$e" == "$want" || "$e" == "$want"/* || "$e" == "$rel"/* ]]
+}
 other_fleets_depend_on_engine(){
-  local pid sd
+  local pid sd pfx prj rd slugs
   while read -r pid; do
     [[ -n "$pid" ]] || continue
     sd="$(proc_state_dir "$pid")"
-    [[ -n "$sd" ]] && ! same_path "$sd" "$STATE_DIR" && return 0   # a worker's STATE_DIR may be C:/x, ours /c/x (#605)
+    [[ -n "$sd" ]] && ! same_path "$sd" "$STATE_DIR" && worker_uses_engine "$pid" && return 0   # a worker's STATE_DIR may be C:/x, ours /c/x (#605)
   done < <(_worker_pids)
-  [[ -n "$(poller_registry_prefixes "$STATE_DIR" 2>/dev/null)" ]] && return 0
+  declare -F fleet_registry_entries >/dev/null || return 1
+  while IFS="${FLEET_ROW_SEP:-$'\037'}" read -r pfx prj rd slugs; do
+    [[ -n "$prj" ]] || continue
+    same_path "$prj" "$STATE_DIR" && continue
+    if [[ ! -d "$prj" ]] || { [[ -n "$rd" ]] && fleet_stale "$pfx" "$rd"; }; then
+      echo "  ignoring stale fleet entry for $prj (prefix '$pfx'): no live fleet there — harness doctor --fix prunes it" >&2
+      continue
+    fi
+    return 0
+  done < <(fleet_registry_entries "" 2>/dev/null | tr '\t' "${FLEET_ROW_SEP:-$'\037'}")
   return 1
 }
 

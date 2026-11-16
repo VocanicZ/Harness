@@ -138,6 +138,77 @@ out="$(HARNESS_UNINSTALL_NOMAIN=1 HARNESS_HOME="$I5/home" HARNESS_BIN_DIR="$I5/b
 assert_eq "$rc" 0 "with no other fleet the same command succeeds"
 assert_no "… and the engine is gone"                           test -e "$I5/home/engine"
 
+echo "=== the other-fleets check counts only live fleets on this engine, in any path spelling (#1138) ==="
+# A fake cygpath: -u turns C:/x and C:\x into /c/x and leaves anything else alone; -m (what export_native_paths asks for) is a
+# pass-through. Only these subshells see it.
+mkdir -p "$T/cyg"
+cat >"$T/cyg/cygpath" <<'FAKECYG'
+#!/usr/bin/env bash
+p="$2"; [[ "$1" == -m ]] && { printf '%s\n' "$p"; exit 0; }; [[ "$1" == -u ]] || exit 1
+if [[ "$p" =~ ^([A-Za-z]):[/\\](.*)$ ]]; then l="${BASH_REMATCH[1]}"; printf '/%s/%s\n' "${l,,}" "${BASH_REMATCH[2]//\\//}"; else printf '%s\n' "$p"; fi
+FAKECYG
+chmod +x "$T/cyg/cygpath"
+# ofd <home> <state-dir> [pid…] — other_fleets_depend_on_engine in a fresh shell over a fake /proc ($home/proc/<pid>/environ);
+# prints its stderr, then `rc=<n>` last.
+ofd(){ local h="$1" sd="$2"; shift 2
+  ( export PATH="$T/cyg:$PATH" HARNESS_HOME="$h" HARNESS_FLEETS_DIR="$h/fleets" HARNESS_POLLER_DIR="$h/poller" STATE_DIR="$sd" ENGINE_DIR="$R" \
+      HARNESS_UNINSTALL_NOMAIN=1 HARNESS_PROC_ROOT="$h/proc" HARNESS_UNINSTALL_WORKER_PIDS="$*"
+    source "$R/scripts/uninstall.sh"; other_fleets_depend_on_engine 2>&1; echo "rc=$?" ); }
+# fake_worker <home> <pid> <state-dir> <engine-dir> — a /proc entry whose environ names them.
+fake_worker(){ mkdir -p "$1/proc/$2"; printf 'STATE_DIR=%s\0ENGINE_DIR=%s\0' "$3" "$4" >"$1/proc/$2/environ"; }
+# reg <home> <fleets|poller/registry> <project> [run_dir] — a registry entry (a poller one carries no run_dir).
+reg(){ local h="$1" kind="$2" project="$3" rd="${4:-}" f; mkdir -p "$h/$kind"; f="$h/$kind/$(tr -c 'A-Za-z0-9.-' '_' <<<"$project").json"
+  if [[ -n "$rd" ]]; then printf '{"prefix":"zz","project":"%s","run_dir":"%s"}\n' "$project" "$rd" >"$f"
+  else printf '{"prefix":"zz","project":"%s","slug":"o/r"}\n' "$project" >"$f"; fi; }
+
+I8="$T/i8"; mkdir -p "$I8/home/releases/r1" "$I8/proj/.harness"
+SD8="$I8/proj/.harness"
+out="$(ofd "$I8/home" "$SD8")"
+assert_eq "$out" "rc=1" "no worker and no registry entry: nothing depends on the engine"
+# a stale entry: its project folder was deleted — it cannot be stopped, so it must not block
+reg "$I8/home" poller/registry "$T/deleted/proj/.harness"
+out="$(ofd "$I8/home" "$SD8")"
+assert_ok "a registry entry whose project folder is gone does not block"  grep -qx "rc=1" <<<"$out"
+assert_ok "… it is named with the fix that prunes it"                     grep -q "stale fleet entry.*deleted.*harness doctor --fix" <<<"$out"
+# a stale entry: the folder is there but no pid of its run_dir lives
+mkdir -p "$I8/dead/.harness/run"; echo 999999 >"$I8/dead/.harness/run/pool.pid"
+reg "$I8/home" fleets "$I8/dead/.harness" "$I8/dead/.harness/run"
+rm -rf "$I8/home/poller"
+out="$(ofd "$I8/home" "$SD8")"
+assert_ok "a fleet entry with no live session and no live pid does not block" grep -qx "rc=1" <<<"$out"
+assert_ok "… it is named with the fix"                                    grep -q "dead.*harness doctor --fix" <<<"$out"
+# a live fleet: the same entry with a live pid blocks
+sleep 60 & LIVE8=$!; SLEEPERS+=("$LIVE8"); echo "$LIVE8" >"$I8/dead/.harness/run/pool.pid"
+out="$(ofd "$I8/home" "$SD8")"
+assert_ok "a live registered fleet blocks"                                grep -qx "rc=0" <<<"$out"
+rm -rf "$I8/home/fleets"
+# a worker of a fleet under ANOTHER home runs another engine: it does not count
+fake_worker "$I8/home" 4242 "$I8/other/.harness" "$I8/otherhome/releases/r9"
+out="$(ofd "$I8/home" "$SD8" 4242)"
+assert_eq "$out" "rc=1" "a worker running another home's engine does not block"
+# … one that runs a release of this home does, and so does one on the engine link's target, and one with an unreadable engine
+fake_worker "$I8/home" 4243 "$I8/other/.harness" "$I8/home/releases/r1"
+out="$(ofd "$I8/home" "$SD8" 4242 4243)"
+assert_eq "$out" "rc=0" "a worker running a release of this home blocks"
+mkdir -p "$I8/home/engine-target"; ln -s "$I8/home/engine-target" "$I8/home/engine"
+fake_worker "$I8/home" 4244 "$I8/other/.harness" "$I8/home/engine-target"
+out="$(ofd "$I8/home" "$SD8" 4244)"
+assert_eq "$out" "rc=0" "a worker running the shared engine's target blocks"
+fake_worker "$I8/home" 4245 "$I8/other/.harness" ""
+out="$(ofd "$I8/home" "$SD8" 4245)"
+assert_eq "$out" "rc=0" "a worker whose engine cannot be read blocks (it might be this one)"
+# this fleet itself, spelled the other way (C:/ vs /c/), is not another fleet — in the registry nor as a worker
+rm -rf "$I8/home/proc"
+SDW="/c/hx1138/proj/.harness"
+reg "$I8/home" poller/registry "C:/hx1138/proj/.harness"
+out="$(ofd "$I8/home" "$SDW")"
+assert_eq "$out" "rc=1" "this project's own registry entry, spelled C:/…, is not another fleet"
+fake_worker "$I8/home" 4246 "C:/hx1138/proj/.harness" "$I8/home/releases/r1"
+out="$(ofd "$I8/home" "$SDW" 4246)"
+assert_eq "$out" "rc=1" "… nor is its own worker"
+out="$(ofd "$I8/home" "/c/hx1138/other/.harness" 4246)"
+assert_eq "$out" "rc=0" "… while the same worker is another fleet's from a different project"
+
 echo "=== doctor names the leftovers of an uninstalled engine ==="
 _DOCTOR_SOURCED=1 source "$R/scripts/doctor.sh"
 I6="$T/i6"; mkdir -p "$I6"; mk_install "$I6"; rm -rf "$I6/home/engine"     # the engine went, the rest did not
