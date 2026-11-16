@@ -177,6 +177,8 @@ global options:
                        HARNESS_STATE_DIR_OK=1 waives that check for a whole shell.
 EOF
 }
+# usage_quiet — the usage on stdout for `harness help`: a reader that has already closed the pipe (`| head -0`) must not turn it into exit 141 (#1130).
+usage_quiet(){ ( trap '' PIPE; usage ) 2>/dev/null || true; }
 # vis_arg STR — STR for a human-readable message (#952), spelled as scripts/stats.py `vis` does (#756): a C0 or C1
 # control character, DEL, U+2028 and U+2029 become \uXXXX, so an unknown command's name never splits the error over
 # several lines or reaches the terminal raw. Byte-level under LC_ALL=C, so no locale matters.
@@ -197,6 +199,17 @@ vis_arg(){
     out+="$c"; i=$((i+1))
   done
   printf '%s' "$out"
+}
+# pipe_safe_exec CMD ARG... — exec a subcommand script so a reader that closes our standard output early (`harness uninstall --force | head -1`)
+# cannot kill it half way (#1130): bash's default SIGPIPE kills the script on its next echo, which left a dangling engine link after uninstall
+# had removed it, and died in update --rollback after the flip. When stdout is a pipe the script's output goes through a relay that keeps
+# draining after the reader is gone, so every write succeeds and the work finishes. It is still an exec: bin/harness stays no open file of
+# an engine checkout that update.sh moves aside (Windows), and the script's own exit status is ours. The relay is exec'd too (no copy of this
+# script stays open) and ignores SIGPIPE itself. Anywhere else (a terminal, a file, closed) it is a plain exec: attach and the prompts need
+# the real stdout.
+pipe_safe_exec(){
+  [[ -p /dev/stdout ]] || exec "$@"
+  exec "$@" > >(exec sh -c 'trap "" PIPE; cat 2>/dev/null; exec cat >/dev/null 2>&1')
 }
 # no_extra_args CMD ALLOWED ARG... — the engine-level read-only commands take no (or one) argument; a stray one is a typo, so it is a
 # usage error (#994) naming the argument, escaped as the unknown-command error does (#952). ALLOWED is the one option accepted ("" for none).
@@ -246,7 +259,7 @@ case "$cmd" in
   install) exec bash "$ENGINE_DIR/install.sh" "$@";;
   # --version is engine-level too: it reads only ENGINE_DIR, never a project .harness/ (#277).
   --version|version) no_extra_args --verbose "$@"; print_version "$@"; exit 0;;
-  update) try_state_dir; exec bash "$ENGINE_DIR/update.sh" "$@";;
+  update) try_state_dir; pipe_safe_exec bash "$ENGINE_DIR/update.sh" "$@";;
   # release is engine-level: it acts on the git checkout it is run in, never a project .harness/ (#278).
   release) exec bash "$ENGINE_DIR/scripts/release.sh" "$@";;
   # poll is HOST-level (the shared poller serves every project) — no project STATE_DIR needed.
@@ -266,34 +279,34 @@ case "$cmd" in
   init)   STATE_DIR="${STATE_DIR:-$(pwd -P)/.harness}"; export STATE_DIR; exec bash "$ENGINE_DIR/scripts/init.sh" "$@";;
   # project commands: resolve STATE_DIR (pre-set env wins, else upward discovery) or error clearly.
   start)  require_state_dir; exec bash "$ENGINE_DIR/scripts/start.sh" "$@";;
-  stop)   require_state_dir; exec bash "$ENGINE_DIR/scripts/stop.sh" "$@";;
+  stop)   require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/stop.sh" "$@";;
   # status outside any project (or --all from anywhere) is the HOST view — every registered fleet,
   # read from $HARNESS_FLEETS_DIR — instead of the not-inside-a-project error (#184). Inside a
   # project it is unchanged; --watch passes through to whichever view runs.
   status)
     if [[ " $* " == *" --all "* ]]; then
       _sa=(); for _x in "$@"; do [[ "$_x" == --all ]] || _sa+=("$_x"); done
-      exec python3 "$ENGINE_DIR/scripts/fleetview.py" ${_sa[@]+"${_sa[@]}"}
+      pipe_safe_exec python3 "$ENGINE_DIR/scripts/fleetview.py" ${_sa[@]+"${_sa[@]}"}
     fi
-    [[ -n "${STATE_DIR:-}" ]] || discover_state_dir >/dev/null || exec python3 "$ENGINE_DIR/scripts/fleetview.py" "$@"
-    require_state_dir; exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
+    [[ -n "${STATE_DIR:-}" ]] || discover_state_dir >/dev/null || pipe_safe_exec python3 "$ENGINE_DIR/scripts/fleetview.py" "$@"
+    require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/status.sh" "$@";;
   # one is a project command: the precondition reads this fleet's pause flag and usage holds (#365).
   one)    require_state_dir; exec bash "$ENGINE_DIR/scripts/one.sh" "$@";;
-  doctor) require_state_dir; exec bash "$ENGINE_DIR/scripts/doctor.sh" "$@";;
-  attach) require_state_dir; exec bash "$ENGINE_DIR/scripts/attach.sh" "$@";;
-  pause)  require_state_dir; exec bash "$ENGINE_DIR/scripts/pause.sh" "$@";;
-  setup)  require_state_dir; exec bash "$ENGINE_DIR/scripts/setup.sh" "$@";;
+  doctor) require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/doctor.sh" "$@";;
+  attach) require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/attach.sh" "$@";;
+  pause)  require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/pause.sh" "$@";;
+  setup)  require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/setup.sh" "$@";;
   # migrate operates on a specific project's vendored .harness/ — discover which one (config still
   # present in a vendored layout), then strip its engine clone and re-point at the shared engine.
-  migrate) require_state_dir; exec bash "$ENGINE_DIR/scripts/migrate.sh" "$@";;
+  migrate) require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/migrate.sh" "$@";;
   # uninstall tears down host engine + this project + skills; best-effort STATE_DIR so it also runs
   # outside a project (engine/skills only) and so the default path can stop the discovered fleet.
   # (guarded like the project commands: it DELETES a project's .harness/, so an inherited STATE_DIR
   # pointing at another project is the worst possible silent target — #168.)
-  uninstall) try_state_dir; assert_state_dir_deliberate; exec bash "$ENGINE_DIR/scripts/uninstall.sh" "$@";;
+  uninstall) try_state_dir; assert_state_dir_deliberate; pipe_safe_exec bash "$ENGINE_DIR/scripts/uninstall.sh" "$@";;
   plan|prd|issue) require_state_dir; exec bash "$ENGINE_DIR/scripts/inject.sh" "$cmd" "$@";;
-  resume) require_state_dir; exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
-  help|-h|--help) no_extra_args "" "$@"; usage;;
-  "") if (( _have_cmd )); then echo "harness: unknown command ''" >&2; usage >&2; exit 2; else usage; fi;;
+  resume) require_state_dir; pipe_safe_exec bash "$ENGINE_DIR/scripts/resume.sh" "$@";;
+  help|-h|--help) no_extra_args "" "$@"; usage_quiet;;
+  "") if (( _have_cmd )); then echo "harness: unknown command ''" >&2; usage >&2; exit 2; else usage_quiet; fi;;
   *) echo "harness: unknown command '$(vis_arg "$cmd")'" >&2; usage >&2; exit 2;;
 esac
