@@ -131,6 +131,27 @@ assert "confirmed default removes the engine"      "[[ ! -e '$R5/.harness/engine
 assert "confirmed default removes project .harness/" "[[ ! -e '$R5/proj/.harness' ]]"
 assert "confirmed default removes /harness skills" "[[ ! -e '$R5/.claude/skills/harness' ]]"
 
+# ── #1139: the PATH entrypoint goes only when it is Harness's (a link into a Harness engine) ──
+RF="$(mktemp -d)"; mk_layout "$RF"
+rm -f "$RF/bin/harness"; printf '#!/bin/sh\necho mine\n' > "$RF/bin/harness"
+outf="$(HARNESS_UNINSTALL_WORKER_PIDS="" HARNESS_POLLER_DIR="$RF/empty-poller" HARNESS_HOME="$RF/.harness" HARNESS_BIN_DIR="$RF/bin" \
+        HARNESS_USER_SKILLS="$RF/.claude/skills" STATE_DIR="$RF/proj/.harness" bash "$UNINSTALL" --force </dev/null 2>&1)"
+assert "1139 foreign harness file survives uninstall"       "[[ -f '$RF/bin/harness' && \"\$(cat '$RF/bin/harness')\" == *'echo mine'* ]]"
+assert "1139 … and uninstall names it"                      "grep -q 'kept $RF/bin/harness' <<< \"\$outf\""
+assert "1139 … while the engine is still removed"           "[[ ! -e '$RF/.harness/engine' ]]"
+rm -f "$RF/bin/harness"; ln -s /usr/bin/env "$RF/bin/harness"
+( HARNESS_UNINSTALL_NOMAIN=1 HARNESS_BIN_DIR="$RF/bin" HARNESS_HOME="$RF/.harness"; source "$UNINSTALL"; remove_path_link ) >/dev/null 2>&1
+assert "1139 foreign symlink survives remove_path_link"     "[[ -L '$RF/bin/harness' ]]"
+# Harness's own link goes, even dangling (the engine was removed first); a foreign harness.cmd stays
+rm -f "$RF/bin/harness"; ln -s "$RF/.harness/engine/bin/harness" "$RF/bin/harness"; printf 'my cmd\n' > "$RF/bin/harness.cmd"
+( HARNESS_UNINSTALL_NOMAIN=1 HARNESS_BIN_DIR="$RF/bin" HARNESS_HOME="$RF/.harness"; source "$UNINSTALL"; remove_path_link; remove_entrypoints ) >/dev/null 2>&1
+assert "1139 Harness's own (dangling) link is removed"      "[[ ! -e '$RF/bin/harness' && ! -L '$RF/bin/harness' ]]"
+assert "1139 a foreign harness.cmd stays"                   "[[ -f '$RF/bin/harness.cmd' ]]"
+printf '@echo off\r\n"bash" "%%~dp0harness" %%*\r\n' > "$RF/bin/harness.cmd"
+( HARNESS_UNINSTALL_NOMAIN=1 HARNESS_BIN_DIR="$RF/bin" HARNESS_HOME="$RF/.harness"; source "$UNINSTALL"; remove_entrypoints ) >/dev/null 2>&1
+assert "1139 Harness's marked harness.cmd is removed"       "[[ ! -e '$RF/bin/harness.cmd' ]]"
+rm -rf "$RF"
+
 # ── idempotent: a second --force run on an already-removed layout is a clean no-op ──────
 out6="$(HARNESS_UNINSTALL_WORKER_PIDS="" HARNESS_POLLER_DIR="$R/empty-poller" \
         HARNESS_HOME="$R/.harness" HARNESS_BIN_DIR="$R/bin" HARNESS_USER_SKILLS="$R/.claude/skills" \

@@ -19,7 +19,7 @@ source "$HERE/../install.sh"
 
 # SYS: the few real tools the functions under test use; nothing a prerequisite check looks for.
 SYS="$T/sys"; mkdir -p "$SYS"
-for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename mkdir chmod ln; do
+for t in sed grep head cat bash sh mktemp rm env xargs ls tr dirname basename mkdir chmod ln readlink mv; do
   p="$(command -v "$t")" && ln -s "$p" "$SYS/$t"; done
 # (a real Windows host: a "link" to an MSYS tool is a copy of its exe, which runs only beside msys-2.0.dll and its siblings)
 # and `ln -s` makes a native symlink (a dangling one included) instead of a copy it cannot make of a target that is not there yet

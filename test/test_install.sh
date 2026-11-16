@@ -87,6 +87,26 @@ assert "PATH entrypoint is a symlink"                  "[[ -L '$BIN_TMP/harness'
 assert "which harness resolves (symlink -> realpath) to ~/.harness/engine/bin/harness" \
   "[[ \"\$(realpath '$BIN_TMP/harness')\" == \"\$(realpath '$HH/engine/bin/harness')\" ]]"
 
+# ── a `harness` / `harness.cmd` that is not Harness's is moved aside, never overwritten (#1139) ──
+FB="$(mktemp -d)"; mkdir -p "$FB/bin"
+printf '#!/bin/sh\necho mine\n' > "$FB/bin/harness"; printf 'my own cmd\n' > "$FB/bin/harness.cmd"
+fb_out="$(HARNESS_HOME="$HH" HARNESS_BIN_DIR="$FB/bin" link_path 2>&1)"
+assert "1139 foreign harness file: replaced by the Harness link"   "[[ -L '$FB/bin/harness' ]]"
+assert "1139 foreign harness file: kept as harness.harness-backup" "[[ \"\$(cat '$FB/bin/harness.harness-backup')\" == *'echo mine'* ]]"
+assert "1139 foreign harness file: install says so"                "grep -q 'not Harness' <<< \"\$fb_out\" && grep -q 'harness-backup' <<< \"\$fb_out\""
+# a second foreign file does not clobber the first backup
+rm -f "$FB/bin/harness"; echo second > "$FB/bin/harness"
+HARNESS_HOME="$HH" HARNESS_BIN_DIR="$FB/bin" link_path >/dev/null 2>&1
+assert "1139 second foreign file gets its own backup"              "[[ \"\$(cat '$FB/bin/harness.harness-backup.1')\" == second && \"\$(cat '$FB/bin/harness.harness-backup')\" == *'echo mine'* ]]"
+# a foreign symlink (elsewhere) is foreign too
+rm -f "$FB/bin/harness"; ln -s /usr/bin/env "$FB/bin/harness"
+HARNESS_HOME="$HH" HARNESS_BIN_DIR="$FB/bin" link_path >/dev/null 2>&1
+assert "1139 foreign symlink: moved aside, Harness link in place"  "[[ -L '$FB/bin/harness.harness-backup.2' && \"\$(realpath '$FB/bin/harness')\" == \"\$(realpath '$HH/engine/bin/harness')\" ]]"
+# Harness's own link (a re-install) is replaced quietly, with no backup
+n_before="$(ls "$FB/bin" | wc -l)"
+re_out="$(HARNESS_HOME="$HH" HARNESS_BIN_DIR="$FB/bin" link_path 2>&1)"
+assert "1139 own link re-install: no backup, no warning"           "[[ \"\$(ls '$FB/bin' | wc -l)\" == '$n_before' ]] && ! grep -q 'not Harness' <<< \"\$re_out\""
+
 # ── portability mitigation: symlink un-writable -> print explicit PATH instructions ──
 RO="$(mktemp -d)"; chmod 555 "$RO"
 # (chmod does not make a directory read-only on a Windows host: there the bin dir sits under a plain file, which cannot be made)
