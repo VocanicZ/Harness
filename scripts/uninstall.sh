@@ -115,10 +115,22 @@ remove_engine(){
 }
 # remove the `harness` PATH entrypoint. -L catches a dangling symlink (engine already gone);
 # -e catches a plain file. Idempotent. rm -f never errors on an absent path.
+# Only Harness's own (#1139): a symlink into a Harness engine (<home>/engine/bin/harness, a
+# <home>/releases/<tag>/bin/harness, or a bin/harness whose engine ships scripts/lib.sh). A file or link
+# the operator put there stays, and is named.
 remove_path_link(){
-  [[ -L "$PATH_LINK" || -e "$PATH_LINK" ]] && rm -f "$PATH_LINK" && echo "  removed PATH entrypoint $PATH_LINK"
+  [[ -L "$PATH_LINK" || -e "$PATH_LINK" ]] || return 0
+  if _is_harness_link "$PATH_LINK"; then
+    rm -f "$PATH_LINK" && echo "  removed PATH entrypoint $PATH_LINK"
+  else
+    echo "  kept $PATH_LINK — it is not a link into a Harness engine"
+  fi
   return 0
 }
+_is_harness_link(){ local t; [[ -L "$1" ]] || return 1
+  t="$(readlink "$1" 2>/dev/null)" || return 1
+  case "$t" in */engine/bin/harness|*/releases/*/bin/harness) return 0 ;; esac
+  [[ "$t" == */bin/harness && -f "$(dirname "$(dirname "$t")")/scripts/lib.sh" ]]; }
 # remove_windows_tasks — every Task Scheduler task THIS home registered (#490): one per launcher in
 # $HARNESS_HOME/tasks (the supervise and web tasks, and any a former engine left whose launcher the
 # current one no longer recognises), named per home (#489) so another home's tasks are never touched.

@@ -728,6 +728,29 @@ print_path_instructions(){
 EOF
 }
 
+# inst_is_harness_link <path> — true when <path> is a symlink into a Harness engine: the stable
+# <home>/engine/bin/harness, a <home>/releases/<tag>/bin/harness, or any bin/harness whose engine
+# (two levels up) ships scripts/lib.sh. A plain file, a directory or a link elsewhere is not Harness's (#1139).
+inst_is_harness_link(){ local t; [[ -L "$1" ]] || return 1
+  t="$(readlink "$1" 2>/dev/null)" || return 1
+  case "$t" in */engine/bin/harness|*/releases/*/bin/harness) return 0 ;; esac
+  [[ "$t" == */bin/harness && -f "$(dirname "$(dirname "$t")")/scripts/lib.sh" ]]; }
+# inst_keep_foreign <path> <link|cmd> — before install writes <path>: leave a Harness-owned one to be
+# replaced; anything else (the operator's own `harness`, `harness.cmd`) is moved aside to
+# <path>.harness-backup[.N], never overwritten, and the move is said on stderr. Returns 1 when it cannot move it.
+inst_keep_foreign(){ local p="$1" kind="$2" bak n=0
+  [[ -e "$p" || -L "$p" ]] || return 0
+  case "$kind" in
+    link) inst_is_harness_link "$p" && return 0 ;;
+    cmd)  [[ -f "$p" ]] && grep -qF '%~dp0harness' "$p" 2>/dev/null && return 0 ;;
+  esac
+  bak="$p.harness-backup"; while [[ -e "$bak" || -L "$bak" ]]; do n=$((n+1)); bak="$p.harness-backup.$n"; done
+  if mv "$p" "$bak" 2>/dev/null; then
+    echo "  ! $p is not Harness's — moved it to $bak and installed Harness's in its place" >&2
+  else
+    echo "  ! $p is not Harness's and could not be moved aside — left it alone; move it away and re-run." >&2; return 1
+  fi; }
+
 # link_path — symlink `harness` onto PATH ($HARNESS_BIN_DIR/harness → engine/bin/harness). ENGINE_DIR
 # resolves via realpath of the entrypoint's OWN path (bin/harness), so the symlink runs the real
 # engine. If the link can't be written, fall back to printing explicit PATH instructions.
@@ -735,6 +758,8 @@ link_path(){
   local home="${HARNESS_HOME:-$HOME/.harness}" bindir="${HARNESS_BIN_DIR:-$HOME/.local/bin}"
   local target="$home/engine/bin/harness" link="$bindir/harness"
   mkdir -p "$bindir" 2>/dev/null
+  inst_keep_foreign "$link" link || return 1
+  inst_windows && { inst_keep_foreign "$bindir/harness.cmd" cmd || return 1; }
   if ln -sfn "$target" "$link" 2>/dev/null; then
     echo "  linked $link -> $target"
     # Windows: cmd/PowerShell cannot run a bash script, and their `bash` is WSL's — harness.cmd runs
