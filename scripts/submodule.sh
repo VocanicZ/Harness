@@ -47,9 +47,36 @@ submodule_base_branch(){ local repo="$1" path="$2" ref="${3:-HEAD}" name br sha 
   echo "submodule_base_branch: no origin branch of $path contains $sha" >&2; return 1; }
 
 # submodule_init <worktree> — initialise every submodule of a fresh worktree (`git worktree add` never
-# does). A repo without .gitmodules is left alone. Returns git's status; callers treat it as non-fatal.
-submodule_init(){ [[ -f "$1/.gitmodules" ]] || return 0
-  git -C "$1" submodule update --init --recursive; }
+# does). A repo without .gitmodules is left alone. Returns non-zero when any submodule failed (the rest
+# are still done); callers treat that as non-fatal.
+# Each submodule BORROWS the main checkout's object store (`--reference`, i.e. objects/info/alternates)
+# instead of re-downloading it: a plain `submodule update --init --recursive` in a linked worktree clones
+# every submodule in full from its remote (1 GB+ per lane for a big submodule). The main-side copy of a
+# submodule lives in `<git-common-dir>/modules/<name>`, and its nested submodules in its own `modules/`,
+# so the reference is chosen per submodule and per level — one shared --reference would hand the wrong
+# repo to every other submodule. A missing main-side copy (the main checkout never ran `submodule
+# update`) falls back to a plain clone: git fails hard on a --reference that does not exist. Objects the
+# main-side copy lacks (its submodule sits at another commit) are fetched from the remote as usual.
+# Trade-off: a lane's submodule depends on the main checkout's objects, so a `gc --prune` there that drops
+# objects unreachable in it could break a live lane. Lanes are short-lived and `git worktree remove`
+# deletes their `modules/`. Never --dissociate (copies the objects back) and never --depth/--filter: the
+# base-branch lookup and the lane's own pushes need the full history. (#1207)
+submodule_init(){ local wt="$1" common
+  [[ -f "$wt/.gitmodules" ]] || return 0
+  common="$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=
+  _submodule_init_level "$wt" "${common:+$common/modules}"; }
+
+# _submodule_init_level <dir> <main-side modules dir | ""> — one level of submodule_init: <dir>'s own
+# submodules, each borrowing from <modroot>/<name>, then recursing with <modroot>/<name>/modules.
+_submodule_init_level(){ local dir="$1" modroot="$2" k p name ref rc=0
+  while read -r k p; do
+    name="${k#submodule.}"; name="${name%.path}"; ref=
+    [[ -n "$modroot" && -d "$modroot/$name/objects" ]] && ref="$modroot/$name"
+    if [[ -n "$ref" ]]; then git -C "$dir" submodule update --init --reference "$ref" -- "$p" || rc=1
+    else git -C "$dir" submodule update --init -- "$p" || rc=1; fi
+    [[ -f "$dir/$p/.gitmodules" ]] && { _submodule_init_level "$dir/$p" "${modroot:+$modroot/$name/modules}" || rc=1; }
+  done < <(git config -f "$dir/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
+  return $rc; }
 
 # submodule_branch_pushed <worktree> <branch> — succeed when any submodule of <worktree> has <branch> on
 # its origin. A lane working submodule code pushes `issue/<unit>-<n>` in the submodule, so a lane that died
