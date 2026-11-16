@@ -12,6 +12,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - Run with no terminal (stdin closed or at end of file) and without `--force`, `harness uninstall` printed only `aborted — nothing removed.` on stdout. It now prints `harness uninstall: no terminal to confirm on; re-run with --force to uninstall without asking. Nothing was removed.` on stderr, leaves stdout empty and still exits 1. A typed or piped `n` keeps the old abort line. `test/test_uninstall.sh`.
 
+### `harness attach` and `harness status` print config values and session names escaped (#1124)
+
+- With a form feed in `HARNESS_PREFIX`, `harness attach xx` printed `no live session 'p<FF>z-xx-p0'` with the raw control character, and a U+2028 split the line on screen. `attach` (its error, its session lists) and `status` (the `prefix:` line, session names, sibling fleets, bug refs, open PRs) now escape them as `harness stats` and `harness tier` do (#952, #1003): `\u000c` for a form feed, `\u2028` for U+2028, any other C0 or C1 control character, DEL and U+2029 as `\uXXXX`, a newline `\n`, a tab `\t`. The helper is `vis` in `scripts/lib.sh`; `test_attach_status_vis.sh` covers it.
+
 ### A checkpointed tmux lane is ended once the pause or usage hold is gone (#1159)
 
 - A lane checkpointed by a usage hold or `harness pause --force` pushed its branch, swapped its issue to `agent-paused` and then sat idle at its prompt for good on a tmux fleet: nothing ended it after the window reset or `harness resume`, so it held its pool slot and its issue was never resumed. Such a lane (checkpoint marker, issue `agent-paused`, pane idle at its prompt) is now ended on the first poll after the pause or hold is gone, and its issue resumes from its branch. Unpushed work is pushed first; a failed push keeps the lane alive and is retried. Priority and pool bug lanes follow the same rule. While the pause or hold stands, nothing is touched.
