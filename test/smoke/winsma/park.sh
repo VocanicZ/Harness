@@ -12,7 +12,7 @@
 # The waiting label is NOT agent-paused: no HARNESS CHECKPOINT was sent, and the #417 self-park nudge keys on agent-paused.
 #   WS_PARK_CHECK_PUSHED  1 (default) = refuse to park from a dirty worktree or an unpushed HEAD: the session is ended on the swap
 ws_turn(){ local issue="$1" stale="${WS_STALE_SEC:-1800}" info line o oi os op age hold q qn qi first="" pos=0 total=0
-  [[ "$issue" =~ ^[0-9]+$ ]] || { ws_die "issue must be a number, got '$issue'"; return 2; }
+  [[ "$issue" =~ ^[0-9]+$ ]] || { ws_die "issue must be a number, got $(ws_esc "$issue")"; return 2; }
   ws_need_host >/dev/null || return 2
   ws_call r_queue_join "$issue" "parked-$issue" - >/dev/null || { ws_die "could not refresh the ticket of #$issue"; return 2; }
   info="$(ws_call r_lock_info)" || { ws_die "could not read the lock"; return 2; }
@@ -45,7 +45,7 @@ ws_park_spec(){ local lib="$WSH_DIR/../../../scripts/waitlib.py"
 ws_park(){ local issue="$1" slug="" work waiting br rc review=0 a; shift
   for a in "$@"; do case "$a" in --review) review=1;; *) [[ -n "$slug" ]] || slug="$a";; esac; done
   slug="${slug:-${HARNESS_REPO:-}}"
-  [[ "$issue" =~ ^[0-9]+$ ]] || { ws_die "issue must be a number, got '$issue'"; return 1; }
+  [[ "$issue" =~ ^[0-9]+$ ]] || { ws_die "issue must be a number, got $(ws_esc "$issue")"; return 1; }
   [[ -n "$slug" ]] || { ws_die "park: no repo — pass owner/repo"; return 1; }
   ws_need_host >/dev/null || return 1
   work="${HARNESS_LABEL_WORKING:-agent-working}"; waiting="${HARNESS_LABEL_WAITING_WINSMA:-waiting-winsma}"

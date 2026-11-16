@@ -21,7 +21,7 @@
 : "${WS_PYTHON:=python}"
 : "${WS_KILL:=taskkill //F //T //PID}"
 
-_ws_issue_ok(){ [[ "${1:-}" =~ ^[0-9]+$ ]] || { echo "winsma: issue must be a number, got '${1:-}'" >&2; return 1; }; }  # never hx-smoke, hx-lock…
+_ws_issue_ok(){ [[ "${1:-}" =~ ^[0-9]+$ ]] || { echo "winsma: issue must be a number, got $(LC_ALL=C printf %q "${1:-}")" >&2; return 1; }; }  # never hx-smoke, hx-lock…
 _ws_hx(){ echo "$WS_C/hx-$1"; }
 _ws_lock(){ echo "$WS_C/hx-lock"; }
 _ws_queue(){ echo "$WS_C/hx-queue"; }   # the FIFO of lanes waiting for the lock (#1033): one ticket file per waiting issue
@@ -221,7 +221,7 @@ r_iso_prepare(){ _ws_issue_ok "$1" || return 2
 #   suite    base + HOME and USERPROFILE = the folder's home\ (the full suite's install/uninstall tests cannot reach the real home)
 r_iso_env(){ _ws_issue_ok "$1" || return 2
   local hx n mode="${2:-base}"; hx="$(_ws_hx "$1")"; n="$(_ws_native "$hx")"
-  case "$mode" in base|install|suite) :;; *) echo "winsma: isolation mode must be base, install or suite" >&2; return 2;; esac
+  case "$mode" in base|install|suite) :;; *) echo "winsma: isolation mode must be base, install or suite, got $(LC_ALL=C printf %q "$mode")" >&2; return 2;; esac
   printf 'export %s=%q\n' HX_ISSUE "$1" HX_DIR "$n" HX_CLONE "$n/clone" HARNESS_HOME "$n/harness-home" HARNESS_BIN_DIR "$n/bin" \
     HARNESS_USER_SKILLS "$n/skills" TMPDIR "$n/tmp" npm_config_cache "$n/npm-cache" GIT_CONFIG_GLOBAL "$n/gitconfig"
   if [[ -d "$hx/venv" ]]; then

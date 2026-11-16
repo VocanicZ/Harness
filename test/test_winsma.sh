@@ -799,4 +799,33 @@ assert_eq "$(grep -nE '(^|[^_a-z])(kill|taskkill)( |$)' "$E2E" | grep -vE '^[0-9
   kill_pid 4242; assert_ok "…and a real pid goes to taskkill's process tree" grep -qF 'taskkill //F //T //PID w4242' "$T/sig"
   assert_no "…and nothing was accepted that should not have been" test -e "$T/bad"
   finish ) || rc=1
+echo "# argument checks on the claude host, before any ssh (#1135)"
+( fresh_env; printf '#!/usr/bin/env bash\necho ssh-was-called >>"%s/ssh.calls"\ncat >/dev/null\n' "$T" >"$T/bin/spyssh"; chmod +x "$T/bin/spyssh"; export WINSMA_SSH="$T/bin/spyssh"
+  out="$(bash "$W/winsma.sh" --help 2>&1)"; assert_eq "$?" "0" "--help exits 0"
+  assert_ok "--help prints the usage" grep -q 'winsma.sh lock <issue>' <<<"$out"
+  assert_eq "$(bash "$W/winsma.sh" -h >/dev/null 2>&1; echo $?)" "0" "-h exits 0"
+  assert_eq "$(bash "$W/winsma.sh" >/dev/null 2>&1; echo $?)" "2" "no command: usage, exit 2"
+  assert_eq "$(bash "$W/winsma.sh" nonsense >/dev/null 2>&1; echo $?)" "2" "unknown command: usage, exit 2"
+  for args in "env -x" "isolate -" "exec --flag base true" "lock 12a" "guard 1e3 before" "cleanup ''" "run -1 base true" "unlock 5/../6" "scan x after" "pid-add x 1" "task-add x n c"; do
+    out="$(eval "bash '$W/winsma.sh' $args" 2>&1)"; rc2=$?
+    assert_eq "$rc2" "2" "[$args]: bad issue exits 2"
+    assert_ok "[$args]: ...says the issue must be a number" grep -q 'issue must be a number' <<<"$out"
+  done
+  assert_ok "the bad value is named" grep -qF "got -x" <<<"$(bash "$W/winsma.sh" env -x 2>&1)"
+  for args in "env 5 bogus" "exec 5 bogus true" "run 5 bogus true" "exec 5 '' true"; do
+    out="$(eval "bash '$W/winsma.sh' $args" 2>&1)"; rc2=$?
+    assert_eq "$rc2" "2" "[$args]: bad mode exits 2"
+    assert_ok "[$args]: ...says the mode must be base, install or suite" grep -q 'isolation mode must be base, install or suite, got' <<<"$out"
+  done
+  assert_ok "the bad mode is named" grep -qF "got bogus" <<<"$(bash "$W/winsma.sh" env 5 bogus 2>&1)"
+  out="$(bash "$W/winsma.sh" env $'12\n34' 2>&1)"; assert_eq "$(printf %s "$out" | wc -l | tr -d ' ')" "0" "a newline in the issue stays on one line"
+  assert_ok "...and shows escaped" grep -qF "got \$'12\\n34'" <<<"$out"
+  out="$(bash "$W/winsma.sh" isolate $'\xef\xbb\xbf9' 2>&1)"
+  assert_ok "a BOM in the issue shows escaped, not raw" grep -qF "got \$'\\357\\273\\277""9'" <<<"$out"
+  assert_no "...no raw BOM byte is printed" grep -q $'\xef\xbb\xbf' <<<"$out"
+  out="$(bash "$W/winsma.sh" exec 5 $'ba\nse' true 2>&1)"; assert_ok "a newline in the mode shows escaped" grep -qF "got \$'ba\\nse'" <<<"$out"
+  assert_no "none of these reached ssh" test -e "$T/ssh.calls"
+  bash "$W/winsma.sh" env 5 >/dev/null 2>&1; assert_ok "a valid issue and no mode still reaches ssh" test -e "$T/ssh.calls"
+  finish ) || rc=1
+
 exit $rc

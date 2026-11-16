@@ -8,6 +8,11 @@
 #                         (default: ssh -T -o BatchMode=yes <host> "C:\Program Files\Git\bin\bash.exe" -l -s)
 WS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ws_die(){ echo "winsma: $*" >&2; return 1; }
+# ws_esc <value> — the value as one printable shell word: a BOM, a newline or a control byte shows as $'\357\273\277' / $'\n', never raw (#1135).
+ws_esc(){ LC_ALL=C printf '%q' "${1-}"; }
+# ws_issue_ok <issue> / ws_mode_ok <mode> — checked on the claude host before anything is sent over ssh (#1135); the bad value is named, escaped.
+ws_issue_ok(){ [[ "${1-}" =~ ^[0-9]+$ ]] || { ws_die "issue must be a number (digits only), got $(ws_esc "${1-}")"; return 2; }; }
+ws_mode_ok(){ case "${1-}" in base|install|suite) return 0;; esac; ws_die "isolation mode must be base, install or suite, got $(ws_esc "${1-}")"; return 2; }
 ws_log(){ echo "[$(date -u +%H:%M:%S)] $*" | tee -a "${WS_LOG:-/dev/null}"; }
 # The usual config path: env wins over `.harness/config`, which lib.sh sources (`: "${KEY:=val}"`).
 ws_host(){ local h="${HARNESS_WINDOWS_HOST:-}"

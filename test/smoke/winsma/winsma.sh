@@ -42,7 +42,18 @@ ws_run(){ local issue="$1" mode="$2" cmd="$3" rc=0 step=""
   [[ -z "$step" ]] && { ws_log "run: OK"; return 0; }
   ws_log "run: FAILED at $step"; return 1; }
 
+ws_usage(){ sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p;' | head -25; }
+# ws_check_args <cmd> <args…> — the issue (digits only) and the isolation mode are checked here, on the claude host, before any ssh (#1135).
+ws_check_args(){ local cmd="$1"; shift
+  case "$cmd" in
+    lock|unlock|isolate|guard|scan|task-add|pid-add|cleanup) ws_issue_ok "${1-}" || return 2;;
+    env)  ws_issue_ok "${1-}" || return 2; [[ $# -lt 2 ]] || ws_mode_ok "$2" || return 2;;
+    exec) ws_issue_ok "${1-}" || return 2; ws_mode_ok "${2-}" || return 2;;
+    run)  ws_issue_ok "${1-}" || return 2; [[ $# -lt 3 ]] || ws_mode_ok "$2" || return 2;;
+  esac; }
 main(){ local cmd="${1:-}"; shift || true
+  case "$cmd" in --help|-h|help) ws_usage; return 0;; esac
+  ws_check_args "$cmd" "$@" || return 2
   case "$cmd" in
     host)     ws_need_host && echo;;
     lock)     ws_lock "$@";;
@@ -58,7 +69,7 @@ main(){ local cmd="${1:-}"; shift || true
     task-add) ws_task_add "$@";;
     pid-add)  ws_pid_add "$@";;
     cleanup)  ws_cleanup "$@";;
-    run)      if [[ $# -ge 3 ]]; then ws_run "$1" "$2" "$3"; else ws_run "$1" base "$2"; fi;;
-    *) sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p;' | head -25 >&2; return 2;;
+    run)      if [[ $# -lt 2 ]]; then ws_usage >&2; return 2; elif [[ $# -ge 3 ]]; then ws_run "$1" "$2" "$3"; else ws_run "$1" base "$2"; fi;;
+    *) ws_usage >&2; return 2;;
   esac; }
 [[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"
