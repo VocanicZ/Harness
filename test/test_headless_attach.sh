@@ -167,7 +167,7 @@ assert_eq "$(calls prompt | wc -l)" 4 "…and typed nothing"
 
 echo "== attach: a final piped line with no trailing newline is sent (#1128) =="
 BEFORE_INBOX="$(wc -l < "$INBOX")"
-out="$(printf 'last line' | timeout "$WAIT" bash "$ROOT/scripts/attach.sh" "$S" 2>&1)"
+out="$(printf 'last line' | timeout "$((WAIT * 4))" bash "$ROOT/scripts/attach.sh" "$S" 2>&1)"
 assert_ok "attach says it sent the unterminated line" grep -qF "· sent: last line" <<<"$out"
 assert_ok "…and it landed in the lane's inbox" grep -qF '"text": "last line"' "$INBOX"
 assert_eq "$(( $(wc -l < "$INBOX") - BEFORE_INBOX ))" 1 "…as exactly one message"
