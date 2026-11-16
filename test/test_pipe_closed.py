@@ -360,13 +360,16 @@ def test_update_rollback_into_a_closed_pipe_flips_and_redeploys():
 
 
 def test_read_only_commands_exit_0_into_a_closed_pipe():
-    """#1130: doctor, status (in a project) and attach exited 141 into `| head -0`; the python commands already exit 0."""
+    """#1130: doctor and status (in a project) exited 141 into `| head -0`; the python commands already exit 0.
+    A bare `attach` is a usage error since #1122 (exit 2): into the closed pipe it keeps that status, not 0 and not 141."""
     with tempfile.TemporaryDirectory() as d:
         env, hh, binlink, proj = _host(d)
         harness = ["bash", os.path.join(hh, "releases", "v0.2.0", "bin", "harness")]
-        for args in (["doctor"], ["status"], ["attach"], ["status", "--all"], ["stats"], ["version"], ["help"]):
+        for args in (["doctor"], ["status"], ["status", "--all"], ["stats"], ["version"], ["help"]):
             rc, err = _into_head0(harness + args, env, proj)
             assert rc == 0 and "Broken pipe" not in err and "write error" not in err, (args, rc, err)
+        rc, err = _into_head0(harness + ["attach"], env, proj)
+        assert rc == 2 and "Broken pipe" not in err and "write error" not in err and "usage: harness attach" in err, (["attach"], rc, err)
         # a failing command keeps its own status through the relay: a pipe is not a reason to report success
         bad = harness + ["attach", "no-such-unit"]
         direct = subprocess.run(bad, capture_output=True, env=env, cwd=proj, stdin=subprocess.DEVNULL)
