@@ -119,9 +119,15 @@ headless_sess_leaked_env(){ return 0; }
 headless_sess_send_line(){ _hl_send "$1" "$2"; }
 headless_sess_type(){ headless_sess_live "$1" || return 1; printf '%s' "$2" >> "$(headless_lane_dir "$1")/typed"; }
 # Enter submits what is typed as one message; on an empty input line it does nothing, as on a prompt.
-headless_sess_enter(){ local f text; headless_sess_live "$1" || return 1
-  f="$(headless_lane_dir "$1")/typed"; [[ -s $f ]] || { rm -f "$f"; return 0; }
-  text="$(cat "$f")"; rm -f "$f"; _hl_send "$1" "$text"; }
+# #1137: the typed file is shared by every sender of the lane, so Enter CLAIMS it with one atomic rename and
+# reads the claim: a `cat` then `rm` lost (or merged into the next line) whatever another sender appended in
+# between. A type is one O_APPEND write. Lines that must stay whole — attach, cli_send, the supervisor's
+# nudge — go through headless_sess_send_line (the inbox's write-temp-then-rename) and never share the buffer.
+headless_sess_enter(){ local f c text; headless_sess_live "$1" || return 1
+  f="$(headless_lane_dir "$1")/typed"; c="$f.claim.$$.$RANDOM"
+  mv -f "$f" "$c" 2>/dev/null || return 0
+  [[ -s $c ]] || { rm -f "$c"; return 0; }
+  text="$(cat "$c")"; rm -f "$c"; _hl_send "$1" "$text"; }
 headless_sess_clear_line(){ headless_sess_live "$1" || return 1; rm -f "$(headless_lane_dir "$1")/typed"; }
 headless_sess_interrupt(){ headless_sess_live "$1" || return 1
   python3 "$HEADLESS_LANE_PY" interrupt --lane "$(headless_lane_dir "$1")"; }

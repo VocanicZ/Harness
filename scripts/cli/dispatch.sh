@@ -56,8 +56,11 @@ _cli_default_pinned_model(){ :; }
 # The model and effort the line's --model/--effort name (`--model x` or `--model=x`).
 _cli_default_model_effort(){ printf '%s\t%s\n' "$(_cli_line_opt "$1" '--model[= ]')" "$(_cli_line_opt "$1" '--effort[= ]')"; }
 _cli_default_first_input(){ :; }
-# Its status is the Enter's: a line that never reached the session is a failed send (#1126), not a silent one.
-_cli_default_send(){ sess_type "$1" "$3" 2>/dev/null || true; sess_enter "$1" 2>/dev/null; }
+# #1137: a headless lane takes the line whole through its inbox (atomic); typing it into the lane's shared
+# input buffer let two senders merge or lose each other's lines. Its status is the send's (#1126): a line
+# that never reached the session is a failed send, not a silent one.
+_cli_default_send(){ if [[ "$(sess_backend)" == headless ]]; then sess_send_line "$1" "$3" 2>/dev/null; return; fi
+  sess_type "$1" "$3" 2>/dev/null || true; sess_enter "$1" 2>/dev/null; }
 _cli_default_kill(){ sess_kill "$1" 2>/dev/null; }
 _cli_default_session_id(){ echo "$2"; }
 _cli_default_limit_menu_re(){ :; }
