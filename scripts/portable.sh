@@ -121,6 +121,8 @@ _mlock_try(){ local f="$1" d="$1.d" me="$BASHPID" seen aside got
 # winpid all exist there, so these readers serve both platforms.
 # proc_cmdline <pid> — the process's argv joined by spaces (empty when it is gone).
 proc_cmdline(){ tr '\0' ' ' 2>/dev/null < "${HARNESS_PROC_ROOT:-/proc}/$1/cmdline"; }
+# proc_state <pid> — the process's state letter (R, S, Z for a zombie…), empty when it is gone or unreadable.
+proc_state(){ awk '{print $3}' "${HARNESS_PROC_ROOT:-/proc}/$1/stat" 2>/dev/null; return 0; }
 # proc_env <pid> <VAR> — one variable from the process's exec-time environment (empty when unreadable).
 proc_env(){ local kv
   while IFS= read -r -d '' kv; do [[ $kv == "$2="* ]] && { printf '%s\n' "${kv#"$2="}"; return 0; }; done \

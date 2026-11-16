@@ -292,6 +292,8 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_LABEL_COORD` | `coordination` | Optional, human-facing tracking label only. Cross-unit deps are filed as real cross-repo `owner/repo#N` refs in `## Blocked by` (see `prompts/decompose.md`); this label is **not** the work path. |
 | `HARNESS_AUTHOR_ALLOWLIST` | _(empty)_ | Comma-separated GitHub logins permitted to author claimable issues. Empty = self-only (secure default); `*` = allow any author. See [Issue-author allowlist](#issue-author-allowlist) |
 | `HARNESS_USE_POLLER` | `1` | Host poller, **on by default** (#182): this fleet reads shared host snapshots instead of polling GitHub itself. Empty also means on (configs written before #182 carry an empty value); `0` = direct-`gh` polling. See [Host poller](#host-poller) |
+| `HARNESS_POLLER_ESCALATE_TICKS` | `3` | Consecutive failing snapshot-gate ticks (a live poller, no fresh snapshot) after which a worker restarts the host poller. See [Host poller](#host-poller) |
+| `HARNESS_POLLER_ESCALATE_S` | `300` | Escalation window: a worker restarts the poller at most once per this many seconds per host, and never one younger than this |
 | `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree, with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 | `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
 | `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
@@ -1825,6 +1827,13 @@ Each fleet still computes its own dispatch.
 - No lifecycle to manage: `harness start` brings it up and workers relaunch it if it dies.
   `harness stop` never kills it (other fleets may use it).
 - A stale snapshot holds new dispatch until fresh; it never falls back to direct `gh` polling.
+- It follows the engine (#1204): the first worker tick after `$HARNESS_HOME/engine` moves to a new
+  release replaces the poller (stopped by its own pid, relaunched from that release). A worker on an
+  older release leaves it alone, so fleets mid-roll never relaunch it back and forth. A poller whose
+  engine directory is gone (an old release removed) exits on its own and is relaunched on the next tick.
+- Backstop: after `HARNESS_POLLER_ESCALATE_TICKS` failing gate ticks with the poller alive, a worker
+  restarts it and logs `restarting poller` (at most once per `HARNESS_POLLER_ESCALATE_S`; never during a
+  GitHub rate-limit hold).
 - Debug: `harness poll --status`, `harness poll --once`.
 
 ## Fleet prefixes
