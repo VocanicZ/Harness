@@ -11,6 +11,12 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 - `portable._cygpath` starts a `HARNESS_CYGPATH` script stand-in through `resolve_argv`, as `CreateProcess` cannot run an extensionless script.
 - Windows-only test fixes: `test_pipe_closed.py` uses Git Bash, not WSL's `bash.exe`; the ralph flush-race delay, the guard-set caps, the tmux fallback PATH setup, the `lane_has_gh` cell and the unix-socket fixture in `test_launch_failed.sh` fit Windows. Windows-unverified: needs a winsma run.
 
+### Windows: the tmp-hygiene and supervise-autoupdate tests clean up after themselves on Git Bash (#1106)
+
+- `tmp_kill_rooted` (test/helpers.sh) ran a native Python that cannot read Git Bash's MSYS `/proc`, so on Windows it ended no process and a stand-in whose cwd or `HARNESS_HOME` sat in a tracked dir lived on and held the dir open. On Windows it now scans the MSYS `/proc` in bash; Linux still uses the Python scan.
+- `test_supervise_autoupdate_headless.sh` ends a lane's runner by process tree and a fake claude by its Windows pid (checked against its command line), instead of an MSYS `kill` that could end an unrelated process. `test_tmp_hygiene.sh` compares the python TMPDIR in one path spelling, `test_supervise.sh` tracks its stub dir, and `test_tmp_hygiene_cli_matrix.sh` runs one CLI on Windows with a 3600 s cap.
+- Windows-unverified: needs a winsma run of the seven files named in #1106. Linux behaviour is unchanged.
+
 ### `harness attach` drops a leading BOM and the CR of a CRLF line, and ends a line at a lone CR (#1127)
 
 - A typed line that began with a UTF-8 BOM reached the CLI with the BOM, a CRLF line reached it with a trailing CR, and a line with a lone CR went out as one message with the CR inside. `harness attach` on a headless lane now strips a leading BOM and the CR of a CRLF line, and treats a lone CR as a line end, the same as LF (two messages). `test/test_headless_attach.sh`, on Linux and with `HARNESS_PLATFORM=windows`.
