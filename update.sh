@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# update.sh [--with-skills] [--rollback] — update the ONE shared engine install (#54, PRD #52). The engine lives
+# update.sh [--with-skills] [--rollback] [-h|--help] — update the ONE shared engine install (#54, PRD #52). The engine lives
 # at $HARNESS_HOME/engine (resolved here via ENGINE_DIR, set by bin/harness from the realpath of the
 # entrypoint). One update moves every project at once — no per-project re-pull, no skew.
 #   --with-skills  also refresh each agent CLI's plugins + matt-pocock skills (host-level).
@@ -30,7 +30,18 @@ ENGINE_DIR="${ENGINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 case "${HARNESS_PLATFORM:-$(uname -s 2>/dev/null)}" in windows|MINGW*|MSYS*|CYGWIN*)
   [[ " ${MSYS:-} " == *" winsymlinks:nativestrict "* ]] || export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict" ;; esac
 WITH_SKILLS=0; POST_FLIP=0; ROLLBACK=0
-for a; do case "$a" in --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; --rollback) ROLLBACK=1 ;; esac; done
+# An argument this script does not know is a usage error (#1119), never ignored: `--help` used to run an update and
+# `--rollback -x` rolled back. Nothing is touched before this loop has seen every argument.
+_upd_usage(){ echo "usage: harness update [--with-skills] [--rollback]
+  (no option)    update the shared engine to the latest release
+  --with-skills  also refresh each agent CLI's plugins and skills
+  --rollback     flip the engine back to the previous installed release
+  -h, --help     print this usage"; }
+for a; do case "$a" in -h|--help) _upd_usage; exit 0 ;; esac; done
+for a; do case "$a" in
+  --with-skills) WITH_SKILLS=1 ;; --post-flip) POST_FLIP=1 ;; --rollback) ROLLBACK=1 ;;
+  *) echo "harness update: unknown argument: $a" >&2; _upd_usage >&2; exit 2 ;;
+esac; done
 
 # hand_off — after a flip, run the redeploy tail from the release engine now points at: exec its
 # `update.sh --post-flip`, or, for a release cut before that flag existed (an older HARNESS_REF pin,
