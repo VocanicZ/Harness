@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness attach` drops a leading BOM and the CR of a CRLF line, and ends a line at a lone CR (#1127)
+
+- A typed line that began with a UTF-8 BOM reached the CLI with the BOM, a CRLF line reached it with a trailing CR, and a line with a lone CR went out as one message with the CR inside. `harness attach` on a headless lane now strips a leading BOM and the CR of a CRLF line, and treats a lone CR as a line end, the same as LF (two messages). `test/test_headless_attach.sh`, on Linux and with `HARNESS_PLATFORM=windows`.
+
 ### The installer's git identity check reads the global config, and `HARNESS_INSTALL_PREREQS` takes yes/no words (#1140)
 
 - On Windows, `install.sh` read the identity from the current directory's git config, so running it inside a repo with a local `user.name` reported the identity as set even when the global one, which lanes use in other repos, was missing. It now reads `git config --global` (`GIT_AUTHOR_*` in the environment still counts).

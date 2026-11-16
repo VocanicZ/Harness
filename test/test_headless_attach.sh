@@ -97,18 +97,57 @@ assert_eq "$(python3 -c 'import json,sys; print(json.loads(open(sys.argv[1], enc
 assert_ok "…and it runs as turn 4" wait_until 15 turn_is 4
 
 echo "== attach: the echo escapes control characters and U+2028/U+2029 (#1125) =="
-# A CR rewrites the terminal line; FF and U+2028 print as they are. Only the echo is escaped: the lane gets the line as typed.
-printf 'a\rb\fc\xe2\x80\xa8d\xe2\x80\xa9e\x1bf\n' >&7
-assert_ok "the echo spells each one as \\uXXXX" wait_until 10 out_has '· sent: a\u000db\u000cc\u2028d\u2029e\u001bf'
+# FF, U+2028 and ESC print as they are. Only the echo is escaped: the lane gets the line as typed. (A CR never gets this far: attach
+# ends the line there, #1127.)
+printf 'a b\fc\xe2\x80\xa8d\xe2\x80\xa9e\x1bf\n' >&7
+assert_ok "the echo spells each one as \\uXXXX" wait_until 10 out_has '· sent: a b\u000cc\u2028d\u2029e\u001bf'
 assert_ok "…and runs as turn 4" wait_until 15 turn_is 5
-assert_eq "$(grep -c "$(printf '\r')" "$OUT")" 0 "…no CR reached the output"
 assert_eq "$(grep -c "$(printf '\f')" "$OUT")" 0 "…no form feed reached the output"
 assert_eq "$(grep -c "$(printf '\xe2\x80\xa8')" "$OUT")" 0 "…no U+2028 reached the output"
-assert_eq "$(calls prompt | sed -n 5p)" '"a\rb\fc\u2028d\u2029e\u001bf"' "…the lane still got the line as typed"
+assert_eq "$(calls prompt | sed -n 5p)" '"a b\fc\u2028d\u2029e\u001bf"' "…the lane still got the line as typed"
+# #1127: a leading BOM, the CR of a CRLF line and a lone CR never reach the CLI. A BOM is dropped, a CRLF line is the
+# line, a lone CR ends a line like an LF (two messages). Once against the live lane, once with HARNESS_PLATFORM=windows
+# forced: Linux cannot give a lane a Windows pid (_hl_runner reads winpids), so that run drives headless_sess_attach
+# itself with the lane's liveness, state and cli_send stubbed — the part of the attach that reads the typed lines.
+inbox_texts(){ python3 -c 'import json,sys
+for l in list(open(sys.argv[1], encoding="utf-8"))[int(sys.argv[2]):]: print(json.dumps(json.loads(l)["text"]))' "$INBOX" "$1"; }
+inbox_has(){ [[ "$(wc -l < "$INBOX")" -ge "$1" ]]; }
+gone(){ ! proc_alive "$1"; }
+EOL_WANT='"bom line" "crlf line" "lone" "cr" '
+echo "== attach: BOM, CRLF and a lone CR in typed lines =="
+N0="$(wc -l < "$INBOX")"; P0="$(calls prompt | wc -l)"
+OUT2="$RUN_DIR/attach-eol.out"; : > "$OUT2"
+mkfifo "$RUN_DIR/eol.in"; exec 8<>"$RUN_DIR/eol.in"
+"${DEFSIG[@]}" bash "$ROOT/scripts/attach.sh" "$S" <&8 >"$OUT2" 2>&1 &
+APID2=$!
+assert_ok "attach is watching the lane" wait_until 10 grep -qF "watching headless lane $S" "$OUT2"
+printf '\xef\xbb\xbfbom line\n' >&8
+assert_ok "the BOM line is sent" wait_until 10 inbox_has $((N0 + 1))
+printf 'crlf line\r\n' >&8
+assert_ok "the CRLF line is sent" wait_until 10 inbox_has $((N0 + 2))
+printf 'lone\rcr\n' >&8
+assert_ok "the lone-CR line is sent" wait_until 10 inbox_has $((N0 + 4))
+sleep 0.5
+assert_eq "$(inbox_texts "$N0" | tr '\n' ' ')" "$EOL_WANT" "inbox: no BOM, no CR; a lone CR is a line end (two messages)"
+assert_eq "$(( $(wc -l < "$INBOX") - N0 ))" 4 "…and nothing else was sent"
+kill -TERM "$APID2" 2>/dev/null; wait_until 10 gone "$APID2" || kill -KILL "$APID2" 2>/dev/null
+wait "$APID2" 2>/dev/null; exec 8<&-
+assert_ok "the four messages run as turns" wait_until 30 turn_is $((P0 + 4))
+assert_eq "$(calls prompt | sed -n "$((P0 + 1)),$((P0 + 4))p" | tr '\n' ' ')" "$EOL_WANT" "the CLI got them clean"
+
+echo "== attach: BOM, CRLF and a lone CR in typed lines (HARNESS_PLATFORM=windows) =="
+SENT="$RUN_DIR/win-sent.txt"
+win="$( ( export HARNESS_PLATFORM=windows; source "$ROOT/scripts/lib.sh"
+  headless_sess_live(){ return 0; }; _hl_state(){ echo idle; }
+  cli_send(){ printf '%s\n' "$3" >> "$SENT"; }
+  HEADLESS_LANE_PY=/dev/null; python3(){ :; }
+  printf '\xef\xbb\xbfbom line\ncrlf line\r\nlone\rcr\n' | headless_sess_attach winlane ) 2>&1 )"
+assert_eq "$(tr '\n' ' ' < "$SENT")" "bom line crlf line lone cr " "windows: no BOM, no CR; a lone CR is a line end"
+assert_ok "…each said as sent" grep -qF "· sent: lone" <<<"$win"
+assert_no "…no CR left in what it said" grep -q $'\r' <<<"$win"
 
 echo "== attach: Ctrl-C detaches and leaves the lane running =="
 STATE_BEFORE="$(cat "$(headless_lane_dir "$S")/state.json")"
-gone(){ ! proc_alive "$1"; }
 if (( SIGINT_OK )); then
   kill -INT "$APID"
   assert_ok "the attach process exits" wait_until 10 gone "$APID"
@@ -131,7 +170,7 @@ assert_eq "$(sess_pane_pid "$S")" "$RUNNER" "…the same runner, still the lane'
 assert_ok "the lane is still live" sess_live "$S"
 assert_eq "$(lane_state)" idle "its state is still idle"
 assert_eq "$(cat "$(headless_lane_dir "$S")/state.json")" "$STATE_BEFORE" "…and state.json is byte for byte unchanged"
-assert_eq "$(calls prompt | wc -l)" 5 "detaching sent nothing to the lane"
+assert_eq "$(calls prompt | wc -l)" 9 "detaching sent nothing to the lane"
 if command -v pgrep >/dev/null 2>&1; then
   assert_no "the watch it started is gone" pgrep -f "claude_headless.py watch --lane $(headless_lane_dir "$S")"
 fi
@@ -195,7 +234,7 @@ WAIT=3; is_windows && WAIT=20   # Git Bash takes seconds to start a script
 out="$(timeout "$WAIT" bash "$ROOT/scripts/attach.sh" "$S" 2>&1 </dev/null)"
 assert_ok "it watches the lane" grep -qF "watching headless lane $S" <<<"$out"
 assert_ok "…showing the typed line's turn" grep -qF "── turn 2 (message) ── please do the typed thing" <<<"$out"
-assert_eq "$(calls prompt | wc -l)" 5 "…and typed nothing"
+assert_eq "$(calls prompt | wc -l)" 9 "…and typed nothing"
 
 echo "== attach: a final piped line with no trailing newline is sent (#1128) =="
 BEFORE_INBOX="$(wc -l < "$INBOX")"
