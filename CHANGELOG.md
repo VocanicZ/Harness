@@ -4,6 +4,10 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### `harness attach` to a headless lane ends once the lane has ended (#1129)
+
+- When the attached headless lane ended, `harness attach` stayed blocked in `read` until the next keystroke and only then noticed. The read is now timed and the lane is checked every `HARNESS_ATTACH_POLL_S` seconds (default 2), also once stdin is closed: attach prints `headless lane <name> has ended` on stderr and exits 1 within a few seconds. `test/test_headless_attach.sh` covers it.
+
 ### `harness attach` with no unit prints the right usage and exits 2 (#1122)
 
 - `harness attach` with no unit (or `harness attach ''`) printed `usage: attach.sh <unit> [issue]` on stdout and exited 0. It now prints `usage: harness attach <unit> [issue]` on stderr and exits 2. `test/test_headless_attach.sh`.

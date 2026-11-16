@@ -223,14 +223,31 @@ headless_sess_attach(){ local name="$1" lane wp line; headless_sess_live "$name"
   echo "watching headless lane $name — type a line to send it as the next turn; Ctrl-C detaches and leaves the lane running — $lane/events.jsonl"
   python3 "$HEADLESS_LANE_PY" watch --lane "$lane" & wp=$!
   trap 'kill "$wp" 2>/dev/null; echo; echo "detached; headless lane '"$name"' keeps running"; exit 0' INT TERM
-  # `|| [[ -n $line ]]`: read returns non-zero at EOF on a final line with no newline, yet fills `line` —
-  # that last piped line is sent like any other (#1128).
-  while IFS= read -r line || [[ -n $line ]]; do
-    [[ -n ${line//[[:space:]]/} ]] || continue
-    headless_sess_live "$name" || { echo "headless lane $name has ended" >&2; kill "$wp" 2>/dev/null; return 1; }
-    _hl_attach_send "$name" "$line"
+  # The read is timed (#1129): a lane that ends while nobody types must end the attach within a few seconds, not
+  # at the next keystroke. <buf> keeps what a timed-out read had already taken of a half-typed line.
+  # At EOF a final line with no newline still fills `line` (read returns 1): it is sent like any other (#1128).
+  local buf="" rc
+  while :; do
+    IFS= read -r -t "${HARNESS_ATTACH_POLL_S:-2}" line; rc=$?
+    if (( rc > 128 )); then buf+="$line"
+    else
+      line="$buf$line"; buf=""
+      if [[ -n ${line//[[:space:]]/} ]]; then
+        headless_sess_live "$name" || { _hl_attach_ended "$name" "$wp"; return 1; }
+        _hl_attach_send "$name" "$line"
+      fi
+      (( rc == 0 )) && continue
+      break   # stdin closed (or not a terminal): still the watch
+    fi
+    headless_sess_live "$name" || { _hl_attach_ended "$name" "$wp"; return 1; }
+  done
+  while kill -0 "$wp" 2>/dev/null; do
+    headless_sess_live "$name" || { _hl_attach_ended "$name" "$wp"; return 1; }
+    sleep "${HARNESS_ATTACH_POLL_S:-2}"
   done
   wait "$wp"; }
+# The lane is gone: give the watch a moment to print its last events, stop it, say so.
+_hl_attach_ended(){ sleep 1; kill "$2" 2>/dev/null; echo "headless lane $1 has ended" >&2; }
 headless_sess_attach_hint(){ echo "harness attach $1"; }
 # headless_sess_describe <fn> <target> [args…] — what <fn> does to a lane (sess_describe).
 headless_sess_describe(){ local fn="$1" t="$2"; shift 2
