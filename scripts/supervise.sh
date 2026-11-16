@@ -190,9 +190,11 @@ sup_watch_pane(){
       sup_act sess_send_line "$t" "$msg"   # #1137: one atomic inbox message, never the lane's shared typed buffer
     else
       sup_act sess_clear_line "$t"
-      sup_act sess_type "$t" "$msg"
-      (( SUP_DRY )) || sleep 0.5   # an Enter in the same burst as the text is a newline to hermes (cli_send)
-      sup_act sess_enter "$t"
+      if (( SUP_DRY )); then sup_act sess_type "$t" "$msg"; sup_act sess_enter "$t"
+      else   # #1201: the one send path (a pause before Enter, the submit read back)
+        sup_log "ACT $(sess_describe sess_type "$t" "$msg")"
+        cli_with "$(sup_cli "$cli")" cli_send_typed "$t" "$msg" >>"$SUP_LOG" 2>&1 || sup_log "WARN: $t: the nudge was not submitted"
+      fi
     fi
     echo "$body $bg $cpu $t0 1 $now" >"$f"
   fi
