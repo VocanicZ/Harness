@@ -133,7 +133,14 @@ for _ in $(seq 1 40); do ps -e -o comm= | grep -qx gh && break; command sleep 0.
 sess_pane_pid(){ echo "$HG"; }
 assert_ok "gh descendant of the pane pid: lane_has_gh is 0" lane_has_gh any
 sess_pane_pid(){ echo "$HN"; }
+# On Windows the process table has no ppid/comm columns (MSYS ps), so proc_tree_has_comm answers "assume gh is there" by design
+# (scripts/portable.sh, #653; test_portable.sh holds its Windows cell): the POSIX walk has no counterpart to run there.
+if ! skip_posix_branch "lane_has_gh walks procps ps -o pid=,ppid=,comm= (the Windows answer is the next cell)"; then
 assert_no "no gh under the pane pid: lane_has_gh is 1" lane_has_gh any
+fi
+_plat_was="${HARNESS_PLATFORM-}"; export HARNESS_PLATFORM=windows
+assert_ok "[windows] a pane pid whose table cannot be read: lane_has_gh assumes gh is there (0)" lane_has_gh any
+if [[ -n $_plat_was ]]; then export HARNESS_PLATFORM="$_plat_was"; else unset HARNESS_PLATFORM; fi
 sess_pane_pid(){ echo ""; }
 assert_no "no pane pid: lane_has_gh is 1" lane_has_gh any
 assert_no "pool-worker.sh has no raw ps -o (ADR 0001)" grep -nE '(^|[^[:alnum:]_.-])ps (-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*o\b' "$HERE/../scripts/pool-worker.sh"

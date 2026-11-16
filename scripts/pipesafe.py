@@ -16,7 +16,13 @@ no traceback, the status `main` returned, and --help is dropped too (#837). A st
 With fd 2 closed under a direct python3 run, sys.stderr is None and print(file=sys.stderr) / argparse's usage would fall back to
 stdout (invalid --json output, #930): run() points sys.stderr at devnull while main runs, so diagnostics are dropped. Stdlib only.
 """
-import os, sys
+import errno, os, sys
+
+
+def broken_pipe(e):
+    """Is this OSError a reader that went away? BrokenPipeError everywhere; on native Windows the CRT's write() maps the
+    pipe's ERROR_NO_DATA to EINVAL ("Invalid argument"), which Python raises as a plain OSError, not BrokenPipeError."""
+    return isinstance(e, BrokenPipeError) or (sys.platform == "win32" and e.errno == errno.EINVAL and e.filename is None)
 
 
 def quiet_stdout():
@@ -90,6 +96,9 @@ def _run(main, *args):
         quiet_stdout()
         return 0
     except OSError as e:
+        if broken_pipe(e):   # Windows: EINVAL on a pipe whose reader closed
+            quiet_stdout()
+            return 0
         if e.filename is not None or e.errno is None:   # a failed open()/stat of a named path is main's, not stdout's
             raise
         return write_failed(e)
@@ -129,5 +138,7 @@ def flush():
         return
     try:
         sys.stdout.flush()
-    except BrokenPipeError:
+    except OSError as e:
+        if not broken_pipe(e):
+            raise
         quiet_stdout()
