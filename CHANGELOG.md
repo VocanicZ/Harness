@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### A PR the review opens no longer sits open with no owner; `harness status` flags such a PR `orphaned` (#1233)
+
+- `prompts/review.md`: a review that opens a PR for its own artifacts (the PRD's full-suite logs, review notes) merges it in the same review session after the gate, as an impl lane does. If it cannot merge, it files a `ready-for-agent` issue that owns the PR (`## Blocked by` / `None`, `## Parent` / the PRD), the one exception to one issue per review round. The review is not done while a PR it opened has no owner (PR #1103 sat open for 4 days).
+- `harness status`: the open-PRs block marks a PR with no linked open issue (a closing reference or its `issue/N` branch) and no live lane `⚠ orphaned`. If `gh` cannot list the issues, nothing is marked.
+
 ### Windows suite: pipe-closed, claude workspace trust and test-harness fixes (#1110)
 
 - On Windows, `harness claude` pre-accepts the workspace-trust dialog in the native config file: the `CFG` path handed to Python is now converted with `native_path` (MSYS does not convert env vars, so Python opened a `C:\c\...` path), and the trusted-directory list also carries the `C:/x` spelling Claude Code keys projects by.
