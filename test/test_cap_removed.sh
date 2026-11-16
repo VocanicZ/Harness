@@ -12,9 +12,7 @@ unset_inherited_config
 export RUN_DIR="$(mktemp -d)"; tmp_track "$RUN_DIR"
 
 echo "-- no lane-CAP reference left in scripts/ outside the migration code"
-left="$(cd "$ROOT/scripts" && grep -rnE 'HARNESS_CAP|\$CAP\b|\$\{CAP\b|\bCAP=|cap=\$|\bcap \$' . \
-        | grep -vE '^\./(fleet-migrate\.sh|fleet_migrate\.py):' )"
-assert_eq "$left" "" "scripts/ outside fleet-migrate.sh / fleet_migrate.py mentions neither HARNESS_CAP nor \$CAP"
+# (the scan of scripts/ for a stray HARNESS_CAP / $CAP is test_static_scripts_lints.sh: always-run guard set, #1211)
 assert_ok "the migration code still names HARNESS_CAP (it drops the line)" grep -q 'HARNESS_CAP' "$ROOT/scripts/fleet_migrate.py"
 assert_ok "prompts/review.md keeps the security-audit round cap" grep -q '^S1\. CAP\.' "$ROOT/prompts/review.md"
 assert_ok "prompts/review.md keeps the gauntlet round cap"      grep -q '^5a\. CAP\.' "$ROOT/prompts/review.md"

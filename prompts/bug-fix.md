@@ -25,6 +25,7 @@ Steps:
    fail then. A regression test that passes without the fix proves nothing and guards nothing.
    Then all three of these are the bar: Rounds 1 and 2 pass; `untested` is clear for the code you
    changed (else your test does not reach the fix); and that regression test fails without the fix.
+   GATE BUGS — an issue titled `release gate failed at …`: the fix must also (a) put the failing assertion, or the static check that would have caught it, in the guard set (a fast `# rtdd: always` test), or (b) say in the PR body why a lane-level run could not have caught it (a behavioural or timing failure). A fix that only removes the symptom is not done.
 {{> _submodule.md}}
 3. Never delete, skip, or weaken a test to go green, and never edit a test so `untested`
    clears. If a pre-existing failure genuinely blocks the fix, say so in an issue comment and route

@@ -34,6 +34,7 @@ Steps:
      in {{SLUG}} — lanes never claim issues from a submodule's own repo; the fix lane reads this section,
      fixes in the submodule first, then bumps the gitlink here.
    - a sharp, testable `## Acceptance` section (what a passing fix must satisfy).
+     A title starting `release gate failed at` adds: the fix puts the failing assertion (or the static check that would have caught it) in the guard set (`test/guards.sh`, `# rtdd: always`), or its PR body says why a lane-level run could not have caught it.
      gh issue edit {{ISSUE}} -R {{SLUG}} --body-file <refined-body.md>
 4. On success, FIRST drop your own working label, THEN flip to bug-triaged — this order matters:
    the engine treats `{{LABEL_BUG_TRIAGED}}` as "triage done" and may end this session the instant

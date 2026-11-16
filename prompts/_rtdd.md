@@ -7,7 +7,7 @@
      creating — never `AGENTS.md`, `.claude/` or `.cursor/` changes rtdd made.
    - Run Round 1 with the project's OWN test command until green, then Round 2. `untested` names
      changed code no test reaches: write those tests.
-   - GUARD SET — if the repo ships `test/guards.sh`, run `bash test/guards.sh` with Round 1, whatever rtdd selects, and again before you open the PR; it is NOT the full suite.
+   - GUARD SET — if the repo ships `test/guards.sh`, run `bash test/guards.sh` with Round 1, whatever rtdd selects, and again before you open the PR; it is NOT the full suite. Copy its last line (`guard set: N files, Ns, green|RED`) into your PR body.
      A red it names is yours unless red on origin/<default-branch> too (the pre-existing check below). A tree-reading test joins it with a `# rtdd: always` header line.
    - FALLBACK — rtdd missing, older than v0.3 (no "Round 1" in its output), erroring, or both rounds EMPTY (not green): run the closest test files by hand
      (named after, or importing/sourcing, the files you changed), note it in an issue comment, and file ONE rtdd bug if rtdd itself misbehaved. Never block on it, and never the full suite.
