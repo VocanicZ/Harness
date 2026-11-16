@@ -122,6 +122,9 @@ def send(lane, text, kind="message"):
     """Append one message to the lane's inbox — a single write of one line, so concurrent senders
     never interleave inside a message."""
     os.makedirs(lane, exist_ok=True)
+    # A line with bytes that are not UTF-8 (argv carries them as lone surrogates) is delivered with U+FFFD
+    # in their place, never refused with a traceback and dropped (#1126).
+    text = text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
     line = json.dumps({"text": text, "kind": kind, "at": int(time.time())}, ensure_ascii=False) + "\n"
     with open(paths(lane)["inbox"], "ab") as f:
         f.write(line.encode("utf-8"))
@@ -828,7 +831,7 @@ def main(argv=None, adapter=None, prog="headless_core.py"):
         ad = adapter or load_adapter(a.adapter)
         return Runner(ad, a.lane, a.cwd, a.bin or ad.default_bin, a.session_id, a.model, a.effort, a.flags, a.resume).run()
     if a.cmd == "send":
-        send(a.lane, sys.stdin.read() if a.text == "-" else a.text, a.kind)
+        send(a.lane, sys.stdin.buffer.read().decode("utf-8", "replace") if a.text == "-" else a.text, a.kind)
         return 0
     if a.cmd == "state":
         st = read_state(a.lane)
