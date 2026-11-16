@@ -143,6 +143,14 @@ def win_process_alive(winpid, kernel32=None):
         k.close(h)
 
 
+def pid_namespace():
+    """#1228: the pid namespace this process runs in (Linux: what /proc/self/ns/pid links to), else None (Windows, macOS)."""
+    try:
+        return os.readlink("/proc/self/ns/pid")
+    except (OSError, AttributeError):
+        return None
+
+
 def pid_alive(pid, kernel32=None):
     """True iff <pid> (as the engine records it: an MSYS pid on Windows) is a live process."""
     try:

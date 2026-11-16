@@ -34,7 +34,7 @@ wait_env(){ SESSION_ENV+=(-e "HARNESS_WAIT_FILE=$(wait_file "$1")"); }
 # wait_forget <sess> — drop an inject wait of a session that is gone (a redispatch spec outlives its lane on purpose).
 wait_forget(){ local f="$RUN_DIR/$1.wait"
   [[ -f "$f" && "$(python3 "$WAITLIB_PY" show --file "$f" --field resume 2>/dev/null)" == redispatch ]] || rm -f "$f"
-  rm -f "$f.msg" "$RUN_DIR/$1.wait.asked"; }
+  rm -f "$f.msg" "$f.held" "$RUN_DIR/$1.wait.asked"; }
 # wait_spec_field <file> <field> — one field of a spec ('' when none).
 wait_spec_field(){ python3 "$WAITLIB_PY" show --file "$1" --field "$2" 2>/dev/null; }
 
@@ -149,15 +149,32 @@ print(f"#{issue or '-'} {slug or '-'}")
 PY
 }
 
-# wait_tend <sess> — one tick for one live lane: resume it, once, when its wait is over. A busy lane is left alone (it did not end its
-# turn yet; the wait is judged when it does). rc 0 always.
+# _wait_turn_running <pane> — a TURN is running: its spinner or interrupt hint is on the screen (#1228). What a lane started in the
+# background (a sub-agent row, a shell task, a timer under the footer) is not a turn: Claude Code queues a message typed meanwhile, and a
+# lane at its prompt has ended its turn. So only the screen above the footer line (`⏵⏵ …`) is read; a pane with no such line is read whole.
+_wait_turn_running(){ local live; live="$(awk '/^ +⏵⏵ /{exit} {print}' <<<"$1")"; session_active_turn "$live"; }
+
+# _wait_held_note <sess> <spec file> — a wait that is due but whose lane still reads as working: say so, once per spec (#1228). The
+# marker holds the spec's creation stamp, so a re-armed wait is logged again and a held one is not logged every tick.
+_wait_held_note(){ local sess="$1" f="$2" held="$RUN_DIR/$1.wait.held" out stamp reason
+  [[ -s "$f" ]] || return 0
+  out="$(python3 "$WAITLIB_PY" check --file "$f" 2>/dev/null)" || return 0   # rc 0 = due; pending / the engine's to judge: nothing to say
+  stamp="$(python3 "$WAITLIB_PY" fields --file "$f" created 2>/dev/null)"
+  [[ "$(cat "$held" 2>/dev/null)" == "$stamp" ]] && return 0
+  reason="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("reason",""))' "$out" 2>/dev/null)"
+  printf '%s' "$stamp" > "$held"
+  log "wait: $sess — due (${reason:0:120}) but the pane reads busy; held (#1228)"; }
+
+# wait_tend <sess> — one tick for one live lane: resume it, once, when its wait is over. A lane whose turn is running is left alone (it did
+# not end its turn yet; the wait is judged when it does) — but a due wait held that way is logged, once. Background work is not a turn
+# (#1228). rc 0 always.
 wait_tend(){ local sess="$1" f mf pane cond resume msg rc asked reason issue foreign
   f="$(wait_file "$sess")"; mf="$f.msg"
-  [[ -s "$f" || -s "$mf" ]] || return 0
+  [[ -s "$f" || -s "$mf" ]] || { rm -f "$f.held"; return 0; }
   session_live "$sess" || return 0
   pane="$(sess_capture "$sess" 2>/dev/null)" || return 0
   # a lane that is working has not ended its turn: nothing to resume it with, nothing to wait for yet
-  if ! cli_pane_prompt "$pane" || session_active_turn "$pane" || { declare -F lane_subagent_running >/dev/null && lane_subagent_running "$pane"; }; then return 0; fi
+  if ! cli_pane_prompt "$pane" || _wait_turn_running "$pane"; then _wait_held_note "$sess" "$f"; return 0; fi
   if [[ -s "$mf" ]]; then _wait_deliver "$sess" || log "wait: $sess — could not deliver the resume message, retrying next tick (#1066)"; return 0; fi
   IFS=$'\t' read -r cond resume issue < <(python3 "$WAITLIB_PY" fields --file "$f" cond resume issue 2>/dev/null) || return 0
   if foreign="$(_wait_foreign "$sess" "$f")"; then   # #1084: not this lane's spec — drop it, resume the lane
@@ -184,6 +201,7 @@ wait_tend(){ local sess="$1" f mf pane cond resume msg rc asked reason issue for
     msg="$(python3 "$WAITLIB_PY" fire --file "$f" --satisfied "$reason" 2>/dev/null)"; rc=$?
   fi
   (( rc == 0 )) || return 0                  # none left (another worker took it) or still pending
+  rm -f "$f.held"
   printf '%s' "$msg" > "$mf"
   log "wait: $sess — ${msg:0:200} (#1066)"
   stats_sess_event "$sess" wait_done cond="$cond"

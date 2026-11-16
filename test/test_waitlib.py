@@ -266,6 +266,45 @@ finally:
 check(waitlib.evaluate({"cond": "pid", "pid": 999999, "deadline": time.time() + 600})["done"] is True,
       "a spec with no winpid (an MSYS or POSIX pid) is still read as before: a dead pid is done")
 
+print("== a pid from another pid namespace is never judged on this host (#1228) ==")
+own_ns = waitlib.own_pidns()
+foreign = {"pidns": "pid:[4026539999]", "deadline": time.time() + 600}
+rcf = os.path.join(tmp, "foreign.rc")
+for f_ in (rcf,):
+    try:
+        os.unlink(f_)
+    except OSError:
+        pass
+gone = {"cond": "pid", "pid": 999999, "rc_file": rcf, "log": os.path.join(tmp, "none.log"), **foreign}
+check(waitlib.evaluate(gone)["done"] is False, "a foreign-namespace pid that does not exist on this host stays pending: no early wake")
+check(waitlib.evaluate({**gone, "deadline": time.time() - 1})["done"] is True
+      and "deadline passed" in waitlib.evaluate({**gone, "deadline": time.time() - 1})["reason"], "…until its deadline passes")
+alive = {**gone, "pid": os.getpid()}
+check(waitlib.evaluate(alive)["done"] is False, "a foreign-namespace pid that is alive here (an unrelated process) is not taken for the job")
+with open(rcf, "w") as f_:
+    f_.write("7\n")
+check(waitlib.evaluate(gone)["done"] is True and waitlib.evaluate(alive)["done"] is True,
+      "…and either spec is done as soon as its rc file exists, whatever the pid looks like")
+SPEC_OBJ = {**gone, "v": 1, "created": time.time(), "resume": "inject", "what": "job"}
+with open(SPEC, "w", encoding="utf-8") as f_:
+    json.dump(SPEC_OBJ, f_)
+rc, out, _ = wl("fire")
+check(rc == 0 and out.startswith("wait done: pid 999999 exited, rc=7, log tail:"), "…fire names the rc from the rc file")
+if own_ns:
+    check(waitlib.evaluate({"cond": "pid", "pid": 999999, "pidns": own_ns, "deadline": time.time() + 600})["done"] is True,
+          "a pid recorded in this very namespace is still judged by its liveness")
+    slp = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"]); started.append(slp)
+    wl("set", "--deadline-s", "600", "--pid", str(slp.pid))
+    check(spec().get("pidns") == own_ns, "set --pid records the pid namespace it ran in")
+    check(wl("check")[0] == 1, "…pending while the process lives")
+    slp.kill(); slp.wait()
+    check(wl("check")[0] == 0, "…done once it exits")
+    rc, _, _ = wl("run", "--deadline-s", "600", "--log", os.path.join(tmp, "ns.log"), "--", sys.executable, "-c", "import time; time.sleep(0.6)")
+    check(rc == 0 and spec().get("pidns") == own_ns, "run records the pid namespace too")
+    check(wait_until(lambda: wl("check")[0] == 0), "…and fires when the job exits")
+else:
+    check(waitlib.foreign_pidns({"cond": "pid", "pid": 1}) is False, "no /proc/self/ns/pid here: a spec without pidns is judged as before")
+
 for p in started:
     try:
         p.kill()
