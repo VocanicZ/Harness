@@ -1510,7 +1510,8 @@ running_fleet_prefixes(){ local self="$1" pid sd pfx
 _fleet_prefix_for(){ local sd="$1" env_pfx="$2" cfg_pfx=""
   [[ -n "$env_pfx" ]] && { printf '%s' "$env_pfx"; return 0; }
   if [[ -r "$sd/config" ]]; then
-    cfg_pfx="$(sed -n 's/^[[:space:]]*:[[:space:]]*"\${HARNESS_SESS_PREFIX:=\([^}"]*\)}".*/\1/p' "$sd/config" | head -1)"
+    # #1136: strip a leading UTF-8 BOM first, as lib.sh's own config loading does — it would defeat the `^` anchor.
+    cfg_pfx="$(LC_ALL=C sed -e $'1s/^\xef\xbb\xbf//' "$sd/config" | sed -n 's/^[[:space:]]*:[[:space:]]*"\${HARNESS_SESS_PREFIX:=\([^}"]*\)}".*/\1/p' | head -1)"
   fi
   printf '%s' "${cfg_pfx:-hz}"; }
 

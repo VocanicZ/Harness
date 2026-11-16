@@ -377,6 +377,18 @@ assert_eq "$(fleet_owner_of /home/u/Bonsai/.harness/worktrees/main-i1)" "/home/u
 assert_eq "$(fleet_owner_of /home/u/Bonsai/.harness/worktrees/bug-a_b-5/nested)" "/home/u/Bonsai" "nested path still resolves"
 assert_eq "$(fleet_owner_of /some/unrecognised/path)" "/some/unrecognised/path" "unrecognised path falls back to itself"
 
+echo "== _fleet_prefix_for: reads HARNESS_SESS_PREFIX from a config with a BOM and/or CRLF (#1136) =="
+FP="$(mktemp -d)"
+printf '\xef\xbb\xbf: "${HARNESS_SESS_PREFIX:=ab}"\n: "${HARNESS_MODE:=prd}"\n' > "$FP/config"
+assert_eq "$(_fleet_prefix_for "$FP" "")" "ab" "a leading BOM does not hide the prefix"
+printf ': "${HARNESS_SESS_PREFIX:=cd}"\r\n: "${HARNESS_MODE:=prd}"\r\n' > "$FP/config"
+assert_eq "$(_fleet_prefix_for "$FP" "")" "cd" "CRLF config reads the prefix"
+printf '\xef\xbb\xbf: "${HARNESS_SESS_PREFIX:=ef}"\r\n: "${HARNESS_MODE:=prd}"\r\n' > "$FP/config"
+assert_eq "$(_fleet_prefix_for "$FP" "")" "ef" "BOM + CRLF config reads the prefix"
+printf '\xef\xbb\xbf: "${HARNESS_MODE:=prd}"\n' > "$FP/config"
+assert_eq "$(_fleet_prefix_for "$FP" "")" "hz" "a BOM config with no prefix line still defaults to hz"
+rm -rf "$FP"
+
 echo "== fleet_stale: a crashed fleet's reservation must not block a restart forever =="
 STALE_RD="$(mktemp -d)"
 tmux(){ printf '%s\t%s\n' "alpha-main-i1" "/p/alpha/.harness/worktrees/main-i1"; }; export -f tmux
