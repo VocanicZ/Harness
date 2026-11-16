@@ -9,6 +9,13 @@
 #               registry makes it idle/exit (refcount 0 = nothing to poll); a worker tick relaunches
 #               it via ensure_poller when work returns.
 #   --once      one refresh pass over every registered slug, then exit (tests / manual refresh).
+#               It also exits when its own engine dir is gone (#1204): every snapshot write runs
+#               python3 "$ISSUELIB", a path into that release, so a removed old release would leave a
+#               live poller failing every cycle while every fleet holds dispatch. The EXIT trap clears
+#               poller.pid, and the next worker tick's ensure_poller relaunches it from that worker's
+#               engine. ensure_poller likewise replaces a live poller onto $HARNESS_HOME/engine after an
+#               update (poller_engine_stale), and a worker whose snapshot gate keeps failing restarts it
+#               (poller_escalate).
 #   --status    report whether a poller is alive + the registered slugs and their cadences; exit 0.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
@@ -50,9 +57,11 @@ case "$mode" in
     # when it nohup'd us; we re-assert $$ — the same value — to also cover a direct `harness poll`.)
     mkdir -p "$HARNESS_POLLER_DIR"
     echo "$$" > "$POLLER_PID"
-    trap 'rm -f "$POLLER_PID"' EXIT
+    # (only while the pidfile is still ours: a replaced poller must not delete its successor's pid)
+    trap '[[ "$(cat "$POLLER_PID" 2>/dev/null)" == "$$" ]] && rm -f "$POLLER_PID"' EXIT
     declare -A LAST=()
     while :; do
+      [[ -d "$ENGINE_DIR/scripts" ]] || { log "engine $ENGINE_DIR is gone — exiting (#1204)"; exit 0; }
       gh_rate_wait   # #183: a rate-limited snapshot read holds the token — refresh nothing until the reset
       mapfile -t slugs < <(poller_registry_slugs)
       # Empty registry → nothing references any repo (refcount 0): idle/exit. A returning fleet's

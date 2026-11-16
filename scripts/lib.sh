@@ -2414,21 +2414,52 @@ poller_write_snapshot(){
   return "$rc"
 }
 
-# poller_running — is a poller alive (its pidfile names a live process)?
-poller_running(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; }
+# _poller_pid — the pid in poller.pid when it is a real one (all digits, > 1), else nothing. Every
+# signal the poller paths send goes through this: an empty, garbage, 0, 1 or negative pid file must
+# never reach kill (`kill -0 0` signals our own process group, `kill -1` every process we may signal).
+_poller_pid(){ local pid; pid="$(cat "$POLLER_PID" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] && (( 10#$pid > 1 )) && printf '%s\n' "$((10#$pid))"; return 0; }
 
-# ensure_poller — launch the host poller if none is alive. Idempotent and lock-guarded so concurrent
-# worker ticks can't double-spawn. The poller is a detached BACKGROUND process (NOT a tmux session), so
-# `harness stop` (which kills ^<prefix>- tmux sessions) never touches it — correct, since other
-# fleets may still need it. The pid is recorded under the lock immediately so a near-simultaneous
-# caller sees a live pid and stands down. HARNESS_POLLER_CMD overrides the launched command (a test
-# seam); production launches scripts/poller.sh.
-ensure_poller(){
-  roots_check   # #419: a worker's HARNESS_HOME deleted mid-tick — exit here, never re-create it below
-  mkdir -p "$HARNESS_POLLER_DIR"
-  local lockfd
-  lock_acquire "$POLLER_LOCK" lockfd
-  if poller_running; then lock_release "$lockfd"; return 0; fi
+# poller_running — is a poller alive (its pidfile names a live process)?
+poller_running(){ local pid; pid="$(_poller_pid)"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; }
+
+# _poller_engine <pid> — the realpath of the engine the live poller runs from (its exec-time ENGINE_DIR,
+# else the engine file written beside poller.pid at launch), empty when neither is known.
+_poller_engine(){ local e; e="$(proc_env "$1" ENGINE_DIR)"
+  [[ -n "$e" ]] || e="$(cat "$HARNESS_POLLER_DIR/poller.engine" 2>/dev/null || true)"
+  [[ -n "$e" ]] && realpath -m "$e"; return 0; }
+
+# poller_engine_stale <pid> — should the live poller <pid> be replaced from THIS caller's engine (#1204)?
+# Yes when its engine dir is gone (its ISSUELIB is a path into it: every snapshot write fails and every
+# fleet on the host holds dispatch), or when it differs from the host's current engine
+# ($HARNESS_HOME/engine) AND this caller runs from that current engine. The second leg keys on the
+# current engine, not on "differs from the caller", so fleets mid-roll on different releases never
+# relaunch the one shared poller back and forth. No engine link (dev clone, hermetic test): only "gone".
+poller_engine_stale(){ local pe cur me
+  pe="$(_poller_engine "$1")"; [[ -n "$pe" ]] || return 1       # unknown engine: liveness only
+  [[ -d "$pe/scripts" ]] || return 0
+  [[ -e "$HARNESS_HOME/engine" ]] || return 1
+  cur="$(realpath -m "$HARNESS_HOME/engine")"; me="$(realpath -m "$ENGINE_DIR")"
+  [[ "$me" == "$cur" && "$pe" != "$cur" ]]; }
+
+# _poller_stop — stop the poller named by poller.pid, by that pid only (never by pattern: this host
+# runs other fleets). A pid that is not all digits and > 1 is signalled to nothing. TERM, then KILL
+# after ~5s; a zombie (a child of this shell not yet reaped) counts as gone. Clears poller.pid.
+_poller_stop(){ local pid i st; pid="$(_poller_pid)"
+  if [[ -n "$pid" ]]; then
+    kill -TERM "$pid" 2>/dev/null
+    for (( i = 0; i < 50; i++ )); do
+      kill -0 "$pid" 2>/dev/null || break
+      st="$(proc_state "$pid")"; [[ "$st" == Z ]] && break
+      sleep 0.1
+    done
+    kill -0 "$pid" 2>/dev/null && [[ "$st" != Z ]] && kill -KILL "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+  fi
+  rm -f "$POLLER_PID"; return 0; }
+
+# _poller_launch — start the poller detached and record its pid + engine. Caller holds POLLER_LOCK.
+_poller_launch(){
   rm -f "$POLLER_PID"
   # Spawn the poller with fd 9 CLOSED for the child (`9>&-`). start.sh calls ensure_poller while it
   # still holds the double-start lock on fd 9 (start.sh:101, before its own `exec 9>&-`); since
@@ -2438,13 +2469,63 @@ ensure_poller(){
   # and the worker snapshot_gate) regardless of its own fd state.
   # detach_launch (portable.sh) closes fd 9 for the child, and on Windows launches it so it outlives
   # the ssh session that ran `harness start` (#356).
+  realpath -m "$ENGINE_DIR" > "$HARNESS_POLLER_DIR/poller.engine" 2>/dev/null
   if [[ -n "${HARNESS_POLLER_CMD:-}" ]]; then
     detach_launch -a "$POLLER_PID" "$HARNESS_POLLER_DIR/poller.log" bash -c "$HARNESS_POLLER_CMD"
   else
     detach_launch -a "$POLLER_PID" "$HARNESS_POLLER_DIR/poller.log" bash "$ENGINE_DIR/scripts/poller.sh"
   fi
+}
+
+# ensure_poller — launch the host poller if none is alive, and roll it onto the current engine (#1204).
+# Idempotent and lock-guarded so concurrent worker ticks can't double-spawn. The poller is a detached
+# BACKGROUND process (NOT a tmux session), so `harness stop` (which kills ^<prefix>- tmux sessions)
+# never touches it — correct, since other fleets may still need it. The pid is recorded under the lock
+# immediately so a near-simultaneous caller sees a live pid and stands down. A live poller whose engine
+# dir is gone, or which runs an older release than $HARNESS_HOME/engine while THIS caller runs the
+# current one (poller_engine_stale), is stopped by its pid and relaunched from the caller's engine, so
+# an `update` reaches the poller on the first worker tick and removing an old release cannot strand it.
+# HARNESS_POLLER_CMD overrides the launched command (a test seam); production launches scripts/poller.sh.
+ensure_poller(){
+  roots_check   # #419: a worker's HARNESS_HOME deleted mid-tick — exit here, never re-create it below
+  mkdir -p "$HARNESS_POLLER_DIR"
+  local lockfd pid
+  lock_acquire "$POLLER_LOCK" lockfd
+  if poller_running; then
+    pid="$(_poller_pid)"
+    if poller_engine_stale "$pid"; then
+      log "poller pid $pid runs engine $(_poller_engine "$pid") — replacing it with $ENGINE_DIR (#1204)"
+      _poller_stop
+    else
+      lock_release "$lockfd"; return 0
+    fi
+  fi
+  _poller_launch
   lock_release "$lockfd"
 }
+
+# poller_escalate — the worker backstop (#1204): the gate keeps failing yet a poller is alive. Restart it
+# under POLLER_LOCK, at most once per HARNESS_POLLER_ESCALATE_S (default 300) per host (escalate.ts under
+# HARNESS_POLLER_DIR), and never while a poller is younger than that (poller.pid mtime: it may not have
+# written its first snapshot yet) or while a GitHub rate-limit hold is open (the poller is parked in
+# gh_rate_wait on purpose). Logs a line of its own on every restart. Returns 0 when it restarted.
+poller_escalate(){ local win="${HARNESS_POLLER_ESCALATE_S:-300}" lockfd pid now ts mt rc=1
+  [[ "$win" =~ ^[0-9]+$ ]] || win=300
+  gh_rate_held >/dev/null && return 1
+  mkdir -p "$HARNESS_POLLER_DIR"
+  lock_acquire "$POLLER_LOCK" lockfd
+  pid="$(_poller_pid)"; now="$(date +%s)"
+  ts="$(cat "$HARNESS_POLLER_DIR/escalate.ts" 2>/dev/null || true)"; [[ "$ts" =~ ^[0-9]+$ ]] || ts=0
+  mt="$(stat -c %Y "$POLLER_PID" 2>/dev/null || stat -f %m "$POLLER_PID" 2>/dev/null || echo "$now")"
+  if [[ -n "$pid" ]] && poller_running && (( now - ts >= win && now - mt >= win )); then
+    echo "$now" > "$HARNESS_POLLER_DIR/escalate.ts"
+    log "snapshot stale for ${_SNAP_FAILS:-0} ticks with poller pid $pid alive — restarting poller (#1204)"
+    _poller_stop
+    _poller_launch
+    rc=0
+  fi
+  lock_release "$lockfd"
+  return "$rc"; }
 
 # --- PRD-B slice 3: wire workers to snapshots behind HARNESS_USE_POLLER (#72) -
 # poller_enabled — does this fleet read the host poller's snapshots? ON unless HARNESS_USE_POLLER is
@@ -2490,7 +2571,17 @@ snapshot_gate(){
   ensure_poller
   local slugs slug; slugs="$(snapshot_slugs)"
   [[ -n "$slugs" ]] || return 0
-  for slug in $slugs; do ensure_snapshot_fresh "$slug" || return 1; done
+  for slug in $slugs; do
+    if ! ensure_snapshot_fresh "$slug"; then
+      # #1204: a LIVE poller that keeps not producing fresh snapshots (its engine dir was removed, it is
+      # wedged) would hold every fleet forever, since ensure_poller sees a live pid. After N consecutive
+      # failing ticks, restart it (rate-limited; poller_escalate has the guards).
+      _SNAP_FAILS=$(( ${_SNAP_FAILS:-0} + 1 ))
+      (( _SNAP_FAILS >= ${HARNESS_POLLER_ESCALATE_TICKS:-3} )) && poller_escalate && _SNAP_FAILS=0
+      return 1
+    fi
+  done
+  _SNAP_FAILS=0
   export HARNESS_SNAPSHOT_DIR="$HARNESS_SNAPSHOTS_DIR"
   export HARNESS_SNAPSHOT_FILE="$(poller_snapshot_path "$(printf '%s\n' $slugs | head -n1)")"
   return 0
