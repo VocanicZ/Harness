@@ -210,6 +210,38 @@ re-dispatched. A live worker of the retired loop (a 2-field `claims/<unit>.claim
 **Pause.** No new claim. Running lanes keep running and keep being tended, a driven goal loop included.
 Workers stay alive and idle.
 
+#### Waking the pool (#1183)
+
+A worker with nothing to do waits `HARNESS_POLL` (300 s) before its next step. Before this, nothing ended that wait
+early. A lane ended and its issue was closed on GitHub, but the worker that reaped it read a board snapshot that was
+up to a poller cycle old, saw the next item not yet dispatchable (the PRD's last child still open, the review not due,
+a child the engine had just filed not listed) and slept the whole `POLL`. A one-worker run sat idle between lanes for
+minutes, and the gap between `prd_closed` and the fleet seeing itself done was often over ten.
+
+Now the events that change the board wake the pool. `harness_event` writes a fresh stamp into `run/dispatch.wake`
+for `session_end`, `prd_closed`, `child_filed` and `merged`, and the engine's `LABEL_READY` chore does the same
+after it labels a stray child. The file is per project, so one event wakes every worker.
+
+- **The wait.** Every idle `POLL` wait (idle, COMPLETE, paused or held, snapshot stale) is cut into 2-second slices
+  that stop as soon as the stamp is not the one the worker last saw. A worker reads the stamp at the start of each
+  full step, before it reads anything else, so a wake written while the step runs, or just before the wait begins,
+  is still pending when the wait looks and is never lost; and a stamp the step has already seen does not cut the
+  next wait short, so there is no busy loop. A worker that owns a live lane (short tick) takes a full step as soon as
+  it sees a new stamp. Waits that exist to slow a worker down are not woken: a low GitHub budget (twice `POLL`) and
+  a failed launch (its own backoff) sleep as before.
+- **The refresh.** A full step that sees a new stamp refreshes the host snapshot (`poller_write_snapshot`: an
+  incremental read, one 304 when the board has not changed) before the freshness gate and the claim read it,
+  under a per-repo marker so the workers of one fleet refresh once per stamp, not once each. A wake that still
+  finds nothing to do is followed by two more refreshing steps 20 s apart, for the few seconds GitHub can take to
+  show a merge's closed issue. Nothing refreshes while the GitHub budget is low or a rate-limit hold is open, or
+  when the poller is off.
+- **Latency.** A lane end or PRD close is seen on the next tick (up to `HARNESS_TEND_TICK` for the lane's own
+  worker, 2 s for an idle one) and the next dispatch action starts within seconds, not at the next `POLL`.
+  `test/test_dispatch_wake.sh` drives a fake lane end and a fake PRD close over a stale snapshot with
+  `HARNESS_POLL=300` and prints the measured latency (the limit it asserts is 60 s).
+
+`HARNESS_DISPATCH_WAKE=0` turns it off.
+
 New lane events (`lane_claim`, `lane_release`, `lane_adopt`) carry `repo` and `worker`; the older events keep
 `unit`. `harness stats` reads both shapes (#472); `harness status` and the web fleet page show one row per worker with the issue it runs.
 
@@ -276,6 +308,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_POOL` | `3` | A positive ASCII integer; anything else (`0`, `-1`, `+1`, `1_0`, `abc`, full-width digits) is `3` in the engine, with a one-time warning (#861). The number of parallel issues: pool workers, one lane each, so also the most lanes (impl issues, PRD actions, pool-taken bugs) that run at once, fleet-wide. The only parallelism knob (#469): a cap setting left over from an older release is ignored with a warning and dropped from the config by [fleet migration](#fleet-migration-one-fleet--one-repo-467) ([The pool worker](#the-pool-worker-step-loop)) |
 | `HARNESS_POLL` | `300` | Resident-pool poll interval in seconds (idle/steady-state cadence) |
 | `HARNESS_PREBUILD` | `1` | `1` = while a lane runs, the chores build the next claimable issue's worktree ahead (#644), so spawning it skips the `git worktree add`, the worktree hook and the `ensure_*` setup. `0` = every lane builds its worktree after the claim. A failed pre-build is not retried for `HARNESS_PREBUILD_RETRY_SECS` (`600`) |
+| `HARNESS_DISPATCH_WAKE` | `1` | `1` = a lane end (`session_end`), a PRD close (`prd_closed`), a filed child or a label the engine set wakes every worker out of its `HARNESS_POLL` wait, and the woken worker refreshes the host snapshot before it claims (#1183; [Waking the pool](#waking-the-pool-1183)). `0` = every idle worker waits out a full `POLL`, as before |
 | `HARNESS_TEND_TICK` | `15` | Seconds between ticks of a worker that owns a live lane (#594): only that lane's tend step runs, with the goal check gated on an idle pane. Fleet-wide chores stay on `HARNESS_POLL`. `0`, or a value at or above `HARNESS_POLL`, = tend every `POLL` as before |
 | `HARNESS_ENGINE_CHILD_MAX` | `15` | A non-negative ASCII integer; anything else (`1_0`, `-1`, `abc`, full-width digits) is `15`, with a one-time warning (#810). A PRD with this many `## Acceptance criteria` items or fewer (and at least one) gets its one child filed by the engine, with no `DECOMPOSE` session. With `HARNESS_POOL=1` every PRD does, whatever its size (#614) |
 | `HARNESS_TEND_IDLE_TICKS` | `3` | Consecutive idle short ticks, with no `gh` process running, before a `DECOMPOSE` lane's goal is checked (a printed completion promise skips the wait). A value that is not a non-negative integer, or is above 86400, falls back to `3` with a one-time warning (#782, #800) |
@@ -298,7 +331,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_POLLER_ESCALATE_S` | `300` | Escalation window: a worker restarts the poller at most once per this many seconds per host, and never one younger than this |
 | `HARNESS_WORKTREE_HOOK` | _(empty)_ | Path to a project script run once in every freshly created worktree, with `cwd` = that worktree and its path as `$1`. Absolute, or relative to the project root. Empty = no-op. See [Provisioning a fresh worktree](#provisioning-a-fresh-worktree) |
 | `HARNESS_GAUNTLET_ROUNDS` | `3` | Gauntlet review: rounds allowed before the reviewer concedes and signs off. Only applies to a PRD carrying a `## Quality bar` — see [Gauntlet review](#gauntlet-review) |
-| `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed as gap issues and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
+| `HARNESS_SECURITY_AUDIT` | `0` | `1` = every PRD review (`prd`/`planned` modes) runs a security audit after the acceptance criteria pass; findings of medium severity or above are filed in the review round's one gap issue and hold the sign-off. `0` = off. See [Security audit review](#security-audit-review) |
 | `HARNESS_SECURITY_AUDIT_ROUNDS` | `2` | Security audit: rounds with filed findings allowed before the reviewer concedes and moves on |
 | `HARNESS_CI_GATE` | `0` | Off by default — Harness projects run [no GitHub CI](#no-github-ci--the-gate-is-local). `1` = hold new dispatch while the default branch's own GitHub CI is red (live sessions drain; the bug lane is never gated), for a project that opted back into Actions. Fail-open — no Actions, an in-flight run, or a `gh` outage all dispatch normally |
 | `HARNESS_SWARM` | `auto` | `auto` = when [swarm](https://github.com/VocanicZ/swarm) is on `PATH`, PRD review's full-suite run (the only one in the pipeline — lanes never run the full suite) goes out as a swarm job; `off` = always local. No swarm installed → exactly the local behaviour. See [Offloading tests to swarm](#offloading-tests-to-swarm) |
@@ -306,7 +339,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_SEED_CI` | `0` | `1` = when fully seeding a unit repo (`seed.sh <unit>`), commit a language-autodetect `.github/workflows/ci.yml` and set best-effort branch protection requiring its `test` check. `0` = neither — the engine never adds a workflow to your repos unless asked (labels and auto-merge are still set). `1` is an explicit opt-in to GitHub CI, so it also skips `HARNESS_DISABLE_CI` |
 | `HARNESS_DISABLE_CI` | `1` | When `harness init` / `harness setup` seed a repo, `gh workflow disable` its existing GitHub Actions and log each one. `1` = test-CI only — a workflow whose name or file says `release`, `deploy`, `publish`, `pages` or `cd` keeps running; `all` = release and deploy too; `0` = touch nothing (the opt-out). See [No GitHub CI](#no-github-ci--the-gate-is-local) |
 | `HARNESS_USAGE_CHECKPOINT_PCT` | `90` | At this % of any usage window (Claude Code's 5-hour and weekly limits), checkpoint every live session to GitHub and hold new claims until the window resets. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
-| `HARNESS_ONE_USD_PER_PCT` | _(empty)_ | `harness forecast`'s fallback $ per 1% of a usage window, for an account/window with no calibration yet (no usable `usage_reading` pair). Read from the environment, else this config. Empty = `n/a`. Must be a finite number of at least `0.01` ($1 per whole window, below any real plan); `inf`, `nan`, `0`, a negative, a tiny value like `1e-300` or text is **invalid**: ignored, and named as invalid (not "unset") by `harness forecast`, `harness one` and the `bench/run.py` guard (#746). See [Cost forecast](#cost-forecast) |
+| `HARNESS_ONE_USD_PER_PCT` | _(empty)_ | `harness forecast`'s fallback $ per 1% of a usage window, for an account/window with no calibration yet (no usable `usage_reading` pair) or whose spend cannot be measured on this host (#1183). Read from the environment, else this config. Empty = `n/a`. Must be a finite number of at least `0.01` ($1 per whole window, below any real plan); `inf`, `nan`, `0`, a negative, a tiny value like `1e-300` or text is **invalid**: ignored, and named as invalid (not "unset") by `harness forecast`, `harness one` and the `bench/run.py` guard (#746). See [Cost forecast](#cost-forecast) |
 | `HARNESS_ONE_STOP_PCT` | `98` | `/harness-one`'s gate: recommend APPROVE only when every usage window's `now% + p80% + HARNESS_ONE_RESERVE_PCT` stays at or under this %. See [One issue at a time](#one-issue-at-a-time-harness-one) |
 | `HARNESS_ONE_RESERVE_PCT` | `2` | % of a window the gate holds back for the checkpoint (commit, push, handoff) when the budget runs out |
 | `HARNESS_USAGE_STALE_MIN` | `HARNESS_ONE_STALE_MIN` (`30`) | A usage reading older than this many minutes is stale (#658): below `HARNESS_USAGE_CHECKPOINT_PCT` it opens no hold, at/above it still holds, and it never releases a hold. `0` = never stale. See [Usage-limit checkpoints](#usage-limit-checkpoints) |
@@ -334,6 +367,7 @@ Harness reads `.harness/config` (sourceable `KEY=VALUE`). Environment variables 
 | `HARNESS_LAUNCH_FAIL_SECS` | `30` | A lane whose session is gone within this many seconds of its launch, and that reported no usage, never ran: it is logged `launch_failed` (not counted as a session by `harness stats`) and its claim key backs off. The reap also spares a sessionless worktree younger than this (#643). A value that is not a non-negative integer (`30s`, `1.5`, `abc`, `-1`) or is above 86400 (one day) falls back to `30` with a one-time warning in the log (#792, #800) |
 | `HARNESS_LAUNCH_BACKOFF` | `60` | Seconds claim_lane holds an issue or PRD back after a `launch_failed`; it doubles per consecutive failure, up to `HARNESS_LAUNCH_BACKOFF_MAX`. A value that is not a non-negative integer, or is above 86400 (one day), falls back to `60` with a one-time warning (#759, #800) |
 | `HARNESS_LAUNCH_BACKOFF_MAX` | `900` | Cap, in seconds, of the doubling launch backoff. A value that is not a non-negative integer, or is above 86400 (one day), falls back to `900` with a one-time warning (#759, #800) |
+| `HARNESS_LAUNCH_FAIL_MAX` | `3` | Consecutive launch failures (`launch_failed`: `start_failed` or `session_gone`, with no lane that really ran between them) of one issue or PRD after which the fleet stops retrying it (#1183). It logs a `launch_giveup` event (key, count, last reason) and a log line, labels the issue or PRD `agent-blocked` with a comment saying why, and parks it like the crash-loop guard does: no lane takes it until someone comments on it or edits its labels, and the other work goes on. The claim key is also held locally for 6 hours (the board snapshot shows the label only after its next refresh), then counts afresh; deleting `launchfail.<key>` from the fleet's `run/` directory ends the hold sooner. A PLAN / PRD session (no issue number) is held locally only. `0` turns the give-up off (the doubling backoff then retries for ever). A worker whose spawn failed sleeps until the soonest launch backoff ends, not a whole `HARNESS_POLL`, so three failures with the default backoff (60 s, then 120 s) come well inside ten minutes. `harness status` lists a given-up unit until a lane of it launches again. A value that is not a non-negative integer, or is above 86400, falls back to `3` with a one-time warning |
 
 ### Headless lanes
 
@@ -1170,6 +1204,33 @@ With `HARNESS_CI_GATE=1`, no new sessions spawn while the default branch's lates
 is red; live sessions continue. It is fail-open (no Actions, no completed run, or a `gh` outage all
 dispatch), and the bug lane is never gated, since filing a `bug` is how a red branch gets fixed.
 
+### One follow-up issue per review round (#1183)
+
+Every follow-up lane costs about $0.31 and 2.4 minutes, and the number of lanes follows the number of review
+rounds, so a PRD review pass files **at most one** `ready-for-agent` issue however many findings it holds
+(criteria gaps, step 2b I/O findings, security findings, the gauntlet gap). The reviewer collects the pass's
+findings in one JSON file and files them through `scripts/review_findings.py` (`{{REVIEW_FINDINGS}}` in
+`prompts/review.md`), which applies the rule below and runs the single `gh issue create`; the reviewer never files a
+finding by hand.
+
+- Each finding carries a severity, `blocking` or `non-blocking` (missing or unrecognised means blocking), a title, its
+  files and tests (from `rtdd explain`), and a repro with expected and actual.
+- **Blocking** findings are mandatory: they are checkboxes (`- [ ]`) in the one issue, and the reviewer never signs off
+  over an unfiled blocking finding (#600). Unmet acceptance criteria, user-visible I/O defects, medium-or-above
+  security findings and the gauntlet gap are blocking.
+- **Non-blocking** findings are measured against the `[direct]` limits in `scripts/tier.toml` (the same limits
+  `harness tier decide` uses: `max_criteria` as the number of findings, `max_files`, `max_subsystems`,
+  `max_changed_lines` from the optional per-finding `lines` estimate). At or under every limit they file no issue: they
+  are notes in the PRD comment, whether or not blocking findings file an issue beside them (the lane for the blocking
+  ones is already paid for, and a few small extras are cheaper left as notes than added to its checklist). Over a limit
+  they go into the same single issue.
+- The issue body holds the checklist, a `## Scope` section (the union of the findings' files and tests, which the lane
+  starts from) and the `## Blocked by` / `## Parent` trailer. One lane works all of it; an implementer that finds the
+  scope large still fans out one sub-agent per scope group.
+- `review_findings.py plan --prd N` prints the plan as JSON without filing anything: `{"issue": <body or null>, "title",
+  "notes", "reason", "counts"}`. `file --prd N -R owner/repo --label L` also creates the issue. Both read the findings
+  from `--input FILE` or stdin; `test/test_review_findings.py` covers the rule.
+
 ### Gauntlet review
 
 Normal review checks the PRD's own `## Acceptance criteria`. A PRD can opt in to a harder bar:
@@ -1202,7 +1263,8 @@ Off by default. With `HARNESS_SECURITY_AUDIT=1`, every PRD review runs the vendo
 `vendor/security-audit/` skill (`quick` profile, scoped to the PRD's changed files) after the
 acceptance criteria pass.
 
-- Confirmed findings of medium severity or above become `ready-for-agent` gap issues and hold
+- Confirmed findings of medium severity or above are blocking: they become checkboxes in the review round's one
+  `ready-for-agent` issue ([one follow-up issue per review round](#one-follow-up-issue-per-review-round-1183)) and hold
   sign-off. Lower findings are listed in a PRD comment.
 - Rounds are capped by `HARNESS_SECURITY_AUDIT_ROUNDS` (default `2`).
 - Source review and sandboxed local checks only; never a deployed service or a real credential.
@@ -1572,14 +1634,27 @@ one issue at a time while the fleet is paused or HELD (#362).
 - **Size.** Every figure is scaled by the issue's body length over the median body of the history's
   issues, clamped to 0.6–2.0. The output prints the scale it applied.
 - **% of a usage window.** Each figure is also shown as % of each account's usage windows, at a
-  calibrated $ per 1%. For every account and window, two consecutive `usage_reading`s inside the same
-  window (a pair across a reset is skipped) give the % it rose by and the $ the event log's sessions
-  on that account spent in between (their transcripts' messages, by timestamp; a session's account is
-  its Claude config dir). The fit is Σ$ / Σ%; the forecast divides by its conservative bound — the
-  20th percentile of the per-pair $/1%, never above the fit — so the % it shows errs high. Each window
-  prints its fit (`n pair(s)`, fit, bound). A window with no usable pair, or an account with no
-  readings at all, uses `HARNESS_ONE_USD_PER_PCT` and prints `FALLBACK`; without that setting it is
-  `n/a`.
+  calibrated $ per 1% (#364, #1183). For every account and window, two consecutive `usage_reading`s inside the same
+  window give the % it rose by and the $ the **account** spent in between: every message of every Claude
+  transcript under the account's config dir (`~/.claude` for `default`, `~/.claude-switch/accounts/<name>`,
+  `$CLAUDE_CONFIG_DIR`), main and sub-agents, whoever started the session, not only the sessions in the event log.
+  The nested `claude-config` directories a bench run logs in with (`bench/armlib.py`) count too: each is recorded
+  in the account's config dir (`.harness-nested-configs.jsonl`), and when the run deletes it its spend is kept there
+  as per-minute buckets. Before #1183 only the event log's own sessions were summed, so on a host that also ran
+  nested bench fleets, ops and interactive sessions a 1% step looked about 45 times cheaper than it was, and a
+  five-run bench batch was refused as "15% of the week" when it was about 2%. A reading below the highest one
+  already seen in its window is a stale status line and is ignored; a window reset (`resets_at` moves on) starts a
+  fresh segment, so the pair across it is skipped and the pairs inside the new window count. Only the readings of the
+  last 8 days, and only transcripts written since the first of them, are read (a few thousand files take about a
+  second; a gigabyte of recent transcripts a few seconds). The fit is Σ$ / Σ%; the forecast divides by its
+  conservative bound — the 20th percentile of the per-pair $/1%, never above the fit — so the % it shows errs high.
+  Each window prints its fit (`n pair(s)`, fit, bound). An account whose spend cannot be measured (no config dir for it
+  on this host, or one with no `projects` directory) has no fit at all rather than a low one and prints
+  `spend not measured (…)`; a window with no usable pair, or an account with no readings at all, has none either.
+  Each of those uses `HARNESS_ONE_USD_PER_PCT` and prints `FALLBACK`; without that setting it is `n/a`.
+  Spend on the account from another machine, or from a nested config dir that was never registered, is not seen:
+  set `HARNESS_ONE_USD_PER_PCT` (the bench guard and `harness one` then use it when the fit is `n/a`) if you know
+  the real figure.
 
 The repo is `-R`, else the one the issue's own lanes ran in, else the current project's repo. Issue bodies come from `gh`. `--json` prints the same
 numbers (`phases`, `total`, `size`, `basis`, `spent`, `pct`, `calibration`) for scripts; the exit status is 1 when the host

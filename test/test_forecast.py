@@ -464,9 +464,9 @@ def test_calibration_fits_usd_per_pct_skips_reset_pairs_and_lists_accounts_witho
             else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = saved
         # pairs: 10→11 $30 (30/1%), 11→11.5 $5 (10/1%), [reset: skipped], 2→3 $70 (70/1%); other's $100 never counts
         assert cal == [
-            {"account": "main", "window": "five_hour", "pairs": 0, "skipped_reset": 0, "central": None, "bound": None},
-            {"account": "main", "window": "seven_day", "pairs": 3, "skipped_reset": 1, "central": 42.0, "bound": 10.0},
-            {"account": "other", "window": None, "pairs": 0, "skipped_reset": 0, "central": None, "bound": None},
+            {"account": "main", "window": "five_hour", "pairs": 0, "skipped_reset": 0, "central": None, "bound": None, "unmeasured": None},
+            {"account": "main", "window": "seven_day", "pairs": 3, "skipped_reset": 1, "central": 42.0, "bound": 10.0, "unmeasured": None},
+            {"account": "other", "window": None, "pairs": 0, "skipped_reset": 0, "central": None, "bound": None, "unmeasured": None},
         ], cal
         assert fc.transcript_account("/x/.claude/projects/p/s.jsonl") == "default", "~/.claude is the default account"
 
@@ -1006,6 +1006,141 @@ def test_a_bodies_parse_error_names_the_option_and_quotes_the_path_with_control_
             assert err.startswith(quoted + (": " if parses else " ")), err
             assert ("not valid JSON: " in err) if parses else ("is not readable" in err or "does not exist" in err), err
             assert ch not in err and err.count("\n") == 1, err
+
+
+# --- calibration counts all the account's spend (#1183) ---------------------------
+def extra_spend_fixture(d):
+    """The account `main` has two config dirs: its own (the event log's session sA, plus ops / interactive
+    transcripts the event log never saw) and a nested one a bench run logged in with. Its seven_day reading rises
+    2% every two hours (10 -> 18% across four pairs), and the account spends $42 in every pair: $1 by the event
+    log's session, $20 by the ops session, $21 by the nested run. So 1% is $21 on the account — and $0.50 by
+    the event log alone, ~42x less."""
+    main, nested = os.path.join(d, "main"), os.path.join(d, "bench-run", "claude-config")
+    R1 = 1_800_000_000
+    hours = ("01:00", "03:00", "05:00", "07:00")
+    transcript(main, "sA", [timed(f"a{i}", h, 1) for i, h in enumerate(hours)])
+    write_lines(os.path.join(main, "projects", "-ops", "ops-1.jsonl"), [timed(f"o{i}", h, 20) for i, h in enumerate(hours)])
+    write_lines(os.path.join(nested, "projects", "-bench", "run-1.jsonl"), [timed(f"n{i}", h, 21) for i, h in enumerate(hours)])
+    os.makedirs(os.path.join(main, "projects"), exist_ok=True)
+    fc.register_nested(main, nested)
+    evs = []
+    for e in lane_events(W, 1, "sA"):
+        e["ts"] = at("00:00" if e["event"] == "launch" else "08:00")
+        evs.append(e)
+    for h, pct in (("00:00", 10), ("02:00", 12), ("04:00", 14), ("06:00", 16), ("08:00", 18)):
+        evs.append(reading("main", "seven_day", h, pct, R1))
+    events = os.path.join(d, "events.jsonl")
+    write_lines(events, evs)
+    return main, nested, events
+
+
+def _with_dirs(cfgs, fn):
+    saved = os.environ.get("HARNESS_CLAUDE_CONFIG_DIRS")
+    os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfgs
+    try:
+        return fn()
+    finally:
+        if saved is None: os.environ.pop("HARNESS_CLAUDE_CONFIG_DIRS", None)
+        else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = saved
+
+
+def test_calibration_counts_every_transcript_of_the_account_not_only_the_event_logs_sessions():
+    with tmp() as d:
+        main, nested, events = extra_spend_fixture(d)
+        evs = fc.st.load_events(events)
+        cal = _with_dirs(main, lambda: fc.calibrate(evs))   # the nested dir is not in the search list: registered in main's dir
+        row = next(c for c in cal if c["window"] == "seven_day")
+        true_usd_per_pct = 21.0
+        assert row["pairs"] == 4 and row["unmeasured"] is None, row
+        assert true_usd_per_pct / 2 <= row["bound"] <= true_usd_per_pct * 2, row
+        assert true_usd_per_pct / 2 <= row["central"] <= true_usd_per_pct * 2, row
+        # the old figure — only the event log's own session — is $1 per 2% = $0.50 per 1%: nowhere near
+        old = 4 * 1.0 / (18 - 10)
+        assert not true_usd_per_pct / 2 <= old <= true_usd_per_pct * 2, old
+        # the same through the CLI: `harness forecast` prices the % of the window at that bound
+        bodies = os.path.join(d, "bodies.json"); open(bodies, "w").write("[]")
+        rc, js, _ = run_cli(["5", "-R", W, "--events", events, "--bodies", bodies, "--json"], main)
+        w = json.loads(js)["calibration"]["windows"][0]
+        assert w["source"] == "fit" and true_usd_per_pct / 2 <= w["usd_per_pct"] <= true_usd_per_pct * 2, w
+
+
+def test_a_nested_config_dir_deleted_after_its_run_still_counts_through_the_account_record():
+    with tmp() as d:
+        main, nested, events = extra_spend_fixture(d)
+        fc.settle_nested(main, nested)
+        shutil.rmtree(os.path.dirname(nested))
+        evs = fc.st.load_events(events)
+        row = next(c for c in _with_dirs(main, lambda: fc.calibrate(evs)) if c["window"] == "seven_day")
+        assert 10.5 <= row["bound"] <= 42.0, row   # $41 per 2% pair: the nested run's $21 came from the record
+        # a dir kept after settling is read live and never counted twice
+        main2, nested2, events2 = extra_spend_fixture(os.path.join(d, "again"))
+        fc.settle_nested(main2, nested2)
+        row2 = next(c for c in _with_dirs(main2, lambda: fc.calibrate(fc.st.load_events(events2))) if c["window"] == "seven_day")
+        assert row2["central"] == 21.0, row2
+
+
+def test_an_account_with_no_config_dir_is_unmeasured_not_a_low_fit():
+    with tmp() as d:
+        main, nested, events = extra_spend_fixture(d)
+        evs = [dict(e, account="ghost") if e["event"] == "usage_reading" else e for e in fc.st.load_events(events)]
+        cal = _with_dirs(main, lambda: fc.calibrate(evs))
+        row = next(c for c in cal if c["account"] == "ghost")
+        assert row["bound"] is None and row["central"] is None and row["pairs"] == 0, row
+        assert "no Claude config dir for account ghost" in row["unmeasured"], row
+        bodies = os.path.join(d, "bodies.json"); open(bodies, "w").write("[]")
+        evfile = os.path.join(d, "ghost.jsonl"); write_lines(evfile, evs)
+        saved = os.environ.pop(fc.FALLBACK_SETTING, None)
+        try:
+            _, text, _ = run_cli(["5", "-R", W, "--events", evfile, "--bodies", bodies], main)
+            os.environ[fc.FALLBACK_SETTING] = "30"
+            _, js, _ = run_cli(["5", "-R", W, "--events", evfile, "--bodies", bodies, "--json"], main)
+        finally:
+            os.environ.pop(fc.FALLBACK_SETTING, None)
+            if saved is not None: os.environ[fc.FALLBACK_SETTING] = saved
+        assert "calibration ghost seven_day: spend not measured (no Claude config dir for account ghost on this host) and " \
+               "HARNESS_ONE_USD_PER_PCT unset — n/a" in text, text
+        w = json.loads(js)["pct"][0]
+        assert (w["account"], w["source"], w["usd_per_pct"]) == ("ghost", "fallback", 30.0), w
+
+
+def test_a_window_reset_starts_a_fresh_segment_and_a_stale_reading_is_ignored():
+    with tmp() as d:
+        main = os.path.join(d, "main")
+        R1, R2 = 1_800_000_000, 1_800_600_000
+        hrs = [f"{h:02d}:00" for h in range(0, 24, 2)]
+        write_lines(os.path.join(main, "projects", "-p", "s.jsonl"), [timed(f"m{i}", h, 10) for i, h in enumerate(hrs)])
+        rd = [("00:00", 10, R1), ("02:00", 12, R1), ("03:00", 11, R1),   # 11 is a stale reading under 12
+              ("04:00", 12, R1), ("05:00", 14, R1),
+              ("06:00", 3, R2), ("08:00", 5, R2), ("09:00", 4, R1),      # reset; 4@R1 is the old window read late
+              ("10:00", 5, R2), ("12:00", 7, R2)]
+        evs = [reading("main", "seven_day", h, p, r) for h, p, r in rd]
+        row = next(c for c in _with_dirs(main, lambda: fc.calibrate(evs)) if c["window"] == "seven_day")
+        # pairs: 10->12 (00:00-02:00), 12->14 (02:00-05:00); reset skipped; 3->5 (06:00-08:00), 5->7 (08:00-12:00)
+        assert (row["pairs"], row["skipped_reset"]) == (4, 1), row
+        assert row["central"] == round((10 + 10 + 10 + 20) / 8, 2), row
+        pairs, resets = fc.window_pairs(fc.readings(evs)[("main", "seven_day")])
+        assert resets == 1 and [(a[1], b[1]) for a, b in pairs] == [(10, 12), (12, 14), (3, 5), (5, 7)], pairs
+        # no resets_at at all: a big fall is a reset, a small one is a stale reading
+        bare = [(0, 10, 0), (1, 12, 0), (2, 11, 0), (3, 14, 0), (4, 2, 0), (5, 5, 0)]
+        pairs, resets = fc.window_pairs(bare)
+        assert resets == 1 and [(a[1], b[1]) for a, b in pairs] == [(10, 12), (12, 14), (2, 5)], (pairs, resets)
+
+
+def test_calibration_scans_only_recent_transcripts_and_stays_fast_on_thousands_of_files():
+    import time as _time
+    with tmp() as d:
+        main, nested, events = extra_spend_fixture(d)
+        old = _time.time() - 90 * 86400
+        for i in range(3000):   # an account's history: thousands of old transcripts, none inside the window
+            p = os.path.join(main, "projects", f"-proj{i % 50}", f"old-{i}.jsonl")
+            write_lines(p, [timed(f"x{i}", "01:00", 5)])
+            os.utime(p, (old, old))
+        evs = fc.st.load_events(events)
+        t0 = _time.time()
+        row = next(c for c in _with_dirs(main, lambda: fc.calibrate(evs)) if c["window"] == "seven_day")
+        took = _time.time() - t0
+        assert row["central"] == 21.0, row   # the old files' $15000 never counted: their mtime is before the window
+        assert took < 5, f"calibrate took {took:.1f}s on 3000 old transcripts"
 
 
 if __name__ == "__main__":

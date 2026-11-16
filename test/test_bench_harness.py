@@ -386,6 +386,31 @@ def test_the_isolated_config_links_only_the_login_and_installs_the_engines_skill
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_the_isolated_config_is_recorded_on_the_host_account_and_settled_before_it_is_deleted():   # #1183
+    import tempfile, shutil, json as _json
+    d = tempfile.mkdtemp()
+    try:
+        host = os.path.join(d, "host"); os.makedirs(os.path.join(host, "projects"))
+        env = {"CLAUDE_CONFIG_DIR": host}
+        cfg = armlib.isolated_config(os.path.join(d, "work", "claude-config"), env)["path"]
+        rec = os.path.join(host, ".harness-nested-configs.jsonl")
+        assert [_json.loads(x) for x in open(rec)] == [{"dir": os.path.abspath(cfg)}], "the host account names its nested config"
+        armlib.isolated_config(cfg, env)
+        assert len(open(rec).read().splitlines()) == 1, "registered once"
+        os.makedirs(os.path.join(cfg, "projects", "-w"))
+        with open(os.path.join(cfg, "projects", "-w", "s.jsonl"), "w") as fh:
+            fh.write(_json.dumps({"type": "assistant", "timestamp": "2026-10-02T01:00:30Z", "message": {
+                "id": "m1", "model": "claude-opus-5-5", "usage": {"output_tokens": 50_000}}}) + "\n")
+        armlib.settle_config(cfg, env)
+        shutil.rmtree(os.path.join(d, "work"))
+        last = [_json.loads(x) for x in open(rec)][-1]
+        assert last["dir"] == os.path.abspath(cfg) and len(last["spend"]) == 1 and last["spend"][0][1] == 1.0, last
+        armlib.settle_config(os.path.join(d, "never-made"), env)   # nothing to settle: no record
+        assert len(open(rec).read().splitlines()) == 2
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_isolation_problems_name_any_plugin_and_mcp_servers_and_leave_builtins_and_skills_alone():
     ok = {"skills": ["a", "b"], "plugins": [{"name": "t", "path": "builtin"}], "mcp_servers": []}
     assert armlib.isolation_problems(ok, armlib.ENGINE_PLUGINS) == []

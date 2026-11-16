@@ -198,6 +198,18 @@ def test_launch_failed_lane_is_not_a_session():
     assert [x["session"] for x in st.sessions(evs)] == ["ok1"]
     assert st.fleet_summary(evs)["hz"]["sessions"] == 1
 
+def test_launch_giveup_is_no_session():
+    # #1183: the event that records three launch failures in a row is no launch and no session_end
+    evs = [
+        _ev("launch", session="ok1", prefix="hz", issue=1, kind="impl"),
+        _ev("launch_failed", session="d1", prefix="hz", issue=2, kind="impl", reason="start_failed"),
+        _ev("launch_failed", session="d2", prefix="hz", issue=2, kind="impl", reason="start_failed"),
+        _ev("launch_failed", session="d3", prefix="hz", issue=2, kind="impl", reason="start_failed"),
+        _ev("launch_giveup", prefix="hz", key="impl-2", count=3, reason="start_failed", issue=2),
+    ]
+    assert [x["session"] for x in st.sessions(evs)] == ["ok1"]
+    assert st.fleet_summary(evs)["hz"]["sessions"] == 1
+
 def test_launch_failed_lane_that_reported_usage_is_still_a_session():
     # #720: a lane gone within 30s of its launch logs launch_failed before its session_end; when that
     # session_end reports usage the lane ran, and its spend stays in the stats

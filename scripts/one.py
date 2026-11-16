@@ -180,30 +180,12 @@ def remaining(fc, phase):
 def account_spend_since(account, t0):
     """$ the account spent after epoch `t0`: every message (each once, by its id) of the Claude
     transcripts — main and sub-agents — in the config dirs named after the account (the name the
-    status line reports: the dir's basename, "default" for ~/.claude), priced as forecast.py prices
-    them. None when no config dir is that account's: its spend cannot be counted here."""
-    import glob
+    status line reports: the dir's basename, "default" for ~/.claude) and in the nested configs bench runs
+    log in with for it (#1183), priced as forecast.py prices them. None when no config dir is that account's:
+    its spend cannot be counted here."""
     fm = _forecast()
-    acct = _norm(account)
-    dirs = [d for d in fm.st.config_dirs() if _norm(os.path.basename(os.path.normpath(d))) == acct]
-    if not dirs:
-        return None
-    seen, usd = set(), 0.0
-    for d in dirs:
-        for f in glob.glob(os.path.join(d, "projects", "*", "*.jsonl")) + \
-                glob.glob(os.path.join(d, "projects", "*", "*", "subagents", "*.jsonl")):
-            try:
-                if os.path.getmtime(f) <= t0:
-                    continue   # nothing in it is newer than t0
-            except OSError:
-                continue
-            for key, model, usage, _, ts in fm._messages(f):
-                t = fm.st.parse_ts(ts)
-                if t is None or t <= t0 or key in seen:
-                    continue
-                seen.add(key)
-                usd += fm.raw_cost(usage, model)
-    return usd
+    tl = fm.account_timeline(_norm(account), t0, float("inf"))   # every transcript of the account, nested bench configs too (#1183)
+    return None if tl is None else sum(c for t, c in tl if t > t0)
 
 
 def spend_pct(account, window, since):

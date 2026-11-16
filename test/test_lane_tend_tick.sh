@@ -20,6 +20,7 @@ setup(){  # [poll]
   restore; make_env
   HARNESS_REPO="acme/widget"; HARNESS_OWNER=acme; HARNESS_SESS_PREFIX=hz; HARNESS_UNIT=""
   POOL=1; POLL="${1:-300}"; HARNESS_TEND_TICK=15; HARNESS_TEND_IDLE_TICKS=3; HARNESS_USE_POLLER=0
+  HARNESS_DISPATCH_WAKE=0   # #1183: this file pins the POLL / short-tick cadence (one `sleep <POLL>` per idle step); test_dispatch_wake.sh covers the interruptible nap
   HARNESS_CHECKOUT="$RUN_DIR/co"; mkdir -p "$HARNESS_CHECKOUT"
   export HARNESS_AUTONOMOUS=true HARNESS_MODE=issue-only HARNESS_POOL_TAKES_BUGS=0 HARNESS_CLI=claude HARNESS_CI_GATE=0
   WORKTREES_DIR="$RUN_DIR/wt"; mkdir -p "$WORKTREES_DIR"

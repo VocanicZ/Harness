@@ -48,6 +48,7 @@ fi
 : "${HARNESS_POLL:=300}"               # resident pool: slow idle/steady-state poll
 : "${HARNESS_PREBUILD:=1}"              # #644: 1 = while a lane runs, pre-build the next claimable issue's worktree; 0 = off
 : "${HARNESS_TEND_TICK=15}"             # #594: a worker that owns a live lane tends it this often (s), not every POLL
+: "${HARNESS_DISPATCH_WAKE:=1}"      # #1183: 1 = a lane end / PRD close / filed issue wakes the workers' POLL sleep and refreshes the board snapshot at once; 0 = sleep the full POLL as before
 : "${HARNESS_TEND_IDLE_TICKS=3}"       # #594: idle ticks a DECOMPOSE lane must show, with no gh running, before its goal is checked (#782: `=` not `:=` — an empty value reaches tend_knobs, which warns)
 : "${HARNESS_PRIORITY_POLL:=60}"       # fast cadence for the priority bug lane (#23)
 : "${HARNESS_IMPL_MAXITER:=30}"
@@ -513,16 +514,28 @@ claimed_issues(){ local f k tok; shopt -s nullglob
 # `launch_failed` (stats.py does not count it as a session) and arms a backoff on that lane's claim key, so
 # claim_lane holds the same issue / PRD action back for HARNESS_LAUNCH_BACKOFF s (60, doubling per consecutive
 # failure, capped at HARNESS_LAUNCH_BACKOFF_MAX 900) instead of re-claiming it at once.
+# #1183: HARNESS_LAUNCH_FAIL_MAX (3; 0 = never give up) consecutive failures of one claim key end the retries. launch_giveup records
+# the cause (a `launch_giveup` event and a log line), and for an issue or PRD labels it agent-blocked with a comment and parks it
+# (the crash-loop guard's give-up, #545: a lane or a retry loop nobody can fix on its own is held, not waited out); the key stays
+# held locally for LAUNCH_GIVEUP_HOLD seconds (the board snapshot shows the label only after its next refresh), then counts afresh.
+# A lane that really ran (launch_gone_check's other branch) clears the count, so only failures with no run between them add up.
+LAUNCH_GIVEUP_HOLD=21600
 # launch_key_of_sess <sess> — the claim key of an issue (-i<N>) or PRD (-p<N>) lane's session; empty for others.
 # #780: only the TRAILING -i<N> / -p<N> counts — a unit name may hold `-i18n` or `-p2b` (web-i18n, a-p2b).
 launch_key_of_sess(){ if [[ "$1" =~ -i([0-9]+)$ ]]; then echo "impl-${BASH_REMATCH[1]}"
   elif [[ "$1" =~ -p([0-9]+)$ ]]; then echo "orch-${BASH_REMATCH[1]}"; fi; }
 _launchfail_file(){ echo "$RUN_DIR/launchfail.$1"; }
-launch_backoff_mark(){ local key="$1" f n=0 t; f="$(_launchfail_file "$key")"
-  read -r t n 2>/dev/null < "$f"; [[ "${n:-}" =~ ^[0-9]+$ ]] || n=0
-  echo "$(date +%s) $(( n + 1 ))" > "$f"; }
+# launch_backoff_mark <key> [reason] — one more consecutive failure of <key>: the file holds `<epoch> <count> <last reason>`. The
+# count that reaches HARNESS_LAUNCH_FAIL_MAX gives the key up (launch_giveup). A failure that comes after the give-up hold ran out
+# starts the count again.
+launch_backoff_mark(){ local key="$1" reason="${2:-unknown}" f n=0 t max now; f="$(_launchfail_file "$key")"; now="$(date +%s)"
+  read -r t n _ 2>/dev/null < "$f"; [[ "${n:-}" =~ ^[0-9]+$ ]] || n=0
+  [[ "${t:-}" =~ ^[0-9]+$ ]] && (( now - t >= LAUNCH_GIVEUP_HOLD )) && n=0
+  n=$(( n + 1 )); echo "$now $n ${reason//[[:space:]]/_}" > "$f"
+  max="$(_launch_knob HARNESS_LAUNCH_FAIL_MAX 3)"
+  (( max > 0 && n == max )) && launch_giveup "$key" "$n" "$reason"
+  return 0; }
 launch_backoff_clear(){ rm -f "$(_launchfail_file "$1")"; }
-# launch_backoff_active <key> — the lane failed to launch and its backoff has not run out.
 # _launch_knob <NAME> <default> — #759: the knob's value when it is a non-negative integer, else the default, with a
 # one-time warning (a marker per knob and value in $RUN_DIR, as this runs in $(…) subshells; on stderr, stdout is captured).
 _launch_knob(){ local name="$1" def="$2" v m n; v="${!name:-}"
@@ -533,12 +546,27 @@ _launch_knob(){ local name="$1" def="$2" v m n; v="${!name:-}"
   if [[ ! -e "$m" ]]; then : > "$m" 2>/dev/null || true
     log "WARN $name='$v' is not a non-negative integer — using the default $def" >&2; fi
   echo "$def"; }
-launch_backoff_active(){ local f t n wait base max
-  f="$(_launchfail_file "$1")"; read -r t n 2>/dev/null < "$f" || return 1
+# _launch_wait <n> — the backoff after the n-th consecutive failure: HARNESS_LAUNCH_BACKOFF doubling, capped at _MAX.
+_launch_wait(){ local n="$1" base max wait
   base="$(_launch_knob HARNESS_LAUNCH_BACKOFF 60)"; max="$(_launch_knob HARNESS_LAUNCH_BACKOFF_MAX 900)"
+  wait=$(( base << (n > 1 ? (n > 8 ? 7 : n - 1) : 0) )); (( wait > max )) && wait="$max"; echo "$wait"; }
+# launch_given_up <n> — #1183: <n> consecutive failures are HARNESS_LAUNCH_FAIL_MAX or more (0 turns the give-up off).
+launch_given_up(){ local max; max="$(_launch_knob HARNESS_LAUNCH_FAIL_MAX 3)"; (( max > 0 && $1 >= max )); }
+# launch_backoff_active <key> — the lane failed to launch and its backoff has not run out, or its key was given up (#1183) and the hold has not.
+launch_backoff_active(){ local f t n _r wait age
+  f="$(_launchfail_file "$1")"; read -r t n _r 2>/dev/null < "$f" || return 1
   [[ "$t" =~ ^[0-9]+$ && "${n:-}" =~ ^[0-9]+$ ]] || return 1
-  wait=$(( base << (n > 1 ? (n > 8 ? 7 : n - 1) : 0) )); (( wait > max )) && wait="$max"
-  (( $(date +%s) - t < wait )); }
+  age=$(( $(date +%s) - t ))
+  if launch_given_up "$n"; then (( age < LAUNCH_GIVEUP_HOLD )) && return 0; rm -f "$f"; return 1; fi
+  wait="$(_launch_wait "$n")"; (( age < wait )); }
+# launch_retry_secs <poll> — #1183: how long a worker sleeps after a lane failed to spawn: until the soonest running launch backoff
+# ends (a given-up key has none), never more than <poll>. The failed start is retried when its backoff is over, not a whole POLL
+# later, so the consecutive failures that end the retries come within minutes under any POLL.
+launch_retry_secs(){ local poll="$1" f t n _r left best="$1" now; now="$(date +%s)"; shopt -s nullglob
+  for f in "$RUN_DIR"/launchfail.*; do read -r t n _r 2>/dev/null < "$f" || continue
+    [[ "$t" =~ ^[0-9]+$ && "${n:-}" =~ ^[0-9]+$ ]] || continue; launch_given_up "$n" && continue
+    left=$(( t + $(_launch_wait "$n") - now + 1 )); (( left > 0 && left < best )) && best="$left"; done
+  shopt -u nullglob; echo "$best"; }
 # backoff_keys <impl|orch> — the numbers of the issues / PRDs whose launch backoff is active, comma-separated, for
 # claim_lane to add to dispatch's busy lists (orch-0, the PLAN/PRD session, has no number and is held in the loop).
 backoff_keys(){ local f k out=(); shopt -s nullglob
@@ -612,7 +640,26 @@ parked_keys(){ local f n out=(); shopt -s nullglob
 # launch_fail <sess> <uuid> <reason> — the launch itself failed (the backend could not start the session).
 launch_fail(){ local sess="$1" uuid="$2" reason="$3" key; key="$(launch_key_of_sess "$sess")"
   harness_event launch_failed session="$uuid" tmux="$sess" goal="${GOAL:-}" prd="${STAT_PRD:-}" reason="$reason"
-  log "launch of $sess failed ($reason)"; [[ -n "$key" ]] && launch_backoff_mark "$key"; return 0; }
+  log "launch of $sess failed ($reason)"; [[ -n "$key" ]] && launch_backoff_mark "$key" "$reason"; return 0; }
+# launch_giveup <key> <count> <reason> — #1183: <count> consecutive launches of <key> failed (the last for <reason>): stop retrying.
+# The cause is recorded as a `launch_giveup` event and a log line. An issue or PRD (impl-<n>, orch-<n>) is also labelled
+# agent-blocked with a comment saying why and parked, exactly as the crash-loop guard does (churn_check, #545): no lane takes it
+# until someone comments on it or edits its labels, and the autonomous fleet goes on with other work instead of waiting. The order
+# is the contract: label, comment, park_issue LAST (it records the updatedAt our own edits produced). orch-0 (the PLAN / PRD
+# session) has no issue number: it is held locally only (launch_backoff_active). Never fails its caller.
+launch_giveup(){ local key="$1" n="$2" reason="${3:-unknown}" num kind="" slug="${SLUG:-}" body; num="${key#*-}"
+  case "$key" in impl-*) kind=issue;; orch-*) kind=prd;; esac
+  [[ "$num" =~ ^[0-9]+$ ]] && (( 10#$num > 0 )) && [[ -n "$kind" ]] || { num=""; kind=""; }
+  harness_event launch_giveup key="$key" count="$n" reason="$reason" ${kind:+"$kind=$num"}
+  log "launch of $key failed $n times in a row (last: $reason) — giving up on it, not retrying for $(( LAUNCH_GIVEUP_HOLD / 3600 ))h (#1183)"
+  [[ -n "$num" && -n "$slug" ]] || return 0
+  gh issue edit "$num" -R "$slug" --add-label "$HARNESS_LABEL_BLOCKED" >/dev/null 2>&1 || true
+  unlock_issue "$slug" "$num" || true
+  body="<!-- harness-launch-giveup key=$key -->
+harness: gave up launching a lane for this ${kind/prd/PRD} after $n consecutive launch failures (last reason: \`$reason\`). The fleet is autonomous and does not wait on anyone, so it labelled this \`$HARNESS_LABEL_BLOCKED\` and parked it: no lane takes it until someone comments on it or edits its labels, and the other work goes on. The cause is in the worker log and in the fleet's \`launch_failed\` and \`launch_giveup\` events (\`start_failed\`: the session backend could not start the lane; \`session_gone\`: the lane ended within seconds of its launch without doing any work)."
+  gh issue comment "$num" -R "$slug" --body "$body" >/dev/null 2>&1 || true
+  park_issue "$slug" "$num"
+  return 0; }
 # launch_ran_usage <sess> <uuid> — #720: the gone session really ran: its session_end is already logged with usage, or
 # its pending .stats context still reaches a transcript that holds some (the reap can come before the sweep).
 launch_ran_usage(){ local sess="$1" uuid="$2"
@@ -632,7 +679,7 @@ launch_gone_check(){ local sess="$1" kind="$2" f="$RUN_DIR/$1.launched" t uuid k
   if (( age < $(_launch_knob HARNESS_LAUNCH_FAIL_SECS 30) )) && ! launch_ran_usage "$sess" "$uuid"; then
     harness_event launch_failed session="$uuid" tmux="$sess" kind="$kind" "$@" reason=session_gone age_s="$age"
     log "session $sess was gone ${age}s after launch — launch_failed, backing off"
-    [[ -n "$key" ]] && launch_backoff_mark "$key"
+    [[ -n "$key" ]] && launch_backoff_mark "$key" session_gone
   else [[ -n "$key" ]] && launch_backoff_clear "$key"; fi
   return 0; }
 # launch_grace_live <worktree> — #643: the worktree dir is younger than HARNESS_LAUNCH_FAIL_SECS (30s). A launcher that
@@ -1685,6 +1732,9 @@ fleet_slugs_of(){ local dir="$1" pfx prj rd slugs
 # prompt as {{SWARM_SUITE}} (#202; #449: lanes never run the full suite). It carries the fleet's mode and run dir explicitly: a Claude
 # session does not inherit this process's environment, so it cannot be left to find them itself.
 swarm_suite_cmd(){ printf 'HARNESS_SWARM=%q RUN_DIR=%q bash %q' "$HARNESS_SWARM" "$RUN_DIR" "$ENGINE_DIR/scripts/swarm-suite.sh"; }
+# review_findings_cmd — the one-issue-per-review-round helper as one shell-quoted command, rendered into the review prompt as
+# {{REVIEW_FINDINGS}} (#1183). The reviewer feeds every finding of its pass through it and files exactly the one issue it returns.
+review_findings_cmd(){ printf 'python3 %q' "$ENGINE_DIR/scripts/review_findings.py"; }
 # rtdd_skill_install — the user-level `rtdd` skill the lane prompts defer to (#187). rtdd v0.3 writes
 # no agent files into projects, so this skill is where a lane learns its rounds. Upstream's install
 # is idempotent and covers ~/.claude; agy reads its own user skill dir, so an agy fleet also gets the
@@ -1991,6 +2041,7 @@ write_state(){ local wd="$1" promise="$2" maxiter="$3" uuid="$4"; mkdir -p "$wd/
 STATS_PY="$ENGINE_DIR/scripts/stats.py"
 TASKCTX_PY="$ENGINE_DIR/scripts/taskctx.py"
 harness_event(){
+  case "${1:-}" in session_end|prd_closed|child_filed|merged) dispatch_wake_request "$1";; esac   # #1183: the board just changed — dispatch must not wait out POLL
   timeout 10 python3 "$STATS_PY" emit "$@" -c "prefix=$HARNESS_SESS_PREFIX" -c "project=$PROJECT_ROOT" \
     -c "repo=${SLUG:-}" -c "unit=${UNIT:-}" >/dev/null 2>&1 && return 0
   [[ -n "${_HARNESS_EVENT_ERR:-}" ]] && return 0
@@ -2592,6 +2643,67 @@ snapshot_gate(){
   export HARNESS_SNAPSHOT_FILE="$(poller_snapshot_path "$(printf '%s\n' $slugs | head -n1)")"
   return 0
 }
+
+# --- #1183: event-driven dispatch --------------------------------------------------------------------------
+# A worker that finds nothing to do sleeps POLL (300s). Before this, what ended that sleep early was nothing: a lane
+# ended, its issue closed on GitHub, and the worker that reaped it looked at a board snapshot a poll cycle old, saw the
+# next item not yet dispatchable (the PRD's last child still open, the review not yet due, the child just filed not yet
+# listed), and slept POLL. A 1-worker run sat idle 1-21 min between lanes that way. Three parts:
+#   dispatch_wake_request  — harness_event calls it for session_end, prd_closed, child_filed and merged (and label_ready
+#                            does): it writes a fresh stamp into $RUN_DIR/dispatch.wake. One file, shared by every
+#                            worker of the project, so one event wakes them all.
+#   dispatch_nap <secs>    — what a worker sleeps instead of `sleep POLL`: the same wait, in 2s slices, that ends as soon
+#                            as the stamp differs from the one the worker last saw (_WAKE_SEEN). The stamp is read at
+#                            the START of each full step, so a wake written while the step runs, or just before the nap
+#                            begins, is still pending when the nap checks — it is never lost — and a step that has seen
+#                            the stamp does not nap short again (no spin).
+#   snapshot_wake_refresh  — a full step that sees a new stamp refreshes the host snapshot first (poller_write_snapshot:
+#                            incremental, an unchanged board is one 304), under a per-slug marker so the workers of one
+#                            fleet refresh once per stamp, not once each. Without it the wake would only make the worker
+#                            read the same stale snapshot sooner. HARNESS_DISPATCH_WAKE=0 turns the whole thing off.
+_WAKE_STEP=2   # seconds between wake checks inside dispatch_nap
+dispatch_wake_enabled(){ case "${HARNESS_DISPATCH_WAKE:-1}" in 0|off|OFF|false|FALSE|no|NO) return 1;; esac; return 0; }
+dispatch_wake_stamp(){ cat "$RUN_DIR/dispatch.wake" 2>/dev/null; return 0; }
+dispatch_wake_request(){ local tmp="$RUN_DIR/dispatch.wake.$$"
+  dispatch_wake_enabled || return 0
+  mkdir -p "$RUN_DIR" 2>/dev/null || return 0
+  printf '%s %s %s %s\n' "${EPOCHREALTIME:-$(date +%s)}" "$$" "$RANDOM" "${1:-}" > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$RUN_DIR/dispatch.wake" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null; return 0; }
+# dispatch_wake_pending — a wake this worker has not yet acted on. _WAKE_SEEN unset (no step has run) = nothing pending.
+dispatch_wake_pending(){ local cur; dispatch_wake_enabled || return 1
+  cur="$(dispatch_wake_stamp)"; [[ "$cur" != "${_WAKE_SEEN-$cur}" ]]; }
+# dispatch_nap <secs> — sleep up to <secs>, ending early on a pending wake. The wake is checked BEFORE the first slice.
+dispatch_nap(){ local secs="${1:-0}" left step
+  [[ "$secs" =~ ^[0-9]+$ ]] || secs=0
+  dispatch_wake_enabled || { sleep "$secs"; return 0; }
+  left="$secs"
+  while (( left > 0 )); do
+    dispatch_wake_pending && return 0
+    step="$_WAKE_STEP"; (( left < step )) && step="$left"
+    sleep "$step"; left=$(( left - step ))
+  done; return 0; }
+# snapshot_wake_refresh [force] — refresh the host snapshot of every repo this project serves, once per wake stamp (or,
+# with force=1, when the last refresh is over 10s old: the follow-up a step makes after a wake that found nothing, since
+# GitHub can lag a merge's issue close by a few seconds). Never runs with the poller off (reads are direct and fresh) or
+# when the GitHub budget is low. The marker holds `<stamp>|<epoch>` of the last refresh, written BEFORE it starts, so a
+# wake that lands mid-refresh differs from it and is refreshed again.
+snapshot_wake_refresh(){ local force="${1:-0}" slug out mark lockfd stamp now seen at
+  poller_enabled || return 0; dispatch_wake_enabled || return 0
+  gh_budget_low && return 0
+  stamp="$(dispatch_wake_stamp)"; now="$(date +%s)"
+  for slug in $(snapshot_slugs); do
+    out="$(poller_snapshot_path "$slug")"; mark="$out.wakeref"
+    mkdir -p "$HARNESS_SNAPSHOTS_DIR" 2>/dev/null
+    lock_acquire "$out.wake.lock" lockfd
+    seen=""; at=0; [[ -r "$mark" ]] && { IFS= read -r seen < "$mark" || true; }   # `<stamp>|<epoch>`: the stamp has spaces in it
+    at="${seen##*|}"; seen="${seen%|*}"; [[ "$at" =~ ^[0-9]+$ ]] || at=0
+    if [[ "$seen" != "$stamp" ]] || { [[ "$force" == 1 ]] && (( now - at >= 10 )); }; then
+      echo "$stamp|$now" > "$mark"
+      poller_write_snapshot "$slug" && log "snapshot refreshed on wake: $slug" || log "snapshot refresh on wake FAILED (prior snapshot kept): $slug"
+    fi
+    lock_release "$lockfd"
+  done; return 0; }
 
 seed_if_needed(){
   local unit="$1" slug; slug="$(unit_slug "$unit")"

@@ -1265,6 +1265,64 @@ def test_dash_led_value_an_option_can_never_take_gets_the_reason_not_the_equals_
         assert space.stderr == equals.stderr, (opt, space.stderr, equals.stderr)
 
 
+def _account_events(e, readings_pct=(10, 12, 14, 16, 18), spend_usd=(1, 20, 21)):
+    """#1183: the account `acct` (the run's own CLAUDE_CONFIG_DIR) with weekly readings rising 2% every two hours;
+    in each pair its event-log session spent spend_usd[0], an ops session in its own dir spend_usd[1] and a nested
+    bench config (registered in the account's dir) spend_usd[2]. Returns the env that points the engine at them."""
+    acct, nested = os.path.join(e.d, "acct"), os.path.join(e.d, "bench-run", "claude-config")
+    fc = bench_run._load("forecast")
+    hours = (1, 3, 5, 7)
+
+    def line(mid, hour, usd):
+        return json.dumps({"type": "assistant", "timestamp": "2026-10-02T%02d:00:00Z" % hour, "requestId": "r" + mid,
+                           "message": {"id": mid, "model": "claude-opus-5-5", "content": [],
+                                       "usage": {"input_tokens": 0, "output_tokens": int(50_000 * usd)}}}) + "\n"
+    for path, tag, usd in ((os.path.join(acct, "projects", "-w", "sA.jsonl"), "a", spend_usd[0]),
+                           (os.path.join(acct, "projects", "-ops", "ops.jsonl"), "o", spend_usd[1]),
+                           (os.path.join(nested, "projects", "-b", "run.jsonl"), "n", spend_usd[2])):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.writelines(line(f"{tag}{i}", h, usd) for i, h in enumerate(hours))
+    fc.register_nested(acct, nested)
+    with open(e.events, "w") as fh:
+        for h, pct in zip((0, 2, 4, 6, 8), readings_pct):
+            fh.write(json.dumps({"ts": "2026-10-02T%02d:00:00Z" % h, "event": "usage_reading", "account": "acct",
+                                 "window": "seven_day", "pct": pct, "resets_at": 1_800_000_000}) + "\n")
+    return {"HARNESS_CLAUDE_CONFIG_DIRS": acct}
+
+
+@with_env(per_pct=None)
+def test_guard_prices_a_percent_from_all_the_accounts_spend_not_the_event_logs_sessions(e):   # #1183
+    env = _account_events(e)   # $42 moves the window 2%: $21 per 1% (the old event-log-only figure was ~$0.50)
+    saved = os.environ.get("HARNESS_CLAUDE_CONFIG_DIRS")
+    os.environ.update(env)
+    try:
+        per, src, why = bench_run.usd_per_pct_why(bench_run._load("forecast"), bench_run._load("stats").load_events(e.events), "acct")
+    finally:
+        if saved is None: os.environ.pop("HARNESS_CLAUDE_CONFIG_DIRS", None)
+        else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = saved
+    assert src == "fit" and why is None and 10.5 <= per <= 42, (per, src, why)
+    p = e.run("stub", "--dry-run", extra_env=env)   # $80 expected = ~3.8%: fits; at $0.50 it would be 160% and refuse
+    assert p.returncode == 0 and "bench guard: OK" in p.stdout, (p.returncode, p.stdout, p.stderr)
+
+
+@with_env(per_pct=None)
+def test_guard_does_not_refuse_on_a_made_up_figure_when_the_spend_cannot_be_measured(e):   # #1183
+    env = _account_events(e)
+    ghost = os.path.join(e.d, "nowhere")   # the run's account has no config dir on this host: unmeasured
+    os.makedirs(ghost)
+    env = dict(env, HARNESS_CLAUDE_CONFIG_DIRS=ghost, CLAUDE_CONFIG_DIR=os.path.join(e.d, "acct-gone"))
+    with open(e.events, "w") as fh:
+        for h, pct in zip((0, 2, 4, 6, 8), (10, 12, 14, 16, 18)):
+            fh.write(json.dumps({"ts": "2026-10-02T%02d:00:00Z" % h, "event": "usage_reading", "account": "acct-gone",
+                                 "window": "seven_day", "pct": pct, "resets_at": 1_800_000_000}) + "\n")
+    p = e.run("stub", "--dry-run", extra_env=env)   # no figure and no HARNESS_ONE_USD_PER_PCT: refused as "no $ per 1%", not "budget"
+    assert p.returncode == 3 and "spend not measured: no Claude config dir for account acct-gone" in p.stderr, (p.stdout, p.stderr)
+    assert "% >" not in p.stderr, p.stderr
+    q = e.run("stub", "--dry-run", extra_env=dict(env, HARNESS_ONE_USD_PER_PCT="40"))   # the explicit setting stands in
+    assert q.returncode == 0 and "bench guard: OK" in q.stdout, (q.stdout, q.stderr)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
