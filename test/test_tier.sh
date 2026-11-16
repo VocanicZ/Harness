@@ -459,7 +459,7 @@ assert_ok "empty HARNESS_DEFAULT_BRANCH blames the variable" grep -qF "HARNESS_D
 err="$(HARNESS_DEFAULT_BRANCH=-x H tier overlap --files a -R o/r --base=-y 2>&1 >/dev/null)"
 assert_ok "explicit --base keeps its message even with HARNESS_DEFAULT_BRANCH set" grep -qF "argument --base: '-y' is not a branch" <<<"$err"
 # --base must not start with '-': git would read it as an option (#748); git is never run
-GBIN="$T/gitbin"; mkdir -p "$GBIN"; REAL_GIT="$(command -v git)"
+GBIN="$T/gitbin"; mkdir -p "$GBIN"; REAL_GIT="$(real_git)"
 printf '#!/usr/bin/env bash\necho "$*" >> "$GIT_LOG"\nexec "%s" "$@"\n' "$REAL_GIT" > "$GBIN/git"; chmod +x "$GBIN/git"
 cat > "$BIN/gh" <<'SH'
 #!/usr/bin/env bash
