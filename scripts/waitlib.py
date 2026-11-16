@@ -71,10 +71,7 @@ def pid_alive(pid, start=None):
 
 def own_pidns():
     """The pid namespace this process runs in (Linux: the link /proc/self/ns/pid points at), else None (Windows, macOS)."""
-    try:
-        return os.readlink("/proc/self/ns/pid")
-    except (OSError, AttributeError):
-        return None
+    return portable.pid_namespace()
 
 
 def foreign_pidns(spec):
