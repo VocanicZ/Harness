@@ -1,0 +1,40 @@
+{
+  "bn4ec19": {
+    "sessions": 10,
+    "tokens": {},
+    "issues_closed": 9,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-harness-r01": {
+        "claims": 11,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 9,
+        "init": 1,
+        "which": 16,
+        "explain": 2
+      },
+      "which": 16,
+      "changed_nodes": 730,
+      "round1": 975,
+      "round2": 2,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 17
+      },
+      "wall_ms": 2605,
+      "selective": 16,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

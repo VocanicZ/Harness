@@ -1,0 +1,41 @@
+{
+  "bndc4f9": {
+    "sessions": 32,
+    "tokens": {},
+    "issues_closed": 30,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-harness-r03": {
+        "claims": 33,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 30,
+        "--help": 3,
+        "init": 1,
+        "which": 65,
+        "explain": 3
+      },
+      "which": 65,
+      "changed_nodes": 1288,
+      "round1": 1908,
+      "round2": 1238,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 67
+      },
+      "wall_ms": 14047,
+      "selective": 60,
+      "full_suite": 5,
+      "backfilled": 0,
+      "selective_share": 0.92
+    },
+    "model_mismatches": []
+  }
+}

@@ -1,0 +1,271 @@
+{
+  "schema": 1,
+  "run_id": "run-20261115",
+  "arm": "harness",
+  "status": "aggregate",
+  "runs_requested": 5,
+  "runs_completed": 4,
+  "stopped": {
+    "reason": "operator",
+    "detail": "run 5 is invalid and not counted: its fleet never started work (every lane launch failed with start_failed for the whole 6 h wall cap, 0 of 80 hidden tests; see its run.log and events.jsonl). The Harness arm is re-benched under PRD #1180, which adds start_failed fail-fast, so no run 5 was repeated on this engine (owner rule: no runs that cannot change a conclusion)"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "file": "harness.runs/run-01.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 2,
+      "file": "harness.runs/run-02.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 3,
+      "file": "harness.runs/run-03.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 4,
+      "file": "harness.runs/run-04.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 5,
+      "file": "harness.runs/run-05.json",
+      "status": "error",
+      "capped": "wall"
+    }
+  ],
+  "aggregate": {
+    "n": 4,
+    "metrics": {
+      "wall_s": {
+        "n": 4,
+        "median": 5092.652,
+        "min": 2464.5,
+        "max": 6939.122
+      },
+      "coding_s": {
+        "n": 4,
+        "median": 7516.2135,
+        "min": 3809.644,
+        "max": 11140.533
+      },
+      "testing_s": {
+        "n": 4,
+        "median": 403.0395,
+        "min": 185.35,
+        "max": 654.559
+      },
+      "test_calls": {
+        "n": 4,
+        "median": 97.0,
+        "min": 43,
+        "max": 161
+      },
+      "cost_usd": {
+        "n": 4,
+        "median": 7.0296,
+        "min": 3.7553,
+        "max": 12.7325
+      },
+      "weekly_window_pct": {
+        "n": 4,
+        "median": 15.28,
+        "min": 8.16,
+        "max": 27.68
+      },
+      "tokens": {
+        "n": 4,
+        "median": 11284051.0,
+        "min": 5548230,
+        "max": 19464082
+      },
+      "tokens_input": {
+        "n": 4,
+        "median": 681.0,
+        "min": 348,
+        "max": 1176
+      },
+      "tokens_output": {
+        "n": 4,
+        "median": 192977.5,
+        "min": 103928,
+        "max": 337548
+      },
+      "tokens_cache_read": {
+        "n": 4,
+        "median": 10223467.0,
+        "min": 4989891,
+        "max": 17561568
+      },
+      "tokens_cache_write": {
+        "n": 4,
+        "median": 866925.5,
+        "min": 454063,
+        "max": 1563790
+      },
+      "cache_write_5m": {
+        "n": 4,
+        "median": 866925.5,
+        "min": 454063,
+        "max": 1563790
+      },
+      "cache_write_1h": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "cache_cost_usd": {
+        "n": 4,
+        "median": 4.3744,
+        "min": 2.3407,
+        "max": 7.9672
+      },
+      "gap_p90_s": {
+        "n": 4,
+        "median": 20.2,
+        "min": 17.7,
+        "max": 25.8
+      },
+      "gaps_over_5m": {
+        "n": 4,
+        "median": 4.0,
+        "min": 2,
+        "max": 7
+      },
+      "hidden_passed": {
+        "n": 4,
+        "median": 80.0,
+        "min": 80,
+        "max": 80
+      },
+      "hidden_total": {
+        "n": 4,
+        "median": 80.0,
+        "min": 80,
+        "max": 80
+      },
+      "fuzz_divergences": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 6
+      },
+      "fuzz_cases": {
+        "n": 4,
+        "median": 1000.0,
+        "min": 1000,
+        "max": 1000
+      },
+      "fuzz_classes": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 1
+      },
+      "coverage": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "sonar_bugs": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_vulnerabilities": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_code_smells": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_duplicated_lines_density": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "cov_line_pct": {
+        "n": 4,
+        "median": 98.75,
+        "min": 97.2,
+        "max": 99.0
+      },
+      "cov_branch_pct": {
+        "n": 4,
+        "median": 97.4,
+        "min": 95.8,
+        "max": 100.0
+      },
+      "cov_total_pct": {
+        "n": 4,
+        "median": 98.2,
+        "min": 97.7,
+        "max": 98.8
+      },
+      "issues_closed": {
+        "n": 4,
+        "median": 19.5,
+        "min": 9,
+        "max": 35
+      },
+      "prs_merged": {
+        "n": 4,
+        "median": 19.5,
+        "min": 9,
+        "max": 35
+      },
+      "continue_replies": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "usd_per_passed_test": {
+        "n": 4,
+        "median": 0.0879,
+        "min": 0.0469,
+        "max": 0.1592
+      },
+      "compactions": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "refeeds": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "refeed_tokens": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "cap_hits": {
+      "runs": 0,
+      "of": 4,
+      "wall": 0,
+      "cost": 0
+    }
+  }
+}

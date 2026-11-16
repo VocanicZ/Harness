@@ -1,0 +1,40 @@
+{
+  "bnb31d6": {
+    "sessions": 12,
+    "tokens": {},
+    "issues_closed": 10,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-harness-3-r03": {
+        "claims": 12,
+        "workers": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 9,
+        "which": 18
+      },
+      "which": 18,
+      "changed_nodes": 587,
+      "round1": 638,
+      "round2": 109,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 18
+      },
+      "wall_ms": 3031,
+      "selective": 17,
+      "full_suite": 1,
+      "backfilled": 0,
+      "selective_share": 0.94
+    },
+    "model_mismatches": []
+  }
+}

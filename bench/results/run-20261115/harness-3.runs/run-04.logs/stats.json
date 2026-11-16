@@ -1,0 +1,40 @@
+{
+  "bn16840": {
+    "sessions": 14,
+    "tokens": {},
+    "issues_closed": 12,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261115-harness-3-r04": {
+        "claims": 14,
+        "workers": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 13,
+        "which": 28
+      },
+      "which": 28,
+      "changed_nodes": 724,
+      "round1": 1322,
+      "round2": 133,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 28
+      },
+      "wall_ms": 5406,
+      "selective": 28,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

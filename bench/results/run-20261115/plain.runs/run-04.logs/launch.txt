@@ -1,0 +1,1 @@
+claude -p --output-format stream-json --verbose --disable-slash-commands --strict-mcp-config --setting-sources project,local --dangerously-skip-permissions
