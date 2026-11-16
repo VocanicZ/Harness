@@ -148,22 +148,23 @@ usage: harness <command> [args]
   one done <issue>     /harness-one once merged: the reap goal check must say DONE, then the next
                        claimable issue (as dispatch picks it) with a fresh forecast + gate
   doctor [--fix]       diagnose lock wedges + stale pidfiles (--fix clears this project's orphans)
-  attach <unit> [issue] tmux-attach to a session
+  attach <unit> [issue] watch a session: tmux backend = attach to its pane (Ctrl-b d detaches); headless backend
+                       = live watch, each typed line is sent to the lane, Ctrl-C detaches (lane keeps running)
   pause [--force]      pause the fleet (--force = checkpoint each agent to GitHub)
   resume               clear pause; resume here or start --recover (works across machines)
   update [--with-skills] [--rollback] [-h]   install the latest release (--rollback: flip back to the previous one)
   release [--dry-run] [--ref <rev>]
                        cut the next Harness release from this checkout (gate: test/run.sh)
   migrate              convert a vendored .harness/ to state-only; re-point at the shared engine
-  uninstall [--force] [--force-engine]  stop the fleet + remove the engine, this project's .harness/, and /harness skills (--force-engine: remove the shared engine even if other fleets still depend on it); refuses to run from inside the project's .harness/ or while its fleet is running
+  uninstall [--force] [--force-engine]  stop the fleet + remove the engine, this project's .harness/, and /harness skills (--force-engine: remove the shared engine even if other fleets still depend on it; on Windows it is refused while another fleet uses the engine); refuses to run from inside the project's .harness/ or while its fleet is running
   setup                verify prereqs + seed configured labels on all units (no start)
   poll  [--once|--status]  host poller debug entry (the shared snapshot refresher; #71)
   supervise [--once] [--dry-run] | --install | --uninstall
                        host supervisor for every fleet: restart dead workers, clear orphan locks,
-                       nudge/checkpoint/kill frozen sessions (--install: systemd user unit; #180)
+                       nudge/checkpoint/kill frozen sessions (--install: systemd user unit; on Windows a Task Scheduler task; #180)
   web [--install | --uninstall]
                        read-only dashboard of every fleet on this host (http://127.0.0.1:4637/)
-                       (--install: systemd user unit; #226)
+                       (--install: systemd user unit; on Windows a Task Scheduler task; #226)
   plan  "<brief>"      inject a plan/topology change into a live fleet (grill via /harness-plan)
   prd   "<brief>"      extend PRD scope + create delta issues (grill via /harness-prd)
   issue "<brief>"      inject implementation issue(s) into a live fleet (grill via /harness-issue)

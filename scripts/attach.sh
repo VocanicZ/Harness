@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # attach.sh <unit> [issue]  — attach to a unit's live claude session to watch it work.
-# No issue -> the orchestration session.  Detach with Ctrl-b d.
+# No issue -> the orchestration session.
+# tmux backend: a tmux attach, detach with Ctrl-b d.  Headless backend (the only one on Windows): a live watch;
+# each typed line is sent to the lane as its next turn, and Ctrl-C detaches (the lane keeps running).
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
