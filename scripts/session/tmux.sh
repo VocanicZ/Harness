@@ -57,6 +57,7 @@ tmux_env_sanitize(){ [[ -n "${TMUX:-}" && ! -S "${TMUX%%,*}" ]] && unset TMUX TM
 tmux_sess_send_line(){ _tmx send-keys -t "$1" "$2" Enter; }
 tmux_sess_type(){ _tmx send-keys -t "$1" -l "$2"; }
 tmux_sess_enter(){ _tmx send-keys -t "$1" Enter; }
+tmux_sess_down(){ _tmx send-keys -t "$1" Down; }
 tmux_sess_clear_line(){ _tmx send-keys -t "$1" C-u; }
 tmux_sess_interrupt(){ _tmx send-keys -t "$1" Escape; }
 tmux_sess_capture(){ _tmx capture-pane -p ${2:+-S "-$2"} -t "$1" 2>/dev/null; }
@@ -95,6 +96,7 @@ tmux_sess_describe(){ local fn="$1" t="$2"; shift 2
     send_line)  echo "tmux send-keys -t $t $* Enter" ;;
     type)       echo "tmux send-keys -t $t -l $*" ;;
     enter)      echo "tmux send-keys -t $t Enter" ;;
+    down)       echo "tmux send-keys -t $t Down" ;;
     clear_line) echo "tmux send-keys -t $t C-u" ;;
     interrupt)  echo "tmux send-keys -t $t Escape" ;;
     kill)       echo "tmux kill-session -t $t" ;;

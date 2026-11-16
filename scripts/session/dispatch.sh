@@ -64,6 +64,8 @@ sess_send_line(){ _sess_call send_line "$@"; }
 sess_type(){ _sess_call type "$@"; }
 # sess_enter <target> — press Enter (submit what is typed, or a menu's default choice).
 sess_enter(){ _sess_call enter "$@"; }
+# sess_down <target> — press the Down arrow (move a menu's cursor one row; #1237: the trust dialog starts on `No, exit`).
+sess_down(){ _sess_call down "$@"; }
 # sess_clear_line <target> — clear whatever is typed in the session's input line.
 sess_clear_line(){ _sess_call clear_line "$@"; }
 # sess_interrupt <target> — interrupt the running turn (Escape).

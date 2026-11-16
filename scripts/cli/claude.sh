@@ -173,6 +173,18 @@ claude_limit_re(){ echo 'hit your [a-z]+ limit|usage limit reached|limit reached
 claude_limit_menu_re(){ echo 'Stop and wait for limit to reset'; }
 claude_transient_re(){ echo 'API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|[^0-9])(429|500|502|503|529)([^0-9]|$)'; }
 claude_dialog_re(){ echo 'Yes, I trust this folder|Enter to confirm · Esc to cancel'; }
+# claude_trust_dialog_path <pane> — the `Accessing workspace:` path of an open "Yes, I trust this folder" dialog, '' when the pane shows
+# none (#1237). The path is drawn on its own lines and a long one wraps at the pane's width (80 columns), so the lines up to the
+# next blank one are joined, each with its leading space trimmed. Only the dialog's foot is read: scrollback is no dialog.
+claude_trust_dialog_path(){ printf '%s\n' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | tail -n 30 | awk '
+    { line[NR]=$0 }
+    /Yes, I trust this folder/ { yes=NR }
+    /^ *Accessing workspace:/ { at=NR }
+    END { if (!yes || !at || at > yes) exit
+          for (i=at+1; i<=NR && line[i] ~ /^[ \t]*$/; i++) ;
+          for (; i<=NR && line[i] !~ /^[ \t]*$/; i++) { s=line[i]; gsub(/^[ \t]+|[ \t\r]+$/, "", s); p=p s }
+          print p }'; }
+claude_trust_dialog_yes_selected(){ grep -qE '^ *❯ Yes, I trust this folder' <<<"$1"; }
 # The footer's background-agent / shell timers and token counters; one moving means work is in
 # flight even though the screen above the prompt is still (supervise.sh).
 claude_bg_re(){ echo "$(_cli_default_bg_re)|↓ [0-9.]+k tokens"; }
@@ -217,39 +229,104 @@ _claude_trust_dirs(){ local d main n
 # imports?" dialog never opens (#660). hasClaudeMdExternalIncludesApproved is never set true: the answer
 # stays "imports disabled" (the dialog's default), and one already recorded is left alone. Atomic +
 # flocked: several agents launch near-simultaneously.
+# #1237: Claude Code saves this file under its OWN lock — the directory `<cfg>.lock` (proper-lockfile: mkdir, re-read, merge,
+# write, rmdir) — and ours excluded only other Harness writers, so a Claude save that read the file just before our os.replace and
+# wrote it just after dropped the pre-accept (the lane then sat on the trust dialog, and our own read-modify-write could drop a
+# Claude save the same way). The write now takes `<cfg>.lock` too: mkdir with backoff; a lock older than proper-lockfile's 10 s is
+# stale and broken; after HARNESS_CLAUDE_LOCK_WAIT_S (default 10) it is logged and the write goes ahead, so a launch never blocks
+# forever. The file is read back afterwards and the write retried once when an entry is missing.
 _claude_trust_config(){
   local cfg="$1" lockfd; shift
   lock_acquire "$cfg.harness-trust.lock" lockfd
   # CFG goes through the environment, which MSYS does not convert: a /c/x path would be opened by native python as C:\c\x (#1110)
-  CFG="$(native_path "$cfg")" DIRS="$(printf '%s\n' "$@")" python3 - <<'PY'
-import json, os, tempfile
+  CFG="$(native_path "$cfg")" DIRS="$(printf '%s\n' "$@")" LOCK_WAIT_S="${HARNESS_CLAUDE_LOCK_WAIT_S:-10}" python3 - <<'PY'
+import json, os, sys, tempfile, time
 cfg, dirs = os.environ["CFG"], [d for d in os.environ["DIRS"].split("\n") if d]
+lock = cfg + ".lock"
+STALE_S = 10.0   # proper-lockfile's default `stale`
 try:
-    with open(cfg) as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
+    wait_s = float(os.environ.get("LOCK_WAIT_S") or 10)
+except ValueError:
+    wait_s = 10.0
+
+def take_lock():
+    """mkdir <cfg>.lock like Claude Code does; True once held. Breaks a stale lock; False after wait_s."""
+    deadline = time.monotonic() + wait_s
+    delay = 0.02
+    while True:
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(cfg)) or ".", exist_ok=True)
+            os.mkdir(lock)
+            return True
+        except FileExistsError:
+            try:
+                if time.time() - os.stat(lock).st_mtime > STALE_S:
+                    try:
+                        os.rmdir(lock)      # no holder for > 10 s: the same call proper-lockfile makes
+                    except OSError:
+                        pass
+                    continue
+            except FileNotFoundError:
+                continue                    # released between our mkdir and stat
+        except OSError:
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(delay)
+        delay = min(delay * 2, 0.25)
+
+def merge_write():
+    try:
+        with open(cfg) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+    except (FileNotFoundError, ValueError):
         data = {}
-except (FileNotFoundError, ValueError):
-    data = {}
-projects = data.get("projects")
-if not isinstance(projects, dict):
-    projects = data["projects"] = {}
-for d in dirs:
-    entry = projects.get(d)
-    if not isinstance(entry, dict):
-        entry = projects[d] = {}
-    entry["hasTrustDialogAccepted"] = True
-    entry["hasClaudeMdExternalIncludesWarningShown"] = True
-dirn = os.path.dirname(os.path.abspath(cfg)) or "."
-os.makedirs(dirn, exist_ok=True)
-fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".claude.json.harness.")
-try:
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, cfg)
-except BaseException:
-    os.path.exists(tmp) and os.unlink(tmp)
-    raise
+    projects = data.get("projects")
+    if not isinstance(projects, dict):
+        projects = data["projects"] = {}
+    for d in dirs:
+        entry = projects.get(d)
+        if not isinstance(entry, dict):
+            entry = projects[d] = {}
+        entry["hasTrustDialogAccepted"] = True
+        entry["hasClaudeMdExternalIncludesWarningShown"] = True
+    dirn = os.path.dirname(os.path.abspath(cfg)) or "."
+    os.makedirs(dirn, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".claude.json.harness.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, cfg)
+    except BaseException:
+        os.path.exists(tmp) and os.unlink(tmp)
+        raise
+
+def written():
+    try:
+        with open(cfg) as f:
+            projects = json.load(f).get("projects") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return all((projects.get(d) or {}).get("hasTrustDialogAccepted") is True for d in dirs)
+
+for attempt in (1, 2):
+    held = take_lock()
+    if not held:
+        print("claude_trust: %s still held after %ss - writing without it (#1237)" % (lock, wait_s), file=sys.stderr)
+    try:
+        merge_write()
+    finally:
+        if held:
+            try:
+                os.rmdir(lock)
+            except OSError:
+                pass
+    if written():
+        break
+    if attempt == 1:
+        print("claude_trust: %s lost the pre-accept after the write - retrying once (#1237)" % cfg, file=sys.stderr)
 PY
   lock_release "$lockfd"
 }

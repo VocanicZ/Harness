@@ -130,6 +130,42 @@ checkpointed_lane_tend(){ local sess="$1" pane wd labels
   session_live "$sess" || rm -f "$RUN_DIR/$sess.checkpoint" "$RUN_DIR/$sess.selfpark" "$RUN_DIR/$sess.usagepark"
   return 0; }
 
+# trust_dialog_tend <sess> — #1237: answer Claude Code's "Yes, I trust this folder" dialog when it names THIS lane's own worktree.
+# The pre-accept (claude_trust) is sometimes overwritten by a Claude save that raced it; the engine already chose to trust that
+# worktree, so a lane left on the dialog is answered instead of holding its slot until the supervisor's kill threshold. Only that
+# one dialog, only for the lane's own path (the whole path, wrapped lines joined: a path that merely starts with it, or another
+# lane's, is never answered): selfpark_tend / checkpointed_lane_tend and the supervisor never type into a dialog (#660), and the
+# adapter hook (cli_trust_dialog_path) is a no-op for every CLI but claude. The cursor starts on `❯ No, exit`: Down, re-read the
+# pane, and send Enter only once `❯ Yes, I trust this folder` is the selected row. At most 3 answers per session
+# ($RUN_DIR/<sess>.trustanswers); a dialog still open after that is reported once as stuck (trust_dialog_unanswered) and left to
+# the supervisor's dialog rule (log, then checkpoint + kill at its threshold). rc 0 always.
+trust_dialog_tend(){ local sess="$1" f="$RUN_DIR/$1.trustanswers" pane dpath wd n=0 again
+  session_live "$sess" || return 0
+  pane="$(sess_capture "$sess" 2>/dev/null)" || return 0
+  dpath="$(cli_trust_dialog_path "$pane")"; [[ -n "$dpath" ]] || return 0
+  wd="$(cat "$RUN_DIR/$sess.wd" 2>/dev/null)"; [[ -n "$wd" ]] || return 0
+  [[ "$dpath" == "$wd" || "$dpath" == "$(native_path "$wd")" ]] || return 0   # not this lane's worktree: never ours to answer
+  [[ -f "$f" ]] && read -r n < "$f"; [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  if (( n >= 3 )); then
+    (( n == 3 )) || return 0                                  # already reported
+    echo 4 > "$f"
+    log "trust: $sess is still on the trust dialog for $wd after 3 answers — stuck (trust_dialog_unanswered), not typing again (#1237)"
+    stats_sess_event "$sess" dialog_stuck reason=trust_dialog_unanswered answers=3 >/dev/null 2>&1
+    return 0
+  fi
+  echo $(( n + 1 )) > "$f"
+  sess_down "$sess" || return 0
+  sleep "${HARNESS_TRUST_KEY_DELAY_S:-0.3}"
+  again="$(sess_capture "$sess" 2>/dev/null)"
+  if [[ "$(cli_trust_dialog_path "$again")" == "$dpath" ]] && cli_trust_dialog_yes_selected "$again"; then
+    sess_enter "$sess"
+    log "trust: $sess was on the trust dialog for $wd — answered Yes (answer $(( n + 1 )) of 3, #1237)"
+    stats_sess_event "$sess" trust_dialog_answered answer=$(( n + 1 )) >/dev/null 2>&1
+  else
+    log "trust: $sess: after Down the dialog does not show 'Yes, I trust this folder' selected — no Enter sent (#1237)"
+  fi
+  return 0; }
+
 SELFPARK_NUDGE='AUTONOMOUS fleet: you may not wait on a human. The `%s` label belongs to the HARNESS CHECKPOINT protocol only, and no checkpoint was sent to you. Pick the option you recommended, document it in an issue comment as an operator decision, remove `%s`, re-add `%s` (gh issue edit %s -R %s --remove-label %s --add-label %s), and continue the task.'
 selfpark_tend(){ local sess="$1" issue="$2" f="$RUN_DIR/$1.selfpark" t now wd
   checkpointed_lane_tend "$sess" && return 0   # a checkpoint was requested: it sits there while a pause or hold stands, and is ended after (#1159)
@@ -700,6 +736,7 @@ bug_lane_tend(){ local slug="$1" n="$2" phase sess SLUG="$1"
     sess="$(sess_bug "$slug" "$n" "$phase")"
     session_live "$sess" || continue
     watchdog_session "$sess"; wait_tend "$sess"   # #1066: a bug lane parked on a long job or the usage limit is resumed once
+    trust_dialog_tend "$sess"                     # #1237: a lane left on its own worktree's trust dialog is answered
     checkpointed_lane_tend "$sess" && continue    # #1159: a checkpointed bug lane is ended once the pause / hold is gone
     if bug_goal_done "$n" "$phase"; then
       log "pool: bug #$n $phase goal met — ending $sess"

@@ -93,6 +93,8 @@ _cli_default_kill(){ sess_kill "$1" 2>/dev/null; }
 _cli_default_session_id(){ echo "$2"; }
 _cli_default_limit_menu_re(){ :; }
 _cli_default_dialog_re(){ :; }
+_cli_default_trust_dialog_path(){ :; }
+_cli_default_trust_dialog_yes_selected(){ return 1; }   # #1237: only claude's trust dialog is answered by the engine
 _cli_default_loop(){ echo hook; }
 # The goal loop's state file: written by write_state, removed by the loop's Stop hook (ralph-loop
 # on claude, harness-ralph on agy) the moment the loop ends — promise, max-iter, or error.
@@ -167,6 +169,8 @@ cli_limit_re(){ _cli_call limit_re; }                  # ERE: a usage/quota limi
 cli_limit_menu_re(){ _cli_call limit_menu_re; }        # ERE: a blocking limit menu owns the pane ('' = none)
 cli_transient_re(){ _cli_call transient_re; }          # ERE: a transient API error ended the turn
 cli_dialog_re(){ _cli_call dialog_re; }                # ERE: a dialog/menu owns the pane, never a prompt ('' = none)
+cli_trust_dialog_path(){ _cli_call trust_dialog_path "$@"; }   # <pane> → the workspace path of an open trust dialog the engine may answer (#1237; '' = none, or not this CLI's)
+cli_trust_dialog_yes_selected(){ _cli_call trust_dialog_yes_selected "$@"; }   # <pane> → 0 iff that trust dialog's cursor is on its Yes row (#1237)
 cli_loop(){ _cli_call loop; }                          # hook | driven
 cli_done(){ _cli_call done "$@"; }                     # <wd> → 0 once the goal loop has ended
 cli_last_reply(){ _cli_call last_reply "$@"; }         # <wd> <session id> → last prompt's id, then the reply; rc 1 = turn not over (driven loop)
