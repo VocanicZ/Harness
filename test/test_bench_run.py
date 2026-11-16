@@ -126,6 +126,7 @@ def test_stub_run_records_a_valid_result_and_deletes_the_repo(e):
     assert r["tokens"]["output"] == 80000 and r["tokens"]["input"] == 10, r["tokens"]
     assert list(r["models"]) == ["claude-opus-4-5"] and abs(r["cost_usd"] - 2.0) < 0.01, (r["models"], r["cost_usd"])
     assert r["testing_s"] == 1 and r["coding_s"] == 2 and r["test_calls"] == 1, r
+    assert r["session_s"] == 3, r   # #1194: wall time inside any session (the union of the sessions' intervals)
     assert r["counts"] == {"commits": 1, "stub": 1}, r["counts"]
     assert abs(r["weekly_window_pct"] - 2.0) < 0.01 and r["usd_per_pct_source"] == "fallback", r
     assert r["caps"] == {"wall_s": 21600, "cost_usd": 80.0}
@@ -1035,7 +1036,7 @@ def test_figures_check_re_measures_every_runs_logs_in_a_batch(e):
     assert subprocess.run(fig, capture_output=True, text=True).returncode == 0
     ok = subprocess.run(fig + ["--check"], capture_output=True, text=True)
     assert ok.returncode == 0, ok.stderr
-    text = open(readme).read()
+    text = open(os.path.join(e.d, "bench", "RESULTS.md")).read()   # the full log (#1194)
     assert "| stub | n=2 |" in text and "$5.00 ($4.00–$6.00)" in text, text   # sub-agents double each run's price
     shutil.rmtree(os.path.join(e.results, "t1", "stub.runs", "run-02.logs", "transcripts", "0-stub-session"))
     bad = subprocess.run(fig + ["--check"], capture_output=True, text=True)

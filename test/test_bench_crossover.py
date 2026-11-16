@@ -143,19 +143,33 @@ def test_writing_is_idempotent_and_check_finds_a_stale_file():
     tmp = tempfile.mkdtemp()
     try:
         res = results(os.path.join(tmp, "res"), small={"plain": agg(classes=3), "harness": agg(classes=0)})
-        toml, readme = os.path.join(tmp, "tier.toml"), os.path.join(tmp, "README.md")
+        toml, readme, rmd = os.path.join(tmp, "tier.toml"), os.path.join(tmp, "README.md"), os.path.join(tmp, "RESULTS.md")
         shutil.copy(os.path.join(ROOT, "scripts", "tier.toml"), toml)
         open(readme, "w").write("# Project\n")
-        argv = [sys.executable, os.path.join(BENCH, "crossover.py"), "--results-dir", res, "--tier", toml, "--readme", readme]
+        open(rmd, "w").write("# Benchmark results\n")
+        argv = [sys.executable, os.path.join(BENCH, "crossover.py"), "--results-dir", res, "--tier", toml, "--readme", readme,
+                "--results-md", rmd]
+        write = argv + ["--write-tier", toml, "--write-readme", readme, "--write-results", rmd]
         assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 1, "stale before it is written"
-        subprocess.run(argv + ["--write-tier", toml, "--write-readme", readme], check=True)
-        once = (open(toml).read(), open(readme).read())
-        subprocess.run(argv + ["--write-tier", toml, "--write-readme", readme], check=True)
-        assert (open(toml).read(), open(readme).read()) == once, "a second write changes nothing"
+        subprocess.run(write, check=True)
+        once = (open(toml).read(), open(readme).read(), open(rmd).read())
+        subprocess.run(write, check=True)
+        assert (open(toml).read(), open(readme).read(), open(rmd).read()) == once, "a second write changes nothing"
         assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 0
         assert cx.START in once[1] and "## When to use Harness" in once[1] and "calibrated_from" in once[0]
-        open(readme, "w").write(once[1].replace("Harness against plain", "Harness versus plain"))
+        # #1194: the README keeps the verdict sentences only, the tables are RESULTS.md's
+        assert "**The crossover.**" in once[1] and "**The tier thresholds**" in once[1] and "| arm |" not in once[1], once[1]
+        assert once[1].count("\n") <= 12 and "bench/RESULTS.md" in once[1], once[1]
+        assert "| arm |" in once[2] and "**Harness against plain**" in once[2] and "**The crossover.**" in once[2], once[2]
+        open(readme, "w").write(once[1].replace("The crossover", "The cross-over"))
         assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 1
+        open(readme, "w").write(once[1])
+        open(rmd, "w").write(once[2].replace("Harness against plain", "Harness versus plain"))
+        assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 1, "a stale RESULTS.md fails --check"
+        open(rmd, "w").write(once[2])
+        assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 0
+        os.remove(rmd)
+        assert subprocess.run(argv + ["--check"], capture_output=True).returncode == 1, "a missing RESULTS.md fails --check"
         sys.path.insert(0, os.path.join(ROOT, "scripts"))
         tier = load("t_cx_tier", os.path.join(ROOT, "scripts", "tier.py"))
         assert tier.load(toml)["direct"]["max_criteria"] >= 8, "the rewritten tier.toml still loads"

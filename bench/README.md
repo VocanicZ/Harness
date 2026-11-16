@@ -155,6 +155,7 @@ whatever the arm wrote to `ctx.logs`.
 | `started_at`, `ended_at` | string | UTC ISO-8601 |
 | `wall_s` | number | wall clock of the arm itself |
 | `coding_s`, `testing_s`, `test_calls` | number or null | time in test-command tool calls vs everything else, from the transcripts (`stats.time_split`, #379); null with no transcript |
+| `session_s` | number, optional | optional (#1194): wall seconds inside any agent session, the union of the main sessions' (sub-agents included) first-to-last-message intervals, so sessions that overlap count once (`stats.session_span`, `stats.union_s`); `bench/figures.py --check` re-reads it from the logs when present |
 | `tokens` | object | `input`, `output`, `cache_read`, `cache_write` token counts |
 | `cost_usd` | number | list price of those tokens |
 | `usd_per_pct`, `usd_per_pct_source` | number or null, string | the $ per 1% of the weekly window used for the guard and `weekly_window_pct`; `fit` (#364 calibration), `fallback` (`HARNESS_ONE_USD_PER_PCT`) or `none` |
@@ -500,9 +501,10 @@ whose operator touched it carries a `note`.
 
 ```
 bench/crossover.py                                  # size x arm table, crossovers, thresholds
-bench/crossover.py --markdown                       # the README's "When to use Harness" section
-bench/crossover.py --write-readme README.md --write-tier scripts/tier.toml
-bench/crossover.py --check                          # exit 1 when either file disagrees with the results
+bench/crossover.py --markdown                       # the full "When to use Harness" section (bench/RESULTS.md's)
+bench/crossover.py --markdown --readme-form         # the README's short one: the verdict sentences only
+bench/crossover.py --write-readme README.md --write-results bench/RESULTS.md --write-tier scripts/tier.toml
+bench/crossover.py --check                          # exit 1 when README.md, bench/RESULTS.md or tier.toml disagree with the results
 ```
 
 `bench/results/crossover.inputs.json` names the run behind each size (`{"small": "run-ID", "medium": "run-ID", "large": "run-ID"}`);
@@ -588,21 +590,33 @@ A large run's results live in their own run directory: the default run id is `<U
 pennywise run's. `bench/figures.py` writes a **Large fixture (tallybook)** table of its own under the pennywise one (the latest run of each
 fixture; `--run-id` picks one for its fixture) with columns for the measures above and a line for the 1 to 3 worker speed-up.
 
-## Figures and the README Benchmark section
+## Figures, the README Benchmark section and bench/RESULTS.md
 
-`bench/figures.py` writes the README **Benchmark** section (the table and a pointer to the figure) and the
-figure `bench/results/benchmark.svg` from `bench/results/`, and nothing else; the section sits between the
-`<!-- bench:begin … -->` and `<!-- bench:end -->` markers and is never edited by hand.
+`bench/figures.py` writes two files and the figure `bench/results/benchmark.svg` from `bench/results/`, and nothing else
+(#1194). The README **Benchmark** section is one sentence, **one 4-column table per fixture size that has runs** (small
+`pennywise`, medium, large), and a link to the full log; it has no figure and no notes. The columns are **Arm** (with its n:
+`n=5`, `n=4 of 5`), **Time spent** (the median wall time), **Cost** (the median list price) and **Quality** (the median hidden
+tests passed over the total, then the median fuzz classes as `N edge-case bug classes`, or `no edge-case bugs` for 0). A skipped
+arm, or one with no completed run, is one row with `—` for time and cost and a few words of the reason. **`bench/RESULTS.md`** holds
+everything else: the full tables below, with ranges, the figure, the per-arm notes, run settings and Claude config, the fuzz and
+ship-rule definitions, the stopped-early notes, and (written by `bench/crossover.py`) the crossover tables. Both files are
+generated between their `<!-- bench:begin … -->` / `<!-- bench:end -->` markers and are never edited by hand.
+
+The figure's time bar is exactly the median `wall_s` long. **Coding** and **testing** are shares of wall time: the results'
+`session_s` (the union of the agent sessions' time intervals, so overlapping sessions count once; recorded from #1194) clipped to
+the run's wall time, split in proportion to `coding_s` and `testing_s` (which add up every session's own time, so they can sum to
+more than the wall time on a Harness run). **Outside sessions** is the rest of the wall time. A bar is never longer than its wall
+time or its own max whisker. `bench/figures.py --check` re-measures `session_s` from the committed logs like the other measures.
 
 ```
 bench/figures.py                 # the latest run under bench/results/
 bench/figures.py --run-id ID     # a specific run
-bench/figures.py --check         # write nothing; exit 1 when the README section or figure is stale, or an arm's
+bench/figures.py --check         # write nothing; exit 1 when the README section, bench/RESULTS.md or figure is stale, or an arm's
                                  # committed logs, re-measured, do not reproduce its results JSON (#579)
 ```
 
 Output is deterministic (no timestamps, fixed fonts, colours and rounding), so the same results give the same
-bytes and re-running reproduces the committed files exactly. The table has one row per `<arm>.json`: `n`, the
+bytes and re-running reproduces the committed files exactly. The full table (in `bench/RESULTS.md`) has one row per `<arm>.json`: `n`, the
 number of runs behind the row (`n=1` for a single run and for every result written before `--runs`; `n=3 of 5`
 for a batch that [stopped early](#repeated-runs---runs-n), told under the table with its reason), cap
 status, wall time with the coding and testing split, tokens (total and input / output / cache read / cache

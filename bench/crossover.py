@@ -8,14 +8,17 @@ Reads the aggregates `bench/run.py --runs N` wrote for the plain arm and the Har
     crossover          the smallest size where Harness matches or beats plain on QUALITY, and the smallest where
                        Harness with a pool of 3 also matches or beats it on TIME
     thresholds         the tier thresholds (scripts/tier.toml, "when to use Harness", #619) recalibrated from it
-    README section     "When to use Harness", built from the table
+    RESULTS.md section "When to use Harness", built from the table (#1194: the tables live in bench/RESULTS.md)
+    README section     the same heading with only the verdict sentences: the crossover and the tier thresholds
 
     bench/crossover.py                          # the table, crossovers and thresholds as text
     bench/crossover.py --json                   # the same as one JSON object
-    bench/crossover.py --markdown               # the README's "When to use Harness" section
-    bench/crossover.py --write-readme README.md # replace the section between its markers
+    bench/crossover.py --markdown               # the full "When to use Harness" section (bench/RESULTS.md's)
+    bench/crossover.py --markdown --readme-form # the README's short one
+    bench/crossover.py --write-readme README.md # replace the short section between its markers
+    bench/crossover.py --write-results bench/RESULTS.md   # replace the full section between its markers
     bench/crossover.py --write-tier scripts/tier.toml   # rewrite the calibrated lines of tier.toml
-    bench/crossover.py --check                  # exit 1 when README.md or tier.toml disagree with the results
+    bench/crossover.py --check                  # exit 1 when README.md, bench/RESULTS.md or tier.toml disagree with the results
 
 The runs behind each size are named in `bench/results/crossover.inputs.json` (`{"small": "run-ID", ...}`; a size
 with no entry is "not run"). `--run SIZE=RUN_ID` overrides one. Stdlib only.
@@ -394,13 +397,26 @@ def markdown(doc):
            "with fewer than %d runs is marked indicative and supports no claim." % (src, MIN_RUNS), "",
            table_md(doc["table"]), "", "**Harness against plain**", "", verdict_md(doc["verdicts"]), "",
            "**The crossover.** " + " ".join(crossover_text(cross)) + todo_text(doc), "",
-           "**The tier thresholds** (`scripts/tier.toml`, read by `harness tier decide`): direct up to %d criteria, %d changed "
-           "lines, %d files and %d subsystem%s; fleet from %d criteria, %d subsystems or %d independent workstreams with a pool "
-           "of %d. %s" % (th["direct"]["max_criteria"], th["direct"]["max_changed_lines"], th["direct"]["max_files"],
-                          th["direct"]["max_subsystems"], "" if th["direct"]["max_subsystems"] == 1 else "s",
-                          th["fleet"]["min_criteria"], th["fleet"]["min_subsystems"], th["fleet"]["min_workstreams"],
-                          th["fleet"]["min_pool"], _cap("; ".join(doc["notes"]) + ".")), ""]
+           "**The tier thresholds** (`scripts/tier.toml`, read by `harness tier decide`): %s %s" % (
+               threshold_text(th), _cap("; ".join(doc["notes"]) + ".")), ""]
     return "\n".join(out)
+
+
+def threshold_text(th):
+    return ("direct up to %d criteria, %d changed lines, %d files and %d subsystem%s; fleet from %d criteria, %d subsystems or "
+            "%d independent workstreams with a pool of %d." % (
+                th["direct"]["max_criteria"], th["direct"]["max_changed_lines"], th["direct"]["max_files"],
+                th["direct"]["max_subsystems"], "" if th["direct"]["max_subsystems"] == 1 else "s",
+                th["fleet"]["min_criteria"], th["fleet"]["min_subsystems"], th["fleet"]["min_workstreams"], th["fleet"]["min_pool"]))
+
+
+def readme_markdown(doc):
+    """The README's "When to use Harness": the verdict sentences only, the tables are in bench/RESULTS.md (#1194)."""
+    th = doc["thresholds"]
+    return "\n".join(["## When to use Harness", "",
+                      "**The crossover.** " + " ".join(crossover_text(doc["crossover"])) + todo_text(doc), "",
+                      "**The tier thresholds** (`scripts/tier.toml`, read by `harness tier decide`): %s" % threshold_text(th), "",
+                      "Tables, verdicts and sources: [bench/RESULTS.md](bench/RESULTS.md#when-to-use-harness)", ""])
 
 
 def text(doc):
@@ -409,18 +425,27 @@ def text(doc):
 
 
 # --- writing --------------------------------------------------------------------------------
-def write_readme(path, doc):
-    with open(path, encoding="utf-8") as fh:
-        body = fh.read()
-    section = "%s\n%s\n%s" % (START, markdown(doc).rstrip("\n"), END)
-    if START in body and END in body:
-        new = re.sub(re.escape(START) + r".*?" + re.escape(END), lambda m: section, body, count=1, flags=re.S)
+def write_section(path, body):
+    """Put `body` between the when-to-use markers of the file at `path` (appended when it has none)."""
+    with open(path, encoding="utf-8", newline="") as fh:
+        text = fh.read()
+    section = "%s\n%s\n%s" % (START, body.rstrip("\n"), END)
+    if START in text and END in text:
+        new = re.sub(re.escape(START) + r".*?" + re.escape(END), lambda m: section, text, count=1, flags=re.S)
     else:
-        new = body.rstrip("\n") + "\n\n" + section + "\n"
-    if new != body:
-        with open(path, "w", encoding="utf-8") as fh:
+        new = text.rstrip("\n") + "\n\n" + section + "\n"
+    if new != text:
+        with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(new)
-    return new != body
+    return new != text
+
+
+def write_readme(path, doc):
+    return write_section(path, readme_markdown(doc))
+
+
+def write_results(path, doc):
+    return write_section(path, markdown(doc))
 
 
 CAL_START, CAL_END = "# --- calibration:start (bench/crossover.py writes this block) ---", "# --- calibration:end ---"
@@ -465,14 +490,19 @@ def write_tier(path, doc):
     return new != body
 
 
-def check(doc, readme, tier_path):
-    """[problem] when the README section or tier.toml disagree with what the results derive."""
+def check(doc, readme, tier_path, results_md=None):
+    """[problem] when the README section, bench/RESULTS.md's section or tier.toml disagree with what the results derive."""
     problems = []
-    with open(readme, encoding="utf-8") as fh:
-        body = fh.read()
-    want = "%s\n%s\n%s" % (START, markdown(doc).rstrip("\n"), END)
-    if want not in body:
-        problems.append("%s: the \"When to use Harness\" section is not what bench/crossover.py --markdown prints" % readme)
+    for path, body, label in ((readme, readme_markdown(doc), "README's"), (results_md, markdown(doc), "RESULTS.md's")):
+        if path is None:
+            continue
+        try:
+            with open(path, encoding="utf-8", newline="") as fh:
+                have = fh.read()
+        except OSError:
+            have = ""
+        if "%s\n%s\n%s" % (START, body.rstrip("\n"), END) not in have:
+            problems.append("%s: the %s \"When to use Harness\" section is not what bench/crossover.py prints" % (path, label))
     with open(tier_path, encoding="utf-8") as fh:
         have = fh.read()
     import tempfile
@@ -493,12 +523,16 @@ def main(argv=None):
     ap.add_argument("--run", action="append", default=[], metavar="SIZE=RUN_ID", help="override the run behind a size")
     ap.add_argument("--tier", default=os.path.join(ROOT, "scripts", "tier.toml"))
     ap.add_argument("--readme", default=os.path.join(ROOT, "README.md"))
+    ap.add_argument("--results-md", help="the full log (default: bench/RESULTS.md beside the README)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--markdown", action="store_true")
+    ap.add_argument("--readme-form", action="store_true", help="with --markdown: the README's short section")
     ap.add_argument("--write-readme", metavar="README")
+    ap.add_argument("--write-results", metavar="RESULTS_MD")
     ap.add_argument("--write-tier", metavar="TOML")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args(argv)
+    a.results_md = a.results_md or os.path.join(os.path.dirname(os.path.abspath(a.readme)), "bench", "RESULTS.md")
     over = {}
     for item in a.run:
         size, _, run_id = item.partition("=")
@@ -508,7 +542,7 @@ def main(argv=None):
         over[size] = run_id
     doc = build(a.results_dir, read_inputs(a.results_dir, over))
     if a.check:
-        problems = check(doc, a.readme, a.tier)
+        problems = check(doc, a.readme, a.tier, a.results_md)
         for p in problems:
             print(p, file=sys.stderr)
         return 1 if problems else 0
@@ -516,11 +550,13 @@ def main(argv=None):
         write_tier(a.write_tier, doc)
     if a.write_readme:
         write_readme(a.write_readme, doc)
+    if a.write_results:
+        write_results(a.write_results, doc)
     if a.json:
         print(json.dumps(doc, indent=2))
     elif a.markdown:
-        print(markdown(doc))
-    elif not (a.write_tier or a.write_readme):
+        print(readme_markdown(doc) if a.readme_form else markdown(doc))
+    elif not (a.write_tier or a.write_readme or a.write_results):
         print(text(doc))
     return 0
 

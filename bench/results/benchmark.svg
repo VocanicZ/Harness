@@ -10,34 +10,37 @@
 <rect x="610" y="32" width="10" height="10" fill="#54a24b"/><text x="624" y="41" fill="#444444">USD at list price</text>
 <text x="270" y="56" font-size="11" fill="#666666">bars: median over the runs; whiskers: min–max</text>
 <text x="260" y="79" text-anchor="end" fill="#222222">Plain Claude Code <tspan fill="#666666">n=5</tspan></text>
-<rect x="270.0" y="66" width="5.4" height="18" fill="#4c78a8"/>
-<rect x="275.4" y="66" width="0.1" height="18" fill="#f58518"/>
-<rect x="275.5" y="66" width="0.2" height="18" fill="#b8a2d6"/>
-<path d="M275.0 75H275.8M275.0 70V80M275.8 70V80" stroke="#222222" stroke-width="1.5" fill="none"/>
-<text x="281.8" y="79" fill="#222222">3m 00s</text>
+<rect x="270.0" y="66" width="6.2" height="18" fill="#4c78a8"/>
+<rect x="276.2" y="66" width="0.1" height="18" fill="#f58518"/>
+<rect x="276.3" y="66" width="0.2" height="18" fill="#b8a2d6"/>
+<path d="M275.7 75H276.6M275.7 70V80M276.6 70V80" stroke="#222222" stroke-width="1.5" fill="none"/>
+<text x="282.6" y="79" fill="#222222">3m 00s</text>
 <rect x="610" y="66" width="10.7" height="18" fill="#54a24b"/>
 <path d="M619.7 75H621.0M619.7 70V80M621.0 70V80" stroke="#222222" stroke-width="1.5" fill="none"/>
 <text x="627.0" y="79" fill="#222222">$0.54</text>
 <text x="260" y="113" text-anchor="end" fill="#222222">Harness (1 worker) <tspan fill="#666666">n=4 of 5</tspan></text>
-<rect x="270.0" y="100" width="237.3" height="18" fill="#4c78a8"/>
-<rect x="507.3" y="100" width="12.7" height="18" fill="#f58518"/>
-<path d="M347.8 109H489.1M347.8 104V114M489.1 104V114" stroke="#222222" stroke-width="1.5" fill="none"/>
+<rect x="270.0" y="100" width="173.8" height="18" fill="#4c78a8"/>
+<rect x="443.8" y="100" width="9.3" height="18" fill="#f58518"/>
+<rect x="453.1" y="100" width="0.4" height="18" fill="#b8a2d6"/>
+<path d="M358.8 109H520.0M358.8 104V114M520.0 104V114" stroke="#222222" stroke-width="1.5" fill="none"/>
 <text x="526.0" y="113" fill="#222222">1h 24m</text>
 <rect x="610" y="100" width="138.0" height="18" fill="#54a24b"/>
 <path d="M683.7 109H860.0M683.7 104V114M860.0 104V114" stroke="#222222" stroke-width="1.5" fill="none"/>
 <text x="866.0" y="113" fill="#222222">$7.03</text>
 <text x="260" y="147" text-anchor="end" fill="#222222">Harness (3 workers) <tspan fill="#666666">n=5</tspan></text>
-<rect x="270.0" y="134" width="41.7" height="18" fill="#4c78a8"/>
-<rect x="311.7" y="134" width="3.9" height="18" fill="#f58518"/>
-<path d="M308.8 143H324.5M308.8 138V148M324.5 138V148" stroke="#222222" stroke-width="1.5" fill="none"/>
-<text x="330.5" y="147" fill="#222222">22m 45s</text>
+<rect x="270.0" y="134" width="40.0" height="18" fill="#4c78a8"/>
+<rect x="310.0" y="134" width="4.1" height="18" fill="#f58518"/>
+<rect x="314.1" y="134" width="5.1" height="18" fill="#b8a2d6"/>
+<path d="M314.3 143H332.2M314.3 138V148M332.2 138V148" stroke="#222222" stroke-width="1.5" fill="none"/>
+<text x="338.2" y="147" fill="#222222">22m 45s</text>
 <rect x="610" y="134" width="77.2" height="18" fill="#54a24b"/>
 <path d="M672.8 143H695.2M672.8 138V148M695.2 138V148" stroke="#222222" stroke-width="1.5" fill="none"/>
 <text x="701.2" y="147" fill="#222222">$3.93</text>
 <text x="260" y="181" text-anchor="end" fill="#222222">Hx <tspan fill="#666666">n=1 of 5</tspan></text>
-<rect x="270.0" y="168" width="47.0" height="18" fill="#4c78a8"/>
-<rect x="317.0" y="168" width="7.3" height="18" fill="#f58518"/>
-<text x="330.3" y="181" fill="#222222">27m 07s</text>
+<rect x="270.0" y="168" width="43.4" height="18" fill="#4c78a8"/>
+<rect x="313.4" y="168" width="6.7" height="18" fill="#f58518"/>
+<rect x="320.1" y="168" width="8.5" height="18" fill="#b8a2d6"/>
+<text x="334.6" y="181" fill="#222222">27m 07s</text>
 <rect x="610" y="168" width="103.2" height="18" fill="#54a24b"/>
 <text x="719.2" y="181" fill="#222222">$5.26</text>
 </svg>

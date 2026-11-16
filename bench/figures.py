@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""bench/figures.py — the README Benchmark section: a table and a figure generated only from
-bench/results/ (PRD #345, task #384). Deterministic: the same results give the same bytes, so
-re-running reproduces the committed files exactly (`--check` fails when they are stale).
+"""bench/figures.py — the README Benchmark table and bench/RESULTS.md's full log and figure, generated only from
+bench/results/ (PRD #345, task #384; the 4-column README and the RESULTS.md split are #1194). Deterministic: the
+same results give the same bytes, so re-running reproduces the committed files exactly (`--check` fails when they are
+stale).
 
-    bench/figures.py                    # latest run in bench/results/ -> bench/results/benchmark.svg + README
+    bench/figures.py                    # latest run of each fixture in bench/results/ -> README, bench/RESULTS.md, benchmark.svg
     bench/figures.py --run-id ID        # a specific run
-    bench/figures.py --check            # write nothing; exit 1 when the figure or README are not current, or an
+    bench/figures.py --check            # write nothing; exit 1 when the figure, README or RESULTS.md are not current, or an
                                         # arm's committed logs, re-measured, do not reproduce its results JSON
+
+The README gets one 4-column table (Arm, Time spent, Cost, Quality) per fixture size that has runs, and a link to
+bench/RESULTS.md; RESULTS.md gets everything else: the full tables with ranges, the figure, the per-arm notes, the run
+settings and the Claude config, the fuzz and ship-rule definitions and the stopped-early notes. (bench/crossover.py
+writes the "When to use Harness" regions of both files.)
 
 Input: `<results-dir>/<run-id>/<arm>.json` (schema: bench/README.md, written by bench/run.py) — one run's
 results (shown as `n=1`), or the aggregate of `bench/run.py --runs N` (its runs are in `<arm>.runs/`; cells show
@@ -414,6 +420,81 @@ def table(arms, skipped):
     return "\n".join(lines)
 
 
+# --- the README's 4-column table (#1194) ----------------------------------------------
+EM = "—"
+SIZE_NAMES = (("pennywise", "Small"), ("medium", "Medium"), ("large", "Large"))   # fixture -> README label
+RESULTS_LINK = ("Full results, ranges, per-run data and run settings: [bench/RESULTS.md](bench/RESULTS.md)")
+README_INTRO = ("One Claude Code session against Harness on the same task, median over the runs: wall time, list-price "
+                "cost, and quality (hidden tests passed, plus the edge-case bug classes a differential fuzz finds).")
+
+
+def short_reason(text, limit=60):
+    """A skip or stop reason in a few words: up to its first colon, semicolon or bracket, at most `limit` characters."""
+    t = " ".join(str(text).split())
+    for sep in (":", ";", " ("):
+        t = t.split(sep)[0]
+    t = t.strip(" .,")
+    if len(t) > limit:
+        t = t[:limit].rsplit(" ", 1)[0]
+    return t or "not run"
+
+
+def quality_cell(d):
+    """`80/80 tests, 3 edge-case bug classes`: the median hidden tests passed over the total, and the median fuzz
+    classes (0: `no edge-case bugs`)."""
+    p, total = val(d, "hidden_passed"), val(d, "hidden_total")
+    parts = [f"{cnt(p)}/{cnt(total)} tests" if p is not None and total is not None else "not graded"]
+    c = val(d, "fuzz_classes")
+    if c is not None:
+        parts.append("no edge-case bugs" if c == 0 else
+                     f"{cnt(c)} edge-case bug class" + ("" if c == 1 else "es"))
+    return ", ".join(parts)
+
+
+def short_table(arms, skipped):
+    """The README's table: Arm (with its n), Time spent (median wall time), Cost (median list price), Quality. An arm
+    with no completed run, or one that was skipped, is one row with the reason (#1194)."""
+    rows = []
+    for arm in sorted(arms, key=arm_key):
+        d = arms[arm]
+        if n_of(d) == 0:
+            st = d.get("_stopped")
+            why = short_reason(st.get("reason")) if isinstance(st, dict) and st.get("reason") else "no completed run"
+            rows.append([f"{title(arm)} ({n_label(d)})", EM, EM, f"stopped: {why}"])
+            continue
+        rows.append([f"{title(arm)} ({n_label(d)})", cstat_median(d, "wall_s", dur), cstat_median(d, "cost_usd", usd),
+                     quality_cell(d)])
+    for arm in sorted(set(skipped) - set(arms), key=arm_key):
+        rows.append([title(arm), EM, EM, f"skipped: {short_reason(skipped[arm])}"])
+    lines = ["| Arm | Time spent | Cost | Quality |", "|---|---|---|---|"]
+    return "\n".join(lines + ["| " + " | ".join(cell(c) for c in r) + " |" for r in rows])
+
+
+def cstat_median(doc, key, fmt):
+    v = val(doc, key)
+    return NA if v is None else fmt(v)
+
+
+def readme_section(sizes):
+    """The README's Benchmark body: one sentence, one 4-column table per fixture size that has runs, one link line.
+    `sizes` is [(fixture, run_id, arms, skipped)] in size order."""
+    sizes = [x for x in sizes if x[2]]
+    if not sizes:
+        return ("No benchmark results are committed yet. The table appears here once a run is recorded under "
+                "`bench/results/`.")
+    parts = []
+    bad = [m for _, _, arms, _ in sizes for m in invalid_reasons(arms)]
+    if bad:
+        parts.append("**INVALID RUN: rerun.** An arm's quality scan did not run, so this is not a comparison: "
+                     + "; ".join(bad) + ".")
+    parts.append(README_INTRO)
+    for fixture, run_id, arms, skipped in sizes:
+        label = dict(SIZE_NAMES).get(fixture, fixture)
+        parts += [f"**{label}** (`{fixture}`)", short_table(arms, skipped)]
+    parts.append(RESULTS_LINK)
+    return "\n\n".join(parts)
+
+
 # --- the large fixture's own table (#592) ----------------------------------------------
 LARGE_HEAD = ["Arm", "n", "Cap status", "Caps hit", "Wall time", "Wall time to first full pass", "Hidden tests passed (post-change)",
               "List price", "$ per passed test", "Regressions", "Compactions", "Continue replies", "Change request",
@@ -528,20 +609,42 @@ C_OUTSIDE = "#b8a2d6"       # wall time outside any agent session: orchestration
 FONT = "DejaVu Sans, Verdana, Arial, sans-serif"
 
 
+def _median(xs):
+    return AGG.summarize(xs)["median"] if xs else None
+
+
 def time_segments(d):
     """(coding, testing, outside, total) seconds for one arm's time bar, or None when it has no time at all.
     For an arm with several runs these are the medians of its runs (#591).
 
-    The bar is `wall_s` long (#583): coding and testing are time inside agent sessions, `outside` is the
-    rest of the wall time (`wall_s - coding_s - testing_s`, clamped at 0). Without a coding/testing split
-    the bar is one unsplit segment: coding = testing = None. A split that overruns `wall_s` (it cannot, in
-    a measured run) makes the bar as long as the split, so the segments always sum to the bar."""
-    c, t, w = val(d, "coding_s"), val(d, "testing_s"), val(d, "wall_s")
-    if c is None and t is None:
+    The bar is exactly the median `wall_s` long (#1194). Coding and testing are shares of WALL time: the time any
+    agent session was running (`session_s`, the union of the sessions' intervals: sessions that overlap count once),
+    clipped to the run's wall time and split coding / testing in proportion to the sessions' own coding and testing
+    seconds. `outside` is the rest of the wall time (orchestration, waiting). A run without `session_s` (written
+    before #1194) uses `coding_s + testing_s`, clipped the same way. Without a coding/testing split the bar is one
+    unsplit segment: coding = testing = None. The segments always sum to the bar, and the bar is never longer
+    than its wall time."""
+    w = val(d, "wall_s")
+    runs = AGG.completed(d["_runs"]) if "_runs" in d else [d]
+    inside, share = [], []
+    for r in runs:
+        c, t, rw = num(r.get("coding_s")), num(r.get("testing_s")), num(r.get("wall_s"))
+        if c is None and t is None:
+            continue
+        c, t = c or 0, t or 0
+        sess = num(r.get("session_s"))
+        sess = c + t if sess is None else sess
+        inside.append(min(sess, rw) if rw is not None else sess)
+        share.append(t / (c + t) if c + t else 0.0)
+    if not inside:
         return None if w is None else (None, None, None, w)
-    inside = (c or 0) + (t or 0)
-    total = inside if w is None else max(w, inside)
-    return (c or 0, t or 0, max(total - inside, 0), total)
+    ins = _median(inside)
+    if w is None:
+        w = ins
+    ins = min(ins, w)
+    testing = round(ins * _median(share), 3)
+    coding = round(ins - testing, 3)
+    return (coding, testing, round(w - coding - testing, 3), w)
 
 
 def whisker(x_lo, x_hi, y, color="#222222"):
@@ -787,6 +890,29 @@ def section(run_id, arms, skipped, fig_ref):
     return "\n\n".join(parts)
 
 
+def results_body(sizes, fig_ref):
+    """The full log in bench/RESULTS.md (#1194): every size's full table with ranges, the figure (small fixture), the
+    notes, run settings and definitions. `sizes` is [(fixture, run_id, arms, skipped)] in size order."""
+    sizes = [x for x in sizes if x[2]]
+    if not sizes:
+        return "## Benchmark\n\n" + section(None, {}, {}, None)
+    parts = ["## Benchmark"]
+    for fixture, run_id, arms, skipped in sizes:
+        if fixture == "large":     # its own heading and columns (#592)
+            parts.append(large_section(run_id, arms, skipped))
+            continue
+        label = dict(SIZE_NAMES).get(fixture, fixture)
+        parts.append(f"### {label} fixture (`{fixture}`)\n\n"
+                     + section(run_id, arms, skipped, fig_ref if fixture == "pennywise" else None))
+    return "\n\n".join(parts)
+
+
+RESULTS_HEAD = ("# Benchmark results\n\n"
+                "The full benchmark log: every table with ranges, the figure, per-arm notes, run settings and definitions. "
+                "The [README](../README.md#benchmark) shows the short version. Generated by `bench/figures.py` and "
+                "`bench/crossover.py` from `bench/results/`; do not edit by hand.\n")
+
+
 def splice(readme_text, body):
     """README text with the marked region replaced; None when the markers are missing or out of order."""
     b = readme_text.find("<!-- bench:begin")
@@ -813,15 +939,26 @@ def write(path, text):
     os.replace(tmp, path)
 
 
+def splice_results(text, body):
+    """bench/RESULTS.md text with the bench region replaced: a missing file gets its header, a file without the
+    markers gets the region appended."""
+    if text is None:
+        return RESULTS_HEAD + "\n" + f"{BEGIN}\n\n{body}\n\n{END}\n"
+    out = splice(text, body)
+    return out if out is not None else text.rstrip("\n") + "\n\n" + f"{BEGIN}\n\n{body}\n\n{END}\n"
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Generate the README Benchmark section and figure from bench/results/.")
+    ap = argparse.ArgumentParser(description="Generate the README Benchmark table, bench/RESULTS.md and the figure from bench/results/.")
     ap.add_argument("--results-dir", default=os.path.join(HERE, "results"))
-    ap.add_argument("--run-id", help="the run to show (default: the latest)")
+    ap.add_argument("--run-id", help="the run to show (default: the latest of each fixture)")
     ap.add_argument("--readme", default=os.path.join(ROOT, "README.md"))
+    ap.add_argument("--results-md", help="the full log (default: bench/RESULTS.md beside the README)")
     ap.add_argument("--figure", help="the figure file (default: <results-dir>/benchmark.svg)")
     ap.add_argument("--check", action="store_true", help="write nothing; exit 1 when the files are not current")
     a = ap.parse_args(argv)
     fig_path = a.figure or os.path.join(a.results_dir, "benchmark.svg")
+    a.results_md = a.results_md or os.path.join(os.path.dirname(os.path.abspath(a.readme)), "bench", "RESULTS.md")
 
     runs = run_dirs(a.results_dir)
     if a.run_id and a.run_id not in runs:
@@ -832,35 +969,37 @@ def main(argv=None):
         by_fixture[run_fixture(a.results_dir, r)] = r
     if a.run_id:
         by_fixture[run_fixture(a.results_dir, a.run_id)] = a.run_id
-    run_id, large_id = by_fixture.get("pennywise"), by_fixture.get("large")
-    if run_id is None and large_id is None and runs:
-        run_id = runs[-1]
-    arms, skipped = load_run(a.results_dir, run_id) if run_id else ({}, {})
-    large, large_skipped = load_run(a.results_dir, large_id) if large_id else ({}, {})
-    svg = figure(arms)
-    fig_ref = os.path.relpath(fig_path, os.path.dirname(os.path.abspath(a.readme))).replace(os.sep, "/") if svg else None
-    body = section(run_id, arms, skipped, fig_ref)
-    if large_id:
-        body += "\n\n" + large_section(large_id, large, large_skipped)
-    new_readme = splice(read(a.readme) or "", body)
+    if not any(f in by_fixture for f, _ in SIZE_NAMES) and runs:
+        by_fixture["pennywise"] = runs[-1]
+    sizes = []     # [(fixture, run_id, arms, skipped)], small to large
+    for fixture, _ in SIZE_NAMES:
+        if fixture in by_fixture:
+            arms, skipped = load_run(a.results_dir, by_fixture[fixture])
+            sizes.append((fixture, by_fixture[fixture], arms, skipped))
+    small = next((x for x in sizes if x[0] == "pennywise"), None)
+    svg = figure(small[2]) if small else None
+    fig_ref = os.path.relpath(fig_path, os.path.dirname(os.path.abspath(a.results_md))).replace(os.sep, "/") if svg else None
+    new_readme = splice(read(a.readme) or "", readme_section(sizes))
     if new_readme is None:
         print(f"figures.py: {a.readme} has no '<!-- bench:begin ... -->' ... {END!r} markers", file=sys.stderr)
         return 2
+    new_results = splice_results(read(a.results_md), results_body(sizes, fig_ref))
 
     stale = []
     if svg is not None and read(fig_path) != svg:
         stale.append(fig_path)
     if read(a.readme) != new_readme:
         stale.append(a.readme)
+    if read(a.results_md) != new_results:
+        stale.append(a.results_md)
     if a.check:
         for p in stale:
             print(f"figures.py: stale: {p}", file=sys.stderr)
-        unreproduced = (verify_logs(a.results_dir, run_id, arms) if run_id else []) + \
-            (verify_logs(a.results_dir, large_id, large) if large_id else [])
+        unreproduced = [m for _, rid, arms, _ in sizes for m in verify_logs(a.results_dir, rid, arms)]
         for m in unreproduced:
             print(f"figures.py: logs do not reproduce results: {m}", file=sys.stderr)
-        inconsistent = (verify_aggregates(arms) if run_id else []) + (verify_aggregates(large) + verify_speedup(large)
-                                                                         if large_id else [])
+        inconsistent = [m for fixture, _, arms, _ in sizes
+                        for m in verify_aggregates(arms) + (verify_speedup(arms) if fixture == "large" else [])]
         for m in inconsistent:
             print(f"figures.py: aggregate does not match its runs: {m}", file=sys.stderr)
         return 1 if stale or unreproduced or inconsistent else 0
@@ -868,6 +1007,8 @@ def main(argv=None):
         write(fig_path, svg)
     if a.readme in stale:
         write(a.readme, new_readme)
+    if a.results_md in stale:
+        write(a.results_md, new_results)
     print("figures.py: " + (", ".join(os.path.relpath(p) for p in stale) + " written" if stale else "already current"))
     return 0
 

@@ -395,7 +395,7 @@ def test_figures_gives_the_large_fixture_its_own_table_and_the_speedup_line():
         p = subprocess.run([sys.executable, os.path.join(BENCH, "figures.py"), "--results-dir", res, "--readme", readme],
                            capture_output=True, text=True)
         assert p.returncode == 0, (p.stdout, p.stderr)
-        text = open(readme).read()
+        text = open(os.path.join(d, "bench", "RESULTS.md")).read()   # the full log (#1194)
         assert "### Large fixture (tallybook)" in text and "bench/results/r-large/" in text, text
         for cell in ("Wall time to first full pass", "$ per passed test", "Regressions", "Compactions", "Caps hit", "at 52.5%", "$0.040",
                      "300 / 320", "2.50x"):
