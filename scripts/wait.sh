@@ -88,7 +88,11 @@ wait_limit_ready(){ local sess="$1" f="$2" nb acct
 # is configured: nothing to wait for), 1 = still waiting, 2 = the host could not be asked. $WAIT_WINSMA_OUT holds its last line.
 wait_winsma_turn(){ local out rc
   if [[ -n "${HARNESS_WINDOWS_HOST:-}" ]]; then
-    out="$(timeout "${WS_WAKE_TIMEOUT:-20}" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$1" 2>&1 </dev/null)"; rc=$?
+    # Into a file, not a $(…) pipe: where timeout cannot signal the whole process group (Git Bash), a child the killed bash left
+    # behind holds the pipe open and the substitution would wait for it, past the timeout (#1109).
+    local of; of="$(mktemp "${RUN_DIR:-${TMPDIR:-/tmp}}/winsma-turn.XXXXXX")" || of=/dev/null
+    timeout "${WS_WAKE_TIMEOUT:-20}" bash "$ENGINE_DIR/test/smoke/winsma/winsma.sh" turn "$1" >"$of" 2>&1 </dev/null; rc=$?
+    out="$(cat "$of" 2>/dev/null)"; [[ "$of" == /dev/null ]] || rm -f "$of"
   else out="no Windows host is configured"; rc=0; fi
   WAIT_WINSMA_OUT="${out##*$'\n'}"
   case "$rc" in 0) return 0;; 1) return 1;; *) return 2;; esac; }
