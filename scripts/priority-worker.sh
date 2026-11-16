@@ -33,6 +33,7 @@ drive_bug(){ local ref="$1" n phase sess SLUG PROJECT DESC CHECKOUT REPO
     # the watchdog so a session parked at idle ❯ by a transient API error is nudged, then killed
     # (loop exits on the next session_live check → reap → re-dispatch frees the lane slot).
     watchdog_session "$sess"; wait_tend "$sess"   # #1066
+    trust_dialog_tend "$sess"                     # #1237: a lane left on its own worktree's trust dialog is answered
     usage_watch   # #194: the lane holds here for the whole session — the crossing must reach it too
     checkpointed_lane_tend "$sess"; session_live "$sess" || break   # #1159: checkpointed + the pause / hold gone → ended, then reaped below
     if bug_goal_done "$n" "$phase"; then

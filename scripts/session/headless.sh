@@ -128,6 +128,8 @@ headless_sess_enter(){ local f c text; headless_sess_live "$1" || return 1
   mv -f "$f" "$c" 2>/dev/null || return 0
   [[ -s $c ]] || { rm -f "$c"; return 0; }
   text="$(cat "$c")"; rm -f "$c"; _hl_send "$1" "$text"; }
+# A headless lane draws no dialog and takes no cursor keys (#1237).
+headless_sess_down(){ return 1; }
 headless_sess_clear_line(){ headless_sess_live "$1" || return 1; rm -f "$(headless_lane_dir "$1")/typed"; }
 headless_sess_interrupt(){ headless_sess_live "$1" || return 1
   python3 "$HEADLESS_LANE_PY" interrupt --lane "$(headless_lane_dir "$1")"; }

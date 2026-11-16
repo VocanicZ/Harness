@@ -132,10 +132,10 @@ tend_lane_done(){ local f="$1" key tok sess n prd slug
   key="$(basename "$f" .claim)"; tok="$(awk '{print $3; exit}' "$f" 2>/dev/null)"
   case "$key" in
     impl-*) n="${key#impl-}"; sess="$(sess_impl "$UNIT" "$n")"
-            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; wait_tend "$sess"; fi
+            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; wait_tend "$sess"; trust_dialog_tend "$sess"; fi
             reap_impl_lane "$n";;
     orch-*) prd="${key#orch-}"; sess="$(sess_orch "$UNIT" "$prd")"
-            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; wait_tend "$sess"; fi
+            if session_live "$sess"; then tend_goal "$sess"; tend_watchdog "$sess"; wait_tend "$sess"; trust_dialog_tend "$sess"; fi
             if (( prd == 0 )); then session_live "$sess" && return 1; launch_gone_check "$sess" orch; return 0   # #596
             else reap_orch_lane "$prd"; fi;;
     bug-*)  (( ${TEND_FAST:-0} )) && return 1   # #594: a bug lane has no goal; the full step tends it
@@ -356,7 +356,7 @@ worker_chores(){ local wid="$1" lockfd
 worker_hold_tick(){ local f sess lockfd
   local UNIT REPO SLUG PROJECT DESC CHECKOUT; fleet_ctx
   while read -r f; do
-    sess="$(awk '{print $4; exit}' "$f" 2>/dev/null)"; [[ -n "$sess" && "$sess" != - ]] && { watchdog_session "$sess"; wait_tend "$sess"; }
+    sess="$(awk '{print $4; exit}' "$f" 2>/dev/null)"; [[ -n "$sess" && "$sess" != - ]] && { watchdog_session "$sess"; wait_tend "$sess"; trust_dialog_tend "$sess"; }
   done < <(worker_claims "${_WORKER_ID:-}")
   lock_try "$RUN_DIR/chores.lock" lockfd || return 0
   watchdog_team; lock_release "$lockfd"; }
