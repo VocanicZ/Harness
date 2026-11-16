@@ -17,7 +17,7 @@ for i in (1,2,3):
         if '/subagents/' in f: r['subagents'].append(rec)
         else: r['main']=rec
     out[f'run-0{i}']=r
-json.dump(out,open('bench/results/run-20261116-large-plain/peak-context.json','w'),indent=1)
+json.dump(out,open('bench/results/run-20261116-large-plain/peak-context/peak-context.json','w'),indent=1)
 for k,v in out.items():
     sub=[s for s in v['subagents']]
     m=v['main'];sp=[x['peak_context_tokens'] for x in v['subagents']]
