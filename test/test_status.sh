@@ -77,6 +77,19 @@ echo "$fleet_deg" | grep -qi 'STOPPED' && { echo "  FAIL: e2e dead-pids+live-ses
 echo "$fleet_deg" | grep -qi 'DEGRADED' && echo "  ok: e2e dead-pids + live-session FLEET reads DEGRADED" || { echo "  FAIL: e2e expected DEGRADED — got [$fleet_deg]"; exit 1; }
 echo "── status DEGRADED (unclean-death sessions live) ok"
 
+# --- operator hints name the `harness` command, never a harness/*.sh path (#1132) ---
+# `harness/start.sh` is not a command the user has; the hint must be `harness start`.
+h_stop="$(fleet_verdict 0 3 0 0 2 0 0)"
+echo "$h_stop" | grep -qF 'start with: harness start)' && echo "  ok: STOPPED hint is 'harness start'" || { echo "  FAIL: STOPPED hint should be 'start with: harness start' — got [$h_stop]"; exit 1; }
+h_pause="$(fleet_verdict 0 3 0 0 2 1 0)"
+echo "$h_pause" | grep -qF 'resume: harness resume)' && echo "  ok: PAUSED hint is 'harness resume'" || { echo "  FAIL: PAUSED hint should be 'resume: harness resume' — got [$h_pause]"; exit 1; }
+h_deg="$(fleet_verdict 0 3 1 0 2 0 0)"
+echo "$h_deg" | grep -qF 'run: harness start --recover)' && echo "  ok: DEGRADED hint is 'harness start --recover'" || { echo "  FAIL: DEGRADED hint should be 'run: harness start --recover' — got [$h_deg]"; exit 1; }
+for h in "$h_stop" "$h_pause" "$h_deg"; do
+  echo "$h" | grep -q 'harness/[a-z]*\.sh' && { echo "  FAIL: hint names a harness/*.sh path — got [$h]"; exit 1; } || true
+done
+echo "── status hints name the harness command ok"
+
 # --- priority-lane row renders (#35) ----------------------------------------
 # A lane DOWN (no priority.pid) still prints its row.
 out_down="$(HARNESS_REPO=acme/widget RUN_DIR="$(mktemp -d)" bash "$HERE/../scripts/status.sh" 2>&1 || true)"
