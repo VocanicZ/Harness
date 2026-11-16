@@ -247,6 +247,27 @@ DEF="$(HOME=/h/u HARNESS_HOME=/h/u/.harness win_task_name harness-supervise)"
 assert_eq "$DEF" 'Harness\harness-supervise' "the default ~/.harness keeps Harness\\harness-supervise"
 assert_eq "$(HOME=/h/u HARNESS_HOME=/h/u/.harness/ win_task_name harness-web)" 'Harness\harness-web' "… and Harness\\harness-web, trailing slash or not"
 assert_eq "$(unset HARNESS_HOME; HOME=/h/u win_task_name harness-web)" 'Harness\harness-web' "… and with HARNESS_HOME unset"
+# #1112: HOME is /c/Users/me (MSYS) but export_native_paths hands HARNESS_HOME over as C:/Users/me/.harness: one directory,
+# several spellings, and the default home must keep Harness\harness-supervise in all of them (a hashed name made uninstall
+# delete a task that was never registered). A cygpath fake maps C:/ C:\ c:/ to /c/ like the real -u does.
+mkdir -p "$T/cyg"
+cat >"$T/cyg/cygpath" <<'CYG'
+#!/usr/bin/env bash
+[[ $1 == -u ]] || exit 2
+p="${2//\\//}"; [[ $p =~ ^([A-Za-z]):/(.*)$ ]] && p="/${BASH_REMATCH[1],,}/${BASH_REMATCH[2]}"; echo "$p"
+CYG
+chmod +x "$T/cyg/cygpath"
+wtn(){ ( export PATH="$T/cyg:$PATH" HARNESS_PLATFORM=windows HOME=/c/Users/me; HARNESS_HOME="$1" win_task_name "$2" ); }
+for sp in /c/Users/me/.harness C:/Users/me/.harness 'C:\Users\me\.harness' c:/Users/me/.harness /c/Users/me/.harness/ 'C:/Users/me/.harness//' 'C:\Users\me\.harness\'; do
+  assert_eq "$(wtn "$sp" harness-supervise)" 'Harness\harness-supervise' "default home spelled $sp -> Harness\\harness-supervise"
+  assert_eq "$(wtn "$sp" harness-web)" 'Harness\harness-web' "default home spelled $sp -> Harness\\harness-web"
+done
+assert_eq "$( (export PATH="$T/cyg:$PATH" HARNESS_PLATFORM=windows HOME=/c/Users/me; unset HARNESS_HOME; win_task_name harness-web) )" 'Harness\harness-web' "HARNESS_HOME unset, windows HOME -> default name"
+NDH="$(wtn /d/work/home harness-supervise)"
+assert_ok "a non-default home is hashed" grep -qE '^Harness\\harness-supervise-[0-9a-f]{8}$' <<<"$NDH"
+for sp in D:/work/home 'D:\work\home' d:/work/home /d/work/home/ 'D:/work/home//'; do
+  assert_eq "$(wtn "$sp" harness-supervise)" "$NDH" "non-default home spelled $sp -> the same hash"
+done
 A="$(tn /c/hx-1/home harness-supervise)"; A2="$(tn /c/hx-1/home harness-supervise)"; B="$(tn /c/hx-2/home harness-supervise)"
 assert_ok "another home appends a short hash of its path"      grep -qE '^Harness\\harness-supervise-[0-9a-f]{8}$' <<<"$A"
 assert_eq "$A2" "$A" "the hashed name is stable for one home"
