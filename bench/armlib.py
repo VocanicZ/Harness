@@ -53,6 +53,22 @@ def host_config_dir(env=None):
     return env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
 
 
+def _forecast():
+    spec = importlib.util.spec_from_file_location("bench_forecast", os.path.join(ROOT, "scripts", "forecast.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def settle_config(path, host_env=None):
+    """Call before deleting the throwaway config dir `path`: its spend goes into the host account's own record,
+    so the account's $ per 1% (forecast.py calibrate) and the guard still count a run's spend afterwards (#1183)."""
+    try:
+        _forecast().settle_nested(host_config_dir(host_env), path)
+    except Exception:   # accounting must never fail a run
+        pass
+
+
 def isolated_config(path, host_env=None):
     """Create the isolated config dir at `path`: the login linked from the first host dir that has one, and a
     `.claude.json` that marks onboarding done. Returns {"path", "login"} (login: the linked file or None)."""
@@ -67,6 +83,10 @@ def isolated_config(path, host_env=None):
             login = login or src
     with open(os.path.join(path, ".claude.json"), "w", encoding="utf-8") as fh:
         json.dump({"hasCompletedOnboarding": True}, fh)
+    try:   # #1183: this dir's sessions spend the host account's window; the account's calibration reads them from here
+        _forecast().register_nested(d, path)
+    except Exception:
+        pass
     return {"path": path, "login": login}
 
 

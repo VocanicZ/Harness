@@ -21,11 +21,11 @@ assert_ok "the brief wins a disagreement" grep -qF 'the brief wins' <<<"$R"
 
 echo "-- every user-visible I/O finding becomes an issue"
 assert_ok "rule present" grep -qF 'FILE EVERY USER-VISIBLE I/O FINDING' <<<"$R"
-assert_ok "whatever its severity" grep -qF 'whatever its severity' <<<"$R"
+assert_ok "whatever its weight: an I/O defect is blocking" grep -qF 'is `blocking` whatever its weight' <<<"$R"
 assert_ok "before sign-off" grep -qF 'BEFORE sign-off' <<<"$R"
 assert_ok "'consistent with the PRD' is no excuse" grep -qF '"consistent with the PRD"' <<<"$R"
-assert_ok "filed issues carry the Blocked by + Parent trailer" \
-  grep -qF 'with the `## Blocked by` + `## Parent` trailer from FILING A GAP ISSUE above' <<<"$R"
+assert_ok "the filed issue carries the Blocked by + Parent trailer" \
+  grep -qF '`## Blocked by` + `## Parent` trailer written by' <<<"$R"
 assert_ok "never sign off over an unfiled finding" grep -qF 'never sign off in step 6 over a finding you did not file' <<<"$R"
 
 echo "-- the probe runs a fixed robustness checklist"

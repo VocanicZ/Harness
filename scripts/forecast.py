@@ -23,17 +23,23 @@ named in the output.
 
 % of each usage window (#364): usage_watch logs every new reading as a `usage_reading` event
 (account, window, pct, resets_at). For each account/window, consecutive readings inside one window
-(the same resets_at — a pair across a reset is skipped) give a pair: the % it rose by, and the $ the
-event log's sessions on that account spent between the two (each message of their transcripts, by
-its timestamp; the account is the transcript's config dir, the name the status line reports). The fit
-is $ per 1%: central = Σ$ / Σ%, and the conservative bound — the low end, so the % a forecast needs is
-over- rather than under-estimated — is the BOUND_Q quantile of the per-pair $/1%, never above the
-central fit. An account/window with no usable pair falls back to HARNESS_ONE_USD_PER_PCT (the
-environment, else the project config), and the output says so; with neither, % is n/a.
+give a pair: the % it rose by, and the $ the ACCOUNT spent between the two (#1183). The account is the
+config dir the status line names (its basename, "default" for ~/.claude); its spend is every message of
+every transcript under that dir (main and sub-agents) plus the nested config dirs bench runs log in with
+(registered in the account's dir, kept as per-minute buckets once the run deletes its dir) — not only the
+event log's own sessions, which are a fraction of what moves a window. A reading below the highest one of its
+window is stale and ignored; a window reset (resets_at moves on) starts a fresh segment: the pair across it is
+skipped, the pairs in the new window count. Only the readings of the last HORIZON_DAYS (8: a weekly window and a day) are used, and only
+transcripts written since the first of them are read. The fit is $ per 1%: central = Σ$ / Σ%, and the
+conservative bound — the low end, so the % a forecast needs is over- rather than under-estimated — is the
+BOUND_Q quantile of the per-pair $/1%, never above the central fit. An account/window whose spend cannot be
+measured (no config dir for the account on this host) has no fit at all, never a low one; one with no usable
+pair has none either. Both fall back to HARNESS_ONE_USD_PER_PCT (the environment, else the project config),
+and the output says so; with neither, % is n/a.
 
     forecast.py <issue> [-R owner/repo] [--unit U] [--json]
 """
-import bisect, importlib.util, json, math, os, re, subprocess, sys
+import bisect, glob, importlib.util, json, math, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import portable  # noqa: E402  #686: resolve_argv — a gh script first on a native Windows PATH is the one that runs
@@ -386,65 +392,297 @@ def readings(events):
     return out
 
 
-def account_spend(events, start, end, find=None):
-    """{account: sorted [(t, $)]}: every message of every session's transcripts (main + sub-agents,
-    each message once) — for the sessions that can overlap [start, end]. A session with no claude
-    transcript has no account and no timeline, so it is left out."""
-    find = find or st.find_transcript
-    out = {}
-    for s in st.sessions(events):
-        launched, ended = st.parse_ts(s.get("launched")), st.parse_ts(s.get("ended"))
-        if (launched is not None and launched > end) or (ended is not None and ended < start):
-            continue
-        tr = find(s["session"])
-        if not tr:
-            continue
-        acc, seen = out.setdefault(transcript_account(tr), []), set()
-        for f in st.transcript_files(tr):
-            for key, model, usage, _, ts in _messages(f):
+NESTED_FILE = ".harness-nested-configs.jsonl"   # in an account's config dir: the nested config dirs its logins serve (#1183)
+SCAN_SLACK = 2.0         # a transcript last written before the window opened (less this) has no message inside it
+RESET_DROP = 10.0        # with no resets_at to go by, a reading this many points below the one before it is a window reset
+HORIZON_DAYS = 8         # calibration reads the readings of this long before the newest one: a weekly window and a day (#1183)
+LEDGER_KEEP_DAYS = 60    # a settled nested config's spend older than this is dropped from the account's file
+MAX_LEDGER_LINES = 400   # an account's nested-config file past this many lines is rewritten without its dead entries
+
+
+def _transcript_paths(cdir, since):
+    """Every claude transcript under config dir `cdir` (<dir>/projects/<slug>/<session>.jsonl and the sub-agent
+    files beside it) written at or after epoch `since`: an older file holds no message from the window (#1183)."""
+    for pat in (("projects", "*", "*.jsonl"), ("projects", "*", "*", "subagents", "*.jsonl")):
+        for f in glob.glob(os.path.join(cdir, *pat)):
+            try:
+                if os.path.getmtime(f) >= since:
+                    yield f
+            except OSError:
+                continue
+
+
+_TS_KEY = b'"timestamp":"'
+
+
+def _iso(t):
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)).encode()
+
+
+def _usage_messages(path, lo=None, hi=None):
+    """[(key, model, usage, ts)] of one transcript, streamed as bytes: only a line that mentions `"usage"` is
+    decoded and parsed, and a streamed message (one id on several lines) is taken once, with its last usage and
+    first timestamp. With `lo` / `hi` (epoch seconds) a line whose own UTC timestamp is outside [lo, hi] is
+    passed over unparsed: a long session's early part costs a substring test, not a JSON parse."""
+    lo_s = _iso(lo) if lo is not None and math.isfinite(lo) else None
+    hi_s = _iso(hi) if hi is not None and math.isfinite(hi) else None
+    by = {}
+    try:
+        fh = open(path, "rb")
+    except OSError:
+        return []
+    with fh:
+        for line in fh:
+            if b'"usage"' not in line:
+                continue
+            if lo_s is not None or hi_s is not None:
+                i = line.find(_TS_KEY)
+                ts = line[i + len(_TS_KEY):i + len(_TS_KEY) + 20] if i >= 0 else b""
+                if len(ts) >= 20 and ts[19:20] in (b".", b"Z") and ((lo_s is not None and ts[:19] < lo_s)
+                                                                           or (hi_s is not None and ts[:19] > hi_s)):
+                    continue
+            try:
+                r = json.loads(line.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if not isinstance(r, dict) or r.get("type") != "assistant":
+                continue
+            m = r.get("message") or {}
+            if not isinstance(m, dict) or not m.get("usage") or not m.get("model") or m.get("model") == "<synthetic>":
+                continue
+            key = m.get("id") or r.get("requestId") or r.get("uuid") or f"{path}:{len(by)}"
+            if key not in by:
+                by[key] = [key, m["model"], None, r.get("timestamp")]
+            by[key][2] = m["usage"]
+    return [tuple(v) for v in by.values()]
+
+
+def register_nested(account_dir, config_dir):
+    """Record that `config_dir` (a throwaway config a bench run, or any nested fleet, logs in with) spends the
+    account whose config dir is `account_dir` (#1183). Best effort: a dir that cannot be written is left alone."""
+    try:
+        path = os.path.join(account_dir, NESTED_FILE)
+        config_dir = os.path.abspath(config_dir)
+        if any(e.get("dir") == config_dir and "spend" not in e for e in _ledger(account_dir)):
+            return
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"dir": config_dir}) + "\n")
+    except OSError:
+        pass
+
+
+def settle_nested(account_dir, config_dir):
+    """Before a nested config dir is deleted: write its spend into the account's file as per-minute buckets
+    (epoch, $), so the account's spend still counts what that dir spent after the dir is gone (#1183)."""
+    try:
+        config_dir = os.path.abspath(config_dir)
+        if not os.path.isdir(config_dir):
+            return
+        buckets, seen = {}, set()
+        for f in _transcript_paths(config_dir, 0):
+            for key, model, usage, ts in _usage_messages(f):
                 t = st.parse_ts(ts)
-                if key in seen or t is None:
+                if t is None or key in seen:
                     continue
                 seen.add(key)
-                acc.append((t, raw_cost(usage, model)))
-    for v in out.values():
-        v.sort()
+                buckets[int(t // 60) * 60] = buckets.get(int(t // 60) * 60, 0.0) + raw_cost(usage, model)
+        entries = _ledger(account_dir)
+        with open(os.path.join(account_dir, NESTED_FILE), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"dir": config_dir, "spend": [[t, round(c, 6)] for t, c in sorted(buckets.items())]}) + "\n")
+        if len(entries) > MAX_LEDGER_LINES:
+            _prune_ledger(account_dir)
+    except OSError:
+        pass
+
+
+def _ledger(account_dir):
+    out = []
+    try:
+        with open(os.path.join(account_dir, NESTED_FILE), encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(e, dict) and isinstance(e.get("dir"), str):
+                    out.append(e)
+    except OSError:
+        pass
     return out
 
 
-def _spent_between(timeline, t0, t1):
-    """$ of the messages in (t0, t1]."""
-    ts = [t for t, _ in timeline]
-    return sum(c for _, c in timeline[bisect.bisect_right(ts, t0):bisect.bisect_right(ts, t1)])
+def _prune_ledger(account_dir):
+    """Rewrite the file without a registered dir that is gone (nothing to scan) and a settled entry whose newest
+    bucket is older than LEDGER_KEEP_DAYS (no calibration looks that far back)."""
+    horizon = time.time() - LEDGER_KEEP_DAYS * 86400
+    keep = [e for e in _ledger(account_dir)
+            if (os.path.isdir(e["dir"]) if "spend" not in e else
+                any(isinstance(b, list) and b and isinstance(b[0], (int, float)) and b[0] >= horizon for b in e["spend"]))]
+    path = os.path.join(account_dir, NESTED_FILE)
+    tmp = path + f".{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.writelines(json.dumps(e) + "\n" for e in keep)
+    os.replace(tmp, path)
+
+
+def account_config_dirs():
+    """{account: [config dirs]} of this host (stats.config_dirs), the account named as the status line names it."""
+    out = {}
+    for d in st.config_dirs():
+        out.setdefault(norm_account(os.path.basename(os.path.normpath(d))), []).append(d)
+    return out
+
+
+def account_timeline(acct, start, end, dirs=None, seen=None):
+    """sorted [(t, $)] of every message the account spent in [start, end]: all claude transcripts (main and
+    sub-agents, each message once) under its config dirs — whoever ran the session, the event log or not — and
+    under the nested config dirs those dirs name (bench runs, #1183), live or settled. None when that cannot be
+    measured: the account has no config dir with a projects dir on this host."""
+    dirs = account_config_dirs().get(acct, []) if dirs is None else dirs
+    seen = set() if seen is None else seen
+    out, measured = [], False
+    for d in dirs:
+        measured = measured or os.path.isdir(os.path.join(d, "projects"))
+        led = _ledger(d)
+        live = [d] + [e["dir"] for e in led if "spend" not in e and os.path.isdir(e["dir"])]
+        measured = measured or len(live) > 1
+        for e in led:   # a settled nested dir that is gone: its buckets, in the window, once per dir
+            if "spend" in e and not os.path.isdir(e["dir"]) and ("ledger", e["dir"]) not in seen:
+                seen.add(("ledger", e["dir"]))
+                measured = True
+                for t, c in e["spend"]:
+                    if isinstance(t, (int, float)) and isinstance(c, (int, float)) and start <= t <= end + 60:
+                        out.append((float(t), float(c)))
+        for cdir in live:
+            for f in _transcript_paths(cdir, start - SCAN_SLACK):
+                for key, model, usage, ts in _usage_messages(f, start - 1, end + 1):
+                    t = st.parse_ts(ts)
+                    if t is None or key in seen or not start <= t <= end:
+                        continue
+                    seen.add(key)
+                    out.append((t, raw_cost(usage, model)))
+    out.sort()
+    return out if measured else None
+
+
+def account_spend(events, start, end, find=None, accounts=()):
+    """{account: sorted [(t, $)]} for each of `accounts` (the accounts with readings; or {account: (from, to)}) that can be measured: ALL
+    the account's spend in [start, end] — every transcript under its config dirs, not only the event log's own
+    sessions (#1183: the sessions of nested bench fleets, ops and interactive work moved the window too). An
+    account with no config dir here is left out: its spend is unmeasured. With `find` (a test seam for the
+    event-log's own sessions' transcripts) those are counted as well."""
+    out, seen = {}, {}
+    spans = accounts if isinstance(accounts, dict) else {a: (start, end) for a in accounts}   # {account: (from, to)}
+    for acct, (lo, hi) in {norm_account(a): v for a, v in spans.items()}.items():
+        seen[acct] = set()
+        t = account_timeline(acct, lo, hi, seen=seen[acct])
+        if t is not None:
+            out[acct] = t
+    if find is not None:
+        for s in st.sessions(events):
+            launched, ended = st.parse_ts(s.get("launched")), st.parse_ts(s.get("ended"))
+            if (launched is not None and launched > end) or (ended is not None and ended < start):
+                continue
+            tr = find(s["session"])
+            if not tr:
+                continue
+            acct = transcript_account(tr)
+            acc, sn = out.setdefault(acct, []), seen.setdefault(acct, set())
+            for f in st.transcript_files(tr):
+                for key, model, usage, _, ts in _messages(f):
+                    t = st.parse_ts(ts)
+                    if key in sn or t is None:
+                        continue
+                    sn.add(key)
+                    acc.append((t, raw_cost(usage, model)))
+        for v in out.values():
+            v.sort()
+    return out
+
+
+def _prefix(timeline):
+    """(times, running $ total) of a sorted [(t, $)], for _spent_between."""
+    ts, cum, tot = [], [0.0], 0.0
+    for t, c in timeline:
+        ts.append(t)
+        tot += c
+        cum.append(tot)
+    return ts, cum
+
+
+def _spent_between(pre, t0, t1):
+    """$ of the messages in (t0, t1], over a _prefix."""
+    ts, cum = pre
+    return cum[bisect.bisect_right(ts, t1)] - cum[bisect.bisect_right(ts, t0)]
+
+
+def window_pairs(rs):
+    """([(reading, next reading)], resets): the usable reading pairs of one account/window, `rs` in time order.
+    A window reset — resets_at moves on by more than RESET_SLACK, or with no resets_at to go by the % falls by
+    RESET_DROP — starts a fresh segment: the pair across it is skipped and the pairs inside the new window
+    count (#1183). A reading at or below the highest one of its window is stale (a status line that has not
+    redrawn yet, a reading of the window before the reset arriving late): it is ignored, so the % a pair rose
+    by is always from the first sighting of one level to the first sighting of the next."""
+    pairs, resets, last = [], 0, None
+    for r in rs:
+        if last is None:
+            last = r
+            continue
+        if last[2] and r[2]:
+            if r[2] - last[2] > RESET_SLACK:
+                resets, last = resets + 1, r
+                continue
+            if r[2] - last[2] < -RESET_SLACK:
+                continue            # a reading of the window before the reset, arriving late
+        elif r[1] <= last[1] - RESET_DROP:
+            resets, last = resets + 1, r   # no resets_at to go by: only a big fall says the window reset
+            continue
+        if r[1] > last[1]:
+            pairs.append((last, r))
+            last = r
+    return pairs, resets
 
 
 def calibrate(events, accounts=(), find=None):
-    """[{account, window, pairs, skipped_reset, central, bound}], one per account/window with readings
-    (central / bound $ per 1%, None without a usable pair), plus {account, window: None, pairs: 0}
-    for each of `accounts` (the lanes' accounts) that has no reading at all."""
-    rd = readings(events)
-    times = [r[0] for rs in rd.values() for r in rs]
-    spend = account_spend(events, min(times), max(times), find) if times else {}
+    """[{account, window, pairs, skipped_reset, central, bound, unmeasured}], one per account/window with
+    readings (central / bound $ per 1%, None without a usable pair), plus {account, window: None, pairs: 0}
+    for each of `accounts` (the lanes' accounts) that has no reading at all. `unmeasured` is why the account's
+    spend could not be counted (no config dir for it on this host), else None: its central / bound are then
+    None too, never a figure from the part of the spend that was seen (#1183)."""
+    rd, newest = {}, {}
+    allr = readings(events)
+    for (acct, _), rs in allr.items():
+        newest[acct] = max(newest.get(acct, 0), rs[-1][0])
+    for (acct, win), rs in allr.items():   # only the last HORIZON_DAYS of the account: a calibration scans every transcript since
+        rs = [r for r in rs if r[0] >= newest[acct] - HORIZON_DAYS * 86400]
+        if rs:
+            rd[(acct, win)] = rs
+    spans = {}   # each account's own span of readings: another account's old readings must not widen its scan
+    for (acct, _), rs in rd.items():
+        lo, hi = spans.get(acct, (rs[0][0], rs[-1][0]))
+        spans[acct] = (min(lo, rs[0][0]), max(hi, rs[-1][0]))
+    times = [t for v in spans.values() for t in v]
+    spend = account_spend(events, min(times), max(times), find, spans) if times else {}
+    pre = {a: _prefix(v) for a, v in spend.items()}
     out = []
     for (acct, win), rs in sorted(rd.items()):
-        ratios, usd_sum, pct_sum, skipped = [], 0.0, 0.0, 0
-        for a, b in zip(rs, rs[1:]):
-            if abs(b[2] - a[2]) > RESET_SLACK or b[1] < a[1]:
-                skipped += 1   # the window reset between the two: no pair
-                continue
-            usd, d = _spent_between(spend.get(acct, []), a[0], b[0]), b[1] - a[1]
-            if d <= 0 or usd <= 0:
-                continue       # no % moved, or none of the event log's sessions spent: nothing to fit
+        ratios, usd_sum, pct_sum = [], 0.0, 0.0
+        pairs, resets = window_pairs(rs)
+        why = None if acct in pre else f"no Claude config dir for account {acct} on this host"
+        for a, b in ([] if why else pairs):
+            usd, d = _spent_between(pre[acct], a[0], b[0]), b[1] - a[1]
+            if usd <= 0:
+                continue       # none of the account's transcripts spent: nothing to fit
             ratios.append(usd / d)
             usd_sum, pct_sum = usd_sum + usd, pct_sum + d
         central = usd_sum / pct_sum if ratios else None
         bound = min(central, quantile(ratios, BOUND_Q)) if ratios else None
-        out.append({"account": acct, "window": win, "pairs": len(ratios), "skipped_reset": skipped,
+        out.append({"account": acct, "window": win, "pairs": len(ratios), "skipped_reset": resets,
                     "central": None if central is None else round(central, 2),
-                    "bound": None if bound is None else round(bound, 2)})
+                    "bound": None if bound is None else round(bound, 2), "unmeasured": why})
     have = {c["account"] for c in out}
-    out += [{"account": a, "window": None, "pairs": 0, "skipped_reset": 0, "central": None, "bound": None}
-            for a in sorted({norm_account(a) for a in accounts} - have)]
+    out += [{"account": a, "window": None, "pairs": 0, "skipped_reset": 0, "central": None, "bound": None,
+             "unmeasured": None} for a in sorted({norm_account(a) for a in accounts} - have)]
     return out
 
 
@@ -453,7 +691,7 @@ def window_pct(cal, phases, total, fallback):
     source "fit" (the bound), "fallback" (HARNESS_ONE_USD_PER_PCT) or "none" (n/a). With no
     calibration at all, one account-less entry for the fallback."""
     rows = cal or ([{"account": None, "window": None, "pairs": 0, "skipped_reset": 0, "central": None,
-                     "bound": None}] if fallback else [])
+                     "bound": None, "unmeasured": None}] if fallback else [])
     out = []
     for c in rows:
         usd, src = (c["bound"], "fit") if c["bound"] else (fallback, "fallback") if fallback else (None, "none")
@@ -567,6 +805,8 @@ def render_pct(f):
         name = _window_name(w)
         skipped = f" ({w['skipped_reset']} pair(s) skipped: window reset)" if w["skipped_reset"] else ""
         why = "no usable reading pair" if w["window"] else "no usage readings"
+        if w.get("unmeasured"):   # #1183: the account's spend cannot be counted here, so no fit — not a low one
+            why = f"spend not measured ({w['unmeasured']})"
         if w["source"] == "fit":
             out.append(f"  calibration {name}: {w['pairs']} pair(s), fit ${w['central']:.2f}/1%, "
                        f"bound ${w['bound']:.2f}/1%{skipped}")

@@ -101,8 +101,10 @@ A run refuses to start when:
   (`HARNESS_USAGE_CMD`, else the CLI adapter's `cli_limit_usage`),
   `now% + expected% + reserve% <= HARNESS_ONE_STOP_PCT` (default 98) must hold, with the reserve
   `HARNESS_ONE_RESERVE_PCT` (default 2). `expected%` is the expected spend over the account's $ per 1%
-  of the window: the calibration `forecast.py` fits from the host event log (#364), else
-  `HARNESS_ONE_USD_PER_PCT`. The expected spend defaults to the $ cap, the most an arm can spend;
+  of the window: the calibration `forecast.py` fits from the host event log's readings and ALL the account's
+  transcripts, the nested `claude-config` dirs of earlier runs included (#364, #1183), else
+  `HARNESS_ONE_USD_PER_PCT`. A calibration that cannot be measured (no config dir for the account) is `n/a`,
+  never a low figure: the guard then uses the setting, or refuses naming why. The expected spend defaults to the $ cap, the most an arm can spend;
   `--expected-usd` overrides it; or
 - there is no weekly reading, or no $ per 1% at all: the guard cannot show the run fits.
 

@@ -278,6 +278,7 @@ def main(argv=None):
         print("review.py: %s" % exc, file=sys.stderr)
         return 1
     finally:
+        _load("bench_armlib", "armlib.py").settle_config(cfg)   # #1183: its spend stays on the account's record
         shutil.rmtree(cfg, ignore_errors=True)
     if a.write:
         merge(a.write, results)

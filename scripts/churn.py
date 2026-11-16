@@ -11,6 +11,10 @@ it, forever. The data to see it is already in the host event log: every reaper e
     churn.py status   --fleet P [--events F]                     one line per churn-parked issue of fleet P
     churn.py rows     --fleet P [--events F]                     the same, as JSON (the web dashboard)
 
+`status` also lists the issues, PRDs and sessions the launch fail-fast gave up (#1183: `launch_giveup` events — launch_giveup in
+lib.sh): the claim key failed to launch HARNESS_LAUNCH_FAIL_MAX (3) times in a row. A row ends with a later `launch` of the same
+key, or GIVEUP_HOLD_S (6 h, the engine's local hold) after the event.
+
 A trip is HARNESS_CHURN_COUNT (3) session_ends on the same repo + issue + kind, each with wall_s below
 HARNESS_CHURN_MAX_WALL_S (900), all within HARNESS_CHURN_WINDOW_MIN (180) of the newest. COUNT=0 turns
 the guard off. A session the engine ended on purpose (checkpointed, killed by the watchdog, paused) never
@@ -229,6 +233,40 @@ def row_line(r):
             f"ended young within {r.get('window_min')} min, since {r['ts']}) — comment on it or edit its labels to release it")
 
 
+# --- launch give-ups (#1183) ------------------------------------------------------------------------
+GIVEUP_HOLD_S = 6 * 3600   # lib.sh LAUNCH_GIVEUP_HOLD
+
+
+def _launch_key(e):
+    """The claim key a `launch` event belongs to: impl-<issue>, orch-<prd>, or orch-0 for the PLAN / PRD session."""
+    if e.get("kind") == "impl":
+        return f"impl-{e.get('issue')}" if e.get("issue") else None
+    return f"orch-{e.get('prd')}" if e.get("prd") else "orch-0"
+
+
+def giveup_rows(events, fleet, now=None):
+    """The launch give-ups of <fleet> still in force: [{"ts", "repo", "key", "count", "reason", "issue", "prd"}], oldest first."""
+    now = time.time() if now is None else now
+    rows = {}
+    for e in sorted((e for e in events if isinstance(e, dict)), key=_ts):
+        if e.get("prefix") != fleet:
+            continue
+        key = (e.get("repo"), e.get("key") if e.get("event") == "launch_giveup" else _launch_key(e))
+        if e.get("event") == "launch_giveup":
+            rows[key] = {k: e.get(k) for k in ("ts", "repo", "key", "count", "reason", "issue", "prd")}
+        elif e.get("event") == "launch":
+            rows.pop(key, None)
+    return sorted((r for r in rows.values() if now - (stats.parse_ts(r.get("ts")) or 0) < GIVEUP_HOLD_S),
+                  key=lambda r: r.get("ts") or "")
+
+
+def giveup_line(r):
+    n = r.get("issue") or r.get("prd")
+    what = f"{r['repo']}#{n}" if n else f"{r['repo']} PLAN/PRD session"
+    return (f"{what} given up: {r.get('count')} launches failed in a row (last: {r.get('reason')}), since {r['ts']}"
+            + (" — comment on it or edit its labels to release it" if n else " — held for 6 h, then tried again"))
+
+
 # --- cli -------------------------------------------------------------------------------------------
 def _args(argv):
     out, i = {}, 0
@@ -266,6 +304,8 @@ def main(argv=None):
         if cmd == "status":
             for r in parked_rows(events, a["fleet"]):
                 print(row_line(r))
+            for r in giveup_rows(events, a["fleet"]):
+                print(giveup_line(r))
             return 0
         if cmd == "rows":
             print(json.dumps(parked_rows(events, a["fleet"])))

@@ -276,19 +276,30 @@ def run_account():
     return os.path.basename(d.rstrip("/")) if d else "default"
 
 
-def usd_per_pct(fc, events, account):
-    """($ per 1% of the account's weekly window, source): the calibration's conservative bound, else
-    HARNESS_ONE_USD_PER_PCT, else (None, "none")."""
+def usd_per_pct_why(fc, events, account):
+    """($ per 1% of the account's weekly window, source, why not): the calibration's conservative bound, else
+    HARNESS_ONE_USD_PER_PCT, else (None, "none", why). The calibration counts ALL the account's spend, nested
+    bench configs included (#1183); when it cannot (no config dir for the account, no pair) it gives no figure,
+    never a low one, and `why` says so."""
+    why = None
     try:
         cal = fc.calibrate(events, accounts=(account,))
-    except Exception:   # a calibration that cannot be read must not stop a run: fall back below
-        cal = []
+    except Exception as e:   # a calibration that cannot be read must not stop a run: fall back below
+        cal, why = [], f"the calibration could not be read ({type(e).__name__})"
     acct = fc.norm_account(account)
-    rows = [c for c in cal if c["account"] == acct and c["window"] and WEEKLY.search(c["window"]) and c["bound"]]
+    weekly = [c for c in cal if c["account"] == acct and c["window"] and WEEKLY.search(c["window"])]
+    rows = [c for c in weekly if c["bound"]]
     if rows:
-        return rows[0]["bound"], "fit"
+        return rows[0]["bound"], "fit", None
+    why = why or next((f"spend not measured: {c['unmeasured']}" for c in weekly if c.get("unmeasured")), None) \
+        or ("no usable reading pair in the event log" if weekly else "no weekly reading of this account in the event log")
     fb = fc.usd_per_pct_setting(os.environ.get("STATE_DIR"))
-    return (fb, "fallback") if fb else (None, "none")
+    return (fb, "fallback", None) if fb else (None, "none", why)
+
+
+def usd_per_pct(fc, events, account):
+    """($ per 1% of the account's weekly window, source) of usd_per_pct_why."""
+    return usd_per_pct_why(fc, events, account)[:2]
 
 
 # why a guard refuses; a skipped optional arm records exactly the causes it was refused on (#577)
@@ -370,14 +381,14 @@ def guard(a, fc, st):
         d["causes"].append("no-usage-reading")
     else:
         events = st.load_events(a.events)
-        per, src = usd_per_pct(fc, events, run_account())
+        per, src, why = usd_per_pct_why(fc, events, run_account())
         d["usd_per_pct"], d["usd_per_pct_source"] = per, src
         if not per or not _finite(per) or per < 0:
             bad = fc.usd_per_pct_invalid(os.environ.get("STATE_DIR"))   # set but unusable: say so, not "unset" (#746)
             state = (f"HARNESS_ONE_USD_PER_PCT={bad} invalid, need a finite number >= {fc.MIN_USD_PER_PCT:g}"
                      if bad is not None else "HARNESS_ONE_USD_PER_PCT unset")
-            d["reasons"].append(f"no $ per 1% (no calibration in the event log and {state}): "
-                                "cannot turn the expected spend into a % of the window")
+            d["reasons"].append(f"no $ per 1% (no calibration in the event log{f' - {why}' if why else ''} and {state}): "
+                                "cannot turn the expected spend into a % of the window; set HARNESS_ONE_USD_PER_PCT to run anyway")
             d["causes"].append("no-calibration")
         else:
             need = round(expected / per, 2)
@@ -1156,6 +1167,7 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             log(f"repo deleted: {res['repo_deleted']}")
             if os.path.isfile(os.path.join(out_dir, slot["json"])):
                 write_json(os.path.join(out_dir, slot["json"]), res)
+        armlib().settle_config(os.path.join(work, "claude-config"))   # #1183: its spend stays on the account's record
         shutil.rmtree(work, ignore_errors=True)
         runlog.close()
     if leaked:

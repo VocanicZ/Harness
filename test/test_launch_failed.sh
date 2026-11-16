@@ -123,14 +123,16 @@ assert_eq "$(claim_lane W1 | cut -f1,2)" "" "with only #7 ready and its backoff 
 NOW=$((NOW + 61))
 assert_eq "$(claim_lane W1 | cut -f1,2)" "IMPL	7" "after the backoff ran out #7 is claimed again"
 rm -f "$CLAIMS_DIR/impl-7.claim"
+export HARNESS_LAUNCH_FAIL_MAX=0   # #1183: this section is about the doubling backoff alone; the give-up at the third failure is test_launch_giveup.sh
 launch_backoff_mark impl-7; launch_backoff_mark impl-7   # the third consecutive failure: 60 << 2 = 240s
 NOW=$((NOW + 100))
 assert_ok "the backoff doubles per consecutive failure: still held 100s after the third" launch_backoff_active impl-7
 NOW=$((NOW + 150))
 assert_ok "…and over after 250s (60s << 2 = 240s)" not launch_backoff_active impl-7
 
+unset HARNESS_LAUNCH_FAIL_MAX
 echo "== 4b. #759: a HARNESS_LAUNCH_BACKOFF / _MAX that is not a number falls back to the default and warns once =="
-setup; log(){ echo "LOG $*"; }
+setup; log(){ echo "LOG $*"; }; export HARNESS_LAUNCH_FAIL_MAX=0   # #1183: four marks in a row below must not give the key up
 for bad in abc 30s -1 1.5; do
   rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; t0=$NOW
   NOW=$((t0 + 10)); err="$( HARNESS_LAUNCH_BACKOFF="$bad" launch_backoff_active impl-7 2>&1 >/dev/null )"
@@ -150,6 +152,7 @@ rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-
 assert_eq "$(HARNESS_LAUNCH_BACKOFF=5 HARNESS_LAUNCH_BACKOFF_MAX=7 launch_backoff_active impl-7 2>&1; echo rc=$?)" "rc=0" "valid numbers are used as is, no warning"
 NOW=$((NOW + 2)); HARNESS_LAUNCH_BACKOFF=5 launch_backoff_active impl-7; assert_eq "$?" "1" "…BACKOFF=5 is over after 6s"
 
+unset HARNESS_LAUNCH_FAIL_MAX
 echo "== 4c. #792: a HARNESS_LAUNCH_FAIL_SECS that is not a non-negative integer falls back to 30 and warns once =="
 for bad in 30s 1.5 abc -1; do
   setup; log(){ echo "LOG $*"; }
@@ -179,6 +182,7 @@ HARNESS_LAUNCH_FAIL_SECS=010 launch_grace_live "$T/gr"; assert_eq "$?" "1" "FAIL
 
 echo "== 4d. #800: an oversized HARNESS_LAUNCH_BACKOFF / _MAX / _FAIL_SECS no longer wraps in bash arithmetic; it falls back to the default and warns once =="
 setup; log(){ echo "LOG $*"; }
+export HARNESS_LAUNCH_FAIL_MAX=0   # #1183
 for big in 9223372036854775807 9223372036854775808 99999999999999999999 18446744073709551616 86401 0000000000000000000000000000090; do
   rm -f "$RUN_DIR"/launchknob.* "$RUN_DIR"/launchfail.*; launch_backoff_mark impl-7; t0=$NOW
   NOW=$((t0 + 1)); err="$( HARNESS_LAUNCH_BACKOFF="$big" launch_backoff_active impl-7 2>&1 >/dev/null )"
@@ -207,6 +211,7 @@ for big in 9223372036854775807 9223372036854775808 99999999999999999999 18446744
   HARNESS_LAUNCH_FAIL_SECS="$big" launch_gone_check "$SESSF" impl issue=7 2>/dev/null
   assert_no "…and a lane that ran 40s is no launch failure (default 30)" test -e "$RUN_DIR/launchfail.impl-7"
 done
+unset HARNESS_LAUNCH_FAIL_MAX
 assert_eq "$(HARNESS_LAUNCH_FAIL_SECS=86400 _launch_knob HARNESS_LAUNCH_FAIL_SECS 30 2>&1)" "86400" "the cap itself (one day) is accepted"
 
 echo "== 5. a lane that ran past 30s is a plain reap =="

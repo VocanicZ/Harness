@@ -295,8 +295,9 @@ ensure_checkout(){ local err
 label_ready(){
   local n="$1"
   log "labelling stray child #$n $HARNESS_LABEL_READY (names an open PRD as parent, had no label)"
-  gh issue edit "$n" -R "$SLUG" --add-label "$HARNESS_LABEL_READY" >/dev/null 2>&1 \
-    || log "label of #$n failed (will retry next poll)"
+  if gh issue edit "$n" -R "$SLUG" --add-label "$HARNESS_LABEL_READY" >/dev/null 2>&1; then
+    dispatch_wake_request label_ready   # #1183: the board snapshot does not show the label yet — wake the pool so the claim sees it
+  else log "label of #$n failed (will retry next poll)"; fi
 }
 
 # file_child <prd> — the FILE_CHILD dispatch action (#614). A small PRD (or any PRD when POOL=1) gets ONE child
@@ -381,7 +382,7 @@ spawn_orch(){   # <ACTION> <PAYLOAD> <PROMISE>
     SECURITY_AUDIT_ROUND="$saround" SECURITY_AUDIT_DIR="$STATE_DIR/security-audit/$UNIT/p$prd" \
     SECURITY_AUDIT_SKILL="$ENGINE_DIR/vendor/security-audit/SKILL.md" \
     WINDOWS_SUITE="$(windows_block _windows_suite.md PRD="$payload" SLUG="$SLUG")" \
-    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" > "$wd/.harness-task.md"
+    SWARM="$HARNESS_SWARM" SWARM_SUITE="$(swarm_suite_cmd)" REVIEW_FINDINGS="$(review_findings_cmd)" > "$wd/.harness-task.md"
   launch_claude "$(sess_orch "$UNIT" "$prd")" "$wd"
 }
 

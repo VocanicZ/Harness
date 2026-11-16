@@ -366,6 +366,7 @@ worker_owns_lane(){ worker_has_claim "$1"; }
 # worker_short_due <wid> — #594: tick short while this worker owns a lane and the last FULL step is under POLL
 # old. _LAST_FULL starts unset and a reap clears it, so the first step and the step after a reap are full.
 worker_short_due(){ local now; (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) || return 1
+  dispatch_wake_pending && return 1   # #1183: a lane ended / a PRD closed elsewhere — this worker takes a full step now, not after POLL
   [[ "${_LAST_FULL:-0}" =~ ^[0-9]+$ ]] && (( ${_LAST_FULL:-0} > 0 )) || return 1
   now="$(date +%s)"; (( now - _LAST_FULL < POLL )) || return 1
   worker_owns_lane "$1"; }
@@ -392,19 +393,33 @@ tend_knobs(){ local k def v n
       if [[ "$k" == HARNESS_TEND_TICK ]]; then printf -v "$k" %s "$((10#$v))"; continue; fi
       (( ${#n} <= 6 )) && (( 10#${n:-0} <= 86400 )) && { printf -v "$k" %s "$((10#${n:-0}))"; continue; }; fi
     log "WARN $k='$v' is not a non-negative integer — using the default $def" >&2; printf -v "$k" %s "$def"; done; }
-worker_step(){ local wid="$1" rc reaped=1
+# worker_nap <secs> — #1183: the idle sleep. An interruptible POLL (dispatch_nap: a lane end, PRD close or filed issue
+# ends it), and, while a wake's follow-up refreshes are due (_WAKE_RETRY), at most WAKE_RETRY_NAP seconds.
+WAKE_RETRY_NAP=20
+worker_nap(){ local secs="$1"
+  dispatch_wake_enabled && (( ${_WAKE_RETRY:-0} > 0 && secs > WAKE_RETRY_NAP )) && secs="$WAKE_RETRY_NAP"
+  dispatch_nap "$secs"; }
+worker_step(){ local wid="$1" rc reaped=1 woke=0 stamp
   _WORKER_ID="$wid"
   tend_knobs
   worker_short_due "$wid" && { worker_short_step "$wid"; return $?; }   # #594: own a live lane → tend it on the short tick
   roots_check       # #419 FIRST: its STATE_DIR / HARNESS_HOME deleted → exit 0, before any mkdir -p hides it
+  # #1183: read the wake stamp BEFORE anything this step reads, so an event written while it runs is still pending
+  # for the nap (never lost), and a stamp this step has seen does not cut the next nap short (never spins).
+  if dispatch_wake_enabled; then stamp="$(dispatch_wake_stamp)"; [[ "$stamp" != "${_WAKE_SEEN-$stamp}" ]] && woke=1; _WAKE_SEEN="$stamp"; fi
   gc_orphan_goals   # sweep .goal files whose session self-exited / has no reaper (Ralph + inject leaks)
   gh_rate_wait worker_hold_tick   # #183: rate-limited — sleep until the reset, tending lanes (gh-free) meanwhile
+  # #1183: after a wake the board snapshot is up to a poller cycle old: refresh it before the gate and the claim read it.
+  # A wake that left this worker idle is followed by two more refreshing steps (a nap of WAKE_RETRY_NAP s each), for
+  # the few seconds GitHub can take to show a merge's closed issue.
+  if (( woke )); then _WAKE_RETRY=2; snapshot_wake_refresh 0
+  elif (( ${_WAKE_RETRY:-0} > 0 )); then _WAKE_RETRY=$(( _WAKE_RETRY - 1 )); snapshot_wake_refresh 1; fi
   # PRD-B slice 3 (#72): with the host poller on (the default since #182), gate the tick on a fresh host
   # snapshot. Stale/missing/unknown-schema HOLDS it (no chores, no claim, no gh fallback); the gate relaunches
   # the poller and a deduped banner says so. Flag OFF: snapshot_gate returns 0.
   if ! snapshot_gate; then
     [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "snapshot stale — holding, restarting poller"; _IDLE_LOGGED=1; }
-    sleep "$POLL"; return 4
+    worker_nap "$POLL"; return 4
   fi
   usage_watch   # #194: read usage before claiming, so a crossing checkpoints + holds before this claim
   _LAST_FULL="$(date +%s)"
@@ -412,16 +427,16 @@ worker_step(){ local wid="$1" rc reaped=1
   worker_tend "$wid" && reaped=0   # #883: a reap here ran after this step's chores, so a slotless chore it unblocked needs another step
   worker_tick "$wid"; rc=$?
   case "$rc" in
-    0) _IDLE_LOGGED=0 ;;
+    0) _IDLE_LOGGED=0; _WAKE_RETRY=0 ;;
     2) [[ "${_IDLE_LOGGED:-0}" == 1 ]] || { log "all COMPLETE — idle, watching"; _IDLE_LOGGED=1; }
-       sleep "$POLL" ;;
+       _WAKE_RETRY=0; worker_nap "$POLL" ;;
     5) sleep "$(( POLL * 2 ))" ;;
-    6) sleep "$POLL" ;;
+    6) sleep "$(launch_retry_secs "$POLL")" ;;   # #1183: a failed start is retried when its launch backoff ends, so the consecutive failures that give a unit up come within minutes
     7) ;;   # #745: a closed issue skipped, not a failed spawn — claim again at once
     *) if worker_owns_lane "$wid"; then
-         (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || sleep "$POLL"   # #594; #799: 0 / overflow = POLL, never sleep 0
+         (( HARNESS_TEND_TICK > 0 && HARNESS_TEND_TICK < POLL )) && sleep "$HARNESS_TEND_TICK" || worker_nap "$POLL"   # #594; #799: 0 / overflow = POLL, never sleep 0
        elif (( reaped == 0 )); then :   # #883: no lane left after a reap in the full step → the next step is full and at once (CLOSE_PRD etc.); it sleeps POLL itself if it reaps nothing
-       else sleep "$POLL"; fi ;;
+       else worker_nap "$POLL"; fi ;;
   esac
   return "$rc"; }
 
@@ -430,5 +445,6 @@ main(){ local wid="${1:?usage: pool-worker.sh <worker-id>}"; UNIT="worker-$wid";
   log "pool worker $wid up — one lane at a time, at most $POOL at once, poll ${POLL}s"
   roots_watch   # #419: the resident loop ends by itself once the roots it serves are deleted
   seed_if_needed "$(fleet_unit)"   # once, at worker start
+  _WAKE_SEEN="$(dispatch_wake_stamp)"; _WAKE_RETRY=0   # #1183: a wake written before this worker came up is not its to act on
   while true; do worker_step "$wid"; done; }
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
