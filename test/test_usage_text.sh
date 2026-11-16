@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 source "$HERE/helpers.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-export HOME="$TMP/home" HARNESS_HOME="$TMP/hh"; mkdir -p "$HOME" "$HARNESS_HOME"
+export HOME="$TMP/home"; mkdir -p "$HOME"; pin_host_home "$TMP/hh"; mkdir -p "$HARNESS_HOME"
 U="$(bash "$ROOT/bin/harness" help 2>&1)"
 DOC="$ROOT/docs/reference.md"
 has(){ grep -qF -- "$2" <<<"$1"; }
