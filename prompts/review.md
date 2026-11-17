@@ -100,6 +100,12 @@ PHASE 1 — CRITERIA GATE (always).
    as text, and the fuzz found 24 divergences): go through the original request sentence by sentence; every concrete rule in it
    (sort order, numeric against text, number format and precision, exit status, field names, types) gets ONE command or call on a
    small realistic input, and a rule you cannot trace to a passing check is a finding.
+   RE-REVIEW (#1244). When PRD #{{PRD}} already carries a `harness-prd-suite sha=<sha>` comment, an earlier pass of this
+   review has run: it read the whole project and ran the whole checklist at `<sha>`, filed what it found, and the pool
+   has fixed that since. A pass that re-reads every file and re-derives every rule cost 3 minutes a round for nothing
+   new. You: run the suite; re-run each earlier finding's own repro; read `git diff <sha>..HEAD` and what it touches, not
+   the files it left alone; run the probe commands and the spec-literal rules that diff can change. Then sign off or
+   file, as below. Do not start a sub-agent for it.
    When you do use one: START THE REVIEW SUB-AGENT FIRST, before any suite run: it works while the suite runs, so the two
    overlap instead of queueing. Have ONE review sub-agent do the probe and a thorough pass (correctness, edge cases,
    the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate numbers if this is a spike).

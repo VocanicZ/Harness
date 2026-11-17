@@ -1,0 +1,40 @@
+{
+  "bn2145b": {
+    "sessions": 3,
+    "tokens": {},
+    "issues_closed": 2,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01": {
+        "claims": 3,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 2,
+        "init": 1,
+        "which": 8,
+        "explain": 2
+      },
+      "which": 8,
+      "changed_nodes": 1210,
+      "round1": 568,
+      "round2": 0,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 10
+      },
+      "wall_ms": 2805,
+      "selective": 8,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

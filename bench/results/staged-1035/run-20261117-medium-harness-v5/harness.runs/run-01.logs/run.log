@@ -1,0 +1,20 @@
+2026-11-17T10:25:32Z $ gh api user -q .login -> 0
+2026-11-17T10:25:32Z run run-20261117-medium-harness-v5 arm harness repo VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01
+2026-11-17T10:25:37Z $ gh repo create VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01 --private --description benchmark run: deleted after -> 0
+2026-11-17T10:25:38Z $ gh api -X PUT repos/VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01/actions/permissions -F enabled=false -> 0
+2026-11-17T10:25:40Z $ gh repo clone VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01 /tmp/hzt-2734055227/bench-run-mknveivk/clone -> 0
+2026-11-17T10:25:40Z $ git -c user.name=bench -c user.email=bench@localhost checkout -B main -> 0
+2026-11-17T10:25:40Z $ git add brief.md -> 0
+2026-11-17T10:25:40Z $ git -c user.name=bench -c user.email=bench@localhost commit -m brief -> 0
+2026-11-17T10:25:43Z $ git push -u origin main -> 0
+2026-11-17T10:25:43Z isolated claude config /tmp/hzt-2734055227/bench-run-mknveivk/claude-config (login: /home/claude/.claude-switch/accounts/main/.credentials.json); engine skills 19
+2026-11-17T10:45:29Z every PRD is closed while the front door still runs: ending its turn
+2026-11-17T10:45:32Z every PRD is closed: done
+2026-11-17T10:45:32Z $ /home/claude/harness-dev/.harness/worktrees/harness-i1244/bin/harness stop --state-dir /tmp/hzt-2734055227/bench-run-mknveivk/clone/.harness -> 0
+2026-11-17T10:45:33Z $ /home/claude/harness-dev/.harness/worktrees/harness-i1244/bin/harness stats --json --state-dir /tmp/hzt-2734055227/bench-run-mknveivk/clone/.harness -> 0
+2026-11-17T10:45:38Z $ gh repo clone VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01 /tmp/hzt-2734055227/bench-run-mknveivk/graded -> 0
+2026-11-17T10:47:21Z grade -> 0
+2026-11-17T10:48:55Z quality -> ok
+2026-11-17T10:49:02Z coverage -> {'line_pct': 98.8, 'branch_pct': 97.6, 'total_pct': 98.5, 'tests': 'unittest'}
+2026-11-17T10:49:03Z $ gh repo delete VocanicZ/bench-run-20261117-medium-harness-v5-harness-r01 --yes -> 0
+2026-11-17T10:49:03Z repo deleted: True
