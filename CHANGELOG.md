@@ -8,7 +8,7 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 - Measured on the six #1213 runs (`bench/results/staged-1035/README.md`): every PRD review spent 60% of its dollars ($0.7-1.7 of $1.4-2.9) on an Opus probe sub-agent that re-read the project, waited on it for about 5 minutes, then filed one I/O defect (closed pipe, oversized number, empty option value) that cost a whole extra implementer lane ($0.3-0.7, 2-6 minutes).
 - `prompts/impl.md` step 2b: a lane that changes a user-visible interface runs the review's probe checklist once before it commits and fixes the defects in the same lane, with a test.
-- `prompts/review.md` + new `prompts/_probe.md`: the reviewer runs the probe itself, after the suite. A sub-agent is for a project over 3000 source lines AND a suite over 2 minutes. The checklist gains an empty option value, a 5000-digit number and stdout that cannot be written. Models are unchanged.
+- `prompts/review.md` + new `prompts/_probe.md`: the reviewer runs the probe itself, after the suite, plus the sub-agent's other job, a spec-literal pass over the original request (every concrete rule gets one check; the implementer does the same before it commits). A sub-agent is for a project over 3000 source lines AND a suite over 2 minutes. The checklist gains an empty option value, a 5000-digit number and stdout that cannot be written. Models are unchanged.
 
 ### A PR the review opens no longer sits open with no owner; `harness status` flags such a PR `orphaned` (#1233)
 

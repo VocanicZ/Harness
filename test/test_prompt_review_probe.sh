@@ -52,6 +52,9 @@ assert_ok "slow-suite bar is 2 minutes" grep -qF 'takes over 2 minutes' <<<"$R"
 inline="$(pos_of 'So you run it YOURSELF' "$R")"; probe="$(pos_of 'THE PROBE: it ALWAYS' "$R")"
 assert_ok "the who-runs-it rule (@$inline) comes before the checklist (@$probe)" test "$inline" -lt "$probe"
 
+assert_ok "the reviewer's own pass includes the spec-literal check" grep -qF 'go through the original request sentence by sentence' <<<"$R"
+assert_ok "a rule with no passing check is a finding" grep -qF 'a rule you cannot trace to a passing check is a finding' <<<"$R"
+
 echo "-- #1239: the implementer lane runs the same checklist before it commits"
 I="$(render "$P/impl.md" ISSUE=5 SLUG=acme/widget BRANCH=issue/5 LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
   LABEL_READY=ready-for-agent PROMISE="ISSUE 5 DONE" | flat)"
@@ -61,6 +64,7 @@ assert_ok "impl checklist has the 5000-digit number and /dev/full" grep -qF 'a 5
 assert_ok "impl fixes defects in the same lane with a test" grep -qF 'Fix every defect it shows in THIS lane and add a test for it' <<<"$I"
 assert_ok "impl pass is only for a user-visible interface" grep -qF 'only when your change alters something a user feeds in or sees come out' <<<"$I"
 assert_ok "impl: a dash-led value where a number is expected is that value, not an unknown option" grep -qF 'never the parser'"'"'s unknown-option error' <<<"$I"
+assert_ok "impl checks every concrete rule of the request has a test" grep -qF 'every concrete rule in it (sort order, numeric against text' <<<"$I"
 assert_ok "impl checklist has the closed pipe" grep -qF 'output piped into `head -1`' <<<"$I"
 a="$(pos_of 'ROBUSTNESS PASS' "$I")"; b="$(pos_of 'Never delete, skip, or weaken a test' "$I")"
 assert_ok "the pass (@$a) comes before the never-weaken rule and the commit (@$b)" test "$a" -lt "$b"

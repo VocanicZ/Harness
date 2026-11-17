@@ -96,6 +96,10 @@ PHASE 1 — CRITERIA GATE (always).
    2-issue job, #1239). So you run it YOURSELF, in this session, after the suite: you have read the code already. Use a
    sub-agent only when BOTH hold: the source under review is over 3000 lines (`git ls-files | xargs wc -l`, tests left
    out) AND the suite is slow (the swarm helper below runs it, or a local run takes over 2 minutes).
+   Running it yourself includes the sub-agent's other job, the spec-literal pass (#1239: without it a review signed off a report sorted
+   as text, and the fuzz found 24 divergences): go through the original request sentence by sentence; every concrete rule in it
+   (sort order, numeric against text, number format and precision, exit status, field names, types) gets ONE command or call on a
+   small realistic input, and a rule you cannot trace to a passing check is a finding.
    When you do use one: START THE REVIEW SUB-AGENT FIRST, before any suite run: it works while the suite runs, so the two
    overlap instead of queueing. Have ONE review sub-agent do the probe and a thorough pass (correctness, edge cases,
    the criteria the spec set for {{PROJECT}} — e.g. go/no-go gate numbers if this is a spike).
