@@ -1064,6 +1064,68 @@ def test_calibration_counts_every_transcript_of_the_account_not_only_the_event_l
         assert w["source"] == "fit" and true_usd_per_pct / 2 <= w["usd_per_pct"] <= true_usd_per_pct * 2, w
 
 
+def _ledger_path(main):
+    return os.path.join(main, fc.NESTED_FILE)
+
+
+BAD_SPEND_LINES = ['{"dir": "/gone", "spend": 5}', '{"dir": "/gone", "spend": "abc"}', '{"dir": "/gone", "spend": [[1]]}',
+                   '{"dir": "/gone", "spend": [[null]]}', '{"dir": "/gone", "spend": [[1, null]]}',
+                   '{"dir": "/gone", "spend": [[true, 1]]}', '{"dir": "/gone", "spend": [[1e400, 1]]}',
+                   '{"dir": "/gone", "spend": [[1, NaN]]}']
+
+
+def test_a_malformed_spend_entry_in_the_nested_ledger_is_skipped_and_counted_not_a_crash():
+    for bad in BAD_SPEND_LINES:
+        with tmp() as d:
+            main, nested, events = extra_spend_fixture(d)
+            with open(_ledger_path(main), "a") as fh:
+                fh.write(bad + "\n")
+            bodies = os.path.join(d, "bodies.json"); open(bodies, "w").write("[]")
+            rc, js, err = run_cli(["5", "-R", W, "--events", events, "--bodies", bodies, "--json"], main)
+            assert rc == 0, (bad, rc, err)
+            w = json.loads(js)["calibration"]["windows"][0]
+            assert w["source"] == "fit" and w["usd_per_pct"] == 21.0, (bad, w)
+            assert "skipped 1 malformed entr" in err and "nested-config ledger" in err, (bad, err)
+            fc._prune_ledger(main)   # the rewrite does not crash on it either, and drops it
+            assert bad not in open(_ledger_path(main)).read(), bad
+
+
+def test_a_bom_at_the_start_of_the_nested_ledger_does_not_drop_its_first_entry():
+    with tmp() as d:
+        main, nested, events = extra_spend_fixture(d)
+        fc.settle_nested(main, nested)   # a second, settled entry; the registered live line stays first
+        shutil.rmtree(os.path.dirname(nested))
+        raw = open(_ledger_path(main), "rb").read()
+        open(_ledger_path(main), "wb").write(b"\xef\xbb\xbf" + raw)
+        assert len(fc._ledger(main)) == len(raw.splitlines()), fc._ledger(main)
+        row = next(c for c in _with_dirs(main, lambda: fc.calibrate(fc.st.load_events(events))) if c["window"] == "seven_day")
+        assert row["central"] == 21.0, row
+        fc._prune_ledger(main)
+        assert not open(_ledger_path(main), "rb").read().startswith(b"\xef\xbb\xbf")
+    with tmp() as d:   # the live registered nested dir as the BOM'd first line
+        main, nested, events = extra_spend_fixture(d)
+        raw = open(_ledger_path(main), "rb").read()
+        open(_ledger_path(main), "wb").write(b"\xef\xbb\xbf" + raw)
+        row = next(c for c in _with_dirs(main, lambda: fc.calibrate(fc.st.load_events(events))) if c["window"] == "seven_day")
+        assert row["central"] == 21.0, row
+
+
+def test_a_usage_reading_outside_0_100_or_not_finite_is_rejected_not_fitted():
+    for bad in (1000, -5, 100.5, 1e400, -1e400, float("nan")):
+        with tmp() as d:
+            main, nested, events = extra_spend_fixture(d)
+            evs = fc.st.load_events(events)
+            evs.append(reading("main", "seven_day", "09:00", bad, 1_800_000_000))
+            evfile = os.path.join(d, "bad.jsonl")
+            write_lines(evfile, [json.dumps(e).replace("Infinity", "1e400") for e in evs])
+            assert ("main", "seven_day") in fc.readings(evs) and all(0 <= r[1] <= 100 for r in fc.readings(evs)[("main", "seven_day")]), bad
+            bodies = os.path.join(d, "bodies.json"); open(bodies, "w").write("[]")
+            rc, js, err = run_cli(["5", "-R", W, "--events", evfile, "--bodies", bodies, "--json"], main)
+            w = json.loads(js)["calibration"]["windows"][0]
+            assert w["source"] == "fit" and w["usd_per_pct"] == 21.0, (bad, w)
+            assert "skipped 1 usage reading(s) outside 0-100" in err, (bad, err)
+
+
 def test_a_nested_config_dir_deleted_after_its_run_still_counts_through_the_account_record():
     with tmp() as d:
         main, nested, events = extra_spend_fixture(d)

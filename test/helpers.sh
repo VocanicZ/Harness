@@ -257,6 +257,11 @@ unset_inherited_config(){ unset $HARNESS_CONFIG_VARS; }
 # and kills it (test_engine_roll.sh red at the e902e61 gate). A test that wants a stamped process sets it inline on that process.
 HARNESS_LANE_IDENTITY_VARS="HARNESS_SESSION HARNESS_ISSUE HARNESS_PRD HARNESS_KIND HARNESS_PREFIX HARNESS_ENGINE_STAMP HARNESS_WAIT_FILE RTDD_EVENT_LOG TMUX TMUX_PANE"
 unset $HARNESS_LANE_IDENTITY_VARS
+# …and the lane's git config (#1247): ensure_safe (#1115) exports its safe.directory entries as GIT_CONFIG_COUNT / GIT_CONFIG_KEY_<n> /
+# GIT_CONFIG_VALUE_<n>, and a lane inherits them. A test run inside a lane then saw the lane's checkout in the entry-0 slot (test_stats'
+# "sets the worktree's safe.directory by -e" read the lane's path) and its env counts were 4 too high. ensure_safe appends after an inherited
+# COUNT, so the inherited entries also shift every index a test asserts. A test that wants git config env exports its own after sourcing.
+unset GIT_CONFIG_COUNT $(compgen -e | grep -E '^GIT_CONFIG_(KEY|VALUE)_[0-9]+$' || true)
 # …and the user skill dirs a sandboxed host pins (#921). A winsma suite run exports HARNESS_USER_SKILLS (and a lane may export the agy/codex
 # ones) so nothing reaches the real home; a test that points HOME at its own fixture then installs skills into the host's pinned dir and reads
 # its own empty ~/.claude/skills (setup, rtdd, update, ensure_skills). make_env and each test that wants one re-export its own after this.

@@ -379,7 +379,10 @@ def readings(events):
         t = st.parse_ts(e.get("ts"))
         try:
             pct, reset = float(e.get("pct")), int(e.get("resets_at") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not (math.isfinite(pct) and 0.0 <= pct <= 100.0):   # a % of a window is 0-100: anything else is no reading
+            SKIPPED["reading"].add((e.get("ts"), str(e.get("account")), str(e["window"]), repr(e.get("pct"))))
             continue
         if t is not None:
             by.setdefault((norm_account(e.get("account")), str(e["window"])), []).append((t, pct, reset))
@@ -495,16 +498,44 @@ def settle_nested(account_dir, config_dir):
         pass
 
 
+SKIPPED = {"ledger": set(), "reading": set()}   # what the readers above refused, deduped (they run many times per forecast)
+
+
+def print_skipped(prog):
+    """Say on stderr what _ledger / readings refused (as a malformed event line is, #785): it is missing from the fit."""
+    if SKIPPED["ledger"]:
+        print(f"{prog}: skipped {len(SKIPPED['ledger'])} malformed entr(ies) of the nested-config ledger "
+              f"({NESTED_FILE}); the fit excludes them", file=sys.stderr)
+    if SKIPPED["reading"]:
+        print(f"{prog}: skipped {len(SKIPPED['reading'])} usage reading(s) outside 0-100 %; the fit excludes them",
+              file=sys.stderr)
+
+
+def _finite(v):
+    try:
+        return not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+    except OverflowError:   # an int too big for a float
+        return False
+
+
+def _spend_ok(spend):
+    return isinstance(spend, list) and all(isinstance(b, list) and len(b) == 2 and _finite(b[0]) and _finite(b[1]) for b in spend)
+
+
 def _ledger(account_dir):
     out = []
+    path = os.path.join(account_dir, NESTED_FILE)
     try:
-        with open(os.path.join(account_dir, NESTED_FILE), encoding="utf-8", errors="replace") as fh:
-            for line in fh:
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:   # -sig: a BOM must not eat the first entry
+            for n, line in enumerate(fh):
                 try:
                     e = json.loads(line)
                 except ValueError:
                     continue
                 if isinstance(e, dict) and isinstance(e.get("dir"), str):
+                    if "spend" in e and not _spend_ok(e["spend"]):
+                        SKIPPED["ledger"].add((path, n))
+                        continue
                     out.append(e)
     except OSError:
         pass
@@ -517,7 +548,7 @@ def _prune_ledger(account_dir):
     horizon = time.time() - LEDGER_KEEP_DAYS * 86400
     keep = [e for e in _ledger(account_dir)
             if (os.path.isdir(e["dir"]) if "spend" not in e else
-                any(isinstance(b, list) and b and isinstance(b[0], (int, float)) and b[0] >= horizon for b in e["spend"]))]
+                any(b[0] >= horizon for b in e["spend"]))]
     path = os.path.join(account_dir, NESTED_FILE)
     tmp = path + f".{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -1011,6 +1042,7 @@ def main(argv=None):
     if bad[0]:   # #785: spend in an unparseable line is missing from the forecast's basis — say so, on stderr
         print(f"harness forecast: skipped {bad[0]} event line(s) that could not be parsed; the forecast excludes them",
               file=sys.stderr)
+    SKIPPED["ledger"].clear(); SKIPPED["reading"].clear()
     try:
         repo, unit = resolve_repo(a.issue, a.repo, a.unit, events, os.environ.get("STATE_DIR"))
     except ValueError as e:
@@ -1036,6 +1068,7 @@ def main(argv=None):
               f"(need a finite number >= {MIN_USD_PER_PCT:g}): ignored", file=sys.stderr)
     f = forecast(events, repo, a.issue, body, bodies, unit, fallback=usd_per_pct_setting(sd), invalid=bad)
     print(json.dumps(f, indent=2) if a.json else render(f))
+    print_skipped("harness forecast")
     if f["basis"]["tier"] == "none":
         print("harness forecast: no past lanes on this host to forecast from", file=sys.stderr)
         return 1

@@ -271,6 +271,17 @@ assert_eq "$(HARNESS_WAIT_FILE=/x/lane.wait bash -c 'source "$1"; echo "${HARNES
 assert_eq "$(HARNESS_WAIT_FILE=/x/lane.wait bash -c 'source "$1"; export HARNESS_WAIT_FILE=/y; pin_host_home /pinned/h; echo "${HARNESS_WAIT_FILE-<unset>}"' _ "$HERE/helpers.sh")" "<unset>" \
   "pin_host_home drops a HARNESS_WAIT_FILE set after sourcing"
 
+# #1247: a lane's safe.directory entries (ensure_safe, #1115) arrive as GIT_CONFIG_COUNT / GIT_CONFIG_KEY_<n> / GIT_CONFIG_VALUE_<n>. Left in a test's
+# environment they shifted test_stats' entry-0 value and its -e counts, so the suite was red from inside a lane. Sourcing helpers.sh drops every one
+# (any n), and run.sh -- which sources it -- hands its tests none; a test that exports its own after sourcing keeps it.
+assert_eq "$(GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/lane/checkout GIT_CONFIG_KEY_1=safe.directory GIT_CONFIG_VALUE_1=/other GIT_CONFIG_KEY_12=x.y GIT_CONFIG_VALUE_12=z \
+  bash -c 'source "$1"; env | grep -c "^GIT_CONFIG_\(COUNT\|KEY_[0-9]*\|VALUE_[0-9]*\)="' _ "$HERE/helpers.sh")" "0" \
+  "sourcing helpers.sh drops the lane's GIT_CONFIG_COUNT / GIT_CONFIG_KEY_<n> / GIT_CONFIG_VALUE_<n> (its safe.directory entries must not reach a test)"
+assert_eq "$(GIT_CONFIG_GLOBAL=/g GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a.b GIT_CONFIG_VALUE_0=c bash -c 'source "$1"; echo "${GIT_CONFIG_GLOBAL-}|${GIT_CONFIG_NOSYSTEM-}"; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always; git config --get-all protocol.file.allow' _ "$HERE/helpers.sh")" "/g|1
+always" \
+  "GIT_CONFIG_GLOBAL / _NOSYSTEM survive, and a test's own GIT_CONFIG_* exported after sourcing works"
+assert_eq "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/lane/checkout bash -c 'source "$1"; bash -c "env | grep -c ^GIT_CONFIG_KEY_0="' _ "$HERE/helpers.sh")" "0" \
+  "a child of a shell that sourced helpers.sh (run.sh's position) carries no GIT_CONFIG_KEY_0"
 
 # …and the lint above checks that a private dir is SET, not that it still EXISTS at every call (#649): tmux silently uses the host's
 # /tmp/tmux-$UID/ when TMUX_TMPDIR names a deleted dir. The fail-closed guard (test/guard/tmux) is what covers that; the behaviour is

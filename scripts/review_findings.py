@@ -246,6 +246,26 @@ def _prd(v):
     return n
 
 
+def _label(v):
+    if not v.strip():
+        raise argparse.ArgumentTypeError(f"--label must not be empty (got {v!r})")
+    return v
+
+
+def read_findings(src):
+    """The findings text from FILE, or stdin for "-": raw bytes, strict UTF-8, one leading BOM dropped, so both
+    sources behave the same and bad bytes are an error, not surrogates that crash later."""
+    if src == "-":
+        data = sys.stdin.buffer.read()
+    else:
+        with open(src, "rb") as fh:
+            data = fh.read()
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise FindingsError("the findings are not valid UTF-8")
+
+
 def main(argv=None):
     import stats
     ap = stats.arg_parser(prog="review_findings", description=__doc__.split("\n\n")[0])
@@ -256,10 +276,10 @@ def main(argv=None):
         s.add_argument("--input", default="-", help="the findings JSON file (default: stdin)")
         if name == "file":
             s.add_argument("-R", dest="repo", required=True)
-            s.add_argument("--label", required=True)
+            s.add_argument("--label", required=True, type=_label)
     a = ap.parse_args(argv)
     try:
-        text = sys.stdin.read() if a.input == "-" else open(a.input, encoding="utf-8-sig").read()
+        text = read_findings(a.input)
         try:
             raw = json.loads(text) if text.strip() else []
         except ValueError as e:
