@@ -1,6 +1,8 @@
    THE PROBE: it ALWAYS runs a fixed robustness checklist against the real interface, not only
    the cases the issue or PRD lists. Pick the checklist that suits the interface:
-   - CLI: a value starting with a dash, both positional and as an option value (`-x`, `--flag`, `-`); output piped
+   - CLI: a value starting with a dash, both positional and as an option value (`-x`, `--flag`, `-`), including where a number or
+     free text is expected (`add ... -abc`): it is read as that value and fails like any other bad one (the spec's exit status),
+     never as an unknown option with the parser's usage error; output piped
      into `head -1` (a closed pipe must not print a traceback or error); a UTF-8 BOM at the start of the input;
      CRLF and lone-CR line endings; a form feed (U+000C) and U+2028 inside a field; an empty option value
      (`--opt=`, `--opt ""`); a number of 5000 digits; stdout that cannot be written (`> /dev/full`).

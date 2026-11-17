@@ -39,6 +39,7 @@ assert_ok "CLI: CRLF and lone CR" grep -qF 'CRLF and lone-CR line endings' <<<"$
 assert_ok "CLI: form feed and U+2028 in a field" grep -qF 'a form feed (U+000C) and U+2028 inside a field' <<<"$R"
 assert_ok "other interfaces get an interface-appropriate checklist" \
   grep -qF 'write the equivalent checklist for THAT interface' <<<"$R"
+assert_ok "CLI: a dash-led value where a number or text is expected" grep -qF 'including where a number or free text is expected' <<<"$R"
 assert_ok "CLI: empty option value" grep -qF 'an empty option value' <<<"$R"
 assert_ok "CLI: 5000-digit number" grep -qF 'a number of 5000 digits' <<<"$R"
 assert_ok "CLI: stdout that cannot be written" grep -qF 'stdout that cannot be written' <<<"$R"
@@ -59,6 +60,7 @@ assert_ok "impl runs the review's probe checklist" grep -qF "run the PRD review'
 assert_ok "impl checklist has the 5000-digit number and /dev/full" grep -qF 'a 5000-digit number, stdout that cannot be written' <<<"$I"
 assert_ok "impl fixes defects in the same lane with a test" grep -qF 'Fix every defect it shows in THIS lane and add a test for it' <<<"$I"
 assert_ok "impl pass is only for a user-visible interface" grep -qF 'only when your change alters something a user feeds in or sees come out' <<<"$I"
+assert_ok "impl: a dash-led value where a number is expected is that value, not an unknown option" grep -qF 'never the parser'"'"'s unknown-option error' <<<"$I"
 assert_ok "impl checklist has the closed pipe" grep -qF 'output piped into `head -1`' <<<"$I"
 a="$(pos_of 'ROBUSTNESS PASS' "$I")"; b="$(pos_of 'Never delete, skip, or weaken a test' "$I")"
 assert_ok "the pass (@$a) comes before the never-weaken rule and the commit (@$b)" test "$a" -lt "$b"
