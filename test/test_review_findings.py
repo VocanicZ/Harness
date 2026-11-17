@@ -226,6 +226,57 @@ def test_cli_file_makes_exactly_one_gh_issue_create():
         check(r.returncode == 3 and "could not create the issue: gh: no auth" in r.stderr, "a failing gh: exit 3 naming gh's message")
 
 
+def run_bytes(args, data, env=None):
+    e = dict(os.environ, **(env or {}))
+    return subprocess.run([sys.executable, PY] + args, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=e)
+
+
+def stub_gh(d_):
+    stub = os.path.join(d_, "bin")
+    os.mkdir(stub)
+    gh = os.path.join(stub, "gh")
+    with open(gh, "w") as fh:
+        fh.write('#!/usr/bin/env bash\n{ printf "%s\\n" "$*"; } >> "$GH_LOG"\necho https://github.com/acme/widget/issues/42\n')
+    os.chmod(gh, os.stat(gh).st_mode | stat.S_IEXEC)
+    return {"PATH": stub + os.pathsep + os.environ["PATH"], "GH_LOG": os.path.join(d_, "gh.log")}
+
+
+def test_invalid_utf8_findings_are_one_line_exit_2():
+    bad = b'[{"title":"\xff\xfe x"}]'
+    with tempfile.TemporaryDirectory() as d_:
+        path = os.path.join(d_, "b.json")
+        with open(path, "wb") as fh:
+            fh.write(bad)
+        r = run_bytes(["plan", "--prd", "5", "--input", path], b"")
+        check(r.returncode == 2 and b"not valid UTF-8" in r.stderr and b"Traceback" not in r.stderr, "invalid UTF-8 in --input: exit 2, one line, no traceback")
+        r = run_bytes(["plan", "--prd", "5"], bad)
+        check(r.returncode == 2 and b"not valid UTF-8" in r.stderr and b"Traceback" not in r.stderr and not r.stdout, "invalid UTF-8 on stdin (plan): exit 2, no surrogates in the plan")
+        env = stub_gh(d_)
+        r = run_bytes(["file", "--prd", "5", "-R", "acme/w", "--label", "L"], bad, env)
+        check(r.returncode == 2 and b"not valid UTF-8" in r.stderr and b"Traceback" not in r.stderr and not os.path.exists(env["GH_LOG"]),
+              "invalid UTF-8 on stdin (file): exit 2, gh never called")
+
+
+def test_bom_accepted_on_stdin_and_input_alike():
+    data = b"\xef\xbb\xbf[]"
+    with tempfile.TemporaryDirectory() as d_:
+        path = os.path.join(d_, "bom.json")
+        with open(path, "wb") as fh:
+            fh.write(data)
+        a = run_bytes(["plan", "--prd", "5", "--input", path], b"")
+        b = run_bytes(["plan", "--prd", "5"], data)
+        check(a.returncode == 0 and b.returncode == 0 and a.stdout == b.stdout, "a UTF-8 BOM is accepted from stdin exactly as from --input")
+
+
+def test_empty_label_is_exit_2():
+    with tempfile.TemporaryDirectory() as d_:
+        env = stub_gh(d_)
+        for bad in ("", "  "):
+            r = run(["file", "--prd", "5", "-R", "acme/w", "--label", bad], json.dumps([F(1)]), env)
+            check(r.returncode == 2 and "--label must not be empty" in r.stderr and "Traceback" not in r.stderr and not os.path.exists(env["GH_LOG"]),
+                  f"--label {bad!r}: exit 2 naming the flag, gh never called")
+
+
 def test_tier_toml_error_is_one_line():
     with tempfile.TemporaryDirectory() as d_:
         bad = os.path.join(d_, "tier.toml")

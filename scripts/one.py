@@ -43,15 +43,21 @@ marking a live query's reading (#451: HARNESS_USAGE_CMD, a non-claude adapter), 
 Text output is the forecast, then the arithmetic; --json is the gate dict with the forecast under
 "forecast". Exit status: 0 APPROVE, 1 DENY, 2 bad input.
 """
-import importlib.util, json, os, sys, time
+import importlib.util, json, math, os, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+_FORECAST = []
+
+
 def _forecast():
+    if _FORECAST:   # one module, so what its readers skipped (print_skipped) is one tally
+        return _FORECAST[0]
     spec = importlib.util.spec_from_file_location("forecast", os.path.join(HERE, "forecast.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    _FORECAST.append(mod)
     return mod
 
 
@@ -204,16 +210,29 @@ def spend_pct(account, window, since):
     return round(usd / per, 2) if per else "uncalibrated"
 
 
+def _finite_epoch(v):
+    """argparse type: a finite number (nan / inf would turn the spend into 0 or everything), else exit 2 naming it."""
+    import argparse
+    try:
+        x = float(v)
+    except ValueError:
+        x = float("nan")
+    if not math.isfinite(x):
+        raise argparse.ArgumentTypeError(f"{v!r} is not a finite epoch")
+    return x
+
+
 def _spend_main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="harness one spend", description="% of a window spent since an epoch (#659)")
     ap.add_argument("--account", required=True)
     ap.add_argument("--window", required=True)
-    ap.add_argument("--since", type=float, required=True)
+    ap.add_argument("--since", type=_finite_epoch, required=True)
     a = ap.parse_args(argv)
     r = spend_pct(a.account, a.window, a.since)
     if r is not None:
         print(r if isinstance(r, str) else f"{r:g}")
+    _forecast().print_skipped("harness one spend")
     return 0
 
 

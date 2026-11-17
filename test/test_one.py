@@ -541,6 +541,52 @@ def test_cli_gate_spend_flag_keeps_the_pad_when_nothing_can_be_counted():
             "--spend with no config dir to count: the existing pad applies, nothing else changes"
 
 
+# --- one.py spend: a malformed nested ledger, a non-finite --since -------------------------------
+def _spend_cli(argv, cfg):
+    import contextlib, io
+    saved = os.environ.get("HARNESS_CLAUDE_CONFIG_DIRS")
+    os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = cfg
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = one.main(["spend"] + argv)
+            except SystemExit as e:
+                rc = e.code
+    finally:
+        if saved is None: os.environ.pop("HARNESS_CLAUDE_CONFIG_DIRS", None)
+        else: os.environ["HARNESS_CLAUDE_CONFIG_DIRS"] = saved
+    return rc, out.getvalue(), err.getvalue()
+
+
+def test_spend_skips_and_counts_a_malformed_nested_ledger_entry():
+    with tempfile.TemporaryDirectory() as d:
+        main = os.path.join(d, "main")
+        os.makedirs(os.path.join(main, "projects"))
+        ok = {"dir": os.path.join(d, "gone"), "spend": [[1_800_000_000, 5.0]]}
+        for bad in ('{"dir": "/gone", "spend": 5}', '{"dir": "/gone", "spend": "abc"}', '{"dir": "/gone", "spend": [[1]]}',
+                    '{"dir": "/gone", "spend": [[null]]}'):
+            with open(os.path.join(main, fc_mod.NESTED_FILE), "w") as fh:
+                fh.write(json.dumps(ok) + "\n" + bad + "\n")
+            one._FORECAST.clear()
+            saved = os.environ.get("HARNESS_ONE_USD_PER_PCT"); os.environ["HARNESS_ONE_USD_PER_PCT"] = "5"
+            try:
+                rc, out, err = _spend_cli(["--account", "main", "--window", "seven_day", "--since", "1"], main)
+            finally:
+                if saved is None: os.environ.pop("HARNESS_ONE_USD_PER_PCT")
+                else: os.environ["HARNESS_ONE_USD_PER_PCT"] = saved
+            assert (rc, out.strip()) == (0, "1"), (bad, rc, out, err)   # $5 at $5 per 1% from the good entry
+            assert "skipped 1 malformed entr" in err, (bad, err)
+
+
+def test_spend_rejects_a_non_finite_since_with_exit_2_naming_it():
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "main", "projects"))
+        for v in ("nan", "inf", "-inf", "1e400"):
+            rc, out, err = _spend_cli(["--account", "main", "--window", "seven_day", f"--since={v}"], os.path.join(d, "main"))
+            assert rc == 2 and out == "" and "--since" in err and repr(v) in err, (v, rc, out, err)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
