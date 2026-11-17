@@ -1,0 +1,1318 @@
+{
+  "passed": 114,
+  "failed": 0,
+  "total": 114,
+  "details": {
+    "install": "pip",
+    "tests": [
+      {
+        "id": "BrokenPipeTests.test_report_piped_to_a_reader_that_stops",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "BrokenPipeTests.test_stock_piped_to_a_reader_that_stops",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_duplicate_skus",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_error_carries_line_attribute_and_message",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_field_count_and_sku_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_first_mistake_is_reported",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_line_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_name_and_price_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogErrorTests.test_reorder_and_tax_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogParseTests.test_example_and_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogParseTests.test_field_values",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogParseTests.test_ignored_lines_and_empty_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogParseTests.test_line_endings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogParseTests.test_sku_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CatalogParseTests.test_tax_classes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CommandLineTests.test_arguments_and_options",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CommandLineTests.test_arguments_taken_as_typed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CommandLineTests.test_checked_before_files_are_read",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CommandLineTests.test_mistyped_dates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CommandLineTests.test_no_command_or_unknown_command",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "CommandLineTests.test_the_files_are_read_before_the_request_is_carried_out",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "DirOptionTests.test_default_and_relative",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "DirOptionTests.test_dir_position",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "DirOptionTests.test_errors_name_the_file_found_in_dir",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "DirOptionTests.test_writes_go_to_the_dir",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ExitStatusTests.test_good_runs_and_empty_files",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ExitStatusTests.test_mistakes_in_catalogue_and_movements",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ExitStatusTests.test_mistakes_in_orders",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ExitStatusTests.test_read_only_commands",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ExitStatusTests.test_refusals_are_exit_1_with_nothing_on_stdout",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ExitStatusTests.test_unreadable_is_exit_2",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FileFormatTests.test_bom_and_crlf",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FileFormatTests.test_endings_and_blank_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FileFormatTests.test_utf8_and_odd_separators",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilesNeededTests.test_others_read_what_they_need",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FilesNeededTests.test_the_shelves_commands_do_not_read_the_orders",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_date_against_the_order_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_earlier_shipments_by_note",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_file_handling",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_later_dips_and_same_day",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_later_movements_limit_the_shipment",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_open_and_partial_status",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_partial_then_complete",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_shortage",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "FulfilCliTests.test_unknown_order_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "HistoryCliTests.test_empty_and_unknown",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "HistoryCliTests.test_odd_characters_in_a_note_stay_in_the_note",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "HistoryCliTests.test_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "InvoiceCliTests.test_follows_what_shipped",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "InvoiceCliTests.test_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "InvoiceCliTests.test_partial_and_full",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "InvoiceCliTests.test_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "InvoiceCliTests.test_which_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "LowCliTests.test_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "LowCliTests.test_nothing_low_prints_nothing_and_succeeds",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "LowCliTests.test_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementErrorTests.test_field_and_date_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementErrorTests.test_line_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementErrorTests.test_sku_and_quantity_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementParseTests.test_example_and_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementParseTests.test_field_forms",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementParseTests.test_ignored_lines_and_empty_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementParseTests.test_line_endings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "MovementParseTests.test_notes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderDiscountTests.test_effect_on_lines_and_tax",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderDiscountTests.test_order_discount_halves_round_up",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderDiscountTests.test_order_discount_with_volume_discounts_and_all_three_classes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderDiscountTests.test_threshold",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderDiscountTests.test_threshold_on_the_subtotal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderErrorTests.test_field_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderErrorTests.test_line_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderErrorTests.test_order_line_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderErrorTests.test_order_number_and_date_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderParseTests.test_customer_and_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderParseTests.test_example_and_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderParseTests.test_order_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "OrderParseTests.test_separators_and_ignored_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "QuoteCliTests.test_missing_files",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "QuoteCliTests.test_order_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "QuoteCliTests.test_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "QuoteCliTests.test_volume_and_order_discounts_carry_a_minus_sign",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "QuoteShapeTests.test_discounts_are_zero_or_negative",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "QuoteShapeTests.test_quote_shape",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_append_and_print",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_effects_on_the_shelves",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_file_handling",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_notes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_refusal_leaves_the_file_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_refused_input",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReceiveShipTests.test_refused_stock",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReportCliTests.test_csv",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReportCliTests.test_edges",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReportCliTests.test_statuses_and_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ReportCliTests.test_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ShareOutTests.test_a_single_line_takes_the_whole_discount",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ShareOutTests.test_biggest_lost_fraction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ShareOutTests.test_ties_go_to_the_earlier_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "ShareOutTests.test_two_leftover_pennies_go_to_the_two_earlier_lines_of_three_tied_ones",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockCliTests.test_empty_catalog_and_unicode",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockCliTests.test_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockCliTests.test_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockLevelTests.test_example_and_unmoved_products",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockLevelTests.test_levels_are_ints_and_sum_every_movement",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockRuleTests.test_below_zero_is_blamed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockRuleTests.test_date_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockRuleTests.test_each_product_is_checked_on_its_own",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockRuleTests.test_line_numbers_when_blaming",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "StockRuleTests.test_same_day_movements_keep_the_order_of_the_file",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "TaxTests.test_rates_and_totals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "TaxTests.test_rounding",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "TaxTests.test_tax_is_rounded_per_line_then_added_up",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "VolumeDiscountTests.test_halves_round_up",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "VolumeDiscountTests.test_the_tier_depends_on_each_lines_own_quantity",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "VolumeDiscountTests.test_tiers_at_the_edges",
+        "status": "passed",
+        "message": ""
+      }
+    ]
+  },
+  "fuzz": {
+    "fuzz_cases": 1000,
+    "fuzz_divergences": 24,
+    "fuzz_classes": 2,
+    "fuzz_class_counts": {
+      "orders:report-order x stdout": 23,
+      "orders:invoice-report x stdout": 1
+    },
+    "fuzz_examples": [
+      {
+        "case": 33,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format csv",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "csv"
+          ],
+          [
+            "report",
+            "--format",
+            "json"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "# AB-100 | bad | -1 | x\\nGN-456 | A | 10.01 | 20\\nCD-456| A| 10.01| 20| Zero\\n gh-123 | Garden gnome | 12.5 | 5 | zero \\n",
+          "movements.txt": "2023-12-22 GH-123 +7 a|b  \\n2023-12-22 Gn-456 +15 shipped by van \\r\\n2024-01-07 gh-123 +7 returned \\r\\n2024-01-07 Gn-456 +7 damaged  \\n2024-01-12 CD-456 1 Zo\\xeb's delivery\\n2024-01-12 GH-123 6\\n2024-01-18 GN-456 -10 order SO-10 \\r\\n2024-01-28 gh-123 -5 order SO-1001 \\r\\n",
+          "orders.txt": "\\t\\n#no space\\nSO-12 2024-01-26   \\u65e5\\u672c Gh-123*2,GN-456*2\\nso-10  2024-01-13  ACME gh-123*2,GN-456*10\\n  \\n# a comment\\nso-1001 \\t 2024-01-26 Q CD-456*1,GH-123*5\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "...d,shipped,quoted,invoiced\\nSO-10,2024-01-13,ACME,partial,12,10,139.11,114.11\\nSO-12,2024-01-26,\\u65e5\\u672c,open,4,0,49.02,0.00\\nSO-1001,2024-01-26,Q,partial,6,5,72.51,62.50\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-22 GH-123 +7 a|b  ",
+            "2023-12-22 Gn-456 +15 shipped by van ",
+            "2024-01-07 gh-123 +7 returned ",
+            "2024-01-07 Gn-456 +7 damaged  ",
+            "2024-01-12 CD-456 1 Zo\u00eb's delivery",
+            "2024-01-12 GH-123 6",
+            "2024-01-18 GN-456 -10 order SO-10 ",
+            "2024-01-28 gh-123 -5 order SO-1001 "
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "...d,shipped,quoted,invoiced\\nSO-10,2024-01-13,ACME,partial,12,10,139.11,114.11\\nSO-1001,2024-01-26,Q,partial,6,5,72.51,62.50\\nSO-12,2024-01-26,\\u65e5\\u672c,open,4,0,49.02,0.00\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-22 GH-123 +7 a|b  ",
+            "2023-12-22 Gn-456 +15 shipped by van ",
+            "2024-01-07 gh-123 +7 returned ",
+            "2024-01-07 Gn-456 +7 damaged  ",
+            "2024-01-12 CD-456 1 Zo\u00eb's delivery",
+            "2024-01-12 GH-123 6",
+            "2024-01-18 GN-456 -10 order SO-10 ",
+            "2024-01-28 gh-123 -5 order SO-1001 "
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 145,
+        "kind": "invoice_report",
+        "step": 3,
+        "what": "stockroom report --format json",
+        "steps": [
+          [
+            "invoice",
+            "SO-1001"
+          ],
+          [
+            "invoice",
+            "SO-1002"
+          ],
+          [
+            "quote",
+            "SO-2",
+            "--json"
+          ],
+          [
+            "report",
+            "--format",
+            "json"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "MN-123 | Ceramic pot (large) | 50.00 | 40 | standard\\nCD-750 | Trowel: steel | 0.50 | 5 | standard\\nGH-001 | Tea-towel | 0.15 | 3 | standard\\nWXYZ-999 | Tea-towel | 232.14 | 0 | reduced\\nQRS-500 | Gift voucher | 0.13 | 1 | reduced\\n",
+          "movements.txt": "2024-01-20 CD-750 4\\n2024-01-20 MN-123 3 damaged\\n2024-02-12 CD-750 -4 order SO-10025\\n2024-02-27 MN-123 9\\n2024-03-01 CD-750 21 restock\\n2024-03-01 WXYZ-999 2\\n2024-03-01 QRS-500 +8 restock\\n2024-03-01 GH-001 1\\n2024-03-11 MN-123 -8 order SO-2\\n2024-03-12 CD-750 -18 order SO-1001\\n2024-03-14 WXYZ-999 -1 order SO-1001\\n2024-03-16 GH-001 -1 order SO-1001\\n",
+          "orders.txt": "SO-1002 2024-02-06 acme CD-750*8,MN-123*2\\nSO-1001 2024-03-09 Q CD-750*20,WXYZ-999*1,QRS-500*8,GH-001*1\\nSO-2 2024-03-09 Bea MN-123*8\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "[{\"order\": \"SO-1002\", \"date\": \"2024-02-06\", \"customer\": \"acme\", \"status\": \"open\", \"ordered\": 10, \"shipped\": 0, \"quoted\": \"124.80\", \"invoiced\": \"0.00\"}, {\"order\": \"SO-2\", \"date\": \"2024-03-09\", \"customer\": \"Bea\", \"status\": \"complete\", \"ordered\": 8, \"shipped\": 8, \"quoted\": \"480.00\", \"invoiced\": \"480.00...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-20 CD-750 4",
+            "2024-01-20 MN-123 3 damaged",
+            "2024-02-12 CD-750 -4 order SO-10025",
+            "2024-02-27 MN-123 9",
+            "2024-03-01 CD-750 21 restock",
+            "2024-03-01 WXYZ-999 2",
+            "2024-03-01 QRS-500 +8 restock",
+            "2024-03-01 GH-001 1",
+            "2024-03-11 MN-123 -8 order SO-2",
+            "2024-03-12 CD-750 -18 order SO-1001",
+            "2024-03-14 WXYZ-999 -1 order SO-1001",
+            "2024-03-16 GH-001 -1 order SO-1001"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "[\\n  {\\n    \"order\": \"SO-1002\",\\n    \"date\": \"2024-02-06\",\\n    \"customer\": \"acme\",\\n    \"status\": \"open\",\\n    \"ordered\": 10,\\n    \"shipped\": 0,\\n    \"quoted\": \"124.80\",\\n    \"invoiced\": \"0.00\"\\n  },\\n  {\\n    \"order\": \"SO-1001\",\\n    \"date\": \"2024-03-09\",\\n    \"customer\": \"Q\",\\n    \"status\": \"partial\",\\n    \"orde...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-20 CD-750 4",
+            "2024-01-20 MN-123 3 damaged",
+            "2024-02-12 CD-750 -4 order SO-10025",
+            "2024-02-27 MN-123 9",
+            "2024-03-01 CD-750 21 restock",
+            "2024-03-01 WXYZ-999 2",
+            "2024-03-01 QRS-500 +8 restock",
+            "2024-03-01 GH-001 1",
+            "2024-03-11 MN-123 -8 order SO-2",
+            "2024-03-12 CD-750 -18 order SO-1001",
+            "2024-03-14 WXYZ-999 -1 order SO-1001",
+            "2024-03-16 GH-001 -1 order SO-1001"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 153,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format text",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "text"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "AB-205 | Ceramic pot (large) | 0.25 | 20 | reduced\\nMN-750 | Garden gnome | 0.15 | 5 | standard\\nTUV-500 | Ceramic pot (large) | 10.01 | 0 | reduced\\n",
+          "movements.txt": "2024-01-04 MN-750 +8 shipped by van\\n2024-01-18 AB-205 +6\\n2024-01-14 TUV-500 -1 order SO-1001\\n2024-02-01 MN-750 -2 order SO-10\\n2024-01-28 AB-205 -1 order SO-12\\n2024-01-28 AB-205 -2 order SO-9\\n2023-12-17 TUV-500 2 damaged\\n2024-01-03 AB-205 4\\n2024-01-03 MN-750 8 shipped by van\\n2024-01-03 TUV-500 +20 returned\\n2024-01-03 AB-205 +2\\n",
+          "orders.txt": "SO-10 2024-01-26 Mr.Smith AB-205*3,MN-750*3\\nSO-12 2024-01-26 x AB-205*1\\nSO-9 2024-01-26 Mr.Smith TUV-500*20,AB-205*2\\nSO-1001 2024-01-11 ACME TUV-500*1\\nSO-7 2024-01-11 acme MN-750*3\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "SO-7 2024-01-11 acme open 0/3 0.54 0.00\\nSO-1001 2024-01-11 ACME complete 1/1 10.51 10.51\\nSO-9 2024-01-26 Mr.Smith partial 2/22 200.23 0.53\\nSO-10 2024-01-26 Mr.Smith partial 2/6 1.33 0.36\\nSO-12 2024-01-26 x complete 1/1 0.26 0.26\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-04 MN-750 +8 shipped by van",
+            "2024-01-18 AB-205 +6",
+            "2024-01-14 TUV-500 -1 order SO-1001",
+            "2024-02-01 MN-750 -2 order SO-10",
+            "2024-01-28 AB-205 -1 order SO-12",
+            "2024-01-28 AB-205 -2 order SO-9",
+            "2023-12-17 TUV-500 2 damaged",
+            "2024-01-03 AB-205 4",
+            "2024-01-03 MN-750 8 shipped by van",
+            "2024-01-03 TUV-500 +20 returned",
+            "2024-01-03 AB-205 +2"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "SO-1001 2024-01-11 ACME complete 1/1 10.51 10.51\\nSO-7 2024-01-11 acme open 0/3 0.54 0.00\\nSO-10 2024-01-26 Mr.Smith partial 2/6 1.33 0.36\\nSO-12 2024-01-26 x complete 1/1 0.26 0.26\\nSO-9 2024-01-26 Mr.Smith partial 2/22 200.23 0.53\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-04 MN-750 +8 shipped by van",
+            "2024-01-18 AB-205 +6",
+            "2024-01-14 TUV-500 -1 order SO-1001",
+            "2024-02-01 MN-750 -2 order SO-10",
+            "2024-01-28 AB-205 -1 order SO-12",
+            "2024-01-28 AB-205 -2 order SO-9",
+            "2023-12-17 TUV-500 2 damaged",
+            "2024-01-03 AB-205 4",
+            "2024-01-03 MN-750 8 shipped by van",
+            "2024-01-03 TUV-500 +20 returned",
+            "2024-01-03 AB-205 +2"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 273,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report",
+        "steps": [
+          [
+            "report"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "MN-750 | Rake & hoe | 25.00 | 10\\nAX-010 | Trowel: steel | 12.50 | 1\\nCD-123 | Tea-towel | 1.50 | 0\\n",
+          "movements.txt": "2023-12-31 MN-750 48 restock\\n2023-12-31 AX-010 +5 shipped by van\\n2023-12-30 CD-123 4\\n2023-12-30 AX-010 +1\\n2023-12-30 CD-123 17\\n2023-12-30 MN-750 8 restock\\n2024-01-14 AX-010 -5 order SO-2\\n2024-01-09 CD-123 +12\\n2024-01-09 AX-010 12\\n2024-01-09 MN-750 +5 damaged\\n2024-01-01 CD-123 52 restock\\n2024-01-01 MN-750 +7 restock\\n2024-01-01 AX-010 50\\n2024-01-16 AX-010 -1 order SO-7\\n2024-01-17 CD-12...",
+          "orders.txt": "SO-100 2024-01-11 Bea CD-123*3\\nSO-7 2024-01-11 acme CD-123*12,MN-750*2,AX-010*10\\nSO-9 2024-01-26 x CD-123*12,AX-010*12,MN-750*5\\nSO-12 2024-01-12 acme AX-010*2,CD-123*12,MN-750*8\\nSO-2 2024-01-11 Bea MN-750*8,AX-010*10\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "SO-2 2024-01-11 Bea partial 5/18 382.50 75.00\\nSO-7 2024-01-11 acme partial 5/24 223.02 22.20\\nSO-100 2024-01-11 Bea open 0/3 5.40 0.00\\nSO-12 2024-01-12 acme open 0/22 290.52 0.00\\nSO-9 2024-01-26 x open 0/29 341.52 0.00\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-31 MN-750 48 restock",
+            "2023-12-31 AX-010 +5 shipped by van",
+            "2023-12-30 CD-123 4",
+            "2023-12-30 AX-010 +1",
+            "2023-12-30 CD-123 17",
+            "2023-12-30 MN-750 8 restock",
+            "2024-01-14 AX-010 -5 order SO-2",
+            "2024-01-09 CD-123 +12",
+            "2024-01-09 AX-010 12",
+            "2024-01-09 MN-750 +5 damaged",
+            "2024-01-01 CD-123 52 restock",
+            "2024-01-01 MN-750 +7 restock",
+            "2024-01-01 AX-010 50",
+            "2024-01-16 AX-010 -1 order SO-7",
+            "2024-01-17 CD-123 -4 order SO-7"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "SO-100 2024-01-11 Bea open 0/3 5.40 0.00\\nSO-2 2024-01-11 Bea partial 5/18 382.50 75.00\\nSO-7 2024-01-11 acme partial 5/24 223.02 22.20\\nSO-12 2024-01-12 acme open 0/22 290.52 0.00\\nSO-9 2024-01-26 x open 0/29 341.52 0.00\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-31 MN-750 48 restock",
+            "2023-12-31 AX-010 +5 shipped by van",
+            "2023-12-30 CD-123 4",
+            "2023-12-30 AX-010 +1",
+            "2023-12-30 CD-123 17",
+            "2023-12-30 MN-750 8 restock",
+            "2024-01-14 AX-010 -5 order SO-2",
+            "2024-01-09 CD-123 +12",
+            "2024-01-09 AX-010 12",
+            "2024-01-09 MN-750 +5 damaged",
+            "2024-01-01 CD-123 52 restock",
+            "2024-01-01 MN-750 +7 restock",
+            "2024-01-01 AX-010 50",
+            "2024-01-16 AX-010 -1 order SO-7",
+            "2024-01-17 CD-123 -4 order SO-7"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 285,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format text",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "text"
+          ],
+          [
+            "report"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "WXYZ-999 | Tea-towel | 99.99 | 0 | standard\\nOP-001 | Garden gnome | 26.05 | 20 | standard\\nKL-205 | Ceramic pot (large) | 0.15 | 3 | reduced\\n",
+          "movements.txt": "2024-01-06 KL-205 +50\\n2024-01-06 WXYZ-999 +2\\n2024-01-08 KL-205 +1 first delivery\\n2023-12-24 OP-001 +6\\n2024-01-01 WXYZ-999 +5 damaged\\n2024-01-01 KL-205 +25\\n2024-01-20 KL-205 -11 order SO-30\\n2024-01-20 OP-001 -10 order SO-12\\n2024-01-18 KL-205 -2 order SO-12\\n2024-01-07 WXYZ-999 8\\n2024-01-26 KL-205 -1 order SO-1001\\n2024-01-02 OP-001 +17\\n2024-01-02 KL-205 7\\n2024-01-14 WXYZ-999 -8 order SO-...",
+          "orders.txt": "SO-10 2024-01-12 Bea WXYZ-999*8\\nSO-7 2024-01-13 Q OP-001*5\\nSO-30 2024-01-13 Bea WXYZ-999*5,KL-205*20\\nSO-1001 2024-01-21 Mr.Smith KL-205*1\\nSO-12 2024-01-13 acme OP-001*12,KL-205*2\\nSO-2 2024-01-11 Mr.Smith KL-205*10,WXYZ-999*5\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "....Smith open 0/15 583.39 0.00\\nSO-10 2024-01-12 Bea complete 8/8 931.10 931.10\\nSO-7 2024-01-13 Q partial 1/5 156.30 31.26\\nSO-12 2024-01-13 acme partial 12/14 356.68 297.28\\nSO-30 2024-01-13 Bea partial 11/25 584.85 1.65\\nSO-1001 2024-01-21 Mr.Smith complete 1/1 0.16 0.16\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-06 KL-205 +50",
+            "2024-01-06 WXYZ-999 +2",
+            "2024-01-08 KL-205 +1 first delivery",
+            "2023-12-24 OP-001 +6",
+            "2024-01-01 WXYZ-999 +5 damaged",
+            "2024-01-01 KL-205 +25",
+            "2024-01-20 KL-205 -11 order SO-30",
+            "2024-01-20 OP-001 -10 order SO-12",
+            "2024-01-18 KL-205 -2 order SO-12",
+            "2024-01-07 WXYZ-999 8",
+            "2024-01-26 KL-205 -1 order SO-1001",
+            "2024-01-02 OP-001 +17",
+            "2024-01-02 KL-205 7",
+            "2024-01-14 WXYZ-999 -8 order SO-10",
+            "2024-01-17 OP-001 -1 order SO-7"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "....Smith open 0/15 583.39 0.00\\nSO-10 2024-01-12 Bea complete 8/8 931.10 931.10\\nSO-12 2024-01-13 acme partial 12/14 356.68 297.28\\nSO-30 2024-01-13 Bea partial 11/25 584.85 1.65\\nSO-7 2024-01-13 Q partial 1/5 156.30 31.26\\nSO-1001 2024-01-21 Mr.Smith complete 1/1 0.16 0.16\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-06 KL-205 +50",
+            "2024-01-06 WXYZ-999 +2",
+            "2024-01-08 KL-205 +1 first delivery",
+            "2023-12-24 OP-001 +6",
+            "2024-01-01 WXYZ-999 +5 damaged",
+            "2024-01-01 KL-205 +25",
+            "2024-01-20 KL-205 -11 order SO-30",
+            "2024-01-20 OP-001 -10 order SO-12",
+            "2024-01-18 KL-205 -2 order SO-12",
+            "2024-01-07 WXYZ-999 8",
+            "2024-01-26 KL-205 -1 order SO-1001",
+            "2024-01-02 OP-001 +17",
+            "2024-01-02 KL-205 7",
+            "2024-01-14 WXYZ-999 -8 order SO-10",
+            "2024-01-17 OP-001 -1 order SO-7"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 313,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format json",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "json"
+          ],
+          [
+            "report",
+            "--format",
+            "csv"
+          ],
+          [
+            "report"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "#\\n\\t# tab comment\\n#no space\\nOP-456 | Garden gnome | 99.99 | 0 | reduced\\n\\t# tab comment\\n# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\n kl-500  |  Soil 20L  |  500.0  |  5  |  Standard \\n# a comment\\nTUV-123 | O'Brien mug | 0.05 | 1 | Standard\\n  # indented comment\\n",
+          "movements.txt": "2024-01-03 Op-456 1 \\u65e5\\u672c order \\n\\t# tab comment\\n2024-01-07 OP-456 15 x\\t\\n# SO-1 2024-01-01 a ZZ-9*0\\n2024-01-07 Tuv-123 21 returned\\n2024-01-07 Kl-500 90\\n2024-01-16 tuv-123 +25 two  spaces\\n# AB-100 | bad | -1 | x\\n2024-01-16 kl-500 +12\\n\\t# tab comment\\n2024-01-16   op-456 2 \\t order\\n2024-01-19 kl-500 4 \\u65e5\\u672c order\\n2024-01-26 KL-500 -6 order SO-9\\n2024-01-28 op-456 -1  order ...",
+          "orders.txt": "# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\nSO-12 2024-01-26 \\u65e5\\u672c Kl-500*8\\n# 2024-02-30 ZZ-1 0\\r\\nso-7 2024-01-26 Zo\\xeb op-456*1\\nso-9 2024-01-26 Mr.Smith Tuv-123*20,kl-500*12,op-456*2\\r\\n\\t\\r\\nSo-100 2024-01-26 x OP-456*10,Tuv-123*20,Kl-500*50"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "[{\"order\": \"SO-7\", \"date\": \"2024-01-26\", \"customer\": \"Zo\\\\u00eb\", \"status\": \"complete\", \"ordered\": 1, \"shipped\": 1, \"quoted\": \"104.99\", \"invoiced\": \"104.99\"}, {\"order\": \"SO-9\", \"date\": \"2024-01-26\", \"customer\": \"Mr.Smith\", \"status\": \"partial\", \"ordered\": 34, \"shipped\": 8, \"quoted\": \"6839.58\", \"invoic...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-03 Op-456 1 \u65e5\u672c order ",
+            "\t# tab comment",
+            "2024-01-07 OP-456 15 x\t",
+            "# SO-1 2024-01-01 a ZZ-9*0",
+            "2024-01-07 Tuv-123 21 returned",
+            "2024-01-07 Kl-500 90",
+            "2024-01-16 tuv-123 +25 two  spaces",
+            "# AB-100 | bad | -1 | x",
+            "2024-01-16 kl-500 +12",
+            "\t# tab comment",
+            "2024-01-16   op-456 2 \t order",
+            "2024-01-19 kl-500 4 \u65e5\u672c order",
+            "2024-01-26 KL-500 -6 order SO-9",
+            "2024-01-28 op-456 -1  order SO-7\t",
+            "  # indented comment",
+            "2024-01-29 OP-456 -2   order SO-9  ",
+            "2024-01-29 Tuv-123 -10 order SO-100",
+            "# a comment",
+            "2024-01-30  Kl-500 -4 order SO-12  ",
+            "2024-01-31 OP-456 -5 order SO-100 ",
+            "#no space"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "[\\n  {\\n    \"order\": \"SO-100\",\\n    \"date\": \"2024-01-26\",\\n    \"customer\": \"x\",\\n    \"status\": \"partial\",\\n    \"ordered\": 80,\\n    \"shipped\": 15,\\n    \"quoted\": \"27158.57\",\\n    \"invoiced\": \"509.75\"\\n  },\\n  {\\n    \"order\": \"SO-12\",\\n    \"date\": \"2024-01-26\",\\n    \"customer\": \"\\u65e5\\u672c\",\\n    \"status\": \"partial\",\\n    \"o...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-03 Op-456 1 \u65e5\u672c order ",
+            "\t# tab comment",
+            "2024-01-07 OP-456 15 x\t",
+            "# SO-1 2024-01-01 a ZZ-9*0",
+            "2024-01-07 Tuv-123 21 returned",
+            "2024-01-07 Kl-500 90",
+            "2024-01-16 tuv-123 +25 two  spaces",
+            "# AB-100 | bad | -1 | x",
+            "2024-01-16 kl-500 +12",
+            "\t# tab comment",
+            "2024-01-16   op-456 2 \t order",
+            "2024-01-19 kl-500 4 \u65e5\u672c order",
+            "2024-01-26 KL-500 -6 order SO-9",
+            "2024-01-28 op-456 -1  order SO-7\t",
+            "  # indented comment",
+            "2024-01-29 OP-456 -2   order SO-9  ",
+            "2024-01-29 Tuv-123 -10 order SO-100",
+            "# a comment",
+            "2024-01-30  Kl-500 -4 order SO-12  ",
+            "2024-01-31 OP-456 -5 order SO-100 ",
+            "#no space"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 393,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report",
+        "steps": [
+          [
+            "report"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "AX-310 | A | 0.05 | 1\\nQRS-456 | Ceramic pot (large) | 0.13 | 2 | zero\\nCD-750 | Soil 20L | 0.13 | 5 | reduced\\n",
+          "movements.txt": "2023-12-24 CD-750 +8\\n2024-01-26 AX-310 -8 order SO-1001\\n2024-01-11 CD-750 -8 order SO-2\\n2024-01-12 CD-750 +50 shipped by van\\n2024-01-12 QRS-456 +41\\n2024-01-12 AX-310 +13 shipped by van\\n2024-01-13 CD-750 -8 order SO-7\\n2024-01-13 QRS-456 1 restock\\n2024-01-02 CD-750 +55 first delivery\\n2023-12-28 QRS-456 +5 first delivery\\n2023-12-28 CD-750 +9\\n2023-12-28 AX-310 3\\n2024-01-18 QRS-456 -1 order...",
+          "orders.txt": "SO-2 2024-01-11 x CD-750*8\\nSO-7 2024-01-11 Bea QRS-456*5,CD-750*8,AX-310*2\\nSO-9 2024-01-11 Q CD-750*8\\nSO-1001 2024-01-21 acme CD-750*10,QRS-456*1,AX-310*8\\nSO-100 2024-01-13 ACME CD-750*50\\nSO-12 2024-01-21 x QRS-456*1\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "... 2024-01-11 Q open 0/8 1.09 0.00\\nSO-100 2024-01-13 ACME open 0/50 6.14 0.00\\nSO-12 2024-01-21 x open 0/1 0.13 0.00\\nSO-1001 2024-01-21 acme partial 8/19 1.90 0.48\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-24 CD-750 +8",
+            "2024-01-26 AX-310 -8 order SO-1001",
+            "2024-01-11 CD-750 -8 order SO-2",
+            "2024-01-12 CD-750 +50 shipped by van",
+            "2024-01-12 QRS-456 +41",
+            "2024-01-12 AX-310 +13 shipped by van",
+            "2024-01-13 CD-750 -8 order SO-7",
+            "2024-01-13 QRS-456 1 restock",
+            "2024-01-02 CD-750 +55 first delivery",
+            "2023-12-28 QRS-456 +5 first delivery",
+            "2023-12-28 CD-750 +9",
+            "2023-12-28 AX-310 3",
+            "2024-01-18 QRS-456 -1 order SO-7",
+            "2024-01-01 CD-750 +8"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "... 2024-01-11 Q open 0/8 1.09 0.00\\nSO-100 2024-01-13 ACME open 0/50 6.14 0.00\\nSO-1001 2024-01-21 acme partial 8/19 1.90 0.48\\nSO-12 2024-01-21 x open 0/1 0.13 0.00\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-24 CD-750 +8",
+            "2024-01-26 AX-310 -8 order SO-1001",
+            "2024-01-11 CD-750 -8 order SO-2",
+            "2024-01-12 CD-750 +50 shipped by van",
+            "2024-01-12 QRS-456 +41",
+            "2024-01-12 AX-310 +13 shipped by van",
+            "2024-01-13 CD-750 -8 order SO-7",
+            "2024-01-13 QRS-456 1 restock",
+            "2024-01-02 CD-750 +55 first delivery",
+            "2023-12-28 QRS-456 +5 first delivery",
+            "2023-12-28 CD-750 +9",
+            "2023-12-28 AX-310 3",
+            "2024-01-18 QRS-456 -1 order SO-7",
+            "2024-01-01 CD-750 +8"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 445,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format text",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "text"
+          ],
+          [
+            "report"
+          ],
+          [
+            "report",
+            "--format",
+            "json"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": " GH-750\\t|\\tPlant label \"oak\"\\t|\\t26.05\\t|\\t5\\t|\\treduced  \\r\\n\\r\\n\\r\\n\\r\\nIJ-123 |Rake & hoe |1.01 |3 |reduced\\r\\n# SO-1 2024-01-01 a ZZ-9*0\\r\\n\\tbox-999 | Ceramic pot (large) | 0.13 | 10 | standard\\r\\n\\r\\n",
+          "movements.txt": "2024-01-01 Gh-750 52 returned\\n2024-01-01\\tIj-123 +13 Zo\\xeb's delivery\\n2024-01-04 gh-750 4 two  spaces \\n2024-01-04 box-999 +1 Zo\\xeb's delivery\\n# SO-1 2024-01-01 a ZZ-9*0\\n2024-01-04   Ij-123 \\t +43  Zo\\xeb's delivery\\t\\n\\t# tab comment\\n\\t# tab comment\\n2024-01-08 box-999 1 damaged\\n2024-01-14 BOX-999 +9 # not a comment\\n2024-01-14 ij-123 +50\\n\\t# tab comment\\n2024-01-25 ij-123 -12 order SO-3...",
+          "orders.txt": "\\r\\n  \\r\\nSO-100 2024-01-21 ACME BOX-999*2\\r\\nso-12 2024-01-26 a,b Box-999*8,IJ-123*50\\r\\nSO-2 2024-01-26 Bea Gh-750*8,Box-999*2,ij-123*3\\r\\n# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\r\\n# 2024-02-30 ZZ-1 0\\r\\nso-30\\t2024-01-21\\tZo\\xeb  GH-750*12,ij-123*12\\r\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "SO-30 2024-01-21 Zo\\xeb partial 12/24 323.91 12.09\\nSO-100 2024-01-21 ACME partial 1/2 0.31 0.16\\nSO-2 2024-01-26 Bea partial 4/13 222.31 109.41\\nSO-12 2024-01-26 a,b partial 7/58 48.97 7.42\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-01 Gh-750 52 returned",
+            "2024-01-01\tIj-123 +13 Zo\u00eb's delivery",
+            "2024-01-04 gh-750 4 two  spaces ",
+            "2024-01-04 box-999 +1 Zo\u00eb's delivery",
+            "# SO-1 2024-01-01 a ZZ-9*0",
+            "2024-01-04   Ij-123 \t +43  Zo\u00eb's delivery\t",
+            "\t# tab comment",
+            "\t# tab comment",
+            "2024-01-08 box-999 1 damaged",
+            "2024-01-14 BOX-999 +9 # not a comment",
+            "2024-01-14 ij-123 +50",
+            "\t# tab comment",
+            "2024-01-25 ij-123 -12 order SO-30",
+            "2024-01-26 \t Ij-123 -7 order SO-12 ",
+            "# AB-100 | bad | -1 | x",
+            "2024-01-27\tgh-750 -4   order SO-2",
+            "# AB-100 | bad | -1 | x",
+            "2024-01-28 Box-999 -1 order SO-100\t"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "SO-100 2024-01-21 ACME partial 1/2 0.31 0.16\\nSO-30 2024-01-21 Zo\\xeb partial 12/24 323.91 12.09\\nSO-12 2024-01-26 a,b partial 7/58 48.97 7.42\\nSO-2 2024-01-26 Bea partial 4/13 222.31 109.41\\n",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-01 Gh-750 52 returned",
+            "2024-01-01\tIj-123 +13 Zo\u00eb's delivery",
+            "2024-01-04 gh-750 4 two  spaces ",
+            "2024-01-04 box-999 +1 Zo\u00eb's delivery",
+            "# SO-1 2024-01-01 a ZZ-9*0",
+            "2024-01-04   Ij-123 \t +43  Zo\u00eb's delivery\t",
+            "\t# tab comment",
+            "\t# tab comment",
+            "2024-01-08 box-999 1 damaged",
+            "2024-01-14 BOX-999 +9 # not a comment",
+            "2024-01-14 ij-123 +50",
+            "\t# tab comment",
+            "2024-01-25 ij-123 -12 order SO-30",
+            "2024-01-26 \t Ij-123 -7 order SO-12 ",
+            "# AB-100 | bad | -1 | x",
+            "2024-01-27\tgh-750 -4   order SO-2",
+            "# AB-100 | bad | -1 | x",
+            "2024-01-28 Box-999 -1 order SO-100\t"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 453,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format json",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "json"
+          ],
+          [
+            "report"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "IJ-999 | Tea-towel | 0.45 | 5\\nCD-100 | Soil 20L | 1.01 | 3 | standard\\nMN-500 | Soil 20L | 1.25 | 1 | reduced\\n",
+          "movements.txt": "2023-12-25 IJ-999 +5\\n2024-01-03 CD-100 20\\n2024-01-06 IJ-999 3\\n2024-01-06 CD-100 3\\n2024-01-06 MN-500 11 first delivery\\n2024-01-06 MN-500 +13\\n2024-01-12 MN-500 42 shipped by van\\n2024-01-17 CD-100 11\\n2024-01-17 IJ-999 +1\\n2024-01-17 MN-500 +1\\n2024-01-19 CD-100 -18 order SO-2\\n2024-01-21 MN-500 -4 order SO-9\\n2024-01-22 IJ-999 -2 order SO-9\\n2024-01-27 CD-100 -1 order SO-9\\n2024-01-31 CD-100 ...",
+          "orders.txt": "SO-10 2024-01-21 Q MN-500*2\\nSO-9 2024-01-21 Q IJ-999*2,CD-100*3,MN-500*10\\nSO-100 2024-01-13 Bea IJ-999*10\\nSO-30 2024-01-21 Mr.Smith MN-500*12\\nSO-2 2024-01-12 acme CD-100*20\\nSO-1001 2024-01-26 Bea CD-100*10,IJ-999*3,MN-500*1\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "[{\"order\": \"SO-2\", \"date\": \"2024-01-12\", \"customer\": \"acme\", \"status\": \"partial\", \"ordered\": 20, \"shipped\": 18, \"quoted\": \"23.03\", \"invoiced\": \"20.72\"}, {\"order\": \"SO-100\", \"date\": \"2024-01-13\", \"customer\": \"Bea\", \"status\": \"open\", \"ordered\": 10, \"shipped\": 0, \"quoted\": \"5.12\", \"invoiced\": \"0.00\"}, ...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-25 IJ-999 +5",
+            "2024-01-03 CD-100 20",
+            "2024-01-06 IJ-999 3",
+            "2024-01-06 CD-100 3",
+            "2024-01-06 MN-500 11 first delivery",
+            "2024-01-06 MN-500 +13",
+            "2024-01-12 MN-500 42 shipped by van",
+            "2024-01-17 CD-100 11",
+            "2024-01-17 IJ-999 +1",
+            "2024-01-17 MN-500 +1",
+            "2024-01-19 CD-100 -18 order SO-2",
+            "2024-01-21 MN-500 -4 order SO-9",
+            "2024-01-22 IJ-999 -2 order SO-9",
+            "2024-01-27 CD-100 -1 order SO-9",
+            "2024-01-31 CD-100 -3 order SO-1001",
+            "2024-01-31 IJ-999 -1 order SO-1001"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "[\\n  {\\n    \"order\": \"SO-2\",\\n    \"date\": \"2024-01-12\",\\n    \"customer\": \"acme\",\\n    \"status\": \"partial\",\\n    \"ordered\": 20,\\n    \"shipped\": 18,\\n    \"quoted\": \"23.03\",\\n    \"invoiced\": \"20.72\"\\n  },\\n  {\\n    \"order\": \"SO-100\",\\n    \"date\": \"2024-01-13\",\\n    \"customer\": \"Bea\",\\n    \"status\": \"open\",\\n    \"order...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2023-12-25 IJ-999 +5",
+            "2024-01-03 CD-100 20",
+            "2024-01-06 IJ-999 3",
+            "2024-01-06 CD-100 3",
+            "2024-01-06 MN-500 11 first delivery",
+            "2024-01-06 MN-500 +13",
+            "2024-01-12 MN-500 42 shipped by van",
+            "2024-01-17 CD-100 11",
+            "2024-01-17 IJ-999 +1",
+            "2024-01-17 MN-500 +1",
+            "2024-01-19 CD-100 -18 order SO-2",
+            "2024-01-21 MN-500 -4 order SO-9",
+            "2024-01-22 IJ-999 -2 order SO-9",
+            "2024-01-27 CD-100 -1 order SO-9",
+            "2024-01-31 CD-100 -3 order SO-1001",
+            "2024-01-31 IJ-999 -1 order SO-1001"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      },
+      {
+        "case": 533,
+        "kind": "invoice_report",
+        "step": 0,
+        "what": "stockroom report --format csv",
+        "steps": [
+          [
+            "report",
+            "--format",
+            "csv"
+          ],
+          [
+            "report"
+          ]
+        ],
+        "dir": null,
+        "files": {
+          "catalog.txt": "\\t\\n\\nmn-999|\\xdcn\\xef box|999.99|2\\nTo-777 | 100% cotton | 1.05 | 40\\nbox-001 | Plant label \"oak\" | 999.99 | 20 | standard\\n",
+          "movements.txt": "2024-01-17 BOX-001 -1 order SO-2  \\n2024-01-11 mn-999 -2 order SO-7 \\n2024-01-11 mn-999 +5 shipped by van\\n2023-12-28 MN-999 10 shipped by van \\n2023-12-28 to-777 8 Zo\\xeb's delivery\\n2024-01-16  BOX-001\\t-1  order SO-12\\t\\n  \\n2023-12-25 to-777 +6 two  spaces\\n2023-12-25   mn-999 +2\\n2023-12-25 box-001 +2 \\t first delivery\\n2023-12-25 To-777 6\\n  \\n2023-12-25 MN-999 +3 a|b  \\n2024-01-14 TO-777 -1...",
+          "orders.txt": "\\ufeff\\t\\r\\n\\r\\nSo-7 2024-01-11 Zo\\xeb To-777*5,mn-999*2\\r\\nso-30 2024-01-26 ACME mn-999*5\\r\\nSO-12 2024-01-12 acme BOX-001*2\\r\\nSO-1001 2024-01-11 Zo\\xeb Mn-999*20,TO-777*3\\r\\n\\r\\nSo-2 2024-01-12   Bea   BOX-001*5,To-777*5,MN-999*3\\r\\nso-100 2024-01-26 Zo\\xeb Mn-999*8,TO-777*10,box-001*50\\r\\n\\r\\n"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "order,date,customer,status,ordered,shipped,quoted,invoiced\\nSO-7,2024-01-11,Zo\\xeb,partial,7,3,2334.09,2329.20\\nSO-1001,2024-01-11,Zo\\xeb,partial,23,12,22119.44,11060.33\\nSO-2,2024-01-12,Bea,partial,13,1,9318.01,1163.99\\nSO-12,2024-01-12,acme,partial,2,1,2327.98,1163.99\\nSO-30,2024-01-26,ACME,partial,5,2,5819....",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-17 BOX-001 -1 order SO-2  ",
+            "2024-01-11 mn-999 -2 order SO-7 ",
+            "2024-01-11 mn-999 +5 shipped by van",
+            "2023-12-28 MN-999 10 shipped by van ",
+            "2023-12-28 to-777 8 Zo\u00eb's delivery",
+            "2024-01-16  BOX-001\t-1  order SO-12\t",
+            "  ",
+            "2023-12-25 to-777 +6 two  spaces",
+            "2023-12-25   mn-999 +2",
+            "2023-12-25 box-001 +2 \t first delivery",
+            "2023-12-25 To-777 6",
+            "  ",
+            "2023-12-25 MN-999 +3 a|b  ",
+            "2024-01-14 TO-777 -1 order SO-7 ",
+            "2024-01-26 To-777 -8 order SO-100 ",
+            "2024-01-06  MN-999 9  first delivery",
+            "2024-01-06 To-777 +10 two  spaces",
+            "2024-01-06 BOX-001 +55",
+            "2023-12-31 box-001 +42",
+            "2024-01-12\tMn-999  -10 order SO-1001",
+            "2024-01-12 \t to-777  -2 order SO-1001  ",
+            "\t",
+            "2024-01-28 MN-999 -2 order SO-30\t"
+          ],
+          "untouched": true
+        },
+        "arm": {
+          "exit": 0,
+          "stdout": "order,date,customer,status,ordered,shipped,quoted,invoiced\\nSO-1001,2024-01-11,Zo\\xeb,partial,23,12,22119.44,11060.33\\nSO-7,2024-01-11,Zo\\xeb,partial,7,3,2334.09,2329.20\\nSO-12,2024-01-12,acme,partial,2,1,2327.98,1163.99\\nSO-2,2024-01-12,Bea,partial,13,1,9318.01,1163.99\\nSO-100,2024-01-26,Zo\\xeb,partial,68,8,6170...",
+          "stderr_empty": true,
+          "kept": null,
+          "file": [
+            "2024-01-17 BOX-001 -1 order SO-2  ",
+            "2024-01-11 mn-999 -2 order SO-7 ",
+            "2024-01-11 mn-999 +5 shipped by van",
+            "2023-12-28 MN-999 10 shipped by van ",
+            "2023-12-28 to-777 8 Zo\u00eb's delivery",
+            "2024-01-16  BOX-001\t-1  order SO-12\t",
+            "  ",
+            "2023-12-25 to-777 +6 two  spaces",
+            "2023-12-25   mn-999 +2",
+            "2023-12-25 box-001 +2 \t first delivery",
+            "2023-12-25 To-777 6",
+            "  ",
+            "2023-12-25 MN-999 +3 a|b  ",
+            "2024-01-14 TO-777 -1 order SO-7 ",
+            "2024-01-26 To-777 -8 order SO-100 ",
+            "2024-01-06  MN-999 9  first delivery",
+            "2024-01-06 To-777 +10 two  spaces",
+            "2024-01-06 BOX-001 +55",
+            "2023-12-31 box-001 +42",
+            "2024-01-12\tMn-999  -10 order SO-1001",
+            "2024-01-12 \t to-777  -2 order SO-1001  ",
+            "\t",
+            "2024-01-28 MN-999 -2 order SO-30\t"
+          ],
+          "untouched": true
+        },
+        "arm_stderr": ""
+      }
+    ],
+    "fuzz_seed": 621,
+    "fuzz_hash": "dadc646bc2e0c241c8dde733be0f4c09da016eba2e7319c0e5d24dcf3537a0f1"
+  }
+}

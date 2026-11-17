@@ -1,0 +1,39 @@
+{
+  "bn88cc8": {
+    "sessions": 4,
+    "tokens": {},
+    "issues_closed": 2,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261117-medium-harness-harness-r02": {
+        "claims": 4,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 3,
+        "which": 7,
+        "explain": 4
+      },
+      "which": 7,
+      "changed_nodes": 1129,
+      "round1": 537,
+      "round2": 20,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 11
+      },
+      "wall_ms": 2334,
+      "selective": 7,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "bnc30bf": {
+    "sessions": 5,
+    "tokens": {},
+    "issues_closed": 3,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261117-medium-harness-harness-r01": {
+        "claims": 5,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 5.0,
+    "rtdd": {
+      "calls": {
+        "--version": 2,
+        "init": 1,
+        "which": 8,
+        "explain": 6
+      },
+      "which": 8,
+      "changed_nodes": 1359,
+      "round1": 760,
+      "round2": 51,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 14
+      },
+      "wall_ms": 3187,
+      "selective": 8,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}
