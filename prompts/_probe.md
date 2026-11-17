@@ -5,7 +5,8 @@
      never as an unknown option with the parser's usage error; output piped
      into `head -1` (a closed pipe must not print a traceback or error); a UTF-8 BOM at the start of the input;
      CRLF and lone-CR line endings; a form feed (U+000C) and U+2028 inside a field; an empty option value
-     (`--opt=`, `--opt ""`); a number of 5000 digits; stdout that cannot be written (`> /dev/full`).
+     (`--opt=`, `--opt ""`); a number of 5000 digits, also through the arithmetic (a price, a total, a discount: no digit lost, no
+     exponent form; Python's `Decimal` context rounds at 28 digits); stdout that cannot be written (`> /dev/full`).
    - Any other interface (HTTP API, library, GUI, file format, ...): write the equivalent checklist for THAT
      interface first, covering hostile or awkward input, encodings and line endings, a consumer that stops reading
      early, empty and oversized values; then run it. Do not skip the probe because the interface is not a CLI.

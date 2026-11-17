@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The implementer lane writes less and in parallel; a re-review reads the diff; the bench arm ends a front door that never ends (#1244, PRD #1180)
+
+- Cause of the medium wall time left after #1239, from the transcripts of `run-20261117-medium-harness-v3` (`bench/results/staged-1035/README.md`): the implementer lane (10.7-15.8 min of the 20.9-36.5) is output volume, about 100 output tokens a second, and its tests were 2-2.5x the size of the source (57-111k characters of test against 38-44k of source), with whole-file rewrites and regex fix-up passes in the slowest run; the review round that follows is 5.6-7.7 min, and each extra round (run 1 had three) is a lane plus a review (about 7 min).
+- `prompts/impl.md` step 2a: tests are written once per file, table-driven, with shared helpers; the suite runs once on the oldest runtime the request names (run 1's first review finding was an install test that failed on Python 3.9); when 3+ test files are owed, 2-3 sub-agents write them in parallel while the lane runs its robustness pass.
+- `prompts/review.md`: a re-review (the PRD already has a `harness-prd-suite sha=` comment) runs the suite, the earlier findings' repros and the probe on `git diff <sha>..HEAD`, instead of re-reading the whole project.
+- `prompts/_probe.md`: the 5000-digit number also goes through the arithmetic (run 1's second finding: a `Decimal` context rounding at 28 digits).
+- `bench/arms/harness.py`: while a front-door turn runs, the arm ends it once every PRD is closed (`counts.front_door_ended`; `--arm-opt end_front=0` restores waiting for it). Operator decision, because it changes what the wall time measures: a front door that only sits in its own wait loop after the fleet is done (v2 run 3: 123.5 min for a fleet done after 13) is a hang of the front door, not work.
+
 ### The implementer runs the review's robustness probe, and the review runs it itself on a small project (#1239, PRD #1180)
 
 - Measured on the six #1213 runs (`bench/results/staged-1035/README.md`): every PRD review spent 60% of its dollars ($0.7-1.7 of $1.4-2.9) on an Opus probe sub-agent that re-read the project, waited on it for about 5 minutes, then filed one I/O defect (closed pipe, oversized number, empty option value) that cost a whole extra implementer lane ($0.3-0.7, 2-6 minutes).

@@ -7,6 +7,7 @@ Options (--arm-opt K=V):
                  one the benchmark ships with); split like a shell line, for tests
     claude=CMD   the claude command for the front door (default `claude`), for tests
     poll=SECS    how often the arm looks at the fleet (default 30)
+    end_front=0|1  end a front-door turn that is still running once every PRD is closed (default 1, #1244)
     model=M      every role (the front door and the manager and implementer lanes) on model M, and
     effort=E     every role at effort E (#590): the matched `harness-opus` arm sets opus / medium. Unset (the
                  default): the engine's role defaults, which is the headline arm
@@ -42,6 +43,13 @@ STOP. The arm never matches processes by name. It stops the fleet with `harness 
 and terminates the front-door claude it spawned through ctx.spawn. Both happen however the arm ends: done,
 error or a cap.
 
+FRONT DOOR THAT DOES NOT END (#1244). The wall time is launch to "every PRD closed", so a front door that only
+sits in its own wait loop after the fleet finished must not add its hang to it (a v2 medium run waited 123.5 min
+for a fleet that was done after 13: the loop's `until harness status | grep -qE "complete=Y|STUCK"` never matched
+"all work complete"). While a front-door turn runs, the arm looks at the board every `poll` seconds; once the
+board has a PRD and none is open it ends that turn (`terminate`, its own handle) and counts it in
+`counts.front_door_ended`. `end_front=0` turns that off: the arm then waits for the front door like before.
+
 DONE = every PRD issue of the run repo is closed. Counts: issues_closed (closed issues that are not PRDs),
 prs_merged, workers, continue_replies, fleet_restarts.
 
@@ -50,7 +58,7 @@ CONFIG AND RESTARTS DISCLOSED (#584). The arm records what the front door's init
 made by hand: every `harness start` its Bash calls ran after the first (the engine logs no start/stop events,
 so the front door's own transcript in the stream is the record). `bench/figures.py` renders both under the table.
 """
-import glob, hashlib, importlib.util, json, os, re, shlex, shutil, subprocess
+import glob, hashlib, importlib.util, json, os, re, shlex, shutil, subprocess, threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -255,19 +263,39 @@ def register_lane_transcripts(ctx, fleet, st, seen):
             ctx.add_transcripts(tr)
 
 
-def front_turn(ctx, fleet, claude, prompt, session, n, st, registered):
-    """One `claude -p` turn of the front door. Returns {"session", "result"}."""
+def watch_front(ctx, p, poll, out):
+    """#1244: end front-door turn `p` once every PRD of the run repo is closed (the fleet is done; whatever the front
+    door still waits for is not the work). Runs until `p` exits; sets out["ended"] when it ended the turn."""
+    while p.poll() is None and not ctx.stop.is_set():
+        try:
+            total, open_prds, _, _ = board(ctx.repo)
+        except Exception as e:   # a gh blip is not a reason to end anything
+            ctx.log(f"front-door watch: {e!r}")
+            total, open_prds = 0, 1
+        if total and not open_prds and p.poll() is None:
+            out["ended"] = True
+            ctx.log("every PRD is closed while the front door still runs: ending its turn")
+            p.terminate()
+            return
+        ctx.stop.wait(poll)
+
+
+def front_turn(ctx, fleet, claude, prompt, session, n, st, registered, poll=None):
+    """One `claude -p` turn of the front door. Returns {"session", "result", "ended"}: "ended" is true when the
+    arm ended the turn itself because every PRD was closed (`poll` is the watch interval; None: no watch)."""
     argv = (armlib.split_cmd(claude) + FRONT_FLAGS + (["--model", fleet.model] if fleet.model else [])
             + (["--effort", fleet.effort] if fleet.effort else []) + (["--resume", session] if session else []))
     with open(os.path.join(ctx.logs, "launch.txt"), "a", encoding="utf-8") as fh:
         fh.write(shlex.join(argv) + "\n")
-    out = {"session": session, "result": None}
+    out = {"session": session, "result": None, "ended": False}
     with open(os.path.join(ctx.logs, f"front-{n:02d}.stream.jsonl"), "w", encoding="utf-8") as stream, \
             open(os.path.join(ctx.logs, f"front-{n:02d}.stderr"), "w", encoding="utf-8") as err:
         p = ctx.spawn(argv, cwd=ctx.clone, env=fleet.env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                       stderr=err, text=True)
         p.stdin.write(prompt)
         p.stdin.close()
+        if poll is not None:
+            threading.Thread(target=watch_front, args=(ctx, p, poll, out), daemon=True).start()
         for line in p.stdout:
             stream.write(line)
             try:
@@ -332,6 +360,7 @@ def run(ctx):
     harness = ctx.opts.get("harness") or shlex.join([os.path.join(ROOT, "bin", "harness")])
     workers = int(ctx.opts.get("workers", "1"))
     poll = float(ctx.opts.get("poll", "30"))
+    watch = poll if ctx.opts.get("end_front", "1") not in ("0", "false", "no") else None   # #1244
     if workers < 1:
         raise ValueError("workers must be at least 1")
     model, effort = ctx.opts.get("model") or None, ctx.opts.get("effort") or None
@@ -356,10 +385,13 @@ def run(ctx):
         session, replies, n = None, 0, 0
         while not ctx.stop.is_set():                     # the front door: /harness <idea> until a fleet is up
             n += 1
-            t = front_turn(ctx, fleet, claude, prompt, session, n, st, front_registered)
+            t = front_turn(ctx, fleet, claude, prompt, session, n, st, front_registered, watch)
             session = t["session"]
             if ctx.stop.is_set():
                 return
+            if t["ended"]:                               # every PRD closed while it ran: the fleet is done
+                ctx.count("front_door_ended")
+                break
             res = t["result"]
             if res is None or res.get("is_error"):
                 raise RuntimeError("front-door claude turn failed: " + str((res or {}).get("result") or "no result")[:300])

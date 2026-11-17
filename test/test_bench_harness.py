@@ -140,7 +140,7 @@ with open(os.path.join(cfg, "projects", "p", sid + ".jsonl"), "a") as t:
                         "effort": argv[argv.index("--effort") + 1] if "--effort" in argv else "medium",
                         "message": {"id": "front%d" % n, "model": "claude-opus-5-5",
                                     "usage": {"input_tokens": 100, "output_tokens": 1000}, "content": []}}) + "\n")
-if action.startswith("start"):   # start, start-error, start-restart
+if action.startswith("start"):   # start, start-error, start-restart, start-hang
     tmp = os.path.join(os.environ["FAKE_GH_HOME"], ".prds.json.%d.tmp" % os.getpid())   # atomic (#814), as put() above
     with open(tmp, "w") as f: json.dump([{"number": 1, "state": "OPEN"}], f)
     for _ in range(20000):   # native Windows denies the rename while the fake gh's cat has the file open: try again (#1108)
@@ -159,6 +159,8 @@ if action.startswith("start"):   # start, start-error, start-restart
     if action == "start-restart":   # the front door repairs the fleet by hand and starts it again
         sh("stop")
         sh("start", "--recover")
+if action == "start-hang":   # #1244: the front door's own wait loop never notices the fleet is done
+    time.sleep(60)
 print(json.dumps({"type": "result", "subtype": "success", "is_error": action == "start-error", "session_id": sid, "result": text}), flush=True)
 '''
 
@@ -264,7 +266,9 @@ def test_the_brief_goes_through_slash_harness_and_workers_pass_through(a):
 def test_one_worker_is_the_default_and_harness_3_defaults_to_three(a):
     assert a.run("harness").returncode == 0
     assert calls_of(a, "init")[0]["env"]["HARNESS_POOL"] == "1" and a.result()["counts"]["workers"] == 1
-    q = a.run("harness-3", "--run-id", "t3")
+    # the fake board is one file shared by both runs and still shows run 1's closed PRD: the front-door watch (#1244) would
+    # end run 2's turn at once, so it is off here (a real run has a repo of its own)
+    q = a.run("harness-3", "--run-id", "t3", "--arm-opt", "end_front=0")
     assert q.returncode == 0, (q.stdout, q.stderr)
     assert calls_of(a, "init")[-1]["env"]["HARNESS_POOL"] == "3"
 
@@ -527,6 +531,24 @@ def test_a_front_door_that_stops_early_gets_the_scripted_reply(a):
     assert len(front) == 2 and front[1]["prompt"] == "keep going, decide for yourself", front
     assert front[1]["argv"][-2:] == ["--resume", "front-door-session"], front[1]["argv"]
     assert a.result()["counts"]["continue_replies"] == 1
+
+
+@with_arm(["start-hang|never ends"])
+def test_a_front_door_that_never_ends_is_ended_once_every_prd_is_closed(a):   # #1244
+    t0 = time.time()
+    p = a.run("harness")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    r = a.result()
+    assert (r["status"], r["error"]) == ("ok", None) and r["counts"]["front_door_ended"] == 1, r
+    assert time.time() - t0 < 50, "the arm did not wait for the front door's 60 s hang"
+    assert len(a.front_calls()) == 1 and r["counts"]["issues_closed"] == 2, "the fleet's work is counted as usual"
+    assert a.decoy_alive(), "only the front door the arm spawned was ended"
+
+
+@with_arm(["start|The fleet is running."])
+def test_a_front_door_that_ends_on_its_own_is_not_counted_as_ended(a):   # #1244
+    assert a.run("harness").returncode == 0
+    assert "front_door_ended" not in a.result()["counts"], a.result()["counts"]
 
 
 @with_arm([])
