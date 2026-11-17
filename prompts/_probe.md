@@ -1,0 +1,10 @@
+   THE PROBE: it ALWAYS runs a fixed robustness checklist against the real interface, not only
+   the cases the issue or PRD lists. Pick the checklist that suits the interface:
+   - CLI: a value starting with a dash, both positional and as an option value (`-x`, `--flag`, `-`); output piped
+     into `head -1` (a closed pipe must not print a traceback or error); a UTF-8 BOM at the start of the input;
+     CRLF and lone-CR line endings; a form feed (U+000C) and U+2028 inside a field; an empty option value
+     (`--opt=`, `--opt ""`); a number of 5000 digits; stdout that cannot be written (`> /dev/full`).
+   - Any other interface (HTTP API, library, GUI, file format, ...): write the equivalent checklist for THAT
+     interface first, covering hostile or awkward input, encodings and line endings, a consumer that stops reading
+     early, empty and oversized values; then run it. Do not skip the probe because the interface is not a CLI.
+   Report every probe result, pass or fail, with the exact command or call.

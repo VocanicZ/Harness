@@ -9,6 +9,7 @@ source "$HERE/../scripts/lib.sh"; source "$HERE/helpers.sh"
 P="$HERE/../prompts"
 T="$(mktemp -d)"; trap 'rm -rf "$T"; tmp_cleanup' EXIT
 flat(){ tr '\n' ' ' | tr -s ' '; }
+pos_of(){ local pre="${2%%"$1"*}"; [[ "$2" == *"$1"* ]] && echo "${#pre}" || echo 999999999; }
 
 R="$(render "$P/review.md" PROJECT=w DESC=d SLUG=acme/widget PRD=7 PROMISE="REVIEW DONE" LABEL_READY=ready-for-agent \
   LABEL_REVIEWED=prd-reviewed | flat)"
@@ -38,4 +39,27 @@ assert_ok "CLI: CRLF and lone CR" grep -qF 'CRLF and lone-CR line endings' <<<"$
 assert_ok "CLI: form feed and U+2028 in a field" grep -qF 'a form feed (U+000C) and U+2028 inside a field' <<<"$R"
 assert_ok "other interfaces get an interface-appropriate checklist" \
   grep -qF 'write the equivalent checklist for THAT interface' <<<"$R"
+assert_ok "CLI: empty option value" grep -qF 'an empty option value' <<<"$R"
+assert_ok "CLI: 5000-digit number" grep -qF 'a number of 5000 digits' <<<"$R"
+assert_ok "CLI: stdout that cannot be written" grep -qF 'stdout that cannot be written' <<<"$R"
+
+echo "-- #1239: the reviewer runs the probe itself unless the project is big AND the suite slow"
+assert_ok "the reviewer runs it itself" grep -qF 'So you run it YOURSELF, in this session, after the suite' <<<"$R"
+assert_ok "sub-agent only when both hold" grep -qF 'Use a sub-agent only when BOTH hold' <<<"$R"
+assert_ok "size bar is 3000 source lines" grep -qF 'over 3000 lines' <<<"$R"
+assert_ok "slow-suite bar is 2 minutes" grep -qF 'takes over 2 minutes' <<<"$R"
+inline="$(pos_of 'So you run it YOURSELF' "$R")"; probe="$(pos_of 'THE PROBE: it ALWAYS' "$R")"
+assert_ok "the who-runs-it rule (@$inline) comes before the checklist (@$probe)" test "$inline" -lt "$probe"
+
+echo "-- #1239: the implementer lane runs the same checklist before it commits"
+I="$(render "$P/impl.md" ISSUE=5 SLUG=acme/widget BRANCH=issue/5 LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused \
+  LABEL_READY=ready-for-agent PROMISE="ISSUE 5 DONE" | flat)"
+assert_ok "impl has the robustness pass" grep -qF 'ROBUSTNESS PASS' <<<"$I"
+assert_ok "impl runs the review's probe checklist" grep -qF "run the PRD review's probe yourself, once" <<<"$I"
+assert_ok "impl checklist has the 5000-digit number and /dev/full" grep -qF 'a 5000-digit number, stdout that cannot be written' <<<"$I"
+assert_ok "impl fixes defects in the same lane with a test" grep -qF 'Fix every defect it shows in THIS lane and add a test for it' <<<"$I"
+assert_ok "impl pass is only for a user-visible interface" grep -qF 'only when your change alters something a user feeds in or sees come out' <<<"$I"
+assert_ok "impl checklist has the closed pipe" grep -qF 'output piped into `head -1`' <<<"$I"
+a="$(pos_of 'ROBUSTNESS PASS' "$I")"; b="$(pos_of 'Never delete, skip, or weaken a test' "$I")"
+assert_ok "the pass (@$a) comes before the never-weaken rule and the commit (@$b)" test "$a" -lt "$b"
 finish
