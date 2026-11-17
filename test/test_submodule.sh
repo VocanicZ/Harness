@@ -274,6 +274,7 @@ rc=127" "only lane-bin dirs on PATH: gh: command not found, 127"
       && q commit -m "add submodules" && git submodule update --init --recursive -q 2>/dev/null )
   M="$D/main"; MG="$(git -C "$M" rev-parse --path-format=absolute --git-common-dir)"
   kb(){ du -sk "$1" | cut -f1; }
+  npacks(){ find "$1/pack" -name '*.pack' 2>/dev/null | wc -l | tr -d ' '; }
   FULLKB=$((BLOB / 1024))
 
   # (a) every level borrows from its OWN main-side counterpart
@@ -308,16 +309,25 @@ rc=127" "only lane-bin dirs on PATH: gh: command not found, 127"
   assert_ok "missing reference: engine still borrows" test -f "$(git -C "$D/wt2/engine" rev-parse --path-format=absolute --git-path objects/info/alternates)"
   assert_ok "missing reference: nested submodule of engine still borrows" test -f "$(git -C "$D/wt2/engine/nest" rev-parse --path-format=absolute --git-path objects/info/alternates)"
 
-  # (c) main checkout's submodule sits at an OLDER commit than the lane's gitlink: missing objects come from the remote
-  ( cd "$D/otherw" && echo 2 > f2 && git add f2 && q commit -m c2 && q push origin main )
+  # (c) main checkout's submodule sits at an OLDER commit than the lane's gitlink: the shared store is
+  # refreshed once (#1241), so the lane borrows everything and holds no pack of its own
+  ( cd "$D/otherw" && head -c $BLOB /dev/urandom > f2 && git add f2 && q commit -m c2 && q push origin main )
   NEW="$(git -C "$D/otherw" rev-parse HEAD)"
   ( cd "$M" && git update-index --cacheinfo "160000,$NEW,other" && q commit -m "bump other" )
-  assert_ok "precondition: main's other is behind the gitlink" test "$(git -C "$M/other" rev-parse HEAD)" != "$NEW"
+  OLDHEAD="$(git -C "$M/other" rev-parse HEAD)"
+  assert_ok "precondition: main's other is behind the gitlink" test "$OLDHEAD" != "$NEW"
+  assert_no "precondition: the main-side store lacks the gitlink commit" git -C "$MG/modules/other" cat-file -e "$NEW^{commit}"
   q -C "$M" worktree add -b issue/13 "$D/wt3" HEAD
   submodule_init "$D/wt3"; assert_eq "$?" 0 "stale reference: returns 0"
   assert_eq "$(git -C "$D/wt3/other" rev-parse HEAD)" "$NEW" "stale reference: other at the lane's gitlink"
-  assert_ok "stale reference: the new file is checked out" test -f "$D/wt3/other/f2"
+  assert_ok "stale reference: the new file is checked out" test -s "$D/wt3/other/f2"
   assert_ok "stale reference: still borrows" test -f "$(git -C "$D/wt3/other" rev-parse --path-format=absolute --git-path objects/info/alternates)"
+  od3="$(git -C "$D/wt3/other" rev-parse --path-format=absolute --git-path objects)"
+  assert_eq "$(npacks "$od3")" 0 "stale reference: the lane holds no pack of its own"
+  assert_ok "stale reference: lane objects dir is far smaller than the new blob" test "$(kb "$od3")" -lt $((FULLKB / 4))
+  assert_ok "stale reference: lane object store is consistent" git -C "$D/wt3/other" fsck --connectivity-only
+  assert_ok "stale reference: the shared store now has the gitlink commit" git -C "$MG/modules/other" cat-file -e "$NEW^{commit}"
+  assert_eq "$(git -C "$M/other" rev-parse HEAD)" "$OLDHEAD" "stale reference: the main checkout's submodule HEAD is unmoved"
 
   # (d) a real failure (unreachable remote) still returns non-zero, and the other submodules are still done
   q -C "$M" worktree add -b issue/14 "$D/wt4" HEAD
@@ -326,6 +336,53 @@ rc=127" "only lane-bin dirs on PATH: gh: command not found, 127"
   assert_ok "init failure: returns non-zero" test "$rc4" -ne 0
   assert_ok "init failure: the other submodule is still checked out" test -s "$D/wt4/other/big"
   assert_no "init failure: the failed one is not" test -s "$D/wt4/engine/big"
+  # (e) two lanes start at once against the same stale store: the store's origin is fetched exactly once
+  ( cd "$D/otherw" && head -c $BLOB /dev/urandom > f3 && git add f3 && q commit -m c3 && q push origin main )
+  NEW3="$(git -C "$D/otherw" rev-parse HEAD)"
+  ( cd "$M" && git update-index --cacheinfo "160000,$NEW3,other" && q commit -m "bump other again" )
+  printf '#!/bin/sh\necho fetch >> "%s"\nexec git-upload-pack "$@"\n' "$D/uploads.log" > "$D/upwrap"; chmod +x "$D/upwrap"
+  git -C "$MG/modules/other" config remote.origin.uploadpack "$D/upwrap"
+  : > "$D/uploads.log"
+  q -C "$M" worktree add -b issue/15 "$D/wt5" HEAD; q -C "$M" worktree add -b issue/16 "$D/wt6" HEAD
+  ( submodule_init "$D/wt5" >/dev/null 2>&1; echo $? > "$D/rc5" ) & p5=$!
+  ( submodule_init "$D/wt6" >/dev/null 2>&1; echo $? > "$D/rc6" ) & p6=$!
+  wait "$p5" "$p6"
+  assert_eq "$(cat "$D/rc5")" 0 "parallel lanes: first returns 0"
+  assert_eq "$(cat "$D/rc6")" 0 "parallel lanes: second returns 0"
+  for w in wt5 wt6; do
+    assert_eq "$(git -C "$D/$w/other" rev-parse HEAD)" "$NEW3" "parallel lanes: $w at the gitlink"
+    assert_eq "$(npacks "$(git -C "$D/$w/other" rev-parse --path-format=absolute --git-path objects)")" 0 "parallel lanes: $w holds no pack of its own"
+  done
+  assert_eq "$(wc -l < "$D/uploads.log" | tr -d ' ')" 1 "parallel lanes: the shared store's origin is fetched exactly once"
+  git -C "$MG/modules/other" config --unset remote.origin.uploadpack
+
+  # (f) the shared store's fetch fails: fall back to fetching into the lane's own store, rc 0
+  ( cd "$D/otherw" && echo 4 > f4 && git add f4 && q commit -m c4 && q push origin main )
+  NEW4="$(git -C "$D/otherw" rev-parse HEAD)"
+  ( cd "$M" && git update-index --cacheinfo "160000,$NEW4,other" && q commit -m "bump other thrice" )
+  GOODURL="$(git -C "$MG/modules/other" config remote.origin.url)"
+  git -C "$MG/modules/other" config remote.origin.url "$D/does-not-exist.git"
+  q -C "$M" worktree add -b issue/17 "$D/wt7" HEAD
+  submodule_init "$D/wt7" >/dev/null 2>&1; assert_eq "$?" 0 "failed refresh: returns 0"
+  git -C "$MG/modules/other" config remote.origin.url "$GOODURL"
+  assert_eq "$(git -C "$D/wt7/other" rev-parse HEAD)" "$NEW4" "failed refresh: other at the gitlink"
+  assert_ok "failed refresh: still has alternates" test -f "$(git -C "$D/wt7/other" rev-parse --path-format=absolute --git-path objects/info/alternates)"
+  assert_no "failed refresh: the shared store was not refreshed" git -C "$MG/modules/other" cat-file -e "$NEW4^{commit}"
+
+  # (g) a nested submodule's stale main-side store is refreshed the same way
+  ( cd "$D/nestw" && head -c $BLOB /dev/urandom > big2 && git add big2 && q commit -m n2 && q push origin main )
+  NN="$(git -C "$D/nestw" rev-parse HEAD)"
+  ( cd "$D/subw/nest" && q fetch origin && q checkout "$NN" ) && ( cd "$D/subw" && git add nest && q commit -m "bump nest" && q push origin main )
+  NS="$(git -C "$D/subw" rev-parse HEAD)"
+  ( cd "$M" && git update-index --cacheinfo "160000,$NS,engine" && q commit -m "bump engine" )
+  assert_no "precondition: the nested shared store lacks the nested gitlink" git -C "$MG/modules/engine/modules/nest" cat-file -e "$NN^{commit}"
+  q -C "$M" worktree add -b issue/18 "$D/wt8" HEAD
+  submodule_init "$D/wt8" >/dev/null 2>&1; assert_eq "$?" 0 "nested stale store: returns 0"
+  assert_eq "$(git -C "$D/wt8/engine/nest" rev-parse HEAD)" "$NN" "nested stale store: nest at the nested gitlink"
+  assert_ok "nested stale store: the shared nested store has the commit" git -C "$MG/modules/engine/modules/nest" cat-file -e "$NN^{commit}"
+  assert_eq "$(npacks "$(git -C "$D/wt8/engine/nest" rev-parse --path-format=absolute --git-path objects)")" 0 "nested stale store: the lane's nested store has no pack"
+  assert_eq "$(npacks "$(git -C "$D/wt8/engine" rev-parse --path-format=absolute --git-path objects)")" 0 "nested stale store: the lane's engine store has no pack"
+  assert_ok "nested stale store: lane nested object store is consistent" git -C "$D/wt8/engine/nest" fsck --connectivity-only
   finish
 ) || rc=1
 

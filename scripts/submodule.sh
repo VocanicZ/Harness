@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # submodule.sh — submodule helpers shared by lib.sh (lane worktree init) and gitlink-guard.sh.
 # Pure git, no engine state: source it, call the functions. (#470, PRD #464 §3)
+# It sources portable.sh (guarded, safe twice) for lock_acquire / lock_release: the shared-store refresh
+# below is locked, and a raw `flock` is not allowed outside portable.sh (native Windows has none).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/portable.sh"
 
 # submodule_name <repo> <path> — the .gitmodules name of the submodule checked out at <path>.
 submodule_name(){ local repo="$1" path="$2" k
@@ -56,7 +59,10 @@ submodule_base_branch(){ local repo="$1" path="$2" ref="${3:-HEAD}" name br sha 
 # so the reference is chosen per submodule and per level — one shared --reference would hand the wrong
 # repo to every other submodule. A missing main-side copy (the main checkout never ran `submodule
 # update`) falls back to a plain clone: git fails hard on a --reference that does not exist. Objects the
-# main-side copy lacks (its submodule sits at another commit) are fetched from the remote as usual.
+# main-side copy lacks (its submodule sits at another commit) would be fetched into the LANE's own store,
+# and git never writes to a reference, so every lane would download them again: the shared store is
+# refreshed first (`fetch origin`, once, under a per-store lock), so the lane then borrows everything
+# (#1241). A refresh that fails, or leaves the commit missing, falls back to the lane fetching it itself.
 # Trade-off: a lane's submodule depends on the main checkout's objects, so a `gc --prune` there that drops
 # objects unreachable in it could break a live lane. Lanes are short-lived and `git worktree remove`
 # deletes their `modules/`. Never --dissociate (copies the objects back) and never --depth/--filter: the
@@ -66,13 +72,30 @@ submodule_init(){ local wt="$1" common
   common="$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=
   _submodule_init_level "$wt" "${common:+$common/modules}"; }
 
+# _submodule_refresh_ref <dir> <path> <ref> — make the shared store <ref> hold the commit <dir> pins <path>
+# to, so `--reference` has everything to borrow. A store that already has it is left alone. Otherwise one
+# `fetch origin` runs under <ref>/harness-refresh.lock, re-checked once the lock is held (a parallel lane
+# may have fetched meanwhile). Best effort and silent: any failure (no gitlink, lock, fetch, commit still
+# missing) returns 0 and the caller clones as before. Prompts are off: the hook's output is discarded, so
+# a credential prompt would hang the launch while holding the lock. Only refs/remotes/origin/* of <ref>
+# moves; the main checkout's submodule HEAD and work tree are never touched.
+_submodule_refresh_ref(){ local dir="$1" p="$2" ref="$3" sha lk=
+  sha="$(submodule_gitlink "$dir" HEAD "$p")"
+  [[ -n "$sha" ]] || return 0
+  git -C "$ref" cat-file -e "$sha^{commit}" 2>/dev/null && return 0
+  if declare -F lock_acquire >/dev/null; then lock_acquire "$ref/harness-refresh.lock" lk 2>/dev/null || lk=; fi
+  git -C "$ref" cat-file -e "$sha^{commit}" 2>/dev/null \
+    || GIT_TERMINAL_PROMPT=0 git -C "$ref" fetch -q origin >/dev/null 2>&1 || true
+  [[ -z "$lk" ]] || lock_release "$lk"
+  return 0; }
+
 # _submodule_init_level <dir> <main-side modules dir | ""> — one level of submodule_init: <dir>'s own
 # submodules, each borrowing from <modroot>/<name>, then recursing with <modroot>/<name>/modules.
 _submodule_init_level(){ local dir="$1" modroot="$2" k p name ref rc=0
   while read -r k p; do
     name="${k#submodule.}"; name="${name%.path}"; ref=
     [[ -n "$modroot" && -d "$modroot/$name/objects" ]] && ref="$modroot/$name"
-    if [[ -n "$ref" ]]; then git -C "$dir" submodule update --init --reference "$ref" -- "$p" || rc=1
+    if [[ -n "$ref" ]]; then _submodule_refresh_ref "$dir" "$p" "$ref"; git -C "$dir" submodule update --init --reference "$ref" -- "$p" || rc=1
     else git -C "$dir" submodule update --init -- "$p" || rc=1; fi
     [[ -f "$dir/$p/.gitmodules" ]] && { _submodule_init_level "$dir/$p" "${modroot:+$modroot/$name/modules}" || rc=1; }
   done < <(git config -f "$dir/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
