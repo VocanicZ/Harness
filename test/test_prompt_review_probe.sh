@@ -80,6 +80,8 @@ assert_ok "impl: the lane probes while they write" grep -qF 'While they write yo
 a="$(pos_of 'OUTPUT BUDGET' "$I")"; b="$(pos_of 'ROBUSTNESS PASS' "$I")"
 assert_ok "the output budget (@$a) comes before the robustness pass (@$b)" test "$a" -lt "$b"
 assert_ok "probe: a 5000-digit number goes through the arithmetic" grep -qF 'also through the arithmetic' <<<"$R"
+assert_ok "probe: bytes that are not valid UTF-8 are the spec's unreadable-file case" grep -qF 'bytes that are not valid UTF-8 in an input file' <<<"$R"
+assert_ok "impl probe: bytes that are not valid UTF-8 are the spec's unreadable-file case" grep -qF "bytes that are not valid UTF-8 in an input file (the spec's unreadable-file case" <<<"$I"
 assert_ok "the shared probe file names the 28-digit Decimal rounding" grep -qF "context rounds at 28 digits" "$P/_probe.md"
 assert_ok "review: a re-review keys on the earlier suite sha" grep -qF 'RE-REVIEW (#1244)' <<<"$R"
 assert_ok "review: a re-review reads the diff since that sha" grep -qF 'read `git diff <sha>..HEAD` and what it touches' <<<"$R"
