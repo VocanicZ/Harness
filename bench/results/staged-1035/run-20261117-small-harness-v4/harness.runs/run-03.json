@@ -1,0 +1,816 @@
+{
+  "schema": 1,
+  "run_id": "run-20261117-small-harness-v4",
+  "arm": "harness",
+  "fixture": "pennywise",
+  "repo": "VocanicZ/bench-run-20261117-small-harness-v4-harness-r03",
+  "status": "ok",
+  "capped": null,
+  "error": null,
+  "started_at": "2026-11-17T09:16:19Z",
+  "ended_at": "2026-11-17T09:32:36Z",
+  "wall_s": 828.958,
+  "coding_s": 1307.4759999999999,
+  "testing_s": 44.068,
+  "test_calls": 16,
+  "tokens": {
+    "input": 124,
+    "output": 60533,
+    "cache_read": 3303533,
+    "cache_write": 223800
+  },
+  "cost_usd": 2.1807,
+  "usd_per_pct": 5.36,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 0.41,
+  "models": {
+    "claude-opus-5-5": {
+      "messages": 37,
+      "input": 74,
+      "output": 21449,
+      "cache_read": 1943634,
+      "cache_write": 110519,
+      "cost_usd": 1.3706
+    },
+    "claude-sonnet-5-5": {
+      "messages": 25,
+      "input": 50,
+      "output": 39084,
+      "cache_read": 1359899,
+      "cache_write": 113281,
+      "cost_usd": 0.8101
+    }
+  },
+  "hidden_tests": {
+    "passed": 80,
+    "failed": 0,
+    "total": 80,
+    "details": {
+      "install": "pip",
+      "tests": [
+        {
+          "id": "CliAddTests.test_add_appends_and_prints_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_creates_a_missing_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_refused_entry_does_not_create_the_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_refuses_invalid_entries_and_leaves_the_file_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_to_a_file_without_a_trailing_newline",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_add_without_a_note",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliAddTests.test_added_entry_shows_up_everywhere",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_has_two_decimals",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliBalanceTests.test_balance_of_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_exits_1_naming_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_on_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_command_without_a_file_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_missing_file_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_no_command_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliErrorTests.test_unknown_command_exits_2",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_default_format_is_csv",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_header_only_for_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_is_ordered_like_list",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_quotes_awkward_notes",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliExportTests.test_export_rejects_unknown_format",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_category_filter_ignores_case",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_everything",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_filters_combine",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_json_with_no_match_is_an_empty_array",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_no_match_prints_nothing_and_succeeds",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_oldest_first_and_stable",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_omits_note_without_trailing_space",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_rejects_a_mistyped_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_since_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_since_and_until_include_their_ends",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliListTests.test_list_until_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_category_explicit",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_defaults_to_category",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_from_stdin",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_lines_have_name_then_total",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_of_an_empty_ledger",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "CliSummaryTests.test_summary_rejects_unknown_grouping",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_category_is_case_insensitive",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_filters_combine",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_input_list_is_not_modified",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_no_filters_returns_everything_in_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_order_given_is_kept",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_since_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_since_and_until_include_their_ends",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_unknown_category_matches_nothing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_until_alone",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_bad_amounts",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_date_that_does_not_exist",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_line_number_counts_blank_and_comment_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_malformed_date",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_not_enough_fields",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_error_reports_the_first_bad_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_amount_spellings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_categories_lowercased",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_empty_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_field_types",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_empty_string_when_missing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_rest_of_line_trimmed",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_returns_entries_in_file_order",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_skips_blank_and_comment_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_tab_separated_fields",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_windows_line_endings",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ParseTests.test_parse_without_trailing_newline",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance_is_exact",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_balance_of_nothing_is_zero",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_category",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_category_and_month_of_nothing",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_month",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SummaryTests.test_by_month_separates_years",
+          "status": "passed",
+          "message": ""
+        }
+      ]
+    }
+  },
+  "counts": {
+    "workers": 1,
+    "continue_replies": 0,
+    "fleet_restarts": 0,
+    "front_door_ended": 1,
+    "issues_closed": 2,
+    "prs_merged": 2
+  },
+  "caps": {
+    "wall_s": 21600,
+    "cost_usd": 80.0
+  },
+  "repo_deleted": true,
+  "logs": "run-03.logs",
+  "quality": "ok",
+  "coverage": {
+    "line_pct": 98.0,
+    "branch_pct": 96.1,
+    "total_pct": 97.6,
+    "tests": "unittest"
+  },
+  "run": 3,
+  "isolation": {
+    "config": "isolated",
+    "engine_skills": [
+      "caveman",
+      "handoff",
+      "harness",
+      "harness-arc",
+      "harness-init",
+      "harness-issue",
+      "harness-one",
+      "harness-pause",
+      "harness-plan",
+      "harness-prd",
+      "harness-resume",
+      "harness-start",
+      "harness-status",
+      "harness-stop",
+      "harness-uninstall",
+      "subagent-task-tree",
+      "to-issues",
+      "to-prd",
+      "writing-plans"
+    ],
+    "engine_plugins": []
+  },
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 38,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 223800,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 1.3605,
+  "turn_gaps": {
+    "turns": 59,
+    "p50_s": 7.5,
+    "p90_s": 25.3,
+    "max_s": 82.7,
+    "over_5m": 0,
+    "over_1h": 0
+  },
+  "cache_ttl": "5m",
+  "session_s": 820.541,
+  "effort": {
+    "high": 88,
+    "medium": 21
+  },
+  "provenance": {
+    "engine_commit": "639670a7fe77dae45cf2ae556dabe683b95846ad-dirty",
+    "skill_version": "sha256:104fcebf3f893ceb",
+    "cli_version": "2.1.326 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 7,
+  "fuzz_classes": 1,
+  "fuzz_class_counts": {
+    "ledger:invalid-utf8 x exit": 7
+  },
+  "fuzz_examples": [
+    {
+      "case": 66,
+      "argv": [
+        "summary",
+        "ledger.txt",
+        "--by",
+        "month",
+        "--json"
+      ],
+      "ledger": "\\n2024-03-02 HEALTH 72.09 weekly shop\\n2024-03-09 health 75 rent for march\\n2024-03-12\\thealth -38 12.505\\n2024-03-18 health  -5\\n2024-03-18 health 39\\n2024-03-30 Health -906 -5\\n2024-03-30 health    \u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-02 HEALTH 72.09 weekly shop",
+          "2024-03-09 health 75 rent for march",
+          "2024-03-12\thealth -38 12.505",
+          "2024-03-18 health  -5",
+          "2024-03-18 health 39",
+          "2024-03-30 Health -906 -5",
+          "2024-03-30 health      -1072.66",
+          "# \\xff\\xfe junk",
+          "2024-03-31 HEALTH      9.23",
+          "2024-04-03  health 95.54 42",
+          "# trailing space  ",
+          "2024-04-06 health -17.96",
+          "2024-04-07 health  +64.53",
+          "2024-04-15 HEALTH      -21.99 refund"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-02 HEALTH 72.09 weekly shop",
+          "2024-03-09 health 75 rent for march",
+          "2024-03-12\thealth -38 12.505",
+          "2024-03-18 health  -5",
+          "2024-03-18 health 39",
+          "2024-03-30 Health -906 -5",
+          "2024-03-30 health      -1072.66",
+          "# \\xff\\xfe junk",
+          "2024-03-31 HEALTH      9.23",
+          "2024-04-03  health 95.54 42",
+          "# trailing space  ",
+          "2024-04-06 health -17.96",
+          "2024-04-07 health  +64.53",
+          "2024-04-15 HEALTH      -21.99 refund"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 9: invalid UTF-8\\n"
+    },
+    {
+      "case": 407,
+      "argv": [
+        "list",
+        "ledger.txt"
+      ],
+      "ledger": "2023-12-25 SALARY -60.10 refund\\n2024-01-15 SALARY -2515.62\\n2024-01-04 SALARY -28\\n# \\\\xc3( broken\\n2023-12-31 SALARY +0.0\\n2024-01-14 fuel 48.9\\n2024-01-16 SALARY  -86.91\\n2024-01-03 SALARY  0 milk,\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2023-12-25 SALARY -60.10 refund",
+          "2024-01-15 SALARY -2515.62",
+          "2024-01-04 SALARY -28",
+          "# \\xc3( broken",
+          "2023-12-31 SALARY +0.0",
+          "2024-01-14 fuel 48.9",
+          "2024-01-16 SALARY  -86.91",
+          "2024-01-03 SALARY  0 milk, eggs, bread",
+          "# trailing space  ",
+          "2024-01-21 SALARY 10444.6 \u65e5\u672c\u8a9e\u306e\u30e1\u30e2"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2023-12-25 SALARY -60.10 refund",
+          "2024-01-15 SALARY -2515.62",
+          "2024-01-04 SALARY -28",
+          "# \\xc3( broken",
+          "2023-12-31 SALARY +0.0",
+          "2024-01-14 fuel 48.9",
+          "2024-01-16 SALARY  -86.91",
+          "2024-01-03 SALARY  0 milk, eggs, bread",
+          "# trailing space  ",
+          "2024-01-21 SALARY 10444.6 \u65e5\u672c\u8a9e\u306e\u30e1\u30e2"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 4: invalid UTF-8\\n"
+    },
+    {
+      "case": 453,
+      "argv": [
+        "balance",
+        "ledger.txt"
+      ],
+      "ledger": "#\\n2024-03-05 cafe -3.50 caf\\\\xe9\\n2022-02-04 health +0.15\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#",
+          "2024-03-05 cafe -3.50 caf\\xe9",
+          "2022-02-04 health +0.15"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#",
+          "2024-03-05 cafe -3.50 caf\\xe9",
+          "2022-02-04 health +0.15"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 2: invalid UTF-8\\n"
+    },
+    {
+      "case": 861,
+      "argv": [
+        "export",
+        "ledger.txt"
+      ],
+      "ledger": "#\\n# \\\\xff\\\\xfe junk\\n\\n2024-03-24  health +0.00\\n2024-04-24 health  0\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#",
+          "# \\xff\\xfe junk",
+          "2024-03-24  health +0.00",
+          "2024-04-24 health  0"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#",
+          "# \\xff\\xfe junk",
+          "2024-03-24  health +0.00",
+          "2024-04-24 health  0"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 2: invalid UTF-8\\n"
+    },
+    {
+      "case": 377,
+      "argv": [
+        "summary",
+        "ledger.txt",
+        "--json",
+        "--by",
+        "category"
+      ],
+      "ledger": "2024-05-22 health 0.50 refund\\n2024-05-24 fuel  -5.79 two  spaces  inside\\n2024-04-21  health -97 March pay\\r\\n\\r\\n2024-03-05 HEALTH +0.85 2024-03-02\\n# \\\\xc3( broken\\r\\n2024-05-01 health -78048.55  c\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-05-22 health 0.50 refund",
+          "2024-05-24 fuel  -5.79 two  spaces  inside",
+          "2024-04-21  health -97 March pay",
+          "2024-03-05 HEALTH +0.85 2024-03-02",
+          "# \\xc3( broken",
+          "2024-05-01 health -78048.55  coffee beans"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-05-22 health 0.50 refund",
+          "2024-05-24 fuel  -5.79 two  spaces  inside",
+          "2024-04-21  health -97 March pay",
+          "2024-03-05 HEALTH +0.85 2024-03-02",
+          "# \\xc3( broken",
+          "2024-05-01 health -78048.55  coffee beans"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 6: invalid UTF-8\\n"
+    },
+    {
+      "case": 487,
+      "argv": [
+        "list",
+        "ledger.txt"
+      ],
+      "ledger": "2024-03-05 cafe -3.50 caf\\\\xe9\\n# trailing space  \\n2024-04-01 BOOKS\\t-971.55\\t-5\\n2024-04-14      books  -15417\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-05 cafe -3.50 caf\\xe9",
+          "# trailing space  ",
+          "2024-04-01 BOOKS\t-971.55\t-5",
+          "2024-04-14      books  -15417"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-03-05 cafe -3.50 caf\\xe9",
+          "# trailing space  ",
+          "2024-04-01 BOOKS\t-971.55\t-5",
+          "2024-04-14      books  -15417"
+        ]
+      },
+      "arm_stderr": "pennywise: ledger.txt: line 1: invalid UTF-8\\n"
+    },
+    {
+      "case": 967,
+      "argv": [
+        "balance",
+        "-"
+      ],
+      "ledger": "# \\\\xc3( broken\\n2024-03-17\\tINSURANCE -29 train to Leeds\\n2024-03-17  utilities\\t\\t-2943.8\\n2024-03-17 UTILITIES      -61288.4\\n",
+      "ledger_from": "stdin",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm_stderr": "pennywise: <stdin>: line 1: invalid UTF-8\\n"
+    }
+  ],
+  "fuzz_seed": 620,
+  "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87",
+  "usd_per_passed_test": 0.0273,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  }
+}

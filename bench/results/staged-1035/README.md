@@ -13,6 +13,10 @@ Raw logs and transcripts of the #1035 face-to-face matrix runs collected so far.
 | run-20261116-medium-harness | harness (POOL=1) | medium | 3 (#1213, engine 603f4b3, after #1183) |
 | run-20261117-small-harness-v3 | harness (POOL=1) | small | 3 (#1239, engine 9ca3ebd) |
 | run-20261117-medium-harness-v3 | harness (POOL=1) | medium | 3 (#1239, engine 9ca3ebd) |
+| run-20261117-small-harness-v4 | harness (POOL=1) | small | 3 (#1244, engine 639670a; run 3 has 7 fuzz divergences, kept as the story below) |
+| run-20261117-medium-harness-v4 | harness (POOL=1) | medium | 3 (#1244, engine 639670a) |
+| run-20261117-small-harness-v5 | harness (POOL=1) | small | 3 (#1244, engine 8c81b5a, the final figures) |
+| run-20261117-medium-harness-v5 | harness (POOL=1) | medium | 3 (#1244, engine 8c81b5a, the final figures) |
 | run-20261117-medium-harness-v2 | harness (POOL=1) | medium | 3 (#1239, engine 7631846, an earlier prompt; kept because its run 3 is a failure counted in the story below) |
 
 `run-20261116-large-plain/peak-context/` holds each run's peak context tokens and compaction count, computed from its transcripts by `peak-context.py` (main session 214k, 278k and 220k tokens, subagents up to 191k; 0 compactions in all three runs).
@@ -60,3 +64,29 @@ Per lane, small (medians): impl 5.4 min / $0.6, review 3.1 min / $0.9 (was 6-8 m
 - Attempt 1 (engine 37e1aba, results in the PR text only): small runs 1 and 2 finished at 12.4 min / $1.85 and 16.4 min / $2.10, then the host disk filled (`No space left on device`, `/` at 100%) during run 3. Run 1 had 4 fuzz divergences, one class: a value starting with a dash where a number is expected (`add f DATE cat -abc`) exited 2 with the parser's usage error, where the reference exits 1. That is why `_probe.md` and `impl.md` now say such a value is read as that value. Rerun whole.
 - `run-20261117-small-harness-v2`: stopped at run 1 (`arm-error`, `gh pr list` could not reach api.github.com, and the quality scan failed); no result, rerun whole as v3.
 - `run-20261117-medium-harness-v2` (engine 7631846, before the spec-literal pass): 26.1 min / $4.52, 23.2 min / $3.66, and run 3 at 123.5 min / $2.89 with **24 fuzz divergences** (a report sorted by order id as text; the review signed off in one 3-minute pass without checking the brief's sort rule). The 123 min is not the fleet: its PRD closed 13 min after launch. The front door's own wait loop (`until harness status | grep -qE "complete=Y|STUCK"; do sleep 120; done`) never matched the finished dashboard ("all work complete") and the arm waits for the front door to end. The 24 divergences are why the spec-literal pass was added (v3 has 0 in all 6 runs).
+
+## Re-bench after #1244 (compact tests written in parallel, a lighter re-review, an arm that ends a hung front door)
+
+**Cause of the medium wall time left after #1239, from the transcripts of `run-20261117-medium-harness-v3`.** Not idle time (lane gaps about 1 min a run), and not the review alone: the implementer lane was 10.7, 13.5 and 15.8 min of the 20.9 / 36.5 / 28.1, and it is output volume. Its transcript has no waits: 38-74 model turns, 66-100k output tokens at about 100 tokens a second, and the minutes track what the lane writes. Run 2 (15.8 min) wrote 111k characters of test and 44k of source across 15 test-writing calls, 3 of them regex or rewrite passes that fixed a generated test file (non-ASCII text in a heredoc), then ran `rtdd` and wrote a further 4 test files for `untested`. Test characters against source characters were 82k/44k, 111k/44k and 57k/38k in runs 1-3, in the same order as their lane times (13.5, 15.8, 10.7 min). The review round (5.6-7.7 min) is Opus reading the project, the suite, the probe and a run on Python 3.9; run 1's 36.5 min came from three rounds: round 1 filed an install test that fails on Python 3.9 (the implementer never ran its suite there), round 2 found that a 5000-digit price loses digits to `Decimal`'s 28-digit context, round 3 signed off. Each extra round is a lane plus a review, about 7 min.
+
+**Change** (models unchanged; `prompts/impl.md` 2a, `prompts/review.md`, `prompts/_probe.md`, `bench/arms/harness.py`):
+- The implementer writes each test file once, table-driven with shared helpers, one test per rule, no regex fix-up passes; runs its suite on the oldest runtime the request names; and, when 3 or more test files are owed, starts 2-3 sub-agents to write them in parallel while it runs the robustness probe.
+- A re-review (the PRD already has a `harness-prd-suite sha=` comment) reads `git diff <sha>..HEAD` instead of the whole project.
+- The probe also puts the 5000-digit number through the arithmetic and, after the first small re-bench (below), feeds a file with bytes that are not valid UTF-8.
+- The arm ends a front-door turn that is still running once every PRD is closed (`counts.front_door_ended`; `--arm-opt end_front=0` restores waiting). **Owner's call, decided by the lane under the autonomous rule and open to reversal:** it changes what the wall time measures, from "until the front door's session ends" to "until the PRD is closed". In v2 run 3 the front door's own wait loop never matched the finished dashboard and added 110 min to a fleet that was done after 13. In all 6 final runs the front door was still in its wait loop when the PRD closed, so the arm ended it; the wall times above are launch to PRD closed, as v3's were (its PRD-closed time and wall agree to within the grading start). The front door's own cost is counted up to the moment it is ended.
+
+| | target | before (#1239, median of 3) | after (median of 3, engine 8c81b5a) | runs |
+|---|---|---|---|---|
+| small wall | <= 20 min | 16.4 min | **15.5 min** | 12.1, 16.0, 15.5 |
+| small cost | <= $3 | $2.39 | **$2.22** | 1.90, 2.22, 2.41 |
+| medium wall | <= 25 min | 28.1 min | **20.3 min** | 19.9, 27.4, 20.3 |
+| medium cost | <= $4 | $3.68 | **$3.71** | 3.71, 4.77, 3.59 |
+| hidden tests | 100% | 80/80 and 114/114 | 80/80 and 114/114 in all 6 runs | |
+| fuzz divergences | 0 | 0 | 0 in all 6 runs | |
+
+No run failed. Medium impl lane: 9.0, 15.0, 11.0 min (was 10.7-15.8); the review 4.0-4.6 min on the first round (was 5.6-7.7). Run 2 of medium (27.4 min, $4.77) is the one run that went through a second review round (`impl #4` 1.5 min, review 1.3 min); the median holds with 2 of 3 under 25. The medium cost median ($3.71) sits at 93% of the target, one run over it.
+
+**Runs that did not count as the final figures, and why they are listed.**
+- `run-20261117-medium-harness-v4` (engine 639670a, same prompts except the UTF-8 probe line): 17.6 / 23.1 / 21.3 min, median 21.3, $3.11 / 3.79 / 3.16, 114/114, 0 divergences. Kept as a second independent measurement of the same change.
+- `run-20261117-small-harness-v4` (engine 639670a): 13.8 / 15.1 / 13.8 min, $2.29 / 2.17 / 2.18 and 80/80, but run 3 has **7 fuzz divergences, one class** (`ledger:invalid-utf8 x exit`): for a ledger file with bytes that are not valid UTF-8 the brief's "the file cannot be read" is exit 2, and the arm exited 1 as a ledger mistake. The six small runs of #1213 and #1239 had 0, so it is a new spread of the same spec ambiguity, not something the tests would have caught: the probe checklist had no invalid-UTF-8 input, and the lane's compact tests asserted the rules it had read. That is why `_probe.md` and `impl.md` 2b now name it; v5 has 0 in all 6.
+

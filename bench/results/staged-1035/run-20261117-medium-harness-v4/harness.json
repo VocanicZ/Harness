@@ -1,0 +1,256 @@
+{
+  "schema": 1,
+  "run_id": "run-20261117-medium-harness-v4",
+  "arm": "harness",
+  "status": "aggregate",
+  "runs_requested": 3,
+  "runs_completed": 3,
+  "stopped": null,
+  "runs": [
+    {
+      "run": 1,
+      "file": "harness.runs/run-01.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 2,
+      "file": "harness.runs/run-02.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 3,
+      "file": "harness.runs/run-03.json",
+      "status": "ok",
+      "capped": null
+    }
+  ],
+  "aggregate": {
+    "n": 3,
+    "metrics": {
+      "wall_s": {
+        "n": 3,
+        "median": 1279.687,
+        "min": 1054.502,
+        "max": 1387.974
+      },
+      "coding_s": {
+        "n": 3,
+        "median": 1060.887,
+        "min": 1040.363,
+        "max": 1774.528
+      },
+      "testing_s": {
+        "n": 3,
+        "median": 125.373,
+        "min": 37.666,
+        "max": 245.478
+      },
+      "test_calls": {
+        "n": 3,
+        "median": 23,
+        "min": 16,
+        "max": 27
+      },
+      "cost_usd": {
+        "n": 3,
+        "median": 3.159,
+        "min": 3.1144,
+        "max": 3.7938
+      },
+      "weekly_window_pct": {
+        "n": 3,
+        "median": 0.56,
+        "min": 0.55,
+        "max": 0.68
+      },
+      "tokens": {
+        "n": 3,
+        "median": 5962672,
+        "min": 5727785,
+        "max": 6301860
+      },
+      "tokens_input": {
+        "n": 3,
+        "median": 150,
+        "min": 142,
+        "max": 194
+      },
+      "tokens_output": {
+        "n": 3,
+        "median": 103026,
+        "min": 99615,
+        "max": 141166
+      },
+      "tokens_cache_read": {
+        "n": 3,
+        "median": 5599020,
+        "min": 5329691,
+        "max": 5721512
+      },
+      "tokens_cache_write": {
+        "n": 3,
+        "median": 294918,
+        "min": 263895,
+        "max": 438988
+      },
+      "cache_write_5m": {
+        "n": 3,
+        "median": 294918,
+        "min": 263895,
+        "max": 438988
+      },
+      "cache_write_1h": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "cache_cost_usd": {
+        "n": 3,
+        "median": 1.8258,
+        "min": 1.8141,
+        "max": 2.1401
+      },
+      "gap_p90_s": {
+        "n": 3,
+        "median": 47.6,
+        "min": 31.8,
+        "max": 64.2
+      },
+      "gaps_over_5m": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "hidden_passed": {
+        "n": 3,
+        "median": 114,
+        "min": 114,
+        "max": 114
+      },
+      "hidden_total": {
+        "n": 3,
+        "median": 114,
+        "min": 114,
+        "max": 114
+      },
+      "fuzz_divergences": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "fuzz_cases": {
+        "n": 3,
+        "median": 1000,
+        "min": 1000,
+        "max": 1000
+      },
+      "fuzz_classes": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "coverage": {
+        "n": 3,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "sonar_bugs": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_vulnerabilities": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_code_smells": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sonar_duplicated_lines_density": {
+        "n": 3,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "cov_line_pct": {
+        "n": 3,
+        "median": 97.1,
+        "min": 15.6,
+        "max": 98.0
+      },
+      "cov_branch_pct": {
+        "n": 3,
+        "median": 97.5,
+        "min": 0.0,
+        "max": 99.0
+      },
+      "cov_total_pct": {
+        "n": 3,
+        "median": 97.2,
+        "min": 11.7,
+        "max": 98.3
+      },
+      "issues_closed": {
+        "n": 3,
+        "median": 2,
+        "min": 1,
+        "max": 2
+      },
+      "prs_merged": {
+        "n": 3,
+        "median": 2,
+        "min": 1,
+        "max": 2
+      },
+      "continue_replies": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "usd_per_passed_test": {
+        "n": 3,
+        "median": 0.0277,
+        "min": 0.0273,
+        "max": 0.0333
+      },
+      "compactions": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "refeeds": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "refeed_tokens": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "cap_hits": {
+      "runs": 0,
+      "of": 3,
+      "wall": 0,
+      "cost": 0
+    }
+  }
+}

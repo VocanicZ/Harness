@@ -1,0 +1,40 @@
+{
+  "bn82ad3": {
+    "sessions": 3,
+    "tokens": {},
+    "issues_closed": 2,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261117-small-harness-v5-harness-r01": {
+        "claims": 3,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 2,
+        "which": 3,
+        "init": 1,
+        "explain": 2
+      },
+      "which": 3,
+      "changed_nodes": 192,
+      "round1": 93,
+      "round2": 2,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 5
+      },
+      "wall_ms": 827,
+      "selective": 3,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}
