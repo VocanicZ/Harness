@@ -27,14 +27,42 @@ assert_ok "the usage limit needs nothing from the lane"     grep -qF 'A usage li
 assert_ok "a queue wait parks (#1034)"                      grep -qF 'park the lane where a park exists' <<<"$w"
 assert_ok "unavoidable polling stays under 270 seconds"     grep -qF 'under 270 seconds so the cache stays warm' <<<"$w"
 
+echo "-- the sub-agent rule (#1249)"
+assert_ok "names the sub-agent rule"                        grep -qF 'SUB-AGENTS (#1249)' <<<"$w"
+assert_ok "one fan-out starts in ONE message"               grep -qF 'Start every sub-agent of one fan-out in ONE message' <<<"$w"
+assert_ok "briefs say: foreground only, final report last"  grep -qF 'run every command in the foreground: no `run_in_background`, `Monitor` or `harness-wait run` inside a sub-agent, and never end its turn before its final report' <<<"$w"
+assert_ok "one notification per sub-agent"                  grep -qF 'notifies you exactly once' <<<"$w"
+assert_ok "a notification with others running: no tool call" grep -qF 'while other sub-agents are still running, make no tool calls: write one short line and end your turn' <<<"$w"
+assert_ok "a sub-agent is never polled"                     grep -qF 'Never poll a sub-agent (`TaskOutput`, reading its output file, or `sleep`)' <<<"$w"
+cp="$(flat <"$P/_checkpoint_subagents.md")"
+assert_ok "checkpoint: record worktree and branch"          grep -qF "record each running sub-agent's worktree and branch in the handoff" <<<"$cp"
+assert_ok "checkpoint: push what they have, then stop them" grep -qF 'push what they have, then stop them with the sub-agent stop tool before you exit' <<<"$cp"
+
+echo "-- the sub-agent start text carries the foreground line (#1249)"
+sub="$(HARNESS_CLI=claude cli_subagent /w /w/g /w/b.md | flat)"
+assert_ok "claude {{SUBAGENT}}: still spawns in the dir"    grep -qF 'spawn it with your own sub-agent tool (a fresh context that sees none of yours), working in `/w/g`.' <<<"$sub"
+assert_ok "…and its brief says: foreground, final report last" grep -qF 'run every command in the foreground (no `run_in_background`, `Monitor` or `harness-wait run`) and never end its turn before its final report' <<<"$sub"
+assert_ok "the task-tree brief template says it too"        grep -qF 'run every command in the foreground' "$HERE/../skill/subagent-task-tree/SKILL.md"
+assert_ok "…and the manager brief template"                 grep -qF 'run every command in the foreground' "$HERE/../skill/subagent-task-tree/MANAGER-BRIEF-TEMPLATE.md"
+
 echo "-- every lane prompt, as rendered"
 for p in impl.md resume.md bug-fix.md review.md; do
   out="$(render "$P/$p" ISSUE=5 PRD=4 SLUG=acme/widget BRANCH=issue/5 LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused | flat)"
   assert_ok "$p: carries the LONG WAITS rule"               grep -qF 'LONG WAITS (#1042, #1066) — never wait inside your session' <<<"$out"
   assert_ok "$p: …and the harness-wait command"             grep -qF 'harness-wait run --deadline-s' <<<"$out"
   assert_ok "$p: …with the 270-second poll bound"           grep -qF 'under 270 seconds so the cache stays warm' <<<"$out"
+  assert_ok "$p: carries the sub-agent wait rule"           grep -qF 'Start every sub-agent of one fan-out in ONE message' <<<"$out"
+  assert_ok "$p: …and the foreground brief line"            grep -qF 'run every command in the foreground' <<<"$out"
   assert_no "$p: the partial directive is expanded"         grep -qF '{{> _long_waits.md}}' <<<"$out"
   assert_ok "$p: the SHARED HOST paragraph is intact"       grep -qF 'every fleet on the host. Never signal PID 0, PID 1 or a negative PID.' <<<"$out"
+done
+
+echo "-- a checkpoint stops the sub-agents (#1249)"
+for p in impl.md resume.md bug-fix.md; do
+  out="$(render "$P/$p" ISSUE=5 PRD=4 SLUG=acme/widget BRANCH=issue/5 LABEL_WORKING=agent-working LABEL_PAUSED=agent-paused | flat)"
+  assert_ok "$p: checkpoint records running sub-agents"     grep -qF "record each running sub-agent's worktree and branch in the handoff" <<<"$out"
+  assert_ok "$p: …and stops them before exit"               grep -qF 'then stop them with the sub-agent stop tool before you exit' <<<"$out"
+  assert_no "$p: the checkpoint partial is expanded"        grep -qF '{{> _checkpoint_subagents.md}}' <<<"$out"
 done
 
 echo "-- the Windows partials"

@@ -485,11 +485,38 @@ CACHE_WAIT_TOKENS = 100_000   # a call with at least this many cache writes ...
 CACHE_WAIT_GAP_S = 300        # ... after at least this many seconds since the session's previous call
 
 
-def cache_wait_calls(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S):
-    """[(ts, cache_create, gap_s)] for one transcript: each API call (a streamed message is written once
+WAKE_KINDS = ("poll", "notification", "wait", "nudge")
+
+
+def wake_kind(content):
+    """What one user entry's message content (a string, or a list of content blocks) wakes a session as (#1249):
+    `notification` (a sub-agent or background-task `<task-notification>`), `wait` (the engine's `wait done:`
+    resume of `harness-wait`), `nudge` (any other text), or `poll` (a tool_result alone: the session sat inside
+    a tool call that blocked, which is what a foreground sleep loop is)."""
+    if isinstance(content, str):
+        text, result = content, False
+    elif isinstance(content, list):
+        blocks = [b for b in content if isinstance(b, dict)]
+        text = "\n".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+        result = any(b.get("type") == "tool_result" for b in blocks)
+    else:
+        return "nudge"
+    if "<task-notification>" in text:
+        return "notification"
+    if text.lstrip().startswith("wait done:"):
+        return "wait"
+    if text.strip():
+        return "nudge"
+    return "poll" if result else "nudge"
+
+
+def cache_wait_hits(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S):
+    """[(ts, cache_create, gap_s, kind)] for one transcript: each API call (a streamed message is written once
     per content block under one id: its first line times the call, its last line ends it) whose cache writes
-    reach min_tokens and whose gap since the previous call ended reaches min_gap. The first call has no gap."""
-    calls, order = {}, []
+    reach min_tokens and whose gap since the previous call ended reaches min_gap. The first call has no gap.
+    `kind` is what woke the session (wake_kind of the last user entry between the two calls; `nudge` when
+    there was none)."""
+    calls, order, wake, kinds = {}, [], None, {}
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -497,7 +524,12 @@ def cache_wait_calls(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_
                     r = json.loads(line)
                 except ValueError:
                     continue
-                if not isinstance(r, dict) or r.get("type") != "assistant":
+                if not isinstance(r, dict):
+                    continue
+                if r.get("type") == "user":
+                    wake = wake_kind((r.get("message") or {}).get("content")) if isinstance(r.get("message"), dict) else "nudge"
+                    continue
+                if r.get("type") != "assistant":
                     continue
                 m = r.get("message") or {}
                 u, t = m.get("usage"), parse_ts(r.get("timestamp"))
@@ -507,6 +539,7 @@ def cache_wait_calls(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_
                 if key not in calls:
                     calls[key] = [t, t, 0]
                     order.append(key)
+                    kinds[key], wake = wake or "nudge", None
                 c = calls[key]
                 c[1] = max(c[1], t)
                 c[2] = int(u.get("cache_creation_input_tokens") or 0)   # the last line's usage wins
@@ -516,15 +549,22 @@ def cache_wait_calls(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_
     for key in order:
         first, last, cc = calls[key]
         if prev_end is not None and cc >= min_tokens and first - prev_end >= min_gap:
-            out.append((first, cc, first - prev_end))
+            out.append((first, cc, first - prev_end, kinds[key]))
         prev_end = last if prev_end is None else max(prev_end, last)
     return out
 
 
-def cache_waits(dirs=None, since=None, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S):
+def cache_wait_calls(path, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S):
+    """[(ts, cache_create, gap_s)]: cache_wait_hits without the wake kind."""
+    return [h[:3] for h in cache_wait_hits(path, min_tokens, min_gap)]
+
+
+def cache_waits(dirs=None, since=None, min_tokens=CACHE_WAIT_TOKENS, min_gap=CACHE_WAIT_GAP_S, kinds=None):
     """The cache-rewrite report over every transcript under each config dir's projects/ (sub-agents too,
-    folded into their session): {calls, tokens, sessions, per_session: [{session, calls, tokens, worst_hour,
-    worst_hour_calls}], worst_hour_calls}. An hour is a UTC clock hour; a call before `since` is left out."""
+    folded into their session): {calls, tokens, sessions, kinds, per_session: [{session, calls, tokens, kinds,
+    worst_hour, worst_hour_calls}], worst_hour_calls}. `kinds` counts the calls by what woke the session
+    (WAKE_KINDS, #1249); a `kinds` list keeps only those wakes. An hour is a UTC clock hour; a call before
+    `since` is left out."""
     dirs = config_dirs() if dirs is None else dirs
     by_session, seen = {}, set()
     for d in dirs:
@@ -540,21 +580,23 @@ def cache_waits(dirs=None, since=None, min_tokens=CACHE_WAIT_TOKENS, min_gap=CAC
                 continue
             sub = os.path.basename(os.path.dirname(f)) == "subagents"
             sid = os.path.basename(os.path.dirname(os.path.dirname(f))) if sub else os.path.basename(f)[:-len(".jsonl")]
-            for t, cc, gap in cache_wait_calls(f, min_tokens, min_gap):
-                if since is None or t >= since:
-                    by_session.setdefault(sid, []).append((t, cc, gap))
+            for t, cc, gap, kind in cache_wait_hits(f, min_tokens, min_gap):
+                if (since is None or t >= since) and (kinds is None or kind in kinds):
+                    by_session.setdefault(sid, []).append((t, cc, gap, kind))
     per = []
     for sid, hits in by_session.items():
         hours = {}
-        for t, _cc, _g in hits:
+        for t, _cc, _g, _k in hits:
             h = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:00Z")
             hours[h] = hours.get(h, 0) + 1
         wh = max(hours, key=lambda h: (hours[h], h))
         per.append({"session": sid, "calls": len(hits), "tokens": sum(h[1] for h in hits),
+                    "kinds": {k: sum(1 for h in hits if h[3] == k) for k in WAKE_KINDS},
                     "worst_hour": wh, "worst_hour_calls": hours[wh]})
     per.sort(key=lambda r: (-r["calls"], r["session"]))
     return {"min_tokens": min_tokens, "min_gap_s": min_gap, "sessions": len(per),
             "calls": sum(r["calls"] for r in per), "tokens": sum(r["tokens"] for r in per),
+            "kinds": {k: sum(r["kinds"][k] for r in per) for k in WAKE_KINDS},
             "worst_hour_calls": max((r["worst_hour_calls"] for r in per), default=0), "per_session": per}
 
 
@@ -568,14 +610,22 @@ def cmd_cache_waits(argv):
     ap.add_argument("--top", type=int, default=10, help="sessions to list")
     ap.add_argument("--max-per-hour", type=int, default=None, metavar="N",
                     help="exit 1 when a session made more than N such calls in one UTC hour (the #1045 check)")
+    ap.add_argument("--kinds", default=None, metavar="K[,K]",
+                    help="count only these wakes: " + ", ".join(WAKE_KINDS) + " (default: all). `poll` is a foreground sleep loop; "
+                         "a `notification` (sub-agent) or `wait` (harness-wait) wake is an event, not a poll (#1249)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    kinds = [k.strip() for k in a.kinds.split(",") if k.strip()] if a.kinds is not None else None
+    bad = [k for k in kinds or [] if k not in WAKE_KINDS]
+    if bad or (kinds is not None and not kinds):
+        print(f"stats.py cache-waits: --kinds takes {', '.join(WAKE_KINDS)}, not {','.join(bad) or a.kinds!r}", file=sys.stderr)
+        return 2
     try:
         since = parse_since(a.since) if a.since else None
     except ValueError as e:
         print(f"stats.py cache-waits: {e}", file=sys.stderr)
         return 2
-    r = cache_waits(a.dir, since, a.min_tokens, a.min_gap)
+    r = cache_waits(a.dir, since, a.min_tokens, a.min_gap, kinds)
     over = a.max_per_hour is not None and r["worst_hour_calls"] > a.max_per_hour
     if a.json:
         print(json.dumps(r))
@@ -583,8 +633,10 @@ def cmd_cache_waits(argv):
     print(f"calls with >= {r['min_tokens']} cache-write tokens after a gap >= {r['min_gap_s']}s"
           + (f", since {a.since}" if a.since else ""))
     print(f"  {r['calls']} calls, {r['tokens']} tokens, {r['sessions']} sessions; worst session-hour: {r['worst_hour_calls']} calls")
+    print("  woken by: " + ", ".join(f"{k} {r['kinds'][k]}" for k in WAKE_KINDS))
     for row in r["per_session"][:a.top]:
-        print(f"  {row['session']}  {row['calls']} calls  {row['tokens']} tokens  worst hour {row['worst_hour']} ({row['worst_hour_calls']})")
+        print(f"  {row['session']}  {row['calls']} calls  {row['tokens']} tokens  worst hour {row['worst_hour']} ({row['worst_hour_calls']})  "
+              + " ".join(f"{k}={row['kinds'][k]}" for k in WAKE_KINDS if row['kinds'][k]))
     if a.max_per_hour is not None:
         print(f"  {'FAIL' if over else 'ok'}: worst session-hour {r['worst_hour_calls']} vs the limit {a.max_per_hour}")
     return 1 if over else 0

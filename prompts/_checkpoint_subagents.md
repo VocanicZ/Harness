@@ -1,0 +1,1 @@
+Sub-agents still running (#1249): record each running sub-agent's worktree and branch in the handoff, push what they have, then stop them with the sub-agent stop tool before you exit. A sub-agent left running keeps notifying the paused session, and each notification rewrites the whole prompt cache.

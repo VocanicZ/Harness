@@ -37,7 +37,8 @@ Managers spawn their own subagents, so they need an agent type with the Agent to
 3. **Configure the project contract** (see "Project contract" below) — you will paste it verbatim into
    every manager brief.
 4. **Dispatch ONE manager per task**, in dependency order. Mark the task in-progress; hand the manager its
-   verbatim task text + the contract + the engine/repo facts. Wait for its report.
+   verbatim task text + the contract + the engine/repo facts. Wait for its report: it arrives once, as a
+   notification; do not poll the manager (`TaskOutput`, its output file, `sleep`).
 5. **On the manager's report:** integrate (commit/push per the contract), mark the task done, handle any
    escalation (see below), then dispatch the next manager.
 6. **Escalations are yours (or the user's).** A manager escalates a genuine fork (a design decision, an
@@ -71,6 +72,10 @@ The discipline lives in a small contract copied verbatim into every manager AND 
   rules). The DOMAIN auditor enforces these.
 - **Commit/push policy** — who commits (implementers, on which branch) and who integrates (the parent
   pushes between tasks; never on a protected branch without consent).
+- **Foreground rule (#1249)** — "run every command in the foreground: no `run_in_background`, `Monitor` or
+  `harness-wait`, and never end your turn before your final report." A sub-agent that backgrounds its work
+  and ends its turn notifies its parent as "completed" twice, and each notification wakes the parent after
+  its prompt cache expired. State it as a hard rule; sub-subagents inherit it.
 - **Communication tone** (optional) — any house style for user-facing replies (the *parent's*, not the
   subagents' internal reports).
 
