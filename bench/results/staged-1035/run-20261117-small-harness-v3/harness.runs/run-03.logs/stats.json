@@ -1,0 +1,39 @@
+{
+  "bn279be": {
+    "sessions": 2,
+    "tokens": {},
+    "issues_closed": 1,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261117-small-harness-v3-harness-r03": {
+        "claims": 2,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 1,
+        "init": 1,
+        "which": 2
+      },
+      "which": 2,
+      "changed_nodes": 324,
+      "round1": 170,
+      "round2": 0,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 2
+      },
+      "wall_ms": 289,
+      "selective": 2,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}
