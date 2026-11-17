@@ -26,6 +26,10 @@ handles integration (commit/push) and task tracking; you operate inside this one
 4. **COMMIT/PUSH:** work on branch <<branch>> in <<repo path(s)>>. Implementers COMMIT; **nobody pushes**
    (the parent integrates). <<any "don't touch X / don't bump Y until task Z" rules>>.
 5. **TONE:** subagents write plain technical reports (house tone, if any, is the parent's, not theirs).
+6. **FOREGROUND (#1249):** run every command in the foreground: no `run_in_background`, `Monitor` or
+   `harness-wait`, and never end your turn before your final report. A subagent that backgrounds its work
+   and ends its turn notifies its parent early, and every notification wakes the parent after its prompt
+   cache expired.
 
 ## YOUR TASK — <<TASK-ID>>
 <<paste the verbatim task text from the plan: scope, the spec sections it satisfies, the new

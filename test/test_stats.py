@@ -1392,6 +1392,66 @@ def test_cache_waits_command_exits_1_over_the_per_hour_limit():   # #1045
         assert go("--since", "zz").returncode == 2
 
 
+def _user(hms, content):
+    """A user entry at 2026-10-01T<hms>Z: a text string, or a list of content blocks."""
+    return [{"type": "user", "timestamp": f"2026-10-01T{hms}.000Z", "message": {"role": "user", "content": content}}]
+
+def _result(hms, tid="t1"):
+    return _user(hms, [{"type": "tool_result", "tool_use_id": tid, "content": "done"}])
+
+def _kinds(*lines):   # [kind] of every long-gap cache rewrite in a fixture transcript
+    with host() as d:
+        main = os.path.join(d, "projects", "-wt", "bbbbbbbb-0000-0000-0000-0000000000aa.jsonl")
+        _tx(main, *lines)
+        return [k for _t, _cc, _g, k in st.cache_wait_hits(main)]
+
+def test_cache_waits_classify_each_wake_by_what_resumed_the_session():   # #1249
+    big = lambda mid, hms: _call(mid, hms, 200000)
+    # a 30-minute background slice: dispatch, the launch result, the turn ends, ONE notification 30 min later
+    slice30 = (_call("a1", "00:00:00", 10) + _result("00:00:01", "agent1") + _call("a2", "00:00:05", 10)
+               + _user("00:30:05", "<task-notification>\n<status>completed</status>\n</task-notification>") + big("a3", "00:30:10"))
+    assert _kinds(*slice30) == ["notification"], _kinds(*slice30)
+    # a foreground sleep loop: the tool_result arrives after the gap
+    poll = _call("b1", "00:00:00", 10) + _result("00:10:00") + big("b2", "00:10:02")
+    assert _kinds(*poll) == ["poll"], _kinds(*poll)
+    # the engine's harness-wait resume, then a nudge, then a notification in a text block list
+    wait = _call("c1", "00:00:00", 10) + _user("00:20:00", "wait done: pid 7 exited, rc=0, log tail: ok") + big("c2", "00:20:02")
+    assert _kinds(*wait) == ["wait"], _kinds(*wait)
+    nudge = _call("d1", "00:00:00", 10) + _user("01:06:00", "Please continue.") + big("d2", "01:06:02")
+    assert _kinds(*nudge) == ["nudge"], _kinds(*nudge)
+    blocks = (_call("e1", "00:00:00", 10)
+              + _user("00:12:00", [{"type": "text", "text": "<task-notification>agent done</task-notification>"}]) + big("e2", "00:12:02"))
+    assert _kinds(*blocks) == ["notification"], _kinds(*blocks)
+    # a quick tool_result in front of a long idle gap is not a poll: the later user entry names the wake
+    idle = _call("f1", "00:00:00", 10) + _result("00:00:03") + _user("00:15:00", "wake up") + big("f2", "00:15:01")
+    assert _kinds(*idle) == ["nudge"], _kinds(*idle)
+
+def test_cache_waits_report_and_command_count_by_kind():   # #1249
+    with host() as d:
+        sid = "bbbbbbbb-0000-0000-0000-0000000000bb"
+        _tx(os.path.join(d, "projects", "-wt", sid + ".jsonl"),
+            *(_call("a1", "00:00:00", 10) + _result("00:10:00") + _call("a2", "00:10:02", 200000)            # poll
+              + _user("00:30:00", "<task-notification>x</task-notification>") + _call("a3", "00:30:02", 200000)   # notification
+              + _user("00:50:00", "<task-notification>y</task-notification>") + _call("a4", "00:50:02", 200000)   # notification
+              + _user("01:10:00", "wait done: path x, rc=0") + _call("a5", "01:10:02", 200000)))                  # wait
+        r = st.cache_waits([d])
+        row = r["per_session"][0]
+        assert r["kinds"] == {"poll": 1, "notification": 2, "wait": 1, "nudge": 0} and row["kinds"] == r["kinds"], r
+        polls = st.cache_waits([d], kinds=["poll"])
+        assert (polls["calls"], polls["worst_hour_calls"], polls["kinds"]["notification"]) == (1, 1, 0), polls
+        assert st.cache_waits([d], kinds=["nudge"])["calls"] == 0
+        stats = os.path.join(HERE, "..", "scripts", "stats.py")
+        def go(*a):
+            return subprocess.run([sys.executable, stats, "cache-waits", "--dir", d, *a], capture_output=True, text=True)
+        js = json.loads(go("--json").stdout)
+        assert js["per_session"][0]["kinds"] == {"poll": 1, "notification": 2, "wait": 1, "nudge": 0}, js
+        assert go("--max-per-hour", "0").returncode == 1                       # all kinds: over
+        assert go("--max-per-hour", "1", "--kinds", "poll").returncode == 0    # one poll an hour is within the limit
+        assert go("--max-per-hour", "0", "--kinds", "poll,wait").returncode == 1
+        assert go("--max-per-hour", "0", "--kinds", "nudge").returncode == 0
+        assert go("--kinds", "bogus").returncode == 2
+        assert "poll 1" in go().stdout and "notification 2" in go().stdout, go().stdout
+
 def test_time_split_exact_on_a_fixture_transcript():
     with host() as d:
         tr = _timed_transcript(d)

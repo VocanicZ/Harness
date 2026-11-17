@@ -12,6 +12,9 @@ Write it for that reader.
 
 1. **Push first.** Commit ALL work in progress (a WIP commit is fine) and push the branch, unless the
    instruction that sent you here says there is no branch. Unpushed work is lost work.
+   Sub-agents still running (#1249): put each one's worktree and branch in the document, push what they
+   have, then stop them with the sub-agent stop tool. A sub-agent left running keeps waking the paused
+   session.
 2. **Write the document** to a file outside the repo (e.g. `mktemp`), in this shape:
 
    ```markdown

@@ -106,7 +106,10 @@ _cli_default_trusted(){ :; }
 _cli_default_skill(){ echo "/$1"; }
 # The CLI's own sub-agent tool: a fresh context, which the matrix's bypass-covers-subagents row proves
 # runs under the lane's bypass.
-_cli_default_subagent(){ printf 'spawn it with your own sub-agent tool (a fresh context that sees none of yours), working in `%s`.\n' "$2"; }
+# #1249: its brief says to run every command in the foreground and end only with the final report: a sub-agent that
+# backgrounds its work and ends its turn notifies its parent as "completed" twice, and each notification is a
+# cache-expired wake of the parent.
+_cli_default_subagent(){ printf 'spawn it with your own sub-agent tool (a fresh context that sees none of yours), working in `%s`. Its brief must tell it to run every command in the foreground (no `run_in_background`, `Monitor` or `harness-wait run`) and never end its turn before its final report.\n' "$2"; }
 _cli_default_user_skills_dir(){ :; }
 _cli_default_transcripts(){ :; }
 _cli_default_usage(){ :; }

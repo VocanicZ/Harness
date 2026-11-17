@@ -1052,11 +1052,18 @@ context again: 150K-300K `cache_creation_input_tokens` instead of a cache read. 
 the TTL; `python3 scripts/stats.py cache-waits` counts the calls that still do, from the Claude transcripts of every config dir on the host
 (sub-agents folded into their session, a transcript reached through two dirs counted once):
 
-    python3 scripts/stats.py cache-waits --since 24h [--min-tokens 100000] [--min-gap 300] [--max-per-hour N] [--json]
+    python3 scripts/stats.py cache-waits --since 24h [--min-tokens 100000] [--min-gap 300] [--max-per-hour N] [--kinds K[,K]] [--json]
 
 It prints the calls, tokens and sessions, then the sessions with the most calls and each one's worst UTC clock hour. A call counts when its cache
 writes reach `--min-tokens` and the gap since the previous call ended reaches `--min-gap` seconds (a streamed message is one call). With
 `--max-per-hour N` it exits 1 when any session made more than N such calls in one hour.
+
+Each call is classified by what woke the session (#1249): `poll` (the call follows a `tool_result` that blocked for the gap: a foreground
+sleep loop), `notification` (a sub-agent or background task `<task-notification>`), `wait` (the engine's `wait done:` resume from
+`harness-wait`) or `nudge` (any other user text). The report and `--json` count them per session and in total (`kinds`); `--kinds poll`
+limits the counts, and so `--max-per-hour`, to those wakes. An event wake (`notification`, `wait`) is not a poll: a lane that ends its turn
+and is woken once by a sub-agent 30 minutes later made one `notification` wake and no `poll`. A host guard such as poll-guard should park on
+`--kinds poll` only. The LONG WAITS rule's sub-agent paragraph (`prompts/_long_waits.md`) keeps `notification` wakes to one per sub-agent.
 
 Baseline, 2026-11-09 to 2026-11-11 (before #1042): 1335 calls of 100K or more (1743 of 50K or more, the 1717 of #1042) in 20 sessions; the worst
 session-hour had 7 calls, the 9-10 minute sleep-poll cadence. **N = 2 per session-hour**: after #1042 a lane waits in the background or parked, so

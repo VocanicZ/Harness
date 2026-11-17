@@ -87,7 +87,7 @@ CHECKPOINT PROTOCOL — if you receive a message beginning "HARNESS CHECKPOINT":
 WIP and push your branch, run the {{skill:handoff}} skill and post the handoff as a GitHub issue
 comment whose first line is
 `<!-- harness-handoff issue={{ISSUE}} branch={{BRANCH}} -->`, then `gh issue edit {{ISSUE}} -R {{SLUG}}
---remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging.
+--remove-label {{LABEL_WORKING}} --add-label {{LABEL_PAUSED}}`, and exit without merging. {{> _checkpoint_subagents.md}}
 
 Output the promise ONLY when the PR is genuinely MERGED (or truly auto-merging on green —
 NOT merely opened), the repo's CI GATE was GREEN when it merged (step 6 — the local entrypoint
