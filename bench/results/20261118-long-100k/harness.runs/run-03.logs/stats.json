@@ -1,0 +1,42 @@
+{
+  "bnbf061": {
+    "sessions": 11,
+    "tokens": {},
+    "issues_closed": 9,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-20261118-long-100k-harness-r03": {
+        "claims": 11,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 6,
+        "init": 1,
+        "which": 25,
+        "--help": 2,
+        "explain": 7,
+        "doctor": 1
+      },
+      "which": 25,
+      "changed_nodes": 585,
+      "round1": 255,
+      "round2": 31,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 31
+      },
+      "wall_ms": 10365,
+      "selective": 23,
+      "full_suite": 2,
+      "backfilled": 0,
+      "selective_share": 0.92
+    },
+    "model_mismatches": []
+  }
+}

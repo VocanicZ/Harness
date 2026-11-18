@@ -1,0 +1,39 @@
+{
+  "bna65e7": {
+    "sessions": 10,
+    "tokens": {},
+    "issues_closed": 9,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-20261118-long-off-harness-r01": {
+        "claims": 10,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 7,
+        "which": 8,
+        "explain": 2
+      },
+      "which": 8,
+      "changed_nodes": 147,
+      "round1": 170,
+      "round2": 4,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 10
+      },
+      "wall_ms": 3693,
+      "selective": 7,
+      "full_suite": 1,
+      "backfilled": 0,
+      "selective_share": 0.88
+    },
+    "model_mismatches": []
+  }
+}

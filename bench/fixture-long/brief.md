@@ -5,7 +5,8 @@ library only). Read the code first: `README.md`, `tabula/engine.py` and `tests/`
 `head`, `cols`, `apply`), reads CSV files, and prints a table as text, CSV or JSON. I want seven more commands. They
 all go into the same module, `tabula/engine.py`, the way the first four did: a `cmd_NAME(args, opts)` function that
 returns a `Table`, one entry in `COMMANDS`. Keep what is there working: the four commands, their output, their exit
-statuses, and `pip install .` giving the `tabula` command and `import tabula`. Add tests for what you add to `tests/`.
+statuses, and `pip install .` giving the `tabula` command and `import tabula`. Each command also gets its own test file `tests/test_COMMAND.py`, a section in `docs/commands.md` (one section per
+command, in the order of the sections below, written like the four that are there) and a line in the command list of `README.md`.
 
 How a command behaves in general is already settled by the code and stays as it is: `--format text|csv|json` (text by
 default) says how the result table is printed; a mistake in a file or in what I asked for prints
@@ -87,6 +88,7 @@ row is `COLUMN`, `0` and four empty cells. At least one COLUMN is needed.
 
 ## Order of work
 
-The seven commands do not depend on each other, but they share the module and a few helpers (number reading, number
-printing, the option reading), so expect to touch the same lines. Finish the module's own conventions before adding to
-them: do not add a second way to do something it already does.
+File this as seven issues, one per command, so each can be built, tested and merged on its own. The seven commands do
+not depend on each other, but they share the module, the option reading, the number helpers, `docs/commands.md` and the
+README list, so expect to touch the same lines as the others. Finish the module's own conventions before adding to them:
+do not add a second way to do something it already does.
