@@ -6,11 +6,11 @@
 
 One run = one arm, one fresh PRIVATE GitHub repo:
 
-    guard -> create the repo, seed it with the brief only -> clone -> run the arm under the caps
+    guard -> create the repo, seed it with the brief (and a fixture's existing code) -> clone -> run the arm under the caps
           -> grade a fresh clone of the final default branch -> record results -> delete the repo
 
 The repo is deleted after the results are recorded, also when the arm fails or hits a cap. Nothing
-but the brief is ever put in it, and no GitHub Actions run in it.
+but the brief (and a fixture's existing code) is ever put in it, and no GitHub Actions run in it.
 
 GUARD (refuses with exit 3, before anything is created or spent; --dry-run prints the decision and
 spends nothing):
@@ -441,12 +441,14 @@ class Gh:
     def clone(self, repo, dest):
         self._run(["gh", "repo", "clone", repo, dest])
 
-    def seed(self, repo, clone, brief=BRIEF):
-        """Commit the brief — and nothing else — to the repo's default branch."""
+    def seed(self, repo, clone, brief=BRIEF, existing=None):
+        """Commit the brief to the repo's default branch, and with it the fixture's existing code when it has one (#1257)."""
+        if existing:
+            shutil.copytree(existing, clone, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
         shutil.copyfile(brief, os.path.join(clone, "brief.md"))
         git = ["git", "-c", "user.name=bench", "-c", "user.email=bench@localhost"]
         self._run(git + ["checkout", "-B", "main"], cwd=clone)
-        self._run(["git", "add", "brief.md"], cwd=clone)
+        self._run(["git", "add", "-A"] if existing else ["git", "add", "brief.md"], cwd=clone)
         self._run(git + ["commit", "-m", "brief"], cwd=clone)
         self._run(["git", "push", "-u", "origin", "main"], cwd=clone)
 
@@ -1182,7 +1184,7 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             gh.no_actions(repo)
             clone = os.path.join(work, "clone")
             gh.clone(repo, clone)
-            gh.seed(repo, clone, fx.brief)
+            gh.seed(repo, clone, fx.brief, fx.seed)
             ctx = Ctx(a.arm, repo, clone, logs, threading.Event(), opts, caps, log)
             ctx.run, ctx.fixture = slot["index"], fx
             t0 = time.time()

@@ -15,6 +15,7 @@ bench/run.py harness --workers 3        # --workers N: the fleet's pool size, fo
 bench/run.py hx --optional              # an optional arm: a guard refusal is recorded as `skipped: budget`, exit 0
 bench/run.py harness-opus --optional    # the matched arm: Harness with every role on Opus at plain's effort
 bench/run.py plain --fixture large      # the large fixture (below): a 20-page brief and a mid-run requirement change
+bench/run.py harness --fixture long     # the long-session fixture (Context per call): seven issues editing one module of an existing repo
 ```
 
 ## One run
@@ -705,7 +706,20 @@ Every call re-reads the whole context from cache, so a context that only grows i
 
 Observed on 2026-11-18 with Claude Code 2.1.327, Sonnet, `claude -p` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` (the lowest window Claude Code accepts): the parent session asked for one foreground sub-agent that read about 30 chunks of 250 lines (about 15k tokens each; about 440k tokens in all if nothing were dropped) one Read call at a time. The sub-agent's transcript (`subagents/agent-*.jsonl`) shows 31 model calls, a largest context of 66,360 tokens (mean 51,644) and 12 `compact_boundary` records; the parent stayed at 38k. So the sub-agent inherits the window and compacts on its own, well under the setting, and the next mechanism the issue held back (end and resume a lane from its pushed branch past the budget) is not needed. Two cautions from the same run: Claude Code compacted at about two thirds of the window (66k of 100k), so a 200k budget compacts near 130-165k, not at 200k; and a read-heavy task under a small window compacts every few calls (a saw-tooth between 33k and 66k), each compaction being a model call of its own. The run cost $2.71 in all.
 
-What this does not show is the dollar effect on a long Harness fleet run. No shipped fixture grows a lane past 200k, so the before and after numbers of a bangwa-like slice (largest context, mean context per call, compactions, cache-read dollars per issue) need a long-session fixture, which is tracked as a separate issue.
+What this does not show is the dollar effect on a long Harness fleet run. The small, medium and large fixtures never grow a lane past 200k, so the before and after numbers of a bangwa-like slice (largest context, mean context per call, compactions, cache-read dollars per issue) come from the long-session fixture below.
+
+### Long-session fixture (#1257)
+
+`bench/fixture-long/` is **tabula**, a CSV tool that already exists when the run starts: `--fixture long` commits the fixture's `seed/` (about 2,800 lines: `tabula/engine.py` of about 1,460 lines, 101 small transforms, 109 tests, docs) to the run repo next to `brief.md` (`Fixture.seed`; the other fixtures seed the brief only). The brief asks for seven more commands (`sort`, `filter`, `group`, `join`, `pivot`, `dedupe`, `stats`), and every one of them is an edit of the same module, `tabula/engine.py`, plus its command table, its option reading and its tests. A planner makes seven independent issues (`shape.json`), so every lane reads the large module, edits it, rebases over the others' edits of it, and keeps reading it again after each rebase: that is what grows a lane's context. Hidden tests (85, black box through `TABULA_CMD`), a reference (the seed plus the seven commands) and a differential fuzz (`bench/fixture-long/fuzz.py`, seed 1257, 300 cases, no frozen hash) have the shape of the medium fixture's.
+
+```
+bench/run.py harness --fixture long --runs 3                          # the default budget (200k)
+HARNESS_LANE_CONTEXT_MAX=off bench/run.py harness --fixture long --runs 3   # no budget
+bench/grade.py bench/fixture-long/reference --fixture long            # 85/85
+```
+
+Compare the two sets with the `context` record (`max_tokens`, `mean_tokens`, `compactions`) and the cache-read dollars per issue (`bench/aggregate.py`); the results sit under `bench/results/` with their transcripts like every other run.
+
 
 ## Prompt-cache TTL (#615)
 

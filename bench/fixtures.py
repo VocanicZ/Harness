@@ -6,26 +6,29 @@ A fixture is a brief, hidden tests, a reference implementation and a fuzz genera
     pennywise   bench/fixture/        a 4.7 KB brief, about 400 lines of code; fits one session (the original)
     medium      bench/fixture-medium/ stockroom: a 12 KB brief, two subsystems (shelves, orders), 6-10 issues of work (#621)
     large       bench/fixture-large/  a 20-page brief, a 6-10k line reference, a mid-run requirement change
+    long        bench/fixture-long/   tabula: seven issues that each edit one shared module of an existing repo, seeded with
+                                      about 2,400 lines (`seed/`), so a lane reads a lot and its context grows (#1257)
 
 `bench/run.py <arm> --fixture NAME` picks one (default `pennywise`). The large fixture describes itself in
 `bench/fixture-large/fixture.json` and so does the medium one; `pennywise` has no manifest and gets the defaults below.
 
     load(name)   -> Fixture
-    names()      -> ["pennywise", "medium", "large"]
+    names()      -> ["pennywise", "medium", "large", "long"]
 
 Fixture attributes: name, dir, brief (path), hidden (dir), runner (hidden/run_hidden.py), reference (dir), package,
 cmd_env (the env var the hidden tests read the CLI argv from), fuzz (path of the fuzz module, whose run(argv, env,
 cases, cap_s) the grader calls), phases (the hidden tests have pre/post-change variants), change (the written
 mid-run change request's text, or None), change_at (progress, 0..1, at which it is injected), milestones (the
 runner grades the repo during the run), plain_max_replies (the plain arm's continue-reply cap), modules
-({"01": "money", ...} for the per-module scores).
+({"01": "money", ...} for the per-module scores), seed (a directory whose files are committed to the run repo beside the
+brief, the existing code the work is done in, or None).
 """
 import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT = "pennywise"
-DIRS = {"pennywise": "fixture", "medium": "fixture-medium", "large": "fixture-large"}
+DIRS = {"pennywise": "fixture", "medium": "fixture-medium", "large": "fixture-large", "long": "fixture-long"}
 PLAIN_MAX_REPLIES = 20
 
 
@@ -47,6 +50,7 @@ class Fixture:
         self.plain_max_replies = int(m.get("plain_max_replies", PLAIN_MAX_REPLIES))
         self.modules = dict(m.get("modules") or {})
         self.shape = os.path.join(root, m["shape"]) if m.get("shape") else None
+        self.seed = os.path.join(root, m["seed"]) if m.get("seed") else None   # an existing repo committed with the brief (#1257)
 
     @property
     def change(self):

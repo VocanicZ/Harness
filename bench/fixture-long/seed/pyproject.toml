@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabula"
+version = "0.3.0"
+description = "Small tools for CSV tables"
+requires-python = ">=3.9"
+
+[project.scripts]
+tabula = "tabula.engine:main"
+
+[tool.setuptools]
+packages = ["tabula"]
