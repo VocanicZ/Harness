@@ -16,37 +16,50 @@ source "$HERE/../install.sh"
 
 # ── prereqs (unchanged) ───────────────────────────────────────────────────────
 # PATH stubs to simulate tool presence; check_prereqs uses real `command -v` + `gh auth status`
-REAL_PATH="$PATH"
-PATHBIN="$(mktemp -d)"; export PATH="$PATHBIN:$PATH"
+REAL_PATH="$PATH"; REAL_HOME="${HOME:-}"
+PATHBIN="$(mktemp -d)"
+# #1258: check_prereqs runs `--version` on EVERY agent CLI it finds on PATH or in $HOME/.local/bin, so a test that calls it on the
+# inherited environment runs the host's real codex/copilot/hermes/…, and one that is broken (a dead cache symlink) fails the
+# assertion. Every call goes through prereqs_hermetic: PATH = the stub dir + system bin dirs (+ the dir curl lives in: Git for
+# Windows keeps it in /mingw64/bin), a fresh hash table, an empty HOME (inst_local_bin adds nothing), no HARNESS_<CLI>_BIN of a
+# live fleet. Only HARNESS_AGY_BIN (the stub above) and the stubs in PATHBIN count as present. Its Python is a prerequisite
+# check_prereqs runs for real on Windows (python_probe), which the python3 stub is not: HARNESS_PYTHON names one.
+CURL_DIR="$(dirname "$(command -v curl || echo /usr/bin/curl)")"
+NOCLAUDE_HOME="$(mktemp -d)"
+prereqs_hermetic(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin:$CURL_DIR"; HOME="$NOCLAUDE_HOME"; HARNESS_PYTHON=python3
+  unset HARNESS_CLAUDE_BIN HARNESS_CODEX_BIN HARNESS_COPILOT_BIN HARNESS_HERMES_BIN HARNESS_OPENCODE_BIN HARNESS_OPENCLAW_BIN
+  check_prereqs ); }
+# The caller's environment is hostile on purpose: a failing copilot first on PATH AND in $HOME/.local/bin (the shape of the fleet
+# host's dead ~/.cache/copilot symlink). The hermetic run must never execute either (their log stays empty).
+BAD_LOG="$(mktemp -d)/bad.log"; : > "$BAD_LOG"
+BAD_DIR="$(mktemp -d)"; CALLER_HOME="$(mktemp -d)"; mkdir -p "$CALLER_HOME/.local/bin"
+printf '#!/bin/sh\necho "$0 $*" >> %q\nexit 1\n' "$BAD_LOG" > "$BAD_DIR/copilot"; chmod +x "$BAD_DIR/copilot"
+cp "$BAD_DIR/copilot" "$CALLER_HOME/.local/bin/copilot"
+export PATH="$BAD_DIR:$PATHBIN:$PATH" HOME="$CALLER_HOME"
 for t in git tmux python3 gh claude; do printf '#!/bin/sh\nexit 0\n' > "$PATHBIN/$t"; chmod +x "$PATHBIN/$t"; done
 printf '#!/bin/sh\ncase "$1" in auth) exit 0;; version) exit 0;; esac\nexit 0\n' > "$PATHBIN/gh"; chmod +x "$PATHBIN/gh"
-assert "prereqs pass when all present" "check_prereqs"
+assert "prereqs pass when all present" "prereqs_hermetic"
+assert "prereqs pass when all present: a failing host copilot (PATH + ~/.local/bin) is never run" "[[ ! -s '$BAD_LOG' ]]"
 # remove claude -> fail. agy is absent too: HARNESS_AGY_BIN names a binary that does not exist, which
-# must read as "agy absent" (#240) rather than satisfying the claude-or-agy check.
-# Both run on a PATH of only the stubs + the system bin dirs (no host claude/agy) with a fresh hash
-# table — the deleted claude stub is still hashed from the run above. HOME is an empty dir too: since
-# #431 check_prereqs also looks in ~/.local/bin, where the host's own claude usually is.
+# must read as "agy absent" (#240) rather than satisfying the claude-or-agy check. The deleted claude stub is
+# still hashed from the run above: prereqs_hermetic starts with a fresh hash table.
 rm -f "$PATHBIN/claude"
-NOCLAUDE_HOME="$(mktemp -d)"
-# Git for Windows keeps curl in /mingw64/bin, outside /usr/bin: add the dir the host's curl is in. Its Python is a prerequisite
-# check_prereqs runs for real there (python_probe), which the python3 stub is not: HARNESS_PYTHON is the seam that names one.
-CURL_DIR="$(dirname "$(command -v curl || echo /usr/bin/curl)")"
-noclaude(){ ( hash -r; PATH="$PATHBIN:/usr/bin:/bin:$CURL_DIR"; HOME="$NOCLAUDE_HOME"; HARNESS_PYTHON=python3; check_prereqs ); }
-assert "prereqs fail without claude"   "! HARNESS_AGY_BIN='$AGY_STUB_DIR/nope' noclaude 2>/dev/null"
+assert "prereqs fail without claude"   "! HARNESS_AGY_BIN='$AGY_STUB_DIR/nope' prereqs_hermetic 2>/dev/null"
 # ...while a present HARNESS_AGY_BIN satisfies it, and is the binary probed (not PATH's agy).
 : > "$AGY_LOG"
-assert "prereqs pass with only agy (via HARNESS_AGY_BIN)" "noclaude"
+assert "prereqs pass with only agy (via HARNESS_AGY_BIN)" "prereqs_hermetic"
 assert "check_prereqs probes HARNESS_AGY_BIN --version" "grep -qx -- '--version' '$AGY_LOG'"
 printf '#!/bin/sh\nexit 0\n' > "$PATHBIN/claude"; chmod +x "$PATHBIN/claude"
 # unauthenticated gh -> fail
 printf '#!/bin/sh\ncase "$1" in auth) exit 1;; esac\nexit 0\n' > "$PATHBIN/gh"; chmod +x "$PATHBIN/gh"
-assert "prereqs fail when gh not authed" "! check_prereqs 2>/dev/null"
+assert "prereqs fail when gh not authed" "! prereqs_hermetic 2>/dev/null"
+assert "no prereqs assertion ran the failing host copilot" "[[ ! -s '$BAD_LOG' ]]"
 # restore a working gh stub for the remainder
 printf '#!/bin/sh\ncase "$1" in auth) exit 0;; version) exit 0;; esac\nexit 0\n' > "$PATHBIN/gh"; chmod +x "$PATHBIN/gh"
 
 # ── shared-install: engine goes to ONE host location (#54, PRD #52 slice 2) ────
 # Done poking at prereqs; restore the REAL PATH so place_engine runs real curl/tar/ln/realpath.
-export PATH="$REAL_PATH"
+export PATH="$REAL_PATH" HOME="$REAL_HOME"
 # The engine is a published release now (#282), not a clone: serve a fake one over file:// and
 # install FROM it into HARNESS_HOME/releases/<tag>, behind the HARNESS_HOME/engine symlink.
 source "$HERE/release_fixture.sh"
