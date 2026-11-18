@@ -1426,6 +1426,31 @@ def test_cache_waits_classify_each_wake_by_what_resumed_the_session():   # #1249
     idle = _call("f1", "00:00:00", 10) + _result("00:00:03") + _user("00:15:00", "wake up") + big("f2", "00:15:01")
     assert _kinds(*idle) == ["nudge"], _kinds(*idle)
 
+def test_wake_kind_sees_through_a_pasted_content_wrapper():   # #1253
+    big = lambda mid, hms: _call(mid, hms, 200000)
+    wrap = lambda body, i="6483": f'\n\n<pasted_content id="{i}">\n{body}\n</pasted_content id="{i}">\n'
+    resume = "wait done: pid 7 exited, rc=0, log tail: ok"
+    # a pasted resume is a wait: as a plain string, in a text block list, and with no leading whitespace
+    forms = {"string": wrap(resume), "blocks": [{"type": "text", "text": wrap(resume)}],
+             "bare": f'<pasted_content id="1">\n{resume}\n</pasted_content id="1">'}
+    for name, content in forms.items():
+        assert st.wake_kind(content) == "wait", name
+        line = _call("c1", "00:00:00", 10) + _user("00:20:00", content) + big("c2", "00:20:02")
+        assert _kinds(*line) == ["wait"], (name, _kinds(*line))
+    # other pasted text keeps its own kind
+    assert st.wake_kind('<pasted_content id="1">\nPlease continue.\n</pasted_content id="1">') == "nudge"
+    assert st.wake_kind(wrap("<task-notification>x</task-notification>")) == "notification"
+    assert st.wake_kind(wrap("OPERATOR (lane): stop")) == "nudge"
+    # the plain forms are unchanged
+    assert st.wake_kind(resume) == "wait" and st.wake_kind("Please continue.") == "nudge"
+    assert st.wake_kind([{"type": "tool_result", "content": "x"}]) == "poll"
+    # a cache_waits() report counts the pasted resume under wait, not nudge
+    with host() as d:
+        _tx(os.path.join(d, "projects", "-wt", "bbbbbbbb-0000-0000-0000-0000000000cc.jsonl"),
+            *(_call("a1", "00:00:00", 10) + _user("00:20:00", wrap(resume)) + _call("a2", "00:20:02", 200000)))
+        r = st.cache_waits([d])
+        assert r["kinds"]["wait"] == 1 and r["kinds"]["nudge"] == 0, r
+
 def test_cache_waits_report_and_command_count_by_kind():   # #1249
     with host() as d:
         sid = "bbbbbbbb-0000-0000-0000-0000000000bb"

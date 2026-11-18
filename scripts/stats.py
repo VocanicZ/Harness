@@ -487,6 +487,10 @@ CACHE_WAIT_GAP_S = 300        # ... after at least this many seconds since the s
 
 WAKE_KINDS = ("poll", "notification", "wait", "nudge")
 
+# Claude Code records a pasted resume as `<pasted_content id="N">\nbody\n</pasted_content id="N">` (#1253).
+_PASTED_OPEN = re.compile(r"\s*<pasted_content\b[^>]*>\s*")
+_PASTED_CLOSE = re.compile(r"\s*</pasted_content\b[^>]*>\s*$")
+
 
 def wake_kind(content):
     """What one user entry's message content (a string, or a list of content blocks) wakes a session as (#1249):
@@ -503,6 +507,9 @@ def wake_kind(content):
         return "nudge"
     if "<task-notification>" in text:
         return "notification"
+    m = _PASTED_OPEN.match(text)
+    if m:   # peel the first pasted wrapper only: its body names the wake
+        text = _PASTED_CLOSE.sub("", text[m.end():], count=1)
     if text.lstrip().startswith("wait done:"):
         return "wait"
     if text.strip():
