@@ -1,0 +1,283 @@
+{
+  "schema": 1,
+  "run_id": "run-20261118-large-harness",
+  "arm": "harness",
+  "status": "aggregate",
+  "runs_requested": 5,
+  "runs_completed": 4,
+  "stopped": {
+    "reason": "arm-error",
+    "detail": "front-door claude turn failed: Claude Code can't use your Claude subscription, usually because a payment is past due \u00b7 Pay or renew at https://claude.ai/settings/billing (if you just paid, try again shortly), or use an Anthropic API key instead"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "file": "harness.runs/run-01.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 2,
+      "file": "harness.runs/run-02.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 3,
+      "file": "harness.runs/run-03.json",
+      "status": "ok",
+      "capped": null
+    },
+    {
+      "run": 4,
+      "file": "harness.runs/run-04.json",
+      "status": "capped",
+      "capped": "wall"
+    },
+    {
+      "run": 5,
+      "file": "harness.runs/run-05.json",
+      "status": "error",
+      "capped": null
+    }
+  ],
+  "aggregate": {
+    "n": 4,
+    "metrics": {
+      "wall_s": {
+        "n": 4,
+        "median": 4139.7485,
+        "min": 3122.76,
+        "max": 21607.878
+      },
+      "coding_s": {
+        "n": 4,
+        "median": 5503.269,
+        "min": 2484.411,
+        "max": 6407.642
+      },
+      "testing_s": {
+        "n": 4,
+        "median": 316.5355,
+        "min": 77.379,
+        "max": 475.703
+      },
+      "test_calls": {
+        "n": 4,
+        "median": 52.0,
+        "min": 44,
+        "max": 82
+      },
+      "cost_usd": {
+        "n": 4,
+        "median": 22.1483,
+        "min": 19.1865,
+        "max": 24.6357
+      },
+      "weekly_window_pct": {
+        "n": 4,
+        "median": 4.99,
+        "min": 4.32,
+        "max": 5.46
+      },
+      "tokens": {
+        "n": 4,
+        "median": 50974256.0,
+        "min": 43247477,
+        "max": 52753289
+      },
+      "tokens_input": {
+        "n": 4,
+        "median": 833.0,
+        "min": 814,
+        "max": 970
+      },
+      "tokens_output": {
+        "n": 4,
+        "median": 839313.0,
+        "min": 663705,
+        "max": 1052940
+      },
+      "tokens_cache_read": {
+        "n": 4,
+        "median": 48107314.0,
+        "min": 39741171,
+        "max": 49058779
+      },
+      "tokens_cache_write": {
+        "n": 4,
+        "median": 2576378.0,
+        "min": 1582266,
+        "max": 2800957
+      },
+      "cache_write_5m": {
+        "n": 4,
+        "median": 2576378.0,
+        "min": 1582266,
+        "max": 2800957
+      },
+      "cache_write_1h": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "cache_cost_usd": {
+        "n": 4,
+        "median": 12.5636,
+        "min": 11.1765,
+        "max": 14.6722
+      },
+      "gap_p90_s": {
+        "n": 4,
+        "median": 46.15,
+        "min": 41.6,
+        "max": 61.3
+      },
+      "gaps_over_5m": {
+        "n": 4,
+        "median": 3.0,
+        "min": 1,
+        "max": 5
+      },
+      "hidden_passed": {
+        "n": 4,
+        "median": 979.5,
+        "min": 0,
+        "max": 981
+      },
+      "hidden_total": {
+        "n": 4,
+        "median": 981.0,
+        "min": 981,
+        "max": 981
+      },
+      "fuzz_divergences": {
+        "n": 4,
+        "median": 5.0,
+        "min": 2,
+        "max": 451
+      },
+      "fuzz_cases": {
+        "n": 4,
+        "median": 1000.0,
+        "min": 544,
+        "max": 1000
+      },
+      "fuzz_classes": {
+        "n": 4,
+        "median": 2.5,
+        "min": 2,
+        "max": 15
+      },
+      "coverage": {
+        "n": 3,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "sonar_bugs": {
+        "n": 4,
+        "median": 1.0,
+        "min": 0,
+        "max": 5
+      },
+      "sonar_vulnerabilities": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 1
+      },
+      "sonar_code_smells": {
+        "n": 4,
+        "median": 1.0,
+        "min": 0,
+        "max": 2
+      },
+      "sonar_duplicated_lines_density": {
+        "n": 3,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.4
+      },
+      "cov_line_pct": {
+        "n": 3,
+        "median": 97.3,
+        "min": 97.3,
+        "max": 97.4
+      },
+      "cov_branch_pct": {
+        "n": 3,
+        "median": 96.4,
+        "min": 96.3,
+        "max": 97.1
+      },
+      "cov_total_pct": {
+        "n": 3,
+        "median": 97.1,
+        "min": 97.0,
+        "max": 97.3
+      },
+      "issues_closed": {
+        "n": 4,
+        "median": 5.5,
+        "min": 0,
+        "max": 7
+      },
+      "prs_merged": {
+        "n": 4,
+        "median": 5.5,
+        "min": 0,
+        "max": 7
+      },
+      "continue_replies": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "regressions": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "first_full_pass_s": {
+        "n": 1,
+        "median": 4171.043,
+        "min": 4171.043,
+        "max": 4171.043
+      },
+      "usd_per_passed_test": {
+        "n": 3,
+        "median": 0.023,
+        "min": 0.0196,
+        "max": 0.0251
+      },
+      "compactions": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "refeeds": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "refeed_tokens": {
+        "n": 4,
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "cap_hits": {
+      "runs": 1,
+      "of": 4,
+      "wall": 1,
+      "cost": 0
+    }
+  }
+}

@@ -1,0 +1,1404 @@
+{
+  "schema": 1,
+  "run_id": "run-20261118-medium-harness-topup",
+  "arm": "harness",
+  "fixture": "medium",
+  "repo": "VocanicZ/bench-run-20261118-medium-harness-topup-harness-r01",
+  "status": "error",
+  "capped": null,
+  "error": "front-door claude turn failed: Claude Code can't use your Claude subscription, usually because a payment is past due \u00b7 Pay or renew at https://claude.ai/settings/billing (if you just paid, try again shortly), or use an Anthropic API key instead",
+  "started_at": "2026-11-18T15:21:44Z",
+  "ended_at": "2026-11-18T15:24:51Z",
+  "wall_s": 0.0,
+  "coding_s": 1.293,
+  "testing_s": 0,
+  "test_calls": 0,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": 0
+  },
+  "cost_usd": 0,
+  "usd_per_pct": 4.44,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 0.0,
+  "models": {},
+  "hidden_tests": {
+    "passed": 4,
+    "failed": 110,
+    "total": 114,
+    "details": {
+      "install": "pythonpath",
+      "tests": [
+        {
+          "id": "BrokenPipeTests.test_report_piped_to_a_reader_that_stops",
+          "status": "failed",
+          "message": "    self.assertEqual(first, b\"order,date,customer,status,ordered,shipped,quoted,invoiced\\n\") |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: b'' != b'order,date,customer,status,ordered,shipped,quoted,invoiced\\n'"
+        },
+        {
+          "id": "BrokenPipeTests.test_stock_piped_to_a_reader_that_stops",
+          "status": "failed",
+          "message": "    self.assertEqual(first, b\"AA-000 0 out Item 0\\n\") |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: b'' != b'AA-000 0 out Item 0\\n'"
+        },
+        {
+          "id": "CatalogErrorTests.test_duplicate_skus",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogErrorTests.test_error_carries_line_attribute_and_message",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogErrorTests.test_field_count_and_sku_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogErrorTests.test_first_mistake_is_reported",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogErrorTests.test_line_numbers",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogErrorTests.test_name_and_price_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogErrorTests.test_reorder_and_tax_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogParseTests.test_example_and_types",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogParseTests.test_field_values",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogParseTests.test_ignored_lines_and_empty_text",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogParseTests.test_line_endings",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogParseTests.test_sku_rules",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CatalogParseTests.test_tax_classes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "CommandLineTests.test_arguments_and_options",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "CommandLineTests.test_arguments_taken_as_typed",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "CommandLineTests.test_checked_before_files_are_read",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "CommandLineTests.test_mistyped_dates",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "CommandLineTests.test_no_command_or_unknown_command",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "CommandLineTests.test_the_files_are_read_before_the_request_is_carried_out",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "DirOptionTests.test_default_and_relative",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, err) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^ | AssertionError: 1 != 0 : /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "DirOptionTests.test_dir_position",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, err) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^ | AssertionError: 1 != 0 : /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "DirOptionTests.test_errors_name_the_file_found_in_dir",
+          "status": "failed",
+          "message": "    self.assertIn(\"orders.txt\", err) |     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^ | AssertionError: 'orders.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "DirOptionTests.test_writes_go_to_the_dir",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, err) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^ | AssertionError: 1 != 0 : /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ExitStatusTests.test_good_runs_and_empty_files",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ExitStatusTests.test_mistakes_in_catalogue_and_movements",
+          "status": "failed",
+          "message": "    self.assertIn(word, err) |     ~~~~~~~~~~~~~^^^^^^^^^^^ | AssertionError: 'movements.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "ExitStatusTests.test_mistakes_in_orders",
+          "status": "failed",
+          "message": "    self.assertIn(word, err) |     ~~~~~~~~~~~~~^^^^^^^^^^^ | AssertionError: 'orders.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "ExitStatusTests.test_read_only_commands",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ExitStatusTests.test_refusals_are_exit_1_with_nothing_on_stdout",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExitStatusTests.test_unreadable_is_exit_2",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FileFormatTests.test_bom_and_crlf",
+          "status": "failed",
+          "message": "    self.assertIn(word, err) |     ~~~~~~~~~~~~~^^^^^^^^^^^ | AssertionError: 'catalog.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "FileFormatTests.test_endings_and_blank_lines",
+          "status": "failed",
+          "message": "    self.assertIn(word, err) |     ~~~~~~~~~~~~~^^^^^^^^^^^ | AssertionError: 'catalog.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "FileFormatTests.test_utf8_and_odd_separators",
+          "status": "failed",
+          "message": "    self.assertIn(word, err) |     ~~~~~~~~~~~~~^^^^^^^^^^^ | AssertionError: 'catalog.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "FilesNeededTests.test_others_read_what_they_need",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FilesNeededTests.test_the_shelves_commands_do_not_read_the_orders",
+          "status": "failed",
+          "message": "    self.assertEqual(self.run_cli(*argv)[0], 0) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0"
+        },
+        {
+          "id": "FulfilCliTests.test_date_against_the_order_date",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_earlier_shipments_by_note",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_file_handling",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_later_dips_and_same_day",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_later_movements_limit_the_shipment",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_open_and_partial_status",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_partial_then_complete",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_shortage",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "FulfilCliTests.test_unknown_order_is_refused",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "HistoryCliTests.test_empty_and_unknown",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "HistoryCliTests.test_odd_characters_in_a_note_stay_in_the_note",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "HistoryCliTests.test_text",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "InvoiceCliTests.test_follows_what_shipped",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "InvoiceCliTests.test_json",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "InvoiceCliTests.test_partial_and_full",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "InvoiceCliTests.test_refused",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "InvoiceCliTests.test_which_lines",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "LowCliTests.test_json",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "LowCliTests.test_nothing_low_prints_nothing_and_succeeds",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "LowCliTests.test_text",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "MovementErrorTests.test_field_and_date_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementErrorTests.test_line_numbers",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementErrorTests.test_sku_and_quantity_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementParseTests.test_example_and_types",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementParseTests.test_field_forms",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementParseTests.test_ignored_lines_and_empty_text",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementParseTests.test_line_endings",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "MovementParseTests.test_notes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderDiscountTests.test_effect_on_lines_and_tax",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderDiscountTests.test_order_discount_halves_round_up",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderDiscountTests.test_order_discount_with_volume_discounts_and_all_three_classes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderDiscountTests.test_threshold",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderDiscountTests.test_threshold_on_the_subtotal",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderErrorTests.test_field_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderErrorTests.test_line_numbers",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderErrorTests.test_order_line_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderErrorTests.test_order_number_and_date_mistakes",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderParseTests.test_customer_and_lines",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderParseTests.test_example_and_types",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderParseTests.test_order_numbers",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "OrderParseTests.test_separators_and_ignored_lines",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "QuoteCliTests.test_missing_files",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "QuoteCliTests.test_order_numbers",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "QuoteCliTests.test_text",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "QuoteCliTests.test_volume_and_order_discounts_carry_a_minus_sign",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "QuoteShapeTests.test_discounts_are_zero_or_negative",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "QuoteShapeTests.test_quote_shape",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "ReceiveShipTests.test_append_and_print",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReceiveShipTests.test_effects_on_the_shelves",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReceiveShipTests.test_file_handling",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReceiveShipTests.test_notes",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReceiveShipTests.test_refusal_leaves_the_file_alone",
+          "status": "failed",
+          "message": "    self.assertIn(word, err) |     ~~~~~~~~~~~~~^^^^^^^^^^^ | AssertionError: 'movements.txt' not found in '/usr/bin/python3: No module named stockroom\\n'"
+        },
+        {
+          "id": "ReceiveShipTests.test_refused_input",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ReceiveShipTests.test_refused_stock",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReportCliTests.test_csv",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReportCliTests.test_edges",
+          "status": "failed",
+          "message": "+ (2, '') | ?  ^ |  : stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReportCliTests.test_statuses_and_amounts",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ReportCliTests.test_text",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "ShareOutTests.test_a_single_line_takes_the_whole_discount",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "ShareOutTests.test_biggest_lost_fraction",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "ShareOutTests.test_ties_go_to_the_earlier_line",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "ShareOutTests.test_two_leftover_pennies_go_to_the_two_earlier_lines_of_three_tied_ones",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockCliTests.test_empty_catalog_and_unicode",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "StockCliTests.test_json",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "StockCliTests.test_text",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named stockroom"
+        },
+        {
+          "id": "StockLevelTests.test_example_and_unmoved_products",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockLevelTests.test_levels_are_ints_and_sum_every_movement",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockRuleTests.test_below_zero_is_blamed",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockRuleTests.test_date_order",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockRuleTests.test_each_product_is_checked_on_its_own",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockRuleTests.test_line_numbers_when_blaming",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "StockRuleTests.test_same_day_movements_keep_the_order_of_the_file",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "TaxTests.test_rates_and_totals",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "TaxTests.test_rounding",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "TaxTests.test_tax_is_rounded_per_line_then_added_up",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "VolumeDiscountTests.test_halves_round_up",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "VolumeDiscountTests.test_the_tier_depends_on_each_lines_own_quantity",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        },
+        {
+          "id": "VolumeDiscountTests.test_tiers_at_the_edges",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'stockroom'"
+        }
+      ]
+    }
+  },
+  "counts": {
+    "workers": 1,
+    "continue_replies": 0,
+    "fleet_restarts": 0,
+    "issues_closed": 0,
+    "prs_merged": 0
+  },
+  "caps": {
+    "wall_s": 21600,
+    "cost_usd": 80.0
+  },
+  "repo_deleted": true,
+  "logs": "run-01.logs",
+  "quality": "ok",
+  "coverage": "skipped (the repo has no tests/ directory)",
+  "run": 1,
+  "isolation": {
+    "config": "isolated",
+    "engine_skills": [
+      "caveman",
+      "handoff",
+      "harness",
+      "harness-arc",
+      "harness-init",
+      "harness-issue",
+      "harness-one",
+      "harness-pause",
+      "harness-plan",
+      "harness-prd",
+      "harness-resume",
+      "harness-start",
+      "harness-status",
+      "harness-stop",
+      "harness-uninstall",
+      "subagent-task-tree",
+      "to-issues",
+      "to-prd",
+      "writing-plans"
+    ],
+    "engine_plugins": []
+  },
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 38,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 0,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 0.0,
+  "turn_gaps": null,
+  "cache_ttl": "5m",
+  "session_s": 1.293,
+  "effort": {},
+  "provenance": {
+    "engine_commit": "a0870210a57fee4bda3f76fd456ccff45c4f3116-dirty",
+    "skill_version": "sha256:12c3bd58428b48bc",
+    "cli_version": "2.1.327 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 949,
+  "fuzz_classes": 17,
+  "fuzz_class_counts": {
+    "pricing:tax-standard x exit": 393,
+    "orders:no-data x exit": 149,
+    "mistake:data-file x names_line": 121,
+    "pricing:tax-reduced x exit": 90,
+    "files:no-final-newline x exit": 69,
+    "movements:not-in-date-order x exit": 39,
+    "argv:usage x exit": 22,
+    "output:closed-pipe x exit": 15,
+    "argv:dash-led-argument x exit": 10,
+    "file:unreadable x exit": 10,
+    "fulfil:earlier-shipments x exit": 8,
+    "files:crlf x exit": 7,
+    "orders:missing x exit": 5,
+    "mistake:elsewhere-orders x exit": 4,
+    "pricing:tax-zero x exit": 4,
+    "order-of-checks x exit": 2,
+    "format:shapes x exit": 1
+  },
+  "fuzz_examples": [
+    {
+      "case": 0,
+      "kind": "shelves",
+      "step": 0,
+      "what": "stockroom history --json cd-777",
+      "steps": [
+        [
+          "history",
+          "--json",
+          "cd-777"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "\\r\\ngh-500 | \\u65e5\\u672c tea | 1.33 | 1 | reduced\\r\\n  \\r\\nCd-777 | O'Brien mug | 101.79 | 0 | REDUCED\\r\\n# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\r\\nGN-010 |\\u65e5\\u672c tea |1.99 |3 |zero\\r\\n\\tAB-123 | Trowel: steel | 2.50 | 0 \\r\\n# AB-100 | bad | -1 | x",
+        "movements.txt": "2024-01-08 Ab-123 +25 \\u65e5\\u672c order \\r\\n2024-01-17 Cd-777\\t+12 damaged\\r\\n2024-01-23 AB-123 25 returned\\r\\n2024-01-27 CD-777 -4 \\u65e5\\u672c order\\r\\n2024-01-30   GN-010  40 two  spaces  \\r\\n2024-02-12 AB-123 -50\\r\\n2024-02-16 AB-123 20 \\t shipped by van\\r\\n2024-02-18 cd-777 1 returned \\r\\n2024-02-21 gn-010 \\t -7 \\u65e5\\u672c order\\t\\r\\n2024-03-05 \\t ab-123 -20 order\\r\\n2024-03-09 CD-777 +25 ...",
+        "orders.txt": ""
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "[{\"date\": \"2024-01-17\", \"delta\": \"+12\", \"balance\": 12, \"note\": \"damaged\"}, {\"date\": \"2024-01-27\", \"delta\": \"-4\", \"balance\": 8, \"note\": \"\\\\u65e5\\\\u672c order\"}, {\"date\": \"2024-02-18\", \"delta\": \"+1\", \"balance\": 9, \"note\": \"returned\"}, {\"date\": \"2024-03-09\", \"delta\": \"+25\", \"balance\": 34, \"note\": \"damage...",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-08 Ab-123 +25 \u65e5\u672c order ",
+          "2024-01-17 Cd-777\t+12 damaged",
+          "2024-01-23 AB-123 25 returned",
+          "2024-01-27 CD-777 -4 \u65e5\u672c order",
+          "2024-01-30   GN-010  40 two  spaces  ",
+          "2024-02-12 AB-123 -50",
+          "2024-02-16 AB-123 20 \t shipped by van",
+          "2024-02-18 cd-777 1 returned ",
+          "2024-02-21 gn-010 \t -7 \u65e5\u672c order\t",
+          "2024-03-05 \t ab-123 -20 order",
+          "2024-03-09 CD-777 +25 damaged  ",
+          "2024-03-13 CD-777 -34 shipped by van  ",
+          "2024-03-16 gn-010 -33 returned  ",
+          "2024-03-18 Ab-123 \t +2   a|b  ",
+          "2024-04-01 Cd-777 +12 Zo\u00eb's delivery ",
+          "2024-04-01   CD-777 -10 returned",
+          "2024-04-01 Ab-123 -1 returned\t"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-08 Ab-123 +25 \u65e5\u672c order ",
+          "2024-01-17 Cd-777\t+12 damaged",
+          "2024-01-23 AB-123 25 returned",
+          "2024-01-27 CD-777 -4 \u65e5\u672c order",
+          "2024-01-30   GN-010  40 two  spaces  ",
+          "2024-02-12 AB-123 -50",
+          "2024-02-16 AB-123 20 \t shipped by van",
+          "2024-02-18 cd-777 1 returned ",
+          "2024-02-21 gn-010 \t -7 \u65e5\u672c order\t",
+          "2024-03-05 \t ab-123 -20 order",
+          "2024-03-09 CD-777 +25 damaged  ",
+          "2024-03-13 CD-777 -34 shipped by van  ",
+          "2024-03-16 gn-010 -33 returned  ",
+          "2024-03-18 Ab-123 \t +2   a|b  ",
+          "2024-04-01 Cd-777 +12 Zo\u00eb's delivery ",
+          "2024-04-01   CD-777 -10 returned",
+          "2024-04-01 Ab-123 -1 returned\t"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 1,
+      "kind": "quote",
+      "step": 0,
+      "what": "stockroom quote --dir box SO-1002",
+      "steps": [
+        [
+          "quote",
+          "--dir",
+          "box",
+          "SO-1002"
+        ]
+      ],
+      "dir": "box",
+      "files": {
+        "catalog.txt": "ZZ-123 | Garden gnome | 10.00 | 0\\nOP-310 | Watering can | 28.05 | 1\\nTO-999 | Garden gnome | 28.05 | 10 | standard\\nIJ-100 | Tea-towel | 28.05 | 3 | standard\\nOP-777 | Ceramic pot (large) | 0.25 | 40\\nGN-123 | Soil 20L | 28.05 | 5 | reduced\\nTUV-456 | Watering can | 28.05 | 5 | zero\\n",
+        "orders.txt": "SO-1001 2024-02-07 x TO-999*20,TUV-456*10,OP-777*20\\nSO-1002 2024-02-10 Q TUV-456*4,TO-999*4,OP-310*9,IJ-100*4,GN-123*4\\nSO-10 2024-03-09 Bea TUV-456*12,ZZ-123*2,OP-310*10\\n",
+        "movements.txt": ""
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "SO-1002 2024-02-10 Q\\nTUV-456 4 28.05 112.20 0.00 112.20\\nTO-999 4 28.05 112.20 0.00 112.20\\nOP-310 9 28.05 252.45 0.00 252.45\\nIJ-100 4 28.05 112.20 0.00 112.20\\nGN-123 4 28.05 112.20 0.00 112.20\\nsubtotal 701.25\\norder discount -21.04\\ntax 97.96\\ntotal 778.17\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 2,
+      "kind": "receive_ship",
+      "step": 0,
+      "what": "stockroom ship tomorrow ZZ-750 2 -",
+      "steps": [
+        [
+          "ship",
+          "tomorrow",
+          "ZZ-750",
+          "2",
+          "-"
+        ],
+        [
+          "low"
+        ],
+        [
+          "ship",
+          "2024-04-10",
+          "AB-1000",
+          "20"
+        ],
+        [
+          "stock"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "WXYZ-205 | Seed packet, mix | 1.50 | 10 | zero\\nAX-456 | Ceramic pot (large) | 1.50 | 2 | zero\\nZZ-750 | Soil 20L | 1.99 | 2 | reduced\\n",
+        "movements.txt": "2024-01-27 AX-456 +1\\n2024-03-15 WXYZ-205 8\\n2024-01-31 WXYZ-205 1 restock\\n2024-02-24 WXYZ-205 -68 shipped by van\\n2024-02-24 WXYZ-205 +2\\n2024-01-20 WXYZ-205 100\\n2024-01-20 WXYZ-205 -33\\n2024-01-22 AX-456 +5\\n",
+        "orders.txt": ""
+      },
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-27 AX-456 +1",
+          "2024-03-15 WXYZ-205 8",
+          "2024-01-31 WXYZ-205 1 restock",
+          "2024-02-24 WXYZ-205 -68 shipped by van",
+          "2024-02-24 WXYZ-205 +2",
+          "2024-01-20 WXYZ-205 100",
+          "2024-01-20 WXYZ-205 -33",
+          "2024-01-22 AX-456 +5"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-27 AX-456 +1",
+          "2024-03-15 WXYZ-205 8",
+          "2024-01-31 WXYZ-205 1 restock",
+          "2024-02-24 WXYZ-205 -68 shipped by van",
+          "2024-02-24 WXYZ-205 +2",
+          "2024-01-20 WXYZ-205 100",
+          "2024-01-20 WXYZ-205 -33",
+          "2024-01-22 AX-456 +5"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 3,
+      "kind": "mistake",
+      "step": 0,
+      "what": "stockroom report",
+      "steps": [
+        [
+          "report"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "GN-777 | Rake & hoe | 999.99 | 2 | reduced\\nWXYZ-205 | Tea-towel | 231.51 | 40 | zero\\n",
+        "movements.txt": "2024-01-10 GN-777 +5 returned\\n2024-01-16 GN-777 -4 returned\\n2024-01-22 WXYZ-205 +60\\n2024-01-26 GN-777 +10\\n2024-02-07 WXYZ-205 -60 damaged\\n2024-02-10 GN-777 +10 order SO-9\\n2024-02-18 GN-777 5\\n2024-02-23 WXYZ-205 +2 damaged\\n2024-01-09 GN-777 -1\\n2024-02-27 WXYZ-205 -2\\n2024-02-28 GN-777 8\\n2024-03-07 WXYZ-205 +25 order SO-9\\n2024-03-13 GN-777 -32\\n2024-03-16 WXYZ-205 15\\n",
+        "orders.txt": "SO-9 2024-03-22 x GN-777*2\\n"
+      },
+      "reference": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-10 GN-777 +5 returned",
+          "2024-01-16 GN-777 -4 returned",
+          "2024-01-22 WXYZ-205 +60",
+          "2024-01-26 GN-777 +10",
+          "2024-02-07 WXYZ-205 -60 damaged",
+          "2024-02-10 GN-777 +10 order SO-9",
+          "2024-02-18 GN-777 5",
+          "2024-02-23 WXYZ-205 +2 damaged",
+          "2024-01-09 GN-777 -1",
+          "2024-02-27 WXYZ-205 -2",
+          "2024-02-28 GN-777 8",
+          "2024-03-07 WXYZ-205 +25 order SO-9",
+          "2024-03-13 GN-777 -32",
+          "2024-03-16 WXYZ-205 15"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-10 GN-777 +5 returned",
+          "2024-01-16 GN-777 -4 returned",
+          "2024-01-22 WXYZ-205 +60",
+          "2024-01-26 GN-777 +10",
+          "2024-02-07 WXYZ-205 -60 damaged",
+          "2024-02-10 GN-777 +10 order SO-9",
+          "2024-02-18 GN-777 5",
+          "2024-02-23 WXYZ-205 +2 damaged",
+          "2024-01-09 GN-777 -1",
+          "2024-02-27 WXYZ-205 -2",
+          "2024-02-28 GN-777 8",
+          "2024-03-07 WXYZ-205 +25 order SO-9",
+          "2024-03-13 GN-777 -32",
+          "2024-03-16 WXYZ-205 15"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 4,
+      "kind": "fulfil",
+      "step": 0,
+      "what": "stockroom fulfil SO-10 2024-03-11",
+      "steps": [
+        [
+          "fulfil",
+          "SO-10",
+          "2024-03-11"
+        ],
+        [
+          "invoice",
+          "SO-10"
+        ],
+        [
+          "report"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "GN-999 | Rake & hoe | 1.05 | 5 | STANDARD\\r\\n# SO-1 2024-01-01 a ZZ-9*0\\r\\ncd-777| Bird feeder #2| 1.01| 1| standard\\r\\n# AB-100 | bad | -1 | x\\r\\nkl-999| Watering can| 0.45| 5| Standard\\r\\nOP-750 | Soil 20L | 2.50 | 3 | standard\\r\\n",
+        "movements.txt": "2024-01-21 CD-777 +200 bulk in\\n2024-02-02 gn-999 12 returned\\n2024-02-02 \\t CD-777   51 restock\\n2024-02-02 kl-999 +5 Zo\\xeb's delivery \\n2024-02-12 CD-777 -1\\n2024-02-16 kl-999 -5 order SO-10\\t\\n",
+        "orders.txt": "So-10 2024-02-10 acme\\tgn-999*12,cd-777*50,kl-999*5\\n  "
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "GN-999 shipped 12 backordered 0\\nCD-777 shipped 50 backordered 0\\nKL-999 shipped 0 backordered 0\\nstatus complete\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-21 CD-777 +200 bulk in",
+          "2024-02-02 gn-999 12 returned",
+          "2024-02-02 \t CD-777   51 restock",
+          "2024-02-02 kl-999 +5 Zo\u00eb's delivery ",
+          "2024-02-12 CD-777 -1",
+          "2024-02-16 kl-999 -5 order SO-10\t",
+          "2024-03-11 GN-999 -12 order SO-10",
+          "2024-03-11 CD-777 -50 order SO-10"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-21 CD-777 +200 bulk in",
+          "2024-02-02 gn-999 12 returned",
+          "2024-02-02 \t CD-777   51 restock",
+          "2024-02-02 kl-999 +5 Zo\u00eb's delivery ",
+          "2024-02-12 CD-777 -1",
+          "2024-02-16 kl-999 -5 order SO-10\t"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 5,
+      "kind": "invoice_report",
+      "step": 0,
+      "what": "stockroom invoice So-00042",
+      "steps": [
+        [
+          "invoice",
+          "So-00042"
+        ],
+        [
+          "invoice",
+          "So-007"
+        ],
+        [
+          "report",
+          "--format",
+          "json"
+        ],
+        [
+          "report"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "  \\n\\n#\\n#\\n\\t# tab comment\\n\\tto-205 |Plant label \"oak\" |2.5 |5 |reduced\\t\\n\\tAX-001 | Bird feeder #2 | 44.96 | 1 | reduced\\t\\n",
+        "movements.txt": "2024-02-18\\tto-205 51 # not a comment\\t\\n\\n#no space\\n2024-02-18\\tax-001 9 \\t # not a comment \\n2024-02-28   TO-205 \\t +3\\n2024-03-05 AX-001 50 restock\\n# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\n#\\n# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\n# Caf\\xe9 \\u2014 \\xfcn\\xef \\u65e5\\u672c\\n\\t# tab comment\\n#\\n# 2024-02-30 ZZ-1 0\\n2024-03-17 TO-205 -27 order SO-1001\\n2024-03-18 AX-001   -3 order SO-007\\n2024-0...",
+        "orders.txt": "So-1001 2024-03-12 Q to-205*50,ax-001*8\\n# 2024-02-30 ZZ-1 0\\nSo-00042 2024-03-18 O'Brien To-205*3\\nSO-007 2024-03-15 x AX-001*10\\n"
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "invoice SO-00042 2024-03-18 O'Brien\\nTO-205 3 2.50 7.50 0.00 7.50\\nsubtotal 7.50\\norder discount 0.00\\ntax 0.38\\ntotal 7.88\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-02-18\tto-205 51 # not a comment\t",
+          "#no space",
+          "2024-02-18\tax-001 9 \t # not a comment ",
+          "2024-02-28   TO-205 \t +3",
+          "2024-03-05 AX-001 50 restock",
+          "# Caf\u00e9 \u2014 \u00fcn\u00ef \u65e5\u672c",
+          "#",
+          "# Caf\u00e9 \u2014 \u00fcn\u00ef \u65e5\u672c",
+          "# Caf\u00e9 \u2014 \u00fcn\u00ef \u65e5\u672c",
+          "\t# tab comment",
+          "#",
+          "# 2024-02-30 ZZ-1 0",
+          "2024-03-17 TO-205 -27 order SO-1001",
+          "2024-03-18 AX-001   -3 order SO-007",
+          "2024-03-23 TO-205 -3 order SO-00042",
+          "# a comment"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-02-18\tto-205 51 # not a comment\t",
+          "#no space",
+          "2024-02-18\tax-001 9 \t # not a comment ",
+          "2024-02-28   TO-205 \t +3",
+          "2024-03-05 AX-001 50 restock",
+          "# Caf\u00e9 \u2014 \u00fcn\u00ef \u65e5\u672c",
+          "#",
+          "# Caf\u00e9 \u2014 \u00fcn\u00ef \u65e5\u672c",
+          "# Caf\u00e9 \u2014 \u00fcn\u00ef \u65e5\u672c",
+          "\t# tab comment",
+          "#",
+          "# 2024-02-30 ZZ-1 0",
+          "2024-03-17 TO-205 -27 order SO-1001",
+          "2024-03-18 AX-001   -3 order SO-007",
+          "2024-03-23 TO-205 -3 order SO-00042",
+          "# a comment"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 7,
+      "kind": "mistake",
+      "step": 0,
+      "what": "stockroom invoice SO-7",
+      "steps": [
+        [
+          "invoice",
+          "SO-7"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "TUV-205 | Ceramic pot (large) | 1.50 | 0 | reduced\\nTUV-500 | Trowel: steel | 0.50 | 40 | reduced\\n",
+        "movements.txt": "2024-01-13 TUV-500 25\\n2024-01-20 TUV-500 -16 first delivery\\n2024-01-21 TUV-205 40 shipped by van\\n2024-01-25 TUV-500 +12 returned\\n2024-01-25 TUV-500 -21 Order SO-10\\n2024-02-10 TUV-205 -17 damaged\\n2024-02-16 TUV-500 100 returned\\n2024-03-02 TUV-205 -23 order SO-10\\n",
+        "orders.txt": "SO-60 2024-01-19 acme TUV-500*1.5\\nSO-7 2024-03-07 Bea TUV-500*8\\nSO-10 2024-02-02 x TUV-205*3,TUV-500*1\\n"
+      },
+      "reference": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-13 TUV-500 25",
+          "2024-01-20 TUV-500 -16 first delivery",
+          "2024-01-21 TUV-205 40 shipped by van",
+          "2024-01-25 TUV-500 +12 returned",
+          "2024-01-25 TUV-500 -21 Order SO-10",
+          "2024-02-10 TUV-205 -17 damaged",
+          "2024-02-16 TUV-500 100 returned",
+          "2024-03-02 TUV-205 -23 order SO-10"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-13 TUV-500 25",
+          "2024-01-20 TUV-500 -16 first delivery",
+          "2024-01-21 TUV-205 40 shipped by van",
+          "2024-01-25 TUV-500 +12 returned",
+          "2024-01-25 TUV-500 -21 Order SO-10",
+          "2024-02-10 TUV-205 -17 damaged",
+          "2024-02-16 TUV-500 100 returned",
+          "2024-03-02 TUV-205 -23 order SO-10"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 9,
+      "kind": "closed_pipe",
+      "step": 0,
+      "what": "stockroom history OP-123",
+      "steps": [
+        [
+          "history",
+          "OP-123"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "OP-123 | Seed packet, mix | 0.01 | 20 | zero\\nMN-001 | Gift voucher | 30.60 | 5 | standard\\nGN-999 | Ceramic pot (large) | 99.76 | 1 | zero\\n",
+        "movements.txt": "2024-01-24 MN-001 8 shipped by van\\n2024-02-19 MN-001 -5 first delivery\\n2024-02-04 GN-999 -11\\n2024-01-21 OP-123 5\\n2024-01-21 GN-999 +12\\n2024-02-24 GN-999 +1 shipped by van\\n2024-02-21 GN-999 5 restock\\n2024-02-27 OP-123 -7\\n2024-02-27 OP-123 -6\\n2024-02-05 OP-123 -5 first delivery\\n2024-02-07 OP-123 20 restock\\n2024-02-07 OP-123 -7 shipped by van\\n2024-02-07 MN-001 +1 shipped by van\\n2024-03-0...",
+        "orders.txt": "SO-10 2024-02-20 Mr.Smith GN-999*1\\n"
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "2024-01-24 MN-001 8 shipped by van",
+          "2024-02-19 MN-001 -5 first delivery",
+          "2024-02-04 GN-999 -11",
+          "2024-01-21 OP-123 5",
+          "2024-01-21 GN-999 +12",
+          "2024-02-24 GN-999 +1 shipped by van",
+          "2024-02-21 GN-999 5 restock",
+          "2024-02-27 OP-123 -7",
+          "2024-02-27 OP-123 -6",
+          "2024-02-05 OP-123 -5 first delivery",
+          "2024-02-07 OP-123 20 restock",
+          "2024-02-07 OP-123 -7 shipped by van",
+          "2024-02-07 MN-001 +1 shipped by van",
+          "2024-03-08 OP-123 22 restock",
+          "2024-03-13 MN-001 25 returned"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "2024-01-24 MN-001 8 shipped by van",
+          "2024-02-19 MN-001 -5 first delivery",
+          "2024-02-04 GN-999 -11",
+          "2024-01-21 OP-123 5",
+          "2024-01-21 GN-999 +12",
+          "2024-02-24 GN-999 +1 shipped by van",
+          "2024-02-21 GN-999 5 restock",
+          "2024-02-27 OP-123 -7",
+          "2024-02-27 OP-123 -6",
+          "2024-02-05 OP-123 -5 first delivery",
+          "2024-02-07 OP-123 20 restock",
+          "2024-02-07 OP-123 -7 shipped by van",
+          "2024-02-07 MN-001 +1 shipped by van",
+          "2024-03-08 OP-123 22 restock",
+          "2024-03-13 MN-001 25 returned"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 10,
+      "kind": "fulfil",
+      "step": 0,
+      "what": "stockroom ship 2024-03-27 OP-310 5 order SO-10",
+      "steps": [
+        [
+          "ship",
+          "2024-03-27",
+          "OP-310",
+          "5",
+          "order SO-10"
+        ],
+        [
+          "invoice",
+          "SO-10"
+        ],
+        [
+          "fulfil",
+          "so-10",
+          "2024-03-27"
+        ],
+        [
+          "invoice",
+          "SO-10"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "op-310\\t|\\t100% cotton\\t|\\t1.33\\t|\\t5\\t|\\tZERO\\nMN-310 | Bird feeder #2 | 10.5 | 40 | REDUCED\\n",
+        "movements.txt": "\\ufeff  \\r\\n2024-01-05 OP-310 1 damaged\\r\\n# AB-100 | bad | -1 | x\\r\\n2024-03-14 op-310 60 returned \\r\\n\\r\\n2024-03-14 mn-310 +8   Zo\\xeb's delivery  \\r\\n2024-01-07 Op-310   -1 order SO-10\\r\\n  \\r\\n2024-02-08 op-310 +40 shipped by van\\r\\n2024-02-25 mn-310 +12 returned \\r\\n#\\r\\n2024-03-19 OP-310 \\t -167 # not a comment\\r\\n2024-02-24 op-310 60\\r\\n2024-03-04 mn-310 -40 returned\\r\\n2024-01-27 op-310  ...",
+        "orders.txt": "\\t# tab comment\\r\\nso-1001 2024-01-31 Q\\tMN-310*3\\r\\n#\\r\\nso-10 2024-03-24 \\u65e5\\u672c Op-310*1\\r\\n# AB-100 | bad | -1 | x\\r\\n"
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03-27 OP-310 -5 order SO-10\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "\ufeff  ",
+          "2024-01-05 OP-310 1 damaged",
+          "# AB-100 | bad | -1 | x",
+          "2024-03-14 op-310 60 returned ",
+          "2024-03-14 mn-310 +8   Zo\u00eb's delivery  ",
+          "2024-01-07 Op-310   -1 order SO-10",
+          "  ",
+          "2024-02-08 op-310 +40 shipped by van",
+          "2024-02-25 mn-310 +12 returned ",
+          "#",
+          "2024-03-19 OP-310 \t -167 # not a comment",
+          "2024-02-24 op-310 60",
+          "2024-03-04 mn-310 -40 returned",
+          "2024-01-27 op-310  12 a|b",
+          "2024-02-02 mn-310 60",
+          "2024-03-27 OP-310 -5 order SO-10"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "\ufeff  ",
+          "2024-01-05 OP-310 1 damaged",
+          "# AB-100 | bad | -1 | x",
+          "2024-03-14 op-310 60 returned ",
+          "2024-03-14 mn-310 +8   Zo\u00eb's delivery  ",
+          "2024-01-07 Op-310   -1 order SO-10",
+          "  ",
+          "2024-02-08 op-310 +40 shipped by van",
+          "2024-02-25 mn-310 +12 returned ",
+          "#",
+          "2024-03-19 OP-310 \t -167 # not a comment",
+          "2024-02-24 op-310 60",
+          "2024-03-04 mn-310 -40 returned",
+          "2024-01-27 op-310  12 a|b",
+          "2024-02-02 mn-310 60"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    },
+    {
+      "case": 11,
+      "kind": "receive_ship",
+      "step": 0,
+      "what": "stockroom ship 2024-03-13 TUV-205 104",
+      "steps": [
+        [
+          "ship",
+          "2024-03-13",
+          "TUV-205",
+          "104"
+        ],
+        [
+          "history",
+          "GN-205"
+        ],
+        [
+          "ship",
+          "2024-04-08",
+          "Tuv-205",
+          "100",
+          "-"
+        ],
+        [
+          "ship",
+          "2024-03-17",
+          "Gh-500",
+          "-"
+        ],
+        [
+          "history",
+          "tuv-205",
+          "--json"
+        ],
+        [
+          "receive",
+          "2024-04-01",
+          "TUV-205",
+          "3",
+          "--json"
+        ]
+      ],
+      "dir": null,
+      "files": {
+        "catalog.txt": "#\\r\\n  TUV-205 | Gnome \\u2014 deluxe | 99.99 | 20 | ZERO\\t\\r\\n# SO-1 2024-01-01 a ZZ-9*0\\r\\n\\tEF-310 | Name with 'quotes' | 26.43 | 40 | reduced  \\r\\n\\r\\n\\r\\nGH-500 | O'Brien mug | 294.02 | 5 | Zero\\r\\ngn-205 | Watering can | 1.05 | 0",
+        "movements.txt": "  \\n\\n2024-01-04 tuv-205 40 \\u65e5\\u672c order \\n\\n2024-01-09 tuv-205 12 restock\\t\\n2024-01-29 TUV-205 +25 damaged\\n2024-01-30 EF-310  +12\\n\\n  \\n2024-01-30 GN-205 1 order SO\\n  \\n2024-02-02 GH-500 +3\\n\\t\\n\\t\\n\\t\\n2024-02-05 tuv-205 +25\\n2024-02-07 gh-500 +4 \\u65e5\\u672c order\\t\\n  \\n\\n\\n2024-02-17 ef-310 -5 restock\\n2024-02-20 GN-205 -1 Zo\\xeb's delivery  \\n\\n2024-02-26 EF-310 -6 \\u65e5\\u672c ord...",
+        "orders.txt": ""
+      },
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03-13 TUV-205 -104\\n",
+        "stderr_empty": true,
+        "kept": null,
+        "file": [
+          "  ",
+          "2024-01-04 tuv-205 40 \u65e5\u672c order ",
+          "2024-01-09 tuv-205 12 restock\t",
+          "2024-01-29 TUV-205 +25 damaged",
+          "2024-01-30 EF-310  +12",
+          "  ",
+          "2024-01-30 GN-205 1 order SO",
+          "  ",
+          "2024-02-02 GH-500 +3",
+          "\t",
+          "\t",
+          "\t",
+          "2024-02-05 tuv-205 +25",
+          "2024-02-07 gh-500 +4 \u65e5\u672c order\t",
+          "  ",
+          "2024-02-17 ef-310 -5 restock",
+          "2024-02-20 GN-205 -1 Zo\u00eb's delivery  ",
+          "2024-02-26 EF-310 -6 \u65e5\u672c order",
+          "  ",
+          "2024-02-29 TUV-205 +2 shipped by van\t",
+          "2024-03-12 GN-205   +40",
+          "2024-03-13 TUV-205 -104"
+        ],
+        "untouched": true
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "kept": true,
+        "file": [
+          "  ",
+          "2024-01-04 tuv-205 40 \u65e5\u672c order ",
+          "2024-01-09 tuv-205 12 restock\t",
+          "2024-01-29 TUV-205 +25 damaged",
+          "2024-01-30 EF-310  +12",
+          "  ",
+          "2024-01-30 GN-205 1 order SO",
+          "  ",
+          "2024-02-02 GH-500 +3",
+          "\t",
+          "\t",
+          "\t",
+          "2024-02-05 tuv-205 +25",
+          "2024-02-07 gh-500 +4 \u65e5\u672c order\t",
+          "  ",
+          "2024-02-17 ef-310 -5 restock",
+          "2024-02-20 GN-205 -1 Zo\u00eb's delivery  ",
+          "2024-02-26 EF-310 -6 \u65e5\u672c order",
+          "  ",
+          "2024-02-29 TUV-205 +2 shipped by van\t",
+          "2024-03-12 GN-205   +40"
+        ],
+        "untouched": true
+      },
+      "arm_stderr": "/usr/bin/python3: No module named stockroom\\n"
+    }
+  ],
+  "fuzz_seed": 621,
+  "fuzz_hash": "dadc646bc2e0c241c8dde733be0f4c09da016eba2e7319c0e5d24dcf3537a0f1",
+  "usd_per_passed_test": 0.0,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": null,
+    "coverage": null
+  }
+}

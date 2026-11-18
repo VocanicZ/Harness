@@ -1,0 +1,39 @@
+{
+  "bn3c963": {
+    "sessions": 10,
+    "tokens": {},
+    "issues_closed": 7,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-run-20261118-large-harness-harness-r02": {
+        "claims": 9,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 6,
+        "which": 19,
+        "explain": 6
+      },
+      "which": 19,
+      "changed_nodes": 3953,
+      "round1": 3385,
+      "round2": 3738,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 25
+      },
+      "wall_ms": 14660,
+      "selective": 18,
+      "full_suite": 1,
+      "backfilled": 0,
+      "selective_share": 0.95
+    },
+    "model_mismatches": []
+  }
+}

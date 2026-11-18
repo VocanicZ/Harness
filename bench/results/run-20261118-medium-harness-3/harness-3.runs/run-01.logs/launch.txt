@@ -1,0 +1,1 @@
+claude -p --output-format stream-json --verbose --strict-mcp-config --dangerously-skip-permissions

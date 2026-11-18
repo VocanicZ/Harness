@@ -1,0 +1,2 @@
+claude -p --output-format stream-json --verbose --strict-mcp-config --dangerously-skip-permissions
+claude -p --output-format stream-json --verbose --strict-mcp-config --dangerously-skip-permissions --resume e282a520-8ffa-4c7f-bfb8-ae50bbc9491e

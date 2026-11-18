@@ -1,0 +1,5135 @@
+{
+  "passed": 980,
+  "failed": 1,
+  "total": 981,
+  "details": {
+    "install": "pip",
+    "tests": [
+      {
+        "id": "M01Allocate.test_allocation_does_not_depend_on_the_rounding_rule",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_equal_parts_leave_the_spare_to_the_earlier",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_invalid_weights",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_largest_remainder_not_largest_weight",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_negative_amounts_mirror_positive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_parts_always_add_up_and_stay_within_one_unit",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_result_shape",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_ties_on_remainder_go_to_the_earlier_index",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_weights_are_scale_free",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_zero_and_single_weight",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Allocate.test_zero_weights_get_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_add_and_subtract",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_is_zero_and_sign",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_mixed_currencies_refuse_ordering",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_mixed_currencies_refuse_to_add_or_subtract",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_mixing_with_plain_numbers_is_a_type_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_multiply_by_integer",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_negation_and_abs",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_ordering",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_scale_by_ratio",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyArithmetic.test_scale_validation",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_format_minor_validation",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_money_of",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_money_parse_accepts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_money_parse_bad_amount_or_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_money_parse_needs_exactly_one_space",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_accepts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_decimal_limit",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_jpy_has_no_decimals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_kwd_has_three",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_needs_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_refuses_malformed_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_parse_amount_unknown_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyParse.test_round_trip_through_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_amount_str_table",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_attributes_and_repr",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_equality_with_other_types_is_false",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_error_classes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_hashable_and_equality",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_huge_values_are_exact",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_immutable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_minor_must_be_an_integer",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_no_negative_zero",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_str",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_unknown_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01MoneyValue.test_zero_and_exponent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Rounding.test_round_div_exact_and_not_a_tie",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Rounding.test_round_div_ties_go_to_even",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Rounding.test_round_div_validation",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Rounding.test_scale_half_minor_units_round_to_even",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M01Rounding.test_scale_halves_that_are_the_same_either_way",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_big_amounts_stay_exact",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_conversion_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_conversion_through_the_inverse_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_conversion_uses_the_rate_of_the_day",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_halves_round_to_even",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_halves_that_are_not_ties_or_agree_in_both_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_jpy_to_usd",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_kwd_to_usd_loses_a_decimal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_negative_amounts_are_symmetric",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_same_currency_is_returned_unchanged",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_same_exponent_pairs",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_usd_to_jpy_drops_the_decimals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_usd_to_kwd_gains_a_decimal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02Convert.test_zero_converts_to_zero",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_currency_is_immutable_and_hashable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_error_is_a_validation_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_lookup",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_non_string_codes_are_unknown",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_table_contents",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_table_is_keyed_by_code",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02CurrencyTable.test_unknown_codes_name_the_code",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_a_direct_rate_beats_the_inverse_even_when_older",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_before_the_first_rate_is_an_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_entries_are_sorted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_entries_do_not_include_inverses",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_inverse_is_exact",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_inverse_of_the_latest_opposite_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_latest_rate_on_or_before",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_lookup_validates_arguments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_no_going_through_a_third_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_remove_falls_back_to_the_earlier_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_remove_must_match_exactly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateLookup.test_same_currency_is_one",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_day_must_be_a_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_invalid_rate_texts_name_the_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_new_table_is_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_rate_must_be_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_same_currency_and_unknown_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_set_stores_an_exact_fraction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_setting_the_same_day_replaces",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_tables_are_independent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M02RateSet.test_valid_rate_texts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_add_months_argument_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_add_months_clamps_to_the_end_of_the_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_add_months_inverse_for_early_days",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_add_months_leaves_the_calendar",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_add_months_works_from_the_original_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_last_day",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03MonthArithmetic.test_last_day_validation",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_days_that_do_not_exist",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_error_class",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_format_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_input_must_be_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_malformed_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_round_trip",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03ParseDate.test_valid_dates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_construct_and_attributes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_constructor_needs_dates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_contains_includes_both_ends",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_days",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_empty_periods_are_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_label_depends_only_on_the_dates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_label_of_other_periods_is_the_range",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_label_of_whole_calendar_periods",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodBasics.test_parse_of_a_label_gives_the_period_back",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_chain_has_no_gaps",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_follows_the_kind_even_when_written_as_a_range",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_past_the_end_of_the_calendar",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_quarter",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_range_keeps_its_length",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodNext.test_next_year",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodParse.test_empty_range_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodParse.test_input_must_be_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodParse.test_ranges",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodParse.test_refused_texts_name_the_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03PeriodParse.test_year_month_quarter",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_a_year_of_months",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_arguments_must_be_dates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_empty_range_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_months",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_one_period_when_start_and_end_share_it",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_periods_have_no_gaps_or_overlaps",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_quarters",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_unknown_step",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_weeks_across_month_and_year_ends",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_weeks_run_monday_to_sunday",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_whole_calendar_edges",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M03Periods.test_years",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_a_created_parent_can_still_be_added",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_add_returns_account_with_type_from_root",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_bad_paths_are_chart_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_chart_has_no_len_surprise",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_currency_must_be_known_code",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_duplicate_is_a_conflict",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_explicit_type_must_agree_with_the_root",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_failed_add_creates_no_parents",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_malformed_is_validation_not_conflict",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_opened_and_note_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartBuilding.test_parents_are_created",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_accounts_full_listing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_accounts_sorted_by_segments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_children",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_descendants",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_descendants_use_whole_segments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_exists_never_raises",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_get_and_exists",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_get_unknown_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_is_leaf",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04ChartLookup.test_unknown_paths_are_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_close_before_opening_is_an_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_close_needs_a_real_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_close_on_the_opening_day_is_allowed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_close_twice_is_an_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_close_updates_the_record_already_handed_out",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_closing_a_parent_leaves_children_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_closing_day_is_the_last_usable_day",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_no_dates_means_always_open",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_open_and_close_window",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04OpenClose.test_opened_is_inclusive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_account_type_from_root",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_error_class_family",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_invalid_paths",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_parent_path",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_parent_path_of_invalid_is_a_chart_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_valid_path_never_raises",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Paths.test_valid_paths",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_bad_patterns_are_chart_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_bare_path_is_the_account_and_below",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_bare_path_uses_whole_segments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_double_star_alone_is_everything",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_double_star_is_one_or_more_segments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_lower_case_first_segment_is_a_bad_pattern",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_matches_is_sorted_like_accounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_matching_is_case_sensitive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_path_matches_without_a_chart",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_star_is_one_segment",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_unmatched_patterns_give_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M04Patterns.test_wildcard_patterns_have_no_implicit_descendants",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_add_returns_the_stored_transaction_with_an_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_basic_field_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_empty_payee_and_narration_are_fine",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_flags",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_ids_count_up",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_posting_notes_survive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_postings_to_a_parent_account_are_allowed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_tags_are_sorted_deduplicated_and_a_tuple",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_the_transaction_passed_in_is_not_modified",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_three_posting_split",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05AddBasics.test_zero_amount_postings_are_allowed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_as_of_is_inclusive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balance_as_of",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balance_of_account_without_postings_is_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balance_rollup_flag",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balance_unknown_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balance_with_currency_returns_money",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balance_without_currency_returns_dict_of_money",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balances_are_plain_ints_per_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balances_do_not_depend_on_the_order_added",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_balances_have_no_rollup",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_every_currency_sums_to_zero_over_the_whole_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_rollup_balances",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_rollup_balances_as_of_and_zero",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_whole_segment_rollup",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balances.test_zero_balances_are_left_out",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_big_amounts_are_exact",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_currencies_may_net_across_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_every_currency_must_balance_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_message_lists_currencies_alphabetically",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_missing_amount_in_several_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_missing_amount_keeps_position_account_and_note",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_nothing_to_infer",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_one_missing_amount_is_worked_out",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_two_balanced_currency_pairs_in_one_transaction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_two_missing_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_unbalanced_names_the_currency_and_the_amount",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Balancing.test_zero_decimal_currency_in_message",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_a_refused_replace_leaves_the_old_one",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_add_many_accepts_any_iterable_and_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_add_many_and_replace_honour_the_lock",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_add_many_is_all_or_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_add_many_judges_later_items_against_earlier_ones",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_add_many_returns_the_stored_list",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_replace_keeps_the_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_replace_unknown_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_replace_with_the_same_id_given",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Batches.test_replace_works_out_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Construction.test_defaults",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Construction.test_empty_given_chart_is_still_used",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Construction.test_given_chart_and_rates_are_used",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Construction.test_ledger_error_is_a_validation_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Ids.test_a_removed_explicit_id_can_be_given_again",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Ids.test_automatic_ids_continue_after_the_highest",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Ids.test_duplicate_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Ids.test_explicit_id_is_kept",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Ids.test_ids_are_never_reused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Ids.test_invalid_ids",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Lookup.test_explicit_ids_order_same_day",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Lookup.test_get_unknown",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Lookup.test_postings_iteration",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Lookup.test_remove",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Lookup.test_remove_unknown_or_twice",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Lookup.test_transactions_sorted_by_date_then_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_a_refused_add_changes_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_add_after_the_lock_is_fine",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_add_on_or_before_the_lock_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_clearing_the_lock",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_lock_on_the_day_itself_and_the_day_after",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_locked_error_is_a_conflict_not_a_validation_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_no_lock_by_default",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05PeriodLock.test_remove_in_a_locked_period_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_account_closed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_account_currency_restriction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_account_not_yet_open",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_failed_add_does_not_use_up_an_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_invalid_account_text_is_unknown_too",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_needs_two_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_restriction_applies_to_worked_out_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_unknown_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M05Postings.test_unrestricted_accounts_take_any_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_a_transaction_without_postings_is_readable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_account_directive_forms",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_amount_forms",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_bom_and_crlf_are_tolerated",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_comments_are_ignored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_empty_and_comment_only_texts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_last_line_without_a_newline",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_parse_the_sample",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_posting_notes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_rate_forms_are_kept_as_written",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_semicolon_inside_a_quoted_string_is_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_string_escapes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_tabs_work_as_indentation_and_separators",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_transaction_line_variants",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_unbalanced_text_still_parses",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Reading.test_unicode_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_a_non_indented_line_ends_the_transaction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_account_line_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_duplicate_account_is_reported_on_the_second",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_error_class",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_line_numbers_count_blank_and_comment_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_line_numbers_with_crlf_and_bom",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_mistake_in_a_later_posting_names_that_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_only_the_first_mistake_is_reported",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_posting_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_posting_outside_a_transaction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_rate_line_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_the_mistake_is_reported_even_after_good_content",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_transaction_line_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ReadingErrors.test_unknown_directives",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ToLedger.test_builds_a_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ToLedger.test_duplicate_accounts_in_a_built_journal_are_chart_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ToLedger.test_empty_journal_gives_an_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ToLedger.test_format_a_ledger_back",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ToLedger.test_inferred_amounts_are_filled_in",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06ToLedger.test_ledger_errors_come_out_unchanged",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_account_line_forms",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_account_width_ignores_postings_without_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_alignment_rule",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_empty_journal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_format_is_idempotent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_format_normalises_a_messy_file",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_format_transaction_ends_with_one_newline_and_no_trailing_spaces",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_formatting_a_built_journal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_groups_are_left_out_when_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_journal_defaults_are_independent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_list_order_is_kept",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_mixed_currencies_align_on_the_right_edge_of_the_number",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_notes_follow_after_two_spaces",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_parse_of_format_gives_the_same_journal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_sample_round_trips_exactly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M06Writing.test_transaction_line_forms",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_account_is_whole_parts_and_case_sensitive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_account_matches_the_account_and_what_is_below_it",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_account_wildcards",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_amount_compares_signed_posting_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_amount_currency_suffix",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_amount_equality_is_numeric",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_chart_checks_account_patterns",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_invalid_account_patterns",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_matching_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_not_is_judged_per_posting",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_spaces_around_comparison_operators",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_star_needs_exactly_one_part_and_double_star_may_be_none",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_terms_apply_to_one_posting_together",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07AccountAndAmount.test_two_account_terms_cannot_share_a_posting",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_a_parsed_query_is_reusable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_implicit_and",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_keywords_are_case_insensitive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_not_precedence",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_or_and_and_precedence",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_parentheses",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Combining.test_select_keeps_the_order_given_and_accepts_text_or_query",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Errors.test_error_class_and_code",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Errors.test_positions",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07Errors.test_valid_edge_queries_do_not_raise",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07FieldTerms.test_date_comparisons",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07FieldTerms.test_date_periods",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07FieldTerms.test_flag",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07FieldTerms.test_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07FieldTerms.test_tag_is_an_exact_match",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_bare_words_search_payee_and_narration",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_empty_query_matches_everything",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_keywords_in_quotes_are_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_narration_is_a_case_insensitive_substring",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_payee_is_a_case_insensitive_substring",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_quote_escapes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_quoted_values_may_contain_spaces",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_term_names_are_case_insensitive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_transaction_without_postings_only_matches_empty_query",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_unicode_case_folding",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M07TextTerms.test_values_stop_at_parentheses_and_spaces",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_actions_in_any_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_apply_returns_a_new_dict_each_time",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_apply_returns_only_what_the_rule_sets",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_categorize_a_two_posting_transaction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_categorize_account_needs_exactly_two_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_categorize_keeps_unset_attributes_and_merges_tags_sorted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_categorize_uses_the_first_postings_amount",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_categorize_without_a_match_changes_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_first_matching_rule_wins",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Actions.test_tags_are_lower_case_unique_and_in_written_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_all_conditions_must_hold",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_amount_comparisons_are_signed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_amount_currency_code",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_any_matches_everything",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_case_sensitive_part_with_inline_flag",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_date_conditions",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_equals_is_the_whole_text_ignoring_case",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_missing_amount_and_date_never_satisfy",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_missing_payee_and_narration_are_empty_texts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_narration_conditions",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_negated_regex",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_quote_and_backslash_handling",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_regex_features",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Conditions.test_regex_is_a_case_insensitive_search",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Errors.test_each_mistake_is_a_rules_error_naming_its_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Errors.test_error_class",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Errors.test_first_bad_line_is_reported",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Errors.test_line_numbers_count_blank_and_comment_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Errors.test_valid_edge_rules_are_accepted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Parsing.test_a_hash_inside_a_line_is_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Parsing.test_empty_and_comment_only_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Parsing.test_line_endings_and_bom",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Parsing.test_rules_are_counted_and_numbered",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M08Parsing.test_spaces_around_operators_are_optional",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_amount_forms",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_bad_amounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_currency_exponent_limits_decimals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_date_formats",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_dates_default_format",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_dates_that_do_not_fit_the_format",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_debit_and_credit_columns",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_error_messages_quote_the_offending_cell",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_negate_flips_every_sign",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_other_thousands_separators",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_parentheses_mean_negative",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_thousands_and_decimal_separators",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Cells.test_zero_amount_is_an_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_existing_may_be_any_iterable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_identical_rows_are_matched_by_ordinal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_only_the_banks_account_counts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_partly_new_statement",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_reimporting_gives_only_duplicates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_rows_in_error_are_not_duplicates_or_new",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_the_key_is_date_amount_and_payee",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Duplicates.test_the_payee_is_the_one_after_the_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_a_good_profile_is_accepted_with_either_amount_style",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_bad_lines_name_their_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_column_names_need_a_header",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_comments_blank_lines_spaces_and_quotes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_defaults",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_delimiter_and_thousands_words_and_characters",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_error_line_counts_comment_and_blank_lines",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_every_setting",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_hash_inside_a_value_is_not_a_comment",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Profile.test_whole_profile_problems_have_no_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_a_missing_header_column_stops_the_import",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_bad_rows_never_stop_good_ones",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_basic_import",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_blank_lines_blank_records_and_extra_cells_are_ignored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_bom_and_crlf",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_columns_by_header_name_or_number",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_delimiters",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_every_transaction_balances",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_flag_and_tags_from_the_profile",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_missing_narration_cell_is_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_no_header_row_is_an_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_no_header_uses_numbered_columns",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_payee_and_short_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_profile_and_rules_may_be_given_as_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_quoted_fields",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_row_numbers_are_file_line_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_row_numbers_with_skip_rows_bom_and_crlf",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_skip_rows_throws_away_lines_even_if_not_csv",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rows.test_whitespace_is_collapsed_and_trimmed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rules.test_default_account_when_no_rule_matches",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rules.test_no_account_anywhere_is_a_row_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rules.test_rule_tags_merge_with_profile_tags_sorted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rules.test_rules_choose_accounts_and_decorations",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rules.test_rules_see_the_bank_postings_signed_amount_and_the_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M09Rules.test_rules_see_the_cleaned_payee_and_narration",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Allowance.test_allowance_table",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Allowance.test_budget_not_yet_in_force_has_no_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Allowance.test_leap_and_common_years",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Allowance.test_start_chooses_the_first_whole_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Allowance.test_start_inside_the_asked_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Allowance.test_zero_allowance_percent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_accounts_leave_out_zero_and_sort_as_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_basic_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_empty_inputs",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_equal_budgets_are_not_merged",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_exactly_used_up_is_not_over",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_ledger_is_not_changed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_line_is_immutable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_line_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_multiple_budgets_count_the_same_spending",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_nothing_spent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_only_expense_accounts_count",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_other_currencies_are_ignored_not_converted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_overspent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_pattern_matching",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_percent_is_a_decimal_with_one_place",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_period_bounds_are_inclusive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_refund_only_gives_negative_spending",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetStatus.test_to_dict",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_amount_must_be_positive_money",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_bad_period_kinds",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_budget_error_is_a_validation_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_each_period_kind_is_accepted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_fields_and_equality",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_invalid_patterns",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_start_must_be_a_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10BudgetValue.test_valid_patterns",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Rounding.test_allowance_ties_post",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Rounding.test_percent_ties_post",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M10Rounding.test_untied_percent_rounds_to_nearest",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_dated_copies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_empty_inputs",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_expand_is_deterministic_and_repeatable",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_flag_is_copied",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_instantiate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_limits_apply",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_missing_amount_stays_missing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_name_order_is_plain_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_ordering_by_date_then_name_then_position",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_tags_sorted_unique_with_recurring",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Expand.test_template_date_is_ignored_and_template_untouched",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Helpers.test_describe_ordinals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Helpers.test_describe_table",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Helpers.test_next_occurrence",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Helpers.test_next_occurrence_respects_end_and_count",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Helpers.test_next_occurrence_with_every_and_a_later_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_count_counts_from_the_series_start_not_the_window",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_count_limits_the_series",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_empty_or_reversed_window",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_end_and_count_whichever_comes_first",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_end_before_window",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_end_is_inclusive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_every_keeps_the_anchor_rhythm_after_a_later_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_every_months_with_a_later_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_every_with_an_anchor_after_the_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_long_series_are_fast",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_start_day_is_included_when_it_matches",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_start_in_the_middle_of_a_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_weekly_with_start_on_another_weekday",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_window_before_start_gets_nothing_before_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11Occurrences.test_window_is_inclusive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_all_weekday_names",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_canonical_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_case_and_blanks_do_not_matter",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_equality_and_hash",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_error_class_and_message",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_every_documented_shape_parses",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ParseSchedule.test_rejected_texts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_attributes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_end_may_equal_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_equality",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_invalid_arguments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_invalid_names",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_schedule_object_or_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11RecurringItem.test_valid_names",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_daily",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_every_days_and_weeks",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_every_months_counts_from_the_anchor",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_every_never_before_the_anchor",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_every_years",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_far_windows_work",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_monthly_clamps_to_month_end",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_monthly_fixed_day",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_monthly_last",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_weekly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M11ScheduleDates.test_yearly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_as_of_none_and_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_before_any_income_or_expense",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_conversion",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_conversion_problems",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_conversion_ties_post",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_conversion_to_a_currency_with_a_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_conversion_to_the_only_currency_needs_no_rates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_conversion_uses_the_rate_of_as_of",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_is_json_able",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_later_month_after_paying_the_card",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_overdrawn_asset_and_negative_retained_earnings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_sample",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_today_changes_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12BalanceSheet.test_two_currencies_without_conversion",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_a_category_is_netted_over_the_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_a_fee_on_a_transfer_is_the_only_flow",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_borrowing_is_an_inflow",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_closing_equals_the_asset_balance",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_is_json_able",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_period_without_any_asset_history",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_quiet_period_after_activity",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_sample_april_pays_off_the_card",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_sample_march",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_transfers_between_asset_accounts_cancel",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Cashflow.test_two_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_balance_sheet",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_balance_sheet_two_currencies_keeps_retained_per_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_cashflow",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_header_only_when_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_income_statement",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_net_worth",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_not_a_report",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_register",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_register_quotes_and_missing_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Csv.test_trial_balance",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_conversion_of_an_empty_report_has_zero_totals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_conversion_uses_the_rate_at_the_end_of_the_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_conversion_without_a_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_empty_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_is_json_able",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_other_types_and_other_months_are_ignored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_percent_after_conversion_is_of_the_converted_total",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_percent_ties_post",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_percentages_are_shares_per_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_period_bounds_are_inclusive",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_refund_gives_a_negative_line",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_sample_march",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_two_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12IncomeStatement.test_zero_accounts_are_left_out_and_a_zero_total_gives_zero_percent",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_bad_step",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_dates_before_any_asset_or_liability_have_empty_lists",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_default_step_is_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_is_json_able",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_liabilities_in_another_currency_count_in_that_currency",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_other_steps",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_sample_by_month",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12NetWorth.test_two_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_checking_in_march",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_is_json_able",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_known_account_without_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_order_is_date_then_id_then_posting_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_payee_and_narration_are_on_the_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_rollup_does_not_match_a_longer_name",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_rollup_includes_sub_accounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_rollup_of_a_leaf_is_the_leaf",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_two_currencies_have_separate_running_balances",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_unknown_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_without_a_period_everything_is_listed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12Register.test_without_rollup_a_parent_has_no_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_balance_sheet",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_balance_sheet_converted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_balance_sheet_without_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_cashflow",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_cashflow_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_cashflow_two_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_empty_income_statement",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_income_statement",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_income_statement_converted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_not_a_report",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_register",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_register_with_rollup_and_without_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_text_is_clean",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_trial_balance",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_trial_balance_titles_and_empty_table",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12RenderText.test_unicode_text_widths_use_len",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_as_of_cuts_later_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_as_of_none_means_everything",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_empty_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_is_json_able",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_sample",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_two_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M12TrialBalance.test_zero_balances_are_left_out_and_sorting_is_plain_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_amount_formats",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_csv_round_trips_through_the_csv_module",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_header_only_for_no_transactions",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_input_is_not_changed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_line_endings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_missing_id_and_missing_amount",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_one_record_per_posting",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_order_is_the_order_given",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_quoting_is_minimal",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_tags_sorted_joined_and_deduplicated",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_to_csv_generic",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Csv.test_transaction_without_postings",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_defaults_for_optional_fields",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_error_messages_say_where",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_result_types",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_round_trip",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_tags_are_sorted_and_unique",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13FromJson.test_whitespace_and_unicode_in_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Json.test_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Json.test_helpers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Json.test_keys_are_sorted",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Json.test_order_and_tags",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Json.test_shape",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Json.test_text_format",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_alignment_as_string_or_list",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_cells_are_str_and_none_is_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_default_alignment_is_left",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_documented_example",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_ends_with_exactly_one_newline",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_export_error_class",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_no_headers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_no_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_no_trailing_spaces_anywhere",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_right_alignment_pads_titles_too",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_rows_may_be_tuples_or_generators",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_single_column",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_whitespace_inside_cells_becomes_single_spaces",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_wide_titles_set_the_width",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M13Table.test_width_is_len",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_add_returns_the_stored_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_adding_a_path_twice_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_chart_reflects_the_stored_accounts",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_closing_an_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_closing_an_unknown_account_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_closing_before_an_existing_posting_is_a_conflict",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_deleting_an_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_get_of_an_unknown_account_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_invalid_accounts_are_refused_and_not_stored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_listing_filters",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_type_comes_from_the_first_segment",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14AccountTest.test_updating_the_note",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14CheckBackupTest.test_a_healthy_book_has_no_problems",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14CheckBackupTest.test_backup_makes_an_independent_copy",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14CheckBackupTest.test_backup_never_overwrites",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14CheckBackupTest.test_check_finds_a_posting_of_an_unknown_account",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14CheckBackupTest.test_check_finds_an_unbalanced_transaction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14CheckBackupTest.test_check_finds_orphans",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_a_bad_row_means_nothing_is_stored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_a_deleted_row_can_be_imported_again",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_a_repeated_key_inside_one_batch_is_skipped",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_an_import_profile_object_works",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_bad_profiles_are_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_bulk_add_is_all_or_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_bulk_add_stores_all_and_returns_them",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_csv_import_stores_balanced_transactions",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_identical_rows_in_one_file_are_both_kept",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_importing_the_same_file_again_adds_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_keys_make_a_second_add_skip",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_loading_a_journal_is_all_or_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_rules_can_be_switched_off",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_stored_profiles",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_stored_rules_are_applied",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_the_journal_round_trips_into_another_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14ImportTest.test_wrong_number_of_keys_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_a_bulk_add_with_one_locked_date_stores_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_adding_on_or_before_the_lock_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_csv_import_inside_the_lock_stores_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_deleting_inside_the_lock_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_materialization_after_the_lock_is_fine",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_materialization_inside_the_lock_stores_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_no_lock_by_default",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_set_show_and_clear",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14LockTest.test_the_lock_survives_reopening",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_a_bad_cleared_value_stops_step_two_and_changes_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_a_bad_currency_stops_step_three_and_leaves_version_two",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_a_migrated_book_balances_through_the_ledger",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_a_migrated_book_equals_a_created_one",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_a_posting_without_a_currency_stops_step_three",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_a_step_that_cannot_create_its_tables_leaves_the_version",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_data_survives_migration_from_each_version",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_migrate_from_each_version_returns_the_steps_applied",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_migrate_twice_is_harmless",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_new_transactions_continue_after_the_old_ids",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_old_books_open_without_being_changed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_old_tables_without_cascades_still_delete_cleanly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_operations_on_an_old_book_ask_for_a_migration",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_steps_before_a_failing_step_stay_applied",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_v1_cleared_becomes_the_flag",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_v3_cleans_account_and_posting_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14MigrationTest.test_v4_tables_start_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_a_directory_is_not_a_database",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_a_newer_book_is_refused_and_left_alone",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_a_text_file_is_not_a_database",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_an_empty_sqlite_file_opens_at_version_zero",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_create_does_not_migrate_an_old_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_create_makes_a_current_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_create_on_an_empty_file_migrates_it",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_create_on_an_existing_book_keeps_its_data",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_info_counts_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_latest_version_is_4",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_missing_file_without_create_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_missing_parent_directory_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_operations_after_close_fail",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_path_objects_work",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14OpenTest.test_someone_elses_sqlite_database_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14PersistenceTest.test_a_failed_write_leaves_other_stores_and_the_file_unchanged",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14PersistenceTest.test_a_second_store_sees_committed_writes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14PersistenceTest.test_everything_survives_reopening",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14PersistenceTest.test_two_stores_read_at_the_same_time",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RateBudgetTest.test_a_budget_in_another_currency_keeps_it",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RateBudgetTest.test_bad_rates_are_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RateBudgetTest.test_budgets",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RateBudgetTest.test_rates_are_kept_exactly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RateBudgetTest.test_removing_a_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RateBudgetTest.test_setting_a_rate_again_replaces_it",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_a_deleted_materialized_transaction_does_not_come_back",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_a_failing_occurrence_stores_nothing_and_moves_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_a_series_added_later_starts_from_its_own_start",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_a_series_round_trips_with_its_limits",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_count_and_end_limit_a_series",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_materialize_makes_the_due_transactions",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_materialize_twice_makes_nothing_twice",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_materialized_through_starts_empty",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_names_are_unique_and_removal_needs_an_existing_one",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_several_series_are_made_in_date_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RecurringTest.test_upto_and_today_the_earlier_one_wins",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RulesSettingsTest.test_invalid_rules_are_refused_and_change_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RulesSettingsTest.test_rules_are_stored_as_given",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RulesSettingsTest.test_setting_rules_replaces_them",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RulesSettingsTest.test_settings_basics",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14RulesSettingsTest.test_settings_hold_text_only",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_a_bad_flag_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_a_bad_query_is_a_parse_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_a_missing_amount_is_filled_in",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_a_parsed_query_object_works_too",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_an_id_on_the_input_is_ignored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_an_unbalanced_transaction_is_refused_and_stores_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_bad_limit_or_offset_is_a_validation_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_blank_query_means_everything",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_count_ignores_paging",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_deleting_a_missing_transaction_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_deleting_removes_postings_tags_and_the_import_key",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_everything_round_trips",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_get_of_a_missing_transaction_is_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_ids_are_never_reused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_ids_count_up_from_one_and_come_back_on_the_result",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_limit_and_offset",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_listing_is_ordered_by_date_then_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_queries_filter_then_page",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_the_ledger_holds_the_whole_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M14TransactionTest.test_unknown_account_closed_account_and_wrong_currency_are_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_account_listing_filters_and_show",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_account_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_closing_the_chart",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_db_info_check_backup",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_db_migrate_lists_the_steps",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_every_command_needs_a_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_init_creates_the_book_once",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_init_migrates_an_old_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookFile.test_init_refuses_what_is_not_a_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookReports.test_defaults_come_from_today",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookReports.test_json_and_conversion",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookReports.test_report_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookReports.test_the_five_reports",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15BookReports.test_the_reports_agree_with_calc",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcDates.test_add_months",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcDates.test_date_parse",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcDates.test_period",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcDates.test_periods",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcDates.test_schedule",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcDates.test_schedule_series_options_and_limits",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_budget",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_budget_over_and_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_csv",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_csv_mistakes",
+        "status": "failed",
+        "message": "    self.assertTrue(r.err.startswith(\"tallybook: \"), \"%s: %r\" % (what, r.err)) |     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: False is not true : tallybook calc csv /tmp/hzt-3388928427/tallybook-hidden-y6_0t7_c/bank.profile /tmp/hzt-3388928427/tall"
+      },
+      {
+        "id": "M15CalcJournal.test_journal_check",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_journal_files_may_have_a_bom_and_crlf",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_journal_format_is_canonical",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_journal_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_query",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_rate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_report_errors",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_report_options",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_reports_as_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_reports_as_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcJournal.test_ties_of_budget_and_report_percentages_go_to_even",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcLibrary.test_account_check_and_match",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcLibrary.test_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcMoney.test_add_sub_scale",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcMoney.test_allocate",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcMoney.test_bad_values_are_status_one",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcMoney.test_convert",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcMoney.test_parse_and_format",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CalcMoney.test_scale_and_convert_ties_round_half_even",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_a_closed_reader_ends_quietly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_dash_values_are_plain_arguments",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_failures_print_nothing_on_stdout",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_global_options_come_first_and_calc_ignores_the_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_help_of_one_command",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_main_function_returns_the_status",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_option_syntax",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_the_database_defaults",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_usage_errors_are_status_two",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15CommandLine.test_version_and_help",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Journals.test_import_prints_the_counts_of_the_file",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Journals.test_journal_import_is_all_or_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Journals.test_journal_round_trip",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15PeriodLock.test_a_locked_period_cannot_be_changed",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15PeriodLock.test_lock_commands",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15PeriodLock.test_the_lock_covers_journal_imports_and_statements",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15PeriodLock.test_the_lock_covers_recurring_entries",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15PeriodLock.test_the_lock_is_kept_in_the_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Planning.test_budget_listing_json_and_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Planning.test_budget_status",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Planning.test_budgets",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Planning.test_rates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Planning.test_recurring_entries",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Planning.test_recurring_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Serve.test_serve_announces_and_stops_cleanly",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Serve.test_serve_refuses_what_it_cannot_serve",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Statements.test_import_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Statements.test_import_options",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Statements.test_import_with_a_stored_profile_and_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Statements.test_profiles",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Statements.test_rules",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Transactions.test_add_list_show_delete",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Transactions.test_add_mistakes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Transactions.test_add_with_json_and_defaults",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Transactions.test_export_formats",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Transactions.test_ids_must_be_whole_numbers",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M15Transactions.test_paging_and_queries",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_close",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_close_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_create_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_create_with_all_fields",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_get_and_missing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_list_filters",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Accounts.test_list_is_sorted_by_path",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_a_large_refused_body_still_gets_its_answer",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_body_of_exactly_one_mib_is_fine_and_one_more_byte_is_413",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_body_of_get_and_delete_is_ignored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_content_type_parameters_and_case",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_empty_body_needs_no_content_type",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_null_means_not_given",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_unknown_missing_and_mistyped_fields",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_unusable_bodies_are_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Bodies.test_wrong_content_type_is_415",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Budgets.test_create_list_delete",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Budgets.test_percent_rounds_half_even_after_the_change",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Budgets.test_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Budgets.test_status_over_the_sample_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Budgets.test_status_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_body_too_large",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_conflict",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_ledger_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_not_found",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_parse_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_the_status_of_a_good_answer_is_untouched",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_unknown_path",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_validation_error",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_wrong_content_type",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16ErrorsAfterTheChange.test_wrong_verb",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_bad_rows_import_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_csv_body_with_profile_text",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_importing_twice_reports_duplicates",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_json_form",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_rules_are_applied_unless_switched_off",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Import.test_stored_profile_and_text_plain",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_adding_on_or_before_the_lock_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_deleting_inside_the_lock_is_refused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_import_inside_the_lock_adds_none_of_its_rows",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_materialize_inside_the_lock_adds_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_no_lock_by_default",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_set_get_and_clear",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Lock.test_the_lock_is_kept_in_the_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Rates.test_a_rate_is_used_by_a_converted_report",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Rates.test_delete_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Rates.test_put_list_replace_delete",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Rates.test_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_create_list_delete",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_materialize_count_and_end",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_materialize_failure_stores_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_materialize_is_incremental",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_materialize_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Recurring.test_removing_an_item_keeps_what_it_made",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_balance_sheet",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_cashflow",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_conversion_needs_a_rate_and_a_date",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_income_statement",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_register",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_text_format",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_trial_balance",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Reports.test_trial_balance_of_an_empty_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16RulesAndExport.test_bad_rules_change_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16RulesAndExport.test_export_csv",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16RulesAndExport.test_export_journal_is_the_whole_book",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16RulesAndExport.test_export_json",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16RulesAndExport.test_export_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16RulesAndExport.test_rules_round_trip",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_a_failing_request_prints_nothing",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_head_and_options_are_405",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_health",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_json_answers_are_written_the_project_way",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_non_ascii_text_is_not_escaped",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_parallel_requests",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_path_pieces_are_decoded_one_by_one",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_query_strings_are_decoded",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_repeated_parameter_last_wins_and_unknown_ones_are_ignored",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_stops_cleanly_on_sigterm_and_sigint",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_unknown_paths_are_404",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_writes_are_committed_to_the_book_file",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_wrong_verbs_are_405_with_allow",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Server.test_yes_no_parameters",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Today.test_an_earlier_upto_wins_over_today",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Today.test_close_without_a_day_closes_today",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Today.test_materialize_stops_at_today",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_amount_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_amounts_in_both_forms_and_other_currencies",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_create_returns_the_stored_transaction",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_defaults_and_notes",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_delete_returns_what_was_removed_and_ids_are_not_reused",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_get_by_id",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_listing_envelope_and_order",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_listing_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_paging",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_query_filter_and_total",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_request_shape_refusals",
+        "status": "passed",
+        "message": ""
+      },
+      {
+        "id": "M16Transactions.test_the_ledger_rules_apply_and_nothing_is_stored",
+        "status": "passed",
+        "message": ""
+      }
+    ]
+  },
+  "modules": {
+    "01": {
+      "passed": 51,
+      "total": 51
+    },
+    "02": {
+      "passed": 42,
+      "total": 42
+    },
+    "03": {
+      "passed": 47,
+      "total": 47
+    },
+    "04": {
+      "passed": 50,
+      "total": 50
+    },
+    "05": {
+      "passed": 81,
+      "total": 81
+    },
+    "06": {
+      "passed": 52,
+      "total": 52
+    },
+    "07": {
+      "passed": 40,
+      "total": 40
+    },
+    "08": {
+      "passed": 34,
+      "total": 34
+    },
+    "09": {
+      "passed": 56,
+      "total": 56
+    },
+    "10": {
+      "passed": 35,
+      "total": 35
+    },
+    "11": {
+      "passed": 56,
+      "total": 56
+    },
+    "12": {
+      "passed": 93,
+      "total": 93
+    },
+    "13": {
+      "passed": 41,
+      "total": 41
+    },
+    "14": {
+      "passed": 122,
+      "total": 122
+    },
+    "15": {
+      "passed": 79,
+      "total": 80
+    },
+    "16": {
+      "passed": 101,
+      "total": 101
+    }
+  },
+  "fuzz": {
+    "fuzz_cases": 1000,
+    "fuzz_divergences": 4,
+    "fuzz_classes": 2,
+    "fuzz_class_counts": {
+      "input:crlf x exit": 2,
+      "input:non-ascii x error": 2
+    },
+    "fuzz_examples": [
+      {
+        "case": 112,
+        "kind": "api",
+        "step": 11,
+        "what": "POST /accounts",
+        "files": {
+          "journal.txt": "account Assets:Bank:Checking USD open 2023-06-30 \"caf\\xe9\"\\naccount Assets:Cash open 2023-01-01 \"back\\\\\\\\slash\"\\n; note\\naccount Assets:Euro\\n\\naccount Assets:Yen JPY open 2023-01-01\\n; note\\naccount Assets:Dinar KWD open 2022-06-30\\n\\naccount Liabilities:Card open 2023-01-01 \"main account\"  ; c\\n\\n\u2026"
+        },
+        "reference": {
+          "status": 422,
+          "type": "application/json; charset=utf-8",
+          "length_ok": true,
+          "error": {
+            "code": "validation",
+            "message_ok": true,
+            "keys": [
+              "code",
+              "message"
+            ]
+          },
+          "keys": [
+            "error"
+          ]
+        },
+        "arm": {
+          "status": 422,
+          "type": "application/json; charset=utf-8",
+          "length_ok": true,
+          "error": {
+            "code": "parse",
+            "message_ok": true,
+            "keys": [
+              "code",
+              "message"
+            ]
+          },
+          "keys": [
+            "error"
+          ]
+        },
+        "reference_raw": "422 {\\n  \"error\": {\\n    \"code\": \"validation\",\\n    \"message\": \"invalid account path: 'Assets:\\\\\\\\ud83d'\"\\n  }\\n}\\n",
+        "arm_raw": "422 {\\n  \"error\": {\\n    \"code\": \"parse\",\\n    \"message\": \"request body is not valid UTF-8\"\\n  }\\n}\\n",
+        "arm_stderr": ""
+      },
+      {
+        "case": 296,
+        "kind": "api",
+        "step": 12,
+        "what": "POST /import",
+        "files": {
+          "journal.txt": "\\ufeffaccount Assets:Bank:Checking USD open 2023-01-01\\naccount Assets:Cash open 2023-01-01\\naccount Assets:Euro EUR open 2023-01-01\\r\\naccount Assets:Yen JPY open 2023-01-01\\naccount Assets:Dinar KWD open 2023-01-01\\r\\naccount Liabilities:Card USD open 2023-01-01\\naccount Equity:Opening open 2023-0\u2026"
+        },
+        "reference": {
+          "status": 422,
+          "type": "application/json; charset=utf-8",
+          "length_ok": true,
+          "error": {
+            "code": "validation",
+            "message_ok": true,
+            "keys": [
+              "code",
+              "message"
+            ]
+          },
+          "keys": [
+            "error"
+          ]
+        },
+        "arm": {
+          "status": 422,
+          "type": "application/json; charset=utf-8",
+          "length_ok": true,
+          "error": {
+            "code": "parse",
+            "message_ok": true,
+            "keys": [
+              "code",
+              "message"
+            ]
+          },
+          "keys": [
+            "error"
+          ]
+        },
+        "reference_raw": "422 {\\n  \"error\": {\\n    \"code\": \"validation\",\\n    \"message\": \"import failed: row 5: missing column 'Debit' (the row has 3 columns)\"\\n  }\\n}\\n",
+        "arm_raw": "422 {\\n  \"error\": {\\n    \"code\": \"parse\",\\n    \"message\": \"column 'Credit' not found in the header\"\\n  }\\n}\\n",
+        "arm_stderr": ""
+      },
+      {
+        "case": 888,
+        "kind": "book",
+        "step": 3,
+        "what": "tallybook --db book.db --today 2024-06-15 import stmt.csv --profile bank --no-rules",
+        "files": {
+          "seed.journal": "account Assets:Bank:Checking open 2023-01-01\\naccount Assets:Cash open 2023-01-01\\naccount Assets:Euro open 2023-01-01\\naccount Assets:Yen open 2023-01-01\\naccount Assets:Dinar open 2023-01-01\\naccount Liabilities:Card open 2023-01-01\\naccount Equity:Opening open 2023-01-01\\naccount Income:Salary op\u2026",
+          "profile.txt": "date_column = Date\\npayee_column = payee\\namount_column = Amount\\ncurrency = USD\\naccount = Assets:Bank:Checking\\ndefault_account = Expenses:Uncategorized\\ndate_format = %Y-%m-%d\\ndelimiter = ;\\nskip_rows = 2\\n",
+          "stmt.csv": "Account statement, 2024\\r\\na;b;c\\r\\nDate;Payee;Description;Amount\\n2024-03-25;Rent Co;ref 12;0.05\\r\\n2024-03-30;\\u65e5\\u672c\\u8a9e;rent march;-21.53\\r2024-04-02;Shop;x  y;-7.00\\r2024-03-13;Shop;caf\\xe9;0.02\\r\\n2024-03-30;\"two\\nlines\";caf\\xe9;0.25\\r\\n2024-03-02;\"a;b|c\";x  y;-112.05;extra"
+        },
+        "reference": {
+          "exit": 0,
+          "stdout": "imported 6 transactions, 0 duplicates\\n",
+          "stderr_empty": true
+        },
+        "arm": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false
+        },
+        "arm_stderr": "tallybook: 1 rows could not be imported, nothing was imported\\nrow 5: invalid amount '-21.53\\\\r2024-04-02'\\n"
+      },
+      {
+        "case": 960,
+        "kind": "calc",
+        "argv": [
+          "--today",
+          "2024-06-15",
+          "calc",
+          "csv",
+          "profile.txt",
+          "statement.csv"
+        ],
+        "step": 0,
+        "what": "tallybook --today 2024-06-15 calc csv profile.txt statement.csv",
+        "files": {
+          "profile.txt": "date_column = Date\\r\\npayee_column = Payee\\r\\nnarration_column = #3\\r\\namount_column = Amount\\r\\n# a comment\\r\\ncurrency = JPY\\r\\naccount = Assets:Bank:Checking\\r\\ndefault_account = Expenses:Food\\r\\ndelimiter = semicolon\\r\\nskip_rows = 2\\r\\nthousands_separator = comma\\r\\n",
+          "statement.csv": "\\rjunk line\\nDate;Payee;Description;Amount\\r2024-04-08;\"  spaced   out  \";rent march;-4\\n2024-04-19;\"a;b|c\";rent march;-123456\\r2024-04-16;Caf\\xe9 Zo\\xeb;\"multi\\nline\";5\\r\\n2024-04-02;ACME PAYROLL;rent march;10,518\\r\\n2024-03-29;ACME PAYROLL;caf\\xe9;-1\\r2024-04-24;Rent Co;\"multi\\nline\";-12,599\\r\\n20\u2026"
+        },
+        "stdin": null,
+        "closed_stdout": false,
+        "reference": {
+          "exit": 0,
+          "stdout": "2024-04-08 * \"spaced out\" \"rent march\"\\n  Assets:Bank:Checking  -4 JPY\\n  Expenses:Food          4 JPY\\n\\n2024-04-19 * \"a;b|c\" \"rent march\"\\n  Assets:Bank:Checking  -123456 JPY\\n  Expenses:Food          123456 JPY\\n\\n2024-04-16 * \"Caf\\xe9 Zo\\xeb\" \"multi line\"\\n  Assets:Bank:Checking   5 JPY\\n  Expen\u2026",
+          "stderr_empty": true
+        },
+        "arm": {
+          "exit": 1,
+          "stdout": "",
+          "stderr_empty": false
+        },
+        "arm_stderr": "tallybook: column 'Amount' not found in the header\\n"
+      }
+    ],
+    "fuzz_seed": 592,
+    "fuzz_hash": "58bb9280f8964332d0a7280bb32bd2c79b2644a2e446efb98c71bbaaf762f97d"
+  }
+}

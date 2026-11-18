@@ -1,0 +1,938 @@
+{
+  "schema": 1,
+  "run_id": "run-20261118-small-harness-topup",
+  "arm": "harness",
+  "fixture": "pennywise",
+  "repo": "VocanicZ/bench-run-20261118-small-harness-topup-harness-r01",
+  "status": "error",
+  "capped": null,
+  "error": "front-door claude turn failed: Claude Code can't use your Claude subscription, usually because a payment is past due \u00b7 Pay or renew at https://claude.ai/settings/billing (if you just paid, try again shortly), or use an Anthropic API key instead",
+  "started_at": "2026-11-18T15:24:59Z",
+  "ended_at": "2026-11-18T15:27:27Z",
+  "wall_s": 0.0,
+  "coding_s": 1.346,
+  "testing_s": 0,
+  "test_calls": 0,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": 0
+  },
+  "cost_usd": 0,
+  "usd_per_pct": 4.44,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 0.0,
+  "models": {},
+  "hidden_tests": {
+    "passed": 0,
+    "failed": 80,
+    "total": 80,
+    "details": {
+      "install": "pythonpath",
+      "tests": [
+        {
+          "id": "CliAddTests.test_add_appends_and_prints_the_line",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliAddTests.test_add_creates_a_missing_file",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliAddTests.test_add_refused_entry_does_not_create_the_file",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliAddTests.test_add_refuses_invalid_entries_and_leaves_the_file_alone",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliAddTests.test_add_to_a_file_without_a_trailing_newline",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliAddTests.test_add_without_a_note",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliAddTests.test_added_entry_shows_up_everywhere",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliBalanceTests.test_balance",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliBalanceTests.test_balance_from_stdin",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliBalanceTests.test_balance_has_two_decimals",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliBalanceTests.test_balance_json",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliBalanceTests.test_balance_of_an_empty_ledger",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_exits_1_naming_the_line",
+          "status": "failed",
+          "message": "    self.assertIn(\"line 4\", err) |     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^ | AssertionError: 'line 4' not found in '/usr/bin/python3: No module named pennywise\\n'"
+        },
+        {
+          "id": "CliErrorTests.test_bad_ledger_on_stdin",
+          "status": "failed",
+          "message": "    self.assertIn(\"line 4\", err) |     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^ | AssertionError: 'line 4' not found in '/usr/bin/python3: No module named pennywise\\n'"
+        },
+        {
+          "id": "CliErrorTests.test_command_without_a_file_exits_2",
+          "status": "failed",
+          "message": "    self.assertEqual(self.run_cli(cmd)[0], 2) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 2"
+        },
+        {
+          "id": "CliErrorTests.test_missing_file_exits_2",
+          "status": "failed",
+          "message": " | + (2, '') | ?  ^"
+        },
+        {
+          "id": "CliErrorTests.test_no_command_exits_2",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 2) |     ~~~~~~~~~~~~~~~~^^^^^^^ | AssertionError: 1 != 2"
+        },
+        {
+          "id": "CliErrorTests.test_unknown_command_exits_2",
+          "status": "failed",
+          "message": " | + (2, '') | ?  ^"
+        },
+        {
+          "id": "CliExportTests.test_export_csv",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliExportTests.test_export_default_format_is_csv",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliExportTests.test_export_from_stdin",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliExportTests.test_export_header_only_for_an_empty_ledger",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliExportTests.test_export_is_ordered_like_list",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliExportTests.test_export_quotes_awkward_notes",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliExportTests.test_export_rejects_unknown_format",
+          "status": "failed",
+          "message": " | + (2, '') | ?  ^"
+        },
+        {
+          "id": "CliListTests.test_list_category_filter_ignores_case",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_everything",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_filters_combine",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_from_stdin",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_json",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_json_with_no_match_is_an_empty_array",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_no_match_prints_nothing_and_succeeds",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_oldest_first_and_stable",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_omits_note_without_trailing_space",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_rejects_a_mistyped_date",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 2) |     ~~~~~~~~~~~~~~~~^^^^^^^ | AssertionError: 1 != 2"
+        },
+        {
+          "id": "CliListTests.test_list_since_alone",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_since_and_until_include_their_ends",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliListTests.test_list_until_alone",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_category_explicit",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_by_month",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_defaults_to_category",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_from_stdin",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_json_by_month",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_lines_have_name_then_total",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_of_an_empty_ledger",
+          "status": "failed",
+          "message": "    self.assertEqual(rc, 0, \"exit %s, stderr: %s\" % (rc, err)) |     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ | AssertionError: 1 != 0 : exit 1, stderr: /usr/bin/python3: No module named pennywise"
+        },
+        {
+          "id": "CliSummaryTests.test_summary_rejects_unknown_grouping",
+          "status": "failed",
+          "message": " | + (2, '') | ?  ^"
+        },
+        {
+          "id": "FilterTests.test_category_is_case_insensitive",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_filters_combine",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_input_list_is_not_modified",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_no_filters_returns_everything_in_order",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_order_given_is_kept",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_since_alone",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_since_and_until_include_their_ends",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_unknown_category_matches_nothing",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "FilterTests.test_until_alone",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_error_bad_amounts",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_error_date_that_does_not_exist",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_error_line_number_counts_blank_and_comment_lines",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_error_malformed_date",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_error_not_enough_fields",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_error_reports_the_first_bad_line",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_amount_spellings",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_categories_lowercased",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_empty_text",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_field_types",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_empty_string_when_missing",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_note_is_rest_of_line_trimmed",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_returns_entries_in_file_order",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_skips_blank_and_comment_lines",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_tab_separated_fields",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_windows_line_endings",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "ParseTests.test_parse_without_trailing_newline",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_balance",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_balance_is_exact",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_balance_of_nothing_is_zero",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_by_category",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_by_category_and_month_of_nothing",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_by_month",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        },
+        {
+          "id": "SummaryTests.test_by_month_separates_years",
+          "status": "failed",
+          "message": "  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load |   File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked | ModuleNotFoundError: No module named 'pennywise'"
+        }
+      ]
+    }
+  },
+  "counts": {
+    "workers": 1,
+    "continue_replies": 0,
+    "fleet_restarts": 0,
+    "issues_closed": 0,
+    "prs_merged": 0
+  },
+  "caps": {
+    "wall_s": 21600,
+    "cost_usd": 80.0
+  },
+  "repo_deleted": true,
+  "logs": "run-01.logs",
+  "quality": "ok",
+  "coverage": "skipped (the repo has no tests/ directory)",
+  "run": 1,
+  "isolation": {
+    "config": "isolated",
+    "engine_skills": [
+      "caveman",
+      "handoff",
+      "harness",
+      "harness-arc",
+      "harness-init",
+      "harness-issue",
+      "harness-one",
+      "harness-pause",
+      "harness-plan",
+      "harness-prd",
+      "harness-resume",
+      "harness-start",
+      "harness-status",
+      "harness-stop",
+      "harness-uninstall",
+      "subagent-task-tree",
+      "to-issues",
+      "to-prd",
+      "writing-plans"
+    ],
+    "engine_plugins": []
+  },
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 38,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 0,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 0.0,
+  "turn_gaps": null,
+  "cache_ttl": "5m",
+  "session_s": 1.346,
+  "effort": {},
+  "provenance": {
+    "engine_commit": "a0870210a57fee4bda3f76fd456ccff45c4f3116-dirty",
+    "skill_version": "sha256:12c3bd58428b48bc",
+    "cli_version": "2.1.327 (Claude Code)"
+  },
+  "fuzz_cases": 1000,
+  "fuzz_divergences": 872,
+  "fuzz_classes": 18,
+  "fuzz_class_counts": {
+    "ledger:tab x exit": 664,
+    "ledger:comment x exit": 42,
+    "argv:dash-led-argument x exit": 35,
+    "command:add x exit": 22,
+    "command:export x exit": 16,
+    "command:list x exit": 16,
+    "ledger:non-ascii x exit": 12,
+    "output:closed-pipe x stderr": 12,
+    "command:summary x exit": 11,
+    "command:balance x exit": 9,
+    "argv:unreadable-file x exit": 7,
+    "argv:stdin x exit": 6,
+    "argv:unknown-command x exit": 5,
+    "ledger:crlf x exit": 5,
+    "ledger:empty x exit": 4,
+    "argv:no-command x exit": 3,
+    "ledger:no-final-newline x exit": 2,
+    "ledger:padded-line x exit": 1
+  },
+  "fuzz_examples": [
+    {
+      "case": 0,
+      "argv": [
+        "list",
+        "ledger.txt"
+      ],
+      "ledger": "# 2024-03-01 broken line here\\n2024-03-06 dining -42.35 coffee beans\\n2024-03-07\\tdining      -76.29 12.505\\n2024-03-12 Utilities -31.60 refund\\n2024-03-14 Utilities 0.01 gift for mum\\n2024-03-15  pet\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03-06 dining -42.35 coffee beans\\n2024-03-07 dining -76.29 12.505\\n2024-03-12 utilities -31.60 refund\\n2024-03-14 utilities 0.01 gift for mum\\n2024-03-15 pets -1352.00 \\u05e9\\u05dc\\u05d5\\u05dd\\n2\u2026",
+        "stderr_empty": true,
+        "file": [
+          "# 2024-03-01 broken line here",
+          "2024-03-06 dining -42.35 coffee beans",
+          "2024-03-07\tdining      -76.29 12.505",
+          "2024-03-12 Utilities -31.60 refund",
+          "2024-03-14 Utilities 0.01 gift for mum",
+          "2024-03-15  pets -1352 \u05e9\u05dc\u05d5\u05dd ",
+          "2024-03-15 dining -321.74",
+          "2024-03-16\t\tUtilities -76.3 refund",
+          "2024-03-22 dining  -36",
+          "2024-03-22  pets -1910",
+          "2024-03-22 \tdining -24.89 \t-refund",
+          "# 2024-03-01 broken line here",
+          "2024-03-23 pets  -73 12.505",
+          "2024-03-24  Travel 81.00  a # b",
+          "2024-03-26\tTravel -53587.7"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "# 2024-03-01 broken line here",
+          "2024-03-06 dining -42.35 coffee beans",
+          "2024-03-07\tdining      -76.29 12.505",
+          "2024-03-12 Utilities -31.60 refund",
+          "2024-03-14 Utilities 0.01 gift for mum",
+          "2024-03-15  pets -1352 \u05e9\u05dc\u05d5\u05dd ",
+          "2024-03-15 dining -321.74",
+          "2024-03-16\t\tUtilities -76.3 refund",
+          "2024-03-22 dining  -36",
+          "2024-03-22  pets -1910",
+          "2024-03-22 \tdining -24.89 \t-refund",
+          "# 2024-03-01 broken line here",
+          "2024-03-23 pets  -73 12.505",
+          "2024-03-24  Travel 81.00  a # b",
+          "2024-03-26\tTravel -53587.7"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 1,
+      "argv": [
+        "add",
+        "ledger.txt",
+        "2023-12-31",
+        "RENT"
+      ],
+      "ledger": "#\\n2024-03-03 SALARY 2029.28  \\n\\n2024-03-03 salary -46167.95\\n2024-03-04 salary\\t8.09\\n2024-03-03 salary -71 the \"good\" cheese\\n2024-03-03 SALARY -0.99 a # b\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#",
+          "2024-03-03 SALARY 2029.28  ",
+          "2024-03-03 salary -46167.95",
+          "2024-03-04 salary\t8.09",
+          "2024-03-03 salary -71 the \"good\" cheese",
+          "2024-03-03 SALARY -0.99 a # b"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#",
+          "2024-03-03 SALARY 2029.28  ",
+          "2024-03-03 salary -46167.95",
+          "2024-03-04 salary\t8.09",
+          "2024-03-03 salary -71 the \"good\" cheese",
+          "2024-03-03 SALARY -0.99 a # b"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 2,
+      "argv": [
+        "summary",
+        "ledger.txt",
+        "--by",
+        "month"
+      ],
+      "ledger": "2024-04-25 DINING\\t\\t66.70\\t- item\\n2024-05-04  fuel 0.0 new shoes\\n2024-04-09 DINING -375 ends with comma,\\n\\n2024-03-02 DINING +1263.13  42\\n2024-04-23\\tDINING -941464049 lunch with Sam\\n\\n2024-05-1\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "2024-03  1303.93\\n2024-04  -941464378.64\\n2024-05  1521.33\\n",
+        "stderr_empty": true,
+        "file": [
+          "2024-04-25 DINING\t\t66.70\t- item",
+          "2024-05-04  fuel 0.0 new shoes",
+          "2024-04-09 DINING -375 ends with comma,",
+          "2024-03-02 DINING +1263.13  42",
+          "2024-04-23\tDINING -941464049 lunch with Sam",
+          "2024-05-13 fuel 64.52 \tlunch with Sam",
+          "2024-05-10\t\tDINING 1434.81",
+          "2024-04-01 fuel -21.34",
+          "2024-05-14 DINING 22",
+          "2024-03-11 fuel\t40.80 gift for mum"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-04-25 DINING\t\t66.70\t- item",
+          "2024-05-04  fuel 0.0 new shoes",
+          "2024-04-09 DINING -375 ends with comma,",
+          "2024-03-02 DINING +1263.13  42",
+          "2024-04-23\tDINING -941464049 lunch with Sam",
+          "2024-05-13 fuel 64.52 \tlunch with Sam",
+          "2024-05-10\t\tDINING 1434.81",
+          "2024-04-01 fuel -21.34",
+          "2024-05-14 DINING 22",
+          "2024-03-11 fuel\t40.80 gift for mum"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 3,
+      "argv": [
+        "export",
+        "ledger.txt"
+      ],
+      "ledger": "# note to self\\n2024-03-28      insurance 43\\t\\u05e9\\u05dc\\u05d5\\u05dd\\n\\n# 2024-03-01 broken line here\\n2024-04-03 insurance +2122.47\\n2024-03-21\\ttravel\\t0.2\\n2024-05-27 Groceries  -11\\n#no space\\n2\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "date,category,amount,note\\n2024-03-06,insurance,-21.50,$5.00 -3\\n2024-03-21,travel,0.20,\\n2024-03-28,insurance,43.00,\\u05e9\\u05dc\\u05d5\\u05dd\\n2024-04-03,insurance,2122.47,\\n2024-04-24,insurance,-2134\u2026",
+        "stderr_empty": true,
+        "file": [
+          "# note to self",
+          "2024-03-28      insurance 43\t\u05e9\u05dc\u05d5\u05dd",
+          "# 2024-03-01 broken line here",
+          "2024-04-03 insurance +2122.47",
+          "2024-03-21\ttravel\t0.2",
+          "2024-05-27 Groceries  -11",
+          "#no space",
+          "2024-04-24\t\tinsurance -2134.20 12.505",
+          "2024-05-29\tinsurance -83 dentist",
+          "2024-06-07 Groceries -68.34",
+          "2024-05-22 Groceries 706025374 train to Leeds",
+          "# \u65e5\u672c caf\u00e9",
+          "2024-05-31      travel -0.46",
+          "2024-03-06 insurance -21.50 $5.00 -3"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "# note to self",
+          "2024-03-28      insurance 43\t\u05e9\u05dc\u05d5\u05dd",
+          "# 2024-03-01 broken line here",
+          "2024-04-03 insurance +2122.47",
+          "2024-03-21\ttravel\t0.2",
+          "2024-05-27 Groceries  -11",
+          "#no space",
+          "2024-04-24\t\tinsurance -2134.20 12.505",
+          "2024-05-29\tinsurance -83 dentist",
+          "2024-06-07 Groceries -68.34",
+          "2024-05-22 Groceries 706025374 train to Leeds",
+          "# \u65e5\u672c caf\u00e9",
+          "2024-05-31      travel -0.46",
+          "2024-03-06 insurance -21.50 $5.00 -3"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 4,
+      "argv": [
+        "summary",
+        "-",
+        "--by",
+        "year"
+      ],
+      "ledger": "#2024-03-01 groceries abc\\n\\n2024-03-23 pets  2696.27 electric bill\\n2024-03-01 pets -0.16 train to Leeds\\n2024-04-10\\t\\tpets -35799.88 -5\\n2024-04-02  pets -122 rent for march\\n2024-04-15 \\tutilities\u2026",
+      "ledger_from": "stdin",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "# 2024-03-01 broken line here",
+          "2024-03-10 savings -11",
+          "2024-03-10 savings\t2774.49",
+          "#no space",
+          "2024-03-10  DINING  -0.42",
+          "2024-03-10  DINING -92.34 two  spaces  inside",
+          "2024-03-10 DINING 2437.13  -refund"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "# 2024-03-01 broken line here",
+          "2024-03-10 savings -11",
+          "2024-03-10 savings\t2774.49",
+          "#no space",
+          "2024-03-10  DINING  -0.42",
+          "2024-03-10  DINING -92.34 two  spaces  inside",
+          "2024-03-10 DINING 2437.13  -refund"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 6,
+      "argv": [
+        "add",
+        "ledger.txt",
+        "2023-09-27",
+        "salary",
+        "0.38",
+        "March pay"
+      ],
+      "ledger": "2024-05-24 \\tsalary -1622.22 refund\\n2024-05-24\\t\\tsalary -15.04 train to Leeds price\\xa05\\n2024-03-05 salary -909.53 train to Leeds\\n",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "2023-09-27 salary 0.38 March pay\\n",
+        "stderr_empty": true,
+        "file": [
+          "2024-05-24 \tsalary -1622.22 refund",
+          "2024-05-24\t\tsalary -15.04 train to Leeds price\u00a05",
+          "2024-03-05 salary -909.53 train to Leeds",
+          "2023-09-27 salary 0.38 March pay"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-05-24 \tsalary -1622.22 refund",
+          "2024-05-24\t\tsalary -15.04 train to Leeds price\u00a05",
+          "2024-03-05 salary -909.53 train to Leeds"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 11,
+      "argv": [
+        "export",
+        "ledger.txt",
+        "--format",
+        "yaml"
+      ],
+      "ledger": "#no space\\n2024-03-24 pets  -0.84\\n2024-04-09 pets -95594.27",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#no space",
+          "2024-03-24 pets  -0.84",
+          "2024-04-09 pets -95594.27"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "#no space",
+          "2024-03-24 pets  -0.84",
+          "2024-04-09 pets -95594.27"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 18,
+      "argv": [
+        "summary",
+        "-"
+      ],
+      "ledger": null,
+      "ledger_from": null,
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": null
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 24,
+      "argv": [
+        "list",
+        "ledger.txt",
+        "--category",
+        "FUEL",
+        "--until",
+        "2024-01-06"
+      ],
+      "ledger": "2024-01-24 fuel -62 coffee beans\\n2024-01-14  HEALTH -98.94\\n2024-01-10 fuel -1161.38 birthday\\n2024-01-16 groceries  53\\n2023-12-29 HEALTH  5.10\\n2023-12-29 HEALTH -27.85  \\n2024-01-19\\tfuel\\t-1283.9\u2026",
+      "ledger_from": "file",
+      "closed_stdout": false,
+      "reference": {
+        "exit": 0,
+        "stdout": "",
+        "stderr_empty": true,
+        "file": [
+          "2024-01-24 fuel -62 coffee beans",
+          "2024-01-14  HEALTH -98.94",
+          "2024-01-10 fuel -1161.38 birthday",
+          "2024-01-16 groceries  53",
+          "2023-12-29 HEALTH  5.10",
+          "2023-12-29 HEALTH -27.85  ",
+          "2024-01-19\tfuel\t-1283.95\tbus ticket",
+          "2024-01-06 HEALTH -2745.05",
+          "2024-01-14 HEALTH -0.1",
+          "#no space",
+          "2024-01-19\tHEALTH      50.0 \u65e5\u672c\u8a9e\u306e\u30e1\u30e2"
+        ]
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": [
+          "2024-01-24 fuel -62 coffee beans",
+          "2024-01-14  HEALTH -98.94",
+          "2024-01-10 fuel -1161.38 birthday",
+          "2024-01-16 groceries  53",
+          "2023-12-29 HEALTH  5.10",
+          "2023-12-29 HEALTH -27.85  ",
+          "2024-01-19\tfuel\t-1283.95\tbus ticket",
+          "2024-01-06 HEALTH -2745.05",
+          "2024-01-14 HEALTH -0.1",
+          "#no space",
+          "2024-01-19\tHEALTH      50.0 \u65e5\u672c\u8a9e\u306e\u30e1\u30e2"
+        ]
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    },
+    {
+      "case": 27,
+      "argv": [
+        "list"
+      ],
+      "ledger": null,
+      "ledger_from": null,
+      "closed_stdout": false,
+      "reference": {
+        "exit": 2,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm": {
+        "exit": 1,
+        "stdout": "",
+        "stderr_empty": false,
+        "file": null
+      },
+      "arm_stderr": "/usr/bin/python3: No module named pennywise\\n"
+    }
+  ],
+  "fuzz_seed": 620,
+  "fuzz_hash": "5c7f3fbfa079d0caa1236e37f3fd06f0f45dc75f15b6087d4060c04ab80d5f87",
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": null,
+    "coverage": null
+  }
+}

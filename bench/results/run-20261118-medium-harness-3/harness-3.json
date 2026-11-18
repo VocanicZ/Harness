@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run_id": "run-20261118-medium-harness-3",
+  "arm": "harness-3",
+  "status": "aggregate",
+  "runs_requested": 5,
+  "runs_completed": 0,
+  "stopped": {
+    "reason": "arm-error",
+    "detail": "front-door claude turn failed: Claude Code can't use your Claude subscription, usually because a payment is past due \u00b7 Pay or renew at https://claude.ai/settings/billing (if you just paid, try again shortly), or use an Anthropic API key instead"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "file": "harness-3.runs/run-01.json",
+      "status": "error",
+      "capped": null
+    }
+  ],
+  "aggregate": {
+    "n": 0,
+    "metrics": {},
+    "cap_hits": {
+      "runs": 0,
+      "of": 0,
+      "wall": 0,
+      "cost": 0
+    }
+  }
+}
