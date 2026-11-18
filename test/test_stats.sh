@@ -70,13 +70,13 @@ for cli in claude agy; do
   assert_ok "$cli: tmux new-session sets -e HARNESS_COAUTHOR (#642)" grep -qxF -- "HARNESS_COAUTHOR=$HARNESS_COAUTHOR" "$NEWSESS"
   assert_ok "$cli: tmux new-session puts scripts/lane-bin first on PATH (#642)" grep -qF -- "PATH=$ENGINE_DIR/scripts/lane-bin:" "$NEWSESS"
   assert_ok "$cli: tmux new-session sets the worktree's safe.directory by -e (#1115)" grep -qxF -- "GIT_CONFIG_VALUE_0=$WT" "$NEWSESS"
-  want=14; [[ $cli == claude ]] && want=15   # #1115: GIT_CONFIG_COUNT + the worktree's safe.directory KEY/VALUE (no CHECKOUT here); #1066: HARNESS_WAIT_FILE; #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #642: lane-bin PATH + HARNESS_COAUTHOR
+  want=14; [[ $cli == claude ]] && want=16   # #1115: GIT_CONFIG_COUNT + the worktree's safe.directory KEY/VALUE (no CHECKOUT here); #1066: HARNESS_WAIT_FILE; #615: a claude lane also gets the 5m prompt-cache TTL (FORCE_PROMPT_CACHING_5M); #1252: and its context budget (CLAUDE_CODE_AUTO_COMPACT_WINDOW); #642: lane-bin PATH + HARNESS_COAUTHOR
   assert_eq "$(grep -cx -- -e "$NEWSESS")" "$want" "$cli: exactly the rtdd env, the lane's TMPDIR (#610), the lane-bin PATH and trailer (#642) and the CLI's own lane env, nothing else"
   assert_eq "$(ev 1 "e['session']")" "$FIXTURE_SID" "$cli: the launch event's session is the HARNESS_SESSION rtdd joins on"
   rm -f "$RUN_DIR/hz-$cli-i7.stats"
 done
 GOAL="REVIEW:5" STAT_PRD="" HARNESS_RTDD_EVENTS_FILE="$RUN_DIR/r.jsonl" session_env u-1
-assert_eq "${SESSION_ENV[*]}" "-e RTDD_EVENT_LOG=$RUN_DIR/r.jsonl -e HARNESS_SESSION=u-1 -e HARNESS_PREFIX=hz -e HARNESS_KIND=review -e HARNESS_PRD=5 -e FORCE_PROMPT_CACHING_5M=1" \
+assert_eq "${SESSION_ENV[*]}" "-e RTDD_EVENT_LOG=$RUN_DIR/r.jsonl -e HARNESS_SESSION=u-1 -e HARNESS_PREFIX=hz -e HARNESS_KIND=review -e HARNESS_PRD=5 -e FORCE_PROMPT_CACHING_5M=1 -e CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000" \
   "session_env: a review session has no issue, its PRD from the GOAL; the log path honours its override"
 # #509: a native Windows python ends its lines with CRLF; `read -r` keeps the CR, so an empty goal yielded an
 # `-e HARNESS_\r` pair and a set goal values ending in a CR. No pair session_env builds may carry one.
@@ -93,7 +93,7 @@ for g in "" "ISSUE:7"; do
   assert_eq "$(printf '%s' "${SESSION_ENV[*]}" | tr -cd '\r' | wc -c | tr -d ' ')" 0 "#509: session_env with goal '${g:-<empty>}' under CRLF python: no pair carries a CR"
 done
 crlf_env="${SESSION_ENV[*]}"
-crlf_env="${crlf_env% -e FORCE_PROMPT_CACHING_5M=1}"   # #615: a claude lane's own pair ends the list; the pairs under test come just before
+crlf_env="${crlf_env% -e FORCE_PROMPT_CACHING_5M=1 -e CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000}"   # #615, #1252: a claude lane's own pairs end the list; the pairs under test come just before
 assert_eq "${crlf_env: -56}" "-e HARNESS_KIND=impl -e HARNESS_ISSUE=7 -e HARNESS_PRD=5" "#509: a set goal's kind/issue/PRD pairs are clean under CRLF python"
 tmux(){ case "$1" in has-session) grep -qxF "$3" "$LIVE";; new-session) echo "$4" >> "$LIVE";; *) return 0;; esac; }
 

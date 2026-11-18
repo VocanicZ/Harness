@@ -697,6 +697,10 @@ A standing audit of the **public Harness repo itself** (SonarQube Cloud, Codacy 
 repos) is a separate, owner-side choice: see [docs/online-code-audit.md](../docs/online-code-audit.md). It is not a
 gate, and nothing in the fleet depends on it.
 
+## Context per call (#1252)
+
+Every call re-reads the whole context from cache, so a context that only grows is the largest cost of a long lane: on the bangwa fleet (PRD #691, issues #716-#722) cache reads were 65% of about $369, lanes ran to 695k and sub-agents to 804k tokens, with no compaction. Lanes now get a budget (`HARNESS_LANE_CONTEXT_MAX`, default 200k; `docs/reference.md`) that Claude Code compacts at. A run's results JSON records `context`: `{budget, calls, max_tokens, mean_tokens, compactions, over_budget_calls, sessions}`, a call's context being its input + cache-read + cache-write tokens, and `sessions` one `{role (lane or subagent), calls, max_tokens, mean_tokens, compactions}` per transcript file. `budget` is what the run's `HARNESS_LANE_CONTEXT_MAX` meant (null for `off`; the setting is passed to the Harness arm). `bench/aggregate.py` reports `context_max_tokens`, `context_mean_tokens` and `context_compactions`; the logs reproduce `calls`, the largest, the mean and the compactions (`verify_logs`). The regression check: a run prints `bench: CONTEXT OVER BUDGET` on stderr for every lane or sub-agent whose largest context went past the budget (`run.context_regressions`). The small, medium and large fixtures finish before a context grows that far; a long-session fixture (N issues editing one shared module of an existing repo) is the one that would show it.
+
 ## Prompt-cache TTL (#615)
 
 Fleet lanes write their prompt cache with the 5-minute TTL (1.25× the input price) rather than Claude Code's 1-hour one (2×): `FORCE_PROMPT_CACHING_5M=1` in the lane environment (`HARNESS_CACHE_TTL=5m|1h`, default `5m`; `docs/reference.md`). The risk is a gap of over five minutes between two turns, which writes the cache again. A run measures it instead of assuming:

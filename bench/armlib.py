@@ -235,23 +235,26 @@ def compactions(st, transcripts):
     `isCompactSummary`, or a `system` entry with subtype `compact_boundary` (one compaction writes both: a
     boundary is counted once, a summary without a boundary counts). The main transcripts and their sub-agents'.
     A compaction is the sign of work that outgrew one context window (#592)."""
+    return sum(file_compactions(f) for tr in transcripts for f in st.transcript_files(tr))
+
+
+def file_compactions(path):
+    """compactions() of one transcript file (#1252: the bench keeps it per session and per sub-agent)."""
     total = 0
-    for tr in transcripts:
-        for f in st.transcript_files(tr):
-            try:
-                with open(f, encoding="utf-8") as fh:
-                    for line in fh:
-                        if "ompact" not in line:
-                            continue
-                        try:
-                            ev = json.loads(line)
-                        except ValueError:
-                            continue
-                        if isinstance(ev, dict) and (ev.get("subtype") == "compact_boundary"
-                                                     or (ev.get("isCompactSummary") and ev.get("type") == "user")):
-                            total += 1
-            except OSError:
-                continue
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if "ompact" not in line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(ev, dict) and (ev.get("subtype") == "compact_boundary"
+                                             or (ev.get("isCompactSummary") and ev.get("type") == "user")):
+                    total += 1
+    except OSError:
+        pass
     return total
 
 

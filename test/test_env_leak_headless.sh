@@ -147,11 +147,13 @@ echo "== #1144: the worker's Claude Code session variables reach neither the run
 # A worker started from an interactive Claude Code session exports CLAUDECODE / CLAUDE_CODE_* / CLAUDE_PID /
 # CLAUDE_EFFORT; a lane that inherits CLAUDE_CODE_CHILD_SESSION writes no transcript. CLAUDE_CONFIG_DIR stays.
 CCLEAK='^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_[A-Z0-9_]*)='
+# #1252: the lane's own context budget is the one CLAUDE_CODE_* pair it does get (the knob's 200000, not the worker's 777777).
+ccleaks(){ grep -E "$CCLEAK" | grep -vxF CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000; }
 lane ig
 SG=fleetg-main-i7
 (
   export CLAUDECODE=1 CLAUDE_CODE_CHILD_SESSION=1 CLAUDE_CODE_SESSION_ID=x CLAUDE_EFFORT=medium CLAUDE_PID=123 CLAUDE_CONFIG_DIR=/cfg
-  export CLAUDE_CODE_MESSAGING_TOKEN=secret
+  export CLAUDE_CODE_MESSAGING_TOKEN=secret CLAUDE_CODE_AUTO_COMPACT_WINDOW=777777
   export HARNESS_SESS_PREFIX=fleetg
   GOAL=ISSUE:7 MAXITER=10 PROMISE="ISSUE 7 DONE" launch_agent "$SG" "$WD" >/dev/null 2>&1
 ); rc=$?
@@ -159,10 +161,10 @@ assert_eq "$rc" 0 "launch_agent starts the lane from a shell holding them"
 assert_ok "its turn runs" wait_until 20 turn_ended "$SG" 1
 EG="$(turn_env ig)"; RG="$(runner_env "$SG")"
 assert_ok "the turn recorded its environment" test -n "$EG"
-assert_eq "$(grep -cE "$CCLEAK" <<<"$EG")" 0 "the turn's environment holds none of them"
+assert_eq "$(ccleaks <<<"$EG" | grep -c .)" 0 "the turn's environment holds none of them"
 assert_ok "…and keeps CLAUDE_CONFIG_DIR" env_has EG "CLAUDE_CONFIG_DIR=/cfg"
 if have_proc; then
-  assert_eq "$(grep -cE "$CCLEAK" <<<"$RG")" 0 "the runner's environ holds none of them"
+  assert_eq "$(ccleaks <<<"$RG" | grep -c .)" 0 "the runner's environ holds none of them"
   assert_ok "…and keeps CLAUDE_CONFIG_DIR" env_has RG "CLAUDE_CONFIG_DIR=/cfg"
 fi
 

@@ -4,6 +4,14 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### Lanes and their sub-agents get a context budget (#1252)
+
+- Measured on the bangwa fleet (PRD #691, issues #716-#722, 2026-11-16..18): about $369 for seven issues, cache reads 65% of it, 0 compactions in any lane or sub-agent transcript, largest context 804k (sub-agent) and 695k (lane). Nothing bounded a context: `scripts/portable.sh` strips every inherited `CLAUDE_CODE_*` variable, and Claude Code on the 1M window compacts only near its limit.
+- New `HARNESS_LANE_CONTEXT_MAX` (default `200k`; a count, or `k` / `m`; `off` for none): a `claude` lane gets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=<tokens>` as an `-e` pair after the scrub (tmux and headless), so Claude Code compacts the lane and its sub-agents at the budget. Verified in the 2.1.327 binary; Claude Code treats less than 100k as 100k and so does the knob. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is not used (a percentage, ignored by forks).
+- the SUB-AGENT SCOPE rule in `prompts/_long_waits.md`, in the impl, resume, bug-fix and review prompts: a sub-agent is one bounded task, reads no whole repo, hands back a summary of at most 30 lines; a merge or conflict-resolution sub-agent resolves only the files it is given; long work goes to a fresh sub-agent.
+- Bench: a run's results JSON records `context` (largest context, mean context per call, compactions and calls over the budget, per lane and per sub-agent), `aggregate.py` reports it, and a run prints `CONTEXT OVER BUDGET` for a lane or sub-agent past the budget (`bench/README.md` § Context per call). The before / after cache-read numbers on a bangwa-like slice need a live fleet run: tracked in a follow-up issue.
+- Tests: `test/test_context_max.sh`, `test/test_prompt_subagent_scope.sh`, `test/test_bench_run.py`.
+
 ### The implementer lane writes less and in parallel; a re-review reads the diff; the bench arm ends a front door that never ends (#1244, PRD #1180)
 
 - Cause of the medium wall time left after #1239, from the transcripts of `run-20261117-medium-harness-v3` (`bench/results/staged-1035/README.md`): the implementer lane (10.7-15.8 min of the 20.9-36.5) is output volume, about 100 output tokens a second, and its tests were 2-2.5x the size of the source (57-111k characters of test against 38-44k of source), with whole-file rewrites and regex fix-up passes in the slowest run; the review round that follows is 5.6-7.7 min, and each extra round (run 1 had three) is a lane plus a review (about 7 min).
