@@ -1,0 +1,41 @@
+{
+  "bn8b8d1": {
+    "sessions": 3,
+    "tokens": {},
+    "issues_closed": 2,
+    "prds_closed": 1,
+    "retries": 0,
+    "lanes": {
+      "VocanicZ/bench-20261118-long-off-harness-r02": {
+        "claims": 3,
+        "workers": [
+          "1"
+        ]
+      }
+    },
+    "hold_minutes": 0.0,
+    "rtdd": {
+      "calls": {
+        "--version": 1,
+        "init": 1,
+        "which": 7,
+        "--help": 1,
+        "explain": 3
+      },
+      "which": 7,
+      "changed_nodes": 457,
+      "round1": 278,
+      "round2": 7,
+      "stale_graph": 0,
+      "graph_sources": {
+        "scanner": 10
+      },
+      "wall_ms": 4037,
+      "selective": 7,
+      "full_suite": 0,
+      "backfilled": 0,
+      "selective_share": 1.0
+    },
+    "model_mismatches": []
+  }
+}

@@ -15,6 +15,7 @@ bench/run.py harness --workers 3        # --workers N: the fleet's pool size, fo
 bench/run.py hx --optional              # an optional arm: a guard refusal is recorded as `skipped: budget`, exit 0
 bench/run.py harness-opus --optional    # the matched arm: Harness with every role on Opus at plain's effort
 bench/run.py plain --fixture large      # the large fixture (below): a 20-page brief and a mid-run requirement change
+bench/run.py harness --fixture long     # the long-session fixture (Context per call): seven issues editing one module of an existing repo
 ```
 
 ## One run
@@ -705,7 +706,30 @@ Every call re-reads the whole context from cache, so a context that only grows i
 
 Observed on 2026-11-18 with Claude Code 2.1.327, Sonnet, `claude -p` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` (the lowest window Claude Code accepts): the parent session asked for one foreground sub-agent that read about 30 chunks of 250 lines (about 15k tokens each; about 440k tokens in all if nothing were dropped) one Read call at a time. The sub-agent's transcript (`subagents/agent-*.jsonl`) shows 31 model calls, a largest context of 66,360 tokens (mean 51,644) and 12 `compact_boundary` records; the parent stayed at 38k. So the sub-agent inherits the window and compacts on its own, well under the setting, and the next mechanism the issue held back (end and resume a lane from its pushed branch past the budget) is not needed. Two cautions from the same run: Claude Code compacted at about two thirds of the window (66k of 100k), so a 200k budget compacts near 130-165k, not at 200k; and a read-heavy task under a small window compacts every few calls (a saw-tooth between 33k and 66k), each compaction being a model call of its own. The run cost $2.71 in all.
 
-What this does not show is the dollar effect on a long Harness fleet run. No shipped fixture grows a lane past 200k, so the before and after numbers of a bangwa-like slice (largest context, mean context per call, compactions, cache-read dollars per issue) need a long-session fixture, which is tracked as a separate issue.
+What this does not show is the dollar effect on a long Harness fleet run. The small, medium and large fixtures never grow a lane past 200k, so the before and after numbers of a bangwa-like slice (largest context, mean context per call, compactions, cache-read dollars per issue) come from the long-session fixture below.
+
+### Long-session fixture (#1257)
+
+`bench/fixture-long/` is **tabula**, a CSV tool that already exists when the run starts: `--fixture long` commits the fixture's `seed/` (about 2,800 lines: `tabula/engine.py` of about 1,460 lines, 101 small transforms, 109 tests, docs) to the run repo next to `brief.md` (`Fixture.seed`; the other fixtures seed the brief only). The brief asks for seven more commands (`sort`, `filter`, `group`, `join`, `pivot`, `dedupe`, `stats`), and every one of them is an edit of the same module, `tabula/engine.py`, plus its command table, its option reading and its tests. `shape.json` is the decomposition a planner could reach (seven independent issues, never given to an arm); the `harness` arm runs `POOL=1`, where the engine files ONE child for the PRD (`HARNESS_ENGINE_CHILD_MAX`, #614), so one lane builds all seven commands and keeps reading the large module and the docs and tests it keeps growing: that is what grows a lane's context. `harness-3` may decompose a PRD of more than 15 acceptance criteria into the seven issues. Hidden tests (85, black box through `TABULA_CMD`), a reference (the seed plus the seven commands) and a differential fuzz (`bench/fixture-long/fuzz.py`, seed 1257, 300 cases, no frozen hash) have the shape of the medium fixture's.
+
+```
+bench/run.py harness --fixture long --runs 3                          # the default budget (200k)
+HARNESS_LANE_CONTEXT_MAX=off bench/run.py harness --fixture long --runs 3   # no budget
+bench/grade.py bench/fixture-long/reference --fixture long            # 85/85
+```
+
+Compare the two sets with the `context` record (`max_tokens`, `mean_tokens`, `compactions`) and the cache-read dollars per issue (`bench/aggregate.py`); the results sit under `bench/results/` with their transcripts like every other run.
+
+**Result (2026-11-18, Claude Code 2.1.327, Sonnet lanes, `harness` arm, `POOL=1`, 3 runs per setting, `bench/results/20261118-long-{off,default,100k}/`).** Every run is graded 85/85 on the hidden tests except one run of the default series (84); the fuzz shows 1 divergence in every run (a key such as `-x` is read as a column name, where the brief says an unknown option is a usage error). The planner decomposed the PRD into 8-10 issues in two runs of each series and left one `[AFK] Implement PRD` issue (a single lane builds all seven commands) in the third. Medians of three:
+
+| `HARNESS_LANE_CONTEXT_MAX` | largest context | mean context | compactions | cost | wall | cache-read $ (Sonnet list price) | cache-read $ per issue |
+|---|---|---|---|---|---|---|---|
+| `off` | 98,954 | 63,853 | 0 | $4.45 | 33.7 min | $2.96 | $0.38 |
+| default (200k) | 99,165 | 64,953 | 0 | $4.37 | 30.0 min | $2.60 | $0.37 |
+| `100000` (probe) | 82,316 | 52,794 | 14 | $6.08 | 44.2 min | $3.23 | $0.35 |
+
+Per run, `off`: largest 98,954 / 137,393 / 98,073; default: 99,165 / 121,891 / 96,088; 100k: 82,316 / 74,624 / 90,948 with 10 / 14 / 24 compactions. Three things follow. (1) The default 200k never fires on this fixture: no lane or sub-agent got past 137k, so `off` and the default are the same run and their differences (cost $4.45 vs $4.37, wall 33.7 vs 30.0 min) are the run-to-run spread, not the budget; the default is no slower and no dearer than no budget here, and there is nothing to tune. (2) Compaction itself is not free: under a 100k window every run compacted 10-24 times and cost 37% more ($6.08 vs $4.45) and ran 31% longer than `off`, with no cache-read saving ($3.23 vs $2.96), because the lanes were never long enough for the dropped context to pay for the extra calls. A budget lower than what a lane needs is a loss. (3) This fixture does not show the budget's saving either: its lanes top out at about 140k tokens and the whole run costs about $4, against bangwa's lanes of 695-804k and about $369 for 7 issues. The dollar effect of the default on a lane that does pass 200k is still unmeasured; it needs a slice with several times more work per lane (follow-up filed from #1257).
+
 
 ## Prompt-cache TTL (#615)
 

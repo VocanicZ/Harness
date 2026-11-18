@@ -1,0 +1,10 @@
+{
+  "name": "long",
+  "title": "tabula",
+  "package": "tabula",
+  "cmd_env": "TABULA_CMD",
+  "fuzz": "fuzz.py",
+  "plain_max_replies": 30,
+  "seed": "seed",
+  "shape": "shape.json"
+}

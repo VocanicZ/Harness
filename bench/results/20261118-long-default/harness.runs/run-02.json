@@ -1,0 +1,619 @@
+{
+  "schema": 1,
+  "run_id": "20261118-long-default",
+  "arm": "harness",
+  "fixture": "long",
+  "repo": "VocanicZ/bench-20261118-long-default-harness-r02",
+  "status": "ok",
+  "capped": null,
+  "error": null,
+  "started_at": "2026-11-18T09:23:55Z",
+  "ended_at": "2026-11-18T09:46:33Z",
+  "wall_s": 1153.067,
+  "coding_s": 1804.594,
+  "testing_s": 142.138,
+  "test_calls": 20,
+  "tokens": {
+    "input": 206,
+    "output": 89628,
+    "cache_read": 7315722,
+    "cache_write": 329441
+  },
+  "cost_usd": 3.663,
+  "usd_per_pct": 4.44,
+  "usd_per_pct_source": "fit",
+  "weekly_window_pct": 0.82,
+  "models": {
+    "claude-opus-5-5": {
+      "messages": 60,
+      "input": 122,
+      "output": 33264,
+      "cache_read": 4013216,
+      "cache_write": 190753,
+      "cost_usd": 2.4222
+    },
+    "claude-sonnet-5-5": {
+      "messages": 42,
+      "input": 84,
+      "output": 56364,
+      "cache_read": 3302506,
+      "cache_write": 138688,
+      "cost_usd": 1.2408
+    }
+  },
+  "hidden_tests": {
+    "passed": 85,
+    "failed": 0,
+    "total": 85,
+    "details": {
+      "install": "pip",
+      "tests": [
+        {
+          "id": "DedupeTests.test_bad_keep",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_first_by_default",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_keep_equals_form",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_keep_last_in_place_of_the_last",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_no_key",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_text_equality",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_two_keys_first",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_two_keys_last",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "DedupeTests.test_unknown_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_a_key_starting_with_a_dash_is_a_usage_error",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_apply",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_bad_format",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_byte_order_mark_and_blank_lines",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_cols",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_head",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_missing_file",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_no_command",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_not_utf8",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_ragged_row_names_the_line",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_show",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_unknown_command",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "ExistingCommandTests.test_unknown_option",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_a_cell_that_is_not_a_number_compares_as_text",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_all_must_hold",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_contains_ignores_case",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_equal_and_not_equal",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_first_operator_wins",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_greater_equal",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_no_column_name",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_no_condition",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_no_operator",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_not_equal",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_nothing_left_prints_the_header",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_numbers_compare_as_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_one_point_zero_equals_one",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_text_compare_by_code_point",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "FilterTests.test_unknown_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_aggregate_without_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_count_reads_no_other_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_every_aggregate",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_mean_rounds_half_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_no_aggregate",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_not_a_number",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_not_an_aggregate",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_repeated_aggregate",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_sums_are_exact_and_as_written",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_text_output",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_unknown_aggregate_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "GroupTests.test_unknown_by",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_bad_kind",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_inner",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_key_missing_on_the_right",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_kind_before_the_command",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_kind_without_value",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_left",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_name_twice_after_the_suffix",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_same_file_twice",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_two_arguments",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "JoinTests.test_values_match_exactly",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_a_value_named_like_the_row_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_empty_column_value",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_not_a_number",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_row_and_column_the_same",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_sums_by_pair",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_text_output",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_three_arguments",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "PivotTests.test_unknown_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_desc_is_stable",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_header_only",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_json_output",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_no_key",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_not_a_number",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_numeric",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_repeated_modifier",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_text_by_code_point",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_text_compare_of_numbers",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_two_keys",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "SortTests.test_unknown_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_empty_cells_are_left_out",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_half_up",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_no_column",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_not_a_number",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_odd_count_median",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_two_columns_in_the_order_asked",
+          "status": "passed",
+          "message": ""
+        },
+        {
+          "id": "StatsTests.test_unknown_column",
+          "status": "passed",
+          "message": ""
+        }
+      ]
+    }
+  },
+  "counts": {
+    "workers": 1,
+    "continue_replies": 0,
+    "fleet_restarts": 0,
+    "front_door_ended": 1,
+    "issues_closed": 2,
+    "prs_merged": 2
+  },
+  "caps": {
+    "wall_s": 6000.0,
+    "cost_usd": 30.0
+  },
+  "repo_deleted": true,
+  "logs": "run-02.logs",
+  "quality": "ok",
+  "coverage": {
+    "line_pct": 97.2,
+    "branch_pct": 92.7,
+    "total_pct": 96.5,
+    "tests": "unittest"
+  },
+  "run": 2,
+  "isolation": {
+    "config": "isolated",
+    "engine_skills": [
+      "caveman",
+      "handoff",
+      "harness",
+      "harness-arc",
+      "harness-init",
+      "harness-issue",
+      "harness-one",
+      "harness-pause",
+      "harness-plan",
+      "harness-prd",
+      "harness-resume",
+      "harness-start",
+      "harness-status",
+      "harness-stop",
+      "harness-uninstall",
+      "subagent-task-tree",
+      "to-issues",
+      "to-prd",
+      "writing-plans"
+    ],
+    "engine_plugins": []
+  },
+  "configured": {
+    "model": null,
+    "effort": null
+  },
+  "claude_config": {
+    "source": "front-door init",
+    "skills": 38,
+    "plugins": 0,
+    "mcp_servers": 0
+  },
+  "cache_write_5m": 329441,
+  "cache_write_1h": 0,
+  "cache_cost_usd": 2.4334,
+  "turn_gaps": {
+    "turns": 99,
+    "p50_s": 8.4,
+    "p90_s": 24.4,
+    "max_s": 703.3,
+    "over_5m": 1,
+    "over_1h": 0
+  },
+  "cache_ttl": "5m",
+  "context": {
+    "budget": 200000,
+    "calls": 102,
+    "max_tokens": 121891,
+    "mean_tokens": 74955,
+    "compactions": 0,
+    "over_budget_calls": 0,
+    "sessions": [
+      {
+        "role": "lane",
+        "calls": 28,
+        "max_tokens": 72828,
+        "mean_tokens": 56021,
+        "compactions": 0
+      },
+      {
+        "role": "lane",
+        "calls": 30,
+        "max_tokens": 121891,
+        "mean_tokens": 94383,
+        "compactions": 0
+      },
+      {
+        "role": "lane",
+        "calls": 32,
+        "max_tokens": 103244,
+        "mean_tokens": 82360,
+        "compactions": 0
+      },
+      {
+        "role": "lane",
+        "calls": 12,
+        "max_tokens": 59035,
+        "mean_tokens": 50816,
+        "compactions": 0
+      }
+    ]
+  },
+  "session_s": 1145.794,
+  "effort": {
+    "high": 138,
+    "medium": 49
+  },
+  "provenance": {
+    "engine_commit": "ee31309eba40e45ded5242264fc57c2875093993-dirty",
+    "skill_version": "sha256:12c3bd58428b48bc",
+    "cli_version": "2.1.327 (Claude Code)"
+  },
+  "fuzz_cases": 300,
+  "fuzz_divergences": 1,
+  "fuzz_examples": [
+    {
+      "case": 286,
+      "command": "tabula pivot a.csv city city nope --format text",
+      "why": "exit status 2, wanted 1"
+    }
+  ],
+  "fuzz_seed": 1257,
+  "fuzz_hash": "65e245db2261e6d461c2f7375af8dd6caf3ad939130e9492d24edf48eeec5e83",
+  "usd_per_passed_test": 0.0431,
+  "compactions": 0,
+  "refeeds": 0,
+  "refeed_tokens": 0,
+  "sonarqube": {
+    "bugs": 0,
+    "vulnerabilities": 0,
+    "code_smells": 0,
+    "maintainability_rating": "A",
+    "duplicated_lines_density": 0.0,
+    "coverage": 0.0
+  }
+}
