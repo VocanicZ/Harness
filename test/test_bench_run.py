@@ -1323,16 +1323,6 @@ def test_guard_does_not_refuse_on_a_made_up_figure_when_the_spend_cannot_be_meas
     assert q.returncode == 0 and "bench guard: OK" in q.stdout, (q.stdout, q.stderr)
 
 
-if __name__ == "__main__":
-    fails = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try: fn(); print(f"  ok: {name}")
-            except AssertionError as ex: print(f"  FAIL: {name} — {ex}"); fails += 1
-    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
-    sys.exit(1 if fails else 0)
-
-
 def _ctx_transcript(path, calls, compact=0):
     """calls: [(input, cache_read, cache_write)] — one assistant message each; `compact` isCompactSummary entries follow."""
     rows = [{"type": "assistant", "timestamp": "2026-11-07T10:00:00Z", "message": {
@@ -1413,3 +1403,13 @@ def test_the_context_measures_aggregate_and_the_bench_fleet_env_carries_the_budg
     assert got == {"context_max_tokens": 400015, "context_mean_tokens": 200000, "context_compactions": 2}, got
     assert aggregate.METRICS["context_max_tokens"]({"context": None}) is None
     assert "HARNESS_LANE_CONTEXT_MAX" in open(os.path.join(ROOT, "bench", "arms", "harness.py")).read().split("PASS_ENV")[1].split("\n")[0]
+
+
+if __name__ == "__main__":
+    fails = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try: fn(); print(f"  ok: {name}")
+            except AssertionError as ex: print(f"  FAIL: {name} — {ex}"); fails += 1
+    print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
+    sys.exit(1 if fails else 0)
