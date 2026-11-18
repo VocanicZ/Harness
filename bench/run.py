@@ -562,6 +562,70 @@ def gap_stats(gaps):
             "over_5m": sum(g > 300 for g in gaps), "over_1h": sum(g > 3600 for g in gaps)}
 
 
+CONTEXT_KEYS = ("budget", "calls", "max_tokens", "mean_tokens", "compactions", "over_budget_calls", "sessions")
+SESSION_KEYS = ("role", "calls", "max_tokens", "mean_tokens", "compactions")
+
+
+def context_budget():
+    """The context budget a run's lanes had (#1252): HARNESS_LANE_CONTEXT_MAX as the engine reads it (claude_context_max:
+    a count, k / m suffix, default 200000, 100000 at the least, off = None)."""
+    v = (os.environ.get("HARNESS_LANE_CONTEXT_MAX") or "").strip().lower()
+    if v in ("off", "none", "0", "0k", "0m"):
+        return None
+    m = re.fullmatch(r"(\d{1,9})([km]?)", v)
+    if not m:
+        return 200000
+    n = int(m.group(1)) * {"": 1, "k": 1000, "m": 1000000}[m.group(2)]
+    return None if n == 0 else max(n, 100000)
+
+
+def context_stats(fc, st, transcripts, budget=None):
+    """How big each call's context was, per lane and per sub-agent (#1252: cache reads re-read the whole context on every
+    call, 65% of the bangwa fleet's spend with lanes at 695k and sub-agents at 804k and 0 compactions). A call's context is
+    its input + cache-read + cache-write tokens. {"budget", "calls", "max_tokens", "mean_tokens" (over every call),
+    "compactions", "over_budget_calls" (calls above the budget; 0 with none), "sessions": [one per transcript file, a lane's
+    own or a sub-agent's: role, calls, max_tokens, mean_tokens, compactions]}. None when there was no call."""
+    sessions, seen = [], set()
+    for tr in transcripts:
+        for f in st.transcript_files(tr):
+            ctx = []
+            for key, _, u, _, _ in fc._messages(f):
+                if key in seen:
+                    continue
+                seen.add(key)
+                cc = u.get("cache_creation_input_tokens")
+                if cc is None:
+                    cc = sum(int(v or 0) for v in (u.get("cache_creation") or {}).values())
+                ctx.append(int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0) + int(cc or 0))
+            if ctx:
+                sessions.append({"role": "lane" if f == tr else "subagent", "calls": len(ctx), "max_tokens": max(ctx),
+                                 "mean_tokens": round(sum(ctx) / len(ctx)), "compactions": armlib().file_compactions(f),
+                                 "_ctx": ctx})
+    if not sessions:
+        return None
+    allc = [c for s in sessions for c in s["_ctx"]]
+    for s in sessions:
+        del s["_ctx"]
+    return {"budget": budget, "calls": len(allc), "max_tokens": max(allc), "mean_tokens": round(sum(allc) / len(allc)),
+            "compactions": sum(s["compactions"] for s in sessions),
+            "over_budget_calls": sum(c > budget for c in allc) if budget else 0, "sessions": sessions}
+
+
+def context_regressions(ctx, budget=None):
+    """The regression check (#1252): what a run's context stats say went over the lane context budget, as messages; [] when
+    every call was within it, or there was no budget. The budget a record carries wins over the argument's."""
+    if not isinstance(ctx, dict):
+        return []
+    budget = ctx.get("budget") or budget
+    if not budget:
+        return []
+    out = []
+    for i, s in enumerate(ctx.get("sessions") or []):
+        if isinstance(s, dict) and s.get("max_tokens", 0) > budget:
+            out.append(f"{s.get('role', 'session')} #{i}: largest context {s['max_tokens']} is over the budget {budget}")
+    return out
+
+
 def measure(fc, st, transcripts):
     """Tokens, list-price $ and models of the transcripts (each also counting its sub-agents' files, every
     message once), the coding / testing split of their main sessions (#379), the cache writes split by TTL
@@ -599,7 +663,8 @@ def measure(fc, st, transcripts):
         split["session_s"] = st.union_s([sp for sp in (st.session_span(t) for t in transcripts) if sp])
     return {"tokens": tokens, "models": models, "cost_usd": round(sum(m["cost_usd"] for m in models.values()), 4),
             "split": split, "cache_write_5m": w5t, "cache_write_1h": w1t, "cache_cost_usd": round(cache_usd, 4),
-            "turn_gaps": gap_stats(turn_gaps(fc, st, transcripts))}
+            "turn_gaps": gap_stats(turn_gaps(fc, st, transcripts)),
+            "context": context_stats(fc, st, transcripts, context_budget())}
 
 
 def cost_now(fc, st, transcripts):
@@ -746,7 +811,7 @@ REVIEW_FIELDS = {"review_score": (int, float), "review": dict}
 # Optional (#615): the prompt-cache TTL the arm's lanes ran with (HARNESS_CACHE_TTL, 5m or 1h), the cache-write
 # tokens split by TTL, what the cache cost (writes at their TTL's price, plus reads), and the turn-gap distribution.
 CACHE_FIELDS = {"cache_ttl": str, "cache_write_5m": int, "cache_write_1h": int, "cache_cost_usd": (int, float),
-                "turn_gaps": (dict, type(None))}
+                "turn_gaps": (dict, type(None)), "context": (dict, type(None))}
 
 
 GAP_KEYS = ("turns", "p50_s", "p90_s", "max_s", "over_5m", "over_1h")
@@ -818,6 +883,15 @@ def validate(d):
         bad.append(f"cache_ttl: {d['cache_ttl']!r} is not 5m or 1h")
     if isinstance(d.get("turn_gaps"), dict) and sorted(d["turn_gaps"]) != sorted(GAP_KEYS):
         bad.append("turn_gaps: want " + ", ".join(GAP_KEYS))
+    ctx = d.get("context")
+    if isinstance(ctx, dict):
+        ints = lambda o, keys: all(isinstance(o.get(k), int) and not isinstance(o.get(k), bool) and o[k] >= 0 for k in keys)
+        if sorted(ctx) != sorted(CONTEXT_KEYS) or not isinstance(ctx.get("sessions"), list) \
+                or not ints(ctx, [k for k in CONTEXT_KEYS if k not in ("budget", "sessions")]) \
+                or not (ctx.get("budget") is None or ints(ctx, ["budget"])) \
+                or not all(isinstance(s, dict) and sorted(s) == sorted(SESSION_KEYS) and s.get("role") in ("lane", "subagent")
+                           and ints(s, [k for k in SESSION_KEYS if k != "role"]) for s in ctx["sessions"]):
+            bad.append("context: want " + ", ".join(CONTEXT_KEYS) + " (sessions: " + ", ".join(SESSION_KEYS) + ")")
     if isinstance(d.get("review_score"), (int, float)) and not isinstance(d.get("review_score"), bool) \
             and not 0 <= d["review_score"] <= 10:
         bad.append("review_score: not within 0..10")
@@ -1137,7 +1211,9 @@ def execute_one(a, arm, opts, g, fc, st, slot):
             m = measure(fc, st, ctx.transcripts)
             res.update(tokens=m["tokens"], models=m["models"], cost_usd=m["cost_usd"], cache_write_5m=m["cache_write_5m"],
                        cache_write_1h=m["cache_write_1h"], cache_cost_usd=m["cache_cost_usd"], turn_gaps=m["turn_gaps"],
-                       cache_ttl=os.environ.get("HARNESS_CACHE_TTL") or "5m")
+                       cache_ttl=os.environ.get("HARNESS_CACHE_TTL") or "5m", context=m["context"])
+            for msg in context_regressions(m["context"]):
+                print(f"bench: CONTEXT OVER BUDGET: the {a.arm} arm's {msg}", file=sys.stderr)
             if m["split"]:
                 res.update(m["split"])
             copy_transcripts(ctx, logs)
@@ -1272,6 +1348,11 @@ def verify_logs(fc, st, doc, logs):
     if "cache_cost_usd" in doc and (not isinstance(doc["cache_cost_usd"], (int, float))
                                     or abs(doc["cache_cost_usd"] - m["cache_cost_usd"]) > 1e-4):
         bad.append(f"cache_cost_usd: results JSON {doc['cache_cost_usd']}, logs {m['cache_cost_usd']}")
+    if isinstance(doc.get("context"), dict):   # the context stats (#1252): the logs' calls, largest and mean
+        want = m["context"] or {}
+        for k in ("calls", "max_tokens", "mean_tokens", "compactions"):
+            if doc["context"].get(k) != want.get(k):
+                bad.append(f"context.{k}: results JSON {doc['context'].get(k)}, logs {want.get(k)}")
     for k in ("coding_s", "testing_s", "test_calls", "session_s"):
         want = (m["split"] or {}).get(k)
         got = doc.get(k)

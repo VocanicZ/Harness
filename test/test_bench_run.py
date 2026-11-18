@@ -1331,3 +1331,85 @@ if __name__ == "__main__":
             except AssertionError as ex: print(f"  FAIL: {name} — {ex}"); fails += 1
     print(f"── {'all pass' if not fails else str(fails)+' FAILED'}")
     sys.exit(1 if fails else 0)
+
+
+def _ctx_transcript(path, calls, compact=0):
+    """calls: [(input, cache_read, cache_write)] — one assistant message each; `compact` isCompactSummary entries follow."""
+    rows = [{"type": "assistant", "timestamp": "2026-11-07T10:00:00Z", "message": {
+        "id": f"m{os.path.basename(path)}{i}", "model": "claude-opus-4-5", "content": [],
+        "usage": {"input_tokens": a, "output_tokens": 1, "cache_read_input_tokens": b, "cache_creation_input_tokens": c}}}
+        for i, (a, b, c) in enumerate(calls)]
+    rows += [{"type": "user", "isCompactSummary": True, "message": {"content": "summary"}}] * compact
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def test_context_stats_records_largest_mean_and_compactions_per_lane_and_sub_agent_and_flags_calls_over_the_budget():   # #1252
+    d = tempfile.mkdtemp()
+    try:
+        tr = os.path.join(d, "s.jsonl")
+        _ctx_transcript(tr, [(1, 50000, 1000), (1, 150000, 2000)], compact=1)               # contexts 51001, 152001
+        _ctx_transcript(os.path.join(d, "s", "subagents", "agent-a.jsonl"), [(5, 400000, 10)])  # 400015
+        fc, st = bench_run._load("forecast"), bench_run._load("stats")
+        c = bench_run.context_stats(fc, st, [tr], 200000)
+        assert (c["calls"], c["max_tokens"], c["mean_tokens"], c["compactions"], c["over_budget_calls"], c["budget"]) == \
+            (3, 400015, round((51001 + 152001 + 400015) / 3), 1, 1, 200000), c
+        assert c["sessions"] == [{"role": "lane", "calls": 2, "max_tokens": 152001, "mean_tokens": 101501, "compactions": 1},
+                                 {"role": "subagent", "calls": 1, "max_tokens": 400015, "mean_tokens": 400015, "compactions": 0}], c
+        assert bench_run.context_regressions(c) == [f"subagent #1: largest context 400015 is over the budget 200000"]
+        assert bench_run.context_regressions(dict(c, budget=None)) == [] and bench_run.context_regressions(None) == []
+        assert bench_run.context_regressions(dict(c, budget=None), 500000) == []
+        assert bench_run.context_regressions(dict(c, budget=None), 300000) != []   # the argument's budget when the record has none
+        free = bench_run.context_stats(fc, st, [tr], None)
+        assert free["over_budget_calls"] == 0 and free["max_tokens"] == 400015
+        assert bench_run.context_stats(fc, st, [], 200000) is None
+        assert bench_run.measure(fc, st, [tr])["context"]["calls"] == 3
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@with_env()
+def test_a_run_records_its_context_stats_validates_them_and_the_logs_reproduce_them(e):
+    d = tempfile.mkdtemp()
+    try:
+        p = e.run("stub", "--arm-opt", "cost=2")
+        assert p.returncode == 0, (p.stdout, p.stderr)
+        r = e.result()
+        assert r["context"]["calls"] == 1 and r["context"]["compactions"] == 0 and r["context"]["budget"] == 200000, r["context"]
+        assert bench_run.validate(r) == [], bench_run.validate(r)
+        logs = os.path.join(e.results, "t1", "stub.logs")
+        fc, st = bench_run._load("forecast"), bench_run._load("stats")
+        assert bench_run.verify_logs(fc, st, r, logs) == []
+        assert bench_run.verify_logs(fc, st, dict(r, context=dict(r["context"], max_tokens=7)), logs) != []
+        c = dict(r["context"])
+        for good in (dict(c, budget=None), dict(r, context=None)):
+            assert bench_run.validate(dict(r, **({"context": good} if "budget" in good else good))) == []
+        for bad in (dict(c, max_tokens="x"), dict(c, sessions=[{"role": "boss"}]), {"calls": 1}, dict(c, budget=-1)):
+            assert bench_run.validate(dict(r, context=bad)) != [], bad
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_context_budget_reads_the_lane_setting_the_way_the_engine_does(monkeypatch=None):
+    saved = os.environ.get("HARNESS_LANE_CONTEXT_MAX")
+    try:
+        for v, want in [(None, 200000), ("", 200000), ("250k", 250000), (" 1M ", 1000000), ("50k", 100000), ("off", None),
+                        ("0", None), ("bogus", 200000), ("-5", 200000)]:
+            os.environ.pop("HARNESS_LANE_CONTEXT_MAX", None)
+            if v is not None:
+                os.environ["HARNESS_LANE_CONTEXT_MAX"] = v
+            assert bench_run.context_budget() == want, (v, bench_run.context_budget())
+    finally:
+        os.environ.pop("HARNESS_LANE_CONTEXT_MAX", None)
+        if saved is not None:
+            os.environ["HARNESS_LANE_CONTEXT_MAX"] = saved
+
+
+def test_the_context_measures_aggregate_and_the_bench_fleet_env_carries_the_budget():
+    import aggregate
+    doc = {"context": {"max_tokens": 400015, "mean_tokens": 200000, "compactions": 2}}
+    got = {k: f(doc) for k, f in aggregate.METRICS.items() if k.startswith("context_")}
+    assert got == {"context_max_tokens": 400015, "context_mean_tokens": 200000, "context_compactions": 2}, got
+    assert aggregate.METRICS["context_max_tokens"]({"context": None}) is None
+    assert "HARNESS_LANE_CONTEXT_MAX" in open(os.path.join(ROOT, "bench", "arms", "harness.py")).read().split("PASS_ENV")[1].split("\n")[0]

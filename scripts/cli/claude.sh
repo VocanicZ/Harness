@@ -120,8 +120,30 @@ claude_cache_ttl(){ local v="${HARNESS_CACHE_TTL-}" m
   if [[ ! -e "$m" ]]; then : > "$m" 2>/dev/null || true
     log "WARN HARNESS_CACHE_TTL='${HARNESS_CACHE_TTL-}' is not 5m or 1h — using the default 5m" >&2; fi
   echo 5m; }
+# claude_context_max — the context budget of a claude lane and its sub-agents, in tokens (#1252), or nothing for none. Without one
+# nothing compacts a lane (Claude Code 2.1.327 on the 1M window compacts only near the limit): bangwa PRD #691 ran lanes to
+# 695k and sub-agents to 804k with 0 compactions, every call re-reading all of it, and cache reads were 65% of the fleet's spend.
+# HARNESS_LANE_CONTEXT_MAX picks it: a count (200000), with a k or m suffix (200k, 1m; case and surrounding spaces ignored),
+# default 200k; off / none / 0 leaves Claude Code's own window. Claude Code reads it as CLAUDE_CODE_AUTO_COMPACT_WINDOW (verified in
+# the 2.1.327 binary; an in-process setting, so the sub-agents of a lane get it too) and treats less than 100k as 100k, so a smaller
+# value is raised here to 100k. Anything else is the 200k default, with a one-time warning naming the value (a marker per value
+# in $RUN_DIR, as with HARNESS_CACHE_TTL, #808; on stderr, stdout is captured).
+CLAUDE_CONTEXT_MAX_DEFAULT=200000 CLAUDE_CONTEXT_MAX_MIN=100000
+claude_context_max(){ local v="${HARNESS_LANE_CONTEXT_MAX-}" n m
+  v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; v="${v,,}"
+  case "$v" in "") echo "$CLAUDE_CONTEXT_MAX_DEFAULT"; return 0;; off|none|0) return 0;; esac
+  if [[ $v =~ ^([0-9]{1,9})([km]?)$ ]]; then n=$((10#${BASH_REMATCH[1]}))
+    case "${BASH_REMATCH[2]}" in k) n=$(( n * 1000 ));; m) n=$(( n * 1000000 ));; esac
+    (( n == 0 )) && return 0
+    (( n < CLAUDE_CONTEXT_MAX_MIN )) && n=$CLAUDE_CONTEXT_MAX_MIN
+    echo "$n"; return 0; fi
+  m="${RUN_DIR:-${TMPDIR:-/tmp}}/ctxmax.$(printf %s "${HARNESS_LANE_CONTEXT_MAX-}" | cksum | cut -d' ' -f1)"
+  if [[ ! -e "$m" ]]; then : > "$m" 2>/dev/null || true
+    log "WARN HARNESS_LANE_CONTEXT_MAX='${HARNESS_LANE_CONTEXT_MAX-}' is not a token count (200000, 200k, 1m) or off — using the default $CLAUDE_CONTEXT_MAX_DEFAULT" >&2; fi
+  echo "$CLAUDE_CONTEXT_MAX_DEFAULT"; }
 # claude_lane_env — the `NAME=value` lines a lane's environment gets from this adapter (session_env, lib.sh).
-claude_lane_env(){ [[ "$(claude_cache_ttl)" == 5m ]] && echo "FORCE_PROMPT_CACHING_5M=1"; return 0; }
+claude_lane_env(){ local n; [[ "$(claude_cache_ttl)" == 5m ]] && echo "FORCE_PROMPT_CACHING_5M=1"
+  n="$(claude_context_max)"; [[ -n "$n" ]] && echo "CLAUDE_CODE_AUTO_COMPACT_WINDOW=$n"; return 0; }
 # The prompt is positional; the session id is ours to set, so the transcript is found by it (#185).
 claude_launch(){ local wd="$1" uuid="$2" model effort="$4" lean; model="$(_claude_lane_model "$wd" "$3")"; lean="$(claude_lean_flags)"
   echo "exec $(claude_bin) --session-id $uuid $(_cli_flags "${CLAUDE_FLAGS-${HARNESS_CLAUDE_FLAGS:-}}" "$model" "$effort")${lean:+ $lean} $(claude_goal_flags) \"$HARNESS_BOOTSTRAP_PROMPT\""; }

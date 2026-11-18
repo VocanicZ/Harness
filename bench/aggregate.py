@@ -88,6 +88,10 @@ METRICS = {
     "cache_cost_usd": _field("cache_cost_usd"),
     "gap_p90_s": lambda doc: num((doc.get("turn_gaps") or {}).get("p90_s")) if isinstance(doc.get("turn_gaps"), dict) else None,
     "gaps_over_5m": lambda doc: num((doc.get("turn_gaps") or {}).get("over_5m")) if isinstance(doc.get("turn_gaps"), dict) else None,
+    # the context budget's measures (#1252)
+    "context_max_tokens": lambda doc: num((doc.get("context") or {}).get("max_tokens")) if isinstance(doc.get("context"), dict) else None,
+    "context_mean_tokens": lambda doc: num((doc.get("context") or {}).get("mean_tokens")) if isinstance(doc.get("context"), dict) else None,
+    "context_compactions": lambda doc: num((doc.get("context") or {}).get("compactions")) if isinstance(doc.get("context"), dict) else None,
     "hidden_passed": _hidden("passed"), "hidden_total": _hidden("total"),
     "fuzz_divergences": _field("fuzz_divergences"), "fuzz_cases": _field("fuzz_cases"),
     "fuzz_classes": _field("fuzz_classes"), "review_score": _field("review_score"),
