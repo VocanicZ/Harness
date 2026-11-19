@@ -202,7 +202,10 @@ Tables, verdicts and sources: [bench/RESULTS.md](bench/RESULTS.md#when-to-use-ha
 [MIT](LICENSE) © VocanicZ
 
 ## Star History
-
-<a href="https://star-history.com/#VocanicZ/Harness&Date">
-  <img src="https://api.star-history.com/svg?repos=VocanicZ/Harness&type=Date" alt="Star History Chart" width="600">
+<a href="https://www.star-history.com/?repos=vocanicz%2Fharness&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=vocanicz/harness&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=vocanicz/harness&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=vocanicz/harness&type=date&legend=top-left" />
+ </picture>
 </a>
