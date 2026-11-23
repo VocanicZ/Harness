@@ -237,4 +237,19 @@ printf '%s\n' 'Resumed… (esc to interrupt)' > "$PANE"
 watchdog_session "$SESS"
 assert_no "limit counter cleared once the session recovers (busy)" test -f "$RUN_DIR/$SESS.limit"
 
+# #1266: an account billing error ("Claude Code can't use your Claude subscription ...") is the same class as a limit park:
+# the account is the problem, not the lane, so a relaunch hits the same wall. Both apostrophes.
+for apos in "'" "’"; do
+  printf '%s\n' "  ⎿  Claude Code can${apos}t use your Claude subscription, usually because a payment is past due. Once fixed, resend your message" '❯' \
+    '  bypass permissions on (shift+tab to cycle)' > "$PANE"
+  assert_ok "billing error ($apos): session_limit_idle is true" session_limit_idle "$(cat "$PANE")"
+  assert_no "billing error ($apos): not a stall" session_stalled "$(cat "$PANE")"
+  rm -f "$RUN_DIR/$SESS".{wait,wait.msg,limit,stall,limitcp}; : > "$KILLED"; : > "$LNUDGED"
+  for _ in 1 2 3 4 5 6 7 8; do watchdog_session "$SESS"; done
+  assert_eq "$(wc -l < "$KILLED")" "0" "billing error ($apos): never killed past HARNESS_STALL_RETRIES"
+  assert_no "billing error ($apos): no stall counter" test -f "$RUN_DIR/$SESS.stall"
+  assert_no "billing error ($apos): never reaches the #115 stall nudge" grep -qx "STALL-NUDGE" "$LNUDGED"
+  assert_ok "billing error ($apos): parked on a limit wait spec" grep -qF '"cond":"limit"' "$RUN_DIR/$SESS.wait"
+done
+
 finish

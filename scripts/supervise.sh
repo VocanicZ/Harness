@@ -93,6 +93,10 @@ SUP_LOGINCTL="${HARNESS_SUPERVISE_LOGINCTL:-loginctl}"
 # limit" counts only as the end of a phrase or before reached/exceeded/hit/for: Codex's idle pane
 # can carry "You have 1 usage limit reset available" (fixtures/cli/codex/idle.txt), which is no park.
 SUP_LIMIT_RE='limit reached|usage limit([^ a-z]|$| (reached|exceeded|hit|for))|resets (at|in)|rate.limit|out of (extra )?usage|out of (usage )?credits|hit your [a-z]+ limit'
+# #1266: the account's billing error. A limit park (never killed: a relaunch hits the same wall), but unlike a usage limit it names no reset
+# time and nothing resends the message once billing is fixed, so sup_watch_pane re-nudges it on the RENUDGE_S cadence. The apostrophe is `'`
+# or `’` (three bytes in a C locale).
+SUP_BILLING_RE='can.{1,3}t use your Claude subscription|payment is past due'
 SUP_NUDGE_MSG="harness supervise: no activity for a while. If your goal is met, finish it now (push, PR, labels); if you are waiting on background work, check it and report; otherwise continue the task."
 SUP_EXTRA_MSG="harness supervise: no activity for a while. If an API/network error or a broken wake-up cut you off, resume your task now; if you are waiting on background work, check it, report, and keep your wake-ups going."
 SUP_DRY=0 SUP_ONCE=0
@@ -139,6 +143,20 @@ sup_tree_cpu(){ ps -eo pid=,ppid=,cputimes= 2>/dev/null | awk -v root="$1" '
   { par[$1]=$2; cpu[$1]=$3 } END { s[root]=1; do { ch=0; for (i in par) if (!(i in s) && (par[i] in s)) { s[i]=1; ch=1 } } while (ch)
   for (i in s) t+=cpu[i]; print t+0 }'; }
 
+# sup_send_nudge <tmux target> <text> <cli> — type the nudge into the pane (the backend's one send path).
+sup_send_nudge(){ local t=$1 msg=$2 cli=$3
+  if [[ "$(sess_backend)" == headless ]]; then
+    sup_act sess_send_line "$t" "$msg"   # #1137: one atomic inbox message, never the lane's shared typed buffer
+  else
+    sup_act sess_clear_line "$t"
+    if (( SUP_DRY )); then sup_act sess_type "$t" "$msg"; sup_act sess_enter "$t"
+    else   # #1201: the one send path (a pause before Enter, the submit read back)
+      sup_log "ACT $(sess_describe sess_type "$t" "$msg")"
+      cli_with "$(sup_cli "$cli")" cli_send_typed "$t" "$msg" >>"$SUP_LOG" 2>&1 || sup_log "WARN: $t: the nudge was not submitted"
+    fi
+  fi
+}
+
 # sup_watch_pane <tmux target> <state file> <nudge min> <kill min, 0 = never> <nudge text> <cli> [kill fn]
 # State file: "<screen hash> <footer hash> <tree cpu> <quiet since> <nudged 0|1> <last nudge>".
 # supervise_rules.pane_activity reads this format for `harness web` (#225): change both together.
@@ -182,20 +200,19 @@ sup_watch_pane(){
     return 0
   fi
   (( $(sup_prompt_line "$cli" "$pane") > 0 )) || return 0           # menu, not an idle prompt
-  grep -qiE "$(sup_limit_re "$cli")" <<<"$(tail -40 <<<"$pane")" && return 0 # parked at a usage limit
+  if grep -qiE "$(sup_limit_re "$cli")" <<<"$(tail -40 <<<"$pane")"; then   # parked at a usage limit: never nudged, never killed
+    # #1266: an account billing error is parked too, but nothing resends the message once billing is fixed — re-nudge it on the
+    # RENUDGE_S cadence (lastn), so a lane whose fleet engine is not tending it resumes. The kill branch below is never reached.
+    if grep -qiE "$SUP_BILLING_RE" <<<"$(tail -40 <<<"$pane")" && (( idle >= nudge_min && now - lastn >= RENUDGE_S )); then
+      sup_send_nudge "$t" "$msg" "$cli"
+      echo "$body $bg $cpu $t0 1 $now" >"$f"
+    fi
+    return 0
+  fi
   if (( kill_min > 0 && nudged == 1 && idle >= kill_min )) && [[ -n $killfn ]]; then
     "$killfn" "${t%%:*}" "$idle" "$pane" && rm -f "$f"
   elif (( idle >= nudge_min && nudged == 0 && now - lastn >= RENUDGE_S )); then
-    if [[ "$(sess_backend)" == headless ]]; then
-      sup_act sess_send_line "$t" "$msg"   # #1137: one atomic inbox message, never the lane's shared typed buffer
-    else
-      sup_act sess_clear_line "$t"
-      if (( SUP_DRY )); then sup_act sess_type "$t" "$msg"; sup_act sess_enter "$t"
-      else   # #1201: the one send path (a pause before Enter, the submit read back)
-        sup_log "ACT $(sess_describe sess_type "$t" "$msg")"
-        cli_with "$(sup_cli "$cli")" cli_send_typed "$t" "$msg" >>"$SUP_LOG" 2>&1 || sup_log "WARN: $t: the nudge was not submitted"
-      fi
-    fi
+    sup_send_nudge "$t" "$msg" "$cli"
     echo "$body $bg $cpu $t0 1 $now" >"$f"
   fi
   return 0
@@ -222,7 +239,7 @@ sup_turn_interrupt(){ local t=$1 pane=$2 tf=$3 secs
 # anywhere, do NOT kill — log an ERROR for a human. Runs inside sup_check_fleet (lib.sh sourced for
 # that fleet), so the session is parsed by the same _checkpoint_target `pause --force` uses.
 sup_checkpoint_and_kill(){
-  local s=$1 idle=$2 pane=$3 why=${4:-} reason=${5:-frozen} wd branch= sha= pushed= num= slug= body cpb ex=(':!.claude' ':!.harness-task.md')
+  local s=$1 idle=$2 pane=$3 why=${4:-} reason=${5:-frozen} wd branch= sha= pushed= onorigin= num= slug= body cpb ex=(':!.claude' ':!.harness-task.md')
   why=${why:-"Session \`$s\` showed no activity for ${idle} min (no screen change, no background timer, no CPU in its process tree) and did not react to a nudge, so it was restarted."}
   _CP_ISSUE= _CP_SLUG= _CP_BRANCH=
   if _checkpoint_target "$s"; then num=$_CP_ISSUE slug=$_CP_SLUG
@@ -243,7 +260,8 @@ sup_checkpoint_and_kill(){
     fi
     sha=$(git -C "$wd" rev-parse --short HEAD)
     cpb="$branch-checkpoint-$(date +%Y%m%d%H%M)"
-    if sup_act git -C "$wd" push -q origin "HEAD:refs/heads/$branch"; then pushed=$branch
+    if onorigin=$(worktree_head_on_origin "$wd"); then :     # #1266: already on origin — nothing to push, no junk branch
+    elif sup_act git -C "$wd" push -q origin "HEAD:refs/heads/$branch"; then pushed=$branch
     elif sup_act git -C "$wd" push -q origin "HEAD:refs/heads/$cpb"; then
       pushed="$cpb (origin/$branch had diverged; merge it by hand)"
     else
@@ -253,7 +271,7 @@ sup_checkpoint_and_kill(){
   body="<!-- harness-handoff issue=$num${branch:+ branch=$branch} -->
 ## Checkpoint by harness supervise
 $why
-${pushed:+All work in progress was committed and pushed to \`$pushed\` @ \`$sha\`. }This was a mechanical checkpoint, not the agent's own handoff. Rebuild context from the branch's commits and diff against the base.
+${pushed:+All work in progress was committed and pushed to \`$pushed\` @ \`$sha\`. }${onorigin:+Nothing was pushed: HEAD \`$sha\` is already on \`$onorigin\`. }This was a mechanical checkpoint, not the agent's own handoff. Rebuild context from the branch's commits and diff against the base.
 
 Last screen:
 \`\`\`

@@ -191,7 +191,10 @@ claude_idle_re(){ echo '^❯'; }
 # command runs the TUI shows "(ctrl+b ctrl+b (twice) to run in background)" (busy.txt).
 claude_busy_re(){ echo 'esc to interrupt|to run in background|… \(([0-9]+[dhms] ?)+ ·'; }
 # Credit exhaustion is the same class as a limit park (see lib.sh #120).
-claude_limit_re(){ echo 'hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit|out of usage credits|out of credits'; }
+# An account billing error (#1266: "Claude Code can't use your Claude subscription, usually because a payment is past due … Once fixed,
+# resend your message") is the same class: the account is the wall, so a kill/relaunch hits it again. The apostrophe is `'` or `’`
+# (three bytes in a C locale), hence `.{1,3}`. sup_billing_re (supervise.sh) is the supervisor's narrower copy of the same line.
+claude_limit_re(){ echo 'hit your [a-z]+ limit|usage limit reached|limit reached · resets|approaching (your )?usage limit|out of usage credits|out of credits|can.{1,3}t use your Claude subscription|payment is past due'; }
 claude_limit_menu_re(){ echo 'Stop and wait for limit to reset'; }
 claude_transient_re(){ echo 'API Error|[Oo]verloaded|overloaded_error|rate.?limit|(^|[^0-9])(429|500|502|503|529)([^0-9]|$)'; }
 claude_dialog_re(){ echo 'Yes, I trust this folder|Enter to confirm · Esc to cancel'; }

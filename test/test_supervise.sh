@@ -54,6 +54,38 @@ for CLI in claude agy; do
 done
 assert_no "a claude pane is not mistaken for an agy prompt" bash -c "grep -qE \"\$(source '$HERE/../scripts/supervise.sh'; sup_prompt_re agy)\" <<<'❯ '"
 
+echo "=== #1266: an account billing error is a limit park, never a frozen lane ==="
+for apos in "'" "’"; do
+  assert_ok "sup_limit_re claude matches the billing line (can${apos}t)" \
+    grep -qiE "$(sup_limit_re claude)" <<<"Claude Code can${apos}t use your Claude subscription, usually because a payment is past due … Once fixed, resend your message"
+done
+assert_no "sup_limit_re claude does not match an ordinary idle pane" grep -qiE "$(sup_limit_re claude)" <<<"done"
+rm -rf "$SUP_STATE"; : >"$LOG"; BILL=billing
+mk "$BILL" "printf 'Claude Code can\\xe2\\x80\\x99t use your Claude subscription, usually because a payment is past due. Once fixed, resend your message\n❯ \n'; sleep 600"
+sleep 1
+bill(){ sup_watch_pane "$BILL" "$SUP_STATE/panes/$BILL" "$@" "nudge-billing" claude killfn; }
+killfn(){ echo "KILLED $1" >>"$LOG"; return 0; }
+sup_watch_pane "$BILL" "$SUP_STATE/panes/$BILL" 0 0 "nudge-billing" claude                       # baseline
+sleep 1; : >"$LOG"
+sup_watch_pane "$BILL" "$SUP_STATE/panes/$BILL" 0 60 "nudge-billing" claude killfn
+assert_ok "billing pane: nudged once quiet past NUDGE_MIN"           grep -q "nudge-billing" "$LOG"
+assert_eq "$(awk '{print $6}' "$SUP_STATE/panes/$BILL" | grep -qv '^0$' && echo set)" "set" "billing pane: the state file records the nudge time"
+: >"$LOG"
+sup_watch_pane "$BILL" "$SUP_STATE/panes/$BILL" 0 60 "nudge-billing" claude killfn
+assert_no "billing pane: not re-nudged inside RENUDGE_S"             grep -q "nudge-billing" "$LOG"
+# quiet far past KILL_MIN with nudged=1 and an old nudge: the kill branch must never be reached
+read -r b1 b2 b3 b4 b5 b6 <"$SUP_STATE/panes/$BILL"
+echo "$b1 $b2 $b3 $(( $(date +%s) - 36000 )) 1 $(( $(date +%s) - 100 ))" >"$SUP_STATE/panes/$BILL"
+sup_watch_pane "$BILL" "$SUP_STATE/panes/$BILL" 0 60 "nudge-billing" claude killfn
+assert_no "billing pane: never killed, quiet past KILL_MIN with nudged=1" grep -q "KILLED" "$LOG"
+assert_no "billing pane: no re-nudge 100s after the last one"        grep -q "nudge-billing" "$LOG"
+echo "$b1 $b2 $b3 $(( $(date +%s) - 36000 )) 1 $(( $(date +%s) - RENUDGE_S - 10 ))" >"$SUP_STATE/panes/$BILL"
+sup_watch_pane "$BILL" "$SUP_STATE/panes/$BILL" 0 60 "nudge-billing" claude killfn
+assert_no "billing pane: still never killed once RENUDGE_S has passed" grep -q "KILLED" "$LOG"
+assert_ok "billing pane: re-nudged once RENUDGE_S has passed"        grep -q "nudge-billing" "$LOG"
+unset -f killfn
+tmux kill-server 2>/dev/null
+
 echo "=== net gate ==="
 ONLINE_URL=file:///nonexistent
 assert_no "offline holds every action"   sup_net_gate
@@ -188,6 +220,23 @@ mk tp-u-i7 "sleep 300"
 sup_checkpoint_and_kill tp-u-i7 130 "❯ frozen"
 assert_ok "diverged remote → pushed to a checkpoint branch" bash -c "git -C '$T/remote.git' branch --list 'issue/7-checkpoint-*' | grep -q ."
 assert_ok "…and origin/issue/7 was not force-pushed"         bash -c "git -C '$T/remote.git' show issue/7:b.txt | grep -q 'work in progress'"
+# #1266: HEAD already on origin (a relaunched lane died at turn 1 on the base commit) -> push NOTHING, no junk branch
+gc "$T/wt" stash -q -u 2>/dev/null; gc "$T/wt" reset -q --hard origin/main
+gc "$T/wt" fetch -q origin; : >"$T/gh.calls"; mk tp-u-i7 "sleep 300"
+before=$(git -C "$T/remote.git" for-each-ref --format='%(refname)' | sort | md5sum)
+sup_checkpoint_and_kill tp-u-i7 130 "❯ frozen"; rc=$?
+assert_eq "$rc" "0" "HEAD already on origin: checkpoint succeeds"
+assert_eq "$(git -C "$T/remote.git" for-each-ref --format='%(refname)' | sort | md5sum)" "$before" "HEAD already on origin: no ref created on the remote"
+assert_eq "$(git -C "$T/remote.git" branch --list 'issue/7-checkpoint-*' | wc -l | tr -d ' ')" "1" "HEAD already on origin: no second -checkpoint- branch"
+assert_ok "HEAD already on origin: handoff comment still posted" grep -q "harness-handoff issue=7 branch=issue/7" "$T/gh.calls"
+assert_ok "HEAD already on origin: the comment names the origin ref, claims no push" bash -c "grep -q 'already on' '$T/gh.calls' && ! grep -q 'committed and pushed to' '$T/gh.calls'"
+assert_no "HEAD already on origin: session still killed" quiet tmux has-session -t =tp-u-i7
+# the same worktree with a REAL unpushed commit still gets its side branch
+sleep 1; echo real >"$T/wt/real.txt"; gc "$T/wt" add real.txt; gc "$T/wt" commit -qm real
+rm -rf "$T/remote.git/refs/heads/issue/7-checkpoint-"*; : >"$T/gh.calls"; mk tp-u-i7 "sleep 300"
+sup_checkpoint_and_kill tp-u-i7 130 "❯ frozen"
+assert_ok "a real unpushed commit on a diverged remote still gets a -checkpoint- branch" bash -c "git -C '$T/remote.git' branch --list 'issue/7-checkpoint-*' | grep -q ."
+assert_ok "…and the comment says it was pushed" grep -q "committed and pushed to" "$T/gh.calls"
 # uncommittable (a hook-free failure: no identity) → must NOT kill, or the push would drop the WIP
 echo wip2 >"$T/wt/e.txt"; mk tp-u-i7 "sleep 300"
 ( export GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME= GIT_COMMITTER_NAME=; gc "$T/wt" config --unset user.name; gc "$T/wt" config user.useConfigOnly true

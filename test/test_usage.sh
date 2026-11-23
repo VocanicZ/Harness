@@ -379,6 +379,23 @@ rm -f "$RUN_DIR/hz-main-i7.limitcp"; : > "$CALLS"
 mechanical_checkpoint hz-main-i7 "$(cat "$PANE")"
 assert_ok "diverged origin: pushed to a checkpoint side branch" bash -c "git -C '$ORIGIN' for-each-ref --format='%(refname)' | grep -q 'issue/7-checkpoint-'"
 assert_ok "diverged origin: comment names the side branch" grep -q 'had diverged' "$CALLS"
+# #1266: HEAD already on origin (relaunched lane still on the base commit) -> nothing pushed, no junk branch, rc 0, comment still posted
+git -C "$WD" reset -q --hard "$(git -C "$ORIGIN" rev-parse issue/7)"; git -C "$WD" fetch -q origin
+git -C "$WD" push -q origin HEAD:refs/heads/main 2>/dev/null
+git -C "$WD" checkout -q -B issue/7 "$(git -C "$WD" rev-list --max-parents=0 HEAD)"
+git -C "$WD" fetch -q origin
+n0=$(git -C "$ORIGIN" for-each-ref --format='%(refname)' | wc -l); : > "$CALLS"
+mechanical_checkpoint hz-main-i7 "$(cat "$PANE")"; rc=$?
+assert_eq "$rc" "0" "HEAD already on origin: rc 0"
+assert_eq "$(git -C "$ORIGIN" for-each-ref --format='%(refname)' | wc -l)" "$n0" "HEAD already on origin: no ref created on the remote"
+assert_ok "HEAD already on origin: handoff comment still posted" grep -q '^gh issue comment 7 ' "$CALLS"
+assert_no "HEAD already on origin: the comment claims no push" grep -q 'committed and pushed to' "$CALLS"
+assert_ok "HEAD already on origin: the comment names the origin ref" grep -q 'already on' "$CALLS"
+echo realwork > "$WD/real.txt"; : > "$CALLS"
+for r in $(git -C "$ORIGIN" for-each-ref --format='%(refname)' 'refs/heads/issue/7-checkpoint-*'); do git -C "$ORIGIN" update-ref -d "$r"; done   # the same-minute side branch of the diverged row above
+n0=$(git -C "$ORIGIN" for-each-ref --format='%(refname)' | wc -l)
+mechanical_checkpoint hz-main-i7 "$(cat "$PANE")"
+assert_eq "$(git -C "$ORIGIN" for-each-ref --format='%(refname)' | wc -l)" "$((n0 + 1))" "uncommitted WIP on a diverged remote still gets a side branch"
 git -C "$WD" remote set-url origin "$RUN_DIR/nowhere.git"; : > "$CALLS"
 mechanical_checkpoint hz-main-i7 "$(cat "$PANE")"; rc=$?
 assert_eq "$rc" "1" "unpushable work: mechanical checkpoint reports failure"
