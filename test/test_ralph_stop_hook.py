@@ -52,6 +52,21 @@ class Lane:
         self.append({"type": "attachment", "attachment": {"type": "queued_command", "prompt":
                      f"<task-notification>\n<task-id>{aid}</task-id>\n<status>{status}</status>\n</task-notification>"}})
 
+    def start_task(self, kind, tid, ts=None):
+        """A `run_in_background` Bash task, a Bash command moved to the background, or a Monitor: the tool_result Claude Code logs."""
+        ts = ts or time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        res, text = {
+            "bash": ({"stdout": "", "backgroundTaskId": tid}, f"Command running in background with ID: {tid}. Output is being written to: /x/{tid}.output."),
+            "moved": ({"stdout": "rc=1"}, f"rc=1\nCommand did not complete within its 590s timeout and was moved to the background (ID: {tid}). Output ..."),
+            "monitor": ({"taskId": tid, "timeoutMs": 280000, "persistent": False}, f"Monitor started (task {tid}, expires in 4m 40s unless the source ends first)."),
+        }[kind]
+        self.append({"type": "user", "timestamp": ts, "toolUseResult": res,
+                     "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": text}]}})
+
+    def monitor_event(self, tid, event):
+        self.append({"type": "user", "message": {"role": "user", "content":
+                     f'<task-notification>\n<task-id>{tid}</task-id>\n<summary>Monitor event: "w"</summary>\n<event>{event}</event>\n</task-notification>'}})
+
     def compact(self):
         self.append({"type": "system", "subtype": "compact_boundary"})
         self.append({"type": "user", "isCompactSummary": True, "message": {"role": "user", "content": "summary"}})
@@ -204,6 +219,35 @@ def test_the_promise_wins_over_a_running_sub_agent():
     L = lane()
     L.launch_agent("a1"); L.say(f"<promise>{PROMISE}</promise>"); L.write()
     assert L.stop() is None and not os.path.exists(L.state)
+
+
+# --- no re-feed while a Monitor or background task runs (#1263) -----------------------------------
+def test_a_stop_while_a_monitor_or_background_task_runs_gives_no_refeed_until_its_notification():
+    for kind in ("bash", "moved", "monitor"):
+        L = lane()
+        L.start_task(kind, "bx1"); L.say("Waiting on the task."); L.write()
+        assert L.stop(stale_s=3600) is None, kind
+        assert L.frontmatter("iteration") == "1", "no nudge, no iteration counted"
+        L.agent_done("bx1"); L.say("it is in, nothing more to do"); L.write()
+        out = L.stop(stale_s=3600)
+        assert out and out["decision"] == "block" and L.frontmatter("iteration") == "2", f"{kind}: judged once it is done"
+
+
+def test_a_monitor_event_does_not_end_the_watch_but_its_expiry_does():
+    L = lane()
+    L.start_task("monitor", "m1"); L.monitor_event("m1", "line 3 of output"); L.say("waiting"); L.write()
+    assert L.stop(stale_s=3600) is None, "an event while the Monitor runs"
+    L.monitor_event("m1", "[Monitor expired after 4m 40s with no events delivered. Re-arm it.]"); L.say("waiting"); L.write()
+    assert L.stop(stale_s=3600)["decision"] == "block"
+
+
+def test_a_background_task_that_never_reports_stops_holding_the_nudge_after_the_stale_window():
+    L = lane()
+    L.start_task("monitor", "m2", ts="2026-11-07T00:00:10.000Z"); L.say("waiting"); L.write()
+    assert L.stop(stale_s=1800)["decision"] == "block"
+    L2 = lane()
+    L2.start_task("monitor", "m3"); L2.say("waiting"); L2.write()
+    assert L2.stop(stale_s=1800) is None
 
 
 # --- the nudge ------------------------------------------------------------------------------------

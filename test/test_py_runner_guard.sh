@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rtdd: always
 # test_py_runner_guard.sh — #892: run.sh runs a Python test file as `python3 <file>`, so a file with test_ functions and no
-# `if __name__ == "__main__":` runner defined its tests, ran none and exited 0 — test_ralph_stop_hook.py (19 tests) and
+# `if __name__ == "__main__":` runner defined its tests, ran none and exited 0 — test_ralph_stop_hook.py (22 tests) and
 # test_bench_refeeds.py (4) passed that way. Every such file must run its tests, a failing test must fail the run, and a
 # main-less file must be caught by name rather than pass silently. #917: and so must a test defined BELOW the runner, which
 # walks globals() as it executes and so never sees it.
@@ -27,7 +27,7 @@ assert_eq "$late" "" "no Python test file defines a test_ function after its __m
 # 2. The two files named in #892 run all their tests, through run.sh.
 out="$(cd "$HERE" && bash run.sh test_ralph_stop_hook.py test_bench_refeeds.py 2>&1)"; rc=$?
 assert_eq "$rc" "0" "run.sh test_ralph_stop_hook.py test_bench_refeeds.py exits 0"
-assert_eq "$(grep -c '^  ok: test_' <<<"$out")" "23" "...and runs all 23 tests (19 + 4)"
+assert_eq "$(grep -c '^  ok: test_' <<<"$out")" "26" "...and runs all 26 tests (22 + 4)"
 
 # 3. run.sh itself, on a copy with fixture test files.
 RT="$(mktemp -d)"; tmp_track "$RT"; mkdir -p "$RT/test"

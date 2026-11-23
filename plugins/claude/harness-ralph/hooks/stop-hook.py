@@ -11,6 +11,8 @@
 #     with a sub-agent running (launched async, no completed `<task-notification>` yet) gets no nudge: the
 #     notification starts the next turn, and its Stop is judged then. A sub-agent whose transcript has not
 #     moved for HARNESS_RALPH_AGENT_STALE_S (default 1800) is taken for lost and no longer holds the nudge.
+#   * the same for a lane waiting on its own Monitor or `run_in_background` Bash task (#1263): re-prompting it only made it
+#     re-arm the watch and end its turn again, one more wake each time. Same rule: no completed notification yet, same staleness.
 #   * the full task was the nudge. Now it is a short reminder naming the goal; the whole task is re-sent only
 #     after a context compaction (a `compact_boundary` / `isCompactSummary` entry the hook has not yet
 #     answered), when the lane may have lost it.
@@ -105,24 +107,52 @@ def tool_result_texts(row):
             yield str(inner or "")
 
 
+BG_TASK_TEXT = (r"Command running in background with ID:\s*(\w+)", r"moved to the background \(ID:\s*(\w+)\)",
+                r"Monitor started \(task (\w+)")
+MONITOR_ENDED = re.compile(r"expired|ended|exited|stopped|finished|completed|timed out|terminated", re.I)
+
+
+def notification_text(r):
+    """The `<task-notification>` a row delivers, if any: a queued_command attachment or a user turn."""
+    att = r.get("attachment")
+    if isinstance(att, dict) and att.get("type") == "queued_command":
+        p = att.get("prompt")
+    elif r.get("type") == "user":
+        p = (r.get("message") or {}).get("content")
+    else:
+        return None
+    return p if isinstance(p, str) and "<task-notification>" in p else None
+
+
 def running_agents(rows):
-    """{agent id: launch timestamp} of the async sub-agents launched and not yet reported done."""
+    """{task id: launch timestamp} of the async sub-agents, `run_in_background` Bash tasks and Monitors started and not yet
+    reported done (#1263: a lane waiting on its own Monitor or background command is no more idle than one waiting on a sub-agent)."""
     live = {}
     for r in rows:
         res = r.get("toolUseResult")
-        if isinstance(res, dict) and res.get("isAsync") and res.get("status") == "async_launched" and res.get("agentId"):
-            live[str(res["agentId"])] = r.get("timestamp")
-        elif r.get("type") == "user":
+        if isinstance(res, dict):
+            if res.get("isAsync") and res.get("status") == "async_launched" and res.get("agentId"):
+                live[str(res["agentId"])] = r.get("timestamp")
+            for k in ("backgroundTaskId", "taskId"):
+                if isinstance(res.get(k), str) and res[k]:
+                    live.setdefault(res[k], r.get("timestamp"))
+        if r.get("type") == "user":
             for t in tool_result_texts(r):
                 m = re.match(r"\s*Async agent launched successfully.*?agentId:\s*(\w+)", t, re.S)
                 if m:
                     live.setdefault(m.group(1), r.get("timestamp"))
-        att = r.get("attachment")
-        prompt = att.get("prompt") if isinstance(att, dict) and att.get("type") == "queued_command" else None
-        if isinstance(prompt, str) and "<task-notification>" in prompt:
+                for pat in BG_TASK_TEXT:
+                    m = re.search(pat, t)
+                    if m:
+                        live.setdefault(m.group(1), r.get("timestamp"))
+        prompt = notification_text(r)
+        if prompt:
             m = re.search(r"<task-id>\s*(\w+)\s*</task-id>", prompt)
             st = re.search(r"<status>\s*(\w+)\s*</status>", prompt)
-            if m and (not st or st.group(1) != "running"):
+            if m and "Monitor event" in prompt and not st:
+                if MONITOR_ENDED.search(prompt):      # a Monitor event while it still runs does not end the watch
+                    live.pop(m.group(1), None)
+            elif m and (not st or st.group(1) != "running"):
                 live.pop(m.group(1), None)
     return live
 
@@ -239,7 +269,7 @@ def main():
         end_loop(state)
         return
 
-    # A sub-agent still running: no nudge. Its notification starts the next turn, whose Stop is judged then.
+    # A sub-agent, Monitor or background task still running: no nudge. Its notification starts the next turn, whose Stop is judged then.
     stale_s = env_num("HARNESS_RALPH_AGENT_STALE_S", 1800)
     if any(agent_is_live(transcript, a, ts, stale_s) for a, ts in running_agents(rows).items()):
         return
