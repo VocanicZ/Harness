@@ -71,7 +71,7 @@ session_account(){ local wd; wd="$(cat "$RUN_DIR/$1.wd" 2>/dev/null)" || return 
 # session would be re-dispatched on top of it). rc 1 = the work could not be pushed anywhere.
 # [why] [what] — the commit's reason and the handoff's explanation (default: the usage-limit freeze;
 # #417's self-park checkpoint passes its own).
-mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" stamp body
+mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" onorigin="" stamp body
   local why="${3:-usage limit}" what="${4:-Session \`$1\` is frozen at a usage limit and cannot run its own /handoff, so Harness checkpointed it mechanically. The session was left running and resumes when the limit resets.}"
   # An unresolved repo must stop here: `gh -R ""` would fall back to whatever repo the cwd is.
   _checkpoint_target "$sess" && [[ -n "$_CP_SLUG" && "$_CP_SLUG" == */?* ]] \
@@ -83,7 +83,8 @@ mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" stamp body
       git -C "$wd" commit -q --no-verify -m "wip: harness checkpoint of $sess ($why) (#$_CP_ISSUE)"
     fi
     sha="$(git -C "$wd" rev-parse --short HEAD)"; stamp="$(date +%Y%m%d%H%M)"
-    if git -C "$wd" push -q origin "HEAD:refs/heads/$_CP_BRANCH" 2>/dev/null; then pushed="$_CP_BRANCH"
+    if onorigin="$(worktree_head_on_origin "$wd")"; then :   # #1266: already on origin — nothing to push, no junk branch
+    elif git -C "$wd" push -q origin "HEAD:refs/heads/$_CP_BRANCH" 2>/dev/null; then pushed="$_CP_BRANCH"
     elif git -C "$wd" push -q origin "HEAD:refs/heads/$_CP_BRANCH-checkpoint-$stamp" 2>/dev/null; then
       pushed="$_CP_BRANCH-checkpoint-$stamp (origin/$_CP_BRANCH had diverged; merge it by hand)"
     else
@@ -93,7 +94,7 @@ mechanical_checkpoint(){ local sess="$1" pane="$2" wd sha pushed="" stamp body
   body="<!-- harness-handoff issue=$_CP_ISSUE${_CP_BRANCH:+ branch=$_CP_BRANCH} -->
 ## Checkpoint by Harness ($why)
 $what
-${pushed:+All work in progress was committed and pushed to \`$pushed\` @ \`$sha\`. }This is not the agent's own handoff: rebuild context from the branch's commits and its diff against the base.
+${pushed:+All work in progress was committed and pushed to \`$pushed\` @ \`$sha\`. }${onorigin:+Nothing was pushed: HEAD \`$sha\` is already on \`$onorigin\`. }This is not the agent's own handoff: rebuild context from the branch's commits and its diff against the base.
 
 Last screen:
 \`\`\`

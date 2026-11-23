@@ -2773,6 +2773,15 @@ _checkpoint_target(){  # <session>
   return 1
 }
 
+# worktree_head_on_origin <worktree> — #1266: fetch, then print the origin ref that already contains the worktree's HEAD
+# (rc 0), so a checkpoint has nothing to push. rc 1 = HEAD is on no origin ref, OR the fetch failed: a stale remote-tracking
+# ref proves nothing, so an unreachable origin still falls through to the push (which then fails and keeps the session).
+worktree_head_on_origin(){ local wd="$1" ref
+  git -C "$wd" fetch -q origin >/dev/null 2>&1 || return 1
+  ref="$(git -C "$wd" branch -r --contains HEAD 2>/dev/null | grep -v -e ' -> ' | sed -n '1{s/^[* ]*//;p;}')"
+  [[ -n "$ref" ]] && { echo "$ref"; return 0; }
+  return 1; }
+
 # #194 usage watch + checkpoint (needs the config above and the helpers in this file).
 source "$(dirname "${BASH_SOURCE[0]}")/usage.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/wait.sh"   # #1066: engine-owned waits (park a lane for a long job or a usage limit, resume it once)
