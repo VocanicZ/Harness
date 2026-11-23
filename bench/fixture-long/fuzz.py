@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fuzz.py -- differential fuzz of an arm's `tabula` against the reference implementation (#1257, PRD #345).
+"""fuzz.py -- differential fuzz of an arm's `tabula` against the reference implementation (#1257, #1262, PRD #345).
 
 The hidden tests (bench/fixture-long/hidden/) are hand-picked; this feeds the arm and the reference
 (bench/fixture-long/reference/) the SAME work folders and command lines and counts where they disagree. Same interface as
@@ -7,12 +7,12 @@ bench/fuzz.py (which delegates here for `--fixture long`):
 
     bench/fixture-long/fuzz.py --self                  # the reference against itself: must report 0 divergences
     bench/fixture-long/fuzz.py --cmd '["tabula"]'      # an arm's command line (JSON argv); default $TABULA_CMD
-    bench/fixture-long/fuzz.py --cases 100 --cap 60    # the first 100 cases / a shorter time cap (defaults 300 / 300 s)
+    bench/fixture-long/fuzz.py --cases 100 --cap 60    # the first 100 cases / a shorter time cap (defaults 500 / 300 s)
 
 Prints one JSON object: {"fuzz_cases", "fuzz_divergences", "fuzz_examples" (up to 10), "fuzz_seed", "fuzz_hash"}.
 
 A case is one or two small CSV files (any of LF/CRLF, a byte order mark, blank lines, quoted fields, numbers with signs and
-decimals, empty cells, text) and one command line over them: each of the seven new commands with good and bad keys, columns,
+decimals, empty cells, text) and one command line over them: each of the fourteen new commands with good and bad keys, columns,
 conditions, aggregates and options, in either position of the option. Compared: the exit status; standard output exactly
 for exit 0; for exit 1 that standard output is empty and standard error is not; nothing for exit 2 but the status and an
 empty standard output. Left open by the brief and so never compared: the wording of messages, and which of two mistakes is
@@ -22,7 +22,7 @@ import argparse, hashlib, json, os, random, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REFERENCE_DIR = os.path.join(HERE, "reference")
-SEED, CASES, CAP_S = 1257, 300, 300
+SEED, CASES, CAP_S = 1257, 500, 300
 NAMES = ["id", "name", "qty", "price", "city", "k", "v"]
 WORDS = ["ax", "by", "cz", "Bo", "ann", "Leeds", "x", "A", "a b", "é", "10", "9", "1.0", "01"]
 NUMS = ["0", "1", "-3", "+5", "2.50", "10.5", "0.125", "1.005", "3.", ".5", "100", "7"]
@@ -48,7 +48,8 @@ def make_case(r, i):
     nums = set(r.sample(cols, r.randint(1, len(cols))))
     files = {"a.csv": table(r, cols, r.randint(0, 8), nums)}
     col = lambda: r.choice(cols) if r.random() < 0.95 else "nope"
-    kind = r.choice(["sort", "filter", "group", "join", "pivot", "dedupe", "stats"])
+    kind = r.choice(["sort", "filter", "group", "join", "pivot", "dedupe", "stats",
+                     "select", "rename", "rank", "concat", "melt", "window", "bucket"])
     if kind == "sort":
         keys = ["%s%s%s" % (col(), r.choice(["", ":num"]), r.choice(["", ":desc"])) for _ in range(r.randint(1, 2))]
         argv = ["sort", "a.csv"] + keys
@@ -73,8 +74,34 @@ def make_case(r, i):
         argv = ["dedupe", "a.csv"] + [col() for _ in range(r.randint(1, 2))]
         if r.random() < 0.6:
             argv += ["--keep", r.choice(["first", "last"])]
-    else:
+    elif kind == "stats":
         argv = ["stats", "a.csv"] + [col() for _ in range(r.randint(1, 2))]
+    elif kind == "select":
+        names = r.sample(cols, r.randint(1, len(cols))) if r.random() < 0.95 else [col(), col()]
+        bang = r.random() < 0.4
+        argv = ["select", "a.csv"] + [("!" if bang else "") + n for n in names]
+    elif kind == "rename":
+        olds = r.sample(cols, r.randint(1, min(2, len(cols))))
+        news = [r.choice(NAMES + ["z", "w"]) for _ in olds]
+        if r.random() < 0.15 and len(olds) == 2:
+            news = olds[::-1]
+        argv = ["rename", "a.csv"] + ["%s=%s" % (o if r.random() < 0.95 else "nope", n) for o, n in zip(olds, news)]
+    elif kind == "rank":
+        argv = ["rank", "a.csv", "%s%s%s" % (col(), r.choice(["", ":num"]), r.choice(["", ":desc"]))]
+    elif kind == "concat":
+        other = r.sample(cols, len(cols)) if r.random() < 0.85 else r.sample(NAMES, r.randint(2, 4))
+        files["b.csv"] = table(r, other, r.randint(0, 6), nums)
+        argv = ["concat", "a.csv", "b.csv"]
+    elif kind == "melt":
+        ident = col()
+        argv = ["melt", "a.csv", ident] + r.sample(cols, r.randint(1, len(cols)))
+    elif kind == "window":
+        argv = ["window", "a.csv", col()]
+        if r.random() < 0.7:
+            opt = ["--window", r.choice(["1", "2", "3", "5", "0", "x"])]
+            argv = argv + opt if r.random() < 0.5 else opt + argv
+    else:
+        argv = ["bucket", "a.csv", col(), r.choice(["1", "0.5", "5", "0.25", "10", "2.50", "0", "abc"])]
     if r.random() < 0.5:
         argv += ["--format", r.choice(["text", "csv", "json"])]
     return {"id": i, "files": {k: v.hex() for k, v in files.items()}, "argv": argv}

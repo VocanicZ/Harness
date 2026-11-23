@@ -57,3 +57,52 @@ The mean is rounded half up to two decimals.
 
 `tabula stats FILE COLUMN...` prints `count`, `min`, `max`, `mean` and `median` of the numbers in each column; empty cells
 are left out.
+
+## select
+
+`tabula select FILE ARG...` prints some of the columns: the ones named, in the order named, or, when every ARG starts with
+`!`, every column except the ones named (without the `!`), in the order of the file. Mixing both kinds, or naming a column
+twice, is a usage error. An ARG that starts with `!` is always a drop, so `!!x` drops a column named `!x`. A column the file
+does not have is a mistake, and so is dropping every column (`t.csv: nothing left to print`).
+
+## rename
+
+`tabula rename FILE OLD=NEW...` renames columns and prints the whole table. Each argument is split at its first `=`; one
+with no `=` or with nothing on a side of it is a usage error, and so is naming the same OLD twice. All renames apply at once
+(`a=b b=a` swaps two columns). An OLD the file does not have is a mistake, and so is a result with a column name twice.
+
+## rank
+
+`tabula rank FILE KEY` prints the whole table in the order of the file with one more column, `rank`, at the end. KEY is read
+as a KEY of `sort` is (`COLUMN` with `:num` and `:desc`). Rank 1 goes to the row that would come first in a `sort` by KEY;
+rows that tie on KEY share the rank of the first of them and the next rank skips as many (1, 2, 2, 4). A file that already
+has a column `rank` is a mistake.
+
+## concat
+
+`tabula concat FILE FILE...` prints the rows of the first file, then those of the second, and so on, with the columns of
+the first file in its order. Every other file must have exactly the same set of column names, in any order; its cells go
+to the column of the same name. A file that does not is a mistake that names it. At least two files are needed.
+
+## melt
+
+`tabula melt FILE ID COLUMN...` turns columns into rows. The result has the columns ID, `variable` and `value`: for each row
+of the file, one row per COLUMN, in the order named, holding the column's name and its cell. A cell that is empty or only
+whitespace gives no row. ID may not be one of the COLUMNs and a COLUMN may not be named twice (usage errors); an ID column
+called `variable` or `value` is a mistake.
+
+## window
+
+`tabula window FILE COLUMN [--window N]` prints the whole table with one more column, `COLUMN_avg` (`qty_avg`): the mean of
+the numbers in COLUMN over the row and the rows before it, at most N rows in all (`--window N` or `--window=N`, a whole
+number of at least 1, 3 when not given; anything else is a usage error). Early rows look at the rows there are. Empty cells
+are not counted, and a row whose window holds no number gets an empty cell. The mean is rounded half up to two decimals and
+printed with two. A cell that is not a number is a mistake, and so is a file that already has the column `COLUMN_avg`.
+
+## bucket
+
+`tabula bucket FILE COLUMN WIDTH` prints the whole table with one more column, `bucket`: the largest multiple of WIDTH that
+is not above the number in COLUMN (`-0.5` with width `1` is in bucket `-1`). WIDTH is a number above zero, anything else is a
+usage error. The bucket is printed as a plain number with as many decimals as WIDTH was written with (width `0.50`: `1.25`
+is in bucket `1.00`; width `5`: `3` is in bucket `0`, never `-0`). An empty cell gives an empty bucket; a cell that is not a
+number is a mistake, and so is a file that already has a column `bucket`.

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""test_bench_long.py — #1257 (PRD #345): the long-session fixture (bench/fixture-long, tabula) and the seeding of its existing code.
+"""test_bench_long.py — #1257, #1262 (PRD #345): the long-session fixture (bench/fixture-long, tabula) and the seeding of its existing code.
 
 Covered: the registry knows `long` and its seed; the seed is an existing repo of a few thousand lines whose tests pass, the
-reference is the seed plus the seven commands, the hidden tests pass on the reference and fail on the seed for the new commands
-only, the shape (seven issues, one shared module, nothing needs anything) and the brief (one section per command, blind to the
+reference is the seed plus the fourteen commands, the hidden tests pass on the reference and fail on the seed for the new commands
+only, the shape (fourteen issues, one shared module, nothing needs anything) and the brief (one section per command, blind to the
 hidden tests), the grader builds it with pip, the fuzz finds nothing on the reference and finds a planted bug, and `Gh.seed`
 commits the seed beside the brief (and only the brief when a fixture has no seed)."""
 import importlib.util, json, os, shutil, subprocess, sys, tempfile
@@ -13,7 +13,7 @@ ROOT = os.path.dirname(HERE)
 BENCH = os.path.join(ROOT, "bench")
 LONG = os.path.join(BENCH, "fixture-long")
 sys.dont_write_bytecode = True
-COMMANDS = ["sort", "filter", "group", "join", "pivot", "dedupe", "stats"]
+COMMANDS = ["sort", "filter", "group", "join", "pivot", "dedupe", "stats", "select", "rename", "rank", "concat", "melt", "window", "bucket"]
 
 
 def load(name, path):
@@ -69,7 +69,7 @@ def test_the_seed_is_an_existing_repo_of_a_few_thousand_lines_with_passing_tests
     assert p.returncode == 0, p.stderr[-500:]
 
 
-def test_the_reference_is_the_seed_plus_the_seven_commands():
+def test_the_reference_is_the_seed_plus_the_fourteen_commands():
     seed, ref = os.path.join(LONG, "seed"), os.path.join(LONG, "reference")
     for base, dirs, files in os.walk(seed):
         dirs[:] = [d for d in dirs if d != "__pycache__"]
@@ -82,21 +82,21 @@ def test_the_reference_is_the_seed_plus_the_seven_commands():
 
 def test_the_hidden_tests_pass_on_the_reference_and_fail_on_the_seed_for_the_new_commands():
     ref = grade(os.path.join(LONG, "reference"))
-    assert ref["failed"] == 0 and ref["total"] >= 80 and ref["details"]["install"] == "pip", ref["details"].get("error")
+    assert ref["failed"] == 0 and ref["total"] >= 160 and ref["details"]["install"] == "pip", ref["details"].get("error")
     assert ref["fuzz"]["fuzz_divergences"] == 0 and ref["fuzz"]["fuzz_cases"] == 30
     seed = grade(os.path.join(LONG, "seed"))
     failed = {t["id"].split(".")[0] for t in seed["details"]["tests"] if t["status"] != "passed"}
     assert seed["total"] == ref["total"] and 0 < seed["passed"] < seed["total"]
-    assert failed == {"SortTests", "FilterTests", "GroupTests", "JoinTests", "PivotTests", "DedupeTests", "StatsTests"}, failed
+    assert failed == {"SortTests", "FilterTests", "GroupTests", "JoinTests", "PivotTests", "DedupeTests", "StatsTests", "SelectTests", "RenameTests", "RankTests", "ConcatTests", "MeltTests", "WindowTests", "BucketTests"}, failed
 
 
-def test_the_shape_is_seven_independent_issues_on_one_module_and_the_brief_has_a_section_each():
+def test_the_shape_is_fourteen_independent_issues_on_one_module_and_the_brief_has_a_section_each():
     shape = json.load(open(os.path.join(LONG, "shape.json"), encoding="utf-8"))
     issues = shape["issues"]
-    assert 6 <= len(issues) <= 8 and len({i["id"] for i in issues}) == len(issues)
+    assert len(issues) == 14 and len({i["id"] for i in issues}) == len(issues)
     assert all(i["edits"] == shape["shared_module"] == "tabula/engine.py" and i["needs"] == [] for i in issues)
     brief = open(os.path.join(LONG, "brief.md"), encoding="utf-8").read()
-    assert [l[3:] for l in brief.splitlines() if l.startswith("## ")][:7] == COMMANDS
+    assert [l[3:] for l in brief.splitlines() if l.startswith("## ")][:14] == COMMANDS
     for needle in ("hidden", "reference", "fixture-long", "TABULA_CMD"):
         assert needle not in brief, needle
     assert "tabula/engine.py" in brief
@@ -104,7 +104,7 @@ def test_the_shape_is_seven_independent_issues_on_one_module_and_the_brief_has_a
 
 def test_the_fuzz_finds_nothing_on_the_reference_and_finds_a_planted_bug():
     assert fuzz.run([sys.executable, "-m", "tabula"], dict(os.environ, PYTHONPATH=fuzz.REFERENCE_DIR), cases=60)["fuzz_divergences"] == 0
-    assert fuzz.generate(20) == fuzz.generate(300)[:20] and fuzz.case_hash(fuzz.generate(5)) == fuzz.case_hash(fuzz.generate(5))
+    assert fuzz.generate(20) == fuzz.generate(500)[:20] and fuzz.case_hash(fuzz.generate(5)) == fuzz.case_hash(fuzz.generate(5))
     d = tempfile.mkdtemp(prefix="long-bug-")
     try:
         bug = os.path.join(d, "ref")
@@ -113,7 +113,7 @@ def test_the_fuzz_finds_nothing_on_the_reference_and_finds_a_planted_bug():
         text = open(path, encoding="utf-8").read()
         assert 'opts.get("keep", "first") == "last"' in text
         open(path, "w", encoding="utf-8").write(text.replace('opts.get("keep", "first") == "last"', 'opts.get("keep", "first") == "never"'))
-        got = fuzz.run([sys.executable, "-m", "tabula"], dict(os.environ, PYTHONPATH=bug), cases=300)
+        got = fuzz.run([sys.executable, "-m", "tabula"], dict(os.environ, PYTHONPATH=bug), cases=500)
         assert got["fuzz_divergences"] > 0 and got["fuzz_examples"] and "dedupe" in got["fuzz_examples"][0]["command"], got
     finally:
         shutil.rmtree(d, ignore_errors=True)

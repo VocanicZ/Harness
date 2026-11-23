@@ -1,4 +1,4 @@
-"""The seven new commands and the four old ones, one table per command. A row is (name, files, command line, exit status,
+"""The fourteen new commands and the four old ones, one table per command. A row is (name, files, command line, exit status,
 expected standard output for status 0 / substrings of standard error otherwise)."""
 from common import make_class
 
@@ -11,6 +11,10 @@ JL = "id,name,city\n1,ann,Leeds\n2,bob,York\n3,cy,Hull\n2,bob2,Bath\n"
 JR = "id,city,score\n2,X,5\n1,Y,7\n2,Z,9\n4,W,1\n"
 PIV = "region,q,amt\nN,Q2,2.5\nS,Q1,5\nN,Q1,10\nN,Q1,0.5\nE,Q2,4\n"
 DUP = "k,v,w\na,1,x\nb,2,y\na,3,z\nc,4,y\nb,5,x\na,1,x\n"
+BODY = "ax,3,2.50\nby,10,1.25\nax,7,\ncz,10,3\nBo,9,0.5\n"
+MELT_IN = "id,x,y,z\n1,5,,7\n2, ,8,9\n3,,,\n"
+WIN_IN = "d,qty\na,1\nb,2\nc,6\nd,3\ne,9\n"
+BUCKET_IN = "v\n1.25\n0.1\n-0.5\n7\n3\n"
 
 SORT = [
     ("text_by_code_point", {"t.csv": T}, ["sort", "t.csv", "name"] + CSV, 0, HDR + "Bo,9,0.5\nax,3,2.50\nax,7,\nby,10,1.25\ncz,10,3\n"),
@@ -106,6 +110,163 @@ STATS = [
     ("unknown_column", {"t.csv": T}, ["stats", "t.csv", "nope"], 1, ["nope"]),
     ("no_column", {"t.csv": T}, ["stats", "t.csv"], 2, ["stats"]),
 ]
+SELECT = [
+    ("keep_in_the_order_named", {"t.csv": T}, ["select", "t.csv", "price", "name"] + CSV, 0, "price,name\n2.50,ax\n1.25,by\n,ax\n3,cz\n0.5,Bo\n"),
+    ("keep_one_column", {"t.csv": T}, ["select", "t.csv", "qty"] + CSV, 0, "qty\n3\n10\n7\n10\n9\n"),
+    ("drop_one", {"t.csv": T}, ["select", "t.csv", "!qty"] + CSV, 0, "name,price\nax,2.50\nby,1.25\nax,\ncz,3\nBo,0.5\n"),
+    ("drop_two_keeps_the_file_order", {"t.csv": T}, ["select", "t.csv", "!price", "!name"] + CSV, 0, "qty\n3\n10\n7\n10\n9\n"),
+    ("json_output", {"t.csv": T}, ["--format", "json", "select", "t.csv", "name", "qty"], 0,
+     '[{"name": "ax", "qty": "3"}, {"name": "by", "qty": "10"}, {"name": "ax", "qty": "7"}, {"name": "cz", "qty": "10"}, {"name": "Bo", "qty": "9"}]\n'),
+    ("text_output", {"t.csv": T}, ["select", "t.csv", "name", "qty"], 0, "name  qty\nax    3\nby    10\nax    7\ncz    10\nBo    9\n"),
+    ("header_only", {"t.csv": HDR}, ["select", "t.csv", "qty", "name"] + CSV, 0, "qty,name\n"),
+    ("double_bang_drops_a_column_named_with_a_bang", {"t.csv": "a,!x,b\n1,2,3\n"}, ["select", "t.csv", "!!x"] + CSV, 0, "a,b\n1,3\n"),
+    ("a_drop_never_keeps_a_bang_column_by_name", {"t.csv": "a,!x\n1,2\n"}, ["select", "t.csv", "!a"] + CSV, 0, "!x\n2\n"),
+    ("a_bang_arg_is_a_drop_of_the_name_after_it", {"t.csv": "a,!x\n1,2\n"}, ["select", "t.csv", "!x"], 1, ["x"]),
+    ("mixed_keep_and_drop", {"t.csv": T}, ["select", "t.csv", "name", "!qty"], 2, ["select"]),
+    ("column_named_twice", {"t.csv": T}, ["select", "t.csv", "name", "name"], 2, ["select"]),
+    ("dropped_twice", {"t.csv": T}, ["select", "t.csv", "!name", "!name"], 2, ["select"]),
+    ("kept_and_dropped", {"t.csv": T}, ["select", "t.csv", "price", "!price"], 2, ["select"]),
+    ("nothing_left", {"t.csv": T}, ["select", "t.csv", "!name", "!qty", "!price"], 1, ["t.csv", "nothing left to print"]),
+    ("unknown_kept_column", {"t.csv": T}, ["select", "t.csv", "name", "nope"], 1, ["nope"]),
+    ("unknown_dropped_column", {"t.csv": T}, ["select", "t.csv", "!nope"], 1, ["nope"]),
+    ("no_argument", {"t.csv": T}, ["select", "t.csv"], 2, ["select"]),
+]
+RENAME = [
+    ("one_column", {"t.csv": T}, ["rename", "t.csv", "qty=count"] + CSV, 0, "name,count,price\n" + BODY),
+    ("two_columns", {"t.csv": T}, ["rename", "t.csv", "name=n", "price=p"] + CSV, 0, "n,qty,p\n" + BODY),
+    ("swap_applies_at_once", {"t.csv": T}, ["rename", "t.csv", "name=qty", "qty=name"] + CSV, 0, "qty,name,price\n" + BODY),
+    ("chain_applies_at_once", {"t.csv": "a,b\n1,2\n"}, ["rename", "t.csv", "a=b", "b=c"] + CSV, 0, "b,c\n1,2\n"),
+    ("own_name_is_fine", {"t.csv": T}, ["rename", "t.csv", "qty=qty"] + CSV, 0, T),
+    ("split_at_the_first_equals", {"t.csv": T}, ["rename", "t.csv", "qty=a=b"] + CSV, 0, "name,a=b,price\n" + BODY),
+    ("json_output", {"t.csv": "a,b\n1,2\n"}, ["rename", "t.csv", "a=x", "--format", "json"], 0, '[{"x": "1", "b": "2"}]\n'),
+    ("text_output", {"t.csv": "a,b\n1,2\n10,3\n"}, ["rename", "t.csv", "a=x"], 0, "x   b\n1   2\n10  3\n"),
+    ("header_only", {"t.csv": HDR}, ["rename", "t.csv", "qty=count"] + CSV, 0, "name,count,price\n"),
+    ("no_equals", {"t.csv": T}, ["rename", "t.csv", "qty"], 2, ["rename"]),
+    ("nothing_before_the_equals", {"t.csv": T}, ["rename", "t.csv", "=x"], 2, ["rename"]),
+    ("nothing_after_the_equals", {"t.csv": T}, ["rename", "t.csv", "qty="], 2, ["rename"]),
+    ("same_old_twice", {"t.csv": T}, ["rename", "t.csv", "qty=a", "qty=b"], 2, ["rename"]),
+    ("no_argument", {"t.csv": T}, ["rename", "t.csv"], 2, ["rename"]),
+    ("unknown_old", {"t.csv": T}, ["rename", "t.csv", "nope=x"], 1, ["nope"]),
+    ("new_equal_to_a_column_that_stays", {"t.csv": T}, ["rename", "t.csv", "qty=name"], 1, ["name"]),
+    ("two_new_the_same", {"t.csv": T}, ["rename", "t.csv", "qty=z", "price=z"], 1, []),
+]
+RANK = [
+    ("text_ties_skip_ranks", {"t.csv": "k,v\nb,x\na,y\nb,z\nc,w\n"}, ["rank", "t.csv", "k"] + CSV, 0, "k,v,rank\nb,x,2\na,y,1\nb,z,2\nc,w,4\n"),
+    ("text_desc", {"t.csv": "k,v\nb,x\na,y\nb,z\nc,w\n"}, ["rank", "t.csv", "k:desc"] + CSV, 0, "k,v,rank\nb,x,2\na,y,4\nb,z,2\nc,w,1\n"),
+    ("numbers_tie_as_numbers", {"t.csv": "n\n10\n1.0\n9\n1\n"}, ["rank", "t.csv", "n:num"] + CSV, 0, "n,rank\n10,4\n1.0,1\n9,3\n1,1\n"),
+    ("without_num_the_text_decides", {"t.csv": "n\n10\n1.0\n9\n1\n"}, ["rank", "t.csv", "n"] + CSV, 0, "n,rank\n10,3\n1.0,2\n9,4\n1,1\n"),
+    ("num_desc", {"t.csv": "n\n5\n7\n7\n3\n"}, ["rank", "t.csv", "n:desc:num"] + CSV, 0, "n,rank\n5,3\n7,1\n7,1\n3,4\n"),
+    ("desc_num_in_the_other_order", {"t.csv": "n\n5\n7\n7\n3\n"}, ["rank", "t.csv", "n:num:desc"] + CSV, 0, "n,rank\n5,3\n7,1\n7,1\n3,4\n"),
+    ("whole_table_in_file_order", {"t.csv": T}, ["rank", "t.csv", "qty:num"] + CSV, 0,
+     "name,qty,price,rank\nax,3,2.50,1\nby,10,1.25,4\nax,7,,2\ncz,10,3,4\nBo,9,0.5,3\n"),
+    ("text_by_code_point", {"t.csv": T}, ["rank", "t.csv", "name"] + CSV, 0,
+     "name,qty,price,rank\nax,3,2.50,2\nby,10,1.25,4\nax,7,,2\ncz,10,3,5\nBo,9,0.5,1\n"),
+    ("header_only", {"t.csv": "k,v\n"}, ["rank", "t.csv", "k"] + CSV, 0, "k,v,rank\n"),
+    ("json_output", {"t.csv": "k\nb\na\n"}, ["rank", "t.csv", "k", "--format=json"], 0, '[{"k": "b", "rank": "2"}, {"k": "a", "rank": "1"}]\n'),
+    ("text_output", {"t.csv": "k,v\nb,x\na,y\nb,z\nc,w\n"}, ["rank", "t.csv", "k"], 0, "k  v  rank\nb  x  2\na  y  1\nb  z  2\nc  w  4\n"),
+    ("a_rank_column_already_there", {"t.csv": "rank,v\n1,2\n"}, ["rank", "t.csv", "v"], 1, ["rank"]),
+    ("not_a_number", {"t.csv": T}, ["rank", "t.csv", "price:num"], 1, ["t.csv: row 3: column 'price'"]),
+    ("unknown_column", {"t.csv": T}, ["rank", "t.csv", "nope"], 1, ["nope"]),
+    ("two_keys", {"t.csv": T}, ["rank", "t.csv", "name", "qty"], 2, ["rank"]),
+    ("no_key", {"t.csv": T}, ["rank", "t.csv"], 2, ["rank"]),
+    ("repeated_modifier", {"t.csv": T}, ["rank", "t.csv", "qty:desc:desc"], 2, []),
+]
+CA = "a,b\n1,2\n3,4\n"
+CB = "b,a\n6,5\n8,7\n"
+CONCAT = [
+    ("same_columns", {"a.csv": CA, "b.csv": "a,b\n5,6\n7,8\n"}, ["concat", "a.csv", "b.csv"] + CSV, 0, "a,b\n1,2\n3,4\n5,6\n7,8\n"),
+    ("other_column_order", {"a.csv": CA, "b.csv": CB}, ["concat", "a.csv", "b.csv"] + CSV, 0, "a,b\n1,2\n3,4\n5,6\n7,8\n"),
+    ("the_first_file_sets_the_order", {"a.csv": CA, "b.csv": CB}, ["concat", "b.csv", "a.csv"] + CSV, 0, "b,a\n6,5\n8,7\n2,1\n4,3\n"),
+    ("three_files", {"a.csv": CA, "b.csv": CB, "c.csv": "a,b\n9,0\n"}, ["concat", "a.csv", "b.csv", "c.csv"] + CSV, 0, "a,b\n1,2\n3,4\n5,6\n7,8\n9,0\n"),
+    ("the_same_file_twice", {"a.csv": CA}, ["concat", "a.csv", "a.csv"] + CSV, 0, "a,b\n1,2\n3,4\n1,2\n3,4\n"),
+    ("header_only_first", {"a.csv": "a,b\n", "b.csv": CB}, ["concat", "a.csv", "b.csv"] + CSV, 0, "a,b\n5,6\n7,8\n"),
+    ("header_only_second", {"a.csv": CA, "b.csv": "b,a\n"}, ["concat", "a.csv", "b.csv"] + CSV, 0, "a,b\n1,2\n3,4\n"),
+    ("both_header_only", {"a.csv": "a,b\n", "b.csv": "b,a\n"}, ["concat", "a.csv", "b.csv"] + CSV, 0, "a,b\n"),
+    ("empty_cells_go_to_their_column", {"a.csv": "a,b\n1,\n", "b.csv": "b,a\n,2\n"}, ["concat", "a.csv", "b.csv"] + CSV, 0, "a,b\n1,\n2,\n"),
+    ("json_output", {"a.csv": CA, "b.csv": CB}, ["concat", "a.csv", "b.csv", "--format", "json"], 0,
+     '[{"a": "1", "b": "2"}, {"a": "3", "b": "4"}, {"a": "5", "b": "6"}, {"a": "7", "b": "8"}]\n'),
+    ("text_output", {"a.csv": CA, "b.csv": CB}, ["concat", "a.csv", "b.csv"], 0, "a  b\n1  2\n3  4\n5  6\n7  8\n"),
+    ("a_column_missing_names_the_file", {"a.csv": CA, "b.csv": CB, "c.csv": "a,c\n1,2\n"}, ["concat", "a.csv", "b.csv", "c.csv"], 1, ["c.csv"]),
+    ("an_extra_column_names_the_file", {"a.csv": CA, "d.csv": "a,b,c\n1,2,3\n"}, ["concat", "a.csv", "d.csv"], 1, ["d.csv"]),
+    ("a_column_less_names_the_file", {"a.csv": CA, "e.csv": "a\n1\n"}, ["concat", "a.csv", "e.csv"], 1, ["e.csv"]),
+    ("one_file", {"a.csv": CA}, ["concat", "a.csv"], 2, ["concat"]),
+    ("no_file", {}, ["concat"], 2, ["concat"]),
+    ("missing_file", {"a.csv": CA}, ["concat", "a.csv", "nope.csv"], 1, ["nope.csv"]),
+]
+MELT = [
+    ("empty_and_blank_cells_give_no_row", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "x", "y", "z"] + CSV, 0, "id,variable,value\n1,x,5\n1,z,7\n2,y,8\n2,z,9\n"),
+    ("columns_in_the_order_named", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "z", "x"] + CSV, 0, "id,variable,value\n1,z,7\n1,x,5\n2,z,9\n"),
+    ("one_column", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "y"] + CSV, 0, "id,variable,value\n2,y,8\n"),
+    ("a_column_not_named_is_left_out", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "x"] + CSV, 0, "id,variable,value\n1,x,5\n"),
+    ("a_whole_column_empty", {"m.csv": "id,y\n1,\n2, \n"}, ["melt", "m.csv", "id", "y"] + CSV, 0, "id,variable,value\n"),
+    ("empty_id_is_kept", {"m.csv": "id,x\n,5\n"}, ["melt", "m.csv", "id", "x"] + CSV, 0, "id,variable,value\n,x,5\n"),
+    ("a_column_called_variable_is_a_column", {"m.csv": "id,variable\n1,a\n"}, ["melt", "m.csv", "id", "variable"] + CSV, 0, "id,variable,value\n1,variable,a\n"),
+    ("header_only", {"m.csv": "id,x\n"}, ["melt", "m.csv", "id", "x"] + CSV, 0, "id,variable,value\n"),
+    ("json_output", {"m.csv": "id,x,y\n1,5,6\n"}, ["melt", "m.csv", "id", "x", "y", "--format", "json"], 0,
+     '[{"id": "1", "variable": "x", "value": "5"}, {"id": "1", "variable": "y", "value": "6"}]\n'),
+    ("text_output", {"m.csv": "id,x,y\n1,5,6\n"}, ["melt", "m.csv", "id", "x", "y"], 0, "id  variable  value\n1   x         5\n1   y         6\n"),
+    ("id_among_the_columns", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "x", "id"], 2, ["melt"]),
+    ("column_named_twice", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "x", "x"], 2, ["melt"]),
+    ("no_column", {"m.csv": MELT_IN}, ["melt", "m.csv", "id"], 2, ["melt"]),
+    ("id_called_variable", {"m.csv": "variable,x\n1,2\n"}, ["melt", "m.csv", "variable", "x"], 1, ["variable"]),
+    ("id_called_value", {"m.csv": "value,x\n1,2\n"}, ["melt", "m.csv", "value", "x"], 1, ["value"]),
+    ("unknown_column", {"m.csv": MELT_IN}, ["melt", "m.csv", "id", "nope"], 1, ["nope"]),
+    ("unknown_id", {"m.csv": MELT_IN}, ["melt", "m.csv", "nope", "x"], 1, ["nope"]),
+]
+WINDOW = [
+    ("default_is_three", {"w.csv": WIN_IN}, ["window", "w.csv", "qty"] + CSV, 0, "d,qty,qty_avg\na,1,1.00\nb,2,1.50\nc,6,3.00\nd,3,3.67\ne,9,6.00\n"),
+    ("window_one", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window", "1"] + CSV, 0, "d,qty,qty_avg\na,1,1.00\nb,2,2.00\nc,6,6.00\nd,3,3.00\ne,9,9.00\n"),
+    ("window_equals_form", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window=2"] + CSV, 0, "d,qty,qty_avg\na,1,1.00\nb,2,1.50\nc,6,4.00\nd,3,4.50\ne,9,6.00\n"),
+    ("option_before_the_command", {"w.csv": WIN_IN}, ["--window", "2", "window", "w.csv", "qty"] + CSV, 0, "d,qty,qty_avg\na,1,1.00\nb,2,1.50\nc,6,4.00\nd,3,4.50\ne,9,6.00\n"),
+    ("equals_form_before_the_command", {"w.csv": WIN_IN}, ["--window=2", "window", "w.csv", "qty"] + CSV, 0, "d,qty,qty_avg\na,1,1.00\nb,2,1.50\nc,6,4.00\nd,3,4.50\ne,9,6.00\n"),
+    ("window_longer_than_the_file", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window", "9"] + CSV, 0, "d,qty,qty_avg\na,1,1.00\nb,2,1.50\nc,6,3.00\nd,3,3.00\ne,9,4.20\n"),
+    ("empty_cells_are_not_counted", {"w.csv": "d,qty\na,4\nb,\nc,\nd,2\ne,\n"}, ["window", "w.csv", "qty"] + CSV, 0, "d,qty,qty_avg\na,4,4.00\nb,,4.00\nc,,4.00\nd,2,2.00\ne,,2.00\n"),
+    ("a_window_with_no_number_is_empty", {"w.csv": "d,qty\na,4\nb,\nc,\nd,2\ne,\n"}, ["window", "w.csv", "qty", "--window", "1"] + CSV, 0, "d,qty,qty_avg\na,4,4.00\nb,,\nc,,\nd,2,2.00\ne,,\n"),
+    ("a_blank_cell_is_not_counted", {"w.csv": "d,qty\na,4\nb, \nc,2\n"}, ["window", "w.csv", "qty"] + CSV, 0, "d,qty,qty_avg\na,4,4.00\nb, ,4.00\nc,2,3.00\n"),
+    ("rounds_half_up", {"w.csv": "v\n0.125\n"}, ["window", "w.csv", "v"] + CSV, 0, "v,v_avg\n0.125,0.13\n"),
+    ("rounds_exact_halves_up", {"w.csv": "v\n0.12\n0.13\n0.01\n"}, ["window", "w.csv", "v", "--window", "2"] + CSV, 0, "v,v_avg\n0.12,0.12\n0.13,0.13\n0.01,0.07\n"),
+    ("signed_numbers", {"w.csv": "v\n-1\n-2\n+3\n"}, ["window", "w.csv", "v"] + CSV, 0, "v,v_avg\n-1,-1.00\n-2,-1.50\n+3,0.00\n"),
+    ("header_only", {"w.csv": "d,qty\n"}, ["window", "w.csv", "qty"] + CSV, 0, "d,qty,qty_avg\n"),
+    ("json_output", {"w.csv": "q\n1\n2\n"}, ["window", "w.csv", "q", "--format", "json"], 0, '[{"q": "1", "q_avg": "1.00"}, {"q": "2", "q_avg": "1.50"}]\n'),
+    ("text_output", {"w.csv": "q\n1\n2\n"}, ["window", "w.csv", "q"], 0, "q  q_avg\n1  1.00\n2  1.50\n"),
+    ("window_zero", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window", "0"], 2, ["--window"]),
+    ("window_negative", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window=-1"], 2, ["--window"]),
+    ("window_not_a_number", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window", "abc"], 2, ["--window"]),
+    ("window_not_whole", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window", "2.5"], 2, ["--window"]),
+    ("window_without_value", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "--window"], 2, ["--window"]),
+    ("bad_window_before_the_command", {"w.csv": WIN_IN}, ["--window", "0", "window", "w.csv", "qty"], 2, ["--window"]),
+    ("a_qty_avg_column_already_there", {"w.csv": "qty,qty_avg\n1,2\n"}, ["window", "w.csv", "qty"], 1, ["qty_avg"]),
+    ("not_a_number", {"w.csv": WIN_IN}, ["window", "w.csv", "d"], 1, ["w.csv: row 1: column 'd'"]),
+    ("not_a_number_outside_the_window", {"w.csv": "q\n1\nx\n"}, ["window", "w.csv", "q", "--window", "1"], 1, ["w.csv: row 2: column 'q'"]),
+    ("unknown_column", {"w.csv": WIN_IN}, ["window", "w.csv", "nope"], 1, ["nope"]),
+    ("one_argument", {"w.csv": WIN_IN}, ["window", "w.csv"], 2, ["window"]),
+    ("three_arguments", {"w.csv": WIN_IN}, ["window", "w.csv", "qty", "d"], 2, ["window"]),
+]
+BUCKET = [
+    ("width_one_rounds_down", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "1"] + CSV, 0, "v,bucket\n1.25,1\n0.1,0\n-0.5,-1\n7,7\n3,3\n"),
+    ("width_half_keeps_two_decimals", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "0.50"] + CSV, 0, "v,bucket\n1.25,1.00\n0.1,0.00\n-0.5,-0.50\n7,7.00\n3,3.00\n"),
+    ("width_five_never_prints_minus_zero", {"b.csv": "v\n7\n3\n-0.5\n0\n-5\n-5.1\n10\n-0\n-0.0\n"}, ["bucket", "b.csv", "v", "5"] + CSV, 0,
+     "v,bucket\n7,5\n3,0\n-0.5,-5\n0,0\n-5,-5\n-5.1,-10\n10,10\n-0,0\n-0.0,0\n"),
+    ("width_with_one_decimal", {"b.csv": "v\n4\n1.4\n-0.1\n3\n10\n"}, ["bucket", "b.csv", "v", "1.5"] + CSV, 0, "v,bucket\n4,3.0\n1.4,0.0\n-0.1,-1.5\n3,3.0\n10,9.0\n"),
+    ("width_written_one_point_zero", {"b.csv": "v\n7.5\n-0.5\n"}, ["bucket", "b.csv", "v", "1.0"] + CSV, 0, "v,bucket\n7.5,7.0\n-0.5,-1.0\n"),
+    ("width_quarter", {"b.csv": "v\n1.3\n0.1\n0.74\n-0.01\n"}, ["bucket", "b.csv", "v", "0.25"] + CSV, 0, "v,bucket\n1.3,1.25\n0.1,0.00\n0.74,0.50\n-0.01,-0.25\n"),
+    ("exact_arithmetic", {"b.csv": "v\n0.3\n0.7\n0.29\n1.1\n"}, ["bucket", "b.csv", "v", "0.1"] + CSV, 0, "v,bucket\n0.3,0.3\n0.7,0.7\n0.29,0.2\n1.1,1.1\n"),
+    ("large_width_prints_a_plain_number", {"b.csv": "v\n123456789\n999\n5000\n"}, ["bucket", "b.csv", "v", "1000"] + CSV, 0, "v,bucket\n123456789,123456000\n999,0\n5000,5000\n"),
+    ("empty_cell_gives_an_empty_bucket", {"b.csv": "k,v\na,\nc,4\n"}, ["bucket", "b.csv", "v", "2"] + CSV, 0, "k,v,bucket\na,,\nc,4,4\n"),
+    ("blank_cell_gives_an_empty_bucket", {"b.csv": "k,v\nb, \nc,5\n"}, ["bucket", "b.csv", "v", "2"] + CSV, 0, "k,v,bucket\nb, ,\nc,5,4\n"),
+    ("header_only", {"b.csv": "k,v\n"}, ["bucket", "b.csv", "v", "2"] + CSV, 0, "k,v,bucket\n"),
+    ("json_output", {"b.csv": "v\n1.25\n"}, ["bucket", "b.csv", "v", "0.50", "--format", "json"], 0, '[{"v": "1.25", "bucket": "1.00"}]\n'),
+    ("text_output", {"b.csv": "v\n1.25\n0.1\n"}, ["bucket", "b.csv", "v", "0.50"], 0, "v     bucket\n1.25  1.00\n0.1   0.00\n"),
+    ("width_zero", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "0"], 2, ["bucket"]),
+    ("width_zero_with_decimals", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "0.00"], 2, ["bucket"]),
+    ("width_negative", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "-1"], 2, []),
+    ("width_not_a_number", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "abc"], 2, ["bucket"]),
+    ("two_arguments", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v"], 2, ["bucket"]),
+    ("four_arguments", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "v", "1", "2"], 2, ["bucket"]),
+    ("a_bucket_column_already_there", {"b.csv": "v,bucket\n1,2\n"}, ["bucket", "b.csv", "v", "1"], 1, ["bucket"]),
+    ("not_a_number", {"b.csv": "k,v\na,1\nb,x\n"}, ["bucket", "b.csv", "v", "2"], 1, ["b.csv: row 2: column 'v'", "not a number"]),
+    ("unknown_column", {"b.csv": BUCKET_IN}, ["bucket", "b.csv", "nope", "1"], 1, ["nope"]),
+]
 OLD = [
     ("show", {"t.csv": "a,b\r\n1,\"x,y\"\r\n"}, ["show", "t.csv"], 0, "a  b\n1  x,y\n"),
     ("byte_order_mark_and_blank_lines", {"t.csv": b"\xef\xbb\xbfa,b\n\n1,2\n"}, ["--format", "json", "show", "t.csv"], 0, '[{"a": "1", "b": "2"}]\n'),
@@ -123,5 +284,7 @@ OLD = [
 ]
 
 for _name, _cases in (("SortTests", SORT), ("FilterTests", FILTER), ("GroupTests", GROUP), ("JoinTests", JOIN), ("PivotTests", PIVOT),
-                      ("DedupeTests", DEDUPE), ("StatsTests", STATS), ("ExistingCommandTests", OLD)):
+                      ("DedupeTests", DEDUPE), ("StatsTests", STATS), ("SelectTests", SELECT), ("RenameTests", RENAME),
+                      ("RankTests", RANK), ("ConcatTests", CONCAT), ("MeltTests", MELT), ("WindowTests", WINDOW),
+                      ("BucketTests", BUCKET), ("ExistingCommandTests", OLD)):
     globals()[_name] = make_class(_name, _cases)

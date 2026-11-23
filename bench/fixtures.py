@@ -6,7 +6,7 @@ A fixture is a brief, hidden tests, a reference implementation and a fuzz genera
     pennywise   bench/fixture/        a 4.7 KB brief, about 400 lines of code; fits one session (the original)
     medium      bench/fixture-medium/ stockroom: a 12 KB brief, two subsystems (shelves, orders), 6-10 issues of work (#621)
     large       bench/fixture-large/  a 20-page brief, a 6-10k line reference, a mid-run requirement change
-    long        bench/fixture-long/   tabula: seven issues that each edit one shared module of an existing repo, seeded with
+    long        bench/fixture-long/   tabula: fourteen issues that each edit one shared module of an existing repo, seeded with
                                       about 2,400 lines (`seed/`), so a lane reads a lot and its context grows (#1257)
 
 `bench/run.py <arm> --fixture NAME` picks one (default `pennywise`). The large fixture describes itself in

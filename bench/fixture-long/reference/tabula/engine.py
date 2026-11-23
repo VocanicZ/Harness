@@ -17,7 +17,9 @@ from .errors import TabulaError, UsageError
 
 PROG = "tabula"
 FORMATS = ("text", "csv", "json")
-VALUE_OPTIONS = {"--format": ("format", FORMATS), "--kind": ("kind", ("inner", "left")), "--keep": ("keep", ("first", "last"))}
+# option -> (key in opts, allowed values); None as the allowed values means a whole number of at least 1 (kept as an int)
+VALUE_OPTIONS = {"--format": ("format", FORMATS), "--kind": ("kind", ("inner", "left")), "--keep": ("keep", ("first", "last")),
+                 "--window": ("window", None)}
 getcontext().prec = 60
 
 NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
@@ -1417,6 +1419,14 @@ def parse_sort_key(spec):
     return ":".join(parts), "num" in mods, "desc" in mods
 
 
+def _key_values(table, name, numeric):
+    """What a sort KEY compares for each row of the file: the cells, or with `:num` their numbers."""
+    at = table.index(name)
+    if numeric:
+        return [_cell_number(table, n, name, row[at]) for n, row in enumerate(table.rows, 1)]
+    return [row[at] for row in table.rows]
+
+
 def cmd_sort(args, opts):
     if len(args) < 2:
         raise UsageError("usage: %s sort FILE KEY..." % PROG)
@@ -1424,11 +1434,7 @@ def cmd_sort(args, opts):
     keys = [parse_sort_key(spec) for spec in args[1:]]
     order = list(range(len(table.rows)))
     for name, numeric, desc in reversed(keys):
-        at = table.index(name)
-        if numeric:
-            values = [_cell_number(table, n + 1, name, row[at]) for n, row in enumerate(table.rows)]
-        else:
-            values = [row[at] for row in table.rows]
+        values = _key_values(table, name, numeric)
         order.sort(key=lambda i: values[i], reverse=desc)
     return table.with_rows([table.rows[i] for i in order])
 
@@ -1586,6 +1592,144 @@ def cmd_stats(args, opts):
     return Table(["column", "count", "min", "max", "mean", "median"], rows, table.source)
 
 
+# --- select, rename, rank, concat, melt, window, bucket ------------------------------------------------------
+
+def cmd_select(args, opts):
+    if len(args) < 2:
+        raise UsageError("usage: %s select FILE ARG..." % PROG)
+    drops = [arg.startswith("!") for arg in args[1:]]
+    if any(drops) and not all(drops):
+        raise UsageError("select: name the columns to keep or the columns to drop (!NAME), not both")
+    names = [arg[1:] if drop else arg for arg, drop in zip(args[1:], drops)]
+    if len(set(names)) != len(names):
+        raise UsageError("select: a column is named twice")
+    table = load(args[0])
+    at = [table.index(name) for name in names]
+    if all(drops):
+        at = [i for i in range(len(table.columns)) if i not in at]
+        if not at:
+            raise TabulaError("%s: nothing left to print" % table.source)
+    return Table([table.columns[i] for i in at], [[row[i] for i in at] for row in table.rows], table.source)
+
+
+def cmd_rename(args, opts):
+    if len(args) < 2:
+        raise UsageError("usage: %s rename FILE OLD=NEW..." % PROG)
+    pairs = []
+    for arg in args[1:]:
+        old, eq, new = arg.partition("=")
+        if not eq or not old or not new:
+            raise UsageError("rename: %r is not OLD=NEW" % arg)
+        pairs.append((old, new))
+    if len(set(old for old, _ in pairs)) != len(pairs):
+        raise UsageError("rename: a column is renamed twice")
+    table = load(args[0])
+    new_names = dict(pairs)
+    for old in new_names:
+        table.index(old)
+    columns = [new_names.get(name, name) for name in table.columns]
+    if len(set(columns)) != len(columns):
+        raise TabulaError("rename: the result would have a column name twice")
+    return table.with_rows(table.rows, columns)
+
+
+def cmd_rank(args, opts):
+    _need_args(args, 2, "rank FILE KEY")
+    name, numeric, desc = parse_sort_key(args[1])
+    table = load(args[0])
+    values = _key_values(table, name, numeric)
+    if "rank" in table.columns:
+        raise TabulaError("%s: the file already has a column 'rank'" % table.source)
+    order = sorted(range(len(values)), key=lambda i: values[i], reverse=desc)
+    ranks = [0] * len(values)
+    for place, i in enumerate(order, 1):
+        ranks[i] = ranks[order[place - 2]] if place > 1 and values[i] == values[order[place - 2]] else place
+    return table.with_rows([row + [str(rank)] for row, rank in zip(table.rows, ranks)], table.columns + ["rank"])
+
+
+def cmd_concat(args, opts):
+    if len(args) < 2:
+        raise UsageError("usage: %s concat FILE FILE..." % PROG)
+    first = load(args[0])
+    rows = list(first.rows)
+    for path in args[1:]:
+        table = load(path)
+        if set(table.columns) != set(first.columns):
+            raise TabulaError("%s: columns (%s) are not those of %s (%s)"
+                              % (path, ", ".join(table.columns), args[0], ", ".join(first.columns)))
+        at = [table.columns.index(name) for name in first.columns]
+        rows.extend([row[i] for i in at] for row in table.rows)
+    return first.with_rows(rows)
+
+
+def cmd_melt(args, opts):
+    if len(args) < 3:
+        raise UsageError("usage: %s melt FILE ID COLUMN..." % PROG)
+    if args[1] in args[2:]:
+        raise UsageError("melt: ID %r is also named as a COLUMN" % args[1])
+    if len(set(args[2:])) != len(args[2:]):
+        raise UsageError("melt: a COLUMN is named twice")
+    table = load(args[0])
+    ident = table.index(args[1])
+    at = [table.index(name) for name in args[2:]]
+    if args[1] in ("variable", "value"):
+        raise TabulaError("melt: the result would have the column name %r twice" % args[1])
+    rows = [[row[ident], table.columns[i], row[i]] for row in table.rows for i in at if row[i].strip()]
+    return Table([args[1], "variable", "value"], rows, table.source)
+
+
+def cmd_window(args, opts):
+    _need_args(args, 2, "window FILE COLUMN [--window N]")
+    table = load(args[0])
+    at = table.index(args[1])
+    name = args[1] + "_avg"
+    if name in table.columns:
+        raise TabulaError("%s: the file already has a column %r" % (table.source, name))
+    numbers = [_cell_number(table, n, args[1], row[at]) if row[at].strip() else None for n, row in enumerate(table.rows, 1)]
+    size = opts.get("window", 3)
+    rows = []
+    for n, row in enumerate(table.rows):
+        seen = [x for x in numbers[max(0, n - size + 1):n + 1] if x is not None]
+        rows.append(row + [_two_places(sum(seen, Decimal(0)) / len(seen)) if seen else ""])
+    return table.with_rows(rows, table.columns + [name])
+
+
+def _places(number):
+    """How many decimals a number was written with."""
+    return -number.as_tuple().exponent
+
+
+def _units(number, places):
+    """A number as a whole number of units of 10**-places (exact, whatever its length)."""
+    sign, digits, exponent = number.as_tuple()
+    return (-1 if sign else 1) * int("".join(map(str, digits))) * 10 ** (places + exponent)
+
+
+def cmd_bucket(args, opts):
+    _need_args(args, 3, "bucket FILE COLUMN WIDTH")
+    width = to_decimal(args[2])
+    if width is None or width <= 0:
+        raise UsageError("bucket: WIDTH must be a number above zero, got %r" % args[2])
+    table = load(args[0])
+    at = table.index(args[1])
+    if "bucket" in table.columns:
+        raise TabulaError("%s: the file already has a column 'bucket'" % table.source)
+    numbers = [_cell_number(table, n, args[1], row[at]) if row[at].strip() else None for n, row in enumerate(table.rows, 1)]
+    places = _places(width)
+    rows = []
+    for row, number in zip(table.rows, numbers):
+        if number is None:
+            rows.append(row + [""])
+            continue
+        scale = max(places, _places(number))
+        step = _units(width, scale)
+        units = _units(number, scale) // step * step // 10 ** (scale - places)
+        text = str(abs(units)).rjust(places + 1, "0")
+        text = text[:len(text) - places] + ("." + text[len(text) - places:] if places else "")
+        rows.append(row + [("-" if units < 0 else "") + text])
+    return table.with_rows(rows, table.columns + ["bucket"])
+
+
 COMMANDS = {
     "show": (cmd_show, "show FILE", "print a table"),
     "head": (cmd_head, "head FILE N", "the first N rows"),
@@ -1598,6 +1742,13 @@ COMMANDS = {
     "pivot": (cmd_pivot, "pivot FILE ROW COLUMN VALUE", "sum VALUE by ROW and COLUMN"),
     "dedupe": (cmd_dedupe, "dedupe FILE KEY... [--keep first|last]", "drop rows whose KEY repeats"),
     "stats": (cmd_stats, "stats FILE COLUMN...", "count, min, max, mean and median of numeric columns"),
+    "select": (cmd_select, "select FILE ARG...", "keep the columns named, or with !NAME drop them"),
+    "rename": (cmd_rename, "rename FILE OLD=NEW...", "rename columns"),
+    "rank": (cmd_rank, "rank FILE KEY", "add a rank column by KEY (COLUMN[:num][:desc]); ties share a rank"),
+    "concat": (cmd_concat, "concat FILE FILE...", "the rows of several files with the same columns"),
+    "melt": (cmd_melt, "melt FILE ID COLUMN...", "turn columns into variable/value rows"),
+    "window": (cmd_window, "window FILE COLUMN [--window N]", "moving average of COLUMN over the last N rows (3)"),
+    "bucket": (cmd_bucket, "bucket FILE COLUMN WIDTH", "the multiple of WIDTH at or below each number"),
 }
 
 
@@ -1627,8 +1778,13 @@ def parse_args(argv):
                 if i >= len(argv):
                     raise UsageError("%s needs a value" % arg)
                 value = argv[i]
-            if value not in choices:
-                raise UsageError("%s must be one of %s, got %r" % (arg.split("=", 1)[0], ", ".join(choices), value))
+            flag = arg.split("=", 1)[0]
+            if choices is None:
+                if not (value.isascii() and value.isdigit() and int(value) >= 1):
+                    raise UsageError("%s must be a whole number of at least 1, got %r" % (flag, value))
+                value = int(value)
+            elif value not in choices:
+                raise UsageError("%s must be one of %s, got %r" % (flag, ", ".join(choices), value))
             opts[name] = value
         elif arg.startswith("-") and len(arg) > 1:
             raise UsageError("unknown option %s" % arg)

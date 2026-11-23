@@ -1,13 +1,20 @@
 {
- "about": "The decomposition a planner would naturally arrive at for bench/fixture-long/brief.md: one issue per row. It is NOT given to any arm; test/test_bench_long.py checks that its size (6-8), that every issue edits the one shared module and that nothing needs anything else stay what the fixture claims. The issues are independent on purpose: they all edit tabula/engine.py, so the lanes contend for it and each one reads a module that keeps growing.",
+ "about": "The decomposition a planner would naturally arrive at for bench/fixture-long/brief.md: one issue per row (fourteen commands: the seven of #1257 and seven more, #1262). It is NOT given to any arm; test/test_bench_long.py checks that its size (6-8), that every issue edits the one shared module and that nothing needs anything else stay what the fixture claims. The issues are independent on purpose: they all edit tabula/engine.py, so the lanes contend for it and each one reads a module that keeps growing.",
  "shared_module": "tabula/engine.py",
  "issues": [
-  {"id": "I1", "title": "sort command", "edits": "tabula/engine.py", "needs": []},
-  {"id": "I2", "title": "filter command", "edits": "tabula/engine.py", "needs": []},
-  {"id": "I3", "title": "group command", "edits": "tabula/engine.py", "needs": []},
-  {"id": "I4", "title": "join command and the --kind option", "edits": "tabula/engine.py", "needs": []},
-  {"id": "I5", "title": "pivot command", "edits": "tabula/engine.py", "needs": []},
-  {"id": "I6", "title": "dedupe command and the --keep option", "edits": "tabula/engine.py", "needs": []},
-  {"id": "I7", "title": "stats command", "edits": "tabula/engine.py", "needs": []}
+ {"id": "I1", "title": "sort command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I2", "title": "filter command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I3", "title": "group command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I4", "title": "join command and the --kind option", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I5", "title": "pivot command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I6", "title": "dedupe command and the --keep option", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I7", "title": "stats command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I8", "title": "select command and the ! drop form", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I9", "title": "rename command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I10", "title": "rank command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I11", "title": "concat command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I12", "title": "melt command", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I13", "title": "window command and the --window option", "edits": "tabula/engine.py", "needs": []},
+ {"id": "I14", "title": "bucket command", "edits": "tabula/engine.py", "needs": []}
  ]
 }
