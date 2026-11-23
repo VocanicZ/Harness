@@ -73,7 +73,7 @@ for name, (lin, win) in rows.items():
             if v.startswith("✓ target") and not re.search(r"\(#[0-9]+", v):
                 problems.append("row `%s`: %s target names no issue" % (name, col))
             if v.startswith("✓ target"):
-                problems.append("row `%s`: %s is still a target: PRD #475 is done, so it is `✓` (shown working) or a sourced `n/a`" % (name, col))
+                problems.append("row `%s`: %s is still a target: PRD #475 is closed, so it is `✓` (shown working) or a sourced `n/a`" % (name, col))
             elif col == "Windows":
                 # #1141: a Windows ✓ names its evidence — a committed log under test/smoke/logs/ or a test in test/ — and the
                 # log is the newest of its kind (lifecycle-windows-<stamp>.log: a newer one supersedes the older)
@@ -181,6 +181,22 @@ check(){ python3 -X utf8 -I -c "$CHECK" "$1" "$ROOT" "${2:-$MANIFEST}"; }
 
 out="$(check "$DOC" 2>&1)"; rc=$?
 assert_eq "$rc" "0" "the real matrix passes ($out)"
+
+# --- the deferred note (#1268): the matrix section says Windows verification is deferred and lists each Windows-only issue
+# (it stays until those issues close)
+DEFER="$(python3 -X utf8 -I -c '
+import re, sys
+on, out = False, []
+for l in open(sys.argv[1], encoding="utf-8").read().split("\n"):
+    if re.match(r"^#{2,3} ", l):
+        on = l.startswith("### Windows parity matrix"); continue
+    if on: out.append(l)
+print("\n".join(out))' "$DOC")"
+assert_ok "the matrix section says Windows verification is deferred" grep -qF "Windows verification deferred" <<<"$DEFER"
+for n in 1104 1105 1106 1107 1108 1109 1110 1112 1113 1116 1135 1172; do
+  assert_ok "the matrix's deferred note lists #$n" grep -qE "#$n([^0-9]|\$)" <<<"$DEFER"
+done
+assert_no "the matrix intro no longer says PRD #475 is done" grep -qF "PRD #475 is done" <<<"$DEFER"
 
 # --- fixture cases: the real doc with one defect each; the checker must fail and name it ----------
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT

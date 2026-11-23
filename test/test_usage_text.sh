@@ -47,4 +47,16 @@ assert_ok "reference web row names the Windows task" has "$(row '| `web` |')" "T
 UR="$(row '| `uninstall [--force] [--force-engine]`')"
 assert_ok "reference has an uninstall row" test -n "$UR"
 assert_ok "reference uninstall row: refused on Windows while another fleet uses the engine" has "$UR" "on Windows it is refused while another fleet still uses the engine"
+
+echo "=== unwritable stdout (#1268): ONE short stderr line naming stdout, a non-zero status ==="
+P="$TMP/proj"; mkdir -p "$P/.harness"; echo "REPO=o/r" > "$P/.harness/config"
+for c in "status" "update --help" "uninstall --help" "doctor"; do
+  ( cd "$P" && env -u STATE_DIR -u ENGINE_DIR bash "$ROOT/bin/harness" $c >/dev/full 2>"$TMP/full.err" ); rc=$?
+  assert_ok "harness $c > /dev/full: a non-zero status" test "$rc" -ne 0
+  assert_ok "harness $c > /dev/full: exactly one stderr line" test "$(wc -l < "$TMP/full.err")" -eq 1
+  assert_ok "harness $c > /dev/full: the line names stdout" grep -qF "stdout" "$TMP/full.err"
+  assert_no "harness $c > /dev/full: no script path or 'line N:' in it" grep -qE '\.sh|line [0-9]+:' "$TMP/full.err"
+  out="$(cd "$P" && env -u STATE_DIR -u ENGINE_DIR bash "$ROOT/bin/harness" $c 2>&1 >/dev/null </dev/null | head -c 300)"
+  assert_no "harness $c to /dev/null: still no stderr noise" test -n "$out"
+done
 finish
