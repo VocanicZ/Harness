@@ -1,14 +1,36 @@
 # Harness on native Windows: setup, daily use, the smoke and the Windows check host
 
-Native Windows is a **first-class host**, not a reduced mode (PRD #475). The same features, skills, rtdd flow and
-install, update, rollback and uninstall lifecycle that Linux has work in Git for Windows' bash with a native Python 3,
-and every supported agent CLI runs its lanes there. WSL2 is optional: if you would rather run the Linux instructions
+Native Windows is supported in design (PRD #475): the same features, skills, rtdd flow and install, update, rollback and
+uninstall lifecycle that Linux has are built to run in Git for Windows' bash with a native Python 3, and every supported
+agent CLI runs its lanes there. **Windows verification is deferred** (see the box below), so treat Windows as unverified for
+recent releases. WSL2 is optional: if you would rather run the Linux instructions
 inside it, they work unchanged. The one structural difference is the session backend: Windows has no tmux, so lanes run
 on the **headless session backend**, which draws the same screen from a lane's `state.json`, and `harness attach` drives
 a headless lane directly (typed lines become the lane's next turn, Ctrl-C detaches and leaves it running), on every OS.
 [Parity matrix](reference.md#windows-parity-matrix): one row per feature, each `✓` on both hosts but the Linux-only
-HTCondor swarm service. How it works, and why: [ADR 0001](adr/0001-native-windows-runtime.md) and
-[Native Windows](reference.md#native-windows).
+HTCondor swarm service, as of the last winsma runs the cells cite. How it works, and why:
+[ADR 0001](adr/0001-native-windows-runtime.md) and [Native Windows](reference.md#native-windows).
+
+## Windows verification deferred
+
+On 2026-11-16 the owner changed the scope of PRD #475: the PRD does not claim Windows parity when it closes. The Windows
+check host (winsma) is offline, so Windows verification is deferred until it is back, and 12 Windows-only defects were closed
+as deferred rather than fixed. Linux and macOS are unaffected. Until those issues are resolved, expect these on native Windows:
+
+- #1104: the release lifecycle tests (`test_install_release`, `test_migrate_release`, `test_update_release`, `test_hermetic_engine_2`) are red on winsma.
+- #1105: the worker-roll and duplicate-worker tests are red or time out on winsma.
+- #1106: the supervise-autoupdate and tmp-hygiene tests are red on winsma.
+- #1107: several headless matrix cells are red on winsma under the full suite.
+- #1108: `test_tier.sh` and the bench Python tests are red on winsma (path spelling, exit 3).
+- #1109: the usage, wait and winsma-helper tests are red on winsma.
+- #1110: a set of miscellaneous test files is red on winsma (for example `test_pipe_closed.py` runs WSL's bash).
+- #1112: the default `HARNESS_HOME` gets a hashed Task Scheduler task name, because `win_home_tag` compares the `C:/` and `/c/` spellings as strings.
+- #1113: a fresh project's `harness doctor` is red, because the per-repo git settings are applied after clone and worktree add.
+- #1116: `harness update` from a v0.1.1 install does not migrate the engine; the logged run fell back to the install line.
+- #1135: `winsma.sh` argument handling: `--help` exits 2, the issue and mode are not checked before ssh, and errors echo raw input.
+- #1172: winsma: a closed issue's stale ticket at the queue head deadlocks every parked waiter, and the wake timeout is below host latency.
+
+Issue #1215 tracks verifying the Windows work that merged unverified once winsma is available.
 
 | Agent CLI | Windows lane runner | Windows build of the CLI |
 |---|---|---|

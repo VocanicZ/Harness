@@ -12,11 +12,21 @@ ATTACH_USAGE="usage: harness attach <unit> [issue]   (or harness attach <session
 # name; the issue is a number.
 case "$UNIT" in -h|--help) echo "$ATTACH_USAGE"; exit 0;; esac
 case "$ISSUE" in -h|--help) echo "$ATTACH_USAGE"; exit 0;; esac
+# A third argument is never valid: -h/--help still print the usage, any other dash-led one is an unknown option,
+# anything else is an unexpected argument (exit 2), never silently dropped.
+if (( $# > 2 )); then
+  case "$3" in -h|--help) echo "$ATTACH_USAGE"; exit 0;; esac
+fi
 if [[ "$UNIT" == -* ]]; then
   echo "harness attach: unknown option '$UNIT'" >&2; echo "$ATTACH_USAGE" >&2; exit 2
 fi
 if [[ -n "$ISSUE" && ! "$ISSUE" =~ ^[0-9]+$ ]]; then
   echo "harness attach: issue must be a number, got '$ISSUE'" >&2; echo "$ATTACH_USAGE" >&2; exit 2
+fi
+if (( $# > 2 )); then
+  if [[ "$3" == -* ]]; then echo "harness attach: unknown option '$3'" >&2
+  else echo "harness attach: unexpected argument '$3'" >&2; fi
+  echo "$ATTACH_USAGE" >&2; exit 2
 fi
 if [[ -z "$UNIT" ]]; then
   echo "live sessions:"

@@ -640,11 +640,20 @@ allowlists with their reasons (tmux-only CLIs, the self-contained lane runner's 
 
 ### Native Windows
 
-Harness runs on native Windows as a first-class host: Git for Windows' bash with a native Python 3, every agent CLI's lanes on the
+Harness is built to run on native Windows: Git for Windows' bash with a native Python 3, every agent CLI's lanes on the
 headless session backend (Windows has no tmux), the same features, skills, rtdd flow and install, update, rollback and uninstall
 lifecycle as Linux ([ADR 0001](adr/0001-native-windows-runtime.md), #356, PRD #475). Linux is unchanged.
+
+**Windows verification deferred.** The Windows check host (`winsma`) is offline, and since the owner's 2026-11-16 scope change on
+PRD #475 the PRD does not claim Windows parity when it closes; 12 Windows-only defects were closed as deferred, not fixed. Known
+Windows-only gaps, each its own issue: #1104-#1110 (release lifecycle, worker-roll, supervise-autoupdate and tmp-hygiene, headless
+matrix, tier and bench, usage and wait, and miscellaneous suite files red on winsma), #1112 (the default home gets a hashed task
+name), #1113 (a fresh project's doctor is red), #1116 (`harness update` from v0.1.1 does not migrate the engine), #1135 (`winsma.sh`
+argument handling) and #1172 (winsma's stale queue ticket deadlocks parked waiters). The full list is in
+[the Windows guide](windows-smoke.md#windows-verification-deferred).
+
 [The Windows guide](windows-smoke.md) sets up a host step by step, shows daily use, runs the fleet smoke on it and describes how the
-Windows check host (`winsma`) verifies each release; the [parity matrix](#windows-parity-matrix) has one row per feature.
+Windows check host (`winsma`) verifies a release when it is online; the [parity matrix](#windows-parity-matrix) has one row per feature.
 
 - **Install:** run `install.sh` from Git Bash. It needs Git for Windows (git, curl, sha256sum, tar), a
   Python 3 that runs, `gh` and `claude`; tmux is not needed. It offers each missing one through winget
@@ -746,13 +755,18 @@ What works on native Windows (Git Bash, headless session backend) next to Linux,
 subcommand, `/harness*` skill, agent CLI and lifecycle feature (PRD #475). It is the contract the Windows
 work is built and tested against; `test/test_windows_parity_doc.sh` keeps it complete and honest.
 
+**Windows verification deferred.** Each Windows `✓` below was true on winsma when its cited log was recorded; winsma is offline,
+so it is not re-verified for later releases, and PRD #475 does not claim Windows parity. Known Windows-only gaps: #1104, #1105,
+#1106, #1107, #1108, #1109, #1110, #1112, #1113, #1116, #1135 and #1172 (see [the Windows guide](windows-smoke.md#windows-verification-deferred)).
+`test/test_windows_parity_doc.sh` keeps this note in place until those issues close.
+
 How to read a cell:
 
 - `✓` — works there. On Windows that means it has run on a real host (winsma, the owner's Windows 10 desktop, under the rules in
   [windows-smoke.md](windows-smoke.md)), and the cell names the test and the newest committed log under `test/smoke/logs/` that show it, or it is
   part of a path that did. `test/test_windows_parity_doc.sh` fails on a Windows `✓` that cites no log or test, one that cites a file that is
   not committed, and one that cites a log a newer run of the same script has superseded (#1141). "Not verified on winsma" is never a reason to write `n/a`.
-- `✓ target (#N …)` — a row can no longer be left like this: PRD #475 is done, `test/test_windows_parity_doc.sh` fails on any `✓ target`,
+- `✓ target (#N …)` — a row can no longer be left like this: PRD #475's build is over (its Windows verification is deferred, above), `test/test_windows_parity_doc.sh` fails on any `✓ target`,
   and a new feature gets a `✓` with its evidence in the same change that adds it.
 - `n/a: <reason> ([source](https://…))` — Windows physically cannot do it. Allowed only for an external Linux-only service (HTCondor swarm submission)
   or an agent CLI whose vendor ships no Windows build or no non-interactive mode, and always with a link to the vendor or project page.

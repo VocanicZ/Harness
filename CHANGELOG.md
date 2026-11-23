@@ -4,6 +4,11 @@ Notable changes to Harness. Releases and their full notes: [GitHub Releases](htt
 
 ## Unreleased
 
+### The docs stop calling native Windows a verified first-class host (#1268)
+
+- Owner's 2026-11-16 scope change on PRD #475: Windows verification is deferred while the Windows check host (winsma) is offline, and the PRD does not claim Windows parity when it closes. `README.md`, `docs/reference.md` (Native Windows section and the parity matrix intro) and `docs/windows-smoke.md` no longer say "first-class host", "not a reduced mode" or "PRD #475 is done"; each carries a "Windows verification deferred" note, and the guide lists the known Windows-only gaps (#1104-#1110, #1112, #1113, #1116, #1135, #1172). The parity matrix rows are unchanged.
+- Tests: `test/test_windows_parity_doc.sh` keeps the deferred note and each listed issue number in the matrix section until the issues close; `test/test_fleet_smoke.sh` now asserts the README says verification is deferred instead of "first-class".
+
 ### Lanes and their sub-agents get a context budget (#1252)
 
 - Measured on the bangwa fleet (PRD #691, issues #716-#722, 2026-11-16..18): about $369 for seven issues, cache reads 65% of it, 0 compactions in any lane or sub-agent transcript, largest context 804k (sub-agent) and 695k (lane). Nothing bounded a context: `scripts/portable.sh` strips every inherited `CLAUDE_CODE_*` variable, and Claude Code on the 1M window compacts only near its limit.

@@ -60,12 +60,15 @@ curl -fsSL https://raw.githubusercontent.com/VocanicZ/Harness/main/install.sh | 
 
 <sub>Agents: run the `npx` line above, or the `curl` line when `git` is missing, and relay any missing prerequisites to the user.</sub>
 
-Linux, macOS and **native Windows** are all first-class hosts: on Windows, run either line above from Git Bash. The same
-features, skills, rtdd flow and install, update, rollback and uninstall lifecycle work there, with every agent CLI
+Linux and macOS are the verified hosts. Harness is built to run on **native Windows** too (Git Bash, with every agent CLI
 (`claude`, `codex`, `opencode`, `copilot`, `hermes`, `openclaw`, `agy`) running its lanes on the headless session
-backend, since Windows has no tmux. It is not a reduced mode, and WSL2 is optional (run the Linux instructions inside it
-if you prefer). The [Windows guide](docs/windows-smoke.md) covers setup, daily use, the end-to-end smoke and troubleshooting;
-the [parity matrix](docs/reference.md#windows-parity-matrix) lists every feature on both. Pin a release with
+backend, since Windows has no tmux), but **Windows verification is deferred**: the Windows check host (winsma) is offline, so
+recent releases have not been run there and the PRD (#475) does not claim Windows parity. Known Windows-only gaps are tracked
+as deferred issues, for example #1113 (a fresh project's doctor is red) and #1116 (`harness update` from v0.1.1 does not
+migrate the engine); the full list is in [Windows verification deferred](docs/windows-smoke.md#windows-verification-deferred).
+On Windows, run either line above from Git Bash; WSL2 is optional (run the Linux instructions inside it if you prefer). The
+[Windows guide](docs/windows-smoke.md) covers setup, daily use, the end-to-end smoke and troubleshooting; the
+[parity matrix](docs/reference.md#windows-parity-matrix) lists every feature on both. Pin a release with
 `HARNESS_REF=v0.1.0`.
 
 | Prerequisite | |

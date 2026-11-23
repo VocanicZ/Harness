@@ -201,6 +201,26 @@ vis_arg(){
   done
   printf '%s' "$out"
 }
+# stdout_is_device — standard output is a character device a write can fail on (/dev/full, #1268) — not a terminal (attach and the prompts
+# need the real one) and not /dev/null (nothing to lose, and every quiet `> /dev/null` keeps its plain exec).
+stdout_is_device(){ [[ -c /dev/stdout && ! -t 1 && ! /dev/stdout -ef /dev/null ]]; }
+# checked_stdout_run CMD ARG... — run a subcommand script whose standard output is such a device, and report output that was lost (#1268). Bash
+# prints "<engine>/scripts/x.sh: line N: echo: write error" for every echo that fails and the script's own status ignored it all, so the
+# script writes to a relay instead: it copies to the real stdout, remembers the first write error, then drains the rest (the script must
+# finish its work, as in pipe_safe_exec). Afterwards ONE line names the failure and the status is the script's, or 1 when that was 0.
+checked_stdout_run(){
+  local ef msg rc relay
+  ef="$(mktemp "${TMPDIR:-/tmp}/harness-stdout.XXXXXX" 2>/dev/null)" || exec "$@"
+  "$@" | sh -c 'cat 2>"$1"; r=$?; cat >/dev/null 2>&1; exit $r' sh "$ef"
+  local -a ps=("${PIPESTATUS[@]}"); rc="${ps[0]}"; relay="${ps[1]}"
+  if (( relay != 0 )); then
+    msg="$(sed -n 1p "$ef" 2>/dev/null)"; msg="${msg##*: }"
+    echo "harness ${cmd:-}: cannot write to stdout: ${msg:-write failed}" >&2
+    (( rc != 0 )) || rc=1
+  fi
+  rm -f "$ef"
+  return "$rc"
+}
 # pipe_safe_exec CMD ARG... — exec a subcommand script so a reader that closes our standard output early (`harness uninstall --force | head -1`)
 # cannot kill it half way (#1130): bash's default SIGPIPE kills the script on its next echo, which left a dangling engine link after uninstall
 # had removed it, and died in update --rollback after the flip. When stdout is a pipe the script's output goes through a relay that keeps
@@ -209,6 +229,7 @@ vis_arg(){
 # script stays open) and ignores SIGPIPE itself. Anywhere else (a terminal, a file, closed) it is a plain exec: attach and the prompts need
 # the real stdout.
 pipe_safe_exec(){
+  if [[ ! -p /dev/stdout && "${1:-}" == bash ]] && stdout_is_device; then checked_stdout_run "$@"; exit $?; fi
   [[ -p /dev/stdout ]] || exec "$@"
   # The process substitution's pipe is opened on a named fd and closed again for the subcommand: a plain `exec "$@" > >(…)` leaves
   # bash's own /dev/fd/63 open beside fd 1, every worker `harness update`/`resume` launched inherited it, and the relay (so the
